@@ -9,29 +9,38 @@
 //!
 //! # One hash binds identity, causality, and placement
 //!
-//! Every message is stored under a [`Key`](crate::Key): the BLAKE3 hash
-//! binding the [`Version`](crate::Version) at which the message was sent to
-//! the message's canonical [`borsh`] encoding. Both inputs are
-//! deliberate.
+//! Every message is stored at one address: the BLAKE3 hash of the
+//! [`Version`](crate::Version) stamped on it at send time. Nothing else
+//! enters the address; it rests on the invariant the protocol already
+//! requires everywhere — no two sends ever share a version (a replica's
+//! version advances on every send, and disjoint parties can never mint the
+//! same one). Two consequences are deliberate.
 //!
-//! - **The version makes every send unique.** A replica's version advances
-//!   on every send, so each send mints a key that no other send in the
-//!   universe's history can mint again. Sending byte-identical content
-//!   twice creates two messages under two keys; redacting one never touches
-//!   the other; re-sending redacted content is a new message under a new
-//!   key, neither resurrected nor suppressed by the redaction that came
-//!   before it.
-//! - **The content makes the address canonical.** A content address is only
-//!   an address if one value has exactly one encoding. Borsh guarantees
-//!   that by construction; serialization frameworks in general do not.
+//! - **Every send is a distinct message.** Sending byte-identical content
+//!   twice mints two versions, hence two leaves; redacting one never
+//!   touches the other, and re-sending redacted content is a new message,
+//!   neither resurrected nor suppressed by the redaction that came before
+//!   it.
+//! - **Message bytes enter no address and no digest.** The payload
+//!   encoding needs no canonical form — one value may have many valid
+//!   encodings without splitting identity — and no author of content can
+//!   steer where anything lands, or what any digest reads, by choosing
+//!   bytes. What that buys is stated under
+//!   [Twenty-four-byte digests](#twenty-four-byte-digests).
 //!
-//! The 32-byte key is also the message's *location*: keys are the paths of
-//! a 256-ary radix trie, one key byte per level, 32 levels deep, with
-//! single-child runs compressed away. Hashing spreads keys uniformly, and
-//! the trie's shape is a pure function of its membership: two replicas
-//! holding the same set of messages hold the *same tree*, whatever order
-//! they learned it in. Each interior node memoizes two summaries of its
-//! subtree: a digest (a 24-byte truncation of BLAKE3;
+//! Version reuse — the only way two messages could claim one address — is
+//! detected the moment two claimants meet at one replica, and the
+//! detecting operation halts: producing such a pair at all requires
+//! violating the linearity invariant the crate docs' safety rules state,
+//! a regime that is already fatal to causal gossip.
+//!
+//! The 32-byte address is also the message's *location*: addresses are
+//! the paths of a 256-ary radix trie, one byte per level, 32 levels deep,
+//! with single-child runs compressed away. Hashing spreads paths
+//! uniformly, and the trie's shape is a pure function of its membership:
+//! two replicas holding the same set of messages hold the *same tree*,
+//! whatever order they learned it in. Each interior node memoizes two
+//! summaries of its subtree: a digest (a 24-byte truncation of BLAKE3;
 //! [`MERKLE_HASH_LEN`](crate::MERKLE_HASH_LEN)) and the ceiling and floor
 //! of its leaves' versions. The digest answers "do we hold the same things
 //! here?"; the version bounds answer "could anything here be news to a
@@ -60,10 +69,10 @@
 //! Without redaction, reconciliation would end there: ship each exclusive
 //! subtree's messages to the side that lacks them (*supplies*), splice, and
 //! both replicas hold the union. The work is proportional to the difference,
-//! not to the holdings: uniform keys thin disputes geometrically with depth,
+//! not to the holdings: uniform paths thin disputes geometrically with depth,
 //! so the disputed paths of two replicas differing in `D` of `N` total
 //! messages separate in about `log₂₅₆(2·D·N)` levels (in expectation,
-//! derived from uniform content addressing) — about five levels for two
+//! derived from uniform version hashing) — about five levels for two
 //! fully divergent million-message replicas, three or four when a small
 //! divergence sits in a large set. Round trips are governed by that depth,
 //! not by `D`: every dispute at a level travels concurrently (the wire
@@ -97,7 +106,7 @@
 //! as well as every send: redaction is itself causal, so a redacter's version
 //! contains the version of the since-redacted sent message, and every replica
 //! that catches up to it inherits that containment. (A further and more
-//! technical soundness note: this also only works because keys content-address
+//! technical soundness note: this also only works because addresses name
 //! causally-unique versions, which means that there are no A-B-A problems in
 //! play.) The two versions exchanged in the greeting are sufficient causal
 //! context to locally filter every subtree on the disjoint frontier: this means
@@ -131,7 +140,7 @@
 //! is designed to be truncated: any prefix is itself a cryptographic hash).
 //! Digest bytes dominate every dispute listing on the wire — they are the
 //! protocol's main metadata price — so the width is spent deliberately;
-//! keys into the tree remain full 32-byte hashes.
+//! leaf addresses in the tree remain full 32-byte hashes.
 //!
 //! The width prices a specific, severe failure. A false-equal — two
 //! differing subtrees whose digests read equal at the same prefix — is not
@@ -143,21 +152,27 @@
 //! holder deletes it. A landed false-equal permanently deletes the
 //! divergent messages fleet-wide.
 //!
-//! The acceptance is priced in-model, on the accident bound alone: a digest
-//! at prefix `P` is only ever compared against the counterparty's digest at
-//! the same `P`, so a false-equal is a per-interior-comparison event at
-//! 2⁻¹⁹² — pairwise, never birthday-amplified across the tree's population —
-//! and at that bound it does not occur by accident at any realistic session
+//! The acceptance is priced on the accident bound: a digest at prefix `P`
+//! is only ever compared against the counterparty's digest at the same
+//! `P`, so a false-equal is a per-interior-comparison event at 2⁻¹⁹² —
+//! pairwise, never birthday-amplified across the tree's population — and
+//! at that bound it does not occur by accident at any realistic session
 //! volume.
 //!
-//! Off-model note: peers are trusted in this crate's model (see [when
-//! *shouldn't* you use it](crate#when-shouldnt-you-use-it)), so hostile-peer
-//! regimes are out of scope and nothing above rests on what an attack would
-//! cost. For the one adjacent actor the model does admit — an author of
-//! message *content* who is not a peer — the 24-byte width puts the offline
-//! birthday floor for grinding any colliding content pair at 2⁹⁶ hash
-//! evaluations, closing that vector unconditionally rather than
-//! economically.
+//! Every compared digest is a pure function of the *version set*: a leaf's
+//! digest commits its address and its version, a branch's commits its
+//! children, and message bytes appear nowhere. An author of message
+//! content therefore contributes zero bits to any compared quantity — the
+//! offline content-grinding route to a collision is structurally gone, not
+//! merely priced. What could still contribute bits is influence over which
+//! versions get minted (an actor steering gossip schedules steers the
+//! version set); against any such actor, the 24-byte width keeps the
+//! offline birthday floor at 2⁹⁶ evaluations, an unconditional bound that
+//! rests on no premise about capabilities. Hostile *peers* remain
+//! off-model entirely (see [when *shouldn't* you use
+//! it](crate#when-shouldnt-you-use-it)): peers hold write authority
+//! already, so no width buys anything against a member and none is priced
+//! here.
 //!
 //! # The bytes on the wire
 //!

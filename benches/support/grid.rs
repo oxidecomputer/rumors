@@ -27,7 +27,7 @@
 //! - small-delta = `common = n,  differing = k, redacted = 0` (small `k`)
 //! - identical   = `common = n,  differing = 0, redacted = 0`
 
-use rumors::{Key, Peer, Protocol, Rumors};
+use rumors::{Peer, Protocol, Rumors, Version};
 
 #[path = "wire.rs"]
 pub mod wire;
@@ -95,7 +95,7 @@ impl Cell {
 
     /// The dominant fixture-build cost: the messages inserted per side. Used to
     /// pick a sample count via [`sample_size_for`]. (Redactions only remove
-    /// keys, so they don't grow the tree.)
+    /// leaves, so they don't grow the tree.)
     pub fn build_magnitude(&self) -> usize {
         self.common + self.differing
     }
@@ -152,10 +152,10 @@ pub fn build(cell: Cell) -> (Rumors<()>, Rumors<()>) {
 
     let left: Rumors<()> = Peer::seed().into_rumors();
     send_units(&left, common);
-    // The shared prefix's keys, for carving the redaction blocks; order is
-    // immaterial (the blocks only need to be disjoint and deterministic, and
-    // the snapshot iterates in a stable order).
-    let shared: Vec<Key> = left.snapshot().iter().map(|(k, _, _)| k).collect();
+    // The shared prefix's versions, for carving the redaction blocks; order
+    // is immaterial (the blocks only need to be disjoint and deterministic,
+    // and the snapshot iterates in a stable order).
+    let shared: Vec<Version> = left.snapshot().iter().map(|(v, _)| v.clone()).collect();
 
     let right = wire::bootstrap_fork(&left, Protocol::V2);
     send_units(&left, differing);
@@ -167,13 +167,13 @@ pub fn build(cell: Cell) -> (Rumors<()>, Rumors<()>) {
         // `cells` guarantees `common >= 2 * redacted`, so the slices don't
         // overlap and are in bounds.
         let mut batch = left.batch();
-        for key in &shared[..redacted] {
-            batch.redact(*key);
+        for version in &shared[..redacted] {
+            batch.redact(version);
         }
         drop(batch);
         let mut batch = right.batch();
-        for key in &shared[redacted..2 * redacted] {
-            batch.redact(*key);
+        for version in &shared[redacted..2 * redacted] {
+            batch.redact(version);
         }
     }
 

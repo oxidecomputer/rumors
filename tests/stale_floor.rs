@@ -49,8 +49,8 @@ fn message_minted_after_bootstrap_survives_gossip() {
         // forgotten" and evict the fresh message from both sides.
         wire_gossip_async(&f, &b).await;
 
-        let f_has = f.snapshot().iter().any(|(_, _, m)| **m == 100);
-        let b_has = b.snapshot().iter().any(|(_, _, m)| **m == 100);
+        let f_has = f.snapshot().iter().any(|(_, m)| **m == 100);
+        let b_has = b.snapshot().iter().any(|(_, m)| **m == 100);
         assert!(
             f_has && b_has,
             "message 100 must survive the sync: f_has={f_has} b_has={b_has}"

@@ -127,9 +127,12 @@ fn empty_carried_listing_asks_for_everything() {
     emptied
         .act(&nth_party(1), [Action::Insert(Message::new(()))])
         .expect("collision-free by construction");
-    let keys: Vec<_> = emptied.iter().map(|(key, _, _)| key).collect();
+    let paths: Vec<_> = emptied
+        .iter()
+        .map(|(v, _)| crate::tree::typed::Path::for_leaf(v))
+        .collect();
     emptied
-        .act(&nth_party(1), keys.into_iter().map(Action::Forget))
+        .act(&nth_party(1), paths.into_iter().map(Action::Forget))
         .expect("collision-free by construction");
     assert!(emptied.is_empty(), "the initiator's tree must be empty");
 
@@ -251,14 +254,17 @@ fn overlapping_sessions_lose_innocent_leaf_after_honored_redaction() {
     let mut t0 = Tree::new();
     t0.act(&p, (0..25).map(|_| Action::Insert(Message::new(()))))
         .expect("collision-free by construction");
-    let keys: Vec<_> = t0.iter().map(|(k, _, _)| k).collect();
+    let leaves: Vec<_> = t0
+        .iter()
+        .map(|(v, _)| (crate::tree::typed::Path::for_leaf(v), v.clone()))
+        .collect();
 
     // S2's wire session against a peer converged at T0, forked at T0:
     // equal versions resolve to the fork-time root.
     let (s2_reconciled, _) = wire_reconcile(t0.root.clone(), t0.root.clone());
 
     let mut lost = Vec::new();
-    for k in &keys {
+    for (k, _) in &leaves {
         // S1's counterparty: converged at T0, then redacted the leaf at
         // `k` (a local act rebuilds its own fans afresh; the sharing that
         // matters is created by our install below, not here).
@@ -290,10 +296,10 @@ fn overlapping_sessions_lose_innocent_leaf_after_honored_redaction() {
         .expect("collision-free by construction");
 
         if live.hash() != expected {
-            let missing: Vec<_> = keys
+            let missing: Vec<_> = leaves
                 .iter()
-                .filter(|k2| *k2 != k && live.get(k2).is_none())
-                .copied()
+                .filter(|(k2, v2)| k2 != k && live.get(v2).is_none())
+                .map(|(k2, _)| *k2)
                 .collect();
             lost.push((*k, missing));
         }

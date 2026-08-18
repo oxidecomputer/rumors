@@ -1,16 +1,16 @@
 //! Spec-shaped oracle for the gossip-set semantics, plus a `readout`
 //! lens that projects a [`Snapshot<T>`] back into its currently-live
-//! `(Key, T)` map.
+//! map from message identity (a version's canonical bytes) to value.
 //!
 //! The oracle holds only `BTreeMap`s and `BTreeSet`s (no rumor set, no
 //! merging), so a bug in the live merge primitives cannot silently corrupt
 //! the reference state. It records each insert by
 //! the schedule's [`EventIdx`] so the oracle and the live executor
-//! agree on identity without ever consulting the live `Key`s.
+//! agree on identity without ever consulting the live [`Version`]s.
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use rumors::{Key, Snapshot};
+use rumors::{Snapshot, Version};
 
 use super::schedule::EventIdx;
 
@@ -49,10 +49,8 @@ impl<T: Clone + Ord> Oracle<T> {
     }
 
     /// Every insert the oracle has seen, redacted or not, as
-    /// `EventIdx → value`. Used by [`multi_peer::keys_stable_across_peers`]
-    /// to build the canonical `Key → value` map.
-    ///
-    /// [`multi_peer::keys_stable_across_peers`]: crate::multi_peer
+    /// `EventIdx → value`. Used to build the canonical identity → value
+    /// map that cross-peer suites compare against.
     pub fn all_inserts(&self) -> &BTreeMap<EventIdx, T> {
         &self.values
     }
@@ -62,19 +60,28 @@ impl<T: Clone + Ord> Oracle<T> {
     }
 }
 
-/// Project a [`Snapshot<T>`] into its currently-live `(Key, T)` map.
+/// A message's identity as an orderable map key: its [`Version`]'s
+/// canonical bytes. Canonical and injective, so equality of byte keys is
+/// equality of versions; the lexicographic order is an arbitrary total
+/// order ([`Version`] itself is only partially ordered).
+pub fn version_key(version: &Version) -> Vec<u8> {
+    version.as_bytes().to_vec()
+}
+
+/// Project a [`Snapshot<T>`] into its currently-live identity → value
+/// map, keyed by each message's [`version_key`].
 ///
 /// A direct read via [`Snapshot::iter`]: it enumerates exactly the live
 /// leaves, so redacted messages — whose leaves the redaction *removed*,
 /// leaving no marker — are simply absent. Taking the [`Snapshot`] rather
 /// than a live handle also keeps this oracle independent of observer state.
-pub fn readout<T>(snapshot: &Snapshot<T>) -> BTreeMap<Key, T>
+pub fn readout<T>(snapshot: &Snapshot<T>) -> BTreeMap<Vec<u8>, T>
 where
     T: Clone + Send + Sync + 'static,
 {
     snapshot
         .iter()
-        .map(|(k, _v, m)| (k, (**m).clone()))
+        .map(|(v, m)| (version_key(v), (**m).clone()))
         .collect()
 }
 

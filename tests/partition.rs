@@ -8,8 +8,9 @@
 //!
 //! We deliberately do *not* compare against an unrestricted run of
 //! the same schedule. Doing so would assume order-independence of
-//! redactions, but a `redact(K)` event can only happen at peer `P`
-//! if `P` has already received `K` via an `on_message` callback —
+//! redactions, but a redact event can only happen at peer `P` once
+//! `P` has already received the targeted message via an `on_message`
+//! callback —
 //! which is a function of the gossip schedule. A partitioned schedule
 //! may legitimately suppress some redacts (because the targeted peer
 //! hasn't observed the key yet), so the two schedules can converge
@@ -38,8 +39,8 @@ proptest! {
     /// allowed only within each side of the split at `split_at`;
     /// after that, any gossip event is allowed and a final quiesce
     /// drives the network to convergence. `execute_with` already
-    /// honors the "only redact a `Key` you've observed" invariant,
-    /// so redacts whose target keys never crossed the partition are
+    /// honors the "only redact a message you've observed" invariant,
+    /// so redacts whose targets never crossed the partition are
     /// silently skipped — matching what real application code could
     /// have issued.
     #[test]

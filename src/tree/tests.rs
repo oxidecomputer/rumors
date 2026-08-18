@@ -7,13 +7,9 @@ use super::typed::{Hash, Path, untyped};
 use super::*;
 use crate::message::Message;
 
-impl Arbitrary for Key {
-    type Parameters = ();
-    type Strategy = BoxedStrategy<Key>;
-
-    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
-        any::<[u8; 32]>().prop_map(Key).boxed()
-    }
+/// An arbitrary 32-byte leaf path (almost surely naming no live leaf).
+fn arb_path() -> impl Strategy<Value = Path> {
+    any::<[u8; 32]>().prop_map(Path::from)
 }
 
 /// Wrap a `Bytes` value as a `Message<Bytes>` with its cached serialization.
@@ -82,14 +78,14 @@ fn version_for(party: impl AsRef<[u8]>, ticks: u64) -> Version {
     v
 }
 
-/// Compute the leaf-path `Key` that `Tree::act` assigns for an insert at
+/// Compute the leaf path that `Tree::act` assigns for an insert at
 /// the version a party reaches after `scalar` events.
 ///
 /// The path is derived from the version's canonical bytes alone (see
 /// [`Path::for_leaf`]), matching what the tree derives internally for the
 /// same post-tick version.
-fn leaf_path(party: impl AsRef<[u8]>, scalar: u64) -> Key {
-    Path::for_leaf(&version_for(party, scalar)).into()
+fn leaf_path(party: impl AsRef<[u8]>, scalar: u64) -> Path {
+    Path::for_leaf(&version_for(party, scalar))
 }
 
 /// Build a versioned insert triple of the shape `Tree::react` expects:
@@ -103,7 +99,7 @@ fn insert_at(
     party: impl AsRef<[u8]>,
     scalar: u64,
     value: Bytes,
-) -> (Key, Version, Message<Bytes>) {
+) -> (Path, Version, Message<Bytes>) {
     (leaf_path(party, scalar), version, msg(value))
 }
 
@@ -259,7 +255,7 @@ proptest! {
     ) {
         // One tick of the leaf's own disjoint party; kept leaf indices come
         // from base order, extras continue the numbering beyond them.
-        let event = |index: usize, b: &Bytes| -> (Key, Version, Message<Bytes>) {
+        let event = |index: usize, b: &Bytes| -> (Path, Version, Message<Bytes>) {
             let mut version = Version::new();
             version.tick(&crate::tree::arb::nth_party(index));
             let message = msg(b.clone());
@@ -281,7 +277,7 @@ proptest! {
 
         // Route B: shuffled order, split into two batches, with the extra
         // leaves inserted in between and redacted again afterwards.
-        let extra_events: Vec<(Key, Version, Message<Bytes>)> = extras
+        let extra_events: Vec<(Path, Version, Message<Bytes>)> = extras
             .iter()
             .enumerate()
             .map(|(i, b)| event(kept.len() + i, b))
@@ -317,9 +313,9 @@ proptest! {
         // The canonical bulk construction over the sorted live leaf set.
         let mut entries: Vec<([u8; 32], Option<untyped::Node<Bytes>>)> = direct
             .iter()
-            .map(|(key, version, value)| {
+            .map(|(version, value)| {
                 (
-                    key.0,
+                    <[u8; 32]>::from(Path::for_leaf(version)),
                     Some(untyped::Node::leaf(
                         version.clone(),
                         Message::new((**value).clone()),
@@ -457,7 +453,7 @@ proptest! {
         prop_assert_eq!(tree.earliest().is_none(), tree.is_empty());
         if let Some(earliest) = tree.earliest() {
             let latest = tree.latest();
-            for (_, v, _) in tree.iter() {
+            for (v, _) in tree.iter() {
                 prop_assert!(earliest <= v);
                 prop_assert!(v <= latest);
             }
@@ -480,12 +476,14 @@ proptest! {
                 bytes.iter().cloned().map(insert_action)).expect("collision-free by construction");
         }
 
-        // Forward order is strictly ascending by key.
-        let fwd: Vec<[u8; 32]> = tree.iter().map(|(k, _, _)| k.0).collect();
+        // Forward order is strictly ascending by path.
+        let fwd: Vec<[u8; 32]> =
+            tree.iter().map(|(v, _)| <[u8; 32]>::from(Path::for_leaf(v))).collect();
         prop_assert!(fwd.windows(2).all(|w| w[0] < w[1]));
 
         // Reverse iteration is the forward sequence, reversed.
-        let bwd: Vec<[u8; 32]> = tree.iter().rev().map(|(k, _, _)| k.0).collect();
+        let bwd: Vec<[u8; 32]> =
+            tree.iter().rev().map(|(v, _)| <[u8; 32]>::from(Path::for_leaf(v))).collect();
         let mut fwd_rev = fwd.clone();
         fwd_rev.reverse();
         prop_assert_eq!(bwd, fwd_rev);
@@ -495,8 +493,9 @@ proptest! {
         let mut it = tree.iter();
         let (mut front, mut back) = (Vec::new(), Vec::new());
         let mut take_front = true;
-        while let Some((k, _, _)) = if take_front { it.next() } else { it.next_back() } {
-            if take_front { front.push(k.0) } else { back.push(k.0) }
+        while let Some((v, _)) = if take_front { it.next() } else { it.next_back() } {
+            let path = <[u8; 32]>::from(Path::for_leaf(v));
+            if take_front { front.push(path) } else { back.push(path) }
             take_front = !take_front;
         }
         back.reverse();
@@ -548,10 +547,10 @@ proptest! {
     #[test]
     fn delete_absent_path_preserves_hash(
         bytes in distinct_bytes(8),
-        nuke in any::<Key>(),
+        nuke in arb_path(),
     ) {
         let party = "P".to_string();
-        let present: BTreeSet<Key> = (1..=bytes.len() as u64)
+        let present: BTreeSet<Path> = (1..=bytes.len() as u64)
             .map(|scalar| leaf_path(&party, scalar))
             .collect();
         prop_assume!(!present.contains(&nuke));
@@ -743,7 +742,7 @@ proptest! {
         // replay the event. This is the information a real synchronization
         // protocol would put on the wire.
         let mut tree_a: Tree<Bytes> = Tree::new();
-        let mut a_events: Vec<(Key, Version, Message<Bytes>)> = Vec::new();
+        let mut a_events: Vec<(Path, Version, Message<Bytes>)> = Vec::new();
         for (i, value) in a_inserts.iter().enumerate() {
             let scalar = (i + 1) as u64;
             let mut recorded = tree_a.latest().clone();
@@ -753,7 +752,7 @@ proptest! {
         }
 
         let mut tree_b: Tree<Bytes> = Tree::new();
-        let mut b_events: Vec<(Key, Version, Message<Bytes>)> = Vec::new();
+        let mut b_events: Vec<(Path, Version, Message<Bytes>)> = Vec::new();
         for (i, value) in b_inserts.iter().enumerate() {
             let scalar = (i + 1) as u64;
             let mut recorded = tree_b.latest().clone();
@@ -837,26 +836,29 @@ proptest! {
         let path_v2 = leaf_path(&party, 2);
 
         prop_assert_ne!(path_v1, path_v2);
-        let got = [tree.get(&path_v1).unwrap(), tree.get(&path_v2).unwrap()];
+        let got = [
+            tree.get(&version_for(&party, 1)).unwrap(),
+            tree.get(&version_for(&party, 2)).unwrap(),
+        ];
         prop_assert!(got.iter().all(|b| b.1[..] == *value));
     }
 }
 
-/// Forgetting a key the tree never held is a complete no-op: no leaf, and
+/// Forgetting a path the tree never held is a complete no-op: no leaf, and
 /// — because the action was zero-effect — no version bump either, so the
 /// tree stays equal to a fresh one.
 #[test]
 fn delete_nonexistent_key() {
     let mut tree: Tree<()> = Tree::new();
-    tree.act(&party_of("P"), [Action::Forget(Key([0; 32]))])
+    tree.act(&party_of("P"), [Action::Forget(Path::from([0; 32]))])
         .expect("collision-free by construction");
     assert_eq!(tree, Tree::new());
 }
 
-/// Project a borrowed leaf triple to an owned one, for collecting and
+/// Project a borrowed leaf pair to an owned one, for collecting and
 /// comparing walk outputs.
-fn owned<T>((key, version, value): (Key, &Version, &Arc<T>)) -> (Key, Version, Arc<T>) {
-    (key, version.clone(), value.clone())
+fn owned<T>((version, value): (&Version, &Arc<T>)) -> (Version, Arc<T>) {
+    (version.clone(), value.clone())
 }
 
 proptest! {
@@ -891,8 +893,8 @@ proptest! {
             tree.latest().clone(),
             other.latest().clone(),
         ];
-        candidates.extend(tree.iter().map(|(_, v, _)| v.clone()));
-        candidates.extend(other.iter().map(|(_, v, _)| v.clone()));
+        candidates.extend(tree.iter().map(|(v, _)| v.clone()));
+        candidates.extend(other.iter().map(|(v, _)| v.clone()));
 
         let s = &candidates[start_sel.index(candidates.len())];
         let e = &candidates[end_sel.index(candidates.len())];
@@ -905,21 +907,23 @@ proptest! {
         ) -> Result<(), TestCaseError> {
             let naive: Vec<_> = tree
                 .iter()
-                .filter(|(_, version, _)| query.contains(version))
+                .filter(|(version, _)| query.contains(version))
                 .map(owned)
                 .collect();
 
             let ranged: Vec<_> = tree.range(query).map(owned).collect();
             prop_assert_eq!(&ranged, &naive, "range must equal the naive filter");
             prop_assert!(
-                ranged.windows(2).all(|pair| pair[0].0 < pair[1].0),
-                "range yields ascending keys",
+                ranged
+                    .windows(2)
+                    .all(|pair| Path::for_leaf(&pair[0].0) < Path::for_leaf(&pair[1].0)),
+                "range yields ascending version-derived paths",
             );
 
             let mut frozen = tree.range_owned(query);
             let mut thawed = Vec::new();
-            while let Some((key, leaf)) = frozen.next() {
-                thawed.push((key, leaf.version().clone(), leaf.value().clone()));
+            while let Some((_, leaf)) = frozen.next() {
+                thawed.push((leaf.version().clone(), leaf.value().clone()));
             }
             prop_assert_eq!(&thawed, &naive, "the frozen walk must equal the naive filter");
             Ok(())
@@ -952,8 +956,8 @@ proptest! {
     ///
     /// `iter`'s size hint equals the tree's length, the
     /// backward walk is the forward walk reversed, `get` finds every
-    /// iterated key with the same version and value, and a perturbed key
-    /// that names no leaf misses.
+    /// iterated version with the same version and value, and a version
+    /// that stamps no live leaf misses.
     #[test]
     fn iteration_and_point_lookup_agree(
         root in crate::tree::arb::arb_tree_root(0, 0..24),
@@ -969,23 +973,21 @@ proptest! {
         backward.reverse();
         prop_assert_eq!(&backward, &forward, "backward is forward reversed");
 
-        for (key, version, value) in &forward {
+        for (version, value) in &forward {
             prop_assert_eq!(
-                tree.get(key),
+                tree.get(version),
                 Some((version, value)),
-                "get resolves every iterated key",
+                "get resolves every iterated version",
             );
         }
 
         if !forward.is_empty() {
-            let (key, ..) = &forward[flip.index(forward.len())];
-            let mut bytes = *key.as_bytes();
-            bytes[31] ^= 1;
-            let perturbed = Key::from(bytes);
-            // The flipped path could, in principle, name another live leaf;
-            // only assert the miss when it does not.
-            if !forward.iter().any(|(k, ..)| *k == perturbed) {
-                prop_assert_eq!(tree.get(&perturbed), None, "a foreign key misses");
+            // A version one foreign tick past a live one stamps no leaf.
+            let (version, _) = &forward[flip.index(forward.len())];
+            let mut perturbed = version.clone();
+            perturbed.tick(&crate::tree::arb::nth_party(7));
+            if !forward.iter().any(|(v, _)| *v == perturbed) {
+                prop_assert_eq!(tree.get(&perturbed), None, "a foreign version misses");
             }
         }
     }
@@ -1030,18 +1032,26 @@ proptest! {
         }
 
         for forget in forgets {
-            let keys: Vec<Key> = tree.iter().map(|(key, ..)| key).collect();
-            let Some(&key) = keys.get(forget.index(keys.len().max(1))) else {
+            let versions: Vec<Version> = tree.iter().map(|(v, _)| v.clone()).collect();
+            let Some(version) = versions.get(forget.index(versions.len().max(1))).cloned()
+            else {
                 break;
             };
             // Target the argmax half the time so the resize-down direction
             // is exercised on every run, not left to index luck.
-            let key = tree
+            let version = tree
                 .iter()
-                .max_by_key(|(_, version, _)| version.as_bytes().len())
-                .map(|(argmax, ..)| if forget.index(2) == 0 { argmax } else { key })
-                .unwrap_or(key);
-            tree.act(&party_of("P"), [Action::Forget(key)]).expect("collision-free by construction");
+                .max_by_key(|(version, _)| version.as_bytes().len())
+                .map(|(argmax, _)| {
+                    if forget.index(2) == 0 {
+                        argmax.clone()
+                    } else {
+                        version.clone()
+                    }
+                })
+                .unwrap_or(version);
+            tree.act(&party_of("P"), [Action::Forget(Path::for_leaf(&version))])
+                .expect("collision-free by construction");
             prop_assert_eq!(tree.max_version_bytes(), naive_max_version_bytes(&tree));
         }
     }
@@ -1082,19 +1092,21 @@ proptest! {
         prop_assert_eq!(left.max_version_bytes(), naive_max_version_bytes(&left));
 
         for forget in forgets {
-            let Some(key) = left
+            let Some(version) = left
                 .iter()
-                .max_by_key(|(_, version, _)| version.as_bytes().len())
-                .map(|(argmax, ..)| argmax)
+                .max_by_key(|(version, _)| version.as_bytes().len())
+                .map(|(argmax, _)| argmax.clone())
                 .filter(|_| forget.index(2) == 0)
                 .or_else(|| {
-                    let keys: Vec<Key> = left.iter().map(|(key, ..)| key).collect();
-                    keys.get(forget.index(keys.len().max(1))).copied()
+                    let versions: Vec<Version> =
+                        left.iter().map(|(v, _)| v.clone()).collect();
+                    versions.get(forget.index(versions.len().max(1))).cloned()
                 })
             else {
                 break;
             };
-            left.act(&party_of("A"), [Action::Forget(key)]).expect("collision-free by construction");
+            left.act(&party_of("A"), [Action::Forget(Path::for_leaf(&version))])
+                .expect("collision-free by construction");
         }
 
         left.join(right).expect("collision-free by construction");
@@ -1123,14 +1135,14 @@ proptest! {
         base_values in distinct_bytes(6),
         batch_values in distinct_bytes(4),
         forget_live in proptest::collection::vec(any::<prop::sample::Index>(), 0..4),
-        forget_missing in proptest::collection::vec(any::<Key>(), 0..3),
+        forget_missing in proptest::collection::vec(arb_path(), 0..3),
     ) {
         let mut tree: Tree<Bytes> = Tree::new();
         tree.act(
             &party_of("A"),
             base_values.iter().cloned().map(insert_action),
         ).expect("collision-free by construction");
-        let live: Vec<Key> = tree.iter().map(|(k, ..)| k).collect();
+        let live: Vec<Path> = tree.iter().map(|(v, _)| Path::for_leaf(v)).collect();
 
         let mut actions: Vec<Action<Bytes>> =
             batch_values.iter().cloned().map(insert_action).collect();
@@ -1139,7 +1151,7 @@ proptest! {
                 actions.push(Action::Forget(live[index.index(live.len())]));
             }
         }
-        // A drawn key matching a live one is astronomically unlikely but
+        // A drawn path matching a live one is astronomically unlikely but
         // harmless: the forget would then be effectual and both sides of
         // the equality move together.
         actions.extend(forget_missing.into_iter().map(Action::Forget));
@@ -1259,13 +1271,13 @@ fn ceiling_only_join_reports_unchanged() {
     other
         .act(&party_of("B"), [insert_action(Bytes::from_static(b"gone"))])
         .expect("collision-free by construction");
-    let key = other
+    let version = other
         .iter()
-        .map(|(k, ..)| k)
+        .map(|(v, _)| v.clone())
         .next()
         .expect("one live message");
     other
-        .act(&party_of("B"), [Action::Forget(key)])
+        .act(&party_of("B"), [Action::Forget(Path::for_leaf(&version))])
         .expect("collision-free by construction");
     assert!(
         other.is_empty(),
@@ -1302,9 +1314,8 @@ fn ceiling_only_join_reports_unchanged() {
 /// (pinned by `act_changed_flag_tracks_the_root_hash`).
 #[test]
 fn act_changed_flag_is_conservative_only_in_a_poisoned_store() {
-    let (receiver, poisoned, path, _escaped) = super::arb::uncontained_supply_pair();
+    let (receiver, poisoned, key, escaped) = super::arb::uncontained_supply_pair();
     let receiver_party = super::arb::nth_party(0);
-    let key = Key::from(path);
 
     let mut tree = Tree { root: receiver };
     assert!(
@@ -1327,7 +1338,7 @@ fn act_changed_flag_is_conservative_only_in_a_poisoned_store() {
         "the skipped forget left the root hash byte-identical",
     );
     assert!(
-        tree.get(&key).is_some(),
+        tree.get(&escaped).is_some(),
         "the escaped leaf survives the skipped forget",
     );
 }
@@ -1345,16 +1356,18 @@ fn act_changed_flag_is_conservative_only_in_a_poisoned_store() {
 /// must happen at ingestion: once resident, the record is immortal.
 #[test]
 fn escaped_version_defeats_redaction_in_a_poisoned_store() {
-    let (receiver, poisoned, path, escaped) = super::arb::uncontained_supply_pair();
+    let (receiver, poisoned, key, escaped) = super::arb::uncontained_supply_pair();
     let receiver_party = super::arb::nth_party(0);
-    let key = Key::from(path);
 
     // Plant the escaped leaf by in-memory join: `Tree::join` is a local
     // merge, not wire ingestion, so no session tripwire guards it.
     let mut tree = Tree { root: receiver };
     tree.join(Tree { root: poisoned })
         .expect("collision-free by construction");
-    assert!(tree.get(&key).is_some(), "the join plants the escaped leaf");
+    assert!(
+        tree.get(&escaped).is_some(),
+        "the join plants the escaped leaf"
+    );
     assert!(
         !mirror::contained(&escaped, tree.latest()),
         "the merged ceiling never covers the escaped version",
@@ -1365,7 +1378,7 @@ fn escaped_version_defeats_redaction_in_a_poisoned_store() {
     tree.act(&receiver_party, [Action::Forget(key)])
         .expect("collision-free by construction");
     assert!(
-        tree.get(&key).is_some(),
+        tree.get(&escaped).is_some(),
         "redacting the escaped leaf is silently skipped",
     );
 
@@ -1375,7 +1388,7 @@ fn escaped_version_defeats_redaction_in_a_poisoned_store() {
     let mut fresh: Tree<()> = Tree::new();
     fresh.join(tree).expect("collision-free by construction");
     assert!(
-        fresh.get(&key).is_some(),
+        fresh.get(&escaped).is_some(),
         "the escaped leaf re-plants into a fresh replica",
     );
 }
@@ -1706,7 +1719,7 @@ fn act_mid_walk_unwind_leaves_tree_byte_identical() {
 fn act_destructor_unwind_leaves_tree_byte_identical() {
     let mut tree: Tree<DropBomb> = Tree::new();
     let existing = Message::new(DropBomb { armed: false });
-    let key: Key = Path::for_leaf(&version_for("A", 2)).into();
+    let key = Path::for_leaf(&version_for("A", 2));
     tree.react([(key, version_for("A", 2), existing)])
         .expect("collision-free by construction");
 
@@ -1768,7 +1781,7 @@ fn join_destructor_unwind_leaves_tree_byte_identical() {
     // The key `act` derives for the bomb's insert (the second action on
     // this tree ticks party A to 2), computed up front so the redaction
     // below can name it.
-    let bomb_key: Key = Path::for_leaf(&version_for("A", 2)).into();
+    let bomb_key = Path::for_leaf(&version_for("A", 2));
     ours.act(&party_of("A"), [Action::Insert(bomb)])
         .expect("collision-free by construction");
 
@@ -1818,7 +1831,7 @@ fn join_destructor_unwind_leaves_tree_byte_identical() {
 /// it as equal.
 #[test]
 fn join_detects_a_version_collision_at_one_path() {
-    let shared: Key = Key::from([0x42; 32]);
+    let shared = Path::from([0x42; 32]);
 
     let mut ours: Tree<Bytes> = Tree::new();
     ours.react([(shared, version_for("A", 1), msg(Bytes::from_static(b"a")))])
@@ -1855,7 +1868,7 @@ fn join_detects_a_version_collision_at_one_path() {
 #[test]
 fn join_prunes_same_version_payload_divergence_as_equal() {
     let version = version_for("A", 1);
-    let path: Key = Path::for_leaf(&version).into();
+    let path = Path::for_leaf(&version);
 
     let mut ours: Tree<Bytes> = Tree::new();
     ours.react([(path, version.clone(), msg(Bytes::from_static(b"ours")))])
@@ -1873,7 +1886,7 @@ fn join_prunes_same_version_payload_divergence_as_equal() {
     assert_eq!(ours.hash(), hash_before);
     let (_, message) = ours
         .iter()
-        .map(|(_, v, m)| (v.clone(), m.clone()))
+        .map(|(v, m)| (v.clone(), m.clone()))
         .next()
         .expect("one live message");
     assert_eq!(&*message, &Bytes::from_static(b"ours"), "ours is kept");
@@ -1885,7 +1898,7 @@ fn join_prunes_same_version_payload_divergence_as_equal() {
 #[test]
 fn reinserting_an_identical_leaf_is_idempotent() {
     let version = version_for("A", 1);
-    let path: Key = Path::for_leaf(&version).into();
+    let path = Path::for_leaf(&version);
     let message = msg(Bytes::from_static(b"same"));
 
     let mut tree: Tree<Bytes> = Tree::new();
@@ -1903,7 +1916,7 @@ fn reinserting_an_identical_leaf_is_idempotent() {
 #[test]
 fn react_detects_version_reuse_at_an_occupied_path() {
     let version = version_for("A", 1);
-    let path: Key = Path::for_leaf(&version).into();
+    let path = Path::for_leaf(&version);
 
     let mut tree: Tree<Bytes> = Tree::new();
     tree.react([(path, version.clone(), msg(Bytes::from_static(b"first")))])
@@ -1921,7 +1934,7 @@ fn react_detects_version_reuse_at_an_occupied_path() {
 /// identity check are enforced, not just payload equality.
 #[test]
 fn react_detects_a_path_collision_between_distinct_versions() {
-    let shared: Key = Key::from([0x24; 32]);
+    let shared = Path::from([0x24; 32]);
 
     let mut tree: Tree<Bytes> = Tree::new();
     tree.react([(shared, version_for("A", 1), msg(Bytes::from_static(b"a")))])

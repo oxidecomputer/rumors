@@ -61,7 +61,7 @@ proptest! {
     /// 4. when no hand-off was lost in flight, the surviving parties
     ///    fold-join back to exactly `Party::seed()` — the id-space is
     ///    conserved with no duplication and no leak;
-    /// 5. no retained redaction's key is live at any survivor (deletion
+    /// 5. no retained redaction's message is live at any survivor (deletion
     ///    honoring against the execution-time redaction log; every
     ///    redaction is retained whenever `possible_losses` is zero);
     /// 6. when no hand-off was lost in flight, the converged value
@@ -132,7 +132,7 @@ fn panics(f: impl FnOnce()) -> bool {
 /// A small, fault-free plan for the tripwires.
 ///
 /// Deterministically loss-free by construction (no fault is ever
-/// injected), with enough content that a live key always exists to
+/// injected), with enough content that a live message always exists to
 /// corrupt the ledger around.
 fn tripwire_plan() -> Plan {
     Plan {
@@ -162,7 +162,7 @@ fn tripwire_plan() -> Plan {
 /// A *suppressed redaction* — the application called `redact()` (so the
 /// ledger holds it) but the mechanism left the leaf live — must fail both
 /// the deletion-honoring check and the multiset check; it is simulated by
-/// appending a ledger entry for a key that is genuinely live in the
+/// appending a ledger entry for a message that is genuinely live in the
 /// converged fleet. A *dropped insert* — a value the plan sent but the
 /// network silently lost — must fail the multiset check; it is simulated
 /// by appending a never-sent value to the insert ledger. The uncorrupted
@@ -185,14 +185,16 @@ fn value_oracle_tripwires_catch_known_bad_mechanisms() {
         assert_value_oracle(&readouts, 0, &outcome.inserted, &outcome.redactions);
 
         // Known-bad mechanism 1: a suppressed redaction. Its ledger entry
-        // names a key still live in the converged fleet.
-        let (&key, &value) = readouts[0]
+        // names a message still live in the converged fleet. (Readout keys
+        // are canonical version bytes, so the version decodes back out.)
+        let (key, &value) = readouts[0]
             .iter()
             .next()
             .expect("the tripwire plan leaves live content");
         let mut suppressed = outcome.redactions.clone();
         suppressed.push(Redaction {
-            key,
+            version: rumors::Version::decode(key.as_slice())
+                .expect("readout keys are canonical version bytes"),
             value,
             retained: true,
         });
@@ -324,14 +326,15 @@ fn value_oracle_survives_committed_retire_chain() {
         assert_value_oracle(&readouts, 0, &outcome.inserted, &outcome.redactions);
 
         // Liveness after the custody weakening: fabricating a retained
-        // redaction of a live key must still fire both checks.
-        let (&key, &value) = readouts[0]
+        // redaction of a live message must still fire both checks.
+        let (key, &value) = readouts[0]
             .iter()
             .next()
             .expect("live content survives the chain");
         let mut corrupted = outcome.redactions.clone();
         corrupted.push(Redaction {
-            key,
+            version: rumors::Version::decode(key.as_slice())
+                .expect("readout keys are canonical version bytes"),
             value,
             retained: true,
         });
@@ -388,12 +391,15 @@ async fn envelope_session_bytes() -> usize {
     // that would blunt the divergence.
     for (i, peer) in fleet.iter().enumerate() {
         peer.send(2_000_000 + i as u64);
-        let (marker, _, _) = peer
-            .snapshot()
-            .iter()
-            .next()
-            .expect("the peer holds exactly its own marker");
-        peer.redact(marker);
+        let marker = {
+            let snapshot = peer.snapshot();
+            let (marker, _) = snapshot
+                .iter()
+                .next()
+                .expect("the peer holds exactly its own marker");
+            marker.clone()
+        };
+        peer.redact(&marker);
     }
     // Two star rounds spread every party's ticks into every peer's
     // bounds (the first collects at the hub, the second redistributes).

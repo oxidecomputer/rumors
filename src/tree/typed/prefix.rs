@@ -3,8 +3,6 @@ use std::{fmt::Debug, marker::PhantomData};
 use borsh::{BorshDeserialize, BorshSerialize};
 use tinyvec::ArrayVec;
 
-use crate::tree::Key;
-
 use super::height::{Height, Root, S, Z};
 use super::path::Path;
 
@@ -39,17 +37,17 @@ impl From<Prefix> for Path {
     }
 }
 
-impl From<Prefix> for Key {
+impl From<Prefix> for [u8; 32] {
     fn from(value: Prefix) -> Self {
         Path::from(value).into()
     }
 }
 
-impl From<Key> for Prefix {
-    fn from(value: Key) -> Self {
+impl From<[u8; 32]> for Prefix {
+    fn from(value: [u8; 32]) -> Self {
         Self {
             height: PhantomData,
-            hash: <[u8; 32]>::from(value).into(),
+            hash: value.into(),
         }
     }
 }
@@ -80,7 +78,7 @@ where
 impl<H: Height> Prefix<H> {
     /// The accumulated path bytes, shallowest-first. Exactly `32 - H::HEIGHT`
     /// long, so appending the remaining `H::HEIGHT` bytes of a descent below
-    /// this point reconstructs a full 32-byte [`Key`].
+    /// this point reconstructs a full 32-byte path.
     pub fn as_bytes(&self) -> &[u8] {
         &self.hash
     }

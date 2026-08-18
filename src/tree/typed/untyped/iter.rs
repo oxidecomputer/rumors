@@ -10,6 +10,7 @@ use std::collections::VecDeque;
 use tinyvec::ArrayVec;
 
 use crate::causally::{Coverage, Polarity, Query};
+
 use crate::{Version, causally, message::Message};
 
 use super::{Children, Node};
@@ -18,10 +19,6 @@ use super::{Children, Node};
 struct Frame<'a, T> {
     /// The subtree not yet entered.
     node: &'a Node<T>,
-    /// The path bytes accumulated to reach `node` (above its own compressed
-    /// prefix), inline: the tree's depth is fixed at 32, so a leaf's full
-    /// path always fits and the buffer never spills to the heap.
-    path: ArrayVec<[u8; 32]>,
     /// Whether an ancestor was already promoted: every leaf beneath `node`
     /// is known to satisfy the walk's range, so its descent skips the
     /// version comparisons.
@@ -33,18 +30,16 @@ struct Frame<'a, T> {
 /// [`Query`].
 ///
 /// [`Iter`] passes [`causally::all`], whose one root classification
-/// promotes the whole walk. The walk yields each leaf's reconstructed
-/// 32-byte path [`Key`], its [`Version`], and a borrowed handle to its
-/// [`Message`].
+/// promotes the whole walk. The walk yields each leaf's [`Version`] and a
+/// borrowed handle to its [`Message`]; a leaf's location is a pure
+/// function of its version, so no path is reconstructed (the owned walk,
+/// [`RangeOwned`], is the one that yields paths — its consumers key
+/// leaves by them).
 ///
 /// The walk is lazy: a single step descends only far enough to reach the
 /// next leaf, so the first item is produced after walking one root-to-leaf
-/// spine rather than the whole tree. Each pending node in the frontier
-/// carries the path bytes accumulated to reach it (above its own compressed
-/// prefix); since the tree's depth is fixed at 32, those fit an inline
-/// [`ArrayVec<[u8; 32]>`](ArrayVec) (the same shape as
-/// [`Prefix`](crate::tree::typed::Prefix)), so the only allocation the walk
-/// ever makes is the frontier deque itself.
+/// spine rather than the whole tree; the only allocation the walk ever
+/// makes is the frontier deque itself.
 ///
 /// A popped subtree is classified before it is entered: one
 /// [`coverage`](Query::coverage) verdict over its memoized
@@ -55,7 +50,6 @@ struct Frame<'a, T> {
 /// its verdict degenerates to membership and prune-or-promote is
 /// exhaustive: the walk never compares versions leaf-by-leaf.
 ///
-/// [`Key`]: crate::tree::key::Key
 struct Walk<'a, T, P: Polarity> {
     /// Pending [`Frame`]s, held in ascending key order front-to-back.
     ///
@@ -80,26 +74,21 @@ struct Walk<'a, T, P: Polarity> {
 }
 
 impl<'a, T, P: Polarity> Walk<'a, T, P> {
-    fn new(node: Option<&'a Node<T>>, path: &[u8], query: Query<'a, P>) -> Self {
+    fn new(node: Option<&'a Node<T>>, query: Query<'a, P>) -> Self {
         match node {
             None => Self {
                 frames: VecDeque::new(),
                 remaining: 0,
                 query,
             },
-            Some(node) => {
-                let mut buf = ArrayVec::new();
-                buf.extend_from_slice(path);
-                Self {
-                    frames: VecDeque::from([Frame {
-                        node,
-                        path: buf,
-                        passes: false,
-                    }]),
-                    remaining: node.len(),
-                    query,
-                }
-            }
+            Some(node) => Self {
+                frames: VecDeque::from([Frame {
+                    node,
+                    passes: false,
+                }]),
+                remaining: node.len(),
+                query,
+            },
         }
     }
 
@@ -111,12 +100,8 @@ impl<'a, T, P: Polarity> Walk<'a, T, P> {
     /// ordered so the frontier stays ascending front-to-back; the two ends
     /// therefore never yield the same leaf and meet cleanly when the frontier
     /// empties.
-    fn step(&mut self, back: bool) -> Option<(crate::tree::key::Key, &'a Version, &'a Message<T>)> {
-        'frontier: while let Some(Frame {
-            node,
-            mut path,
-            passes,
-        }) = if back {
+    fn step(&mut self, back: bool) -> Option<(&'a Version, &'a Message<T>)> {
+        'frontier: while let Some(Frame { node, passes }) = if back {
             self.frames.pop_back()
         } else {
             self.frames.pop_front()
@@ -132,50 +117,31 @@ impl<'a, T, P: Polarity> Walk<'a, T, P> {
                     Coverage::Full => true,
                     Coverage::Partial => false,
                 };
-            // The compressed prefix sits above this node's level and is stored
-            // shallowest-last, so replay it shallowest-first to extend the path.
-            for &byte in node.inner.prefix.iter().rev() {
-                path.push(byte);
-            }
             match &node.inner.children {
                 Children::Leaf { message, .. } => {
                     // A leaf's span is coincident, so its coverage verdict is
                     // never Partial: reaching here means it passes.
                     debug_assert!(passes, "an unpruned leaf passes its query");
-                    debug_assert_eq!(
-                        path.len(),
-                        32,
-                        "a leaf sits at depth 32, so its path is 32 bytes"
-                    );
-                    let path = path.into_inner();
                     self.remaining -= 1;
-                    return Some((crate::tree::key::Key(path), node.ceiling(), message));
+                    return Some((node.ceiling(), message));
                 }
                 Children::Branch { children, .. } => {
-                    // Re-push the children onto the end we just popped, each
-                    // with its own extended copy of the inline path buffer
-                    // (the per-frame buffer is what keeps the descent lazy).
-                    // Order so the frontier stays ascending front-to-back:
+                    // Re-push the children onto the end we just popped,
+                    // ordered so the frontier stays ascending front-to-back:
                     // pushing to the front goes largest-radix-first so the
                     // smallest ends up frontmost; pushing to the back goes
                     // smallest-radix-first so the largest ends up backmost.
                     if back {
-                        for (radix, child) in children.iter() {
-                            let mut child_path = path;
-                            child_path.push(radix);
+                        for (_, child) in children.iter() {
                             self.frames.push_back(Frame {
                                 node: child,
-                                path: child_path,
                                 passes,
                             });
                         }
                     } else {
-                        for (radix, child) in children.iter().rev() {
-                            let mut child_path = path;
-                            child_path.push(radix);
+                        for (_, child) in children.iter().rev() {
                             self.frames.push_front(Frame {
                                 node: child,
-                                path: child_path,
                                 passes,
                             });
                         }
@@ -188,8 +154,7 @@ impl<'a, T, P: Polarity> Walk<'a, T, P> {
 }
 
 /// A lazy depth-first iterator over every live leaf in a subtree, yielding
-/// each leaf's reconstructed 32-byte path [`Key`], its [`Version`], and a
-/// borrowed handle to its [`Message`].
+/// each leaf's [`Version`] and a borrowed handle to its [`Message`].
 ///
 /// For the same walk filtered to a causal range, see [`Range`].
 ///
@@ -197,54 +162,41 @@ impl<'a, T, P: Polarity> Walk<'a, T, P> {
 /// serialization alongside the `Arc<T>`); callers that only want the value
 /// project it cheaply with [`Message::as_arc`].
 ///
-/// [`next`](Iterator::next) yields leaves in ascending-key order; the iterator
-/// is also a [`DoubleEndedIterator`], so [`next_back`](DoubleEndedIterator::next_back)
-/// yields them in descending-key order, and the two ends meet in the middle
-/// without overlap. Keys are content-derived hashes, so key order bears *no*
-/// relation to the causal order on [`Version`]s: a leaf may be yielded
-/// before one that causally precedes it. (The public observers on
-/// [`Rumors`](crate::Rumors) still promise nothing about order, but
-/// [`unknown`](crate::tree::traverse::unknown) and `Tree::join` lean on the
-/// ascending forward order for their own deterministic callback delivery.)
+/// [`next`](Iterator::next) yields leaves in ascending order of their
+/// version-derived paths; the iterator is also a [`DoubleEndedIterator`],
+/// so [`next_back`](DoubleEndedIterator::next_back) yields them in
+/// descending path order, and the two ends meet in the middle without
+/// overlap. Path order bears *no* relation to the causal order on
+/// [`Version`]s: a leaf may be yielded before one that causally precedes
+/// it. (The public observers on [`Rumors`](crate::Rumors) still promise
+/// nothing about order, but [`unknown`](crate::tree::traverse::unknown)
+/// and `Tree::join` lean on the ascending forward order for their own
+/// deterministic callback delivery.)
 ///
-/// `Iter` is `Send + Sync` whenever `T: Send + Sync`: it holds only `&Node<T>`
-/// references and inline path buffers.
-///
-/// [`Key`]: crate::tree::key::Key
+/// `Iter` is `Send + Sync` whenever `T: Send + Sync`: it holds only
+/// `&Node<T>` references.
 pub struct Iter<'a, T> {
     walk: Walk<'a, T, causally::Neutral>,
 }
 
 impl<'a, T> Iter<'a, T> {
-    /// Iterate the subtree rooted at `node` (a height-32 root, so every leaf's
-    /// path is a full 32-byte [`Key`](crate::tree::key::Key)).
+    /// Iterate the subtree rooted at `node`.
     pub(crate) fn root(node: &'a Node<T>) -> Self {
-        Self::within(node, &[])
-    }
-
-    /// Iterate the subtree rooted at `node` when it does *not* sit at the top
-    /// of the tree.
-    ///
-    /// `path` carries the bytes already walked to reach it (the ancestors'
-    /// radixes, shallowest-first), which the descent extends so each leaf
-    /// still reconstructs a full 32-byte [`Key`](crate::tree::key::Key).
-    /// `path.len()` plus the height of `node` must therefore be 32.
-    pub(crate) fn within(node: &'a Node<T>, path: &[u8]) -> Self {
         Self {
-            walk: Walk::new(Some(node), path, causally::all()),
+            walk: Walk::new(Some(node), causally::all()),
         }
     }
 
     /// The empty iterator, for a tree with no root.
     pub(crate) fn empty() -> Self {
         Self {
-            walk: Walk::new(None, &[], causally::all()),
+            walk: Walk::new(None, causally::all()),
         }
     }
 }
 
 impl<'a, T> Iterator for Iter<'a, T> {
-    type Item = (crate::tree::key::Key, &'a Version, &'a Message<T>);
+    type Item = (&'a Version, &'a Message<T>);
 
     fn next(&mut self) -> Option<Self::Item> {
         self.walk.step(false)
@@ -290,13 +242,13 @@ impl<'a, T, P: Polarity> Range<'a, T, P> {
     /// whose versions the causal `query` admits.
     pub(crate) fn root(node: Option<&'a Node<T>>, query: Query<'a, P>) -> Self {
         Self {
-            walk: Walk::new(node, &[], query),
+            walk: Walk::new(node, query),
         }
     }
 }
 
 impl<'a, T, P: Polarity> Iterator for Range<'a, T, P> {
-    type Item = (crate::tree::key::Key, &'a Version, &'a Message<T>);
+    type Item = (&'a Version, &'a Message<T>);
 
     fn next(&mut self) -> Option<Self::Item> {
         self.walk.step(false)
@@ -334,7 +286,7 @@ impl<'a, T, P: Polarity> DoubleEndedIterator for Range<'a, T, P> {
 /// borrowing walk (see [`Range`]); forward-only, since its consumers are
 /// subscription drains.
 /// Yields each passing leaf as an owned [`Leaf`] handle alongside its
-/// reconstructed [`Key`](crate::tree::key::Key), which is what lets a caller
+/// reconstructed 32-byte path, which is what lets a caller
 /// lend `&Version` / `&Arc<T>` out of a leaf it keeps.
 pub struct RangeOwned<T, P: Polarity> {
     /// The not-yet-visited root, consumed by the first advance.
@@ -417,7 +369,7 @@ impl<T, P: Polarity> RangeOwned<T, P> {
     /// `path` carries the bytes already walked to reach `node` (the
     /// ancestors' radixes, shallowest-first), which the descent extends so
     /// each leaf still reconstructs a full 32-byte
-    /// [`Key`](crate::tree::key::Key). `path.len()` plus the height of
+    /// 32-byte path. `path.len()` plus the height of
     /// `node` must therefore be 32.
     pub(crate) fn within(node: Option<Node<T>>, path: &[u8], query: Query<'static, P>) -> Self {
         let mut buf = ArrayVec::new();
@@ -435,7 +387,7 @@ impl<T, P: Polarity> RangeOwned<T, P> {
 
     /// Advance to the next passing leaf. The same classification as the
     /// borrowing walk, with the leaf handed out by value.
-    pub(crate) fn next(&mut self) -> Option<(crate::tree::key::Key, Leaf<T>)> {
+    pub(crate) fn next(&mut self) -> Option<([u8; 32], Leaf<T>)> {
         loop {
             // Obtain the next unvisited node — the initial root, or the next
             // child at the deepest spine level, ascending past exhausted
@@ -516,7 +468,7 @@ impl<T, P: Polarity> RangeOwned<T, P> {
                 32,
                 "a leaf sits at depth 32, so its path is 32 bytes"
             );
-            let key = crate::tree::key::Key(self.path.into_inner());
+            let key = self.path.into_inner();
             self.path.truncate(rollback);
             return Some((key, Leaf(node)));
         }

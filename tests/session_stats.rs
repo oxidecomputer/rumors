@@ -95,13 +95,13 @@ fn honored_redaction_counts_as_shed() {
         let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
         a.batch().send(10).send(20);
         let b = bootstrap_fork_async(&a).await;
-        let key = a
+        let version = a
             .snapshot()
             .iter()
-            .find(|(_, _, value)| ***value == 10)
-            .map(|(key, _, _)| key)
+            .find(|(_, value)| ***value == 10)
+            .map(|(version, _)| version.clone())
             .expect("the sent message is live");
-        a.redact(key);
+        a.redact(&version);
 
         let (a_g, b_g) = gossip_pair(&a, &b).await;
         assert_eq!(b_g.stats.messages_shed, 1, "b honors a's deletion");

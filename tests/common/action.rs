@@ -3,7 +3,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use proptest::collection::vec;
 use proptest::prelude::*;
-use rumors::{Key, Snapshot, Version, causally};
+use rumors::{Snapshot, Version, causally};
 
 const MAX_ACTIONS: usize = 16;
 
@@ -15,7 +15,8 @@ pub enum LocalAction<T> {
 
 /// Strategy over `Vec<LocalAction<T>>`, weighted 4:1 toward inserts.
 /// `value_strategy` supplies the value type; a `Redact(idx)` picks
-/// `keys[idx % len]` at build time (or is dropped if no keys yet).
+/// `versions[idx % len]` at build time (or is dropped if nothing has
+/// been sent yet).
 pub fn arb_actions<T, S>(value_strategy: S) -> impl Strategy<Value = Vec<LocalAction<T>>>
 where
     T: Clone + std::fmt::Debug + 'static,
@@ -42,23 +43,23 @@ pub fn arb_string_actions() -> impl Strategy<Value = Vec<LocalAction<String>>> {
     arb_actions("[a-z]{0,8}".prop_map(String::from))
 }
 
-/// Returns the `Key` of the single live leaf in `snapshot` above the
-/// causal frontier `pre`.
+/// Returns the [`Version`] of the single live leaf in `snapshot` above
+/// the causal frontier `pre`.
 ///
-/// This is how a builder recovers the key a `send` just minted, given
-/// the `latest()` it recorded before sending.
+/// This is how a builder recovers the version a `send` just minted,
+/// given the `latest()` it recorded before sending.
 ///
 /// # Panics
 ///
 /// Panics unless exactly one leaf qualifies.
-pub fn minted_key<T: Send + Sync>(snapshot: &Snapshot<T>, pre: &Version) -> Key {
-    let mut fresh = snapshot.range(causally::since(pre)).map(|(k, _, _)| k);
-    let key = fresh.next().expect("a send mints exactly one live leaf");
+pub fn minted_version<T: Send + Sync>(snapshot: &Snapshot<T>, pre: &Version) -> Version {
+    let mut fresh = snapshot.range(causally::since(pre)).map(|(v, _)| v);
+    let version = fresh.next().expect("a send mints exactly one live leaf");
     assert!(
         fresh.next().is_none(),
         "a single send must mint exactly one live leaf"
     );
-    key
+    version.clone()
 }
 
 /// Apply a `LocalAction` sequence to an already-bootstrapped local replica.
@@ -66,17 +67,17 @@ pub fn build_local<T>(local: rumors::Rumors<T>, actions: &[LocalAction<T>]) -> r
 where
     T: Send + Sync + Clone + BorshSerialize + BorshDeserialize + 'static,
 {
-    let mut keys: Vec<Key> = Vec::new();
+    let mut versions: Vec<Version> = Vec::new();
     for a in actions {
         match a {
             LocalAction::Insert(v) => {
                 let pre = local.snapshot().latest().clone();
                 local.send(v.clone());
-                keys.push(minted_key(&local.snapshot(), &pre));
+                versions.push(minted_version(&local.snapshot(), &pre));
             }
             LocalAction::Redact(idx) => {
-                if !keys.is_empty() {
-                    local.redact(keys[idx % keys.len()]);
+                if !versions.is_empty() {
+                    local.redact(&versions[idx % versions.len()]);
                 }
             }
         }

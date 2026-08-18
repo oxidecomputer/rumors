@@ -21,7 +21,7 @@ use common::oracle::{readout, readout_multiset};
 use common::overlap::{self, arb_overlap_schedule, execute_overlap_and_quiesce};
 use common::wire::{bootstrap_fork, wire_gossip};
 use proptest::prelude::*;
-use rumors::{Key, Rumors};
+use rumors::{Rumors, Version};
 
 /// Build the deterministic witness fleet: a seed peer holding `n` unit
 /// messages and two bootstrapped forks, all converged (a bootstrap copies
@@ -40,7 +40,7 @@ fn converged_trio(n: u64) -> (Rumors<u64>, Rumors<u64>, Rumors<u64>) {
 ///
 /// Panics if they fail to agree within a bounded number of full-mesh
 /// rounds: overlapped sessions must still converge.
-fn converge(a: &Rumors<u64>, b: &Rumors<u64>, c: &Rumors<u64>) -> BTreeMap<Key, u64> {
+fn converge(a: &Rumors<u64>, b: &Rumors<u64>, c: &Rumors<u64>) -> BTreeMap<Vec<u8>, u64> {
     const ROUNDS: usize = 8;
     for _ in 0..ROUNDS {
         wire_gossip(a, b);
@@ -92,17 +92,20 @@ fn overlapped_install_never_loses_innocent_messages() {
         polls
     };
 
-    let keys: Vec<Key> = {
+    // The versions minted by `converged_trio` are deterministic (the
+    // seed party and its tick sequence are fixed), so versions read from
+    // one instance name the same messages in every other.
+    let versions: Vec<Version> = {
         let (a, _, _) = converged_trio(MESSAGES);
-        readout(&a.snapshot()).into_keys().collect()
+        a.snapshot().iter().map(|(v, _)| v.clone()).collect()
     };
 
     let mut violations = Vec::new();
-    for &redacted in &keys {
+    for redacted in &versions {
         for n in 0..=session_polls {
             let (a, b, c) = converged_trio(MESSAGES);
             let mut expected = readout(&a.snapshot());
-            expected.remove(&redacted);
+            expected.remove(redacted.as_bytes());
 
             b.redact(redacted);
             // S2 (A <-> C, both still converged at fork time) opens
@@ -119,14 +122,14 @@ fn overlapped_install_never_loses_innocent_messages() {
 
             let converged = converge(&a, &b, &c);
             if converged != expected {
-                violations.push((redacted, n, converged.len(), expected.len()));
+                violations.push((redacted.clone(), n, converged.len(), expected.len()));
             }
         }
     }
     assert!(
         violations.is_empty(),
         "overlapped installs diverged from the one deliberate redaction \
-         (redacted key, S2 poll prefix, converged len, expected len): {violations:?}",
+         (redacted version, S2 poll prefix, converged len, expected len): {violations:?}",
     );
 }
 
@@ -138,7 +141,7 @@ proptest! {
 
     /// Generated overlapping-session schedules converge to the oracle.
     ///
-    /// Fleets of 2–4 peers run schedules mixing sends, observed-key
+    /// Fleets of 2–4 peers run schedules mixing sends, observed-message
     /// redactions, whole sessions, and sessions opened, parked at
     /// generated poll prefixes, and closed across other events —
     /// starting from a converged base large enough to span several
@@ -166,8 +169,9 @@ proptest! {
                 i,
             );
         }
-        // Key-level identity across peers, not just value multisets:
-        // the same content must live at the same keys everywhere.
+        // Identity-level agreement across peers, not just value
+        // multisets: the same content must live at the same versions
+        // everywhere.
         for pair in readouts.windows(2) {
             prop_assert_eq!(readout(&pair[0]), readout(&pair[1]));
         }

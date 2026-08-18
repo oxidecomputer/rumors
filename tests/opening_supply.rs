@@ -14,7 +14,7 @@ mod common;
 
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
-use rumors::{Peer, Rumors};
+use rumors::{Peer, Rumors, Version};
 
 use crate::common::gossip_snapshot::capture_gossip;
 use crate::common::wire::{block_on, bootstrap_fork_async};
@@ -24,17 +24,19 @@ fn seeded<T>() -> Rumors<T> {
     Peer::seed_rng(&mut SmallRng::seed_from_u64(0)).into_rumors()
 }
 
-/// A second message whose key shares its first byte with message `1`'s in
-/// this staging (keys `09 a7` and `09 5a`, found by search), so the two
-/// sides dispute one root child.
+/// A second message for the staging: the fixture requires its leaf path
+/// (the hash of its version) to share its first byte with message `1`'s,
+/// so the two sides dispute one root child.
 ///
 /// The initiator holds both leaves, the
-/// responder — forked between the two sends — only the first.
+/// responder — forked between the two sends — only the first. The
+/// self-checks below enforce the shape.
 const DISPUTED_SIBLING_VALUE: u64 = 165;
 
-/// First of three consecutive responder ballast values whose keys' first
-/// bytes (`08`, `b6`, `ef`) avoid the disputed radix (`09`) and make the
-/// responder the larger set, so the disputed-subtree holder initiates.
+/// First of three consecutive responder ballast values. The fixture
+/// requires their leaf paths' first bytes to avoid the disputed radix and
+/// makes the responder the larger set, so the disputed-subtree holder
+/// initiates. The self-checks below enforce the shape.
 const BALLAST_FROM: u64 = 100;
 
 /// Count the frames whose semantic label starts with `label` in a rendered
@@ -73,19 +75,21 @@ fn divergent_root_child_has_one_question_owner() {
     });
 
     // Fixture self-checks: one shared radix, disputed; the subtree holder
-    // is the smaller set and initiates.
-    let akeys: Vec<u8> = a
-        .snapshot()
-        .iter()
-        .map(|(k, _, _)| k.as_bytes()[0])
-        .collect();
-    assert_eq!(akeys.len(), 2, "the initiator holds the sibling pair");
-    assert_eq!(akeys.first(), akeys.last(), "the pair shares a root radix");
-    let radix = akeys[0];
+    // is the smaller set and initiates. A leaf's path is the full-width
+    // BLAKE3 hash of its version's canonical bytes.
+    let path_radix = |version: &Version| blake3::hash(version.as_bytes()).as_bytes()[0];
+    let apaths: Vec<u8> = a.snapshot().iter().map(|(v, _)| path_radix(v)).collect();
+    assert_eq!(apaths.len(), 2, "the initiator holds the sibling pair");
+    assert_eq!(
+        apaths.first(),
+        apaths.last(),
+        "the pair shares a root radix"
+    );
+    let radix = apaths[0];
     assert_eq!(
         b.snapshot()
             .iter()
-            .filter(|(k, _, _)| k.as_bytes()[0] == radix)
+            .filter(|(v, _)| path_radix(v) == radix)
             .count(),
         1,
         "the responder holds exactly one leaf under the disputed radix"

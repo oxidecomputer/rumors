@@ -18,7 +18,7 @@ use crate::tree::mirror::streaming::remote::RunBudget;
 pub use crate::tree::mirror::streaming::window::DEFAULT_SYNC_MEMORY_BUDGET;
 use crate::tree::mirror::streaming::window::WindowConfig;
 use crate::{
-    Batch, Bookmark, CausalMessages, Key, Network, Protocol, Rumors, Snapshot, UnorderedMessages,
+    Batch, Bookmark, CausalMessages, Network, Protocol, Rumors, Snapshot, UnorderedMessages,
     Version,
 };
 
@@ -549,12 +549,12 @@ impl<T, B: BookmarkError> Peer<T, B> {
         batch
     }
 
-    pub(crate) fn redact(&self, key: Key) -> Batch<'_, T>
+    pub(crate) fn redact(&self, version: &Version) -> Batch<'_, T>
     where
         T: Send + Sync,
     {
         let mut batch = self.batch();
-        batch.redact(key);
+        batch.redact(version);
         batch
     }
 

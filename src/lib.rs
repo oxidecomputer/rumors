@@ -169,7 +169,7 @@
 //!
 //!     // Convergence: Bob holds the message Alice sent before they ever met.
 //!     let snapshot = bob.snapshot();
-//!     let (_key, _version, message) = snapshot.iter().next().expect("one live message");
+//!     let (_version, message) = snapshot.iter().next().expect("one live message");
 //!     println!("bob heard: {message}");
 //!     // Prints exactly:
 //!     //     bob heard: the meeting is at noon
@@ -181,9 +181,9 @@
 //! # How should you observe messages?
 //!
 //! - [`Snapshot`] ([`Rumors::snapshot`]) is a **point-in-time value**:
-//!   iterate it, look up a [`Key`] ([`Snapshot::get`]), or slice it by
-//!   causal range ([`Snapshot::range`]). Taking one is cheap and never
-//!   waits.
+//!   iterate it, look up a message by its [`Version`] ([`Snapshot::get`]),
+//!   or slice it by causal range ([`Snapshot::range`]). Taking one is
+//!   cheap and never waits.
 //! - [`UnorderedMessages`] ([`Rumors::unordered_messages`]) is the **live stream, arbitrary
 //!   order**: everything not already inside your starting checkpoint, then
 //!   everything learned afterwards, at the lowest cost. Use it by default.
@@ -322,6 +322,5 @@ pub use peer::{
 pub use protocol::Protocol;
 pub use rumors::{CausalMessages, Changes, Rumors, TryNext, TryTick, UnorderedMessages};
 pub use snapshot::Snapshot;
-pub use tree::Key;
 pub use tree::MERKLE_HASH_LEN;
 pub use tree::mirror::streaming::stats::SessionStats;

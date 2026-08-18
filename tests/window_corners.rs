@@ -99,7 +99,7 @@ fn asymmetric_catch_up_is_ladder_bound_at_the_floor() {
     let measured = hops(pair(0, 1, 20_000, 0));
     eprintln!("asymmetric catch-up at budget 0: {measured} hops");
     // Ladder hops: the dispute chain prunes within a few levels (the one
-    // shared key's subtree thins to exactly that leaf and matches), and
+    // shared message's subtree thins to exactly that leaf and matches), and
     // the supply is one unidirectional stream. The shape measures 8
     // exact hops; a size-priced session would cost ~2 hops per message —
     // three orders of magnitude past this bound.

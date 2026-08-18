@@ -40,7 +40,7 @@ use rand::rngs::SmallRng;
 use rand::seq::SliceRandom;
 use rand::{RngCore, SeedableRng};
 use rumors::link::{Acceptor, Connector, Done, Link, STREAM_COUNT};
-use rumors::{DEFAULT_SYNC_MEMORY_BUDGET, Key, Peer, Protocol, Rumors};
+use rumors::{DEFAULT_SYNC_MEMORY_BUDGET, Peer, Protocol, Rumors, Version};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::mpsc;
 use tokio::time::Instant;
@@ -461,8 +461,8 @@ fn diverged_redactions() -> (Rumors<u64>, Rumors<u64>) {
     send_random(&left, COMMON, &mut rng);
     let right = bootstrap_fork(&left);
 
-    let keys: Vec<Key> = left.snapshot().iter().map(|(k, _, _)| k).collect();
-    let mut shuffled = keys;
+    let versions: Vec<Version> = left.snapshot().iter().map(|(v, _)| v.clone()).collect();
+    let mut shuffled = versions;
     shuffled.shuffle(&mut SmallRng::seed_from_u64(0x84f6_7932_1265_9eec));
     redact_all(&left, &shuffled[..REDACT_PER_SIDE]);
     redact_all(&right, &shuffled[REDACT_PER_SIDE..2 * REDACT_PER_SIDE]);
@@ -476,10 +476,10 @@ fn send_random(rumors: &Rumors<u64>, count: usize, rng: &mut SmallRng) {
     }
 }
 
-fn redact_all(rumors: &Rumors<u64>, keys: &[Key]) {
+fn redact_all(rumors: &Rumors<u64>, versions: &[Version]) {
     let mut batch = rumors.batch();
-    for key in keys {
-        batch.redact(*key);
+    for version in versions {
+        batch.redact(version);
     }
 }
 
@@ -528,10 +528,12 @@ fn trace_redaction_session() {
 /// Two peers with disjoint exclusive content and no dispute, the smaller
 /// side holding a two-leaf subtree under one root radix.
 ///
-/// The staging reuses `gossip_snapshot.rs`'s searched values: the
-/// initiator's two keys share first byte `71` and its ballast counterpart's
-/// three keys land at `1e`, `6a`, and `f6`, so no root child is populated
-/// on both sides and the session is pure transfer in both directions.
+/// The staging requires the initiator's two leaf paths to share their
+/// first byte while its ballast counterpart's three land under other root
+/// radices, so no root child is populated on both sides and the session is
+/// pure transfer in both directions. A leaf's path is the BLAKE3 hash of
+/// its version's canonical bytes, so the shape is a property of the minted
+/// version sequence; the self-checks below verify it.
 fn transfer_pair() -> (Rumors<u64>, Rumors<u64>) {
     let left = Peer::seed_rng(&mut SmallRng::seed_from_u64(0))
         .sync_memory_budget(DEFAULT_SYNC_MEMORY_BUDGET)
@@ -540,19 +542,18 @@ fn transfer_pair() -> (Rumors<u64>, Rumors<u64>) {
     left.batch().send(1).send(287);
     right.batch().send(100).send(101).send(102);
 
-    // Fixture self-checks: mirror the searched shape so drift in hashing or
-    // version assignment fails here, not in the hop arithmetic.
-    let radices: Vec<u8> = left
-        .snapshot()
-        .iter()
-        .map(|(k, _, _)| k.as_bytes()[0])
-        .collect();
+    // Fixture self-checks: mirror the required shape so drift in hashing
+    // or version assignment fails here, not in the hop arithmetic. A
+    // leaf's path is the full-width BLAKE3 hash of its version's
+    // canonical bytes.
+    let path_radix = |version: &Version| blake3::hash(version.as_bytes()).as_bytes()[0];
+    let radices: Vec<u8> = left.snapshot().iter().map(|(v, _)| path_radix(v)).collect();
     assert_eq!(radices.first(), radices.last(), "one exclusive subtree");
     assert!(
         right
             .snapshot()
             .iter()
-            .all(|(k, _, _)| k.as_bytes()[0] != radices[0]),
+            .all(|(v, _)| path_radix(v) != radices[0]),
         "no root child is populated on both sides"
     );
     assert!(

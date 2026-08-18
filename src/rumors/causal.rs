@@ -8,7 +8,7 @@ use futures::Stream;
 use tokio::sync::watch;
 
 use crate::tree::Leaf;
-use crate::{Key, Version, causally};
+use crate::{Version, causally};
 
 use super::unordered::{Channel, TryNext};
 
@@ -46,13 +46,18 @@ pub struct CausalMessages<T> {
     /// staged, undelivered message nor the delivered message still in the
     /// caller's hands.
     checkpoint: Version,
-    /// The undelivered backlog, in causal-rank order. Always the residue of
-    /// a *single* ingest (a new pass opens only once this empties), whose
-    /// range start was `checkpoint` and whose ceiling is `ingested`.
-    staged: BTreeMap<(Rank, Key), Leaf<T>>,
+    /// The undelivered backlog in rank-then-canonical-bytes order — the
+    /// same total order as [`before::Ranked`], with the [`Rank`]
+    /// materialized once per leaf so repeated map comparisons stay cheap.
+    /// Rank extends the causal order and the byte tiebreak fires only
+    /// between concurrent messages, so delivery order is causal and
+    /// deterministic. Always the residue of a *single* ingest (a new pass
+    /// opens only once this empties), whose range start was `checkpoint`
+    /// and whose ceiling is `ingested`.
+    staged: BTreeMap<(Rank, Vec<u8>), Leaf<T>>,
     /// The most recently delivered leaf, kept alive so its version and
     /// value can be lent to the caller until the next call.
-    current: Option<(Key, Leaf<T>)>,
+    current: Option<Leaf<T>>,
 }
 
 impl<T> CausalMessages<T> {
@@ -76,7 +81,7 @@ impl<T> CausalMessages<T> {
     /// complete. The watch read guard lives only long enough to freeze the
     /// walk and capture the ceiling; the walk itself runs unlocked.
     fn ingest(
-        staged: &mut BTreeMap<(Rank, Key), Leaf<T>>,
+        staged: &mut BTreeMap<(Rank, Vec<u8>), Leaf<T>>,
         ingested: &mut Version,
         rx: &mut watch::Receiver<crate::Inner<T>>,
     ) where
@@ -89,8 +94,9 @@ impl<T> CausalMessages<T> {
                 inner.tree.latest().clone(),
             )
         };
-        while let Some((key, leaf)) = walk.next() {
-            staged.insert((leaf.version().rank(), key), leaf);
+        while let Some((_, leaf)) = walk.next() {
+            let version = leaf.version();
+            staged.insert((version.rank(), version.as_bytes().to_vec()), leaf);
         }
         *ingested |= &ceiling;
     }
@@ -103,14 +109,14 @@ impl<T> CausalMessages<T> {
     /// catch-up is deferred to the next call, exactly as
     /// [`UnorderedMessages`](super::UnorderedMessages) defers a drained
     /// pass's ceiling.
-    fn pop(&mut self) -> Option<(Key, &Version, &Arc<T>)> {
-        let ((_, key), leaf) = self.staged.pop_first()?;
-        let (key, leaf) = self.current.insert((key, leaf));
-        Some((*key, leaf.version(), leaf.value()))
+    fn pop(&mut self) -> Option<(&Version, &Arc<T>)> {
+        let (_, leaf) = self.staged.pop_first()?;
+        let leaf = self.current.insert(leaf);
+        Some((leaf.version(), leaf.value()))
     }
 
     /// Advance to the next message in causal order and lend it.
-    pub(crate) async fn borrow_next_inner(&mut self) -> Option<(Key, &Version, &Arc<T>)>
+    pub(crate) async fn borrow_next_inner(&mut self) -> Option<(&Version, &Arc<T>)>
     where
         T: Send + Sync,
     {
@@ -183,7 +189,7 @@ impl<T> CausalMessages<T> {
     ///
     /// Awaits quietly while the set is unchanged; resolves [`None`] once no
     /// further change is possible and the backlog has drained.
-    pub async fn borrow_next(&mut self) -> Option<(Key, &Version, &Arc<T>)>
+    pub async fn borrow_next(&mut self) -> Option<(&Version, &Arc<T>)>
     where
         T: Send + Sync,
     {
@@ -207,14 +213,14 @@ impl<T> CausalMessages<T> {
     }
 }
 
-/// The owned-item face: `(Key, Version, Arc<T>)` per item, popped from the
+/// The owned-item face: `(Version, Arc<T>)` per item, popped from the
 /// same staged backlog [`borrow_next`](CausalMessages::borrow_next) lends
 /// from.
 ///
 /// `T: 'static` because the quiet-period wait is materialized as an
 /// owned future, exactly as in [`UnorderedMessages`](super::UnorderedMessages).
 impl<T: Send + Sync + 'static> Stream for CausalMessages<T> {
-    type Item = (Key, Version, Arc<T>);
+    type Item = (Version, Arc<T>);
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
@@ -223,8 +229,8 @@ impl<T: Send + Sync + 'static> Stream for CausalMessages<T> {
             // empties the backlog: the yielded message is unhandled until
             // the stream is polled again, so the catch-up defers to the
             // next poll's ingest.
-            if let Some(((_, key), leaf)) = this.staged.pop_first() {
-                return Poll::Ready(Some((key, leaf.version().clone(), leaf.value().clone())));
+            if let Some((_, leaf)) = this.staged.pop_first() {
+                return Poll::Ready(Some((leaf.version().clone(), leaf.value().clone())));
             }
             match this.channel.as_mut().expect("channel state present") {
                 Channel::Waiting(wait) => match wait.as_mut().poll(cx) {

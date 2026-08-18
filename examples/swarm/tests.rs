@@ -2,8 +2,8 @@
 //!
 //! The controller's contract is that each node's live-message count
 //! converges onto the target — including after retargeting, and including
-//! when other parties' redactions have strewn stale keys through the local
-//! pool. Everything here is single-threaded and seeded, so a failure
+//! when other parties' redactions have strewn stale entries through the
+//! local pool. Everything here is single-threaded and seeded, so a failure
 //! reproduces exactly.
 
 use super::*;
@@ -15,12 +15,12 @@ const TEST_MESSAGE_SIZE: usize = 32;
 /// In-memory stream capacity for the test links, matching the swarm default.
 const TEST_DUPLEX_CAPACITY: usize = 16 * 1024;
 
-/// One test party: its rumor set, observer-fed key pool, and seeded rng —
-/// the same per-thread state `run_party` keeps, minus the threads.
+/// One test party: its rumor set, observer-fed version pool, and seeded
+/// rng — the same per-thread state `run_party` keeps, minus the threads.
 struct Party {
     rumors: Rumors<Payload>,
     observer: UnorderedMessages<Payload>,
-    keys: Vec<Key>,
+    pool: Vec<Version>,
     rng: SmallRng,
 }
 
@@ -30,7 +30,7 @@ impl Party {
         Party {
             rumors,
             observer,
-            keys: Vec::new(),
+            pool: Vec::new(),
             rng: SmallRng::seed_from_u64(seed),
         }
     }
@@ -39,13 +39,13 @@ impl Party {
     /// and snapshotting before each op exactly as the party loop does.
     fn churn(&mut self, target: u64, ops: usize) {
         for _ in 0..ops {
-            drain_keys(&mut self.observer, &mut self.keys);
+            drain_versions(&mut self.observer, &mut self.pool);
             let snap = self.rumors.snapshot();
             steady_state_op(
                 &mut self.rng,
                 &self.rumors,
                 &snap,
-                &mut self.keys,
+                &mut self.pool,
                 target,
                 TEST_MESSAGE_SIZE,
             );
@@ -70,11 +70,11 @@ fn reconcile(runtime: &tokio::runtime::Runtime, a: &Rumors<Payload>, b: &Rumors<
 ///
 /// Driving three gossiping parties through a target drop and a target raise
 /// must land each party's live count within half-to-double of every phase's
-/// target, even though every phase's redaction bursts fill each party's key
+/// target, even though every phase's redaction bursts fill each party's
 /// pool with entries the others already redacted. Three parties is the
 /// smallest swarm where those stale entries outpace the pool's drain (each
 /// party's draws must keep up with everyone's inserts), so a controller
-/// that burns its redact ops on stale keys stalls far above a lowered
+/// that burns its redact ops on stale entries stalls far above a lowered
 /// target here, while a two-party run would sit at the balance boundary
 /// and hide the defect.
 #[test]

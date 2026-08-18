@@ -382,11 +382,10 @@ impl<T> Node<T, height::Root> {
     }
 
     /// Lazily iterate every live leaf in this root subtree as
-    /// `(Key, &Version, &Arc<T>)`.
+    /// `([u8; 32], &Version, &Message<T>)`.
     ///
     /// Delegates to the height-agnostic untyped walk; because this is a
-    /// height-32 root, every yielded path is a full 32-byte
-    /// [`Key`](crate::Key).
+    /// height-32 root, every yielded path is a full 32-byte array.
     pub fn iter(&self) -> untyped::Iter<'_, T> {
         untyped::Iter::root(&self.inner)
     }

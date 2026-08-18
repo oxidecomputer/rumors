@@ -44,7 +44,7 @@ const MID_FLIGHT_POLLS: usize = 4;
 ///
 /// Construction is deterministic apart from the random network id (which
 /// has a fixed wire length): versions derive from the bootstrap order and
-/// message keys from `(version, payload)`, so two calls build pairs whose
+/// message identity from the version alone, so two calls build pairs whose
 /// gossip sessions are byte-for-byte the same size. The epilogue-residue
 /// test's measure-then-replay rests on this.
 async fn divergent_pair() -> (Rumors<u64>, Rumors<u64>) {

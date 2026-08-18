@@ -25,8 +25,8 @@
 //!    one observer of each kind
 //!    ([`UnorderedMessages`](rumors::UnorderedMessages) and
 //!    [`CausalMessages`](rumors::CausalMessages)), drained concurrently
-//!    with the chaos and asserting the delivery contracts inline — no key
-//!    twice, no causal inversion, and full coverage of the peer's live set
+//!    with the chaos and asserting the delivery contracts inline — no
+//!    message twice, no causal inversion, and full coverage of the peer's live set
 //!    once the writers settle (see [`run_observers`]). This is the only
 //!    place the observers' watch-coalescing path runs against genuinely
 //!    parallel writers.
@@ -46,7 +46,7 @@
 //! execution time by [`run_activity`] — execution time because a
 //! [`Activity::Redact`] resolves its target against the peer's snapshot
 //! only when it runs, so no pre-run analysis of the plan can know which
-//! `(Key, value)` it removed. [`SimOutcome`] carries both sides of the
+//! `(Version, value)` it removed. [`SimOutcome`] carries both sides of the
 //! ledger; [`assert_deletion_honored`] and [`assert_value_oracle`] check
 //! the converged fleet against it.
 //!
@@ -80,10 +80,10 @@ use proptest::prelude::*;
 use rumors::error::{
     CodecDecodeErrorKind, CodecEncodeErrorKind, RemoteError, SendError, StreamError,
 };
-use rumors::{Error, Key, MirrorError, Peer, Retire, Rumors, Version};
+use rumors::{Error, MirrorError, Peer, Retire, Rumors, Version};
 
 use crate::common::fault::{self, FaultPlan};
-use crate::common::oracle::{readout, readout_multiset};
+use crate::common::oracle::{readout, readout_multiset, version_key};
 use crate::common::window::{WindowAssignment, WindowChoice, arb_window_choice};
 use crate::common::wire::wire_gossip_async;
 
@@ -141,9 +141,9 @@ pub struct Plan {
 pub enum Activity {
     /// Insert this value.
     Send(u64),
-    /// Redact the key at this index (modulo the live count) of the peer's
-    /// own snapshot at execution time — a key the application could have
-    /// observed; a no-op while the peer holds nothing.
+    /// Redact the message at this index (modulo the live count) of the
+    /// peer's own snapshot at execution time — a message the application
+    /// could have observed; a no-op while the peer holds nothing.
     Redact(usize),
 }
 
@@ -167,14 +167,14 @@ pub struct RetireOp {
 }
 
 /// One executed redaction, logged by [`run_activity`] at the moment it
-/// resolved its target, and deduplicated per [`Key`] (two peers racing to
-/// redact the same key are one redaction of it).
-#[derive(Debug, Clone, Copy)]
+/// resolved its target, and deduplicated per [`Version`] (two peers racing
+/// to redact the same message are one redaction of it).
+#[derive(Debug, Clone)]
 pub struct Redaction {
-    /// The key actually redacted.
-    pub key: Key,
-    /// The value that key carried, read from the redactor's snapshot in
-    /// the same pass that selected the key.
+    /// The version of the message actually redacted.
+    pub version: Version,
+    /// The value that message carried, read from the redactor's snapshot
+    /// in the same pass that selected it.
     pub value: u64,
     /// Whether the redaction is guaranteed present in the surviving
     /// fleet's causal history.
@@ -510,15 +510,15 @@ async fn run_boot(
 /// Run one peer's activity script, yielding between operations so it
 /// interleaves with every in-flight session.
 ///
-/// Returns the `(Key, value)` of every redaction actually executed: the
-/// target resolves against the peer's snapshot only here, so this
+/// Returns the `(Version, value)` of every redaction actually executed:
+/// the target resolves against the peer's snapshot only here, so this
 /// execution-time log is the one ground truth of what the plan redacted
 /// (the value oracle's deletion side; see the module docs).
 ///
-/// A logged key may race a sibling's redaction of the same key; either
-/// way the key ends redacted network-wide, so the log stays sound and
-/// [`run_plan`] deduplicates by key.
-async fn run_activity(handle: Rumors<u64>, script: Vec<Activity>) -> Vec<(Key, u64)> {
+/// A logged redaction may race a sibling's redaction of the same message;
+/// either way the message ends redacted network-wide, so the log stays
+/// sound and [`run_plan`] deduplicates by version.
+async fn run_activity(handle: Rumors<u64>, script: Vec<Activity>) -> Vec<(Version, u64)> {
     let mut redacted = Vec::new();
     for op in script {
         match op {
@@ -526,12 +526,15 @@ async fn run_activity(handle: Rumors<u64>, script: Vec<Activity>) -> Vec<(Key, u
                 handle.send(value);
             }
             Activity::Redact(index) => {
-                let live: Vec<(Key, u64)> =
-                    handle.snapshot().iter().map(|(k, _, m)| (k, **m)).collect();
+                let live: Vec<(Version, u64)> = handle
+                    .snapshot()
+                    .iter()
+                    .map(|(v, m)| (v.clone(), **m))
+                    .collect();
                 if !live.is_empty() {
-                    let (key, value) = live[index % live.len()];
-                    handle.redact(key);
-                    redacted.push((key, value));
+                    let (version, value) = live[index % live.len()].clone();
+                    handle.redact(&version);
+                    redacted.push((version, value));
                 }
             }
         }
@@ -543,11 +546,11 @@ async fn run_activity(handle: Rumors<u64>, script: Vec<Activity>) -> Vec<(Key, u
 /// Drain one peer's observers — one of each kind — concurrently with the
 /// chaos, asserting the delivery contracts on every step:
 ///
-/// - **Exactly-once**: neither observer ever yields a key twice.
+/// - **Exactly-once**: neither observer ever yields a message twice.
 /// - **Causal order** (the causal observer): no delivery is ever a causal
 ///   predecessor of an earlier one.
 /// - **Coverage**: once `done` (the writers have settled), a final drain
-///   leaves every key live in the peer's snapshot observed by both.
+///   leaves every message live in the peer's snapshot observed by both.
 ///
 /// The interesting part is not the assertions but where they run: under
 /// genuinely parallel sends, redactions, and gossip sessions on sibling
@@ -559,8 +562,8 @@ async fn run_observers(handle: Rumors<u64>, done: Arc<AtomicBool>) {
 
     let mut plain = handle.unordered_messages();
     let mut causal = handle.causal_messages();
-    let mut plain_seen: BTreeSet<Key> = BTreeSet::new();
-    let mut causal_seen: BTreeSet<Key> = BTreeSet::new();
+    let mut plain_seen: BTreeSet<Vec<u8>> = BTreeSet::new();
+    let mut causal_seen: BTreeSet<Vec<u8>> = BTreeSet::new();
     let mut causal_delivered: Vec<Version> = Vec::new();
 
     loop {
@@ -569,17 +572,16 @@ async fn run_observers(handle: Rumors<u64>, done: Arc<AtomicBool>) {
         // races nothing.
         let finished = done.load(Ordering::Acquire);
 
-        while let Some(Some((key, version, _))) = plain.borrow_next().now_or_never() {
-            let _ = version;
+        while let Some(Some((version, _))) = plain.borrow_next().now_or_never() {
             assert!(
-                plain_seen.insert(key),
-                "Messages delivered key {key:?} twice"
+                plain_seen.insert(version_key(version)),
+                "Messages delivered version {version:?} twice"
             );
         }
-        while let Some(Some((key, version, _))) = causal.borrow_next().now_or_never() {
+        while let Some(Some((version, _))) = causal.borrow_next().now_or_never() {
             assert!(
-                causal_seen.insert(key),
-                "CausalMessages delivered key {key:?} twice"
+                causal_seen.insert(version_key(version)),
+                "CausalMessages delivered version {version:?} twice"
             );
             // `Version` is a partial order: `!(version < earlier)` also
             // admits concurrent pairs, which `version >= earlier` would
@@ -603,14 +605,14 @@ async fn run_observers(handle: Rumors<u64>, done: Arc<AtomicBool>) {
 
     // The writers have settled and both observers are quiet: everything
     // live in the set was live at each observer's final pass.
-    for (key, _, _) in handle.snapshot().iter() {
+    for (version, _) in handle.snapshot().iter() {
         assert!(
-            plain_seen.contains(&key),
-            "Messages never delivered live key {key:?}"
+            plain_seen.contains(version.as_bytes()),
+            "Messages never delivered live version {version:?}"
         );
         assert!(
-            causal_seen.contains(&key),
-            "CausalMessages never delivered live key {key:?}"
+            causal_seen.contains(version.as_bytes()),
+            "CausalMessages never delivered live version {version:?}"
         );
     }
 }
@@ -724,7 +726,7 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
         })
         .collect();
     // Per-founder execution-time redaction logs, indexed like `casts`.
-    let mut redaction_logs: Vec<Vec<(Key, u64)>> = Vec::with_capacity(activity_tasks.len());
+    let mut redaction_logs: Vec<Vec<(Version, u64)>> = Vec::with_capacity(activity_tasks.len());
     for task in activity_tasks {
         redaction_logs.push(task.await.expect("activity task"));
     }
@@ -833,23 +835,24 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
         );
     }
 
-    // Deduplicate the redaction ledger by key: racing redactors of one key
-    // are one redaction of it, retained if *any* logger's final content
-    // reached the surviving fleet. Content addressing makes the key→value
-    // binding immutable, so colliding logs always agree on the value.
+    // Deduplicate the redaction ledger by version: racing redactors of one
+    // message are one redaction of it, retained if *any* logger's final
+    // content reached the surviving fleet. A version names exactly one
+    // message, so colliding logs always agree on the value.
     let lost_founders = lost_custody(plan.n_peers, &transfers);
-    let mut by_key: BTreeMap<Key, Redaction> = BTreeMap::new();
+    let mut by_version: BTreeMap<Vec<u8>, Redaction> = BTreeMap::new();
     for (founder, log) in redaction_logs.iter().enumerate() {
         let retained = !lost_founders.contains(&founder);
-        for &(key, value) in log {
-            let entry = by_key.entry(key).or_insert(Redaction {
-                key,
-                value,
+        for (version, value) in log {
+            let entry = by_version.entry(version_key(version)).or_insert(Redaction {
+                version: version.clone(),
+                value: *value,
                 retained: false,
             });
             assert_eq!(
-                entry.value, value,
-                "one key logged with two values: content addressing is broken"
+                entry.value, *value,
+                "one version logged with two values: a version names exactly \
+                 one message"
             );
             entry.retained |= retained;
         }
@@ -859,7 +862,7 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
         peers: slots.into_iter().flatten().map(Peer::into_rumors).collect(),
         possible_losses,
         inserted,
-        redactions: by_key.into_values().collect(),
+        redactions: by_version.into_values().collect(),
     }
 }
 
@@ -894,20 +897,21 @@ pub async fn quiesce(peers: &[Rumors<u64>]) {
     panic!("heal phase did not converge within {max_rounds} rounds for {n} peers");
 }
 
-/// One readout per survivor, in fleet order: the `Key → value` lens
-/// every converged-fleet assertion consumes.
+/// One readout per survivor, in fleet order: the identity → value lens
+/// (keyed by [`version_key`]) every converged-fleet assertion consumes.
 ///
 /// Compute once after the heal and thread through [`assert_converged`],
 /// [`assert_deletion_honored`], and [`assert_value_oracle`].
-pub fn survivor_readouts(peers: &[Rumors<u64>]) -> Vec<BTreeMap<Key, u64>> {
+pub fn survivor_readouts(peers: &[Rumors<u64>]) -> Vec<BTreeMap<Vec<u8>, u64>> {
     peers.iter().map(|p| readout(&p.snapshot())).collect()
 }
 
 /// After healing, every survivor holds identical live content: equal
-/// `Key → value` readouts, equal observable hashes, equal causal versions.
+/// identity → value readouts, equal observable hashes, equal causal
+/// versions.
 ///
 /// `readouts` is the fleet's [`survivor_readouts`], indexed like `peers`.
-pub fn assert_converged(peers: &[Rumors<u64>], readouts: &[BTreeMap<Key, u64>]) {
+pub fn assert_converged(peers: &[Rumors<u64>], readouts: &[BTreeMap<Vec<u8>, u64>]) {
     assert_eq!(peers.len(), readouts.len(), "one readout per survivor");
     let Some(first) = peers.first() else { return };
     let snapshot = first.snapshot();
@@ -923,22 +927,23 @@ pub fn assert_converged(peers: &[Rumors<u64>], readouts: &[BTreeMap<Key, u64>]) 
 }
 
 /// Asserts deletion honoring against the execution-time redaction log: no
-/// retained redaction's key is live at any survivor.
+/// retained redaction's message is live at any survivor.
 ///
 /// Unconditional over every retained redaction — and every redaction is
 /// retained when [`SimOutcome::possible_losses`] is zero. A non-retained
 /// redaction (its every logger dropped in a retire loss arm) may honestly
 /// never have reached the survivors, so it is exempt: asserting it would
 /// fail runs in which the protocol did nothing wrong.
-pub fn assert_deletion_honored(readouts: &[BTreeMap<Key, u64>], redactions: &[Redaction]) {
+pub fn assert_deletion_honored(readouts: &[BTreeMap<Vec<u8>, u64>], redactions: &[Redaction]) {
     for redaction in redactions.iter().filter(|r| r.retained) {
         for (i, live) in readouts.iter().enumerate() {
             assert!(
-                !live.contains_key(&redaction.key),
-                "deletion honoring violated: key {:?} (value {}) was redacted \
-                 during the run, the redaction is retained in the surviving \
-                 fleet's history, and yet the key is live at survivor {i}",
-                redaction.key,
+                !live.contains_key(redaction.version.as_bytes()),
+                "deletion honoring violated: version {:?} (value {}) was \
+                 redacted during the run, the redaction is retained in the \
+                 surviving fleet's history, and yet the message is live at \
+                 survivor {i}",
+                redaction.version,
                 redaction.value,
             );
         }
@@ -947,7 +952,7 @@ pub fn assert_deletion_honored(readouts: &[BTreeMap<Key, u64>], redactions: &[Re
 
 /// Asserts the converged value multiset equals the ledger: every survivor's
 /// live values are exactly the plan's inserts minus one instance per
-/// redacted key.
+/// redacted message.
 ///
 /// Gated on `possible_losses == 0` (a nonzero count returns without
 /// checking): zero possible losses covers message content across faulted
@@ -960,7 +965,7 @@ pub fn assert_deletion_honored(readouts: &[BTreeMap<Key, u64>], redactions: &[Re
 /// loss-free run conserves every insert and propagates every redaction,
 /// so the multiset equality is exact.
 pub fn assert_value_oracle(
-    readouts: &[BTreeMap<Key, u64>],
+    readouts: &[BTreeMap<Vec<u8>, u64>],
     possible_losses: usize,
     inserted: &[u64],
     redactions: &[Redaction],
@@ -974,14 +979,14 @@ pub fn assert_value_oracle(
     }
     for redaction in redactions {
         // Loss-free runs retain every redaction; each removes exactly one
-        // instance of its key's value. A redacted value absent from the
+        // instance of its message's value. A redacted value absent from the
         // insert ledger is a harness accounting bug, not a protocol bug.
         match expected.get_mut(&redaction.value) {
             Some(count) if *count > 0 => *count -= 1,
             _ => panic!(
-                "value-ledger accounting bug: redacted key {:?} carried value \
-                 {}, which the insert ledger does not hold",
-                redaction.key, redaction.value,
+                "value-ledger accounting bug: redacted version {:?} carried \
+                 value {}, which the insert ledger does not hold",
+                redaction.version, redaction.value,
             ),
         }
     }

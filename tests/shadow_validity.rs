@@ -18,7 +18,7 @@
 //!   peer, its complete lifetime log).
 //! * `live` — the set of `EventIdx`s the shadow predicts each peer
 //!   still holds at the end of the schedule must match the live
-//!   peer's readout (translated through `resolved_keys`).
+//!   peer's readout (translated through `resolved_versions`).
 //! * `alive` — under membership events, exactly the slots the shadow
 //!   predicts alive must have survived.
 //!
@@ -30,9 +30,8 @@ mod common;
 use std::collections::{BTreeMap, BTreeSet};
 
 use proptest::prelude::*;
-use rumors::Key;
 
-use crate::common::oracle::readout;
+use crate::common::oracle::{readout, version_key};
 use crate::common::schedule::{
     EventIdx, arb_membership_schedule_with_shadow, arb_schedule_with_shadow, execute_membership,
     execute_with,
@@ -46,21 +45,24 @@ proptest! {
     /// For every peer, the shadow simulator's `observed_log` and
     /// `live` sets (as `BTreeSet<EventIdx>`) match the live
     /// executor's observations and current readout, translated
-    /// through `resolved_keys` back to event indices.
+    /// through `resolved_versions` back to event indices.
     #[test]
     fn shadow_predicts_live_state(
         (schedule, shadow) in arb_schedule_with_shadow(any::<u64>(), N_PEERS, MAX_EVENTS),
         windows in arb_window_assignment(),
     ) {
         let result = execute_with(&schedule, &windows, |_, _, _| true);
-        let key_to_event_idx: BTreeMap<Key, EventIdx> =
-            result.resolved_keys.iter().map(|(eid, k)| (*k, *eid)).collect();
+        let version_to_event_idx: BTreeMap<Vec<u8>, EventIdx> = result
+            .resolved_versions
+            .iter()
+            .map(|(eid, v)| (version_key(v), *eid))
+            .collect();
 
         for (p, peer) in result.peers.iter().enumerate() {
             let live_observed: BTreeSet<EventIdx> = peer
                 .observations
                 .iter()
-                .map(|(k, _, _)| key_to_event_idx[k])
+                .map(|(v, _)| version_to_event_idx[v.as_bytes()])
                 .collect();
             let predicted_observed: BTreeSet<EventIdx> =
                 shadow.observed_log[p].iter().copied().collect();
@@ -71,7 +73,7 @@ proptest! {
 
             let live_held: BTreeSet<EventIdx> = readout(&peer.local.snapshot())
                 .into_keys()
-                .map(|k| key_to_event_idx[&k])
+                .map(|k| version_to_event_idx[&k])
                 .collect();
             prop_assert_eq!(
                 live_held, shadow.live[p].clone(),
@@ -96,8 +98,11 @@ proptest! {
         windows in arb_window_assignment(),
     ) {
         let result = execute_membership(&schedule, &windows);
-        let key_to_event_idx: BTreeMap<Key, EventIdx> =
-            result.resolved_keys.iter().map(|(eid, k)| (*k, *eid)).collect();
+        let version_to_event_idx: BTreeMap<Vec<u8>, EventIdx> = result
+            .resolved_versions
+            .iter()
+            .map(|(eid, v)| (version_key(v), *eid))
+            .collect();
 
         prop_assert_eq!(
             result.slots.len(), shadow.alive.len(),
@@ -108,16 +113,20 @@ proptest! {
                 slot.is_some(), shadow.alive[p],
                 "peer {} aliveness disagrees with shadow", p,
             );
-            let observations: Vec<Key> = match slot {
-                Some(peer) => peer.observations.iter().map(|(k, _, _)| *k).collect(),
+            let observations: Vec<Vec<u8>> = match slot {
+                Some(peer) => peer
+                    .observations
+                    .iter()
+                    .map(|(v, _)| version_key(v))
+                    .collect(),
                 None => result.retired_observations[&p]
                     .iter()
-                    .map(|(k, _, _)| *k)
+                    .map(|(v, _)| version_key(v))
                     .collect(),
             };
             let live_observed: BTreeSet<EventIdx> = observations
                 .iter()
-                .map(|k| key_to_event_idx[k])
+                .map(|k| version_to_event_idx[k])
                 .collect();
             let predicted_observed: BTreeSet<EventIdx> =
                 shadow.observed_log[p].iter().copied().collect();
@@ -129,7 +138,7 @@ proptest! {
             if let Some(peer) = slot {
                 let live_held: BTreeSet<EventIdx> = readout(&peer.local.snapshot())
                     .into_keys()
-                    .map(|k| key_to_event_idx[&k])
+                    .map(|k| version_to_event_idx[&k])
                     .collect();
                 prop_assert_eq!(
                     live_held, shadow.live[p].clone(),

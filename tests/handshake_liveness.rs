@@ -354,8 +354,8 @@ async fn retire_into_bootstrapper(protocol: Protocol) {
     let after = successor.snapshot();
     assert_eq!(after.len(), before.len(), "no content is lost in handoff");
     assert_eq!(
-        after.iter().map(|(k, _, _)| k).collect::<Vec<_>>(),
-        before.iter().map(|(k, _, _)| k).collect::<Vec<_>>(),
+        after.iter().collect::<Vec<_>>(),
+        before.iter().collect::<Vec<_>>(),
         "the successor holds exactly the retiree's content"
     );
     assert_control_drained(r_link, n_link);

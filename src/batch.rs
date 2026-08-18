@@ -3,7 +3,8 @@ use tokio::sync::watch;
 
 use crate::message::Message;
 use crate::tree::Action;
-use crate::{Inner, Key};
+use crate::tree::typed::Path;
+use crate::{Inner, Version};
 
 /// A batch of insertions and redactions against a [`Rumors`](crate::Rumors),
 /// applied in one commit.
@@ -13,7 +14,7 @@ use crate::{Inner, Key};
 /// [`Rumors`](crate::Rumors). Dropping the batch commits it: the single-action
 /// case reads as a plain call (`rumors.send(message);` commits at the end of
 /// the statement), and chaining accumulates
-/// (`rumors.batch().send(a).send(b).redact(key);`) into one commit.
+/// (`rumors.batch().send(a).send(b).redact(&version);`) into one commit.
 ///
 /// # A batch is a performance optimization, not an atomicity guarantee
 ///
@@ -68,11 +69,11 @@ impl<'a, T: Send + Sync> Batch<'a, T> {
         self
     }
 
-    /// Redacts a [`Key`] as part of this batch.
+    /// Redacts the message stamped with `version` as part of this batch.
     ///
-    /// Redacting a key not held at commit time is a no-op.
-    pub fn redact(&mut self, key: Key) -> &mut Self {
-        self.actions.push(Action::Forget(key));
+    /// Redacting a version not held at commit time is a no-op.
+    pub fn redact(&mut self, version: &Version) -> &mut Self {
+        self.actions.push(Action::Forget(Path::for_leaf(version)));
         self
     }
 }

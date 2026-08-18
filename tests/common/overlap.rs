@@ -22,7 +22,7 @@
 //! generator keeps the schedule valid by construction the same way
 //! [`schedule::arb`] does — a shadow simulator tracks what every peer has
 //! observed, with open sessions modeled by their fork-time snapshots so a
-//! `Redact` is only ever emitted against a key its peer really holds.
+//! `Redact` is only ever emitted against a message its peer really holds.
 
 use std::collections::BTreeMap;
 use std::fmt::Debug;
@@ -35,7 +35,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use proptest::collection::vec;
 use proptest::prelude::*;
 use rumors::link::memory_with_capacity;
-use rumors::{Key, Rumors};
+use rumors::{Rumors, Version};
 
 use crate::common::oracle::Oracle;
 use crate::common::peer::{Peer, gossip_step, quiesce};
@@ -164,9 +164,9 @@ impl Session {
 pub enum OverlapEvent<T> {
     /// Insert `value` at `peer`.
     Insert { peer: usize, value: T },
-    /// Redact the key minted by the `Insert` at `target_event_idx`.
+    /// Redact the message minted by the `Insert` at `target_event_idx`.
     /// Valid by construction: the generator's shadow guarantees `peer`
-    /// has observed that key when this event runs.
+    /// has observed that message when this event runs.
     Redact {
         peer: usize,
         target_event_idx: EventIdx,
@@ -212,7 +212,7 @@ where
         peers.push(Peer::new(local));
     }
     let mut oracle = Oracle::<T>::default();
-    let mut resolved_keys: BTreeMap<EventIdx, Key> = BTreeMap::new();
+    let mut resolved_versions: BTreeMap<EventIdx, Version> = BTreeMap::new();
     // Open sessions, keyed by slot, with their endpoints retained so both
     // observation logs can drain when the session closes.
     let mut open_sessions: BTreeMap<usize, (Session, usize, usize)> = BTreeMap::new();
@@ -220,22 +220,22 @@ where
     for (i, event) in schedule.events.iter().enumerate() {
         match event {
             OverlapEvent::Insert { peer, value } => {
-                let key = peers[*peer].insert_one(value.clone());
-                resolved_keys.insert(i, key);
+                let version = peers[*peer].insert_one(value.clone());
+                resolved_versions.insert(i, version);
                 oracle.insert(i, value.clone());
             }
             OverlapEvent::Redact {
                 peer,
                 target_event_idx,
             } => {
-                let key = resolved_keys[target_event_idx];
+                let version = &resolved_versions[target_event_idx];
                 // The generator's shadow makes this always-observed; the
                 // guard mirrors the serial executor's, so a shadow
                 // imprecision degrades to a skipped event on both sides
                 // of the comparison rather than an invalid `redact`.
-                let observed = peers[*peer].observations.iter().any(|(k, _, _)| *k == key);
+                let observed = peers[*peer].observations.iter().any(|(v, _)| v == version);
                 if observed {
-                    peers[*peer].redact_one(key);
+                    peers[*peer].redact_one(version);
                     oracle.redact(*target_event_idx);
                 }
             }
@@ -522,13 +522,14 @@ impl Knowledge {
     /// Merge what a session forked at `snapshot` delivers between `a`
     /// and `b` into the *current* state.
     ///
-    /// The session carries each side's fork-time content only: keys one
-    /// fork-time side held live propagate to a counterparty that has
-    /// never known them; keys either fork-time side had redacted die on
-    /// both current sides (deletion honoring, tombstone-free). A key
-    /// redacted *after* the fork stays dead locally — `ever_known`
-    /// guards resurrection — and its counterparty learns that deletion
-    /// only from a later session, exactly as the wire behaves.
+    /// The session carries each side's fork-time content only: messages
+    /// one fork-time side held live propagate to a counterparty that has
+    /// never known them; messages either fork-time side had redacted die
+    /// on both current sides (deletion honoring, tombstone-free). A
+    /// message redacted *after* the fork stays dead locally —
+    /// `ever_known` guards resurrection — and its counterparty learns
+    /// that deletion only from a later session, exactly as the wire
+    /// behaves.
     fn merge_session(&mut self, snapshot: &Knowledge, a: usize, b: usize) {
         let combined: std::collections::BTreeSet<EventIdx> = snapshot.ever_known[a]
             .union(&snapshot.ever_known[b])
@@ -606,9 +607,9 @@ fn build_overlap_schedule<T: Clone>(
                     continue;
                 }
                 let target_event_idx = log[idx % log.len()];
-                // Only keys still live locally are sensible targets; a
-                // second redact of the same key is a no-op the executor
-                // would skip asymmetrically.
+                // Only messages still live locally are sensible targets;
+                // a second redact of the same message is a no-op the
+                // executor would skip asymmetrically.
                 if !sim.live[peer].contains(&target_event_idx) {
                     continue;
                 }

@@ -18,26 +18,20 @@ pub struct Path<H: Height = Root> {
 }
 
 impl Path<Root> {
-    /// Get a path for a leaf stamped with `version`: the full-width hash of
-    /// the version's canonical bytes, and nothing else.
+    /// Get the path for a leaf stamped with `version`: the full-width hash
+    /// of the version's canonical bytes, and nothing else.
     ///
-    /// The version alone determines where a leaf lives. Its canonical
-    /// [`as_bytes`](Version::as_bytes) is unique per insert: every
-    /// [`tick`](Version::tick) yields a distinct canonical encoding (local
-    /// uniqueness), and parties descend from a shared seed by disjoint
-    /// forks, so no two parties ever stamp the same version (global
-    /// uniqueness by party disjointness). Those are invariants the
-    /// protocol already rests on everywhere, so deriving identity from the
-    /// version adds no new assumption — and it keeps message bytes out of
-    /// every path and digest, so no actor can steer where anything lands by
-    /// choosing content.
+    /// Versions are unique per send — locally by [`tick`](Version::tick)
+    /// (each tick changes the canonical [`as_bytes`](Version::as_bytes)),
+    /// globally by party disjointness — an invariant the protocol already
+    /// rests on everywhere, so version-derived identity adds no assumption.
+    /// Message bytes enter no path and no digest: no actor can steer where
+    /// anything lands by choosing content.
     ///
     /// The path is the full-width 32-byte `ContentHash`, never the
     /// truncated Merkle `Hash`: a path collision is permanent split-brain
-    /// (see `ContentHash`), so identity gets the full width even though the
-    /// comparison digests are narrower. The preimage is one canonical byte
-    /// string (self-delimiting, no second component), so no
-    /// length-extension or concatenation ambiguity arises.
+    /// (see `ContentHash`). The preimage is one self-delimiting canonical
+    /// byte string, so no concatenation ambiguity arises.
     pub fn for_leaf(version: &Version) -> Self {
         Self {
             height: PhantomData,

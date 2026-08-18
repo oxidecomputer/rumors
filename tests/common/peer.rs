@@ -14,7 +14,7 @@
 //! the shadow simulator's model in `schedule::arb`.
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use rumors::{Key, Rumors, Version, causally};
+use rumors::{Rumors, Version, causally};
 
 use crate::common::wire::{block_on, wire_gossip_async};
 
@@ -32,7 +32,7 @@ pub struct Peer<T> {
     /// Drain order within a pass is the tree's iteration order; in practice
     /// it is deterministic across runs, so the log is reproducible inside a
     /// counterexample.
-    pub observations: Vec<(Key, Version, T)>,
+    pub observations: Vec<(Version, T)>,
 }
 
 impl<T: Clone + BorshSerialize + BorshDeserialize + Send + Sync + 'static> Peer<T> {
@@ -55,7 +55,7 @@ impl<T: Clone + BorshSerialize + BorshDeserialize + Send + Sync + 'static> Peer<
 
     /// Snapshot of the observation log, in insertion order. Convenience
     /// for tests that read out `peer.observations` for assertions.
-    pub fn observations(&self) -> Vec<(Key, Version, T)> {
+    pub fn observations(&self) -> Vec<(Version, T)> {
         self.observations.clone()
     }
 
@@ -64,29 +64,29 @@ impl<T: Clone + BorshSerialize + BorshDeserialize + Send + Sync + 'static> Peer<
     pub fn drain(&mut self) -> usize {
         let snapshot = self.local.snapshot();
         let mut new = 0;
-        for (key, version, message) in snapshot.range(causally::since(&self.checkpoint)) {
+        for (version, message) in snapshot.range(causally::since(&self.checkpoint)) {
             self.observations
-                .push((key, version.clone(), (**message).clone()));
+                .push((version.clone(), (**message).clone()));
             new += 1;
         }
         self.checkpoint |= snapshot.latest();
         new
     }
 
-    /// Insert a single value, returning the `Key` minted for it.
-    pub fn insert_one(&mut self, value: T) -> Key {
+    /// Insert a single value, returning the [`Version`] minted for it.
+    pub fn insert_one(&mut self, value: T) -> Version {
         // Catch the log up first, so the send's drain isolates exactly the
-        // one new observation and its key.
+        // one new observation and its version.
         self.drain();
         self.local.send(value);
         let pre = self.observations.len();
         let drained = self.drain();
         assert_eq!(drained, 1, "a send mints exactly one new observation");
-        self.observations[pre].0
+        self.observations[pre].0.clone()
     }
 
-    pub fn redact_one(&mut self, key: Key) {
-        self.local.redact(key);
+    pub fn redact_one(&mut self, version: &Version) {
+        self.local.redact(version);
         // Redactions fire no observation; the drain just absorbs the
         // version tick into the checkpoint.
         self.drain();

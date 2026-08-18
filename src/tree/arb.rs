@@ -153,7 +153,7 @@ pub fn arb_divergent_pair() -> BoxedStrategy<(crate::tree::Root<()>, crate::tree
                 (0..n_shared).map(|_| Action::Insert(Message::new(()))),
             )
             .expect("collision-free by construction");
-            let shared_keys: Vec<_> = base.iter().map(|(k, _, _)| k).collect();
+            let shared_keys: Vec<_> = base.iter().map(|(v, _)| Path::for_leaf(v)).collect();
 
             let side = |party: &Party, n: usize, redact: &[bool]| {
                 let mut t = base.clone();
@@ -214,7 +214,7 @@ pub fn arb_wide_divergent_pair() -> BoxedStrategy<(crate::tree::Root<()>, crate:
                 (0..n_shared).map(|_| Action::Insert(Message::new(()))),
             )
             .expect("collision-free by construction");
-            let shared_keys: Vec<_> = base.iter().map(|(k, _, _)| k).collect();
+            let shared_keys: Vec<_> = base.iter().map(|(v, _)| Path::for_leaf(v)).collect();
 
             let side = |party: &Party, n: usize, redact: &[bool]| {
                 let mut t = base.clone();
@@ -403,7 +403,10 @@ pub fn early_first_child_dispute_pair() -> (crate::tree::Root<()>, crate::tree::
             // Both sides' geometry was judged from the simulation, so both
             // sides must agree with the honestly built trees.
             for (tree, firsts) in [(&left, left_firsts), (&right, right_firsts)] {
-                let mut built: Vec<u8> = tree.iter().map(|(k, _, _)| k.as_bytes()[0]).collect();
+                let mut built: Vec<u8> = tree
+                    .iter()
+                    .map(|(v, _)| <[u8; 32]>::from(Path::for_leaf(v))[0])
+                    .collect();
                 let mut simulated = firsts.to_vec();
                 built.sort_unstable();
                 simulated.sort_unstable();

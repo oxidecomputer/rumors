@@ -3,7 +3,7 @@
 //!
 //! Every schedule emitted by [`arb_schedule`] and
 //! [`arb_membership_schedule`] is *valid by construction*: a `Redact`
-//! event always references an `Insert` whose `Key` the redacting peer
+//! event always references an `Insert` whose message the redacting peer
 //! has already observed by that point, and every event names only peers
 //! alive when it runs (a `Retire` needs two distinct live peers). To
 //! enforce this, the generator drives a [`SimState`] in lockstep with
@@ -178,7 +178,7 @@ enum Choice<T> {
         peer: usize,
         value: T,
     },
-    /// Pick the `idx % len`-th key in the redacting peer's current
+    /// Pick the `idx % len`-th entry in the redacting peer's current
     /// observation log; if the log is empty, the choice is dropped.
     RedactObservation {
         peer: usize,
@@ -242,7 +242,7 @@ where
 /// live simulation would observe under the actual protocol. For peer
 /// `p`:
 ///
-/// * `ever_known[p]` is every `EventIdx` whose `Key` `p` has ever
+/// * `ever_known[p]` is every `EventIdx` whose message `p` has ever
 ///   held (whether it currently holds it or has since redacted it).
 /// * `live[p]` is the subset currently in `p`'s live rumor set.
 /// * `observed_log[p]` is the exact sequence of `EventIdx`s that the
@@ -250,7 +250,7 @@ where
 ///   this point — driven by both local inserts and gossip events.
 ///
 /// `RedactObservation` picks an entry from `observed_log` to redact,
-/// so the schedule is guaranteed to issue every `Redact` on a `Key`
+/// so the schedule is guaranteed to issue every `Redact` on a message
 /// the peer actually holds at that moment.
 struct SimState {
     ever_known: Vec<BTreeSet<EventIdx>>,
@@ -306,9 +306,9 @@ impl SimState {
     }
 
     /// One direction of a reconciliation: `dst` ends holding the union
-    /// of both contents — it learns `src`'s novel live keys (observing
-    /// them) and either side's redaction prevails in `dst` — while `src`
-    /// is untouched.
+    /// of both contents — it learns `src`'s novel live messages
+    /// (observing them) and either side's redaction prevails in `dst` —
+    /// while `src` is untouched.
     ///
     /// A full gossip is an absorb each way; a retirement is one absorb
     /// into the survivor.
@@ -344,7 +344,7 @@ impl SimState {
     fn record_redact(&mut self, peer: usize, target_event_idx: EventIdx) {
         // Removing from live (the peer's act of forgetting).
         // `ever_known` and `observed_log` are unchanged: the peer
-        // still remembers that it once held this key.
+        // still remembers that it once held this message.
         self.live[peer].remove(&target_event_idx);
     }
 
@@ -357,7 +357,7 @@ impl SimState {
         // point (the second pass reads the first's updates, so a
         // redaction on either side prevails in both), and per-peer
         // observation order is unchanged: each side still gains novel
-        // keys in sorted combined order.
+        // messages in sorted combined order.
         self.absorb(a, b);
         self.absorb(b, a);
     }
@@ -401,7 +401,7 @@ fn build_schedule<T>(
                         target_event_idx,
                     });
                 }
-                // else: the peer has not yet observed any key, so no
+                // else: the peer has not yet observed anything, so no
                 // application code path could have produced this
                 // `redact()` call. Drop the choice.
             }

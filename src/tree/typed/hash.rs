@@ -7,7 +7,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 ///
 /// The subtree-comparison digests that gossip exchanges, surfaced as
 /// [`Snapshot::hash`](crate::Snapshot::hash). Narrower than the 32-byte
-/// [`Key`](crate::Key); the width argument is in [the reconciliation
+/// version-derived leaf path; the width argument is in [the reconciliation
 /// docs](crate::reconciliation).
 pub const MERKLE_HASH_LEN: usize = 24;
 
@@ -92,22 +92,19 @@ impl Hash {
     ///
     /// `suffix` is the leaf's path-compressed span in **path order** —
     /// shallowest byte first, as the node serializer emits it — and
-    /// `suffix_len` is one byte (a compressed span never exceeds the 32-byte
-    /// path). `version` is the leaf's version in its canonical encoding,
-    /// which is self-delimiting, so the preimage stays injective with the
-    /// suffix length-tagged and the version last. A leaf commits its path
-    /// bytes and its version — never its message bytes: every digest the
-    /// mirror compares is a pure function of the version set, so no author
-    /// of message *content* contributes a single bit to any compared
-    /// quantity. The path is itself the full-width hash of the version
-    /// (leaves are version-addressed; see
-    /// [`Path::for_leaf`](super::Path::for_leaf)), and each parent commits
-    /// its child's radix byte, so a root-to-leaf chain of preimages commits
-    /// the full 32-byte path; committing the version bytes here as well
-    /// makes two leaves whose *distinct* versions collided into one path
-    /// (a full-width hash collision, off-model) digest-unequal, so the
-    /// merge walk surfaces that impossibility as a local violation instead
-    /// of silently keeping one side.
+    /// `suffix_len` is one byte (a compressed span never exceeds the
+    /// 32-byte path). `version` is the leaf's canonical encoding:
+    /// self-delimiting, so the preimage stays injective with the suffix
+    /// length-tagged and the version last.
+    ///
+    /// A leaf commits its path bytes and its version, never its message
+    /// bytes: every compared digest is a pure function of the version set,
+    /// and a content author contributes no bit to any compared quantity.
+    /// The path already commits the version through its hash
+    /// ([`Path::for_leaf`](super::Path::for_leaf)); committing the raw
+    /// version bytes too makes two *distinct* versions that collided into
+    /// one path (off-model) digest-unequal, so the merge walk surfaces
+    /// that impossibility as a local violation instead of keeping a side.
     ///
     /// # Panics
     ///

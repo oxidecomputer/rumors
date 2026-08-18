@@ -16,9 +16,9 @@ use std::collections::BTreeMap;
 use proptest::prelude::*;
 use proptest::strategy::ValueTree;
 use proptest::test_runner::TestRunner;
-use rumors::{Key, Rumors};
+use rumors::Rumors;
 
-use crate::common::oracle::{readout, readout_multiset};
+use crate::common::oracle::{readout, readout_multiset, version_key};
 use crate::common::schedule::events::Event;
 use crate::common::schedule::{arb_membership_schedule, execute_membership_and_quiesce};
 use crate::common::sim::assert_party_invariants;
@@ -34,10 +34,10 @@ proptest! {
     /// 1. every live peer's readout multiset equals the oracle's
     ///    `expected_live()` — content crosses retirements and
     ///    bootstraps without loss or invention;
-    /// 2. every live peer agrees on the full `Key → value` map (built
-    ///    from the oracle minus its redaction set, so a live redacted
-    ///    key is a mismatch here — deletion honoring survives
-    ///    absorption and newcomer copies);
+    /// 2. every live peer agrees on the full identity → value map
+    ///    (built from the oracle minus its redaction set, so a live
+    ///    redacted message is a mismatch here — deletion honoring
+    ///    survives absorption and newcomer copies);
     /// 3. the global party invariants hold sharply: live parties are
     ///    pairwise disjoint and fold-join back to exactly
     ///    `Party::seed()` — the engine runs one session at a time over
@@ -50,11 +50,11 @@ proptest! {
     ) {
         let result = execute_membership_and_quiesce(&schedule, &windows);
         let expected = result.oracle.expected_live();
-        let canonical: BTreeMap<Key, u64> = result
-            .resolved_keys
+        let canonical: BTreeMap<Vec<u8>, u64> = result
+            .resolved_versions
             .iter()
             .filter(|(id, _)| !result.oracle.is_redacted(**id))
-            .map(|(id, k)| (*k, result.oracle.all_inserts()[id]))
+            .map(|(id, v)| (version_key(v), result.oracle.all_inserts()[id]))
             .collect();
 
         for (i, peer) in result.live() {
@@ -65,7 +65,7 @@ proptest! {
             );
             prop_assert_eq!(
                 &actual, &canonical,
-                "live peer {} readout key→value map does not match canonical", i,
+                "live peer {} readout identity→value map does not match canonical", i,
             );
         }
 
