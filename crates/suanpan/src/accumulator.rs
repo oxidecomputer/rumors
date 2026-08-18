@@ -1182,7 +1182,7 @@ impl Accumulator {
         let (digit_shift, bit_shift) =
             (shift / u64::from(DIGIT_BITS), shift % u64::from(DIGIT_BITS));
         let mut position = usize::try_from(digit_shift).expect("digit positions fit a usize");
-        let negative = value < 0;
+        let negative = value.is_negative();
         let mut magnitude = value.unsigned_abs();
         while magnitude != 0 {
             touch(1);

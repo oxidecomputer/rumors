@@ -86,6 +86,11 @@ wants `wasm-pack` and node/npm.
   already-committed seed replays first and owes no new entry. Commit
   every seed file that appears, wherever it appears; never strip one
   from a diff.
+- Mutant exclusions (.cargo/mutants.toml) are a last resort, never a
+  way to green a campaign: the standing policy — refactor the mutated
+  codepoint out of structural existence, make truly-unreachable
+  branches assert, exclude only with a rationale naming every leg —
+  and the campaign configuration of record live in that file's header.
 
 # Writing style
 

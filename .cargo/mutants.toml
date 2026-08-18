@@ -1,14 +1,40 @@
-# cargo-mutants configuration: the exclusion roster of proven-equivalent
-# and performance-genre mutants.
+# cargo-mutants configuration: the campaign configuration of record
+# (the executable keys above `exclude_re`) and the exclusion roster of
+# proven-equivalent and performance-genre mutants.
 #
-# Every entry is a mutant that survives the before+suanpan suites for a
-# reason that is not a test gap: either the mutation is provably
-# value-equivalent (its discriminating input class is empty), or it moves
-# only work — routing between extensionally equal paths inside the meters'
-# deliberate headroom band. Killing a work-only mutant through the meter
-# suite would derive thresholds from mutants, converting deliberate slack
-# into an implementation pin; such mutants are excluded here instead, each
-# with its genre and the proof or rationale of record.
+# Every entry is a mutant that survives the suites under the campaign
+# configuration of record for a reason that is not a test gap: either
+# the mutation is provably value-equivalent (its discriminating input
+# class is empty), or it moves only work — routing between extensionally
+# equal paths inside the meters' deliberate headroom band. Killing a
+# work-only mutant through the meter suite would derive thresholds from
+# mutants, converting deliberate slack into an implementation pin; such
+# mutants are excluded here instead, each with its genre and the proof
+# or rationale of record.
+#
+# Standing policy: an exclusion is never added to make a campaign green.
+# Before any entry, the disposition ladder runs the other way: (1)
+# refactor, so the mutated codepoint does not structurally exist (the
+# precise operation instead of a bare operator, a stronger type, a
+# dissolved dead arm); (2) where a branch is truly unreachable but must
+# structurally exist, make it assert the impossibility at the site — an
+# asserted branch kills its own guard mutants, so it needs no entry
+# here; (3) only what neither disposition dissolves may be excluded,
+# with the equivalence or work-only argument stated per replacement
+# operator and naming every leg the pattern suppresses.
+#
+# Campaign configuration of record — the keys below make the plain
+# invocation (`cargo mutants --workspace`) run it: nextest, all
+# features, the whole workspace's suites, under cargo's default
+# dev/test profile. That is what the gate's test leg (`just test-all`)
+# observes, so the roster promises exactly what the committed suites
+# enforce: all features, because the instrument-killed dispositions in
+# this header cite meter rows and tests/meter.rs builds only under the
+# meter features; the dev/test profile, because overflow checks and
+# debug assertions are part of the observer (an arithmetic guard may
+# discharge by panicking on the inputs the suites drive). A release or
+# default-features campaign is a weaker observer; its extra survivors
+# are not roster material.
 #
 # Regex discipline: patterns match the names `cargo mutants --list`
 # prints. Most entries avoid line numbers, anchoring on file, operator
@@ -41,7 +67,17 @@
 # the pool-miss row (the seam-stop pool row in tests/meter.rs: a dead
 # recycle reads misses proportional to churn against a derived
 # peak-demand ceiling, and a bypassed lease reads zero against the
-# fill-phase liveness floor).
+# fill-phase liveness floor). Also absent: MinWeb::compacting's
+# delete-field mutant (the min-ticks web built without inline-word
+# compaction), killed by the boundary-stacking row (the
+# skyline_min_ticks_ascend envelope in tests/meter.rs, over both its
+# peak-heap and touch ceilings; the compacting doc carries the
+# measured margins) — and unexcludable regardless, since cargo-mutants
+# 27.1.0 applies name filters to no delete-field mutant.
+
+test_tool = "nextest"
+test_workspace = true
+additional_cargo_args = ["--all-features"]
 
 exclude_re = [
     # --- suanpan::accumulator ---
@@ -52,10 +88,6 @@ exclude_re = [
     # direction has an empty discriminating class.
     "accumulator\\.rs.*: replace >>= with <<= in Accumulator::read_magnitude",
 
-    # Proven equivalent: at value 0 the digit loop never runs, so the sign
-    # flag the boundary feeds is unread.
-    "accumulator\\.rs.*: replace < with <= in Accumulator::deposit_value",
-
     # Performance genre, owner-declared benign fast path: the identity
     # guard routes cost and representation only (the comment at the site
     # carries the argument), and no honest meter band can price a zero
@@ -64,45 +96,37 @@ exclude_re = [
 
     # --- before::version::skyline::watermark ---
 
-    # Performance genre: propagate's dwarf-domination fast arms fold and
-    # retire exactly what the total fold-then-sign path folds and retires,
-    # and the surviving guard mutants route only work. Both arms read
-    # domination through `sign_dominates_at` certificates matched as
-    # tuples (a wrong-sign certificate panics), so no boolean or sign
-    # operator is left for the tool to mutate; the mutable surface is
-    # the width guards. An eager width guard (either arm's `+ 2`
-    # clearance test loosened to `- 2`) spends a wasted domination read
-    # on hops whose certificate then honestly refuses; the
-    # boundary-dominates arm's width guard (line-pinned below) routes
-    # its hops onto the comparable-scale fold, which is touch-identical
-    # on that arm (the seam-stop band's readings are byte-equal under
-    # the swap). The residue-dominates arm's same-shaped mutant is
-    # killed — the ascending-cliff cascade band prices its total death
-    # and the propagate-seam bands price its clearance line — so it
-    # carries no exclusion (the header's deliberately-absent roster).
-    "watermark\\.rs.*: replace \\+ with - in MinWeb<P>::propagate",
+    # Performance genre, one leg, line-pinned: propagate's
+    # dwarf-domination fast arms fold and retire exactly what the total
+    # fold-then-sign path folds and retires, and the one surviving guard
+    # mutant routes only work. Both arms read domination through
+    # `sign_dominates_at` certificates matched as tuples (a wrong-sign
+    # certificate panics), so no boolean or sign operator is left for
+    # the tool to mutate; the mutable surface is the width guards, and
+    # the pinned leg is the boundary-dominates arm's strictness (`>=`
+    # loosened to `<` inverts the guard): it routes that arm's hops onto
+    # the comparable-scale fold, which is touch-identical on that arm
+    # (the seam-stop band's readings are byte-equal under the swap). The
+    # residue-dominates arm's same-shaped mutant is killed — the
+    # ascending-cliff cascade band prices its total death and the
+    # propagate-seam bands price its clearance line — and both arms'
+    # `+ 2` clearance arithmetic faces the suite (the `- 2` mutants
+    # underflow and panic on the word-scale one-digit accumulators the
+    # committed suites drive through every hop, under the profile of
+    # record's overflow checks), so none of those carries an exclusion.
     "watermark\\.rs:790:43: replace >= with < in MinWeb<P>::propagate",
 
-    # Performance genre: the undercut decision's scale probes read
-    # domination at a floor index; a shifted floor changes which side of
-    # the fast/total split answers, not the answer, verified
-    # value-equivalent under mutation with all meters lit.
+    # Performance genre, both floor sites, either replacement: the
+    # undercut decision's scale probes read domination at a floor index,
+    # and each leg (`-` to `+`, `-` to `/`) only shifts that floor — a
+    # shifted floor changes which side of the fast/total split answers,
+    # not the answer, verified value-equivalent under mutation with all
+    # meters lit.
     "watermark\\.rs.*: replace - with (\\+|/) in MinWeb<P>::decide_undercut_through_latent",
 
     # Performance genre: an unarmed range's gap is re-based on arming, so
     # folding height into it early is a dead store.
     "watermark\\.rs.*: replace > with >= in MinWeb<P>::fold_height",
-
-    # Performance genre: compact_words selects the inline-word boundary
-    # representation; the heap fallback is value-identical, and the
-    # min-ticks envelope rows bound its cost.
-    #
-    # Known tool gap: cargo-mutants 27.1.0 never applies name filters to
-    # delete-field mutants (visit_expr_struct pushes them past
-    # allows_mutant), so this entry is presently inert and the compacting
-    # survivor still lists as MISSED. The pattern matches the printed name
-    # and engages when the filter gap closes upstream.
-    "watermark\\.rs.*: delete field compact_words from struct MinWeb expression in MinWeb<P>::compacting",
 
     # --- before::version::skyline::grow ---
 
@@ -134,28 +158,48 @@ exclude_re = [
     # leaf-scale ranges alike and no honest band can separate it. The
     # tick_site_hole envelope prices the block fold itself (net-only, no
     # streamed extremum); this entry covers only which side of the depth
-    # boundary answers.
+    # boundary answers — every leg of the alternation (`<=`, `==`, `>`)
+    # only re-draws that boundary, so the argument covers each uniformly.
     "prescan\\.rs.*: replace < with (<=|==|>) in PreScan<'a, 'm>::skip_collapse",
 
     # Performance genre: both sides of the max scan's routing boundary
     # fold the identical net movement and extremum per leaf, so the
     # reroute is touch-neutral on deep and leaf-scale ranges alike and no
-    # honest band can separate it.
+    # honest band can separate it — every leg of the alternation (`<=`,
+    # `==`, `>`) only re-draws the boundary, covered uniformly.
     "prescan\\.rs.*: replace < with (<=|==|>) in PreScan<'a, 'm>::max_range",
 
     # --- before::version::skyline::query::integral ---
 
-    # Proven equivalent: window digit counts are nonzero by construction,
-    # so the strictness of the comparisons against them never
-    # discriminates (both `<` sites in the function).
-    "integral\\.rs.*: replace < with (<=|==|>) in charge_digits",
+    # Performance genre, the freeze trigger's strictness leg only: `>=`
+    # engages the freeze one digit inside the allowance, and the verdicts
+    # and settled values are identical on either side — the freeze moves
+    # where drift waits, never what settles. The other legs face the
+    # suite: a trigger inverted (`<`) or demanding exact equality (`==`)
+    # skips freezing wide drift outright, and the adequacy tripwires and
+    # meter bands read the un-frozen sweeps superlinear.
+    "integral\\.rs.*: replace > with >= in Integrator::boundary",
 
-    # Performance genre: the boundary and freeze triggers tune engagement
-    # thresholds inside the deliberate cost allowance; the verdicts and
-    # settled values are identical on either side.
-    "integral\\.rs.*: replace > with (==|<|>=) in Integrator::boundary",
-    "integral\\.rs.*: replace \\+ with (-|\\*) in Integrator::boundary",
-    "integral\\.rs.*: replace > with (==|<|>=) in Integrator::freeze",
+    # Performance genre, the allowance-scaling leg only: `funded *
+    # FREEZE_ALLOWANCE_DIGITS` moves the freeze engagement inside the
+    # deliberate allowance (later on wide funding, one digit earlier at
+    # word scale), verdicts and settled values identical. The `-` leg
+    # faces the suite: it underflows at word-scale funding and panics
+    # under the profile of record's overflow checks.
+    "integral\\.rs.*: replace \\+ with \\* in Integrator::boundary",
+
+    # Performance genre, the promote trigger's strictness leg only: `>=`
+    # promotes the parked component into the ledger one digit inside the
+    # allowance, and promotion timing at that margin is value-neutral —
+    # the close-out settle charges the same double sum wherever the
+    # split lands — so the leg only routes park/settle work. Every other
+    # mutation of this trigger starves or inverts promotion outright and
+    # faces the suite: the adequacy tripwires read a promote-starved
+    # sweep's settles superlinear (`==`, and the allowance arithmetic's
+    # `*` scaling), the hoisted-window flatness band prices the
+    # inversion (`<`), and the allowance's `-` leg underflows and panics
+    # under the profile of record's overflow checks.
+    "integral\\.rs.*: replace > with >= in Integrator::freeze",
 
     # Performance genre: the settled value is independent of the arming
     # tree's shape, so the shape-tuning sum routes only work.

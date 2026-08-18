@@ -8,8 +8,15 @@ Usage:
 
 The exclusion roster (.cargo/mutants.toml) names every mutant that
 survives the suites for a reason that is not a test gap, each entry a
-regex over the names `cargo mutants --list` prints. Nothing else holds
-those regexes to the live mutant inventory: a pattern whose site is
+regex over the names `cargo mutants --list` prints. The roster is a
+last resort, never a green-making device: its standing policy (stated
+in the roster header) is to refactor a mutated codepoint out of
+structural existence first, to make truly-unreachable branches assert
+second — an asserted branch kills its own guard mutants — and to
+exclude only what those dispositions cannot dissolve, one rationale per
+replacement operator, naming every leg the pattern suppresses. Nothing
+else holds the surviving regexes to the live mutant inventory: a
+pattern whose site is
 refactored away silently excludes nothing, and a function-scoped pattern
 silently swallows every NEW mutant the function later grows — both rot
 invisibly because no gate leg runs cargo-mutants at all. This checker
@@ -23,9 +30,10 @@ closes that seam from two captured `--list` runs (never a campaign):
   - `--filtered` is the same listing with the config applied. Each
     entry's SUPPRESSED count — listed minus the matches that survive
     filtering — pins that the exclusion actually engages. An entry the
-    tool declines to apply (the delete-field filter gap documented at
-    its entry) pins suppressed 0; the gap closing upstream then moves
-    that number, deliberately.
+    tool declines to apply pins suppressed 0 (cargo-mutants 27.1.0
+    applies name filters to no delete-field mutant, so a delete-field
+    survivor is never roster material: an instrument-killed one is
+    documented in the roster header's deliberately-absent list instead).
 
 The judgment is tamper-evident in both directions: the expected file's
 patterns must equal the config's `exclude_re` set exactly (a pattern

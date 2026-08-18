@@ -5,17 +5,9 @@
       "listed": 2,
       "suppressed": 2
     },
-    "accumulator\\.rs.*: replace < with <= in Accumulator::deposit_value": {
-      "listed": 1,
-      "suppressed": 1
-    },
     "accumulator\\.rs.*: replace \\|\\| with && in Accumulator::shl": {
       "listed": 1,
       "suppressed": 1
-    },
-    "watermark\\.rs.*: replace \\+ with - in MinWeb<P>::propagate": {
-      "listed": 2,
-      "suppressed": 2
     },
     "watermark\\.rs:790:43: replace >= with < in MinWeb<P>::propagate": {
       "listed": 1,
@@ -28,10 +20,6 @@
     "watermark\\.rs.*: replace > with >= in MinWeb<P>::fold_height": {
       "listed": 1,
       "suppressed": 1
-    },
-    "watermark\\.rs.*: delete field compact_words from struct MinWeb expression in MinWeb<P>::compacting": {
-      "listed": 1,
-      "suppressed": 0
     },
     "grow\\.rs.*: replace > with >= in recode": {
       "listed": 1,
@@ -49,21 +37,17 @@
       "listed": 3,
       "suppressed": 3
     },
-    "integral\\.rs.*: replace < with (<=|==|>) in charge_digits": {
-      "listed": 6,
-      "suppressed": 6
+    "integral\\.rs.*: replace > with >= in Integrator::boundary": {
+      "listed": 1,
+      "suppressed": 1
     },
-    "integral\\.rs.*: replace > with (==|<|>=) in Integrator::boundary": {
-      "listed": 3,
-      "suppressed": 3
+    "integral\\.rs.*: replace \\+ with \\* in Integrator::boundary": {
+      "listed": 1,
+      "suppressed": 1
     },
-    "integral\\.rs.*: replace \\+ with (-|\\*) in Integrator::boundary": {
-      "listed": 2,
-      "suppressed": 2
-    },
-    "integral\\.rs.*: replace > with (==|<|>=) in Integrator::freeze": {
-      "listed": 3,
-      "suppressed": 3
+    "integral\\.rs.*: replace > with >= in Integrator::freeze": {
+      "listed": 1,
+      "suppressed": 1
     },
     "integral\\.rs.*: replace \\+ with \\* in Integrator::settle_armings": {
       "listed": 1,
