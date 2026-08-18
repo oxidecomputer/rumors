@@ -17,6 +17,7 @@ use rumors::Key;
 use crate::common::oracle::{readout, readout_multiset};
 use crate::common::peer::gossip_step;
 use crate::common::schedule::{Schedule, arb_schedule, execute_and_quiesce};
+use crate::common::window::{WindowAssignment, arb_window_assignment};
 
 const N_PEERS: std::ops::RangeInclusive<usize> = 2..=8;
 const MAX_EVENTS: usize = 50;
@@ -39,8 +40,9 @@ proptest! {
     #[test]
     fn all_peers_converge_after_quiesce(
         schedule in schedule_u64(),
+        windows in arb_window_assignment(),
     ) {
-        let result = execute_and_quiesce(&schedule);
+        let result = execute_and_quiesce(&schedule, &windows);
         let first = readout(&result.peers[0].local.snapshot());
         for (i, peer) in result.peers.iter().enumerate().skip(1) {
             prop_assert_eq!(
@@ -56,8 +58,9 @@ proptest! {
     #[test]
     fn readout_matches_oracle_after_quiesce(
         schedule in schedule_u64(),
+        windows in arb_window_assignment(),
     ) {
-        let result = execute_and_quiesce(&schedule);
+        let result = execute_and_quiesce(&schedule, &windows);
         let expected = result.oracle.expected_live();
         for (i, peer) in result.peers.iter().enumerate() {
             let actual = readout_multiset(&peer.local.snapshot());
@@ -77,8 +80,9 @@ proptest! {
     #[test]
     fn keys_stable_across_peers(
         schedule in schedule_u64(),
+        windows in arb_window_assignment(),
     ) {
-        let result = execute_and_quiesce(&schedule);
+        let result = execute_and_quiesce(&schedule, &windows);
         let expected: BTreeMap<Key, u64> = result
             .resolved_keys
             .iter()
@@ -101,8 +105,9 @@ proptest! {
     #[test]
     fn each_key_observed_at_most_once_per_peer(
         schedule in schedule_u64(),
+        windows in arb_window_assignment(),
     ) {
-        let result = execute_and_quiesce(&schedule);
+        let result = execute_and_quiesce(&schedule, &windows);
         for (i, peer) in result.peers.iter().enumerate() {
             let mut counts: BTreeMap<Key, usize> = BTreeMap::new();
             for (k, _, _) in peer.observations.iter() {
@@ -131,8 +136,9 @@ proptest! {
             let n = s.n_peers;
             (Just(s), 0..n, 0..n)
         }).prop_filter("distinct peers", |(_, a, b)| a != b),
+        windows in arb_window_assignment(),
     ) {
-        let mut result = execute_and_quiesce(&schedule);
+        let mut result = execute_and_quiesce(&schedule, &windows);
         let fingerprint = |peer: &crate::common::peer::Peer<u64>| {
             let snapshot = peer.local.snapshot();
             (snapshot.hash(), snapshot.latest().clone())
@@ -152,6 +158,27 @@ proptest! {
         prop_assert_eq!(result.peers[b].observations.len(), obs_b_before);
     }
 
+    /// The floor-everywhere baseline leg of the oracle check: every
+    /// window pinned at the serialization floor on every iteration.
+    ///
+    /// The capacity-one orderings the deadlock-freedom argument
+    /// certifies stay deterministically exercised in this engine
+    /// regardless of what the swept legs draw.
+    #[test]
+    fn readout_matches_oracle_after_quiesce_at_floor(
+        schedule in schedule_u64(),
+    ) {
+        let result = execute_and_quiesce(&schedule, &WindowAssignment::floor());
+        let expected = result.oracle.expected_live();
+        for (i, peer) in result.peers.iter().enumerate() {
+            let actual = readout_multiset(&peer.local.snapshot());
+            prop_assert_eq!(
+                &actual, &expected,
+                "peer {} readout does not match oracle at the floor", i,
+            );
+        }
+    }
+
     /// String-T variant of `readout_matches_oracle_after_quiesce`,
     /// exercising the borsh round-trip for a non-primitive value
     /// type. Catches any serialization-path bug invisible to
@@ -159,8 +186,9 @@ proptest! {
     #[test]
     fn readout_matches_oracle_after_quiesce_string(
         schedule in schedule_string(),
+        windows in arb_window_assignment(),
     ) {
-        let result = execute_and_quiesce(&schedule);
+        let result = execute_and_quiesce(&schedule, &windows);
         let expected = result.oracle.expected_live();
         for (i, peer) in result.peers.iter().enumerate() {
             let actual = readout_multiset(&peer.local.snapshot());

@@ -24,6 +24,7 @@ use proptest::prelude::*;
 use crate::common::oracle::readout_multiset;
 use crate::common::peer::quiesce;
 use crate::common::schedule::{arb_schedule, execute_with};
+use crate::common::window::arb_window_assignment;
 
 const N_PEERS: std::ops::RangeInclusive<usize> = 3..=8;
 const MAX_EVENTS: usize = 50;
@@ -47,6 +48,7 @@ proptest! {
             .prop_filter("non-empty", |s| !s.events.is_empty()),
         split_seed in any::<usize>(),
         partition_event_seed in any::<usize>(),
+        windows in arb_window_assignment(),
     ) {
         let n = schedule.n_peers;
         let split_at = (split_seed % (n - 1)) + 1;
@@ -55,7 +57,7 @@ proptest! {
         // Allow gossip when either (a) we're past the partitioned
         // prefix (the heal phase), or (b) both peers are on the same
         // side of the split. Otherwise, drop the event.
-        let mut result = execute_with(&schedule, |a, b, event_idx| {
+        let mut result = execute_with(&schedule, &windows, |a, b, event_idx| {
             event_idx >= partition_event_count || (a < split_at) == (b < split_at)
         });
         quiesce(&mut result.peers);

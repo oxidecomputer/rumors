@@ -1,9 +1,7 @@
 //! Shared infrastructure for the simulation integration tests.
 //!
-//! Each per-category test binary (`single_peer`, `pairwise`, `multi_peer`,
-//! `redaction`, `partition`, `disruption`, `sanity`, `shadow_validity`)
-//! pulls this module in via `mod common;` and reaches its pieces through
-//! `crate::common::*`.
+//! Each per-category test binary pulls this module in via `mod common;`
+//! and reaches its pieces through `crate::common::*`.
 //!
 //! How the pieces compose:
 //!
@@ -11,8 +9,9 @@
 //!   suites apply to one peer at a time, building each side's local
 //!   history by hand.
 //! - [`schedule`] generates arbitrary multi-peer interleavings of peer
-//!   events (inserts, redactions, gossip sessions) and executes them
-//!   deterministically, one gossip session at a time
+//!   events (inserts, redactions, gossip sessions, and — under the
+//!   membership alphabet — mid-schedule bootstraps and retirements) and
+//!   executes them deterministically, one session at a time
 //!   ([`schedule::executor`]), against real peers ([`peer`]) over
 //!   in-memory links, with [`oracle`] computing the expected converged
 //!   set for comparison.
@@ -23,6 +22,9 @@
 //! - [`wire`] and [`tcp`] carry the same sessions over in-memory links
 //!   and real sockets; [`routed_tcp`] is the socket instantiation of
 //!   the routed adapter's dial/listen seam.
+//! - [`window`] is the window-budget sweep dimension: generated per-peer
+//!   window configurations (floor, tight budget, default) for the suites
+//!   that sweep it.
 //! - [`gossip_snapshot`] captures a session's exact bytes for the `insta`
 //!   pins.
 //!
@@ -41,4 +43,5 @@ pub mod routed_tcp;
 pub mod schedule;
 pub mod sim;
 pub mod tcp;
+pub mod window;
 pub mod wire;

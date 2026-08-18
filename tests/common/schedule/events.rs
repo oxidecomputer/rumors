@@ -23,6 +23,27 @@ pub enum Event<T> {
         a: usize,
         b: usize,
     },
+    /// Mint a new peer mid-schedule by serving it a bootstrap from
+    /// `parent`.
+    ///
+    /// The newcomer takes index `newcomer` — always the next
+    /// unused index, carried explicitly so counterexamples read without
+    /// replaying the schedule. Emitted only by the membership strategy;
+    /// the strategy guarantees `parent` is alive at this point.
+    Bootstrap {
+        parent: usize,
+        newcomer: usize,
+    },
+    /// Retire `retiree` into `absorber` over a clean wire: the
+    /// absorber ends the session holding the union of both contents
+    /// (redactions included), and `retiree` leaves the fleet for good.
+    ///
+    /// Emitted only by the membership strategy; the strategy guarantees
+    /// both peers are alive and distinct.
+    Retire {
+        retiree: usize,
+        absorber: usize,
+    },
 }
 
 #[derive(Debug, Clone)]

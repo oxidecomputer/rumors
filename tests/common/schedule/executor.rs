@@ -1,19 +1,24 @@
 //! Run a [`Schedule<T>`] against a fresh fleet of peers and a
 //! spec-shaped oracle.
 //!
-//! The single primitive is [`execute_with`], which accepts a gossip
-//! filter; [`execute`] and [`execute_and_quiesce`] are thin
-//! convenience wrappers that allow every gossip event.
+//! One private core runs the full event alphabet — membership events
+//! included — over a slot-per-peer fleet (a retired peer vacates its
+//! slot). [`execute_with`], [`execute`], and [`execute_and_quiesce`]
+//! are the membership-free entry points: they validate the alphabet and
+//! return the fleet as a plain `Vec`. [`execute_membership`] and
+//! [`execute_membership_and_quiesce`] expose the slotted result for
+//! membership schedules.
 
 use std::collections::BTreeMap;
 
 use borsh::{BorshDeserialize, BorshSerialize};
-use rumors::Key;
+use rumors::{Key, Retire, Version};
 
 use super::events::{Event, EventIdx, Schedule};
 use crate::common::oracle::Oracle;
-use crate::common::peer::{Peer, gossip_step, quiesce};
-use crate::common::wire::bootstrap_fork;
+use crate::common::peer::{Peer, gossip_step, quiesce, quiesce_slots};
+use crate::common::window::WindowAssignment;
+use crate::common::wire::{LINK_BUF, assert_control_drained, block_on, bootstrap_fork_with_window};
 
 pub struct ExecutionResult<T> {
     pub peers: Vec<Peer<T>>,
@@ -22,28 +27,62 @@ pub struct ExecutionResult<T> {
     pub resolved_keys: BTreeMap<EventIdx, Key>,
 }
 
+/// What executing a membership schedule leaves behind: the fleet as
+/// slots (a retired peer's slot is `None`), every retiree's complete
+/// observation log, and the same oracle and key map as the
+/// membership-free result.
+pub struct MembershipExecutionResult<T> {
+    /// One slot per peer ever minted — the initial fleet, then every
+    /// mid-schedule bootstrap in order. `None` marks a retired peer.
+    pub slots: Vec<Option<Peer<T>>>,
+    /// Each retired peer's observation log, complete as of the drain
+    /// that preceded its retirement.
+    pub retired_observations: BTreeMap<usize, Vec<(Key, Version, T)>>,
+    pub oracle: Oracle<T>,
+    /// For each `Insert` event, the `Key` minted at the originating peer.
+    pub resolved_keys: BTreeMap<EventIdx, Key>,
+}
+
+impl<T> MembershipExecutionResult<T> {
+    /// The live peers, with their fleet indices.
+    pub fn live(&self) -> impl Iterator<Item = (usize, &Peer<T>)> {
+        self.slots
+            .iter()
+            .enumerate()
+            .filter_map(|(i, slot)| slot.as_ref().map(|peer| (i, peer)))
+    }
+}
+
 /// Run the schedule against a fresh `Vec<Peer<T>>` and a fresh
 /// `Oracle<T>`, allowing every gossip event.
-pub fn execute<T>(schedule: &Schedule<T>) -> ExecutionResult<T>
+///
+/// Peer `i`'s reconciliation
+/// window is `windows.choice(i)` — the suites sweep this dimension, so
+/// the fleet mixes floor, budgeted, and default windows (and sessions
+/// between differently-configured endpoints).
+pub fn execute<T>(schedule: &Schedule<T>, windows: &WindowAssignment) -> ExecutionResult<T>
 where
     T: Clone + Ord + BorshSerialize + BorshDeserialize + Send + Sync + 'static,
 {
-    execute_with(schedule, |_, _, _| true)
+    execute_with(schedule, windows, |_, _, _| true)
 }
 
 /// Run the schedule and then drive every peer to a full-mesh fixed
 /// point. After this returns, every `peers[i].local` should hold the
 /// same live content as every other and match the oracle's projection.
-pub fn execute_and_quiesce<T>(schedule: &Schedule<T>) -> ExecutionResult<T>
+pub fn execute_and_quiesce<T>(
+    schedule: &Schedule<T>,
+    windows: &WindowAssignment,
+) -> ExecutionResult<T>
 where
     T: Clone + Eq + Ord + BorshSerialize + BorshDeserialize + Send + Sync + 'static,
 {
-    let mut result = execute(schedule);
+    let mut result = execute(schedule, windows);
     quiesce(&mut result.peers);
     result
 }
 
-/// Run the schedule with a caller-supplied gossip filter.
+/// Run a membership-free schedule with a caller-supplied gossip filter.
 ///
 /// `allow_gossip(a, b, event_idx)` returns whether the gossip event
 /// at `event_idx` between peers `a` and `b` should actually fire; a
@@ -56,32 +95,110 @@ where
 /// skipped (and the oracle does not record it), which models real
 /// usage — application code can only `redact()` a `Key` it has been
 /// handed.
-pub fn execute_with<T, F>(schedule: &Schedule<T>, allow_gossip: F) -> ExecutionResult<T>
+///
+/// # Panics
+///
+/// Panics if the schedule carries membership events: this entry point
+/// promises a fleet with every peer present at its original index, so
+/// membership schedules must run through [`execute_membership`]. The
+/// alphabet is validated up front — a bootstrap-only schedule would
+/// otherwise return an oversized fleet instead of the promised panic.
+pub fn execute_with<T, F>(
+    schedule: &Schedule<T>,
+    windows: &WindowAssignment,
+    allow_gossip: F,
+) -> ExecutionResult<T>
 where
     T: Clone + Ord + BorshSerialize + BorshDeserialize + Send + Sync + 'static,
     F: Fn(usize, usize, EventIdx) -> bool,
 {
-    // Build the peer fleet along the schedule's fork tree: peer 0 is the
-    // universe seed, and every other peer is a genuine party-disjoint fork of
-    // an already-built peer (`fork_parents[i] < i`), minted by serving it a
-    // bootstrap. All peers therefore descend from one seed and are pairwise
-    // disjoint, so `gossip_step` can always merge.
-    let mut peers: Vec<Peer<T>> = Vec::with_capacity(schedule.n_peers);
+    assert!(
+        !schedule
+            .events
+            .iter()
+            .any(|e| matches!(e, Event::Bootstrap { .. } | Event::Retire { .. })),
+        "membership schedules run through execute_membership"
+    );
+    let result = execute_slots(schedule, windows, allow_gossip);
+    let peers = result
+        .slots
+        .into_iter()
+        .map(|slot| slot.expect("a membership-free schedule retires nobody"))
+        .collect();
+    ExecutionResult {
+        peers,
+        oracle: result.oracle,
+        resolved_keys: result.resolved_keys,
+    }
+}
+
+/// Run a membership schedule, allowing every gossip event.
+pub fn execute_membership<T>(
+    schedule: &Schedule<T>,
+    windows: &WindowAssignment,
+) -> MembershipExecutionResult<T>
+where
+    T: Clone + Ord + BorshSerialize + BorshDeserialize + Send + Sync + 'static,
+{
+    execute_slots(schedule, windows, |_, _, _| true)
+}
+
+/// Run a membership schedule, then drive the surviving peers to a
+/// full-mesh fixed point.
+pub fn execute_membership_and_quiesce<T>(
+    schedule: &Schedule<T>,
+    windows: &WindowAssignment,
+) -> MembershipExecutionResult<T>
+where
+    T: Clone + Eq + Ord + BorshSerialize + BorshDeserialize + Send + Sync + 'static,
+{
+    let mut result = execute_membership(schedule, windows);
+    quiesce_slots(&mut result.slots);
+    result
+}
+
+/// The execution core: run any schedule over a slotted fleet with a
+/// gossip filter.
+///
+/// The fleet starts along the schedule's fork tree: peer 0 is the
+/// universe seed, and every other initial peer is a genuine
+/// party-disjoint fork of an already-built peer (`fork_parents[i] < i`),
+/// minted by serving it a bootstrap. Mid-schedule `Bootstrap` events
+/// append newcomer slots the same way; `Retire` events run a real
+/// retirement session over a clean in-memory link (the absorber side is
+/// plain gossip) and vacate the retiree's slot, saving its observation
+/// log. All peers descend from one seed and live parties stay pairwise
+/// disjoint, so every session can always merge.
+fn execute_slots<T, F>(
+    schedule: &Schedule<T>,
+    windows: &WindowAssignment,
+    allow_gossip: F,
+) -> MembershipExecutionResult<T>
+where
+    T: Clone + Ord + BorshSerialize + BorshDeserialize + Send + Sync + 'static,
+    F: Fn(usize, usize, EventIdx) -> bool,
+{
+    let mut slots: Vec<Option<Peer<T>>> = Vec::with_capacity(schedule.n_peers);
     for i in 0..schedule.n_peers {
         let local = if i == 0 {
-            rumors::Peer::seed().sync_window_floor().into_rumors()
+            windows.choice(0).apply(rumors::Peer::seed()).into_rumors()
         } else {
-            bootstrap_fork(&peers[schedule.fork_parents[i]].local)
+            let parent = slots[schedule.fork_parents[i]]
+                .as_ref()
+                .expect("initial peers are all alive during fleet construction");
+            bootstrap_fork_with_window(&parent.local, windows.choice(i))
         };
-        peers.push(Peer::new(local));
+        slots.push(Some(Peer::new(local)));
     }
+    let mut retired_observations: BTreeMap<usize, Vec<(Key, Version, T)>> = BTreeMap::new();
     let mut oracle = Oracle::<T>::default();
     let mut resolved_keys: BTreeMap<EventIdx, Key> = BTreeMap::new();
 
     for (i, event) in schedule.events.iter().enumerate() {
         match event {
             Event::Insert { peer, value } => {
-                let key = peers[*peer].insert_one(value.clone());
+                let peer = slots[*peer].as_mut().expect("insert names an alive peer");
+                let key = peer.insert_one(value.clone());
                 resolved_keys.insert(i, key);
                 oracle.insert(i, value.clone());
             }
@@ -90,9 +207,10 @@ where
                 target_event_idx,
             } => {
                 let key = resolved_keys[target_event_idx];
-                let observed_locally = peers[*peer].observations.iter().any(|(k, _, _)| *k == key);
+                let peer = slots[*peer].as_mut().expect("redact names an alive peer");
+                let observed_locally = peer.observations.iter().any(|(k, _, _)| *k == key);
                 if observed_locally {
-                    peers[*peer].redact_one(key);
+                    peer.redact_one(key);
                     oracle.redact(*target_event_idx);
                 }
                 // else: under a gossip filter, this peer may not yet
@@ -104,14 +222,62 @@ where
                     continue;
                 }
                 let (lo, hi) = if a < b { (*a, *b) } else { (*b, *a) };
-                let (left, right) = peers.split_at_mut(hi);
-                gossip_step(&mut left[lo], &mut right[0]);
+                let (left, right) = slots.split_at_mut(hi);
+                gossip_step(
+                    left[lo].as_mut().expect("gossip names alive peers"),
+                    right[0].as_mut().expect("gossip names alive peers"),
+                );
+            }
+            Event::Bootstrap { parent, newcomer } => {
+                assert_eq!(
+                    *newcomer,
+                    slots.len(),
+                    "bootstrap events mint indices in order"
+                );
+                let parent = slots[*parent]
+                    .as_ref()
+                    .expect("bootstrap names an alive parent");
+                let local = bootstrap_fork_with_window(&parent.local, windows.choice(*newcomer));
+                slots.push(Some(Peer::new(local)));
+            }
+            Event::Retire { retiree, absorber } => {
+                let mut retiring = slots[*retiree]
+                    .take()
+                    .expect("retire names an alive retiree");
+                // Complete the lifetime log before the peer is consumed:
+                // nothing after this point can be observed by it.
+                retiring.drain();
+                let absorbing = slots[*absorber]
+                    .as_mut()
+                    .expect("retire names an alive absorber");
+                let retiring_peer = block_on(retiring.local.try_into_peer())
+                    .expect("the executor holds the only handle");
+                let (mut link_r, mut link_a) = rumors::link::memory_with_capacity(LINK_BUF);
+                let (outcome, absorbed) = block_on(async {
+                    tokio::join!(
+                        retiring_peer.retire(&mut link_r),
+                        absorbing.local.gossip(&mut link_a),
+                    )
+                });
+                absorbed.expect("clean-wire absorber gossip");
+                match outcome {
+                    Retire::Retired => {}
+                    Retire::Recovered { .. } => panic!("clean-wire retirement recovered"),
+                    Retire::Uncertain { .. } => panic!("clean-wire retirement uncertain"),
+                    Retire::Declined { .. } => {
+                        panic!("the absorber runs plain gossip and never declines")
+                    }
+                }
+                absorbing.drain();
+                assert_control_drained(link_r, link_a);
+                retired_observations.insert(*retiree, retiring.observations);
             }
         }
     }
 
-    ExecutionResult {
-        peers,
+    MembershipExecutionResult {
+        slots,
+        retired_observations,
         oracle,
         resolved_keys,
     }

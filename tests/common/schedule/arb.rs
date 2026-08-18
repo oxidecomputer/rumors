@@ -1,15 +1,20 @@
-//! The proptest strategy for `Schedule<T>` and its shadow simulator.
+//! The proptest strategies for `Schedule<T>` and the shadow simulator
+//! backing them.
 //!
-//! Every schedule emitted by [`arb_schedule`] is *valid by
-//! construction*: a `Redact` event always references an `Insert`
-//! whose `Key` the redacting peer has already observed by that point.
-//! To enforce this, the generator drives a [`SimState`] in lockstep
-//! with the choices it emits — a shadow simulator that mirrors what
-//! each `Peer<T>` would observe under the protocol (including the
-//! deletion-honoring propagation of redactions during gossip). A
-//! `RedactObservation` choice whose peer has nothing observable is
-//! simply dropped, so the executor never has to filter "impossible"
-//! events at runtime.
+//! Every schedule emitted by [`arb_schedule`] and
+//! [`arb_membership_schedule`] is *valid by construction*: a `Redact`
+//! event always references an `Insert` whose `Key` the redacting peer
+//! has already observed by that point, and every event names only peers
+//! alive when it runs (a `Retire` needs two distinct live peers). To
+//! enforce this, the generator drives a [`SimState`] in lockstep with
+//! the choices it emits — a shadow simulator that mirrors what each
+//! `Peer<T>` would observe under the protocol (including the
+//! deletion-honoring propagation of redactions during gossip, the
+//! content copy a bootstrap hands a newcomer, and the absorption a
+//! retirement performs). A choice that resolves to nothing an
+//! application could do (redacting with nothing observed, retiring with
+//! one peer alive) is simply dropped, so the executor never has to
+//! filter "impossible" events at runtime.
 
 use std::collections::BTreeSet;
 use std::fmt::Debug;
@@ -39,8 +44,15 @@ where
 }
 
 /// Final state of the shadow simulator after a schedule has been
-/// built, surfaced by [`arb_schedule_with_shadow`] for use by the
-/// shadow-validity meta-test.
+/// built, surfaced by [`arb_schedule_with_shadow`] and
+/// [`arb_membership_schedule_with_shadow`] for use by the
+/// shadow-validity meta-tests.
+///
+/// Vectors are indexed by peer over the *total* population — the
+/// initial fleet plus every mid-schedule bootstrap. A retired peer's
+/// entries freeze at its retirement: `observed_log` is its complete
+/// lifetime log, and its `live` set is meaningless once `alive` is
+/// false (the content moved into its absorber).
 #[derive(Debug, Clone)]
 pub struct ShadowFinal {
     /// Per-peer sequence of `EventIdx`s the shadow predicts the live
@@ -49,6 +61,9 @@ pub struct ShadowFinal {
     /// Per-peer set of `EventIdx`s the shadow predicts the live peer
     /// still has *live* in its rumor set at the end of the schedule.
     pub live: Vec<BTreeSet<EventIdx>>,
+    /// Whether each peer is still in the fleet at the end of the
+    /// schedule. Always all-true for the membership-free strategy.
+    pub alive: Vec<bool>,
 }
 
 /// Variant of [`arb_schedule`] that also yields the shadow simulator's
@@ -63,14 +78,70 @@ where
     T: Clone + Debug + 'static,
     S: Strategy<Value = T> + Clone + 'static,
 {
+    arb_schedule_with_shadow_using(n_peers_range, max_events, move |n_peers| {
+        arb_choice(value_strategy.clone(), n_peers)
+    })
+}
+
+/// [`arb_schedule`] with membership events in the alphabet: mid-schedule
+/// bootstraps grow the fleet and retires shrink it, every emitted event
+/// valid by construction against the shadow's alive set.
+///
+/// Peer references
+/// draw raw entropy resolved against the population alive at each point,
+/// so events reach mid-schedule newcomers too.
+pub fn arb_membership_schedule<T, S>(
+    value_strategy: S,
+    n_peers_range: RangeInclusive<usize>,
+    max_events: usize,
+) -> impl Strategy<Value = Schedule<T>>
+where
+    T: Clone + Debug + 'static,
+    S: Strategy<Value = T> + Clone + 'static,
+{
+    arb_membership_schedule_with_shadow(value_strategy, n_peers_range, max_events)
+        .prop_map(|(schedule, _shadow)| schedule)
+}
+
+/// Variant of [`arb_membership_schedule`] that also yields the shadow
+/// simulator's final state, for the membership shadow-validity meta-test.
+pub fn arb_membership_schedule_with_shadow<T, S>(
+    value_strategy: S,
+    n_peers_range: RangeInclusive<usize>,
+    max_events: usize,
+) -> impl Strategy<Value = (Schedule<T>, ShadowFinal)>
+where
+    T: Clone + Debug + 'static,
+    S: Strategy<Value = T> + Clone + 'static,
+{
+    arb_schedule_with_shadow_using(n_peers_range, max_events, move |_n_peers| {
+        arb_membership_choice(value_strategy.clone())
+    })
+}
+
+/// The shared schedule-generation core, parameterized by the per-fleet
+/// choice strategy (the alphabet): both the membership-free and the
+/// membership generators are this function with their own alphabets.
+///
+/// Alongside the event choices, it draws raw entropy for the fork
+/// topology: one value per non-seed peer, folded into a valid parent
+/// index by [`fork_tree`]. Drawing it here (rather than fixing a star)
+/// exercises imbalanced fork lattices, which stress the ITC party
+/// arithmetic.
+fn arb_schedule_with_shadow_using<T, C, F>(
+    n_peers_range: RangeInclusive<usize>,
+    max_events: usize,
+    choice_strategy: F,
+) -> impl Strategy<Value = (Schedule<T>, ShadowFinal)>
+where
+    T: Clone + Debug + 'static,
+    C: Strategy<Value = Choice<T>>,
+    F: Fn(usize) -> C + Clone + 'static,
+{
     n_peers_range.prop_flat_map(move |n_peers| {
-        // Alongside the event choices, draw raw entropy for the fork topology:
-        // one value per non-seed peer, folded into a valid parent index by
-        // [`fork_tree`]. Drawing it here (rather than fixing a star) exercises
-        // imbalanced fork lattices, which stress the ITC party arithmetic.
         (
             vec(any::<usize>(), n_peers.saturating_sub(1)),
-            vec(arb_choice(value_strategy.clone(), n_peers), 0..=max_events),
+            vec(choice_strategy(n_peers), 0..=max_events),
         )
             .prop_map(move |(raw_parents, choices)| {
                 let fork_parents = fork_tree(n_peers, &raw_parents);
@@ -96,6 +167,11 @@ fn fork_tree(n_peers: usize, raw: &[usize]) -> Vec<usize> {
 /// Abstract action the strategy emits. Concrete `Event`s are derived
 /// from these in [`build_schedule`] by consulting a per-peer
 /// observation log that mirrors the protocol's effects.
+///
+/// Peer fields are raw entropy, resolved against the alive population at
+/// build time (`alive[raw % alive.len()]`). The membership-free strategy
+/// draws them already in `0..n_peers`, where the resolution is the
+/// identity — its emitted schedules are untouched by the mapping.
 #[derive(Debug, Clone)]
 enum Choice<T> {
     Insert {
@@ -112,6 +188,18 @@ enum Choice<T> {
         a: usize,
         b: usize,
     },
+    /// Bootstrap a new peer from the resolved parent. Membership
+    /// strategy only.
+    Bootstrap {
+        parent: usize,
+    },
+    /// Retire the resolved retiree into a distinct alive absorber
+    /// (`absorber` is an offset among the other alive peers); dropped
+    /// when fewer than two peers are alive. Membership strategy only.
+    Retire {
+        retiree: usize,
+        absorber: usize,
+    },
 }
 
 fn arb_choice<T, S>(value_strategy: S, n_peers: usize) -> impl Strategy<Value = Choice<T>>
@@ -126,6 +214,27 @@ where
             .prop_map(|(peer, idx)| Choice::RedactObservation { peer, idx }),
         3 => (0..n_peers, 0..n_peers)
             .prop_map(|(a, b)| Choice::Gossip { a, b }),
+    ]
+}
+
+/// [`arb_choice`] plus the membership alphabet. Peer references draw raw
+/// entropy (the population grows mid-schedule, so no closed range fits);
+/// weights keep the churn meaningful without drowning the content events.
+fn arb_membership_choice<T, S>(value_strategy: S) -> impl Strategy<Value = Choice<T>>
+where
+    T: Clone + Debug + 'static,
+    S: Strategy<Value = T> + Clone + 'static,
+{
+    prop_oneof![
+        4 => (any::<usize>(), value_strategy)
+            .prop_map(|(peer, value)| Choice::Insert { peer, value }),
+        2 => (any::<usize>(), any::<usize>())
+            .prop_map(|(peer, idx)| Choice::RedactObservation { peer, idx }),
+        3 => (any::<usize>(), any::<usize>())
+            .prop_map(|(a, b)| Choice::Gossip { a, b }),
+        1 => any::<usize>().prop_map(|parent| Choice::Bootstrap { parent }),
+        1 => (any::<usize>(), any::<usize>())
+            .prop_map(|(retiree, absorber)| Choice::Retire { retiree, absorber }),
     ]
 }
 
@@ -147,6 +256,11 @@ struct SimState {
     ever_known: Vec<BTreeSet<EventIdx>>,
     live: Vec<BTreeSet<EventIdx>>,
     observed_log: Vec<Vec<EventIdx>>,
+    /// Which peers are in the fleet right now; membership events flip
+    /// entries. Every peer reference a choice carries resolves through
+    /// [`alive_peers`](Self::alive_peers), so no emitted event ever
+    /// names a retired peer.
+    alive: Vec<bool>,
 }
 
 impl SimState {
@@ -155,6 +269,69 @@ impl SimState {
             ever_known: vec![BTreeSet::new(); n_peers],
             live: vec![BTreeSet::new(); n_peers],
             observed_log: vec![Vec::new(); n_peers],
+            alive: vec![true; n_peers],
+        }
+    }
+
+    /// Indices of the peers currently in the fleet.
+    fn alive_peers(&self) -> Vec<usize> {
+        (0..self.alive.len()).filter(|&p| self.alive[p]).collect()
+    }
+
+    /// Mint a new peer as a bootstrap copy of `parent`.
+    ///
+    /// The newcomer holds everything the parent holds (including the
+    /// version frontier that carries the parent's redactions), but its
+    /// observation log starts empty — content already present at birth
+    /// is never observed, matching the executor's `Peer::new`
+    /// checkpoint semantics.
+    fn record_bootstrap(&mut self, parent: usize) -> usize {
+        let newcomer = self.alive.len();
+        self.ever_known.push(self.ever_known[parent].clone());
+        self.live.push(self.live[parent].clone());
+        self.observed_log.push(Vec::new());
+        self.alive.push(true);
+        newcomer
+    }
+
+    /// Retire `retiree` into `absorber`, freezing the retiree's log and
+    /// live set.
+    ///
+    /// One [`absorb`](Self::absorb): the retiree's state is never read
+    /// again, and the real executor consumes the peer before anything
+    /// could observe what the session taught it.
+    fn record_retire(&mut self, retiree: usize, absorber: usize) {
+        self.absorb(retiree, absorber);
+        self.alive[retiree] = false;
+    }
+
+    /// One direction of a reconciliation: `dst` ends holding the union
+    /// of both contents — it learns `src`'s novel live keys (observing
+    /// them) and either side's redaction prevails in `dst` — while `src`
+    /// is untouched.
+    ///
+    /// A full gossip is an absorb each way; a retirement is one absorb
+    /// into the survivor.
+    fn absorb(&mut self, src: usize, dst: usize) {
+        let combined: BTreeSet<EventIdx> = self.ever_known[src]
+            .union(&self.ever_known[dst])
+            .copied()
+            .collect();
+        for k in combined {
+            let src_known = self.ever_known[src].contains(&k);
+            let src_live = self.live[src].contains(&k);
+            let dst_known = self.ever_known[dst].contains(&k);
+            let dst_live = self.live[dst].contains(&k);
+            let any_redacted = (src_known && !src_live) || (dst_known && !dst_live);
+
+            if any_redacted {
+                self.ever_known[dst].insert(k);
+                self.live[dst].remove(&k);
+            } else if !dst_known {
+                self.ever_known[dst].insert(k);
+                self.live[dst].insert(k);
+                self.observed_log[dst].push(k);
+            }
         }
     }
 
@@ -176,55 +353,13 @@ impl SimState {
             return;
         }
         // The hash-tree mirror reconciles *every* tree position that
-        // differs. The receiver learns live values (with an `on_message`
-        // callback) and also converges on redactions — but a redaction
-        // carries no marker: the mirror infers it from the version frontier
-        // (one side's version dominates a leaf the other has dropped) and
-        // silently removes the leaf, firing no callback. Walking the union of
-        // each side's `ever_known` lets us model both in one pass.
-        //
-        // For each key any side has ever held:
-        //
-        //  - If either side has it redacted (in `ever_known` but
-        //    not in `live`), the redaction is contagious: both
-        //    sides end up with the key in `ever_known` and out of
-        //    `live`. No observation fires.
-        //  - Otherwise (no side has redacted yet), the value
-        //    propagates to whichever side hasn't seen it; that side
-        //    appends the `EventIdx` to its `observed_log`.
-        let combined: BTreeSet<EventIdx> = self.ever_known[a]
-            .union(&self.ever_known[b])
-            .copied()
-            .collect();
-        for k in combined {
-            let a_known = self.ever_known[a].contains(&k);
-            let b_known = self.ever_known[b].contains(&k);
-            let a_live = self.live[a].contains(&k);
-            let b_live = self.live[b].contains(&k);
-            let any_redacted = (a_known && !a_live) || (b_known && !b_live);
-
-            if any_redacted {
-                if !a_known {
-                    self.ever_known[a].insert(k);
-                }
-                if !b_known {
-                    self.ever_known[b].insert(k);
-                }
-                self.live[a].remove(&k);
-                self.live[b].remove(&k);
-            } else {
-                if !a_known {
-                    self.ever_known[a].insert(k);
-                    self.live[a].insert(k);
-                    self.observed_log[a].push(k);
-                }
-                if !b_known {
-                    self.ever_known[b].insert(k);
-                    self.live[b].insert(k);
-                    self.observed_log[b].push(k);
-                }
-            }
-        }
+        // differs; an absorb in each direction reproduces its fixed
+        // point (the second pass reads the first's updates, so a
+        // redaction on either side prevails in both), and per-peer
+        // observation order is unchanged: each side still gains novel
+        // keys in sorted combined order.
+        self.absorb(a, b);
+        self.absorb(b, a);
     }
 
     fn lookup_observation(&self, peer: usize, idx: usize) -> Option<EventIdx> {
@@ -246,12 +381,19 @@ fn build_schedule<T>(
     let mut events: Vec<Event<T>> = Vec::new();
     for choice in choices {
         let next_event_idx = events.len();
+        // Resolve every raw peer reference against the population alive
+        // right now; for the membership-free strategy this is the
+        // identity (references are drawn in range and nobody retires).
+        let alive = sim.alive_peers();
+        let resolve = |raw: usize| alive[raw % alive.len()];
         match choice {
             Choice::Insert { peer, value } => {
+                let peer = resolve(peer);
                 sim.record_insert(peer, next_event_idx);
                 events.push(Event::Insert { peer, value });
             }
             Choice::RedactObservation { peer, idx } => {
+                let peer = resolve(peer);
                 if let Some(target_event_idx) = sim.lookup_observation(peer, idx) {
                     sim.record_redact(peer, target_event_idx);
                     events.push(Event::Redact {
@@ -264,16 +406,41 @@ fn build_schedule<T>(
                 // `redact()` call. Drop the choice.
             }
             Choice::Gossip { a, b } => {
+                let (a, b) = (resolve(a), resolve(b));
                 if a == b {
                     continue;
                 }
                 sim.gossip(a, b);
                 events.push(Event::Gossip { a, b });
             }
+            Choice::Bootstrap { parent } => {
+                let parent = resolve(parent);
+                let newcomer = sim.record_bootstrap(parent);
+                events.push(Event::Bootstrap { parent, newcomer });
+            }
+            Choice::Retire { retiree, absorber } => {
+                // Retirement needs a distinct absorber: with fewer than
+                // two peers alive no application could retire anyone, so
+                // the choice is dropped. The absorber offset picks among
+                // the *other* alive peers, keeping the pair distinct by
+                // construction.
+                if alive.len() < 2 {
+                    continue;
+                }
+                let retiree_pos = retiree % alive.len();
+                let absorber_pos = (retiree_pos + 1 + (absorber % (alive.len() - 1))) % alive.len();
+                let retiree = alive[retiree_pos];
+                let absorber = alive[absorber_pos];
+                sim.record_retire(retiree, absorber);
+                events.push(Event::Retire { retiree, absorber });
+            }
         }
     }
     let SimState {
-        observed_log, live, ..
+        observed_log,
+        live,
+        alive,
+        ..
     } = sim;
     (
         Schedule {
@@ -281,6 +448,10 @@ fn build_schedule<T>(
             fork_parents,
             events,
         },
-        ShadowFinal { observed_log, live },
+        ShadowFinal {
+            observed_log,
+            live,
+            alive,
+        },
     )
 }

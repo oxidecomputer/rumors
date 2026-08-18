@@ -34,7 +34,21 @@
 //!    phase that moves whole parties, exercising the
 //!    recovered/uncertain/retired algebra under fire.
 //! 4. The caller heals the survivors ([`quiesce`]) and asserts the global
-//!    invariants ([`assert_party_invariants`], [`assert_converged`]).
+//!    invariants ([`assert_party_invariants`], [`assert_converged`],
+//!    [`assert_deletion_honored`], [`assert_value_oracle`]).
+//!
+//! # The value oracle
+//!
+//! Peer-vs-peer equality ([`assert_converged`]) cannot see a bug in which
+//! every survivor agrees on the *wrong* set, so the engine also keeps a
+//! content ledger independent of the merge machinery: every inserted value
+//! is known from the plan, and every executed redaction is logged at
+//! execution time by [`run_activity`] — execution time because a
+//! [`Activity::Redact`] resolves its target against the peer's snapshot
+//! only when it runs, so no pre-run analysis of the plan can know which
+//! `(Key, value)` it removed. [`SimOutcome`] carries both sides of the
+//! ledger; [`assert_deletion_honored`] and [`assert_value_oracle`] check
+//! the converged fleet against it.
 //!
 //! # Loss accounting
 //!
@@ -43,12 +57,20 @@
 //! [`Retire::Uncertain`] whose absorber also failed. The engine counts
 //! every such *possible* loss conservatively in
 //! [`SimOutcome::possible_losses`]. Disjointness must hold regardless;
-//! the sharper invariant — the surviving parties fold-join back to exactly
-//! [`Party::seed`] — is asserted whenever the count is zero (which the
-//! plan generator arranges often, by disabling fault injection entirely in
-//! half its plans).
+//! the sharper invariants — the surviving parties fold-join back to exactly
+//! [`Party::seed`], and the converged value multiset equals the ledger's
+//! inserts minus redactions — are asserted whenever the count is zero
+//! (which the plan generator arranges often, by disabling fault injection
+//! entirely in half its plans). Zero possible losses covers message
+//! content across faulted retires, not only id-regions: every retire arm
+//! either leaves the retiree whole ([`Retire::Recovered`]), confirms a
+//! committed absorber session — which, per [`Peer::retire`]'s contract
+//! (a session reconciles content exactly as gossip would), holds the
+//! union including the retiree's unique messages and redactions — or
+//! increments the counter; and a faulted bootstrap risks only identity
+//! space, because a newborn holds no unique content.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::convert::Infallible;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -61,13 +83,25 @@ use rumors::error::{
 use rumors::{Error, Key, MirrorError, Peer, Retire, Rumors, Version};
 
 use crate::common::fault::{self, FaultPlan};
-use crate::common::oracle::readout;
+use crate::common::oracle::{readout, readout_multiset};
+use crate::common::window::{WindowAssignment, WindowChoice, arb_window_choice};
 use crate::common::wire::wire_gossip_async;
 
-/// Upper bound on the byte offset at which a cut can land. Sessions in
-/// these plans are small, so this comfortably spans everything from the
-/// first preamble byte to deep inside the reconciliation descent.
-const MAX_CUT: usize = 2048;
+/// Upper bound on the byte offset at which a cut can land.
+///
+/// Derived from measurement, not transcribed: the envelope session —
+/// a fully-divergent pair on the generator's maximal fork lattice, each
+/// endpoint holding more unique content than an entire plan can mint,
+/// every party's ticks entangled into the version bounds, at the
+/// sweep's widest window — moves fewer bytes per endpoint than this
+/// bound, and the bound stays within twice that measurement, so
+/// generated cuts reach every byte of the envelope and keep landing
+/// inside real sessions. The envelope dominates plan sessions exactly
+/// on value count and representatively on version shapes (the boundary
+/// is stated at the pin); the two-sided pin is
+/// `max_cut_spans_the_envelope_session` in `tests/disruption.rs` —
+/// re-measure there before touching this number.
+pub const MAX_CUT: usize = 3072;
 
 /// Headroom on the heal loop, as in `peer::quiesce`.
 const MAX_QUIESCE_ROUNDS_PER_PEER: usize = 16;
@@ -93,6 +127,13 @@ pub struct Plan {
     pub sessions: Vec<Session>,
     /// Retirements run after the chaos phase settles.
     pub retires: Vec<RetireOp>,
+    /// Window choices for the whole fleet: founder `i` runs at
+    /// `windows.choice(i)`, and a newcomer bootstrapped by
+    /// `faulty_boots[j]` takes `windows.choice(j)`.
+    ///
+    /// Founders draw independently, so the chaos includes sessions
+    /// between differently-configured endpoints.
+    pub windows: WindowAssignment,
 }
 
 /// One local operation in a peer's concurrent activity script.
@@ -125,17 +166,113 @@ pub struct RetireOp {
     pub fault: FaultPlan,
 }
 
+/// One executed redaction, logged by [`run_activity`] at the moment it
+/// resolved its target, and deduplicated per [`Key`] (two peers racing to
+/// redact the same key are one redaction of it).
+#[derive(Debug, Clone, Copy)]
+pub struct Redaction {
+    /// The key actually redacted.
+    pub key: Key,
+    /// The value that key carried, read from the redactor's snapshot in
+    /// the same pass that selected the key.
+    pub value: u64,
+    /// Whether the redaction is guaranteed present in the surviving
+    /// fleet's causal history.
+    ///
+    /// Retention means some logging founder's final content reached the
+    /// survivors through an unbroken chain of committed transfers
+    /// ([`lost_custody`]): it survived to the heal phase itself, or
+    /// every hop of its retire chain committed.
+    ///
+    /// A redaction whose every logger's custody chain was broken by a
+    /// loss arm may honestly never reach the survivors, so only
+    /// retained redactions are subject to [`assert_deletion_honored`];
+    /// with [`SimOutcome::possible_losses`] zero, every redaction is
+    /// retained.
+    pub retained: bool,
+}
+
+/// How one executed retirement moved content custody between fleet slots.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Transfer {
+    /// The retiree recovered whole: custody never moved.
+    Recovered,
+    /// The absorber committed its session: everything the retiree carried
+    /// now rides in the absorber.
+    ///
+    /// Sound by [`Peer::retire`]'s contract — a retirement session
+    /// reconciles content exactly as gossip would, *then* the peer
+    /// absorbs the identity — so an absorber whose session committed has
+    /// completed the content reconciliation and holds the full union; no
+    /// commit-before-transfer ordering exists.
+    Committed,
+    /// The absorber's session failed: everything the retiree carried may
+    /// be gone with it.
+    Lost,
+}
+
+/// Which founders' final content may have failed to reach the surviving
+/// fleet, given the executed retire sequence.
+///
+/// Custody is transitive: a founder's content is retained only through
+/// an unbroken chain of committed transfers.
+///
+/// A founder that retired into a committed absorber rides in that
+/// absorber — and is lost with it if the absorber is later dropped in a
+/// loss arm. Each slot starts carrying its own founder; a committed
+/// transfer moves the retiree's whole cargo into the absorber, a lost
+/// transfer forfeits it, and a recovery moves nothing.
+pub fn lost_custody(n_founders: usize, transfers: &[(usize, usize, Transfer)]) -> BTreeSet<usize> {
+    // carriers[slot] = the founders whose final content currently rides
+    // in that slot's peer.
+    let mut carriers: Vec<BTreeSet<usize>> = (0..n_founders).map(|i| BTreeSet::from([i])).collect();
+    let mut lost = BTreeSet::new();
+    for &(retiree, absorber, transfer) in transfers {
+        match transfer {
+            Transfer::Recovered => {}
+            Transfer::Committed => {
+                let cargo = std::mem::take(&mut carriers[retiree]);
+                carriers[absorber].extend(cargo);
+            }
+            Transfer::Lost => {
+                lost.extend(std::mem::take(&mut carriers[retiree]));
+            }
+        }
+    }
+    lost
+}
+
 /// What a [`run_plan`] execution leaves behind for the caller's assertions.
 pub struct SimOutcome {
     /// Every peer still alive: the fleet minus retired/consumed members.
     pub peers: Vec<Rumors<u64>>,
     /// Conservative count of hand-offs in which an id-region *may* have
     /// been lost in flight; see the module docs. Zero enables the sharp
-    /// seed-reconstitution check.
+    /// seed-reconstitution and value-multiset checks.
     pub possible_losses: usize,
+    /// Every value the plan inserted anywhere: the seed's pre-fork batch
+    /// plus every [`Activity::Send`] executed by a founder's script.
+    ///
+    /// Inserts are local operations and always execute, so this side of
+    /// the ledger is known from the plan alone.
+    pub inserted: Vec<u64>,
+    /// The execution-time redaction log; see [`Redaction`].
+    pub redactions: Vec<Redaction>,
 }
 
 // ---- strategies ------------------------------------------------------------
+
+/// Most peers a plan's founding fleet can hold. Every bound here is
+/// public so dominance arguments (the envelope session pin in
+/// `tests/disruption.rs`) derive from the generator instead of
+/// transcribing it.
+pub const MAX_PLAN_PEERS: usize = 5;
+
+/// Most messages a plan can insert at the seed before forking.
+pub const MAX_PLAN_SEED_MESSAGES: usize = 7;
+
+/// Most operations one founder's activity script can carry.
+pub const MAX_PLAN_SCRIPT_OPS: usize = 7;
 
 /// Strategy for one endpoint's fault plan.
 ///
@@ -190,22 +327,30 @@ fn arb_retire(n: usize, faults: bool) -> impl Strategy<Value = RetireOp> {
 /// seed-reconstitution invariant is exercised as often as the disruption
 /// paths.
 pub fn arb_plan() -> impl Strategy<Value = Plan> {
-    (any::<bool>(), 2usize..=5).prop_flat_map(|(faults, n)| {
+    // Draw order is part of the seed-compatibility surface: committed
+    // regression seeds regenerate each field from a stable prefix of the
+    // RNG stream, so `windows` draws last.
+    (any::<bool>(), 2usize..=MAX_PLAN_PEERS).prop_flat_map(|(faults, n)| {
         (
-            prop::collection::vec(any::<u64>(), 0..8),
+            prop::collection::vec(any::<u64>(), 0..=MAX_PLAN_SEED_MESSAGES),
             prop::collection::vec(arb_fault(faults), 0..=3),
-            prop::collection::vec(prop::collection::vec(arb_activity(), 0..8), n),
+            prop::collection::vec(
+                prop::collection::vec(arb_activity(), 0..=MAX_PLAN_SCRIPT_OPS),
+                n,
+            ),
             prop::collection::vec(arb_session(n, faults), 1..16),
             prop::collection::vec(arb_retire(n, faults), 0..=2),
+            prop::collection::vec(arb_window_choice(), n),
         )
             .prop_map(
-                move |(seed_messages, faulty_boots, scripts, sessions, retires)| Plan {
+                move |(seed_messages, faulty_boots, scripts, sessions, retires, windows)| Plan {
                     n_peers: n,
                     seed_messages,
                     faulty_boots,
                     scripts,
                     sessions,
                     retires,
+                    windows: WindowAssignment::new(windows),
                 },
             )
     })
@@ -337,7 +482,11 @@ async fn run_session(a: Rumors<u64>, b: Rumors<u64>, fault_a: FaultPlan, fault_b
 /// frames dying in flight). A joiner that fails may or may not have cost
 /// the server its donated fork, so it conservatively counts as a possible
 /// loss either way.
-async fn run_boot(server: Rumors<u64>, fault: FaultPlan) -> Option<Peer<u64>> {
+async fn run_boot(
+    server: Rumors<u64>,
+    fault: FaultPlan,
+    window: WindowChoice,
+) -> Option<Peer<u64>> {
     let (boot_side, serve_side) = rumors::link::memory();
     let serve = tokio::spawn(async move {
         let mut link = fault::faulty(serve_side, FaultPlan::NONE);
@@ -349,7 +498,7 @@ async fn run_boot(server: Rumors<u64>, fault: FaultPlan) -> Option<Peer<u64>> {
     });
     assert_honest_gossip(&serve.await.expect("bootstrap serve task"));
     match boot.await.expect("bootstrap join task") {
-        Ok(Some(newcomer)) => Some(newcomer),
+        Ok(Some(newcomer)) => Some(window.apply(newcomer)),
         Ok(None) => unreachable!("the serving peer is never itself bootstrapping"),
         Err(e) => {
             assert_honest_error(&e);
@@ -360,21 +509,35 @@ async fn run_boot(server: Rumors<u64>, fault: FaultPlan) -> Option<Peer<u64>> {
 
 /// Run one peer's activity script, yielding between operations so it
 /// interleaves with every in-flight session.
-async fn run_activity(handle: Rumors<u64>, script: Vec<Activity>) {
+///
+/// Returns the `(Key, value)` of every redaction actually executed: the
+/// target resolves against the peer's snapshot only here, so this
+/// execution-time log is the one ground truth of what the plan redacted
+/// (the value oracle's deletion side; see the module docs).
+///
+/// A logged key may race a sibling's redaction of the same key; either
+/// way the key ends redacted network-wide, so the log stays sound and
+/// [`run_plan`] deduplicates by key.
+async fn run_activity(handle: Rumors<u64>, script: Vec<Activity>) -> Vec<(Key, u64)> {
+    let mut redacted = Vec::new();
     for op in script {
         match op {
             Activity::Send(value) => {
                 handle.send(value);
             }
             Activity::Redact(index) => {
-                let keys: Vec<Key> = handle.snapshot().iter().map(|(k, _, _)| k).collect();
-                if !keys.is_empty() {
-                    handle.redact(keys[index % keys.len()]);
+                let live: Vec<(Key, u64)> =
+                    handle.snapshot().iter().map(|(k, _, m)| (k, **m)).collect();
+                if !live.is_empty() {
+                    let (key, value) = live[index % live.len()];
+                    handle.redact(key);
+                    redacted.push((key, value));
                 }
             }
         }
         tokio::task::yield_now().await;
     }
+    redacted
 }
 
 /// Drain one peer's observers — one of each kind — concurrently with the
@@ -488,8 +651,26 @@ pub async fn probe_disjointness(handles: Vec<Rumors<u64>>, done: Arc<AtomicBool>
 pub async fn run_plan(plan: Plan) -> SimOutcome {
     let mut possible_losses = 0usize;
 
-    // Phase 1: fleet. The seed's content predates every fork.
-    let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    // The insert side of the value ledger, known from the plan alone:
+    // sends are local operations and always execute.
+    let inserted: Vec<u64> = plan
+        .seed_messages
+        .iter()
+        .copied()
+        .chain(plan.scripts.iter().flatten().filter_map(|op| match op {
+            Activity::Send(value) => Some(*value),
+            Activity::Redact(_) => None,
+        }))
+        .collect();
+
+    // Phase 1: fleet. The seed's content predates every fork. Each
+    // founder runs at its planned window choice, so the chaos phase mixes
+    // floor, budgeted, and default windows across concurrent sessions.
+    let seed = plan
+        .windows
+        .choice(0)
+        .apply(Peer::<u64>::seed())
+        .into_rumors();
     {
         let mut batch = seed.batch();
         for &v in &plan.seed_messages {
@@ -497,8 +678,12 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
         }
     }
     let mut fleet: Vec<Rumors<u64>> = vec![seed];
-    for _ in 1..plan.n_peers {
-        let child = crate::common::wire::bootstrap_fork_async(&fleet[0]).await;
+    for i in 1..plan.n_peers {
+        let child = crate::common::wire::bootstrap_fork_with_window_async(
+            &fleet[0],
+            plan.windows.choice(i),
+        )
+        .await;
         fleet.push(child);
     }
 
@@ -513,12 +698,13 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
         .map(|handle| tokio::spawn(run_observers(handle.clone(), Arc::clone(&done))))
         .collect();
 
-    let mut tasks = Vec::new();
+    let mut activity_tasks = Vec::new();
     for (handle, script) in casts.iter().zip(&plan.scripts) {
-        tasks.push(tokio::spawn(run_activity(handle.clone(), script.clone())));
+        activity_tasks.push(tokio::spawn(run_activity(handle.clone(), script.clone())));
     }
+    let mut session_tasks = Vec::new();
     for s in &plan.sessions {
-        tasks.push(tokio::spawn(run_session(
+        session_tasks.push(tokio::spawn(run_session(
             casts[s.a].clone(),
             casts[s.b].clone(),
             s.fault_a,
@@ -529,10 +715,21 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
         .faulty_boots
         .iter()
         .enumerate()
-        .map(|(i, fault)| tokio::spawn(run_boot(casts[i % casts.len()].clone(), *fault)))
+        .map(|(i, fault)| {
+            tokio::spawn(run_boot(
+                casts[i % casts.len()].clone(),
+                *fault,
+                plan.windows.choice(i),
+            ))
+        })
         .collect();
-    for task in tasks {
-        task.await.expect("chaos task");
+    // Per-founder execution-time redaction logs, indexed like `casts`.
+    let mut redaction_logs: Vec<Vec<(Key, u64)>> = Vec::with_capacity(activity_tasks.len());
+    for task in activity_tasks {
+        redaction_logs.push(task.await.expect("activity task"));
+    }
+    for task in session_tasks {
+        task.await.expect("session task");
     }
     let mut newcomers = Vec::new();
     for task in boot_tasks {
@@ -562,6 +759,11 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
     // heal and party audit as the founding fleet. Appended after the
     // founders, they sit above every index a `RetireOp` can name.
     slots.extend(newcomers.into_iter().map(Some));
+
+    // How each executed retirement moved content custody, in execution
+    // order; folded into the lost-founder set by [`lost_custody`] once
+    // the sequence is complete (see [`Redaction::retained`]).
+    let mut transfers: Vec<(usize, usize, Transfer)> = Vec::new();
 
     for op in &plan.retires {
         // A slot emptied by an earlier retirement skips the op.
@@ -593,22 +795,31 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
             // failed too, delivery is unconfirmed on both sides and the
             // region may be in limbo.
             Retire::Retired => {
-                if absorbed.is_err() {
+                let transfer = if absorbed.is_err() {
                     possible_losses += 1;
-                }
+                    Transfer::Lost
+                } else {
+                    Transfer::Committed
+                };
+                transfers.push((op.retiree, op.absorber, transfer));
             }
             // The party never crossed the wire: the retiree survives whole.
             Retire::Recovered { peer, error } => {
                 assert_honest_error(&error);
                 slots[op.retiree] = Some(peer);
+                transfers.push((op.retiree, op.absorber, Transfer::Recovered));
             }
             // In flight when the wire died. If the absorber committed
             // cleanly it holds the party (no loss); otherwise it is gone.
             Retire::Uncertain { error } => {
                 assert_honest_error(&error);
-                if absorbed.is_err() {
+                let transfer = if absorbed.is_err() {
                     possible_losses += 1;
-                }
+                    Transfer::Lost
+                } else {
+                    Transfer::Committed
+                };
+                transfers.push((op.retiree, op.absorber, transfer));
             }
             Retire::Declined { .. } => {
                 unreachable!("the absorber runs plain gossip and never declines")
@@ -622,9 +833,33 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
         );
     }
 
+    // Deduplicate the redaction ledger by key: racing redactors of one key
+    // are one redaction of it, retained if *any* logger's final content
+    // reached the surviving fleet. Content addressing makes the key→value
+    // binding immutable, so colliding logs always agree on the value.
+    let lost_founders = lost_custody(plan.n_peers, &transfers);
+    let mut by_key: BTreeMap<Key, Redaction> = BTreeMap::new();
+    for (founder, log) in redaction_logs.iter().enumerate() {
+        let retained = !lost_founders.contains(&founder);
+        for &(key, value) in log {
+            let entry = by_key.entry(key).or_insert(Redaction {
+                key,
+                value,
+                retained: false,
+            });
+            assert_eq!(
+                entry.value, value,
+                "one key logged with two values: content addressing is broken"
+            );
+            entry.retained |= retained;
+        }
+    }
+
     SimOutcome {
         peers: slots.into_iter().flatten().map(Peer::into_rumors).collect(),
         possible_losses,
+        inserted,
+        redactions: by_key.into_values().collect(),
     }
 }
 
@@ -637,51 +872,129 @@ pub async fn quiesce(peers: &[Rumors<u64>]) {
     if n < 2 {
         return;
     }
+    let fingerprint = |p: &Rumors<u64>| {
+        let snapshot = p.snapshot();
+        (snapshot.hash(), snapshot.latest().clone())
+    };
     let max_rounds = MAX_QUIESCE_ROUNDS_PER_PEER * n;
     for _ in 0..max_rounds {
-        let before: Vec<([u8; rumors::MERKLE_HASH_LEN], Version)> = peers
-            .iter()
-            .map(|p| {
-                let snapshot = p.snapshot();
-                (snapshot.hash(), snapshot.latest().clone())
-            })
-            .collect();
+        // Identical fingerprints are the fixed point itself: peers with
+        // equal content and version exchange nothing, so no confirming
+        // mesh round is owed.
+        let first: ([u8; rumors::MERKLE_HASH_LEN], Version) = fingerprint(&peers[0]);
+        if peers[1..].iter().all(|p| fingerprint(p) == first) {
+            return;
+        }
         for i in 0..n {
             for j in (i + 1)..n {
                 wire_gossip_async(&peers[i], &peers[j]).await;
             }
         }
-        let changed = peers.iter().zip(&before).any(|(p, (hash, latest))| {
-            let snapshot = p.snapshot();
-            snapshot.hash() != *hash || snapshot.latest() != latest
-        });
-        if !changed {
-            return;
-        }
     }
     panic!("heal phase did not converge within {max_rounds} rounds for {n} peers");
 }
 
+/// One readout per survivor, in fleet order: the `Key → value` lens
+/// every converged-fleet assertion consumes.
+///
+/// Compute once after the heal and thread through [`assert_converged`],
+/// [`assert_deletion_honored`], and [`assert_value_oracle`].
+pub fn survivor_readouts(peers: &[Rumors<u64>]) -> Vec<BTreeMap<Key, u64>> {
+    peers.iter().map(|p| readout(&p.snapshot())).collect()
+}
+
 /// After healing, every survivor holds identical live content: equal
 /// `Key → value` readouts, equal observable hashes, equal causal versions.
-pub fn assert_converged(peers: &[Rumors<u64>]) {
+///
+/// `readouts` is the fleet's [`survivor_readouts`], indexed like `peers`.
+pub fn assert_converged(peers: &[Rumors<u64>], readouts: &[BTreeMap<Key, u64>]) {
+    assert_eq!(peers.len(), readouts.len(), "one readout per survivor");
     let Some(first) = peers.first() else { return };
     let snapshot = first.snapshot();
-    let expected = (
-        readout(&snapshot),
-        snapshot.hash(),
-        snapshot.latest().clone(),
-    );
+    let expected = (&readouts[0], snapshot.hash(), snapshot.latest().clone());
     for (i, peer) in peers.iter().enumerate().skip(1) {
         let snapshot = peer.snapshot();
-        let actual = (
-            readout(&snapshot),
-            snapshot.hash(),
-            snapshot.latest().clone(),
-        );
+        let actual = (&readouts[i], snapshot.hash(), snapshot.latest().clone());
         assert_eq!(
             actual, expected,
             "peer {i} diverged from peer 0 after the heal phase"
+        );
+    }
+}
+
+/// Asserts deletion honoring against the execution-time redaction log: no
+/// retained redaction's key is live at any survivor.
+///
+/// Unconditional over every retained redaction — and every redaction is
+/// retained when [`SimOutcome::possible_losses`] is zero. A non-retained
+/// redaction (its every logger dropped in a retire loss arm) may honestly
+/// never have reached the survivors, so it is exempt: asserting it would
+/// fail runs in which the protocol did nothing wrong.
+pub fn assert_deletion_honored(readouts: &[BTreeMap<Key, u64>], redactions: &[Redaction]) {
+    for redaction in redactions.iter().filter(|r| r.retained) {
+        for (i, live) in readouts.iter().enumerate() {
+            assert!(
+                !live.contains_key(&redaction.key),
+                "deletion honoring violated: key {:?} (value {}) was redacted \
+                 during the run, the redaction is retained in the surviving \
+                 fleet's history, and yet the key is live at survivor {i}",
+                redaction.key,
+                redaction.value,
+            );
+        }
+    }
+}
+
+/// Asserts the converged value multiset equals the ledger: every survivor's
+/// live values are exactly the plan's inserts minus one instance per
+/// redacted key.
+///
+/// Gated on `possible_losses == 0` (a nonzero count returns without
+/// checking): zero possible losses covers message content across faulted
+/// retires, not only id-regions — every retire arm either leaves the
+/// retiree whole, confirms a committed absorber session (which, per
+/// [`Peer::retire`]'s contract, reconciles content exactly as gossip
+/// would and so holds the union including the retiree's unique messages),
+/// or increments the counter; and a faulted bootstrap risks only identity
+/// space, because a newborn holds no unique content. Under that premise a
+/// loss-free run conserves every insert and propagates every redaction,
+/// so the multiset equality is exact.
+pub fn assert_value_oracle(
+    readouts: &[BTreeMap<Key, u64>],
+    possible_losses: usize,
+    inserted: &[u64],
+    redactions: &[Redaction],
+) {
+    if possible_losses != 0 {
+        return;
+    }
+    let mut expected: BTreeMap<u64, usize> = BTreeMap::new();
+    for &value in inserted {
+        *expected.entry(value).or_insert(0) += 1;
+    }
+    for redaction in redactions {
+        // Loss-free runs retain every redaction; each removes exactly one
+        // instance of its key's value. A redacted value absent from the
+        // insert ledger is a harness accounting bug, not a protocol bug.
+        match expected.get_mut(&redaction.value) {
+            Some(count) if *count > 0 => *count -= 1,
+            _ => panic!(
+                "value-ledger accounting bug: redacted key {:?} carried value \
+                 {}, which the insert ledger does not hold",
+                redaction.key, redaction.value,
+            ),
+        }
+    }
+    expected.retain(|_, count| *count > 0);
+    for (i, live) in readouts.iter().enumerate() {
+        let mut actual: BTreeMap<u64, usize> = BTreeMap::new();
+        for value in live.values() {
+            *actual.entry(*value).or_insert(0) += 1;
+        }
+        assert_eq!(
+            actual, expected,
+            "silent divergence from the value ledger: survivor {i}'s \
+             converged multiset differs from inserts minus redactions"
         );
     }
 }

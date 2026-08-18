@@ -107,11 +107,36 @@ where
 
 /// Drive every peer to a full-mesh fixed point.
 ///
-/// Repeatedly runs `gossip_step` over all pairs in a fixed order until no
-/// peer's live content (`hash`) or causal version (`latest`) changes for a
-/// full round. A bounded outer loop guards against pathological
-/// non-termination (which would itself be a bug the test should catch).
+/// See [`quiesce_refs`] for the fixed-point criterion and the
+/// non-termination guard.
 pub fn quiesce<T>(peers: &mut [Peer<T>])
+where
+    T: Clone + Eq + BorshSerialize + BorshDeserialize + Send + Sync + 'static,
+{
+    let mut refs: Vec<&mut Peer<T>> = peers.iter_mut().collect();
+    quiesce_refs(&mut refs);
+}
+
+/// Drive every live slot to a full-mesh fixed point: [`quiesce`] over a
+/// slotted fleet, skipping retired peers' vacated slots.
+pub fn quiesce_slots<T>(slots: &mut [Option<Peer<T>>])
+where
+    T: Clone + Eq + BorshSerialize + BorshDeserialize + Send + Sync + 'static,
+{
+    let mut refs: Vec<&mut Peer<T>> = slots.iter_mut().filter_map(Option::as_mut).collect();
+    quiesce_refs(&mut refs);
+}
+
+/// The convergence core: full-mesh `gossip_step` rounds until every peer
+/// reports one fingerprint (live-content hash plus causal version).
+///
+/// Identical fingerprints are the fixed point itself — peers with equal
+/// content and version exchange nothing — so the loop stops the moment a
+/// round ends uniform instead of spending a further full mesh round to
+/// confirm that nothing changes. A bounded outer loop guards against
+/// pathological non-termination (which would itself be a bug the test
+/// should catch).
+fn quiesce_refs<T>(peers: &mut [&mut Peer<T>])
 where
     T: Clone + Eq + BorshSerialize + BorshDeserialize + Send + Sync + 'static,
 {
@@ -120,29 +145,23 @@ where
         return;
     }
 
+    let fingerprint = |peer: &Peer<T>| {
+        let snapshot = peer.local.snapshot();
+        (snapshot.hash(), snapshot.latest().clone())
+    };
+
     let max_rounds = MAX_QUIESCE_ROUNDS_PER_PEER * n;
     for _ in 0..max_rounds {
-        let before: Vec<([u8; rumors::MERKLE_HASH_LEN], Version)> = peers
-            .iter()
-            .map(|p| {
-                let snapshot = p.local.snapshot();
-                (snapshot.hash(), snapshot.latest().clone())
-            })
-            .collect();
+        let first: ([u8; rumors::MERKLE_HASH_LEN], Version) = fingerprint(peers[0]);
+        if peers[1..].iter().all(|p| fingerprint(p) == first) {
+            return;
+        }
 
         for i in 0..n {
             for j in (i + 1)..n {
                 let (left, right) = peers.split_at_mut(j);
-                gossip_step(&mut left[i], &mut right[0]);
+                gossip_step(left[i], right[0]);
             }
-        }
-
-        let changed = peers.iter().zip(before.iter()).any(|(p, (hash, latest))| {
-            let snapshot = p.local.snapshot();
-            snapshot.hash() != *hash || snapshot.latest() != latest
-        });
-        if !changed {
-            return;
         }
     }
 
