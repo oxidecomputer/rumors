@@ -106,6 +106,10 @@ impl<'a, R: Read> FrameDecoder<'a, R> {
     fn supply<T>(&mut self) -> Result<LeafRun<T>, DecodeErrorKind> {
         let mut header = [0; LENGTH_HEADER_LEN];
         self.read_exact(&mut header, FramePart::SupplyLength)?;
+        // This oracle deliberately reads the whole declared body at once so
+        // it stays maximally simple; the async reader chunks its reads, and
+        // the framing differential proptest carries payload identity across
+        // the two shapes.
         let mut run = vec![0; u32::from_be_bytes(header) as usize];
         self.read_exact(&mut run, FramePart::SupplyRun)?;
 
