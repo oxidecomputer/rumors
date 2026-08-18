@@ -234,7 +234,9 @@ impl Hash for Base {
 // a word-scale magnitude takes the amortized-O(1) small path, a spilled one
 // the O(operand limbs) wide path — with the inline storage answering the
 // dispatch read in O(1). The differential tests below drive both dispatch
-// arms against an exact `IBig` oracle.
+// arms against an exact `IBig` oracle; the dispatch pins alongside them hold
+// `to_word` to that O(1) — word-scale answers exact, zero digit touches
+// under the limb-metered build.
 impl suanpan::Magnitude for Base {
     fn to_word(&self) -> Option<u64> {
         self.to_u64()
