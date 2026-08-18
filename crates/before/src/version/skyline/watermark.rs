@@ -749,15 +749,18 @@ impl<P> MinWeb<P> {
                     payload,
                 }) => {
                     // The width guards skip domination reads a top index could
-                    // never decide: in the digit engine `sign_dominates_at`
-                    // decides with two digits of clearance and refuses one
-                    // short — sufficient and necessary at that tier, suanpan's
-                    // `decided_domination_covers_extreme_accumulator_operands`
-                    // and `domination_decision_index_is_tight_at_floor_plus_two`
-                    // — so a comparable-scale hop pays no extra read. A
-                    // register-held side can certify with less clearance, so
-                    // the skip may forfeit that certificate; the forfeit only
-                    // reroutes the hop onto the comparable fold below.
+                    // never decide: in the digit engine, a `sign_dominates_at`
+                    // read one digit short of two digits of clearance never
+                    // certifies (suanpan's witness
+                    // `domination_decision_index_is_tight_at_floor_plus_two`),
+                    // while at the clearance line a decided certificate exists
+                    // and covers extreme redundant operands (suanpan's
+                    // `decided_domination_covers_extreme_accumulator_operands`)
+                    // — so the guards forfeit no decision the digit fold could
+                    // make, and a comparable-scale hop pays no extra read. A
+                    // register-held side can certify with less clearance; that
+                    // forfeited certificate only reroutes the hop onto the
+                    // comparable fold below.
                     // Tops are honest: a pushed difference had its sign read at
                     // push, and the residue collapses under its own reads here.
                     // Both sides are strictly positive, so a decided domination
