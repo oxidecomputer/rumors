@@ -632,7 +632,7 @@ fn a_reply_past_the_declared_set_len_fails_at_its_first_over_record() {
     // while the reply is still open.
     let overdrawn = |count: u64| {
         let (result, residency) = decode_metered(count, 1);
-        let error = result.err().expect(
+        let error = result.expect_err(
             "undetected over-supply: a reply past the declared set length \
              must fail at ingress, at its first over-declaration record",
         );
