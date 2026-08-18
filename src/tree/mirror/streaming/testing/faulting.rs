@@ -53,6 +53,14 @@ pub enum GreetingLie {
     /// Declare an empty set: the first absorbed honest supply overruns
     /// the declared length ([`Violation::OverdrawnSupply`]).
     ShrunkenSetLen,
+    /// Declare a single leaf while holding more: honest supply overruns
+    /// the nonzero allowance mid-session ([`Violation::OverdrawnSupply`]).
+    ///
+    /// The walk-side face of the lie the wire decoder catches within one
+    /// still-open reply: here the allowance admits supply before the
+    /// ledger's accumulation trips, unlike the zero declaration's
+    /// first-charge rejection.
+    UnderdeclaredSetLen,
     /// Declare more leaves than the tree holds; the session must
     /// complete cleanly.
     InflatedSetLen,
@@ -70,6 +78,7 @@ pub enum GreetingLie {
 fn tell(greeting: &mut message::Greeting, lie: GreetingLie) {
     match lie {
         GreetingLie::ShrunkenSetLen => greeting.set_len = 0,
+        GreetingLie::UnderdeclaredSetLen => greeting.set_len = 1,
         GreetingLie::InflatedSetLen => greeting.set_len = greeting.set_len * 2 + 1,
         GreetingLie::ShrunkenVersion => greeting.version = Version::new(),
         GreetingLie::InflatedVersion => {

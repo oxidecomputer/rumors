@@ -19,7 +19,7 @@ use crate::tree::{
 
 use super::{
     super::{DecodeError, Scope, decode_leaf_reply, decode_reply, encode_leaf_reply, encode_reply},
-    LeafCase, hash, leaf_run, runtime,
+    LeafCase, hash, leaf_run, runtime, unbounded,
 };
 use crate::tree::mirror::streaming::remote::codec::{
     End, Flow, Frame, Reaction as WireReaction, RunBudget,
@@ -107,6 +107,7 @@ impl AdapterHeight for Z {
             .block_on(decode_leaf_reply(
                 Local,
                 u64::MAX,
+                unbounded(),
                 scope.clone(),
                 &mut frames,
             ))
@@ -152,7 +153,13 @@ impl AdapterHeight for Z {
                 .chain([sentinel.clone()]),
         );
         let decoded = runtime
-            .block_on(decode_leaf_reply(Local, u64::MAX, scope, &mut frames))
+            .block_on(decode_leaf_reply(
+                Local,
+                u64::MAX,
+                unbounded(),
+                scope,
+                &mut frames,
+            ))
             .expect("canonical matches decode");
         prop_assert!(decoded.questions.is_empty(), "height 0");
         assert_matches(&decoded.reply, radixes.len(), 0)?;
@@ -223,7 +230,13 @@ impl AdapterHeight for Z {
 
         let mut frames = stream::iter(actual_frames);
         let decoded = runtime
-            .block_on(decode_leaf_reply(Local, u64::MAX, scope, &mut frames))
+            .block_on(decode_leaf_reply(
+                Local,
+                u64::MAX,
+                unbounded(),
+                scope,
+                &mut frames,
+            ))
             .expect("canonical leaf reactions decode");
         prop_assert_eq!(&decoded.questions, &expected_questions, "height 0");
         assert_positional_reply(&decoded.reply, &leaf_case, 0)
@@ -267,7 +280,13 @@ impl AdapterHeight for Z {
         let sentinel = Frame::End(End::Reply);
         let mut frames = stream::iter(actual_frames.into_iter().chain([sentinel.clone()]));
         let decoded = runtime
-            .block_on(decode_leaf_reply(Local, u64::MAX, scope, &mut frames))
+            .block_on(decode_leaf_reply(
+                Local,
+                u64::MAX,
+                unbounded(),
+                scope,
+                &mut frames,
+            ))
             .expect("canonical mixed leaf reactions decode");
         prop_assert_eq!(&decoded.questions, &expected_questions, "height 0");
         assert_mixed_reply(
@@ -293,6 +312,7 @@ impl AdapterHeight for Z {
             .block_on(decode_leaf_reply(
                 Local,
                 u64::MAX,
+                unbounded(),
                 Scope::new(parent, &[]),
                 &mut frames,
             ))
@@ -312,6 +332,7 @@ impl AdapterHeight for Z {
             .block_on(decode_leaf_reply(
                 Local,
                 u64::MAX,
+                unbounded(),
                 Scope::new(foreign, &[]),
                 &mut frames,
             ))
@@ -344,6 +365,7 @@ where
             .block_on(decode_reply::<Local, u64, H, _>(
                 Local,
                 u64::MAX,
+                unbounded(),
                 scope.clone(),
                 &mut frames,
             ))
@@ -392,6 +414,7 @@ where
             .block_on(decode_reply::<Local, (), H, _>(
                 Local,
                 u64::MAX,
+                unbounded(),
                 scope,
                 &mut frames,
             ))
@@ -474,6 +497,7 @@ where
             .block_on(decode_reply::<Local, (), H, _>(
                 Local,
                 u64::MAX,
+                unbounded(),
                 scope,
                 &mut frames,
             ))
@@ -540,6 +564,7 @@ where
             .block_on(decode_reply::<Local, u64, H, _>(
                 Local,
                 u64::MAX,
+                unbounded(),
                 scope,
                 &mut frames,
             ))
@@ -578,6 +603,7 @@ where
             .block_on(decode_reply::<Local, u64, H, _>(
                 Local,
                 u64::MAX,
+                unbounded(),
                 Scope::new(parent, &[]),
                 &mut frames,
             ))
@@ -603,6 +629,7 @@ where
             .block_on(decode_reply::<Local, u64, H, _>(
                 Local,
                 u64::MAX,
+                unbounded(),
                 Scope::new(foreign, &[]),
                 &mut frames,
             ))

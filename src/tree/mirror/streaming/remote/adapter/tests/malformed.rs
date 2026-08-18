@@ -21,7 +21,7 @@ use super::{
         DecodeError, EncodeError, Scope, ScopeError, decode_leaf_reply, decode_reply,
         encode_leaf_reply, encode_reply,
     },
-    LeafCase, hash, leaf_run, runtime,
+    LeafCase, hash, leaf_run, runtime, unbounded,
 };
 use crate::tree::mirror::streaming::message::{Reaction, Reply};
 use crate::tree::mirror::streaming::remote::codec::{
@@ -43,6 +43,7 @@ fn bare_end_cannot_follow_reactions() {
         decode_leaf_reply(
             Local,
             u64::MAX,
+            unbounded(),
             Scope::new(parent, &[(0, hash(0))]),
             &mut frames,
         )
@@ -64,6 +65,7 @@ fn stream_exhaustion_before_a_boundary_is_truncation() {
         decode_leaf_reply(
             Local,
             u64::MAX,
+            unbounded(),
             Scope::new(parent, &[(0, hash(0))]),
             &mut frames,
         )
@@ -96,6 +98,7 @@ fn an_unpositioned_match_is_rejected_in_both_directions() {
         decode_reply::<Local, (), Z, _>(
             Local,
             u64::MAX,
+            unbounded(),
             Scope::new(parent, &[(1, hash(1))]),
             &mut frames,
         )
@@ -142,10 +145,16 @@ fn an_unpositioned_query_is_rejected_in_both_directions() {
 
     let decode_error = runtime().block_on(async {
         let mut frames = stream::iter(frames);
-        decode_reply::<Local, (), Z, _>(Local, u64::MAX, Scope::new(parent, &[]), &mut frames)
-            .await
-            .err()
-            .expect("a query without a child has no derivable scope")
+        decode_reply::<Local, (), Z, _>(
+            Local,
+            u64::MAX,
+            unbounded(),
+            Scope::new(parent, &[]),
+            &mut frames,
+        )
+        .await
+        .err()
+        .expect("a query without a child has no derivable scope")
     });
     assert!(matches!(
         decode_error,
@@ -233,6 +242,7 @@ fn leaf_query_matrix_is_exhaustive() {
                 decode_leaf_reply(
                     Local,
                     u64::MAX,
+                    unbounded(),
                     Scope::new(parent, &scope_listing),
                     &mut frames,
                 )
@@ -269,6 +279,7 @@ fn stream_end_is_not_a_protocol_reply() {
         .block_on(decode_leaf_reply(
             Local,
             u64::MAX,
+            unbounded(),
             Scope::new(parent, &[]),
             &mut frames,
         ))
@@ -329,6 +340,7 @@ fn a_multi_leaf_run_is_one_supplied_subtree() {
         let decoded = decode_reply::<Local, u64, UnderUnderRoot, _>(
             Local,
             u64::MAX,
+            unbounded(),
             scope.clone(),
             &mut input,
         )
@@ -386,6 +398,7 @@ fn leaf_order_is_enforced_within_one_run() {
         decode_reply::<Local, u64, UnderUnderRoot, _>(
             Local,
             u64::MAX,
+            unbounded(),
             Scope::opening(&[]),
             &mut input,
         )
@@ -423,10 +436,16 @@ fn leaf_scope_is_enforced_within_one_run() {
 
     let error = runtime().block_on(async {
         let mut input = stream::iter(frames);
-        decode_leaf_reply(Local, u64::MAX, Scope::new(parent, &[]), &mut input)
-            .await
-            .err()
-            .expect("a record escaping the reply scope must fail")
+        decode_leaf_reply(
+            Local,
+            u64::MAX,
+            unbounded(),
+            Scope::new(parent, &[]),
+            &mut input,
+        )
+        .await
+        .err()
+        .expect("a record escaping the reply scope must fail")
     });
     let DecodeError::LeafOutsideScope { expected, actual } = error else {
         panic!("expected LeafOutsideScope, got {error:?}");
@@ -456,6 +475,7 @@ fn a_zero_length_record_fails_as_a_version_decode_error() {
         decode_reply::<Local, u64, UnderUnderRoot, _>(
             Local,
             u64::MAX,
+            unbounded(),
             Scope::opening(&[]),
             &mut input,
         )
@@ -489,17 +509,29 @@ fn a_version_over_the_declared_bound_is_rejected() {
 
     runtime().block_on(async {
         let mut input = stream::iter(frames());
-        decode_leaf_reply(Local, declared, Scope::new(parent, &[]), &mut input)
-            .await
-            .expect("a version exactly at the declared bound is admitted");
+        decode_leaf_reply(
+            Local,
+            declared,
+            unbounded(),
+            Scope::new(parent, &[]),
+            &mut input,
+        )
+        .await
+        .expect("a version exactly at the declared bound is admitted");
     });
 
     let error = runtime().block_on(async {
         let mut input = stream::iter(frames());
-        decode_leaf_reply(Local, declared - 1, Scope::new(parent, &[]), &mut input)
-            .await
-            .err()
-            .expect("a version over the declared bound must be rejected")
+        decode_leaf_reply(
+            Local,
+            declared - 1,
+            unbounded(),
+            Scope::new(parent, &[]),
+            &mut input,
+        )
+        .await
+        .err()
+        .expect("a version over the declared bound must be rejected")
     });
     let DecodeError::OversizedVersion {
         declared: bound,
@@ -510,6 +542,117 @@ fn a_version_over_the_declared_bound_is_rejected() {
     };
     assert_eq!(bound, declared - 1);
     assert_eq!(actual as u64, declared);
+}
+
+/// `count` distinct leaves in ascending content-path order, all inside
+/// the whole-root opening scope: the shape of one reply streaming an
+/// arbitrary volume of supplies.
+fn ascending_leaves(count: u64) -> Vec<LeafCase> {
+    let mut cases: Vec<LeafCase> = (0..count)
+        .map(|value| LeafCase::new(value, value as u8 % 4))
+        .collect();
+    cases.sort_by_key(LeafCase::path);
+    cases
+}
+
+/// One whole-root reply supplying every leaf in `cases`, as a single
+/// ascending run.
+fn whole_root_supply_reply(cases: &[LeafCase]) -> Vec<Frame<u64>> {
+    let records: Vec<_> = cases
+        .iter()
+        .map(|case| (&case.version, &case.message))
+        .collect();
+    vec![Frame::Reaction(
+        WireReaction::Supply(leaf_run(&records)),
+        Flow::End,
+    )]
+}
+
+/// A reply streaming past the declared `set_len` fails typed at its first
+/// over-declaration record, under node residency independent of the
+/// overrun; a declaration exactly covering the stream admits it whole.
+///
+/// The peer's greeting-declared `set_len` is a premise the session's
+/// window solve prices, and the decoder charges it per record before the
+/// payload takes backend custody. Metered by the node census (the
+/// crate's exact residency shadow): the boundary case pins the meter
+/// alive (an admitted stream's every leaf is resident at completion),
+/// and the rejection case pins residency equal across a doubled
+/// overrun, so custody provably stops at the charge rather than at the
+/// reply boundary.
+#[test]
+fn a_reply_past_the_declared_set_len_fails_at_its_first_over_record() {
+    use crate::tree::mirror::streaming::materialized::SupplyLedger;
+    use crate::tree::typed::untyped::census;
+
+    const SMALL: u64 = 128;
+    const LARGE: u64 = 256;
+
+    /// Decode one whole-root reply of `count` leaves under a declared
+    /// allowance of `declared`, returning the outcome and the peak
+    /// node-handle residency beyond the pre-decode baseline.
+    #[allow(clippy::type_complexity)]
+    fn decode_metered(
+        count: u64,
+        declared: u64,
+    ) -> (Result<usize, DecodeError<Infallible>>, usize) {
+        let frames = whole_root_supply_reply(&ascending_leaves(count));
+        census::reset_peak();
+        let (live, _) = census::read();
+        let decoded = runtime().block_on(async {
+            let mut input = stream::iter(frames);
+            decode_reply::<Local, u64, UnderUnderRoot, _>(
+                Local,
+                u64::MAX,
+                SupplyLedger::new(declared),
+                Scope::opening(&[]),
+                &mut input,
+            )
+            .await
+        });
+        let (_, peak) = census::read();
+        (
+            decoded.map(|decoded| decoded.reply.replies.len()),
+            peak - live,
+        )
+    }
+
+    // The no-false-positive boundary, doubling as the meter's liveness
+    // floor: a declaration exactly covering the stream admits every
+    // record, and every admitted leaf is resident at completion.
+    let (admitted, residency) = decode_metered(SMALL, SMALL);
+    admitted.expect("a declaration exactly covering the stream admits it");
+    assert!(
+        residency >= SMALL as usize,
+        "the census meter is alive: an admitted {SMALL}-leaf reply holds \
+         {residency} resident handles",
+    );
+
+    // The rejection: an allowance of one fails at the second record,
+    // while the reply is still open.
+    let overdrawn = |count: u64| {
+        let (result, residency) = decode_metered(count, 1);
+        let error = result.expect_err(
+            "undetected over-supply: a reply past the declared set length \
+             must fail at ingress, at its first over-declaration record",
+        );
+        assert!(
+            matches!(error, DecodeError::OverdrawnSupply { declared: 1 }),
+            "mistyped over-supply rejection: {error:?}",
+        );
+        residency
+    };
+    let small = overdrawn(SMALL);
+    let large = overdrawn(LARGE);
+    assert_eq!(
+        small, large,
+        "residency at rejection is independent of the streamed overrun",
+    );
+    assert!(
+        small < SMALL as usize,
+        "custody stops at the charge: {small} resident handles against a \
+         {SMALL}-leaf stream",
+    );
 }
 
 /// Interrupting a supply run finalizes its radix, so later resumption is rejected as reordering.
@@ -536,6 +679,7 @@ fn a_supply_run_cannot_resume_after_another_reaction() {
         decode_reply::<Local, u64, UnderUnderRoot, _>(
             Local,
             u64::MAX,
+            unbounded(),
             Scope::opening(&[(1, hash(1))]),
             &mut input,
         )

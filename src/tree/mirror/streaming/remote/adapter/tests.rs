@@ -15,7 +15,7 @@ use before::Version;
 use crate::{
     message::Message,
     tree::{
-        mirror::streaming::remote::codec::LeafRun,
+        mirror::streaming::{materialized::SupplyLedger, remote::codec::LeafRun},
         typed::{Hash, Path, hash::MERKLE_HASH_LEN},
     },
 };
@@ -30,6 +30,12 @@ mod runs;
 
 fn hash(byte: u8) -> Hash {
     Hash([byte; MERKLE_HASH_LEN])
+}
+
+/// A set-length allowance no fixture here can exhaust, for tests whose
+/// subject is not the ingress supply charge.
+fn unbounded() -> SupplyLedger {
+    SupplyLedger::new(u64::MAX)
 }
 
 /// Build a supply run from borrowed leaf records, in the given order.

@@ -31,7 +31,7 @@ use crate::tree::{
         Backend, Leaf,
         channel::Receiver,
         convert::Convert,
-        materialized::children_of,
+        materialized::{SupplyLedger, children_of},
         message::{Reaction, Reply},
         protocol::{BoxResponses, Requests},
         remote::{
@@ -116,11 +116,12 @@ where
             queues::next_scopes::<_, UnderUnderRoot>(self.window.capacity(UnderUnderRoot::HEIGHT));
         let backend = self.backend();
         let version_bytes = self.peer_version_bytes;
+        let ledger = self.peer_supplies.clone();
         let responses = try_stream! {
             while let Some(scope) = questions.recv().await {
                 let Decoded { reply, questions } =
                     decode_reply::<B, T, UnderUnderRoot, _>(
-                        backend.clone(), version_bytes, scope, &mut incoming,
+                        backend.clone(), version_bytes, ledger.clone(), scope, &mut incoming,
                     ).await?;
                 yield_reply_scopes!(
                     progress, UnderUnderRoot, questions.len();
@@ -173,8 +174,9 @@ where
         let (next_scopes, scopes) = queues::next_scopes::<_, H>(self.window.capacity(H::HEIGHT));
         let backend = self.backend();
         let version_bytes = self.peer_version_bytes;
+        let ledger = self.peer_supplies.clone();
         let responses = try_stream! {
-            let mut early = Early::<B, T, S<S<H>>, A::Rx>::new(version_bytes, early);
+            let mut early = Early::<B, T, S<S<H>>, A::Rx>::new(version_bytes, ledger.clone(), early);
             while let Some(scope) = questions.recv().await {
                 if early.armed() && scope.is_request() {
                     // A root-level request: its content crossed at the
@@ -183,7 +185,7 @@ where
                     // when pruning removed the whole subtree.
                     let parent = scope.parent();
                     let Decoded { reply, questions: asked } = decode_reply::<B, T, H, _>(
-                        backend.clone(), version_bytes, scope, &mut incoming,
+                        backend.clone(), version_bytes, ledger.clone(), scope, &mut incoming,
                     ).await?;
                     debug_assert!(asked.is_empty(), "an empty request opens no lower scope");
                     let (root, radix) = parent.pop();
@@ -206,7 +208,7 @@ where
                     continue;
                 }
                 let Decoded { reply, questions } = decode_reply::<B, T, H, _>(
-                    backend.clone(), version_bytes, scope, &mut incoming,
+                    backend.clone(), version_bytes, ledger.clone(), scope, &mut incoming,
                 ).await?;
                 yield_reply_scopes!(
                     progress, H, questions.len();
@@ -243,10 +245,11 @@ where
         let (next_scopes, scopes) = queues::next_scopes::<_, Z>(self.window.capacity(Z::HEIGHT));
         let backend = self.backend();
         let version_bytes = self.peer_version_bytes;
+        let ledger = self.peer_supplies.clone();
         let responses = try_stream! {
             while let Some(scope) = questions.recv().await {
                 let Decoded { reply, questions } = decode_leaf_reply(
-                    backend.clone(), version_bytes, scope, &mut incoming,
+                    backend.clone(), version_bytes, ledger.clone(), scope, &mut incoming,
                 ).await?;
                 yield_reply_scopes!(
                     progress, Z, questions.len();
@@ -310,10 +313,11 @@ where
         ));
         let backend = self.backend();
         let version_bytes = self.peer_version_bytes;
+        let ledger = self.peer_supplies.clone();
         let responses = try_stream! {
             while let Some(scope) = questions.recv().await {
                 let Decoded { reply, questions } = decode_leaf_reply(
-                    backend.clone(), version_bytes, scope, &mut incoming,
+                    backend.clone(), version_bytes, ledger.clone(), scope, &mut incoming,
                 ).await?;
                 if !questions.is_empty() {
                     Err(Error::TerminalQuery)?;
@@ -350,6 +354,9 @@ where
     /// The peer's greeting-declared `max_version_bytes`, enforced on
     /// every supplied version the opening stream decodes.
     version_bytes: u64,
+    /// The session's declared-`set_len` allowance, charged per record
+    /// the opening stream decodes.
+    ledger: SupplyLedger,
     receiver: Option<StreamReceiver<Rx, T>>,
     supplies:
         Option<Pin<Box<dyn Stream<Item = Result<(u8, B::Node<G>), DecodeError<B::Error>>> + Send>>>,
@@ -367,9 +374,14 @@ where
 {
     /// Arm the cursor with the opening-supply stream's receiver, if this
     /// stage is the one that owns it.
-    fn new(version_bytes: u64, receiver: Option<StreamReceiver<Rx, T>>) -> Self {
+    fn new(
+        version_bytes: u64,
+        ledger: SupplyLedger,
+        receiver: Option<StreamReceiver<Rx, T>>,
+    ) -> Self {
         Self {
             version_bytes,
+            ledger,
             receiver,
             supplies: None,
             lookahead: None,
@@ -417,6 +429,7 @@ where
                         .get_or_insert(Box::pin(early_supplies::<B, T, G, _>(
                             backend.clone(),
                             self.version_bytes,
+                            self.ledger.clone(),
                             root,
                             receiver,
                         )))

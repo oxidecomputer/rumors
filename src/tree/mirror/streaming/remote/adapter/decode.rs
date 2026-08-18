@@ -11,6 +11,7 @@ use crate::tree::{
         Backend, Leaf,
         backend::BoxNodeStream,
         convert::Convert,
+        materialized::SupplyLedger,
         message::{Reaction as ProtocolReaction, Reply},
         window::FAN,
     },
@@ -72,10 +73,13 @@ where
 ///
 /// `version_bytes` is the peer's greeting-declared `max_version_bytes`:
 /// a supplied version encoding over it is a
-/// [`DecodeError::OversizedVersion`] session violation.
+/// [`DecodeError::OversizedVersion`] session violation. `ledger` is the
+/// session's declared-`set_len` allowance, charged per record before the
+/// payload takes custody ([`DecodeError::OverdrawnSupply`]).
 pub fn early_supplies<B, T, G, F>(
     backend: B,
     version_bytes: u64,
+    ledger: SupplyLedger,
     parent: Prefix<S<G>>,
     frames: F,
 ) -> impl Stream<Item = Result<(u8, B::Node<G>), DecodeError<B::Error>>> + Send
@@ -95,7 +99,13 @@ where
         let leaves = leaves.inspect(|_| fan_probe::on_recv());
         let leaves: BoxNodeStream<'static, B, T, Z> = Box::pin(leaves);
         let mut assembled = pin!(backend.clone().assemble::<G>(leaves));
-        let mut read = pin!(read_early::<B, T, G, _>(version_bytes, parent, frames, tx));
+        let mut read = pin!(read_early::<B, T, G, _>(
+            version_bytes,
+            &ledger,
+            parent,
+            frames,
+            tx
+        ));
         let mut read_result: Option<Result<(), DecodeError<B::Error>>> = None;
         loop {
             let step = futures::future::poll_fn(|cx| {
@@ -133,6 +143,7 @@ where
 /// nothing after it — streaming its leaves to assembly.
 async fn read_early<B, T, G, F>(
     version_bytes: u64,
+    ledger: &SupplyLedger,
     parent: Prefix<S<G>>,
     mut frames: F,
     leaves: mpsc::Sender<Result<(Prefix<Z>, B::Node<Z>), B::Error>>,
@@ -157,6 +168,14 @@ where
                     let (version, message) = record.map_err(DecodeError::Record)?;
                     let (leaf_prefix, _) =
                         supplies.observe::<B::Error, T>(parent, &version, &message)?;
+                    // The set-length half of the greeting's priced
+                    // premises, charged per record before the payload
+                    // takes backend custody: a peer supplying past its
+                    // declaration fails at the offending record, while
+                    // the reply is still open.
+                    ledger
+                        .charge(1)
+                        .map_err(|declared| DecodeError::OverdrawnSupply { declared })?;
                     let leaf = <B::Node<Z> as Leaf<T>>::leaf(version, message)
                         .await
                         .map_err(DecodeError::Backend)?;
@@ -195,6 +214,7 @@ where
 pub async fn decode_reply<B, T, H, F>(
     backend: B,
     version_bytes: u64,
+    ledger: SupplyLedger,
     scope: Scope<S<H>>,
     frames: &mut F,
 ) -> Result<Decoded<B, T, S<H>, Vec<Scope<H>>>, DecodeError<B::Error>>
@@ -206,10 +226,17 @@ where
     S<S<H>>: Height,
     F: Stream<Item = Frame<T>> + Unpin,
 {
-    decode(backend, version_bytes, scope, frames, |scope, listing| {
-        let (_, prefix) = scope.next().ok_or(ScopeError::UnpositionedQuery)?;
-        Ok(Scope::new(prefix, listing))
-    })
+    decode(
+        backend,
+        version_bytes,
+        ledger,
+        scope,
+        frames,
+        |scope, listing| {
+            let (_, prefix) = scope.next().ok_or(ScopeError::UnpositionedQuery)?;
+            Ok(Scope::new(prefix, listing))
+        },
+    )
     .await
 }
 
@@ -217,6 +244,7 @@ where
 pub async fn decode_leaf_reply<B, T, F>(
     backend: B,
     version_bytes: u64,
+    ledger: SupplyLedger,
     scope: Scope<Z>,
     frames: &mut F,
 ) -> Result<Decoded<B, T, Z, Vec<Scope<Z>>>, DecodeError<B::Error>>
@@ -225,19 +253,27 @@ where
     T: borsh::BorshDeserialize + Send + Sync + 'static,
     F: Stream<Item = Frame<T>> + Unpin,
 {
-    decode(backend, version_bytes, scope, frames, |scope, listing| {
-        if !listing.is_empty() {
-            return Err(ScopeError::NonemptyLeafQuery);
-        }
-        let (_, prefix) = scope.next().ok_or(ScopeError::UnpositionedQuery)?;
-        Ok(Scope::leaf(prefix))
-    })
+    decode(
+        backend,
+        version_bytes,
+        ledger,
+        scope,
+        frames,
+        |scope, listing| {
+            if !listing.is_empty() {
+                return Err(ScopeError::NonemptyLeafQuery);
+            }
+            let (_, prefix) = scope.next().ok_or(ScopeError::UnpositionedQuery)?;
+            Ok(Scope::leaf(prefix))
+        },
+    )
     .await
 }
 
 async fn decode<B, T, H, F, Q, N>(
     backend: B,
     version_bytes: u64,
+    ledger: SupplyLedger,
     scope: Scope<H>,
     frames: &mut F,
     question: Q,
@@ -261,7 +297,7 @@ where
     // reader's hand per reply stream, at `node_bytes(0, version_bound)`
     // plus the slot itself (the window's supply-decode envelope).
     let (tx, rx) = mpsc::channel::<Result<(Prefix<Z>, B::Node<Z>), B::Error>>(FAN);
-    let read = read_reply::<B, T, H, _, _, _>(version_bytes, scope, frames, question, tx);
+    let read = read_reply::<B, T, H, _, _, _>(version_bytes, &ledger, scope, frames, question, tx);
     let assemble = assemble_supplies::<B, T, H>(backend, rx);
     let (read, assembled) = futures::future::join(read, assemble).await;
     let Some(ReadReply {
@@ -280,6 +316,7 @@ where
 /// Read and validate exactly one reply while streaming its leaves to assembly.
 async fn read_reply<B, T, H, F, Q, N>(
     version_bytes: u64,
+    ledger: &SupplyLedger,
     mut scope: Scope<H>,
     frames: &mut F,
     mut question: Q,
@@ -340,6 +377,14 @@ where
                     if let Some((radix, prefix)) = run {
                         read.skeleton.push(Skeleton::Supply { radix, prefix });
                     }
+                    // The set-length half of the greeting's priced
+                    // premises, charged per record before the payload
+                    // takes backend custody: a peer supplying past its
+                    // declaration fails at the offending record, while
+                    // the reply is still open.
+                    ledger
+                        .charge(1)
+                        .map_err(|declared| DecodeError::OverdrawnSupply { declared })?;
                     let leaf = <B::Node<Z> as Leaf<T>>::leaf(version, message)
                         .await
                         .map_err(DecodeError::Backend)?;

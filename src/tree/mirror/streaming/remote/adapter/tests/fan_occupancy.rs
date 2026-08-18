@@ -35,6 +35,7 @@ use crate::{
 };
 
 use super::super::{Scope, decode::fan_probe, decode_reply, early_supplies};
+use super::unbounded;
 
 /// Leaf records per supply frame.
 const PER_FRAME: usize = 16;
@@ -85,6 +86,7 @@ fn peak_occupancy(mut input: impl Stream<Item = Frame<u64>> + Unpin) -> usize {
         decode_reply::<Local, u64, UnderUnderRoot, _>(
             Local,
             u64::MAX,
+            unbounded(),
             Scope::<UnderRoot>::opening(&[]),
             &mut input,
         )
@@ -136,6 +138,7 @@ fn eager_early_supplies_ride_the_same_ceiling() {
         let assembled: Vec<_> = early_supplies::<Local, u64, UnderRoot, _>(
             Local,
             u64::MAX,
+            unbounded(),
             Prefix::new(),
             stream::iter(frames(&leaves)),
         )

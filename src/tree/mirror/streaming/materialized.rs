@@ -199,33 +199,51 @@ fn violation<T, E>(violation: Violation) -> Result<T, Error<E>> {
 /// An honest replica supplies each leaf at most once (disputed scopes
 /// partition the tree) and only leaves its own set holds, so the running
 /// total of absorbed live leaves is bounded by the `set_len` its greeting
-/// declared — a premise the session's window solve priced. Every
-/// ingestion site charges the ledger exactly where it checks version
-/// containment: the two declared premises are enforced side by side.
+/// declared — a premise the session's window solve priced. Two
+/// instruments enforce it, each holding its own ledger over the same
+/// declaration: the walk charges each supply exactly where it checks
+/// version containment, so the two declared premises are enforced side by
+/// side; the wire decoder charges each supplied record at ingress, before
+/// its payload takes backend custody, so the bound holds at every instant
+/// of a still-open reply.
 #[derive(Clone, Debug)]
 pub(crate) struct SupplyLedger {
     /// The sender's greeting-declared set length.
     declared: u64,
-    /// Live leaves absorbed so far, across every ingestion site.
+    /// Live leaves absorbed so far, across every ingestion site sharing
+    /// this ledger.
     absorbed: Arc<AtomicU64>,
 }
 
 impl SupplyLedger {
-    fn new(declared: u64) -> Self {
+    pub(crate) fn new(declared: u64) -> Self {
         SupplyLedger {
             declared,
             absorbed: Arc::default(),
         }
     }
 
-    /// Charge `leaves` absorbed supplies, failing the session at the first
-    /// leaf past the declaration ([`Violation::OverdrawnSupply`]).
-    pub(crate) fn absorb<E>(&self, leaves: u64) -> Result<(), Error<E>> {
+    /// Charge `leaves` absorbed supplies against the declaration.
+    ///
+    /// Errors with the declared length at the first leaf past it; each
+    /// enforcement point renders the overdraw in its own typed vocabulary
+    /// (the walk's [`Violation::OverdrawnSupply`], the wire decoder's
+    /// ingress rejection).
+    pub(crate) fn charge(&self, leaves: u64) -> Result<(), u64> {
         let prior = self.absorbed.fetch_add(leaves, Ordering::Relaxed);
         match prior.checked_add(leaves) {
             Some(total) if total <= self.declared => Ok(()),
             // A wrapped counter is past any declarable length too.
-            _ => violation(Violation::OverdrawnSupply),
+            _ => Err(self.declared),
+        }
+    }
+
+    /// Charge `leaves` absorbed supplies, failing the session at the first
+    /// leaf past the declaration ([`Violation::OverdrawnSupply`]).
+    pub(crate) fn absorb<E>(&self, leaves: u64) -> Result<(), Error<E>> {
+        match self.charge(leaves) {
+            Ok(()) => Ok(()),
+            Err(_) => violation(Violation::OverdrawnSupply),
         }
     }
 }

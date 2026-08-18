@@ -35,7 +35,7 @@ use crate::{
 
 use super::{
     super::{Scope, decode_reply, encode_reply},
-    LeafCase, leaf_run, runtime,
+    LeafCase, leaf_run, runtime, unbounded,
 };
 
 /// Inclusive bound on leaves per generated run scenario.
@@ -114,6 +114,7 @@ fn recode(frames: Vec<Frame<u64>>, budget: RunBudget) -> Vec<Frame<u64>> {
         let decoded = decode_reply::<Local, u64, UnderUnderRoot, _>(
             Local,
             u64::MAX,
+            unbounded(),
             Scope::<UnderRoot>::opening(&[]),
             &mut input,
         )
@@ -269,6 +270,7 @@ fn a_batched_run_round_trips_the_reply() {
         decode_reply::<Local, u64, UnderUnderRoot, _>(
             Local,
             u64::MAX,
+            unbounded(),
             Scope::<UnderRoot>::opening(&[]),
             &mut input,
         )
