@@ -134,7 +134,7 @@ proptest! {
         encoded.extend_from_slice(&suffix);
 
         let mut rest = encoded.as_slice();
-        let decoded = decode::<u64>(speaker, &mut rest).unwrap();
+        let decoded = decode::<u64>(speaker, RunBudget::default(), &mut rest).unwrap();
         prop_assert_eq!(&decoded, &frame);
         prop_assert_eq!(rest, suffix.as_slice());
 
@@ -164,7 +164,7 @@ proptest! {
         prop_assert_eq!(written.flushes, 1);
         prop_assert_eq!(&written.bytes, &canonical);
 
-        let mut reader = FrameRead::new(speaker, written.bytes.as_slice());
+        let mut reader = FrameRead::new(speaker, RunBudget::default(), written.bytes.as_slice());
         let decoded = pollster::block_on(reader.frame::<u64>()).unwrap();
         prop_assert_eq!(decoded, Some(frame));
         prop_assert_eq!(pollster::block_on(reader.frame::<u64>()).unwrap(), None);
@@ -231,7 +231,7 @@ async fn async_duplex_preserves_adjacent_frame_boundaries() {
             writer.frame(&sent_second).await.unwrap();
         };
         let receiving = async {
-            let mut reader = FrameRead::new(speaker, receive);
+            let mut reader = FrameRead::new(speaker, RunBudget::default(), receive);
             assert_eq!(reader.frame::<u64>().await.unwrap(), Some(first));
             assert_eq!(reader.frame::<u64>().await.unwrap(), Some(second));
             assert_eq!(reader.frame::<u64>().await.unwrap(), None);
@@ -257,7 +257,7 @@ fn canonical_frame_atlas_snapshot() {
                         encode(speaker, &(stream, frame.clone()), &mut encoded).unwrap();
                         assert_eq!(encoded.first(), Some(&wire.to_byte()));
                         assert_eq!(
-                            decode_exact::<()>(speaker, &encoded).unwrap(),
+                            decode_exact::<()>(speaker, RunBudget::default(), &encoded).unwrap(),
                             (stream, frame)
                         );
                         write!(atlas, "    {signal:?}: accepted len {} hex ", encoded.len())
@@ -266,7 +266,9 @@ fn canonical_frame_atlas_snapshot() {
                         atlas.push('\n');
                     }
                     Err(invalid) => {
-                        let error = decode_exact::<()>(speaker, &[invalid.byte()]).unwrap_err();
+                        let error =
+                            decode_exact::<()>(speaker, RunBudget::default(), &[invalid.byte()])
+                                .unwrap_err();
                         assert_eq!(error.origin, Origin::stream(speaker, stream));
                         assert!(matches!(
                             error.kind,
@@ -455,7 +457,10 @@ fn check_both(frame: WireFrame<()>, accepted: &mut [usize; 2], buckets: &mut [Co
                 let mut encoded = Vec::new();
                 encode(speaker, &frame, &mut encoded).unwrap();
                 accepted[direction] += 1;
-                assert_eq!(decode_exact::<()>(speaker, &encoded).unwrap(), frame);
+                assert_eq!(
+                    decode_exact::<()>(speaker, RunBudget::default(), &encoded).unwrap(),
+                    frame
+                );
                 bucket.accept(&encoded);
             }
             Err(invalid) => bucket.reject(invalid),
@@ -493,7 +498,7 @@ fn generic_io_preserves_frame_boundaries() {
 
     let mut reader = Cursor::new(writer.into_inner());
     assert_eq!(
-        decode::<()>(Speaker::Initiator, &mut reader).unwrap(),
+        decode::<()>(Speaker::Initiator, RunBudget::default(), &mut reader).unwrap(),
         frame
     );
     assert_eq!(reader.position(), frame_len);

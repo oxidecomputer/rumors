@@ -131,6 +131,10 @@ pub enum DecodeErrorKind {
     QueryOutOfOrder(#[from] QueryOrderError),
     #[error(transparent)]
     InvalidRun(#[from] LeafRunError),
+    #[error(
+        "supply frame occupies {declared} wire bytes, batching records past the {budget}-byte run budget"
+    )]
+    OverbatchedRun { declared: usize, budget: usize },
     #[error("{count} trailing bytes follow the frame")]
     TrailingBytes { count: usize },
 }

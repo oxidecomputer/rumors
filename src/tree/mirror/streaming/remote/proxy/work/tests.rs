@@ -237,6 +237,7 @@ fn queued_supply_closed_outranks_a_selected_consequence_at_stream_granularity() 
         claim_receive,
         Speaker::Initiator,
         Stream::new(3).expect("stream index 3 exists"),
+        RunBudget::default(),
         route,
         Recorder::default(),
     );
@@ -301,6 +302,7 @@ fn published_stream_error_preempts_a_parked_protocol() {
         claim_receive,
         Speaker::Initiator,
         Stream::new(0).expect("stream index 0 exists"),
+        RunBudget::default(),
         route,
         Recorder::default(),
     );

@@ -381,7 +381,7 @@ where
             errors,
         },
     );
-    Connected::new(remote, epoch, connector, claims, route, stats, work)
+    Connected::new(remote, epoch, connector, claims, route, budget, stats, work)
 }
 
 #[cfg(test)]

@@ -19,7 +19,11 @@ use crate::tree::{
         Error as MirrorError,
         streaming::{
             materialized::{Error as MaterializedError, Violation},
-            remote::{DecodeError, Error as RemoteError},
+            remote::{
+                CodecDecodeError, CodecDecodeErrorKind, DecodeError, Error as RemoteError,
+                StreamError,
+            },
+            window::FAN,
         },
     },
 };
@@ -50,6 +54,114 @@ fn uneven_pair() -> (crate::tree::Root<()>, crate::tree::Root<()>) {
         (0..4).map(|_| Action::Insert(Message::new(()))),
     );
     (small.root, large.root)
+}
+
+/// Messages the bulk side of [`batched_uneven_pair`] originates: one more
+/// than the root fan, so at least one root child holds two or more leaves
+/// by pigeonhole.
+const BULK_MESSAGES: usize = FAN + 1;
+
+/// A divergent pair of one message against [`BULK_MESSAGES`], on distinct
+/// parties: the small side wins the initiator election, and the bulk
+/// side's exclusive root children — at least one of which spans multiple
+/// leaves — reach it as whole supplied subtrees, so the traffic toward the
+/// small side includes a genuinely batched multi-record run.
+fn batched_uneven_pair() -> (crate::tree::Root<()>, crate::tree::Root<()>) {
+    let mut small = Tree::new();
+    small.act(&nth_party(1), [Action::Insert(Message::new(()))]);
+    let mut large = Tree::new();
+    large.act(
+        &nth_party(0),
+        (0..BULK_MESSAGES).map(|_| Action::Insert(Message::new(()))),
+    );
+    (small.root, large.root)
+}
+
+/// A peer batching supply runs past the session minimum fails the session typed.
+///
+/// The deceived side hears the bulk peer's `target_message_size` as zero,
+/// so it negotiates a zero session run budget while the peer keeps
+/// batching at the true exchanged minimum: the first multi-record run to
+/// arrive is a frame no encoder honoring the deceived side's minimum can
+/// produce, and ingress rejects it as `OverbatchedRun` before buffering
+/// its body — the greeting-declared budget premise enforced on the remote
+/// decode path, completing the declaration matrix beside `set_len` and
+/// `max_version_bytes`. Both endpoints terminate (link poisoning rides
+/// any session error).
+#[test]
+fn understated_target_message_size_fails_the_session() {
+    for receiver_left in [false, true] {
+        let (small, large) = batched_uneven_pair();
+        // The deceived side holds the small tree and hears the bulk
+        // (supplying) side's target as zero.
+        let rewrite = GreetingRewrite::target_message_size(0);
+        let ((left, right), hears) = if receiver_left {
+            ((small, large), (Some(rewrite), None))
+        } else {
+            ((large, small), (None, Some(rewrite)))
+        };
+        let (left, right) = run_to_quiescence(harness::reconcile_rewritten_greetings(
+            left, right, hears.0, hears.1,
+        ))
+        .expect("an overbatched supply run must terminate both sessions, not stall them");
+        let receiver_error = if receiver_left {
+            match &left {
+                Err(MirrorError::Server(error)) => error,
+                other => panic!(
+                    "undetected target_message_size lie: the left proxy did not \
+                     report the violation: {other:?}"
+                ),
+            }
+        } else {
+            match &right {
+                Err(MirrorError::Client(error)) => error,
+                other => panic!(
+                    "undetected target_message_size lie: the right proxy did not \
+                     report the violation: {other:?}"
+                ),
+            }
+        };
+        assert!(
+            matches!(
+                receiver_error,
+                RemoteError::Stream(StreamError::Decode(CodecDecodeError {
+                    kind: CodecDecodeErrorKind::OverbatchedRun { budget: 0, .. },
+                    ..
+                }))
+            ),
+            "mistyped target_message_size violation: {receiver_error:?}",
+        );
+        assert!(left.is_err());
+        assert!(right.is_err());
+    }
+}
+
+/// An absurdly inflated `target_message_size` reading costs nothing.
+///
+/// The session budget is the minimum of the two targets, so the deceived
+/// side's own target still governs both encoders exactly as an honest run
+/// does, and the session converges on the union — the no-false-positive
+/// dual of the understated lie.
+#[test]
+fn overstated_target_message_size_still_converges() {
+    for receiver_left in [false, true] {
+        let (small, large) = batched_uneven_pair();
+        let expected = union_hash(&small, &large);
+        let rewrite = GreetingRewrite::target_message_size(u64::MAX);
+        let ((left, right), hears) = if receiver_left {
+            ((small, large), (Some(rewrite), None))
+        } else {
+            ((large, small), (None, Some(rewrite)))
+        };
+        let (left, right) = run_to_quiescence(harness::reconcile_rewritten_greetings(
+            left, right, hears.0, hears.1,
+        ))
+        .expect("the session must terminate");
+        let left = left.expect("left endpoint reconciles despite the inflated reading");
+        let right = right.expect("right endpoint reconciles despite the inflated reading");
+        assert_eq!(hash_of(&left), expected);
+        assert_eq!(hash_of(&right), expected);
+    }
 }
 
 /// A supplied version over the declared `max_version_bytes` fails the session typed.
