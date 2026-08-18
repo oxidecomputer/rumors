@@ -42,7 +42,7 @@ use crate::{
 
 use super::{
     super::{Scope, decode_reply, encode_reply},
-    hash, runtime,
+    hash, runtime, unbounded,
 };
 
 /// Leaves committed under the supplied root fan: enough that the fan's
@@ -127,6 +127,7 @@ fn parked_supply_reply_holds_handles_not_subtrees() {
         .block_on(decode_reply::<Local, u64, UnderUnderRoot, _>(
             Local,
             u64::MAX,
+            unbounded(),
             scope,
             &mut frames,
         ))
@@ -213,6 +214,7 @@ fn maximally_disputed_reply_parks_bounded_skeleton() {
         .block_on(decode_reply::<Local, u64, UnderUnderRoot, _>(
             Local,
             u64::MAX,
+            unbounded(),
             Scope::<UnderRoot>::opening(&listing),
             &mut frames,
         ))

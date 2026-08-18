@@ -324,6 +324,7 @@ where
         budget,
         local,
         remote.max_version_bytes,
+        remote.set_len,
         remote.listing,
         link,
         stats,
@@ -337,7 +338,8 @@ where
 /// election, and merged against the local opening's listing to gate the
 /// early-supply stream when it loses. `peer_version_bytes` is the remote
 /// greeting's `max_version_bytes`, which the session enforces on every
-/// version the remote supplies.
+/// version the remote supplies; `peer_set_len` is its declared set
+/// length, which the session charges per supplied record at ingress.
 #[allow(clippy::too_many_arguments)]
 fn open<B, T, R, W, C, A>(
     backend: B,
@@ -345,6 +347,7 @@ fn open<B, T, R, W, C, A>(
     budget: RunBudget,
     local: Speaker,
     peer_version_bytes: u64,
+    peer_set_len: u64,
     peer_listing: Vec<(u8, Hash)>,
     link: Link<R, W, C, A>,
     stats: Recorder,
@@ -372,6 +375,7 @@ where
         window,
         budget,
         peer_version_bytes,
+        peer_set_len,
         peer_listing,
         Physical {
             control_read,

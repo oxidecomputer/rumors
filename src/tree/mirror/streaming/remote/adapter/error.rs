@@ -95,6 +95,20 @@ pub enum DecodeError<E> {
         "supplied version encodes {actual} bytes, over the peer's declared {declared}-byte bound"
     )]
     OversizedVersion { declared: u64, actual: usize },
+    /// A supplied leaf record past the peer's declared `set_len`.
+    ///
+    /// An honest peer supplies each leaf at most once and only leaves its
+    /// own set holds, so its greeting-declared set length bounds the
+    /// session's total supplied records; the local window solve priced
+    /// absorbed-supply volume from that declaration. The charge lands at
+    /// ingress, before the record's payload takes backend custody, so a
+    /// peer supplying past its declaration fails the session at the
+    /// offending record while its reply is still open, never after the
+    /// reply materializes. The in-process walk enforces the same premise
+    /// at absorption as
+    /// [`Violation::OverdrawnSupply`](crate::error::MaterializedViolation::OverdrawnSupply).
+    #[error("supplied leaf overruns the peer's declared set length of {declared}")]
+    OverdrawnSupply { declared: u64 },
     /// A positional wire reaction cannot be scoped without another child.
     #[error(transparent)]
     Scope(#[from] ScopeError),

@@ -13,6 +13,7 @@ use crate::link::Acceptor;
 use crate::tree::{
     mirror::streaming::{
         Backend, Leaf,
+        materialized::SupplyLedger,
         protocol::{BoxResponses, Responses},
         remote::{
             adapter::{DecodeError, EncodeError},
@@ -51,6 +52,10 @@ where
     /// The remote greeting's `max_version_bytes` declaration, enforced
     /// against every supplied version this session decodes.
     peer_version_bytes: u64,
+    /// The remote greeting's `set_len` declaration as a session-total
+    /// supply allowance: every leaf record this session decodes charges
+    /// it before the payload takes backend custody.
+    peer_supplies: SupplyLedger,
     /// The remote greeting's root-fan listing, consumed by whichever role
     /// the election assigns.
     ///
@@ -92,6 +97,7 @@ where
         window: Window,
         budget: RunBudget,
         peer_version_bytes: u64,
+        peer_set_len: u64,
         peer_listing: Vec<(u8, Hash)>,
         physical: Physical<R, W, A>,
     ) -> Self {
@@ -100,6 +106,7 @@ where
             window,
             budget,
             peer_version_bytes,
+            peer_supplies: SupplyLedger::new(peer_set_len),
             peer_listing,
             physical,
             tasks: Vec::new(),

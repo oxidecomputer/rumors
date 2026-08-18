@@ -18,7 +18,6 @@ use crate::tree::{
     mirror::{
         Error as MirrorError,
         streaming::{
-            materialized::{Error as MaterializedError, Violation},
             remote::{
                 CodecDecodeError, CodecDecodeErrorKind, DecodeError, Error as RemoteError,
                 StreamError,
@@ -211,19 +210,22 @@ fn understated_version_bytes_fail_the_session() {
 /// The dual of the oversized-version guard, completing the declaration
 /// matrix: the declared set length is a premise of the window solve's
 /// occupancy envelopes and per-slot pricing, so honest supplies overrunning
-/// it void what the window priced. The receiving side reports
-/// `OverdrawnSupply` at the first leaf past the declaration; the peer's
-/// endpoint is left to whatever its schedule surfaces — here it may even
-/// complete, having already reconciled before the deceived side's late
-/// ingestion tripped — which is not this tripwire's concern (the
-/// containment wire test draws the same line).
+/// it void what the window priced. The receiving side's wire decoder
+/// reports `OverdrawnSupply` at the first record past the declaration,
+/// before the payload takes backend custody — the walk's own ledger still
+/// stands behind it for the in-process stack, but on the wire the ingress
+/// charge fires first. The peer's endpoint is left to whatever its
+/// schedule surfaces — here it may even complete, having already
+/// reconciled before the deceived side's late ingestion tripped — which
+/// is not this tripwire's concern (the containment wire test draws the
+/// same line).
 ///
 /// The rewrite shrinks the heard length of the honestly-smaller side, so
 /// the role election stays complementary — a real under-declaring peer
 /// elects from its own declared value, so only election-preserving
 /// rewrites model one. The smaller side therefore still initiates; its
-/// early supplies ride the opening stream, land at the deceived side's
-/// first descending level, and trip the resolver's ledger there.
+/// early supplies ride the opening stream and trip the deceived side's
+/// ingress charge at their first record.
 #[test]
 fn understated_set_len_fails_the_session() {
     for receiver_left in [false, true] {
@@ -240,31 +242,30 @@ fn understated_set_len_fails_the_session() {
             left, right, hears.0, hears.1,
         ))
         .expect("an overdrawn supply stream must terminate both sessions");
-        // The violation rises from the receiver's materialized walk, which
-        // sits in the opposite mirror seat from its proxy — so the side
-        // labels mirror the oversized-version test's, where the proxy's
-        // decoder reports instead.
-        if receiver_left {
-            assert!(
-                matches!(
-                    &left,
-                    Err(MirrorError::Client(MaterializedError::Violation(
-                        Violation::OverdrawnSupply
-                    ))),
+        let receiver_error = if receiver_left {
+            match &left {
+                Err(MirrorError::Server(error)) => error,
+                other => panic!(
+                    "undetected set_len lie: the left proxy did not report \
+                     the violation: {other:?}"
                 ),
-                "the left walk did not report the violation: {left:?}",
-            );
+            }
         } else {
-            assert!(
-                matches!(
-                    &right,
-                    Err(MirrorError::Server(MaterializedError::Violation(
-                        Violation::OverdrawnSupply
-                    ))),
+            match &right {
+                Err(MirrorError::Client(error)) => error,
+                other => panic!(
+                    "undetected set_len lie: the right proxy did not report \
+                     the violation: {other:?}"
                 ),
-                "the right walk did not report the violation: {right:?}",
-            );
-        }
+            }
+        };
+        assert!(
+            matches!(
+                receiver_error,
+                RemoteError::Decode(DecodeError::OverdrawnSupply { declared: 0 })
+            ),
+            "mistyped set_len violation: {receiver_error:?}",
+        );
     }
 }
 

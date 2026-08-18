@@ -17,7 +17,7 @@ use crate::tree::{
 
 use super::{
     super::{DecodeError, EncodeError, Scope, decode_reply, encode_reply},
-    LeafCase, hash, leaf_run, runtime,
+    LeafCase, hash, leaf_run, runtime, unbounded,
 };
 use crate::tree::mirror::streaming::{
     convert::Convert,
@@ -132,6 +132,7 @@ where
                 .block_on(decode_reply::<Failing<Local>, u64, H, _>(
                     backend.clone(),
                     u64::MAX,
+                    unbounded(),
                     Scope::new(parent, &[]),
                     &mut frames,
                 ))

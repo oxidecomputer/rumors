@@ -27,7 +27,7 @@ use crate::tree::{
 
 use super::{
     super::{DecodeError, OpeningError, Scope, early_supplies, opening_parts, opening_reply},
-    LeafCase, hash, leaf_run, runtime,
+    LeafCase, hash, leaf_run, runtime, unbounded,
 };
 
 trait OpeningNode: Height {
@@ -149,6 +149,7 @@ fn opening_supplies_decode_by_radix_group() {
             early_supplies::<Local, u64, UnderRoot, _>(
                 Local,
                 u64::MAX,
+                unbounded(),
                 Prefix::new(),
                 stream::iter(frames),
             )
@@ -167,6 +168,51 @@ fn opening_supplies_decode_by_radix_group() {
     }
 }
 
+/// The opening-supply reply is held to the declared set length record by
+/// record: the first record past the allowance fails the decode typed,
+/// while the one opening reply is still open.
+///
+/// The same fixture as the radix-group decode above, under an allowance
+/// of one: the eager early path charges at ingress exactly as the
+/// per-reply decoder does, so an over-declaring initiator cannot ride
+/// the opening stream past its greeting.
+#[test]
+fn opening_supplies_past_the_declared_set_len_are_rejected() {
+    use crate::tree::mirror::streaming::materialized::SupplyLedger;
+
+    let mut cases: Vec<LeafCase> = (0..6).map(|i| LeafCase::new(1_000 + i, 1)).collect();
+    cases.sort_by_key(LeafCase::path);
+    let records: Vec<_> = cases
+        .iter()
+        .map(|case| (&case.version, &case.message))
+        .collect();
+    let frames: Vec<Frame<u64>> = vec![Frame::Reaction(
+        WireReaction::Supply(leaf_run(&records)),
+        Flow::End,
+    )];
+
+    let error = runtime()
+        .block_on(async {
+            early_supplies::<Local, u64, UnderRoot, _>(
+                Local,
+                u64::MAX,
+                SupplyLedger::new(1),
+                Prefix::new(),
+                stream::iter(frames),
+            )
+            .try_collect::<Vec<_>>()
+            .await
+        })
+        .expect_err(
+            "undetected over-supply: opening supplies past the declared set \
+             length must fail at ingress",
+        );
+    assert!(
+        matches!(error, DecodeError::OverdrawnSupply { declared: 1 }),
+        "mistyped over-supply rejection: {error:?}",
+    );
+}
+
 /// An empty opening-supply reply — the whole early set pruned away —
 /// decodes to no supplies at all.
 #[test]
@@ -177,6 +223,7 @@ fn empty_opening_supply_reply_decodes_to_nothing() {
             early_supplies::<Local, u64, UnderRoot, _>(
                 Local,
                 u64::MAX,
+                unbounded(),
                 Prefix::new(),
                 stream::iter(frames),
             )
@@ -196,6 +243,7 @@ fn second_opening_supply_reply_is_rejected() {
             early_supplies::<Local, u64, UnderRoot, _>(
                 Local,
                 u64::MAX,
+                unbounded(),
                 Prefix::new(),
                 stream::iter(frames),
             )
@@ -216,6 +264,7 @@ fn positional_reaction_in_opening_supplies_is_rejected() {
             early_supplies::<Local, u64, UnderRoot, _>(
                 Local,
                 u64::MAX,
+                unbounded(),
                 Prefix::new(),
                 stream::iter(frames),
             )
