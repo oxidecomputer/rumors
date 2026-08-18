@@ -226,6 +226,13 @@ where
         // The match (rather than `ok_or`) keeps the error value — `Decode` has
         // drop glue — from being constructed and dropped on every iteration of
         // this per-bit loop; see `codec::cursor::Truncated`.
+        //
+        // The overflow arm names a value no target can hold: a prefix of
+        // usize::MAX zeros declares a mantissa past the big-integer
+        // backend's representable width (the backend caps below usize::MAX
+        // bits), so the reject genre is the value's, not the machine's. On
+        // 64-bit targets the arm is dead — reading 2^64 bits first needs
+        // an unallocatable input.
         k = match k.checked_add(1) {
             Some(k) => k,
             None => return Err(Decode::NotCanonical),

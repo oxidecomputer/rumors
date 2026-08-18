@@ -41,6 +41,16 @@ use super::{BitsMut, BitsSlice, Code};
 /// buffer, the primitive moves, and the write metering.
 pub(crate) struct PackedBuilder {
     /// The committed prefix: whole bytes, most-significant bit first.
+    ///
+    /// `bytes.len() * 8` fits `usize` on every target — the width the
+    /// position arithmetic below (`len`, `patch_bit`, `read_bits`,
+    /// `bit_at`) rests on. The bound: every builder's output is a stream
+    /// destined for the build-side buffer, whose borrowed-view encoding
+    /// caps at `usize::MAX >> 3` bits, and the emitters write at most a
+    /// small constant per input node over operands that are themselves
+    /// stored streams under the same cap — so the committed prefix stays
+    /// multiple binary orders of magnitude below any `usize` wrap, even
+    /// on 32-bit targets.
     bytes: Vec<u8>,
     /// The trailing not-yet-committed bits, value-packed at the low end
     /// (the stream's next bit is the register's most significant live

@@ -806,7 +806,14 @@ impl Clock {
     /// assert_eq!(clock.encode().len(), (clock.encoded_bits() + 1).div_ceil(8));
     /// ```
     pub fn encoded_bits(&self) -> usize {
-        8 * (self.party().encoded_bits() + 1).div_ceil(8) + self.version().encoded_bits()
+        // u64 width: on a 32-bit target each component's bit length fits
+        // usize (the storable bound), but the byte-rounded party plus the
+        // version can exceed it — a clock is two independently bounded
+        // streams. The conversion is checked, so a composite too long for
+        // this target's usize fails loudly by name instead of wrapping.
+        let party = 8 * (self.party().encoded_bits() as u64 + 1).div_ceil(8);
+        let bits = party + self.version().encoded_bits() as u64;
+        usize::try_from(bits).expect("the clock's combined bit length fits usize")
     }
 
     /// Duplicates this clock, producing a second handle to the same clock: an

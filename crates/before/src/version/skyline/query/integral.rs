@@ -461,6 +461,14 @@ pub(super) fn charge_digits(
     factor: &Base,
     digits: &[(u64, i64)],
 ) {
+    // Every accumulator shift in this module — the `32 * index` digit
+    // routings here, the interval weights and segment scales below — is
+    // bounded by the walked stream's own content: digit indexes by a
+    // value's width over 32, weights by the tree's depth, both under the
+    // stored stream's bit length, which the storage caps below 2^32. The
+    // shifted entry points' documented panic (a digit position past
+    // `usize`, from shift 2^37 on a 32-bit target) therefore sits multiple
+    // binary orders of magnitude beyond anything this fold can feed it.
     // Total with no identity fast path: an empty digit run yields no
     // clusters, so the loop is the no-op it should be, and both callers
     // (the segment settles and the aggregate merges) already skip

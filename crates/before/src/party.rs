@@ -551,7 +551,11 @@ impl Party {
     /// assert_eq!(before::Party::seed().encoded_bits(), 2);
     /// ```
     pub fn encoded_bits(&self) -> usize {
-        self.as_bits().len()
+        // The stored form's O(1) length, never the borrowed bit view: the
+        // view's encoding caps below the stored sizes the decode doors admit
+        // on 32-bit targets, while the length itself is exact at every
+        // storable size.
+        self.0.len()
     }
 
     /// Decodes a [`Party`] from a reader of canonical bytes, strictly rejecting
