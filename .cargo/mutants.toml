@@ -137,12 +137,35 @@ exclude_re = [
 
     # --- before::version::skyline::query::integral ---
 
-    # Performance genre: the boundary and freeze triggers tune engagement
-    # thresholds inside the deliberate cost allowance; the verdicts and
-    # settled values are identical on either side.
-    "integral\\.rs.*: replace > with (==|<|>=) in Integrator::boundary",
-    "integral\\.rs.*: replace \\+ with (-|\\*) in Integrator::boundary",
-    "integral\\.rs.*: replace > with (==|<|>=) in Integrator::freeze",
+    # Performance genre, the freeze trigger's strictness leg only: `>=`
+    # engages the freeze one digit inside the allowance, and the verdicts
+    # and settled values are identical on either side — the freeze moves
+    # where drift waits, never what settles. The other legs face the
+    # suite: a trigger inverted (`<`) or demanding exact equality (`==`)
+    # skips freezing wide drift outright, and the adequacy tripwires and
+    # meter bands read the un-frozen sweeps superlinear.
+    "integral\\.rs.*: replace > with >= in Integrator::boundary",
+
+    # Performance genre, the allowance-scaling leg only: `funded *
+    # FREEZE_ALLOWANCE_DIGITS` moves the freeze engagement inside the
+    # deliberate allowance (later on wide funding, one digit earlier at
+    # word scale), verdicts and settled values identical. The `-` leg
+    # faces the suite: it underflows at word-scale funding and panics
+    # under the profile of record's overflow checks.
+    "integral\\.rs.*: replace \\+ with \\* in Integrator::boundary",
+
+    # Performance genre, the promote trigger's strictness leg only: `>=`
+    # promotes the parked component into the ledger one digit inside the
+    # allowance, and promotion timing at that margin is value-neutral —
+    # the close-out settle charges the same double sum wherever the
+    # split lands — so the leg only routes park/settle work. Every other
+    # mutation of this trigger starves or inverts promotion outright and
+    # faces the suite: the adequacy tripwires read a promote-starved
+    # sweep's settles superlinear (`==`, and the allowance arithmetic's
+    # `*` scaling), the hoisted-window flatness band prices the
+    # inversion (`<`), and the allowance's `-` leg underflows and panics
+    # under the profile of record's overflow checks.
+    "integral\\.rs.*: replace > with >= in Integrator::freeze",
 
     # Performance genre: the settled value is independent of the arming
     # tree's shape, so the shape-tuning sum routes only work.

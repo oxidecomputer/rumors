@@ -37,17 +37,17 @@
       "listed": 3,
       "suppressed": 3
     },
-    "integral\\.rs.*: replace > with (==|<|>=) in Integrator::boundary": {
-      "listed": 3,
-      "suppressed": 3
+    "integral\\.rs.*: replace > with >= in Integrator::boundary": {
+      "listed": 1,
+      "suppressed": 1
     },
-    "integral\\.rs.*: replace \\+ with (-|\\*) in Integrator::boundary": {
-      "listed": 2,
-      "suppressed": 2
+    "integral\\.rs.*: replace \\+ with \\* in Integrator::boundary": {
+      "listed": 1,
+      "suppressed": 1
     },
-    "integral\\.rs.*: replace > with (==|<|>=) in Integrator::freeze": {
-      "listed": 3,
-      "suppressed": 3
+    "integral\\.rs.*: replace > with >= in Integrator::freeze": {
+      "listed": 1,
+      "suppressed": 1
     },
     "integral\\.rs.*: replace \\+ with \\* in Integrator::settle_armings": {
       "listed": 1,
