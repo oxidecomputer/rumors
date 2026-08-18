@@ -1,0 +1,84 @@
+#!/usr/bin/env python3
+"""Split the committed wire-capture corpus into digest and non-digest bytes.
+
+Reads the V2 capture snapshots (`tests/snapshots/*.snap`) and totals, per
+file and overall: every captured wire byte (each direction's outgoing
+bytes, counted once), the bytes spent on Merkle digests (the renderer
+decodes every listing and query child as `child 0x<radix>: <digest hex>`,
+so the digest width is read from the corpus itself, never assumed), and
+their ratio. This is the denominator for any claim about what a digest
+width costs on the wire: dispute-listing metadata is digest-dominated,
+and this meter says by exactly how much, over the corpus the snapshot
+suite already pins byte-for-byte.
+
+V1 side-by-side timelines (renders containing the `│` column separator)
+are skipped and reported as such: their transcripts show each byte twice
+(sent and received), so totaling them would double-count; the V1 digest
+atom is the same `Hash` the V2 corpus measures.
+
+Usage: tools/digestshare [snapshot-dir ...]
+Defaults to tests/snapshots relative to the repository root.
+"""
+
+import re
+import sys
+from pathlib import Path
+
+HEX_LINE = re.compile(r"^\s*[0-9a-f]{4}:((?: [0-9a-f]{2})+)$")
+CHILD_LINE = re.compile(r"^\s*child 0x[0-9a-f]+: ([0-9a-f]+)$")
+
+
+def measure(path: Path):
+    """Return (total_bytes, digest_bytes, digest_count) for one V2 snap,
+    or None for a V1 side-by-side render."""
+    text = path.read_text()
+    # Strip insta's YAML header: content starts after the second `---`.
+    body = text.split("---", 2)[2]
+    if "│" in body:
+        return None
+    total = 0
+    digest_bytes = 0
+    digests = 0
+    for line in body.splitlines():
+        hexes = HEX_LINE.match(line)
+        if hexes:
+            total += len(hexes.group(1)) // 3
+            continue
+        child = CHILD_LINE.match(line)
+        if child:
+            digest_bytes += len(child.group(1)) // 2
+            digests += 1
+    return total, digest_bytes, digests
+
+
+def main() -> int:
+    root = Path(__file__).resolve().parent.parent
+    dirs = [Path(arg) for arg in sys.argv[1:]] or [root / "tests" / "snapshots"]
+    grand_total = grand_digest = grand_count = 0
+    for directory in dirs:
+        for path in sorted(directory.glob("*.snap")):
+            measured = measure(path)
+            if measured is None:
+                print(f"{path.name}: skipped (V1 side-by-side timeline)")
+                continue
+            total, digest, count = measured
+            share = (100.0 * digest / total) if total else 0.0
+            print(
+                f"{path.name}: {total} wire B, {digest} digest B "
+                f"({count} digest(s), {share:.1f}%)"
+            )
+            grand_total += total
+            grand_digest += digest
+            grand_count += count
+    if grand_total:
+        share = 100.0 * grand_digest / grand_total
+        width = grand_digest // grand_count if grand_count else 0
+        print(
+            f"TOTAL: {grand_total} wire B, {grand_digest} digest B, "
+            f"{grand_count} digests at {width} B each ({share:.1f}%)"
+        )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
