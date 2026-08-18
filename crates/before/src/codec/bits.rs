@@ -266,9 +266,10 @@ impl PartialEq for Bits {
 impl Eq for Bits {}
 
 /// Borrow bytes as an MSB-first bit stream without first copying them into a
-/// [`BitsMut`]: the meter surface's and the test suites' view — production
-/// decode walks raw bytes instead, since this view's encoding caps below the
-/// buffer sizes the decode doors admit on 32-bit targets.
+/// [`BitsMut`]: the meter surface's and the test suites' view.
+///
+/// Production decode walks raw bytes instead, since this view's encoding
+/// caps below the buffer sizes the decode doors admit on 32-bit targets.
 #[cfg(any(test, feature = "meter"))]
 pub(crate) fn bytes_as_bits(bytes: &[u8]) -> &BitsSlice {
     bytes.view_bits::<Msb0>()

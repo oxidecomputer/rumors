@@ -36,9 +36,10 @@ pub(crate) fn parse_id(bits: &BitsSlice, pos: usize) -> Result<usize, Decode> {
 }
 
 /// [`parse_id`] over raw stream bytes, walking the whole `8 · bytes.len()`
-/// bit view: the byte decode doors' form, for buffers past the borrowed bit
-/// view's encoding cap (64 MiB and up on a 32-bit target), returning the
-/// tree's end position at the walk's own `u64` width.
+/// bit view and returning the tree's end at the walk's own `u64` width.
+///
+/// The byte decode doors' form, for buffers past the borrowed bit view's
+/// encoding cap (64 MiB and up on a 32-bit target).
 pub(crate) fn parse_id_bytes(bytes: &[u8]) -> Result<u64, Decode> {
     let mut cursor = super::DsiCursor::over_bytes(bytes);
     parse_id_core(&mut cursor)?;
@@ -56,9 +57,11 @@ where
 }
 
 /// Parse and validate one id tree from a sequential bit cursor: the one
-/// grammar body, leaving the end position to the caller's own read (the
-/// byte decode doors read it at `u64` width, everything else through
-/// [`BitCursor::position`]).
+/// grammar body.
+///
+/// The end position is left to the caller's own read: the byte decode doors
+/// read it at `u64` width, everything else through
+/// [`BitCursor::position`].
 pub(crate) fn parse_id_core<C: BitCursor>(cursor: &mut C) -> Result<(), Decode>
 where
     Decode: From<C::Error>,

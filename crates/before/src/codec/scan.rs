@@ -58,8 +58,9 @@ pub(crate) fn record_bits(n: usize) {
     let _ = n;
 }
 
-/// [`record_bits`] at the counter's own width, for the word-parallel cursor:
-/// a byte decode door's walk spans up to `8 · bytes.len()` bit positions,
+/// [`record_bits`] at the counter's own width, for the word-parallel cursor.
+///
+/// A byte decode door's walk spans up to `8 · bytes.len()` bit positions,
 /// which exceeds a 32-bit `usize` on the largest buffers a door admits, so
 /// its run and tail records stay `u64` end to end.
 #[inline(always)]

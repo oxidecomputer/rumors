@@ -288,9 +288,10 @@ where
 }
 
 /// [`validate_dominating_from`] with the canonical `lo` given as raw stream
-/// bytes and its live bit length: the byte decode door's form, for meets
-/// past the borrowed bit view's encoding cap (64 MiB and up on a 32-bit
-/// target). Same contract in full.
+/// bytes and its live bit length. Same contract in full.
+///
+/// The byte decode door's form, for meets past the borrowed bit view's
+/// encoding cap (64 MiB and up on a 32-bit target).
 pub(crate) fn validate_dominating_bytes<C: BitCursor>(
     lo: &[u8],
     lo_live: usize,

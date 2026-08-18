@@ -54,9 +54,10 @@ fn synth_version(n: usize) -> Vec<u8> {
 }
 
 /// Sanity and liveness: a small synthesized version decodes to the expected
-/// bit length, its bytes round-trip, and two mutilations reject with typed
-/// errors (never a panic). Green at every commit; a red here means the
-/// harness or the synthesis is broken, not that a boundary moved.
+/// bit length, round-trips, and rejects two mutilations with typed errors.
+///
+/// Green at every commit; a red here means the harness or the synthesis is
+/// broken, not that a boundary moved.
 #[no_mangle]
 pub extern "C" fn pin_version_small() -> i64 {
     let bytes = synth_version(64);
@@ -167,9 +168,10 @@ fn synth_rank(exp: u64) -> Vec<u8> {
 }
 
 /// Decode a valid synthesized rank whose fraction is exactly `exp`
-/// expansion bits deep, then check three exact-order observations against
-/// reference ranks: the value sits strictly between zero and one, and
-/// equals its own clone.
+/// expansion bits deep, then check exact-order observations.
+///
+/// The observations, against reference ranks: the value sits strictly
+/// between zero and one, and equals its own clone.
 ///
 /// The harness aims this at the `u64 -> usize` exponent seam: `exp` just
 /// below `2^32` (in `usize` range on wasm32) and at `2^32` (past it). The

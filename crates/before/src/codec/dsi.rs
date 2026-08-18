@@ -94,9 +94,11 @@ impl<'a> DsiCursor<'a> {
     }
 
     /// Open a cursor over the whole bit view of raw stream bytes — all
-    /// `8 · bytes.len()` of them, padding included: the byte decode doors'
-    /// entry, which must walk buffers whose borrowed bit view the `bitvec`
-    /// encoding cannot represent (64 MiB and up on a 32-bit target).
+    /// `8 · bytes.len()` of them, padding included.
+    ///
+    /// The byte decode doors' entry, which must walk buffers whose borrowed
+    /// bit view the `bitvec` encoding cannot represent (64 MiB and up on a
+    /// 32-bit target).
     ///
     /// The door semantics are exactly the slice walk's over a whole padded
     /// buffer: padding bits are data to the walk, and the door's marker

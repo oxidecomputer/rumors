@@ -156,10 +156,11 @@ pub(crate) fn decode_int_window(bits: &BitsSlice, pos: usize) -> Option<(u64, us
     Some((n, next as usize))
 }
 
-/// [`decode_int_window`] over raw stream bytes: the wire-side reader's form
-/// (its buffered bytes have no borrowed bit view once they outgrow the view
-/// encoding's cap), windowing the whole `8 · bytes.len()`-bit view at the
-/// reader's own `u64` position width.
+/// [`decode_int_window`] over raw stream bytes: the wire-side reader's form.
+///
+/// The reader's buffered bytes have no borrowed bit view once they outgrow
+/// the view encoding's cap, so this windows the whole `8 · bytes.len()`-bit
+/// view at the reader's own `u64` position width.
 #[cfg(any(test, feature = "borsh"))]
 pub(crate) fn decode_int_window_bytes(bytes: &[u8], pos: u64) -> Option<(u64, u64)> {
     window_int(bytes, None, bytes.len() as u64 * 8, pos)
