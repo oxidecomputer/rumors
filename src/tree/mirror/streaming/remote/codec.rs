@@ -24,8 +24,12 @@
 //! once its whole body arrives but leaves the records encoded; the adapter
 //! decodes them one at a time, constructs its backend-specific leaves, and
 //! validates their content-addressed paths. How many records share one run
-//! is the sender's choice, bounded by its [`RunBudget`]; the decoder accepts
-//! any batching.
+//! is the sender's choice within the session's [`RunBudget`], and the
+//! decoder holds arriving frames to that same budget: any within-budget
+//! batching decodes, a single record of any size decodes (the encoder's
+//! minimum-one-record overhang), and a frame batching multiple records past
+//! the budget is rejected typed ([`DecodeErrorKind::OverbatchedRun`])
+//! before its body is buffered.
 //!
 //! Encoding trusts the protocol and adapter to produce phase-correct,
 //! canonically ordered frames; it performs no redundant semantic validation.
@@ -80,17 +84,22 @@ pub(crate) fn supply_signal_byte() -> u8 {
     )
 }
 
-/// Decode one initiator-spoken frame from `read`, dropping the decoded value.
+/// Decode one initiator-spoken frame from `read` under `budget`, dropping
+/// the decoded value.
 ///
 /// The allocator meter (`tests/decode_alloc.rs`) drives the supply read path
 /// through this to price a supply body in bytes requested from the
 /// allocator; the decoded value is noise to that meter, but the typed error
 /// passes through so the meter can also assert how a failure classified.
+/// The budget is the meter's to choose: the framing ceiling keeps every
+/// well-framed declaration on the body-read path being priced, while a
+/// small budget prices the ingress gate itself.
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) async fn decode_frame_discarded(
     read: impl tokio::io::AsyncRead + Unpin,
+    budget: RunBudget,
 ) -> Result<(), DecodeError> {
-    let mut read = FrameRead::new(Speaker::Initiator, read);
+    let mut read = FrameRead::new(Speaker::Initiator, budget, read);
     read.frame::<u64>().await.map(|_| ())
 }
 

@@ -6,7 +6,7 @@ use tokio::io::AsyncWriteExt;
 use crate::link::{Acceptor, Connector, memory};
 use crate::testing::run_to_quiescence;
 use crate::tree::mirror::streaming::remote::codec::{
-    End, Flow, Frame, FrameWrite, Origin, Reaction, Speaker, Stream,
+    End, Flow, Frame, FrameWrite, Origin, Reaction, RunBudget, Speaker, Stream,
 };
 use crate::tree::mirror::streaming::stats::Recorder;
 
@@ -87,6 +87,7 @@ fn frames_flow_sender_to_claimed_receiver() {
                 claims.take(stream),
                 Speaker::Initiator,
                 stream,
+                RunBudget::default(),
                 route,
                 Recorder::default(),
             );
@@ -121,6 +122,7 @@ fn unpolled_receiver_finishes_vacuously() {
         claims.take(stream),
         Speaker::Responder,
         stream,
+        RunBudget::default(),
         route,
         Recorder::default(),
     );
@@ -250,6 +252,7 @@ async fn first_reported_error(
         claims.take(stream),
         Speaker::Initiator,
         stream,
+        RunBudget::default(),
         route,
         Recorder::default(),
     );
@@ -559,6 +562,7 @@ fn supply_failure_after_delivery_lets_the_session_finish() {
                 claims.take(stream),
                 Speaker::Initiator,
                 stream,
+                RunBudget::default(),
                 route,
                 Recorder::default(),
             );

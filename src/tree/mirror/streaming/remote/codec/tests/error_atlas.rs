@@ -24,7 +24,7 @@ use tokio::io::AsyncWrite;
 
 use super::super::{
     DecodeError, DecodeErrorKind, DecodeLeafError, DecodeSignalError, EncodeError, EncodeErrorKind,
-    Flow, Frame, FrameWrite, LeafRunError, Reaction, Speaker, Stream, WireFrame, decode,
+    Flow, Frame, FrameWrite, LeafRunError, Reaction, RunBudget, Speaker, Stream, WireFrame, decode,
     decode_exact, encode,
     frame::{LeafRun, QUERY_CHILD_LEN},
     signal::{Signal, WireSignal},
@@ -50,6 +50,7 @@ const WITNESS_MARKERS: &[&str] = &[
     "kind: InvalidRun::Empty",
     "kind: InvalidRun::TruncatedHeader(",
     "kind: InvalidRun::TruncatedRecord(",
+    "kind: OverbatchedRun(declared=",
     "kind: TrailingBytes(count=",
     // DecodeLeafError (describe_leaf_kind).
     "kind: Record::Version(io=",
@@ -191,18 +192,30 @@ fn decode_errors(atlas: &mut String) {
     );
 
     for speaker in [Speaker::Initiator, Speaker::Responder] {
-        let error =
-            decode::<u8>(speaker, &mut FailAfterReader::new(matched.clone(), 0)).unwrap_err();
+        let error = decode::<u8>(
+            speaker,
+            RunBudget::default(),
+            &mut FailAfterReader::new(matched.clone(), 0),
+        )
+        .unwrap_err();
         record_decode(atlas, &format!("{speaker:?}/read/signal"), &error);
 
         for (label, offset) in [("query-count", 1), ("query-children", 2)] {
-            let error = decode::<u8>(speaker, &mut FailAfterReader::new(query.clone(), offset))
-                .unwrap_err();
+            let error = decode::<u8>(
+                speaker,
+                RunBudget::default(),
+                &mut FailAfterReader::new(query.clone(), offset),
+            )
+            .unwrap_err();
             record_decode(atlas, &format!("{speaker:?}/read/{label}"), &error);
         }
         for (label, offset) in [("supply-length", 1), ("supply-run", 5)] {
-            let error = decode::<u8>(speaker, &mut FailAfterReader::new(supply.clone(), offset))
-                .unwrap_err();
+            let error = decode::<u8>(
+                speaker,
+                RunBudget::default(),
+                &mut FailAfterReader::new(supply.clone(), offset),
+            )
+            .unwrap_err();
             record_decode(atlas, &format!("{speaker:?}/read/{label}"), &error);
         }
 
@@ -213,43 +226,75 @@ fn decode_errors(atlas: &mut String) {
             ("supply-length", &supply[..1]),
             ("supply-run", &supply[..5]),
         ] {
-            let error = decode_exact::<u8>(speaker, bytes).unwrap_err();
+            let error = decode_exact::<u8>(speaker, RunBudget::default(), bytes).unwrap_err();
             record_decode(atlas, &format!("{speaker:?}/truncated/{label}"), &error);
         }
 
-        let error = decode_exact::<u8>(speaker, &[FIRST_RESERVED_SIGNAL]).unwrap_err();
+        let error = decode_exact::<u8>(speaker, RunBudget::default(), &[FIRST_RESERVED_SIGNAL])
+            .unwrap_err();
         record_decode(atlas, &format!("{speaker:?}/reserved-signal"), &error);
 
         let mut unordered = query.clone();
         unordered[2] = 2;
         unordered[2 + QUERY_CHILD_LEN] = 1;
-        let error = decode_exact::<u8>(speaker, &unordered).unwrap_err();
+        let error = decode_exact::<u8>(speaker, RunBudget::default(), &unordered).unwrap_err();
         record_decode(atlas, &format!("{speaker:?}/query-out-of-order"), &error);
 
-        let error =
-            decode_exact::<u64>(speaker, &raw_supply(stream, Flow::Continue, &[])).unwrap_err();
+        let error = decode_exact::<u64>(
+            speaker,
+            RunBudget::default(),
+            &raw_supply(stream, Flow::Continue, &[]),
+        )
+        .unwrap_err();
         record_decode(atlas, &format!("{speaker:?}/run/empty"), &error);
 
-        let error =
-            decode_exact::<u64>(speaker, &raw_supply(stream, Flow::Continue, &[0, 0])).unwrap_err();
+        let error = decode_exact::<u64>(
+            speaker,
+            RunBudget::default(),
+            &raw_supply(stream, Flow::Continue, &[0, 0]),
+        )
+        .unwrap_err();
         record_decode(atlas, &format!("{speaker:?}/run/truncated-header"), &error);
 
         let mut overrun = 2_u32.to_be_bytes().to_vec();
         overrun.push(0);
-        let error = decode_exact::<u64>(speaker, &raw_supply(stream, Flow::Continue, &overrun))
-            .unwrap_err();
+        let error = decode_exact::<u64>(
+            speaker,
+            RunBudget::default(),
+            &raw_supply(stream, Flow::Continue, &overrun),
+        )
+        .unwrap_err();
         record_decode(atlas, &format!("{speaker:?}/run/truncated-record"), &error);
+
+        // Two records whose shared frame outsizes a zero budget: not the
+        // lone-record overhang, so the ingress gate rejects the batching.
+        let mut batched = Vec::new();
+        let mut run = one_record_run(Version::new(), 7_u8);
+        run.push(&Version::new(), &Message::new(7_u8))
+            .expect("an atlas record fits the run framing");
+        encode(
+            speaker,
+            &(
+                stream,
+                Frame::Reaction(Reaction::Supply(run), Flow::Continue),
+            ),
+            &mut batched,
+        )
+        .unwrap();
+        let error = decode_exact::<u8>(speaker, RunBudget::from_bytes(0), &batched).unwrap_err();
+        record_decode(atlas, &format!("{speaker:?}/run/overbatched"), &error);
 
         let mut trailing = matched.clone();
         trailing.push(0);
-        let error = decode_exact::<u8>(speaker, &trailing).unwrap_err();
+        let error = decode_exact::<u8>(speaker, RunBudget::default(), &trailing).unwrap_err();
         record_decode(atlas, &format!("{speaker:?}/frame/trailing"), &error);
     }
 
     for (label, speaker, stream, frame) in placement_witnesses() {
         let signal = frame_signal(&frame);
         let invalid = WireSignal::new(speaker, stream, signal).unwrap_err();
-        let error = decode_exact::<u8>(speaker, &[invalid.byte()]).unwrap_err();
+        let error =
+            decode_exact::<u8>(speaker, RunBudget::default(), &[invalid.byte()]).unwrap_err();
         record_decode(atlas, &format!("{label}/decode"), &error);
     }
 }
@@ -452,6 +497,9 @@ fn describe_decode_kind(out: &mut String, kind: &DecodeErrorKind) {
             "InvalidRun::TruncatedRecord(len={len}, remaining={remaining})"
         )
         .unwrap(),
+        DecodeErrorKind::OverbatchedRun { declared, budget } => {
+            write!(out, "OverbatchedRun(declared={declared}, budget={budget})").unwrap()
+        }
         DecodeErrorKind::TrailingBytes { count } => {
             write!(out, "TrailingBytes(count={count})").unwrap()
         }

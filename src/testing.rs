@@ -124,11 +124,33 @@ pub fn supply_signal_byte() -> u8 {
 /// The allocator meter (`tests/decode_alloc.rs`) drives the codec's supply
 /// read path through this; the decoded value is noise to that meter, but
 /// the typed [`CodecDecodeError`](crate::error::CodecDecodeError) passes
-/// through so the meter can also assert how a failure classified.
+/// through so the meter can also assert how a failure classified. Runs at
+/// the framing-ceiling run budget, so every well-framed declaration reaches
+/// the body-read path this entry prices; the budget's ingress gate is
+/// priced separately through [`decode_supply_frame_budgeted`].
 pub async fn decode_supply_frame(
     read: impl tokio::io::AsyncRead + Unpin,
 ) -> Result<(), crate::error::CodecDecodeError> {
-    crate::tree::mirror::streaming::remote::decode_frame_discarded(read).await
+    decode_supply_frame_budgeted(read, usize::MAX).await
+}
+
+/// Decode one streaming-codec supply frame under a session run budget of
+/// `budget` bytes, discarding the decoded run.
+///
+/// The allocator meter (`tests/decode_alloc.rs`) drives the codec's
+/// run-budget ingress gate through this, pricing what a budget-violating
+/// frame costs before it is rejected; budgets at or above the framing
+/// ceiling saturate to it, making [`decode_supply_frame`] this entry's
+/// everything-admitted case.
+pub async fn decode_supply_frame_budgeted(
+    read: impl tokio::io::AsyncRead + Unpin,
+    budget: usize,
+) -> Result<(), crate::error::CodecDecodeError> {
+    crate::tree::mirror::streaming::remote::decode_frame_discarded(
+        read,
+        crate::tree::mirror::streaming::remote::RunBudget::from_bytes(budget),
+    )
+    .await
 }
 
 /// Renders the sync-budget trade-off table that

@@ -16,7 +16,7 @@ use crate::tree::{
         protocol::{self, BoxResponses, Requests},
         remote::{
             adapter::Scope,
-            codec::{Speaker, Stream},
+            codec::{RunBudget, Speaker, Stream},
             proxy::{Error, work::Work},
             streams::{Claims, ErrorRoute, StreamReceiver, StreamSender},
         },
@@ -37,6 +37,10 @@ where
     connector: C,
     claims: Claims<A::Rx>,
     route: ErrorRoute,
+    /// The session's negotiated run budget, handed to every incoming
+    /// stream this session binds so its codec enforces the budget at
+    /// ingress (the outgoing side's copy lives in [`Work`]).
+    budget: RunBudget,
     /// The session's stats recorder, handed to every stream this session
     /// binds so the codec seam's byte counts accumulate in one place.
     stats: Recorder,
@@ -57,6 +61,7 @@ where
             self.claims.take(stream),
             self.remote,
             stream,
+            self.budget,
             self.route.clone(),
             self.stats.clone(),
         )
@@ -109,12 +114,14 @@ where
     A: Acceptor,
 {
     /// Bind an elected session's parts to the remote elected speaker.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         remote: Speaker,
         epoch: u8,
         connector: C,
         claims: Claims<A::Rx>,
         route: ErrorRoute,
+        budget: RunBudget,
         stats: Recorder,
         work: Work<B, T, R, W, A>,
     ) -> Self {
@@ -125,6 +132,7 @@ where
                 connector,
                 claims,
                 route,
+                budget,
                 stats,
                 work,
             })),

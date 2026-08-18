@@ -21,7 +21,12 @@
 //! buffers at most one run's bytes per frame before yielding its records
 //! one at a time — each record passing custody of its payload to the
 //! storage backend as it is read, so the constructed leaves in flight
-//! are the sync budget's decode-fan charge, not this one's. The public
+//! are the sync budget's decode-fan charge, not this one's. The decode
+//! side of that price is enforced, not assumed: ingress holds every
+//! arriving supply frame to the session budget ([`covers`](RunBudget::covers))
+//! and rejects a violating frame before buffering its body, so the
+//! envelope holds against a conformance-buggy peer batching past the
+//! session minimum, not only by counterparty courtesy. The public
 //! knob is [`Peer::target_message_size`](crate::Peer::target_message_size).
 //!
 //! Framing headroom: runs ride the wire's `u32` length header
@@ -115,12 +120,24 @@ impl RunBudget {
     /// Charges the whole wire frame — the [`SUPPLY_FRAME_OVERHEAD`] envelope
     /// plus the run's `body` bytes plus the `record` bytes about to join it —
     /// so a flushed frame's on-wire size never exceeds the budget unless a
-    /// single record alone does.
+    /// single record alone does. Defined as [`covers`](Self::covers) of the
+    /// grown body, so the encoder's flush rule and the decoder's ingress
+    /// check share one boundary and cannot drift apart.
     pub fn admits(self, body: usize, record: usize) -> bool {
-        SUPPLY_FRAME_OVERHEAD
-            .saturating_add(body)
-            .saturating_add(record)
-            <= self.bytes
+        self.covers(body.saturating_add(record))
+    }
+
+    /// Whether a whole supply frame of `body` run bytes fits this budget.
+    ///
+    /// Charges the frame's full wire size: the [`SUPPLY_FRAME_OVERHEAD`]
+    /// envelope plus `body`. This is the boundary the encoder flushes
+    /// against ([`admits`](Self::admits)) and the one the decoder enforces
+    /// at ingress: every frame the encoder can produce either satisfies it
+    /// or is a single record shipped alone (the minimum-one-record
+    /// overhang), so a frame failing it with more than one record is a
+    /// counterparty conformance bug.
+    pub fn covers(self, body: usize) -> bool {
+        SUPPLY_FRAME_OVERHEAD.saturating_add(body) <= self.bytes
     }
 }
 

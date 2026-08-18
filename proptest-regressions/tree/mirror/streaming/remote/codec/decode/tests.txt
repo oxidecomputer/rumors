@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+# The case below was minted against a deliberately neutralized run-budget
+# ingress comparison during red-first verification; it passes on real code.
+cc 3bcbb541b322c37371255ec0a2b0fc1c563f09cdcf864ea2915518ae728c7724 # shrinks to index = 1, speaker = Initiator, flow = Continue, records = [(0, 0), (0, 0)], surplus = 0, deficit = 1

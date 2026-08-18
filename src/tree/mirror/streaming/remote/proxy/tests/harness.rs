@@ -283,6 +283,14 @@ impl GreetingRewrite {
             value,
         }
     }
+
+    /// Rewrite the received greeting's `target_message_size` word.
+    pub fn target_message_size(value: u64) -> Self {
+        Self {
+            offset: LENGTH_HEADER_LEN + 2 * GREETING_WORD_LEN,
+            value,
+        }
+    }
 }
 
 /// A control-stream reader replacing one absolute byte range with a pinned

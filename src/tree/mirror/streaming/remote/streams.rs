@@ -52,7 +52,7 @@ use crate::tree::mirror::streaming::stats::{CountedRead, CountedWrite, Recorder}
 use crate::tree::mirror::streaming::tasks::cancelled;
 
 use super::codec::{
-    DecodeError, EncodeError, End, Frame, FrameRead, FrameWrite, Origin, Speaker, Stream,
+    DecodeError, EncodeError, End, Frame, FrameRead, FrameWrite, Origin, RunBudget, Speaker, Stream,
 };
 
 /// Bytes of the label a sender writes before its first frame.
@@ -291,6 +291,9 @@ struct ReceiverStart<Rx> {
     /// The remote role whose direction this stream carries.
     speaker: Speaker,
     stream: Stream,
+    /// The session's run budget, enforced by the claimed stream's codec on
+    /// every supply frame the peer delivers.
+    budget: RunBudget,
     route: ErrorRoute,
     /// The session's stats recorder: the claimed stream's codec reads
     /// count as [`bytes_received`](crate::SessionStats::bytes_received),
@@ -309,6 +312,7 @@ where
         claim: oneshot::Receiver<Rx>,
         speaker: Speaker,
         stream: Stream,
+        budget: RunBudget,
         route: ErrorRoute,
         stats: Recorder,
     ) -> Self {
@@ -317,6 +321,7 @@ where
                 claim,
                 speaker,
                 stream,
+                budget,
                 route,
                 stats,
             }),
@@ -348,12 +353,13 @@ where
                 claim,
                 speaker,
                 stream,
+                budget,
                 route,
                 stats,
             } = start
                 .take()
                 .expect("the start state is consumed exactly once");
-            Box::pin(read_frames(claim, speaker, stream, route, stats))
+            Box::pin(read_frames(claim, speaker, stream, budget, route, stats))
         })
     }
 }
@@ -387,6 +393,7 @@ fn read_frames<Rx, T>(
     claim: oneshot::Receiver<Rx>,
     speaker: Speaker,
     stream: Stream,
+    budget: RunBudget,
     route: ErrorRoute,
     stats: Recorder,
 ) -> impl futures::Stream<Item = Frame<T>> + Send
@@ -411,7 +418,7 @@ where
             });
             cancelled().await
         };
-        let mut read = FrameRead::new(speaker, CountedRead::new(rx, stats));
+        let mut read = FrameRead::new(speaker, budget, CountedRead::new(rx, stats));
         loop {
             let frame = match read.frame::<T>().await {
                 Ok(Some((framed, frame))) if framed == stream => frame,

@@ -8,7 +8,6 @@ use borsh::BorshDeserialize;
 #[cfg(test)]
 use borsh::io::{ErrorKind, Read};
 
-#[cfg(test)]
 use crate::tree::mirror::framing::LENGTH_HEADER_LEN;
 use crate::tree::typed::{Hash, hash::MERKLE_HASH_LEN};
 
@@ -16,6 +15,8 @@ mod async_io;
 
 pub use async_io::FrameRead;
 
+#[cfg(test)]
+use super::budget::RunBudget;
 #[cfg(test)]
 use super::{
     error::FramePart,
@@ -31,19 +32,21 @@ use super::{
 #[cfg(test)]
 pub fn decode<T: BorshDeserialize>(
     speaker: Speaker,
+    budget: RunBudget,
     read: &mut impl Read,
 ) -> Result<WireFrame<T>, DecodeError> {
-    FrameDecoder::new(speaker, read).decode()
+    FrameDecoder::new(speaker, budget, read).decode()
 }
 
 /// Decode exactly one frame from a slice, rejecting bytes after it.
 #[cfg(test)]
 pub fn decode_exact<T: BorshDeserialize>(
     speaker: Speaker,
+    budget: RunBudget,
     input: &[u8],
 ) -> Result<WireFrame<T>, DecodeError> {
     let mut rest = input;
-    let (stream, frame) = decode(speaker, &mut rest)?;
+    let (stream, frame) = decode(speaker, budget, &mut rest)?;
     if rest.is_empty() {
         Ok((stream, frame))
     } else {
@@ -59,13 +62,19 @@ pub fn decode_exact<T: BorshDeserialize>(
 #[cfg(test)]
 struct FrameDecoder<'a, R> {
     speaker: Speaker,
+    /// The session's run budget, gating supply-body buffering.
+    budget: RunBudget,
     read: &'a mut R,
 }
 
 #[cfg(test)]
 impl<'a, R: Read> FrameDecoder<'a, R> {
-    fn new(speaker: Speaker, read: &'a mut R) -> Self {
-        Self { speaker, read }
+    fn new(speaker: Speaker, budget: RunBudget, read: &'a mut R) -> Self {
+        Self {
+            speaker,
+            budget,
+            read,
+        }
     }
 
     fn decode<T: BorshDeserialize>(mut self) -> Result<WireFrame<T>, DecodeError> {
@@ -106,11 +115,37 @@ impl<'a, R: Read> FrameDecoder<'a, R> {
     fn supply<T>(&mut self) -> Result<LeafRun<T>, DecodeErrorKind> {
         let mut header = [0; LENGTH_HEADER_LEN];
         self.read_exact(&mut header, FramePart::SupplyLength)?;
+        let len = u32::from_be_bytes(header) as usize;
+        // The run-budget ingress check, mirroring the async reader's exactly
+        // (see `AsyncFrameDecoder::supply` for the memory argument this
+        // oracle does not need): an over-budget frame is legal only as one
+        // lone record spanning the whole body, decided from the first
+        // record's length header alone.
+        if !self.budget.covers(len) {
+            let budget = self.budget;
+            let overbatched = move || DecodeErrorKind::OverbatchedRun {
+                declared: super::budget::SUPPLY_FRAME_OVERHEAD.saturating_add(len),
+                budget: budget.bytes(),
+            };
+            if len < LENGTH_HEADER_LEN {
+                return Err(overbatched());
+            }
+            let mut first = [0; LENGTH_HEADER_LEN];
+            self.read_exact(&mut first, FramePart::SupplyRun)?;
+            let record = u32::from_be_bytes(first) as usize;
+            if !lone_record_spans(len, record) {
+                return Err(overbatched());
+            }
+            let mut run = vec![0; len];
+            run[..LENGTH_HEADER_LEN].copy_from_slice(&first);
+            self.read_exact(&mut run[LENGTH_HEADER_LEN..], FramePart::SupplyRun)?;
+            return Ok(LeafRun::from_encoded(run)?);
+        }
         // This oracle deliberately reads the whole declared body at once so
         // it stays maximally simple; the async reader chunks its reads, and
         // the framing differential proptest carries payload identity across
         // the two shapes.
-        let mut run = vec![0; u32::from_be_bytes(header) as usize];
+        let mut run = vec![0; len];
         self.read_exact(&mut run, FramePart::SupplyRun)?;
 
         Ok(LeafRun::from_encoded(run)?)
@@ -133,6 +168,19 @@ impl<'a, R: Read> FrameDecoder<'a, R> {
                 _ => DecodeErrorKind::Read { part, source },
             })
     }
+}
+
+/// Whether a run body of `len` bytes is exactly one record: the first
+/// record's header plus the record it declares span the body.
+///
+/// The lone-record test of the run-budget ingress check, shared by the
+/// async reader and the sync oracle so the two decoders draw the
+/// over-budget legality boundary identically. A body this predicate
+/// rejects may also be structurally malformed; over budget, that
+/// distinction is moot — either way the frame is not the one legal
+/// overhang — so the check does not refine it further.
+fn lone_record_spans(len: usize, first_record_len: usize) -> bool {
+    LENGTH_HEADER_LEN.saturating_add(first_record_len) == len
 }
 
 fn decode_signal(speaker: Speaker, byte: u8) -> Result<(Stream, Signal), DecodeError> {

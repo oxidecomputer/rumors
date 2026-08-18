@@ -267,6 +267,44 @@ fn framing_full_delivery_costs_at_most_payload_plus_chunk() {
     );
 }
 
+/// Gate: a supply frame batching multiple records past the session run
+/// budget is rejected typed with sub-slack allocation, its fully delivered
+/// body left unbuffered.
+///
+/// This prices the decode-memory premise itself, not merely detection: a
+/// checker that buffered the body and rejected afterward would classify
+/// identically but request the body's bytes, and reds here. The honest
+/// lone-record tests above are the complement, pinning that the admitted
+/// overhang still reaches the body read.
+#[test]
+fn overbatched_supply_rejects_without_buffering_its_body() {
+    let record_len = HONEST_LEN / 2 - rumors::testing::run_record_header_len();
+    let mut body = Vec::new();
+    for _ in 0..2 {
+        body.extend_from_slice(
+            &u32::try_from(record_len)
+                .expect("record lengths in this suite fit the u32 header")
+                .to_be_bytes(),
+        );
+        body.extend((0..record_len).map(|i| i as u8));
+    }
+    let bytes = supply_frame(body.len(), &body);
+    let (change, result) = metered(|| {
+        pollster::block_on(rumors::testing::decode_supply_frame_budgeted(&bytes[..], 0))
+    });
+    let error = result.expect_err("a multi-record frame past the budget cannot decode");
+    assert!(
+        matches!(error.kind, CodecDecodeErrorKind::OverbatchedRun { .. }),
+        "the failure classifies as an overbatched run, got: {error}"
+    );
+    assert!(
+        change.bytes_allocated <= METER_SLACK,
+        "rejecting an overbatched frame requested {} bytes; the gate must \
+         decide before the body is buffered, ceiling {METER_SLACK}",
+        change.bytes_allocated
+    );
+}
+
 /// Ceiling: an honest fully-delivered supply run of non-power-of-two
 /// length N requests at most N plus one chunk in bytes, and still meters
 /// the >= N floor.

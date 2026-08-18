@@ -113,7 +113,25 @@ pub(crate) async fn read_payload<R: AsyncRead + Unpin>(
     read: &mut R,
     len: usize,
 ) -> std::io::Result<Vec<u8>> {
-    let mut payload = Vec::new();
+    resume_payload(read, Vec::new(), len).await
+}
+
+/// Continue an exact `len`-byte payload read into `payload`, whose
+/// existing bytes — a prefix the caller already consumed from the same
+/// source — count toward `len`.
+///
+/// The single-buffer continuation for a caller that had to inspect a
+/// payload's leading bytes before deciding to accept the rest (the
+/// streaming codec's run-budget ingress check): resuming into the same
+/// buffer keeps the whole read at one allocation of the payload's bytes,
+/// where a read-then-splice would briefly hold the payload twice. Growth,
+/// exactness, and error behavior are [`read_payload`]'s (it is this
+/// function from an empty buffer).
+pub(crate) async fn resume_payload<R: AsyncRead + Unpin>(
+    read: &mut R,
+    mut payload: Vec<u8>,
+    len: usize,
+) -> std::io::Result<Vec<u8>> {
     while payload.len() < len {
         if payload.len() == payload.capacity() {
             let target = (payload.capacity() * 2).max(PAYLOAD_CHUNK_LEN).min(len);
