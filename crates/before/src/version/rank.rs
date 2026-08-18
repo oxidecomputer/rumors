@@ -293,6 +293,9 @@ impl Rank {
             Ordering::Less => None,
             Ordering::Equal => Some(Rank::ZERO),
             Ordering::Greater => {
+                // The alignment shifts are width-bounded on any addressable
+                // input (`Add`'s note carries the derivation), so the
+                // checked conversions inside `<<` stay dead.
                 let e = self.exp.max(other.exp);
                 let a = self.num.clone() << (e - self.exp);
                 let b = other.num.clone() << (e - other.exp);
@@ -497,8 +500,17 @@ impl Rank {
 /// no walk beyond the fold's own.
 pub(crate) fn encode_parts(num: &Base, exp: u64) -> Vec<u8> {
     // The integral part, biased so zero has a (smallest) codeword:
-    // m = ⌊r⌋ + 1, w = bits(m), ρ = bits(w) − 1.
-    let biased = (num.clone() >> exp) + 1u32;
+    // m = ⌊r⌋ + 1, w = bits(m), ρ = bits(w) − 1. Decided by width when the
+    // exponent covers the numerator whole — `⌊r⌋ = 0` with no shift
+    // materialized — because a fraction-heavy rank's `exp` outruns a 32-bit
+    // `usize` (from ~604 MB of decoded input) while the rank itself is
+    // representable; the shift arm's amount is then always below the
+    // numerator's width, which the backend bounds within `usize`.
+    let biased = if exp >= num.bits() {
+        Base::from(1u8)
+    } else {
+        (num.clone() >> exp) + 1u32
+    };
     let w = biased.bits();
     let rho = u64::from(63 - w.leading_zeros());
     let groups = exp.div_ceil(FRACTION_GROUP_BITS);
@@ -659,7 +671,23 @@ pub(crate) fn decode_stream(next_byte: impl FnMut() -> Result<u8, Decode>) -> Re
     let num = if frac_len == 0 {
         integral
     } else {
-        (integral << exp) | (Base::from_be_bytes(&groups) >> pad)
+        // The numerator by byte assembly, never by a value-width shift:
+        // `num · 2^pad = integral · 2^(8·groups) + G` with `G` the groups'
+        // big-endian value, and the `pad` low bits shifted out are exactly
+        // the final group's trailing zeros — so `num` is the concatenated
+        // image's value shifted right by the sub-byte pad. The
+        // `integral << exp` spelling is not available at every scale this
+        // decoder accepts: on a 32-bit target `exp` outruns `usize` from
+        // ~604 MB of input while the numerator itself still fits the
+        // backend. Leading zero bytes are stripped before materializing
+        // because the backend sizes its buffer from the image's byte count,
+        // and a fraction opening with zero expansion bits would otherwise
+        // pay capacity for value it does not carry.
+        let mut image = integral.to_be_bytes();
+        image.extend_from_slice(&groups);
+        drop(groups);
+        let lead = image.iter().take_while(|&&byte| byte == 0).count();
+        Base::from_be_bytes(&image[lead..]) >> pad
     };
     debug_assert!(
         exp == 0 || num.bit(0),
@@ -781,6 +809,17 @@ impl PartialOrd for Rank {
 impl Add<&Rank> for &Rank {
     type Output = Rank;
     fn add(self, rhs: &Rank) -> Rank {
+        // The alignment shift materializes `num · 2^gap`, so its width is
+        // the aligned numerator's own: on a 32-bit target a gap at or past
+        // `usize` (2^32) names a result past the big-integer backend's
+        // representable width — the shift's checked conversion and the
+        // backend's capacity assert bound the same values and both fail
+        // loudly, never silently — while every gap below that fits the
+        // conversion. Exponents themselves stay far smaller on honest
+        // inputs: a decoded rank's exponent is counted from fraction bits
+        // actually read (under 2^35 from a whole 32-bit address space of
+        // input), and a version-derived exponent is bounded by its tree's
+        // stored bit length.
         let e = self.exp.max(rhs.exp);
         let a = self.num.clone() << (e - self.exp);
         let b = rhs.num.clone() << (e - rhs.exp);
@@ -847,6 +886,15 @@ impl<'a> Sum<&'a Rank> for Rank {
 /// element, and the result is the identical [`Rank`] the pairwise fold produces
 /// (one exact value, one shared normalization at the end).
 fn sum_ranks<T: core::borrow::Borrow<Rank>, I: Iterator<Item = T>>(iter: I) -> Rank {
+    // The accumulator's shifted entry points document a panic at digit
+    // positions past `usize` (`shift / 32 > usize::MAX`, so from
+    // `shift = 2^37` on a 32-bit target). The exponent gaps fed here stay
+    // orders of magnitude below it on any addressable input: a decoded
+    // rank's exponent is counted from fraction bits actually read — under
+    // 2^35 even if a whole 32-bit address space were one fraction — and a
+    // version-derived exponent is bounded by its tree's stored bit length
+    // (under 2^32, the storage bound), so the documented panic is
+    // unreachable from this fold.
     let mut acc = Accumulator::new();
     let mut exp = 0u64;
     for rank in iter {

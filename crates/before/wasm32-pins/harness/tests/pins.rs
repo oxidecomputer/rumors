@@ -101,31 +101,35 @@ fn rank_decode_below_backend_capacity() {
     );
 }
 
-/// BAD BASELINE, pinned red: a valid rank whose fraction is 2^32 - 8
-/// expansion bits deep panics on wasm32 INSIDE the big-integer backend —
-/// `dashu`'s `from_be_bytes` sizes its buffer from the input's byte count
-/// (leading zero bytes included), and 536870911 fraction bytes need one
-/// word more than the backend's 32-bit `MAX_CAPACITY`, even though the
-/// numerator VALUE (which starts with 64 zero expansion bits) fits the
-/// backend comfortably. This seam sits below the decoder's own
-/// `usize::try_from` shift seam and partially masks it. The byte-assembly
-/// fix strips leading zero bytes before materializing, flipping this to
-/// `Value(0)`.
+/// A valid rank whose fraction is 2^32 - 8 expansion bits deep decodes
+/// correctly on wasm32 and orders exactly against reference ranks. This
+/// pin's committed bad baseline was a panic INSIDE the big-integer
+/// backend: `dashu`'s `from_be_bytes` sizes its buffer from the input's
+/// byte count (leading zero bytes included), and 536870911 fraction bytes
+/// needed one word more than the backend's 32-bit `MAX_CAPACITY` even
+/// though the numerator VALUE (its fraction opens with 64 zero bits) fits
+/// comfortably — a seam below the decoder's own shift seam, partially
+/// masking it. The byte-assembly cure strips leading zero bytes before
+/// materializing.
 #[test]
 fn rank_decode_at_backend_byte_capacity() {
-    assert_eq!(call1("pin_rank_decode", (1u64 << 32) - 8), PANICKED);
+    assert_eq!(
+        call1("pin_rank_decode", (1u64 << 32) - 8),
+        Outcome::Value(0),
+    );
 }
 
-/// BAD BASELINE, pinned red: a valid rank whose fraction is exactly 2^32
-/// expansion bits deep panics on wasm32 at `Base`'s `Shl<u64>` — the
-/// decoder rebuilds the numerator as `integral << exp`, and the shift
-/// amount's `usize::try_from` fails for `exp >= 2^32` on a 32-bit target
-/// even though the input (~604 MB) and the decoded numerator (~512 MiB)
-/// both fit the 4 GiB address space. Under the ruled contract this valid
-/// encoding must decode; the byte-assembly fix (concatenate the
-/// integral's bytes with the fraction groups instead of shifting, leading
-/// zeros stripped) flips this to `Value(0)`.
+/// A valid rank whose fraction is exactly 2^32 expansion bits deep — the
+/// exponent one past wasm32's `usize` — decodes correctly and orders
+/// exactly against reference ranks. This pin's committed bad baseline was
+/// a panic at `Base`'s `Shl<u64>`: the decoder rebuilt the numerator as
+/// `integral << exp`, whose shift amount's `usize::try_from` fails for
+/// `exp >= 2^32` on a 32-bit target even though the input (~604 MB) and
+/// the decoded numerator (~512 MiB) both fit the 4 GiB address space. The
+/// cure assembles the numerator from bytes — the integral's bytes
+/// concatenated with the fraction groups, leading zeros stripped — so no
+/// value-width shift exists on the decode path at all.
 #[test]
 fn rank_decode_at_usize_exp_boundary() {
-    assert_eq!(call1("pin_rank_decode", 1u64 << 32), PANICKED);
+    assert_eq!(call1("pin_rank_decode", 1u64 << 32), Outcome::Value(0));
 }

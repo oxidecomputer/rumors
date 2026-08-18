@@ -131,6 +131,19 @@ impl Base {
         self.0.to_le_bytes().into_vec()
     }
 
+    /// The magnitude's minimal big-endian bytes: empty for zero, no leading
+    /// zero byte otherwise.
+    ///
+    /// The materialization dual of [`from_be_bytes`](Self::from_be_bytes),
+    /// for byte-assembled values (the rank decoder concatenates an integral's
+    /// bytes with fraction groups instead of shifting by an exponent a 32-bit
+    /// `usize` cannot hold). Width-scale work, so the limb meter records the
+    /// operand's width.
+    pub(crate) fn to_be_bytes(&self) -> Vec<u8> {
+        meter_limbs_solo(self);
+        self.0.to_be_bytes().into_vec()
+    }
+
     /// Assemble a magnitude from big-endian bytes.
     ///
     /// The materialization point for values parsed out of a bit stream
@@ -430,17 +443,26 @@ impl Shr<u32> for Base {
 }
 
 // The u64 shift forms serve exponent-denominated callers (a `Rank`'s
-// exponent is u64). A shift amount is realizable only when the shifted
-// value fits the address space, so the conversion to the backend's
-// usize is checked, not truncating: an amount past usize denotes a
-// value that could not be allocated anyway.
+// exponent is u64). The two directions part on totality. A left shift's
+// checked conversion fails only for amounts at or past usize bits: never
+// on 64-bit targets (the shifted value would dwarf the address space
+// first), and on 32-bit targets only where the shifted result exceeds
+// the backend's representable width anyway (its buffer caps at
+// usize::MAX / word-bits words), so the expect and the backend's own
+// capacity assert bound the same values — results the dependency cannot
+// hold, failing loudly by name instead of wrapping. A right shift is
+// total: an amount at or past the value's width yields zero, and on a
+// 32-bit target an amount past usize can only name that case (the
+// value's width is capped below usize::MAX bits by the same backend
+// bound), so the conversion clamps, value-preserving.
 
 impl Shl<u64> for Base {
     type Output = Base;
 
     fn shl(self, rhs: u64) -> Base {
         meter_limbs_shl(&self, rhs);
-        let rhs = usize::try_from(rhs).expect("shift amount fits the address space");
+        let rhs = usize::try_from(rhs)
+            .expect("a left shift this wide exceeds the backend's representable width");
         Base(self.0 << rhs)
     }
 }
@@ -450,7 +472,9 @@ impl Shr<u64> for Base {
 
     fn shr(self, rhs: u64) -> Base {
         meter_limbs1(&self);
-        let rhs = usize::try_from(rhs).expect("shift amount fits the address space");
+        // The clamp is exact, never a truncation: any amount at or past the
+        // value's width — everything past usize included — yields zero.
+        let rhs = usize::try_from(rhs).unwrap_or(usize::MAX);
         Base(self.0 >> rhs)
     }
 }
