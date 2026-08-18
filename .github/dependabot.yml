@@ -1,0 +1,14 @@
+# The bump procedure for the SHA-pinned actions in .github/workflows/:
+# Dependabot rewrites each 40-hex pin and its trailing ref comment together
+# in a reviewable PR, so a bump is always a commit in this repository. Every
+# pin resolves from a published tag — Dependabot's github-actions ecosystem
+# reads tags and releases, not branch heads, which is why the
+# dtolnay/rust-toolchain pins ride its v1 tag with the channel carried by an
+# explicit toolchain: input rather than the ref. The pins themselves are
+# enforced by tools/workflowlint in the gate.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

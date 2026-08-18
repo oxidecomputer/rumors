@@ -19,18 +19,49 @@ async function main(): Promise<void> {
   const plateEl: HTMLElement = plate;
   plateEl.textContent = "";
 
+  // Transient, non-modal notice (a rejected gesture, an unloadable link):
+  // self-dismissing, outside the plate so rendering never clobbers it.
+  const noticeEl = document.createElement("div");
+  noticeEl.className = "notice";
+  noticeEl.hidden = true;
+  plateEl.insertAdjacentElement("afterend", noticeEl);
+  let noticeTimer = 0;
+  const notice = (text: string): void => {
+    noticeEl.textContent = text;
+    noticeEl.hidden = false;
+    window.clearTimeout(noticeTimer);
+    noticeTimer = window.setTimeout(() => {
+      noticeEl.hidden = true;
+    }, 4000);
+  };
+  const describe = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+
   const engine = await Engine.create();
-  let state: State = engine.load(window.location.hash.replace(/^#/, ""));
   let mode: "history" | "tableau" = "history";
   let prevTableau = new Map<NodeIdx, Point>();
 
-  // Run an engine gesture, then commit a history entry and render. If the engine
-  // rejects the op (e.g. an overlapping join), leave everything unchanged.
+  // A saved link can carry a fragment the engine refuses (oversized or
+  // malformed): start from the seed instead of dying before the controls
+  // wire up, and say so.
+  let state: State;
+  try {
+    state = engine.load(window.location.hash.replace(/^#/, ""));
+  } catch (err) {
+    state = engine.load("");
+    window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    notice(`could not load the shared link (${describe(err)}); started fresh`);
+  }
+
+  // Run an engine gesture, then commit a history entry and render. If the
+  // engine rejects the op (an overlapping join, the op budget), leave
+  // everything unchanged and say why: a rejected op never mints a URL, so
+  // every fragment we push reloads.
   const gesture = (run: () => State): void => {
     let next: State;
     try {
       next = run();
-    } catch {
+    } catch (err) {
+      notice(describe(err));
       return;
     }
     state = next;
@@ -78,9 +109,18 @@ async function main(): Promise<void> {
     }
   }
 
-  // Back/forward reload the op-log from the fragment — undo and redo.
+  // Back/forward reload the op-log from the fragment — undo and redo. A
+  // history entry can carry a fragment the engine refuses (hand-edited or
+  // truncated): the engine keeps its state on a rejected load, so resync
+  // the URL to the state we actually have rather than desync or discard.
   window.addEventListener("popstate", () => {
-    state = engine.load(window.location.hash.replace(/^#/, ""));
+    try {
+      state = engine.load(window.location.hash.replace(/^#/, ""));
+    } catch (err) {
+      window.history.replaceState(null, "", `#${engine.fragment()}`);
+      notice(`could not load this history entry (${describe(err)})`);
+      return;
+    }
     render();
   });
 

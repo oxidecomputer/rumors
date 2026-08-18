@@ -1,9 +1,9 @@
 # Run the no-rot sweep (`just ci`) on every push to main and every pull request.
 #
-# `ci` is the build-everything tier: fmt-check → doclint → testdoc → readme-check
-# → clippy → clippy-default → the workspace feature matrix → wasm-check → docs →
-# docs-internal → test-all → citecheck → doctest → bench-build → fuzz-build →
-# the viz bundle. It builds the fuzz targets but does not run the smoke (`just all`
+# `ci` is the build-everything tier — lints, docs, the feature matrix, the
+# full test and doctest run, the bench and fuzz builds, and the viz bundle;
+# the justfile's `ci` recipe line is the roster of record, ordered
+# cheap-first. It builds the fuzz targets but does not run the smoke (`just all`
 # adds that locally — libFuzzer minutes are a poor per-commit spend). The
 # `instruments` job beside it re-runs the gate's deterministic, counter-based
 # instrument legs — the board verdicts and pins, surface totality, and the
@@ -21,11 +21,15 @@
 #   - `just`, `cargo-nextest` (just test), `cargo-rdme` (readme-check), and
 #     `wasm-pack` (viz),
 #   - node + npm for the viz TypeScript typecheck and bundle,
-#   - python3 for the tools/ linters (doclint, testdoc, readme, citecheck),
-#     and bash for tools/memwatch (all preinstalled).
+#   - python3 for the tools/ linters, and bash for tools/memwatch (all
+#     preinstalled).
 # memwatch's swap backstop is sysctl-based and degrades to a no-op off macOS, so
 # wrapping the test/doctest/bench recipes is harmless here; its 8 GiB per-process
 # cap sits well above anything a normal Linux build reaches.
+#
+# Actions are pinned to full commit SHAs with the source ref in a trailing
+# comment (tools/workflowlint enforces the shape; .github/dependabot.yml
+# carries the bump procedure).
 name: ci
 
 on:
@@ -45,19 +49,27 @@ jobs:
   ci:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Install nightly *first* so the stable install below wins the default:
       # each dtolnay/rust-toolchain step runs `rustup default`, last one sticks.
       # The doctest and fuzz recipes invoke `cargo +nightly`, so nightly only
       # needs to exist, not be the default — whereas the gate's bare
       # `cargo fmt`/`clippy`/`check` must hit stable.
+      #
+      # A SHA ref names no channel: every dtolnay step carries an explicit
+      # `toolchain:` input, and the pin rides the action's v1 tag, which
+      # Dependabot resolves like any other (the channel branches publish
+      # no tags).
       - name: Install nightly toolchain (merged doctests and fuzz build)
-        uses: dtolnay/rust-toolchain@nightly
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
+        with:
+          toolchain: nightly
 
       - name: Install stable toolchain (default)
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
         with:
+          toolchain: stable
           components: clippy, rustfmt
           targets: wasm32-unknown-unknown
 
@@ -66,22 +78,24 @@ jobs:
       # holds the READMEs against what it emits. Tracking the newest release
       # would let an upstream change redefine that expectation with no commit
       # in the repo, turning the sweep red on a tree nobody touched. The others
-      # report findings rather than generate bytes, so they track latest.
-      - name: Install just, cargo-nextest, cargo-rdme, cargo-fuzz, and wasm-pack
-        uses: taiki-e/install-action@v2
+      # report findings rather than generate bytes, so they ride the pinned
+      # action's own tool manifest, moving when Dependabot bumps the pin.
+      - name: Install just, cargo-nextest, cargo-rdme, cargo-fuzz, cargo-mutants, and wasm-pack
+        uses: taiki-e/install-action@288e746965032cfcc232e09af2daf5f23c14d780 # v2.86.1
         with:
-          tool: just,cargo-nextest,cargo-rdme@2.1.0,cargo-fuzz,wasm-pack
+          tool: just,cargo-nextest,cargo-rdme@2.1.0,cargo-fuzz,cargo-mutants,wasm-pack
 
-      # The viz bundle (`just viz`) runs `npm install`, a strict TypeScript
-      # typecheck, and an esbuild bundle.
-      - uses: actions/setup-node@v6
+      # The viz bundle (`just viz`) runs the dependency install (`npm ci`
+      # here, where CI=true), a strict TypeScript typecheck, and an esbuild
+      # bundle.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: crates/before-viz/www/package-lock.json
 
       - name: Cache cargo build artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           # The root workspace contains the isolated nightly doctest target;
           # the detached fuzz workspace has its own lockfile and target. Cache
@@ -120,28 +134,31 @@ jobs:
   instruments:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Nightly first, stable last (each dtolnay/rust-toolchain step runs
       # `rustup default`, last one sticks): only the surface-json recipe
       # invokes `cargo +nightly`; every other step must hit stable.
       - name: Install nightly toolchain (surface-totality rustdoc JSON)
-        uses: dtolnay/rust-toolchain@nightly
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
+        with:
+          toolchain: nightly
 
       # clippy and rustfmt are for the surfacecheck workspace's own lint
       # legs, which the surface-totality recipe carries.
       - name: Install stable toolchain (default)
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
         with:
+          toolchain: stable
           components: clippy, rustfmt
 
       - name: Install just, cargo-nextest, cargo-audit, and cargo-deny
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@288e746965032cfcc232e09af2daf5f23c14d780 # v2.86.1
         with:
           tool: just,cargo-nextest,cargo-audit,cargo-deny
 
       - name: Cache cargo build artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           # The detached surfacecheck workspace has its own lockfile and
           # target directory; cache it beside the root workspace.
@@ -180,29 +197,31 @@ jobs:
   coverage:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Nightly first, stable last (each dtolnay/rust-toolchain step runs
       # `rustup default`, last one sticks): only the branch leg invokes
       # `cargo +nightly`; the line leg must hit stable. llvm-tools is the
       # coverage instrumentation's profdata component, needed on both.
       - name: Install nightly toolchain (branch coverage)
-        uses: dtolnay/rust-toolchain@nightly
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
         with:
+          toolchain: nightly
           components: llvm-tools
 
       - name: Install stable toolchain (default)
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
         with:
+          toolchain: stable
           components: llvm-tools
 
       - name: Install just, cargo-nextest, and cargo-llvm-cov
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@288e746965032cfcc232e09af2daf5f23c14d780 # v2.86.1
         with:
           tool: just,cargo-nextest,cargo-llvm-cov
 
       - name: Cache cargo build artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       - name: just coverage-kernel (line, stable)
         run: just coverage-kernel

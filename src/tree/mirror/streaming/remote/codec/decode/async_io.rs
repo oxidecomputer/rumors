@@ -11,7 +11,10 @@ use super::super::{
     signal::{Signal, Speaker, Stream},
 };
 use super::{decode_signal, parse_query};
-use crate::tree::{mirror::framing::LENGTH_HEADER_LEN, typed::Hash};
+use crate::tree::{
+    mirror::framing::{LENGTH_HEADER_LEN, read_payload},
+    typed::Hash,
+};
 
 /// Async frame reader over one speaker's transport direction.
 ///
@@ -110,8 +113,10 @@ impl<'a, R: AsyncRead + Unpin> AsyncFrameDecoder<'a, R> {
         let mut header = [0; LENGTH_HEADER_LEN];
         self.read_exact(&mut header, FramePart::SupplyLength)
             .await?;
-        let mut run = vec![0; u32::from_be_bytes(header) as usize];
-        self.read_exact(&mut run, FramePart::SupplyRun).await?;
+        let len = u32::from_be_bytes(header) as usize;
+        let run = read_payload(self.read, len)
+            .await
+            .map_err(|source| classify(FramePart::SupplyRun, source))?;
         Ok(LeafRun::from_encoded(run)?)
     }
 
@@ -130,12 +135,18 @@ impl<'a, R: AsyncRead + Unpin> AsyncFrameDecoder<'a, R> {
             .read_exact(bytes)
             .await
             .map(|_| ())
-            .map_err(|source| match source.kind() {
-                ErrorKind::UnexpectedEof => DecodeErrorKind::Truncated {
-                    missing: part,
-                    source,
-                },
-                _ => DecodeErrorKind::Read { part, source },
-            })
+            .map_err(|source| classify(part, source))
+    }
+}
+
+/// Type an I/O failure by the frame part it interrupted: end-of-stream is a
+/// contextual truncation, anything else a plain read failure.
+fn classify(part: FramePart, source: borsh::io::Error) -> DecodeErrorKind {
+    match source.kind() {
+        ErrorKind::UnexpectedEof => DecodeErrorKind::Truncated {
+            missing: part,
+            source,
+        },
+        _ => DecodeErrorKind::Read { part, source },
     }
 }

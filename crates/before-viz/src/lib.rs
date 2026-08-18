@@ -22,7 +22,7 @@ mod oplog;
 #[cfg(test)]
 mod tests;
 
-use oplog::{analyze, decode, descendant_cone, encode, rewind_and_apply};
+use oplog::{analyze, decode, descendant_cone, encode, rewind_and_apply, MAX_OPS};
 pub use oplog::{Edge, EdgeKind, Op};
 
 /// A materialized node returned to the front-end: the clock's paper-notation strings.
@@ -47,10 +47,22 @@ pub struct State {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EngineError {
     IndexOutOfRange(usize),
-    JoinOverlap { a: usize, b: usize },
-    Orphaned { operand: usize },
+    JoinOverlap {
+        a: usize,
+        b: usize,
+    },
+    Orphaned {
+        operand: usize,
+    },
     Decode(String),
     BadFragment(String),
+    /// The log would exceed the engine's op budget; carries the offending
+    /// length.
+    ///
+    /// The budget bounds replay cost at teaching scale, and the fragment
+    /// codec enforces the same bound on the wire, so every fragment the
+    /// engine mints reloads.
+    TooManyOps(usize),
 }
 
 impl core::fmt::Display for EngineError {
@@ -68,6 +80,9 @@ impl core::fmt::Display for EngineError {
             }
             EngineError::Decode(e) => write!(f, "failed to decode stored node: {e}"),
             EngineError::BadFragment(e) => write!(f, "bad fragment: {e}"),
+            EngineError::TooManyOps(n) => {
+                write!(f, "log of {n} ops exceeds the {MAX_OPS}-op budget")
+            }
         }
     }
 }
@@ -196,6 +211,13 @@ impl Engine {
 
 /// Replay a log into a fresh arena (seed at index 0, then each op's outputs).
 fn build(log: &[Op]) -> Result<Vec<Node>, EngineError> {
+    // The op budget guards every entry — the wire decoder, `load`, and
+    // `apply` all replay through here — so no path can mint a log the
+    // fragment codec refuses to round-trip, and no caller can commission a
+    // replay past teaching scale.
+    if log.len() > MAX_OPS {
+        return Err(EngineError::TooManyOps(log.len()));
+    }
     let mut arena = Vec::with_capacity(log.len() + 1);
     push_clock(&mut arena, Clock::seed());
     for op in log {

@@ -173,6 +173,23 @@ body {
   height: 68vh;
   min-height: 340px;
 }
+
+/* Transient notice: non-modal feedback for a rejected gesture or an
+   unloadable link, floated over the plate's top edge. */
+.notice {
+  position: absolute;
+  top: 2.25rem;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100% - 4rem);
+  padding: 0.35rem 0.75rem;
+  border: 1px solid var(--reject);
+  background: var(--paper);
+  color: var(--reject);
+  font-size: 13px;
+  box-shadow: 0 6px 18px -12px rgba(27, 23, 20, 0.6);
+  z-index: 3;
+}
 .scene {
   display: block;
   width: 100%;

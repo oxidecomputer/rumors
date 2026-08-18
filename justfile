@@ -176,6 +176,16 @@ testdoc:
     ./tools/testdoc --self-test
     ./tools/testdoc .
 
+# No other gate leg polices what the CI workflows themselves execute:
+# tools/workflowlint holds every workflow step to committed or
+# immutably-pinned code (its docstring carries the full argument).
+# Build-free, so it rides the lint tier.
+
+# Hold every workflow step to committed or immutably-pinned code.
+workflowlint:
+    ./tools/workflowlint --self-test
+    ./tools/workflowlint .github
+
 # tools/readme mirrors each crate's crate-level rustdoc into its README via
 # cargo-rdme, then strips the intra-doc links cargo-rdme can't resolve (the
 # public types are re-exported from private submodules, and the docs use
@@ -348,10 +358,7 @@ fuzz-build:
 gate: gate-lints gate-streams
 
 # The build-free tier, sequential: a lint failure should cost seconds.
-# `mutants-list` rides here because its two list runs parse sources
-# without building; the two list captures are independent, so if the
-# tier ever grows slow they can move into their own gate stream.
-gate-lints: fmt-check doclint testdoc readme-check mutants-list
+gate-lints: fmt-check doclint testdoc workflowlint mutants-list readme-check
 
 # Each stream's output is captured rather than interleaved, and a failing
 # stream's log is replayed in full at the end, so a parallel failure reads
@@ -913,6 +920,7 @@ worst-cases-pin:
 
 # Build everything (no fuzz run): the no-rot sweep as CI runs it.
 ci: fmt-check doclint testdoc readme-check fuelscape-claims mutants-list clippy clippy-default features wasm-check docs docs-internal test-all citecheck doctest bench-build fuzz-build fuelscape-verify viz
+ci: fmt-check doclint testdoc workflowlint readme-check fuelscape-claims clippy clippy-default features wasm-check docs docs-internal test-all citecheck doctest bench-build fuzz-build fuelscape-verify viz
 
 # Everything: the no-rot sweep, plus the fuzz smoke, the formal tier, and the bench judge.
 all: ci (fuzz fuzz_smoke_secs) lean eventdag muxprobe bench-judge bench-judge-tripwire

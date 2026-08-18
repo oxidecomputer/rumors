@@ -8,7 +8,12 @@ cd "$(dirname "$0")"
 wasm-pack build . --target web --out-dir www/pkg
 
 cd www
-npm install
+# CI must install exactly what package-lock.json commits, never resolve
+# anew (the Pages deploy runs this script; GitHub Actions sets CI=true).
+# The local loop keeps npm install: its no-op on a warm node_modules is
+# what keeps `just viz` iteration cheap, where npm ci would rebuild
+# node_modules from scratch every run.
+if [ "${CI:-false}" = "true" ]; then npm ci; else npm install; fi
 npm run typecheck
 npm run bundle
 
