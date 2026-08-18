@@ -197,7 +197,9 @@ workflowlint:
 # pins the link forms rewritten and the forms preserved: a stripping bug then
 # names itself here instead of arriving as unexplained drift in a derived file,
 # or as corruption that a regeneration quietly commits.
-# Needs cargo-rdme: `cargo install cargo-rdme`.
+# Needs cargo-rdme at the version tools/readme pins (the READMEs are
+# byte-pinned derived artifacts, so the deriving tool is pinned too; the
+# tool refuses a mismatch and names the install command).
 
 # Regenerate every crate's README from its crate-level rustdoc.
 readme:
