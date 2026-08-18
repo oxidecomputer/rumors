@@ -68,19 +68,22 @@ fn version_decode_past_view_cap() {
     );
 }
 
-/// BAD BASELINE, pinned red: a valid 512 MiB (2^29-byte) version encoding
-/// panics on wasm32 — now unmasked to the seam this size owns. The
-/// byte-backed door walks and validates the stream correctly, and the trap
-/// fires at `Bits::len`'s `bytes.len() * 8`: a `usize` multiply that
-/// overflows at exactly this size (2^32 bits). This build runs with
-/// overflow checks, so the wrap is this trap; in an unchecked build it
-/// wraps silently, coincidentally correct at exactly 2^29 bytes and wrong
-/// (a length 2^32 short) for anything larger. The len fix flips this to
-/// `Value(8 * 536_870_912 - 8)` — the largest stored stream a 32-bit
-/// `usize` can denominate bit positions for.
+/// A valid 512 MiB (2^29-byte) version encoding — the largest stored
+/// stream a 32-bit `usize` can denominate bit positions for — decodes
+/// correctly on wasm32, returning its exact live bit length (2^32 - 8,
+/// within one marker byte of `usize::MAX`). This was the `Bits::len`
+/// seam's pin: `bytes.len() * 8` as a `usize` multiply overflowed at
+/// exactly this size — a trap under this build's overflow checks, a
+/// silent wrap coincidentally correct at 2^29 bytes and wrong above it
+/// in unchecked builds — masked by the borrowed-view cap until the doors
+/// went byte-backed, and cured by `u64` arithmetic with a checked final
+/// conversion.
 #[test]
 fn version_decode_at_bit_length_boundary() {
-    assert_eq!(call1("pin_version_decode", 536_870_912), PANICKED);
+    assert_eq!(
+        call1("pin_version_decode", 536_870_912),
+        Outcome::Value(8 * 536_870_912 - 8),
+    );
 }
 
 /// Adjacency, green side: a valid rank whose fraction is 2^32 - 32

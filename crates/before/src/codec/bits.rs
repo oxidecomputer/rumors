@@ -170,12 +170,22 @@ impl Bits {
     /// `trailing_zeros` over the final byte: `O(1)`, no walk. The one storage
     /// invariant this rests on — a nonempty buffer's final byte is nonzero — is
     /// exactly what the freeze and decode doors establish.
+    ///
+    /// The arithmetic runs at `u64` width: `bytes.len() * 8` wraps a 32-bit
+    /// `usize` from 512 MiB of buffer, while the live length itself still
+    /// fits at exactly that boundary (the marker spends at least one of the
+    /// buffer's bits). The final conversion is checked, not truncating, and
+    /// cannot fail on a constructed stream: every door bounds its buffer so
+    /// the live length fits `usize` ([`from_canonical`](Self::from_canonical)
+    /// asserts it; [`freeze`](Self::freeze)'s build buffer is bounded far
+    /// below it by the borrowed view's own encoding).
     pub fn len(&self) -> usize {
         match self.bytes.last() {
             None => 0,
             Some(&last) => {
                 debug_assert!(last != 0, "stored stream missing its padding marker");
-                self.bytes.len() * 8 - 1 - last.trailing_zeros() as usize
+                let bits = self.bytes.len() as u64 * 8 - 1 - u64::from(last.trailing_zeros());
+                usize::try_from(bits).expect("a constructed stream's live length fits usize")
             }
         }
     }
