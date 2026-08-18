@@ -55,6 +55,7 @@ pub enum EncodeError<E> {
 
 /// Wire frames could not be reconstructed into one scoped protocol reply.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum DecodeError<E> {
     /// The local backend failed while assembling supplied leaves.
     #[error("backend failed while assembling supplied leaves")]
