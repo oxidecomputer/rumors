@@ -101,12 +101,23 @@ def parse_listing(text, label):
 
     Returns `(mutants, problems)`; a line that does not parse as a
     mutant name is a problem, because a polluted capture would otherwise
-    shift every count it touches.
+    shift every count it touches. A line carrying ANSI escapes is a
+    problem in its own right, checked first: color codes land inside the
+    operator and function fields the roster patterns probe, so a colored
+    capture can pass the structural parse while every pattern reads a
+    false zero — the capture site must pin `--colors=never`.
     """
     problems = []
     mutants = set()
     for line in text.splitlines():
         if not line.strip():
+            continue
+        if "\x1b" in line:
+            problems.append(
+                f"{label}: colored listing line (ANSI escapes corrupt the "
+                f"fields the roster patterns match; capture with "
+                f"`--colors=never`): {line[:80]!r}"
+            )
             continue
         if not MUTANT_LINE.match(line):
             problems.append(
@@ -303,6 +314,15 @@ def self_test():
         ("polluted capture", listing(a, "warning: something", b, c),
          listing(c), patterns, green_expected, tool,
          ["raw: unparseable listing line"]),
+        # A colored capture must fail by name, never read as zero
+        # matches: escapes sit inside the operator and function fields
+        # the patterns probe, while the structural parse (which sees
+        # only the uncolored path prefix) would stay quiet.
+        ("colored capture",
+         listing(a, "src/a.rs:12:5: replace \x1b[33m+\x1b[0m with - in f",
+                 b, c),
+         listing(c), patterns, green_expected, tool,
+         ["raw: colored listing line"]),
         # A tool bump must re-pin deliberately, never re-baseline
         # silently.
         ("tool version drift", listing(a, b, c), listing(c), patterns,

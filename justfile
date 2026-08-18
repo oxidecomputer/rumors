@@ -279,11 +279,17 @@ citecheck:
 # Needs cargo-mutants: `cargo install cargo-mutants`.
 
 # Hold the mutants exclusion roster to its pinned counts (list-only, never a campaign).
+#
+# `--colors=never` pins the captures byte-deterministic: cargo-mutants
+# honors CARGO_TERM_COLOR=always even when piped (CI toolchain actions
+# export it job-wide), and escapes land inside the operator and function
+# fields the roster patterns match — the checker refuses a colored
+# capture, and this flag is what keeps that refusal from ever firing.
 mutants-list:
     ./tools/mutantcheck --self-test
     @mkdir -p target
-    cargo mutants --list --no-config --workspace > target/mutants-raw.txt
-    cargo mutants --list --workspace > target/mutants-filtered.txt
+    cargo mutants --list --colors=never --no-config --workspace > target/mutants-raw.txt
+    cargo mutants --list --colors=never --workspace > target/mutants-filtered.txt
     ./tools/mutantcheck --raw target/mutants-raw.txt --filtered target/mutants-filtered.txt --config .cargo/mutants.toml --expected tools/mutantcheck-expected.json --tool-version "$(cargo mutants --version)"
 
 # The supply-chain leg, two build-free checks over the committed lockfiles.
