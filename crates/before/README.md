@@ -168,7 +168,7 @@ To use `Clock` in this manner:
   Unlike `absorb` (and its operator forms `|` and `|=`), `recv` increments the clock's
   inner `Version` after absorbing the received one.
 
-Consistently using `send` and [`recv`](Clock::recv`) in this
+Consistently using `send` and `recv` in this
 manner ensures that the `Clock` tracks *process causality*, by following
 the ordering of sends and receives.
 
