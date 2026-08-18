@@ -81,7 +81,7 @@ jobs:
       # report findings rather than generate bytes, so they ride the pinned
       # action's own tool manifest, moving when Dependabot bumps the pin.
       - name: Install just, cargo-nextest, cargo-rdme, cargo-fuzz, cargo-mutants, and wasm-pack
-        uses: taiki-e/install-action@82cd3e7658a6f96c86c0234aeeda1748937cb0a1 # v2.85.13
+        uses: taiki-e/install-action@288e746965032cfcc232e09af2daf5f23c14d780 # v2.86.1
         with:
           tool: just,cargo-nextest,cargo-rdme@2.1.0,cargo-fuzz,cargo-mutants,wasm-pack
 
@@ -153,7 +153,7 @@ jobs:
           components: clippy, rustfmt
 
       - name: Install just, cargo-nextest, cargo-audit, and cargo-deny
-        uses: taiki-e/install-action@82cd3e7658a6f96c86c0234aeeda1748937cb0a1 # v2.85.13
+        uses: taiki-e/install-action@288e746965032cfcc232e09af2daf5f23c14d780 # v2.86.1
         with:
           tool: just,cargo-nextest,cargo-audit,cargo-deny
 
@@ -216,7 +216,7 @@ jobs:
           components: llvm-tools
 
       - name: Install just, cargo-nextest, and cargo-llvm-cov
-        uses: taiki-e/install-action@82cd3e7658a6f96c86c0234aeeda1748937cb0a1 # v2.85.13
+        uses: taiki-e/install-action@288e746965032cfcc232e09af2daf5f23c14d780 # v2.86.1
         with:
           tool: just,cargo-nextest,cargo-llvm-cov
 
