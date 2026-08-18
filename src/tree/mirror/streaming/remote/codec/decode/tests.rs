@@ -523,13 +523,15 @@ fn decode_both(
 
 proptest! {
     /// Ingress enforces the run budget as the exact complement of the
-    /// encoder's flush rule: a multi-record supply frame decodes when its
-    /// full wire size is within the budget and fails typed as
-    /// `OverbatchedRun` — carrying that wire size and the budget — when it
-    /// is past it. The rejection is decided before any body byte is read:
-    /// a stream ending right after the first record's length header still
-    /// classifies as the budget violation, never as a truncation. Both
-    /// decoders (the async reader and the sync oracle) agree throughout.
+    /// encoder's flush rule, deciding before any body byte is read.
+    ///
+    /// A multi-record supply frame decodes when its full wire size is
+    /// within the budget and fails typed as `OverbatchedRun` — carrying
+    /// that wire size and the budget — when it is past it. The rejection
+    /// is decided ahead of the body: a stream ending right after the
+    /// first record's length header still classifies as the budget
+    /// violation, never as a truncation. Both decoders (the async reader
+    /// and the sync oracle) agree throughout.
     #[test]
     fn multi_record_frames_are_held_to_the_run_budget(
         index in 1_u8..Stream::MAX,
@@ -590,10 +592,11 @@ proptest! {
         );
     }
 
-    /// A single record larger than the run budget still decodes: the
-    /// encoder's minimum-one-record rule ships such a record alone, so the
-    /// ingress check admits the lone-record overhang at any budget — the
-    /// no-false-positive half of the enforcement, in both decoders.
+    /// A single record larger than the run budget still decodes.
+    ///
+    /// The encoder's minimum-one-record rule ships such a record alone, so
+    /// the ingress check admits the lone-record overhang at any budget —
+    /// the no-false-positive half of the enforcement, in both decoders.
     #[test]
     fn oversized_lone_record_still_decodes(
         index in 1_u8..Stream::MAX,
@@ -617,12 +620,14 @@ proptest! {
 }
 
 /// Corner classifications of the run-budget ingress check, under a zero
-/// budget so every frame overhangs: an over-budget body too short to hold
-/// a record header is the violation, decided on the declared length alone
-/// (no body byte follows, yet the error is not a truncation); a first
-/// record header that falls short of the body or overruns it is the
-/// violation; a stream ending inside the first record header, or inside an
-/// admitted lone record's body, is a truncated supply run.
+/// budget so every frame overhangs.
+///
+/// An over-budget body too short to hold a record header is the
+/// violation, decided on the declared length alone (no body byte follows,
+/// yet the error is not a truncation); a first record header that falls
+/// short of the body or overruns it is the violation; a stream ending
+/// inside the first record header, or inside an admitted lone record's
+/// body, is a truncated supply run.
 #[test]
 fn overbatched_corners_classify_exactly() {
     let stream = stream(9);

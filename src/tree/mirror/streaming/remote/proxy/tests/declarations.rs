@@ -62,10 +62,12 @@ fn uneven_pair() -> (crate::tree::Root<()>, crate::tree::Root<()>) {
 const BULK_MESSAGES: usize = FAN + 1;
 
 /// A divergent pair of one message against [`BULK_MESSAGES`], on distinct
-/// parties: the small side wins the initiator election, and the bulk
-/// side's exclusive root children — at least one of which spans multiple
-/// leaves — reach it as whole supplied subtrees, so the traffic toward the
-/// small side includes a genuinely batched multi-record run.
+/// parties.
+///
+/// The small side wins the initiator election, and the bulk side's
+/// exclusive root children — at least one of which spans multiple leaves
+/// — reach it as whole supplied subtrees, so the traffic toward the small
+/// side includes a genuinely batched multi-record run.
 fn batched_uneven_pair() -> (crate::tree::Root<()>, crate::tree::Root<()>) {
     let mut small = Tree::new();
     small.act(&nth_party(1), [Action::Insert(Message::new(()))]);
