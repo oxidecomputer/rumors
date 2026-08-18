@@ -35,14 +35,15 @@ mod tests;
 ///
 /// A party is primarily manipulated by these operations:
 ///
-/// | Operation                                 | Meaning                                                                   |
-/// |-------------------------------------------|---------------------------------------------------------------------------|
-/// | [`a.tick(v)`](Party::tick)                | advance the [`Version`] for this [`Party`]                                |
-/// | [`a.ticks(v, n)`](Party::ticks)           | advance the [`Version`] by `n` events, in one pass                        |
-/// | [`a.fork()`](Party::fork)                 | split `a` into two disjoint children                                      |
-/// | [`a.join(b)`](Party::join)                | reunite two *disjoint* parties into the one owning both regions; fallible |
-/// | [`a.is_disjoint(&b)`](Party::is_disjoint) | whether `a` and `b` share no region, hence may safely interact            |
-/// | `a == b`                                  | whether `a` is exactly the same [`Party`] as `b`                          |
+/// | Operation                                              | Meaning                                                                   |
+/// |--------------------------------------------------------|---------------------------------------------------------------------------|
+/// | [`Party::seed()`]                                      | create the initial [`Party`] which owns all of `[0, 1)`                   |
+/// | [`p.tick(v)`](Party::tick)                             | advance the [`Version`] `v` for this [`Party`]                            |
+/// | [`p.ticks(v, n)`](Party::ticks)                        | advance the [`Version`] `v` by `n` events for this [`Party`], in one pass |
+/// | [`p.fork()`](Party::fork)/[`p.forks(n)`](Party::forks) | split off one disjoint child from `p` (or `n` disjoint children)          |
+/// | [`p.join(b)`](Party::join)                             | reunite two *disjoint* parties into the one owning both regions; fallible |
+/// | [`p.is_disjoint(&b)`](Party::is_disjoint)              | whether `p` and `q` share no region, hence may safely interact            |
+/// | `p == q`                                               | whether `p` is exactly the same [`Party`] as `q`                          |
 ///
 /// A [`Party`] is not ordered. Use [`is_disjoint`](Party::is_disjoint) to tell
 /// whether two parties may [`join`](Party::join). There is likewise no `Party |
