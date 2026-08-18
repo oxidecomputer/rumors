@@ -81,7 +81,7 @@ running difference (and tick's whole watermark web) folds through
 suanpan's digit machinery. Per the crate's own `code_study`, 85–93% of
 coded values are ≤ 15 — machine-word arithmetic with a spill path would
 remove dashu and most suanpan work from the organic path entirely while
-preserving the wide/cliff-immune worst case (spill preserves the
+preserving the wide/cliff-free worst case (spill preserves the
 existing discipline).
 
 **D3. Per-op allocator traffic.** ~10–20% of samples. Sources: D1's

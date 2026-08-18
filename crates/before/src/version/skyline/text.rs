@@ -35,7 +35,7 @@
 //!   subtraction, which leaves the top parked at the swing's width and
 //!   re-walks its dead digits once per later leaf, so it reads
 //!   superlinear and proves the reset is the load-bearing move. The
-//!   accumulator is the cliff-immune [`Accumulator`]: a plain big-integer running
+//!   accumulator is the cliff-free [`Accumulator`]: a plain big-integer running
 //!   value re-imports the boundary comb's quadratic carry genre. The ≤2×
 //!   charge is enforced structurally (one join, one leave per base) plus,
 //!   in `tests/meter.rs`, the `SKYLINE_PARSE_*` aggregate ceilings and

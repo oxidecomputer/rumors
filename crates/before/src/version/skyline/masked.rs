@@ -23,7 +23,7 @@
 //!
 //! Per elementary interval the verdict needs the sign of `h′_a − h′_b`, where
 //! `h′` is the projected (gated) height. The walk never materializes a
-//! projected height; it maintains, on the cliff-immune [`Accumulator`], exactly
+//! projected height; it maintains, on the cliff-free [`Accumulator`], exactly
 //! the running quantities the four ownership cases read:
 //!
 //! - `D = h_a − h_b`, fed by both event streams (the comparison sweep's

@@ -392,7 +392,7 @@ fn clock_join_all_log_factor_is_alive() {
 /// fixed-stride mass telescopes as a geometric series — so the pin
 /// guards the factors' content: the parked plunge `x − 1` must stay
 /// `Θ(w)` terms under that same compaction, and the mass's `d` digits
-/// must stay isolated by more than a full digit (compaction-immune)
+/// must stay isolated by more than a full digit (incompressible)
 /// at non-uniform jitter. A representation or content change that
 /// weakens the embedding reads red here, and the rustdoc and this pin
 /// move in one change; the cost legs (flat traffic, schoolbook red)
@@ -456,7 +456,7 @@ fn mul_bound_embedding_is_alive() {
          settle's own balanced-digit compaction"
     );
     // The mass's content: exactly d isolated bits, pairwise more than
-    // a full base-2^32 digit apart (compaction-immune), and not an
+    // a full base-2^32 digit apart (incompressible), and not an
     // arithmetic progression (no geometric-series closed form).
     let positions: Vec<usize> = (0..y.bit_len()).filter(|&b| y.bit(b)).collect();
     assert_eq!(positions.len(), d, "the mass spells one bit per turn");
@@ -494,7 +494,7 @@ fn mul_bound_embedding_is_alive() {
 /// Against the empty version, the valuation identities collapse to
 /// `distance(v, ∅) = lag(∅, v) = rank(v)` and `lag(v, ∅) = 0`, so the
 /// plateau-puncture closed form (the factors' scaling and
-/// compaction-immunity are [`mul_bound_embedding_is_alive`]'s
+/// incompressibility are [`mul_bound_embedding_is_alive`]'s
 /// preconditions, asserted there at the same dimensions) must
 /// reproduce exactly through `Version::distance` and `Version::lag`.
 /// The co-operand is empty, *not equal*: the pair entries' only fast

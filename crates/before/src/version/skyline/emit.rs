@@ -5,7 +5,7 @@
 //! so both ride the comparison sweep's merge walk unchanged (the
 //! [`overlay`](super::overlay) module doc carries the boundary bookkeeping):
 //! two leaf cursors over the overlay partition, one running signed difference
-//! `D = height_a − height_b` on the cliff-immune [`Accumulator`]. What emission
+//! `D = height_a − height_b` on the cliff-free [`Accumulator`]. What emission
 //! adds is an output leaf per elementary interval — depth `max` of the two
 //! cursor depths: overlapping dyadic intervals nest, so the elementary interval
 //! *is* the deeper side's leaf. The walk therefore emits a left-to-right dyadic

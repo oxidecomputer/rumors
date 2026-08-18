@@ -7,7 +7,7 @@
 //!   *left-complete* ("is my left child done") and *left-was-leaf* ("was
 //!   that child a leaf", the fact the sibling-collapse check needs) —
 //!   where machine-word parse frames would cost tens of bytes per level;
-//! - one cliff-immune [`Accumulator`] carrying the running leaf height for the
+//! - one cliff-free [`Accumulator`] carrying the running leaf height for the
 //!   nonnegativity check (a plain big-integer here re-imports the
 //!   boundary comb's quadratic carry genre; the module doc carries the
 //!   argument);

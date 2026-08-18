@@ -2,7 +2,7 @@
 name = "suanpan"
 version = "0.1.0"
 edition = "2021"
-description = "Cliff-immune signed accumulators: redundant balanced signed-digit arithmetic with amortized O(1) deltas and sign reads on every input sequence."
+description = "Cliff-free signed accumulators: redundant balanced signed-digit arithmetic with amortized O(1) deltas and sign reads on every input sequence."
 license = "MPL-2.0"
 readme = "README.md"
 

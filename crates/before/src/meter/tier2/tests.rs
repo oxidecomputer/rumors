@@ -221,7 +221,7 @@ fn cliff_comb_tier2_size_is_linear_while_current_is_quadratic() {
 /// linear). Any Tier 2 sweep that must materialize running leaf values — strict
 /// decode's nonnegativity validation included, since values are naturals and a
 /// plain 2-bit/level topology check cannot see a delta drive one negative —
-/// inherits this cost unless it uses a carry-immune accumulator design.
+/// inherits this cost unless it uses a cliff-free accumulator design.
 #[cfg(feature = "limb-meter")]
 #[test]
 fn cliff_comb_plain_delta_sweep_is_quadratic_in_tier2_wire_bits() {

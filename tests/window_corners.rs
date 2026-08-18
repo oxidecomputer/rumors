@@ -216,10 +216,10 @@ fn growth_during_a_session_only_serializes() {
 /// the model may overcharge, never undercharge.
 ///
 /// Both legs assert floors only, because only the never-undercharge
-/// direction is load-immune on a wall clock: machine load inflates real
+/// direction is load-independent on a wall clock: machine load inflates real
 /// elapsed time and can never compress it, so these assertions read the
 /// same under any suite parallelism. The other direction — promptness —
-/// is a property of the session *shape*, pinned load-immune as exact
+/// is a property of the session *shape*, pinned load-independent as exact
 /// virtual hops by the catch-up and floor-wave siblings (the harness
 /// module doc's discipline: assertions belong on the virtual figure).
 #[test]

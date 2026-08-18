@@ -20,7 +20,7 @@
 //! what each slot's step folds.
 //!
 //! Per bound, the walk maintains the running difference `D = height_probe −
-//! height_bound` on the cliff-immune [`Accumulator`] and folds its sign once
+//! height_bound` on the cliff-free [`Accumulator`] and folds its sign once
 //! per elementary interval into the bound's two surviving-direction flags — the
 //! same `(probe <= bound, bound <= probe)` pair the comparison sweep folds, in
 //! that orientation everywhere: the probe is every pair's `a` operand. A probe
@@ -132,7 +132,7 @@ enum Fate {
 /// height_probe − height_bound`, and the two surviving directions.
 struct BoundSide<'a> {
     cursor: LeafCursor<'a>,
-    /// `height_probe − height_bound`, on the cliff-immune accumulator.
+    /// `height_probe − height_bound`, on the cliff-free accumulator.
     diff: Accumulator,
     /// The surviving directions of this side's pair, the probe as the `a`
     /// operand: `le` is `probe <= bound` still possible, `ge` is `bound <=

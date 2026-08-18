@@ -119,7 +119,7 @@ fn virtual_report_is_exact_on_the_delay_lattice() {
 }
 
 /// The virtual report is deterministic: the same session shape measures
-/// the same wire cost on every run — the load-immunity the window suites
+/// the same wire cost on every run — the load-independence the window suites
 /// pin their bounds on, stated as run-to-run equality.
 #[test]
 fn virtual_report_is_deterministic() {
@@ -139,7 +139,7 @@ fn virtual_report_is_deterministic() {
 
 /// A wall-clock wire refuses to report a virtual cost: its virtual clock
 /// tracks the real one, so the component is wall time in disguise and
-/// load-immunity — the figure's contract — cannot be honored.
+/// load-independence — the figure's contract — cannot be honored.
 #[test]
 #[should_panic(expected = "virtual wire cost is only meaningful on a paused clock")]
 fn wall_clock_wire_refuses_virtual_report() {
