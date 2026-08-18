@@ -493,7 +493,7 @@ placement is a _criticality ordering_. A parent summary is the least
 urgent message a walk ever sends: its consumer must wait for subtree
 returns that arrive far later anyway. The sends it would preempt under
 parent-early are the most urgent in the protocol — the queries that
-launch deeper descents and the wires the peer is waiting on. Parent-early buys deadlock immunity by releasing the upward
+launch deeper descents and the wires the peer is waiting on. Parent-early buys deadlock freedom by releasing the upward
 obligation before entering any send that can jam; parent-late buys
 maximal pipelining by deferring the deferrable. (Since parent
 summaries never cross the wire, neither placement changes the peer's
