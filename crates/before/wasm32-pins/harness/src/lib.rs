@@ -12,7 +12,10 @@
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use wasmtime::{Engine, Instance, Module, Store, Trap};
+// `Trap` is re-exported so the pin tests can name the exact trap they
+// assert without a direct wasmtime dependency edge of their own.
+pub use wasmtime::Trap;
+use wasmtime::{Engine, Instance, Module, Store};
 
 /// One pin call's outcome: the export's return value, or the trap that
 /// aborted it.
@@ -62,32 +65,44 @@ fn engine_and_module() -> &'static (Engine, Module) {
 
 /// Call a nullary pin export in a fresh instance.
 pub fn call0(export: &str) -> Outcome {
-    call(export, None)
+    call(export, &[])
 }
 
 /// Call a one-argument pin export in a fresh instance.
 pub fn call1(export: &str, arg: u64) -> Outcome {
-    call(export, Some(arg))
+    call(export, &[arg])
 }
 
-fn call(export: &str, arg: Option<u64>) -> Outcome {
+/// Call a two-argument pin export in a fresh instance.
+pub fn call2(export: &str, a: u64, b: u64) -> Outcome {
+    call(export, &[a, b])
+}
+
+fn call(export: &str, args: &[u64]) -> Outcome {
     let (engine, module) = engine_and_module();
     let mut store = Store::new(engine, ());
     let instance =
         Instance::new(&mut store, module, &[]).expect("the guest instantiates without imports");
-    let result = match arg {
-        None => {
+    let result = match *args {
+        [] => {
             let func = instance
                 .get_typed_func::<(), i64>(&mut store, export)
                 .expect("the export exists with the pinned signature");
             func.call(&mut store, ())
         }
-        Some(arg) => {
+        [arg] => {
             let func = instance
                 .get_typed_func::<u64, i64>(&mut store, export)
                 .expect("the export exists with the pinned signature");
             func.call(&mut store, arg)
         }
+        [a, b] => {
+            let func = instance
+                .get_typed_func::<(u64, u64), i64>(&mut store, export)
+                .expect("the export exists with the pinned signature");
+            func.call(&mut store, (a, b))
+        }
+        _ => unreachable!("pin exports take at most two arguments"),
     };
     match result {
         Ok(value) => Outcome::Value(value),

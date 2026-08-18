@@ -587,13 +587,16 @@ fuzzfit-calibrate: fuzzfit-build
 # never compile it, and wasmtime stays out of the production crates'
 # graph); the gate reaches it only through these recipes by name.
 # `wasm-check` proves before *compiles* for a 32-bit target; this leg is
-# the tree's one place 32-bit code *executes*: the guest drives the public
-# byte decode doors at the exact sizes where 32-bit position arithmetic
-# has boundaries (bitvec's borrowed-view cap, the usize bit-length
-# boundary at 512 MiB, the rank exponent's usize seam), and the harness
-# pins each boundary's exact outcome, with adjacency witnesses beside
-# each boundary so a failure is attributable to its seam. Pins land
-# red-first when a seam is found; each pin's history lives in git.
+# the tree's one place 32-bit code *executes*: the guest drives the
+# public surface — the byte and borsh decode doors, the semantic walks
+# and emitters, and rank arithmetic — at the exact sizes where 32-bit
+# position arithmetic has boundaries (bitvec's borrowed-view cap on the
+# walk surface, the emitter's build-buffer cap, the usize bit-length
+# boundary at 512 MiB, the rank exponent's usize seam, the big-integer
+# backend's word cap, the rank alignment-gap seam), and the harness pins
+# each boundary's exact outcome, with adjacency witnesses beside each
+# boundary so a failure is attributable to its seam. Pins land red-first
+# when a seam is found; each pin's history lives in git.
 # The guest builds with overflow checks on,
 # so a 32-bit wrap is an observable trap, never a silently wrong value.
 

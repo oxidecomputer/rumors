@@ -12,4 +12,9 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-before = { path = "../.." }
+# The borsh feature lights the composite streaming doors
+# (`Ranked`/`Span::deserialize_reader`), whose walk boundaries the guest
+# pins beside the byte doors'; the borsh crate itself names the trait the
+# exports drive.
+before = { path = "../..", features = ["borsh"] }
+borsh = "1"
