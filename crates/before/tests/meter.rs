@@ -293,11 +293,11 @@ mod envelope {
     // Skyline decoder rows: validation plus the wrap into storage — the
     // stored coding is the skyline stream itself, so decode materializes
     // nothing beyond the copy and stays priced by the wire input.
-    pub const SKYLINE_DECODE_DENSE: SweepEnvelope = sweep_envelope(122_880, 0, 0, 468_758, 0); // decode is validate + wrap
-    pub const SKYLINE_DECODE_CLIFF: SweepEnvelope = sweep_envelope(3_840, 0, 88, 17_923, 52); // decode is validate + wrap
-    pub const SKYLINE_DECODE_WIDE_TOOTH: SweepEnvelope = sweep_envelope(245_760, 0, 29_509, 1_000_480, 17_705); // decode is validate + wrap; the wrap's copy prices the wide payloads
+    pub const SKYLINE_DECODE_DENSE: SweepEnvelope = sweep_envelope(61_440, 0, 0, 468_758, 0); // decode is validate + wrap: the wrap allocates the copy once, exactly sized
+    pub const SKYLINE_DECODE_CLIFF: SweepEnvelope = sweep_envelope(2_250, 0, 88, 17_923, 52); // decode is validate + wrap: the wrap allocates the copy once, exactly sized
+    pub const SKYLINE_DECODE_WIDE_TOOTH: SweepEnvelope = sweep_envelope(125_100, 0, 29_509, 1_000_480, 17_705); // decode is validate + wrap; the once-allocated copy prices the wide payloads
     pub const SKYLINE_DECODE_HUGELEAF: SweepEnvelope     = sweep_envelope(    83_440,        0,         2_443, 312_503, 1_465); // decode is validate + wrap
-    pub const SKYLINE_DECODE_ALT_SPINE: SweepEnvelope = sweep_envelope(122_880, 0, 0, 468_758, 0); // decode is validate + wrap
+    pub const SKYLINE_DECODE_ALT_SPINE: SweepEnvelope = sweep_envelope(61_440, 0, 0, 468_758, 0); // decode is validate + wrap: the wrap allocates the copy once, exactly sized
 }
 
 // ─── meter liveness canaries ────────────────────────────────────────────────
