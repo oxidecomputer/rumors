@@ -578,10 +578,13 @@ impl Party {
     pub fn decode<R: std::io::Read>(mut reader: R) -> Result<Self, Decode> {
         let mut buf = Vec::new();
         reader.read_to_end(&mut buf).map_err(Decode::Io)?;
+        // Validate over the raw bytes (never a borrowed bit view, whose
+        // encoding caps below the buffer sizes this door admits on 32-bit
+        // targets): the whole `8 · buf.len()`-bit view is the walk's input,
+        // padding bits included, and the marker check judges the remainder.
         {
-            let bits = codec::bytes_as_bits(&buf);
-            let end = codec::parse_id(bits, 0)?;
-            codec::require_marker_padding(bits, end)?;
+            let end = codec::parse_id_bytes(&buf)?;
+            codec::require_marker_padding_bytes(&buf, end)?;
         }
         // Adopt the read buffer as the result's backing store without
         // copying: the padding check proved the buffer is the stream's one

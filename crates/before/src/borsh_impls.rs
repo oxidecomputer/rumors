@@ -14,7 +14,7 @@ use borsh::io::{Error, ErrorKind, Read, Write};
 use borsh::{BorshDeserialize, BorshSerialize};
 
 use crate::{
-    codec::{self, BitCursor, BitsMut},
+    codec::{self, BitCursor},
     error::Decode,
     span::Span,
     version::decode_rank_stream,
@@ -45,9 +45,13 @@ struct ReaderCursor<'a, R> {
     /// but not yet consumed by the parse; they are the only bits the
     /// [`read_int`] window may prove a code from.
     ///
+    /// `u64`, not `usize`: a field's byte count is bounded only by what the
+    /// reader yields, and `8 · bytes.len()` outgrows a 32-bit `usize` from
+    /// 512 MiB of field — exactly representable here.
+    ///
     /// [`read_bit`]: BitCursor::read_bit
     /// [`read_int`]: BitCursor::read_int
-    position: usize,
+    position: u64,
 }
 
 impl<'a, R: Read> ReaderCursor<'a, R> {
@@ -59,13 +63,18 @@ impl<'a, R: Read> ReaderCursor<'a, R> {
         }
     }
 
-    fn finish(mut self) -> Result<BitsMut, Decode> {
-        // Consume the tree's padding — one `1` marker, then zeros to the
-        // byte boundary — through the same on-demand reads as the parse:
-        // when the live bits end flush against a byte boundary, the
-        // padding is a whole `1000_0000` byte the parse never pulled, and
-        // leaving it unread would hand its bits to the next borsh field.
-        let end = self.position;
+    /// Consume the tree's padding and hand back the field's canonical bytes.
+    ///
+    /// The padding — one `1` marker, then zeros to the byte boundary — is
+    /// consumed through the same on-demand reads as the parse: when the live
+    /// bits end flush against a byte boundary, the padding is a whole
+    /// `1000_0000` byte the parse never pulled, and leaving it unread would
+    /// hand its bits to the next borsh field. After it, the buffered bytes
+    /// are exactly the tree's marker-padded canonical spelling — the at-rest
+    /// storage form, adopted without a copy or a borrowed bit view (whose
+    /// encoding caps below the field sizes this reader admits on 32-bit
+    /// targets).
+    fn finish(mut self) -> Result<Vec<u8>, Decode> {
         if !self.read_bit()? {
             return Err(Decode::TrailingBits);
         }
@@ -74,9 +83,7 @@ impl<'a, R: Read> ReaderCursor<'a, R> {
                 return Err(Decode::TrailingBits);
             }
         }
-        let mut bits = BitsMut::from_vec(self.bytes);
-        bits.truncate(end);
-        Ok(bits)
+        Ok(self.bytes)
     }
 }
 
@@ -87,18 +94,23 @@ impl<R: Read> BitCursor for ReaderCursor<'_, R> {
     type Error = Decode;
 
     fn read_bit(&mut self) -> Result<bool, Decode> {
-        if self.position == 8 * self.bytes.len() {
+        if self.position == self.bytes.len() as u64 * 8 {
             let mut byte = [0];
             self.reader.read_exact(&mut byte).map_err(Decode::Io)?;
             self.bytes.push(byte[0]);
         }
-        let bit = self.bytes[self.position / 8] & (0x80 >> (self.position % 8)) != 0;
+        // An in-range byte index fits `usize`: it indexes the buffer.
+        let bit = self.bytes[(self.position / 8) as usize] & (0x80 >> (self.position % 8)) != 0;
         self.position += 1;
         Ok(bit)
     }
 
     fn position(&self) -> usize {
-        self.position
+        // The grammar walks read no positions on this cursor (they return
+        // `()` or are read after `finish`); the conversion stays checked so
+        // a future position-reading walk over a past-usize field fails
+        // loudly instead of truncating.
+        usize::try_from(self.position).expect("a read position fits usize")
     }
 
     fn read_int(&mut self) -> Result<codec::Int, Decode> {
@@ -110,9 +122,7 @@ impl<R: Read> BitCursor for ReaderCursor<'_, R> {
         // construction. It fires when earlier refills left enough unconsumed
         // bits buffered; everything else, every reject included, is decided
         // by the per-bit loop below, refilling byte by byte on demand.
-        if let Some((n, next)) =
-            codec::decode_int_window(codec::bytes_as_bits(&self.bytes), self.position)
-        {
+        if let Some((n, next)) = codec::decode_int_window_bytes(&self.bytes, self.position) {
             self.position = next;
             return Ok(codec::Int::Small(n));
         }
@@ -120,15 +130,17 @@ impl<R: Read> BitCursor for ReaderCursor<'_, R> {
     }
 }
 
-/// Read and validate one byte-aligned canonical id tree.
-fn deserialize_id<R: Read>(reader: &mut R) -> borsh::io::Result<BitsMut> {
+/// Read and validate one byte-aligned canonical id tree, returning its
+/// canonical marker-padded bytes.
+fn deserialize_id<R: Read>(reader: &mut R) -> borsh::io::Result<Vec<u8>> {
     let mut cursor = ReaderCursor::new(reader);
-    codec::parse_id_from(&mut cursor).map_err(decode_error)?;
+    codec::parse_id_core(&mut cursor).map_err(decode_error)?;
     cursor.finish().map_err(decode_error)
 }
 
-/// Read and validate one byte-aligned canonical skyline event stream.
-fn deserialize_event<R: Read>(reader: &mut R) -> borsh::io::Result<BitsMut> {
+/// Read and validate one byte-aligned canonical skyline event stream,
+/// returning its canonical marker-padded bytes.
+fn deserialize_event<R: Read>(reader: &mut R) -> borsh::io::Result<Vec<u8>> {
     let mut cursor = ReaderCursor::new(reader);
     crate::version::skyline::validate_from(&mut cursor).map_err(decode_error)?;
     cursor.finish().map_err(decode_error)
@@ -152,8 +164,10 @@ impl BorshDeserialize for Party {
         // The id grammar has no empty production (a starved reader rejects
         // inside the parse), so the parsed id is a nonzero share — the
         // standalone-party invariant (paper §3: `i ≠ 0`) holds structurally.
-        let bits = deserialize_id(reader)?;
-        Ok(Party::from_bits(bits))
+        let bytes = deserialize_id(reader)?;
+        Ok(Party::from_frozen(codec::Bits::from_canonical(
+            bytes.into(),
+        )))
     }
 }
 
@@ -165,7 +179,8 @@ impl BorshSerialize for Version {
 
 impl BorshDeserialize for Version {
     fn deserialize_reader<R: Read>(reader: &mut R) -> borsh::io::Result<Self> {
-        deserialize_event(reader).map(Version::from_bits)
+        deserialize_event(reader)
+            .map(|bytes| Version::from_frozen(codec::Bits::from_canonical(bytes.into())))
     }
 }
 
@@ -270,16 +285,16 @@ impl BorshDeserialize for Span<'static> {
             .map_err(decode_error)?;
         // The final byte's padding check outranks the pair verdict,
         // exactly as the byte-slice decode orders them.
-        let bits = cursor.finish().map_err(decode_error)?;
+        let bytes = cursor.finish().map_err(decode_error)?;
         let hi = match admission {
             Admission::Refuted => return Err(decode_error(Decode::NotCanonical)),
             // The coincident span stores one buffer twice: the admission
             // walk proved the second stream byte-equal to the first, so
             // the join is the meet's clone — an `O(1)` refcount bump the
-            // ptr_eq fast paths then recognize — and the parsed bits are
+            // ptr_eq fast paths then recognize — and the parsed bytes are
             // dropped unstored.
             Admission::Equal => lo.clone(),
-            Admission::Dominates => Version::from_bits(bits),
+            Admission::Dominates => Version::from_frozen(codec::Bits::from_canonical(bytes.into())),
         };
         Ok(Span::owned(lo, hi))
     }

@@ -121,7 +121,7 @@ pub(crate) fn decode_int(bits: &BitsSlice, pos: usize) -> Result<(Base, usize), 
 }
 
 /// The number of bits a [`decode_int_window`] window holds.
-const WINDOW_BITS: usize = u64::BITS as usize;
+const WINDOW_BITS: u64 = u64::BITS as u64;
 
 /// One-window fast path of the gamma decoder: the value and end position of the
 /// code at `pos`, when a single 64-bit window proves the whole code.
@@ -150,10 +150,29 @@ const WINDOW_BITS: usize = u64::BITS as usize;
 /// the apparent prefix — pushing `2k+1` past the proven bits and into the
 /// fallback — never shortens it into a bogus accept.
 pub(crate) fn decode_int_window(bits: &BitsSlice, pos: usize) -> Option<(u64, usize)> {
+    let (body, tail) = super::byte_view(bits)?;
+    let (n, next) = window_int(body, tail, bits.len() as u64, pos as u64)?;
+    // The code ends inside the slice, whose own length bounds the position.
+    Some((n, next as usize))
+}
+
+/// [`decode_int_window`] over raw stream bytes: the wire-side reader's form
+/// (its buffered bytes have no borrowed bit view once they outgrow the view
+/// encoding's cap), windowing the whole `8 · bytes.len()`-bit view at the
+/// reader's own `u64` position width.
+#[cfg(any(test, feature = "borsh"))]
+pub(crate) fn decode_int_window_bytes(bytes: &[u8], pos: u64) -> Option<(u64, u64)> {
+    window_int(bytes, None, bytes.len() as u64 * 8, pos)
+}
+
+/// The one-window decoder's body over raw parts: `len` live bits across
+/// `body` plus the masked partial `tail` byte, positions in `u64` (a byte
+/// door's whole-buffer view holds more bit positions than a 32-bit `usize`).
+fn window_int(body: &[u8], tail: Option<u8>, len: u64, pos: u64) -> Option<(u64, u64)> {
     // Bits of real stream between `pos` and the window's end.
-    let proven = bits.len().checked_sub(pos)?.min(WINDOW_BITS);
-    let window = load_window(bits, pos)?;
-    let k = window.leading_zeros() as usize;
+    let proven = len.checked_sub(pos)?.min(WINDOW_BITS);
+    let window = load_window(body, tail, pos);
+    let k = u64::from(window.leading_zeros());
     let code_len = 2 * k + 1;
     if code_len > proven {
         return None;
@@ -164,39 +183,37 @@ pub(crate) fn decode_int_window(bits: &BitsSlice, pos: usize) -> Option<(u64, us
     Some((m - 1, pos + code_len))
 }
 
-/// Load a 64-bit big-endian window of `bits` starting at bit `pos`: bit `pos`
-/// of the stream in the most significant position, zero past the stream's end.
-///
-/// `None` when the slice does not begin on a byte boundary of its own backing
-/// store, the one shape with no direct byte view. Every decode surface hands in
-/// a whole stored stream (offsets travel as `pos`), so this fallback is latent,
-/// kept for correctness rather than reached in practice.
-fn load_window(bits: &BitsSlice, pos: usize) -> Option<u64> {
-    let (body, tail) = super::byte_view(bits)?;
-    let byte = pos / 8;
-    let shift = pos % 8;
+/// Load a 64-bit big-endian window starting at bit `pos` of the stream held
+/// as `body` plus the masked partial `tail` byte: bit `pos` in the most
+/// significant position, zero past the stream's end.
+fn load_window(body: &[u8], tail: Option<u8>, pos: u64) -> u64 {
+    // In-range byte indices fit `usize` (they index an allocated buffer);
+    // the clamps below keep every computed index in range.
+    let byte = usize::try_from(pos / 8).unwrap_or(usize::MAX);
+    let shift = (pos % 8) as usize;
     // Gather the (up to) 9 bytes covering bits `pos..pos + 64`: 8 whole bytes
     // plus the partial ninth that a mid-byte `pos` shifts in. Bytes past the
-    // stream stay zero — `load_value` masks the tail byte's dead bits, and the
-    // buffer zero-fills past the last byte — so phantom bits are always zero.
+    // stream stay zero — the tail byte arrives with its dead bits masked, and
+    // the buffer zero-fills past the last byte — so phantom bits are always
+    // zero.
     let mut buf = [0u8; 9];
     let start = byte.min(body.len());
-    let end = (byte + buf.len()).min(body.len());
+    let end = byte.saturating_add(buf.len()).min(body.len());
     buf[..end - start].copy_from_slice(&body[start..end]);
     if let Some(t) = tail {
-        // `pos <= bits.len()` (checked by the caller) puts `byte` at or before
-        // the tail byte, so the index never underflows.
+        // The callers bound `pos` by the live length, which puts `byte` at or
+        // before the tail byte, so the index never underflows.
         let tail_at = body.len();
-        if tail_at < byte + buf.len() {
+        if tail_at < byte.saturating_add(buf.len()) {
             buf[tail_at - byte] = t;
         }
     }
     let word = u64::from_be_bytes(buf[..8].try_into().expect("buf holds 8 whole bytes"));
-    Some(if shift == 0 {
+    if shift == 0 {
         word
     } else {
         (word << shift) | (u64::from(buf[8]) >> (8 - shift))
-    })
+    }
 }
 
 /// Read one Elias-gamma-coded integer from a sequential bit cursor.

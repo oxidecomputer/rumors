@@ -24,7 +24,9 @@ use core::cmp::Ordering;
 
 use suanpan::Accumulator;
 
-use crate::codec::{BitCursor, BitsMut, BitsSlice, DsiCursor};
+#[cfg(any(test, feature = "meter"))]
+use crate::codec::BitsSlice;
+use crate::codec::{BitCursor, BitsMut, DsiCursor};
 use crate::error::Decode;
 
 use super::signed::{fold_signed_int, unzigzag, Sign};
@@ -47,16 +49,18 @@ pub(crate) fn validate_bits(bits: &BitsSlice) -> Result<(), Decode> {
     Ok(())
 }
 
-/// Strictly validate one skyline tree at the head of a bit stream,
-/// returning the position just past it.
+/// Strictly validate one skyline tree at the head of a raw byte buffer's
+/// whole `8 · bytes.len()`-bit view, returning the position just past it.
 ///
 /// The wire decoder's entry: a version's skyline stream is bit-self-delimiting
 /// (one complete tree), so the returned end position is where any zero padding
-/// must begin.
-pub(crate) fn validate_prefix(bits: &BitsSlice) -> Result<usize, Decode> {
-    let mut cursor = DsiCursor::new(bits);
+/// must begin. Raw bytes and a `u64` end, never a borrowed bit view: the
+/// doors admit buffers past the view encoding's cap (64 MiB and up on a
+/// 32-bit target), whose bit positions outgrow a 32-bit `usize`.
+pub(crate) fn validate_prefix_bytes(bytes: &[u8]) -> Result<u64, Decode> {
+    let mut cursor = DsiCursor::over_bytes(bytes);
     validate_from(&mut cursor)?;
-    Ok(cursor.position())
+    Ok(cursor.position_u64())
 }
 
 /// Validate one skyline tree from a sequential bit cursor.

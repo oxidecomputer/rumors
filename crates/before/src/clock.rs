@@ -755,22 +755,27 @@ impl Clock {
         // exhausted input. Both parts then adopt slices of the ONE read buffer
         // as their storage: no per-component copy, and the id is parsed once
         // where handing byte ranges to the component decoders re-parsed it.
+        // Both components validate over the raw bytes (never a borrowed bit
+        // view, whose encoding caps below the buffer sizes this door admits
+        // on 32-bit targets); each walk's input is its component's whole
+        // byte range as bits, padding included, judged by its marker check.
         let id_bytes = {
-            let bits = codec::bytes_as_bits(&buf);
-            let id_end = codec::parse_id(bits, 0)?;
+            let id_end = codec::parse_id_bytes(&buf)?;
             // The party's padding marker rides in its final byte — which an
             // input cut right after a flush id tree lacks. That cut is
             // missing required data (the marker byte, and the whole version
             // after it): the truncation genre, exactly as a byte-starved
             // reader reports the same boundary.
             let id_bytes = (id_end + 1).div_ceil(8);
-            if 8 * id_bytes > bits.len() {
+            if id_bytes > buf.len() as u64 {
                 return Err(Decode::Truncated);
             }
-            codec::require_marker_padding(&bits[..8 * id_bytes], id_end)?;
-            let tail = &bits[8 * id_bytes..];
-            let v_end = crate::version::skyline::validate_prefix(tail)?;
-            codec::require_marker_padding(tail, v_end)?;
+            let id_bytes =
+                usize::try_from(id_bytes).expect("the id prefix ends within the read buffer");
+            codec::require_marker_padding_bytes(&buf[..id_bytes], id_end)?;
+            let tail = &buf[id_bytes..];
+            let v_end = crate::version::skyline::validate_prefix_bytes(tail)?;
+            codec::require_marker_padding_bytes(tail, v_end)?;
             id_bytes
         };
         let buf = bytes::Bytes::from(buf);

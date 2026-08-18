@@ -57,3 +57,15 @@ pub(crate) fn record_bits(n: usize) {
     #[cfg(not(feature = "scan-meter"))]
     let _ = n;
 }
+
+/// [`record_bits`] at the counter's own width, for the word-parallel cursor:
+/// a byte decode door's walk spans up to `8 · bytes.len()` bit positions,
+/// which exceeds a 32-bit `usize` on the largest buffers a door admits, so
+/// its run and tail records stay `u64` end to end.
+#[inline(always)]
+pub(crate) fn record_bits_u64(n: u64) {
+    #[cfg(feature = "scan-meter")]
+    counter::record(n);
+    #[cfg(not(feature = "scan-meter"))]
+    let _ = n;
+}

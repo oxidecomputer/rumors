@@ -204,14 +204,18 @@ pub(crate) mod web_traffic;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use admit::{validate_dominating_from, Admission};
+pub(crate) use admit::{validate_dominating_bytes, Admission};
+// The slice-form admission walk serves the wire-side (borsh) span reader,
+// whose meet is an already-stored version read through its borrowed view.
+#[cfg(any(test, feature = "borsh"))]
+pub(crate) use admit::validate_dominating_from;
 #[cfg(any(test, feature = "meter"))]
 pub(crate) use decode::decode_bits;
 #[cfg(any(test, feature = "meter"))]
 pub(crate) use encode::encode_bits;
 #[cfg(any(test, feature = "meter"))]
 pub(crate) use validate::validate_bits;
-pub(crate) use validate::validate_prefix;
+pub(crate) use validate::validate_prefix_bytes;
 // The wire decoder's from-cursor entry: reached from the borsh event leg.
 #[cfg(feature = "borsh")]
 pub(crate) use validate::validate_from;

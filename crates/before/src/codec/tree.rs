@@ -35,8 +35,31 @@ pub(crate) fn parse_id(bits: &BitsSlice, pos: usize) -> Result<usize, Decode> {
     parse_id_from(&mut cursor)
 }
 
-/// Parse and validate one id tree from a sequential bit cursor.
+/// [`parse_id`] over raw stream bytes, walking the whole `8 · bytes.len()`
+/// bit view: the byte decode doors' form, for buffers past the borrowed bit
+/// view's encoding cap (64 MiB and up on a 32-bit target), returning the
+/// tree's end position at the walk's own `u64` width.
+pub(crate) fn parse_id_bytes(bytes: &[u8]) -> Result<u64, Decode> {
+    let mut cursor = super::DsiCursor::over_bytes(bytes);
+    parse_id_core(&mut cursor)?;
+    Ok(cursor.position_u64())
+}
+
+/// Parse and validate one id tree from a sequential bit cursor, returning the
+/// position just past it.
 pub(crate) fn parse_id_from<C: BitCursor>(cursor: &mut C) -> Result<usize, Decode>
+where
+    Decode: From<C::Error>,
+{
+    parse_id_core(cursor)?;
+    Ok(cursor.position())
+}
+
+/// Parse and validate one id tree from a sequential bit cursor: the one
+/// grammar body, leaving the end position to the caller's own read (the
+/// byte decode doors read it at `u64` width, everything else through
+/// [`BitCursor::position`]).
+pub(crate) fn parse_id_core<C: BitCursor>(cursor: &mut C) -> Result<(), Decode>
 where
     Decode: From<C::Error>,
 {
@@ -62,7 +85,7 @@ where
         // Attach the completed subtree to its parent, possibly completing it too.
         loop {
             match stack.pop() {
-                None => return Ok(cursor.position()), // the root is complete
+                None => return Ok(()), // the root is complete
                 Some(IdFrame::BothNeedLeft) => {
                     stack.push(IdFrame::BothNeedRight {
                         left_terminal: summary,

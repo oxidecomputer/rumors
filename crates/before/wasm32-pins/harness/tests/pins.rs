@@ -39,44 +39,45 @@ fn version_decode_below_view_cap() {
     );
 }
 
-/// BAD BASELINE, pinned red: a valid 64 MiB (67108864-byte) version
-/// encoding is SILENTLY rejected as a typed decode error on wasm32 — the
-/// worst failure class, a wrong result with no alarm. The decode door
-/// views the whole buffer as one bit slice; at exactly 2^29 bits,
-/// `bitvec`'s element-count guard still admits the slice, and the span
-/// encoding's `len << 3` then shifts the length's one set bit clean out
-/// of a 32-bit `usize`, constructing an EMPTY view. The validator walks
-/// zero bits and reports `Truncated` — a typed rejection, reserved for
-/// invalid inputs, delivered for a valid one. The guest observes it as
-/// its `-1` (decode returned `Err`) code. The door engineering flips
-/// this to `Value(8 * 67_108_864 - 8)`.
+/// A valid 64 MiB (67108864-byte) version encoding — exactly 2^29 bits,
+/// the size whose whole-buffer borrowed bit view `bitvec`'s span encoding
+/// silently constructs EMPTY on wasm32 — decodes correctly through the
+/// byte-backed door, returning its exact live bit length. (The silent
+/// empty view was this pin's committed bad baseline: the validator walked
+/// zero bits and reported `Truncated` for a valid input, a wrong result
+/// with no alarm.)
 #[test]
 fn version_decode_at_view_cap() {
-    assert_eq!(call1("pin_version_decode", 67_108_864), Outcome::Value(-1));
+    assert_eq!(
+        call1("pin_version_decode", 67_108_864),
+        Outcome::Value(8 * 67_108_864 - 8),
+    );
 }
 
-/// BAD BASELINE, pinned red: one byte past the silent-empty boundary
-/// (67108865 bytes, 2^29 + 8 bits), `bitvec`'s element-count guard fires
-/// and the decode door panics — a valid encoding that fits the target's
-/// memory, refused by panic. Together with the silent-empty pin one byte
-/// below, this witnesses both failure genres the borrowed-view cap
-/// produces on wasm32. The door engineering flips this to
-/// `Value(8 * 67_108_865 - 8)`.
+/// A valid 67108865-byte version encoding — one byte past the borrowed
+/// view's silent-empty boundary, where `bitvec`'s element-count guard used
+/// to panic the decode door on wasm32 — decodes correctly through the
+/// byte-backed door, returning its exact live bit length. Together with
+/// the pin one byte below, this witnesses both failure genres the
+/// borrowed-view cap produced are gone from the doors.
 #[test]
 fn version_decode_past_view_cap() {
-    assert_eq!(call1("pin_version_decode", 67_108_865), PANICKED);
+    assert_eq!(
+        call1("pin_version_decode", 67_108_865),
+        Outcome::Value(8 * 67_108_865 - 8),
+    );
 }
 
 /// BAD BASELINE, pinned red: a valid 512 MiB (2^29-byte) version encoding
-/// panics on wasm32. Two seams stack here: today the trap fires in
-/// `bitvec`'s view cap (the 64 MiB seam masks everything above it), and
-/// once that is engineered around, `Bits::len`'s `bytes.len() * 8` — a
-/// `usize` multiply — overflows at exactly this size (2^32 bits). This
-/// build runs with overflow checks, so the wrap is this same trap; in an
-/// unchecked build it wraps silently, coincidentally correct at exactly
-/// 2^29 bytes and wrong (a slice length 2^32 short) for anything larger.
-/// The len fix flips this to `Value(8 * 536_870_912 - 8)` — the largest
-/// stored stream a 32-bit `usize` can denominate bit positions for.
+/// panics on wasm32 — now unmasked to the seam this size owns. The
+/// byte-backed door walks and validates the stream correctly, and the trap
+/// fires at `Bits::len`'s `bytes.len() * 8`: a `usize` multiply that
+/// overflows at exactly this size (2^32 bits). This build runs with
+/// overflow checks, so the wrap is this trap; in an unchecked build it
+/// wraps silently, coincidentally correct at exactly 2^29 bytes and wrong
+/// (a length 2^32 short) for anything larger. The len fix flips this to
+/// `Value(8 * 536_870_912 - 8)` — the largest stored stream a 32-bit
+/// `usize` can denominate bit positions for.
 #[test]
 fn version_decode_at_bit_length_boundary() {
     assert_eq!(call1("pin_version_decode", 536_870_912), PANICKED);

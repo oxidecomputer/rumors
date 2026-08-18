@@ -139,7 +139,23 @@ impl Bits {
     /// the byte boundary; empty for the empty stream — which is what
     /// `require_marker_padding` accepts. Debug builds assert it; release builds
     /// trust the validator.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the buffer's bit count exceeds `usize` — reachable only on
+    /// targets narrower than 64 bits, from 512 MiB of buffer. Stored bit
+    /// positions and lengths are `usize`-denominated throughout the crate, so
+    /// a stream past that bound has no in-memory form here: adopting it would
+    /// make [`len`](Self::len) and every walk incorrect, and this check keeps
+    /// the failure at the door instead. On 64-bit targets the bound is 2^61
+    /// bytes, which no allocator can hand over, so the check is dead there.
     pub(crate) fn from_canonical(bytes: Bytes) -> Self {
+        assert!(
+            bytes.len() as u128 <= (usize::MAX as u128 + 1) / 8,
+            "stored streams denominate bit positions in usize: \
+             a {}-byte buffer's bits do not fit this target's usize",
+            bytes.len(),
+        );
         let bits = Bits { bytes };
         debug_assert!(
             padding_is_canonical(&bits),
@@ -206,6 +222,21 @@ impl Bits {
 /// Read the frozen stream as live bits — the padding stays behind the view:
 /// every cursor and walk consumes [`Bits`] through this slice, exactly as it
 /// consumes a [`BitsMut`].
+///
+/// # Panics
+///
+/// Panics inside `bitvec` when the buffer's bit count exceeds the borrowed
+/// view's encoding limit, `usize::MAX >> 3` bits — on a 32-bit target, any
+/// stored stream past 64 MiB. Such streams exist there: the byte decode
+/// doors admit valid encodings up to the `usize` bit-position bound (512
+/// MiB), and every byte-level operation on them (equality, hashing, the
+/// canonical bytes, re-encoding, the length) is exact — but the walk surface
+/// reads through this one borrowed view, whose fat-pointer length field is
+/// three bits narrower than `usize`, so a walk over such a value fails loudly
+/// here rather than reading a mis-lengthed view. Widening the walk surface
+/// past the borrowed-view encoding requires a crate-owned view type in place
+/// of the `bitvec` borrow. On 64-bit targets the limit is 2^58 bytes,
+/// unreachable by allocation.
 impl Deref for Bits {
     type Target = BitsSlice;
     fn deref(&self) -> &BitsSlice {
@@ -225,7 +256,10 @@ impl PartialEq for Bits {
 impl Eq for Bits {}
 
 /// Borrow bytes as an MSB-first bit stream without first copying them into a
-/// [`BitsMut`].
+/// [`BitsMut`]: the meter surface's and the test suites' view — production
+/// decode walks raw bytes instead, since this view's encoding caps below the
+/// buffer sizes the decode doors admit on 32-bit targets.
+#[cfg(any(test, feature = "meter"))]
 pub(crate) fn bytes_as_bits(bytes: &[u8]) -> &BitsSlice {
     bytes.view_bits::<Msb0>()
 }
@@ -342,14 +376,19 @@ pub(crate) fn byte_view(bits: &BitsSlice) -> Option<(&[u8], Option<u8>)> {
     }
 }
 
-/// Require that the bits from `pos` onward are exactly the canonical padding:
-/// one `1` marker bit, then zeros to the byte boundary.
+/// Require that the bits from `pos` to the buffer's end are exactly the
+/// canonical padding: one `1` marker bit, then zeros to the byte boundary.
+/// The byte decode doors' padding judge, over the raw stream bytes.
 ///
-/// A canonical encoding pads with a single marker and at most 7 zeros, all
-/// inside the final byte, so an intact remainder here is 1 to 8 bits: a `1`,
-/// then zeros. (A stream whose live bits end flush against a byte boundary
-/// carries its marker in a whole final `1000_0000` byte.) The rejections
-/// split by genre:
+/// Positions are `u64` because a door walks the whole byte buffer as bits and
+/// `8·bytes.len()` itself can exceed a 32-bit `usize`; the raw-byte form is
+/// also what lets the doors admit buffers past the borrowed bit view's
+/// encoding cap (see [`Bits`]'s deref). A canonical encoding pads with a
+/// single marker and at most 7 zeros, all inside the final byte, so an intact
+/// remainder here is 1 to 8 bits — a `1`, then zeros — decided by one mask
+/// compare on the final byte. (A stream whose live bits end flush against a
+/// byte boundary carries its marker in a whole final `1000_0000` byte.) The
+/// rejections split by genre:
 ///
 /// - An empty remainder is [`Decode::Truncated`]: the input ends where the
 ///   padding should begin — a flush stream cut before its whole marker byte —
@@ -362,10 +401,35 @@ pub(crate) fn byte_view(bits: &BitsSlice) -> Option<(&[u8], Option<u8>)> {
 /// The marker plus the length bound are what make `decode` injective on
 /// bytes: every stream has exactly one padded spelling, and no byte string
 /// spells two streams.
-pub(crate) fn require_marker_padding(bits: &BitsSlice, pos: usize) -> Result<(), Decode> {
-    match bits.len() - pos {
+///
+/// # Panics
+///
+/// `pos` must be at or before the buffer's end in bits (it is a walk's end
+/// position over this very buffer).
+pub(crate) fn require_marker_padding_bytes(bytes: &[u8], pos: u64) -> Result<(), Decode> {
+    let total = bytes.len() as u64 * 8;
+    assert!(
+        pos <= total,
+        "padding checked at a position inside the buffer"
+    );
+    let remainder = total - pos;
+    match remainder {
         0 => Err(Decode::Truncated),
-        1..=8 if bits[pos] && !bits[pos + 1..].any() => Ok(()),
+        1..=8 => {
+            // The remainder lives entirely in the final byte: its low
+            // `remainder` bits must be a `1` followed by zeros.
+            let last = bytes[bytes.len() - 1];
+            let mask = if remainder == 8 {
+                0xFF
+            } else {
+                (1u8 << remainder) - 1
+            };
+            if last & mask == 1 << (remainder - 1) {
+                Ok(())
+            } else {
+                Err(Decode::TrailingBits)
+            }
+        }
         _ => Err(Decode::TrailingBits),
     }
 }

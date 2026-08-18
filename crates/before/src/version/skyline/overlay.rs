@@ -340,6 +340,20 @@ impl<'a> LeafCursor<'a> {
         (this, first)
     }
 
+    /// [`open`](Self::open) over raw stream bytes and a live bit length: the
+    /// byte decode door's form, for canonical streams past the borrowed bit
+    /// view's encoding cap (64 MiB and up on a 32-bit target). Same contract,
+    /// canonicality trust included.
+    pub(super) fn open_bytes(bytes: &'a [u8], live: usize) -> (Self, Int) {
+        let mut this = LeafCursor {
+            cursor: DsiCursor::over_bytes_live(bytes, live),
+            path: BitStack::new(),
+            len: live,
+        };
+        let first = this.descend();
+        (this, first)
+    }
+
     /// The flip level the next step would close to, read without moving.
     ///
     /// The path's trailing right-branch run popped and the deepest left branch
