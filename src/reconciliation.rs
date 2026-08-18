@@ -31,7 +31,7 @@
 //! the trie's shape is a pure function of its membership: two replicas
 //! holding the same set of messages hold the *same tree*, whatever order
 //! they learned it in. Each interior node memoizes two summaries of its
-//! subtree: a digest (a 16-byte truncation of BLAKE3;
+//! subtree: a digest (a 24-byte truncation of BLAKE3;
 //! [`MERKLE_HASH_LEN`](crate::MERKLE_HASH_LEN)) and the ceiling and floor
 //! of its leaves' versions. The digest answers "do we hold the same things
 //! here?"; the version bounds answer "could anything here be news to a
@@ -50,9 +50,9 @@
 //! level, comparing children by digest. Equal digests prune: that subtree
 //! is settled, however large it is. Where both sides hold something under a
 //! child but the digests differ, the child is *disputed*: the reply lists
-//! the disputed node's own children (a radix byte and a digest each, 17
-//! bytes per child) and the comparison recurses one level deeper. And
-//! where one side holds a subtree the other holds nothing under, the
+//! the disputed node's own children (a radix byte and a digest each) and
+//! the comparison recurses one level deeper. And where one side holds a
+//! subtree the other holds nothing under, the
 //! descent stops. Its destination is the *disjoint frontier*: the
 //! horizontal cut across the tree where every node along the cut is the
 //! highest node held exclusively by one side or the other.
@@ -125,32 +125,39 @@
 //! The outcome of a session: both replicas hold every message either held and
 //! neither had redacted when the session began.
 //!
-//! # Sixteen-byte digests
+//! # Twenty-four-byte digests
 //!
-//! The digests the descent compares are 16-byte truncations of BLAKE3 (BLAKE3
+//! The digests the descent compares are 24-byte truncations of BLAKE3 (BLAKE3
 //! is designed to be truncated: any prefix is itself a cryptographic hash).
-//! Digest bytes dominate every dispute listing on the wire, so halving them
-//! roughly halves the protocol's metadata; keys into the tree remain full
-//! 32-byte hashes.
+//! Digest bytes dominate every dispute listing on the wire — they are the
+//! protocol's main metadata price — so the width is spent deliberately;
+//! keys into the tree remain full 32-byte hashes.
 //!
-//! At first blush, this might seem cavalier. But then consider, what would a
-//! digest collision cost, and who could make one? Peers are trusted in this
-//! crate's model (see [when *shouldn't* you use
-//! it](crate#when-shouldnt-you-use-it)), and a compromised peer never needs a
-//! collision: it already holds write authority over the set. The residual
-//! malefactor in our threat model is an author of message *content* who is not
-//! a peer. Such an author controls the *content* bytes but never (directly) the
-//! *version* half of the leaf's hash input: every send is stamped with a fresh
-//! causal version whose value under concurrent gossip is unpredictable, so no
-//! colliding (version, content) pair can be assembled ahead of time. The
-//! version stamp denies precomputation, and mining a collision online, against
-//! digests that exist only once their versions are already stamped, is
-//! infeasible at 128 bits. Were a collision somehow landed, its blast radius is
-//! bounded: two differing subtrees falsely read equal, so a message silently
-//! fails to propagate across that comparison — transient shadowing that
-//! self-heals when causal movement re-opens that part of the tree. Content is
-//! never corrupted, only delayed, and by an attack prohibitive to any realistic
-//! adversary (especially given its dubious benefit).
+//! The width prices a specific, severe failure. A false-equal — two
+//! differing subtrees whose digests read equal at the same prefix — is not
+//! a delay: the descent settles that comparison, neither side ships what
+//! the other lacks, and the session still merges the two causal frontiers.
+//! On every later comparison, each unshipped divergent message sits below
+//! the frontier of a replica that does not hold it, so the causal sieve
+//! reads it as seen-but-absent — the signature of a redaction — and the
+//! holder deletes it. A landed false-equal permanently deletes the
+//! divergent messages fleet-wide.
+//!
+//! The acceptance is priced in-model, on the accident bound alone: a digest
+//! at prefix `P` is only ever compared against the counterparty's digest at
+//! the same `P`, so a false-equal is a per-interior-comparison event at
+//! 2⁻¹⁹² — pairwise, never birthday-amplified across the tree's population —
+//! and at that bound it does not occur by accident at any realistic session
+//! volume.
+//!
+//! Off-model note: peers are trusted in this crate's model (see [when
+//! *shouldn't* you use it](crate#when-shouldnt-you-use-it)), so hostile-peer
+//! regimes are out of scope and nothing above rests on what an attack would
+//! cost. For the one adjacent actor the model does admit — an author of
+//! message *content* who is not a peer — the 24-byte width puts the offline
+//! birthday floor for grinding any colliding content pair at 2⁹⁶ hash
+//! evaluations, closing that vector unconditionally rather than
+//! economically.
 //!
 //! # The bytes on the wire
 //!

@@ -6,9 +6,10 @@
 //!
 //! ## Atoms
 //!
-//! - [`typed::Hash`](crate::tree::typed::Hash): 16 raw bytes (the
-//!   truncated Merkle width,
-//!   [`MERKLE_HASH_LEN`](crate::tree::typed::hash::MERKLE_HASH_LEN)).
+//! - [`typed::Hash`](crate::tree::typed::Hash): its raw bytes at the
+//!   truncated Merkle width
+//!   ([`MERKLE_HASH_LEN`](crate::tree::typed::hash::MERKLE_HASH_LEN)),
+//!   no length prefix.
 //! - [`typed::Prefix<H>`](crate::tree::typed::Prefix): exactly `32 −
 //!   H::HEIGHT` raw bytes, no length prefix (the type pins the byte count).
 //! - [`Version`] and [`Message<T>`](crate::message::Message):

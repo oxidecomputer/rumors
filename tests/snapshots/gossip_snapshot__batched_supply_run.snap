@@ -9,19 +9,20 @@ preamble: 25 bytes
   0010: 37 bf 31 e0 2d 7f 6b 70
   0018: 00
 version: (0, 2, 0)
-greeting words: set len 2, version-size bound 2, message-size target 1114624
+greeting words: set len 2, version-size bound 2, message-size target 1638912
 version frame: 30 bytes
   0000: 00 00 00 1a 02 00 00 00
   0008: 00 00 00 00 02 00 00 00
-  0010: 00 00 00 00 00 02 11 00
+  0010: 00 00 00 00 00 02 19 00
   0018: 00 00 00 00 5c 90
 listing: 1 child(ren)
-  child 0x71: bf2b597f50c6af5246f51a0d6ee915b6
-listing frame: 25 bytes
-  0000: 00 00 00 15 01 00 00 00
-  0008: 71 bf 2b 59 7f 50 c6 af
-  0010: 52 46 f5 1a 0d 6e e9 15
-  0018: b6
+  child 0x71: d02b23197dc11ce40f401e66b46b11040502f40d37ce905d
+listing frame: 33 bytes
+  0000: 00 00 00 1d 01 00 00 00
+  0008: 71 d0 2b 23 19 7d c1 1c
+  0010: e4 0f 40 1e 66 b4 6b 11
+  0018: 04 05 02 f4 0d 37 ce 90
+  0020: 5d
 Responder stream 0 (height 31), epoch 0
   frame 0: Supply(End)
     supply run: 2 record(s)
@@ -44,11 +45,11 @@ preamble: 25 bytes
   0010: 37 bf 31 e0 2d 7f 6b 70
   0018: 00
 version: 0
-greeting words: set len 0, version-size bound 0, message-size target 1114624
+greeting words: set len 0, version-size bound 0, message-size target 1638912
 version frame: 29 bytes
   0000: 00 00 00 19 00 00 00 00
   0008: 00 00 00 00 00 00 00 00
-  0010: 00 00 00 00 00 02 11 00
+  0010: 00 00 00 00 00 02 19 00
   0018: 00 00 00 00 e0
 listing: 0 child(ren)
 listing frame: 8 bytes

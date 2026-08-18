@@ -5,7 +5,8 @@ use crate::tree::typed::height::{Height, Root, S, Z};
 use crate::tree::typed::{Hash, Prefix, hash::MERKLE_HASH_LEN};
 
 proptest! {
-    /// A `Hash` borsh round-trips losslessly as exactly its 16 raw bytes.
+    /// A `Hash` borsh round-trips losslessly as exactly its
+    /// `MERKLE_HASH_LEN` raw bytes.
     /// The trivial fixed-width case, pinned so a future encoding change to
     /// the helper trait surfaces here first.
     #[test]

@@ -174,9 +174,9 @@ pub fn window_tradeoff_table() -> String {
         Window,
     };
 
-    /// The design session's corpus scale per side: the spec BDP in
-    /// design-size records, the scale `SCOPE_ENVELOPE_BYTES` is pinned
-    /// at.
+    /// The design session's corpus scale per side: a round 62,500,
+    /// sized near the spec BDP in design-size records and stated
+    /// round, the scale `SCOPE_ENVELOPE_BYTES` is pinned at.
     const DESIGN_SESSION_MESSAGES: u64 = 62_500;
 
     /// The widest window the solve grants `budget` at a symmetric

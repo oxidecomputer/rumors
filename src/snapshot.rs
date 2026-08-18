@@ -66,10 +66,17 @@ impl<T> Snapshot<T> {
         self.tree.len()
     }
 
-    /// The observable root hash of this snapshot.
+    /// The observable root hash of this snapshot: the
+    /// [`MERKLE_HASH_LEN`](crate::MERKLE_HASH_LEN)-byte Merkle root over
+    /// the live message set.
     ///
-    /// Two snapshots with equal hashes represent the exact same set of messages
-    /// and point in causal time.
+    /// Unequal hashes mean different sets. Equal hashes indicate the exact
+    /// same set of messages, up to the digest's pairwise false-equal bound
+    /// of 2⁻¹⁹² per comparison (see [the reconciliation
+    /// docs](crate::reconciliation) for the width argument). The hash
+    /// covers the live set only, not the causal frontier: two replicas at
+    /// different points in causal time can share a hash — compare
+    /// [`latest`](Self::latest) for history.
     pub fn hash(&self) -> [u8; crate::MERKLE_HASH_LEN] {
         self.tree.hash()
     }

@@ -142,11 +142,11 @@ const KEY_DEPTH: usize = 32;
 /// Derived from `size_of` of the real slot types under the in-memory
 /// backend, so a layout change moves the price with it instead of
 /// leaving a hand-counted byte total stale: the pointer-aligned
-/// `(u8, node-handle)` query slot (16 B); the `(u8, Resolve)` resolution
-/// slot (24 B — `Option<Node>` consumes the handle's only null niche, so
+/// `(u8, node-handle)` query slot; the `(u8, Resolve)` resolution
+/// slot (`Option<Node>` consumes the handle's only null niche, so
 /// the `Ready`/`Pending` tag sits out of line and the pair outgrows the
-/// query slot by a word); and the byte-packed `(u8, Hash)` listing entry
-/// (17 B). `Resolve`'s layout does not depend on the height or payload
+/// query slot by a word); and the byte-packed `(u8, Hash)` listing
+/// entry. `Resolve`'s layout does not depend on the height or payload
 /// parameters, so the leaf instantiation prices every level. Exact for
 /// pointer-class node handles; a backend whose `Node` demands a wider
 /// layout pads the real slots beyond this constant and owes that padding
@@ -210,7 +210,7 @@ pub(crate) const SPEC_BDP_BYTES: usize = 12_500_000;
 /// [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget) is
 /// denominated in it.
 #[cfg(any(test, feature = "test-internals"))]
-pub(crate) const DISPUTE_OVERHEAD_BYTES: usize = 28;
+pub(crate) const DISPUTE_OVERHEAD_BYTES: usize = 34;
 
 /// The design record's borsh-encoded payload size: the `m = 172` column
 /// of the trade-off table, and the record size the wire-cost anchor
@@ -232,27 +232,29 @@ pub(crate) const DISPUTE_WIRE_BYTES: usize = DISPUTE_OVERHEAD_BYTES + DESIGN_REC
 /// Session-envelope bytes one in-flight disputed scope is charged.
 ///
 /// Derived, not fitted: the per-scope charge of the *design session* —
-/// two corpora of 62,500 messages each (the spec BDP in design-size
-/// records), in full divergence, every stage population held in
-/// flight — under the in-memory backend's pricing, exactly as
+/// two corpora of 62,500 messages each (a round figure at the spec-BDP
+/// scale in design-size records), in full divergence, every stage
+/// population held in flight — under the in-memory backend's pricing,
+/// exactly as
 /// [`from_budget`](Window::from_budget) charges it. The recomputation is
 /// pinned by `scope_envelope_matches_the_derivation`, so this constant
 /// fails loudly instead of drifting when the pricing or the occupancy
 /// envelopes change.
 ///
-/// Maintainer calibration evidence for the closed form's accuracy band
+/// Maintainer calibration shape for the closed form's accuracy band
 /// (worked at
 /// [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget)): the
 /// band is governed by `F`, the corpus-fixed component of the real
-/// charge, which decomposes — verified at the design corpus — into the
-/// ~0.21 MB decode-fan pre-charge ([`SUPPLY_DECODE_ENVELOPE_BYTES`]),
-/// 4.3 MB of root-adjacent stages at full-fan reference prices
-/// (257 scopes at 16,768 B each), and a ~0.2 MB deep population tail:
-/// 4.7 MB in all, stepping to 7.9 MB once the depth-5 stage saturates
-/// near 5,500 scopes, past which the marginal scope price settles at
-/// 4741 B, 2.5% under the average this constant carries.
+/// charge — the decode-fan pre-charge
+/// ([`SUPPLY_DECODE_ENVELOPE_BYTES`]), the root-adjacent stages at
+/// full-fan reference prices, and a deep population tail, stepping once
+/// the last population-capped mid-depth stage saturates — past which the
+/// marginal scope price settles a few percent under the average this
+/// constant carries. Re-derive the components from the pinned
+/// recomputation (`scope_envelope_matches_the_derivation`) rather than
+/// from any figure quoted in prose.
 #[cfg(any(test, feature = "test-internals"))]
-pub(crate) const SCOPE_ENVELOPE_BYTES: usize = 4_865;
+pub(crate) const SCOPE_ENVELOPE_BYTES: usize = 5_431;
 
 /// Worst-case memory one synchronization may spend by default: 512 MiB.
 ///

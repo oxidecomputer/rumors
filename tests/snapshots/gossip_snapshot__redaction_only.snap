@@ -9,19 +9,20 @@ preamble: 25 bytes
   0010: 37 bf 31 e0 2d 7f 6b 70
   0018: 00
 version: (2, 1, 0)
-greeting words: set len 1, version-size bound 1, message-size target 1114624
+greeting words: set len 1, version-size bound 1, message-size target 1638912
 version frame: 30 bytes
   0000: 00 00 00 1a 01 00 00 00
   0008: 00 00 00 00 01 00 00 00
-  0010: 00 00 00 00 00 02 11 00
+  0010: 00 00 00 00 00 02 19 00
   0018: 00 00 00 00 49 50
 listing: 1 child(ren)
-  child 0xa0: b7e99b381ba2cb4d2f4fef624ed06674
-listing frame: 25 bytes
-  0000: 00 00 00 15 01 00 00 00
+  child 0xa0: b7e99b381ba2cb4d2f4fef624ed06674d9e0a367d05272d6
+listing frame: 33 bytes
+  0000: 00 00 00 1d 01 00 00 00
   0008: a0 b7 e9 9b 38 1b a2 cb
   0010: 4d 2f 4f ef 62 4e d0 66
-  0018: 74
+  0018: 74 d9 e0 a3 67 d0 52 72
+  0020: d6
 trailing frame: 1 bytes
   0000: 2e
 
@@ -32,22 +33,24 @@ preamble: 25 bytes
   0010: 37 bf 31 e0 2d 7f 6b 70
   0018: 00
 version: 2
-greeting words: set len 2, version-size bound 1, message-size target 1114624
+greeting words: set len 2, version-size bound 1, message-size target 1638912
 version frame: 29 bytes
   0000: 00 00 00 19 02 00 00 00
   0008: 00 00 00 00 01 00 00 00
-  0010: 00 00 00 00 00 02 11 00
+  0010: 00 00 00 00 00 02 19 00
   0018: 00 00 00 00 b8
 listing: 2 child(ren)
-  child 0x9: 7ca8b07cb28254109eb3f89675cdb22a
-  child 0xa0: b7e99b381ba2cb4d2f4fef624ed06674
-listing frame: 42 bytes
-  0000: 00 00 00 26 02 00 00 00
+  child 0x9: 7ca8b07cb28254109eb3f89675cdb22ab6882b6ab31b3cdf
+  child 0xa0: b7e99b381ba2cb4d2f4fef624ed06674d9e0a367d05272d6
+listing frame: 58 bytes
+  0000: 00 00 00 36 02 00 00 00
   0008: 09 7c a8 b0 7c b2 82 54
   0010: 10 9e b3 f8 96 75 cd b2
-  0018: 2a a0 b7 e9 9b 38 1b a2
-  0020: cb 4d 2f 4f ef 62 4e d0
-  0028: 66 74
+  0018: 2a b6 88 2b 6a b3 1b 3c
+  0020: df a0 b7 e9 9b 38 1b a2
+  0028: cb 4d 2f 4f ef 62 4e d0
+  0030: 66 74 d9 e0 a3 67 d0 52
+  0038: 72 d6
 Responder stream 0 (height 31), epoch 0
   frame 0: Match(End)
     0000: 11

@@ -12,12 +12,13 @@ use crate::testing::{IoPlan, run_to_quiescence};
 use crate::tree::{
     Action, Tree,
     arb::{early_first_child_dispute_pair, nth_party},
+    typed::hash::MERKLE_HASH_LEN,
 };
 
 use super::harness;
 
 /// The observable root hash of a reconciled `tree::Root`.
-fn hash_of(root: &crate::tree::Root<()>) -> [u8; 16] {
+fn hash_of(root: &crate::tree::Root<()>) -> [u8; MERKLE_HASH_LEN] {
     Tree { root: root.clone() }.hash()
 }
 
@@ -43,7 +44,7 @@ fn wire_reconcile(
 
 /// The deep divergent pair's expected union, computed by the in-memory join
 /// oracle.
-fn union_hash(a: &crate::tree::Root<()>, b: &crate::tree::Root<()>) -> [u8; 16] {
+fn union_hash(a: &crate::tree::Root<()>, b: &crate::tree::Root<()>) -> [u8; MERKLE_HASH_LEN] {
     let mut union = Tree { root: a.clone() };
     union.join(Tree { root: b.clone() });
     union.hash()

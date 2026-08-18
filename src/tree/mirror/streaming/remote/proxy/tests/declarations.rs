@@ -26,17 +26,18 @@ use crate::tree::{
             window::FAN,
         },
     },
+    typed::hash::MERKLE_HASH_LEN,
 };
 
 use super::harness::{self, GreetingRewrite};
 
 /// The observable root hash of a reconciled `tree::Root`.
-fn hash_of(root: &crate::tree::Root<()>) -> [u8; 16] {
+fn hash_of(root: &crate::tree::Root<()>) -> [u8; MERKLE_HASH_LEN] {
     Tree { root: root.clone() }.hash()
 }
 
 /// The expected reconciled union, computed by the in-memory join oracle.
-fn union_hash(a: &crate::tree::Root<()>, b: &crate::tree::Root<()>) -> [u8; 16] {
+fn union_hash(a: &crate::tree::Root<()>, b: &crate::tree::Root<()>) -> [u8; MERKLE_HASH_LEN] {
     let mut union = Tree { root: a.clone() };
     union.join(Tree { root: b.clone() });
     union.hash()

@@ -265,7 +265,7 @@ fn dispute_wire_bytes_is_the_design_record_cost() {
 /// with the design-record cell this pins both parameters of the affine
 /// cost `overhead + encoded_payload`, so framing drift cannot hide
 /// inside the design cell's payload term. It is also the honest floor:
-/// minimal-payload sessions cost ~36 B of wire per disputed message,
+/// minimal-payload sessions cost ~42 B of wire per disputed message,
 /// several times less than the design constant, and correspondingly
 /// need more scopes in flight to fill the same link.
 #[test]

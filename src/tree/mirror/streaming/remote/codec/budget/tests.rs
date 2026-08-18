@@ -1,10 +1,12 @@
 use super::*;
 
-/// The default budget equals the documented derivation: 256 full-fan query
-/// frames of 4 354 bytes each, the decode side's largest non-supply reply.
+/// The default budget equals the documented derivation: 256 full-fan
+/// query frames, the decode side's largest non-supply reply, pinned by
+/// value so a change to any wire constant it derives from moves this
+/// assert loudly.
 #[test]
 fn default_budget_matches_its_derivation() {
-    assert_eq!(DEFAULT_TARGET_MESSAGE_SIZE, 1_114_624);
+    assert_eq!(DEFAULT_TARGET_MESSAGE_SIZE, 1_638_912);
     assert_eq!(
         RunBudget::default(),
         RunBudget::from_bytes(DEFAULT_TARGET_MESSAGE_SIZE)

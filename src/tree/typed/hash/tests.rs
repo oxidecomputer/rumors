@@ -59,20 +59,20 @@ fn empty_suffix_leaf_is_not_the_empty_root() {
 /// preimages would coincide without the `prefix_len` field must hash
 /// differently.
 ///
-/// The pair shifts one 17-byte child record across the prefix/children
-/// boundary — a 1-byte prefix with four children versus an 18-byte prefix
-/// with three — contrived so the untagged concatenation
-/// `prefix ‖ child_count ‖ records` is the same byte string for both (the
-/// test asserts that premise before asserting the hashes differ). Only the
-/// length tag separates the two parses.
+/// The pair shifts one whole child record across the prefix/children
+/// boundary — a 1-byte prefix with four children versus a prefix
+/// lengthened by one full record with three — contrived so the untagged
+/// concatenation `prefix ‖ child_count ‖ records` is the same byte string
+/// for both (the test asserts that premise before asserting the hashes
+/// differ). Only the length tag separates the two parses.
 #[test]
 fn prefix_len_separates_boundary_shifts() {
     // First child's hash ends in the bytes 0x00 0x03, which the shifted
     // parse reads as its child count of three.
     let h0 = {
         let mut h = [0x55u8; MERKLE_HASH_LEN];
-        h[14] = 0x00;
-        h[15] = 0x03;
+        h[MERKLE_HASH_LEN - 2] = 0x00;
+        h[MERKLE_HASH_LEN - 1] = 0x03;
         h
     };
     let (h1, h2, h3) = (
@@ -87,7 +87,7 @@ fn prefix_len_separates_boundary_shifts() {
     // B's prefix swallows A's count, first radix, and most of the first
     // child hash; B's count comes from that hash's trailing bytes.
     let mut prefix_b = vec![0x07u8, 0x00, 0x04, 0x00];
-    prefix_b.extend_from_slice(&h0[..14]);
+    prefix_b.extend_from_slice(&h0[..MERKLE_HASH_LEN - 2]);
     let children_b = [(1u8, Hash(h1)), (2, Hash(h2)), (3, Hash(h3))];
 
     // Premise: without the prefix length tag, the preimages coincide.
