@@ -37,7 +37,7 @@ use super::signed::{fold_signed_int, unzigzag, Sign};
 /// the last live bit is [`Decode::TrailingBits`]; everything else is
 /// [`validate_from`]'s contract.
 ///
-/// Test- and meter-only: the production entries run [`validate_prefix`] and
+/// Test- and meter-only: the production entries run [`validate_prefix_bytes`] and
 /// [`validate_from`], which leave the tail to their callers.
 #[cfg(any(test, feature = "meter"))]
 pub(crate) fn validate_bits(bits: &BitsSlice) -> Result<(), Decode> {

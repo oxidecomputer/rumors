@@ -50,7 +50,7 @@ use core::cmp::Ordering;
 
 use suanpan::Accumulator;
 
-#[cfg(any(test, feature = "borsh"))]
+#[cfg(feature = "borsh")]
 use crate::codec::BitsSlice;
 use crate::codec::{BitCursor, BitsMut, Int};
 use crate::error::Decode;
@@ -275,7 +275,7 @@ pub(crate) enum Admission {
 /// `lo` must be a canonical skyline stream — its cursor is the pair sweep's and
 /// shares [`causal_cmp`](super::sweep::causal_cmp)'s contract. The parsed
 /// stream needs no such trust; that is the point.
-#[cfg(any(test, feature = "borsh"))]
+#[cfg(feature = "borsh")]
 pub(crate) fn validate_dominating_from<C: BitCursor>(
     lo: &BitsSlice,
     cursor: &mut C,

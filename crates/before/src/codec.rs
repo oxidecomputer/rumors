@@ -71,7 +71,7 @@ pub(crate) use int::Int;
 // bytes have no borrowed bit view once they outgrow the view encoding's cap;
 // the slice-form window stays inside the codec (the slice cursor's fast
 // path reaches it by module path).
-#[cfg(any(test, feature = "borsh"))]
+#[cfg(feature = "borsh")]
 pub(crate) use gamma::decode_int_window_bytes;
 pub(crate) use literal::{id_is_empty, id_leaf, id_node};
 pub(crate) use stack::{BitStack, PopStack};
@@ -84,5 +84,5 @@ pub(crate) use tree::{parse_id_bytes, validate_id};
 pub(crate) use tree::parse_id_core;
 // The generic-position parse serves the wire-side (borsh) test suite; the
 // grammar body above is what production readers drive.
-#[cfg(test)]
+#[cfg(all(test, feature = "borsh"))]
 pub(crate) use tree::parse_id_from;

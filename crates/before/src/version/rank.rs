@@ -500,17 +500,12 @@ impl Rank {
 /// no walk beyond the fold's own.
 pub(crate) fn encode_parts(num: &Base, exp: u64) -> Vec<u8> {
     // The integral part, biased so zero has a (smallest) codeword:
-    // m = ⌊r⌋ + 1, w = bits(m), ρ = bits(w) − 1. Decided by width when the
-    // exponent covers the numerator whole — `⌊r⌋ = 0` with no shift
-    // materialized — because a fraction-heavy rank's `exp` outruns a 32-bit
-    // `usize` (from ~604 MB of decoded input) while the rank itself is
-    // representable; the shift arm's amount is then always below the
-    // numerator's width, which the backend bounds within `usize`.
-    let biased = if exp >= num.bits() {
-        Base::from(1u8)
-    } else {
-        (num.clone() >> exp) + 1u32
-    };
+    // m = ⌊r⌋ + 1, w = bits(m), ρ = bits(w) − 1. The shift is total at any
+    // exponent — `Base`'s `Shr<u64>` clamps past the numerator's width — so
+    // a fraction-heavy rank whose `exp` outruns a 32-bit `usize` (from
+    // ~604 MB of decoded input) floors to zero here exactly as any other
+    // sub-unit value does.
+    let biased = (num.clone() >> exp) + 1u32;
     let w = biased.bits();
     let rho = u64::from(63 - w.leading_zeros());
     let groups = exp.div_ceil(FRACTION_GROUP_BITS);

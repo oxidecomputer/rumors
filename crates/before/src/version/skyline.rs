@@ -207,7 +207,7 @@ mod tests;
 pub(crate) use admit::{validate_dominating_bytes, Admission};
 // The slice-form admission walk serves the wire-side (borsh) span reader,
 // whose meet is an already-stored version read through its borrowed view.
-#[cfg(any(test, feature = "borsh"))]
+#[cfg(feature = "borsh")]
 pub(crate) use admit::validate_dominating_from;
 #[cfg(any(test, feature = "meter"))]
 pub(crate) use decode::decode_bits;
