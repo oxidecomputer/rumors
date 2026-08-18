@@ -29,10 +29,6 @@
       "listed": 1,
       "suppressed": 1
     },
-    "watermark\\.rs.*: delete field compact_words from struct MinWeb expression in MinWeb<P>::compacting": {
-      "listed": 1,
-      "suppressed": 0
-    },
     "grow\\.rs.*: replace > with >= in recode": {
       "listed": 1,
       "suppressed": 1

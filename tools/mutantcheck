@@ -23,9 +23,10 @@ closes that seam from two captured `--list` runs (never a campaign):
   - `--filtered` is the same listing with the config applied. Each
     entry's SUPPRESSED count — listed minus the matches that survive
     filtering — pins that the exclusion actually engages. An entry the
-    tool declines to apply (the delete-field filter gap documented at
-    its entry) pins suppressed 0; the gap closing upstream then moves
-    that number, deliberately.
+    tool declines to apply pins suppressed 0 (cargo-mutants 27.1.0
+    applies name filters to no delete-field mutant, so a delete-field
+    survivor is never roster material: an instrument-killed one is
+    documented in the roster header's deliberately-absent list instead).
 
 The judgment is tamper-evident in both directions: the expected file's
 patterns must equal the config's `exclude_re` set exactly (a pattern

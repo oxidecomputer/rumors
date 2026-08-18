@@ -41,7 +41,13 @@
 # the pool-miss row (the seam-stop pool row in tests/meter.rs: a dead
 # recycle reads misses proportional to churn against a derived
 # peak-demand ceiling, and a bypassed lease reads zero against the
-# fill-phase liveness floor).
+# fill-phase liveness floor). Also absent: MinWeb::compacting's
+# delete-field mutant (the min-ticks web built without inline-word
+# compaction), killed by the boundary-stacking row (the
+# skyline_min_ticks_ascend envelope in tests/meter.rs, over both its
+# peak-heap and touch ceilings; the compacting doc carries the
+# measured margins) — and unexcludable regardless, since cargo-mutants
+# 27.1.0 applies name filters to no delete-field mutant.
 
 exclude_re = [
     # --- suanpan::accumulator ---
@@ -92,17 +98,6 @@ exclude_re = [
     # Performance genre: an unarmed range's gap is re-based on arming, so
     # folding height into it early is a dead store.
     "watermark\\.rs.*: replace > with >= in MinWeb<P>::fold_height",
-
-    # Performance genre: compact_words selects the inline-word boundary
-    # representation; the heap fallback is value-identical, and the
-    # min-ticks envelope rows bound its cost.
-    #
-    # Known tool gap: cargo-mutants 27.1.0 never applies name filters to
-    # delete-field mutants (visit_expr_struct pushes them past
-    # allows_mutant), so this entry is presently inert and the compacting
-    # survivor still lists as MISSED. The pattern matches the printed name
-    # and engages when the filter gap closes upstream.
-    "watermark\\.rs.*: delete field compact_words from struct MinWeb expression in MinWeb<P>::compacting",
 
     # --- before::version::skyline::grow ---
 

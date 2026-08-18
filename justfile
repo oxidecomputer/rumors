@@ -267,9 +267,7 @@ citecheck:
 # inventory (--no-config) pins each pattern's LISTED count, and the
 # filtered inventory pins its SUPPRESSED count, both committed literals in
 # tools/mutantcheck-expected.json whose diff a reviewer sees — the checker
-# never writes that file. The delete-field entry pins suppressed 0 (the
-# tool's documented delete-field filter gap, argued at its roster entry;
-# that number moving means the upstream gap closed). The counts derive
+# never writes that file. The counts derive
 # from the installed cargo-mutants release, so the pin of record
 # (tools/mutantcheck-expected.json) carries the tool version and a bump
 # re-pins in the same reviewed diff.
