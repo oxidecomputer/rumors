@@ -709,7 +709,7 @@ diff_ops! {
     /// coarsest one; the function space scans each rebuilt column
     /// against its own geometric lift.
     fn shape_combine_matches_the_oracle {
-        prod: shape_rows::fold_cells(crate::shape::combine([a.shape(), b.shape()])),
+        prod: shape_rows::fold_cells(crate::shape::combine([&a, &b])),
         tree: shape_rows::oracle_cells(vec![
             (crate::codec::Base::ZERO, a),
             (crate::codec::Base::ZERO, b),

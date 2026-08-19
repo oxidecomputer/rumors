@@ -3,8 +3,7 @@
 //!
 //! The witnesses hold the lattice to pointwise extrema and the causal
 //! order to pointwise comparison over combined item streams; the unit
-//! pins cover arity 0 and 1, the started-input guard, fusing, and the
-//! trivial values.
+//! pins cover arity 0 and 1, fusing, and the trivial values.
 //!
 //! The oracle differentials for the walks themselves are descriptors in
 //! the pointwise differential table
@@ -36,7 +35,7 @@ proptest! {
     ) {
         let (va, vb) = (from_oracle_version(&a), from_oracle_version(&b));
         let (join, meet) = (va.join(&vb), va.meet(&vb));
-        for (_, heights) in fold_cells(combine([va.shape(), vb.shape(), join.shape(), meet.shape()])) {
+        for (_, heights) in fold_cells(combine([&va, &vb, &join, &meet])) {
             let [ha, hb, hj, hm] = heights.try_into().expect("four inputs, four heights");
             prop_assert_eq!(&hj, (&ha).max(&hb));
             prop_assert_eq!(&hm, (&ha).min(&hb));
@@ -52,7 +51,7 @@ proptest! {
         b in generators::arb_oracle_version(),
     ) {
         let (va, vb) = (from_oracle_version(&a), from_oracle_version(&b));
-        let rows = fold_cells(combine([va.shape(), vb.shape()]));
+        let rows = fold_cells(combine([&va, &vb]));
         let le = rows.iter().all(|(_, h)| h[0] <= h[1]);
         let ge = rows.iter().all(|(_, h)| h[0] >= h[1]);
         let want = match (le, ge) {
@@ -86,24 +85,12 @@ fn empty_combine_is_the_trivial_cell() {
 #[test]
 fn single_input_combine_is_the_shape() {
     let version: Version = "(1, 1, (0, 0, 2))".parse().unwrap();
-    let cells: Vec<(u64, [Option<Rise>; 1])> = combine([version.shape()])
+    let cells: Vec<(u64, [Option<Rise>; 1])> = combine([&version])
         .map(|cell| (cell.depth, cell.rises))
         .collect();
     let plateaus: Vec<(u64, [Option<Rise>; 1])> =
         version.shape().map(|p| (p.depth, [p.rise])).collect();
     assert_eq!(cells, plateaus);
-}
-
-/// `combine` rejects an input that has already yielded an item: a
-/// mid-walk shape has lost the interval alignment the refinement is
-/// defined by.
-#[test]
-#[should_panic(expected = "un-iterated")]
-fn combine_rejects_started_shapes() {
-    let version = Version::new();
-    let mut shape = version.shape();
-    let _ = shape.next();
-    let _ = combine([shape]);
 }
 
 /// Every shape iterator is fused: after the final item, `next` stays
@@ -128,7 +115,7 @@ fn shape_walks_fuse() {
     assert_eq!(overlay.next(), None);
     assert_eq!(overlay.next(), None);
 
-    let mut cells = combine([version.shape(), version.shape()]);
+    let mut cells = combine([&version, &version]);
     assert_eq!(cells.by_ref().count(), 3);
     assert_eq!(cells.next(), None);
     assert_eq!(cells.next(), None);

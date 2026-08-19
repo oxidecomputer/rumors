@@ -380,6 +380,10 @@ inherits the u64-clean depth denomination from that work for free.
   feature — the item is concrete over `Ticks`. Deferred, not rejected:
   the sealed trait lands (crate-privately) with the first constructed
   kernel re-expression, if one ever measures its way in.
+- 2026-08-19 (Finch): the combiner takes `[&Version; N]` directly rather
+  than shape iterators — a mid-walk input is unrepresentable instead of
+  guarded by a documented panic, by the same
+  invalid-states-unrepresentable reasoning as the `Region` ruling.
 - 2026-08-19 (Finch): `Party::shape()` yields its own absolute item type
   (`Region { owned: bool, depth: u64 }`) rather than sharing `Plateau` —
   a binary codomain makes the absolute spelling cheaper than any delta

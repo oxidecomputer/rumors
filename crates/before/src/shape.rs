@@ -15,9 +15,9 @@
 //!   the party: whether the party owns it, and the interval it spans.
 //! - [`Clock::shape`] yields the clock's version plateaus overlaid with
 //!   its party's ownership — the pair most renderers actually draw.
-//! - [`combine`] walks any number of version shapes as one iterator over
-//!   the coarsest common refinement of their intervals, for consumers
-//!   that compare or aggregate several versions pointwise.
+//! - [`combine`] walks any number of versions as one iterator over the
+//!   coarsest common refinement of their shapes' intervals, for
+//!   consumers that compare or aggregate several versions pointwise.
 //!
 //! Every walk borrows its value and streams in place: nothing is
 //! materialized up front, draining is linear in the value's encoded
@@ -98,7 +98,7 @@ pub struct Plateau {
 }
 
 /// A nonzero vertical move of a shape.
-////
+///
 /// The sign is notated by the variant; the magnitude is in the payload.
 ///
 /// Magnitudes are always nonzero: the level step is spelled once, as
@@ -145,9 +145,6 @@ pub struct Cell<const N: usize> {
 /// not known without a full scan.
 pub struct Plateaus<'a> {
     walk: VersionWalk<'a>,
-    /// Whether the first item has been taken: [`combine`] requires
-    /// un-iterated inputs, and this flag is its witness.
-    started: bool,
     finished: bool,
 }
 
@@ -156,7 +153,6 @@ impl<'a> Plateaus<'a> {
     pub(crate) fn of_version(version: &'a Version) -> Self {
         Plateaus {
             walk: VersionWalk::open(version.view().live()),
-            started: false,
             finished: false,
         }
     }
@@ -169,7 +165,6 @@ impl Iterator for Plateaus<'_> {
         if self.finished {
             return None;
         }
-        self.started = true;
         let plateau = Plateau {
             rise: self.walk.take_rise(),
             depth: self.walk.depth(),
@@ -304,8 +299,8 @@ impl Iterator for Overlay<'_> {
 
 impl FusedIterator for Overlay<'_> {}
 
-/// Walk `N` version shapes as one iterator over the coarsest common
-/// refinement of their plateau intervals.
+/// Walk `N` versions as one iterator over the coarsest common
+/// refinement of their shapes' plateau intervals.
 ///
 /// Each yielded [`Cell`] is the largest dyadic interval every input's
 /// current plateau spans (dyadic intervals nest or are disjoint, so the
@@ -320,12 +315,6 @@ impl FusedIterator for Overlay<'_> {}
 ///
 #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/shape_combine.html"))]
 ///
-/// # Panics
-///
-/// Panics if any input has already yielded an item: a mid-walk shape has
-/// lost the interval alignment the refinement is defined by. Pass shapes
-/// straight from [`Version::shape`].
-///
 /// # Example
 ///
 /// ```
@@ -333,7 +322,7 @@ impl FusedIterator for Overlay<'_> {}
 ///
 /// let a: Version = "(0, 1, (0, 0, 2))".parse().unwrap();
 /// let b: Version = "2".parse().unwrap();
-/// let cells: Vec<_> = combine([a.shape(), b.shape()]).collect();
+/// let cells: Vec<_> = combine([&a, &b]).collect();
 /// // Three cells: `a` subdivides the right half, `b`'s single plateau
 /// // spans everything (its rise enters at the first cell only).
 /// assert_eq!(cells.len(), 3);
@@ -341,15 +330,9 @@ impl FusedIterator for Overlay<'_> {}
 /// assert!(cells[0].rises[1].is_some()); // b's absolute height, once
 /// assert!(cells[1].rises[1].is_none()); // b continues level
 /// ```
-pub fn combine<'a, const N: usize>(shapes: [Plateaus<'a>; N]) -> Cells<'a, N> {
-    for shape in &shapes {
-        assert!(
-            !shape.started,
-            "combine() requires un-iterated shapes: an input has already yielded an item"
-        );
-    }
+pub fn combine<'a, const N: usize>(versions: [&'a Version; N]) -> Cells<'a, N> {
     Cells {
-        walks: shapes.map(|shape| shape.walk),
+        walks: versions.map(|version| VersionWalk::open(version.view().live())),
         finished: false,
     }
 }

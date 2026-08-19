@@ -797,7 +797,7 @@ const COMBINE_ARITY_CAP: u32 = 16;
 pub extern "C" fn ff_shape_combine(src: u32, n: u32) -> i64 {
     fn digest_cells<const N: usize>(versions: [&Version; N]) -> i64 {
         let mut digest = ShapeDigest::new();
-        for cell in combine(versions.map(Version::shape)) {
+        for cell in combine(versions) {
             digest.word(cell.depth);
             for rise in &cell.rises {
                 digest.rise(rise);

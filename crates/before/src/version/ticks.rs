@@ -16,7 +16,7 @@ use crate::error::{Parse, TooWide};
 /// number.
 ///
 /// Event counts have no ceiling, so the count is unbounded rather than any
-/// fixed-width integer: every conversion *into* it is total ([`From`] on 
+/// fixed-width integer: every conversion *into* it is total ([`From`] on
 /// unsigned machine integers, and every conversion *out* is explicit
 /// about width: `TryFrom<&Ticks> for u64` answers the machine-range case
 /// fallibly, [`limbs`](Ticks::limbs) spells any count in base-2^64 for
