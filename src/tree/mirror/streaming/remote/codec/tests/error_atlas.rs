@@ -19,7 +19,6 @@ use std::{
     task::{Context, Poll},
 };
 
-use borsh::BorshSerialize;
 use tokio::io::AsyncWrite;
 
 use super::super::{
@@ -31,6 +30,7 @@ use super::super::{
 };
 use crate::{Version, message::Message, tree::typed::Hash};
 
+use serde::Serialize;
 /// One rendered marker per error variant the atlas must witness.
 ///
 /// Grouped by the enum whose `describe_*` match is the compile-time
@@ -82,7 +82,7 @@ const INTERIOR_STREAM: u8 = 8;
 const FIRST_RESERVED_SIGNAL: u8 = WireSignal::BYTE_COUNT;
 
 /// Build a supply run holding one leaf record.
-fn one_record_run<T: borsh::BorshSerialize>(version: Version, value: T) -> LeafRun<T> {
+fn one_record_run<T: Serialize>(version: Version, value: T) -> LeafRun<T> {
     let mut run = LeafRun::new();
     run.push(&version, &Message::new(value))
         .expect("an atlas record fits the run framing");
@@ -314,13 +314,13 @@ fn record_errors(atlas: &mut String) {
 
     // A record ending after its version fails at the message decoder.
     let mut version = Vec::new();
-    Version::new().serialize(&mut version).unwrap();
+    ciborium::ser::into_writer(&Version::new(), &mut version).unwrap();
     let run = LeafRun::<u64>::from_encoded(framed_record(&version)).unwrap();
     record_leaf(atlas, "record/message", &next_record_error(&run));
 
     // Bytes past the canonical pair are trailing.
     let mut padded = version.clone();
-    0_u64.serialize(&mut padded).unwrap();
+    ciborium::ser::into_writer(&0_u64, &mut padded).unwrap();
     padded.push(u8::MIN);
     let run = LeafRun::<u64>::from_encoded(framed_record(&padded)).unwrap();
     record_leaf(atlas, "record/trailing", &next_record_error(&run));
@@ -530,7 +530,7 @@ impl FailAfterWriter {
     }
 }
 
-impl borsh::io::Write for FailAfterWriter {
+impl std::io::Write for FailAfterWriter {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
         if self.remaining == 0 {
             return Err(io::ErrorKind::Other.into());
@@ -581,7 +581,7 @@ impl FailAfterReader {
     }
 }
 
-impl borsh::io::Read for FailAfterReader {
+impl std::io::Read for FailAfterReader {
     fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
         if self.remaining == 0 {
             return Err(io::ErrorKind::Other.into());

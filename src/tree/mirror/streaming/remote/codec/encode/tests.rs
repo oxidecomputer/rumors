@@ -1,4 +1,3 @@
-use borsh::BorshSerialize;
 use proptest::prelude::*;
 use std::{
     pin::Pin,
@@ -125,8 +124,8 @@ proptest! {
             let message = Message::new(*value);
             run.push(version, &message).unwrap();
             let mut record = Vec::new();
-            version.serialize(&mut record).unwrap();
-            message.serialize(&mut record).unwrap();
+            ciborium::ser::into_writer(version, &mut record).unwrap();
+            record.extend_from_slice(message.as_slice());
             body.extend_from_slice(&(record.len() as u32).to_be_bytes());
             body.extend_from_slice(&record);
         }
@@ -144,12 +143,12 @@ proptest! {
 
 struct FailingWriter;
 
-impl borsh::io::Write for FailingWriter {
-    fn write(&mut self, _buf: &[u8]) -> borsh::io::Result<usize> {
-        Err(borsh::io::ErrorKind::Other.into())
+impl std::io::Write for FailingWriter {
+    fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+        Err(std::io::ErrorKind::Other.into())
     }
 
-    fn flush(&mut self) -> borsh::io::Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
 }
@@ -167,7 +166,7 @@ fn writer_errors_are_contextual() {
             EncodeErrorKind::Write {
                 part: FramePart::Signal,
                 source,
-            } if source.kind() == borsh::io::ErrorKind::Other
+            } if source.kind() == std::io::ErrorKind::Other
         ));
     }
 }
@@ -218,7 +217,7 @@ fn async_writer_errors_are_contextual() {
             EncodeErrorKind::Write {
                 part: FramePart::Signal,
                 source,
-            } if source.kind() == borsh::io::ErrorKind::Other
+            } if source.kind() == std::io::ErrorKind::Other
         ));
 
         let mut writer = FrameWrite::new(speaker, FailingAsyncWriter(AsyncFailure::Flush));
@@ -227,7 +226,7 @@ fn async_writer_errors_are_contextual() {
         assert!(matches!(
             error.kind,
             EncodeErrorKind::Flush(source)
-                if source.kind() == borsh::io::ErrorKind::Other
+                if source.kind() == std::io::ErrorKind::Other
         ));
     }
 }

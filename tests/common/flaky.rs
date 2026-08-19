@@ -34,7 +34,7 @@ use tokio::io::AsyncWrite;
 pub type DurableStore = Arc<Mutex<Option<Vec<u8>>>>;
 
 /// The fixed-header width of a bookmark frame — magic, the 2-byte format
-/// version, and the 32-byte BLAKE3 integrity hash — before the borsh payload.
+/// version, and the 32-byte BLAKE3 integrity hash — before the CBOR payload.
 ///
 /// Mirrors the crate-private `format::HEADER_LEN`. Integration tests cannot
 /// reach the crate's codec, so they strip this known header to read the payload;
@@ -42,11 +42,11 @@ pub type DurableStore = Arc<Mutex<Option<Vec<u8>>>>;
 const FRAME_HEADER_LEN: usize = BOOKMARK_MAGIC.len() + 2 + 32;
 
 /// Decode the record a persisted store holds, or an empty record if nothing has
-/// been written. Strips the crate's frame header and borsh-decodes the payload.
+/// been written. Strips the crate's frame header and CBOR-decodes the payload.
 pub fn persisted_record(store: &DurableStore) -> BTreeMap<Network, Vec<Clock>> {
     match &*store.lock().unwrap() {
         None => BTreeMap::new(),
-        Some(bytes) => borsh::from_slice(&bytes[FRAME_HEADER_LEN..])
+        Some(bytes) => ciborium::de::from_reader(&bytes[FRAME_HEADER_LEN..])
             .expect("decode persisted bookmark payload"),
     }
 }

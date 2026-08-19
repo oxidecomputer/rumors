@@ -17,9 +17,9 @@ pub(crate) async fn send<W>(party: Party, writer: &mut W) -> Result<(), Error>
 where
     W: AsyncWrite + Unpin + ?Sized,
 {
-    let mut bytes = Vec::new();
-    borsh::BorshSerialize::serialize(&party, &mut bytes)?;
-    FrameWrite::new(writer).frame(&bytes).await?;
+    // The frame delimits, so the body is the party's canonical encoding,
+    // bare.
+    FrameWrite::new(writer).frame(party.as_bytes()).await?;
     Ok(())
 }
 
@@ -28,10 +28,18 @@ pub(crate) async fn receive<R>(reader: &mut R) -> Result<Party, Error>
 where
     R: AsyncRead + Unpin + ?Sized,
 {
-    use borsh::BorshDeserialize as _;
-
     let bytes = FrameRead::new(reader).frame().await?;
-    Party::try_from_slice(&bytes).map_err(Error::Io)
+    Party::decode(&bytes[..])
+        .map_err(|e| match e {
+            // A frame that ends inside the encoding is a truncation, not
+            // corruption; the reader's own failures pass through.
+            before::error::Decode::Truncated => {
+                std::io::Error::new(std::io::ErrorKind::UnexpectedEof, e)
+            }
+            before::error::Decode::Io(e) => e,
+            e => std::io::Error::new(std::io::ErrorKind::InvalidData, e),
+        })
+        .map_err(Error::Io)
 }
 
 #[cfg(test)]

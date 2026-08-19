@@ -45,12 +45,11 @@ const PER_FRAME: usize = 16;
 fn leaves(count: u64) -> Vec<(Version, Message<u64>)> {
     let mut leaves: Vec<(Version, Message<u64>)> = (0..count)
         .map(|index| {
-            let version =
-                Version::try_from(index % 200 + 1).expect("small linear versions are valid");
+            let version = Version::try_from(index + 1).expect("small linear versions are valid");
             (version, Message::new(index))
         })
         .collect();
-    leaves.sort_by_key(|(version, message)| Path::for_leaf(version, message.as_slice()));
+    leaves.sort_by_key(|(version, _)| Path::for_leaf(version));
     leaves
 }
 

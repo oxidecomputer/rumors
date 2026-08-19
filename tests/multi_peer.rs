@@ -12,9 +12,8 @@ mod common;
 use std::collections::BTreeMap;
 
 use proptest::prelude::*;
-use rumors::Key;
 
-use crate::common::oracle::{readout, readout_multiset};
+use crate::common::oracle::{readout, readout_multiset, version_key};
 use crate::common::peer::gossip_step;
 use crate::common::schedule::{Schedule, arb_schedule, execute_and_quiesce};
 use crate::common::window::{WindowAssignment, arb_window_assignment};
@@ -34,9 +33,9 @@ proptest! {
     /// After the final quiesce phase, every peer's live content matches
     /// every other's.
     ///
-    /// Compared via `readout` — the `(Key, value)` lens the oracle checks
-    /// also use — so the assertion is about live content alone, independent
-    /// of the per-peer party state.
+    /// Compared via `readout` — the identity → value lens the oracle
+    /// checks also use — so the assertion is about live content alone,
+    /// independent of the per-peer party state.
     #[test]
     fn all_peers_converge_after_quiesce(
         schedule in schedule_u64(),
@@ -71,52 +70,53 @@ proptest! {
         }
     }
 
-    /// Every peer's readout `Key → value` map equals the canonical
-    /// map built from the originating peers' `Key`s and the oracle's
-    /// per-insert values, filtered by the oracle's redaction set.
+    /// Every peer's readout identity → value map equals the canonical
+    /// map built from the originating peers' minted `Version`s and the
+    /// oracle's per-insert values, filtered by the oracle's redaction set.
     ///
     /// Pins down that every peer converges on exactly the same
-    /// `Key`s for exactly the same values — no per-peer key drift.
+    /// `Version`s for exactly the same values — no per-peer identity
+    /// drift.
     #[test]
-    fn keys_stable_across_peers(
+    fn versions_stable_across_peers(
         schedule in schedule_u64(),
         windows in arb_window_assignment(),
     ) {
         let result = execute_and_quiesce(&schedule, &windows);
-        let expected: BTreeMap<Key, u64> = result
-            .resolved_keys
+        let expected: BTreeMap<Vec<u8>, u64> = result
+            .resolved_versions
             .iter()
             .filter(|(id, _)| !result.oracle.is_redacted(**id))
-            .map(|(id, k)| (*k, result.oracle.all_inserts()[id]))
+            .map(|(id, v)| (version_key(v), result.oracle.all_inserts()[id]))
             .collect();
 
         for (i, peer) in result.peers.iter().enumerate() {
             let actual = readout(&peer.local.snapshot());
             prop_assert_eq!(
                 &actual, &expected,
-                "peer {} readout key→value map does not match canonical", i,
+                "peer {} readout identity→value map does not match canonical", i,
             );
         }
     }
 
-    /// No `Key` is observed more than once at any peer across the
+    /// No message is observed more than once at any peer across the
     /// entire schedule: re-gossip with an already-known message must
     /// not re-surface it in the observation log.
     #[test]
-    fn each_key_observed_at_most_once_per_peer(
+    fn each_message_observed_at_most_once_per_peer(
         schedule in schedule_u64(),
         windows in arb_window_assignment(),
     ) {
         let result = execute_and_quiesce(&schedule, &windows);
         for (i, peer) in result.peers.iter().enumerate() {
-            let mut counts: BTreeMap<Key, usize> = BTreeMap::new();
-            for (k, _, _) in peer.observations.iter() {
-                *counts.entry(*k).or_insert(0) += 1;
+            let mut counts: BTreeMap<Vec<u8>, usize> = BTreeMap::new();
+            for (v, _) in peer.observations.iter() {
+                *counts.entry(version_key(v)).or_insert(0) += 1;
             }
             for (k, c) in &counts {
                 prop_assert_eq!(
                     *c, 1,
-                    "peer {} observed key {:?} {} times (must be at most once)",
+                    "peer {} observed version {:?} {} times (must be at most once)",
                     i, k, c,
                 );
             }
@@ -180,7 +180,7 @@ proptest! {
     }
 
     /// String-T variant of `readout_matches_oracle_after_quiesce`,
-    /// exercising the borsh round-trip for a non-primitive value
+    /// exercising the wire round-trip for a non-primitive value
     /// type. Catches any serialization-path bug invisible to
     /// fixed-size scalars.
     #[test]

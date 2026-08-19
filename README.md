@@ -173,7 +173,7 @@ async fn main() -> Result<(), rumors::Error> {
 
     // Convergence: Bob holds the message Alice sent before they ever met.
     let snapshot = bob.snapshot();
-    let (_key, _version, message) = snapshot.iter().next().expect("one live message");
+    let (_version, message) = snapshot.iter().next().expect("one live message");
     println!("bob heard: {message}");
     // Prints exactly:
     //     bob heard: the meeting is at noon
@@ -185,9 +185,9 @@ async fn main() -> Result<(), rumors::Error> {
 ## How should you observe messages?
 
 - `Snapshot` (`Rumors::snapshot`) is a **point-in-time value**:
-  iterate it, look up a `Key` (`Snapshot::get`), or slice it by
-  causal range (`Snapshot::range`). Taking one is cheap and never
-  waits.
+  iterate it, look up a message by its `Version` (`Snapshot::get`),
+  or slice it by causal range (`Snapshot::range`). Taking one is
+  cheap and never waits.
 - `UnorderedMessages` (`Rumors::unordered_messages`) is the **live stream, arbitrary
   order**: everything not already inside your starting checkpoint, then
   everything learned afterwards, at the lowest cost. Use it by default.
@@ -233,6 +233,19 @@ Sessions and observers are plain futures and streams, driven entirely by
 the caller. The I/O traits are Tokio's runtime-independent
 `AsyncRead` and `AsyncWrite`;
 no Tokio runtime, spawning, sockets, or timers are required by this crate.
+
+## Message payloads
+
+Your message type `T` needs `serde::Serialize` and
+`serde::de::DeserializeOwned`; payloads travel and are cached as
+CBOR ([RFC 8949](https://www.rfc-editor.org/rfc/rfc8949)). Because
+CBOR carries field and variant *names*, reordering struct fields or
+enum variants does not change what peers understand: names are the
+evolution contract (rename with `#[serde(rename)]` deliberately),
+peers skip fields they don't know, and a missing field is an error
+unless the type supplies `#[serde(default)]`. No canonical encoding
+is required of `T`: a message's identity is the `Version` stamped
+on it, never its bytes.
 
 ## Wire compatibility
 

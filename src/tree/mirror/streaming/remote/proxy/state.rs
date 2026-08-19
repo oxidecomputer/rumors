@@ -25,6 +25,7 @@ use crate::tree::{
     typed::height::{Height, Root, S, UnderRoot, UnderUnderRoot, Z},
 };
 
+use serde::de::DeserializeOwned;
 /// Session endpoints and backend shared by every state in one proxy chain.
 struct Session<B, T, R, W, C, A>
 where
@@ -50,7 +51,7 @@ where
 impl<B, T, R, W, C, A> Session<B, T, R, W, C, A>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    T: borsh::BorshDeserialize + Send + Sync + 'static,
+    T: DeserializeOwned + Send + Sync + 'static,
     C: Connector,
     A: Acceptor,
 {
@@ -109,7 +110,7 @@ where
 impl<B, T, R, W, C, A> Connected<B, T, R, W, C, A>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    T: borsh::BorshDeserialize + Send + Sync + 'static,
+    T: DeserializeOwned + Send + Sync + 'static,
     C: Connector,
     A: Acceptor,
 {
@@ -232,7 +233,7 @@ where
 impl<B, T, R, W, C, A> protocol::CompleteEqual<B, T> for Connected<B, T, R, W, C, A>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    T: borsh::BorshDeserialize + Send + Sync + 'static,
+    T: DeserializeOwned + Send + Sync + 'static,
     R: Send,
     W: Send,
     C: Connector,
@@ -250,7 +251,7 @@ where
 impl<B, T, R, W, C, A> protocol::Initiator<B, T> for Connected<B, T, R, W, C, A>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    T: borsh::BorshDeserialize + Send + Sync + 'static,
+    T: DeserializeOwned + Send + Sync + 'static,
     R: Send,
     W: Send,
     C: Connector,
@@ -282,7 +283,7 @@ where
 impl<B, T, R, W, C, A> protocol::Responder<B, T> for Connected<B, T, R, W, C, A>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    T: borsh::BorshDeserialize + Send + Sync + 'static,
+    T: DeserializeOwned + Send + Sync + 'static,
     R: Send,
     W: Send,
     C: Connector,
@@ -321,7 +322,7 @@ where
 impl<B, T, H, R, W, C, A> protocol::Reply<B, T> for Descending<B, T, S<S<H>>, R, W, C, A>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    T: borsh::BorshDeserialize + Send + Sync + 'static,
+    T: DeserializeOwned + Send + Sync + 'static,
     R: Send,
     W: Send,
     C: Connector,
@@ -357,7 +358,7 @@ where
 impl<B, T, R, W, C, A> protocol::Reply<B, T> for Descending<B, T, S<Z>, R, W, C, A>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    T: borsh::BorshDeserialize + Send + Sync + 'static,
+    T: DeserializeOwned + Send + Sync + 'static,
     R: Send,
     W: Send,
     C: Connector,
@@ -391,7 +392,7 @@ where
 impl<B, T, R, W, C, A> protocol::CompleteInitiator<B, T> for Completing<B, T, R, W, C, A>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    T: borsh::BorshDeserialize + Send + Sync + 'static,
+    T: DeserializeOwned + Send + Sync + 'static,
     R: Send,
     W: Send,
     C: Connector,
@@ -414,7 +415,7 @@ where
 impl<B, T, R, W, C, A> protocol::CompleteResponder<B, T> for Descending<B, T, Z, R, W, C, A>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    T: borsh::BorshDeserialize + Send + Sync + 'static,
+    T: DeserializeOwned + Send + Sync + 'static,
     R: Send,
     W: Send,
     C: Connector,

@@ -1,5 +1,5 @@
 use crate::tree::{Leaf, RangeOwned};
-use crate::{Key, Version, causally};
+use crate::{Version, causally};
 use futures::Stream;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -18,10 +18,10 @@ use tokio::sync::watch;
 ///
 /// There are two ways to use it:
 ///
-/// - [`borrow_next`](Self::borrow_next) lends each message as `(Key,
-///   &Version, &Arc<T>)`, the borrows living until the next call.
-/// - The [`Stream`] impl (for `T: 'static`) yields owned `(Key, Version,
-///   Arc<T>)`.
+/// - [`borrow_next`](Self::borrow_next) lends each message as
+///   `(&Version, &Arc<T>)`, the borrows living until the next call.
+/// - The [`Stream`] impl (for `T: 'static`) yields owned
+///   `(Version, Arc<T>)`.
 ///
 /// Order is unspecified and does *not* follow the causal order: a message may
 /// be yielded before another that causally precedes it; use
@@ -44,7 +44,7 @@ pub struct UnorderedMessages<T> {
     pass: Option<Pass<T>>,
     /// The most recently yielded leaf, kept alive so its version and value
     /// can be lent to the caller until the next call.
-    current: Option<(Key, Leaf<T>)>,
+    current: Option<Leaf<T>>,
 }
 
 /// The outcome of [`UnorderedMessages::try_next`] or [`CausalMessages::try_next`].
@@ -56,7 +56,7 @@ pub struct UnorderedMessages<T> {
 pub enum TryNext<'a, T> {
     /// A message was ready, lent until the next call (as
     /// [`borrow_next`](UnorderedMessages::borrow_next) lends it).
-    Message((Key, &'a Version, &'a Arc<T>)),
+    Message((&'a Version, &'a Arc<T>)),
     /// No message is ready yet, but handles are still live: ask again later.
     Quiet,
     /// Every handle is gone and no further message is possible.
@@ -115,7 +115,7 @@ impl<T> UnorderedMessages<T> {
     }
 
     /// Advance to the next message and lend it until the following call.
-    pub(crate) async fn borrow_next_inner(&mut self) -> Option<(Key, &Version, &Arc<T>)>
+    pub(crate) async fn borrow_next_inner(&mut self) -> Option<(&Version, &Arc<T>)>
     where
         T: Send + Sync,
     {
@@ -135,9 +135,9 @@ impl<T> UnorderedMessages<T> {
                     // Lend the next leaf out of the walk, parking it in
                     // `current` so the borrows survive the return.
                     let pass = self.pass.as_mut().expect("opened above");
-                    if let Some((key, leaf)) = pass.walk.next() {
-                        let (key, leaf) = self.current.insert((key, leaf));
-                        return Some((*key, leaf.version(), leaf.value()));
+                    if let Some((_, leaf)) = pass.walk.next() {
+                        let leaf = self.current.insert(leaf);
+                        return Some((leaf.version(), leaf.value()));
                     }
 
                     // The pass drained: absorb its ceiling as completed,
@@ -185,7 +185,7 @@ impl<T> UnorderedMessages<T> {
     /// rumors.send("one".to_string());
     ///
     /// let mut observer = rumors.unordered_messages();
-    /// let (_key, _version, m) = observer.borrow_next().await.expect("one message");
+    /// let (_version, m) = observer.borrow_next().await.expect("one message");
     /// assert_eq!(m.as_str(), "one");
     ///
     /// // Mid-pass, the checkpoint has not moved: resuming here would
@@ -201,7 +201,7 @@ impl<T> UnorderedMessages<T> {
     /// // everything not yet delivered.
     /// rumors.send("two".to_string());
     /// let mut resumed = rumors.unordered_messages_since(checkpoint);
-    /// let (_key, _version, m) = resumed.borrow_next().await.expect("only the new message");
+    /// let (_version, m) = resumed.borrow_next().await.expect("only the new message");
     /// assert_eq!(m.as_str(), "two");
     /// # });
     /// ```
@@ -214,7 +214,7 @@ impl<T> UnorderedMessages<T> {
     /// Advance to the next message, lending its version and value until the
     /// following call. Awaits quietly while the set is unchanged; resolves
     /// [`None`] once no further change is possible.
-    pub async fn borrow_next(&mut self) -> Option<(Key, &Version, &Arc<T>)>
+    pub async fn borrow_next(&mut self) -> Option<(&Version, &Arc<T>)>
     where
         T: Send + Sync,
     {
@@ -238,13 +238,13 @@ impl<T> UnorderedMessages<T> {
     }
 }
 
-/// The owned-item face: `(Key, Version, Arc<T>)` per item, cloned out of
+/// The owned-item face: `(Version, Arc<T>)` per item, cloned out of
 /// the same engine [`borrow_next`](UnorderedMessages::borrow_next) lends from.
 ///
 /// `T: 'static` because the quiet-period wait is materialized as an owned
 /// future.
 impl<T: Send + Sync + 'static> Stream for UnorderedMessages<T> {
-    type Item = (Key, Version, Arc<T>);
+    type Item = (Version, Arc<T>);
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
@@ -263,12 +263,8 @@ impl<T: Send + Sync + 'static> Stream for UnorderedMessages<T> {
                     Self::open_pass(&mut this.pass, rx, &this.checkpoint);
 
                     let pass = this.pass.as_mut().expect("opened above");
-                    if let Some((key, leaf)) = pass.walk.next() {
-                        return Poll::Ready(Some((
-                            key,
-                            leaf.version().clone(),
-                            leaf.value().clone(),
-                        )));
+                    if let Some((_, leaf)) = pass.walk.next() {
+                        return Poll::Ready(Some((leaf.version().clone(), leaf.value().clone())));
                     }
 
                     // The pass drained: absorb its ceiling, then enter the

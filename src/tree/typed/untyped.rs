@@ -2,7 +2,6 @@ use std::fmt::Debug;
 use std::mem;
 use std::sync::{Arc, OnceLock};
 
-use borsh::BorshSerialize;
 use tinyvec::ArrayVec;
 
 use before::{Dominance, Span};
@@ -445,8 +444,8 @@ impl<T> Node<T> {
     ///
     /// Forked trees share their unchanged subtrees by `Arc`, so an in-memory
     /// merge can short-circuit those in `O(1)`, even with cold memos, before
-    /// falling back to the content hash for subtrees that diverged in memory
-    /// but hold equal content.
+    /// falling back to the Merkle hash for subtrees that diverged in memory
+    /// but hold the same version set.
     pub fn ptr_eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.inner, &other.inner)
     }
@@ -652,9 +651,10 @@ impl<T> Node<T> {
         self.inner.prefix.len()
     }
 
-    /// Borsh-serialize the node in its in-memory layout.
+    /// Serialize the node in its in-memory layout.
     ///
-    /// This is the canonical encoder: the typed `BorshSerialize` impl is a
+    /// This is the canonical encoder: the typed
+    /// [`wire::Encode`](crate::tree::wire::Encode) impl is a
     /// thin delegate over it, and on the decode side the same shape is
     /// reconstructed via the chain-reader trick that synthesizes per-level
     /// `prefix_len` bytes.
@@ -665,7 +665,8 @@ impl<T> Node<T> {
     /// 2. `prefix_len` head bytes, shallowest first (decoders peel from the
     ///    outermost compressed level inward);
     /// 3. the body, dispatched on `children`:
-    ///    - [`Children::Leaf`]: `version: Version`, then `message: Message<T>`;
+    ///    - [`Children::Leaf`]: `version`, then `message`, each one CBOR
+    ///      value (self-delimiting; see [`wire`](crate::tree::wire));
     ///    - [`Children::Branch`]: `count_minus_two: u8`, then for each
     ///      child (in ascending radix order, structural in the fan):
     ///      `radix: u8`, `serialize_to(child)`.
@@ -674,23 +675,21 @@ impl<T> Node<T> {
     /// typed height and the running `prefix_len` together name the body's
     /// shape. Multi-child branches always carry at least two children, by
     /// the path-compression invariant.
-    pub fn serialize_to<W: borsh::io::Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
-        let prefix_len = u8::try_from(self.inner.prefix.len()).map_err(|_| {
-            borsh::io::Error::new(
-                borsh::io::ErrorKind::InvalidData,
-                "node prefix length does not fit in a u8",
-            )
-        })?;
-        prefix_len.serialize(writer)?;
+    #[cfg(any(test, feature = "protocol-v1"))]
+    pub fn serialize_to<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        use crate::tree::wire::{Encode, invalid};
+        let prefix_len = u8::try_from(self.inner.prefix.len())
+            .map_err(|_| invalid("node prefix length does not fit in a u8"))?;
+        prefix_len.write_wire(writer)?;
         // Wire order is shallowest-first; the in-memory `prefix` stores the
         // shallowest byte at the last index, so iterate in reverse.
         for byte in self.inner.prefix.iter().rev() {
-            byte.serialize(writer)?;
+            byte.write_wire(writer)?;
         }
         match &self.inner.children {
             Children::Leaf { message, version } => {
-                version.serialize(writer)?;
-                message.serialize(writer)?;
+                version.write_wire(writer)?;
+                message.write_wire(writer)?;
             }
             Children::Branch { children, .. } => {
                 debug_assert!(
@@ -698,14 +697,11 @@ impl<T> Node<T> {
                     "multi-child branch must have 2..=256 children",
                 );
                 let count_minus_two = u8::try_from(children.len() - 2).map_err(|_| {
-                    borsh::io::Error::new(
-                        borsh::io::ErrorKind::InvalidData,
-                        "branch children count does not fit in count_minus_two: u8",
-                    )
+                    invalid("branch children count does not fit in count_minus_two: u8")
                 })?;
-                count_minus_two.serialize(writer)?;
+                count_minus_two.write_wire(writer)?;
                 for (radix, child) in children.iter() {
-                    radix.serialize(writer)?;
+                    radix.write_wire(writer)?;
                     child.serialize_to(writer)?;
                 }
             }
@@ -747,8 +743,13 @@ impl<T> Eq for Node<T> {}
 impl<T> PartialEq for Node<T> {
     fn eq(&self, other: &Self) -> bool {
         // Shared backing settles equality with no hashing (and even cold): the
-        // common case for forked/cloned trees and the subtrees they share. Only
-        // distinct allocations fall back to the content hash.
+        // common case for forked/cloned trees and the subtrees they share.
+        // Distinct allocations fall back to the Merkle hash, which commits
+        // shape and version set — never message bytes — so this is
+        // version-set equality — and content equality, because no two
+        // messages ever share a version. (Same-version leaves with
+        // different payloads would compare equal; producing such a pair
+        // takes an already-fatal linearity violation.)
         self.ptr_eq(other) || self.hash() == other.hash()
     }
 }

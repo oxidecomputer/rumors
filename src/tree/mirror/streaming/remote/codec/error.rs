@@ -67,10 +67,10 @@ pub enum EncodeErrorKind {
     Write {
         part: FramePart,
         #[source]
-        source: borsh::io::Error,
+        source: std::io::Error,
     },
     #[error("could not flush the completed frame")]
-    Flush(#[source] borsh::io::Error),
+    Flush(#[source] std::io::Error),
     #[error(transparent)]
     SupplyTooLarge(#[from] LengthOverflow),
 }
@@ -94,7 +94,7 @@ impl EncodeError {
     }
 }
 
-/// A Borsh or canonicality failure while decoding a supplied leaf record.
+/// A decode or canonicality failure in a supplied leaf record.
 ///
 /// Produced by the run's record iterator (`LeafRun::records`), which the
 /// incoming adapter drives record by record; run *structure* is instead
@@ -103,9 +103,9 @@ impl EncodeError {
 #[derive(Debug, thiserror::Error)]
 pub enum DecodeLeafError {
     #[error("supplied Version could not be decoded")]
-    Version(#[source] borsh::io::Error),
+    Version(#[source] std::io::Error),
     #[error("supplied Message could not be decoded")]
-    Message(#[source] borsh::io::Error),
+    Message(#[source] std::io::Error),
     #[error("{count} trailing bytes follow the supplied Version and Message")]
     TrailingBytes { count: usize },
 }
@@ -117,7 +117,7 @@ pub enum DecodeErrorKind {
     Read {
         part: FramePart,
         #[source]
-        source: borsh::io::Error,
+        source: std::io::Error,
     },
     #[error(transparent)]
     InvalidSignal(#[from] DecodeSignalError),
@@ -125,7 +125,7 @@ pub enum DecodeErrorKind {
     Truncated {
         missing: FramePart,
         #[source]
-        source: borsh::io::Error,
+        source: std::io::Error,
     },
     #[error(transparent)]
     QueryOutOfOrder(#[from] QueryOrderError),

@@ -1,9 +1,9 @@
 use std::{fmt::Debug, marker::PhantomData};
 
-use borsh::{BorshDeserialize, BorshSerialize};
 use tinyvec::ArrayVec;
 
-use crate::tree::Key;
+#[cfg(any(test, feature = "protocol-v1"))]
+use crate::tree::wire;
 
 use super::height::{Height, Root, S, Z};
 use super::path::Path;
@@ -39,17 +39,17 @@ impl From<Prefix> for Path {
     }
 }
 
-impl From<Prefix> for Key {
+impl From<Prefix> for [u8; 32] {
     fn from(value: Prefix) -> Self {
         Path::from(value).into()
     }
 }
 
-impl From<Key> for Prefix {
-    fn from(value: Key) -> Self {
+impl From<[u8; 32]> for Prefix {
+    fn from(value: [u8; 32]) -> Self {
         Self {
             height: PhantomData,
-            hash: <[u8; 32]>::from(value).into(),
+            hash: value.into(),
         }
     }
 }
@@ -80,7 +80,7 @@ where
 impl<H: Height> Prefix<H> {
     /// The accumulated path bytes, shallowest-first. Exactly `32 - H::HEIGHT`
     /// long, so appending the remaining `H::HEIGHT` bytes of a descent below
-    /// this point reconstructs a full 32-byte [`Key`].
+    /// this point reconstructs a full 32-byte path.
     pub fn as_bytes(&self) -> &[u8] {
         &self.hash
     }
@@ -158,8 +158,9 @@ impl<H: Height> Debug for Prefix<H> {
 /// On the wire a `Prefix<H>` is exactly `32 - H::HEIGHT` raw bytes. The height
 /// is pinned by the type, so no length prefix is transmitted: deserialization
 /// reads exactly the byte count the type demands.
-impl<H: Height> BorshSerialize for Prefix<H> {
-    fn serialize<W: borsh::io::Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
+#[cfg(any(test, feature = "protocol-v1"))]
+impl<H: Height> wire::Encode for Prefix<H> {
+    fn write_wire<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
         let expected = 32 - H::HEIGHT;
         debug_assert_eq!(
             self.hash.len(),
@@ -172,8 +173,9 @@ impl<H: Height> BorshSerialize for Prefix<H> {
     }
 }
 
-impl<H: Height> BorshDeserialize for Prefix<H> {
-    fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
+#[cfg(any(test, feature = "protocol-v1"))]
+impl<H: Height> wire::Decode for Prefix<H> {
+    fn read_wire<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
         let len = 32 - H::HEIGHT;
         let mut hash: ArrayVec<[u8; 32]> = ArrayVec::new();
         // Reserve `len` zero slots so we can read directly into the buffer.

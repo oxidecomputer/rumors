@@ -2,7 +2,7 @@
 //! the single-preimage node hash, and the collision pairs its kind tags and
 //! length fields exist to prevent.
 
-use super::{BRANCH_TAG, ContentHash, Hash, LEAF_TAG, MERKLE_HASH_LEN};
+use super::{BRANCH_TAG, Hash, LEAF_TAG, MERKLE_HASH_LEN, PathHash};
 
 /// A branch commits to exactly `BRANCH_TAG ‖ prefix_len ‖ prefix ‖
 /// child_count ‖ (radix ‖ child_hash)*`.
@@ -28,14 +28,16 @@ fn branch_preimage_layout() {
 }
 
 /// A leaf commits to exactly `LEAF_TAG ‖ suffix_len ‖ suffix` — its
-/// compressed suffix, length-tagged, and nothing else.
+/// compressed suffix, length-tagged, and never any version or message
+/// bytes.
+///
+/// The path (which the suffix spells) is version-derived, so the suffix
+/// is already a complete commitment to the version set.
 #[test]
 fn leaf_preimage_layout() {
     let suffix = [0x01, 0x02, 0x03, 0x04];
-    assert_eq!(
-        Hash::leaf(&suffix),
-        Hash::of(&[LEAF_TAG, 4, 0x01, 0x02, 0x03, 0x04]),
-    );
+    let expected = vec![LEAF_TAG, 4, 0x01, 0x02, 0x03, 0x04];
+    assert_eq!(Hash::leaf(&suffix), Hash::of(&expected));
 }
 
 /// The empty tree hashes as a prefixless branch with no children —
@@ -140,6 +142,6 @@ fn saturated_fan_count_uses_the_high_byte() {
 fn merkle_hash_is_prefix_of_full_width() {
     let preimage = b"any preimage at all";
     let truncated = Hash::of(preimage);
-    let full = ContentHash::of(preimage);
+    let full = PathHash::of(preimage);
     assert_eq!(truncated.as_bytes()[..], full.as_bytes()[..MERKLE_HASH_LEN]);
 }

@@ -108,7 +108,7 @@ where
 /// Answer one leaf-parent query by merge-joining both leaf listings.
 ///
 /// The leaf-parent twin of [`internal`]'s dispute chokepoint: a matching
-/// radix here always agrees (paths are content-addressed, so equal path
+/// radix here always agrees (paths are version-derived, so equal path
 /// means equal leaf), so the scope was disputed exactly when both listings
 /// were non-empty and some leaf sat on one side alone. Each exclusive local
 /// leaf the causal filter drops is one deletion honored
@@ -172,7 +172,7 @@ where
 /// Answer one terminal leaf query.
 ///
 /// A terminal leaf question is always a *request* (leaves cannot be
-/// disputed: equal content-addressed path means equal leaf, and a non-empty
+/// disputed: equal version-derived path means equal leaf, and a non-empty
 /// listing here is a protocol violation), so no dispute is counted. A
 /// requested leaf the causal filter drops is one deletion honored
 /// ([`messages_shed`](crate::SessionStats::messages_shed)).

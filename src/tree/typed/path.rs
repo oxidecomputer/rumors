@@ -1,6 +1,6 @@
 use std::{fmt::Debug, marker::PhantomData};
 
-use super::hash::{ContentHash, Hasher};
+use super::hash::PathHash;
 use super::height::{Height, Root, S};
 use crate::Version;
 
@@ -18,33 +18,24 @@ pub struct Path<H: Height = Root> {
 }
 
 impl Path<Root> {
-    /// Get a path for the given leaf, incorporating its version and value.
+    /// Get the path for a leaf stamped with `version`: the full-width hash
+    /// of the version's canonical bytes, and nothing else.
     ///
-    /// The version's canonical [`as_bytes`](Version::as_bytes) makes the path
-    /// unique per insert: every [`tick`](Version::tick) yields a distinct
-    /// canonical encoding, so two content-identical values inserted at
-    /// different versions land at distinct paths. Parties descend from a
-    /// shared seed by disjoint forks, so their versions are structurally
-    /// distinct too; the version alone therefore disambiguates without also
-    /// folding in the party.
-    pub fn for_leaf(version: &Version, value: &[u8]) -> Self {
-        // We form the hash for a value as the binary depth-1 merkle tree of
-        // version, value. This ensures no length malleability issues.
-        //
-        // Every component is the full-width `ContentHash`, never the
-        // truncated Merkle `Hash`: the path's collision resistance is the
-        // minimum over its component hashes, and a path collision is
-        // permanent split-brain (see `ContentHash`). A Merkle-width inner
-        // hash here would cap the whole path at the narrower width's
-        // strength despite its 32-byte output.
-
-        let mut hasher = Hasher::new();
-        hasher.update(ContentHash::of(version.as_bytes()).as_bytes());
-        hasher.update(ContentHash::of(value).as_bytes());
-
+    /// Versions are unique per send — locally by [`tick`](Version::tick)
+    /// (each tick changes the canonical [`as_bytes`](Version::as_bytes)),
+    /// globally by party disjointness — an invariant the protocol already
+    /// rests on everywhere, so version-derived identity adds no assumption.
+    /// Message bytes enter no path and no digest: no actor can steer where
+    /// anything lands by choosing content.
+    ///
+    /// The path is the full-width 32-byte `PathHash`, never the
+    /// truncated Merkle `Hash`: a path collision is permanent split-brain
+    /// (see `PathHash`). The preimage is one self-delimiting canonical
+    /// byte string, so no concatenation ambiguity arises.
+    pub fn for_leaf(version: &Version) -> Self {
         Self {
             height: PhantomData,
-            hash: hasher.finalize().into(),
+            hash: PathHash::of(version.as_bytes()).into(),
         }
     }
 }

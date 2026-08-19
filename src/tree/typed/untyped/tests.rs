@@ -595,7 +595,7 @@ fn node_hash_preimage_is_in_path_order() {
     const LEAF_TAG: u8 = 0;
     let leaf = Node::leaf(Version::new(), Message::new(()));
     let wrapped = leaf.beneath(0xAA).beneath(0xBB);
-    assert_eq!(wrapped.hash(), super::Hash::of(&[LEAF_TAG, 2, 0xBB, 0xAA]),);
+    assert_eq!(wrapped.hash(), super::Hash::of(&[LEAF_TAG, 2, 0xBB, 0xAA]));
 }
 
 /// A hand-built two-leaf tree pins the preimages end to end.

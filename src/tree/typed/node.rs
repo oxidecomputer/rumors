@@ -1,17 +1,21 @@
 use std::{fmt::Debug, iter::Map, marker::PhantomData};
 
-use borsh::{BorshDeserialize, BorshSerialize};
-
 use before::{Dominance, Span};
 
 use crate::{Version, causally, message::Message};
 
 use super::hash::Hash;
 use super::height::{self, Height, S, Z};
+
 #[cfg(any(test, feature = "protocol-v1"))]
 use super::levels::{Top, levels};
 use super::untyped;
+#[cfg(any(test, feature = "protocol-v1"))]
+use crate::tree::wire;
 use untyped::fan::{self, Fan};
+
+#[cfg(any(test, feature = "protocol-v1"))]
+use serde::de::DeserializeOwned;
 
 /// The typed node with a height of 32; the root of the tree.
 pub type Root<T> = Node<T, height::Root>;
@@ -382,11 +386,10 @@ impl<T> Node<T, height::Root> {
     }
 
     /// Lazily iterate every live leaf in this root subtree as
-    /// `(Key, &Version, &Arc<T>)`.
+    /// `([u8; 32], &Version, &Message<T>)`.
     ///
     /// Delegates to the height-agnostic untyped walk; because this is a
-    /// height-32 root, every yielded path is a full 32-byte
-    /// [`Key`](crate::Key).
+    /// height-32 root, every yielded path is a full 32-byte array.
     pub fn iter(&self) -> untyped::Iter<'_, T> {
         untyped::Iter::root(&self.inner)
     }
@@ -434,18 +437,19 @@ impl<T, H: Height> PartialEq for Node<T, H> {
     }
 }
 
-// Borsh wire format. Serialization is height-uniform: every typed
-// `Node<T, H>` delegates to [`untyped::Node::serialize_to`], which
-// emits the in-memory representation directly (prefix length, head bytes,
-// then either a leaf body or a `count_minus_two` + children list). No
-// leaf-vs-branch tag is needed on the wire — at the receiver, the typed
-// height together with the running `prefix_len` names the body's shape.
+// Wire format (see [`crate::tree::wire`]). Serialization is
+// height-uniform: every typed `Node<T, H>` delegates to
+// [`untyped::Node::serialize_to`], which emits the in-memory
+// representation directly (prefix length, head bytes, then either a leaf
+// body or a `count_minus_two` + children list). No leaf-vs-branch tag is
+// needed on the wire — at the receiver, the typed height together with
+// the running `prefix_len` names the body's shape.
 //
 // Deserialization at typed height `H` reads `prefix_len`, then either
 // decodes the body directly (when `prefix_len == 0`) or peels one head
 // byte and recurses at the next-finer typed height — synthesizing the
 // `prefix_len - 1` byte for the inner reader via
-// [`borsh::io::Read::chain`]. The recursion bottoms out at the typed
+// [`std::io::Read::chain`]. The recursion bottoms out at the typed
 // level matching the structural level of the underlying body: a multi-
 // child branch at `S<_>` heights, or a leaf at `Z`.
 //
@@ -459,88 +463,74 @@ impl<T, H: Height> PartialEq for Node<T, H> {
 // [`Node::branch`]. The wire's ascending radix order makes each insert an
 // appending binary-search miss, so the rebuild costs no shifting.
 
-impl<T, H> BorshSerialize for Node<T, H>
+#[cfg(any(test, feature = "protocol-v1"))]
+impl<T, H> wire::Encode for Node<T, H>
 where
     H: Height,
 {
-    fn serialize<W: borsh::io::Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
+    fn write_wire<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
         self.inner.serialize_to(writer)
     }
 }
 
-impl<T> BorshDeserialize for Node<T, Z>
+#[cfg(any(test, feature = "protocol-v1"))]
+impl<T> wire::Decode for Node<T, Z>
 where
-    T: BorshDeserialize,
+    T: DeserializeOwned,
 {
-    fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
-        let prefix_len = u8::deserialize_reader(reader)?;
+    fn read_wire<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
+        let prefix_len = u8::read_wire(reader)?;
         if prefix_len != 0 {
-            return Err(borsh::io::Error::new(
-                borsh::io::ErrorKind::InvalidData,
-                "leaf height cannot carry a prefix",
-            ));
+            return Err(wire::invalid("leaf height cannot carry a prefix"));
         }
-        let version = Version::deserialize_reader(reader)?;
-        let message = Message::<T>::deserialize_reader(reader)?;
+        let version = Version::read_wire(reader)?;
+        let message = Message::<T>::read_wire(reader)?;
         Ok(Node::leaf(version, message))
     }
 }
 
-impl<T, H> BorshDeserialize for Node<T, S<H>>
+#[cfg(any(test, feature = "protocol-v1"))]
+impl<T, H> wire::Decode for Node<T, S<H>>
 where
-    T: BorshDeserialize,
+    T: DeserializeOwned,
     H: Height,
     S<H>: Height,
-    Node<T, H>: BorshDeserialize,
+    Node<T, H>: wire::Decode,
 {
-    fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
-        let prefix_len = u8::deserialize_reader(reader)?;
+    fn read_wire<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
+        let prefix_len = u8::read_wire(reader)?;
         if (prefix_len as usize) > <S<H>>::HEIGHT {
-            return Err(borsh::io::Error::new(
-                borsh::io::ErrorKind::InvalidData,
-                "prefix length exceeds typed height",
-            ));
+            return Err(wire::invalid("prefix length exceeds typed height"));
         }
         if prefix_len == 0 {
-            let count_minus_two = u8::deserialize_reader(reader)?;
+            let count_minus_two = u8::read_wire(reader)?;
             let count = (count_minus_two as usize) + 2;
             if count > 256 {
-                return Err(borsh::io::Error::new(
-                    borsh::io::ErrorKind::InvalidData,
-                    "branch children count exceeds 256",
-                ));
+                return Err(wire::invalid("branch children count exceeds 256"));
             }
             let mut children = Children::<T, H>::default();
             let mut prev: Option<u8> = None;
             for _ in 0..count {
-                let radix = u8::deserialize_reader(reader)?;
+                let radix = u8::read_wire(reader)?;
                 if let Some(p) = prev
                     && radix <= p
                 {
-                    return Err(borsh::io::Error::new(
-                        borsh::io::ErrorKind::InvalidData,
-                        "branch radices not strictly ascending",
-                    ));
+                    return Err(wire::invalid("branch radices not strictly ascending"));
                 }
                 prev = Some(radix);
-                let child = Node::<T, H>::deserialize_reader(reader)?;
+                let child = Node::<T, H>::read_wire(reader)?;
                 children.insert(radix, child);
             }
-            Node::branch(children).ok_or_else(|| {
-                borsh::io::Error::new(
-                    borsh::io::ErrorKind::InvalidData,
-                    "branch could not be reconstructed",
-                )
-            })
+            Node::branch(children).ok_or_else(|| wire::invalid("branch could not be reconstructed"))
         } else {
-            let head = u8::deserialize_reader(reader)?;
+            let head = u8::read_wire(reader)?;
             // Prepend `prefix_len - 1` to the rest of the stream so the
             // inner typed level reads it as if it were on the wire,
             // synthesizing the singleton-chain recursion without a helper
             // trait.
             let synthesized = [prefix_len - 1];
-            let mut chained = borsh::io::Read::chain(synthesized.as_slice(), &mut *reader);
-            let inner = Node::<T, H>::deserialize_reader(&mut chained)?;
+            let mut chained = std::io::Read::chain(synthesized.as_slice(), &mut *reader);
+            let inner = Node::<T, H>::read_wire(&mut chained)?;
             Ok(Node::beneath(inner, head))
         }
     }

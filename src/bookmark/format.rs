@@ -8,17 +8,17 @@
 //! [ magic   : 14 bytes = b"RUMORSBOOKMARK"
 //! | version :  2 bytes  (big-endian u16, BOOKMARK_FORMAT_VERSION)
 //! | hash    : 32 bytes  BLAKE3(magic ‖ version ‖ payload)
-//! | payload :  N bytes  borsh(BTreeMap<Network, Vec<Clock>>) ]
+//! | payload :  N bytes  CBOR(BTreeMap<Network, Vec<Clock>>) ]
 //! ```
 //!
 //! The magic and version tag reject a foreign or future file *loudly* — a
 //! non-bookmark or a format this build does not understand is an error, never a
 //! misparse. The hash covers the whole frame body, so a truncated or bit-rotted
-//! file is caught before its bytes are ever borsh-decoded into a [`Clock`] — the
+//! file is caught before its bytes are ever decoded into a [`Clock`] — the
 //! silent-divergence failure mode this crate exists to prevent.
 //!
 //! The hash is a plain [`blake3`] digest, deliberately *not* the tree's
-//! content-addressing hash: that type's contract is identity (a leaf's path), a
+//! path-identity hash: that type's contract is identity (a leaf's path), a
 //! different concern from this one's local, non-adversarial corruption check.
 //!
 //! The framing ([`frame`]/[`unframe`]) is kept separate from the record codec
@@ -41,12 +41,12 @@ pub const BOOKMARK_MAGIC: [u8; 14] = *b"RUMORSBOOKMARK";
 
 /// On-disk bookmark format version, following [`BOOKMARK_MAGIC`].
 ///
-/// Bumped whenever the frame layout or payload encoding changes — version 2
-/// carries the skyline version coding in its payloads. A file carrying any
-/// other version (including version-1 files, which carry the packed
-/// per-node coding) is rejected with [`FormatError::VersionMismatch`]
+/// Bumped whenever the frame layout or payload encoding changes — version 3
+/// carries the CBOR record encoding (clocks as byte strings wrapping their
+/// canonical codec) with skyline version coding inside. A file carrying
+/// any other version is rejected with [`FormatError::VersionMismatch`]
 /// rather than misread; there is no migration path.
-pub const BOOKMARK_FORMAT_VERSION: u16 = 2;
+pub const BOOKMARK_FORMAT_VERSION: u16 = 3;
 
 /// Byte offset of the version field within a frame.
 const VERSION_OFFSET: usize = BOOKMARK_MAGIC.len();
@@ -54,7 +54,7 @@ const VERSION_OFFSET: usize = BOOKMARK_MAGIC.len();
 const HASH_OFFSET: usize = VERSION_OFFSET + 2;
 /// Width of the BLAKE3 integrity hash, in bytes.
 const HASH_LEN: usize = 32;
-/// Byte offset of the borsh payload within a frame: the end of the fixed header.
+/// Byte offset of the payload within a frame: the end of the fixed header.
 const PAYLOAD_OFFSET: usize = HASH_OFFSET + HASH_LEN;
 /// Total fixed-header width: magic, version, and hash, before the payload.
 const HEADER_LEN: usize = PAYLOAD_OFFSET;
@@ -175,17 +175,20 @@ pub(crate) fn unframe(bytes: &[u8]) -> Result<&[u8], FormatError> {
 
 /// Serialize a record into a complete bookmark frame.
 ///
-/// Borsh-encodes the record, then [`frame`]s it. The inverse of [`decode`].
+/// CBOR-encodes the record, then [`frame`]s it. The inverse of [`decode`].
 pub(crate) fn encode(record: &BTreeMap<Network, Vec<Clock>>) -> Vec<u8> {
-    // Encoding to a `Vec` cannot fail: borsh only errors on a failing writer,
-    // and a `Vec` never fails to extend.
-    let payload = borsh::to_vec(record).expect("encoding a record to a Vec is infallible");
+    // Encoding to a `Vec` cannot fail: every field's serde form is a plain
+    // byte string or container, and a `Vec` never fails to extend.
+    let mut payload = Vec::new();
+    ciborium::ser::into_writer(record, &mut payload)
+        .expect("encoding a record to a Vec is infallible");
     frame(&payload)
 }
 
 /// Validate a bookmark frame and deserialize its record.
 ///
-/// [`unframe`]s, then borsh-decodes the payload. The inverse of [`encode`].
+/// [`unframe`]s, then CBOR-decodes the payload, which must be exactly one
+/// CBOR value. The inverse of [`encode`].
 ///
 /// # Errors
 ///
@@ -194,7 +197,20 @@ pub(crate) fn encode(record: &BTreeMap<Network, Vec<Clock>>) -> Vec<u8> {
 /// corruption).
 pub(crate) fn decode(bytes: &[u8]) -> Result<BTreeMap<Network, Vec<Clock>>, FormatError> {
     let payload = unframe(bytes)?;
-    borsh::from_slice(payload).map_err(FormatError::Decode)
+    let mut input = payload;
+    let record = ciborium::de::from_reader(&mut input).map_err(|e| {
+        FormatError::Decode(match e {
+            ciborium::de::Error::Io(e) => e,
+            e => std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()),
+        })
+    })?;
+    if !input.is_empty() {
+        return Err(FormatError::Decode(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("{} trailing bytes after the bookmark record", input.len()),
+        )));
+    }
+    Ok(record)
 }
 
 #[cfg(test)]

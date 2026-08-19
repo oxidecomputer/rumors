@@ -16,28 +16,26 @@ version frame: 30 bytes
   0010: 00 00 00 00 00 02 19 00
   0018: 00 00 00 00 4b 24
 listing: 2 child(ren)
-  child 0x9c: 5b97e7f3a07810e9137936dfdc8fa30e76e419b6b3b8a0e7
-  child 0xa0: b7e99b381ba2cb4d2f4fef624ed06674d9e0a367d05272d6
-listing frame: 58 bytes
-  0000: 00 00 00 36 02 00 00 00
-  0008: 9c 5b 97 e7 f3 a0 78 10
-  0010: e9 13 79 36 df dc 8f a3
-  0018: 0e 76 e4 19 b6 b3 b8 a0
-  0020: e7 a0 b7 e9 9b 38 1b a2
-  0028: cb 4d 2f 4f ef 62 4e d0
-  0030: 66 74 d9 e0 a3 67 d0 52
-  0038: 72 d6
+  child 0x64: bb28d1c9e9fa40672e21164802bc8e7a23eb03126468e82c
+  child 0x7c: f53f9477309788c6ed8834008f394a3be5f212959fac55fa
+listing frame: 54 bytes
+  0000: 00 00 00 32 64 bb 28 d1
+  0008: c9 e9 fa 40 67 2e 21 16
+  0010: 48 02 bc 8e 7a 23 eb 03
+  0018: 12 64 68 e8 2c 7c f5 3f
+  0020: 94 77 30 97 88 c6 ed 88
+  0028: 34 00 8f 39 4a 3b e5 f2
+  0030: 12 95 9f ac 55 fa
 Responder stream 0 (height 31), epoch 0
-  frame 0: QueryEmpty(Continue)
-    0000: 22
+  frame 0: Supply(Continue)
+    supply run: 1 record(s)
+      record 0: version (2, 1, 0), message 1 byte(s)
+    0000: 66 00 00 00 08 00 00 00
+    0008: 04 42 49 50 03
   frame 1: QueryEmpty(Continue)
     0000: 22
-  frame 2: Supply(End)
-    supply run: 1 record(s)
-      record 0: version (2, 1, 0), message 8 byte(s)
-    0000: 77 00 00 00 0e 00 00 00
-    0008: 0a 49 50 03 00 00 00 00
-    0010: 00 00 00
+  frame 2: QueryEmpty(End)
+    0000: 33
   frame 3: End(Stream)
     0000: 99
 trailing frame: 1 bytes
@@ -57,24 +55,22 @@ version frame: 30 bytes
   0010: 00 00 00 00 00 02 19 00
   0018: 00 00 00 00 5c b0
 listing: 2 child(ren)
-  child 0x9: 7ca8b07cb28254109eb3f89675cdb22ab6882b6ab31b3cdf
-  child 0x57: 8c3f0107d1645e45e31c5c5bd2c2c84f457fdce162fe19f4
-listing frame: 58 bytes
-  0000: 00 00 00 36 02 00 00 00
-  0008: 09 7c a8 b0 7c b2 82 54
-  0010: 10 9e b3 f8 96 75 cd b2
-  0018: 2a b6 88 2b 6a b3 1b 3c
-  0020: df 57 8c 3f 01 07 d1 64
-  0028: 5e 45 e3 1c 5c 5b d2 c2
-  0030: c8 4f 45 7f dc e1 62 fe
-  0038: 19 f4
+  child 0x9a: cca7fd1fe957c5267ce159c8f3fe95bc4f496f6b2fb5fa39
+  child 0xe7: c9b78024d3d0ad1a5523b4ac969d289fee0651305c416d72
+listing frame: 54 bytes
+  0000: 00 00 00 32 9a cc a7 fd
+  0008: 1f e9 57 c5 26 7c e1 59
+  0010: c8 f3 fe 95 bc 4f 49 6f
+  0018: 6b 2f b5 fa 39 e7 c9 b7
+  0020: 80 24 d3 d0 ad 1a 55 23
+  0028: b4 ac 96 9d 28 9f ee 06
+  0030: 51 30 5c 41 6d 72
 Initiator stream 0 (height 31), epoch 0
   frame 0: Supply(End)
     supply run: 1 record(s)
-      record 0: version (2, 0, 1), message 8 byte(s)
-    0000: 77 00 00 00 0e 00 00 00
-    0008: 0a 5d c0 04 00 00 00 00
-    0010: 00 00 00
+      record 0: version (2, 0, 1), message 1 byte(s)
+    0000: 77 00 00 00 08 00 00 00
+    0008: 04 42 5d c0 04
   frame 1: End(Stream)
     0000: 99
 Initiator stream 1 (height 30), epoch 0

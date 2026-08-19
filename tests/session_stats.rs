@@ -25,11 +25,13 @@ use tokio::io::AsyncWrite;
 
 use crate::common::wire::{LINK_BUF, assert_control_drained, block_on, bootstrap_fork_async};
 
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 /// Run one gossip session between two handles over an in-memory link,
 /// returning both sides' [`Gossiped`].
 async fn gossip_pair<T>(a: &Rumors<T>, b: &Rumors<T>) -> (Gossiped, Gossiped)
 where
-    T: borsh::BorshSerialize + borsh::BorshDeserialize + Send + Sync + 'static,
+    T: Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(LINK_BUF);
     let (a_out, b_out) = tokio::join!(a.gossip(&mut a_link), b.gossip(&mut b_link));
@@ -95,13 +97,13 @@ fn honored_redaction_counts_as_shed() {
         let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
         a.batch().send(10).send(20);
         let b = bootstrap_fork_async(&a).await;
-        let key = a
+        let version = a
             .snapshot()
             .iter()
-            .find(|(_, _, value)| ***value == 10)
-            .map(|(key, _, _)| key)
+            .find(|(_, value)| ***value == 10)
+            .map(|(version, _)| version.clone())
             .expect("the sent message is live");
-        a.redact(key);
+        a.redact(&version);
 
         let (a_g, b_g) = gossip_pair(&a, &b).await;
         assert_eq!(b_g.stats.messages_shed, 1, "b honors a's deletion");

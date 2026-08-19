@@ -123,7 +123,7 @@ impl_heights!(
 );
 
 /// The height of the root: 32 levels above the leaves, one per byte of a
-/// leaf's 32-byte content-addressed path.
+/// leaf's 32-byte version-derived path.
 #[rustfmt::skip]
 pub type Root =
 // Laid out for your counting convenience in two rows of 16:

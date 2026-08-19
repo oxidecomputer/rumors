@@ -1,15 +1,14 @@
 //! Wire-format snapshot tests.
 //!
 //! Each type that crosses the protocol boundary is pinned here against an
-//! `insta` snapshot of its borsh encoding. A drift means an interop break;
+//! `insta` snapshot of its wire encoding. A drift means an interop break;
 //! re-accept a snapshot only after a deliberate format change.
-
-use borsh::BorshDeserialize;
 
 use super::message;
 use crate::tree::arb::nth_party;
 use crate::tree::typed::height::{Height, Root, S, UnderRoot, Z};
 use crate::tree::typed::{Children, Hash, Node, Prefix, hash::MERKLE_HASH_LEN};
+use crate::tree::wire;
 use crate::{Version, message::Message};
 
 /// Map a single-letter party label to its disjoint-party index (see
@@ -45,13 +44,13 @@ fn hex_dump(bytes: &[u8]) -> String {
     s
 }
 
-fn snap<T: borsh::BorshSerialize>(value: &T) -> String {
-    hex_dump(&borsh::to_vec(value).unwrap())
+fn snap<T: wire::Encode>(value: &T) -> String {
+    hex_dump(&wire::to_vec(value).unwrap())
 }
 
 fn prefix_from_bytes<H: Height>(bytes: &[u8]) -> Prefix<H> {
     assert_eq!(bytes.len(), 32 - H::HEIGHT);
-    Prefix::<H>::try_from_slice(bytes).expect("known-valid prefix bytes")
+    wire::from_slice(bytes).expect("known-valid prefix bytes")
 }
 
 fn leaf(party: &str, version: u64) -> Node<(), Z> {

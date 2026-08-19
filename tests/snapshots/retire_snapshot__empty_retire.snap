@@ -16,8 +16,8 @@ version frame: 29 bytes
   0010: 00 00 00 00 00 02 19 00
   0018: 00 00 00 00 e0
 listing: 0 child(ren)
-listing frame: 8 bytes
-  0000: 00 00 00 04 00 00 00 00
+listing frame: 4 bytes
+  0000: 00 00 00 00
 trailing frame: 1 bytes
   0000: 2e
 
@@ -35,7 +35,7 @@ version frame: 29 bytes
   0010: 00 00 00 00 00 02 19 00
   0018: 00 00 00 00 e0
 listing: 0 child(ren)
-listing frame: 8 bytes
-  0000: 00 00 00 04 00 00 00 00
+listing frame: 4 bytes
+  0000: 00 00 00 00
 trailing frame: 6 bytes
   0000: 00 00 00 01 48 2e

@@ -18,13 +18,13 @@
 //!   subtree the other side learns; anything causally `<=` the other side's
 //!   version was deleted there (the version vector is the entire deletion
 //!   mechanism; there are no tombstones) and is dropped.
-//! - **both have it, hashes equal**: the subtrees are identical (content
-//!   addressing makes equal hash ⟹ equal content, versions included), so keep
-//!   one verbatim.
+//! - **both have it, hashes equal**: the subtrees hold the same version
+//!   set (paths are version-derived, so a hash commits the versions
+//!   beneath it), hence the same messages; keep one verbatim.
 //! - **both have it, hashes differ**: explode both one level and merge-walk
 //!   the two ascending radix fans in lockstep, recursing only into the
 //!   radixes whose child subtrees differ — children equal by pointer or by
-//!   content hash carry over verbatim through the shared structure — and
+//!   Merkle hash carry over verbatim through the shared structure — and
 //!   reassembling with [`Node::branch`] (which re-compresses singletons and
 //!   recomputes the joined branch version).
 //!
@@ -51,7 +51,7 @@ use height::{Height, Root, S, Z};
 /// by deletion honoring. The recursion decides this exactly, with no hashing:
 /// a gain is a subtree of `b` surviving the deletion filter where `a` held
 /// nothing, and a drop moves a node's exact memoized leaf count. Gains and
-/// drops live at distinct content-addressed paths and each is monotone at its
+/// drops live at distinct version-addressed paths and each is monotone at its
 /// path, so they cannot cancel: an untouched flag really means the merged
 /// tree is `a`, content-identical, equal root hash.
 pub fn join<T>(
@@ -65,7 +65,8 @@ where
     T: Send + Sync,
 {
     // Test-only unwind source for the panic-atomicity pin: the merge walk
-    // is the fallible region of `Tree::join`'s commit section, and its
+    // is the unwind-source region of `Tree::join`'s commit section (deletion
+    // honoring and the duplicate-subtree drops run `T` destructors), and its
     // entry burns the first fuse step (each branch-level step below burns
     // one more).
     #[cfg(test)]
@@ -136,10 +137,9 @@ where
             }
             (Some(ours), Some(theirs)) => {
                 // Identical subtrees: keep one. Equality short-circuits on
-                // shared backing (the common case for forked trees, hash-free)
-                // and otherwise on the content hash ⟹ equal content (content
-                // addressing). Either way there is nothing to learn on either
-                // side.
+                // shared backing (the common case for forked trees,
+                // hash-free), else on the Merkle hash — same version set, hence
+                // same messages: nothing to learn on either side.
                 if ours == theirs {
                     return Some(ours);
                 }
@@ -232,11 +232,15 @@ impl Join for Z {
                 *changed |= gained.is_some();
                 gained
             }
-            // Two leaves at the same path are the same leaf: the path is the
-            // content-addressed hash of (version, value) (see
-            // `Path::for_leaf`), so identical paths carry identical contents.
-            // Keep one.
-            (Some(ours), Some(_)) => Some(ours),
+            // Two leaves at one position share the path, and a leaf digest
+            // is a pure function of its path (`Hash::leaf`), so the pair
+            // hashes equal and the level above carries it over verbatim
+            // without recursing. Collision detection is ingestion's job
+            // (`react`'s occupied-path arms), where both leaves are in
+            // hand; the merge walk trusts path derivation.
+            (Some(_), Some(_)) => {
+                unreachable!("same-position leaves hash equally and prune above")
+            }
         }
     }
 }

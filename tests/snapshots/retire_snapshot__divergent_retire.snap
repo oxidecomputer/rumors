@@ -16,22 +16,20 @@ version frame: 30 bytes
   0010: 00 00 00 00 00 02 19 00
   0018: 00 00 00 00 55 40
 listing: 1 child(ren)
-  child 0xc0: 4e2095fab2a3d070533be5cc06f84713ff93bd2574cf2016
-listing frame: 33 bytes
-  0000: 00 00 00 1d 01 00 00 00
-  0008: c0 4e 20 95 fa b2 a3 d0
-  0010: 70 53 3b e5 cc 06 f8 47
-  0018: 13 ff 93 bd 25 74 cf 20
-  0020: 16
+  child 0x93: c4c0139f3f4f4afe9715d26a43953691cdc861574ffc8196
+listing frame: 29 bytes
+  0000: 00 00 00 19 93 c4 c0 13
+  0008: 9f 3f 4f 4a fe 97 15 d2
+  0010: 6a 43 95 36 91 cd c8 61
+  0018: 57 4f fc 81 96
 Responder stream 0 (height 31), epoch 0
-  frame 0: QueryEmpty(Continue)
-    0000: 22
-  frame 1: Supply(End)
+  frame 0: Supply(Continue)
     supply run: 1 record(s)
-      record 0: version (0, 1, 0), message 8 byte(s)
-    0000: 77 00 00 00 0e 00 00 00
-    0008: 0a 55 40 02 00 00 00 00
-    0010: 00 00 00
+      record 0: version (0, 1, 0), message 1 byte(s)
+    0000: 66 00 00 00 08 00 00 00
+    0008: 04 42 55 40 02
+  frame 1: QueryEmpty(End)
+    0000: 33
   frame 2: End(Stream)
     0000: 99
 trailing frame: 1 bytes
@@ -51,20 +49,18 @@ version frame: 29 bytes
   0010: 00 00 00 00 00 02 19 00
   0018: 00 00 00 00 77
 listing: 1 child(ren)
-  child 0xd: c14a19589e521206ef56ae41b56bcf91761df869fc42fe2d
-listing frame: 33 bytes
-  0000: 00 00 00 1d 01 00 00 00
-  0008: 0d c1 4a 19 58 9e 52 12
-  0010: 06 ef 56 ae 41 b5 6b cf
-  0018: 91 76 1d f8 69 fc 42 fe
-  0020: 2d
+  child 0xf2: 42bb8c7ce00cc0681c05edde50af1bd47d5d94d0a136c882
+listing frame: 29 bytes
+  0000: 00 00 00 19 f2 42 bb 8c
+  0008: 7c e0 0c c0 68 1c 05 ed
+  0010: de 50 af 1b d4 7d 5d 94
+  0018: d0 a1 36 c8 82
 Initiator stream 0 (height 31), epoch 0
   frame 0: Supply(End)
     supply run: 1 record(s)
-      record 0: version (0, 0, 1), message 8 byte(s)
-    0000: 77 00 00 00 0d 00 00 00
-    0008: 09 77 01 00 00 00 00 00
-    0010: 00 00
+      record 0: version (0, 0, 1), message 1 byte(s)
+    0000: 77 00 00 00 07 00 00 00
+    0008: 03 41 77 01
   frame 1: End(Stream)
     0000: 99
 Initiator stream 1 (height 30), epoch 0

@@ -1,5 +1,5 @@
 //! The pipeline window: per-height static bounds on in-flight disputed
-//! scopes, sized by the occupancy statistics of uniform content addresses.
+//! scopes, sized by the occupancy statistics of uniform leaf paths.
 //!
 //! Every recursive edge in the streaming session — the walk's query and
 //! resolution queues, the proxy's flushed-question and next-scope queues —
@@ -131,7 +131,7 @@ use crate::tree::typed::{self, Prefix, height::Z};
 /// regardless of any window tuning.
 pub(crate) const FAN: usize = 256;
 
-/// Radix levels in the trie: one byte of a 32-byte content address per
+/// Radix levels in the trie: one byte of a 32-byte leaf path per
 /// level. Typed heights run from `Z = 0` (leaves) to `Root = KEY_DEPTH`;
 /// the *depth* of the children discussed at height `h` is `KEY_DEPTH − h`.
 const KEY_DEPTH: usize = 32;
@@ -201,18 +201,22 @@ pub(crate) const SUPPLY_DECODE_ENVELOPE_BYTES: usize =
 pub(crate) const SPEC_BDP_BYTES: usize = 12_500_000;
 
 /// End-to-end wire bytes of one disputed message beyond its record's
-/// encoded payload: its question share, reply share, and record framing.
+/// encoded payload.
+///
+/// Its question share, reply share, and record framing (the record's
+/// version atom rides as a CBOR byte string, whose header is part of
+/// this intercept).
 ///
 /// Calibrated: `tests/dispute_wire.rs` counts every byte of
 /// deterministic in-memory sessions and pins the per-message cost as an
-/// affine law — this intercept plus the record's borsh-encoded
+/// affine law — this intercept plus the record's CBOR-encoded
 /// payload — at three payload sizes. The closed form documented at
 /// [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget) is
 /// denominated in it.
 #[cfg(any(test, feature = "test-internals"))]
-pub(crate) const DISPUTE_OVERHEAD_BYTES: usize = 34;
+pub(crate) const DISPUTE_OVERHEAD_BYTES: usize = 35;
 
-/// The design record's borsh-encoded payload size: the `m = 172` column
+/// The design record's CBOR-encoded payload size: the `m = 172` column
 /// of the trade-off table, and the record size the wire-cost anchor
 /// below is stated at.
 #[cfg(any(test, feature = "test-internals"))]
@@ -549,7 +553,7 @@ impl Default for WindowConfig {
 
 // ─── The integer occupancy envelopes ─────────────────────────────────────
 //
-// Uniform 32-byte content addresses put Binomial(N, 256⁻ʲ) leaves under
+// Uniform 32-byte leaf paths put Binomial(N, 256⁻ʲ) leaves under
 // each depth-j prefix, with iid-uniform continuations — exact, no
 // Poissonization. Chernoff–Hoeffding tails apply verbatim to every
 // count below even though slot occupancies are dependent: occupancy

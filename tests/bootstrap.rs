@@ -21,6 +21,8 @@ use crate::common::flaky::{DurableStore, FaultFeed, FlakyInMemoryBookmark, persi
 use crate::common::oracle::readout;
 use crate::common::wire::{assert_control_drained, block_on, bootstrap_fork, wire_gossip};
 
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 /// Capacity for each in-memory link stream. Roomy enough that the bootstrap
 /// descent's largest frames fit without the test depending on backpressure
 /// subtleties.
@@ -30,7 +32,7 @@ const LINK_BUF: usize = 64 * 1024;
 /// link, returning whatever the bootstrapper produced.
 fn wire_bootstrap<T>(provider: &Rumors<T>) -> Option<Rumors<T>>
 where
-    T: borsh::BorshSerialize + borsh::BorshDeserialize + Send + Sync + 'static,
+    T: Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     block_on(async move {
         let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(LINK_BUF);
@@ -50,8 +52,9 @@ where
 
 proptest! {
     /// Bootstrapping from a provider yields exactly the provider's live
-    /// `(Key, value)` content (keys are stable across peers), leaves the
-    /// provider's own content untouched, and mints a *disjoint* party.
+    /// content, message identities included (versions are stable across
+    /// peers), leaves the provider's own content untouched, and mints a
+    /// *disjoint* party.
     ///
     /// Disjointness is proven behaviorally: a message the newcomer originates
     /// survives a gossip round back into the provider, which a non-disjoint or
@@ -81,13 +84,13 @@ proptest! {
         bootstrapped.send(u64::MAX);
         wire_gossip(&provider, &bootstrapped);
         prop_assert!(
-            provider.snapshot().iter().any(|(_, _, m)| **m == u64::MAX),
+            provider.snapshot().iter().any(|(_, m)| **m == u64::MAX),
             "the newcomer's origination must survive gossip into the provider",
         );
     }
 
     /// `String`-`T` variant of [`bootstrap_reproduces_a_fork`]: the same
-    /// invariant for a non-primitive value type, exercising the borsh
+    /// invariant for a non-primitive value type, exercising the wire
     /// round-trip of the whole-tree frame for `T = String`.
     #[test]
     fn bootstrap_reproduces_a_fork_string(actions in arb_string_actions()) {
@@ -111,7 +114,7 @@ proptest! {
         bootstrapped.send("newcomer's own".to_string());
         wire_gossip(&provider, &bootstrapped);
         prop_assert!(
-            provider.snapshot().iter().any(|(_, _, m)| **m == "newcomer's own"),
+            provider.snapshot().iter().any(|(_, m)| **m == "newcomer's own"),
             "the newcomer's origination must survive gossip into the provider",
         );
     }
@@ -189,7 +192,7 @@ fn zero_budget_bootstrap_converges() {
     bootstrapped.send(u64::MAX);
     wire_gossip(&provider, &bootstrapped);
     assert!(
-        provider.snapshot().iter().any(|(_, _, m)| **m == u64::MAX),
+        provider.snapshot().iter().any(|(_, m)| **m == u64::MAX),
         "the newcomer's origination must survive its zero-budget gossip",
     );
 }

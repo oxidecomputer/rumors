@@ -266,11 +266,11 @@ fn tradeoff_table_matches_the_derivation() {
 /// The crossover and BDP-scale u64 figures the docs quote are the
 /// solve's own numbers.
 ///
-/// `m* = 61 B` (quoted at `Peer::sync_memory_budget`) is the
+/// `m* = 60 B` (quoted at `Peer::sync_memory_budget`) is the
 /// smallest record size whose self-consistent corpus — the spec BDP in
 /// `m`-size records, per side — fits entirely inside the window the
 /// default budget derives at that corpus; the u64 column's BDP-scale
-/// corpus derives a 65,401-scope window, the quoted ~4.6× figure.
+/// corpus derives a 65,404-scope window, the quoted ~4.3× figure.
 /// Both are recomputed here from the derivation, so the quoted prose
 /// fails loudly instead of drifting when the solve or its constants
 /// change.
@@ -296,14 +296,15 @@ fn default_crossover_matches_the_solve() {
     });
     assert_eq!(
         crossover,
-        Some(61),
+        Some(60),
         "the default's self-consistent slowdown-1 crossover moved: update the figures \
          quoted at Peer::sync_memory_budget",
     );
-    let u64_corpus = (SPEC_BDP_BYTES / (DISPUTE_OVERHEAD_BYTES + 8)) as u64;
+    // A random u64 payload CBOR-encodes to 9 bytes (header + value).
+    let u64_corpus = (SPEC_BDP_BYTES / (DISPUTE_OVERHEAD_BYTES + 9)) as u64;
     assert_eq!(
         window_at(u64_corpus),
-        65_401,
+        65_404,
         "the u64 BDP-scale window moved: update the ~4.6x figure quoted at \
          Peer::sync_memory_budget",
     );

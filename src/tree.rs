@@ -7,19 +7,22 @@
 //! # Shape
 //!
 //! Branching factor 256, fixed depth 32: a leaf's path is its 32-byte
-//! content address, one byte per level, derived from the hash of its
-//! `(version, value)` pair ([`Path::for_leaf`](typed::Path::for_leaf)).
-//! Content addressing buys three properties at once:
+//! version address, one byte per level — the full-width hash of the
+//! leaf's version ([`Path::for_leaf`](typed::Path::for_leaf)). Message
+//! bytes enter no path and no digest; identity rests on the invariant the
+//! protocol already requires everywhere, that no two messages ever share
+//! a version. Version addressing buys three properties at once:
 //!
 //! - **The set is the tree.** Where a leaf lives is fully determined by
-//!   what it is, so two replicas holding the same messages hold the same
-//!   tree, regardless of insertion order or which peer sent what. Union is
-//!   well-defined node-by-node.
+//!   the version stamped on it, so two replicas holding the same messages
+//!   hold the same tree, regardless of insertion order or which peer sent
+//!   what. Union is well-defined node-by-node.
 //! - **Equal hash ⟹ equal subtree.** Each node memoizes a Merkle hash of
-//!   its subtree, so replicas can prune agreement wholesale — the engine of
+//!   its subtree — a pure function of the version set, blind to message
+//!   bytes — so replicas can prune agreement wholesale: the engine of
 //!   the [`mirror`] protocol's divergence-proportional cost. The Merkle
 //!   hash is a 24-byte truncation, deliberately narrower than the 32-byte
-//!   content address: a comparison signal tolerates truncation that an
+//!   version address: a comparison signal tolerates truncation that an
 //!   identity cannot (see [`typed::Hash`] for the asymmetry argument).
 //! - **Uniform spread.** Hashed paths are uniform, so the trie is
 //!   expected-balanced with no adversarial input shape; depth bounds are
@@ -59,13 +62,15 @@
 
 use std::sync::Arc;
 
-mod key;
-mod traverse;
+pub(crate) mod traverse;
 pub(crate) mod typed;
+// The alternating protocol is the only production consumer; the typed
+// tree's own tests exercise the codec regardless of features.
+#[cfg(any(test, feature = "protocol-v1"))]
+pub(crate) mod wire;
 
 use crate::{Version, causally, message::Message, tree::typed::Node};
 
-pub use key::Key;
 pub use typed::hash::MERKLE_HASH_LEN;
 
 pub mod mirror;
@@ -79,11 +84,12 @@ pub use typed::{Leaf, RangeOwned};
 /// leaves store versioned [`Message<T>`]s.
 ///
 /// The tree has a branching factor of 256 and a depth of 32, so a leaf's
-/// 32-byte path is its content-addressed hash (see
-/// [`Path::for_leaf`](typed::Path::for_leaf)). The version is folded into
-/// the path, so two content-identical messages inserted at distinct
-/// versions occupy distinct leaves; two leaves collide only when they carry
-/// the same `(version, value)` pair, which disjoint parties cannot produce.
+/// 32-byte path is the full-width hash of its version (see
+/// [`Path::for_leaf`](typed::Path::for_leaf)). Versions are unique per
+/// send — locally by tick, globally by party disjointness — so two
+/// content-identical messages sent at distinct moments occupy distinct
+/// leaves, and two leaves collide only when a version has been reused,
+/// which conforming peers cannot do.
 #[derive(Debug, Eq)]
 pub struct Tree<T> {
     pub(crate) root: Root<T>,
@@ -159,23 +165,23 @@ impl<T> Default for Tree<T> {
 pub enum Action<T> {
     /// Insert some value, tagged at the current version by your own party.
     Insert(Message<T>),
-    /// Forget the value corresponding to a hash.
-    Forget(Key),
+    /// Forget the leaf at a version-derived path.
+    Forget(typed::Path),
 }
 
 /// The iterator of [`Snapshot::iter`](crate::Snapshot::iter):
 /// a lazy depth-first walk over every live message as
-/// `(Key, &Version, &Arc<T>)`, in unspecified order.
+/// `(&Version, &Arc<T>)`, in unspecified order.
 ///
 /// An [`ExactSizeIterator`] (the live-message count is known up front) and a
 /// [`DoubleEndedIterator`].
 pub struct Iter<'a, T>(typed::Iter<'a, T>);
 
 impl<'a, T> Iterator for Iter<'a, T> {
-    type Item = (Key, &'a Version, &'a Arc<T>);
+    type Item = (&'a Version, &'a Arc<T>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.0.next().map(|(k, v, m)| (k, v, m.as_arc()))
+        self.0.next().map(|(v, m)| (v, m.as_arc()))
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -185,7 +191,7 @@ impl<'a, T> Iterator for Iter<'a, T> {
 
 impl<'a, T> DoubleEndedIterator for Iter<'a, T> {
     fn next_back(&mut self) -> Option<Self::Item> {
-        self.0.next_back().map(|(k, v, m)| (k, v, m.as_arc()))
+        self.0.next_back().map(|(v, m)| (v, m.as_arc()))
     }
 }
 
@@ -269,12 +275,14 @@ impl<T> Tree<T> {
         Node::root_hash(&self.root.clone().into()).into()
     }
 
-    /// Looks up a single live message by its [`Key`].
-    pub fn get(&self, key: &Key) -> Option<(&Version, &Arc<T>)> {
+    /// Looks up the live message stamped with `version`, by its
+    /// version-derived path.
+    pub fn get(&self, version: &Version) -> Option<(&Version, &Arc<T>)> {
+        let path = <[u8; 32]>::from(typed::Path::for_leaf(version));
         self.root
             .root
             .as_ref()?
-            .get(&key.0)
+            .get(&path)
             .map(|(version, message)| (version, message.as_arc()))
     }
 
@@ -297,7 +305,7 @@ impl<T> Tree<T> {
     }
 
     /// Lazily iterates every live leaf currently in the tree as
-    /// `(Key, &Version, &Arc<T>)`, in unspecified order.
+    /// `(&Version, &Arc<T>)`, in unspecified order.
     pub fn iter(&self) -> Iter<'_, T>
     where
         T: Send + Sync,
@@ -339,7 +347,7 @@ impl<T> Tree<T> {
     pub fn range<'q, P: causally::Polarity>(
         &'q self,
         query: impl Into<causally::Query<'q, P>>,
-    ) -> impl DoubleEndedIterator<Item = (Key, &'q Version, &'q Arc<T>)> + Send + Sync
+    ) -> impl DoubleEndedIterator<Item = (&'q Version, &'q Arc<T>)> + Send + Sync
     where
         T: Send + Sync,
     {
@@ -347,7 +355,7 @@ impl<T> Tree<T> {
             // The shared walk yields the full `&Message<T>`; the public
             // contract hands out only the `&Arc<T>` value, a cheap projection
             // of it.
-            .map(|(k, v, m)| (k, v, m.as_arc()))
+            .map(|(v, m)| (v, m.as_arc()))
     }
 
     /// Applies the specified actions as a batch to the tree, advancing its
@@ -356,11 +364,11 @@ impl<T> Tree<T> {
     /// Each [`Action::Insert`] advances the local party's component of the
     /// version vector by one before the leaf's path is derived; the inserts
     /// in a batch are therefore assigned strictly-increasing versions in the
-    /// order they appear, and two content-identical messages within a batch
-    /// receive distinct keys. An [`Action::Forget`] ticks too, so an
+    /// order they appear, so two content-identical messages within a batch
+    /// occupy distinct leaves. An [`Action::Forget`] ticks too, so an
     /// effectual forget carries a version strictly greater than any prior
     /// insert (the mirror protocol's deletion-honoring inference depends on
-    /// that; see the body comment). A forget that targets a key derived from
+    /// that; see the body comment). A forget that targets the version of
     /// an earlier insert in the same batch overrides that insert (last
     /// action on a path wins).
     ///
@@ -395,14 +403,15 @@ impl<T> Tree<T> {
     ///   *above* the ceiling; session ingestion rejects the shape) can
     ///   produce `true` without a hash change, and then the cost is one
     ///   spurious watch wakeup, never a missed one.
+    ///
     pub fn act<I>(&mut self, party: &before::Party, actions: I) -> bool
     where
         T: Send + Sync,
         I: IntoIterator<Item = Action<T>>,
     {
         // Track the running version across the batch, ticking the owning party
-        // once per action so that (a) content-identical messages produce
-        // distinct keys even when submitted together, and (b) forgets carry a
+        // once per action so that (a) content-identical messages occupy
+        // distinct leaves even when submitted together, and (b) forgets carry a
         // version strictly greater than any prior insert at this party. The
         // strict tick on forgets is required by the mirror protocol's
         // deletion-honoring inference, which cannot distinguish "forgot it"
@@ -421,17 +430,14 @@ impl<T> Tree<T> {
             let version = new_version.clone();
 
             // Convert unversioned, unlocalized actions into reactions
-            // independent of our party and current version. The key is
+            // independent of our party and current version. The path is
             // derived from the post-tick version, which is unique per
             // insert (see [`typed::Path::for_leaf`]).
-            let (key, value) = match action {
-                Action::Forget(hash) => (hash, None),
-                Action::Insert(value) => {
-                    let key = typed::Path::for_leaf(&version, value.bytes()).into();
-                    (key, Some(value))
-                }
+            let (path, value) = match action {
+                Action::Forget(path) => (path, None),
+                Action::Insert(value) => (typed::Path::for_leaf(&version), Some(value)),
             };
-            (key, version, value)
+            (path, version, value)
         }))
     }
 
@@ -443,9 +449,9 @@ impl<T> Tree<T> {
     ///
     /// If multiple actions refer to the same leaf of the tree, the causally
     /// latest action wins, with order of specification breaking concurrency
-    /// and version ties. Each item is keyed by its version and content hash,
-    /// so if each party only manipulates its own tree through
-    /// [`Tree::act`], these conflicts cannot arise.
+    /// and version ties. Each item is keyed by its version-derived path, so
+    /// if each party only manipulates its own tree through [`Tree::act`],
+    /// these conflicts cannot arise.
     ///
     /// As with [`act`](Self::act), a batch is applied in a single traversal,
     /// which is more efficient than applying its actions one at a time but
@@ -454,12 +460,14 @@ impl<T> Tree<T> {
     /// Returns whether the effectual-action observer fired at all — the
     /// changed flag [`act`](Self::act) hands out, with the contract stated
     /// there. `false` means no observation and therefore no ceiling
-    /// movement either: the tree is untouched.
+    /// movement either: the tree is untouched. Panics exactly as
+    /// [`traverse::act`](fn@traverse::act) does (version reuse: a crate bug, never an input),
+    /// with the tree untouched on unwind.
     fn react<M, I>(&mut self, reactions: I) -> bool
     where
         T: Send + Sync,
         M: Into<Option<Message<T>>>,
-        I: IntoIterator<Item = (Key, Version, M)>,
+        I: IntoIterator<Item = (typed::Path, Version, M)>,
     {
         // Materialize the caller's action stream before the commit section
         // begins: a panicking caller iterator (`act`'s version ticks and key
@@ -471,13 +479,9 @@ impl<T> Tree<T> {
         // the radix sort immediately consumes.
         let actions: Vec<_> = reactions
             .into_iter()
-            .map(|(key, version, message)| match message.into() {
-                None => (typed::Path::from(key), version, traverse::Action::Forget),
-                Some(value) => (
-                    typed::Path::from(key),
-                    version,
-                    traverse::Action::Insert(value),
-                ),
+            .map(|(path, version, message)| match message.into() {
+                None => (path, version, traverse::Action::Forget),
+                Some(value) => (path, version, traverse::Action::Insert(value)),
             })
             .collect();
 
@@ -548,6 +552,7 @@ impl<T> Tree<T> {
     /// whose every message we already hold or honor as deleted): the flag
     /// answers for what observers of the *set* can see, and a ceiling-only
     /// join leaves the set untouched.
+    ///
     pub fn join(&mut self, other: Tree<T>) -> bool
     where
         T: Send + Sync,
@@ -584,9 +589,9 @@ impl<T> Tree<T> {
         let new_ceiling = &self.root.ceiling | their_version;
 
         // The commit point: the walk and the ceiling fold both completed
-        // without unwinding. Both fields are assigned before the pre-image
-        // drops, because that drop runs user code — everything deletion
-        // honoring removed from our side becomes uniquely held here, so its
+        // without unwinding. Both fields are assigned before the pre-image drops,
+        // because that drop runs user code — everything deletion honoring
+        // removed from our side becomes uniquely held here, so its
         // cascading `T` destructors run now, and a panicking destructor
         // must find the tree already consistent. The defense is nothing
         // subtler than statement order: replace, assign, then drop.

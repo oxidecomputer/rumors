@@ -6,9 +6,9 @@
 //! order-independence across three peers, and the union of live content —
 //! plus the causal-concurrency basics the merge rests on.
 //!
-//! Live content is compared through `readout` (the `(Key, value)` lens the
-//! oracle checks also use) or through `hash`/`latest` where the assertion
-//! is "nothing changed at all".
+//! Live content is compared through `readout` (the identity → value lens
+//! the oracle checks also use) or through `hash`/`latest` where the
+//! assertion is "nothing changed at all".
 //!
 //! Every peer in a test is a genuine, party-disjoint fork of one shared
 //! [`Peer::seed`](rumors::Peer::seed), minted by [`bootstrap_fork`]. They
@@ -18,7 +18,6 @@
 
 mod common;
 
-use borsh::{BorshDeserialize, BorshSerialize};
 use proptest::prelude::*;
 use rumors::{Rumors, Version, causally};
 
@@ -26,11 +25,13 @@ use crate::common::action::{arb_local_actions, build_local};
 use crate::common::oracle::readout;
 use crate::common::wire::{bootstrap_fork, wire_gossip};
 
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 /// A genuine, party-disjoint copy of `k`'s content: a fresh originator that
 /// holds the same live messages but ticks its own party region.
 fn dup<T>(k: &Rumors<T>) -> Rumors<T>
 where
-    T: Clone + BorshSerialize + BorshDeserialize + Send + Sync + 'static,
+    T: Clone + Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     bootstrap_fork(k)
 }
@@ -192,7 +193,7 @@ proptest! {
         let pre_a = alice.snapshot().latest().clone();
         alice.send(a_value);
         let snap_a = alice.snapshot();
-        let (_, va, _) = snap_a
+        let (va, _) = snap_a
             .range(causally::since(&pre_a))
             .next()
             .expect("alice's insert mints a live leaf");
@@ -200,7 +201,7 @@ proptest! {
         let pre_b = bob.snapshot().latest().clone();
         bob.send(b_value);
         let snap_b = bob.snapshot();
-        let (_, vb, _) = snap_b
+        let (vb, _) = snap_b
             .range(causally::since(&pre_b))
             .next()
             .expect("bob's insert mints a live leaf");
@@ -212,9 +213,9 @@ proptest! {
     /// equals the union of the two pre-session readouts.
     ///
     /// The "union of readouts" is computed by `BTreeMap::extend`,
-    /// which is sound here only because `Key`s derive from the leaf
-    /// version's canonical bytes and `alice` / `bob` tick disjoint
-    /// parties, so they can't mint the same `Key`.
+    /// which is sound here only because readout keys are the leaf
+    /// versions' canonical bytes and `alice` / `bob` tick disjoint
+    /// parties, so they can't mint the same version.
     #[test]
     fn gossip_unions_content(
         a_actions in arb_local_actions(),

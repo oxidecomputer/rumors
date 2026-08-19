@@ -23,6 +23,16 @@ pub enum Action<T> {
 ///
 /// `actions` is consumed lazily: the only materialization is the radix sort
 /// at each branch level, so callers can feed a `map` chain straight in.
+///
+/// # Panics
+///
+/// Panics if an insert lands on a live leaf disagreeing with it on
+/// version or payload: version reuse. No input reaches that state —
+/// every production insert carries a freshly minted version (a fresh
+/// tick strictly dominates the ceiling bounding every live leaf, and
+/// party linearity keeps regions disjoint), and no wire-derived leaf
+/// passes through this walk — so the panic marks a bug in this crate,
+/// never an environmental failure.
 pub fn act<T, F, I>(
     node: Option<Node<T, Root>>,
     actions: I,
@@ -34,7 +44,7 @@ where
     I: IntoIterator<Item = (Path, Version, Action<T>)>,
 {
     // Test-only unwind source for the panic-atomicity pins: this walk is
-    // the fallible region of `Tree::react`'s commit section, and its entry
+    // the unwind-source region of `Tree::react`'s commit section, and its entry
     // burns the first fuse step (each branch-level step below burns one
     // more).
     #[cfg(test)]
@@ -167,6 +177,23 @@ impl Act for Z {
                     .map(|n| n.ceiling())
                     .unwrap_or(&Version::default())
             {
+                continue;
+            }
+
+            // Paths are version-derived, so an insert landing on a live
+            // leaf claims a version the tree already binds. Verify identity
+            // instead of assuming it: a byte-identical pair is the same
+            // send twice (keep the resident leaf), and any mismatch is
+            // version reuse — no input reaches it (fresh ticks strictly
+            // dominate the ceiling; party linearity keeps regions
+            // disjoint; no wire-derived leaf passes through this walk), so
+            // the assert marks a crate bug before anything commits.
+            if let (Action::Insert(value), Some(existing)) = (&action, &node) {
+                assert!(
+                    *existing.ceiling() == version
+                        && existing.message().as_slice() == value.as_slice(),
+                    "version reuse: an insert landed on a live leaf disagreeing on version or payload",
+                );
                 continue;
             }
 

@@ -19,7 +19,7 @@
 //! the listed child radices. `Match` and `Query` reactions consume those radices
 //! positionally; a nested `Query` thereby creates the lower scope which will
 //! interpret its future reply. `Supply` does not consume the positional cursor:
-//! its content-derived path recovers its child radix independently. The
+//! its version-derived path recovers its child radix independently. The
 //! leaf-height exception is an empty `Query`: it consumes its leaf position and
 //! requests that leaf itself, creating a terminal scope at the same height
 //! rather than descending. The initiator's opening reply is the sole

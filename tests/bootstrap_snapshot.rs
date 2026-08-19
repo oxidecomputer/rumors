@@ -23,7 +23,6 @@
 
 mod common;
 
-use borsh::{BorshDeserialize, BorshSerialize};
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
 #[cfg(feature = "protocol-v1")]
@@ -34,6 +33,8 @@ use crate::common::gossip_snapshot::capture_session;
 #[cfg(feature = "protocol-v1")]
 use crate::common::gossip_snapshot::capture_session_v1;
 
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 /// A provider seeded from a fixed RNG, so the [`rumors::Network`] id carried in
 /// the preamble — and the party region it forks off for the newcomer — are
 /// deterministic and these captures stay reproducible.
@@ -50,7 +51,7 @@ fn seeded<T>() -> Rumors<T> {
 /// expected to be served a successor.
 fn capture_bootstrap<T>(provider: Rumors<T>) -> String
 where
-    T: BorshSerialize + BorshDeserialize + Send + Sync + 'static,
+    T: Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     capture_session(
         move |mut link| async move {
@@ -119,10 +120,10 @@ fn v1_populated_provider() {
 
 /// Bootstrap of a non-primitive, variable-length payload.
 ///
-/// `u64` borsh-encodes
-/// to a fixed 8 bytes; `String` encodes as a length prefix followed by its
-/// UTF-8 bytes, so this is the only bootstrap scenario that pins how a
-/// variable-length value is framed inside a served leaf.
+/// A `u64` payload CBOR-encodes
+/// as one compact integer; a `String` encodes as a CBOR text string with
+/// its own length header, so this is the only bootstrap scenario that pins
+/// how a variable-length value is framed inside a served leaf.
 #[test]
 fn string_payload() {
     let provider: Rumors<String> = seeded();

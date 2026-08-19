@@ -64,7 +64,7 @@ pub fn arb_root_node(
         .prop_map(move |draws| {
             // Tick this tree's party once per leaf, so the leaves carry a
             // strictly-increasing chain of versions on a single party. Each
-            // leaf is placed at its content-addressed path, exactly as a real
+            // leaf is placed at its version-derived path, exactly as a real
             // insert does (see [`Path::for_leaf`] and `Tree::act`): a tree with
             // a leaf anywhere else can never arise in production, so gossiping
             // one would test an impossible state.
@@ -75,7 +75,7 @@ pub fn arb_root_node(
                 .map(|()| {
                     version.tick(&p);
                     let message = Message::new(());
-                    let path = Path::for_leaf(&version, message.bytes());
+                    let path = Path::for_leaf(&version);
                     (path, version.clone(), Action::Insert(message))
                 })
                 .collect();
@@ -152,7 +152,7 @@ pub fn arb_divergent_pair() -> BoxedStrategy<(crate::tree::Root<()>, crate::tree
                 &p_s,
                 (0..n_shared).map(|_| Action::Insert(Message::new(()))),
             );
-            let shared_keys: Vec<_> = base.iter().map(|(k, _, _)| k).collect();
+            let shared_keys: Vec<_> = base.iter().map(|(v, _)| Path::for_leaf(v)).collect();
 
             let side = |party: &Party, n: usize, redact: &[bool]| {
                 let mut t = base.clone();
@@ -183,7 +183,7 @@ pub fn arb_divergent_pair() -> BoxedStrategy<(crate::tree::Root<()>, crate::tree
 /// both.
 ///
 /// This strategy closes the proxy tier's generator gap on *budget* only,
-/// deliberately not on *bias*: content addressing makes each child's radix a
+/// deliberately not on *bias*: version hashing makes each child's radix a
 /// function of leaf
 /// hashes, so steering generation toward the early-radix-order deep-dispute
 /// shape would mean a per-case search inside the strategy. The geometry pin
@@ -210,7 +210,7 @@ pub fn arb_wide_divergent_pair() -> BoxedStrategy<(crate::tree::Root<()>, crate:
                 &p_s,
                 (0..n_shared).map(|_| Action::Insert(Message::new(()))),
             );
-            let shared_keys: Vec<_> = base.iter().map(|(k, _, _)| k).collect();
+            let shared_keys: Vec<_> = base.iter().map(|(v, _)| Path::for_leaf(v)).collect();
 
             let side = |party: &Party, n: usize, redact: &[bool]| {
                 let mut t = base.clone();
@@ -340,7 +340,7 @@ pub fn early_first_child_dispute_pair() -> (crate::tree::Root<()>, crate::tree::
         (0..ticks)
             .map(|_| {
                 version.tick(party);
-                let path: [u8; 32] = Path::for_leaf(&version, Message::new(()).as_slice()).into();
+                let path: [u8; 32] = Path::for_leaf(&version).into();
                 path[0]
             })
             .collect()
@@ -395,7 +395,10 @@ pub fn early_first_child_dispute_pair() -> (crate::tree::Root<()>, crate::tree::
             // Both sides' geometry was judged from the simulation, so both
             // sides must agree with the honestly built trees.
             for (tree, firsts) in [(&left, left_firsts), (&right, right_firsts)] {
-                let mut built: Vec<u8> = tree.iter().map(|(k, _, _)| k.as_bytes()[0]).collect();
+                let mut built: Vec<u8> = tree
+                    .iter()
+                    .map(|(v, _)| <[u8; 32]>::from(Path::for_leaf(v))[0])
+                    .collect();
                 let mut simulated = firsts.to_vec();
                 built.sort_unstable();
                 simulated.sort_unstable();
@@ -420,7 +423,7 @@ pub fn early_first_child_dispute_pair() -> (crate::tree::Root<()>, crate::tree::
 /// the declared versions within a test's horizon — the session ceiling the
 /// receiver adopts, or the receiver's own later redact ticks — ever
 /// contains it. Returns the two roots plus the escaped leaf's
-/// content-addressed path and its version.
+/// version-derived path and its version.
 pub fn uncontained_supply_pair() -> (crate::tree::Root<()>, crate::tree::Root<()>, Path, Version) {
     /// How far the escaped version outruns both declared ceilings, per
     /// party: an upper bound on the honest ticks a test performs after
@@ -458,7 +461,7 @@ pub fn uncontained_supply_pair() -> (crate::tree::Root<()>, crate::tree::Root<()
     // The receiving side's honest content: one leaf on its own party,
     // ceiling covering it, exactly as `Tree::act` would leave it.
     let receiver_message = Message::new(());
-    let receiver_path = Path::for_leaf(&receiver_version, receiver_message.bytes());
+    let receiver_path = Path::for_leaf(&receiver_version);
     let receiver = root_with_ceiling(
         act(
             None,
@@ -485,7 +488,7 @@ pub fn uncontained_supply_pair() -> (crate::tree::Root<()>, crate::tree::Root<()
     );
 
     let message = Message::new(());
-    let path = Path::for_leaf(&escaped, message.bytes());
+    let path = Path::for_leaf(&escaped);
     let poisoned = root_with_ceiling(
         act(
             None,
@@ -500,7 +503,7 @@ pub fn uncontained_supply_pair() -> (crate::tree::Root<()>, crate::tree::Root<()
 /// A path all-zero except its final byte: siblings under a single leaf-parent
 /// (`S<Z>`) prefix.
 ///
-/// Real leaves are content-addressed, so two distinct messages share a
+/// Real leaves are version-addressed, so two distinct messages share a
 /// 31-byte prefix only under a hash-prefix collision; these hand-picked
 /// paths let a test construct that shape deliberately.
 fn leaf_sibling_path(last: u8) -> Path {
@@ -526,7 +529,7 @@ fn root_with_ceiling<T>(node: Option<Node<T, Root>>, ceiling: Version) -> crate:
 /// leaving the store's own declared ceiling untouched — the shape only a
 /// nonconforming implementation can then transmit. The margin bounds the
 /// honest ticks a test may perform afterward without containing the
-/// escape. Returns the root plus the escaped leaf's content-addressed path
+/// escape. Returns the root plus the escaped leaf's version-derived path
 /// and its version.
 pub fn poisoned_root<T: Send + Sync>(
     party: &Party,
@@ -541,7 +544,7 @@ pub fn poisoned_root<T: Send + Sync>(
     for _ in 0..ESCAPE_MARGIN {
         escaped.tick(party);
     }
-    let path = Path::for_leaf(&escaped, message.bytes());
+    let path = Path::for_leaf(&escaped);
     let root = root_with_ceiling(
         act(
             None,

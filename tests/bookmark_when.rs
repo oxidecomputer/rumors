@@ -43,7 +43,7 @@
 //! (read), and whether a checkpoint is *pending* — and, from the *operation
 //! semantics alone*, predicts the exact `(reads, writes)` each operation must
 //! drive. The `pending` bit is set purely by *what the operation is*: a send,
-//! or a redact that removed a held key, dirties the peer; incorporating content
+//! or a redact that removed a held message, dirties the peer; incorporating content
 //! over gossip does not; a donation or absorption moves the party. It is never
 //! computed from the version arithmetic the crate's suppression
 //! (`Bookmarked::is_current`) uses — that would only check the implementation
@@ -60,7 +60,7 @@ use std::convert::Infallible;
 use std::sync::{Arc, Mutex};
 
 use proptest::prelude::*;
-use rumors::{Bookmark, BookmarkError, Key, Peer, Retire, Rumors, Serialized};
+use rumors::{Bookmark, BookmarkError, Peer, Retire, Rumors, Serialized, Version};
 use tokio::io::AsyncWrite;
 
 use crate::common::wire::block_on;
@@ -313,7 +313,7 @@ impl Model {
         usize::from(!self.loaded)
     }
 
-    /// A local change — a send, or a redact that removed a held key — that ticks
+    /// A local change — a send, or a redact that removed a held message — that ticks
     /// the subject's own region: no I/O now, but a checkpoint is owed before the
     /// next session.
     fn local_change(&mut self) {
@@ -505,7 +505,7 @@ fn incorporating_remote_content_writes_nothing() {
         "incorporating remote content must drive no bookmark I/O",
     );
     assert!(
-        probe.subject.snapshot().iter().any(|(_, _, m)| **m == 2),
+        probe.subject.snapshot().iter().any(|(_, m)| **m == 2),
         "the remote content was nonetheless incorporated",
     );
 }
@@ -579,8 +579,8 @@ fn attaching_to_a_fork_eagerly_persists_then_never_re_reads() {
 enum Op {
     /// A local send: ticks the subject's own region.
     Send,
-    /// A local redact of the key at this index of the subject's snapshot; a
-    /// no-op (no tick) when the subject holds nothing.
+    /// A local redact of the message at this index of the subject's
+    /// snapshot; a no-op (no tick) when the subject holds nothing.
     Redact(usize),
     /// A helper sends, so the *next* gossip carries genuinely new remote content
     /// the subject must incorporate without persisting.
@@ -627,20 +627,20 @@ impl World {
                 None
             }
             Op::Redact(i) => {
-                // Redacting a key the application currently holds always records
-                // a deletion in the subject's own region, ticking it; redacting
-                // nothing (an empty set) is a true no-op. Liveness is read from
-                // the snapshot — the application's own view — never from the
-                // version arithmetic the suppression uses.
-                let keys: Vec<Key> = self
+                // Redacting a message the application currently holds always
+                // records a deletion in the subject's own region, ticking it;
+                // redacting nothing (an empty set) is a true no-op. Liveness
+                // is read from the snapshot — the application's own view —
+                // never from the version arithmetic the suppression uses.
+                let versions: Vec<Version> = self
                     .probe
                     .subject
                     .snapshot()
                     .iter()
-                    .map(|(k, _, _)| k)
+                    .map(|(v, _)| v.clone())
                     .collect();
-                if !keys.is_empty() {
-                    self.probe.subject.redact(keys[i % keys.len()]);
+                if !versions.is_empty() {
+                    self.probe.subject.redact(&versions[i % versions.len()]);
                     self.model.local_change();
                 }
                 None

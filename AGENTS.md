@@ -19,7 +19,7 @@ Interval Tree Clock library (`crates/before-viz` visualizes the clocks).
   `conformance` cargo feature ships the public validation suite for
   caller-built links; `design/streaming-wire-deadlock.md` records why the
   contract exists and the deadlock analysis behind it.
-- The tree (sparse Merkle radix trie, path compression, content-addressed
+- The tree (sparse Merkle radix trie, path compression, version-addressed
   leaves, the memo/version-bounds design): module docs in `src/tree.rs` and
   `src/tree/typed/`.
 - The mirror protocols: module docs in `src/tree/mirror/` — `alternating/`
@@ -27,7 +27,7 @@ Interval Tree Clock library (`crates/before-viz` visualizes the clocks).
   and `streaming/` (V2, fixed-memory; its module doc maps the layers:
   backend materiality, the type-level phase schedule, the walk and the
   proxy, the window, the wire vocabulary, the leaf conversion boundary).
-- ITC semantics (`Party`, `Version`, `Clock`, the Law of Disjointness):
+- ITC semantics (`Party`, `Version`, `Clock`, party disjointness):
   `before`'s crate docs and `crates/before/CLAUDE.md`.
 
 ## Commands
@@ -152,12 +152,15 @@ wants `wasm-pack` and node/npm.
   explicitly.
   To re-accept deliberately: `just test-all`, then `cargo insta review`
   (install: `cargo install cargo-insta`), then commit the updated
-  `tests/snapshots/*.snap`. One sanctioned exception for tamper sweeps
-  attributing snapshot history: the bookmark `frame_non_trivial` pin
-  (`src/bookmark/format/`) is a ratified *fixture re-pin* — its fixture
-  deliberately carries nested versions so the pin exercises real skyline
-  payload bytes, and the format is attested unchanged by the untouched
-  `frame_empty` pin and the round-trip/corruption suite. Attribute that
-  pin's history to the fixture, never to a protocol change.
+  `tests/snapshots/*.snap`. For the bookmark pins (`src/bookmark/format/`),
+  one narrower class exists for tamper sweeps attributing snapshot
+  history: a *fixture re-pin*, where only `frame_non_trivial` moves (its
+  fixture deliberately carries nested versions so the pin exercises real
+  skyline payload bytes) while the on-disk format is attested unchanged by
+  an untouched `frame_empty` pin and the round-trip/corruption suite.
+  Attribute such a re-pin to the fixture. A re-accept that moves
+  `frame_empty` is a bookmark *format* change — versioned by
+  `BOOKMARK_FORMAT_VERSION`, owner-ruled, and named in the re-accepting
+  commit like any other deliberate format change.
 - Redaction leaves no tombstones: deletion-honoring rides on version bounds.
   When reasoning about it, think version ceilings/floors, not markers.

@@ -32,7 +32,7 @@ fn receive_party(bytes: &[u8]) -> Result<Party, Error> {
 }
 
 /// Unwrap the sole error variant this ingress can produce.
-fn io_error(result: Result<Party, Error>) -> borsh::io::Error {
+fn io_error(result: Result<Party, Error>) -> std::io::Error {
     match result {
         Err(Error::Io(error)) => error,
         Ok(_) => panic!("a malformed donation must not decode"),
@@ -69,7 +69,7 @@ fn truncated_frame_header_is_a_typed_eof() {
         let error = io_error(receive_party(&vec![0; cut]));
         assert_eq!(
             error.kind(),
-            borsh::io::ErrorKind::UnexpectedEof,
+            std::io::ErrorKind::UnexpectedEof,
             "cut after {cut} header bytes must be an unexpected EOF",
         );
     }
@@ -86,7 +86,7 @@ fn over_declared_frame_is_a_typed_eof() {
     bytes.extend_from_slice(&[1, 2, 3, 4]);
 
     let error = io_error(receive_party(&bytes));
-    assert_eq!(error.kind(), borsh::io::ErrorKind::UnexpectedEof);
+    assert_eq!(error.kind(), std::io::ErrorKind::UnexpectedEof);
 }
 
 /// A zero-length frame body cannot carry an identity and is a typed error.
@@ -98,7 +98,7 @@ fn over_declared_frame_is_a_typed_eof() {
 #[test]
 fn empty_frame_body_is_a_typed_error() {
     let error = io_error(receive_party(&frame(&[])));
-    assert_eq!(error.kind(), borsh::io::ErrorKind::UnexpectedEof);
+    assert_eq!(error.kind(), std::io::ErrorKind::UnexpectedEof);
 }
 
 /// A party encoding cut short inside an honestly sized frame is rejected.
@@ -109,11 +109,11 @@ fn empty_frame_body_is_a_typed_error() {
 /// break party linearity).
 #[test]
 fn under_declared_frame_is_a_typed_error() {
-    let mut body = borsh::to_vec(&nth_party(3)).expect("test parties encode");
+    let mut body = nth_party(3).as_bytes().to_vec();
     body.truncate(body.len() - 1);
 
     let error = io_error(receive_party(&frame(&body)));
-    assert_eq!(error.kind(), borsh::io::ErrorKind::UnexpectedEof);
+    assert_eq!(error.kind(), std::io::ErrorKind::UnexpectedEof);
 }
 
 /// A frame with bytes after the party is rejected as non-canonical.
@@ -123,11 +123,11 @@ fn under_declared_frame_is_a_typed_error() {
 /// typed `InvalidData` rather than being silently dropped.
 #[test]
 fn trailing_frame_bytes_are_rejected() {
-    let mut body = borsh::to_vec(&nth_party(3)).expect("test parties encode");
+    let mut body = nth_party(3).as_bytes().to_vec();
     body.push(0xFF);
 
     let error = io_error(receive_party(&frame(&body)));
-    assert_eq!(error.kind(), borsh::io::ErrorKind::InvalidData);
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
 }
 
 /// Receiving one donation consumes exactly its frame, leaving later bytes
@@ -166,7 +166,7 @@ proptest! {
     fn arbitrary_frame_bodies_never_panic(body in vec(any::<u8>(), 0..64)) {
         match receive_party(&frame(&body)) {
             Ok(party) => {
-                let reencoded = borsh::to_vec(&party).expect("parties encode");
+                let reencoded = party.as_bytes().to_vec();
                 prop_assert_eq!(reencoded, body, "accepted donation was not canonical");
             }
             Err(Error::Io(_)) => {}

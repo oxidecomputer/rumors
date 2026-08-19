@@ -1,8 +1,8 @@
-use crate::{Key, Network, Version, causally, tree::Tree};
+use crate::{Network, Version, causally, tree::Tree};
 use std::sync::Arc;
 
 /// The iterator of [`Snapshot::iter`], re-exported from the tree internals:
-/// every live message as `(Key, &Version, &Arc<T>)`, unspecified order,
+/// every live message as `(&Version, &Arc<T>)`, unspecified order,
 /// exact-size and double-ended.
 pub use crate::tree::Iter;
 
@@ -81,12 +81,14 @@ impl<T> Snapshot<T> {
         self.tree.hash()
     }
 
-    /// Looks up a single live message by its [`Key`].
-    pub fn get(&self, key: &Key) -> Option<(&Version, &Arc<T>)> {
-        self.tree.get(key)
+    /// Looks up the live message stamped with `version` (for example, a
+    /// version an observer yielded earlier). Returns `None` when no live
+    /// message carries it — never sent here, or since redacted.
+    pub fn get(&self, version: &Version) -> Option<(&Version, &Arc<T>)> {
+        self.tree.get(version)
     }
 
-    /// Iterates every live message as `(Key, &Version, &Arc<T>)`.
+    /// Iterates every live message as `(&Version, &Arc<T>)`.
     ///
     /// Order is unspecified, and in particular does *not* follow the causal
     /// order: a message may be yielded before another that causally precedes
@@ -94,7 +96,7 @@ impl<T> Snapshot<T> {
     /// ordering consistent with causality.
     pub fn iter(
         &self,
-    ) -> impl DoubleEndedIterator<Item = (Key, &Version, &Arc<T>)> + ExactSizeIterator + Send + Sync
+    ) -> impl DoubleEndedIterator<Item = (&Version, &Arc<T>)> + ExactSizeIterator + Send + Sync
     where
         T: Send + Sync,
     {
@@ -143,7 +145,7 @@ impl<T> Snapshot<T> {
     pub fn range<'q, P: causally::Polarity>(
         &'q self,
         query: impl Into<causally::Query<'q, P>>,
-    ) -> impl DoubleEndedIterator<Item = (Key, &'q Version, &'q Arc<T>)> + Send + Sync
+    ) -> impl DoubleEndedIterator<Item = (&'q Version, &'q Arc<T>)> + Send + Sync
     where
         T: Send + Sync,
     {
@@ -160,7 +162,7 @@ impl<T> Snapshot<T> {
 }
 
 impl<'a, T: Send + Sync> IntoIterator for &'a Snapshot<T> {
-    type Item = (Key, &'a Version, &'a Arc<T>);
+    type Item = (&'a Version, &'a Arc<T>);
     type IntoIter = Iter<'a, T>;
 
     fn into_iter(self) -> Self::IntoIter {

@@ -16,22 +16,21 @@ version frame: 30 bytes
   0010: 00 00 00 00 00 02 19 00
   0018: 00 00 00 00 55 40
 listing: 1 child(ren)
-  child 0xed: 718f933fd8c12515f7edbe713525538ab327518e6e869d4c
-listing frame: 33 bytes
-  0000: 00 00 00 1d 01 00 00 00
-  0008: ed 71 8f 93 3f d8 c1 25
-  0010: 15 f7 ed be 71 35 25 53
-  0018: 8a b3 27 51 8e 6e 86 9d
-  0020: 4c
+  child 0x93: c4c0139f3f4f4afe9715d26a43953691cdc861574ffc8196
+listing frame: 29 bytes
+  0000: 00 00 00 19 93 c4 c0 13
+  0008: 9f 3f 4f 4a fe 97 15 d2
+  0010: 6a 43 95 36 91 cd c8 61
+  0018: 57 4f fc 81 96
 Responder stream 0 (height 31), epoch 0
-  frame 0: QueryEmpty(Continue)
-    0000: 22
-  frame 1: Supply(End)
+  frame 0: Supply(Continue)
     supply run: 1 record(s)
-      record 0: version (0, 1, 0), message 9 byte(s)
-    0000: 77 00 00 00 0f 00 00 00
-    0008: 0b 55 40 05 00 00 00 68
-    0010: 65 6c 6c 6f
+      record 0: version (0, 1, 0), message 6 byte(s)
+    0000: 66 00 00 00 0d 00 00 00
+    0008: 09 42 55 40 65 68 65 6c
+    0010: 6c 6f
+  frame 1: QueryEmpty(End)
+    0000: 33
   frame 2: End(Stream)
     0000: 99
 trailing frame: 1 bytes
@@ -51,20 +50,19 @@ version frame: 29 bytes
   0010: 00 00 00 00 00 02 19 00
   0018: 00 00 00 00 77
 listing: 1 child(ren)
-  child 0xa6: 0f640284bd5ca5d334f996c8bed24b4b70dd3d1e42805409
-listing frame: 33 bytes
-  0000: 00 00 00 1d 01 00 00 00
-  0008: a6 0f 64 02 84 bd 5c a5
-  0010: d3 34 f9 96 c8 be d2 4b
-  0018: 4b 70 dd 3d 1e 42 80 54
-  0020: 09
+  child 0xf2: 42bb8c7ce00cc0681c05edde50af1bd47d5d94d0a136c882
+listing frame: 29 bytes
+  0000: 00 00 00 19 f2 42 bb 8c
+  0008: 7c e0 0c c0 68 1c 05 ed
+  0010: de 50 af 1b d4 7d 5d 94
+  0018: d0 a1 36 c8 82
 Initiator stream 0 (height 31), epoch 0
   frame 0: Supply(End)
     supply run: 1 record(s)
-      record 0: version (0, 0, 1), message 9 byte(s)
-    0000: 77 00 00 00 0e 00 00 00
-    0008: 0a 77 05 00 00 00 77 6f
-    0010: 72 6c 64
+      record 0: version (0, 0, 1), message 6 byte(s)
+    0000: 77 00 00 00 0c 00 00 00
+    0008: 08 41 77 65 77 6f 72 6c
+    0010: 64
   frame 1: End(Stream)
     0000: 99
 Initiator stream 1 (height 30), epoch 0

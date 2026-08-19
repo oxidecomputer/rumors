@@ -1,9 +1,9 @@
 //! Single-peer correctness for a lone rumor set, with no gossip.
 //!
 //! Exercises the surface area of [`Batch`](rumors::Batch) commits:
-//! live-leaf fan-out, `Key` distinctness within a batch, and strict
-//! monotonicity of the local party's component of each minted
-//! [`Version`](rumors::Version).
+//! live-leaf fan-out, distinctness of the [`Version`](rumors::Version)s
+//! minted within a batch, and strict monotonicity of the local party's
+//! component of each minted version.
 
 mod common;
 
@@ -11,14 +11,15 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use proptest::collection::vec;
 use proptest::prelude::*;
-use rumors::{Key, Peer, Rumors, Version, causally};
+use rumors::{Peer, Rumors, Version, causally};
 
 use crate::common::wire::block_on;
 
-/// Commit `values` to `peer` as one batch, returning the `(Key, Version)`
-/// pairs it minted (recovered as the live leaves above the pre-commit
-/// frontier).
-fn batch_send(peer: &Rumors<u64>, values: &[u64]) -> Vec<(Key, Version)> {
+use serde::Serialize;
+use serde::Serializer;
+/// Commit `values` to `peer` as one batch, returning the [`Version`]s it
+/// minted (recovered as the live leaves above the pre-commit frontier).
+fn batch_send(peer: &Rumors<u64>, values: &[u64]) -> Vec<Version> {
     let pre = peer.snapshot().latest().clone();
     {
         let mut batch = peer.batch();
@@ -28,7 +29,7 @@ fn batch_send(peer: &Rumors<u64>, values: &[u64]) -> Vec<(Key, Version)> {
     }
     peer.snapshot()
         .range(causally::since(&pre))
-        .map(|(k, v, _)| (k, v.clone()))
+        .map(|(v, _)| v.clone())
         .collect()
 }
 
@@ -43,26 +44,29 @@ proptest! {
         prop_assert_eq!(peer.snapshot().len(), values.len());
     }
 
-    /// All `Key`s minted within a single batch are distinct, even when
-    /// several values in the batch are equal.
+    /// All `Version`s minted within a single batch are distinct, even
+    /// when several values in the batch are equal.
     #[test]
-    fn distinct_keys_per_batch(values in vec(any::<u64>(), 1..=32)) {
+    fn distinct_versions_per_batch(values in vec(any::<u64>(), 1..=32)) {
         let peer = Peer::<u64>::seed().sync_window_floor().into_rumors();
         let minted = batch_send(&peer, &values);
         prop_assert_eq!(minted.len(), values.len());
-        let unique: BTreeSet<_> = minted.iter().map(|(k, _)| *k).collect();
-        prop_assert_eq!(unique.len(), values.len(), "keys must be distinct");
+        let unique: BTreeSet<_> =
+            minted.iter().map(|v| v.as_bytes().to_vec()).collect();
+        prop_assert_eq!(unique.len(), values.len(), "versions must be distinct");
     }
 
-    /// The same value inserted `n` times in one batch still yields
-    /// `n` distinct `Key`s — content equality does not collapse keys.
+    /// The same value inserted `n` times in one batch still yields `n`
+    /// distinct leaves — each send mints a fresh `Version`, so content
+    /// equality does not collapse messages.
     #[test]
-    fn duplicate_values_get_distinct_keys(n in 1usize..=16, value in any::<u64>()) {
+    fn duplicate_values_get_distinct_versions(n in 1usize..=16, value in any::<u64>()) {
         let peer = Peer::<u64>::seed().sync_window_floor().into_rumors();
         let values: Vec<u64> = std::iter::repeat_n(value, n).collect();
         let minted = batch_send(&peer, &values);
         prop_assert_eq!(minted.len(), n);
-        let unique: BTreeSet<_> = minted.iter().map(|(k, _)| *k).collect();
+        let unique: BTreeSet<_> =
+            minted.iter().map(|v| v.as_bytes().to_vec()).collect();
         prop_assert_eq!(unique.len(), n);
     }
 
@@ -84,8 +88,7 @@ proptest! {
         // order. Each batch's recovery is scoped by the pre-commit frontier.
         let mut versions: Vec<Version> = Vec::new();
         for batch in &batches {
-            let mut minted: Vec<Version> =
-                batch_send(&peer, batch).into_iter().map(|(_, v)| v).collect();
+            let mut minted: Vec<Version> = batch_send(&peer, batch);
             minted.sort_by(|a, b| {
                 a.partial_cmp(b).expect("a lone peer's versions are totally ordered")
             });
@@ -134,7 +137,7 @@ proptest! {
             let peer = Peer::<u64>::seed().sync_window_floor().into_rumors();
             batch_send(&peer, values);
             let mut out = BTreeMap::new();
-            for (_, _, v) in peer.snapshot().iter() {
+            for (_, v) in peer.snapshot().iter() {
                 *out.entry(**v).or_insert(0) += 1;
             }
             out
@@ -152,12 +155,12 @@ struct Explosive {
     fail: bool,
 }
 
-impl borsh::BorshSerialize for Explosive {
-    fn serialize<W: borsh::io::Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
+impl Serialize for Explosive {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         if self.fail {
-            return Err(borsh::io::Error::other("detonated"));
+            return Err(serde::ser::Error::custom("detonated"));
         }
-        borsh::BorshSerialize::serialize(&self.value, writer)
+        self.value.serialize(serializer)
     }
 }
 

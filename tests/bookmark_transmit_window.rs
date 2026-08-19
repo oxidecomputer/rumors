@@ -193,8 +193,8 @@ fn leaf_version(rumors: &Rumors<Msg, GatedBookmark>, payload: Msg) -> Option<Ver
     rumors
         .snapshot()
         .iter()
-        .find(|(_, _, value)| ***value == payload)
-        .map(|(_, version, _)| version.clone())
+        .find(|(_, value)| ***value == payload)
+        .map(|(version, _)| version.clone())
 }
 
 /// The staged world: A bookmarked and gated, B and C booted from it, one

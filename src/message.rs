@@ -1,21 +1,40 @@
 use std::cmp::Ordering;
 use std::fmt;
 use std::hash::{Hash, Hasher};
+use std::io;
 use std::sync::Arc;
 
-use borsh::{BorshDeserialize, BorshSerialize};
 use bytes::Bytes;
 
+use serde::Deserialize;
+use serde::Deserializer;
+use serde::Serialize;
+use serde::Serializer;
+use serde::de::DeserializeOwned;
 /// A message of type `T` paired with its cached serialization.
 ///
 /// The cache avoids repeated roundtrips through serialization: a `Message<T>`
-/// always serializes identically to a `T`. Cloning is cheap, because the
-/// serialized bytes are shared and the message is enclosed in an `Arc<T>`.
+/// always carries the exact CBOR bytes its `T` was encoded to or decoded
+/// from. Cloning is cheap, because the serialized bytes are shared and the
+/// message is enclosed in an `Arc<T>`.
+///
+/// The payload encoding is CBOR (via [`ciborium`]): self-describing, so
+/// field and variant *names* are the wire contract — a decoder pairs fields
+/// by name, tolerating reordering — and no canonical encoding is required
+/// of `T`, because payload bytes carry no identity (a leaf's identity is
+/// its version).
 ///
 /// # Panics
 ///
-/// All messages of type `T` are assumed serializable; methods that attempt
-/// serialization panic if serialization fails.
+/// Every value of `T` must serialize: methods that serialize (`new`,
+/// `from_arc`, `From<T>`) panic if `T`'s [`serde::Serialize`]
+/// implementation reports an error. Encoding runs into an in-memory
+/// buffer and CBOR imposes no format-driven failures (any map key, any
+/// nesting), so the only trigger is the implementation itself declining a
+/// value — which this crate treats as a bug in `T`, exactly as `Ord`'s
+/// totality is trusted. Types whose `Serialize` is data-dependently
+/// fallible (for example `std::path::PathBuf`, which errors on non-UTF-8
+/// paths) violate that obligation and must not be used as message types.
 pub struct Message<T> {
     message: Arc<T>,
     serialized: Bytes,
@@ -30,45 +49,104 @@ impl<T> Clone for Message<T> {
     }
 }
 
+/// Map a ciborium deserialization failure into `io::Error`, keeping the
+/// truncation/corruption split callers classify by: a reader's own error
+/// passes through, everything else is invalid data.
+fn de_error(error: ciborium::de::Error<io::Error>) -> io::Error {
+    match error {
+        ciborium::de::Error::Io(error) => error,
+        error => io::Error::new(io::ErrorKind::InvalidData, error.to_string()),
+    }
+}
+
+/// Encode one value as CBOR into a fresh buffer.
+///
+/// # Panics
+///
+/// If `T`'s `Serialize` implementation reports an error ([`Message`]'s
+/// panic contract: serializability is the caller's obligation). Writing
+/// into a `Vec` cannot fail.
+fn to_vec<T: Serialize>(value: &T) -> Vec<u8> {
+    let mut buf = Vec::new();
+    ciborium::ser::into_writer(value, &mut buf)
+        .expect("every message value must serialize (see Message's panic contract)");
+    buf
+}
+
 impl<T> Message<T> {
     /// Creates a `Message` pairing the given object with its cached
     /// serialization.
     ///
     /// # Panics
     ///
-    /// If the message cannot be serialized.
+    /// If the message cannot be serialized (see [`Message`]).
     pub fn new(message: T) -> Self
     where
-        T: BorshSerialize,
+        T: Serialize,
     {
         Message {
-            serialized: Bytes::from(borsh::to_vec(&message).unwrap()),
+            serialized: Bytes::from(to_vec(&message)),
             message: Arc::new(message),
         }
     }
 
     /// Creates a `Message` pairing the given serialized bytes with the
     /// object derived by deserializing them.
-    pub fn from_slice(bytes: &[u8]) -> borsh::io::Result<Self>
+    ///
+    /// The bytes must be exactly one CBOR value: trailing bytes are
+    /// rejected as invalid data, so the cache is always the value's exact
+    /// encoding.
+    pub fn from_slice(bytes: &[u8]) -> io::Result<Self>
     where
-        T: BorshDeserialize,
+        T: DeserializeOwned,
     {
+        let mut input = bytes;
+        let message: T = ciborium::de::from_reader(&mut input).map_err(de_error)?;
+        if !input.is_empty() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("{} trailing bytes after the message payload", input.len()),
+            ));
+        }
         Ok(Message {
-            message: Arc::new(borsh::from_slice(bytes)?),
+            message: Arc::new(message),
             serialized: Bytes::copy_from_slice(bytes),
         })
+    }
+
+    /// Pairs an already-decoded object with the exact bytes it was decoded
+    /// from.
+    ///
+    /// The caller certifies the pairing: `serialized` must be exactly the
+    /// CBOR encoding `message` was parsed out of (the wire codec's record
+    /// parser upholds this — it hands over precisely the bytes its parse
+    /// consumed).
+    pub(crate) fn from_decoded(message: T, serialized: Bytes) -> Self {
+        Message {
+            message: Arc::new(message),
+            serialized,
+        }
     }
 
     /// Creates a `Message` from already-shared serialized bytes, without
     /// copying.
     ///
-    /// The bytes are deserialized to produce the paired object.
-    pub fn from_bytes(bytes: Bytes) -> borsh::io::Result<Self>
+    /// The bytes are deserialized to produce the paired object, under
+    /// [`from_slice`](Self::from_slice)'s exactly-one-value contract.
+    pub fn from_bytes(bytes: Bytes) -> io::Result<Self>
     where
-        T: BorshDeserialize,
+        T: DeserializeOwned,
     {
+        let mut input = bytes.as_ref();
+        let message: T = ciborium::de::from_reader(&mut input).map_err(de_error)?;
+        if !input.is_empty() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("{} trailing bytes after the message payload", input.len()),
+            ));
+        }
         Ok(Message {
-            message: Arc::new(borsh::from_slice(bytes.as_ref())?),
+            message: Arc::new(message),
             serialized: bytes,
         })
     }
@@ -77,13 +155,13 @@ impl<T> Message<T> {
     ///
     /// # Panics
     ///
-    /// If the message cannot be serialized.
+    /// If the message cannot be serialized (see [`Message`]).
     pub fn from_arc(arc: Arc<T>) -> Self
     where
-        T: BorshSerialize,
+        T: Serialize,
     {
         Message {
-            serialized: Bytes::from(borsh::to_vec(&*arc).unwrap()),
+            serialized: Bytes::from(to_vec(&*arc)),
             message: arc,
         }
     }
@@ -139,13 +217,13 @@ impl<T> Message<T> {
     }
 }
 
-impl<T: BorshSerialize> From<T> for Message<T> {
+impl<T: Serialize> From<T> for Message<T> {
     /// Creates a `Message` pairing the given object with its cached
     /// serialization.
     ///
     /// # Panics
     ///
-    /// If the message cannot be serialized.
+    /// If the message cannot be serialized (see [`Message`]).
     fn from(message: T) -> Self {
         Self::new(message)
     }
@@ -200,44 +278,21 @@ impl<T: Hash> Hash for Message<T> {
     }
 }
 
-// Borsh impls let `Message<T>` nest inside other borsh types with the same
-// on-the-wire representation as `T` itself.
+// The serde form lets `Message<T>` nest inside larger CBOR values without
+// re-encoding: one byte string wrapping the cached CBOR payload. The
+// wrapper is what makes a nested message self-delimiting wherever the
+// container does not delimit it.
 
-impl<T> BorshSerialize for Message<T> {
-    fn serialize<W: borsh::io::Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
-        // Write the cached bytes directly: the whole point of `Message<T>` is
-        // to avoid reserializing.
-        writer.write_all(&self.serialized)
+impl<T> Serialize for Message<T> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_bytes(&self.serialized)
     }
 }
 
-impl<T: BorshDeserialize> BorshDeserialize for Message<T> {
-    fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
-        // Tee the reader so we capture exactly the bytes consumed while
-        // parsing `T`, and use them as the cached serialization.
-        let mut captured = Vec::new();
-        let mut tee = TeeReader {
-            inner: reader,
-            buf: &mut captured,
-        };
-        let message = Arc::new(T::deserialize_reader(&mut tee)?);
-        Ok(Message {
-            message,
-            serialized: captured.into(),
-        })
-    }
-}
-
-struct TeeReader<'a, R: ?Sized> {
-    inner: &'a mut R,
-    buf: &'a mut Vec<u8>,
-}
-
-impl<R: borsh::io::Read + ?Sized> borsh::io::Read for TeeReader<'_, R> {
-    fn read(&mut self, out: &mut [u8]) -> borsh::io::Result<usize> {
-        let n = self.inner.read(out)?;
-        self.buf.extend_from_slice(&out[..n]);
-        Ok(n)
+impl<'de, T: DeserializeOwned> Deserialize<'de> for Message<T> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let bytes = <Vec<u8>>::deserialize(deserializer)?;
+        Message::from_slice(&bytes).map_err(serde::de::Error::custom)
     }
 }
 

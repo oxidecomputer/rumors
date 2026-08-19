@@ -22,20 +22,20 @@ fn retire_carries_last_minute_redactions() {
 
     // B originates an entry and A learns it through ordinary gossip.
     b.send("presence: b".to_string());
-    let key = b
+    let version = b
         .snapshot()
         .iter()
-        .map(|(key, _, _)| key)
+        .map(|(version, _)| version.clone())
         .next()
         .expect("the sent entry is live");
     wire_gossip(&a, &b);
     assert!(
-        a.snapshot().get(&key).is_some(),
+        a.snapshot().get(&version).is_some(),
         "precondition: A holds B's entry after gossip"
     );
 
     // B redacts it *after* that gossip, then retires into A.
-    b.redact(key);
+    b.redact(&version);
     let retiree = block_on(b.try_into_peer()).expect("sole handle");
     let outcome = block_on(async {
         let (mut b_link, mut a_link) = rumors::link::memory();
@@ -48,7 +48,7 @@ fn retire_carries_last_minute_redactions() {
 
     // The absorber holds the absence, not the ghost.
     assert!(
-        a.snapshot().get(&key).is_none(),
+        a.snapshot().get(&version).is_none(),
         "A must honor the redaction the retiree carried"
     );
 }

@@ -18,16 +18,16 @@ use std::collections::{BTreeMap, BTreeSet};
 use futures::FutureExt;
 use proptest::collection::vec;
 use proptest::prelude::*;
-use rumors::{CausalMessages, Key, Peer, Rumors, Version};
+use rumors::{CausalMessages, Peer, Rumors, Version};
 
-use crate::common::action::minted_key;
+use crate::common::action::minted_version;
 use crate::common::wire::{bootstrap_fork, wire_gossip};
 
 /// One observer step, with the borrowed faces cloned out.
 #[derive(Debug, PartialEq)]
 enum Step {
     /// The observer yielded a message.
-    Item((Key, Version, u64)),
+    Item((Version, u64)),
     /// The observer is quiet: nothing new, actors still live.
     Quiet,
     /// The observer ended: every sender is gone and the complete final
@@ -40,13 +40,13 @@ fn step(obs: &mut CausalMessages<u64>) -> Step {
     match obs.borrow_next().now_or_never() {
         None => Step::Quiet,
         Some(None) => Step::Ended,
-        Some(Some((k, v, m))) => Step::Item((k, v.clone(), **m)),
+        Some(Some((v, m))) => Step::Item((v.clone(), **m)),
     }
 }
 
 /// Drain the observer until it goes quiet or ends, returning the items in
 /// delivery order and whether it ended.
-fn drain(obs: &mut CausalMessages<u64>) -> (Vec<(Key, Version, u64)>, bool) {
+fn drain(obs: &mut CausalMessages<u64>) -> (Vec<(Version, u64)>, bool) {
     let mut items = Vec::new();
     loop {
         match step(obs) {
@@ -63,11 +63,11 @@ fn drain(obs: &mut CausalMessages<u64>) -> (Vec<(Key, Version, u64)>, bool) {
 // `Version` is a partial order: `!(later < earlier)` also admits concurrent
 // pairs, which `later >= earlier` would reject.
 #[allow(clippy::neg_cmp_op_on_partial_ord)]
-fn assert_causal(items: &[(Key, Version, u64)]) {
+fn assert_causal(items: &[(Version, u64)]) {
     for i in 0..items.len() {
         for j in (i + 1)..items.len() {
             assert!(
-                !(items[j].1 < items[i].1),
+                !(items[j].0 < items[i].0),
                 "causal inversion: item {j} ({:?}) causally precedes item {i} ({:?})",
                 items[j].0,
                 items[i].0,
@@ -76,25 +76,32 @@ fn assert_causal(items: &[(Key, Version, u64)]) {
     }
 }
 
-/// The live `Key → value` map, for comparing against deliveries.
-fn live_map(rumors: &Rumors<u64>) -> BTreeMap<Key, u64> {
-    rumors.snapshot().iter().map(|(k, _, m)| (k, **m)).collect()
+/// The live identity → value map, keyed by canonical version bytes, for
+/// comparing against deliveries.
+fn live_map(rumors: &Rumors<u64>) -> BTreeMap<Vec<u8>, u64> {
+    rumors
+        .snapshot()
+        .iter()
+        .map(|(v, m)| (v.as_bytes().to_vec(), **m))
+        .collect()
 }
 
 /// Drain an [`rumors::UnorderedMessages`] observer until it goes quiet or
-/// ends, returning the delivered `(Key, value)` pairs.
-fn drain_unordered(obs: &mut rumors::UnorderedMessages<u64>) -> Vec<(Key, u64)> {
+/// ends, returning the delivered `(Version, value)` pairs.
+fn drain_unordered(obs: &mut rumors::UnorderedMessages<u64>) -> Vec<(Version, u64)> {
     let mut items = Vec::new();
     loop {
         match obs.try_next() {
-            rumors::TryNext::Message((key, _, message)) => items.push((key, **message)),
+            rumors::TryNext::Message((version, message)) => {
+                items.push((version.clone(), **message))
+            }
             rumors::TryNext::Quiet | rumors::TryNext::Ended => return items,
         }
     }
 }
 
 /// A single party's sends form a causal chain, so a fresh observer must
-/// deliver the whole backlog in exactly send order — the case key-ordered
+/// deliver the whole backlog in exactly send order — the case path-ordered
 /// delivery scrambles roughly half the time.
 #[test]
 fn single_party_backlog_replays_in_send_order() {
@@ -107,7 +114,7 @@ fn single_party_backlog_replays_in_send_order() {
     let (items, ended) = drain(&mut obs);
     assert!(!ended, "the set is live: quiet, not ended");
     assert_eq!(
-        items.iter().map(|(_, _, m)| *m).collect::<Vec<_>>(),
+        items.iter().map(|(_, m)| *m).collect::<Vec<_>>(),
         (0..8).collect::<Vec<_>>(),
         "a causal chain is delivered in chain order"
     );
@@ -116,7 +123,7 @@ fn single_party_backlog_replays_in_send_order() {
 
 /// A backlog mixing one party's chain with a concurrent peer's (learned via
 /// gossip) is delivered without causal inversions, and concurrent messages
-/// come out in the deterministic `(rank, key)` order.
+/// come out in the deterministic (rank, canonical version bytes) order.
 #[test]
 fn converged_backlog_has_no_inversions() {
     let a = Peer::<u64>::seed().sync_window_floor().into_rumors();
@@ -135,12 +142,16 @@ fn converged_backlog_has_no_inversions() {
     assert_eq!(items.len(), 8, "both chains are in the converged backlog");
     assert_causal(&items);
 
-    // One ingest batch pops in (rank, key) order: the delivered sequence is
-    // sorted by causal rank, which is what makes it deterministic.
-    let ranks: Vec<_> = items.iter().map(|(k, v, _)| (v.rank(), *k)).collect();
+    // One ingest batch pops in (rank, canonical version bytes) order: the
+    // delivered sequence is sorted by causal rank — what makes it
+    // deterministic — with the canonical encoding breaking rank ties.
+    let ranks: Vec<_> = items
+        .iter()
+        .map(|(v, _)| (v.rank(), v.as_bytes().to_vec()))
+        .collect();
     assert!(
         ranks.windows(2).all(|w| w[0] < w[1]),
-        "a single backlog drains in strictly increasing (rank, key) order"
+        "a single backlog drains in strictly increasing (rank, bytes) order"
     );
 }
 
@@ -256,33 +267,37 @@ fn staged_then_redacted_is_still_delivered() {
     let known = Peer::<u64>::seed().sync_window_floor().into_rumors();
     let pre = known.snapshot().latest().clone();
     known.send(1);
-    let key_1 = minted_key(&known.snapshot(), &pre);
+    let version_1 = minted_version(&known.snapshot(), &pre);
     let pre = known.snapshot().latest().clone();
     known.send(2);
-    let key_2 = minted_key(&known.snapshot(), &pre);
+    let version_2 = minted_version(&known.snapshot(), &pre);
 
     // First step ingests the whole pass (both messages) and delivers the
     // causally least; the other is staged.
     let mut obs = known.causal_messages();
-    let Step::Item((delivered_key, ..)) = step(&mut obs) else {
+    let Step::Item((delivered_version, _)) = step(&mut obs) else {
         panic!("a populated set delivers an item");
     };
-    let staged_key = if delivered_key == key_1 { key_2 } else { key_1 };
+    let staged_version = if delivered_version == version_1 {
+        version_2
+    } else {
+        version_1
+    };
 
     // Redact the staged message, then drain: it is delivered anyway (it was
     // live at its ingest), and nothing fires after.
-    known.redact(staged_key);
+    known.redact(&staged_version);
     let (items, _) = drain(&mut obs);
     assert_eq!(
-        items.iter().map(|(k, _, _)| *k).collect::<Vec<_>>(),
-        vec![staged_key],
+        items.iter().map(|(v, _)| v.clone()).collect::<Vec<_>>(),
+        vec![staged_version],
         "the staged message outlives its redaction by exactly one delivery"
     );
 
     // Redacted wholly before any ingest: never delivered.
     let pre = known.snapshot().latest().clone();
     known.send(3);
-    known.redact(minted_key(&known.snapshot(), &pre));
+    known.redact(&minted_version(&known.snapshot(), &pre));
     let (items, _) = drain(&mut obs);
     assert!(items.is_empty(), "pre-ingest redactions never fire");
 }
@@ -305,7 +320,7 @@ fn observer_drains_the_final_state_causally_then_ends() {
     assert_eq!(
         items
             .iter()
-            .map(|(k, _, m)| (*k, *m))
+            .map(|(v, m)| (v.as_bytes().to_vec(), *m))
             .collect::<BTreeMap<_, _>>(),
         expected,
         "the complete final state is yielded before the end"
@@ -326,11 +341,11 @@ fn stream_face_is_causal_and_terminates() {
 
     let mut obs = known.causal_messages();
     let mut items = Vec::new();
-    while let Some(Some((k, v, m))) = obs.next().now_or_never() {
-        items.push((k, v, *m));
+    while let Some(Some((v, m))) = obs.next().now_or_never() {
+        items.push((v, *m));
     }
     assert_eq!(
-        items.iter().map(|(_, _, m)| *m).collect::<Vec<_>>(),
+        items.iter().map(|(_, m)| *m).collect::<Vec<_>>(),
         (0..6).collect::<Vec<_>>(),
         "the Stream face replays the chain in order"
     );
@@ -352,8 +367,8 @@ enum Op {
     SendA(u64),
     /// `b` sends this value (concurrent to `a` until a gossip).
     SendB(u64),
-    /// Redact the `idx % minted`-th key minted at `a` so far (dropped if
-    /// none).
+    /// Redact the `idx % minted`-th message minted at `a` so far (dropped
+    /// if none).
     Redact(usize),
     /// Converge the replicas.
     Gossip,
@@ -378,8 +393,8 @@ proptest! {
     /// The whole contract under arbitrary interleaving of local sends,
     /// concurrent peer sends, redactions, gossip, and partial drains.
     ///
-    /// The cumulative delivered sequence has no causal inversion, no key fires
-    /// twice, and the deliveries cover the final live set.
+    /// The cumulative delivered sequence has no causal inversion, no message
+    /// fires twice, and the deliveries cover the final live set.
     ///
     /// Causal order costs nothing in coverage relative to the plain observer.
     #[test]
@@ -388,22 +403,22 @@ proptest! {
         let b = bootstrap_fork(&a);
 
         let mut obs = a.causal_messages();
-        let mut minted: Vec<Key> = Vec::new();
-        let mut delivered: Vec<(Key, Version, u64)> = Vec::new();
+        let mut minted: Vec<Version> = Vec::new();
+        let mut delivered: Vec<(Version, u64)> = Vec::new();
 
         for op in &ops {
             match op {
                 Op::SendA(v) => {
                     let pre = a.snapshot().latest().clone();
                     a.send(*v);
-                    minted.push(minted_key(&a.snapshot(), &pre));
+                    minted.push(minted_version(&a.snapshot(), &pre));
                 }
                 Op::SendB(v) => {
                     b.send(*v);
                 }
                 Op::Redact(idx) => {
                     if !minted.is_empty() {
-                        a.redact(minted[idx % minted.len()]);
+                        a.redact(&minted[idx % minted.len()]);
                     }
                 }
                 Op::Gossip => wire_gossip(&a, &b),
@@ -424,12 +439,17 @@ proptest! {
 
         // Exactly-once and coverage, as the plain observer promises.
         let mut seen = BTreeSet::new();
-        for (key, _, _) in &delivered {
-            prop_assert!(seen.insert(*key), "key {key:?} delivered twice");
+        for (version, _) in &delivered {
+            prop_assert!(
+                seen.insert(version.as_bytes().to_vec()),
+                "version {version:?} delivered twice"
+            );
         }
         for (key, value) in &final_live {
             prop_assert!(
-                delivered.iter().any(|(k, _, m)| k == key && m == value),
+                delivered
+                    .iter()
+                    .any(|(v, m)| v.as_bytes() == key.as_slice() && m == value),
                 "a final live message was never delivered",
             );
         }
@@ -454,7 +474,7 @@ proptest! {
         }
 
         let mut obs = known.causal_messages();
-        let mut first_run: Vec<(Key, Version, u64)> = Vec::new();
+        let mut first_run: Vec<(Version, u64)> = Vec::new();
         if complete_drain {
             first_run.extend(drain(&mut obs).0);
         } else {
@@ -486,17 +506,19 @@ proptest! {
                 first_run
                     .iter()
                     .chain(&second_run)
-                    .any(|(k, _, m)| k == key && m == value),
+                    .any(|(v, m)| v.as_bytes() == key.as_slice() && m == value),
                 "a live message fell between the stopped and resumed observers",
             );
         }
 
         // After a complete drain the checkpoint is current: no re-delivery.
-        let first_keys: BTreeSet<Key> = first_run.iter().map(|(k, _, _)| *k).collect();
-        let second_keys: BTreeSet<Key> = second_run.iter().map(|(k, _, _)| *k).collect();
+        let first_versions: BTreeSet<Vec<u8>> =
+            first_run.iter().map(|(v, _)| v.as_bytes().to_vec()).collect();
+        let second_versions: BTreeSet<Vec<u8>> =
+            second_run.iter().map(|(v, _)| v.as_bytes().to_vec()).collect();
         if complete_drain {
             prop_assert!(
-                first_keys.is_disjoint(&second_keys),
+                first_versions.is_disjoint(&second_versions),
                 "a drained backlog's messages must not re-fire",
             );
         }
@@ -539,7 +561,7 @@ proptest! {
         let taken = taken % (final_live.len() + 1);
 
         let mut causal = known.causal_messages();
-        let mut causal_delivered: Vec<(Key, Version, u64)> = Vec::new();
+        let mut causal_delivered: Vec<(Version, u64)> = Vec::new();
         for _ in 0..taken {
             match step(&mut causal) {
                 Step::Item(item) => causal_delivered.push(item),
@@ -547,33 +569,31 @@ proptest! {
             }
         }
         assert_causal(&causal_delivered);
-        let causal_checkpoint =
-            borsh::to_vec(causal.checkpoint()).expect("a checkpoint serializes");
+        let causal_checkpoint = causal.checkpoint().as_bytes().to_vec();
 
         let mut unordered = known.unordered_messages();
-        let mut unordered_delivered: Vec<(Key, u64)> = Vec::new();
+        let mut unordered_delivered: Vec<(Version, u64)> = Vec::new();
         for _ in 0..taken {
             match unordered.try_next() {
-                rumors::TryNext::Message((key, _, message)) => {
-                    unordered_delivered.push((key, **message));
+                rumors::TryNext::Message((version, message)) => {
+                    unordered_delivered.push((version.clone(), **message));
                 }
                 other => panic!("the pass has more items, got {other:?}"),
             }
         }
-        let unordered_checkpoint =
-            borsh::to_vec(unordered.checkpoint()).expect("a checkpoint serializes");
+        let unordered_checkpoint = unordered.checkpoint().as_bytes().to_vec();
 
-        let causal_handled: BTreeSet<Key> = causal_delivered
+        let causal_handled: BTreeSet<Vec<u8>> = causal_delivered
             .iter()
             .rev()
             .skip(1)
-            .map(|(k, _, _)| *k)
+            .map(|(v, _)| v.as_bytes().to_vec())
             .collect();
-        let unordered_handled: BTreeSet<Key> = unordered_delivered
+        let unordered_handled: BTreeSet<Vec<u8>> = unordered_delivered
             .iter()
             .rev()
             .skip(1)
-            .map(|(k, _)| *k)
+            .map(|(v, _)| v.as_bytes().to_vec())
             .collect();
 
         // The crash: every handle the process held goes away at once.
@@ -586,27 +606,31 @@ proptest! {
         // persisted bytes.
         let rebuilt = bootstrap_fork(&partner);
 
-        let since: Version =
-            borsh::from_slice(&causal_checkpoint).expect("a checkpoint deserializes");
+        let since =
+            Version::decode(&causal_checkpoint[..]).expect("a checkpoint deserializes");
         let mut resumed = rebuilt.causal_messages_since(since);
         let (replayed, _) = drain(&mut resumed);
         assert_causal(&replayed);
         for (key, value) in &final_live {
             prop_assert!(
                 causal_handled.contains(key)
-                    || replayed.iter().any(|(k, _, m)| k == key && m == value),
+                    || replayed
+                        .iter()
+                        .any(|(v, m)| v.as_bytes() == key.as_slice() && m == value),
                 "causal: unhandled live message {key:?} fell through the restart",
             );
         }
 
-        let since: Version =
-            borsh::from_slice(&unordered_checkpoint).expect("a checkpoint deserializes");
+        let since =
+            Version::decode(&unordered_checkpoint[..]).expect("a checkpoint deserializes");
         let mut resumed = rebuilt.unordered_messages_since(since);
         let replayed = drain_unordered(&mut resumed);
         for (key, value) in &final_live {
             prop_assert!(
                 unordered_handled.contains(key)
-                    || replayed.iter().any(|(k, m)| k == key && m == value),
+                    || replayed
+                        .iter()
+                        .any(|(v, m)| v.as_bytes() == key.as_slice() && m == value),
                 "unordered: unhandled live message {key:?} fell through the restart",
             );
         }

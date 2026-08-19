@@ -20,16 +20,16 @@ use proptest::collection::vec;
 use proptest::prelude::*;
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
-use rumors::{Key, Peer, Retire, Rumors, UnorderedMessages, Version, causally};
+use rumors::{Peer, Retire, Rumors, UnorderedMessages, Version, causally};
 
-use crate::common::action::minted_key;
+use crate::common::action::minted_version;
 use crate::common::wire::{assert_control_drained, block_on, bootstrap_fork, wire_gossip};
 
 /// One observer step, with the borrowed faces cloned out.
 #[derive(Debug, PartialEq)]
 enum Step {
     /// The observer yielded a message.
-    Item((Key, Version, u64)),
+    Item((Version, u64)),
     /// The observer is quiet: nothing new, actors still live.
     Quiet,
     /// The observer ended: every sender is gone and the complete final
@@ -42,13 +42,13 @@ fn step(obs: &mut UnorderedMessages<u64>) -> Step {
     match obs.borrow_next().now_or_never() {
         None => Step::Quiet,
         Some(None) => Step::Ended,
-        Some(Some((k, v, m))) => Step::Item((k, v.clone(), **m)),
+        Some(Some((v, m))) => Step::Item((v.clone(), **m)),
     }
 }
 
 /// Drain the observer until it goes quiet or ends, returning the items in
 /// delivery order and whether it ended.
-fn drain(obs: &mut UnorderedMessages<u64>) -> (Vec<(Key, Version, u64)>, bool) {
+fn drain(obs: &mut UnorderedMessages<u64>) -> (Vec<(Version, u64)>, bool) {
     let mut items = Vec::new();
     loop {
         match step(obs) {
@@ -59,11 +59,15 @@ fn drain(obs: &mut UnorderedMessages<u64>) -> (Vec<(Key, Version, u64)>, bool) {
     }
 }
 
-/// The live `Key → value` map, for comparing against deliveries. (Keys
-/// identify messages uniquely; `Version` is only partially ordered, so it
-/// can't key a comparison set.)
-fn live_map(rumors: &Rumors<u64>) -> BTreeMap<Key, u64> {
-    rumors.snapshot().iter().map(|(k, _, m)| (k, **m)).collect()
+/// The live identity → value map, for comparing against deliveries.
+/// (A message's identity is its `Version`, which is only partially
+/// ordered, so its canonical bytes key the comparison set.)
+fn live_map(rumors: &Rumors<u64>) -> BTreeMap<Vec<u8>, u64> {
+    rumors
+        .snapshot()
+        .iter()
+        .map(|(v, m)| (v.as_bytes().to_vec(), **m))
+        .collect()
 }
 
 /// §6.1 Genesis replay: a from-genesis observer on a populated set yields
@@ -86,7 +90,10 @@ fn genesis_replay_observes_the_live_set_once() {
         "actors are live, so the observer goes quiet, not ended"
     );
 
-    let observed: BTreeMap<Key, u64> = items.iter().map(|(k, _, m)| (*k, *m)).collect();
+    let observed: BTreeMap<Vec<u8>, u64> = items
+        .iter()
+        .map(|(v, m)| (v.as_bytes().to_vec(), *m))
+        .collect();
     assert_eq!(observed.len(), items.len(), "no message is observed twice");
     assert_eq!(
         observed,
@@ -94,7 +101,7 @@ fn genesis_replay_observes_the_live_set_once() {
         "exactly the live set is observed"
     );
 
-    for (_, version, _) in &items {
+    for (version, _) in &items {
         assert!(
             version <= obs.checkpoint(),
             "the post-pass checkpoint dominates every observed version"
@@ -114,13 +121,13 @@ fn checkpoint_start_observes_only_what_it_does_not_contain() {
     let mut obs = rumors.unordered_messages_since(v_mid.clone());
     let (items, _) = drain(&mut obs);
 
-    let observed: BTreeSet<u64> = items.iter().map(|(_, _, m)| *m).collect();
+    let observed: BTreeSet<u64> = items.iter().map(|(_, m)| *m).collect();
     assert_eq!(
         observed,
         BTreeSet::from([4, 5, 6]),
         "exactly the leaves above v_mid fire"
     );
-    for (_, version, _) in &items {
+    for (version, _) in &items {
         // The causal membership predicate itself: `since(&v_mid)` keeps
         // exactly the versions v_mid does not contain.
         assert!(
@@ -147,14 +154,14 @@ fn live_sends_and_gossip_learned_messages_are_observed() {
     sibling.send(10);
     let (items, _) = drain(&mut obs);
     assert_eq!(items.len(), 1, "the sibling's send is observed");
-    assert_eq!(items[0].2, 10);
+    assert_eq!(items[0].1, 10);
 
     // A message learned through gossip.
     b.send(20);
     wire_gossip(&a, &b);
     let (items, _) = drain(&mut obs);
     assert_eq!(items.len(), 1, "the gossip-learned message is observed");
-    assert_eq!(items[0].2, 20);
+    assert_eq!(items[0].1, 20);
 }
 
 /// §6.4 Redaction honored: an observed-then-redacted message fires nothing
@@ -170,8 +177,8 @@ fn redactions_are_honored_silently() {
     // Redacted before subscription: never fires.
     let pre = rumors.snapshot().latest().clone();
     rumors.send(1);
-    let key_1 = minted_key(&rumors.snapshot(), &pre);
-    rumors.redact(key_1);
+    let version_1 = minted_version(&rumors.snapshot(), &pre);
+    rumors.redact(&version_1);
     let mut obs = rumors.unordered_messages();
     let (items, _) = drain(&mut obs);
     assert!(items.is_empty(), "a pre-subscription redaction never fires");
@@ -179,18 +186,18 @@ fn redactions_are_honored_silently() {
     // Observed, then redacted: nothing further fires.
     let pre = rumors.snapshot().latest().clone();
     rumors.send(2);
-    let key_2 = minted_key(&rumors.snapshot(), &pre);
+    let version_2 = minted_version(&rumors.snapshot(), &pre);
     let (items, _) = drain(&mut obs);
     assert_eq!(items.len(), 1, "the live message fires once");
-    rumors.redact(key_2);
+    rumors.redact(&version_2);
     let (items, _) = drain(&mut obs);
     assert!(items.is_empty(), "a redaction fires no further observation");
 
     // Inserted and redacted wholly between passes: never delivered.
     let pre = rumors.snapshot().latest().clone();
     rumors.send(3);
-    let key_3 = minted_key(&rumors.snapshot(), &pre);
-    rumors.redact(key_3);
+    let version_3 = minted_version(&rumors.snapshot(), &pre);
+    rumors.redact(&version_3);
     let (items, _) = drain(&mut obs);
     assert!(
         items.is_empty(),
@@ -205,7 +212,7 @@ fn redactions_are_honored_silently() {
     rumors.send(5);
     let (items, _) = drain(&mut from_now);
     assert_eq!(items.len(), 1);
-    assert_eq!(items[0].2, 5, "only post-subscription content fires");
+    assert_eq!(items[0].1, 5, "only post-subscription content fires");
 }
 
 /// §6.9 Termination: when the last handle on the set drops, the observer
@@ -224,7 +231,7 @@ fn observer_drains_the_final_state_then_ends() {
     assert_eq!(
         items
             .into_iter()
-            .map(|(k, _, m)| (k, m))
+            .map(|(v, m)| (v.as_bytes().to_vec(), m))
             .collect::<BTreeMap<_, _>>(),
         expected,
         "the complete final state is yielded before the end"
@@ -264,7 +271,7 @@ fn retire_ends_the_observer() {
     let (items, ended) = drain(&mut obs);
     assert!(ended, "retiring the set ends its observers");
     assert!(
-        items.iter().any(|(_, _, m)| *m == 7),
+        items.iter().any(|(_, m)| *m == 7),
         "the final drain delivered the retiree's own message"
     );
 }
@@ -320,7 +327,7 @@ fn observer_does_not_block_reunite_and_survives_it() {
         1,
         "the observer keeps observing across reunite"
     );
-    assert_eq!(items[0].2, 42);
+    assert_eq!(items[0].1, 42);
 }
 
 /// §6.12 Non-blocking observer: an observer mid-pass — its most recent item
@@ -333,7 +340,7 @@ fn lent_borrows_do_not_block_senders() {
 
     let mut obs = rumors.unordered_messages();
     let lent = block_on(obs.borrow_next()).expect("first item of the pass");
-    let lent_value = *lent.2.clone();
+    let lent_value = *lent.1.clone();
 
     // With the borrow conceptually outstanding (the observer is mid-pass),
     // a send must not deadlock.
@@ -341,7 +348,7 @@ fn lent_borrows_do_not_block_senders() {
 
     let (rest, _) = drain(&mut obs);
     assert!(
-        rest.iter().any(|(_, _, m)| *m == 3),
+        rest.iter().any(|(_, m)| *m == 3),
         "the mid-pass send is observed by a later pass"
     );
     assert!(
@@ -395,7 +402,7 @@ fn checkpoint_is_portable_across_replicas() {
     let mut obs_b = b.unordered_messages_since(checkpoint);
     let (items, _) = drain(&mut obs_b);
     assert_eq!(items.len(), 1, "only the message A never observed fires");
-    assert_eq!(items[0].2, 2, "A-observed messages are skipped at B");
+    assert_eq!(items[0].1, 2, "A-observed messages are skipped at B");
 }
 
 /// The observer's non-blocking step lends exactly as
@@ -410,7 +417,7 @@ fn try_next_distinguishes_quiet_from_ended() {
 
     let mut obs = rumors.unordered_messages();
     let mut seen = BTreeSet::new();
-    while let TryNext::Message((_, _, m)) = obs.try_next() {
+    while let TryNext::Message((_, m)) = obs.try_next() {
         seen.insert(**m);
     }
     assert_eq!(seen, BTreeSet::from([1, 2]), "the pending pass drains");
@@ -420,7 +427,7 @@ fn try_next_distinguishes_quiet_from_ended() {
     );
 
     rumors.send(3);
-    let TryNext::Message((_, _, m)) = obs.try_next() else {
+    let TryNext::Message((_, m)) = obs.try_next() else {
         panic!("the new send is immediately available");
     };
     assert_eq!(**m, 3);
@@ -445,8 +452,8 @@ fn stream_face_matches_and_terminates() {
 
     let mut obs = rumors.unordered_messages();
     let mut items = BTreeMap::new();
-    while let Some(Some((k, _, m))) = obs.next().now_or_never() {
-        items.insert(k, *m);
+    while let Some(Some((v, m))) = obs.next().now_or_never() {
+        items.insert(v.as_bytes().to_vec(), *m);
     }
     assert_eq!(items, expected, "the Stream face yields the live set");
 
@@ -461,7 +468,8 @@ fn stream_face_matches_and_terminates() {
 /// §6.6 (negative control): folding *delivered* versions is not a sound
 /// resume point.
 ///
-/// Delivery is in key order, not causal order, so a stopped
+/// Delivery is in path order (the hash of the version), not causal
+/// order, so a stopped
 /// pass can have delivered `m2` (later version) but not `m1` (earlier);
 /// the fold then causally contains `m1`, and resuming from it skips `m1`
 /// forever — loss, not re-delivery. `UnorderedMessages::checkpoint()` (the
@@ -470,26 +478,29 @@ fn stream_face_matches_and_terminates() {
 #[test]
 fn folding_delivered_versions_can_lose_a_message() {
     // Search deterministic universes for the counterexample shape: the
-    // *later*-minted of two messages is delivered first (content-addressed
-    // keys vs. causal versions disagree about order roughly half the time).
-    let (rumors, later_value) = (1u64..256)
-        .find_map(|candidate| {
-            let rumors = Peer::<u64>::seed_rng(&mut SmallRng::seed_from_u64(0))
+    // *later*-minted of two messages is delivered first. A leaf's path is
+    // the hash of its version, and paths vs. causal versions disagree
+    // about order roughly half the time, so varying the universe seed
+    // (which varies the minted versions) finds the shape quickly.
+    let later_value = 1u64;
+    let rumors = (0u64..256)
+        .find_map(|seed| {
+            let rumors = Peer::<u64>::seed_rng(&mut SmallRng::seed_from_u64(seed))
                 .sync_window_floor()
                 .into_rumors();
             rumors.send(0);
-            rumors.send(candidate);
+            rumors.send(later_value);
             let snapshot = rumors.snapshot();
             let first_yielded = snapshot.iter().next().expect("two live messages");
-            let later_first = **first_yielded.2 == candidate;
+            let later_first = **first_yielded.1 == later_value;
             drop(snapshot);
-            later_first.then_some((rumors, candidate))
+            later_first.then_some(rumors)
         })
-        .expect("some candidate must collide into key-before-version order");
+        .expect("some universe must collide into path-before-version order");
 
     // Deliver exactly one item — the later version — and stop mid-pass.
     let mut obs = rumors.unordered_messages();
-    let Step::Item((_, delivered_version, delivered_value)) = step(&mut obs) else {
+    let Step::Item((delivered_version, delivered_value)) = step(&mut obs) else {
         panic!("the populated set delivers an item");
     };
     assert_eq!(delivered_value, later_value, "the later version came first");
@@ -526,7 +537,8 @@ enum Op {
     /// Send this value (through one of two sibling `Rumors` clones,
     /// alternating by op index).
     Send(u64),
-    /// Redact the `idx % minted`-th key minted so far (dropped if none).
+    /// Redact the `idx % minted`-th message minted so far (dropped if
+    /// none).
     Redact(usize),
     /// Drain the observer to quiescence.
     Drain,
@@ -546,16 +558,16 @@ fn arb_ops() -> impl Strategy<Value = Vec<Op>> {
 proptest! {
     /// §6.5 Exactly-once under interleaving: across an arbitrary
     /// send/redact/drain interleaving (sends through alternating sibling
-    /// clones), no key is ever observed twice, and the observations cover
-    /// the final live set.
+    /// clones), no message is ever observed twice, and the observations
+    /// cover the final live set.
     #[test]
     fn exactly_once_under_interleaving(ops in arb_ops()) {
         let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
         let sibling = rumors.clone();
 
         let mut obs = rumors.unordered_messages();
-        let mut minted: Vec<Key> = Vec::new();
-        let mut observed: Vec<(Key, Version, u64)> = Vec::new();
+        let mut minted: Vec<Version> = Vec::new();
+        let mut observed: Vec<(Version, u64)> = Vec::new();
 
         for (i, op) in ops.iter().enumerate() {
             match op {
@@ -563,11 +575,11 @@ proptest! {
                     let handle = if i % 2 == 0 { &rumors } else { &sibling };
                     let pre = handle.snapshot().latest().clone();
                     handle.send(*v);
-                    minted.push(minted_key(&handle.snapshot(), &pre));
+                    minted.push(minted_version(&handle.snapshot(), &pre));
                 }
                 Op::Redact(idx) => {
                     if !minted.is_empty() {
-                        rumors.redact(minted[idx % minted.len()]);
+                        rumors.redact(&minted[idx % minted.len()]);
                     }
                 }
                 Op::Drain => {
@@ -585,12 +597,17 @@ proptest! {
         observed.extend(final_items);
 
         let mut seen = BTreeSet::new();
-        for (key, _, _) in &observed {
-            prop_assert!(seen.insert(*key), "key {key:?} observed twice");
+        for (version, _) in &observed {
+            prop_assert!(
+                seen.insert(version.as_bytes().to_vec()),
+                "version {version:?} observed twice"
+            );
         }
         for (key, value) in &final_live {
             prop_assert!(
-                observed.iter().any(|(k, _, m)| k == key && m == value),
+                observed
+                    .iter()
+                    .any(|(v, m)| v.as_bytes() == key.as_slice() && m == value),
                 "a final live message was never observed",
             );
         }
@@ -623,7 +640,7 @@ proptest! {
         // Deliver a prefix of the first pass — or, when `complete_pass`,
         // drain to quiescence so the pass commits into the checkpoint.
         let mut obs = rumors.unordered_messages();
-        let mut first_run: Vec<(Key, Version, u64)> = Vec::new();
+        let mut first_run: Vec<(Version, u64)> = Vec::new();
         if complete_pass {
             let (items, _) = drain(&mut obs);
             first_run.extend(items);
@@ -659,24 +676,27 @@ proptest! {
                 first_run
                     .iter()
                     .chain(&second_run)
-                    .any(|(k, _, m)| k == key && m == value),
+                    .any(|(v, m)| v.as_bytes() == key.as_slice() && m == value),
                 "a live message fell between the stopped and resumed observers",
             );
         }
 
-        // Re-delivery discipline: a key delivered by both runs must have
-        // been part of the interrupted pass; after a *completed* pass,
-        // there are no re-deliveries at all.
-        let first_keys: BTreeSet<Key> = first_run.iter().map(|(k, _, _)| *k).collect();
-        let second_keys: BTreeSet<Key> = second_run.iter().map(|(k, _, _)| *k).collect();
-        let redelivered: Vec<&Key> = first_keys.intersection(&second_keys).collect();
+        // Re-delivery discipline: a message delivered by both runs must
+        // have been part of the interrupted pass; after a *completed*
+        // pass, there are no re-deliveries at all.
+        let first_versions: BTreeSet<Vec<u8>> =
+            first_run.iter().map(|(v, _)| v.as_bytes().to_vec()).collect();
+        let second_versions: BTreeSet<Vec<u8>> =
+            second_run.iter().map(|(v, _)| v.as_bytes().to_vec()).collect();
+        let redelivered: Vec<&Vec<u8>> =
+            first_versions.intersection(&second_versions).collect();
         if complete_pass {
             prop_assert!(
                 redelivered.is_empty(),
                 "a completed pass's messages must not re-fire: {redelivered:?}",
             );
         }
-        // (Mid-pass, `redelivered ⊆ first_keys` holds by construction; the
-        // loss-freedom assertion above is the substantive check.)
+        // (Mid-pass, `redelivered ⊆ first_versions` holds by construction;
+        // the loss-freedom assertion above is the substantive check.)
     }
 }

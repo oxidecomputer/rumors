@@ -17,15 +17,15 @@
 //! 3. Otherwise, run the **steady-state controller**: compare the number of
 //!    messages it currently knows about to the target and, with a probability
 //!    derived from that gap, either inject a fresh random message or redact a
-//!    key it already knows about.
+//!    message it already knows about.
 //!
-//! Each party keeps its *own* `Vec<Key>` of every key it has observed — fed
-//! by an [`UnorderedMessages`] observer that replays its rumor set from
-//! genesis and then yields its own inserts and everything learned over the
-//! wire alike — so redactions may evict messages originally published by
-//! *other* parties, and the contagion spreads on the next sync. The key
-//! vector is per-thread: no shared rumor-set state, no lock contention on
-//! the hot path.
+//! Each party keeps its *own* `Vec<Version>` of every message it has
+//! observed — fed by an [`UnorderedMessages`] observer that replays its
+//! rumor set from genesis and then yields its own inserts and everything
+//! learned over the wire alike — so redactions may evict messages
+//! originally published by *other* parties, and the contagion spreads on
+//! the next sync. The version vector is per-thread: no shared rumor-set
+//! state, no lock contention on the hot path.
 //!
 //! # Steady-state controller
 //!
@@ -40,8 +40,8 @@
 //! At `L = 0` it always adds; at `L = T` the odds are even; as `L` grows past
 //! `T` adding becomes rare. The fixed point is `L = T`, so each node's live
 //! count is driven toward the target, tunable live from the UI. A redact op
-//! always removes a key that is still live, discarding pool entries other
-//! parties already redacted as they surface; [`steady_state_op`] explains
+//! always removes a message that is still live, discarding pool entries
+//! other parties already redacted as they surface; [`steady_state_op`] explains
 //! why the fixed point depends on that, and `swarm/tests.rs` pins
 //! convergence through retargeting. Because redactions and inserts both
 //! propagate, every node's `L` tracks the global live count as views
@@ -149,7 +149,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Sparkline};
 use rumors::link::{Connector, Done, Link, LinkParts, MemoryAcceptor, MemoryConnector, MemoryLink};
-use rumors::{Key, Peer, Retire, Rumors, UnorderedMessages};
+use rumors::{Peer, Retire, Rumors, UnorderedMessages, Version};
 use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadBuf};
 
 /// Mint a genuine party-disjoint peer that inherits `parent`'s content.
@@ -182,9 +182,9 @@ fn bootstrap_fork(
         .into_rumors()
 }
 
-/// Message payload type: opaque, randomized bytes. Borsh serializes `Vec<u8>`
-/// as a length-prefixed blob, so the wire cost tracks the message size
-/// directly.
+/// Message payload type: opaque, randomized bytes. CBOR encodes `Vec<u8>`
+/// as an integer array, so the wire cost tracks the message size (within
+/// a small per-element constant).
 type Payload = Vec<u8>;
 
 /// One endpoint of a sync session, handed from an initiator to the responder
@@ -384,9 +384,9 @@ enum Command {
     WindDown { reply: Sender<Donation> },
 }
 
-/// A party's [`Rumors`] handed back to the coordinator. The key pool is not
-/// carried along: the receiving thread rebuilds it by replaying the set
-/// through a fresh [`UnorderedMessages`] observer.
+/// A party's [`Rumors`] handed back to the coordinator. The version pool
+/// is not carried along: the receiving thread rebuilds it by replaying the
+/// set through a fresh [`UnorderedMessages`] observer.
 struct Donation {
     rumors: Rumors<Payload>,
 }
@@ -417,9 +417,10 @@ fn main() -> io::Result<()> {
     assert!(args.parties >= 2, "need at least 2 parties to gossip");
     assert!(args.message_size > 0, "message size must be positive");
 
-    // Seed the shared rumor set, then fork one disjoint party per thread. The
-    // seed's keys are shared by every party, so any party may redact them
-    // (each thread learns them by replaying its set through an observer).
+    // Seed the shared rumor set, then fork one disjoint party per thread.
+    // The seed's messages are shared by every party, so any party may redact
+    // them (each thread learns them by replaying its set through an
+    // observer).
     let seed_runtime = tokio::runtime::Builder::new_current_thread()
         .build()
         .expect("build seed runtime");
@@ -527,7 +528,7 @@ const SHUTDOWN_DRAIN_DEADLINE: Duration = Duration::from_secs(5);
 /// `me` is this party's own directory entry, held directly so the hot path
 /// never has to look itself up.
 ///
-/// The redaction key pool is fed by an [`UnorderedMessages`] observer from
+/// The redaction pool is fed by an [`UnorderedMessages`] observer from
 /// genesis: the initial drain replays everything the party inherited (the
 /// seed content, or a fork parent's whole set), and each loop's drain picks
 /// up its own inserts and everything learned over the wire, exactly once
@@ -545,7 +546,7 @@ fn run_party(
     let mut rng = SmallRng::from_entropy();
     let mut next_sync = Instant::now() + exponential(&mut rng, &net.controls);
     let mut observer = rumors.unordered_messages();
-    let mut keys: Vec<Key> = Vec::new();
+    let mut pool: Vec<Version> = Vec::new();
 
     loop {
         // 1. Serve every inbound session. Our engaged flag was set true by the
@@ -555,12 +556,12 @@ fn run_party(
             me.engaged.store(false, Ordering::Release);
         }
 
-        // Catch the key pool up with everything observed since the last turn
-        // — the sessions just served included — and republish our live count
-        // for the UI gauge. One snapshot serves the rest of the iteration:
-        // taking it after the serves keeps the controller's odds and the
-        // pool's liveness checks current with what just arrived.
-        drain_keys(&mut observer, &mut keys);
+        // Catch the redaction pool up with everything observed since the
+        // last turn — the sessions just served included — and republish our
+        // live count for the UI gauge. One snapshot serves the rest of the
+        // iteration: taking it after the serves keeps the controller's odds
+        // and the pool's liveness checks current with what just arrived.
+        drain_versions(&mut observer, &mut pool);
         let snap = rumors.snapshot();
         me.live.store(snap.len() as u64, Ordering::Relaxed);
 
@@ -570,7 +571,7 @@ fn run_party(
                 Command::Fork { reply } => {
                     // Mint a genuine disjoint child that inherits our content,
                     // so it can independently churn and gossip; its thread
-                    // rebuilds the key pool by observer replay. We keep
+                    // rebuilds the version pool by observer replay. We keep
                     // running unchanged.
                     let child = bootstrap_fork(&runtime, &rumors, net.duplex_capacity);
                     let _ = reply.send(Donation { rumors: child });
@@ -609,16 +610,16 @@ fn run_party(
         }
 
         // 4. Local churn under the steady-state controller.
-        local_op(&net, &mut rng, &rumors, &snap, &mut keys);
+        local_op(&net, &mut rng, &rumors, &snap, &mut pool);
     }
 }
 
 /// Pull every message the observer has pending — without blocking — and push
-/// its key into the pool. Each message is yielded exactly once across the
-/// party's lifetime, so the pool never holds duplicates.
-fn drain_keys(observer: &mut UnorderedMessages<Payload>, keys: &mut Vec<Key>) {
-    while let Some(Some((key, _, _))) = observer.borrow_next().now_or_never() {
-        keys.push(key);
+/// its version into the pool. Each message is yielded exactly once across
+/// the party's lifetime, so the pool never holds duplicates.
+fn drain_versions(observer: &mut UnorderedMessages<Payload>, pool: &mut Vec<Version>) {
+    while let Some(Some((version, _))) = observer.borrow_next().now_or_never() {
+        pool.push(version.clone());
     }
 }
 
@@ -731,7 +732,8 @@ fn try_initiate(
     // Latency is the wall-clock span of the gossip exchange itself: `start` is
     // taken immediately before the protocol runs and `elapsed` immediately
     // after it returns. It is never derived from the Poisson schedule.
-    // (Learned keys surface through the party's observer on its next drain.)
+    // (Learned messages surface through the party's observer on its next
+    // drain.)
     let start = Instant::now();
     // The swarm's links are in-process and its parties one universe, so a
     // failed session is a bug and panicking is honest. A real application
@@ -751,7 +753,8 @@ fn try_initiate(
 }
 
 /// Drive the responder side of a session that some initiator opened with us.
-/// (Learned keys surface through the party's observer on its next drain.)
+/// (Learned messages surface through the party's observer on its next
+/// drain.)
 fn serve_sync(
     runtime: &tokio::runtime::Runtime,
     net: &Net,
@@ -777,26 +780,26 @@ fn local_op(
     rng: &mut SmallRng,
     rumors: &Rumors<Payload>,
     snap: &rumors::Snapshot<Payload>,
-    keys: &mut Vec<Key>,
+    pool: &mut Vec<Version>,
 ) {
     let target = net.controls.target.load(Ordering::Relaxed);
     let size = net.controls.message_size.load(Ordering::Relaxed) as usize;
-    steady_state_op(rng, rumors, snap, keys, target, size);
+    steady_state_op(rng, rumors, snap, pool, target, size);
     net.metrics.local_ops.fetch_add(1, Ordering::Relaxed);
 }
 
 /// One steady-state controller op: insert with probability
 /// `target / (target + live)` (1.0 when empty, 0.5 at target, → 0 far over),
-/// otherwise redact a **live** key, so the live set is driven toward
+/// otherwise redact a **live** message, so the live set is driven toward
 /// `target`.
 ///
-/// Falls back to an insert when no live key is in the pool.
+/// Falls back to an insert when no live message is in the pool.
 ///
-/// The redact arm draws until it finds a key still present in `snap`,
-/// discarding stale entries — keys other parties already redacted — as they
-/// surface, without spending the op on them. The discard is what keeps the
-/// fixed point at `live == target` for any swarm size: every party's pool
-/// takes in every party's inserts but drains only by its own draws, so
+/// The redact arm draws until it finds a message still present in `snap`,
+/// discarding stale entries — messages other parties already redacted — as
+/// they surface, without spending the op on them. The discard is what keeps
+/// the fixed point at `live == target` for any swarm size: every party's
+/// pool takes in every party's inserts but drains only by its own draws, so
 /// counting a stale draw as the op's redaction would let the stale backlog
 /// grow with the swarm and starve the downward pressure (live counts then
 /// stall near `parties × target` instead).
@@ -804,7 +807,7 @@ fn steady_state_op(
     rng: &mut SmallRng,
     rumors: &Rumors<Payload>,
     snap: &rumors::Snapshot<Payload>,
-    keys: &mut Vec<Key>,
+    pool: &mut Vec<Version>,
     target: u64,
     message_size: usize,
 ) {
@@ -817,21 +820,22 @@ fn steady_state_op(
     };
 
     if !rng.gen_bool(p_add.clamp(0.0, 1.0)) {
-        // Swap-remove random keys until one is still live, and redact it: the
-        // key leaves our local view and the redaction propagates on our next
-        // sync. Stale keys leave the vector as they are drawn, so a redaction
-        // burst elsewhere costs at most one pass over the pool here.
-        while !keys.is_empty() {
-            let idx = rng.gen_range(0..keys.len());
-            let key = keys.swap_remove(idx);
-            if snap.get(&key).is_some() {
-                rumors.redact(key);
+        // Swap-remove random pool entries until one is still live, and
+        // redact it: the message leaves our local view and the redaction
+        // propagates on our next sync. Stale entries leave the vector as
+        // they are drawn, so a redaction burst elsewhere costs at most one
+        // pass over the pool here.
+        while !pool.is_empty() {
+            let idx = rng.gen_range(0..pool.len());
+            let version = pool.swap_remove(idx);
+            if snap.get(&version).is_some() {
+                rumors.redact(&version);
                 return;
             }
         }
     }
-    // The add arm — or a pool with no live key left in it. The minted key
-    // reaches the pool through the observer's next drain.
+    // The add arm — or a pool with no live message left in it. The minted
+    // version reaches the pool through the observer's next drain.
     rumors.send(random_message(rng, message_size));
 }
 

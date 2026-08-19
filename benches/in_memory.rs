@@ -3,7 +3,7 @@
 //! These cover the operations that mutate or read a rumor set entirely in
 //! memory: everything except [`gossip`](rumors::Rumors::gossip), which
 //! serializes onto the wire (see `gossip_grid.rs` and `gossip_fixed.rs`).
-//! The message payload is `()`, which borsh-encodes to zero bytes, so each
+//! The message payload is `()`, whose encoding is one CBOR null byte, so each
 //! measurement reflects the tree / clock / hashing work rather than the cost
 //! of serializing a payload.
 //!
@@ -25,7 +25,7 @@
 //! - `batch_insert`: build a rumor set of size N from empty in one batch
 //!   commit (insert throughput, averaged over the 0..N growth curve).
 //! - `iter`: a full live-message traversal of a size-N snapshot.
-//! - `redact`: forget all N keys of a size-N set in one batch commit.
+//! - `redact`: forget all N messages of a size-N set in one batch commit.
 //! - `range_delta`: iterate the causal delta of size D above a checkpoint in a
 //!   size-N set — the version-bounds pruning claim: cost should track D
 //!   plus the pruning frontier, not N.
@@ -36,13 +36,13 @@
 //! - `causal_replay` / `causal_delta`: the same two sweeps through a
 //!   [`CausalMessages`] observer — the column-for-column price of causal
 //!   delivery's rank-ordered staging over the plain passes.
-//! - `get`: a point lookup by [`Key`] in a size-N set.
+//! - `get`: a point lookup by [`Version`] in a size-N set.
 
 use std::hint::black_box;
 
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use futures::FutureExt;
-use rumors::{CausalMessages, Key, Peer, Rumors, UnorderedMessages, causally};
+use rumors::{CausalMessages, Peer, Rumors, UnorderedMessages, Version, causally};
 
 // The shared grid module exposes a superset of helpers; each bench binary uses
 // a subset, so the unused remainder is expected per-binary.
@@ -64,12 +64,12 @@ fn send_units(rumors: &Rumors<()>, n: usize) {
 }
 
 /// A freshly seeded rumor set holding `n` messages, paired with its live
-/// keys (in the snapshot's stable order).
-fn build(n: usize) -> (Rumors<()>, Vec<Key>) {
+/// versions (in the snapshot's stable order).
+fn build(n: usize) -> (Rumors<()>, Vec<Version>) {
     let rumors: Rumors<()> = Peer::seed().into_rumors();
     send_units(&rumors, n);
-    let keys = rumors.snapshot().iter().map(|(k, _, _)| k).collect();
-    (rumors, keys)
+    let versions = rumors.snapshot().iter().map(|(v, _)| v.clone()).collect();
+    (rumors, versions)
 }
 
 /// Drain everything `observer` has pending, without blocking, returning how
@@ -114,7 +114,7 @@ fn bench_iter(c: &mut Criterion) {
     for &n in SIZES {
         group.sample_size(sample_size_for(n));
         group.throughput(Throughput::Elements(n as u64));
-        let (rumors, _keys) = build(n);
+        let (rumors, _versions) = build(n);
         let snapshot = rumors.snapshot();
         group.bench_function(BenchmarkId::from_parameter(n), |b| {
             b.iter(|| {
@@ -130,7 +130,7 @@ fn bench_iter(c: &mut Criterion) {
     group.finish();
 }
 
-/// `redact`: forget all N keys of a size-N set in a single batch commit.
+/// `redact`: forget all N messages of a size-N set in a single batch commit.
 ///
 /// Each iteration redacts a fresh set built in untimed setup. `PerIteration`
 /// keeps only one tree alive at a time, which matters at N = 1M.
@@ -142,10 +142,10 @@ fn bench_redact(c: &mut Criterion) {
         group.bench_function(BenchmarkId::from_parameter(n), |b| {
             b.iter_batched(
                 || build(n),
-                |(rumors, keys)| {
+                |(rumors, versions)| {
                     let mut batch = rumors.batch();
-                    for key in keys {
-                        batch.redact(black_box(key));
+                    for version in &versions {
+                        batch.redact(black_box(version));
                     }
                     drop(batch);
                     rumors
@@ -214,7 +214,7 @@ fn bench_observer_replay(c: &mut Criterion) {
     for &n in SIZES {
         group.sample_size(sample_size_for(n));
         group.throughput(Throughput::Elements(n as u64));
-        let (rumors, _keys) = build(n);
+        let (rumors, _versions) = build(n);
         rumors.warm_caches();
         group.bench_function(BenchmarkId::from_parameter(n), |b| {
             b.iter(|| {
@@ -278,7 +278,7 @@ fn bench_causal_replay(c: &mut Criterion) {
     for &n in SIZES {
         group.sample_size(sample_size_for(n));
         group.throughput(Throughput::Elements(n as u64));
-        let (rumors, _keys) = build(n);
+        let (rumors, _versions) = build(n);
         rumors.warm_caches();
         group.bench_function(BenchmarkId::from_parameter(n), |b| {
             b.iter(|| {
@@ -317,7 +317,7 @@ fn bench_causal_delta(c: &mut Criterion) {
     group.finish();
 }
 
-/// `get`: a point lookup by key — one `O(depth)` descent, never a scan.
+/// `get`: a point lookup by version — one `O(depth)` descent, never a scan.
 ///
 /// Lookups go through [`snapshot`](Rumors::snapshot), so the timed body pays
 /// for acquiring the root handle plus the descent: the whole per-call cost
@@ -326,15 +326,15 @@ fn bench_get(c: &mut Criterion) {
     let mut group = c.benchmark_group("get");
     for &n in SIZES {
         group.sample_size(sample_size_for(n));
-        let (rumors, keys) = build(n);
+        let (rumors, versions) = build(n);
         rumors.warm_caches();
-        // A fixed key from the middle of the stable iteration order; any
-        // live key costs the same depth-bounded descent.
-        let key = keys[keys.len() / 2];
+        // A fixed version from the middle of the stable iteration order;
+        // any live version costs the same depth-bounded descent.
+        let version = versions[versions.len() / 2].clone();
         group.bench_function(BenchmarkId::from_parameter(n), |b| {
             b.iter(|| {
                 let snapshot = rumors.snapshot();
-                black_box(snapshot.get(black_box(&key)));
+                black_box(snapshot.get(black_box(&version)));
             })
         });
     }

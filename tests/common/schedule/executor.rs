@@ -11,8 +11,7 @@
 
 use std::collections::BTreeMap;
 
-use borsh::{BorshDeserialize, BorshSerialize};
-use rumors::{Key, Retire, Version};
+use rumors::{Retire, Version};
 
 use super::events::{Event, EventIdx, Schedule};
 use crate::common::oracle::Oracle;
@@ -20,16 +19,19 @@ use crate::common::peer::{Peer, gossip_step, quiesce, quiesce_slots};
 use crate::common::window::WindowAssignment;
 use crate::common::wire::{LINK_BUF, assert_control_drained, block_on, bootstrap_fork_with_window};
 
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 pub struct ExecutionResult<T> {
     pub peers: Vec<Peer<T>>,
     pub oracle: Oracle<T>,
-    /// For each `Insert` event, the `Key` minted at the originating peer.
-    pub resolved_keys: BTreeMap<EventIdx, Key>,
+    /// For each `Insert` event, the [`Version`] minted at the originating
+    /// peer.
+    pub resolved_versions: BTreeMap<EventIdx, Version>,
 }
 
 /// What executing a membership schedule leaves behind: the fleet as
 /// slots (a retired peer's slot is `None`), every retiree's complete
-/// observation log, and the same oracle and key map as the
+/// observation log, and the same oracle and version map as the
 /// membership-free result.
 pub struct MembershipExecutionResult<T> {
     /// One slot per peer ever minted — the initial fleet, then every
@@ -37,10 +39,11 @@ pub struct MembershipExecutionResult<T> {
     pub slots: Vec<Option<Peer<T>>>,
     /// Each retired peer's observation log, complete as of the drain
     /// that preceded its retirement.
-    pub retired_observations: BTreeMap<usize, Vec<(Key, Version, T)>>,
+    pub retired_observations: BTreeMap<usize, Vec<(Version, T)>>,
     pub oracle: Oracle<T>,
-    /// For each `Insert` event, the `Key` minted at the originating peer.
-    pub resolved_keys: BTreeMap<EventIdx, Key>,
+    /// For each `Insert` event, the [`Version`] minted at the originating
+    /// peer.
+    pub resolved_versions: BTreeMap<EventIdx, Version>,
 }
 
 impl<T> MembershipExecutionResult<T> {
@@ -62,7 +65,7 @@ impl<T> MembershipExecutionResult<T> {
 /// between differently-configured endpoints).
 pub fn execute<T>(schedule: &Schedule<T>, windows: &WindowAssignment) -> ExecutionResult<T>
 where
-    T: Clone + Ord + BorshSerialize + BorshDeserialize + Send + Sync + 'static,
+    T: Clone + Ord + Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     execute_with(schedule, windows, |_, _, _| true)
 }
@@ -75,7 +78,7 @@ pub fn execute_and_quiesce<T>(
     windows: &WindowAssignment,
 ) -> ExecutionResult<T>
 where
-    T: Clone + Eq + Ord + BorshSerialize + BorshDeserialize + Send + Sync + 'static,
+    T: Clone + Eq + Ord + Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     let mut result = execute(schedule, windows);
     quiesce(&mut result.peers);
@@ -93,8 +96,8 @@ where
 /// guarantee for `Redact` events no longer holds: a `Redact` whose
 /// target the peer has not yet observed in this run is silently
 /// skipped (and the oracle does not record it), which models real
-/// usage — application code can only `redact()` a `Key` it has been
-/// handed.
+/// usage — application code can only `redact()` a [`Version`] it has
+/// been handed.
 ///
 /// # Panics
 ///
@@ -109,7 +112,7 @@ pub fn execute_with<T, F>(
     allow_gossip: F,
 ) -> ExecutionResult<T>
 where
-    T: Clone + Ord + BorshSerialize + BorshDeserialize + Send + Sync + 'static,
+    T: Clone + Ord + Serialize + DeserializeOwned + Send + Sync + 'static,
     F: Fn(usize, usize, EventIdx) -> bool,
 {
     assert!(
@@ -128,7 +131,7 @@ where
     ExecutionResult {
         peers,
         oracle: result.oracle,
-        resolved_keys: result.resolved_keys,
+        resolved_versions: result.resolved_versions,
     }
 }
 
@@ -138,7 +141,7 @@ pub fn execute_membership<T>(
     windows: &WindowAssignment,
 ) -> MembershipExecutionResult<T>
 where
-    T: Clone + Ord + BorshSerialize + BorshDeserialize + Send + Sync + 'static,
+    T: Clone + Ord + Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     execute_slots(schedule, windows, |_, _, _| true)
 }
@@ -150,7 +153,7 @@ pub fn execute_membership_and_quiesce<T>(
     windows: &WindowAssignment,
 ) -> MembershipExecutionResult<T>
 where
-    T: Clone + Eq + Ord + BorshSerialize + BorshDeserialize + Send + Sync + 'static,
+    T: Clone + Eq + Ord + Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     let mut result = execute_membership(schedule, windows);
     quiesce_slots(&mut result.slots);
@@ -175,7 +178,7 @@ fn execute_slots<T, F>(
     allow_gossip: F,
 ) -> MembershipExecutionResult<T>
 where
-    T: Clone + Ord + BorshSerialize + BorshDeserialize + Send + Sync + 'static,
+    T: Clone + Ord + Serialize + DeserializeOwned + Send + Sync + 'static,
     F: Fn(usize, usize, EventIdx) -> bool,
 {
     let mut slots: Vec<Option<Peer<T>>> = Vec::with_capacity(schedule.n_peers);
@@ -190,31 +193,31 @@ where
         };
         slots.push(Some(Peer::new(local)));
     }
-    let mut retired_observations: BTreeMap<usize, Vec<(Key, Version, T)>> = BTreeMap::new();
+    let mut retired_observations: BTreeMap<usize, Vec<(Version, T)>> = BTreeMap::new();
     let mut oracle = Oracle::<T>::default();
-    let mut resolved_keys: BTreeMap<EventIdx, Key> = BTreeMap::new();
+    let mut resolved_versions: BTreeMap<EventIdx, Version> = BTreeMap::new();
 
     for (i, event) in schedule.events.iter().enumerate() {
         match event {
             Event::Insert { peer, value } => {
                 let peer = slots[*peer].as_mut().expect("insert names an alive peer");
-                let key = peer.insert_one(value.clone());
-                resolved_keys.insert(i, key);
+                let version = peer.insert_one(value.clone());
+                resolved_versions.insert(i, version);
                 oracle.insert(i, value.clone());
             }
             Event::Redact {
                 peer,
                 target_event_idx,
             } => {
-                let key = resolved_keys[target_event_idx];
+                let version = &resolved_versions[target_event_idx];
                 let peer = slots[*peer].as_mut().expect("redact names an alive peer");
-                let observed_locally = peer.observations.iter().any(|(k, _, _)| *k == key);
+                let observed_locally = peer.observations.iter().any(|(v, _)| v == version);
                 if observed_locally {
-                    peer.redact_one(key);
+                    peer.redact_one(version);
                     oracle.redact(*target_event_idx);
                 }
                 // else: under a gossip filter, this peer may not yet
-                // have observed the key. Real application code
+                // have observed the version. Real application code
                 // couldn't issue this redact, so skip it.
             }
             Event::Gossip { a, b } => {
@@ -279,6 +282,6 @@ where
         slots,
         retired_observations,
         oracle,
-        resolved_keys,
+        resolved_versions,
     }
 }

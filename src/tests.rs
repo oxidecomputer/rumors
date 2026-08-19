@@ -270,21 +270,22 @@ fn greeting_frame_len(retiree: &Peer<u64>) -> usize {
     let root: streaming::Root<Local, u64> = retiree.inner.borrow().tree.clone().root.into();
     let fan = pollster::block_on(materialized::greeting_fan(&Local, root.root))
         .unwrap_or_else(|never| match never {});
-    let listing = borsh::to_vec(&materialized::fan_listing(&fan)).expect("a listing serializes");
+    // The listing frame is raw radix-hash records: one byte plus a Merkle
+    // hash per child, the frame length carrying the count.
+    let listing_len =
+        materialized::fan_listing(&fan).len() * (1 + crate::tree::typed::hash::MERKLE_HASH_LEN);
     crate::tree::mirror::framing::LENGTH_HEADER_LEN
         + crate::tree::mirror::framing::GREETING_SIZE_WORDS_LEN
         + retiree.snapshot().latest().as_bytes().len()
         + crate::tree::mirror::framing::LENGTH_HEADER_LEN
-        + listing.len()
+        + listing_len
 }
 
 /// The wire length of `retiree`'s trailing party frame, so a [`Fuse`] budget
 /// can land on an exact protocol boundary.
 fn party_frame_len(retiree: &Peer<u64>) -> usize {
-    crate::tree::mirror::framing::LENGTH_HEADER_LEN
-        + borsh::to_vec(&party_of(retiree))
-            .expect("a party serializes")
-            .len()
+    // The party frame's body is the canonical party encoding, bare.
+    crate::tree::mirror::framing::LENGTH_HEADER_LEN + party_of(retiree).as_bytes().len()
 }
 
 /// A connector whose opened streams draw on the link's shared fuse budget.

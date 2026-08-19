@@ -32,6 +32,7 @@ use crate::tree::{
 };
 use crate::{Version, message::Message, tree::mirror::Error as MirrorError};
 
+use serde::de::DeserializeOwned;
 type BackendFailure = Failure<Infallible>;
 type LocalFailure = MaterializedError<BackendFailure>;
 type ProxyFailure = RemoteError<BackendFailure>;
@@ -72,7 +73,7 @@ async fn reconcile_symmetric_accepts<T>(
     transport_capacity: usize,
 ) -> (TreeRoot<T>, TreeRoot<T>)
 where
-    T: borsh::BorshDeserialize + Send + Sync + 'static,
+    T: DeserializeOwned + Send + Sync + 'static,
 {
     let a = Handshaking::start(Local, Root::from(a)).window(WindowConfig::FLOOR);
     let b = Handshaking::start(Local, Root::from(b)).window(WindowConfig::FLOOR);
@@ -103,7 +104,7 @@ async fn reconcile_symmetric_accepts_reordered<T>(
     reordered: Arc<AtomicUsize>,
 ) -> (TreeRoot<T>, TreeRoot<T>)
 where
-    T: borsh::BorshDeserialize + Send + Sync + 'static,
+    T: DeserializeOwned + Send + Sync + 'static,
 {
     let a = Handshaking::start(Local, Root::from(a)).window(WindowConfig::FLOOR);
     let b = Handshaking::start(Local, Root::from(b)).window(WindowConfig::FLOOR);
@@ -123,7 +124,7 @@ where
 /// transport halves, proving that neither phase consumes the other's bytes.
 async fn reconcile_after_preamble<T>(a: TreeRoot<T>, b: TreeRoot<T>) -> (TreeRoot<T>, TreeRoot<T>)
 where
-    T: borsh::BorshDeserialize + Send + Sync + 'static,
+    T: DeserializeOwned + Send + Sync + 'static,
 {
     let a = Handshaking::start(Local, Root::from(a)).window(WindowConfig::FLOOR);
     let b = Handshaking::start(Local, Root::from(b)).window(WindowConfig::FLOOR);
@@ -270,7 +271,7 @@ async fn equal_versions_return_both_roots() {
     assert_eq!(b, root);
 }
 
-/// Concurrent content-addressed leaves cross every proxy layer and converge.
+/// Concurrent version-addressed leaves cross every proxy layer and converge.
 #[pollster::test]
 async fn divergent_leaves_converge() {
     let mut a = Tree::new();

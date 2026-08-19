@@ -1,26 +1,24 @@
 use std::fmt::Debug;
 use std::sync::LazyLock;
 
-use borsh::{BorshDeserialize, BorshSerialize};
-
 /// Width in bytes of the tree's Merkle hashes.
 ///
 /// The subtree-comparison digests that gossip exchanges, surfaced as
 /// [`Snapshot::hash`](crate::Snapshot::hash). Narrower than the 32-byte
-/// [`Key`](crate::Key); the width argument is in [the reconciliation
+/// version-derived leaf path; the width argument is in [the reconciliation
 /// docs](crate::reconciliation).
 pub const MERKLE_HASH_LEN: usize = 24;
 
 /// A 24-byte Merkle hash.
 ///
-/// A newtype over a fixed-size byte array, so borsh can be derived without a
-/// length prefix.
+/// A newtype over a fixed-size byte array; on the wire it travels as its
+/// raw bytes, never length-prefixed (the width is pinned by the type).
 ///
 /// The underlying primitive is [`blake3`], truncated to its leading
 /// [`MERKLE_HASH_LEN`] bytes — BLAKE3 is an extendable-output function, so
 /// prefix truncation is the sanctioned narrow form, with collision resistance
 /// 2⁹⁶ and preimage resistance 2¹⁹². Callers use [`Hash::of`] (or
-/// [`ContentHash`] for the full width) and never touch the `blake3` types
+/// [`PathHash`] for the full width) and never touch the `blake3` types
 /// directly.
 ///
 /// # Why 24 bytes here, and 32 for content
@@ -45,9 +43,7 @@ pub const MERKLE_HASH_LEN: usize = 24;
 /// Hostile *peers* are off-model: peers in a universe trust one another
 /// ([the crate docs](crate) make a compromised member's powers explicit),
 /// so no width buys anything against a member, and none is priced here.
-#[derive(
-    BorshSerialize, BorshDeserialize, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Default,
-)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Default)]
 #[repr(transparent)]
 pub struct Hash(pub [u8; MERKLE_HASH_LEN]);
 
@@ -59,9 +55,11 @@ impl Debug for Hash {
 
 /// Domain-separation tag leading a leaf's hash preimage.
 ///
-/// Leaves are content-addressed (the path is the leaf's content hash; see
-/// [`Path::for_leaf`](super::Path::for_leaf)), so a leaf's preimage commits
-/// its compressed suffix — path bytes — and nothing else.
+/// Leaves are version-addressed (the path is the full-width hash of the
+/// leaf's version; see [`Path::for_leaf`](super::Path::for_leaf)), so a
+/// leaf's preimage commits its compressed suffix — path bytes — and its
+/// version's canonical encoding, never its message bytes: every compared
+/// digest in the tree is a pure function of the version set.
 const LEAF_TAG: u8 = 0;
 
 /// Domain-separation tag leading a branch's hash preimage.
@@ -82,7 +80,7 @@ impl Hash {
     /// One-shot Merkle hash of a contiguous byte slice: the leading
     /// [`MERKLE_HASH_LEN`] bytes of the full-width hash of the same bytes.
     pub fn of(bytes: &[u8]) -> Self {
-        ContentHash::of(bytes).truncate()
+        PathHash::of(bytes).truncate()
     }
 
     /// The hash of a leaf observed from the top of its compressed `suffix`:
@@ -90,12 +88,18 @@ impl Hash {
     ///
     /// `suffix` is the leaf's path-compressed span in **path order** —
     /// shallowest byte first, as the node serializer emits it — and
-    /// `suffix_len` is one byte (a compressed span never exceeds the 32-byte
-    /// path). A leaf commits only its own path bytes: message and version
-    /// are already committed by *where* the leaf sits (leaves are
-    /// content-addressed; see [`Path::for_leaf`](super::Path::for_leaf)),
-    /// and each parent commits its child's radix byte, so a root-to-leaf
-    /// chain of preimages commits the full 32-byte path.
+    /// `suffix_len` is one byte (a compressed span never exceeds the
+    /// 32-byte path).
+    ///
+    /// The suffix is a complete commitment: a leaf's path is the
+    /// full-width hash of its version ([`Path::for_leaf`](super::Path::for_leaf)),
+    /// so under the crate's uniform-hash model one path is one version,
+    /// and every compared digest is a pure function of the version set. A
+    /// leaf commits no message bytes: a content author contributes no bit
+    /// to any compared quantity — digests are content-blind by design, a
+    /// modeled trade. Collision detection is ingestion's job
+    /// ([`react`](crate::tree::Tree::react)'s occupied-path arms), where
+    /// both leaves are in hand; the merge walk trusts path derivation.
     ///
     /// # Panics
     ///
@@ -235,25 +239,23 @@ impl From<Hash> for [u8; MERKLE_HASH_LEN] {
     }
 }
 
-/// Full-width 32-byte BLAKE3 hash: the content-addressing primitive.
+/// Full-width 32-byte BLAKE3 hash: the identity primitive a leaf's path
+/// is made of.
 ///
 /// This is the width that carries identity. A leaf's path *is* a hash of this
-/// width over its `(version, value)` (see
-/// [`Path::for_leaf`](super::Path::for_leaf)), and
-/// [`join`](crate::tree::traverse::join) resolves identical paths as identical
-/// contents, so a collision here would be permanent, undetectable divergence —
-/// full width is load-bearing, and every hash that feeds a path must use it (a
-/// single Merkle-width component would cap the whole path's collision
-/// resistance at the narrower width's). A `ContentHash` is never stored in a
-/// branch and never
-/// travels as a hash on the wire; it reaches the protocol only as a leaf's path
-/// bytes.
-pub struct ContentHash([u8; 32]);
+/// width over its version's canonical bytes (see
+/// [`Path::for_leaf`](super::Path::for_leaf)), and every ingestion site
+/// treats one path as one identity, so a collision here would be permanent
+/// split-brain — full width is load-bearing for the path even though the
+/// comparison digests are narrower. A `PathHash` is never stored in a
+/// branch and never travels as a hash on the wire; it reaches the protocol
+/// only as a leaf's path bytes.
+pub struct PathHash([u8; 32]);
 
-impl ContentHash {
+impl PathHash {
     /// One-shot full-width hash of a contiguous byte slice.
     pub fn of(bytes: &[u8]) -> Self {
-        ContentHash(*blake3::hash(bytes).as_bytes())
+        PathHash(*blake3::hash(bytes).as_bytes())
     }
 
     /// Truncate to the Merkle width: the leading [`MERKLE_HASH_LEN`] bytes.
@@ -273,33 +275,9 @@ impl ContentHash {
     }
 }
 
-impl From<ContentHash> for [u8; 32] {
-    fn from(hash: ContentHash) -> Self {
+impl From<PathHash> for [u8; 32] {
+    fn from(hash: PathHash) -> Self {
         hash.0
-    }
-}
-
-/// Streaming full-width hasher: equivalent to feeding the concatenation of
-/// every `update` chunk through [`ContentHash::of`], without allocating an
-/// intermediate buffer.
-#[derive(Default)]
-pub struct Hasher(blake3::Hasher);
-
-impl Hasher {
-    /// Construct a fresh hasher.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Append `bytes` to the hash input.
-    pub fn update(&mut self, bytes: &[u8]) -> &mut Self {
-        self.0.update(bytes);
-        self
-    }
-
-    /// Finalize the hash and consume the hasher.
-    pub fn finalize(self) -> ContentHash {
-        ContentHash(*self.0.finalize().as_bytes())
     }
 }
 

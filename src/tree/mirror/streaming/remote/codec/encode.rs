@@ -1,7 +1,7 @@
 //! Canonical frame encoding.
 
 #[cfg(test)]
-use borsh::io::Write;
+use std::io::Write;
 
 use crate::tree::{
     mirror::framing::{LENGTH_HEADER_LEN, length_header},

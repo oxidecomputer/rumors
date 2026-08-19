@@ -47,7 +47,7 @@ use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, 
 use rand::rngs::SmallRng;
 use rand::seq::SliceRandom;
 use rand::{RngCore, SeedableRng};
-use rumors::{Key, Peer, Protocol, Rumors};
+use rumors::{Peer, Protocol, Rumors, Version};
 
 // The shared grid module exposes a superset of helpers; this bench only needs
 // its sample-size policy so fixed-N runs line up with the existing benches.
@@ -264,9 +264,9 @@ fn build_bidir_redactions(protocol: Protocol, total_redactions: usize) -> (Rumor
     assert!(total_redactions <= N / 2);
     assert_eq!(total_redactions % 2, 0);
 
-    let (left, keys) = seeded_with_keys(protocol, N, 0xc786_a046_6b7d_c9d3);
+    let (left, versions) = seeded_with_versions(protocol, N, 0xc786_a046_6b7d_c9d3);
     let right = grid::wire::bootstrap_fork(&left, protocol);
-    let shuffled = shuffled_keys(keys, 0x84f6_7932_1265_9eec ^ total_redactions as u64);
+    let shuffled = shuffled_versions(versions, 0x84f6_7932_1265_9eec ^ total_redactions as u64);
     let per_side = total_redactions / 2;
 
     redact_all(&left, &shuffled[..per_side]);
@@ -281,9 +281,9 @@ fn build_unilateral_redactions(
 ) -> (Rumors<u8>, Rumors<u8>) {
     assert!(total_redactions <= N / 2);
 
-    let (left, keys) = seeded_with_keys(protocol, N, 0x2526_34f4_918f_e1c7);
+    let (left, versions) = seeded_with_versions(protocol, N, 0x2526_34f4_918f_e1c7);
     let right = grid::wire::bootstrap_fork(&left, protocol);
-    let shuffled = shuffled_keys(keys, 0xd4f9_f46b_3c09_1d60 ^ total_redactions as u64);
+    let shuffled = shuffled_versions(versions, 0xd4f9_f46b_3c09_1d60 ^ total_redactions as u64);
 
     redact_all(&left, &shuffled[..total_redactions]);
 
@@ -297,10 +297,10 @@ fn send_all(rumors: &Rumors<u8>, messages: Vec<u8>) {
     }
 }
 
-fn redact_all(rumors: &Rumors<u8>, keys: &[Key]) {
+fn redact_all(rumors: &Rumors<u8>, versions: &[Version]) {
     let mut batch = rumors.batch();
-    for key in keys {
-        batch.redact(*key);
+    for version in versions {
+        batch.redact(version);
     }
 }
 
@@ -316,11 +316,11 @@ fn seeded_with_messages(protocol: Protocol, n: usize, seed: u64) -> Rumors<u8> {
     rumors
 }
 
-fn seeded_with_keys(protocol: Protocol, n: usize, seed: u64) -> (Rumors<u8>, Vec<Key>) {
+fn seeded_with_versions(protocol: Protocol, n: usize, seed: u64) -> (Rumors<u8>, Vec<Version>) {
     let rumors = production_seed(protocol);
     send_all(&rumors, random_bytes(n, seed));
-    let keys = rumors.snapshot().iter().map(|(k, _, _)| k).collect();
-    (rumors, keys)
+    let versions = rumors.snapshot().iter().map(|(v, _)| v.clone()).collect();
+    (rumors, versions)
 }
 
 fn warmed((left, right): (Rumors<u8>, Rumors<u8>)) -> (Rumors<u8>, Rumors<u8>) {
@@ -335,9 +335,9 @@ fn random_bytes(n: usize, seed: u64) -> Vec<u8> {
     bytes
 }
 
-fn shuffled_keys(mut keys: Vec<Key>, seed: u64) -> Vec<Key> {
-    keys.shuffle(&mut SmallRng::seed_from_u64(seed));
-    keys
+fn shuffled_versions(mut versions: Vec<Version>, seed: u64) -> Vec<Version> {
+    versions.shuffle(&mut SmallRng::seed_from_u64(seed));
+    versions
 }
 
 criterion_group!(benches, bench_gossip_fixed, bench_gossip_latency);

@@ -53,8 +53,8 @@ fn assert_converges(pair: (Rumors<u64>, Rumors<u64>)) {
     let (left, right) = (left.snapshot(), right.snapshot());
     assert_eq!(left.len(), right.len());
     assert_eq!(
-        left.iter().map(|(k, _, _)| k).collect::<Vec<_>>(),
-        right.iter().map(|(k, _, _)| k).collect::<Vec<_>>(),
+        left.iter().collect::<Vec<_>>(),
+        right.iter().collect::<Vec<_>>(),
     );
 }
 

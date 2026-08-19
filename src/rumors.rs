@@ -8,8 +8,7 @@ pub use unordered::{TryNext, UnorderedMessages};
 
 use crate::bookmark::{Bookmark, BookmarkError, NoBookmark};
 use crate::link::{Acceptor, Connector, Link};
-use crate::{Batch, Error, Gossiped, Key, Network, Peer, Snapshot, Version};
-use borsh::{BorshDeserialize, BorshSerialize};
+use crate::{Batch, Error, Gossiped, Network, Peer, Snapshot, Version};
 use futures::Stream;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -18,6 +17,8 @@ use tokio::{
     sync::watch,
 };
 
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 /// A handle for [`send`](Rumors::send)ing and [`redact`](Rumors::redact)ing
 /// messages, and [`gossip`](Rumors::gossip)ing the result with peers.
 ///
@@ -139,13 +140,12 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     /// cancellation commits its queued prefix, so never hold one across an
     /// `.await` in a cancellable task ([`Batch`] states the drop semantics).
     ///
-    /// `send` does not return the message's [`Key`]. Keys come back through
-    /// observation: the observers and [`Snapshot`] attach every message to
-    /// its key, and every send gets a key unique across the universe's
-    /// whole history (a key binds the send's fresh version to the content,
-    /// so even byte-identical re-sends are distinct messages under distinct
-    /// keys). [`redact`](Self::redact) states the intended
-    /// observe-then-redact pattern and why the write path carries no key.
+    /// `send` does not return the message's [`Version`]. Versions come back
+    /// through observation: the observers and [`Snapshot`] attach every
+    /// message to the version its send minted, unique across the universe's
+    /// whole history, so even byte-identical re-sends are distinct messages
+    /// under distinct versions. [`redact`](Self::redact) states the intended
+    /// observe-then-redact pattern and why the write path returns nothing.
     ///
     /// # Observe-then-send is domination
     ///
@@ -162,17 +162,17 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     /// If `message` fails to serialize (see [`Batch::send`]).
     pub fn send(&self, message: T) -> Batch<'_, T>
     where
-        T: BorshSerialize + Send + Sync,
+        T: Serialize + Send + Sync,
     {
         self.peer.send(message)
     }
 
-    /// Redact a message: remove the live message named by `key` from the set,
-    /// here and, through gossip, everywhere. Redacting a key not currently
-    /// held is a no-op.
+    /// Redact a message: remove the live message stamped with `version` from
+    /// the set, here and, through gossip, everywhere. Redacting a version not
+    /// currently held is a no-op.
     ///
     /// Returns a [`Batch`] that commits when dropped: a bare
-    /// `rumors.redact(key);` commits at the end of the statement, and chaining
+    /// `rumors.redact(&version);` commits at the end of the statement, and chaining
     /// further [`send`](Batch::send)s and [`redact`](Batch::redact)s
     /// accumulates them into one commit. A batch dropped by async
     /// cancellation commits its queued prefix, so never hold one across an
@@ -186,28 +186,29 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     /// deletions from the causal frontiers the two sides exchange. A
     /// message the counterparty's version shows it must already have seen,
     /// yet it no longer holds, was deleted there, so the holder drops its
-    /// own copy instead of transmitting it. And because a [`Key`] binds
-    /// the send's fresh version to the content, re-sending byte-identical
-    /// content after a redaction is a *new* message: no resurrection, no
-    /// suppression. For the same reason, two identical sends are two
-    /// messages, and redacting one never touches the other.
+    /// own copy instead of transmitting it. And because every send mints a
+    /// fresh version, re-sending byte-identical content after a redaction
+    /// is a *new* message: no resurrection, no suppression. For the same
+    /// reason, two identical sends are two messages, and redacting one
+    /// never touches the other.
     ///
-    /// # Where the key comes from
+    /// # Where the version comes from
     ///
-    /// [`send`](Self::send) does not return a [`Key`], deliberately, for
-    /// two reasons. The intended shape of an application is a state machine
-    /// driven from observed messages: the observers and [`Snapshot`]
-    /// attach every message to its `Key`, so the read path, not the write
-    /// path, is where a key-holding workflow like send-then-redact lives.
-    /// Observe your own message back out, keep its key, redact it later.
-    /// And batching breaks the correspondence anyway: a batch inserts all
-    /// its messages at once, so sends are not 1:1 with insertions and a
-    /// message's `Key` is not knowable until insertion.
-    pub fn redact(&self, key: Key) -> Batch<'_, T>
+    /// [`send`](Self::send) does not return a [`Version`], deliberately,
+    /// for two reasons. The intended shape of an application is a state
+    /// machine driven from observed messages: the observers and
+    /// [`Snapshot`] attach every message to its version, so the read path,
+    /// not the write path, is where a version-holding workflow like
+    /// send-then-redact lives. Observe your own message back out, keep its
+    /// version, redact it later. And batching breaks the correspondence
+    /// anyway: a batch inserts all its messages at once, so sends are not
+    /// 1:1 with insertions and a message's version is not knowable until
+    /// insertion.
+    pub fn redact(&self, version: &Version) -> Batch<'_, T>
     where
         T: Send + Sync,
     {
-        self.peer.redact(key)
+        self.peer.redact(version)
     }
 
     /// Start an empty [`Batch`], for applying several changes in one
@@ -392,7 +393,7 @@ impl<T, B: Bookmark> Rumors<T, B> {
         link: &mut Link<CR, CW, C, A>,
     ) -> Result<Gossiped, Error<B>>
     where
-        T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
+        T: DeserializeOwned + Serialize + Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,
@@ -508,7 +509,7 @@ impl<T, B: Bookmark> Rumors<T, B> {
         link: &'a mut Link<CR, CW, C, A>,
     ) -> impl Stream<Item = Result<Gossiped, Error<B>>> + Unpin + 'a
     where
-        T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
+        T: DeserializeOwned + Serialize + Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,

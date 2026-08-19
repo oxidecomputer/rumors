@@ -41,6 +41,7 @@ pub mod overlap;
 pub mod peer;
 pub mod routed_tcp;
 pub mod schedule;
+pub mod shape;
 pub mod sim;
 pub mod tcp;
 pub mod window;

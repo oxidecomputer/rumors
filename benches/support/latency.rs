@@ -79,7 +79,6 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 use std::time::Duration;
 
-use borsh::{BorshDeserialize, BorshSerialize};
 use rumors::Rumors;
 use rumors::link::{Acceptor, Connector, Done, Link, STREAM_COUNT};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
@@ -432,7 +431,7 @@ impl DelayedWire {
         b: Rumors<T>,
     ) -> ((Rumors<T>, Rumors<T>), Duration)
     where
-        T: BorshSerialize + BorshDeserialize + Send + Sync + 'static,
+        T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static,
     {
         let wall_start = std::time::Instant::now();
         let (pair, virtual_elapsed) = self.reconcile(a, b);
@@ -471,7 +470,7 @@ impl DelayedWire {
         b: Rumors<T>,
     ) -> ((Rumors<T>, Rumors<T>), Duration)
     where
-        T: BorshSerialize + BorshDeserialize + Send + Sync + 'static,
+        T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static,
     {
         assert!(
             self.paused,
@@ -484,7 +483,7 @@ impl DelayedWire {
     /// Drive one gossip session to completion, timing it in virtual time.
     fn reconcile<T>(&mut self, a: Rumors<T>, b: Rumors<T>) -> ((Rumors<T>, Rumors<T>), Duration)
     where
-        T: BorshSerialize + BorshDeserialize + Send + Sync + 'static,
+        T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static,
     {
         let Self {
             runtime,
@@ -515,7 +514,7 @@ impl DelayedWire {
 #[allow(dead_code)]
 pub fn session_hops<T>(capacity: usize, delay: Duration, (a, b): (Rumors<T>, Rumors<T>)) -> u32
 where
-    T: BorshSerialize + BorshDeserialize + Send + Sync + 'static,
+    T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static,
 {
     let mut wire = DelayedWire::new(capacity, delay);
     let (_pair, elapsed) = wire.round_trip_virtual(a, b);

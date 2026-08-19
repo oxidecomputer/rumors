@@ -1,8 +1,8 @@
 //! # Wire format
 //!
-//! Each message is borsh-encoded. The encoding is canonical (one byte sequence
-//! per value) and reflects the in-memory representation directly. Container
-//! lengths are `u32` little-endian.
+//! Each message is encoded by the tree's [`wire`]
+//! codec: explicit structural framing whose variable-width atoms are
+//! single CBOR values. Container lengths are `u32` little-endian.
 //!
 //! ## Atoms
 //!
@@ -12,20 +12,20 @@
 //!   no length prefix.
 //! - [`typed::Prefix<H>`](crate::tree::typed::Prefix): exactly `32 −
 //!   H::HEIGHT` raw bytes, no length prefix (the type pins the byte count).
-//! - [`Version`] and [`Message<T>`](crate::message::Message):
-//!   their existing borsh shapes (see those types). A `Message<T>` serializes
-//!   byte-identically to its inner `T`.
+//! - [`Version`] and [`Message<T>`](crate::message::Message): one CBOR
+//!   value each — a byte string wrapping the version's canonical encoding,
+//!   and a byte string wrapping the message's cached CBOR payload —
+//!   self-delimiting by CBOR's own length headers.
 //! - `Vec<_>`: `u32` length followed by each element in order. Every channel
 //!   is a length-prefixed `Vec`; on deserialize the decoder rejects any
-//!   frame whose entries are not strictly ascending in canonical order
-//!   (which also rejects duplicates), so each value has exactly one
-//!   encoding.
+//!   frame whose entries are not strictly ascending order (which also
+//!   rejects duplicates).
 //!
 //! ## Typed [`Node<T, H>`](crate::tree::typed::Node)
 //!
-//! Encoded in its in-memory layout. The typed `BorshSerialize` impl is a
-//! thin delegate over the untyped node's `serialize_to`, which is the
-//! canonical encoder:
+//! Encoded in its in-memory layout. The typed node's wire impl is a thin
+//! delegate over the untyped node's `serialize_to`, which is the canonical
+//! encoder:
 //!
 //! ```text
 //! NodeWire ::=
@@ -41,7 +41,7 @@
 //! running `prefix_len`. On the decode side, when `prefix_len > 0` the
 //! decoder peels one head byte and recurses at the next-finer typed height,
 //! synthesizing the `prefix_len − 1` byte for the inner reader via
-//! [`borsh::io::Read::chain`], so the wire carries one `prefix_len` byte
+//! [`std::io::Read::chain`], so the wire carries one `prefix_len` byte
 //! per top-of-chain rather than one per typed level.
 //!
 //! Multi-child branches always carry at least two children; singletons
@@ -67,12 +67,12 @@
 //!
 //! ## Messages
 //!
-//! Each of the five message types below is the borsh concatenation of its
+//! Each of the five message types below is the concatenation of its
 //! fields in source order. There is no length framing between messages on
 //! the wire: the protocol's height schedule names the type each side expects
 //! next.
 
-use borsh::{BorshDeserialize, BorshSerialize};
+use crate::tree::wire::{self, Decode, Encode};
 
 use crate::Version;
 use crate::tree::typed::{
@@ -80,6 +80,7 @@ use crate::tree::typed::{
     height::{Height, Root, S, UnderRoot, Z},
 };
 
+use serde::de::DeserializeOwned;
 #[cfg(test)]
 mod tests;
 
@@ -99,16 +100,15 @@ pub struct Handshake {
     pub version: Version,
 }
 
-impl BorshSerialize for Handshake {
-    fn serialize<W: borsh::io::Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
-        self.version.serialize(writer)?;
-        Ok(())
+impl Encode for Handshake {
+    fn write_wire<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        self.version.write_wire(writer)
     }
 }
 
-impl BorshDeserialize for Handshake {
-    fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
-        let version = Version::deserialize_reader(reader)?;
+impl Decode for Handshake {
+    fn read_wire<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
+        let version = Version::read_wire(reader)?;
         Ok(Self { version })
     }
 }
@@ -121,14 +121,20 @@ impl BorshDeserialize for Handshake {
 /// empty). Distinct from `Opening` only by height,
 /// and from [`Exchange`] by the absence of `providing`/`requested`, which
 /// cannot be populated until at least one round has passed.
-#[derive(Clone, Default, BorshSerialize)]
+#[derive(Clone, Default)]
 pub struct Initiate {
     pub uncertain: Vec<(Prefix<Root>, Hash)>,
 }
 
-impl BorshDeserialize for Initiate {
-    fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
-        let uncertain = Vec::deserialize_reader(reader)?;
+impl Encode for Initiate {
+    fn write_wire<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        self.uncertain.write_wire(writer)
+    }
+}
+
+impl Decode for Initiate {
+    fn read_wire<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
+        let uncertain = Vec::read_wire(reader)?;
         verify_pairs_canonical(&uncertain, "Initiate.uncertain")?;
         Ok(Self { uncertain })
     }
@@ -146,14 +152,20 @@ impl BorshDeserialize for Initiate {
 /// separate entry point from the steady-state `exchange`, so the latter can
 /// assume every uncertain hash describes a parent the receiver has already
 /// acknowledged.
-#[derive(Clone, Default, BorshSerialize)]
+#[derive(Clone, Default)]
 pub struct Opening {
     pub uncertain: Vec<(Prefix<UnderRoot>, Hash)>,
 }
 
-impl BorshDeserialize for Opening {
-    fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
-        let uncertain = Vec::deserialize_reader(reader)?;
+impl Encode for Opening {
+    fn write_wire<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        self.uncertain.write_wire(writer)
+    }
+}
+
+impl Decode for Opening {
+    fn read_wire<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
+        let uncertain = Vec::read_wire(reader)?;
         verify_pairs_canonical(&uncertain, "Opening.uncertain")?;
         Ok(Self { uncertain })
     }
@@ -195,37 +207,36 @@ where
     pub uncertain: Vec<(Prefix<H>, Hash)>,
 }
 
-impl<T, H> BorshSerialize for Exchange<T, H>
+impl<T, H> Encode for Exchange<T, H>
 where
     S<H>: Height,
     H: Height,
 {
-    fn serialize<W: borsh::io::Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
-        self.providing.serialize(writer)?;
-        self.requested.serialize(writer)?;
-        self.uncertain.serialize(writer)?;
-        Ok(())
+    fn write_wire<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        self.providing.write_wire(writer)?;
+        self.requested.write_wire(writer)?;
+        self.uncertain.write_wire(writer)
     }
 }
 
-// `Node<T, S<H>>: BorshDeserialize` reduces inductively to
-// `Node<T, H>: BorshDeserialize` and bottoms at `Z`, so with `H` left
-// generic the proof obligation doesn't terminate during inference. We
-// thread `Node<T, S<H>>: BorshDeserialize` through as an explicit
-// bound so the caller — who knows `H` concretely — discharges it.
-impl<T, H> BorshDeserialize for Exchange<T, H>
+// `Node<T, S<H>>: Decode` reduces inductively to `Node<T, H>: Decode`
+// and bottoms at `Z`, so with `H` left generic the proof obligation
+// doesn't terminate during inference. We thread `Node<T, S<H>>: Decode`
+// through as an explicit bound so the caller — who knows `H` concretely —
+// discharges it.
+impl<T, H> Decode for Exchange<T, H>
 where
-    T: BorshDeserialize,
+    T: DeserializeOwned,
     S<H>: Height,
     H: Height,
-    Node<T, S<H>>: BorshDeserialize,
+    Node<T, S<H>>: Decode,
 {
-    fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
-        let providing: Providing<T, S<H>> = BorshDeserialize::deserialize_reader(reader)?;
+    fn read_wire<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
+        let providing: Providing<T, S<H>> = Decode::read_wire(reader)?;
         verify_pairs_canonical(&providing, "Exchange.providing")?;
-        let requested: Vec<Prefix<S<H>>> = BorshDeserialize::deserialize_reader(reader)?;
+        let requested: Vec<Prefix<S<H>>> = Decode::read_wire(reader)?;
         verify_keys_canonical(&requested, "Exchange.requested")?;
-        let uncertain: Vec<(Prefix<H>, Hash)> = BorshDeserialize::deserialize_reader(reader)?;
+        let uncertain: Vec<(Prefix<H>, Hash)> = Decode::read_wire(reader)?;
         verify_pairs_canonical(&uncertain, "Exchange.uncertain")?;
         Ok(Self {
             providing,
@@ -290,22 +301,21 @@ pub struct Closing<T> {
     pub requested: Vec<Prefix<Z>>,
 }
 
-impl<T> BorshSerialize for Closing<T> {
-    fn serialize<W: borsh::io::Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
-        self.providing.serialize(writer)?;
-        self.requested.serialize(writer)?;
-        Ok(())
+impl<T> Encode for Closing<T> {
+    fn write_wire<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        self.providing.write_wire(writer)?;
+        self.requested.write_wire(writer)
     }
 }
 
-impl<T> BorshDeserialize for Closing<T>
+impl<T> Decode for Closing<T>
 where
-    T: BorshDeserialize,
+    T: DeserializeOwned,
 {
-    fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
-        let providing: Providing<T, Z> = BorshDeserialize::deserialize_reader(reader)?;
+    fn read_wire<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
+        let providing: Providing<T, Z> = Decode::read_wire(reader)?;
         verify_pairs_canonical(&providing, "Closing.providing")?;
-        let requested: Vec<Prefix<Z>> = BorshDeserialize::deserialize_reader(reader)?;
+        let requested: Vec<Prefix<Z>> = Decode::read_wire(reader)?;
         verify_keys_canonical(&requested, "Closing.requested")?;
         Ok(Self {
             providing,
@@ -338,18 +348,18 @@ pub struct Complete<T> {
     pub providing: Providing<T, Z>,
 }
 
-impl<T> BorshSerialize for Complete<T> {
-    fn serialize<W: borsh::io::Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
-        self.providing.serialize(writer)
+impl<T> Encode for Complete<T> {
+    fn write_wire<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
+        self.providing.write_wire(writer)
     }
 }
 
-impl<T> BorshDeserialize for Complete<T>
+impl<T> Decode for Complete<T>
 where
-    T: BorshDeserialize,
+    T: DeserializeOwned,
 {
-    fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
-        let providing: Providing<T, Z> = BorshDeserialize::deserialize_reader(reader)?;
+    fn read_wire<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
+        let providing: Providing<T, Z> = Decode::read_wire(reader)?;
         verify_pairs_canonical(&providing, "Complete.providing")?;
         Ok(Self { providing })
     }
@@ -366,11 +376,8 @@ impl<T> Default for Complete<T> {
 /// An out-of-order or duplicated wire channel: the canonical encoding admits
 /// exactly one byte sequence per value, so a peer that reorders or pads is
 /// rejected before its content is acted on.
-fn not_canonical(what: &'static str) -> borsh::io::Error {
-    borsh::io::Error::new(
-        borsh::io::ErrorKind::InvalidData,
-        format!("{what} not in strictly ascending order"),
-    )
+fn not_canonical(what: &'static str) -> std::io::Error {
+    wire::invalid(format!("{what} not in strictly ascending order"))
 }
 
 /// Require key→value pairs to be in strictly ascending key order (rejecting
@@ -378,7 +385,7 @@ fn not_canonical(what: &'static str) -> borsh::io::Error {
 pub(crate) fn verify_pairs_canonical<K: Ord, V>(
     pairs: &[(K, V)],
     what: &'static str,
-) -> borsh::io::Result<()> {
+) -> std::io::Result<()> {
     if pairs.windows(2).any(|w| w[0].0 >= w[1].0) {
         return Err(not_canonical(what));
     }
@@ -387,10 +394,7 @@ pub(crate) fn verify_pairs_canonical<K: Ord, V>(
 
 /// Require keys to be in strictly ascending order (rejecting duplicates): the
 /// `requested` channel.
-pub(crate) fn verify_keys_canonical<K: Ord>(
-    keys: &[K],
-    what: &'static str,
-) -> borsh::io::Result<()> {
+pub(crate) fn verify_keys_canonical<K: Ord>(keys: &[K], what: &'static str) -> std::io::Result<()> {
     if keys.windows(2).any(|w| w[0] >= w[1]) {
         return Err(not_canonical(what));
     }

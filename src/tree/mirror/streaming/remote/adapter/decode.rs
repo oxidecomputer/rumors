@@ -27,6 +27,7 @@ use super::{
     scope::Scope,
 };
 
+use serde::de::DeserializeOwned;
 /// One reconstructed reply and any questions it asks next.
 pub struct Decoded<B, T, H, Q>
 where
@@ -64,7 +65,7 @@ where
 ///
 /// The wire shape is one supplies-only reply — empty when deletion pruning
 /// left nothing to ship — whose leaf records group into height-`G`
-/// subtrees by their content-derived paths under `parent`, followed by the
+/// subtrees by their version-derived paths under `parent`, followed by the
 /// stream end. Unlike [`decode_reply`], which materializes one whole reply
 /// before yielding it, this stream yields each assembled node as soon as
 /// its group completes: the consumer pairs supplies with the responder's
@@ -85,7 +86,7 @@ pub fn early_supplies<B, T, G, F>(
 ) -> impl Stream<Item = Result<(u8, B::Node<G>), DecodeError<B::Error>>> + Send
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    T: borsh::BorshDeserialize + Send + Sync + 'static,
+    T: DeserializeOwned + Send + Sync + 'static,
     G: Convert,
     S<G>: Height,
     F: Stream<Item = Frame<T>> + Unpin + Send + 'static,
@@ -150,7 +151,7 @@ async fn read_early<B, T, G, F>(
 ) -> Result<(), DecodeError<B::Error>>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    T: borsh::BorshDeserialize + Send + Sync + 'static,
+    T: DeserializeOwned + Send + Sync + 'static,
     G: Height,
     S<G>: Height,
     F: Stream<Item = Frame<T>> + Unpin,
@@ -166,8 +167,7 @@ where
                 any = true;
                 for record in records.records() {
                     let (version, message) = record.map_err(DecodeError::Record)?;
-                    let (leaf_prefix, _) =
-                        supplies.observe::<B::Error, T>(parent, &version, &message)?;
+                    let (leaf_prefix, _) = supplies.observe::<B::Error>(parent, &version)?;
                     // The set-length half of the greeting's priced
                     // premises, charged per record before the payload
                     // takes backend custody: a peer supplying past its
@@ -220,7 +220,7 @@ pub async fn decode_reply<B, T, H, F>(
 ) -> Result<Decoded<B, T, S<H>, Vec<Scope<H>>>, DecodeError<B::Error>>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    T: borsh::BorshDeserialize + Send + Sync + 'static,
+    T: DeserializeOwned + Send + Sync + 'static,
     H: Height,
     S<H>: Convert,
     S<S<H>>: Height,
@@ -250,7 +250,7 @@ pub async fn decode_leaf_reply<B, T, F>(
 ) -> Result<Decoded<B, T, Z, Vec<Scope<Z>>>, DecodeError<B::Error>>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    T: borsh::BorshDeserialize + Send + Sync + 'static,
+    T: DeserializeOwned + Send + Sync + 'static,
     F: Stream<Item = Frame<T>> + Unpin,
 {
     decode(
@@ -280,7 +280,7 @@ async fn decode<B, T, H, F, Q, N>(
 ) -> Result<Decoded<B, T, H, Vec<N>>, DecodeError<B::Error>>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    T: borsh::BorshDeserialize + Send + Sync + 'static,
+    T: DeserializeOwned + Send + Sync + 'static,
     H: Convert,
     S<H>: Height,
     F: Stream<Item = Frame<T>> + Unpin,
@@ -324,7 +324,7 @@ async fn read_reply<B, T, H, F, Q, N>(
 ) -> Result<Option<ReadReply<H, N>>, DecodeError<B::Error>>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    T: borsh::BorshDeserialize + Send + Sync + 'static,
+    T: DeserializeOwned + Send + Sync + 'static,
     H: Height,
     S<H>: Height,
     F: Stream<Item = Frame<T>> + Unpin,
@@ -371,9 +371,9 @@ where
                 // decoded vector of leaves.
                 for record in records.records() {
                     let (version, message) = record.map_err(DecodeError::Record)?;
-                    let (leaf_prefix, run) =
-                        read.supplies
-                            .observe::<B::Error, T>(scope.parent(), &version, &message)?;
+                    let (leaf_prefix, run) = read
+                        .supplies
+                        .observe::<B::Error>(scope.parent(), &version)?;
                     if let Some((radix, prefix)) = run {
                         read.skeleton.push(Skeleton::Supply { radix, prefix });
                     }
@@ -445,7 +445,7 @@ where
                     .expect("each supplied run assembles to exactly one node");
                 assert_eq!(
                     actual, prefix,
-                    "assembly preserves the content-derived supplied prefix",
+                    "assembly preserves the version-derived supplied prefix",
                 );
                 ProtocolReaction::Supply(radix, node)
             }
@@ -498,14 +498,12 @@ impl<H: Height> SupplyRuns<H> {
     }
 
     /// Validate one supplied leaf and identify the start of a new run.
-    fn observe<E, T>(
+    fn observe<E>(
         &mut self,
         expected_parent: Prefix<S<H>>,
         version: &crate::Version,
-        message: &crate::message::Message<T>,
     ) -> Result<(Prefix<Z>, Option<(u8, Prefix<H>)>), DecodeError<E>>
     where
-        T: Send + Sync + 'static,
         S<H>: Height,
     {
         // The declared aggregate covers every version the peer's tree
@@ -520,7 +518,7 @@ impl<H: Height> SupplyRuns<H> {
                 actual,
             });
         }
-        let path = Path::for_leaf(version, message.as_slice());
+        let path = Path::for_leaf(version);
         let leaf_prefix = Prefix::<Z>::containing(&path);
         let node_prefix = Prefix::<H>::containing(&path);
         let (parent, radix) = node_prefix.pop();

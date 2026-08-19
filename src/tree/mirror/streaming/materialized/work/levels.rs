@@ -428,7 +428,7 @@ where
         (self.respond(responses), asked_rx, upper_rx, lower_rx)
     }
 
-    /// Walk leaf parents, where disputes compare content-addressed leaves.
+    /// Walk leaf parents, where disputes compare version-addressed leaves.
     pub fn leaf_parent_level(
         &mut self,
         their_version: Version,

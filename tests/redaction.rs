@@ -12,7 +12,6 @@ use std::collections::BTreeMap;
 
 use proptest::collection::vec;
 use proptest::prelude::*;
-use rumors::Key;
 
 use crate::common::oracle::readout_multiset;
 use crate::common::peer::{Peer, gossip_step, quiesce};
@@ -38,7 +37,7 @@ proptest! {
             .map(|_| Peer::new(bootstrap_fork(&seed)))
             .collect();
 
-        let key = peers[0].insert_one(value);
+        let version = peers[0].insert_one(value);
         quiesce(&mut peers);
 
         for peer in &peers {
@@ -47,7 +46,7 @@ proptest! {
         }
 
         let r = redactor_idx % n_peers;
-        peers[r].redact_one(key);
+        peers[r].redact_one(&version);
         quiesce(&mut peers);
 
         for (i, peer) in peers.iter().enumerate() {
@@ -60,7 +59,7 @@ proptest! {
     }
 
     /// Two peers each insert several values, then each redacts one of
-    /// its own keys. The converged content is the same regardless of
+    /// its own messages. The converged content is the same regardless of
     /// which side issues its redaction first across the gossip
     /// boundary.
     #[test]
@@ -72,18 +71,18 @@ proptest! {
             let seed = rumors::Peer::<u64>::seed().sync_window_floor().into_rumors();
             let mut a = Peer::new(bootstrap_fork(&seed));
             let mut b = Peer::new(bootstrap_fork(&seed));
-            let mut a_keys: Vec<Key> = Vec::new();
-            let mut b_keys: Vec<Key> = Vec::new();
-            for v in &a_values { a_keys.push(a.insert_one(*v)); }
-            for v in &b_values { b_keys.push(b.insert_one(*v)); }
+            let mut a_versions: Vec<rumors::Version> = Vec::new();
+            let mut b_versions: Vec<rumors::Version> = Vec::new();
+            for v in &a_values { a_versions.push(a.insert_one(*v)); }
+            for v in &b_values { b_versions.push(b.insert_one(*v)); }
             if a_first {
-                a.redact_one(a_keys[0]);
+                a.redact_one(&a_versions[0]);
                 gossip_step(&mut a, &mut b);
-                b.redact_one(b_keys[0]);
+                b.redact_one(&b_versions[0]);
             } else {
-                b.redact_one(b_keys[0]);
+                b.redact_one(&b_versions[0]);
                 gossip_step(&mut a, &mut b);
-                a.redact_one(a_keys[0]);
+                a.redact_one(&a_versions[0]);
             }
             let mut peers = [a, b];
             quiesce(&mut peers);
@@ -92,25 +91,25 @@ proptest! {
         prop_assert_eq!(run(true), run(false));
     }
 
-    /// Redacting the same `Key` a second time is idempotent: the live
+    /// Redacting the same message a second time is idempotent: the live
     /// readout is unchanged and nothing new is observed. (The second
     /// redact is a nil action — the leaf is already gone.)
     #[test]
     fn redact_twice_is_idempotent(value in any::<u64>()) {
         let mut peer = Peer::<u64>::new(rumors::Peer::seed().sync_window_floor().into_rumors());
-        let key = peer.insert_one(value);
-        peer.redact_one(key);
+        let version = peer.insert_one(value);
+        peer.redact_one(&version);
 
         let readout_before = readout_multiset(&peer.local.snapshot());
         let obs_before = peer.observations.len();
 
-        peer.redact_one(key);
+        peer.redact_one(&version);
 
         prop_assert_eq!(readout_multiset(&peer.local.snapshot()), readout_before);
         prop_assert_eq!(peer.observations.len(), obs_before);
     }
 
-    /// Redacting a `Key` minted on a different peer that this peer
+    /// Redacting a message minted on a different peer that this peer
     /// has never observed has no effect on live content and is not
     /// observed.
     ///
@@ -118,16 +117,16 @@ proptest! {
     /// future regressions surface; the public docs are silent on
     /// this corner.
     #[test]
-    fn redact_unknown_key_is_noop(value in any::<u64>()) {
+    fn redact_unknown_version_is_noop(value in any::<u64>()) {
         let seed = rumors::Peer::<u64>::seed().sync_window_floor().into_rumors();
         let mut bob = Peer::new(bootstrap_fork(&seed));
-        let foreign_key = bob.insert_one(value);
+        let foreign_version = bob.insert_one(value);
 
         let mut alice = Peer::new(bootstrap_fork(&seed));
         let readout_before = readout_multiset(&alice.local.snapshot());
         let obs_before = alice.observations.len();
 
-        alice.redact_one(foreign_key);
+        alice.redact_one(&foreign_version);
 
         prop_assert_eq!(readout_multiset(&alice.local.snapshot()), readout_before);
         prop_assert_eq!(alice.observations.len(), obs_before);

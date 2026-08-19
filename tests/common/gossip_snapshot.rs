@@ -41,7 +41,6 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 
-use borsh::{BorshDeserialize, BorshSerialize};
 use rumors::link::{Connector, Done, Link, LinkParts, MemoryAcceptor, MemoryConnector};
 use rumors::{
     Rumors,
@@ -51,6 +50,8 @@ use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadBuf};
 
 use crate::common::wire::block_on;
 
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 /// Whether a logged byte run was put on the wire or taken off it, from the
 /// perspective of the peer that performed the I/O.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -364,7 +365,7 @@ where
 /// reconcile cleanly; a gossip error panics the helper.
 pub fn capture_gossip<T>(a: Rumors<T>, b: Rumors<T>) -> String
 where
-    T: BorshSerialize + BorshDeserialize + Send + Sync + 'static,
+    T: Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     capture_session(
         move |mut link| async move {
@@ -379,7 +380,7 @@ where
 /// Capture the strict V1 timeline for a gossip/gossip session.
 pub fn capture_gossip_v1<T>(a: Rumors<T>, b: Rumors<T>) -> String
 where
-    T: BorshSerialize + BorshDeserialize + Send + Sync + 'static,
+    T: Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     capture_session_v1(
         move |mut link| async move {

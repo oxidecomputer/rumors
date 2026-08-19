@@ -36,7 +36,7 @@ fn tree_and_known(flags_a: &[bool], flags_b: &[bool]) -> (Option<typed::node::Ro
         for &flagged in flags {
             version.tick(&party);
             let message = Message::new(());
-            let path = Path::for_leaf(&version, message.bytes());
+            let path = Path::for_leaf(&version);
             actions.push((path, version.clone(), Action::Insert(message)));
             if flagged {
                 known |= version.clone();

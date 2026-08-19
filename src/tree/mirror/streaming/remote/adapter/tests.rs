@@ -62,15 +62,19 @@ struct LeafCase {
 }
 
 impl LeafCase {
+    /// A deterministic test leaf: the version scalar folds `value` and
+    /// `ticks` together so distinct cases mint distinct versions — the
+    /// axis paths derive from — while `value` also picks the payload.
     fn new(value: u64, ticks: u8) -> Self {
         Self {
             value,
-            version: Version::try_from(u64::from(ticks)).expect("u8 is a valid linear version"),
+            version: Version::try_from(value.wrapping_shl(8) | u64::from(ticks))
+                .expect("every u64 scalar is a valid linear version"),
             message: Message::new(value),
         }
     }
 
     fn path(&self) -> Path {
-        Path::for_leaf(&self.version, self.message.as_slice())
+        Path::for_leaf(&self.version)
     }
 }

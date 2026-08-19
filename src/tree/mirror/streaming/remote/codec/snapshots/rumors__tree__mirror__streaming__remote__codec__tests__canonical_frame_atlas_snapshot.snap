@@ -10,8 +10,8 @@ Initiator
     QueryEmpty(End): rejected byte 33 class OpeningSupplies
     Query(Continue): rejected byte 44 class OpeningSupplies
     Query(End): rejected byte 55 class OpeningSupplies
-    Supply(Continue): accepted len 10 hex 660000000500000001e0
-    Supply(End): accepted len 10 hex 770000000500000001e0
+    Supply(Continue): accepted len 12 hex 66000000070000000341e0f6
+    Supply(End): accepted len 12 hex 77000000070000000341e0f6
     End(Reply): accepted len 1 hex 88
     End(Stream): accepted len 1 hex 99
   stream 01
@@ -21,8 +21,8 @@ Initiator
     QueryEmpty(End): accepted len 1 hex 34
     Query(Continue): accepted len 27 hex 450000000000000000000000000000000000000000000000000000
     Query(End): accepted len 27 hex 560000000000000000000000000000000000000000000000000000
-    Supply(Continue): accepted len 10 hex 670000000500000001e0
-    Supply(End): accepted len 10 hex 780000000500000001e0
+    Supply(Continue): accepted len 12 hex 67000000070000000341e0f6
+    Supply(End): accepted len 12 hex 78000000070000000341e0f6
     End(Reply): accepted len 1 hex 89
     End(Stream): accepted len 1 hex 9a
   stream 02
@@ -32,8 +32,8 @@ Initiator
     QueryEmpty(End): accepted len 1 hex 35
     Query(Continue): accepted len 27 hex 460000000000000000000000000000000000000000000000000000
     Query(End): accepted len 27 hex 570000000000000000000000000000000000000000000000000000
-    Supply(Continue): accepted len 10 hex 680000000500000001e0
-    Supply(End): accepted len 10 hex 790000000500000001e0
+    Supply(Continue): accepted len 12 hex 68000000070000000341e0f6
+    Supply(End): accepted len 12 hex 79000000070000000341e0f6
     End(Reply): accepted len 1 hex 8a
     End(Stream): accepted len 1 hex 9b
   stream 03
@@ -43,8 +43,8 @@ Initiator
     QueryEmpty(End): accepted len 1 hex 36
     Query(Continue): accepted len 27 hex 470000000000000000000000000000000000000000000000000000
     Query(End): accepted len 27 hex 580000000000000000000000000000000000000000000000000000
-    Supply(Continue): accepted len 10 hex 690000000500000001e0
-    Supply(End): accepted len 10 hex 7a0000000500000001e0
+    Supply(Continue): accepted len 12 hex 69000000070000000341e0f6
+    Supply(End): accepted len 12 hex 7a000000070000000341e0f6
     End(Reply): accepted len 1 hex 8b
     End(Stream): accepted len 1 hex 9c
   stream 04
@@ -54,8 +54,8 @@ Initiator
     QueryEmpty(End): accepted len 1 hex 37
     Query(Continue): accepted len 27 hex 480000000000000000000000000000000000000000000000000000
     Query(End): accepted len 27 hex 590000000000000000000000000000000000000000000000000000
-    Supply(Continue): accepted len 10 hex 6a0000000500000001e0
-    Supply(End): accepted len 10 hex 7b0000000500000001e0
+    Supply(Continue): accepted len 12 hex 6a000000070000000341e0f6
+    Supply(End): accepted len 12 hex 7b000000070000000341e0f6
     End(Reply): accepted len 1 hex 8c
     End(Stream): accepted len 1 hex 9d
   stream 05
@@ -65,8 +65,8 @@ Initiator
     QueryEmpty(End): accepted len 1 hex 38
     Query(Continue): accepted len 27 hex 490000000000000000000000000000000000000000000000000000
     Query(End): accepted len 27 hex 5a0000000000000000000000000000000000000000000000000000
-    Supply(Continue): accepted len 10 hex 6b0000000500000001e0
-    Supply(End): accepted len 10 hex 7c0000000500000001e0
+    Supply(Continue): accepted len 12 hex 6b000000070000000341e0f6
+    Supply(End): accepted len 12 hex 7c000000070000000341e0f6
     End(Reply): accepted len 1 hex 8d
     End(Stream): accepted len 1 hex 9e
   stream 06
@@ -76,8 +76,8 @@ Initiator
     QueryEmpty(End): accepted len 1 hex 39
     Query(Continue): accepted len 27 hex 4a0000000000000000000000000000000000000000000000000000
     Query(End): accepted len 27 hex 5b0000000000000000000000000000000000000000000000000000
-    Supply(Continue): accepted len 10 hex 6c0000000500000001e0
-    Supply(End): accepted len 10 hex 7d0000000500000001e0
+    Supply(Continue): accepted len 12 hex 6c000000070000000341e0f6
+    Supply(End): accepted len 12 hex 7d000000070000000341e0f6
     End(Reply): accepted len 1 hex 8e
     End(Stream): accepted len 1 hex 9f
   stream 07
@@ -87,8 +87,8 @@ Initiator
     QueryEmpty(End): accepted len 1 hex 3a
     Query(Continue): accepted len 27 hex 4b0000000000000000000000000000000000000000000000000000
     Query(End): accepted len 27 hex 5c0000000000000000000000000000000000000000000000000000
-    Supply(Continue): accepted len 10 hex 6d0000000500000001e0
-    Supply(End): accepted len 10 hex 7e0000000500000001e0
+    Supply(Continue): accepted len 12 hex 6d000000070000000341e0f6
+    Supply(End): accepted len 12 hex 7e000000070000000341e0f6
     End(Reply): accepted len 1 hex 8f
     End(Stream): accepted len 1 hex a0
   stream 08
@@ -98,8 +98,8 @@ Initiator
     QueryEmpty(End): accepted len 1 hex 3b
     Query(Continue): accepted len 27 hex 4c0000000000000000000000000000000000000000000000000000
     Query(End): accepted len 27 hex 5d0000000000000000000000000000000000000000000000000000
-    Supply(Continue): accepted len 10 hex 6e0000000500000001e0
-    Supply(End): accepted len 10 hex 7f0000000500000001e0
+    Supply(Continue): accepted len 12 hex 6e000000070000000341e0f6
+    Supply(End): accepted len 12 hex 7f000000070000000341e0f6
     End(Reply): accepted len 1 hex 90
     End(Stream): accepted len 1 hex a1
   stream 09
@@ -109,8 +109,8 @@ Initiator
     QueryEmpty(End): accepted len 1 hex 3c
     Query(Continue): accepted len 27 hex 4d0000000000000000000000000000000000000000000000000000
     Query(End): accepted len 27 hex 5e0000000000000000000000000000000000000000000000000000
-    Supply(Continue): accepted len 10 hex 6f0000000500000001e0
-    Supply(End): accepted len 10 hex 800000000500000001e0
+    Supply(Continue): accepted len 12 hex 6f000000070000000341e0f6
+    Supply(End): accepted len 12 hex 80000000070000000341e0f6
     End(Reply): accepted len 1 hex 91
     End(Stream): accepted len 1 hex a2
   stream 10
@@ -120,8 +120,8 @@ Initiator
     QueryEmpty(End): accepted len 1 hex 3d
     Query(Continue): accepted len 27 hex 4e0000000000000000000000000000000000000000000000000000
     Query(End): accepted len 27 hex 5f0000000000000000000000000000000000000000000000000000
-    Supply(Continue): accepted len 10 hex 700000000500000001e0
-    Supply(End): accepted len 10 hex 810000000500000001e0
+    Supply(Continue): accepted len 12 hex 70000000070000000341e0f6
+    Supply(End): accepted len 12 hex 81000000070000000341e0f6
     End(Reply): accepted len 1 hex 92
     End(Stream): accepted len 1 hex a3
   stream 11
@@ -131,8 +131,8 @@ Initiator
     QueryEmpty(End): accepted len 1 hex 3e
     Query(Continue): accepted len 27 hex 4f0000000000000000000000000000000000000000000000000000
     Query(End): accepted len 27 hex 600000000000000000000000000000000000000000000000000000
-    Supply(Continue): accepted len 10 hex 710000000500000001e0
-    Supply(End): accepted len 10 hex 820000000500000001e0
+    Supply(Continue): accepted len 12 hex 71000000070000000341e0f6
+    Supply(End): accepted len 12 hex 82000000070000000341e0f6
     End(Reply): accepted len 1 hex 93
     End(Stream): accepted len 1 hex a4
   stream 12
@@ -142,8 +142,8 @@ Initiator
     QueryEmpty(End): accepted len 1 hex 3f
     Query(Continue): accepted len 27 hex 500000000000000000000000000000000000000000000000000000
     Query(End): accepted len 27 hex 610000000000000000000000000000000000000000000000000000
-    Supply(Continue): accepted len 10 hex 720000000500000001e0
-    Supply(End): accepted len 10 hex 830000000500000001e0
+    Supply(Continue): accepted len 12 hex 72000000070000000341e0f6
+    Supply(End): accepted len 12 hex 83000000070000000341e0f6
     End(Reply): accepted len 1 hex 94
     End(Stream): accepted len 1 hex a5
   stream 13
@@ -153,8 +153,8 @@ Initiator
     QueryEmpty(End): accepted len 1 hex 40
     Query(Continue): accepted len 27 hex 510000000000000000000000000000000000000000000000000000
     Query(End): accepted len 27 hex 620000000000000000000000000000000000000000000000000000
-    Supply(Continue): accepted len 10 hex 730000000500000001e0
-    Supply(End): accepted len 10 hex 840000000500000001e0
+    Supply(Continue): accepted len 12 hex 73000000070000000341e0f6
+    Supply(End): accepted len 12 hex 84000000070000000341e0f6
     End(Reply): accepted len 1 hex 95
     End(Stream): accepted len 1 hex a6
   stream 14
@@ -164,8 +164,8 @@ Initiator
     QueryEmpty(End): accepted len 1 hex 41
     Query(Continue): accepted len 27 hex 520000000000000000000000000000000000000000000000000000
     Query(End): accepted len 27 hex 630000000000000000000000000000000000000000000000000000
-    Supply(Continue): accepted len 10 hex 740000000500000001e0
-    Supply(End): accepted len 10 hex 850000000500000001e0
+    Supply(Continue): accepted len 12 hex 74000000070000000341e0f6
+    Supply(End): accepted len 12 hex 85000000070000000341e0f6
     End(Reply): accepted len 1 hex 96
     End(Stream): accepted len 1 hex a7
   stream 15
@@ -175,8 +175,8 @@ Initiator
     QueryEmpty(End): accepted len 1 hex 42
     Query(Continue): accepted len 27 hex 530000000000000000000000000000000000000000000000000000
     Query(End): accepted len 27 hex 640000000000000000000000000000000000000000000000000000
-    Supply(Continue): accepted len 10 hex 750000000500000001e0
-    Supply(End): accepted len 10 hex 860000000500000001e0
+    Supply(Continue): accepted len 12 hex 75000000070000000341e0f6
+    Supply(End): accepted len 12 hex 86000000070000000341e0f6
     End(Reply): accepted len 1 hex 97
     End(Stream): accepted len 1 hex a8
   stream 16
@@ -186,8 +186,8 @@ Initiator
     QueryEmpty(End): accepted len 1 hex 43
     Query(Continue): rejected byte 54 class LeafParentReplies
     Query(End): rejected byte 65 class LeafParentReplies
-    Supply(Continue): accepted len 10 hex 760000000500000001e0
-    Supply(End): accepted len 10 hex 870000000500000001e0
+    Supply(Continue): accepted len 12 hex 76000000070000000341e0f6
+    Supply(End): accepted len 12 hex 87000000070000000341e0f6
     End(Reply): accepted len 1 hex 98
     End(Stream): accepted len 1 hex a9
 Responder
@@ -198,8 +198,8 @@ Responder
     QueryEmpty(End): accepted len 1 hex 33
     Query(Continue): accepted len 27 hex 440000000000000000000000000000000000000000000000000000
     Query(End): accepted len 27 hex 550000000000000000000000000000000000000000000000000000
-    Supply(Continue): accepted len 10 hex 660000000500000001e0
-    Supply(End): accepted len 10 hex 770000000500000001e0
+    Supply(Continue): accepted len 12 hex 66000000070000000341e0f6
+    Supply(End): accepted len 12 hex 77000000070000000341e0f6
     End(Reply): accepted len 1 hex 88
     End(Stream): accepted len 1 hex 99
   stream 01
@@ -209,8 +209,8 @@ Responder
     QueryEmpty(End): accepted len 1 hex 34
     Query(Continue): accepted len 27 hex 450000000000000000000000000000000000000000000000000000
     Query(End): accepted len 27 hex 560000000000000000000000000000000000000000000000000000
-    Supply(Continue): accepted len 10 hex 670000000500000001e0
-    Supply(End): accepted len 10 hex 780000000500000001e0
+    Supply(Continue): accepted len 12 hex 67000000070000000341e0f6
+    Supply(End): accepted len 12 hex 78000000070000000341e0f6
     End(Reply): accepted len 1 hex 89
     End(Stream): accepted len 1 hex 9a
   stream 02
@@ -220,8 +220,8 @@ Responder
     QueryEmpty(End): accepted len 1 hex 35
     Query(Continue): accepted len 27 hex 460000000000000000000000000000000000000000000000000000
     Query(End): accepted len 27 hex 570000000000000000000000000000000000000000000000000000
-    Supply(Continue): accepted len 10 hex 680000000500000001e0
-    Supply(End): accepted len 10 hex 790000000500000001e0
+    Supply(Continue): accepted len 12 hex 68000000070000000341e0f6
+    Supply(End): accepted len 12 hex 79000000070000000341e0f6
     End(Reply): accepted len 1 hex 8a
     End(Stream): accepted len 1 hex 9b
   stream 03
@@ -231,8 +231,8 @@ Responder
     QueryEmpty(End): accepted len 1 hex 36
     Query(Continue): accepted len 27 hex 470000000000000000000000000000000000000000000000000000
     Query(End): accepted len 27 hex 580000000000000000000000000000000000000000000000000000
-    Supply(Continue): accepted len 10 hex 690000000500000001e0
-    Supply(End): accepted len 10 hex 7a0000000500000001e0
+    Supply(Continue): accepted len 12 hex 69000000070000000341e0f6
+    Supply(End): accepted len 12 hex 7a000000070000000341e0f6
     End(Reply): accepted len 1 hex 8b
     End(Stream): accepted len 1 hex 9c
   stream 04
@@ -242,8 +242,8 @@ Responder
     QueryEmpty(End): accepted len 1 hex 37
     Query(Continue): accepted len 27 hex 480000000000000000000000000000000000000000000000000000
     Query(End): accepted len 27 hex 590000000000000000000000000000000000000000000000000000
-    Supply(Continue): accepted len 10 hex 6a0000000500000001e0
-    Supply(End): accepted len 10 hex 7b0000000500000001e0
+    Supply(Continue): accepted len 12 hex 6a000000070000000341e0f6
+    Supply(End): accepted len 12 hex 7b000000070000000341e0f6
     End(Reply): accepted len 1 hex 8c
     End(Stream): accepted len 1 hex 9d
   stream 05
@@ -253,8 +253,8 @@ Responder
     QueryEmpty(End): accepted len 1 hex 38
     Query(Continue): accepted len 27 hex 490000000000000000000000000000000000000000000000000000
     Query(End): accepted len 27 hex 5a0000000000000000000000000000000000000000000000000000
-    Supply(Continue): accepted len 10 hex 6b0000000500000001e0
-    Supply(End): accepted len 10 hex 7c0000000500000001e0
+    Supply(Continue): accepted len 12 hex 6b000000070000000341e0f6
+    Supply(End): accepted len 12 hex 7c000000070000000341e0f6
     End(Reply): accepted len 1 hex 8d
     End(Stream): accepted len 1 hex 9e
   stream 06
@@ -264,8 +264,8 @@ Responder
     QueryEmpty(End): accepted len 1 hex 39
     Query(Continue): accepted len 27 hex 4a0000000000000000000000000000000000000000000000000000
     Query(End): accepted len 27 hex 5b0000000000000000000000000000000000000000000000000000
-    Supply(Continue): accepted len 10 hex 6c0000000500000001e0
-    Supply(End): accepted len 10 hex 7d0000000500000001e0
+    Supply(Continue): accepted len 12 hex 6c000000070000000341e0f6
+    Supply(End): accepted len 12 hex 7d000000070000000341e0f6
     End(Reply): accepted len 1 hex 8e
     End(Stream): accepted len 1 hex 9f
   stream 07
@@ -275,8 +275,8 @@ Responder
     QueryEmpty(End): accepted len 1 hex 3a
     Query(Continue): accepted len 27 hex 4b0000000000000000000000000000000000000000000000000000
     Query(End): accepted len 27 hex 5c0000000000000000000000000000000000000000000000000000
-    Supply(Continue): accepted len 10 hex 6d0000000500000001e0
-    Supply(End): accepted len 10 hex 7e0000000500000001e0
+    Supply(Continue): accepted len 12 hex 6d000000070000000341e0f6
+    Supply(End): accepted len 12 hex 7e000000070000000341e0f6
     End(Reply): accepted len 1 hex 8f
     End(Stream): accepted len 1 hex a0
   stream 08
@@ -286,8 +286,8 @@ Responder
     QueryEmpty(End): accepted len 1 hex 3b
     Query(Continue): accepted len 27 hex 4c0000000000000000000000000000000000000000000000000000
     Query(End): accepted len 27 hex 5d0000000000000000000000000000000000000000000000000000
-    Supply(Continue): accepted len 10 hex 6e0000000500000001e0
-    Supply(End): accepted len 10 hex 7f0000000500000001e0
+    Supply(Continue): accepted len 12 hex 6e000000070000000341e0f6
+    Supply(End): accepted len 12 hex 7f000000070000000341e0f6
     End(Reply): accepted len 1 hex 90
     End(Stream): accepted len 1 hex a1
   stream 09
@@ -297,8 +297,8 @@ Responder
     QueryEmpty(End): accepted len 1 hex 3c
     Query(Continue): accepted len 27 hex 4d0000000000000000000000000000000000000000000000000000
     Query(End): accepted len 27 hex 5e0000000000000000000000000000000000000000000000000000
-    Supply(Continue): accepted len 10 hex 6f0000000500000001e0
-    Supply(End): accepted len 10 hex 800000000500000001e0
+    Supply(Continue): accepted len 12 hex 6f000000070000000341e0f6
+    Supply(End): accepted len 12 hex 80000000070000000341e0f6
     End(Reply): accepted len 1 hex 91
     End(Stream): accepted len 1 hex a2
   stream 10
@@ -308,8 +308,8 @@ Responder
     QueryEmpty(End): accepted len 1 hex 3d
     Query(Continue): accepted len 27 hex 4e0000000000000000000000000000000000000000000000000000
     Query(End): accepted len 27 hex 5f0000000000000000000000000000000000000000000000000000
-    Supply(Continue): accepted len 10 hex 700000000500000001e0
-    Supply(End): accepted len 10 hex 810000000500000001e0
+    Supply(Continue): accepted len 12 hex 70000000070000000341e0f6
+    Supply(End): accepted len 12 hex 81000000070000000341e0f6
     End(Reply): accepted len 1 hex 92
     End(Stream): accepted len 1 hex a3
   stream 11
@@ -319,8 +319,8 @@ Responder
     QueryEmpty(End): accepted len 1 hex 3e
     Query(Continue): accepted len 27 hex 4f0000000000000000000000000000000000000000000000000000
     Query(End): accepted len 27 hex 600000000000000000000000000000000000000000000000000000
-    Supply(Continue): accepted len 10 hex 710000000500000001e0
-    Supply(End): accepted len 10 hex 820000000500000001e0
+    Supply(Continue): accepted len 12 hex 71000000070000000341e0f6
+    Supply(End): accepted len 12 hex 82000000070000000341e0f6
     End(Reply): accepted len 1 hex 93
     End(Stream): accepted len 1 hex a4
   stream 12
@@ -330,8 +330,8 @@ Responder
     QueryEmpty(End): accepted len 1 hex 3f
     Query(Continue): accepted len 27 hex 500000000000000000000000000000000000000000000000000000
     Query(End): accepted len 27 hex 610000000000000000000000000000000000000000000000000000
-    Supply(Continue): accepted len 10 hex 720000000500000001e0
-    Supply(End): accepted len 10 hex 830000000500000001e0
+    Supply(Continue): accepted len 12 hex 72000000070000000341e0f6
+    Supply(End): accepted len 12 hex 83000000070000000341e0f6
     End(Reply): accepted len 1 hex 94
     End(Stream): accepted len 1 hex a5
   stream 13
@@ -341,8 +341,8 @@ Responder
     QueryEmpty(End): accepted len 1 hex 40
     Query(Continue): accepted len 27 hex 510000000000000000000000000000000000000000000000000000
     Query(End): accepted len 27 hex 620000000000000000000000000000000000000000000000000000
-    Supply(Continue): accepted len 10 hex 730000000500000001e0
-    Supply(End): accepted len 10 hex 840000000500000001e0
+    Supply(Continue): accepted len 12 hex 73000000070000000341e0f6
+    Supply(End): accepted len 12 hex 84000000070000000341e0f6
     End(Reply): accepted len 1 hex 95
     End(Stream): accepted len 1 hex a6
   stream 14
@@ -352,8 +352,8 @@ Responder
     QueryEmpty(End): accepted len 1 hex 41
     Query(Continue): accepted len 27 hex 520000000000000000000000000000000000000000000000000000
     Query(End): accepted len 27 hex 630000000000000000000000000000000000000000000000000000
-    Supply(Continue): accepted len 10 hex 740000000500000001e0
-    Supply(End): accepted len 10 hex 850000000500000001e0
+    Supply(Continue): accepted len 12 hex 74000000070000000341e0f6
+    Supply(End): accepted len 12 hex 85000000070000000341e0f6
     End(Reply): accepted len 1 hex 96
     End(Stream): accepted len 1 hex a7
   stream 15
@@ -363,8 +363,8 @@ Responder
     QueryEmpty(End): accepted len 1 hex 42
     Query(Continue): accepted len 27 hex 530000000000000000000000000000000000000000000000000000
     Query(End): accepted len 27 hex 640000000000000000000000000000000000000000000000000000
-    Supply(Continue): accepted len 10 hex 750000000500000001e0
-    Supply(End): accepted len 10 hex 860000000500000001e0
+    Supply(Continue): accepted len 12 hex 75000000070000000341e0f6
+    Supply(End): accepted len 12 hex 86000000070000000341e0f6
     End(Reply): accepted len 1 hex 97
     End(Stream): accepted len 1 hex a8
   stream 16
@@ -375,6 +375,6 @@ Responder
     Query(Continue): rejected byte 54 class TerminalLeafReplies
     Query(End): rejected byte 65 class TerminalLeafReplies
     Supply(Continue): rejected byte 76 class TerminalLeafReplies
-    Supply(End): accepted len 10 hex 870000000500000001e0
+    Supply(End): accepted len 12 hex 87000000070000000341e0f6
     End(Reply): accepted len 1 hex 98
     End(Stream): accepted len 1 hex a9

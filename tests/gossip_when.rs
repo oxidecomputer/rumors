@@ -42,7 +42,7 @@ use rumors::{Error, Gossiped, Led, Peer, Rumors, testing::run_to_quiescence};
 use tokio::io::AsyncWriteExt;
 use tokio::time::timeout;
 
-use crate::common::action::minted_key;
+use crate::common::action::minted_version;
 use crate::common::fault::{FaultPlan, faulty};
 use crate::common::wire::{bootstrap_fork_async, tokio_block_on as block_on, wire_gossip_async};
 
@@ -273,7 +273,7 @@ async fn changes_propagate_transitively_through_a_chain() {
         loop {
             c_changes.next().await.expect("set still open");
             let snapshot = c.snapshot();
-            if snapshot.iter().any(|(_, _, m)| **m == 42) {
+            if snapshot.iter().any(|(_, m)| **m == 42) {
                 return;
             }
         }
@@ -338,7 +338,7 @@ async fn a_redaction_frontier_propagates_transitively_through_a_chain() {
     // trace is A's advanced causal frontier.
     let pre = a.snapshot().latest().clone();
     a.send(42);
-    a.redact(minted_key(&a.snapshot(), &pre));
+    a.redact(&minted_version(&a.snapshot(), &pre));
 
     // The A-side connection carries the news to B...
     let ab = futures::future::join(a_drv.next(), b_ab_drv.next());
@@ -682,8 +682,8 @@ proptest! {
             // Atomicity: whatever happened, each side holds its own send,
             // nothing beyond the union, and never a torn intermediate.
             let (a_snapshot, b_snapshot) = (a.snapshot(), b.snapshot());
-            assert!(a_snapshot.iter().any(|(_, _, m)| **m == 1));
-            assert!(b_snapshot.iter().any(|(_, _, m)| **m == 2));
+            assert!(a_snapshot.iter().any(|(_, m)| **m == 1));
+            assert!(b_snapshot.iter().any(|(_, m)| **m == 2));
             assert!(a_snapshot.len() <= 2);
             assert!(b_snapshot.len() <= 2);
 

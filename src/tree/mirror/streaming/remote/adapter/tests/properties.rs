@@ -958,7 +958,7 @@ where
         .map(|offset| LeafCase::new(leaf.value.wrapping_add(u64::from(offset)), 0))
         .map(|candidate| Prefix::<S<H>>::containing(&candidate.path()))
         .find(|candidate| *candidate != actual)
-        .expect("a non-root prefix has another content-derived value")
+        .expect("a non-root prefix has another version-derived value")
 }
 
 fn assert_foreign_error<H>(
@@ -1077,7 +1077,7 @@ proptest! {
         }
     }
 
-    /// At every height, a content-derived supply remains correctly keyed when
+    /// At every height, a version-derived supply remains correctly keyed when
     /// merge-ordered among arbitrary positional matches and queries.
     #[test]
     fn mixed_reactions_are_lossless_at_every_height(
@@ -1120,7 +1120,7 @@ proptest! {
     }
 
     /// At every height with more than one possible parent scope, a supplied
-    /// leaf is rejected unless its content-derived path is under that scope.
+    /// leaf is rejected unless its version-derived path is under that scope.
     #[test]
     fn foreign_supply_is_rejected_at_every_scopable_height(
         value in any::<u64>(),

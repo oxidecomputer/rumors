@@ -1,7 +1,7 @@
 //! Ingress validation of the V1 framed-message reader.
 //!
 //! Every V1 wire message reaches the protocol through [`recv_msg`]: one
-//! length-delimited frame pulled off the transport, then one exact borsh
+//! length-delimited frame pulled off the transport, then one exact
 //! decode of the frame's body. Both halves parse peer-controlled bytes, so
 //! this suite feeds the reader crafted frames — truncations at each
 //! structural boundary, length lies in both directions, trailing garbage —
@@ -11,7 +11,6 @@
 //! `alternating/message/tests.rs`; the exact wire bytes in
 //! `alternating/wire_snapshot.rs`.
 
-use borsh::BorshDeserialize;
 use proptest::collection::vec;
 use proptest::prelude::*;
 
@@ -20,6 +19,7 @@ use super::{FrameRead, recv_msg};
 use crate::tree::arb::nth_party;
 use crate::tree::mirror::framing::LENGTH_HEADER_LEN;
 use crate::tree::typed::height::UnderRoot;
+use crate::tree::wire;
 use crate::{Error, Version};
 
 /// Length-delimit one frame body exactly as [`super::send_msg`] does.
@@ -31,7 +31,7 @@ fn frame(body: &[u8]) -> Vec<u8> {
 }
 
 /// Pull one message from crafted wire bytes through the production ingress.
-fn recv<M: BorshDeserialize>(bytes: &[u8]) -> Result<M, Error> {
+fn recv<M: wire::Decode>(bytes: &[u8]) -> Result<M, Error> {
     pollster::block_on(async {
         let mut reader = FrameRead::new(bytes);
         recv_msg::<M, _>(&mut reader).await
@@ -44,11 +44,11 @@ fn handshake_bytes() -> Vec<u8> {
     let party = nth_party(0);
     let mut version = Version::new();
     version.tick(&party);
-    borsh::to_vec(&message::Handshake { version }).expect("test handshakes encode")
+    wire::to_vec(&message::Handshake { version }).expect("test handshakes encode")
 }
 
 /// Unwrap the sole error variant this ingress can produce.
-fn io_error(result: Result<(), Error>) -> borsh::io::Error {
+fn io_error(result: Result<(), Error>) -> std::io::Error {
     match result {
         Err(Error::Io(error)) => error,
         other => panic!("the framed ingress fails as Error::Io, got {other:?}"),
@@ -64,7 +64,7 @@ fn io_error(result: Result<(), Error>) -> borsh::io::Error {
 #[test]
 fn close_before_a_message_is_a_typed_eof() {
     let error = io_error(recv::<message::Handshake>(&[]).map(|_| ()));
-    assert_eq!(error.kind(), borsh::io::ErrorKind::UnexpectedEof);
+    assert_eq!(error.kind(), std::io::ErrorKind::UnexpectedEof);
     assert!(
         error.to_string().contains("peer closed"),
         "the boundary close carries its diagnosis, got {error}",
@@ -81,7 +81,7 @@ fn truncated_length_header_is_a_typed_eof() {
         let error = io_error(recv::<message::Handshake>(&vec![0; cut]).map(|_| ()));
         assert_eq!(
             error.kind(),
-            borsh::io::ErrorKind::UnexpectedEof,
+            std::io::ErrorKind::UnexpectedEof,
             "cut after {cut} header bytes must be an unexpected EOF",
         );
     }
@@ -98,7 +98,7 @@ fn over_declared_frame_is_a_typed_eof() {
     bytes.extend_from_slice(&[1, 2, 3, 4]);
 
     let error = io_error(recv::<message::Handshake>(&bytes).map(|_| ()));
-    assert_eq!(error.kind(), borsh::io::ErrorKind::UnexpectedEof);
+    assert_eq!(error.kind(), std::io::ErrorKind::UnexpectedEof);
 }
 
 /// A message cut short inside an honestly sized frame is a typed error.
@@ -113,7 +113,7 @@ fn under_declared_frame_is_a_typed_error() {
     body.truncate(body.len() - 1);
 
     let error = io_error(recv::<message::Handshake>(&frame(&body)).map(|_| ()));
-    assert_eq!(error.kind(), borsh::io::ErrorKind::UnexpectedEof);
+    assert_eq!(error.kind(), std::io::ErrorKind::UnexpectedEof);
 }
 
 /// A frame with bytes after its message is rejected as non-canonical.
@@ -127,7 +127,7 @@ fn trailing_frame_bytes_are_rejected() {
     body.push(0xFF);
 
     let error = io_error(recv::<message::Handshake>(&frame(&body)).map(|_| ()));
-    assert_eq!(error.kind(), borsh::io::ErrorKind::InvalidData);
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
 }
 
 /// Reading one message consumes exactly its frame, leaving later bytes
@@ -156,7 +156,7 @@ proptest! {
     /// for every V1 message type — never a panic.
     ///
     /// The frame is honestly sized around an arbitrary body, so the fuzz
-    /// lands on the borsh body decoders (the version bit codec, the channel
+    /// lands on the body decoders (the version bit codec, the channel
     /// order checks, the typed node reconstruction) rather than on the
     /// allocator via a lied length header — the header lies are pinned
     /// deterministically above. Decoding a slice always terminates, so a

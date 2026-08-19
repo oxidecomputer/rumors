@@ -96,7 +96,7 @@
 //!
 //!     alice.send("the meeting is at noon".to_string());
 //!
-//!     for (_key, _version, message) in alice.snapshot().iter() {
+//!     for (_version, message) in alice.snapshot().iter() {
 //!         println!("alice holds: {message}");
 //!     }
 //!     Ok(())
@@ -109,9 +109,9 @@
 //!
 //! A bare `send` statement commits right there, as the statement ends;
 //! chaining several changes into one commit is
-//! [`Batch`](crate::Batch)'s job. Notice that the snapshot yields a key
-//! and a version alongside each message — we ignore them for now, and the
-//! key returns in step 6.
+//! [`Batch`](crate::Batch)'s job. Notice that the snapshot yields a
+//! [`Version`](crate::Version) alongside each message — the message's
+//! identity, which we ignore for now; it returns in step 6.
 //!
 //! # Step 4: bootstrap Bob
 //!
@@ -145,7 +145,7 @@
 //!         .into_rumors();
 //!     server.await.expect("alice's serving task");
 //!
-//!     for (_key, _version, message) in bob.snapshot().iter() {
+//!     for (_version, message) in bob.snapshot().iter() {
 //!         println!("bob holds: {message}");
 //!     }
 //!     Ok(())
@@ -225,11 +225,12 @@
 //!
 //! # Step 6: redact, and watch it vanish
 //!
-//! The meeting is over; take the message back. Redaction needs the
-//! message's [`Key`](crate::Key), and keys come back out of observation —
-//! snapshots and the [message streams](crate#how-should-you-observe-messages)
-//! attach one to every message — so we find the key by looking, then hand
-//! it to [`redact`](crate::Rumors::redact) and let the drivers spread the
+//! The meeting is over; take the message back. Redaction names a message
+//! by its [`Version`](crate::Version), and versions come back out of
+//! observation — snapshots and the [message
+//! streams](crate#how-should-you-observe-messages) attach one to every
+//! message — so we find the version by looking, then hand it to
+//! [`redact`](crate::Rumors::redact) and let the drivers spread the
 //! deletion. With this final addition, the whole program reads:
 //!
 //! ```
@@ -265,13 +266,14 @@
 //!     assert_eq!(bob.snapshot().len(), 2);
 //!     println!("bob holds {} messages", bob.snapshot().len());
 //!
-//!     // New: find the key by observing, redact, and drive one more session.
+//!     // New: find the version by observing, redact, and drive one more
+//!     // session.
 //!     let snapshot = alice.snapshot();
-//!     let (key, _version, _message) = snapshot
+//!     let (version, _message) = snapshot
 //!         .iter()
-//!         .find(|(_, _, message)| message.as_str() == "the meeting is at noon")
+//!         .find(|(_, message)| message.as_str() == "the meeting is at noon")
 //!         .expect("alice still holds the meeting message");
-//!     alice.redact(key);
+//!     alice.redact(version);
 //!
 //!     let (pushed, served) = tokio::join!(alice_drive.next(), bob_drive.next());
 //!     pushed.expect("alice's driver is running")?;
@@ -279,7 +281,7 @@
 //!
 //!     assert_eq!(alice.snapshot().len(), 1);
 //!     assert_eq!(bob.snapshot().len(), 1);
-//!     for (_key, _version, message) in bob.snapshot().iter() {
+//!     for (_version, message) in bob.snapshot().iter() {
 //!         println!("bob still holds: {message}");
 //!     }
 //!     Ok(())

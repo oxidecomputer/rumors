@@ -63,7 +63,7 @@ use std::sync::{Arc, Mutex};
 
 use before::Party;
 use proptest::prelude::*;
-use rumors::{Error, Key, MERKLE_HASH_LEN, Network, Peer, Retire, Rumors, Version};
+use rumors::{Error, MERKLE_HASH_LEN, Network, Peer, Retire, Rumors, Version};
 
 use crate::common::fault::{self, FaultPlan};
 use crate::common::flaky::{DurableStore, FaultFeed, FlakyInMemoryBookmark, persisted_record};
@@ -207,7 +207,7 @@ fn store_covers(record: &BTreeMap<Network, Vec<Version>>, emission: &Emission) -
 }
 
 /// Decode the id-regions a node has durably checkpointed for `network`, via the
-/// same Borsh round trip the bookmark itself makes.
+/// same encode/decode round trip the bookmark itself makes.
 ///
 /// The dual of
 /// [`decompose_store`]: that keeps each clock's version (for durability), this
@@ -394,7 +394,7 @@ impl World {
         // race-free and the just-sent unique id is present exactly once.
         let snapshot = rumors.snapshot();
         let mut version = None;
-        for (_key, leaf_version, value) in snapshot.iter() {
+        for (leaf_version, value) in snapshot.iter() {
             if **value == id {
                 version = Some(leaf_version.clone());
                 break;
@@ -416,11 +416,11 @@ impl World {
             return;
         };
         let snapshot = rumors.snapshot();
-        let keys: Vec<Key> = snapshot.iter().map(|(key, _, _)| key).collect();
-        if keys.is_empty() {
+        let versions: Vec<Version> = snapshot.iter().map(|(v, _)| v.clone()).collect();
+        if versions.is_empty() {
             return;
         }
-        rumors.redact(keys[which % keys.len()]);
+        rumors.redact(&versions[which % versions.len()]);
     }
 
     /// Promote every pending emission of `who` that has become **known to the
@@ -870,7 +870,7 @@ impl World {
             let rumors = self.nodes[k].live().unwrap();
             let network = rumors.network();
             let snapshot = rumors.snapshot();
-            for (_key, leaf_version, value) in snapshot.iter() {
+            for (leaf_version, value) in snapshot.iter() {
                 live_leaves += 1;
                 let seq = **value;
                 assert!(

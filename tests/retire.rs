@@ -172,7 +172,7 @@ fn divergent_retiree_reconciles_then_retires() {
         matches!(outcome, Retire::Retired),
         "the in-session gossip round brings the peer to dominance, got {outcome:?}"
     );
-    let mut live: Vec<u64> = b.snapshot().iter().map(|(_, _, m)| **m).collect();
+    let mut live: Vec<u64> = b.snapshot().iter().map(|(_, m)| **m).collect();
     live.sort_unstable();
     assert_eq!(
         live,
@@ -186,27 +186,28 @@ fn divergent_retiree_reconciles_then_retires() {
 /// exactly as a plain gossip session would have spread it.
 #[test]
 fn retiree_redaction_propagates_through_retire() {
-    // Both peers hold 1 and 2 (inserted before the fork, so the keys are
-    // shared); the retiree then redacts 1 while the peer inserts 3.
+    // Both peers hold 1 and 2 (inserted before the fork, so the messages
+    // and their versions are shared); the retiree then redacts 1 while the
+    // peer inserts 3.
     let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
     seed.batch().send(1).send(2);
-    let key_of_1 = seed
+    let version_of_1 = seed
         .snapshot()
         .iter()
-        .find_map(|(k, _, m)| (**m == 1).then_some(k))
-        .expect("key recorded for 1");
+        .find_map(|(v, m)| (**m == 1).then_some(v.clone()))
+        .expect("version recorded for 1");
 
     let a = bootstrap_fork(&seed);
     let b = async_known(seed, &[3]);
 
-    a.redact(key_of_1);
+    a.redact(&version_of_1);
 
     let outcome = retire_into_gossip(a, &b);
     assert!(
         matches!(outcome, Retire::Retired),
         "the reconciled peer absorbs the retiree, got {outcome:?}"
     );
-    let mut live: Vec<u64> = b.snapshot().iter().map(|(_, _, m)| **m).collect();
+    let mut live: Vec<u64> = b.snapshot().iter().map(|(_, m)| **m).collect();
     live.sort_unstable();
     assert_eq!(
         live,
@@ -287,7 +288,7 @@ fn retire_into_bootstrapper_hands_off_the_identity() {
     successor.send(99);
     wire_gossip(&successor, &seed);
     assert!(
-        seed.snapshot().iter().any(|(_, _, m)| **m == 99),
+        seed.snapshot().iter().any(|(_, m)| **m == 99),
         "the successor's origination survives gossip"
     );
 }

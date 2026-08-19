@@ -109,11 +109,11 @@ fn empty_listing_replays_the_empty_opening() {
 }
 
 /// The opening-supply reply decodes into whole root children, one per
-/// content-derived radix group, in ascending radix order.
+/// version-derived radix group, in ascending radix order.
 #[test]
 fn opening_supplies_decode_by_radix_group() {
     // Enough cases that at least two distinct first bytes exist; the
-    // content-derived paths pick the grouping.
+    // version-derived paths pick the grouping.
     let mut cases: Vec<LeafCase> = (0..6).map(|i| LeafCase::new(1_000 + i, 1)).collect();
     cases.sort_by_key(LeafCase::path);
     let first_byte = |case: &LeafCase| <[u8; 32]>::from(case.path())[0];

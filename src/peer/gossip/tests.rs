@@ -151,11 +151,15 @@ fn redacted_history_root(events: u64) -> tree::Root<u64> {
             batch.send(v);
         }
     }
-    let keys: Vec<_> = donor.snapshot().iter().map(|(key, _, _)| key).collect();
+    let versions: Vec<_> = donor
+        .snapshot()
+        .iter()
+        .map(|(version, _)| version.clone())
+        .collect();
     {
         let mut batch = donor.batch();
-        for key in keys {
-            batch.redact(key);
+        for version in &versions {
+            batch.redact(version);
         }
     }
     let snapshot = donor.snapshot();
@@ -237,7 +241,7 @@ async fn claim_bootstrap_v1(
     Ok((party, Tree { root }))
 }
 
-/// A provider holding `values`, plus its pre-session content hash.
+/// A provider holding `values`, plus its pre-session root hash.
 fn provider_with(values: &[u64]) -> Peer<u64> {
     let provider = Peer::<u64>::seed();
     {
