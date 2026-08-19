@@ -81,22 +81,31 @@ are deliberate complements.
 ## The bookmark: fully CBOR-parseable on disk
 
 The stored bookmark follows the same property (ruled 2026-08-19): the
-whole file parses as CBOR, not just its payload. Sketch: the file opens
-with the self-described tag and carries the format version, the integrity
-hash, and the payload as items — with the hashed region spelled as an
-embedded byte string (tag 24, "encoded CBOR data item"), so "the bytes
-the hash covers" is a well-defined CBOR-visible region rather than an
-offset convention:
+whole file parses as CBOR, not just its payload. The v4 form:
 
 ```
-55799( [ format_version: int, integrity: bstr, payload: 24(bstr(map)) ] )
+55799( [ format_version: int (= 4), integrity: bstr, payload: 24(bstr(map)) ] )
 ```
 
-`FormatError`'s taxonomy survives re-denominated: `BadMagic` becomes
-"not self-described CBOR / wrong shape", `VersionMismatch` and
-`HashMismatch` are unchanged in meaning, `Truncated` becomes a sequence
-truncation. This is a format-version bump under the bookmark's own
-convention.
+where the map is Network (16-byte bstr key) → array of clocks, each
+clock a tagged byte string (`CLOCK_TAG(bstr(party ‖ version canonical
+bytes))`). The integrity hash covers the encoded format-version item
+followed by the encoded tag-24 payload item — every array item except
+the integrity item itself, a CBOR-visible region rather than an offset
+convention, and coverage no weaker than v3's (which hashed the version
+too). The fixed opening (the 55799 tag and array head) sits outside
+the hash; corrupting it fails shape validation instead, and the
+committed corruption sweep proves rejection stays total over every
+byte of the file. The raw magic string has no analogue in a
+self-described CBOR file and the v4 format (and public API) carries
+none.
+
+`FormatError`'s taxonomy survives re-denominated with typed carriers:
+`BadMagic` holds a `FrameDefect` naming the "not self-described CBOR /
+wrong shape" failure, decode failures carry a typed `RecordDefect`,
+`VersionMismatch` and `HashMismatch` are unchanged in meaning, and
+truncation is rejected at every strict prefix. This is a
+format-version bump under the bookmark's own convention.
 
 ## Tagged atoms: context-free identity for the opaque byte strings
 
@@ -245,9 +254,18 @@ CBOR.
   asserts everything parses with no bytes outside CBOR items. The
   parser knows nothing of rumors. This is the tamper-evident form of
   the legibility promise; prose claims of legibility are decoration
-  without it. (The test enters through the transport capture today; the
-  observation hook's own capture-validity differential is its
-  complement.)
+  without it.
+- **Capture validity is a two-property contract, and both properties
+  are permanent** (ruled 2026-08-19): the render proptest above keeps
+  its transport-level capture forever — it is the proof that
+  *external* capture (a third party tapping the wire, no rumors code
+  involved) yields valid CBOR — while the observation hook carries its
+  own *internal*-capture properties: every hook invocation is exactly
+  one CBOR item, and concatenating a stream handler's items
+  byte-equals that directed stream's transport capture. The
+  whole-stream property implies the per-item property only if the hook
+  is bug-free; the pairing tests exactly that implication. Neither
+  test supplants the other.
 - The full snapshot corpus re-accepts as one deliberate, owner-ruled
   pre-release format change, named in the re-accepting commit.
 - Re-derived (never transcribed) readings: the dispute-wire closed form
@@ -265,7 +283,13 @@ wave. Recurring wire cost, measured at the calibration cells: +8 B per
 disputed message end to end (the calibrated intercept moved 35 → 43 B),
 which is +3.9% at the design record size and grows toward +14% only for
 minimal `u64`-record corpora; essentially zero relative cost on bulk
-supply (+3 B per record for the version tag, ≈0 for the framing). The
+supply (+3 B per record for the version tag, ≈0 for the framing). A
+one-off whole-session check (measured, not an instrument: the
+fixed-corpus gossip bench's 5,000-shared / 2,500-per-side-differing
+cell, single-byte payloads — the metadata-dominated worst corner)
+read +16.4% total session bytes, about 51 KB on a 308 KB session,
+falling toward the +3.9% figure as payloads approach the design
+record size. The
 committed snapshot corpus — toy sessions dominated by their per-session
 constants — grew 62% (5,273 → 8,567 B), a denominator that overweights
 the once-per-session surfaces by design; the per-message figures above
@@ -321,3 +345,11 @@ the codec and the hook.
   implementation lane — the CBOR reflection snapshot extractor
   supplants the opaque hexdump wire snapshots, and the tracing adapter
   lands alongside rather than trailing.
+- 2026-08-19 (Finch): capture validity is a permanent two-property
+  contract — the transport-captured whole-stream render proptest
+  (external capture) and the hook's per-item plus concatenation
+  differential (internal capture); neither migrates into the other.
+- 2026-08-19 (Finch): a one-off whole-session bytes measurement
+  (before vs after the conversion, mirroring the fixed-corpus gossip
+  bench shape) runs as a final bandwidth sanity check; deliberately
+  not landed as an instrument.
