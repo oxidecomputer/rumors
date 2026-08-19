@@ -302,8 +302,8 @@ pub use ::before;
 pub use batch::Batch;
 pub use before::{Ticks, Version, causally};
 pub use bookmark::{
-    BOOKMARK_FORMAT_VERSION, BOOKMARK_MAGIC, Bookmark, BookmarkError, BookmarkIo, FormatError,
-    NoBookmark, Serialized,
+    BOOKMARK_FORMAT_VERSION, Bookmark, BookmarkError, BookmarkIo, FormatError, FrameDefect,
+    NoBookmark, RecordDefect, Serialized,
 };
 pub use error::{Error, MirrorError};
 pub use link::{Acceptor, Connector, Link};

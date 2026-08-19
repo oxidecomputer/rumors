@@ -1,5 +1,6 @@
 //! The frame is self-inverse and self-checking: it round-trips any payload,
-//! rejects every single-byte corruption, and pins byte-for-byte.
+//! rejects every single-byte corruption and every truncation, parses whole
+//! under a rumors-blind CBOR reader, and pins byte-for-byte.
 
 use std::collections::BTreeMap;
 
@@ -52,18 +53,20 @@ proptest! {
         prop_assert_eq!(unframe(&framed).unwrap(), payload.as_slice());
     }
 
-    /// A frame always carries the magic and version tag in its header, whatever
-    /// the payload.
+    /// A frame always opens with the self-described CBOR tag, the three-item
+    /// frame array, and the format-version item, whatever the payload.
     #[test]
     fn frame_carries_the_tag(payload: Vec<u8>) {
         let framed = frame(&payload);
-        let version = BOOKMARK_FORMAT_VERSION.to_be_bytes();
-        prop_assert!(framed.starts_with(&BOOKMARK_MAGIC));
-        prop_assert_eq!(&framed[VERSION_OFFSET..HASH_OFFSET], version.as_slice());
+        let mut opening = SELF_DESCRIBED.to_vec();
+        opening.push(FRAME_ARRAY);
+        push_head(&mut opening, MAJOR_UNSIGNED, BOOKMARK_FORMAT_VERSION);
+        prop_assert!(framed.starts_with(&opening));
     }
 
-    /// Flipping any one byte of the frame body (magic, version, hash, or
-    /// payload) makes it fail to validate: nothing corrupt is ever accepted.
+    /// Flipping any one byte of the frame (opening, version, hash, payload
+    /// headers, or payload) makes it fail to validate: nothing corrupt is
+    /// ever accepted.
     #[test]
     fn any_single_byte_corruption_is_rejected(
         payload in prop::collection::vec(any::<u8>(), 1..64),
@@ -73,6 +76,35 @@ proptest! {
         let i = index.index(framed.len());
         framed[i] ^= 0xff;
         prop_assert!(unframe(&framed).is_err());
+    }
+
+    /// Cutting a frame anywhere before its end fails to validate — a partial
+    /// write is caught as [`FormatError::Truncated`], never misread.
+    #[test]
+    fn truncation_at_every_prefix_is_rejected(
+        payload in prop::collection::vec(any::<u8>(), 0..64),
+        index: prop::sample::Index,
+    ) {
+        let framed = frame(&payload);
+        let cut = index.index(framed.len());
+        let truncated = matches!(
+            unframe(&framed[..cut]),
+            Err(FormatError::Truncated { len }) if len == cut,
+        );
+        prop_assert!(truncated);
+    }
+
+    /// Bytes appended after the frame array fail to validate: the frame is
+    /// exactly one CBOR item, so a follower is a shape defect.
+    #[test]
+    fn trailing_bytes_are_rejected(payload: Vec<u8>, extra: u8) {
+        let mut framed = frame(&payload);
+        framed.push(extra);
+        let rejected = matches!(
+            unframe(&framed),
+            Err(FormatError::BadMagic { defect: FrameDefect::TrailingBytes }),
+        );
+        prop_assert!(rejected);
     }
 
     /// A record survives a serialize/validate/deserialize round trip unchanged,
@@ -100,39 +132,84 @@ fn empty_record_round_trips() {
     assert!(decoded.is_empty());
 }
 
-/// Foreign leading bytes are rejected as [`FormatError::BadMagic`], not misread.
+/// Foreign leading bytes are rejected as [`FormatError::BadMagic`], not
+/// misread — including a file that opens with plain ASCII where the
+/// self-described tag belongs.
 #[test]
 fn foreign_magic_is_rejected() {
     let mut framed = encode(&sample_record());
     framed[0] ^= 0xff;
     assert!(matches!(
         unframe(&framed),
-        Err(FormatError::BadMagic { .. })
+        Err(FormatError::BadMagic {
+            defect: FrameDefect::SelfDescribedTag
+        })
+    ));
+
+    let ascii = b"RUMORSBOOKMARKISH TEXT, NOT CBOR";
+    assert!(matches!(
+        unframe(ascii),
+        Err(FormatError::BadMagic {
+            defect: FrameDefect::SelfDescribedTag
+        })
     ));
 }
 
-/// A frame tagged with an unknown format version is rejected, never decoded
-/// under this build's assumptions.
+/// A frame declaring an unknown format version is rejected on the version
+/// alone — its hash is valid, so the rejection is
+/// [`FormatError::VersionMismatch`], never decoded under this build's
+/// assumptions.
 #[test]
 fn unknown_version_is_rejected() {
-    let mut framed = encode(&sample_record());
-    framed[VERSION_OFFSET..HASH_OFFSET].copy_from_slice(&0xbeef_u16.to_be_bytes());
+    let framed = frame_as(0xbeef, b"payload");
     assert!(matches!(
         unframe(&framed),
         Err(FormatError::VersionMismatch { found: 0xbeef }),
     ));
 }
 
-/// A version-1 frame — the packed per-node payload coding — is strictly
-/// rejected: the version-2 skyline payloads share no decoder with it, and
-/// there is deliberately no migration path.
+/// Every earlier format version is strictly rejected: the earlier frame
+/// shapes share no decoder with this one, and there is deliberately no
+/// migration path.
 #[test]
-fn version_one_is_rejected() {
-    let mut framed = encode(&sample_record());
-    framed[VERSION_OFFSET..HASH_OFFSET].copy_from_slice(&1u16.to_be_bytes());
+fn prior_versions_are_rejected() {
+    for prior in 0..BOOKMARK_FORMAT_VERSION {
+        let framed = frame_as(prior, b"payload");
+        assert!(matches!(
+            unframe(&framed),
+            Err(FormatError::VersionMismatch { found }) if found == prior,
+        ));
+    }
+}
+
+/// A non-shortest-form spelling of the format version is rejected as a shape
+/// defect even though its value matches: the frame is deterministic-encoding
+/// CBOR, and a wide header is a spelling this codec never writes.
+#[test]
+fn non_canonical_version_spelling_is_rejected() {
+    // Rebuild a frame exactly as `frame_as` would, but spell version 4 as
+    // the two-byte header 0x18 0x04, hashing over that spelling so only the
+    // spelling check can reject it.
+    let payload = b"payload";
+    let mut covered = vec![0x18, u8::try_from(BOOKMARK_FORMAT_VERSION).unwrap()];
+    let version_item_len = covered.len();
+    covered.extend_from_slice(&EMBEDDED_CBOR);
+    push_head(&mut covered, MAJOR_BYTES, payload.len() as u64);
+    covered.extend_from_slice(payload);
+    let hash = blake3::hash(&covered);
+
+    let mut framed = SELF_DESCRIBED.to_vec();
+    framed.push(FRAME_ARRAY);
+    framed.extend_from_slice(&covered[..version_item_len]);
+    framed.extend_from_slice(&INTEGRITY_HEAD);
+    framed.extend_from_slice(hash.as_bytes());
+    framed.extend_from_slice(&covered[version_item_len..]);
+
     assert!(matches!(
         unframe(&framed),
-        Err(FormatError::VersionMismatch { found: 1 }),
+        Err(FormatError::BadMagic {
+            defect: FrameDefect::FormatVersion
+        }),
     ));
 }
 
@@ -146,24 +223,98 @@ fn payload_corruption_is_rejected() {
     assert!(matches!(unframe(&framed), Err(FormatError::HashMismatch)));
 }
 
-/// Anything shorter than the fixed header — including an empty buffer — is
-/// [`FormatError::Truncated`], never mistaken for an absent bookmark.
+/// The empty input is [`FormatError::Truncated`], never mistaken for an
+/// absent bookmark.
 #[test]
 fn short_input_is_truncated() {
     assert!(matches!(
         unframe(&[]),
-        Err(FormatError::Truncated { len: 0 }),
-    ));
-    let framed = encode(&sample_record());
-    assert!(matches!(
-        unframe(&framed[..HEADER_LEN - 1]),
-        Err(FormatError::Truncated { .. }),
+        Err(FormatError::Truncated { len: 0 })
     ));
 }
 
-/// The encoded empty record pins byte-for-byte: a header (magic, version,
-/// integrity hash) over the CBOR encoding of an empty map. A change here is a
-/// deliberate on-disk format change, like the wire-format snapshots.
+/// An intact frame whose payload item holds an untagged clock is a
+/// [`RecordDefect`], not corruption: the hash passed, so the defect class is
+/// [`FormatError::Decode`].
+#[test]
+fn untagged_clock_is_a_record_defect() {
+    let clock = Clock::seed();
+    // The map `encode` writes, minus the clock's tag.
+    let map = ciborium::value::Value::Map(vec![(
+        ciborium::value::Value::Bytes(vec![0x5a; 16]),
+        ciborium::value::Value::Array(vec![ciborium::value::Value::Bytes(clock.encode())]),
+    )]);
+    let mut payload = Vec::new();
+    ciborium::ser::into_writer(&map, &mut payload).unwrap();
+    assert!(matches!(
+        decode(&frame(&payload)),
+        Err(FormatError::Decode(RecordDefect::ClockUntagged)),
+    ));
+}
+
+/// The whole file parses as exactly one CBOR item under a reader that knows
+/// nothing of rumors.
+///
+/// Unwrapping the standard tags (55799, then 24) and the clock tag exposes
+/// the record's full structure, with no bytes outside CBOR items at either
+/// level. This is the tamper-evident form of the "fully CBOR-parseable on
+/// disk" promise.
+#[test]
+fn file_is_rumors_blind_cbor() {
+    use ciborium::value::Value;
+
+    let file = encode(&sample_record());
+    let mut input = file.as_slice();
+    let item: Value = ciborium::de::from_reader(&mut input).expect("the file parses as CBOR");
+    assert!(input.is_empty(), "no bytes outside the one CBOR item");
+
+    let Value::Tag(55799, frame) = item else {
+        panic!("the file is not self-described CBOR");
+    };
+    let Value::Array(items) = *frame else {
+        panic!("the frame is not an array");
+    };
+    let [version, integrity, payload]: [Value; 3] =
+        items.try_into().expect("the frame array has three items");
+    assert_eq!(version, Value::from(BOOKMARK_FORMAT_VERSION));
+    let Value::Bytes(integrity) = integrity else {
+        panic!("the integrity item is not a byte string");
+    };
+    assert_eq!(integrity.len(), HASH_LEN);
+
+    let Value::Tag(24, embedded) = payload else {
+        panic!("the payload is not an embedded CBOR item");
+    };
+    let Value::Bytes(embedded) = *embedded else {
+        panic!("the embedded item is not a byte string");
+    };
+    let mut inner = embedded.as_slice();
+    let record: Value = ciborium::de::from_reader(&mut inner).expect("the payload parses as CBOR");
+    assert!(inner.is_empty(), "no bytes outside the record item");
+
+    let Value::Map(entries) = record else {
+        panic!("the record is not a map");
+    };
+    for (key, clocks) in entries {
+        assert!(matches!(key, Value::Bytes(bytes) if bytes.len() == 16));
+        let Value::Array(clocks) = clocks else {
+            panic!("a record entry is not an array");
+        };
+        for clock in clocks {
+            assert!(
+                matches!(clock, Value::Tag(tag, inner)
+                    if tag == crate::tags::CLOCK_TAG && matches!(*inner, Value::Bytes(_))),
+                "every stored clock is a clock-tagged byte string",
+            );
+        }
+    }
+}
+
+/// The encoded empty record pins byte-for-byte: the self-described frame
+/// over the embedded CBOR encoding of an empty map.
+///
+/// A change here is a deliberate on-disk format change, like the wire-format
+/// snapshots.
 #[test]
 fn pins_the_empty_frame() {
     insta::assert_snapshot!("frame_empty", hex::encode(encode(&BTreeMap::new())));

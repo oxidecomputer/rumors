@@ -26,29 +26,76 @@ use std::fmt;
 use std::sync::{Arc, Mutex};
 
 use before::Clock;
-use rumors::{BOOKMARK_MAGIC, Bookmark, BookmarkError, Network, Serialized};
+use ciborium::value::Value;
+use rumors::{Bookmark, BookmarkError, Network, Serialized};
 use tokio::io::AsyncWrite;
 
 /// The durable "disk": the framed bytes last persisted, or `None` until the
 /// first write. Shared across a node's incarnations so it outlives a crash.
 pub type DurableStore = Arc<Mutex<Option<Vec<u8>>>>;
 
-/// The fixed-header width of a bookmark frame — magic, the 2-byte format
-/// version, and the 32-byte BLAKE3 integrity hash — before the CBOR payload.
-///
-/// Mirrors the crate-private `format::HEADER_LEN`. Integration tests cannot
-/// reach the crate's codec, so they strip this known header to read the payload;
-/// the format-pin snapshots guard the layout against drift.
-const FRAME_HEADER_LEN: usize = BOOKMARK_MAGIC.len() + 2 + 32;
-
 /// Decode the record a persisted store holds, or an empty record if nothing has
-/// been written. Strips the crate's frame header and CBOR-decodes the payload.
+/// been written.
+///
+/// Integration tests cannot reach the crate's codec, and don't need to: the
+/// stored file is one self-described CBOR item, so a generic walk — unwrap
+/// tag 55799, take the frame array's payload item, unwrap tag 24, then strip
+/// each stored clock's tag — recovers the untagged record serde understands.
+/// The format-pin snapshots guard the frame shape against drift; a panic here
+/// means this harness fell behind the format, not that the peer is broken.
 pub fn persisted_record(store: &DurableStore) -> BTreeMap<Network, Vec<Clock>> {
     match &*store.lock().unwrap() {
         None => BTreeMap::new(),
-        Some(bytes) => ciborium::de::from_reader(&bytes[FRAME_HEADER_LEN..])
-            .expect("decode persisted bookmark payload"),
+        Some(bytes) => persisted_record_bytes(bytes),
     }
+}
+
+/// Walk one persisted bookmark file into its record, generically.
+fn persisted_record_bytes(bytes: &[u8]) -> BTreeMap<Network, Vec<Clock>> {
+    let file: Value =
+        ciborium::de::from_reader(bytes).expect("the persisted bookmark parses as CBOR");
+    let Value::Tag(55799, frame) = file else {
+        panic!("the persisted bookmark is not self-described CBOR");
+    };
+    let Value::Array(items) = *frame else {
+        panic!("the persisted frame is not an array");
+    };
+    let payload = items.into_iter().nth(2).expect("a three-item frame array");
+    let Value::Tag(24, payload) = payload else {
+        panic!("the persisted payload is not an embedded CBOR item");
+    };
+    let Value::Bytes(payload) = *payload else {
+        panic!("the embedded payload is not a byte string");
+    };
+
+    let record: Value = ciborium::de::from_reader(payload.as_slice())
+        .expect("the persisted payload parses as CBOR");
+    let Value::Map(entries) = record else {
+        panic!("the persisted record is not a map");
+    };
+    // Strip each clock's identity tag so the plain serde impls (which are
+    // deliberately untagged) can decode the record.
+    let untagged = Value::Map(
+        entries
+            .into_iter()
+            .map(|(key, clocks)| {
+                let Value::Array(clocks) = clocks else {
+                    panic!("a persisted record entry is not an array of clocks");
+                };
+                let stripped = clocks
+                    .into_iter()
+                    .map(|clock| match clock {
+                        Value::Tag(_, inner) => *inner,
+                        untagged => untagged,
+                    })
+                    .collect();
+                (key, Value::Array(stripped))
+            })
+            .collect(),
+    );
+    let mut buf = Vec::new();
+    ciborium::ser::into_writer(&untagged, &mut buf).expect("re-encoding a record is infallible");
+    ciborium::de::from_reader(buf.as_slice()).expect("decode persisted bookmark payload")
 }
 
 /// The error a scheduled read/write failure reports. Carries which operation
