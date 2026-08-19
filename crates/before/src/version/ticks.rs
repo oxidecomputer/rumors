@@ -15,11 +15,10 @@ use crate::error::{Parse, TooWide};
 /// A count of [`tick`](crate::Version::tick)s: an unbounded natural
 /// number.
 ///
-/// Event counts have no ceiling, so the count vocabulary is opaque and
-/// unbounded rather than any fixed-width integer: every conversion *into* it is
-/// total ([`From`] on the unsigned machine integers, decimal [`FromStr`] for
-/// counts wider than any of them), and every conversion *out* is explicit
-/// about width — `TryFrom<&Ticks> for u64` answers the machine-range case
+/// Event counts have no ceiling, so the count is unbounded rather than any
+/// fixed-width integer: every conversion *into* it is total ([`From`] on 
+/// unsigned machine integers, and every conversion *out* is explicit
+/// about width: `TryFrom<&Ticks> for u64` answers the machine-range case
 /// fallibly, [`limbs`](Ticks::limbs) spells any count in base-2^64 for
 /// consumers with their own wide arithmetic, and [`Display`](fmt::Display)
 /// renders decimal.
@@ -28,8 +27,7 @@ use crate::error::{Parse, TooWide};
 /// and consumed by [`Version::ticks`](crate::Version::ticks),
 /// [`Party::ticks`](crate::Party::ticks), and
 /// [`Clock::ticks`](crate::Clock::ticks), each of which take `impl
-/// Into<Ticks>`, so call sites pass integer literals directly and the type
-/// appears only where a count is genuinely carried or genuinely wide.
+/// Into<Ticks>`, so call sites can pass integer literals directly.
 ///
 /// Counts are totally ordered ([`Ord`]) and can be added ([`Add`],
 /// [`AddAssign`], [`Sum`]); [`ZERO`](Ticks::ZERO) is the additive identity.
@@ -40,7 +38,7 @@ use crate::error::{Parse, TooWide};
 /// comparison and hashing do, and an n-ary [`Sum`]'s `N` is the
 /// summands' total numeric size.
 ///
-/// Constructionis `O(1)`; comparison and hashing `O(‖n‖)`; addition `O(‖a‖ +
+/// Construction is `O(1)`; comparison and hashing `O(‖n‖)`; addition `O(‖a‖ +
 /// ‖b‖)`, `Sum` `O(N)`; text I/O is superlinear but subquadratic in the count's
 /// width (because it requires decimal conversion).
 ///
@@ -90,21 +88,17 @@ impl Ticks {
     /// ```
     pub const ZERO: Ticks = Ticks(Base::ZERO);
 
-    /// The count's base-2^64 digits — its *limbs* — least significant
-    /// first.
+    /// The count's base-2^64 "digits", i.e. its *limbs*, least significant
+    /// first, then ascending.
     ///
-    /// The general way out of the type: any count, however wide, is
-    /// exactly `Σ limbᵢ · 2^(64·i)` over the yielded limbs, ready to
-    /// feed whatever integer arithmetic the consumer keeps. Canonical —
-    /// no trailing zero limbs, and the zero count yields no limbs — and
-    /// exact-size, so a consumer can preallocate. For a count within
-    /// machine range, `u64::try_from(&count)` skips the limbs entirely;
-    /// for text, [`Display`](fmt::Display) renders decimal directly.
+    /// For a count known to be within machine range, `u64::try_from(&count)`
+    /// skips the limbs entirely; for text, [`Display`](fmt::Display) renders
+    /// decimal directly.
     ///
     /// # Complexity
     ///
     /// Construction is `O(1)`; the full drain is `O(‖n‖)` and allocates
-    /// nothing (the iterator borrows the count).
+    /// nothing.
     ///
     /// # Example
     ///
@@ -127,8 +121,7 @@ impl Ticks {
 /// An iterator over the base-2^64 limbs of a [`Ticks`] count, least
 /// significant first; see [`Ticks::limbs`].
 ///
-/// Exact-size and [fused](core::iter::FusedIterator); borrows the count
-/// and allocates nothing.
+/// Exact-size and [fused](core::iter::FusedIterator).
 pub struct Limbs<'a> {
     limbs: suanpan::Limbs<'a>,
     /// Limbs not yet yielded, for the exact-size contract.
