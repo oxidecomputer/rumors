@@ -6,7 +6,7 @@
 //! same interval (which ids it owns). This module is the vocabulary for
 //! walking those functions directly — for renderers, analysis tooling,
 //! and debuggers that want to draw or inspect a value rather than compare
-//! it — without any access to the encoded form:
+//! it — without needing to parse the encoded form:
 //!
 //! - [`Version::shape`] yields one [`Plateau`] per maximal constant run
 //!   of the version: the height change entering the run ([`Rise`]), and
@@ -62,15 +62,12 @@
 //! assert_eq!(heights, vec![(2, 1), (1, 2), (3, 2)]);
 //! ```
 //!
-//! # The walk is the value
+//! # The shape is an exact rendering of the value
 //!
 //! A value and its item sequence determine each other exactly: two
 //! versions are equal iff their plateau sequences are equal, two parties
 //! iff their region sequences are. These iterators are therefore also an
-//! independently-checkable witness of the crate's own semantics — `a <=
-//! b` iff the heights never cross pointwise, `a.join(&b)` is the
-//! pointwise maximum — and the crate's test suite holds them to exactly
-//! that.
+//! independently-checked witness of the crate's own semantics.
 
 use core::iter::FusedIterator;
 
@@ -93,20 +90,20 @@ pub struct Plateau {
     ///
     /// The first plateau's rise is its absolute height (`None` if the
     /// shape starts at 0): the walk begins at height 0 on the interval's
-    /// left edge. `None` occurs mid-stream too — two equal-height
+    /// left edge. `None` occurs mid-stream too: two equal-height
     /// plateaus separated by a subtree boundary are a real shape.
     pub rise: Option<Rise>,
     /// The plateau spans a dyadic interval of width `2^-depth`.
     pub depth: u64,
 }
 
-/// A nonzero vertical move of a shape: sign in the variant, magnitude in
-/// the payload.
+/// A nonzero vertical move of a shape.
+////
+/// The sign is notated by the variant; the magnitude is in the payload.
 ///
-/// Magnitudes are always nonzero — the level step is spelled once, as
-/// `None` in [`Plateau::rise`], never as a zero rise — so every `Rise` a
-/// walk yields moves the height. A step function can only step up or
-/// down, so this enum is closed and exhaustive matching is safe.
+/// Magnitudes are always nonzero: the level step is spelled once, as
+/// `None` in [`Plateau::rise`], not as a zero rise, so every `Rise` a
+/// walk yields moves the height.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Rise {
     /// The height increases by the contained (nonzero) count.
@@ -115,16 +112,11 @@ pub enum Rise {
     Down(Ticks),
 }
 
-/// One constant-ownership region of a party's shape: whether the party
+/// One constant-ownership region of a party's shape: whether the [`Party`]
 /// owns it, and the dyadic interval it spans.
-///
-/// A *region* is one maximal constant run of the party's 0/1-valued
-/// membership function — the id-side counterpart of a version's
-/// [`Plateau`], absolute rather than delta-encoded because a binary
-/// value is its own cheapest spelling.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Region {
-    /// Whether the party owns this region's ids.
+    /// Whether the party owns this region's identity space.
     pub owned: bool,
     /// The region spans a dyadic interval of width `2^-depth`.
     pub depth: u64,
@@ -132,10 +124,6 @@ pub struct Region {
 
 /// One cell of a [`combine`]d walk: the refinement interval, and the rise
 /// entering it from each input.
-///
-/// Every input's current plateau spans the whole cell, so the cell's
-/// `depth` is shared and per-input depths would be redundant; what
-/// remains per input is its rise.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Cell<const N: usize> {
     /// The cell spans a dyadic interval of width `2^-depth`.
@@ -261,9 +249,9 @@ impl FusedIterator for Regions<'_> {}
 ///
 /// Items are `(Plateau, bool)`: one fragment of the version's shape, and
 /// whether the clock's party owns that fragment's interval. Where the
-/// party subdivides a version plateau the plateau is split — the first
+/// party subdivides a version plateau the plateau is split: the first
 /// fragment carries the plateau's rise, later fragments continue level
-/// (`rise: None`) — so this stream is a *refinement* of the version's
+/// (`rise: None`). Therefore, this stream is a *refinement* of the version's
 /// shape, not a transliteration of it; the exact walk-is-the-value
 /// correspondence lives on [`Version::shape`] and [`Party::shape`].
 ///
@@ -323,14 +311,10 @@ impl FusedIterator for Overlay<'_> {}
 /// current plateau spans (dyadic intervals nest or are disjoint, so the
 /// common refinement's cells are themselves dyadic and each is some
 /// input's own plateau interval), with the rise entering it from each
-/// input. No coarser tiling works: every cell boundary is a plateau
-/// boundary of at least one input. Cell widths sum to exactly 1, as any
-/// complete shape's do.
+/// input.
 ///
-/// The stream stays in the delta domain end to end — no height is
-/// materialized — so pointwise comparison or aggregation across inputs
-/// folds each input's rises independently. `N = 0` yields the trivial
-/// refinement: one all-interval cell of depth 0 with no entries.
+/// `N = 0` yields the trivial refinement: one all-interval cell of depth
+/// 0 with no entries.
 ///
 /// # Complexity
 ///
