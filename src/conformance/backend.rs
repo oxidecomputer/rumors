@@ -60,7 +60,7 @@ use crate::{
     message::Message,
     tree::{
         mirror::streaming::{
-            self, Backend, BoxNodeStream, Leaf, Node, NodeStream, Root,
+            self, Backend, BoxNodeStream, ErasedNode, Leaf, Node, NodeStream, Root,
             convert::Convert,
             materialized,
             window::{FAN, WindowConfig},
@@ -222,6 +222,20 @@ where
     }
 }
 
+impl<E: ErasedNode> ErasedNode for ChargedNode<E> {
+    fn span(&self) -> Span<'_> {
+        self.inner().span()
+    }
+
+    fn hash(&self) -> Hash {
+        self.inner().hash()
+    }
+
+    fn len(&self) -> usize {
+        self.inner().len()
+    }
+}
+
 impl<T, N> Leaf<T> for ChargedNode<N>
 where
     T: Send + Sync + 'static,
@@ -269,7 +283,22 @@ where
     T: Send + Sync + 'static,
 {
     type Node<H: Height> = ChargedNode<B::Node<H>>;
+    type Erased = ChargedNode<B::Erased>;
     type Error = B::Error;
+
+    // Both conversions settle the wrapper's ledger entry and open an
+    // identical one around the re-tagged handle: the running total dips by
+    // one node's bytes between the two calls and never rises, so the
+    // census peak is untouched.
+    fn erase<H: Height>(node: Self::Node<H>) -> Self::Erased {
+        let bytes = node.bytes;
+        ChargedNode::wrap(B::erase(node.into_inner()), bytes)
+    }
+
+    fn assume<H: Height>(erased: Self::Erased) -> Self::Node<H> {
+        let bytes = erased.bytes;
+        ChargedNode::wrap(B::assume(erased.into_inner()), bytes)
+    }
 
     fn node_bytes(children: usize, version_bound: usize) -> usize {
         B::node_bytes(children, version_bound)

@@ -155,14 +155,22 @@ where
 }
 
 impl<T, H: Height> Node<T, H> {
-    fn from_untyped(inner: untyped::Node<T>) -> Self {
+    /// Tag an untyped node at height `H`: the caller asserts the height.
+    ///
+    /// The streaming mirror's erasure seam
+    /// ([`Backend::assume`](crate::tree::mirror::streaming::Backend::assume))
+    /// re-tags nodes it erased at the same height; internal tree code tags
+    /// nodes whose height its own traversal establishes.
+    pub(crate) fn from_untyped(inner: untyped::Node<T>) -> Self {
         Self {
             height: PhantomData,
             inner,
         }
     }
 
-    fn into_untyped(self) -> untyped::Node<T> {
+    /// Forget this node's height tag; the inverse of
+    /// [`from_untyped`](Self::from_untyped).
+    pub(crate) fn into_untyped(self) -> untyped::Node<T> {
         self.inner
     }
 

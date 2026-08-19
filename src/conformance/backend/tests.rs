@@ -17,7 +17,7 @@ use crate::{
     message::Message,
     tree::{
         mirror::streaming::{
-            Backend, BoxNodeStream, Leaf, Local, Node, NodeStream, convert::Convert,
+            Backend, BoxNodeStream, ErasedNode, Leaf, Local, Node, NodeStream, convert::Convert,
         },
         typed::{
             self, Hash, Prefix,
@@ -266,12 +266,48 @@ fn bounds_of<T: Send + Sync + 'static, H: Height>(node: &typed::Node<T, H>) -> u
     node.ceiling().as_bytes().len() + node.floor().as_bytes().len()
 }
 
+// The erased observations pass through the row wrapper; the row itself
+// carries no readable state.
+impl<E: ErasedNode> ErasedNode for MaterializedNode<E> {
+    fn span(&self) -> Span<'_> {
+        self.inner.span()
+    }
+
+    fn hash(&self) -> Hash {
+        self.inner.hash()
+    }
+
+    fn len(&self) -> usize {
+        self.inner.len()
+    }
+}
+
 impl<T> Backend<T> for Materializing
 where
     T: Send + Sync + 'static,
 {
     type Node<H: Height> = MaterializedNode<typed::Node<T, H>>;
+    type Erased = MaterializedNode<typed::untyped::Node<T>>;
     type Error = Infallible;
+
+    // Erasure re-tags the store's handle; the resident row rides along
+    // unchanged, so the census this backend exists to exercise sees no
+    // movement from either conversion.
+    fn erase<H: Height>(node: Self::Node<H>) -> Self::Erased {
+        let MaterializedNode { inner, row } = node;
+        MaterializedNode {
+            inner: inner.into_untyped(),
+            row,
+        }
+    }
+
+    fn assume<H: Height>(erased: Self::Erased) -> Self::Node<H> {
+        let MaterializedNode { inner, row } = erased;
+        MaterializedNode {
+            inner: typed::Node::from_untyped(inner),
+            row,
+        }
+    }
 
     fn node_bytes(children: usize, version_bound: usize) -> usize {
         let priced = std::mem::size_of::<MaterializedNode<typed::Node<T, Z>>>()

@@ -15,7 +15,7 @@ use crate::{
     Version,
     message::Message,
     tree::{
-        mirror::streaming::{Backend, Leaf, Node, backend::NodeStream},
+        mirror::streaming::{Backend, ErasedNode, Leaf, Node, backend::NodeStream},
         typed::{
             Hash, Path, Prefix,
             height::{Height, S, Z},
@@ -161,6 +161,20 @@ where
     }
 }
 
+impl<E: ErasedNode> ErasedNode for FailingNode<E> {
+    fn span(&self) -> Span<'_> {
+        self.0.span()
+    }
+
+    fn hash(&self) -> Hash {
+        self.0.hash()
+    }
+
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+
 impl<T, N> Leaf<T> for FailingNode<N>
 where
     T: Send + Sync + 'static,
@@ -189,7 +203,19 @@ where
     T: Send + Sync + 'static,
 {
     type Node<H: Height> = FailingNode<B::Node<H>>;
+    // Erasure passes through the wrapper: fault injection targets the
+    // traversal operations, and re-tagging is not one.
+    type Erased = FailingNode<B::Erased>;
     type Error = Failure<B::Error>;
+
+    fn erase<H: Height>(node: Self::Node<H>) -> Self::Erased {
+        FailingNode(B::erase(node.0))
+    }
+
+    fn assume<H: Height>(erased: Self::Erased) -> Self::Node<H> {
+        FailingNode(B::assume(erased.0))
+    }
+
     // The wrapper adds no resident state: a failing node is the inner
     // backend's node plus fault bookkeeping shared behind it.
     fn node_bytes(children: usize, version_bound: usize) -> usize {

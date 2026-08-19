@@ -55,7 +55,7 @@ mod tasks;
 mod testing;
 pub(crate) mod window;
 
-pub use backend::{Backend, Leaf, Local, Node, Root};
+pub use backend::{Backend, ErasedNode, Leaf, Local, Node, Root};
 // The stream vocabulary the backend conformance suite decorates with;
 // crate-visible alongside the suite itself.
 #[cfg(test)]

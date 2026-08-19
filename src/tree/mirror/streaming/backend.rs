@@ -50,8 +50,41 @@ where
     /// The type of nodes carrying messages of type `T`, indexed by height `H`.
     type Node<H: Height>: Node<T, Height = H, Backend = Self> + Clone + Send + 'static;
 
+    /// One runtime representation shared by every height's
+    /// [`Node<H>`](Self::Node).
+    ///
+    /// The height parameter on [`Node`](Self::Node) is a compile-time tag
+    /// over runtime data that already knows its place in the tree, so a
+    /// backend can forget the tag ([`erase`](Self::erase)) and restore it
+    /// ([`assume`](Self::assume)) without changing the value. The
+    /// session's internal plumbing — its channels, pumps, and walk workers
+    /// — carries this one type where a height-typed payload would
+    /// instantiate the whole machinery once per height.
+    ///
+    /// A backend whose nodes share one representation across heights (as
+    /// [`Local`]'s do) uses that representation directly; a backend with
+    /// genuinely distinct per-height representations supplies a sum of
+    /// them.
+    type Erased: ErasedNode + Clone + Send + 'static;
+
     /// The type of errors returned by this backend.
     type Error: Send + 'static;
+
+    /// Forget a node's height tag.
+    fn erase<H: Height>(node: Self::Node<H>) -> Self::Erased;
+
+    /// Re-tag an erased node at height `H`.
+    ///
+    /// `H` must be the height the node was erased at:
+    /// `assume::<H>(erase::<H>(node)) == node` is the whole contract, and
+    /// a cross-height re-tag is a programmer error whose behavior is
+    /// unspecified. The pairing discipline lives inside the session's
+    /// erased plumbing, witnessed by the prefixes that travel alongside
+    /// every node: an erased prefix's byte length is its height, and
+    /// re-tagging one debug-asserts that length. Peer input cannot reach
+    /// a mispairing — every wire node decodes through height-typed
+    /// readers before it is ever erased.
+    fn assume<H: Height>(erased: Self::Erased) -> Self::Node<H>;
 
     /// Bytes one node value with `children` child entries keeps resident
     /// beyond the replica's own storage, its version bounds (ceiling and
@@ -248,6 +281,25 @@ pub trait Node<T: Send + Sync + 'static> {
     /// carries, which the memory budget prices nodes with — an inflated
     /// value costs latency, a deflated one breaches the memory envelope.
     fn version_bytes(&self) -> usize;
+}
+
+/// The observations a session reads off an erased node: [`Node`]'s
+/// height-independent surface.
+///
+/// Every read here answers exactly as it would on the typed node the value
+/// was erased from — none of [`Node`]'s observations ever depended on the
+/// height tag, so forgetting it loses nothing. Height-*dependent*
+/// operations (exploding to children, reading a leaf's message) stay on
+/// the typed surface, reached by re-tagging ([`Backend::assume`]).
+pub trait ErasedNode {
+    /// The node's version bounds as one causal span ([`Node::span`]).
+    fn span(&self) -> Span<'_>;
+
+    /// The merkle hash of this node ([`Node::hash`]).
+    fn hash(&self) -> Hash;
+
+    /// The number of live leaves under this node, exact ([`Node::len`]).
+    fn len(&self) -> usize;
 }
 
 /// What crosses between backends at the conversion boundary, and the one node

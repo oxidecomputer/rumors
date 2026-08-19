@@ -13,7 +13,7 @@ use crate::{
     tree::{
         self,
         mirror::streaming::{
-            Backend, Leaf, Node, Root,
+            Backend, ErasedNode, Leaf, Node, Root,
             backend::{BoxNodeStream, NodeStream},
             convert::Convert,
         },
@@ -53,6 +53,22 @@ impl<T: Send + Sync + 'static, H: Height> Node<T> for typed::Node<T, H> {
 
     fn version_bytes(&self) -> usize {
         self.version_bytes()
+    }
+}
+
+// The typed node is `repr(transparent)` over the untyped node, so the
+// erased observations are the same field reads the typed ones are.
+impl<T: Send + Sync + 'static> ErasedNode for typed::untyped::Node<T> {
+    fn span(&self) -> Span<'_> {
+        self.span()
+    }
+
+    fn hash(&self) -> typed::Hash {
+        self.hash()
+    }
+
+    fn len(&self) -> usize {
+        self.len()
     }
 }
 
@@ -96,7 +112,18 @@ const _: () =
 
 impl<T: Send + Sync + 'static> Backend<T> for Local {
     type Node<H: Height> = typed::Node<T, H>;
+    // One representation for every height already: the typed node is a
+    // phantom tag over this, so both conversions are field moves.
+    type Erased = typed::untyped::Node<T>;
     type Error = Infallible;
+
+    fn erase<H: Height>(node: Self::Node<H>) -> Self::Erased {
+        node.into_untyped()
+    }
+
+    fn assume<H: Height>(erased: Self::Erased) -> Self::Node<H> {
+        typed::Node::from_untyped(erased)
+    }
 
     fn node_bytes(children: usize, version_bound: usize) -> usize {
         Local::node_bytes(children, version_bound)
