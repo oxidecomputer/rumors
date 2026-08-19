@@ -93,6 +93,57 @@ offset convention:
 truncation. This is a format-version bump under the bookmark's own
 convention.
 
+## Tagged atoms: context-free identity for the opaque byte strings
+
+The opaque atoms gain CBOR tags — selectively — so their identity travels
+with them rather than living in protocol position (ruled 2026-08-19). A
+tagged atom is self-describing anywhere it appears: a wire capture, a
+bookmark, a log line, a pasted hex snippet. That turns the generic
+debugger's "37-byte atom" into a dispatch point: a thin *rumors lens*
+keyed on nothing but a tag table sends version atoms to the public
+skyline iterator and renders them semantically, with zero
+protocol-position knowledge. Tags are the bridge between the
+rumors-blind skeleton and the rumors-aware lens.
+
+**Placement rule (the crux): tags belong to the transport codecs, never
+to the serde impls.** A `Version` whose *serde* implementation emitted
+tags would stop being format-agnostic — an application payload
+containing a `Version`, serialized to JSON, would break on a
+CBOR-specific concept tunneled through serde. Instead the wire and
+bookmark codecs (already hand-written at the framing layer) write
+`tag ‖ untagged-serde-bytes` and hand-read the tag before delegating
+decode. `before`'s serde impls stay untagged and backend-agnostic; the
+tags are protocol vocabulary, owned where the protocol is spelled.
+
+Consequences for parsing: no wholesale non-serde parser is required —
+only the points that already hand-parse read tags. (Two library facts:
+`ciborium::tag`'s `Required`/`Accepted` wrappers do tunnel tags through
+serde, but as a ciborium-specific magic-newtype mechanism that would
+format-lock `before`'s impls — deliberately not used; and
+`ciborium::Value` preserves tags natively, so generic consumers get them
+for free.)
+
+Tag / don't-tag:
+
+- **Tagged**: version atoms and party atoms wherever the protocol spells
+  them (supply records, the greeting, the bookmark's stored clocks).
+  Their contexts are diverse, and their per-instance cost (+3 bytes for
+  a first-come-first-served-range tag) lands on payload-dominated paths
+  or once-per-session surfaces.
+- **Untagged**: hashes inside listings — one context,
+  position-determined, and +3 on a 25-byte child is ~12% on the
+  dispute-heavy path, the one place bytes are dear. Structure already
+  names them. Signals and counts likewise: position suffices.
+
+Tag numbers come from the IANA first-come-first-served range (256+;
+3-byte encodings — the 1- and 2-byte ranges are assigned or
+specification-required). The honest path is registering a small
+contiguous block (FCFS registration is lightweight); squatting risks a
+generic tool someday rendering these atoms with someone else's
+semantics. Until registration lands, the numbers live in one pinned
+constant table, and the capture renderer learns their names (the
+sanctioned renderer-vocabulary re-accept class).
+
 ## The one open wire ruling: signal redundancy
 
 Within one recorded directed stream the signal's stream component is
@@ -205,8 +256,11 @@ lands with the codec lane itself.
   Peer-attached handler, per-session sub-handler capturing inter-stream
   ordering and session identity, per-message bytes-level invocation; the
   tracing adapter is the first consumer.
+- 2026-08-19 (Finch): the opaque atoms gain CBOR tags, placed in the
+  transport codecs (never the serde impls), per the tag/don't-tag table
+  above.
 - Open rulings for the charter: the signal-redundancy byte (recommend
   paying it); listing spelling (alternating array vs map — recommend the
   map, for the canonicality coincidence, unless the extra byte per child
   reads as too dear at the calibration cells); the hook's final
-  signature.
+  signature; the tag-number block and its IANA registration.
