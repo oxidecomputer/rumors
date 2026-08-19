@@ -343,59 +343,6 @@ impl Version {
         Ranked::from(self)
     }
 
-    /// The version's shape — its step function over the unit id interval —
-    /// as an iterator of [`Plateau`](crate::shape::Plateau)s, left to right.
-    ///
-    /// One item per maximal constant run: the height change entering it
-    /// and the dyadic interval it spans. The walk borrows the version and
-    /// streams its stored form in place; the item sequence and the version
-    /// determine each other exactly. The [`shape`](crate::shape) module
-    /// docs give the vocabulary and show height reconstruction; this is
-    /// the entry point for renderers and analysis tooling that draw or
-    /// inspect a version rather than compare it.
-    ///
-    /// # Complexity
-    ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_shape.html"))]
-    ///
-    /// Draining the iterator is linear in the version's encoded size:
-    /// each plateau costs `O(1)` plus its own rise's encoded width, and
-    /// the walk itself performs no arithmetic.
-    ///
-    /// Arithmetic *you* do with the rises is priced separately. [`Ticks`]
-    /// addition costs the operands' widths, so folding the rises into a
-    /// running count — reconstructing heights, summing — can cost each
-    /// step the running value's full width, quadratic over the drain in
-    /// the worst case (many small rises against a wide running value).
-    /// Typical shapes sit far from that bound.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use before::shape::{Plateau, Rise};
-    /// use before::{Ticks, Version};
-    ///
-    /// let version: Version = "(1, 1, (0, 0, 2))".parse().unwrap();
-    /// let plateaus: Vec<Plateau> = version.shape().collect();
-    /// assert_eq!(
-    ///     plateaus,
-    ///     vec![
-    ///         // The left half at height 2 (the first rise is absolute:
-    ///         // the walk enters at height 0)...
-    ///         Plateau { rise: Some(Rise::Up(Ticks::from(2u64))), depth: 1 },
-    ///         // ...then quarters at heights 1 and 3.
-    ///         Plateau { rise: Some(Rise::Down(Ticks::from(1u64))), depth: 2 },
-    ///         Plateau { rise: Some(Rise::Up(Ticks::from(2u64))), depth: 2 },
-    ///     ],
-    /// );
-    /// // Widths tile the unit interval: 1/2 + 1/4 + 1/4 = 1.
-    /// let total: f64 = plateaus.iter().map(|p| 0.5f64.powi(p.depth as i32)).sum();
-    /// assert_eq!(total, 1.0);
-    /// ```
-    pub fn shape(&self) -> crate::shape::Plateaus<'_> {
-        crate::shape::Plateaus::of_version(self)
-    }
-
     /// The *causal distance* between two [`Version`]s.
     ///
     /// This measures how much history two replicas would have to exchange to
@@ -777,6 +724,54 @@ impl Version {
     /// ```
     pub fn project<'a>(&'a self, party: &'a Party) -> OwnVersion<'a> {
         self / party
+    }
+
+    /// The version's shape.
+    ///
+    /// The iterator yields its step function over the interval `[0, 1)`
+    /// as an iterator of [`Plateau`](crate::shape::Plateau)s, left to right.
+    ///
+    /// # Complexity
+    ///
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_shape.html"))]
+    ///
+    /// Draining the iterator is linear in the version's encoded size:
+    /// each plateau costs `O(1)` plus its own rise's encoded width, and
+    /// the walk itself performs no arithmetic.
+    ///
+    /// Arithmetic *you* do with the [`Ticks`] is priced separately. [`Ticks`]
+    /// addition costs the operands' widths, so folding the rises into a
+    /// running absolute height can cost each step the running value's full width,
+    /// inherently quadratic over the drain in the worst case. Typically, this is
+    /// not an issue, however, because realistically reachable [`Version`]s have
+    /// [`Ticks`] which are bounded by a machine word, and are therefore effectively
+    /// constant-time.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use before::shape::{Plateau, Rise};
+    /// use before::{Ticks, Version};
+    ///
+    /// let version: Version = "(1, 1, (0, 0, 2))".parse().unwrap();
+    /// let plateaus: Vec<Plateau> = version.shape().collect();
+    /// assert_eq!(
+    ///     plateaus,
+    ///     vec![
+    ///         // The left half at height 2 (the first rise is absolute:
+    ///         // the walk enters at height 0)...
+    ///         Plateau { rise: Some(Rise::Up(Ticks::from(2u64))), depth: 1 },
+    ///         // ...then quarters at heights 1 and 3.
+    ///         Plateau { rise: Some(Rise::Down(Ticks::from(1u64))), depth: 2 },
+    ///         Plateau { rise: Some(Rise::Up(Ticks::from(2u64))), depth: 2 },
+    ///     ],
+    /// );
+    /// // Widths tile the unit interval: 1/2 + 1/4 + 1/4 = 1.
+    /// let total: f64 = plateaus.iter().map(|p| 0.5f64.powi(p.depth as i32)).sum();
+    /// assert_eq!(total, 1.0);
+    /// ```
+    pub fn shape(&self) -> crate::shape::Plateaus<'_> {
+        crate::shape::Plateaus::of_version(self)
     }
 
     /// The balanced reduction under [`join_all`](Self::join_all) and
