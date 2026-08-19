@@ -230,6 +230,23 @@ pub(crate) const CLAIMS: &[Claim] = &[
             (OWN, "magnitude_dispatch_costs_its_width_path"),
         ]),
     },
+    // ──────────────────── streaming limb operands ───────────────────────
+    Claim {
+        op: "Accumulator::add_limbs_shl",
+        table_cost: Some("amortized O(limbs yielded), independent of the shift"),
+        evidence: Evidence::Witnessed(&[
+            (OWN, "limb_stream_writes_cost_the_yielded_limbs"),
+            (OWN, "limb_stream_matches_the_wide_entry"),
+        ]),
+    },
+    Claim {
+        op: "Accumulator::sub_limbs_shl",
+        table_cost: Some("amortized O(limbs yielded), independent of the shift"),
+        evidence: Evidence::Witnessed(&[
+            (OWN, "limb_stream_writes_cost_the_yielded_limbs"),
+            (OWN, "limb_stream_matches_the_wide_entry"),
+        ]),
+    },
     // ─────────────────────── accumulator operands ───────────────────────
     Claim {
         op: "Accumulator::add_accum",
@@ -302,6 +319,11 @@ pub(crate) const CLAIMS: &[Claim] = &[
              scan's metering)",
         ),
     },
+    constant(
+        "Accumulator::reserve_digits",
+        "an allocation-shaping hint: it grows the buffer's capacity without reading or \
+         writing a digit, so there is no digit-touch axis to measure",
+    ),
     // ─────────────────────── held-width operations ──────────────────────
     Claim {
         op: "Accumulator::shl",
@@ -320,6 +342,11 @@ pub(crate) const CLAIMS: &[Claim] = &[
     },
     Claim {
         op: "Accumulator::sign_magnitude",
+        table_cost: Some(r"O(\|self\|)"),
+        evidence: Evidence::Witnessed(&[(OWN, "held_width_rows_cost_the_held_digits")]),
+    },
+    Claim {
+        op: "Accumulator::sign_limbs",
         table_cost: Some(r"O(\|self\|)"),
         evidence: Evidence::Witnessed(&[(OWN, "held_width_rows_cost_the_held_digits")]),
     },

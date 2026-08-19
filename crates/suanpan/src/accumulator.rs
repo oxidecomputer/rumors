@@ -347,6 +347,57 @@ impl Accumulator {
         self.apply_limbs(Limbs::new(delta), true, shift);
     }
 
+    /// Add a stream of little-endian 64-bit limbs times `2^shift`:
+    /// amortized O(limbs yielded) digit touches, independent of the
+    /// shift.
+    ///
+    /// The streaming twin of [`add_wide_shl`](Accumulator::add_wide_shl),
+    /// for operands **wider than the backend can hold**: a [`Magnitude`]
+    /// lends a whole [`UBig`], and on a 32-bit target a magnitude caps
+    /// out near `usize::MAX` bits — while a caller's own stored wide
+    /// value (a limb vector bounded only by memory) has no [`UBig`] to
+    /// lend. This entry takes the value as its little-endian 64-bit
+    /// limbs directly, so any representation that can stream its limbs
+    /// can enter at any width memory admits. High zero limbs are
+    /// permitted and value-neutral, but each yielded limb costs its
+    /// touch — stream the minimal form.
+    ///
+    /// # Complexity
+    ///
+    /// Amortized `O(limbs yielded)` digit touches, independent of the
+    /// shift; the digit buffer grows to cover the shifted positions.
+    ///
+    /// # Panics
+    ///
+    /// As [`add_wide_shl`](Accumulator::add_wide_shl): a shifted digit
+    /// position past `usize` panics.
+    pub fn add_limbs_shl<I: IntoIterator<Item = u64>>(&mut self, limbs: I, shift: u64) {
+        self.spill();
+        self.apply_limbs(limbs.into_iter(), false, shift);
+    }
+
+    /// Subtract a stream of little-endian 64-bit limbs times `2^shift`:
+    /// amortized O(limbs yielded) digit touches, independent of the
+    /// shift.
+    ///
+    /// The subtractive twin of
+    /// [`add_limbs_shl`](Accumulator::add_limbs_shl), with the same
+    /// wider-than-the-backend rationale and memory note.
+    ///
+    /// # Complexity
+    ///
+    /// Amortized `O(limbs yielded)` digit touches, independent of the
+    /// shift; the digit buffer grows to cover the shifted positions.
+    ///
+    /// # Panics
+    ///
+    /// As [`add_wide_shl`](Accumulator::add_wide_shl): a shifted digit
+    /// position past `usize` panics.
+    pub fn sub_limbs_shl<I: IntoIterator<Item = u64>>(&mut self, limbs: I, shift: u64) {
+        self.spill();
+        self.apply_limbs(limbs.into_iter(), true, shift);
+    }
+
     /// Add a stored magnitude times `2^shift`, at the width it is stored
     /// at.
     ///
@@ -625,6 +676,29 @@ impl Accumulator {
         // Back to the register: the zeroed digit buffer stays for the
         // next spill, so pooled reuse keeps its capacity.
         self.quick = Some(0);
+    }
+
+    /// Pre-size the digit buffer to cover positions `0..digits`: no
+    /// digit touches, one allocation at most.
+    ///
+    /// An allocation-shaping hint, value-neutral: a caller that knows
+    /// the scale its writes will reach (a fold aligning summands to a
+    /// known common exponent) reserves once and every later buffer
+    /// growth is in-place, so the peak transient is the buffer itself —
+    /// without the hint, incremental growth's doubling can briefly hold
+    /// twice the final width, which is the difference between fitting
+    /// and failing near a 32-bit target's memory ceiling. Reserving
+    /// less than the writes reach costs nothing but the doubling; extra
+    /// reserved capacity is plain unused memory until
+    /// [`shl`](Accumulator::shl) on a digit-engine value or a
+    /// replacement drops the buffer.
+    ///
+    /// # Complexity
+    ///
+    /// No digit touches; one buffer allocation when capacity grows.
+    pub fn reserve_digits(&mut self, digits: usize) {
+        self.digits
+            .reserve_exact(digits.saturating_sub(self.digits.len()));
     }
 
     /// The sign of the held value — `value.cmp(&0)`, so `Less` means
@@ -934,6 +1008,49 @@ impl Accumulator {
         (sign, magnitude, 32 * start as u64)
     }
 
+    /// The held value as a sign and normalized little-endian 64-bit
+    /// limbs: O(held digits).
+    ///
+    /// [`sign_magnitude`](Accumulator::sign_magnitude) without the
+    /// backend magnitude: the readout for totals **wider than the
+    /// backend can hold** — on a 32-bit target a magnitude caps out
+    /// near `usize::MAX` bits while the digit buffer, and this limb
+    /// vector, are bounded only by memory. The limbs are minimal (no
+    /// high zero limb) and empty exactly when the sign is
+    /// [`Ordering::Equal`]. The same one low-to-high carry pass as
+    /// [`sign_magnitude`](Accumulator::sign_magnitude), and like it a
+    /// read-out, not a drain.
+    ///
+    /// # Complexity
+    ///
+    /// `O(|self|)` digit touches and a same-order limb allocation.
+    pub fn sign_limbs(&self) -> (Ordering, Vec<u64>) {
+        if let Some(value) = self.quick {
+            touch(self.digit_count() as u64);
+            let magnitude = value.unsigned_abs();
+            let mut limbs = vec![magnitude as u64, (magnitude >> 64) as u64];
+            while limbs.last() == Some(&0) {
+                limbs.pop();
+            }
+            return (value.cmp(&0), limbs);
+        }
+        let (sign, digits) = self.read_digits(0);
+        let mut limbs: Vec<u64> = digits
+            .chunks(2)
+            .map(|pair| u64::from(pair[0]) | (pair.get(1).copied().map_or(0, u64::from) << 32))
+            .collect();
+        drop(digits);
+        while limbs.last() == Some(&0) {
+            limbs.pop();
+        }
+        debug_assert_eq!(
+            sign == Ordering::Equal,
+            limbs.is_empty(),
+            "the readout's limbs are empty exactly at zero"
+        );
+        (sign, limbs)
+    }
+
     /// Read out `Σ_{i ≥ start} digits[i] · 2^(32·(i − start))` as a sign
     /// and a normalized magnitude.
     ///
@@ -943,6 +1060,17 @@ impl Accumulator {
     /// every step of every schedule it drives), so the suffix read is
     /// the whole value at scale `2^(32·start)`.
     fn read_magnitude(&self, start: usize) -> (Ordering, UBig) {
+        let (sign, digits) = self.read_digits(start);
+        (sign, magnitude_from_digits(digits))
+    }
+
+    /// Read out the suffix at or above `start` as a sign and normalized
+    /// unsigned base-2^32 digits (little-endian, possibly with high
+    /// zeros): the one carry pass behind every magnitude readout.
+    ///
+    /// [`read_magnitude`](Accumulator::read_magnitude)'s soundness
+    /// condition (every digit below `start` zero) applies verbatim.
+    fn read_digits(&self, start: usize) -> (Ordering, Vec<u32>) {
         // Low-to-high signed carry: after the pass, the collected unsigned
         // digits hold `M` with `value = carry · 2^(32·len) + M`,
         // `0 ≤ M < 2^(32·len)`. The final carry has magnitude at most 3:
@@ -984,7 +1112,7 @@ impl Accumulator {
                 high >>= DIGIT_BITS;
             }
             // |carry| ≥ 1 makes |value| ≥ 2^(32·len) − M > 0: never zero.
-            (Ordering::Less, magnitude_from_digits(collected))
+            (Ordering::Less, collected)
         } else {
             let mut high = carry as u128;
             while high > 0 {
@@ -992,13 +1120,12 @@ impl Accumulator {
                 collected.push((high & u128::from(DIGIT_MASK)) as u32);
                 high >>= DIGIT_BITS;
             }
-            let magnitude = magnitude_from_digits(collected);
-            let sign = if magnitude == UBig::ZERO {
+            let sign = if collected.iter().all(|&digit| digit == 0) {
                 Ordering::Equal
             } else {
                 Ordering::Greater
             };
-            (sign, magnitude)
+            (sign, collected)
         }
     }
 

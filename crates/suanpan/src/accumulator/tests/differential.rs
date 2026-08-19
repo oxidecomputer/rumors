@@ -32,6 +32,16 @@ enum Op {
         value: UBig,
         shift: u64,
     },
+    /// A wide delta entering as a raw little-endian limb stream — the
+    /// wider-than-the-backend entry — optionally padded with high zero
+    /// limbs (value-neutral by contract).
+    LimbsShl {
+        negative: bool,
+        limbs: Vec<u64>,
+        shift: u64,
+    },
+    /// An allocation-shaping reservation: value-neutral by contract.
+    Reserve(usize),
 }
 
 /// Apply one operation to the accumulator and the oracle in lockstep.
@@ -63,6 +73,23 @@ fn apply(acc: &mut Accumulator, oracle: &mut IBig, op: &Op) {
                 acc.add_wide_shl(value, *shift);
                 *oracle += scaled;
             }
+        }
+        Op::LimbsShl {
+            negative,
+            limbs,
+            shift,
+        } => {
+            let scaled = IBig::from(from_limbs(limbs)) << usize::try_from(*shift).unwrap();
+            if *negative {
+                acc.sub_limbs_shl(limbs.iter().copied(), *shift);
+                *oracle -= scaled;
+            } else {
+                acc.add_limbs_shl(limbs.iter().copied(), *shift);
+                *oracle += scaled;
+            }
+        }
+        Op::Reserve(digits) => {
+            acc.reserve_digits(*digits);
         }
     }
 }
@@ -102,6 +129,23 @@ fn arb_op() -> impl Strategy<Value = Op> {
                 value: from_limbs(&limbs),
                 shift,
             }),
+        1 => (
+            proptest::collection::vec(any::<u64>(), 1..=4),
+            0usize..3,
+            any::<bool>(),
+            0u64..512,
+        )
+            .prop_map(|(mut limbs, zero_pad, negative, shift)| {
+                // High zero limbs are contractually value-neutral: pad
+                // some streams so the padding arm stays exercised.
+                limbs.extend(std::iter::repeat_n(0, zero_pad));
+                Op::LimbsShl {
+                    negative,
+                    limbs,
+                    shift,
+                }
+            }),
+        1 => (0usize..64).prop_map(Op::Reserve),
     ]
 }
 

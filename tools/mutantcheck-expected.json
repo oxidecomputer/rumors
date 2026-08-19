@@ -1,7 +1,7 @@
 {
   "tool": "cargo-mutants 27.1.0",
   "patterns": {
-    "accumulator\\.rs.*: replace >>= with <<= in Accumulator::read_magnitude": {
+    "accumulator\\.rs.*: replace >>= with <<= in Accumulator::read_digits": {
       "listed": 2,
       "suppressed": 2
     },

@@ -560,3 +560,93 @@ fn quick_register_extremes_spill_exactly() {
         assert_value(&acc, &oracle);
     }
 }
+
+/// `sign_limbs` at its conversion-path corners: zero reads empty in
+/// both tiers, a register value spanning two limbs splits exactly at
+/// the limb seam, and negatives read the magnitude's limbs.
+///
+/// The register readout packs an `i128` magnitude into at most two
+/// limbs and strips high zeros; the digit-engine readout pairs base-2^32
+/// digits into limbs. Each corner is checked in the register and again
+/// after a forced spill, so both tiers pin the same spellings — and the
+/// register corner at exactly `2^64` (a low limb of zero under a high
+/// limb of one) pins the strip as top-down, never a sweep of interior
+/// zeros.
+#[test]
+fn sign_limbs_conversion_corners() {
+    // Zero: empty limbs, both tiers.
+    let mut zero = Accumulator::new();
+    assert_eq!(zero.sign_limbs(), (Ordering::Equal, vec![]));
+    zero.spill();
+    assert_eq!(zero.sign_limbs(), (Ordering::Equal, vec![]));
+
+    // (value, expected LE limbs): the u64 ceiling, the limb seam at
+    // 2^64 (interior zero limb kept), and a two-limb composite.
+    let corners: [(u128, Vec<u64>); 3] = [
+        (u128::from(u64::MAX), vec![u64::MAX]),
+        (1u128 << 64, vec![0, 1]),
+        ((7u128 << 64) | 5, vec![5, 7]),
+    ];
+    for (value, limbs) in corners {
+        for negative in [false, true] {
+            for spill in [false, true] {
+                // Register-preserving construction: word deposits and
+                // in-register shifts only (30 + 30 + 4 covers one limb),
+                // so the unspilled leg genuinely reads the register tier.
+                let mut acc = Accumulator::new();
+                acc.add_u64((value >> 64) as u64);
+                acc.shl(30);
+                acc.shl(30);
+                acc.shl(4);
+                acc.add_u64(value as u64);
+                if negative {
+                    acc.negate();
+                }
+                if spill {
+                    acc.spill();
+                } else {
+                    assert!(acc.quick.is_some(), "the construction stays registered");
+                }
+                let sign = if negative {
+                    Ordering::Less
+                } else {
+                    Ordering::Greater
+                };
+                assert_eq!(
+                    acc.sign_limbs(),
+                    (sign, limbs.clone()),
+                    "value {value}, negative {negative}, spilled {spill}"
+                );
+            }
+        }
+    }
+}
+
+/// `reserve_digits` is value-neutral in every tier.
+///
+/// Reserving on the register leaves it registered, reserving less than
+/// the held width changes nothing, and writes after a reservation land
+/// exactly as without one.
+#[test]
+fn reserve_digits_is_value_neutral() {
+    // On the register: the reservation warms the idle buffer without
+    // arming the digit engine or touching the held value.
+    let mut acc = Accumulator::new();
+    acc.add_small(7);
+    acc.reserve_digits(100);
+    assert!(acc.quick.is_some(), "a reservation never arms the engine");
+    let mut oracle = IBig::from(7);
+    assert_value(&acc, &oracle);
+
+    // In the digit engine, before and after the covered writes — and a
+    // reservation smaller than the held width is a no-op.
+    acc.add_wide(&(UBig::from(1u8) << 3_200usize));
+    oracle += IBig::from(UBig::from(1u8) << 3_200usize);
+    acc.reserve_digits(500);
+    assert_value(&acc, &oracle);
+    acc.reserve_digits(1);
+    assert_value(&acc, &oracle);
+    acc.sub_wide(&(UBig::from(1u8) << 12_800usize));
+    oracle -= IBig::from(UBig::from(1u8) << 12_800usize);
+    assert_value(&acc, &oracle);
+}
