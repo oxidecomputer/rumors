@@ -164,11 +164,15 @@ macro_rules! ticks_from_unsigned {
 ticks_from_unsigned!(u8, u16, u32, u64, u128);
 
 /// The count as a machine word, when it fits: the narrow dual of
-/// [`From<u64>`](Ticks#impl-From<u64>-for-Ticks), `O(1)`.
+/// [`From<u64>`](Ticks#impl-From<u64>-for-Ticks).
 ///
 /// A count past the `u64` range answers [`error::TooWide`](TooWide);
 /// spell such a count with [`Ticks::limbs`] or render it with
 /// [`Display`](fmt::Display).
+///
+/// # Complexity
+///
+/// `O(1)`.
 ///
 /// # Example
 ///
