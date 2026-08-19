@@ -464,6 +464,45 @@ impl Party {
         }
     }
 
+    /// The party's shape — its 0/1-valued membership function over the
+    /// unit id interval — as an iterator of
+    /// [`Region`](crate::shape::Region)s, left to right.
+    ///
+    /// One item per maximal constant run: whether the party owns it and
+    /// the dyadic interval it spans. The walk borrows the party and
+    /// streams its stored form in place; the item sequence and the party
+    /// determine each other exactly. The [`shape`](crate::shape) module
+    /// docs give the vocabulary; this is the entry point for renderers
+    /// and tooling that draw or inspect ownership rather than test it
+    /// (for the tests themselves, use
+    /// [`is_disjoint`](Party::is_disjoint) and [`covers`](Party::covers)).
+    ///
+    /// # Complexity
+    ///
+    /// Draining the iterator is linear in the party's encoded size: each
+    /// region costs `O(1)`, and nothing allocates.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use before::shape::Region;
+    /// use before::Party;
+    ///
+    /// let party: Party = "((1, 0), 1)".parse().unwrap();
+    /// let regions: Vec<Region> = party.shape().collect();
+    /// assert_eq!(
+    ///     regions,
+    ///     vec![
+    ///         Region { owned: true, depth: 2 },  // the first quarter...
+    ///         Region { owned: false, depth: 2 }, // ...but not the second...
+    ///         Region { owned: true, depth: 1 },  // ...and the whole right half.
+    ///     ],
+    /// );
+    /// ```
+    pub fn shape(&self) -> crate::shape::Regions<'_> {
+        crate::shape::Regions::of_party(self)
+    }
+
     /// Duplicates this party, producing a second handle to the same identity,
     /// **intentionally violating linearity**.
     ///

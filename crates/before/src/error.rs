@@ -34,6 +34,25 @@ pub struct Overlap;
 #[error("span endpoints cross: the start is not within the end")]
 pub struct Crossed;
 
+/// A [`Ticks`](crate::Ticks) count exceeded the machine integer it was
+/// converted into.
+///
+/// Counts have no ceiling, so every conversion out to a fixed-width
+/// integer is fallible; a count past the range answers this. Spell a wide
+/// count with [`Ticks::limbs`](crate::Ticks::limbs) instead, or render it
+/// in decimal with `Display`.
+///
+/// # Example
+///
+/// ```
+/// use before::Ticks;
+/// let wide: Ticks = "340282366920938463463374607431768211456".parse().unwrap();
+/// assert!(u64::try_from(&wide).is_err());
+/// ```
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default, thiserror::Error)]
+#[error("count exceeds the machine integer's range")]
+pub struct TooWide;
+
 /// Why bytes failed to decode into a [`Party`](crate::Party),
 /// [`Version`](crate::Version), [`Clock`](crate::Clock), [`Rank`](crate::Rank),
 /// [`Ranked`](crate::Ranked), or [`Span`](crate::Span).

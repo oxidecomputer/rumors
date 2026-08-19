@@ -100,6 +100,14 @@ pub fn overlay_inputs(op: &OpSpec, max_bytes: usize) -> Vec<FamilyInput> {
         Inputs::Packed(operands) => (operands, false),
         Inputs::PackedDistinct(operands) => (operands, true),
         Inputs::VersionSlice => return slice_overlays(op.name, max_bytes),
+        Inputs::VersionSliceCapped(cap) => {
+            // The capped rows ride the same committed slice families,
+            // truncated to the arities their guest dispatch can take.
+            return slice_overlays(op.name, max_bytes)
+                .into_iter()
+                .filter(|family| family.arity <= cap as usize)
+                .collect();
+        }
         Inputs::ClockSlice => return clock_fold_overlays(max_bytes),
         Inputs::PartyShares => return party_fold_overlays(max_bytes),
     };
@@ -499,6 +507,10 @@ fn meet_shade_ramp(max_bytes: usize) -> Vec<FamilyInput> {
 fn slice_overlays(name: &str, max_bytes: usize) -> Vec<FamilyInput> {
     match name {
         "version_join_all" | "span_join_all" => stagger_ramps(max_bytes),
+        // The combiner walks whatever version family it is handed; the
+        // committed staggered fold population is the n-ary family with
+        // committed generators, so its ramp marks the panel.
+        "shape_combine" => stagger_ramps(max_bytes),
         "version_meet_all" | "span_meet_all" => meet_shade_ramp(max_bytes),
         "version_span_all" | "span_union_all" | "span_intersect_all" => {
             let mut out = stagger_ramps(max_bytes);

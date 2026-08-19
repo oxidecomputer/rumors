@@ -397,6 +397,12 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         tree_fs: Leg::Bound("party_without_matches_the_oracle"),
     },
     SurfaceRow {
+        op: "Party::shape",
+        prod_tree: Leg::Bound("party_shape_matches_the_oracle"),
+        prod_fs: Leg::Trans("party_shape_matches_the_oracle"),
+        tree_fs: Leg::Bound("party_shape_matches_the_oracle"),
+    },
+    SurfaceRow {
         op: "Party::dangerously_alias",
         prod_tree: Leg::Excluded(Exclusion::LinearityMechanics {
             pins: &["alias_is_byte_identical_overlap"],
@@ -459,6 +465,37 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         prod_tree: Leg::Law("ranked_carries_own_rank"),
         prod_fs: Leg::Excluded(Exclusion::DefinitionalCombinator { pins: &[] }),
         tree_fs: Leg::Excluded(Exclusion::DefinitionalCombinator { pins: &[] }),
+    },
+    SurfaceRow {
+        op: "Version::shape",
+        prod_tree: Leg::Bound("version_shape_matches_the_oracle"),
+        prod_fs: Leg::Trans("version_shape_matches_the_oracle"),
+        tree_fs: Leg::Bound("version_shape_matches_the_oracle"),
+    },
+    // ─────────────────── the shape module and its counts ───────────────────
+    SurfaceRow {
+        op: "shape::combine",
+        prod_tree: Leg::Bound("shape_combine_matches_the_oracle"),
+        prod_fs: Leg::Trans("shape_combine_matches_the_oracle"),
+        tree_fs: Leg::Bound("shape_combine_matches_the_oracle"),
+    },
+    SurfaceRow {
+        op: "Ticks::limbs",
+        prod_tree: Leg::Excluded(Exclusion::NotAPaperObject {
+            bound_at: "Version::min_ticks",
+            pins: &[
+                "limbs_respell_the_count",
+                "u64_conversion_matches_the_range",
+            ],
+        }),
+        prod_fs: Leg::Excluded(Exclusion::NotAPaperObject {
+            bound_at: "Version::min_ticks",
+            pins: &[],
+        }),
+        tree_fs: Leg::Excluded(Exclusion::NotAPaperObject {
+            bound_at: "Version::min_ticks",
+            pins: &[],
+        }),
     },
     SurfaceRow {
         op: "Version::encode_rank",
@@ -641,6 +678,12 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
         prod_tree: Leg::Trans("master_differential"),
         prod_fs: Leg::Trans("replay_matches_across_references"),
         tree_fs: Leg::Trans("replay_matches_across_references"),
+    },
+    SurfaceRow {
+        op: "Clock::shape",
+        prod_tree: Leg::Bound("clock_shape_matches_the_oracle"),
+        prod_fs: Leg::Trans("clock_shape_matches_the_oracle"),
+        tree_fs: Leg::Bound("clock_shape_matches_the_oracle"),
     },
     SurfaceRow {
         op: "Clock::own_version",
@@ -1132,10 +1175,22 @@ pub const FAMILY_SURFACE: &[SurfaceRow] = &[
         tree_fs: Leg::Excluded(Exclusion::NotAPaperObject { bound_at: "Version::rank", pins: &[] }),
     },
     SurfaceRow {
-        op: "Ticks ZERO / From / FromStr / Display / Add / Sum / Ord / Eq / Hash",
-        prod_tree: Leg::Excluded(Exclusion::NotAPaperObject { bound_at: "Version::min_ticks", pins: &["addition_behaves_like_the_naturals", "text_round_trips", "ticks_agrees_with_iterated_ticks", "ticks_composes"] }),
+        op: "Ticks ZERO / From / TryFrom / FromStr / Display / Add / Sum / Ord / Eq / Hash",
+        prod_tree: Leg::Excluded(Exclusion::NotAPaperObject { bound_at: "Version::min_ticks", pins: &["addition_behaves_like_the_naturals", "text_round_trips", "ticks_agrees_with_iterated_ticks", "ticks_composes", "u64_conversion_matches_the_range"] }),
         prod_fs: Leg::Excluded(Exclusion::NotAPaperObject { bound_at: "Version::min_ticks", pins: &[] }),
         tree_fs: Leg::Excluded(Exclusion::NotAPaperObject { bound_at: "Version::min_ticks", pins: &[] }),
+    },
+    SurfaceRow {
+        op: "shape iterators (Plateaus / Regions / Overlay / Cells / Limbs: Iterator, FusedIterator, ExactSizeIterator)",
+        prod_tree: Leg::Trans("version_shape_matches_the_oracle"),
+        prod_fs: Leg::Trans("version_shape_matches_the_oracle"),
+        tree_fs: Leg::Trans("version_shape_matches_the_oracle"),
+    },
+    SurfaceRow {
+        op: "shape item types (Plateau / Rise / Region / Cell: Clone, Eq, Debug)",
+        prod_tree: Leg::Excluded(Exclusion::NotAPaperObject { bound_at: "Version::shape", pins: &[] }),
+        prod_fs: Leg::Excluded(Exclusion::NotAPaperObject { bound_at: "Version::shape", pins: &[] }),
+        tree_fs: Leg::Excluded(Exclusion::NotAPaperObject { bound_at: "Version::shape", pins: &[] }),
     },
     SurfaceRow {
         op: "Ranked comparisons and the Ranked / Rank From conversions (the total order)",

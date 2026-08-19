@@ -184,6 +184,9 @@ pub(crate) mod masked;
 // by every merge.
 pub(crate) mod overlay;
 pub mod query;
+// The shape transliteration walks: the crate-private engines under the
+// public step-function iterators (`crate::shape`).
+pub(crate) mod shape;
 mod signed;
 pub mod sweep;
 pub mod text;

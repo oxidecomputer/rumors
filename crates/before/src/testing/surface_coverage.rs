@@ -201,6 +201,11 @@ pub(crate) const SURFACE_SOURCES: &[SourceSpec] = &[
         type_overrides: &[],
     },
     SourceSpec {
+        path: "src/shape.rs",
+        module_prefix: Some("shape"),
+        type_overrides: &[],
+    },
+    SourceSpec {
         path: "src/party/forks.rs",
         module_prefix: None,
         type_overrides: &[("Forks", "iter::Party")],

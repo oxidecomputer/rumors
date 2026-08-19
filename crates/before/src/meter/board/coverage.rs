@@ -597,10 +597,49 @@ pub const BOARD_NOT_APPLICABLE: &[(&str, &str)] = &[
          clock child); a mid-run drop rejoins in O(log n) measured joins",
     ),
     (
-        "Ticks ZERO / From / FromStr / Display / Add / Sum / Ord / Eq / Hash",
+        "Ticks ZERO / From / TryFrom / FromStr / Display / Add / Sum / Ord / Eq / Hash",
         "an opaque count carrier: word-to-width-scale arithmetic with no \
          packed-input axis; the operations denominated in it are celled at \
          their own rows (version_ticks, version_min_ticks)",
+    ),
+    (
+        "Ticks::limbs",
+        "a borrowing view of the stored count: word-scale construction, one \
+         word per step, no packed-input axis",
+    ),
+    (
+        "Version::shape",
+        "a linear single-pass read of the stored stream: one topology read \
+         and one payload decode per plateau, no arithmetic and no output \
+         re-coding; a wide rise materializes at the width its own code \
+         already spells",
+    ),
+    (
+        "Party::shape",
+        "a linear single-pass read of the stored id stream: two tag bits per \
+         node, ownership read as per-region state",
+    ),
+    (
+        "Clock::shape",
+        "the two component walks advanced together under the overlay law: \
+         each stored bit read once, and the fragment count is bounded by the \
+         components' total run count",
+    ),
+    (
+        "shape::combine",
+        "the input walks advanced together under the overlay law: each \
+         stored bit read once, and the cell count is bounded by the inputs' \
+         total plateau count",
+    ),
+    (
+        "shape iterators (Plateaus / Regions / Overlay / Cells / Limbs: Iterator, FusedIterator, ExactSizeIterator)",
+        "the shape methods' own walks, item by item; dispositions live on \
+         the method rows",
+    ),
+    (
+        "shape item types (Plateau / Rise / Region / Cell: Clone, Eq, Debug)",
+        "value carriers: word-scale fields plus one count held at its own \
+         width",
     ),
     (
         "unbounded depth (beyond the differential grids)",

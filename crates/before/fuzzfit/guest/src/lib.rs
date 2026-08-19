@@ -33,6 +33,7 @@ use std::fmt::Write as _;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
 use before::causally::{self, Coverage, Down, Neutral, Query, Up};
+use before::shape::{combine, Rise};
 use before::{
     Clock, Dominance, Endpoint, Party, Placement, Precedence, Rank, Ranked, Span, Version,
 };
@@ -223,6 +224,14 @@ fn clone_v(reg: u32) -> Option<Version> {
 fn with_p_mut<T>(reg: u32, f: impl FnOnce(&mut Party) -> T) -> Option<T> {
     REGS.with_borrow_mut(|regs| match regs.get_mut(reg as usize) {
         Some(Some(Val::P(p))) => Some(f(p)),
+        _ => None,
+    })
+}
+
+/// Run `f` with a borrowed `Clock` in `reg`.
+fn with_c<T>(reg: u32, f: impl FnOnce(&Clock) -> T) -> Option<T> {
+    REGS.with_borrow(|regs| match regs.get(reg as usize) {
+        Some(Some(Val::C(c))) => Some(f(c)),
         _ => None,
     })
 }
@@ -680,6 +689,147 @@ fn decimal_digest(text: &str) -> i64 {
         h = h.wrapping_mul(0x0000_0100_0000_01b3);
     }
     (h & 0x7fff_ffff_ffff_ffff) as i64
+}
+
+/// An incremental FNV-1a over the shape vocabulary: the digest every
+/// shape kernel returns, so a drain cannot be optimized away and the
+/// items' full content rides the `i64` channel.
+struct ShapeDigest(u64);
+
+impl ShapeDigest {
+    fn new() -> Self {
+        ShapeDigest(0xcbf2_9ce4_8422_2325)
+    }
+
+    fn byte(&mut self, b: u8) {
+        self.0 ^= u64::from(b);
+        self.0 = self.0.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+
+    fn word(&mut self, w: u64) {
+        for b in w.to_le_bytes() {
+            self.byte(b);
+        }
+    }
+
+    /// One rise: a tag byte, then the magnitude's limbs under a
+    /// terminator (so limb sequences cannot alias across items).
+    fn rise(&mut self, rise: &Option<Rise>) {
+        match rise {
+            None => self.byte(0),
+            Some(Rise::Up(count)) => {
+                self.byte(1);
+                for limb in count.limbs() {
+                    self.word(limb);
+                }
+                self.byte(3);
+            }
+            Some(Rise::Down(count)) => {
+                self.byte(2);
+                for limb in count.limbs() {
+                    self.word(limb);
+                }
+                self.byte(3);
+            }
+        }
+    }
+
+    fn finish(self) -> i64 {
+        (self.0 & 0x7fff_ffff_ffff_ffff) as i64
+    }
+}
+
+/// `Version::shape`: drain the plateau walk, digesting every item; the
+/// `i64` channel carries the digest, `-1` a bad register.
+#[no_mangle]
+pub extern "C" fn ff_version_shape(src: u32) -> i64 {
+    with_v(src, |v| {
+        let mut digest = ShapeDigest::new();
+        for plateau in v.shape() {
+            digest.word(plateau.depth);
+            digest.rise(&plateau.rise);
+        }
+        digest.finish()
+    })
+    .unwrap_or(-1)
+}
+
+/// `Party::shape`: drain the region walk, digesting every item; the
+/// `i64` channel carries the digest, `-1` a bad register.
+#[no_mangle]
+pub extern "C" fn ff_party_shape(src: u32) -> i64 {
+    with_p(src, |p| {
+        let mut digest = ShapeDigest::new();
+        for region in p.shape() {
+            digest.word(region.depth);
+            digest.byte(u8::from(region.owned));
+        }
+        digest.finish()
+    })
+    .unwrap_or(-1)
+}
+
+/// `Clock::shape`: drain the overlay walk, digesting every item; the
+/// `i64` channel carries the digest, `-1` a bad register.
+#[no_mangle]
+pub extern "C" fn ff_clock_shape(src: u32) -> i64 {
+    with_c(src, |c| {
+        let mut digest = ShapeDigest::new();
+        for (plateau, owned) in c.shape() {
+            digest.word(plateau.depth);
+            digest.rise(&plateau.rise);
+            digest.byte(u8::from(owned));
+        }
+        digest.finish()
+    })
+    .unwrap_or(-1)
+}
+
+/// The `ff_shape_combine` arity cap: the public combiner's arity is a
+/// compile-time constant, so the kernel dispatches one instantiation per
+/// arity up to this bound (the fuelscape row's declared cap).
+const COMBINE_ARITY_CAP: u32 = 16;
+
+/// `shape::combine` over the versions in `src..src + n`, drained and
+/// digested; the `i64` channel carries the digest, `-1` a bad register
+/// or an arity past [`COMBINE_ARITY_CAP`].
+#[no_mangle]
+pub extern "C" fn ff_shape_combine(src: u32, n: u32) -> i64 {
+    fn digest_cells<const N: usize>(versions: [&Version; N]) -> i64 {
+        let mut digest = ShapeDigest::new();
+        for cell in combine(versions.map(Version::shape)) {
+            digest.word(cell.depth);
+            for rise in &cell.rises {
+                digest.rise(rise);
+            }
+        }
+        digest.finish()
+    }
+    if n > COMBINE_ARITY_CAP {
+        return -1;
+    }
+    REGS.with_borrow(|regs| {
+        let mut versions = Vec::with_capacity(n as usize);
+        for i in src..src + n {
+            match regs.get(i as usize) {
+                Some(Some(Val::V(v))) => versions.push(v),
+                _ => return -1,
+            }
+        }
+        /// One dispatch arm per arity: the arity-checked register list
+        /// becomes the const-generic array the public combiner takes.
+        macro_rules! dispatch {
+            ($($arity:literal),*) => {
+                match n {
+                    $($arity => digest_cells::<$arity>(
+                        versions.try_into().expect("the register loop gathered exactly n versions"),
+                    ),)*
+                    _ => unreachable!("arity is capped above"),
+                }
+            };
+        }
+        dispatch!(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)
+    })
 }
 
 /// `Version::join_all` over registers `src..src + n` (the first register
