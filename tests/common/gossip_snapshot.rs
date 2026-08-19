@@ -90,6 +90,9 @@ impl Log {
     }
 }
 
+/// Re-exported so byte-level suites can hold captures directly.
+pub use rumors::testing::LinkCapture as CapturedLink;
+
 /// An [`AsyncRead`] + [`AsyncWrite`] wrapper around one control half that
 /// records every byte crossing it into a shared [`Log`].
 pub struct Recorder {
@@ -288,7 +291,11 @@ where
 }
 
 /// Drive both roles over recording links and return both sides' captures.
-fn capture_sides<DriveA, DriveB, FutA, FutB>(
+///
+/// The raw form of [`capture_session`], for suites that inspect the
+/// captured bytes themselves (the wire-legibility property) rather than
+/// the rendered transcript.
+pub fn capture_sides<DriveA, DriveB, FutA, FutB>(
     drive_a: DriveA,
     drive_b: DriveB,
 ) -> (LinkCapture, LinkCapture)
