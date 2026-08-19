@@ -87,29 +87,18 @@ fn framed(declared: usize, payload: &[u8]) -> Vec<u8> {
 }
 
 /// A streaming supply frame declaring `declared` run bytes, delivering
-/// `body` behind the signal and length header.
+/// `body` behind the frame and run heads.
 fn supply_frame(declared: usize, body: &[u8]) -> Vec<u8> {
-    let mut bytes = vec![rumors::testing::supply_signal_byte()];
-    bytes.extend_from_slice(
-        &u32::try_from(declared)
-            .expect("declared lengths in this suite fit the u32 header")
-            .to_be_bytes(),
-    );
+    let mut bytes = rumors::testing::supply_frame_head(declared);
     bytes.extend_from_slice(body);
     bytes
 }
 
 /// A run body of `len` total bytes that passes run-record framing: one
-/// record whose header claims the rest of the body. Record contents decode
+/// record whose heads claim the rest of the body. Record contents decode
 /// lazily, so arbitrary bytes suffice for the meter.
 fn run_body(len: usize) -> Vec<u8> {
-    let record_len = len - rumors::testing::run_record_header_len();
-    let mut body = u32::try_from(record_len)
-        .expect("record lengths in this suite fit the u32 header")
-        .to_be_bytes()
-        .to_vec();
-    body.extend((0..record_len).map(|i| i as u8));
-    body
+    rumors::testing::lone_record_run(len)
 }
 
 /// Ceiling: a frame declaring 256 MiB with zero delivered payload bytes
@@ -278,15 +267,9 @@ fn framing_full_delivery_costs_at_most_payload_plus_chunk() {
 /// overhang still reaches the body read.
 #[test]
 fn overbatched_supply_rejects_without_buffering_its_body() {
-    let record_len = HONEST_LEN / 2 - rumors::testing::run_record_header_len();
     let mut body = Vec::new();
     for _ in 0..2 {
-        body.extend_from_slice(
-            &u32::try_from(record_len)
-                .expect("record lengths in this suite fit the u32 header")
-                .to_be_bytes(),
-        );
-        body.extend((0..record_len).map(|i| i as u8));
+        body.extend_from_slice(&rumors::testing::lone_record_run(HONEST_LEN / 2));
     }
     let bytes = supply_frame(body.len(), &body);
     let (change, result) = metered(|| {

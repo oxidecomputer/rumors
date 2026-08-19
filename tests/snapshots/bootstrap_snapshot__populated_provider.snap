@@ -3,69 +3,83 @@ source: tests/bootstrap_snapshot.rs
 expression: capture_bootstrap(provider)
 ---
 direction A -> B
-preamble: 25 bytes
-  0000: 52 55 4d 4f 52 53 00 02
-  0008: 8c 18 96 68 c9 e4 83 72
-  0010: 37 bf 31 e0 2d 7f 6b 70
-  0018: 00
+preamble: 30 bytes
+  0000: d9 d9 f7 84 66 72 75 6d
+  0008: 6f 72 73 02 50 8c 18 96
+  0010: 68 c9 e4 83 72 37 bf 31
+  0018: e0 2d 7f 6b 70 00
 version: 3
-greeting words: set len 3, version-size bound 1, message-size target 1638912
-version frame: 29 bytes
-  0000: 00 00 00 19 03 00 00 00
-  0008: 00 00 00 00 01 00 00 00
-  0010: 00 00 00 00 00 02 19 00
-  0018: 00 00 00 00 92
+greeting words: set len 3, version-size bound 1, message-size target 1830400
 listing: 3 child(ren)
   child 0x7c: f53f9477309788c6ed8834008f394a3be5f212959fac55fa
   child 0x88: cf55a19b320fee28bbdd5998cabc6c0000caeb8c569ad975
   child 0x9a: cca7fd1fe957c5267ce159c8f3fe95bc4f496f6b2fb5fa39
-listing frame: 79 bytes
-  0000: 00 00 00 4b 7c f5 3f 94
-  0008: 77 30 97 88 c6 ed 88 34
-  0010: 00 8f 39 4a 3b e5 f2 12
-  0018: 95 9f ac 55 fa 88 cf 55
-  0020: a1 9b 32 0f ee 28 bb dd
-  0028: 59 98 ca bc 6c 00 00 ca
-  0030: eb 8c 56 9a d9 75 9a cc
-  0038: a7 fd 1f e9 57 c5 26 7c
-  0040: e1 59 c8 f3 fe 95 bc 4f
-  0048: 49 6f 6b 2f b5 fa 39
+greeting frame: 180 bytes
+  0000: d8 18 58 b0 a6 67 6c 69
+  0008: 73 74 69 6e 67 a3 18 7c
+  0010: 58 18 f5 3f 94 77 30 97
+  0018: 88 c6 ed 88 34 00 8f 39
+  0020: 4a 3b e5 f2 12 95 9f ac
+  0028: 55 fa 18 88 58 18 cf 55
+  0030: a1 9b 32 0f ee 28 bb dd
+  0038: 59 98 ca bc 6c 00 00 ca
+  0040: eb 8c 56 9a d9 75 18 9a
+  0048: 58 18 cc a7 fd 1f e9 57
+  0050: c5 26 7c e1 59 c8 f3 fe
+  0058: 95 bc 4f 49 6f 6b 2f b5
+  0060: fa 39 67 73 65 74 5f 6c
+  0068: 65 6e 03 67 76 65 72 73
+  0070: 69 6f 6e d9 d2 56 41 92
+  0078: 68 70 72 6f 74 6f 63 6f
+  0080: 6c 66 72 75 6d 6f 72 73
+  0088: 71 6d 61 78 5f 76 65 72
+  0090: 73 69 6f 6e 5f 62 79 74
+  0098: 65 73 01 73 74 61 72 67
+  00a0: 65 74 5f 6d 65 73 73 61
+  00a8: 67 65 5f 73 69 7a 65 1a
+  00b0: 00 1b ee 00
 Responder stream 0 (height 31), epoch 0
   frame 0: Supply(Continue)
     supply run: 1 record(s)
       record 0: version 2, message 1 byte(s)
-    0000: 66 00 00 00 07 00 00 00
-    0008: 03 41 b8 02
+    0000: 82 18 66 d8 3f 49 d8 3f
+    0008: 46 d9 d2 56 41 b8 02
   frame 1: Supply(Continue)
     supply run: 1 record(s)
       record 0: version 3, message 1 byte(s)
-    0000: 66 00 00 00 07 00 00 00
-    0008: 03 41 92 03
+    0000: 82 18 66 d8 3f 49 d8 3f
+    0008: 46 d9 d2 56 41 92 03
   frame 2: Supply(End)
     supply run: 1 record(s)
       record 0: version 1, message 1 byte(s)
-    0000: 77 00 00 00 07 00 00 00
-    0008: 03 41 a8 01
+    0000: 82 18 77 d8 3f 49 d8 3f
+    0008: 46 d9 d2 56 41 a8 01
   frame 3: End(Stream)
-    0000: 99
-trailing frame: 6 bytes
-  0000: 00 00 00 01 48 2e
+    0000: 81 18 99
+trailing frame: 7 bytes
+  0000: d9 d2 55 41 48 61 2e
 
 direction B -> A
-preamble: 25 bytes
-  0000: 52 55 4d 4f 52 53 00 02
-  0008: 00 00 00 00 00 00 00 00
+preamble: 30 bytes
+  0000: d9 d9 f7 84 66 72 75 6d
+  0008: 6f 72 73 02 50 00 00 00
   0010: 00 00 00 00 00 00 00 00
-  0018: 00
+  0018: 00 00 00 00 00 00
 version: 0
-greeting words: set len 0, version-size bound 0, message-size target 1638912
-version frame: 29 bytes
-  0000: 00 00 00 19 00 00 00 00
-  0008: 00 00 00 00 00 00 00 00
-  0010: 00 00 00 00 00 02 19 00
-  0018: 00 00 00 00 e0
+greeting words: set len 0, version-size bound 0, message-size target 1830400
 listing: 0 child(ren)
-listing frame: 4 bytes
-  0000: 00 00 00 00
-trailing frame: 1 bytes
-  0000: 2e
+greeting frame: 96 bytes
+  0000: d8 18 58 5c a6 67 6c 69
+  0008: 73 74 69 6e 67 a0 67 73
+  0010: 65 74 5f 6c 65 6e 00 67
+  0018: 76 65 72 73 69 6f 6e d9
+  0020: d2 56 41 e0 68 70 72 6f
+  0028: 74 6f 63 6f 6c 66 72 75
+  0030: 6d 6f 72 73 71 6d 61 78
+  0038: 5f 76 65 72 73 69 6f 6e
+  0040: 5f 62 79 74 65 73 00 73
+  0048: 74 61 72 67 65 74 5f 6d
+  0050: 65 73 73 61 67 65 5f 73
+  0058: 69 7a 65 1a 00 1b ee 00
+trailing frame: 2 bytes
+  0000: 61 2e

@@ -12,8 +12,8 @@
 //! [`materialized`](crate::tree::mirror::streaming::materialized) for the ordering argument).
 //!
 //! The memory unit is one reply: a maximally disputed reply is 256
-//! reactions × a 256-entry listing ≈ fan² hashes ≈ 1.6 MB encoded
-//! (≈ 3.3 MB while an encoded and a decoded copy coexist), transient, at
+//! reactions × a 256-entry listing ≈ fan² hashes ≈ 1.8 MB encoded
+//! (≈ 3.5 MB while an encoded and a decoded copy coexist), transient, at
 //! most one in flight per stage.
 
 use std::cmp::Ordering;

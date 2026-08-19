@@ -86,11 +86,11 @@ fn concurrent_exchange_is_symmetric() {
 #[test]
 fn marker_byte_space_is_exhaustive() {
     for byte in u8::MIN..=u8::MAX {
-        let bytes = [byte];
+        let bytes = [EPILOGUE_MARKER[0], byte];
         let mut reader = &bytes[..];
         let mut writer = tokio::io::sink();
         let result = pollster::block_on(epilogue(&mut reader, &mut writer));
-        if byte == EPILOGUE_MARKER {
+        if byte == EPILOGUE_MARKER[1] {
             result.expect("the marker byte completes the epilogue");
         } else {
             let error = epilogue_error(result);
@@ -126,7 +126,7 @@ fn close_before_the_marker_is_a_typed_eof() {
 /// following bytes remain unread in the transport.
 #[test]
 fn bytes_after_the_marker_stay_untouched() {
-    let bytes = [EPILOGUE_MARKER, b'R', b'U'];
+    let bytes = [EPILOGUE_MARKER[0], EPILOGUE_MARKER[1], b'R', b'U'];
     let mut reader = &bytes[..];
     let mut writer = tokio::io::sink();
     pollster::block_on(epilogue(&mut reader, &mut writer)).expect("the marker completes");
@@ -184,7 +184,7 @@ async fn claim_bootstrap_v2(
     root: tree::Root,
 ) -> Result<(Party, Tree<u64>), Error> {
     let (read, write, connector, acceptor, epoch) = erase(link)?;
-    let mut staged = handshake::Staged::new();
+    let mut staged = handshake::Staged::new(Protocol::V2);
     handshake::preamble(
         Protocol::V2,
         Network::BOOTSTRAP,
@@ -205,7 +205,7 @@ async fn claim_bootstrap_v2(
         .map_err(streaming_error)?;
     let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
     let (root, (mut read, mut write)) = descent.await.map_err(streaming_error)?;
-    let party = party::receive(&mut read).await?;
+    let party = party::receive(Protocol::V2, &mut read).await?;
     epilogue(&mut read, &mut write).await?;
     Ok((party, Tree::from_root(root.into())))
 }
@@ -220,7 +220,7 @@ async fn claim_bootstrap_v1(
     root: tree::Root,
 ) -> Result<(Party, Tree<u64>), Error> {
     let (read, write, _connector, _acceptor, _epoch) = erase(link)?;
-    let mut staged = handshake::Staged::new();
+    let mut staged = handshake::Staged::new(Protocol::V1);
     handshake::preamble(
         Protocol::V1,
         Network::BOOTSTRAP,
@@ -243,7 +243,7 @@ async fn claim_bootstrap_v1(
     let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
     let (root, (read, _write)) = descent.await.map_err(alternating_error)?;
     let mut read = read.into_inner();
-    let party = party::receive(&mut read).await?;
+    let party = party::receive(Protocol::V1, &mut read).await?;
     Ok((party, Tree::from_root(root)))
 }
 

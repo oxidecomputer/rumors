@@ -1,35 +1,29 @@
 //! The wire participant's protocol handshake states.
 
 use crate::message::PayloadDeserializer;
-use std::io;
 
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::{
-    Version,
     link::{Acceptor, Connector, Link},
     tree::{
-        mirror::{
-            framing,
-            streaming::{
-                Backend, Leaf,
-                message::{Greeting, initiates},
-                protocol::{self, Accept, CompleteConnect, Connect},
-                remote::{
-                    codec::{RunBudget, Speaker, validate_children},
-                    proxy::{
-                        Connected, Error,
-                        work::{Physical, Work},
-                    },
-                    streams::{AcceptDriver, claims, error_route},
+        mirror::streaming::{
+            Backend, Leaf,
+            message::{Greeting, initiates},
+            protocol::{self, Accept, CompleteConnect, Connect},
+            remote::{
+                codec::{RunBudget, Speaker, greeting as greeting_codec},
+                proxy::{
+                    Connected, Error,
+                    work::{Physical, Work},
                 },
-                stats::Recorder,
-                window::{Window, WindowConfig},
+                streams::{AcceptDriver, claims, error_route},
             },
+            stats::Recorder,
+            window::{Window, WindowConfig},
         },
         typed::{
             Hash,
-            hash::MERKLE_HASH_LEN,
             height::{Root, Z},
         },
     },
@@ -228,85 +222,44 @@ fn run_budget(ours: &Greeting, theirs: &Greeting) -> RunBudget {
     RunBudget::from_bytes(usize::try_from(bytes).unwrap_or(usize::MAX))
 }
 
-/// Send one greeting: the size-prefixed causal-version frame, then the
-/// root-fan listing frame.
+/// Send one greeting: a single self-delimiting control-stream item,
+/// flushed in one hop.
 ///
-/// The first frame's body is `set_len (8 B LE) ‖ max_version_bytes
-/// (8 B LE) ‖ target_message_size (8 B LE) ‖ version`. Both frames flush
-/// on the same hop; the listing frame is the wire carriage of the
-/// opening question's content (see [`Greeting`] for the always-carry
-/// trade).
+/// The spelling lives in
+/// [`codec::greeting`](crate::tree::mirror::streaming::remote::codec::greeting).
+/// The listing rides inside the item — the wire carriage of the opening
+/// question's content (see [`Greeting`] for the always-carry trade).
 async fn send<E, W>(greeting: &Greeting, write: &mut W) -> Result<(), Error<E>>
 where
     W: AsyncWrite + Unpin,
 {
-    let mut write = framing::FrameWrite::new(write);
-    let mut first =
-        Vec::with_capacity(framing::GREETING_SIZE_WORDS_LEN + greeting.version.as_bytes().len());
-    first.extend_from_slice(&greeting.set_len.to_le_bytes());
-    first.extend_from_slice(&greeting.max_version_bytes.to_le_bytes());
-    first.extend_from_slice(&greeting.target_message_size.to_le_bytes());
-    first.extend_from_slice(greeting.version.as_bytes());
-    write.frame(&first).await.map_err(Error::HandshakeWrite)?;
-    // The listing frame is raw fixed-width records — radix byte, then the
-    // Merkle hash — with the frame length carrying the count, exactly the
-    // codec's query-listing shape.
-    let mut listing = Vec::with_capacity(greeting.listing.len() * (1 + MERKLE_HASH_LEN));
-    for (radix, hash) in &greeting.listing {
-        listing.push(*radix);
-        listing.extend_from_slice(hash.as_bytes());
-    }
-    write.frame(&listing).await.map_err(Error::HandshakeWrite)
+    use tokio::io::AsyncWriteExt as _;
+    let item = greeting_codec::encode_greeting(greeting);
+    write
+        .write_all(&item)
+        .await
+        .map_err(Error::HandshakeWrite)?;
+    write.flush().await.map_err(Error::HandshakeWrite)
 }
 
-/// Receive and canonically decode one greeting: the size-prefixed
-/// causal-version frame, then the root-fan listing frame.
+/// Receive and canonically decode one greeting item.
 ///
-/// The listing is peer-controlled, so its canonical strictly-ascending radix
-/// order is enforced here — the same rule the frame codec applies to a wire
-/// query — before any scope is built from it.
+/// The greeting is peer-controlled, so its whole spelling is enforced
+/// on ingress — deterministic heads, the exact key roster, and the
+/// listing's canonical strictly-ascending radix order, the same rule the
+/// frame codec applies to a wire query — before any scope is built
+/// from it.
 async fn receive<E, R>(read: &mut R) -> Result<Greeting, Error<E>>
 where
     R: AsyncRead + Unpin,
 {
-    let mut read = framing::FrameRead::new(read);
-    let bytes = read.frame().await.map_err(Error::HandshakeRead)?;
-    let short = || {
-        Error::HandshakeDecode(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "greeting version frame is shorter than its size prefixes",
-        ))
-    };
-    let (set_len, max_version_bytes, target_message_size) =
-        framing::greeting_words(&bytes).ok_or_else(short)?;
-    let version = Version::decode(&bytes[framing::GREETING_SIZE_WORDS_LEN..])
-        .map_err(|e| Error::HandshakeDecode(io::Error::new(io::ErrorKind::InvalidData, e)))?;
-    let bytes = read.frame().await.map_err(Error::HandshakeRead)?;
-    // The frame length carries the record count; a remainder is a
-    // malformed listing, not a short read.
-    if !bytes.len().is_multiple_of(1 + MERKLE_HASH_LEN) {
-        return Err(Error::HandshakeDecode(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "listing frame is not a whole number of radix-hash records",
-        )));
-    }
-    let listing: Vec<(u8, Hash)> = bytes
-        .chunks_exact(1 + MERKLE_HASH_LEN)
-        .map(|record| {
-            let (&radix, hash) = record.split_first().expect("a record has a radix byte");
-            let mut bytes = [0u8; MERKLE_HASH_LEN];
-            bytes.copy_from_slice(hash);
-            (radix, Hash(bytes))
+    greeting_codec::read_greeting(read)
+        .await
+        .map_err(|e| match e {
+            greeting_codec::ReadGreetingError::Io(io) => Error::HandshakeRead(io),
+            greeting_codec::ReadGreetingError::Decode(io) => Error::HandshakeDecode(io),
+            greeting_codec::ReadGreetingError::Listing(order) => Error::HandshakeListing(order),
         })
-        .collect();
-    validate_children(&listing).map_err(Error::HandshakeListing)?;
-    Ok(Greeting {
-        version,
-        set_len,
-        max_version_bytes,
-        target_message_size,
-        listing,
-    })
 }
 
 /// Return untouched control halves on equality, otherwise open the session.

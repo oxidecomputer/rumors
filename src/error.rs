@@ -57,15 +57,17 @@ pub enum Error<B: BookmarkError = NoBookmark> {
     #[error(transparent)]
     Io(#[from] std::io::Error),
 
-    /// The peer's preamble did not begin with [`PROTOCOL_MAGIC`](crate::PROTOCOL_MAGIC).
-    #[error("peer is not a rumors stream (remote magic: {remote_magic:x?})")]
+    /// The peer is not speaking the rumors protocol: its preamble began
+    /// with neither the self-described CBOR opening of a
+    /// [`Protocol::V2`] session nor the legacy raw magic of a V1 one.
+    #[error("peer is not a rumors stream (leading bytes: {remote_magic:x?})")]
     MagicMismatch { remote_magic: [u8; 6] },
 
     /// The peer speaks a different wire dialect.
     #[error("peer speaks rumors protocol version {remote_version}, we selected {local_protocol:?}")]
     VersionMismatch {
         local_protocol: Protocol,
-        remote_version: u16,
+        remote_version: u64,
     },
 
     /// Both peers were gossiping but belong to unrelated causal universes.
@@ -221,6 +223,10 @@ impl From<handshake::Error> for Error<NoBookmark> {
                 local_protocol,
                 remote_version,
             },
+            handshake::Error::Malformed { detail } => Error::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("peer preamble is malformed: {detail}"),
+            )),
             handshake::Error::IntentInvalid { byte } => Error::IntentInvalid { byte },
             handshake::Error::BootstrapRetireConflict => Error::BootstrapRetireConflict,
         }

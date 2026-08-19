@@ -15,26 +15,19 @@
 use std::{collections::BTreeMap, fmt::Write as _};
 
 use crate::Version;
-use crate::tree::mirror::framing::{GREETING_SIZE_WORDS_LEN, LENGTH_HEADER_LEN, greeting_words};
-use crate::tree::mirror::streaming::message::initiates;
-use crate::tree::typed::Hash;
+use crate::tree::mirror::cbor::{self, MAJOR_BSTR, MAJOR_TAG, MAJOR_UINT, TAG_EMBEDDED_ITEM};
+use crate::tree::mirror::handshake::V2_PREAMBLE_LEN;
+use crate::tree::mirror::streaming::message::{Greeting, initiates};
 
 use super::{
     End, Speaker, Stream,
-    decode::parse_query,
-    frame::{LeafRun, QUERY_CHILD_LEN, QUERY_COUNT_BIAS, QUERY_COUNT_LEN, validate_children},
+    frame::{LeafRun, parse_listing_map},
+    greeting::parse_greeting,
     signal::{Signal, WireSignal},
 };
 
 #[cfg(test)]
 mod tests;
-
-/// Bytes occupied by the fixed session preamble.
-const PREAMBLE_LEN: usize = 25;
-
-// The label's width is defined canonically beside the sender that writes
-// it; captures parse with the same constant.
-use super::super::streams::LABEL_LEN;
 
 /// Everything one endpoint sent during a captured session.
 ///
@@ -42,11 +35,10 @@ use super::super::streams::LABEL_LEN;
 /// already demultiplexed: the control stream's exact bytes, plus each opened
 /// data stream's exact bytes (label included), in open order.
 pub struct LinkCapture {
-    /// The control stream's outgoing bytes: preamble, the greeting's
-    /// causal-version and root-fan listing frames, and any trailing party
-    /// hand-off, in order.
+    /// The control stream's outgoing bytes: preamble, the greeting item,
+    /// and any trailing party hand-off and epilogue, in order.
     pub control: Vec<u8>,
-    /// Each opened data stream's outgoing bytes: its two-byte label, then
+    /// Each opened data stream's outgoing bytes: its label items, then
     /// its frames through the explicit end control.
     pub streams: Vec<Vec<u8>>,
 }
@@ -61,25 +53,26 @@ pub fn render_v2_capture(a: &LinkCapture, b: &LinkCapture) -> String {
     let a_control = Control::parse(&a.control);
     let b_control = Control::parse(&b.control);
 
-    let (a_streams, b_streams) = match (&a_control.version, &b_control.version) {
+    let (a_streams, b_streams) = match (&a_control.greeting, &b_control.greeting) {
         (None, None) => (None, None),
-        (Some(a_version), Some(b_version)) if a_version == b_version => {
+        (Some((_, a_greeting)), Some((_, b_greeting)))
+            if a_greeting.version == b_greeting.version =>
+        {
             assert!(
                 a.streams.is_empty() && b.streams.is_empty(),
                 "equal versions open no data streams",
             );
             (None, None)
         }
-        (Some(a_version), Some(b_version)) => {
+        (Some((_, a_greeting)), Some((_, b_greeting))) => {
             // Mirror the session's role election: the smaller advertised
             // set initiates, canonical version bytes break ties.
-            let a_len = a_control
-                .set_len
-                .expect("a version frame carries its set size");
-            let b_len = b_control
-                .set_len
-                .expect("a version frame carries its set size");
-            let a_speaker = if initiates(a_len, a_version, b_len, b_version) {
+            let a_speaker = if initiates(
+                a_greeting.set_len,
+                &a_greeting.version,
+                b_greeting.set_len,
+                &b_greeting.version,
+            ) {
                 Speaker::Initiator
             } else {
                 Speaker::Responder
@@ -89,7 +82,7 @@ pub fn render_v2_capture(a: &LinkCapture, b: &LinkCapture) -> String {
                 Some(Streams::parse(a_speaker.other(), &b.streams)),
             )
         }
-        _ => panic!("both directions must either carry or omit a version frame"),
+        _ => panic!("both directions must either carry or omit a greeting"),
     };
 
     let mut rendered = String::new();
@@ -99,95 +92,58 @@ pub fn render_v2_capture(a: &LinkCapture, b: &LinkCapture) -> String {
     rendered
 }
 
-/// The control stream's fixed prefix, optional greeting frames, and trailing
+/// The control stream's fixed prefix, optional greeting item, and trailing
 /// session bytes.
 struct Control {
     preamble: Vec<u8>,
-    version_frame: Option<Vec<u8>>,
-    version: Option<Version>,
-    /// The version frame's leading word: the sender's advertised set size,
-    /// the role election's primary key.
-    set_len: Option<u64>,
-    /// The version frame's remaining size words: the sender's
-    /// version-size bound and target message size.
-    max_version_bytes: Option<u64>,
-    target_message_size: Option<u64>,
-    /// The greeting's second frame: the sender's root-fan listing.
-    listing_frame: Option<Vec<u8>>,
+    /// The greeting item's exact bytes and its decoded form.
+    greeting: Option<(Vec<u8>, Greeting)>,
     trailing: Vec<u8>,
 }
 
 impl Control {
-    /// Split one captured control direction at its exact fixed boundaries.
+    /// Split one captured control direction at its exact item boundaries.
     fn parse(bytes: &[u8]) -> Self {
-        assert!(bytes.len() >= PREAMBLE_LEN, "capture omitted the preamble");
-        let (preamble, rest) = bytes.split_at(PREAMBLE_LEN);
-        if rest.is_empty() {
+        assert!(
+            bytes.len() >= V2_PREAMBLE_LEN,
+            "capture omitted the preamble"
+        );
+        let (preamble, rest) = bytes.split_at(V2_PREAMBLE_LEN);
+        // A greeting item opens with the embedded-item tag; anything else
+        // after the preamble (a session ending before its greeting — a
+        // mutual retire declining — closes with just the epilogue item) is
+        // trailing.
+        let mut probe = rest;
+        let is_greeting = matches!(
+            cbor::read_head(&mut probe),
+            Ok(cbor::Head {
+                major: MAJOR_TAG,
+                value: TAG_EMBEDDED_ITEM,
+            })
+        );
+        if !is_greeting {
             return Self {
                 preamble: preamble.to_vec(),
-                version_frame: None,
-                version: None,
-                set_len: None,
-                max_version_bytes: None,
-                target_message_size: None,
-                listing_frame: None,
-                trailing: Vec::new(),
-            };
-        }
-
-        // A session that ends before its causal greeting (a mutual retire
-        // declining at the preamble) still closes with the one-byte session
-        // epilogue marker: control bytes too short to be a version frame
-        // header are that trailing marker, not a truncated frame.
-        if rest.len() < LENGTH_HEADER_LEN {
-            return Self {
-                preamble: preamble.to_vec(),
-                version_frame: None,
-                version: None,
-                set_len: None,
-                max_version_bytes: None,
-                target_message_size: None,
-                listing_frame: None,
+                greeting: None,
                 trailing: rest.to_vec(),
             };
         }
-        let (version_frame, rest) = split_frame(rest, "version");
-        // The version frame's body leads with its three size words,
-        // decoded through the same framing helper the handshake reads
-        // them with; the version encoding follows them.
-        let (set_len, max_version_bytes, target_message_size) =
-            greeting_words(&version_frame[LENGTH_HEADER_LEN..])
-                .expect("captured version frame carries its three size words");
-        let version =
-            Version::decode(&version_frame[LENGTH_HEADER_LEN + GREETING_SIZE_WORDS_LEN..])
-                .expect("captured version frame is canonical");
-        // The greeting always carries its listing frame directly behind the
-        // version frame (empty tree = empty listing, still framed).
-        let (listing_frame, rest) = split_frame(rest, "listing");
+        let head = cbor::read_head(&mut probe).expect("captured greeting has a byte-string head");
+        assert_eq!(
+            head.major, MAJOR_BSTR,
+            "captured greeting wraps a byte string"
+        );
+        let len = usize::try_from(head.value).expect("captured greeting fits in memory");
+        let consumed = rest.len() - probe.len() + len;
+        assert!(rest.len() >= consumed, "truncated greeting item");
+        let (item, trailing) = rest.split_at(consumed);
+        let greeting = parse_greeting(&probe[..len]).expect("captured greeting is canonical");
         Self {
             preamble: preamble.to_vec(),
-            version_frame: Some(version_frame),
-            version: Some(version),
-            set_len: Some(set_len),
-            max_version_bytes: Some(max_version_bytes),
-            target_message_size: Some(target_message_size),
-            listing_frame: Some(listing_frame),
-            trailing: rest.to_vec(),
+            greeting: Some((item.to_vec(), greeting)),
+            trailing: trailing.to_vec(),
         }
     }
-}
-
-/// Split one exact length-delimited frame (header included) off `bytes`.
-fn split_frame<'a>(bytes: &'a [u8], what: &str) -> (Vec<u8>, &'a [u8]) {
-    assert!(
-        bytes.len() >= LENGTH_HEADER_LEN,
-        "truncated {what} frame header"
-    );
-    let len =
-        u32::from_be_bytes(bytes[..LENGTH_HEADER_LEN].try_into().expect("header width")) as usize;
-    let frame_end = LENGTH_HEADER_LEN + len;
-    assert!(bytes.len() >= frame_end, "truncated {what} frame");
-    (bytes[..frame_end].to_vec(), &bytes[frame_end..])
 }
 
 /// One direction's exact data streams, keyed by their labeled stream index.
@@ -207,13 +163,12 @@ impl Streams {
     fn parse(speaker: Speaker, streams: &[Vec<u8>]) -> Self {
         let mut parsed = BTreeMap::new();
         for bytes in streams {
-            assert!(
-                bytes.len() >= LABEL_LEN,
-                "captured stream omitted its label"
-            );
-            let (label, mut rest) = bytes.split_at(LABEL_LEN);
-            let [epoch, index] = label.try_into().expect("label width");
-            let labeled = Stream::new(index).expect("captured label names a logical stream");
+            let mut rest = bytes.as_slice();
+            let epoch = label_item(&mut rest, "epoch");
+            let epoch = u8::try_from(epoch).expect("captured epoch is a byte-ranged counter");
+            let index = label_item(&mut rest, "stream index");
+            let labeled = Stream::new(u8::try_from(index).expect("captured label is byte-ranged"))
+                .expect("captured label names a logical stream");
 
             let mut frames = Vec::new();
             let mut ended = false;
@@ -223,7 +178,7 @@ impl Streams {
                 ended = matches!(signal, Signal::End(End::Stream));
                 frames.push(CapturedFrame {
                     semantic: format!("{signal:?}"),
-                    payload: payload_lines(&signal, &rest[..consumed]),
+                    payload: payload_lines(speaker, &rest[..consumed]),
                     bytes: rest[..consumed].to_vec(),
                 });
                 rest = &rest[consumed..];
@@ -239,30 +194,50 @@ impl Streams {
     }
 }
 
+/// Read one label item: a canonical unsigned int.
+fn label_item(rest: &mut &[u8], what: &str) -> u64 {
+    let head = cbor::read_head(rest)
+        .unwrap_or_else(|e| panic!("captured stream label {what} is canonical: {e}"));
+    assert_eq!(
+        head.major, MAJOR_UINT,
+        "captured label {what} is an unsigned int"
+    );
+    head.value
+}
+
 /// Parse one honest frame's boundary without decoding its supplied payload.
 fn raw_frame(speaker: Speaker, bytes: &[u8]) -> (Stream, Signal, usize) {
-    let (&byte, body) = bytes.split_first().expect("captured stream ended early");
-    let (stream, signal) = WireSignal::from_byte(speaker, byte)
+    let mut rest = bytes;
+    let head = cbor::read_head(&mut rest).expect("captured frame head is canonical");
+    assert_eq!(head.major, cbor::MAJOR_ARRAY, "captured frame is an array");
+    let head = cbor::read_head(&mut rest).expect("captured signal is canonical");
+    assert_eq!(head.major, MAJOR_UINT, "captured signal is an unsigned int");
+    let code = u8::try_from(head.value).expect("captured signal is in the dense code space");
+    let (stream, signal) = WireSignal::from_byte(speaker, code)
         .expect("captured signal is valid")
         .into_parts();
-    let body_len = match signal {
-        Signal::Match(_) | Signal::QueryEmpty(_) | Signal::End(_) => 0,
+    match signal {
+        Signal::Match(_) | Signal::QueryEmpty(_) | Signal::End(_) => {}
         Signal::Query(_) => {
-            let (&count, _) = body.split_first().expect("captured query has a count");
-            QUERY_COUNT_LEN + (usize::from(count) + QUERY_COUNT_BIAS) * QUERY_CHILD_LEN
+            // Walking the listing map through the codec's own parser both
+            // finds the frame boundary and validates canonical form.
+            parse_listing_map(&mut rest).expect("captured query listing is canonical");
         }
         Signal::Supply(_) => {
-            assert!(
-                body.len() >= LENGTH_HEADER_LEN,
-                "captured supply has a length"
+            let head = cbor::read_head(&mut rest).expect("captured run tag is canonical");
+            assert_eq!(
+                (head.major, head.value),
+                (MAJOR_TAG, cbor::TAG_CBOR_SEQUENCE),
+                "captured supply opens with the embedded-sequence tag"
             );
-            let len =
-                u32::from_be_bytes(body[..LENGTH_HEADER_LEN].try_into().expect("header width"));
-            LENGTH_HEADER_LEN + len as usize
+            let head = cbor::read_head(&mut rest).expect("captured run head is canonical");
+            assert_eq!(head.major, MAJOR_BSTR, "captured run is a byte string");
+            let len = usize::try_from(head.value).expect("captured run fits in memory");
+            assert!(rest.len() >= len, "captured frame is truncated");
+            rest = &rest[len..];
         }
-    };
-    let consumed = WireSignal::ENCODED_LEN + body_len;
-    assert!(bytes.len() >= consumed, "captured frame is truncated");
+    }
+    let consumed = bytes.len() - rest.len();
     (stream, signal, consumed)
 }
 
@@ -283,25 +258,34 @@ struct CapturedFrame {
 /// payload bytes that do not decode render as an explicit failure line —
 /// the hex below them then stands as the witness, never as the only
 /// account.
-fn payload_lines(signal: &Signal, frame: &[u8]) -> Vec<String> {
+fn payload_lines(speaker: Speaker, frame: &[u8]) -> Vec<String> {
+    // Skip the frame's array and signal heads, re-reading them through
+    // the head grammar so the offsets cannot drift from `raw_frame`.
+    let mut rest = frame;
+    cbor::read_head(&mut rest).expect("frame head validated by raw_frame");
+    let signal = cbor::read_head(&mut rest).expect("signal validated by raw_frame");
+    let code = u8::try_from(signal.value).expect("signal range validated by raw_frame");
+    let (_, signal) = WireSignal::from_byte(speaker, code)
+        .expect("signal validated by raw_frame")
+        .into_parts();
     match signal {
         Signal::Match(_) | Signal::QueryEmpty(_) | Signal::End(_) => Vec::new(),
-        // Signal byte, count byte, then the exact children — the frame
-        // boundary already validated the arithmetic.
-        Signal::Query(_) => query_lines(&frame[WireSignal::ENCODED_LEN + QUERY_COUNT_LEN..]),
-        // Signal byte and length header, then the run body.
+        Signal::Query(_) => query_lines(rest),
         Signal::Supply(_) => {
-            supply_lines(frame[WireSignal::ENCODED_LEN + LENGTH_HEADER_LEN..].to_vec())
+            let mut heads = rest;
+            cbor::read_head(&mut heads).expect("run tag validated by raw_frame");
+            cbor::read_head(&mut heads).expect("run head validated by raw_frame");
+            supply_lines(heads.to_vec())
         }
     }
 }
 
 /// Render a nonempty query's children: each child's radix and hash,
-/// decoded through the codec's own `parse_query` (canonical child order
+/// decoded through the codec's own listing parser (canonical child order
 /// included), so the renderer cannot drift from what the decoder
 /// accepts.
-fn query_lines(children: &[u8]) -> Vec<String> {
-    let children = match parse_query(children) {
+fn query_lines(mut children: &[u8]) -> Vec<String> {
+    let children = match parse_listing_map(&mut children) {
         Ok(children) => children,
         Err(err) => {
             return vec![format!(
@@ -335,6 +319,19 @@ fn supply_lines(run: Vec<u8>) -> Vec<String> {
     let mut lines = vec![format!("supply run: {} record(s)", run.record_count())];
     for (index, record) in run.record_slices().enumerate() {
         let mut input = record;
+        let tagged = matches!(
+            cbor::read_head(&mut input),
+            Ok(cbor::Head {
+                major: MAJOR_TAG,
+                value,
+            }) if value == crate::tags::VERSION_TAG
+        );
+        if !tagged {
+            lines.push(format!(
+                "  record {index} does not open with the version-atom tag; the exact bytes stand below"
+            ));
+            continue;
+        }
         match ciborium::de::from_reader::<Version, _>(&mut input) {
             Ok(version) => lines.push(format!(
                 "  record {index}: version {version}, message {} byte(s)",
@@ -348,38 +345,13 @@ fn supply_lines(run: Vec<u8>) -> Vec<String> {
     lines
 }
 
-/// Render one root-fan listing frame's children, or its explicit decode
-/// failure: the listing is peer-controlled bytes, so the renderer must
-/// never present undecodable bytes as a quietly hex-only frame.
+/// Render one root-fan listing's children.
 ///
-/// The canonical child order is held by the codec's own
-/// `validate_children`, the same rule the handshake applies before
-/// building scope from a received listing.
-fn listing_lines(body: &[u8]) -> Vec<String> {
-    const RECORD: usize = 1 + crate::tree::typed::hash::MERKLE_HASH_LEN;
-    if !body.len().is_multiple_of(RECORD) {
-        return vec![format!(
-            "listing undecodable ({} bytes is not a whole number of radix-hash records); \
-             the exact bytes stand below",
-            body.len()
-        )];
-    }
-    let children: Vec<(u8, Hash)> = body
-        .chunks_exact(RECORD)
-        .map(|record| {
-            let (&radix, hash) = record.split_first().expect("a record has a radix byte");
-            let mut bytes = [0u8; crate::tree::typed::hash::MERKLE_HASH_LEN];
-            bytes.copy_from_slice(hash);
-            (radix, Hash(bytes))
-        })
-        .collect();
-    if let Err(err) = validate_children(&children) {
-        return vec![format!(
-            "listing not canonical ({err}); the exact bytes stand below"
-        )];
-    }
-    let mut lines = vec![format!("listing: {} child(ren)", children.len())];
-    for (radix, hash) in &children {
+/// The canonical child order was already held by the codec's own listing
+/// parser when the greeting decoded; these lines render the result.
+fn listing_lines(listing: &[(u8, crate::tree::typed::Hash)]) -> Vec<String> {
+    let mut lines = vec![format!("listing: {} child(ren)", listing.len())];
+    for (radix, hash) in listing {
         lines.push(format!("  child 0x{radix:x}: {}", hex::encode(hash.0)));
     }
     lines
@@ -389,32 +361,18 @@ fn listing_lines(body: &[u8]) -> Vec<String> {
 fn render_direction(label: &str, control: &Control, streams: Option<&Streams>, out: &mut String) {
     writeln!(out, "direction {label}").unwrap();
     render_block("preamble", &control.preamble, out);
-    if let Some(version) = &control.version {
-        writeln!(out, "version: {version}").unwrap();
+    if let Some((item, greeting)) = &control.greeting {
+        writeln!(out, "version: {}", greeting.version).unwrap();
         writeln!(
             out,
             "greeting words: set len {}, version-size bound {}, message-size target {}",
-            control
-                .set_len
-                .expect("a version frame carries its set size"),
-            control
-                .max_version_bytes
-                .expect("a version frame carries its version-size bound"),
-            control
-                .target_message_size
-                .expect("a version frame carries its message-size target"),
+            greeting.set_len, greeting.max_version_bytes, greeting.target_message_size,
         )
         .unwrap();
-        render_block(
-            "version frame",
-            control.version_frame.as_deref().expect("version frame"),
-            out,
-        );
-        let listing_frame = control.listing_frame.as_deref().expect("listing frame");
-        for line in listing_lines(&listing_frame[LENGTH_HEADER_LEN..]) {
+        for line in listing_lines(&greeting.listing) {
             writeln!(out, "{line}").unwrap();
         }
-        render_block("listing frame", listing_frame, out);
+        render_block("greeting frame", item, out);
     }
 
     if let Some(streams) = streams {

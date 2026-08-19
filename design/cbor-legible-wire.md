@@ -33,17 +33,17 @@ sequences are the right choice.)
 
 | Layer | Today | CBOR spelling | Recurring cost |
 |---|---|---|---|
-| Frame signal | one dense byte (stream × state, 17 × 10 codes) | unsigned int item | +1 byte for codes ≥ 24 (most); see the signal ruling below |
-| Frame | signal ‖ raw body | small array `[signal, body…]` | +1 byte array header |
-| Record framing | u32 BE record header | **tag 63** ("embedded CBOR sequence in a byte string"): `63(bstr(version ‖ payload))` | ≈ 0 (tag 2B + bstr header 1–5B vs flat 4B; often equal, −1 for small records) |
-| Record body | CBOR bstr(version) ‖ CBOR(payload) — already a sequence | unchanged, now inside the tag-63 bstr | 0 |
-| Run length | u32 BE | bstr header arithmetic | ≈ 0 |
-| Query child listing | raw `(radix ‖ 24-byte hash)*` | map `{radix: hash}` (+3 B/child; ruled over the +2 B/child alternating array for the canonicality coincidence below) | the one hot cost: ballpark +3–4% on digest-dominated dispute traffic — **measure at the calibration cells before pinning** |
-| Greeting | fixed-offset block + frames | text-keyed map (`{"protocol": "rumors", "network": …, "version": …, "listing": …, "set_len": …, "max_version_bytes": …}`); the `protocol` entry is the rumors magic — tag 55799 announces only "CBOR", never whose | few dozen bytes, once per session |
-| Preamble magic | 6 raw bytes | CBOR self-described **tag 55799** (`0xd9d9f7`) opening the control stream, then version/intent as ints, network as bstr | once per session |
+| Frame signal | one dense byte (stream × state, 17 × 10 codes) | unsigned int item carrying the same dense code | +1 byte for codes ≥ 24 (most); see the signal ruling below |
+| Frame | signal ‖ raw body | array `[signal]` or `[signal, body]` | +1 byte array head |
+| Record framing | u32 BE record header | **tag 63** ("embedded CBOR sequence in a byte string"): each record is `63(bstr(tagged version ‖ payload))` | ≈ 0 (tag 2B + bstr head 1–5B vs flat 4B; often equal, −1 for small records) |
+| Record body | CBOR bstr(version) ‖ CBOR(payload) — already a sequence | the version atom gains its tag; payload unchanged | +3 bytes (the version tag) |
+| Run length | u32 BE | the whole run is `63(bstr(record*))`; its byte-string head is the run length | ≈ 0 (tag 2B + head 1–5B vs flat 4B) |
+| Query child listing | raw `(radix ‖ 24-byte hash)*` | map `{radix: hash}` (+3 B/child; ruled over the +2 B/child alternating array for the canonicality coincidence below) | the one hot cost, **measured** at the calibration cells: the whole change moved the calibrated per-disputed-message intercept 35 → 43 B — +3.9% at the design record (207 → 215 B/message), +8% at mid-size records, +14% at minimal `u64` records |
+| Greeting | fixed-offset block + frames | one item, `24(bstr(map))`: a text-keyed map (`{"listing": {radix: hash}, "set_len": …, "version": <tagged atom>, "protocol": "rumors", "max_version_bytes": …, "target_message_size": …}`, keys in deterministic order) behind the embedded-item tag, so the control-stream reader gets the item's length up front. The `protocol` entry is the rumors magic — tag 55799 announces only "CBOR", never whose — and the version atom rides tagged, dissolving its old bare-canonical spelling | few dozen bytes, once per session |
+| Preamble magic | 6 raw bytes opening a 25-byte fixed block | one 30-byte self-described item: `55799(["rumors", version: uint, network: bstr, intent: uint])` — the magic survives as the text item, so "not rumors" still diagnoses at the preamble | once per session |
 | Party hand-off | one length-framed frame carrying the party's canonical bytes on the control stream | tagged bstr (the party atom, tagged per the table below) | few bytes, once per hand-off |
-| Stream open label | epoch byte ‖ index byte | two leading int items | +0–2 bytes per stream |
-| Epilogue marker | one byte | int item | 0 |
+| Stream open label | epoch byte ‖ index byte | two leading uint items | +0–1 bytes per stream |
+| Epilogue marker | one byte (`.`) | the text item `"."` — one byte dearer than a small int, and a generic tool renders the dot | +1 byte, once per session |
 
 Notes on the spellings:
 
@@ -237,13 +237,17 @@ CBOR.
 
 ## The committed contract
 
-- **The rumors-blind render test**, built on the public hook (the
-  instrument enters through the public door): capture a full session in
-  tests, parse every directed stream with a generic RFC 8742 parser plus
-  standard tag unwrapping (55799, 63, 24), and assert everything parses
-  with no bytes outside CBOR items. This is the tamper-evident form of
+- **The rumors-blind render test, stated as a property over arbitrary
+  sessions**: randomized peer contents and payloads drive real sessions
+  of every kind the capture harness can pair, every directed stream's
+  capture is parsed with a generic RFC 8742 walk plus standard tag
+  unwrapping (55799, 63, 24; unknown tags tolerated), and the proptest
+  asserts everything parses with no bytes outside CBOR items. The
+  parser knows nothing of rumors. This is the tamper-evident form of
   the legibility promise; prose claims of legibility are decoration
-  without it.
+  without it. (The test enters through the transport capture today; the
+  observation hook's own capture-validity differential is its
+  complement.)
 - The full snapshot corpus re-accepts as one deliberate, owner-ruled
   pre-release format change, named in the re-accepting commit.
 - Re-derived (never transcribed) readings: the dispute-wire closed form
@@ -257,12 +261,18 @@ codec layer (signal/frame/streams/greeting/bookmark format) rewritten,
 hand-parsed as today (delegating to ciborium is *not* required — the
 structural validation and exact pricing stay first-class), plus the hook
 threading through the session drivers, plus the re-accept and re-pin
-wave. Recurring wire cost: +1–2 bytes per frame and +2–3 bytes per listed
-child on dispute-heavy traffic (low single-digit percent, measured before
-pinning); essentially zero relative cost on bulk supply. What does not
-change: session semantics, the deadlock-freedom argument (framing-
-independent; the hook adds observation, never a protocol dependency),
-and every validation property, re-denominated.
+wave. Recurring wire cost, measured at the calibration cells: +8 B per
+disputed message end to end (the calibrated intercept moved 35 → 43 B),
+which is +3.9% at the design record size and grows toward +14% only for
+minimal `u64`-record corpora; essentially zero relative cost on bulk
+supply (+3 B per record for the version tag, ≈0 for the framing). The
+committed snapshot corpus — toy sessions dominated by their per-session
+constants — grew 62% (5,273 → 8,567 B), a denominator that overweights
+the once-per-session surfaces by design; the per-message figures above
+are the hot-path claim. What does not change: session semantics, the
+deadlock-freedom argument (framing-independent; the hook adds
+observation, never a protocol dependency), and every validation
+property, re-denominated.
 
 ## Sequencing
 

@@ -45,18 +45,24 @@ use crate::{
 use super::{Inner, Peer, bootstrap::Bootstrap};
 
 use serde::de::DeserializeOwned;
-/// Magic bytes that open every `rumors` gossip session's preamble frame.
+/// Magic bytes that open a V1 gossip session's preamble frame.
+///
+/// A [`Protocol::V2`] session opens with the self-described CBOR tag
+/// instead, and carries its protocol magic as the greeting map's
+/// `"protocol"` entry; this raw marker belongs to the V1 wire dialect
+/// alone.
 pub const PROTOCOL_MAGIC: [u8; 6] = *b"RUMORS";
 
-/// The one epilogue marker byte each side writes on the control stream after
-/// all of its session work, under [`Protocol::V2`].
+/// The epilogue marker each side writes on the control stream after all
+/// of its session work, under [`Protocol::V2`]: the CBOR text item `"."`.
 ///
 /// Reading the peer's marker is what lets `Ok` certify that the peer
-/// completed and committed too. Deliberately distinct from
-/// [`PROTOCOL_MAGIC`]'s first byte (`b'R'`): a desynchronized peer that
-/// starts its next preamble where an epilogue belongs is diagnosed as a
-/// protocol violation, not mistaken for completion.
-const EPILOGUE_MARKER: u8 = b'.';
+/// completed and committed too. As an item, the marker keeps the control
+/// stream a pure CBOR sequence; its leading byte is deliberately distinct
+/// from the self-described tag opening a V2 preamble, so a desynchronized
+/// peer that starts its next preamble where an epilogue belongs is
+/// diagnosed as a protocol violation, not mistaken for completion.
+const EPILOGUE_MARKER: [u8; 2] = [0x61, b'.'];
 
 /// A session's control read half with its concrete transport type erased.
 ///
@@ -252,7 +258,7 @@ impl<T> Peer<T, NoBookmark> {
             let deserializer = Message::deserializer::<T>();
             // Magic/version/network/intent preamble first, before either protocol
             // is allowed to trust peer-declared frame lengths.
-            let mut staged = handshake::Staged::new();
+            let mut staged = handshake::Staged::new(config.protocol);
             let remote = handshake::preamble(
                 config.protocol,
                 Network::BOOTSTRAP,
@@ -290,7 +296,7 @@ impl<T> Peer<T, NoBookmark> {
             let Some((root, mut read, mut write)) = reconcile.await? else {
                 return Ok(None);
             };
-            let party = party::receive(&mut read).await?;
+            let party = party::receive(config.protocol, &mut read).await?;
             // Our absorption of the received identity completes with the
             // in-memory `Peer` construction below, which cannot fail: certify
             // completion now, and require the provider's certificate so `Ok`
@@ -403,7 +409,7 @@ impl<T, B: Persist> Peer<T, B> {
         C: Connector,
         A: Acceptor,
     {
-        let mut staged = handshake::Staged::new();
+        let mut staged = handshake::Staged::new(self.protocol);
         let parts = match erase(link) {
             Ok(parts) => parts,
             // The fail-fast happened before any wire traffic: nothing of
@@ -442,7 +448,7 @@ impl<T, B: Persist> Peer<T, B> {
         C: Connector,
         A: Acceptor,
     {
-        let mut staged = handshake::Staged::new();
+        let mut staged = handshake::Staged::new(self.protocol);
         let parts = erase(link).map_err(Error::widen)?;
         let (_intent, result) = self.gossip_inner(Intent::Remain, &mut staged, parts).await;
         // Un-poison on clean completion: the session's own `Ok` under V2 is
@@ -732,7 +738,7 @@ impl<T, B: Persist> Peer<T, B> {
             // The preamble rejects a peer that claims to both bootstrap and
             // retire, and we bailed early if we were retiring too, so no
             // party of ours is in flight here: `guarded.party` is `None`.
-            absorbed = match party::receive(read).await {
+            absorbed = match party::receive(self.protocol, read).await {
                 Err(e) => return (Intent::Remain, Err(e.widen())),
                 Ok(donated_party) => Some(donated_party),
             };
@@ -753,7 +759,7 @@ impl<T, B: Persist> Peer<T, B> {
             // the peer may hold the party even if the send errors, so it can
             // never be safely re-joined.
             let donated = guarded.party.take().expect("is_some");
-            match party::send(donated, write).await {
+            match party::send(self.protocol, donated, write).await {
                 Err(e) => {
                     // A retiring donation in limbo must be assumed received:
                     // report `Intent::Retire` alongside the error so that the
@@ -905,7 +911,7 @@ impl<T, B: Bookmark> Peer<T, B> {
             acceptor: &mut link.acceptor as DynAcceptor<'a>,
             state: &mut link.session,
             when: Box::pin(when),
-            staged: handshake::Staged::new(),
+            staged: handshake::Staged::new(self.protocol),
             converged: None,
             done: false,
         };
@@ -1010,7 +1016,7 @@ impl<T, B: Bookmark> Peer<T, B> {
                             // fresh staging buffer (this preamble is
                             // consumed), and the new suppression token.
                             drive.state.finish();
-                            drive.staged = handshake::Staged::new();
+                            drive.staged = handshake::Staged::new(drive.peer.protocol);
                             drive.converged = Some(converged.clone());
                             Some((
                                 Ok(Gossiped {
@@ -1320,18 +1326,18 @@ async fn epilogue(
     write: &mut (dyn AsyncWrite + Unpin + Send + '_),
 ) -> Result<(), Error> {
     let send = async {
-        write.write_all(&[EPILOGUE_MARKER]).await?;
+        write.write_all(&EPILOGUE_MARKER).await?;
         write.flush().await
     };
     let receive = async {
-        let mut marker = [0u8; 1];
+        let mut marker = [0u8; EPILOGUE_MARKER.len()];
         read.read_exact(&mut marker).await?;
-        if marker[0] != EPILOGUE_MARKER {
+        if marker != EPILOGUE_MARKER {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 format!(
-                    "peer wrote {:#04x} where the epilogue marker belongs",
-                    marker[0]
+                    "peer wrote {:#04x} {:#04x} where the epilogue marker belongs",
+                    marker[0], marker[1]
                 ),
             ));
         }

@@ -428,9 +428,9 @@ fn accept_driver_rejects_unknown_stream_index() {
             matches!(
                 error,
                 AcceptError::UnknownStream {
-                    index: Stream::COUNT,
+                    index,
                     ..
-                }
+                } if index == u64::from(Stream::COUNT)
             ),
             "unexpected accept outcome: {error:?}",
         );

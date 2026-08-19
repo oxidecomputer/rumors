@@ -3,17 +3,11 @@ source: src/tree/mirror/streaming/remote/codec/tests/error_atlas.rs
 expression: build_atlas()
 ---
 ENCODE
-  Initiator/write/signal
-    display: Initiator stream 8: could not write the frame's signal byte
+  Initiator/write/frame-head
+    display: Initiator stream 8: could not write the frame's frame head
     origin: Initiator stream 8
-    kind: Write(part=Signal, io=Other)
-    source[0]: could not write the frame's signal byte
-    source[1]: Io(Other)
-  Initiator/write/query-count
-    display: Initiator stream 8: could not write the frame's query count
-    origin: Initiator stream 8
-    kind: Write(part=QueryCount, io=Other)
-    source[0]: could not write the frame's query count
+    kind: Write(part=FrameHead, io=Other)
+    source[0]: could not write the frame's frame head
     source[1]: Io(Other)
   Initiator/write/query-children
     display: Initiator stream 8: could not write the frame's query child listing
@@ -22,10 +16,10 @@ ENCODE
     source[0]: could not write the frame's query child listing
     source[1]: Io(Other)
   Initiator/write/supply-length
-    display: Initiator stream 8: could not write the frame's supply run length
+    display: Initiator stream 8: could not write the frame's supply run head
     origin: Initiator stream 8
     kind: Write(part=SupplyLength, io=Other)
-    source[0]: could not write the frame's supply run length
+    source[0]: could not write the frame's supply run head
     source[1]: Io(Other)
   Initiator/write/supply-run
     display: Initiator stream 8: could not write the frame's supply run
@@ -39,17 +33,11 @@ ENCODE
     kind: Flush(io=Other)
     source[0]: could not flush the completed frame
     source[1]: Io(Other)
-  Responder/write/signal
-    display: Responder stream 8: could not write the frame's signal byte
+  Responder/write/frame-head
+    display: Responder stream 8: could not write the frame's frame head
     origin: Responder stream 8
-    kind: Write(part=Signal, io=Other)
-    source[0]: could not write the frame's signal byte
-    source[1]: Io(Other)
-  Responder/write/query-count
-    display: Responder stream 8: could not write the frame's query count
-    origin: Responder stream 8
-    kind: Write(part=QueryCount, io=Other)
-    source[0]: could not write the frame's query count
+    kind: Write(part=FrameHead, io=Other)
+    source[0]: could not write the frame's frame head
     source[1]: Io(Other)
   Responder/write/query-children
     display: Responder stream 8: could not write the frame's query child listing
@@ -58,10 +46,10 @@ ENCODE
     source[0]: could not write the frame's query child listing
     source[1]: Io(Other)
   Responder/write/supply-length
-    display: Responder stream 8: could not write the frame's supply run length
+    display: Responder stream 8: could not write the frame's supply run head
     origin: Responder stream 8
     kind: Write(part=SupplyLength, io=Other)
-    source[0]: could not write the frame's supply run length
+    source[0]: could not write the frame's supply run head
     source[1]: Io(Other)
   Responder/write/supply-run
     display: Responder stream 8: could not write the frame's supply run
@@ -76,17 +64,17 @@ ENCODE
     source[0]: could not flush the completed frame
     source[1]: Io(Other)
 DECODE
+  Initiator/read/frame-head
+    display: Initiator direction: could not read the frame's frame head
+    origin: Initiator direction
+    kind: Read(part=FrameHead, io=Other)
+    source[0]: could not read the frame's frame head
+    source[1]: Io(Other)
   Initiator/read/signal
-    display: Initiator direction: could not read the frame's signal byte
+    display: Initiator direction: could not read the frame's signal
     origin: Initiator direction
     kind: Read(part=Signal, io=Other)
-    source[0]: could not read the frame's signal byte
-    source[1]: Io(Other)
-  Initiator/read/query-count
-    display: Initiator stream 8: could not read the frame's query count
-    origin: Initiator stream 8
-    kind: Read(part=QueryCount, io=Other)
-    source[0]: could not read the frame's query count
+    source[0]: could not read the frame's signal
     source[1]: Io(Other)
   Initiator/read/query-children
     display: Initiator stream 8: could not read the frame's query child listing
@@ -95,10 +83,10 @@ DECODE
     source[0]: could not read the frame's query child listing
     source[1]: Io(Other)
   Initiator/read/supply-length
-    display: Initiator stream 8: could not read the frame's supply run length
+    display: Initiator stream 8: could not read the frame's supply run head
     origin: Initiator stream 8
     kind: Read(part=SupplyLength, io=Other)
-    source[0]: could not read the frame's supply run length
+    source[0]: could not read the frame's supply run head
     source[1]: Io(Other)
   Initiator/read/supply-run
     display: Initiator stream 8: could not read the frame's supply run
@@ -106,17 +94,17 @@ DECODE
     kind: Read(part=SupplyRun, io=Other)
     source[0]: could not read the frame's supply run
     source[1]: Io(Other)
+  Initiator/truncated/frame-head
+    display: Initiator direction: frame ended before its frame head
+    origin: Initiator direction
+    kind: Truncated(missing=FrameHead, io=UnexpectedEof)
+    source[0]: frame ended before its frame head
+    source[1]: Io(UnexpectedEof)
   Initiator/truncated/signal
-    display: Initiator direction: frame ended before its signal byte
+    display: Initiator direction: frame ended before its signal
     origin: Initiator direction
     kind: Truncated(missing=Signal, io=UnexpectedEof)
-    source[0]: frame ended before its signal byte
-    source[1]: Io(UnexpectedEof)
-  Initiator/truncated/query-count
-    display: Initiator stream 8: frame ended before its query count
-    origin: Initiator stream 8
-    kind: Truncated(missing=QueryCount, io=UnexpectedEof)
-    source[0]: frame ended before its query count
+    source[0]: frame ended before its signal
     source[1]: Io(UnexpectedEof)
   Initiator/truncated/query-children
     display: Initiator stream 8: frame ended before its query child listing
@@ -125,10 +113,10 @@ DECODE
     source[0]: frame ended before its query child listing
     source[1]: Io(UnexpectedEof)
   Initiator/truncated/supply-length
-    display: Initiator stream 8: frame ended before its supply run length
+    display: Initiator stream 8: frame ended before its supply run head
     origin: Initiator stream 8
     kind: Truncated(missing=SupplyLength, io=UnexpectedEof)
-    source[0]: frame ended before its supply run length
+    source[0]: frame ended before its supply run head
     source[1]: Io(UnexpectedEof)
   Initiator/truncated/supply-run
     display: Initiator stream 8: frame ended before its supply run
@@ -137,11 +125,26 @@ DECODE
     source[0]: frame ended before its supply run
     source[1]: Io(UnexpectedEof)
   Initiator/reserved-signal
-    display: Initiator stream 0: signal byte 0xaa encodes an invalid semantic state
+    display: Initiator stream 0: signal code 0xaa encodes an invalid semantic state
     origin: Initiator stream 0
     kind: InvalidSignal::Reserved(byte=aa, state=10)
-    source[0]: signal byte 0xaa encodes an invalid semantic state
+    source[0]: signal code 0xaa encodes an invalid semantic state
     source[1]: semantic signal state 10 is outside the valid range
+  Initiator/frame/not-an-array
+    display: Initiator direction: frame is not a CBOR reaction array: frame item is not an array
+    origin: Initiator direction
+    kind: FrameShape(frame item is not an array)
+    source[0]: frame is not a CBOR reaction array: frame item is not an array
+  Initiator/frame/arity
+    display: Initiator stream 8: frame array carries 2 item(s) where its signal takes 1
+    origin: Initiator stream 8
+    kind: FrameArity(expected=1, found=2)
+    source[0]: frame array carries 2 item(s) where its signal takes 1
+  Initiator/frame/widened-signal
+    display: Initiator direction: frame's signal is malformed: head not in shortest form
+    origin: Initiator direction
+    kind: Malformed(part=Signal, head not in shortest form)
+    source[0]: frame's signal is malformed: head not in shortest form
   Initiator/query-out-of-order
     display: Initiator stream 8: query child radix 1 does not follow 2 in ascending order
     origin: Initiator stream 8
@@ -152,37 +155,43 @@ DECODE
     origin: Initiator stream 8
     kind: InvalidRun::Empty
     source[0]: a supply run carries no leaf records
-  Initiator/run/truncated-header
-    display: Initiator stream 8: a leaf record header overruns the 2 bytes left in its run
+  Initiator/run/not-a-record
+    display: Initiator stream 8: a 2-byte run tail is not a leaf record: record does not open with the embedded-sequence tag
     origin: Initiator stream 8
-    kind: InvalidRun::TruncatedHeader(remaining=2)
-    source[0]: a leaf record header overruns the 2 bytes left in its run
+    kind: InvalidRun::NotARecord(remaining=2, record does not open with the embedded-sequence tag)
+    source[0]: a 2-byte run tail is not a leaf record: record does not open with the embedded-sequence tag
+  Initiator/run/widened-head
+    display: Initiator stream 8: a leaf record's heads are invalid in the 5 bytes left in its run: CBOR head is not in shortest form
+    origin: Initiator stream 8
+    kind: InvalidRun::Head(remaining=5, source=CBOR head is not in shortest form)
+    source[0]: a leaf record's heads are invalid in the 5 bytes left in its run: CBOR head is not in shortest form
+    source[1]: CBOR head is not in shortest form
   Initiator/run/truncated-record
     display: Initiator stream 8: a leaf record of 2 bytes overruns the 1 bytes left in its run
     origin: Initiator stream 8
     kind: InvalidRun::TruncatedRecord(len=2, remaining=1)
     source[0]: a leaf record of 2 bytes overruns the 1 bytes left in its run
   Initiator/run/overbatched
-    display: Initiator stream 8: supply frame occupies 19 wire bytes, batching records past the 0-byte run budget
+    display: Initiator stream 8: supply frame occupies 28 wire bytes, batching records past the 0-byte run budget
     origin: Initiator stream 8
-    kind: OverbatchedRun(declared=19, budget=0)
-    source[0]: supply frame occupies 19 wire bytes, batching records past the 0-byte run budget
+    kind: OverbatchedRun(declared=28, budget=0)
+    source[0]: supply frame occupies 28 wire bytes, batching records past the 0-byte run budget
   Initiator/frame/trailing
     display: Initiator stream 8: 1 trailing bytes follow the frame
     origin: Initiator stream 8
     kind: TrailingBytes(count=1)
     source[0]: 1 trailing bytes follow the frame
+  Responder/read/frame-head
+    display: Responder direction: could not read the frame's frame head
+    origin: Responder direction
+    kind: Read(part=FrameHead, io=Other)
+    source[0]: could not read the frame's frame head
+    source[1]: Io(Other)
   Responder/read/signal
-    display: Responder direction: could not read the frame's signal byte
+    display: Responder direction: could not read the frame's signal
     origin: Responder direction
     kind: Read(part=Signal, io=Other)
-    source[0]: could not read the frame's signal byte
-    source[1]: Io(Other)
-  Responder/read/query-count
-    display: Responder stream 8: could not read the frame's query count
-    origin: Responder stream 8
-    kind: Read(part=QueryCount, io=Other)
-    source[0]: could not read the frame's query count
+    source[0]: could not read the frame's signal
     source[1]: Io(Other)
   Responder/read/query-children
     display: Responder stream 8: could not read the frame's query child listing
@@ -191,10 +200,10 @@ DECODE
     source[0]: could not read the frame's query child listing
     source[1]: Io(Other)
   Responder/read/supply-length
-    display: Responder stream 8: could not read the frame's supply run length
+    display: Responder stream 8: could not read the frame's supply run head
     origin: Responder stream 8
     kind: Read(part=SupplyLength, io=Other)
-    source[0]: could not read the frame's supply run length
+    source[0]: could not read the frame's supply run head
     source[1]: Io(Other)
   Responder/read/supply-run
     display: Responder stream 8: could not read the frame's supply run
@@ -202,17 +211,17 @@ DECODE
     kind: Read(part=SupplyRun, io=Other)
     source[0]: could not read the frame's supply run
     source[1]: Io(Other)
+  Responder/truncated/frame-head
+    display: Responder direction: frame ended before its frame head
+    origin: Responder direction
+    kind: Truncated(missing=FrameHead, io=UnexpectedEof)
+    source[0]: frame ended before its frame head
+    source[1]: Io(UnexpectedEof)
   Responder/truncated/signal
-    display: Responder direction: frame ended before its signal byte
+    display: Responder direction: frame ended before its signal
     origin: Responder direction
     kind: Truncated(missing=Signal, io=UnexpectedEof)
-    source[0]: frame ended before its signal byte
-    source[1]: Io(UnexpectedEof)
-  Responder/truncated/query-count
-    display: Responder stream 8: frame ended before its query count
-    origin: Responder stream 8
-    kind: Truncated(missing=QueryCount, io=UnexpectedEof)
-    source[0]: frame ended before its query count
+    source[0]: frame ended before its signal
     source[1]: Io(UnexpectedEof)
   Responder/truncated/query-children
     display: Responder stream 8: frame ended before its query child listing
@@ -221,10 +230,10 @@ DECODE
     source[0]: frame ended before its query child listing
     source[1]: Io(UnexpectedEof)
   Responder/truncated/supply-length
-    display: Responder stream 8: frame ended before its supply run length
+    display: Responder stream 8: frame ended before its supply run head
     origin: Responder stream 8
     kind: Truncated(missing=SupplyLength, io=UnexpectedEof)
-    source[0]: frame ended before its supply run length
+    source[0]: frame ended before its supply run head
     source[1]: Io(UnexpectedEof)
   Responder/truncated/supply-run
     display: Responder stream 8: frame ended before its supply run
@@ -233,11 +242,26 @@ DECODE
     source[0]: frame ended before its supply run
     source[1]: Io(UnexpectedEof)
   Responder/reserved-signal
-    display: Responder stream 0: signal byte 0xaa encodes an invalid semantic state
+    display: Responder stream 0: signal code 0xaa encodes an invalid semantic state
     origin: Responder stream 0
     kind: InvalidSignal::Reserved(byte=aa, state=10)
-    source[0]: signal byte 0xaa encodes an invalid semantic state
+    source[0]: signal code 0xaa encodes an invalid semantic state
     source[1]: semantic signal state 10 is outside the valid range
+  Responder/frame/not-an-array
+    display: Responder direction: frame is not a CBOR reaction array: frame item is not an array
+    origin: Responder direction
+    kind: FrameShape(frame item is not an array)
+    source[0]: frame is not a CBOR reaction array: frame item is not an array
+  Responder/frame/arity
+    display: Responder stream 8: frame array carries 2 item(s) where its signal takes 1
+    origin: Responder stream 8
+    kind: FrameArity(expected=1, found=2)
+    source[0]: frame array carries 2 item(s) where its signal takes 1
+  Responder/frame/widened-signal
+    display: Responder direction: frame's signal is malformed: head not in shortest form
+    origin: Responder direction
+    kind: Malformed(part=Signal, head not in shortest form)
+    source[0]: frame's signal is malformed: head not in shortest form
   Responder/query-out-of-order
     display: Responder stream 8: query child radix 1 does not follow 2 in ascending order
     origin: Responder stream 8
@@ -248,41 +272,47 @@ DECODE
     origin: Responder stream 8
     kind: InvalidRun::Empty
     source[0]: a supply run carries no leaf records
-  Responder/run/truncated-header
-    display: Responder stream 8: a leaf record header overruns the 2 bytes left in its run
+  Responder/run/not-a-record
+    display: Responder stream 8: a 2-byte run tail is not a leaf record: record does not open with the embedded-sequence tag
     origin: Responder stream 8
-    kind: InvalidRun::TruncatedHeader(remaining=2)
-    source[0]: a leaf record header overruns the 2 bytes left in its run
+    kind: InvalidRun::NotARecord(remaining=2, record does not open with the embedded-sequence tag)
+    source[0]: a 2-byte run tail is not a leaf record: record does not open with the embedded-sequence tag
+  Responder/run/widened-head
+    display: Responder stream 8: a leaf record's heads are invalid in the 5 bytes left in its run: CBOR head is not in shortest form
+    origin: Responder stream 8
+    kind: InvalidRun::Head(remaining=5, source=CBOR head is not in shortest form)
+    source[0]: a leaf record's heads are invalid in the 5 bytes left in its run: CBOR head is not in shortest form
+    source[1]: CBOR head is not in shortest form
   Responder/run/truncated-record
     display: Responder stream 8: a leaf record of 2 bytes overruns the 1 bytes left in its run
     origin: Responder stream 8
     kind: InvalidRun::TruncatedRecord(len=2, remaining=1)
     source[0]: a leaf record of 2 bytes overruns the 1 bytes left in its run
   Responder/run/overbatched
-    display: Responder stream 8: supply frame occupies 19 wire bytes, batching records past the 0-byte run budget
+    display: Responder stream 8: supply frame occupies 28 wire bytes, batching records past the 0-byte run budget
     origin: Responder stream 8
-    kind: OverbatchedRun(declared=19, budget=0)
-    source[0]: supply frame occupies 19 wire bytes, batching records past the 0-byte run budget
+    kind: OverbatchedRun(declared=28, budget=0)
+    source[0]: supply frame occupies 28 wire bytes, batching records past the 0-byte run budget
   Responder/frame/trailing
     display: Responder stream 8: 1 trailing bytes follow the frame
     origin: Responder stream 8
     kind: TrailingBytes(count=1)
     source[0]: 1 trailing bytes follow the frame
   placement/opening-supplies/decode
-    display: Initiator stream 0: signal byte 0x00 is invalid for the initiator's opening supplies
+    display: Initiator stream 0: signal code 0x00 is invalid for the initiator's opening supplies
     origin: Initiator stream 0
     kind: InvalidSignal::Placement(byte=00, class=OpeningSupplies)
-    source[0]: signal byte 0x00 is invalid for the initiator's opening supplies
+    source[0]: signal code 0x00 is invalid for the initiator's opening supplies
   placement/leaf-parent/decode
-    display: Initiator stream 16: signal byte 0x54 is invalid for the initiator's leaf-parent replies
+    display: Initiator stream 16: signal code 0x54 is invalid for the initiator's leaf-parent replies
     origin: Initiator stream 16
     kind: InvalidSignal::Placement(byte=54, class=LeafParentReplies)
-    source[0]: signal byte 0x54 is invalid for the initiator's leaf-parent replies
+    source[0]: signal code 0x54 is invalid for the initiator's leaf-parent replies
   placement/terminal-leaf/decode
-    display: Responder stream 16: signal byte 0x10 is invalid for the responder's terminal leaf replies
+    display: Responder stream 16: signal code 0x10 is invalid for the responder's terminal leaf replies
     origin: Responder stream 16
     kind: InvalidSignal::Placement(byte=10, class=TerminalLeafReplies)
-    source[0]: signal byte 0x10 is invalid for the responder's terminal leaf replies
+    source[0]: signal code 0x10 is invalid for the responder's terminal leaf replies
 RECORD
   record/version
     display: supplied Version could not be decoded

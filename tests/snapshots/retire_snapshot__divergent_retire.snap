@@ -3,70 +3,84 @@ source: tests/retire_snapshot.rs
 expression: "capture_retire(seed, retiree)"
 ---
 direction A -> B
-preamble: 25 bytes
-  0000: 52 55 4d 4f 52 53 00 02
-  0008: 8c 18 96 68 c9 e4 83 72
-  0010: 37 bf 31 e0 2d 7f 6b 70
-  0018: 00
+preamble: 30 bytes
+  0000: d9 d9 f7 84 66 72 75 6d
+  0008: 6f 72 73 02 50 8c 18 96
+  0010: 68 c9 e4 83 72 37 bf 31
+  0018: e0 2d 7f 6b 70 00
 version: (0, 1, 0)
-greeting words: set len 1, version-size bound 2, message-size target 1638912
-version frame: 30 bytes
-  0000: 00 00 00 1a 01 00 00 00
-  0008: 00 00 00 00 02 00 00 00
-  0010: 00 00 00 00 00 02 19 00
-  0018: 00 00 00 00 55 40
+greeting words: set len 1, version-size bound 2, message-size target 1830400
 listing: 1 child(ren)
   child 0x93: c4c0139f3f4f4afe9715d26a43953691cdc861574ffc8196
-listing frame: 29 bytes
-  0000: 00 00 00 19 93 c4 c0 13
-  0008: 9f 3f 4f 4a fe 97 15 d2
-  0010: 6a 43 95 36 91 cd c8 61
-  0018: 57 4f fc 81 96
+greeting frame: 125 bytes
+  0000: d8 18 58 79 a6 67 6c 69
+  0008: 73 74 69 6e 67 a1 18 93
+  0010: 58 18 c4 c0 13 9f 3f 4f
+  0018: 4a fe 97 15 d2 6a 43 95
+  0020: 36 91 cd c8 61 57 4f fc
+  0028: 81 96 67 73 65 74 5f 6c
+  0030: 65 6e 01 67 76 65 72 73
+  0038: 69 6f 6e d9 d2 56 42 55
+  0040: 40 68 70 72 6f 74 6f 63
+  0048: 6f 6c 66 72 75 6d 6f 72
+  0050: 73 71 6d 61 78 5f 76 65
+  0058: 72 73 69 6f 6e 5f 62 79
+  0060: 74 65 73 02 73 74 61 72
+  0068: 67 65 74 5f 6d 65 73 73
+  0070: 61 67 65 5f 73 69 7a 65
+  0078: 1a 00 1b ee 00
 Responder stream 0 (height 31), epoch 0
   frame 0: Supply(Continue)
     supply run: 1 record(s)
       record 0: version (0, 1, 0), message 1 byte(s)
-    0000: 66 00 00 00 08 00 00 00
-    0008: 04 42 55 40 02
+    0000: 82 18 66 d8 3f 4a d8 3f
+    0008: 47 d9 d2 56 42 55 40 02
   frame 1: QueryEmpty(End)
-    0000: 33
+    0000: 81 18 33
   frame 2: End(Stream)
-    0000: 99
-trailing frame: 1 bytes
-  0000: 2e
+    0000: 81 18 99
+trailing frame: 2 bytes
+  0000: 61 2e
 
 direction B -> A
-preamble: 25 bytes
-  0000: 52 55 4d 4f 52 53 00 02
-  0008: 8c 18 96 68 c9 e4 83 72
-  0010: 37 bf 31 e0 2d 7f 6b 70
-  0018: 01
+preamble: 30 bytes
+  0000: d9 d9 f7 84 66 72 75 6d
+  0008: 6f 72 73 02 50 8c 18 96
+  0010: 68 c9 e4 83 72 37 bf 31
+  0018: e0 2d 7f 6b 70 01
 version: (0, 0, 1)
-greeting words: set len 1, version-size bound 1, message-size target 1638912
-version frame: 29 bytes
-  0000: 00 00 00 19 01 00 00 00
-  0008: 00 00 00 00 01 00 00 00
-  0010: 00 00 00 00 00 02 19 00
-  0018: 00 00 00 00 77
+greeting words: set len 1, version-size bound 1, message-size target 1830400
 listing: 1 child(ren)
   child 0xf2: 42bb8c7ce00cc0681c05edde50af1bd47d5d94d0a136c882
-listing frame: 29 bytes
-  0000: 00 00 00 19 f2 42 bb 8c
-  0008: 7c e0 0c c0 68 1c 05 ed
-  0010: de 50 af 1b d4 7d 5d 94
-  0018: d0 a1 36 c8 82
+greeting frame: 124 bytes
+  0000: d8 18 58 78 a6 67 6c 69
+  0008: 73 74 69 6e 67 a1 18 f2
+  0010: 58 18 42 bb 8c 7c e0 0c
+  0018: c0 68 1c 05 ed de 50 af
+  0020: 1b d4 7d 5d 94 d0 a1 36
+  0028: c8 82 67 73 65 74 5f 6c
+  0030: 65 6e 01 67 76 65 72 73
+  0038: 69 6f 6e d9 d2 56 41 77
+  0040: 68 70 72 6f 74 6f 63 6f
+  0048: 6c 66 72 75 6d 6f 72 73
+  0050: 71 6d 61 78 5f 76 65 72
+  0058: 73 69 6f 6e 5f 62 79 74
+  0060: 65 73 01 73 74 61 72 67
+  0068: 65 74 5f 6d 65 73 73 61
+  0070: 67 65 5f 73 69 7a 65 1a
+  0078: 00 1b ee 00
 Initiator stream 0 (height 31), epoch 0
   frame 0: Supply(End)
     supply run: 1 record(s)
       record 0: version (0, 0, 1), message 1 byte(s)
-    0000: 77 00 00 00 07 00 00 00
-    0008: 03 41 77 01
+    0000: 82 18 77 d8 3f 49 d8 3f
+    0008: 46 d9 d2 56 41 77 01
   frame 1: End(Stream)
-    0000: 99
+    0000: 81 18 99
 Initiator stream 1 (height 30), epoch 0
   frame 0: End(Reply)
-    0000: 89
+    0000: 81 18 89
   frame 1: End(Stream)
-    0000: 9a
-trailing frame: 6 bytes
-  0000: 00 00 00 01 48 2e
+    0000: 81 18 9a
+trailing frame: 7 bytes
+  0000: d9 d2 55 41 48 61 2e

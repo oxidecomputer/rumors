@@ -17,7 +17,7 @@ use tokio::io::ReadBuf;
 
 use crate::link::{Acceptor, Connector, Done, Link, MemoryLink, memory_with_capacity};
 use crate::testing::{IoPlan, IoReportHandle, IoSide, wrap_link};
-use crate::tree::mirror::framing::{GREETING_WORD_LEN, LENGTH_HEADER_LEN};
+use crate::tree::mirror::cbor;
 use crate::tree::mirror::streaming::window::WindowConfig;
 use crate::tree::{
     Root as TreeRoot,
@@ -40,10 +40,6 @@ const QUERY_STATES: RangeInclusive<u8> = 4..=5;
 
 /// Dense states below this boundary carry reactions rather than bare ends.
 const REACTION_STATE_COUNT: u8 = 8;
-
-// The label's width is defined canonically beside the sender that writes
-// it; the harness scripts frames with the same constant.
-use super::super::super::streams::LABEL_LEN;
 
 /// Failure returned by the materialized-left/proxy-right driver.
 pub type LeftError = MirrorError<MaterializedError<Infallible>, RemoteError<Infallible>>;
@@ -121,15 +117,16 @@ impl Script {
 ///
 /// Every flush below the [`StreamSender`] carries exactly one frame, so the
 /// flush boundary is the frame boundary. The stream's first flush carries
-/// the two-byte label ahead of its frame; mutations offset past it and leave
-/// it intact.
+/// the label items ahead of its frame; mutations parse past them and leave
+/// them intact.
 ///
 /// [`StreamSender`]: crate::tree::mirror::streaming::remote::streams::StreamSender
 pub struct ScriptedWrite<W> {
     inner: W,
     script: Option<Script>,
-    /// Bytes of label still ahead of the frame in the next flush.
-    label: usize,
+    /// Whether the next flush still carries the label items ahead of its
+    /// frame.
+    label: bool,
     frame: Vec<u8>,
     output: Vec<u8>,
     sent: usize,
@@ -142,7 +139,7 @@ impl<W> ScriptedWrite<W> {
         Self {
             inner,
             script,
-            label: LABEL_LEN,
+            label: true,
             frame: Vec::new(),
             output: Vec::new(),
             sent: 0,
@@ -155,15 +152,36 @@ impl<W> ScriptedWrite<W> {
             return;
         }
         self.output.clone_from(&self.frame);
-        let at = self.label;
         let Some(script) = &self.script else {
             return;
         };
         let mut script = script.0.lock().expect("frame script lock");
-        if script.fired || self.frame.len() <= at {
+        if script.fired {
             return;
         }
-        let state = self.frame[at] / crate::tree::mirror::streaming::remote::codec::Stream::COUNT;
+        // Locate the frame behind any leading label items, then parse its
+        // array and signal heads through the wire's own head grammar.
+        let mut rest = self.frame.as_slice();
+        if self.label {
+            for _ in 0..2 {
+                if cbor::read_head(&mut rest).is_err() {
+                    return;
+                }
+            }
+        }
+        let frame_at = self.frame.len() - rest.len();
+        if cbor::read_head(&mut rest).is_err() {
+            return;
+        }
+        let signal_at = self.frame.len() - rest.len();
+        let Ok(signal) = cbor::read_head(&mut rest) else {
+            return;
+        };
+        let body_at = self.frame.len() - rest.len();
+        let Ok(code) = u8::try_from(signal.value) else {
+            return;
+        };
+        let state = code / crate::tree::mirror::streaming::remote::codec::Stream::COUNT;
         let selected = match script.selector {
             FrameSelector::First => true,
             FrameSelector::State(expected) => state == expected,
@@ -174,19 +192,31 @@ impl<W> ScriptedWrite<W> {
             return;
         }
         match script.mutation {
-            FrameMutation::Signal(signal) => self.output[at] = signal,
-            FrameMutation::Duplicate => self.output.extend_from_slice(&self.frame[at..]),
+            FrameMutation::Signal(signal) => {
+                let mut head = Vec::new();
+                cbor::write_head(&mut head, cbor::MAJOR_UINT, u64::from(signal));
+                self.output.splice(signal_at..body_at, head);
+            }
+            FrameMutation::Duplicate => self.output.extend_from_slice(&self.frame[frame_at..]),
             FrameMutation::UnorderQuery => {
-                let query_header = at + 2;
-                const QUERY_CHILD_LEN: usize = 1 + crate::tree::typed::hash::MERKLE_HASH_LEN;
-                let first = self.output[query_header];
-                if self.output[at + 1] == 0 {
-                    self.output[at + 1] = 1;
-                    self.output
-                        .extend_from_within(query_header..query_header + QUERY_CHILD_LEN);
+                use crate::tree::mirror::streaming::remote::codec::{
+                    parse_listing_map, write_listing,
+                };
+                let mut listing_input = &self.frame[body_at..];
+                let Ok(mut children) = parse_listing_map(&mut listing_input) else {
+                    return;
+                };
+                if children.len() == 1 {
+                    // A duplicated single child is the equal-pair
+                    // violation, exactly like a descent.
+                    children.push(children[0]);
                 } else {
-                    self.output[query_header + QUERY_CHILD_LEN] = first;
+                    children[1].0 = children[0].0;
                 }
+                let mut listing = Vec::new();
+                write_listing(&mut listing, &children);
+                let listing_end = self.frame.len() - listing_input.len();
+                self.output.splice(body_at..listing_end, listing);
             }
         }
         script.fired = true;
@@ -216,7 +246,7 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for ScriptedWrite<W> {
         }
         match Pin::new(&mut this.inner).poll_flush(cx) {
             Poll::Ready(Ok(())) => {
-                this.label = 0;
+                this.label = false;
                 this.frame.clear();
                 this.output.clear();
                 this.sent = 0;
@@ -251,67 +281,114 @@ impl<C: Connector> Connector for ScriptedConnector<C> {
     }
 }
 
-/// One 8-byte little-endian greeting size word replaced in the traffic a
-/// side receives.
+/// One greeting size declaration replaced in the traffic a side receives.
 ///
 /// Rewriting the *received* greeting simulates a buggy counterparty whose
 /// declaration disagrees with the traffic it then sends: the receiving side
-/// negotiates against the rewritten word while the sender behaves per its
-/// honest tree. The offsets are absolute control-stream positions — the
-/// greeting's version frame is the first control traffic at this layer, so
-/// its size words sit at fixed offsets behind the frame's length header.
+/// negotiates against the rewritten value while the sender behaves per its
+/// honest tree. The greeting is the first control traffic at this layer,
+/// so the rewriter buffers the one item, re-spells it with the field
+/// replaced, and passes everything after it through untouched.
 #[derive(Clone, Copy)]
 pub struct GreetingRewrite {
-    /// Absolute control-stream offset of the rewritten word.
-    offset: usize,
+    field: GreetingField,
     /// The declaration the receiving side decodes instead of the honest one.
     value: u64,
 }
 
+#[derive(Clone, Copy)]
+enum GreetingField {
+    SetLen,
+    MaxVersionBytes,
+    TargetMessageSize,
+}
+
 impl GreetingRewrite {
-    /// Rewrite the received greeting's `set_len` word.
+    /// Rewrite the received greeting's `set_len` entry.
     pub fn set_len(value: u64) -> Self {
         Self {
-            offset: LENGTH_HEADER_LEN,
+            field: GreetingField::SetLen,
             value,
         }
     }
 
-    /// Rewrite the received greeting's `max_version_bytes` word.
+    /// Rewrite the received greeting's `max_version_bytes` entry.
     pub fn max_version_bytes(value: u64) -> Self {
         Self {
-            offset: LENGTH_HEADER_LEN + GREETING_WORD_LEN,
+            field: GreetingField::MaxVersionBytes,
             value,
         }
     }
 
-    /// Rewrite the received greeting's `target_message_size` word.
+    /// Rewrite the received greeting's `target_message_size` entry.
     pub fn target_message_size(value: u64) -> Self {
         Self {
-            offset: LENGTH_HEADER_LEN + 2 * GREETING_WORD_LEN,
+            field: GreetingField::TargetMessageSize,
             value,
         }
+    }
+
+    /// Re-spell one buffered greeting item with this rewrite applied.
+    fn apply(self, item: &[u8]) -> Vec<u8> {
+        use crate::tree::mirror::streaming::remote::codec::greeting::{
+            encode_greeting, parse_greeting,
+        };
+        let mut input = item;
+        cbor::read_head(&mut input).expect("a complete greeting item has its tag head");
+        cbor::read_head(&mut input).expect("a complete greeting item has its string head");
+        let mut greeting = parse_greeting(input).expect("the harness rewrites an honest greeting");
+        match self.field {
+            GreetingField::SetLen => greeting.set_len = self.value,
+            GreetingField::MaxVersionBytes => greeting.max_version_bytes = self.value,
+            GreetingField::TargetMessageSize => greeting.target_message_size = self.value,
+        }
+        encode_greeting(&greeting)
     }
 }
 
-/// A control-stream reader replacing one absolute byte range with a pinned
-/// little-endian word, robust to arbitrary read chunking.
+/// A control-stream reader replacing one greeting declaration, robust to
+/// arbitrary read chunking: it buffers the greeting item, serves the
+/// re-spelled bytes, and passes the rest of the stream through.
 pub struct RewriteRead<R> {
     inner: R,
-    rewrite: Option<GreetingRewrite>,
-    /// Bytes already delivered to the reader, locating the next chunk's
-    /// absolute stream offsets.
-    consumed: usize,
+    state: RewriteState,
+}
+
+enum RewriteState {
+    /// Accumulating the greeting item's bytes.
+    Buffering {
+        rewrite: GreetingRewrite,
+        pending: Vec<u8>,
+    },
+    /// Serving the re-spelled bytes ahead of the untouched stream.
+    Serving { bytes: Vec<u8>, at: usize },
+    /// Everything further passes through.
+    PassThrough,
 }
 
 impl<R> RewriteRead<R> {
     fn new(inner: R, rewrite: Option<GreetingRewrite>) -> Self {
         Self {
             inner,
-            rewrite,
-            consumed: 0,
+            state: match rewrite {
+                Some(rewrite) => RewriteState::Buffering {
+                    rewrite,
+                    pending: Vec::new(),
+                },
+                None => RewriteState::PassThrough,
+            },
         }
     }
+}
+
+/// Bytes of a complete greeting item at the front of `pending`, when its
+/// heads have arrived whole.
+fn greeting_item_len(pending: &[u8]) -> Option<usize> {
+    let mut input = pending;
+    cbor::read_head(&mut input).ok()?;
+    let body = cbor::read_head(&mut input).ok()?;
+    let heads = pending.len() - input.len();
+    Some(heads + usize::try_from(body.value).ok()?)
 }
 
 impl<R: AsyncRead + Unpin> AsyncRead for RewriteRead<R> {
@@ -321,24 +398,49 @@ impl<R: AsyncRead + Unpin> AsyncRead for RewriteRead<R> {
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
         let this = self.get_mut();
-        let before = buf.filled().len();
-        match Pin::new(&mut this.inner).poll_read(cx, buf) {
-            Poll::Ready(Ok(())) => {
-                let chunk = &mut buf.filled_mut()[before..];
-                if let Some(rewrite) = this.rewrite {
-                    let word = rewrite.value.to_le_bytes();
-                    for (index, byte) in chunk.iter_mut().enumerate() {
-                        if let Some(within) = (this.consumed + index).checked_sub(rewrite.offset)
-                            && within < word.len()
-                        {
-                            *byte = word[within];
+        loop {
+            match &mut this.state {
+                RewriteState::PassThrough => {
+                    return Pin::new(&mut this.inner).poll_read(cx, buf);
+                }
+                RewriteState::Serving { bytes, at } => {
+                    let take = (bytes.len() - *at).min(buf.remaining());
+                    buf.put_slice(&bytes[*at..*at + take]);
+                    *at += take;
+                    if *at == bytes.len() {
+                        this.state = RewriteState::PassThrough;
+                    }
+                    return Poll::Ready(Ok(()));
+                }
+                RewriteState::Buffering { rewrite, pending } => {
+                    let mut chunk = [0u8; 4096];
+                    let mut chunk = ReadBuf::new(&mut chunk);
+                    match Pin::new(&mut this.inner).poll_read(cx, &mut chunk) {
+                        Poll::Pending => return Poll::Pending,
+                        Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                        Poll::Ready(Ok(())) => {
+                            let filled = chunk.filled();
+                            if filled.is_empty() {
+                                // Closed before a whole greeting: hand the
+                                // raw bytes through so truncation surfaces
+                                // exactly as sent.
+                                let bytes = std::mem::take(pending);
+                                this.state = RewriteState::Serving { bytes, at: 0 };
+                                continue;
+                            }
+                            pending.extend_from_slice(filled);
+                            if let Some(len) = greeting_item_len(pending)
+                                && pending.len() >= len
+                            {
+                                let mut bytes = rewrite.apply(&pending[..len]);
+                                bytes.extend_from_slice(&pending[len..]);
+                                this.state = RewriteState::Serving { bytes, at: 0 };
+                            }
+                            continue;
                         }
                     }
                 }
-                this.consumed += chunk.len();
-                Poll::Ready(Ok(()))
             }
-            other => other,
         }
     }
 }

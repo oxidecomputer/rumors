@@ -59,18 +59,14 @@ async fn write_encoding(
     out: &mut (impl AsyncWrite + Unpin),
     encoding: &FrameEncoding<'_>,
 ) -> Result<(), EncodeErrorKind> {
-    write(out, FramePart::Signal, &encoding.signal).await?;
+    write(out, FramePart::FrameHead, &encoding.head).await?;
     match &encoding.body {
         BodyEncoding::Empty => {}
-        BodyEncoding::Query { count, children } => {
-            write(out, FramePart::QueryCount, count).await?;
-            for (radix, hash) in *children {
-                write(out, FramePart::QueryChildren, std::slice::from_ref(radix)).await?;
-                write(out, FramePart::QueryChildren, hash.as_bytes()).await?;
-            }
+        BodyEncoding::Listing(listing) => {
+            write(out, FramePart::QueryChildren, listing).await?;
         }
-        BodyEncoding::Supply { header, run } => {
-            write(out, FramePart::SupplyLength, header).await?;
+        BodyEncoding::Supply { head, run } => {
+            write(out, FramePart::SupplyLength, head).await?;
             write(out, FramePart::SupplyRun, run.as_bytes()).await?;
         }
     }

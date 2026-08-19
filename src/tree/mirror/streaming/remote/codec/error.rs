@@ -10,7 +10,7 @@ use super::signal::{DecodeSignalError, Speaker, Stream};
 /// The speaker and, when known, logical stream which produced an error.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Origin {
-    /// The direction is known, but no signal byte supplied a stream yet.
+    /// The direction is known, but no signal supplied a stream yet.
     Direction(Speaker),
     /// Both the direction and logical stream are known.
     Stream { speaker: Speaker, stream: Stream },
@@ -37,16 +37,16 @@ impl fmt::Display for Origin {
     }
 }
 
-/// The absent component of a truncated frame.
+/// The absent or malformed component of a frame.
 #[derive(Debug, Clone, Copy, thiserror::Error, PartialEq, Eq)]
 pub enum FramePart {
-    #[error("signal byte")]
+    #[error("frame head")]
+    FrameHead,
+    #[error("signal")]
     Signal,
-    #[error("query count")]
-    QueryCount,
     #[error("query child listing")]
     QueryChildren,
-    #[error("supply run length")]
+    #[error("supply run head")]
     SupplyLength,
     #[error("supply run")]
     SupplyRun,
@@ -128,6 +128,19 @@ pub enum DecodeErrorKind {
     },
     #[error(transparent)]
     QueryOutOfOrder(#[from] QueryOrderError),
+    /// The frame item is not a one- or two-element CBOR array.
+    #[error("frame is not a CBOR reaction array: {detail}")]
+    FrameShape { detail: &'static str },
+    /// The frame array's length contradicts its signal's body arity.
+    #[error("frame array carries {found} item(s) where its signal takes {expected}")]
+    FrameArity { expected: u64, found: u64 },
+    /// A frame component was present but not canonical CBOR of the
+    /// expected shape.
+    #[error("frame's {part} is malformed: {detail}")]
+    Malformed {
+        part: FramePart,
+        detail: &'static str,
+    },
     #[error(transparent)]
     InvalidRun(#[from] LeafRunError),
     #[error(

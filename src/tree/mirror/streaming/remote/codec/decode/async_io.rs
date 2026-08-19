@@ -1,29 +1,32 @@
 //! Exact asynchronous input for the self-delimiting frame grammar.
 
-use std::slice;
-
 use std::io::ErrorKind;
 use tokio::io::{AsyncRead, AsyncReadExt};
 
 use super::super::{
     budget::RunBudget,
     error::{DecodeError, DecodeErrorKind, FramePart},
-    frame::{Frame, LeafRun, QUERY_CHILD_LEN, QUERY_COUNT_BIAS, Reaction, WireFrame},
-    signal::{Signal, Speaker, Stream},
+    frame::{Frame, LeafRun, ListingBuilder, Reaction, WireFrame},
+    signal::{Signal, Speaker},
 };
-use super::{decode_signal, lone_record_spans, parse_query};
+use super::{
+    check_arity, decode_signal, frame_arity, head_error, listing_issue, query_listing, run_head,
+    signal_code,
+};
 use crate::tree::{
-    mirror::framing::{LENGTH_HEADER_LEN, read_payload, resume_payload},
-    typed::Hash,
+    mirror::cbor,
+    mirror::framing::{read_payload, resume_payload},
+    typed::{Hash, hash::MERKLE_HASH_LEN},
 };
 
 /// Async frame reader over one speaker's transport direction.
 ///
-/// EOF before a signal is a clean direction close and returns `None`. Once a
-/// signal arrives, a missing component is a contextual truncation. Variable
-/// bodies are read at their declared size and validated exactly once, with
-/// supply bodies additionally held to the session's run budget before they
-/// are buffered ([`DecodeErrorKind::OverbatchedRun`]).
+/// EOF before a frame's array head is a clean direction close and returns
+/// `None`. Once that head arrives, a missing component is a contextual
+/// truncation. Variable bodies are read at their declared size and
+/// validated exactly once, with supply bodies additionally held to the
+/// session's run budget before they are buffered
+/// ([`DecodeErrorKind::OverbatchedRun`]).
 pub struct FrameRead<R> {
     speaker: Speaker,
     /// The session's negotiated run budget, enforced on every supply frame
@@ -59,37 +62,33 @@ impl<R: AsyncRead + Unpin> FrameRead<R> {
     /// Not cancel safe. A dropped `frame` future may already have consumed
     /// part of a frame — the exact reads do not give bytes back — leaving
     /// the direction mid-frame, where the next call would parse body bytes
-    /// as a signal. Either retain the in-flight future across polls until
-    /// it resolves, or read nothing further from this direction after a
-    /// cancellation.
+    /// as a frame head. Either retain the in-flight future across polls
+    /// until it resolves, or read nothing further from this direction after
+    /// a cancellation.
     pub async fn frame(&mut self) -> Result<Option<WireFrame>, DecodeError> {
-        let Some((stream, signal)) = read_signal(self.speaker, &mut self.read).await? else {
+        let Some(head) = cbor::read_head_async(&mut self.read)
+            .await
+            .map_err(|e| head_error(FramePart::FrameHead, e))
+            .map_err(|kind| DecodeError::direction(self.speaker, kind))?
+        else {
             return Ok(None);
         };
-        let frame = AsyncFrameDecoder::new(&mut self.read, self.budget)
-            .body(signal)
+        let mut decoder = AsyncFrameDecoder::new(&mut self.read, self.budget);
+        let arity = frame_arity(head).map_err(|kind| DecodeError::direction(self.speaker, kind))?;
+        let signal_head = decoder
+            .head(FramePart::Signal)
             .await
-            .map_err(|kind| DecodeError::stream(self.speaker, stream, kind))?;
+            .map_err(|kind| DecodeError::direction(self.speaker, kind))?;
+        let code =
+            signal_code(signal_head).map_err(|kind| DecodeError::direction(self.speaker, kind))?;
+        let (stream, signal) = decode_signal(self.speaker, code)?;
+        let frame = async {
+            check_arity(signal, arity)?;
+            decoder.body(signal).await
+        }
+        .await
+        .map_err(|kind| DecodeError::stream(self.speaker, stream, kind))?;
         Ok(Some((stream, frame)))
-    }
-}
-
-async fn read_signal(
-    speaker: Speaker,
-    read: &mut (impl AsyncRead + Unpin),
-) -> Result<Option<(Stream, Signal)>, DecodeError> {
-    let mut byte = 0;
-    match read.read(slice::from_mut(&mut byte)).await {
-        Ok(0) => Ok(None),
-        Ok(1) => decode_signal(speaker, byte).map(Some),
-        Ok(_) => unreachable!("a one-byte async read returns at most one byte"),
-        Err(source) => Err(DecodeError::direction(
-            speaker,
-            DecodeErrorKind::Read {
-                part: FramePart::Signal,
-                source,
-            },
-        )),
     }
 }
 
@@ -117,18 +116,25 @@ impl<'a, R: AsyncRead + Unpin> AsyncFrameDecoder<'a, R> {
     }
 
     async fn query(&mut self) -> Result<Vec<(u8, Hash)>, DecodeErrorKind> {
-        let count = usize::from(self.byte(FramePart::QueryCount).await?) + QUERY_COUNT_BIAS;
-        let mut listing = vec![0; count * QUERY_CHILD_LEN];
-        self.read_exact(&mut listing, FramePart::QueryChildren)
-            .await?;
-        parse_query(&listing)
+        let head = self.head(FramePart::QueryChildren).await?;
+        let mut listing = query_listing(head)?;
+        for _ in 0..head.value {
+            let key = self.head(FramePart::QueryChildren).await?;
+            let radix = listing.key(key).map_err(listing_issue)?;
+            let value = self.head(FramePart::QueryChildren).await?;
+            ListingBuilder::value_head(value).map_err(listing_issue)?;
+            let mut digest = [0; MERKLE_HASH_LEN];
+            self.read_exact(&mut digest, FramePart::QueryChildren)
+                .await?;
+            listing.entry(radix, digest);
+        }
+        Ok(listing.finish())
     }
 
     async fn supply(&mut self) -> Result<LeafRun, DecodeErrorKind> {
-        let mut header = [0; LENGTH_HEADER_LEN];
-        self.read_exact(&mut header, FramePart::SupplyLength)
-            .await?;
-        let len = u32::from_be_bytes(header) as usize;
+        let tag = self.head(FramePart::SupplyLength).await?;
+        let body = self.head(FramePart::SupplyLength).await?;
+        let len = run_head(tag, body)?;
         let run = if self.budget.covers(len) {
             read_payload(self.read, len)
                 .await
@@ -138,39 +144,66 @@ impl<'a, R: AsyncRead + Unpin> AsyncFrameDecoder<'a, R> {
             // within, so the one shape an honest encoder can still have
             // produced is a single record spanning the whole body (the
             // minimum-one-record overhang). That is decidable from the
-            // first record's length header alone, so nothing beyond it is
+            // first record's heads alone, so nothing beyond them is
             // read until the frame is known legal: a violating frame is
             // rejected before its body is buffered, keeping the decode
             // inside the memory envelope the budget priced. A body too
-            // short to hold a record header cannot be a lone record and is
-            // rejected on the declared length alone.
+            // short to hold a record's heads cannot be a lone record and
+            // is rejected on the declared length alone.
             let budget = self.budget;
             let overbatched = move || DecodeErrorKind::OverbatchedRun {
                 declared: super::super::budget::SUPPLY_FRAME_OVERHEAD.saturating_add(len),
                 budget: budget.bytes(),
             };
-            if len < LENGTH_HEADER_LEN {
+            if len < super::super::frame::RECORD_TAG_LEN + 1 {
                 return Err(overbatched());
             }
-            let mut first = [0; LENGTH_HEADER_LEN];
-            self.read_exact(&mut first, FramePart::SupplyRun).await?;
-            let record = u32::from_be_bytes(first) as usize;
-            if !lone_record_spans(len, record) {
+            let Some((prefix, record)) = self.record_prefix().await? else {
+                return Err(overbatched());
+            };
+            if !super::super::frame::lone_record_spans(len, record) {
                 return Err(overbatched());
             }
-            // Legal lone record: resume the body read behind the header
+            // Legal lone record: resume the body read behind the heads
             // already consumed, in the same single buffer.
-            resume_payload(self.read, first.to_vec(), len)
+            resume_payload(self.read, prefix, len)
                 .await
                 .map_err(|source| classify(FramePart::SupplyRun, source))?
         };
         Ok(LeafRun::from_encoded(run)?)
     }
 
-    async fn byte(&mut self, part: FramePart) -> Result<u8, DecodeErrorKind> {
-        let mut byte = 0;
-        self.read_exact(slice::from_mut(&mut byte), part).await?;
-        Ok(byte)
+    /// Read the first record's heads inside an over-budget run, returning
+    /// the exact bytes consumed and the record content length.
+    ///
+    /// `None` when they are not a record's heads: over budget, the
+    /// distinction from malformed is moot — either way the frame is not
+    /// the legal overhang.
+    async fn record_prefix(&mut self) -> Result<Option<(Vec<u8>, u64)>, DecodeErrorKind> {
+        let mut prefix = Vec::new();
+        let tag = self.head(FramePart::SupplyRun).await?;
+        cbor::write_head(&mut prefix, tag.major, tag.value);
+        if tag.major != cbor::MAJOR_TAG || tag.value != cbor::TAG_CBOR_SEQUENCE {
+            return Ok(None);
+        }
+        let body = self.head(FramePart::SupplyRun).await?;
+        cbor::write_head(&mut prefix, body.major, body.value);
+        if body.major != cbor::MAJOR_BSTR {
+            return Ok(None);
+        }
+        Ok(Some((prefix, body.value)))
+    }
+
+    async fn head(&mut self, part: FramePart) -> Result<cbor::Head, DecodeErrorKind> {
+        cbor::read_head_async(self.read)
+            .await
+            .map_err(|e| head_error(part, e))?
+            .ok_or_else(|| {
+                head_error(
+                    part,
+                    cbor::HeadReadError::Io(ErrorKind::UnexpectedEof.into()),
+                )
+            })
     }
 
     async fn read_exact(

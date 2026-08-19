@@ -25,9 +25,10 @@ use super::super::{
     DecodeError, DecodeErrorKind, DecodeLeafError, DecodeSignalError, EncodeError, EncodeErrorKind,
     Flow, Frame, FrameWrite, LeafRunError, Reaction, RunBudget, Speaker, Stream, WireFrame, decode,
     decode_exact, encode,
-    frame::{LeafRun, QUERY_CHILD_LEN},
+    frame::LeafRun,
     signal::{Signal, WireSignal},
 };
+use crate::tree::mirror::cbor::{self, MAJOR_BSTR, MAJOR_TAG, TAG_CBOR_SEQUENCE};
 use crate::{Version, message::Message, tree::typed::Hash};
 
 use serde::Serialize;
@@ -48,18 +49,22 @@ const WITNESS_MARKERS: &[&str] = &[
     "kind: Truncated(missing=",
     "kind: QueryOutOfOrder(previous=",
     "kind: InvalidRun::Empty",
-    "kind: InvalidRun::TruncatedHeader(",
+    "kind: InvalidRun::Head(",
+    "kind: InvalidRun::NotARecord(",
     "kind: InvalidRun::TruncatedRecord(",
     "kind: OverbatchedRun(declared=",
     "kind: TrailingBytes(count=",
+    "kind: FrameShape(",
+    "kind: FrameArity(",
+    "kind: Malformed(part=",
     // DecodeLeafError (describe_leaf_kind).
     "kind: Record::Version(io=",
     "kind: Record::Message(io=",
     // FramePart: every frame component must fail somewhere. These ride the
     // encode Write witnesses; FramePart has no exhaustive match here, so a
     // new component's marker must be added by hand alongside its witnesses.
+    "part=FrameHead",
     "part=Signal",
-    "part=QueryCount",
     "part=QueryChildren",
     "part=SupplyLength",
     "part=SupplyRun",
@@ -69,8 +74,8 @@ const WITNESS_MARKERS: &[&str] = &[
 /// unreachable without resource exhaustion.
 const EXEMPT_MARKERS: &[(&str, &str)] = &[(
     "kind: SupplyTooLarge(",
-    "requires a run body past the u32 frame ceiling: a >4 GiB in-memory run \
-     is resource exhaustion by construction; the ceiling itself is pinned at \
+    "requires a run body past the wire's run byte cap: a >4 GiB in-memory \
+     run is resource exhaustion by construction; the cap itself is pinned at \
      its exact boundary in frame/tests.rs",
 )];
 
@@ -142,12 +147,15 @@ fn encode_errors(atlas: &mut String) {
     );
 
     for speaker in [Speaker::Initiator, Speaker::Responder] {
+        // Offsets in whole delivered bytes: the interior-stream query and
+        // supply frames open with a three-byte frame head (one array byte,
+        // a two-byte signal head), and the small supply run's own heads
+        // take three more.
         for (label, frame, offset) in [
-            ("write/signal", &query, 0),
-            ("write/query-count", &query, 1),
-            ("write/query-children", &query, 2),
-            ("write/supply-length", &supply, 1),
-            ("write/supply-run", &supply, 5),
+            ("write/frame-head", &query, 0),
+            ("write/query-children", &query, 3),
+            ("write/supply-length", &supply, 3),
+            ("write/supply-run", &supply, 6),
         ] {
             let error = encode(speaker, frame, &mut FailAfterWriter::new(offset)).unwrap_err();
             record_encode(atlas, &format!("{speaker:?}/{label}"), &error);
@@ -188,24 +196,32 @@ fn decode_errors(atlas: &mut String) {
     );
 
     for speaker in [Speaker::Initiator, Speaker::Responder] {
+        // The three-byte frame head and the small supply run's heads
+        // locate every read failure below.
         let error = decode(
             speaker,
             RunBudget::default(),
             &mut FailAfterReader::new(matched.clone(), 0),
         )
         .unwrap_err();
+        record_decode(atlas, &format!("{speaker:?}/read/frame-head"), &error);
+
+        let error = decode(
+            speaker,
+            RunBudget::default(),
+            &mut FailAfterReader::new(matched.clone(), 1),
+        )
+        .unwrap_err();
         record_decode(atlas, &format!("{speaker:?}/read/signal"), &error);
 
-        for (label, offset) in [("query-count", 1), ("query-children", 2)] {
-            let error = decode(
-                speaker,
-                RunBudget::default(),
-                &mut FailAfterReader::new(query.clone(), offset),
-            )
-            .unwrap_err();
-            record_decode(atlas, &format!("{speaker:?}/read/{label}"), &error);
-        }
-        for (label, offset) in [("supply-length", 1), ("supply-run", 5)] {
+        let error = decode(
+            speaker,
+            RunBudget::default(),
+            &mut FailAfterReader::new(query.clone(), 3),
+        )
+        .unwrap_err();
+        record_decode(atlas, &format!("{speaker:?}/read/query-children"), &error);
+        for (label, offset) in [("supply-length", 3), ("supply-run", 6)] {
             let error = decode(
                 speaker,
                 RunBudget::default(),
@@ -216,23 +232,53 @@ fn decode_errors(atlas: &mut String) {
         }
 
         for (label, bytes) in [
-            ("signal", &[][..]),
-            ("query-count", &query[..1]),
-            ("query-children", &query[..2]),
-            ("supply-length", &supply[..1]),
-            ("supply-run", &supply[..5]),
+            ("frame-head", &[][..]),
+            ("signal", &matched[..1]),
+            ("query-children", &query[..3]),
+            ("supply-length", &supply[..4]),
+            ("supply-run", &supply[..6]),
         ] {
             let error = decode_exact(speaker, RunBudget::default(), bytes).unwrap_err();
             record_decode(atlas, &format!("{speaker:?}/truncated/{label}"), &error);
         }
 
-        let error =
-            decode_exact(speaker, RunBudget::default(), &[FIRST_RESERVED_SIGNAL]).unwrap_err();
+        let mut reserved = Vec::new();
+        cbor::write_head(&mut reserved, cbor::MAJOR_ARRAY, 1);
+        cbor::write_head(
+            &mut reserved,
+            cbor::MAJOR_UINT,
+            u64::from(FIRST_RESERVED_SIGNAL),
+        );
+        let error = decode_exact(speaker, RunBudget::default(), &reserved).unwrap_err();
         record_decode(atlas, &format!("{speaker:?}/reserved-signal"), &error);
 
-        let mut unordered = query.clone();
-        unordered[2] = 2;
-        unordered[2 + QUERY_CHILD_LEN] = 1;
+        // The frame item's own shape violations: a non-array item, an
+        // arity contradicting the signal, and non-canonical heads.
+        let error = decode_exact(speaker, RunBudget::default(), &[0x00]).unwrap_err();
+        record_decode(atlas, &format!("{speaker:?}/frame/not-an-array"), &error);
+
+        let mut mismatched = Vec::new();
+        cbor::write_head(&mut mismatched, cbor::MAJOR_ARRAY, 2);
+        mismatched.extend_from_slice(&matched[1..]);
+        let error = decode_exact(speaker, RunBudget::default(), &mismatched).unwrap_err();
+        record_decode(atlas, &format!("{speaker:?}/frame/arity"), &error);
+
+        // The matched frame's signal is a one-byte head (a small code),
+        // so its code byte is the head itself; respell it widened.
+        let widened = [0x81, 0x19, 0x00, matched[1]];
+        let error = decode_exact(speaker, RunBudget::default(), &widened).unwrap_err();
+        record_decode(atlas, &format!("{speaker:?}/frame/widened-signal"), &error);
+
+        let unordered = encoded(
+            speaker,
+            (
+                stream,
+                Frame::Reaction(
+                    Reaction::Query(vec![(2, Hash::default()), (1, Hash::default())]),
+                    Flow::Continue,
+                ),
+            ),
+        );
         let error = decode_exact(speaker, RunBudget::default(), &unordered).unwrap_err();
         record_decode(atlas, &format!("{speaker:?}/query-out-of-order"), &error);
 
@@ -250,9 +296,19 @@ fn decode_errors(atlas: &mut String) {
             &raw_supply(stream, Flow::Continue, &[0, 0]),
         )
         .unwrap_err();
-        record_decode(atlas, &format!("{speaker:?}/run/truncated-header"), &error);
+        record_decode(atlas, &format!("{speaker:?}/run/not-a-record"), &error);
 
-        let mut overrun = 2_u32.to_be_bytes().to_vec();
+        let error = decode_exact(
+            speaker,
+            RunBudget::default(),
+            &raw_supply(stream, Flow::Continue, &[0xd8, 0x3f, 0x58, 0x01, 0x00]),
+        )
+        .unwrap_err();
+        record_decode(atlas, &format!("{speaker:?}/run/widened-head"), &error);
+
+        let mut overrun = Vec::new();
+        cbor::write_head(&mut overrun, MAJOR_TAG, TAG_CBOR_SEQUENCE);
+        cbor::write_head(&mut overrun, MAJOR_BSTR, 2);
         overrun.push(0);
         let error = decode_exact(
             speaker,
@@ -289,7 +345,10 @@ fn decode_errors(atlas: &mut String) {
     for (label, speaker, stream, frame) in placement_witnesses() {
         let signal = frame_signal(&frame);
         let invalid = WireSignal::new(speaker, stream, signal).unwrap_err();
-        let error = decode_exact(speaker, RunBudget::default(), &[invalid.byte()]).unwrap_err();
+        let mut bytes = Vec::new();
+        cbor::write_head(&mut bytes, cbor::MAJOR_ARRAY, 1);
+        cbor::write_head(&mut bytes, cbor::MAJOR_UINT, u64::from(invalid.byte()));
+        let error = decode_exact(speaker, RunBudget::default(), &bytes).unwrap_err();
         record_decode(atlas, &format!("{label}/decode"), &error);
     }
 }
@@ -302,13 +361,15 @@ fn decode_errors(atlas: &mut String) {
 fn record_errors(atlas: &mut String) {
     writeln!(atlas, "RECORD").unwrap();
 
-    // A zero-length record is structurally valid; its empty body fails
-    // at the version decoder.
+    // An empty-content record is structurally valid; its missing
+    // version-atom tag fails at the version decoder.
     let run = LeafRun::from_encoded(framed_record(&[])).unwrap();
     record_leaf(atlas, "record/version", &next_record_error(&run));
 
-    // A record ending after its version fails at the message decoder.
+    // A record ending after its tagged version fails at the message
+    // decoder.
     let mut version = Vec::new();
+    cbor::write_head(&mut version, MAJOR_TAG, crate::tags::VERSION_TAG);
     ciborium::ser::into_writer(&Version::new(), &mut version).unwrap();
     let run = LeafRun::from_encoded(framed_record(&version)).unwrap();
     record_leaf(atlas, "record/message", &next_record_error(&run));
@@ -322,9 +383,12 @@ fn record_errors(atlas: &mut String) {
     record_leaf(atlas, "record/trailing", &next_record_error(&run));
 }
 
-/// Frame one record body with its length header, as a run body.
+/// Frame one record content behind its embedded-sequence heads, as a run
+/// body.
 fn framed_record(record: &[u8]) -> Vec<u8> {
-    let mut body = (record.len() as u32).to_be_bytes().to_vec();
+    let mut body = Vec::new();
+    cbor::write_head(&mut body, MAJOR_TAG, TAG_CBOR_SEQUENCE);
+    cbor::write_head(&mut body, MAJOR_BSTR, record.len() as u64);
     body.extend_from_slice(record);
     body
 }
@@ -393,8 +457,11 @@ fn raw_supply(stream: Stream, flow: Flow, body: &[u8]) -> Vec<u8> {
     let signal = WireSignal::new(Speaker::Initiator, stream, Signal::Supply(flow))
         .unwrap()
         .to_byte();
-    let mut encoded = vec![signal];
-    encoded.extend_from_slice(&(body.len() as u32).to_be_bytes());
+    let mut encoded = Vec::new();
+    cbor::write_head(&mut encoded, cbor::MAJOR_ARRAY, 2);
+    cbor::write_head(&mut encoded, cbor::MAJOR_UINT, u64::from(signal));
+    cbor::write_head(&mut encoded, MAJOR_TAG, TAG_CBOR_SEQUENCE);
+    cbor::write_head(&mut encoded, MAJOR_BSTR, body.len() as u64);
     encoded.extend_from_slice(body);
     encoded
 }
@@ -482,8 +549,22 @@ fn describe_decode_kind(out: &mut String, kind: &DecodeErrorKind) {
         DecodeErrorKind::InvalidRun(LeafRunError::Empty) => {
             write!(out, "InvalidRun::Empty").unwrap()
         }
-        DecodeErrorKind::InvalidRun(LeafRunError::TruncatedHeader { remaining }) => {
-            write!(out, "InvalidRun::TruncatedHeader(remaining={remaining})").unwrap()
+        DecodeErrorKind::InvalidRun(LeafRunError::Head { remaining, source }) => write!(
+            out,
+            "InvalidRun::Head(remaining={remaining}, source={source})"
+        )
+        .unwrap(),
+        DecodeErrorKind::InvalidRun(LeafRunError::NotARecord { remaining, detail }) => write!(
+            out,
+            "InvalidRun::NotARecord(remaining={remaining}, {detail})"
+        )
+        .unwrap(),
+        DecodeErrorKind::FrameShape { detail } => write!(out, "FrameShape({detail})").unwrap(),
+        DecodeErrorKind::FrameArity { expected, found } => {
+            write!(out, "FrameArity(expected={expected}, found={found})").unwrap()
+        }
+        DecodeErrorKind::Malformed { part, detail } => {
+            write!(out, "Malformed(part={part:?}, {detail})").unwrap()
         }
         DecodeErrorKind::InvalidRun(LeafRunError::TruncatedRecord { len, remaining }) => write!(
             out,

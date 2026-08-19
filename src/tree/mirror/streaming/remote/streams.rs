@@ -22,7 +22,7 @@
 //! labels each opened stream with the session epoch and its logical stream
 //! index before the first frame. The session's [`AcceptDriver`] — the sole
 //! reader of the link's acceptor — validates each label and delivers the
-//! stream to the one claim slot it names. Every frame's signal byte then
+//! stream to the one claim slot it names. Every frame's signal then
 //! re-states the stream index; [`StreamReceiver`] holds each frame to exact
 //! agreement with the claimed label, so a routing mistake in a caller-built
 //! link surfaces as a first-frame [`StreamError::Mislabeled`] instead of as
@@ -41,7 +41,7 @@ use std::task::{Context, Poll};
 use async_stream::stream;
 use futures::{StreamExt, stream::BoxStream};
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::AsyncWriteExt,
     sync::{mpsc, oneshot},
 };
 
@@ -53,15 +53,17 @@ use super::codec::{
     DecodeError, EncodeError, End, Frame, FrameRead, FrameWrite, Origin, RunBudget, Speaker, Stream,
 };
 
-/// Bytes of the label a sender writes before its first frame.
+/// Render the label naming one opened stream: two CBOR unsigned-int
+/// items, the session epoch then the stream index.
 ///
-/// The canonical definition of the wire label's width: the capture
-/// harnesses parse labels with this same constant.
-pub(crate) const LABEL_LEN: usize = 2;
-
-/// Render the label naming one opened stream: session epoch, stream index.
-fn label(epoch: u8, stream: Stream) -> [u8; LABEL_LEN] {
-    [epoch, stream.index()]
+/// The canonical definition of the wire label's spelling: the capture
+/// harnesses parse labels through the same head grammar.
+fn label(epoch: u8, stream: Stream) -> Vec<u8> {
+    use crate::tree::mirror::cbor::{self, MAJOR_UINT};
+    let mut label = Vec::with_capacity(cbor::head_len(u64::from(epoch)) + 1);
+    cbor::write_head(&mut label, MAJOR_UINT, u64::from(epoch));
+    cbor::write_head(&mut label, MAJOR_UINT, u64::from(stream.index()));
+    label
 }
 
 /// Number of logical streams per direction, as an array dimension.
@@ -247,7 +249,7 @@ pub enum StreamError {
     /// The incoming frame codec rejected bytes or the transport failed.
     #[error(transparent)]
     Decode(#[from] DecodeError),
-    /// A frame's signal byte named a stream other than the claimed label.
+    /// A frame's signal named a stream other than the claimed label.
     #[error(
         "{origin}: stream labeled {} carried a frame for {}",
         labeled.index(),
@@ -683,12 +685,8 @@ impl<A: Acceptor> AcceptDriver<A> {
             .accept()
             .await
             .map_err(AcceptFate::SupplyFailed)?;
-        let mut bytes = [0u8; LABEL_LEN];
-        rx.read_exact(&mut bytes)
-            .await
-            .map_err(AcceptFate::SupplyFailed)?;
-        let [epoch, index] = bytes;
-        if epoch != self.epoch {
+        let epoch = label_item(self.speaker, &mut rx).await?;
+        if epoch != u64::from(self.epoch) {
             return Err(AcceptError::Epoch {
                 origin: Origin::direction(self.speaker),
                 expected: self.epoch,
@@ -696,10 +694,14 @@ impl<A: Acceptor> AcceptDriver<A> {
             }
             .into());
         }
-        let stream = Stream::new(index).map_err(|_| AcceptError::UnknownStream {
-            origin: Origin::direction(self.speaker),
-            index,
-        })?;
+        let index = label_item(self.speaker, &mut rx).await?;
+        let stream = u8::try_from(index)
+            .ok()
+            .and_then(|index| Stream::new(index).ok())
+            .ok_or(AcceptError::UnknownStream {
+                origin: Origin::direction(self.speaker),
+                index,
+            })?;
         let slot =
             self.slots.slots[usize::from(stream.index())]
                 .take()
@@ -714,6 +716,33 @@ impl<A: Acceptor> AcceptDriver<A> {
                 origin: Origin::stream(self.speaker, stream),
             })
         })
+    }
+}
+
+/// Read one label item: a canonical unsigned int. A transport failure
+/// (a close mid-label included) defers to whoever needed the stream; a
+/// present-but-malformed item is the peer's violation.
+async fn label_item(
+    speaker: Speaker,
+    rx: &mut (impl tokio::io::AsyncRead + Unpin),
+) -> Result<u64, AcceptFate> {
+    use crate::tree::mirror::cbor;
+    match cbor::read_head_async(rx).await {
+        Ok(Some(head)) if head.major == cbor::MAJOR_UINT => Ok(head.value),
+        Ok(Some(_)) => Err(AcceptError::Label {
+            origin: Origin::direction(speaker),
+            detail: "label item is not an unsigned int",
+        }
+        .into()),
+        Ok(None) => Err(AcceptFate::SupplyFailed(
+            std::io::ErrorKind::UnexpectedEof.into(),
+        )),
+        Err(cbor::HeadReadError::Io(io)) => Err(AcceptFate::SupplyFailed(io)),
+        Err(cbor::HeadReadError::Malformed(_)) => Err(AcceptError::Label {
+            origin: Origin::direction(speaker),
+            detail: "label head is not canonical",
+        }
+        .into()),
     }
 }
 
@@ -746,11 +775,17 @@ pub enum AcceptError {
     Epoch {
         origin: Origin,
         expected: u8,
-        actual: u8,
+        actual: u64,
     },
     /// A stream's label named no logical stream.
     #[error("{origin}: stream labeled with unknown stream index {index}")]
-    UnknownStream { origin: Origin, index: u8 },
+    UnknownStream { origin: Origin, index: u64 },
+    /// A stream's label was not a pair of canonical unsigned-int items.
+    #[error("{origin}: stream label is malformed: {detail}")]
+    Label {
+        origin: Origin,
+        detail: &'static str,
+    },
     /// A second stream arrived bearing an already-delivered label.
     #[error("{origin}: peer opened the logical stream twice")]
     Duplicate { origin: Origin },

@@ -1,13 +1,13 @@
 //! Ingress validation of the trailing party-donation frame.
 //!
 //! The donated identity is the last peer-controlled payload of a bootstrap
-//! or retire session: one length-delimited frame whose body must be exactly
-//! one canonical party encoding. This suite feeds [`receive`] crafted frames
-//! — truncations at each structural boundary, length lies in both
-//! directions, trailing and arbitrary bodies — and pins that each surfaces
-//! as the typed [`Error::Io`], never a panic, never a hang, and never a
-//! partial identity; and that a clean receive leaves the next session's
-//! bytes untouched in the transport.
+//! or retire session: one party-atom-tagged byte string whose content must
+//! be exactly one canonical party encoding. This suite feeds [`receive`]
+//! crafted items — truncations at each structural boundary, length lies in
+//! both directions, wrong tags, trailing and arbitrary bodies — and pins
+//! that each surfaces as the typed [`Error::Io`], never a panic, never a
+//! hang, and never a partial identity; and that a clean receive leaves the
+//! next session's bytes untouched in the transport.
 
 use before::Party;
 use proptest::collection::vec;
@@ -15,20 +15,23 @@ use proptest::prelude::*;
 
 use super::{receive, send};
 use crate::Error;
+use crate::Protocol;
 use crate::tree::arb::nth_party;
-use crate::tree::mirror::framing::LENGTH_HEADER_LEN;
+use crate::tree::mirror::cbor::{self, MAJOR_BSTR};
 
-/// Length-delimit one frame body exactly as [`send`] does.
+/// Wrap one item content exactly as [`send`] does: the party-atom tag,
+/// then a byte string of the content.
 fn frame(body: &[u8]) -> Vec<u8> {
-    let len = u32::try_from(body.len()).expect("test frame bodies fit in u32");
-    let mut bytes = len.to_be_bytes().to_vec();
+    let mut bytes = Vec::new();
+    cbor::write_tag(&mut bytes, crate::tags::PARTY_TAG);
+    cbor::write_head(&mut bytes, MAJOR_BSTR, body.len() as u64);
     bytes.extend_from_slice(body);
     bytes
 }
 
 /// Receive a donation from crafted wire bytes through the production ingress.
 fn receive_party(bytes: &[u8]) -> Result<Party, Error> {
-    pollster::block_on(async { receive(&mut &bytes[..]).await })
+    pollster::block_on(async { receive(Protocol::V2, &mut &bytes[..]).await })
 }
 
 /// Unwrap the sole error variant this ingress can produce.
@@ -50,29 +53,51 @@ fn io_error(result: Result<Party, Error>) -> std::io::Error {
 fn a_donated_party_round_trips() {
     pollster::block_on(async {
         let mut wire = Vec::new();
-        send(nth_party(3), &mut wire).await.expect("donation sends");
-        let received = receive(&mut &wire[..])
+        send(Protocol::V2, nth_party(3), &mut wire)
+            .await
+            .expect("donation sends");
+        let received = receive(Protocol::V2, &mut &wire[..])
             .await
             .expect("a canonical donation decodes");
         assert_eq!(received, nth_party(3));
     });
 }
 
-/// A peer that closes before or inside the frame header is a typed EOF.
+/// A peer that closes before or inside the item's heads is a typed EOF.
 ///
-/// Every strict prefix of the four-byte length header — the close at the
-/// boundary included — must resolve to [`Error::Io`] with `UnexpectedEof`,
-/// never a hang on bytes that cannot arrive.
+/// Every strict prefix of the tag and byte-string heads — the close at
+/// each boundary included — must resolve to [`Error::Io`] with
+/// `UnexpectedEof`, never a hang on bytes that cannot arrive.
 #[test]
 fn truncated_frame_header_is_a_typed_eof() {
-    for cut in 0..LENGTH_HEADER_LEN {
-        let error = io_error(receive_party(&vec![0; cut]));
+    let heads = frame(&[0]);
+    let heads = &heads[..heads.len() - 1];
+    for cut in 0..heads.len() {
+        let error = io_error(receive_party(&heads[..cut]));
         assert_eq!(
             error.kind(),
             std::io::ErrorKind::UnexpectedEof,
-            "cut after {cut} header bytes must be an unexpected EOF",
+            "cut after {cut} head bytes must be an unexpected EOF",
         );
     }
+}
+
+/// An item that is not the party-atom tag is a typed protocol violation.
+///
+/// The tag is the hand-off's identity on the wire; a different tag (or a
+/// bare byte string) must surface as `InvalidData`, never decode.
+#[test]
+fn wrong_tag_is_a_typed_error() {
+    let mut wrong = Vec::new();
+    cbor::write_tag(&mut wrong, crate::tags::VERSION_TAG);
+    cbor::write_head(&mut wrong, MAJOR_BSTR, 0);
+    let error = io_error(receive_party(&wrong));
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+
+    let mut bare = Vec::new();
+    cbor::write_head(&mut bare, MAJOR_BSTR, 0);
+    let error = io_error(receive_party(&bare));
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
 }
 
 /// A frame declaring more bytes than the peer sends is a typed EOF.
@@ -82,7 +107,9 @@ fn truncated_frame_header_is_a_typed_eof() {
 /// never as a partially filled body handed to the party decoder.
 #[test]
 fn over_declared_frame_is_a_typed_eof() {
-    let mut bytes = 16_u32.to_be_bytes().to_vec();
+    let mut bytes = Vec::new();
+    cbor::write_tag(&mut bytes, crate::tags::PARTY_TAG);
+    cbor::write_head(&mut bytes, MAJOR_BSTR, 16);
     bytes.extend_from_slice(&[1, 2, 3, 4]);
 
     let error = io_error(receive_party(&bytes));
@@ -140,11 +167,13 @@ fn trailing_frame_bytes_are_rejected() {
 fn bytes_after_the_frame_stay_untouched() {
     pollster::block_on(async {
         let mut wire = Vec::new();
-        send(nth_party(3), &mut wire).await.expect("donation sends");
+        send(Protocol::V2, nth_party(3), &mut wire)
+            .await
+            .expect("donation sends");
         wire.extend_from_slice(b".RUMORS");
 
         let mut cursor = &wire[..];
-        receive(&mut cursor)
+        receive(Protocol::V2, &mut cursor)
             .await
             .expect("a canonical donation decodes");
         assert_eq!(cursor, b".RUMORS", "bytes after the donation were consumed");

@@ -3,90 +3,109 @@ source: tests/gossip_snapshot.rs
 expression: capture
 ---
 direction A -> B
-preamble: 25 bytes
-  0000: 52 55 4d 4f 52 53 00 02
-  0008: 8c 18 96 68 c9 e4 83 72
-  0010: 37 bf 31 e0 2d 7f 6b 70
-  0018: 00
+preamble: 30 bytes
+  0000: d9 d9 f7 84 66 72 75 6d
+  0008: 6f 72 73 02 50 8c 18 96
+  0010: 68 c9 e4 83 72 37 bf 31
+  0018: e0 2d 7f 6b 70 00
 version: (0, 126, 0)
-greeting words: set len 2, version-size bound 4, message-size target 1638912
-version frame: 32 bytes
-  0000: 00 00 00 1c 02 00 00 00
-  0008: 00 00 00 00 04 00 00 00
-  0010: 00 00 00 00 00 02 19 00
-  0018: 00 00 00 00 40 ff 01 f9
+greeting words: set len 2, version-size bound 4, message-size target 1830400
 listing: 1 child(ren)
   child 0x1b: 4c9f80ab8bdeed98a72d4976c2879ccd5cb17e2aeacd24d3
-listing frame: 29 bytes
-  0000: 00 00 00 19 1b 4c 9f 80
-  0008: ab 8b de ed 98 a7 2d 49
-  0010: 76 c2 87 9c cd 5c b1 7e
-  0018: 2a ea cd 24 d3
+greeting frame: 127 bytes
+  0000: d8 18 58 7b a6 67 6c 69
+  0008: 73 74 69 6e 67 a1 18 1b
+  0010: 58 18 4c 9f 80 ab 8b de
+  0018: ed 98 a7 2d 49 76 c2 87
+  0020: 9c cd 5c b1 7e 2a ea cd
+  0028: 24 d3 67 73 65 74 5f 6c
+  0030: 65 6e 02 67 76 65 72 73
+  0038: 69 6f 6e d9 d2 56 44 40
+  0040: ff 01 f9 68 70 72 6f 74
+  0048: 6f 63 6f 6c 66 72 75 6d
+  0050: 6f 72 73 71 6d 61 78 5f
+  0058: 76 65 72 73 69 6f 6e 5f
+  0060: 62 79 74 65 73 04 73 74
+  0068: 61 72 67 65 74 5f 6d 65
+  0070: 73 73 61 67 65 5f 73 69
+  0078: 7a 65 1a 00 1b ee 00
 Initiator stream 0 (height 31), epoch 0
   frame 0: Supply(End)
     supply run: 2 record(s)
       record 0: version (0, 31, 0), message 2 byte(s)
       record 1: version (0, 4, 0), message 1 byte(s)
-    0000: 77 00 00 00 13 00 00 00
-    0008: 07 44 41 04 1f 40 18 1e
-    0010: 00 00 00 04 42 4b 11 03
+    0000: 82 18 77 d8 3f 57 d8 3f
+    0008: 4a d9 d2 56 44 41 04 1f
+    0010: 40 18 1e d8 3f 47 d9 d2
+    0018: 56 42 4b 11 03
   frame 1: End(Stream)
-    0000: 99
+    0000: 81 18 99
 Initiator stream 1 (height 30), epoch 0
   frame 0: End(Reply)
-    0000: 89
+    0000: 81 18 89
   frame 1: End(Stream)
-    0000: 9a
-trailing frame: 1 bytes
-  0000: 2e
+    0000: 81 18 9a
+trailing frame: 2 bytes
+  0000: 61 2e
 
 direction B -> A
-preamble: 25 bytes
-  0000: 52 55 4d 4f 52 53 00 02
-  0008: 8c 18 96 68 c9 e4 83 72
-  0010: 37 bf 31 e0 2d 7f 6b 70
-  0018: 00
+preamble: 30 bytes
+  0000: d9 d9 f7 84 66 72 75 6d
+  0008: 6f 72 73 02 50 8c 18 96
+  0010: 68 c9 e4 83 72 37 bf 31
+  0018: e0 2d 7f 6b 70 00
 version: (0, 0, 29)
-greeting words: set len 3, version-size bound 2, message-size target 1638912
-version frame: 30 bytes
-  0000: 00 00 00 1a 03 00 00 00
-  0008: 00 00 00 00 02 00 00 00
-  0010: 00 00 00 00 00 02 19 00
-  0018: 00 00 00 00 70 77
+greeting words: set len 3, version-size bound 2, message-size target 1830400
 listing: 3 child(ren)
   child 0x1a: f1f3aa8a784d1361fc809d57df14a1955f8956c55e120e19
   child 0x36: a93c14a59c62f37321d21557b0e821de471a7e3d079c6fce
   child 0xf2: 42bb8c7ce00cc0681c05edde50af1bd47d5d94d0a136c882
-listing frame: 79 bytes
-  0000: 00 00 00 4b 1a f1 f3 aa
-  0008: 8a 78 4d 13 61 fc 80 9d
-  0010: 57 df 14 a1 95 5f 89 56
-  0018: c5 5e 12 0e 19 36 a9 3c
-  0020: 14 a5 9c 62 f3 73 21 d2
-  0028: 15 57 b0 e8 21 de 47 1a
-  0030: 7e 3d 07 9c 6f ce f2 42
-  0038: bb 8c 7c e0 0c c0 68 1c
-  0040: 05 ed de 50 af 1b d4 7d
-  0048: 5d 94 d0 a1 36 c8 82
+greeting frame: 181 bytes
+  0000: d8 18 58 b1 a6 67 6c 69
+  0008: 73 74 69 6e 67 a3 18 1a
+  0010: 58 18 f1 f3 aa 8a 78 4d
+  0018: 13 61 fc 80 9d 57 df 14
+  0020: a1 95 5f 89 56 c5 5e 12
+  0028: 0e 19 18 36 58 18 a9 3c
+  0030: 14 a5 9c 62 f3 73 21 d2
+  0038: 15 57 b0 e8 21 de 47 1a
+  0040: 7e 3d 07 9c 6f ce 18 f2
+  0048: 58 18 42 bb 8c 7c e0 0c
+  0050: c0 68 1c 05 ed de 50 af
+  0058: 1b d4 7d 5d 94 d0 a1 36
+  0060: c8 82 67 73 65 74 5f 6c
+  0068: 65 6e 03 67 76 65 72 73
+  0070: 69 6f 6e d9 d2 56 42 70
+  0078: 77 68 70 72 6f 74 6f 63
+  0080: 6f 6c 66 72 75 6d 6f 72
+  0088: 73 71 6d 61 78 5f 76 65
+  0090: 72 73 69 6f 6e 5f 62 79
+  0098: 74 65 73 02 73 74 61 72
+  00a0: 67 65 74 5f 6d 65 73 73
+  00a8: 61 67 65 5f 73 69 7a 65
+  00b0: 1a 00 1b ee 00
 Responder stream 0 (height 31), epoch 0
   frame 0: Supply(Continue)
     supply run: 1 record(s)
       record 0: version (0, 0, 3), message 3 byte(s)
-    0000: 66 00 00 00 0a 00 00 00
-    0008: 06 42 73 c0 19 27 12
+    0000: 82 18 66 d8 3f 4c d8 3f
+    0008: 49 d9 d2 56 42 73 c0 19
+    0010: 27 12
   frame 1: QueryEmpty(Continue)
-    0000: 22
+    0000: 81 18 22
   frame 2: Supply(Continue)
     supply run: 1 record(s)
       record 0: version (0, 0, 2), message 3 byte(s)
-    0000: 66 00 00 00 0a 00 00 00
-    0008: 06 42 72 c0 19 27 11
+    0000: 82 18 66 d8 3f 4c d8 3f
+    0008: 49 d9 d2 56 42 72 c0 19
+    0010: 27 11
   frame 3: Supply(End)
     supply run: 1 record(s)
       record 0: version (0, 0, 1), message 3 byte(s)
-    0000: 77 00 00 00 09 00 00 00
-    0008: 05 41 77 19 27 10
+    0000: 82 18 77 d8 3f 4b d8 3f
+    0008: 48 d9 d2 56 41 77 19 27
+    0010: 10
   frame 4: End(Stream)
-    0000: 99
-trailing frame: 1 bytes
-  0000: 2e
+    0000: 81 18 99
+trailing frame: 2 bytes
+  0000: 61 2e

@@ -1,4 +1,4 @@
-//! The dense signal byte and its semantic components.
+//! The dense signal code and its semantic components.
 
 use crate::tree::typed::height::{Height, Root, UnderRoot, Z};
 
@@ -178,7 +178,7 @@ impl Flow {
     }
 }
 
-/// The semantic state carried alongside a stream id in one signal byte.
+/// The semantic state carried alongside a stream id in one signal code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Signal {
     Match(Flow),
@@ -271,8 +271,11 @@ pub struct WireSignal {
 }
 
 impl WireSignal {
-    /// Bytes occupied by a densely encoded signal.
-    pub const ENCODED_LEN: usize = std::mem::size_of::<u8>();
+    /// Widest head a dense signal code occupies as a CBOR unsigned int
+    /// item: every code of 24 and above takes a two-byte head, and the
+    /// code space tops out at 169.
+    pub const MAX_ENCODED_LEN: usize =
+        crate::tree::mirror::cbor::head_len((Signal::STATE_COUNT * Stream::COUNT - 1) as u64);
 
     /// Byte values occupied by the syntactic `(signal state, stream)` product.
     #[cfg(test)]
@@ -288,7 +291,7 @@ impl WireSignal {
         Self::pair(stream, signal).validate(speaker)
     }
 
-    /// Parse and validate a dense wire byte for its speaker's protocol phase.
+    /// Parse and validate a dense code for its speaker's protocol phase.
     pub fn from_byte(speaker: Speaker, byte: u8) -> Result<Self, DecodeSignalError> {
         Self::parse(byte)?.validate(speaker).map_err(Into::into)
     }
@@ -342,7 +345,7 @@ impl WireSignal {
         }
     }
 
-    /// Render the paired stream and semantic signal as one dense wire byte.
+    /// Render the paired stream and semantic signal as the dense code.
     pub fn to_byte(self) -> u8 {
         self.signal.state() * Stream::COUNT + self.stream.index()
     }
@@ -355,14 +358,14 @@ impl WireSignal {
 
 /// A valid signal state placed on a stream where the protocol forbids it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("signal byte {byte:#04x} is invalid for {class}")]
+#[error("signal code {byte:#04x} is invalid for {class}")]
 pub struct InvalidSignalPlacement {
     byte: u8,
     class: StreamClass,
 }
 
 impl InvalidSignalPlacement {
-    /// Return the rejected dense wire byte.
+    /// Return the rejected dense code.
     pub fn byte(self) -> u8 {
         self.byte
     }
@@ -373,7 +376,7 @@ impl InvalidSignalPlacement {
     }
 }
 
-/// A syntactically invalid signal byte or a valid state in an invalid phase.
+/// A syntactically invalid signal code or a valid state in an invalid phase.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum DecodeSignalError {
     #[error(transparent)]
@@ -392,9 +395,9 @@ impl DecodeSignalError {
     }
 }
 
-/// A reserved dense signal byte and the stream encoded within it.
+/// A reserved dense signal code and the stream encoded within it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("signal byte {byte:#04x} encodes an invalid semantic state")]
+#[error("signal code {byte:#04x} encodes an invalid semantic state")]
 pub struct InvalidWireSignal {
     byte: u8,
     stream: Stream,
@@ -403,7 +406,7 @@ pub struct InvalidWireSignal {
 }
 
 impl InvalidWireSignal {
-    /// Return the rejected dense wire byte.
+    /// Return the rejected dense code.
     pub fn byte(self) -> u8 {
         self.byte
     }

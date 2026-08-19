@@ -442,8 +442,8 @@ fn handshake_flushes_over_buffering_transport() {
             let mut b_r = b_r;
             let mut a_w = HoldUntilFlush::new(a_w);
             let mut b_w = HoldUntilFlush::new(b_w);
-            let mut a_staged = handshake::Staged::new();
-            let mut b_staged = handshake::Staged::new();
+            let mut a_staged = handshake::Staged::new(crate::Protocol::V1);
+            let mut b_staged = handshake::Staged::new(crate::Protocol::V1);
 
             // The preamble carries only magic + version + network + intent, so
             // this exercises purely the flush/deadlock behavior of the framed

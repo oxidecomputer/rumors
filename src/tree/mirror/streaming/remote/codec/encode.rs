@@ -3,10 +3,7 @@
 #[cfg(test)]
 use std::io::Write;
 
-use crate::tree::{
-    mirror::framing::{LENGTH_HEADER_LEN, length_header},
-    typed::Hash,
-};
+use crate::tree::mirror::cbor::{self, MAJOR_ARRAY, MAJOR_BSTR, MAJOR_UINT, TAG_CBOR_SEQUENCE};
 
 mod async_io;
 
@@ -14,7 +11,7 @@ pub use async_io::FrameWrite;
 
 use super::{
     error::EncodeErrorKind,
-    frame::{Frame, LeafRun, QUERY_COUNT_BIAS, Reaction},
+    frame::{Frame, LeafRun, Reaction, write_listing},
     signal::{Signal, Stream, WireSignal},
 };
 #[cfg(test)]
@@ -42,20 +39,22 @@ pub fn encode<W: Write>(
 /// The encoder is not a trust boundary: phase placement, query ordering, and
 /// run record framing are guaranteed by its callers and checked only when
 /// bytes enter from the wire. Construction performs only the
-/// representational checks needed before any byte can be emitted.
+/// representational checks needed before any byte can be emitted, and
+/// renders every head — so the write paths move bytes without measuring
+/// anything.
 struct FrameEncoding<'a> {
-    signal: [u8; WireSignal::ENCODED_LEN],
+    /// The frame's array head and signal head.
+    head: Vec<u8>,
     body: BodyEncoding<'a>,
 }
 
 enum BodyEncoding<'a> {
     Empty,
-    Query {
-        count: [u8; 1],
-        children: &'a [(u8, Hash)],
-    },
+    /// A nonempty query's child-listing map, fully rendered.
+    Listing(Vec<u8>),
+    /// A supply run behind its rendered embedded-sequence head.
     Supply {
-        header: [u8; LENGTH_HEADER_LEN],
+        head: Vec<u8>,
         run: &'a LeafRun,
     },
 }
@@ -68,40 +67,43 @@ impl<'a> FrameEncoding<'a> {
                 (Signal::QueryEmpty(*flow), BodyEncoding::Empty)
             }
             Frame::Reaction(Reaction::Query(children), flow) => {
-                let count = u8::try_from(children.len() - QUERY_COUNT_BIAS)
-                    .expect("a protocol query never exceeds the radix fan");
-                (
-                    Signal::Query(*flow),
-                    BodyEncoding::Query {
-                        count: [count],
-                        children,
-                    },
-                )
+                let mut listing = Vec::new();
+                write_listing(&mut listing, children);
+                (Signal::Query(*flow), BodyEncoding::Listing(listing))
             }
             Frame::Reaction(Reaction::Supply(run), flow) => {
-                let header = length_header(run.encoded_len())?;
-                (Signal::Supply(*flow), BodyEncoding::Supply { header, run })
+                let len = super::frame::checked_run_len(run.encoded_len())?;
+                let mut head = Vec::new();
+                cbor::write_tag(&mut head, TAG_CBOR_SEQUENCE);
+                cbor::write_head(&mut head, MAJOR_BSTR, len);
+                (Signal::Supply(*flow), BodyEncoding::Supply { head, run })
             }
             Frame::End(end) => (Signal::End(*end), BodyEncoding::Empty),
         };
-        let signal = [WireSignal::encode(stream, signal)];
-        Ok(Self { signal, body })
+        let arity = match &body {
+            BodyEncoding::Empty => 1,
+            BodyEncoding::Listing(_) | BodyEncoding::Supply { .. } => 2,
+        };
+        let mut head = Vec::new();
+        cbor::write_head(&mut head, MAJOR_ARRAY, arity);
+        cbor::write_head(
+            &mut head,
+            MAJOR_UINT,
+            u64::from(WireSignal::encode(stream, signal)),
+        );
+        Ok(Self { head, body })
     }
 
     #[cfg(test)]
     fn write(&self, out: &mut impl Write) -> Result<(), EncodeErrorKind> {
-        write(out, FramePart::Signal, &self.signal)?;
+        write(out, FramePart::FrameHead, &self.head)?;
         match &self.body {
             BodyEncoding::Empty => {}
-            BodyEncoding::Query { count, children } => {
-                write(out, FramePart::QueryCount, count)?;
-                for (radix, hash) in *children {
-                    write(out, FramePart::QueryChildren, std::slice::from_ref(radix))?;
-                    write(out, FramePart::QueryChildren, hash.as_bytes())?;
-                }
+            BodyEncoding::Listing(listing) => {
+                write(out, FramePart::QueryChildren, listing)?;
             }
-            BodyEncoding::Supply { header, run } => {
-                write(out, FramePart::SupplyLength, header)?;
+            BodyEncoding::Supply { head, run } => {
+                write(out, FramePart::SupplyLength, head)?;
                 write(out, FramePart::SupplyRun, run.as_bytes())?;
             }
         }

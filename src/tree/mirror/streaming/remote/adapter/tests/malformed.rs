@@ -474,15 +474,17 @@ fn leaf_scope_is_enforced_within_one_run() {
     assert_eq!(actual, <[u8; 32]>::from(outside.path()));
 }
 
-/// The run body of a single zero-length record: one bare record header.
-const ZERO_LENGTH_RECORD_RUN: [u8; 4] = [0, 0, 0, 0];
+/// The run body of a single empty-content record: the embedded-sequence
+/// tag wrapping an empty byte string.
+const ZERO_LENGTH_RECORD_RUN: [u8; 3] = [0xd8, 0x3f, 0x40];
 
-/// A zero-length record passes structural validation but fails canonically.
+/// An empty-content record passes structural validation but fails
+/// canonically.
 ///
-/// A `00000000` record header inside a run chains exactly, so the wire
-/// accepts the run's structure; the record's empty body cannot hold a
-/// version, so the reply decoder reports `DecodeError::Record` carrying the
-/// version decoder's `UnexpectedEof`.
+/// A record whose byte string is empty chains exactly, so the wire
+/// accepts the run's structure; the empty content cannot hold a tagged
+/// version, so the reply decoder reports `DecodeError::Record` carrying
+/// the version decoder's `UnexpectedEof`.
 #[test]
 fn a_zero_length_record_fails_as_a_version_decode_error() {
     let run = LeafRun::from_encoded(ZERO_LENGTH_RECORD_RUN.to_vec())

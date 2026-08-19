@@ -6,7 +6,7 @@
 //! chunked by **bytes**, not record count: the encoder accumulates records
 //! into the current run and flushes it when appending the next record would
 //! push the frame's full wire size — its [`SUPPLY_FRAME_OVERHEAD`]-byte
-//! signal-and-length envelope plus the run body — past the budget. A run
+//! head envelope plus the run body — past the budget. A run
 //! always carries at least one record, so a single record larger than the
 //! budget ships alone in its own frame, exceeding the budget by exactly
 //! that record's overhang. Runs never span protocol reactions: the batching
@@ -29,54 +29,76 @@
 //! session minimum, not only by counterparty courtesy. The public
 //! knob is [`Peer::target_message_size`](crate::Peer::target_message_size).
 //!
-//! Framing headroom: runs ride the wire's `u32` length header
-//! ([`framing`](crate::tree::mirror::framing)), so
+//! Framing headroom: the wire caps a run body at `u32::MAX` bytes, so
 //! [`from_bytes`](RunBudget::from_bytes) saturates every budget at
 //! [`MAX_RUN_BUDGET_BYTES`] — a run flushed within budget always fits the
-//! header. The one frame that can still outgrow it is a *single record*
-//! larger than the header's ceiling (the minimum-one-record rule ships it
-//! alone): that is a record-size limit of the wire, which no budget
-//! setting can lift, and the encoder rejects it at the header before
-//! writing anything.
+//! cap. The one frame that can still outgrow it is a *single record*
+//! larger than the cap (the minimum-one-record rule ships it alone): that
+//! is a record-size limit of the wire, which no budget setting can lift,
+//! and the encoder rejects it at record level before writing anything.
 
-use crate::tree::mirror::framing::LENGTH_HEADER_LEN;
+use crate::tree::mirror::cbor;
 use crate::tree::mirror::streaming::window::FAN;
 
-use super::frame::{MAX_QUERY_CHILDREN, QUERY_CHILD_LEN, QUERY_COUNT_LEN};
+use super::frame::{MAX_QUERY_CHILDREN, listing_entry_len};
 use super::signal::WireSignal;
+
+/// The exact wire size of one full-fan query frame.
+///
+/// Its array head, its signal head (every query code takes the two-byte
+/// head), the listing map's head at the full fan, and one entry per radix
+/// value — the map spelling's per-entry cost varies with the key's head
+/// width, so the sum walks the radix space rather than multiplying.
+const FULL_FAN_QUERY_FRAME_LEN: usize = {
+    let mut total = cbor::head_len(2) // the frame's two-item array head
+        + WireSignal::MAX_ENCODED_LEN
+        + cbor::head_len(MAX_QUERY_CHILDREN as u64);
+    let mut radix = 0usize;
+    while radix < MAX_QUERY_CHILDREN {
+        total += listing_entry_len(radix as u8);
+        radix += 1;
+    }
+    total
+};
 
 /// Default supply-run byte budget: the size of the maximally disputed reply.
 ///
 /// Derived from the wire constants, not measured: the decode side's
 /// documented memory unit is one decoded *reply* (the streaming `message`
 /// module docs), and the largest non-supply reply is maximally disputed —
-/// `FAN` reactions, each a full-fan query frame of one signal byte,
-/// one count byte, and `MAX_QUERY_CHILDREN` children of
-/// `QUERY_CHILD_LEN` bytes each. Batching at this default therefore
-/// never raises the wire's established per-reply memory ceiling.
-pub const DEFAULT_TARGET_MESSAGE_SIZE: usize =
-    FAN * (WireSignal::ENCODED_LEN + QUERY_COUNT_LEN + MAX_QUERY_CHILDREN * QUERY_CHILD_LEN);
+/// `FAN` reactions, each a full-fan query frame. Batching at this default
+/// therefore never raises the wire's established per-reply memory ceiling.
+pub const DEFAULT_TARGET_MESSAGE_SIZE: usize = FAN * FULL_FAN_QUERY_FRAME_LEN;
 
-/// Wire bytes a supply frame wraps around its run body: the signal byte and
-/// the body's `u32` length header.
+/// Wire bytes a supply frame wraps around its run body, charged at their
+/// widest.
+///
+/// The envelope: the frame's array head, the signal's widest head, and
+/// the run's embedded-sequence tag with the widest byte-string head the
+/// run cap admits. The heads narrow for small runs; charging the envelope
+/// constant keeps the flush algebra exact-or-conservative, never
+/// optimistic.
 ///
 /// The budget prices whole wire frames, so the encoder's flush accounting
 /// charges this envelope alongside the accumulated records — a frame's full
 /// wire size stays within the budget except when a single record alone
 /// exceeds it.
-pub const SUPPLY_FRAME_OVERHEAD: usize = WireSignal::ENCODED_LEN + LENGTH_HEADER_LEN;
+pub const SUPPLY_FRAME_OVERHEAD: usize = cbor::head_len(2)
+    + WireSignal::MAX_ENCODED_LEN
+    + cbor::head_len(cbor::TAG_CBOR_SEQUENCE)
+    + cbor::head_len(u32::MAX as u64);
 
-/// The largest supply-run budget the wire's framing can honor: budgets
-/// saturate here at construction.
+/// The largest supply-run budget the wire can honor: budgets saturate
+/// here at construction.
 ///
 /// A frame's full wire size is its [`SUPPLY_FRAME_OVERHEAD`] envelope
-/// plus the run body, and the body's length must encode in the `u32`
-/// header ([`framing`](crate::tree::mirror::framing)). Capping the
-/// whole-frame budget at `u32::MAX` less the envelope keeps every
-/// within-budget flush under the header's ceiling with the envelope
-/// already paid; without the cap, an over-ceiling budget lets a run
-/// grow past 4 GiB in RAM and then deterministically fail at the length
-/// header, re-failing every retry while the divergence persists.
+/// plus the run body, and the wire caps a run body at `u32::MAX` bytes
+/// (the cap every pricing closed form is denominated in). Capping the
+/// whole-frame budget at that ceiling less the envelope keeps every
+/// within-budget flush under the cap with the envelope already paid;
+/// without it, an over-ceiling budget lets a run grow past 4 GiB in RAM
+/// and then deterministically fail at the run head, re-failing every
+/// retry while the divergence persists.
 pub const MAX_RUN_BUDGET_BYTES: usize = u32::MAX as usize - SUPPLY_FRAME_OVERHEAD;
 
 /// The byte budget one supply frame may grow to before the encoder flushes it.
@@ -87,7 +109,7 @@ pub const MAX_RUN_BUDGET_BYTES: usize = u32::MAX as usize - SUPPLY_FRAME_OVERHEA
 /// minimum-one-record rule keeps every leaf shippable, degrading a zero
 /// budget to the pre-batching one-leaf-per-frame wire traffic, and the
 /// constructor's [`MAX_RUN_BUDGET_BYTES`] ceiling keeps every
-/// within-budget flush inside the wire's length header.
+/// within-budget flush inside the wire's run byte cap.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RunBudget {
     /// Wire-frame bytes admitted before the next record forces a flush.

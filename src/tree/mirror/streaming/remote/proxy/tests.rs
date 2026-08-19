@@ -136,8 +136,8 @@ where
     let b = Handshaking::start(Local, Root::<Local>::from(b)).window(WindowConfig::FLOOR);
     let (mut a_link, mut b_link) = memory_with_capacity(64 * 1024);
     let network = crate::Network::from_bytes([1; 16]);
-    let mut a_staged = handshake::Staged::new();
-    let mut b_staged = handshake::Staged::new();
+    let mut a_staged = handshake::Staged::new(crate::Protocol::V2);
+    let mut b_staged = handshake::Staged::new(crate::Protocol::V2);
     let (seen_a, seen_b) = join!(
         handshake::preamble(
             crate::Protocol::V2,

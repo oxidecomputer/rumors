@@ -103,20 +103,24 @@ pub fn frame_payload_chunk_len() -> usize {
     crate::tree::mirror::framing::PAYLOAD_CHUNK_LEN
 }
 
-/// Bytes of the length header ahead of each leaf record in a supply run.
+/// The wire prefix of one streaming-codec supply frame declaring a
+/// `declared`-byte run.
 ///
-/// Exposed so the allocator meter (`tests/decode_alloc.rs`) builds run
-/// bodies from the wire's own width rather than a transcribed copy.
-pub fn run_record_header_len() -> usize {
-    crate::tree::mirror::framing::LENGTH_HEADER_LEN
+/// Prepend it to a run body to hand [`decode_supply_frame`] a decodable
+/// byte stream; the prefix is built by the codec's own head writers, so
+/// the meter cannot drift from the wire.
+pub fn supply_frame_head(declared: usize) -> Vec<u8> {
+    crate::tree::mirror::streaming::remote::supply_frame_head(declared)
 }
 
-/// The signal byte opening one streaming-codec supply frame.
+/// A structurally valid lone-record run of exactly `len` bytes, with
+/// arbitrary record content.
 ///
-/// Prepend it to a length-headed supply body to hand
-/// [`decode_supply_frame`] a decodable byte stream.
-pub fn supply_signal_byte() -> u8 {
-    crate::tree::mirror::streaming::remote::supply_signal_byte()
+/// Exposed so the allocator meter (`tests/decode_alloc.rs`) builds run
+/// bodies from the wire's own record heads rather than a transcribed
+/// copy.
+pub fn lone_record_run(len: usize) -> Vec<u8> {
+    crate::tree::mirror::streaming::remote::lone_record_run(len)
 }
 
 /// Decode one streaming-codec supply frame, discarding the decoded run.

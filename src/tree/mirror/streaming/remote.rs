@@ -67,7 +67,7 @@
 //! stream is invisible to every other by the link contract.
 
 mod adapter;
-mod codec;
+pub(crate) mod codec;
 mod error;
 mod proxy;
 mod streams;
@@ -77,7 +77,7 @@ pub use codec::LinkCapture;
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) use codec::render_v2_capture;
 #[cfg(any(test, feature = "test-internals"))]
-pub(crate) use codec::{decode_frame_discarded, supply_signal_byte};
+pub(crate) use codec::{decode_frame_discarded, lone_record_run, supply_frame_head};
 pub use error::*;
 
 /// The codec's logical stream count, for cross-layer constant assertions.
