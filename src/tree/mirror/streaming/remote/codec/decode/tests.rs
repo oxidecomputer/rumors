@@ -1,4 +1,3 @@
-use borsh::BorshSerialize;
 use proptest::prelude::*;
 
 use super::*;
@@ -14,8 +13,9 @@ use super::super::{
 
 const SPEAKERS: [Speaker; 2] = [Speaker::Initiator, Speaker::Responder];
 
-/// A one-byte prefix of a Version whose gamma integer is incomplete.
-const TRUNCATED_VERSION: &[u8] = &[1];
+/// A CBOR byte-string header promising two version bytes, cut short after
+/// one: the version field ends inside its own framing.
+const TRUNCATED_VERSION: &[u8] = &[0x42, 0x01];
 
 fn stream(index: u8) -> Stream {
     Stream::new(index).unwrap()
@@ -34,11 +34,12 @@ fn supply(stream: Stream, flow: Flow, body: &[u8]) -> Vec<u8> {
     encoded
 }
 
-/// One length-prefixed leaf record as it appears inside a run body.
+/// One length-prefixed leaf record as it appears inside a run body: the
+/// version as one CBOR value, then the payload's CBOR bytes bare.
 fn record(version: &Version, message: &Message<u64>) -> Vec<u8> {
     let mut body = Vec::new();
-    version.serialize(&mut body).unwrap();
-    message.serialize(&mut body).unwrap();
+    ciborium::ser::into_writer(version, &mut body).unwrap();
+    body.extend_from_slice(message.as_slice());
     let mut record = (body.len() as u32).to_be_bytes().to_vec();
     record.extend_from_slice(&body);
     record
@@ -124,7 +125,7 @@ fn truncated_bodies_are_rejected() {
                 panic!("unexpected error kind");
             };
             assert_eq!(actual, missing);
-            assert_eq!(source.kind(), borsh::io::ErrorKind::UnexpectedEof);
+            assert_eq!(source.kind(), std::io::ErrorKind::UnexpectedEof);
         }
     }
 }
@@ -228,12 +229,12 @@ fn a_zero_length_record_is_structurally_valid() {
         let DecodeLeafError::Version(source) = error else {
             panic!("unexpected record error");
         };
-        assert_eq!(source.kind(), borsh::io::ErrorKind::UnexpectedEof);
+        assert_eq!(source.kind(), std::io::ErrorKind::UnexpectedEof);
     }
 }
 
 /// A record's canonical decoding is deferred to the run's record iterator,
-/// which types each failure and retains the Borsh source error.
+/// which types each failure and retains the source error.
 #[test]
 fn supplied_record_errors_are_typed() {
     let mut truncated_version = (TRUNCATED_VERSION.len() as u32).to_be_bytes().to_vec();
@@ -243,10 +244,10 @@ fn supplied_record_errors_are_typed() {
     let DecodeLeafError::Version(source) = error else {
         panic!("unexpected record error");
     };
-    assert_eq!(source.kind(), borsh::io::ErrorKind::UnexpectedEof);
+    assert_eq!(source.kind(), std::io::ErrorKind::UnexpectedEof);
 
     let mut version = Vec::new();
-    Version::new().serialize(&mut version).unwrap();
+    ciborium::ser::into_writer(&Version::new(), &mut version).unwrap();
     let mut missing_message = (version.len() as u32).to_be_bytes().to_vec();
     missing_message.extend_from_slice(&version);
     let run = LeafRun::<u64>::from_encoded(missing_message).unwrap();
@@ -254,9 +255,9 @@ fn supplied_record_errors_are_typed() {
     let DecodeLeafError::Message(source) = error else {
         panic!("unexpected record error");
     };
-    assert_eq!(source.kind(), borsh::io::ErrorKind::InvalidData);
+    assert_eq!(source.kind(), std::io::ErrorKind::UnexpectedEof);
 
-    0_u64.serialize(&mut version).unwrap();
+    ciborium::ser::into_writer(&0_u64, &mut version).unwrap();
     version.push(u8::MIN);
     let mut trailing = (version.len() as u32).to_be_bytes().to_vec();
     trailing.extend_from_slice(&version);
@@ -367,7 +368,7 @@ fn async_eof_distinguishes_close_from_truncation() {
                 DecodeErrorKind::Truncated {
                     missing: actual,
                     source,
-                } if actual == missing && source.kind() == borsh::io::ErrorKind::UnexpectedEof
+                } if actual == missing && source.kind() == std::io::ErrorKind::UnexpectedEof
             ));
         }
     }
@@ -418,9 +419,9 @@ fn async_invalid_signal_does_not_consume_a_body() {
 
 struct FailingReader;
 
-impl borsh::io::Read for FailingReader {
-    fn read(&mut self, _buf: &mut [u8]) -> borsh::io::Result<usize> {
-        Err(borsh::io::ErrorKind::Other.into())
+impl std::io::Read for FailingReader {
+    fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
+        Err(std::io::ErrorKind::Other.into())
     }
 }
 
@@ -435,7 +436,7 @@ fn reader_errors_are_contextual() {
             DecodeErrorKind::Read {
                 part: FramePart::Signal,
                 source,
-            } if source.kind() == borsh::io::ErrorKind::Other
+            } if source.kind() == std::io::ErrorKind::Other
         ));
     }
 }
@@ -466,7 +467,7 @@ fn supply_truncation_at_chunk_boundaries_is_typed() {
                     DecodeErrorKind::Truncated {
                         missing: FramePart::SupplyRun,
                         ref source,
-                    } if source.kind() == borsh::io::ErrorKind::UnexpectedEof
+                    } if source.kind() == std::io::ErrorKind::UnexpectedEof
                 ),
                 "cut after {delivered} delivered body bytes"
             );

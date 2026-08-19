@@ -569,8 +569,7 @@ proptest! {
             }
         }
         assert_causal(&causal_delivered);
-        let causal_checkpoint =
-            borsh::to_vec(causal.checkpoint()).expect("a checkpoint serializes");
+        let causal_checkpoint = causal.checkpoint().as_bytes().to_vec();
 
         let mut unordered = known.unordered_messages();
         let mut unordered_delivered: Vec<(Version, u64)> = Vec::new();
@@ -582,8 +581,7 @@ proptest! {
                 other => panic!("the pass has more items, got {other:?}"),
             }
         }
-        let unordered_checkpoint =
-            borsh::to_vec(unordered.checkpoint()).expect("a checkpoint serializes");
+        let unordered_checkpoint = unordered.checkpoint().as_bytes().to_vec();
 
         let causal_handled: BTreeSet<Vec<u8>> = causal_delivered
             .iter()
@@ -608,8 +606,8 @@ proptest! {
         // persisted bytes.
         let rebuilt = bootstrap_fork(&partner);
 
-        let since: Version =
-            borsh::from_slice(&causal_checkpoint).expect("a checkpoint deserializes");
+        let since =
+            Version::decode(&causal_checkpoint[..]).expect("a checkpoint deserializes");
         let mut resumed = rebuilt.causal_messages_since(since);
         let (replayed, _) = drain(&mut resumed);
         assert_causal(&replayed);
@@ -623,8 +621,8 @@ proptest! {
             );
         }
 
-        let since: Version =
-            borsh::from_slice(&unordered_checkpoint).expect("a checkpoint deserializes");
+        let since =
+            Version::decode(&unordered_checkpoint[..]).expect("a checkpoint deserializes");
         let mut resumed = rebuilt.unordered_messages_since(since);
         let replayed = drain_unordered(&mut resumed);
         for (key, value) in &final_live {

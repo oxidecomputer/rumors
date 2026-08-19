@@ -302,7 +302,7 @@ proptest! {
             tree.root
                 .root
                 .as_ref()
-                .map(|node| borsh::to_vec(node).expect("node serializes"))
+                .map(|node| crate::tree::wire::to_vec(node).expect("node serializes"))
         };
         let expected = serialize(&direct);
         prop_assert_eq!(&serialize(&detoured), &expected);
@@ -1623,7 +1623,7 @@ fn join_unwind_leaves_tree_byte_identical() {
 /// stay safe; only the drop is booby-trapped, and it holds fire while
 /// another panic is already unwinding (a second panic mid-unwind aborts
 /// the process instead of failing the test).
-#[derive(Debug, borsh::BorshSerialize)]
+#[derive(Debug, serde::Serialize)]
 struct DropBomb {
     armed: bool,
 }

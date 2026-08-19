@@ -1,8 +1,6 @@
 use std::fmt::Debug;
 use std::sync::LazyLock;
 
-use borsh::{BorshDeserialize, BorshSerialize};
-
 /// Width in bytes of the tree's Merkle hashes.
 ///
 /// The subtree-comparison digests that gossip exchanges, surfaced as
@@ -13,8 +11,8 @@ pub const MERKLE_HASH_LEN: usize = 24;
 
 /// A 24-byte Merkle hash.
 ///
-/// A newtype over a fixed-size byte array, so borsh can be derived without a
-/// length prefix.
+/// A newtype over a fixed-size byte array; on the wire it travels as its
+/// raw bytes, never length-prefixed (the width is pinned by the type).
 ///
 /// The underlying primitive is [`blake3`], truncated to its leading
 /// [`MERKLE_HASH_LEN`] bytes — BLAKE3 is an extendable-output function, so
@@ -45,9 +43,7 @@ pub const MERKLE_HASH_LEN: usize = 24;
 /// Hostile *peers* are off-model: peers in a universe trust one another
 /// ([the crate docs](crate) make a compromised member's powers explicit),
 /// so no width buys anything against a member, and none is priced here.
-#[derive(
-    BorshSerialize, BorshDeserialize, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Default,
-)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Default)]
 #[repr(transparent)]
 pub struct Hash(pub [u8; MERKLE_HASH_LEN]);
 

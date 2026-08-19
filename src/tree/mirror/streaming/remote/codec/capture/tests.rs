@@ -19,6 +19,17 @@ use super::super::frame::LeafRun;
 ///
 /// That one-line diff is the field-level account an insta re-accept
 /// shows beside the hex.
+
+/// Encode a listing as its wire form: raw radix-hash records.
+fn encode_listing(children: &[(u8, Hash)]) -> Vec<u8> {
+    let mut body = Vec::new();
+    for (radix, hash) in children {
+        body.push(*radix);
+        body.extend_from_slice(hash.as_bytes());
+    }
+    body
+}
+
 #[test]
 fn supply_decode_names_the_field_that_moved() {
     let party = before::Party::seed();
@@ -41,9 +52,9 @@ fn supply_decode_names_the_field_that_moved() {
     assert!(a[1].contains(&format!("version {low}")));
     assert!(b[1].contains(&format!("version {high}")));
     // The message is identical on both sides, so both record lines
-    // account it identically: eight borsh bytes of the same u64.
-    assert!(a[1].ends_with("message 8 byte(s)"));
-    assert!(b[1].ends_with("message 8 byte(s)"));
+    // account it identically: one CBOR byte for the small u64.
+    assert!(a[1].ends_with("message 1 byte(s)"));
+    assert!(b[1].ends_with("message 1 byte(s)"));
 }
 
 /// Unparseable supply payloads render an explicit decode failure, never
@@ -83,7 +94,7 @@ fn listing_decodes_children_and_convicts_garbage() {
         (0x3_u8, Hash([0xab; MERKLE_HASH_LEN])),
         (0xc_u8, Hash([0x01; MERKLE_HASH_LEN])),
     ];
-    let body = borsh::to_vec(&children).expect("a listing serializes");
+    let body = encode_listing(&children);
     let lines = listing_lines(&body);
     assert_eq!(lines[0], "listing: 2 child(ren)");
     assert_eq!(
@@ -152,7 +163,7 @@ fn non_canonical_listing_renders_failure_not_silent_hex() {
         (0xc_u8, Hash([0x01; MERKLE_HASH_LEN])),
         (0x3_u8, Hash([0xab; MERKLE_HASH_LEN])),
     ];
-    let body = borsh::to_vec(&children).expect("a listing serializes");
+    let body = encode_listing(&children);
     let lines = listing_lines(&body);
     assert_eq!(lines.len(), 1);
     assert!(

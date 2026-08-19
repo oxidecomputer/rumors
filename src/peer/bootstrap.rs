@@ -4,7 +4,6 @@
 
 use std::marker::PhantomData;
 
-use borsh::{BorshDeserialize, BorshSerialize};
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::bookmark::{Bookmark, BookmarkError};
@@ -216,7 +215,7 @@ impl<T> Bootstrap<T> {
         link: &mut Link<CR, CW, C, A>,
     ) -> Result<Option<Peer<T>>, Error>
     where
-        T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
+        T: serde::de::DeserializeOwned + serde::Serialize + Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,
@@ -296,7 +295,7 @@ impl<T, B: Bookmark> BookmarkedBootstrap<T, B> {
     /// in every outcome that never used it.
     pub async fn join<CR, CW, C, A>(self, link: &mut Link<CR, CW, C, A>) -> Joined<T, B>
     where
-        T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
+        T: serde::de::DeserializeOwned + serde::Serialize + Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,

@@ -1,16 +1,16 @@
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
-use borsh::{BorshDeserialize, BorshSerialize};
 use bytes::Bytes;
 use proptest::prelude::*;
+use serde::{Deserialize, Serialize};
 
 use super::Message;
 
-/// A small borsh-serializable payload with varied field types, so proptests
-/// exercise nontrivial serialization structure (length prefixes, nested
-/// vectors) rather than only fixed-width primitives.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, BorshSerialize, BorshDeserialize)]
+/// A small serde payload with varied field types, so proptests exercise
+/// nontrivial serialization structure (nested containers, strings) rather
+/// than only fixed-width primitives.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 struct Payload {
     id: u64,
     tag: String,
@@ -31,13 +31,20 @@ fn hash_of<T: Hash>(value: &T) -> u64 {
     h.finish()
 }
 
+/// Encode a value as one CBOR value, as `Message::new` does internally.
+fn cbor_vec<T: Serialize>(value: &T) -> Vec<u8> {
+    let mut buf = Vec::new();
+    ciborium::ser::into_writer(value, &mut buf).unwrap();
+    buf
+}
+
 proptest! {
     /// After construction via `new`, the cached serialized bytes are exactly
-    /// what borsh would produce for the inner value.
+    /// the value's CBOR encoding.
     #[test]
-    fn new_caches_borsh_serialization(p in payload()) {
+    fn new_caches_cbor_serialization(p in payload()) {
         let m = Message::new(p.clone());
-        let direct = borsh::to_vec(&p).unwrap();
+        let direct = cbor_vec(&p);
         prop_assert_eq!(m.bytes(), direct.as_slice());
         prop_assert_eq!(m.message(), &p);
     }
@@ -46,7 +53,7 @@ proptest! {
     /// bytes in the cache, with no reserialization drift.
     #[test]
     fn from_slice_roundtrips(p in payload()) {
-        let bytes = borsh::to_vec(&p).unwrap();
+        let bytes = cbor_vec(&p);
         let m = Message::<Payload>::from_slice(&bytes).unwrap();
         prop_assert_eq!(m.message(), &p);
         prop_assert_eq!(m.bytes(), bytes.as_slice());
@@ -56,61 +63,81 @@ proptest! {
     /// `Message`s from the same input.
     #[test]
     fn from_bytes_matches_from_slice(p in payload()) {
-        let bytes = borsh::to_vec(&p).unwrap();
+        let bytes = cbor_vec(&p);
         let a = Message::<Payload>::from_slice(&bytes).unwrap();
         let b = Message::<Payload>::from_bytes(Bytes::from(bytes.clone())).unwrap();
         prop_assert_eq!(&a, &b);
         prop_assert_eq!(a.bytes(), b.bytes());
     }
 
-    /// `BorshSerialize` on a `Message<T>` writes exactly the cached bytes, so
-    /// serializing a `Message<T>` is indistinguishable from serializing `T`.
+    /// A payload followed by trailing bytes is rejected: the cache is
+    /// always exactly one CBOR value's encoding, never a value plus noise.
     #[test]
-    fn serialize_writes_cached_bytes(p in payload()) {
-        let m = Message::new(p.clone());
-        let reserialized = borsh::to_vec(&m).unwrap();
-        prop_assert_eq!(reserialized.as_slice(), m.bytes());
-        prop_assert_eq!(reserialized, borsh::to_vec(&p).unwrap());
+    fn trailing_bytes_are_rejected(p in payload(), trailer in proptest::collection::vec(any::<u8>(), 1..8)) {
+        let mut bytes = cbor_vec(&p);
+        bytes.extend_from_slice(&trailer);
+        prop_assert!(Message::<Payload>::from_slice(&bytes).is_err());
+        prop_assert!(Message::<Payload>::from_bytes(Bytes::from(bytes)).is_err());
     }
 
-    /// A `Message<T>` roundtrips through borsh: deserializing a serialized
-    /// message yields an equal message with equal cached bytes.
+    /// The serde form of a `Message<T>` is one CBOR byte string wrapping
+    /// the cached payload bytes — never a re-encoding of `T` — so nesting
+    /// a message in a larger CBOR value costs one length header.
     #[test]
-    fn borsh_roundtrip(p in payload()) {
+    fn serde_form_wraps_cached_bytes(p in payload()) {
+        struct Bstr<'a>(&'a [u8]);
+        impl serde::Serialize for Bstr<'_> {
+            fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+                s.serialize_bytes(self.0)
+            }
+        }
         let m = Message::new(p);
-        let bytes = borsh::to_vec(&m).unwrap();
-        let back: Message<Payload> = borsh::from_slice(&bytes).unwrap();
+        let wrapped = cbor_vec(&m);
+        let direct = cbor_vec(&Bstr(m.bytes()));
+        prop_assert_eq!(wrapped, direct);
+    }
+
+    /// A `Message<T>` roundtrips through its serde form: deserializing a
+    /// serialized message yields an equal message with equal cached bytes.
+    #[test]
+    fn serde_roundtrip(p in payload()) {
+        let m = Message::new(p);
+        let bytes = cbor_vec(&m);
+        let back: Message<Payload> = ciborium::de::from_reader(bytes.as_slice()).unwrap();
         prop_assert_eq!(&m, &back);
         prop_assert_eq!(m.bytes(), back.bytes());
     }
 
-    /// `BorshDeserialize` captures only the bytes actually consumed by `T`:
-    /// when a `Message<T>` is embedded alongside trailing data, the cached
-    /// bytes match `T`'s serialization and the trailing data survives.
-    #[test]
-    fn deserialize_captures_only_message_bytes(p in payload(), trailer in any::<Vec<u8>>()) {
-        let expected = borsh::to_vec(&p).unwrap();
-        let mut combined = expected.clone();
-        combined.extend_from_slice(&trailer);
-
-        let mut slice: &[u8] = &combined;
-        let m = Message::<Payload>::deserialize_reader(&mut slice).unwrap();
-        prop_assert_eq!(m.bytes(), expected.as_slice());
-        prop_assert_eq!(slice, trailer.as_slice());
-    }
-
-    /// `Message<T>` nests correctly inside other borsh types: a `Vec<Message<T>>`
-    /// roundtrips and preserves each element's cached bytes.
+    /// `Message<T>` nests correctly inside other CBOR containers: a
+    /// `Vec<Message<T>>` roundtrips and preserves each element's cached
+    /// bytes.
     #[test]
     fn nested_in_vec_roundtrips(ps in proptest::collection::vec(payload(), 0..8)) {
         let msgs: Vec<Message<Payload>> =
             ps.into_iter().map(Message::new).collect();
-        let bytes = borsh::to_vec(&msgs).unwrap();
-        let back: Vec<Message<Payload>> = borsh::from_slice(&bytes).unwrap();
+        let bytes = cbor_vec(&msgs);
+        let back: Vec<Message<Payload>> = ciborium::de::from_reader(bytes.as_slice()).unwrap();
         prop_assert_eq!(&msgs, &back);
         for (a, b) in msgs.iter().zip(back.iter()) {
             prop_assert_eq!(a.bytes(), b.bytes());
         }
+    }
+
+    /// Reading a message off a stream consumes exactly the message's own
+    /// bytes: trailing data after the CBOR value survives for the next
+    /// field (the property the wire codec's mid-stream decodes rest on).
+    #[test]
+    fn stream_decode_consumes_only_message_bytes(p in payload(), trailer in any::<Vec<u8>>()) {
+        let m = Message::new(p);
+        let mut combined = cbor_vec(&m);
+        let expected = combined.clone();
+        combined.extend_from_slice(&trailer);
+
+        let mut slice: &[u8] = &combined;
+        let back: Message<Payload> = ciborium::de::from_reader(&mut slice).unwrap();
+        prop_assert_eq!(back.bytes(), m.bytes());
+        prop_assert_eq!(slice, trailer.as_slice());
+        prop_assert_eq!(combined.len() - slice.len(), expected.len());
     }
 
     /// Equal `Message<T>` values hash identically, so `Hash` agrees with

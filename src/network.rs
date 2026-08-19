@@ -2,7 +2,6 @@
 
 use std::fmt;
 
-use borsh::{BorshDeserialize, BorshSerialize};
 use rand::RngCore;
 
 /// The identifier shared by every [`Rumors`](crate::Rumors) that descends from
@@ -18,8 +17,29 @@ use rand::RngCore;
 /// This type is opaque and [`Copy`]: callers can read it off a `Peer` with
 /// [`network`](crate::Peer::network) and compare two for equality, but cannot
 /// create one except through [`seed`](crate::Peer::seed).
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, BorshDeserialize, BorshSerialize)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Network([u8; 16]);
+
+// The serde form is one byte string of the 16 raw bytes: the identifier is
+// opaque, so no structure beyond its width belongs on the wire or on disk
+// (the bookmark record keys its map by it).
+
+impl serde::Serialize for Network {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_bytes(&self.0)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Network {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let bytes = <Vec<u8>>::deserialize(deserializer)?;
+        let bytes: [u8; 16] = bytes
+            .as_slice()
+            .try_into()
+            .map_err(|_| serde::de::Error::custom("a network identifier is exactly 16 bytes"))?;
+        Ok(Network(bytes))
+    }
+}
 
 impl Network {
     /// The all-zero placeholder a bootstrapping peer sends in the handshake: it

@@ -23,7 +23,7 @@
 //!
 //! # Framing
 //!
-//! Each borsh-encoded message is shipped as a single length-delimited frame
+//! Each encoded message is shipped as a single length-delimited frame
 //! (4-byte big-endian length prefix) through
 //! [`crate::tree::mirror::framing`]'s exact-read
 //! [`FrameRead`]/[`FrameWrite`]: the protocol's height schedule names the
@@ -50,7 +50,7 @@ use std::marker::PhantomData;
 
 use tokio::io::{AsyncRead, AsyncWrite};
 
-use borsh::{BorshDeserialize, BorshSerialize};
+use crate::tree::wire;
 
 use crate::Error;
 use crate::tree::mirror::framing::{FrameRead, FrameWrite};
@@ -123,7 +123,7 @@ impl<T, R: Send, W: Send, V, H: Height> protocol::Stage for Exchange<T, R, W, V,
     type Error = Error;
 }
 
-/// Borsh-encode `msg` into a single length-delimited frame and ship it.
+/// Encode `msg` into a single length-delimited frame and ship it.
 ///
 /// [`FrameWrite::frame`] flushes, so on a clean return the bytes have
 /// reached the underlying writer's flush boundary (typically the OS write
@@ -131,36 +131,35 @@ impl<T, R: Send, W: Send, V, H: Height> protocol::Stage for Exchange<T, R, W, V,
 pub(super) async fn send_msg<M, W>(writer: &mut FrameWrite<W>, msg: &M) -> Result<(), Error>
 where
     W: AsyncWrite + Unpin + Send,
-    M: BorshSerialize,
+    M: wire::Encode,
 {
-    let mut buf = Vec::new();
-    msg.serialize(&mut buf).map_err(Error::Io)?;
+    let buf = wire::to_vec(msg).map_err(Error::Io)?;
     writer.frame(&buf).await.map_err(Error::Io)?;
     Ok(())
 }
 
-/// Pull one length-delimited frame off the wire and borsh-decode it as `M`.
+/// Pull one length-delimited frame off the wire and decode it as `M`.
 ///
 /// A peer that closes the stream instead of sending the message — cleanly
 /// or mid-frame — surfaces as an
-/// [`UnexpectedEof`](borsh::io::ErrorKind::UnexpectedEof) borsh I/O error.
+/// [`UnexpectedEof`](std::io::ErrorKind::UnexpectedEof) I/O error.
 pub(super) async fn recv_msg<M, R>(reader: &mut FrameRead<R>) -> Result<M, Error>
 where
     R: AsyncRead + Unpin + Send,
-    M: BorshDeserialize,
+    M: wire::Decode,
 {
     let frame = reader
         .frame()
         .await
         .map_err(|e| match e.kind() {
-            borsh::io::ErrorKind::UnexpectedEof => borsh::io::Error::new(
-                borsh::io::ErrorKind::UnexpectedEof,
+            std::io::ErrorKind::UnexpectedEof => std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
                 "peer closed before sending expected message",
             ),
             _ => e,
         })
         .map_err(Error::Io)?;
-    M::try_from_slice(&frame).map_err(Error::Io)
+    wire::from_slice(&frame).map_err(Error::Io)
 }
 
 // One protocol-trait impl block per trait, each at the specific height it
@@ -171,7 +170,7 @@ impl<T, R, W> protocol::Accept<T> for Exchange<T, R, W, Start, Root>
 where
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
-    T: BorshSerialize + BorshDeserialize + Send + Sync,
+    T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
 {
     type Next = Exchange<T, R, W, Connected, Root>;
 
@@ -209,10 +208,10 @@ where
 
 impl<T, R, W> protocol::Initiator<T> for Exchange<T, R, W, Connected, Root>
 where
-    T: BorshDeserialize + Send + Sync,
+    T: serde::de::DeserializeOwned + Send + Sync,
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
-    Node<T, UnderRoot>: BorshDeserialize,
+    Node<T, UnderRoot>: wire::Decode,
 {
     type Next = Exchange<T, R, W, Connected, Root>;
 
@@ -231,10 +230,10 @@ where
 
 impl<T, R, W> protocol::Responder<T> for Exchange<T, R, W, Connected, Root>
 where
-    T: BorshDeserialize + Send + Sync,
+    T: serde::de::DeserializeOwned + Send + Sync,
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
-    Node<T, UnderRoot>: BorshDeserialize,
+    Node<T, UnderRoot>: wire::Decode,
 {
     type Next = Exchange<T, R, W, Connected, UnderRoot>;
 
@@ -259,10 +258,10 @@ where
 
 impl<T, R, W> protocol::OpenInitiator<T> for Exchange<T, R, W, Connected, Root>
 where
-    T: BorshDeserialize + Send + Sync,
+    T: serde::de::DeserializeOwned + Send + Sync,
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
-    Node<T, UnderRoot>: BorshDeserialize,
+    Node<T, UnderRoot>: wire::Decode,
 {
     type Next = Exchange<T, R, W, Connected, UnderUnderRoot>;
 
@@ -293,13 +292,13 @@ where
 
 impl<T, R, W, H> protocol::Exchange<T> for Exchange<T, R, W, Connected, S<S<H>>>
 where
-    T: BorshDeserialize + Send + Sync,
+    T: serde::de::DeserializeOwned + Send + Sync,
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
     H: Height,
     S<H>: Height,
     S<S<H>>: Height,
-    Node<T, S<H>>: BorshDeserialize,
+    Node<T, S<H>>: wire::Decode,
     // Assumed at impl-validation time so we don't have to case-analyze `H`
     // here: at use sites `H` is concrete and one of the three blanket impls
     // in `super::protocol` discharges it.
@@ -342,7 +341,7 @@ where
 
 impl<T, R, W> protocol::CloseResponder<T> for Exchange<T, R, W, Connected, S<Z>>
 where
-    T: BorshDeserialize + Send + Sync,
+    T: serde::de::DeserializeOwned + Send + Sync,
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
 {
@@ -383,7 +382,7 @@ where
 
 impl<T, R, W> protocol::CompleteInitiator<T> for Exchange<T, R, W, Connected, Z>
 where
-    T: BorshDeserialize + Send + Sync,
+    T: serde::de::DeserializeOwned + Send + Sync,
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
 {

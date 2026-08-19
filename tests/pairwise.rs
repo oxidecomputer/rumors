@@ -18,7 +18,6 @@
 
 mod common;
 
-use borsh::{BorshDeserialize, BorshSerialize};
 use proptest::prelude::*;
 use rumors::{Rumors, Version, causally};
 
@@ -30,7 +29,7 @@ use crate::common::wire::{bootstrap_fork, wire_gossip};
 /// holds the same live messages but ticks its own party region.
 fn dup<T>(k: &Rumors<T>) -> Rumors<T>
 where
-    T: Clone + BorshSerialize + BorshDeserialize + Send + Sync + 'static,
+    T: Clone + serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static,
 {
     bootstrap_fork(k)
 }

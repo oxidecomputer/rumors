@@ -55,7 +55,7 @@ pub enum Error<B: BookmarkError = NoBookmark> {
     /// An underlying reader/writer error, or a Borsh framing failure outside
     /// the streaming mirror itself.
     #[error(transparent)]
-    Io(#[from] borsh::io::Error),
+    Io(#[from] std::io::Error),
 
     /// The peer's preamble did not begin with [`PROTOCOL_MAGIC`](crate::PROTOCOL_MAGIC).
     #[error("peer is not a rumors stream (remote magic: {remote_magic:x?})")]

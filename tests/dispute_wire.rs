@@ -29,7 +29,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::task::{Context, Poll};
 
-use borsh::{BorshDeserialize, BorshSerialize};
 use rand::rngs::SmallRng;
 use rand::{RngCore, SeedableRng};
 use rumors::link::{Connector, Done, Link, LinkParts, MemoryLink};
@@ -167,7 +166,7 @@ fn counting(
 /// [`DIVERGENT`] minted payloads on each side, deterministically.
 fn diverged<T>(mut mint: impl FnMut(&mut SmallRng) -> T) -> (Rumors<T>, Rumors<T>)
 where
-    T: BorshSerialize + BorshDeserialize + Send + Sync + Clone + 'static,
+    T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + Clone + 'static,
 {
     let left = Peer::seed().sync_window_floor().into_rumors();
     let mut rng = SmallRng::seed_from_u64(0x0b05_2026_d15b_073e);
@@ -189,7 +188,7 @@ where
 /// side of each end.
 fn session_wire_bytes<T>(a: &Rumors<T>, b: &Rumors<T>) -> usize
 where
-    T: BorshSerialize + BorshDeserialize + Send + Sync + 'static,
+    T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static,
 {
     let written = Arc::new(AtomicUsize::new(0));
     let (a_link, b_link) = rumors::link::memory_with_capacity(LINK_CAPACITY);
@@ -212,7 +211,7 @@ where
 /// cost the constant states.
 fn implied_bytes_per_message<T>(mint: impl FnMut(&mut SmallRng) -> T) -> usize
 where
-    T: BorshSerialize + BorshDeserialize + Send + Sync + Clone + 'static,
+    T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + Clone + 'static,
 {
     let (left, right) = diverged(mint);
     let total = session_wire_bytes(&left, &right);

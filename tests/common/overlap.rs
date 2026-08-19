@@ -31,7 +31,6 @@ use std::ops::RangeInclusive;
 use std::pin::Pin;
 use std::task::{Context, Poll, Waker};
 
-use borsh::{BorshDeserialize, BorshSerialize};
 use proptest::collection::vec;
 use proptest::prelude::*;
 use rumors::link::memory_with_capacity;
@@ -91,7 +90,7 @@ pub struct Session {
 /// Open a wire gossip session between `a` and `b` without polling it.
 pub fn open<T>(a: &Rumors<T>, b: &Rumors<T>) -> Session
 where
-    T: BorshSerialize + BorshDeserialize + Send + Sync + 'static,
+    T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static,
 {
     let a = a.clone();
     let b = b.clone();
@@ -200,7 +199,7 @@ pub struct OverlapSchedule<T> {
 /// two agree.
 pub fn execute_overlap_and_quiesce<T>(schedule: &OverlapSchedule<T>) -> (Vec<Peer<T>>, Oracle<T>)
 where
-    T: Clone + Eq + Ord + BorshSerialize + BorshDeserialize + Send + Sync + 'static,
+    T: Clone + Eq + Ord + serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static,
 {
     let mut peers: Vec<Peer<T>> = Vec::with_capacity(schedule.n_peers);
     for i in 0..schedule.n_peers {

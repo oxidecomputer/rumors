@@ -9,7 +9,6 @@ pub use unordered::{TryNext, UnorderedMessages};
 use crate::bookmark::{Bookmark, BookmarkError, NoBookmark};
 use crate::link::{Acceptor, Connector, Link};
 use crate::{Batch, Error, Gossiped, Network, Peer, Snapshot, Version};
-use borsh::{BorshDeserialize, BorshSerialize};
 use futures::Stream;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -161,7 +160,7 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     /// If `message` fails to serialize (see [`Batch::send`]).
     pub fn send(&self, message: T) -> Batch<'_, T>
     where
-        T: BorshSerialize + Send + Sync,
+        T: serde::Serialize + Send + Sync,
     {
         self.peer.send(message)
     }
@@ -392,7 +391,7 @@ impl<T, B: Bookmark> Rumors<T, B> {
         link: &mut Link<CR, CW, C, A>,
     ) -> Result<Gossiped, Error<B>>
     where
-        T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
+        T: serde::de::DeserializeOwned + serde::Serialize + Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,
@@ -508,7 +507,7 @@ impl<T, B: Bookmark> Rumors<T, B> {
         link: &'a mut Link<CR, CW, C, A>,
     ) -> impl Stream<Item = Result<Gossiped, Error<B>>> + Unpin + 'a
     where
-        T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
+        T: serde::de::DeserializeOwned + serde::Serialize + Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,

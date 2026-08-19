@@ -88,7 +88,7 @@ where
 impl<B, T, R, W, A> Work<B, T, R, W, A>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    T: borsh::BorshDeserialize + Send + Sync + 'static,
+    T: serde::de::DeserializeOwned + Send + Sync + 'static,
     A: Acceptor,
 {
     /// Begin accumulating work around an elected physical session.

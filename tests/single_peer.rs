@@ -153,12 +153,12 @@ struct Explosive {
     fail: bool,
 }
 
-impl borsh::BorshSerialize for Explosive {
-    fn serialize<W: borsh::io::Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
+impl serde::Serialize for Explosive {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         if self.fail {
-            return Err(borsh::io::Error::other("detonated"));
+            return Err(serde::ser::Error::custom("detonated"));
         }
-        borsh::BorshSerialize::serialize(&self.value, writer)
+        self.value.serialize(serializer)
     }
 }
 

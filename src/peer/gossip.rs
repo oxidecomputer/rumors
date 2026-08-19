@@ -9,7 +9,6 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use before::Party;
-use borsh::{BorshDeserialize, BorshSerialize};
 use futures::{Stream, future::BoxFuture};
 use futures_util::StreamExt;
 use tokio::{
@@ -210,7 +209,7 @@ impl<T> Peer<T, NoBookmark> {
         link: &'a mut Link<CR, CW, C, A>,
     ) -> BoxFuture<'a, Result<Option<Self>, Error>>
     where
-        T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
+        T: serde::de::DeserializeOwned + serde::Serialize + Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,
@@ -237,7 +236,7 @@ impl<T> Peer<T, NoBookmark> {
         link: DynLinkParts<'a>,
     ) -> BoxFuture<'a, Result<Option<Self>, Error>>
     where
-        T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
+        T: serde::de::DeserializeOwned + serde::Serialize + Send + Sync + 'static,
     {
         Box::pin(async move {
             let (read, write, connector, acceptor, epoch) = link;
@@ -436,7 +435,7 @@ impl<T, B: Persist> Peer<T, B> {
         link: &mut Link<CR, CW, C, A>,
     ) -> Retire<T, B>
     where
-        T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
+        T: serde::de::DeserializeOwned + serde::Serialize + Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,
@@ -475,7 +474,7 @@ impl<T, B: Persist> Peer<T, B> {
         link: &mut Link<CR, CW, C, A>,
     ) -> Result<Gossiped, Error<B>>
     where
-        T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
+        T: serde::de::DeserializeOwned + serde::Serialize + Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,
@@ -615,7 +614,7 @@ impl<T, B: Persist> Peer<T, B> {
         link: DynLinkParts<'a>,
     ) -> (Intent, Result<(Version, SessionStats), Error<B>>)
     where
-        T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
+        T: serde::de::DeserializeOwned + serde::Serialize + Send + Sync + 'static,
     {
         let (read, write, connector, acceptor, epoch) = link;
         // The session's stats recorder: under V2, both protocol
@@ -970,7 +969,7 @@ impl<T, B: Bookmark> Peer<T, B> {
         link: &'a mut Link<CR, CW, C, A>,
     ) -> impl Stream<Item = Result<Gossiped, Error<B>>> + Unpin + 'a
     where
-        T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
+        T: serde::de::DeserializeOwned + serde::Serialize + Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,

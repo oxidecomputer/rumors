@@ -2,8 +2,6 @@
 
 use std::marker::PhantomData;
 
-use borsh::BorshDeserialize;
-
 use crate::{
     Version,
     message::Message,
@@ -55,8 +53,11 @@ pub type WireFrame<T> = (Stream, Frame<T>);
 ///
 /// A run is a delimited sequence of one or more `(Version, Message<T>)`
 /// records: each record is a [`LENGTH_HEADER_LEN`]-byte big-endian length
-/// followed by the canonical encodings of its version and message, back to
-/// back. The run stays encoded on both sides of the wire — the encoder
+/// followed by one CBOR value (a byte string wrapping the version's
+/// canonical encoding) and then the message's CBOR payload, back to back —
+/// the record header delimits the payload, so it travels bare, and the
+/// version's CBOR framing is what lets the decoder split the two without
+/// re-measuring. The run stays encoded on both sides of the wire — the encoder
 /// appends records copied from borrowed leaf data ([`push`](Self::push)) and
 /// the decoder yields them one at a time ([`records`](Self::records)) — so
 /// neither side materializes a decoded vector of leaves per frame; the bound
@@ -134,12 +135,17 @@ impl<T> LeafRun<T> {
 
     /// Bytes one record with these components will occupy in a run.
     ///
-    /// Saturating: a sum past `usize::MAX` cannot occur for in-memory
-    /// slices, and an over-large record is rejected by [`push`](Self::push)
-    /// regardless.
+    /// Exactly what [`push`](Self::push) writes — the record header, the
+    /// version's CBOR byte-string framing plus its canonical bytes, and
+    /// the payload — pinned against an actual push by
+    /// `record_len_matches_an_actual_push`. Saturating: a sum past
+    /// `usize::MAX` cannot occur for in-memory slices, and an over-large
+    /// record is rejected by [`push`](Self::push) regardless.
     pub fn record_len(version: &Version, message: &Message<T>) -> usize {
+        let version = version.as_bytes().len();
         LENGTH_HEADER_LEN
-            .saturating_add(version.as_bytes().len())
+            .saturating_add(cbor_bytes_header_len(version))
+            .saturating_add(version)
             .saturating_add(message.as_slice().len())
     }
 
@@ -153,10 +159,13 @@ impl<T> LeafRun<T> {
     pub fn push(&mut self, version: &Version, message: &Message<T>) -> Result<(), LengthOverflow> {
         let version = version.as_bytes();
         let message = message.as_slice();
-        let len = version.len().saturating_add(message.len());
+        let len = cbor_bytes_header_len(version.len())
+            .saturating_add(version.len())
+            .saturating_add(message.len());
         let header = checked_record_header(len)?;
         self.bytes.reserve(LENGTH_HEADER_LEN + len);
         self.bytes.extend_from_slice(&header);
+        write_cbor_bytes_header(&mut self.bytes, version.len());
         self.bytes.extend_from_slice(version);
         self.bytes.extend_from_slice(message);
         Ok(())
@@ -198,7 +207,7 @@ impl<T> LeafRun<T> {
     /// Iterate the run's records, decoding each into its canonical pair.
     pub fn records(&self) -> impl Iterator<Item = Result<(Version, Message<T>), DecodeLeafError>>
     where
-        T: BorshDeserialize,
+        T: serde::de::DeserializeOwned,
     {
         self.record_slices().map(parse_record)
     }
@@ -253,18 +262,67 @@ fn record_header(header: &[u8]) -> usize {
 }
 
 /// Decode one exact record body into its canonical pair.
-fn parse_record<T: BorshDeserialize>(
+fn parse_record<T: serde::de::DeserializeOwned>(
     record: &[u8],
 ) -> Result<(Version, Message<T>), DecodeLeafError> {
-    // The exact record body makes both Borsh values a single, non-retrying
-    // parse.
+    // Both fields are self-delimiting CBOR values, so the exact record
+    // body parses without retrying, and whatever the payload's parse does
+    // not consume is trailing.
+    fn de_error(e: ciborium::de::Error<std::io::Error>) -> std::io::Error {
+        match e {
+            ciborium::de::Error::Io(e) => e,
+            e => std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()),
+        }
+    }
     let mut input = record;
-    let version = Version::deserialize(&mut input).map_err(DecodeLeafError::Version)?;
-    let message = Message::deserialize(&mut input).map_err(DecodeLeafError::Message)?;
+    let version: Version =
+        ciborium::de::from_reader(&mut input).map_err(|e| DecodeLeafError::Version(de_error(e)))?;
+    let payload = input;
+    let message: T =
+        ciborium::de::from_reader(&mut input).map_err(|e| DecodeLeafError::Message(de_error(e)))?;
     if !input.is_empty() {
         return Err(DecodeLeafError::TrailingBytes { count: input.len() });
     }
+    let message = Message::from_decoded(message, bytes::Bytes::copy_from_slice(payload));
     Ok((version, message))
+}
+
+/// Bytes of the CBOR definite-length byte-string header for a `len`-byte
+/// payload: the major-type-2 initial byte, plus the argument's width.
+///
+/// The dual of [`write_cbor_bytes_header`]; `record_len` prices with one
+/// and `push` writes with the other, and the
+/// `record_len_matches_an_actual_push` pin holds them together.
+fn cbor_bytes_header_len(len: usize) -> usize {
+    match len {
+        0..=23 => 1,
+        24..=0xff => 2,
+        0x100..=0xffff => 3,
+        0x1_0000..=0xffff_ffff => 5,
+        _ => 9,
+    }
+}
+
+/// Append the CBOR definite-length byte-string header for a `len`-byte
+/// payload: exactly what [`ciborium`] emits for `serialize_bytes`.
+fn write_cbor_bytes_header(out: &mut Vec<u8>, len: usize) {
+    const MAJOR_BYTES: u8 = 2 << 5;
+    match len {
+        0..=23 => out.push(MAJOR_BYTES | len as u8),
+        24..=0xff => out.extend_from_slice(&[MAJOR_BYTES | 24, len as u8]),
+        0x100..=0xffff => {
+            out.push(MAJOR_BYTES | 25);
+            out.extend_from_slice(&(len as u16).to_be_bytes());
+        }
+        0x1_0000..=0xffff_ffff => {
+            out.push(MAJOR_BYTES | 26);
+            out.extend_from_slice(&(len as u32).to_be_bytes());
+        }
+        _ => {
+            out.push(MAJOR_BYTES | 27);
+            out.extend_from_slice(&(len as u64).to_be_bytes());
+        }
+    }
 }
 
 /// A supply run whose record framing is structurally invalid.

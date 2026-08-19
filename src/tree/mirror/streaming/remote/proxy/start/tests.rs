@@ -69,6 +69,18 @@ fn ticked_version() -> Version {
 /// greeting; a peer that closes mid-header must surface
 /// [`Error::HandshakeRead`] with `UnexpectedEof` — never a hang waiting on
 /// bytes that cannot arrive.
+
+/// Encode a root-fan listing as its wire form: raw radix-hash records,
+/// the frame length carrying the count.
+fn encode_listing(children: &[(u8, Hash)]) -> Vec<u8> {
+    let mut body = Vec::new();
+    for (radix, hash) in children {
+        body.push(*radix);
+        body.extend_from_slice(hash.as_bytes());
+    }
+    body
+}
+
 #[pollster::test]
 async fn truncated_version_header_is_a_typed_read_error() {
     let result = receive_greeting(&[0, 0]).await.map(|_| ());
@@ -209,7 +221,7 @@ proptest! {
 #[pollster::test]
 async fn unordered_listing_is_rejected() {
     let listing = vec![(2_u8, Hash::default()), (1_u8, Hash::default())];
-    let body = borsh::to_vec(&listing).expect("test listings encode");
+    let body = encode_listing(&listing);
 
     let result = receive_greeting(&greeting(&body)).await.map(|_| ());
     assert!(
@@ -232,7 +244,7 @@ async fn unordered_listing_is_rejected() {
 #[pollster::test]
 async fn duplicate_listing_radix_is_rejected() {
     let listing = vec![(3_u8, Hash::default()), (3_u8, Hash::default())];
-    let body = borsh::to_vec(&listing).expect("test listings encode");
+    let body = encode_listing(&listing);
 
     let result = receive_greeting(&greeting(&body)).await.map(|_| ());
     assert!(
@@ -256,7 +268,7 @@ async fn duplicate_listing_radix_is_rejected() {
 #[pollster::test]
 async fn truncated_listing_body_is_rejected() {
     let listing = vec![(0_u8, Hash::default()), (1_u8, Hash::default())];
-    let mut body = borsh::to_vec(&listing).expect("test listings encode");
+    let mut body = encode_listing(&listing);
     body.truncate(body.len() - 1);
 
     let result = receive_greeting(&greeting(&body)).await.map(|_| ());
@@ -269,14 +281,14 @@ async fn truncated_listing_body_is_rejected() {
 /// A listing frame with bytes after the listing fails as a typed decode
 /// error.
 ///
-/// The greeting decode is canonical: the frame must contain exactly one
-/// borsh listing, so trailing garbage surfaces [`Error::HandshakeDecode`]
-/// rather than being silently ignored (which would let two encodings name
-/// one greeting).
+/// The greeting decode is canonical: the frame must be a whole number of
+/// radix-hash records, so trailing garbage surfaces
+/// [`Error::HandshakeDecode`] rather than being silently ignored (which
+/// would let two encodings name one greeting).
 #[pollster::test]
 async fn trailing_listing_bytes_are_rejected() {
     let listing: Vec<(u8, Hash)> = Vec::new();
-    let mut body = borsh::to_vec(&listing).expect("test listings encode");
+    let mut body = encode_listing(&listing);
     body.push(0xFF);
 
     let result = receive_greeting(&greeting(&body)).await.map(|_| ());
@@ -295,7 +307,7 @@ async fn trailing_listing_bytes_are_rejected() {
 #[pollster::test]
 async fn empty_listing_greeting_decodes() {
     let listing: Vec<(u8, Hash)> = Vec::new();
-    let body = borsh::to_vec(&listing).expect("test listings encode");
+    let body = encode_listing(&listing);
 
     let handshake = receive_greeting(&greeting(&body))
         .await

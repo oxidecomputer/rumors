@@ -1,7 +1,6 @@
 //! Deterministic tree shapes for streaming integration, capacity, and
 //! skeleton-bridge tests.
 
-use borsh::BorshSerialize;
 use proptest::prelude::*;
 
 use crate::{
@@ -39,7 +38,7 @@ pub(super) fn grown<T>(
     paths: &[Path],
 ) -> Option<TreeNode<T, height::Root>>
 where
-    T: BorshSerialize + Clone + Send + Sync,
+    T: serde::Serialize + Clone + Send + Sync,
 {
     assert!(stride > 0, "each leaf needs a fresh version");
     let party = nth_party(party);
@@ -238,7 +237,7 @@ impl Divergence {
     /// in both.
     pub fn trees<T>(&self, value: &T) -> (Root<T>, Root<T>, Root<T>)
     where
-        T: BorshSerialize + Clone + Send + Sync,
+        T: serde::Serialize + Clone + Send + Sync,
     {
         let as_paths =
             |bytes: Vec<[u8; 32]>| -> Vec<Path> { bytes.into_iter().map(Path::from).collect() };

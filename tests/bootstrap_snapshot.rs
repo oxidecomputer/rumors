@@ -23,7 +23,6 @@
 
 mod common;
 
-use borsh::{BorshDeserialize, BorshSerialize};
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
 #[cfg(feature = "protocol-v1")]
@@ -50,7 +49,7 @@ fn seeded<T>() -> Rumors<T> {
 /// expected to be served a successor.
 fn capture_bootstrap<T>(provider: Rumors<T>) -> String
 where
-    T: BorshSerialize + BorshDeserialize + Send + Sync + 'static,
+    T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static,
 {
     capture_session(
         move |mut link| async move {

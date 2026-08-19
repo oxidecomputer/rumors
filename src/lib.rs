@@ -304,7 +304,6 @@ mod tests;
 
 pub use crate::peer::PROTOCOL_MAGIC;
 pub use ::before;
-pub use ::borsh;
 pub use batch::Batch;
 pub use before::{Ticks, Version, causally};
 pub use bookmark::{

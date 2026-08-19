@@ -1,4 +1,3 @@
-use borsh::BorshSerialize;
 use tokio::sync::watch;
 
 use crate::message::Message;
@@ -63,7 +62,7 @@ impl<'a, T: Send + Sync> Batch<'a, T> {
     /// commit: the failure surfaces at the offending call.
     pub fn send(&mut self, message: T) -> &mut Self
     where
-        T: BorshSerialize,
+        T: serde::Serialize,
     {
         self.actions.push(Action::Insert(Message::from(message)));
         self

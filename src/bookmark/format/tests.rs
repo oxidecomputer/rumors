@@ -32,10 +32,15 @@ fn sample_record() -> BTreeMap<Network, Vec<Clock>> {
     BTreeMap::from([(network, vec![clock, first, second])])
 }
 
-/// Two records are equal when their canonical borsh encodings are: a [`Clock`]
+/// Two records are equal when their CBOR encodings are: a [`Clock`]
 /// is `!Clone` and exposes no value equality, so the bytes are the oracle.
-fn borsh_eq(a: &BTreeMap<Network, Vec<Clock>>, b: &BTreeMap<Network, Vec<Clock>>) -> bool {
-    borsh::to_vec(a).unwrap() == borsh::to_vec(b).unwrap()
+fn record_eq(a: &BTreeMap<Network, Vec<Clock>>, b: &BTreeMap<Network, Vec<Clock>>) -> bool {
+    let encode = |record: &BTreeMap<Network, Vec<Clock>>| {
+        let mut buf = Vec::new();
+        ciborium::ser::into_writer(record, &mut buf).unwrap();
+        buf
+    };
+    encode(a) == encode(b)
 }
 
 proptest! {
@@ -83,7 +88,7 @@ proptest! {
         let record = BTreeMap::from([(Network::from_bytes(network), clocks)]);
 
         let decoded = decode(&encode(&record)).expect("a freshly encoded record decodes");
-        prop_assert!(borsh_eq(&decoded, &record));
+        prop_assert!(record_eq(&decoded, &record));
     }
 }
 
@@ -157,7 +162,7 @@ fn short_input_is_truncated() {
 }
 
 /// The encoded empty record pins byte-for-byte: a header (magic, version,
-/// integrity hash) over the borsh encoding of an empty map. A change here is a
+/// integrity hash) over the CBOR encoding of an empty map. A change here is a
 /// deliberate on-disk format change, like the wire-format snapshots.
 #[test]
 fn pins_the_empty_frame() {

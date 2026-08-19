@@ -85,7 +85,7 @@ pub fn early_supplies<B, T, G, F>(
 ) -> impl Stream<Item = Result<(u8, B::Node<G>), DecodeError<B::Error>>> + Send
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    T: borsh::BorshDeserialize + Send + Sync + 'static,
+    T: serde::de::DeserializeOwned + Send + Sync + 'static,
     G: Convert,
     S<G>: Height,
     F: Stream<Item = Frame<T>> + Unpin + Send + 'static,
@@ -150,7 +150,7 @@ async fn read_early<B, T, G, F>(
 ) -> Result<(), DecodeError<B::Error>>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    T: borsh::BorshDeserialize + Send + Sync + 'static,
+    T: serde::de::DeserializeOwned + Send + Sync + 'static,
     G: Height,
     S<G>: Height,
     F: Stream<Item = Frame<T>> + Unpin,
@@ -219,7 +219,7 @@ pub async fn decode_reply<B, T, H, F>(
 ) -> Result<Decoded<B, T, S<H>, Vec<Scope<H>>>, DecodeError<B::Error>>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    T: borsh::BorshDeserialize + Send + Sync + 'static,
+    T: serde::de::DeserializeOwned + Send + Sync + 'static,
     H: Height,
     S<H>: Convert,
     S<S<H>>: Height,
@@ -249,7 +249,7 @@ pub async fn decode_leaf_reply<B, T, F>(
 ) -> Result<Decoded<B, T, Z, Vec<Scope<Z>>>, DecodeError<B::Error>>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    T: borsh::BorshDeserialize + Send + Sync + 'static,
+    T: serde::de::DeserializeOwned + Send + Sync + 'static,
     F: Stream<Item = Frame<T>> + Unpin,
 {
     decode(
@@ -279,7 +279,7 @@ async fn decode<B, T, H, F, Q, N>(
 ) -> Result<Decoded<B, T, H, Vec<N>>, DecodeError<B::Error>>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    T: borsh::BorshDeserialize + Send + Sync + 'static,
+    T: serde::de::DeserializeOwned + Send + Sync + 'static,
     H: Convert,
     S<H>: Height,
     F: Stream<Item = Frame<T>> + Unpin,
@@ -323,7 +323,7 @@ async fn read_reply<B, T, H, F, Q, N>(
 ) -> Result<Option<ReadReply<H, N>>, DecodeError<B::Error>>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    T: borsh::BorshDeserialize + Send + Sync + 'static,
+    T: serde::de::DeserializeOwned + Send + Sync + 'static,
     H: Height,
     S<H>: Height,
     F: Stream<Item = Frame<T>> + Unpin,

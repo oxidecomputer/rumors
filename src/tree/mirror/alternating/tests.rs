@@ -3,7 +3,6 @@ use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use borsh::{BorshDeserialize, BorshSerialize};
 use proptest::collection::vec;
 use proptest::prelude::*;
 use tokio::runtime::Runtime;
@@ -83,7 +82,7 @@ fn mirror_via<T>(
     scenario: Scenario,
 ) -> crate::tree::Root<T>
 where
-    T: PartialEq + std::fmt::Debug + BorshSerialize + BorshDeserialize + Send + Sync,
+    T: PartialEq + std::fmt::Debug + serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
 {
     block_on(async move {
         match scenario {

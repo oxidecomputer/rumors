@@ -55,12 +55,13 @@ protocol-v1 = []
 meter = ["before/limb-meter", "before/scan-meter"]
 
 [dependencies]
-before = { path = "crates/before", features = ["borsh"] }
-bytes = "1"
+before = { path = "crates/before", features = ["serde"] }
+bytes = { version = "1", features = ["serde"] }
 blake3 = "1.8"
 static_assertions = "1.1"
 itertools = "0.14"
-borsh = { version = "1.6", features = ["bytes", "derive", "de_strict_order"] }
+serde = { version = "1", features = ["derive"] }
+ciborium = "0.2"
 seq-macro = "0.3"
 smallvec = { version = "1.15", features = ["union"] }
 tinyvec = { version = "1.11", features = ["alloc"] }
@@ -78,7 +79,7 @@ rumors = { path = ".", features = ["test-internals", "conformance"] }
 # The meter feature lights before's instrument surface for this crate's
 # own tests: the conservation suite reads the exact-bit-length observation
 # (`encoded_bits`) it denominates identity conservation in.
-before = { path = "crates/before", features = ["borsh", "meter"] }
+before = { path = "crates/before", features = ["serde", "meter"] }
 proptest = "1"
 criterion = { version = "0.5", features = ["html_reports"] }
 insta = "1.47"

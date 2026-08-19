@@ -4,9 +4,7 @@
 use std::slice;
 
 #[cfg(test)]
-use borsh::BorshDeserialize;
-#[cfg(test)]
-use borsh::io::{ErrorKind, Read};
+use std::io::{ErrorKind, Read};
 
 use crate::tree::mirror::framing::LENGTH_HEADER_LEN;
 use crate::tree::typed::{Hash, hash::MERKLE_HASH_LEN};
@@ -30,7 +28,7 @@ use super::{
 
 /// Decode one frame from `read`, leaving subsequent bytes untouched.
 #[cfg(test)]
-pub fn decode<T: BorshDeserialize>(
+pub fn decode<T: serde::de::DeserializeOwned>(
     speaker: Speaker,
     budget: RunBudget,
     read: &mut impl Read,
@@ -40,7 +38,7 @@ pub fn decode<T: BorshDeserialize>(
 
 /// Decode exactly one frame from a slice, rejecting bytes after it.
 #[cfg(test)]
-pub fn decode_exact<T: BorshDeserialize>(
+pub fn decode_exact<T: serde::de::DeserializeOwned>(
     speaker: Speaker,
     budget: RunBudget,
     input: &[u8],
@@ -77,7 +75,7 @@ impl<'a, R: Read> FrameDecoder<'a, R> {
         }
     }
 
-    fn decode<T: BorshDeserialize>(mut self) -> Result<WireFrame<T>, DecodeError> {
+    fn decode<T: serde::de::DeserializeOwned>(mut self) -> Result<WireFrame<T>, DecodeError> {
         let (stream, signal) = self.signal()?;
         let frame = self
             .body(signal)
@@ -92,7 +90,10 @@ impl<'a, R: Read> FrameDecoder<'a, R> {
         decode_signal(self.speaker, byte)
     }
 
-    fn body<T: BorshDeserialize>(&mut self, signal: Signal) -> Result<Frame<T>, DecodeErrorKind> {
+    fn body<T: serde::de::DeserializeOwned>(
+        &mut self,
+        signal: Signal,
+    ) -> Result<Frame<T>, DecodeErrorKind> {
         let frame = match signal {
             Signal::Match(flow) => Frame::Reaction(Reaction::Match, flow),
             Signal::QueryEmpty(flow) => Frame::Reaction(Reaction::Query(Vec::new()), flow),

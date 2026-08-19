@@ -3,7 +3,6 @@
 use std::io;
 use std::marker::PhantomData;
 
-use borsh::BorshDeserialize;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::{
@@ -30,6 +29,7 @@ use crate::{
         },
         typed::{
             Hash,
+            hash::MERKLE_HASH_LEN,
             height::{Root, Z},
         },
     },
@@ -120,7 +120,7 @@ where
 impl<B, T, R, W, C, A> Connect<B, T> for Handshaking<B, T, R, W, C, A>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    T: borsh::BorshDeserialize + Send + Sync + 'static,
+    T: serde::de::DeserializeOwned + Send + Sync + 'static,
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
     C: Connector,
@@ -147,7 +147,7 @@ where
 impl<B, T, R, W, C, A> CompleteConnect<B, T> for Handshaking<B, T, R, W, C, A, Connecting>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    T: borsh::BorshDeserialize + Send + Sync + 'static,
+    T: serde::de::DeserializeOwned + Send + Sync + 'static,
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
     C: Connector,
@@ -181,7 +181,7 @@ where
 impl<B, T, R, W, C, A> Accept<B, T> for Handshaking<B, T, R, W, C, A>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    T: borsh::BorshDeserialize + Send + Sync + 'static,
+    T: serde::de::DeserializeOwned + Send + Sync + 'static,
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
     C: Connector,
@@ -246,7 +246,14 @@ where
     first.extend_from_slice(&greeting.target_message_size.to_le_bytes());
     first.extend_from_slice(greeting.version.as_bytes());
     write.frame(&first).await.map_err(Error::HandshakeWrite)?;
-    let listing = borsh::to_vec(&greeting.listing).map_err(Error::HandshakeWrite)?;
+    // The listing frame is raw fixed-width records — radix byte, then the
+    // Merkle hash — with the frame length carrying the count, exactly the
+    // codec's query-listing shape.
+    let mut listing = Vec::with_capacity(greeting.listing.len() * (1 + MERKLE_HASH_LEN));
+    for (radix, hash) in &greeting.listing {
+        listing.push(*radix);
+        listing.extend_from_slice(hash.as_bytes());
+    }
     write.frame(&listing).await.map_err(Error::HandshakeWrite)
 }
 
@@ -270,10 +277,26 @@ where
     };
     let (set_len, max_version_bytes, target_message_size) =
         framing::greeting_words(&bytes).ok_or_else(short)?;
-    let version = Version::try_from_slice(&bytes[framing::GREETING_SIZE_WORDS_LEN..])
-        .map_err(Error::HandshakeDecode)?;
+    let version = Version::decode(&bytes[framing::GREETING_SIZE_WORDS_LEN..])
+        .map_err(|e| Error::HandshakeDecode(io::Error::new(io::ErrorKind::InvalidData, e)))?;
     let bytes = read.frame().await.map_err(Error::HandshakeRead)?;
-    let listing = Vec::<(u8, Hash)>::try_from_slice(&bytes).map_err(Error::HandshakeDecode)?;
+    // The frame length carries the record count; a remainder is a
+    // malformed listing, not a short read.
+    if !bytes.len().is_multiple_of(1 + MERKLE_HASH_LEN) {
+        return Err(Error::HandshakeDecode(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "listing frame is not a whole number of radix-hash records",
+        )));
+    }
+    let listing: Vec<(u8, Hash)> = bytes
+        .chunks_exact(1 + MERKLE_HASH_LEN)
+        .map(|record| {
+            let (&radix, hash) = record.split_first().expect("a record has a radix byte");
+            let mut bytes = [0u8; MERKLE_HASH_LEN];
+            bytes.copy_from_slice(hash);
+            (radix, Hash(bytes))
+        })
+        .collect();
     validate_children(&listing).map_err(Error::HandshakeListing)?;
     Ok(Greeting {
         version,
@@ -299,7 +322,7 @@ fn connected<B, T, R, W, C, A>(
 ) -> Connected<B, T, R, W, C, A>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    T: BorshDeserialize + Send + Sync + 'static,
+    T: serde::de::DeserializeOwned + Send + Sync + 'static,
     C: Connector,
     A: Acceptor,
 {
@@ -354,7 +377,7 @@ fn open<B, T, R, W, C, A>(
 ) -> Connected<B, T, R, W, C, A>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    T: BorshDeserialize + Send + Sync + 'static,
+    T: serde::de::DeserializeOwned + Send + Sync + 'static,
     C: Connector,
     A: Acceptor,
 {

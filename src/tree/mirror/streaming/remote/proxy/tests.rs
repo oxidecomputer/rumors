@@ -72,7 +72,7 @@ async fn reconcile_symmetric_accepts<T>(
     transport_capacity: usize,
 ) -> (TreeRoot<T>, TreeRoot<T>)
 where
-    T: borsh::BorshDeserialize + Send + Sync + 'static,
+    T: serde::de::DeserializeOwned + Send + Sync + 'static,
 {
     let a = Handshaking::start(Local, Root::from(a)).window(WindowConfig::FLOOR);
     let b = Handshaking::start(Local, Root::from(b)).window(WindowConfig::FLOOR);
@@ -103,7 +103,7 @@ async fn reconcile_symmetric_accepts_reordered<T>(
     reordered: Arc<AtomicUsize>,
 ) -> (TreeRoot<T>, TreeRoot<T>)
 where
-    T: borsh::BorshDeserialize + Send + Sync + 'static,
+    T: serde::de::DeserializeOwned + Send + Sync + 'static,
 {
     let a = Handshaking::start(Local, Root::from(a)).window(WindowConfig::FLOOR);
     let b = Handshaking::start(Local, Root::from(b)).window(WindowConfig::FLOOR);
@@ -123,7 +123,7 @@ where
 /// transport halves, proving that neither phase consumes the other's bytes.
 async fn reconcile_after_preamble<T>(a: TreeRoot<T>, b: TreeRoot<T>) -> (TreeRoot<T>, TreeRoot<T>)
 where
-    T: borsh::BorshDeserialize + Send + Sync + 'static,
+    T: serde::de::DeserializeOwned + Send + Sync + 'static,
 {
     let a = Handshaking::start(Local, Root::from(a)).window(WindowConfig::FLOOR);
     let b = Handshaking::start(Local, Root::from(b)).window(WindowConfig::FLOOR);

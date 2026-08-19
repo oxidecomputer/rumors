@@ -64,6 +64,7 @@ use std::sync::Arc;
 
 pub(crate) mod traverse;
 pub(crate) mod typed;
+pub(crate) mod wire;
 
 use crate::{Version, causally, message::Message, tree::typed::Node};
 

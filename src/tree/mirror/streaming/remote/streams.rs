@@ -40,7 +40,6 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use async_stream::stream;
-use borsh::BorshDeserialize;
 use futures::{StreamExt, stream::BoxStream};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -312,7 +311,7 @@ struct ReceiverStart<Rx> {
 impl<Rx, T> StreamReceiver<Rx, T>
 where
     Rx: tokio::io::AsyncRead + Unpin + Send + 'static,
-    T: BorshDeserialize + Send + Sync + 'static,
+    T: serde::de::DeserializeOwned + Send + Sync + 'static,
 {
     /// Bind one incoming logical stream to its claim slot.
     pub fn new(
@@ -383,7 +382,7 @@ pub enum ReceiverFinish {
 impl<Rx, T> futures::Stream for StreamReceiver<Rx, T>
 where
     Rx: tokio::io::AsyncRead + Unpin + Send + 'static,
-    T: BorshDeserialize + Send + Sync + 'static,
+    T: serde::de::DeserializeOwned + Send + Sync + 'static,
 {
     type Item = Frame<T>;
 
@@ -406,7 +405,7 @@ fn read_frames<Rx, T>(
 ) -> impl futures::Stream<Item = Frame<T>> + Send
 where
     Rx: tokio::io::AsyncRead + Unpin + Send + 'static,
-    T: BorshDeserialize + Send + Sync + 'static,
+    T: serde::de::DeserializeOwned + Send + Sync + 'static,
 {
     stream! {
         let Ok((rx, done)) = claim.await else {

@@ -14,8 +14,6 @@
 
 use std::{collections::BTreeMap, fmt::Write as _};
 
-use borsh::BorshDeserialize;
-
 use crate::Version;
 use crate::tree::mirror::framing::{GREETING_SIZE_WORDS_LEN, LENGTH_HEADER_LEN, greeting_words};
 use crate::tree::mirror::streaming::message::initiates;
@@ -161,7 +159,7 @@ impl Control {
             greeting_words(&version_frame[LENGTH_HEADER_LEN..])
                 .expect("captured version frame carries its three size words");
         let version =
-            Version::try_from_slice(&version_frame[LENGTH_HEADER_LEN + GREETING_SIZE_WORDS_LEN..])
+            Version::decode(&version_frame[LENGTH_HEADER_LEN + GREETING_SIZE_WORDS_LEN..])
                 .expect("captured version frame is canonical");
         // The greeting always carries its listing frame directly behind the
         // version frame (empty tree = empty listing, still framed).
@@ -337,7 +335,7 @@ fn supply_lines(run: Vec<u8>) -> Vec<String> {
     let mut lines = vec![format!("supply run: {} record(s)", run.record_count())];
     for (index, record) in run.record_slices().enumerate() {
         let mut input = record;
-        match Version::deserialize(&mut input) {
+        match ciborium::de::from_reader::<Version, _>(&mut input) {
             Ok(version) => lines.push(format!(
                 "  record {index}: version {version}, message {} byte(s)",
                 input.len(),
@@ -351,21 +349,30 @@ fn supply_lines(run: Vec<u8>) -> Vec<String> {
 }
 
 /// Render one root-fan listing frame's children, or its explicit decode
-/// failure: the listing is peer-controlled borsh, so the renderer must
+/// failure: the listing is peer-controlled bytes, so the renderer must
 /// never present undecodable bytes as a quietly hex-only frame.
 ///
 /// The canonical child order is held by the codec's own
 /// `validate_children`, the same rule the handshake applies before
 /// building scope from a received listing.
 fn listing_lines(body: &[u8]) -> Vec<String> {
-    let children = match <Vec<(u8, Hash)>>::try_from_slice(body) {
-        Ok(children) => children,
-        Err(err) => {
-            return vec![format!(
-                "listing undecodable ({err}); the exact bytes stand below"
-            )];
-        }
-    };
+    const RECORD: usize = 1 + crate::tree::typed::hash::MERKLE_HASH_LEN;
+    if !body.len().is_multiple_of(RECORD) {
+        return vec![format!(
+            "listing undecodable ({} bytes is not a whole number of radix-hash records); \
+             the exact bytes stand below",
+            body.len()
+        )];
+    }
+    let children: Vec<(u8, Hash)> = body
+        .chunks_exact(RECORD)
+        .map(|record| {
+            let (&radix, hash) = record.split_first().expect("a record has a radix byte");
+            let mut bytes = [0u8; crate::tree::typed::hash::MERKLE_HASH_LEN];
+            bytes.copy_from_slice(hash);
+            (radix, Hash(bytes))
+        })
+        .collect();
     if let Err(err) = validate_children(&children) {
         return vec![format!(
             "listing not canonical ({err}); the exact bytes stand below"

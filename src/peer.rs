@@ -5,7 +5,6 @@
 use std::sync::Arc;
 
 use before::Party;
-use borsh::{BorshDeserialize, BorshSerialize};
 use rand::{RngCore, rngs::OsRng};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{Mutex, watch};
@@ -274,7 +273,7 @@ impl<T, B: Bookmark> Peer<T, B> {
     /// promises](crate::link::Link#what-a-session-promises).
     pub async fn retire<CR, CW, C, A>(self, link: &mut Link<CR, CW, C, A>) -> Retire<T, B>
     where
-        T: BorshDeserialize + BorshSerialize + Send + Sync + 'static,
+        T: serde::de::DeserializeOwned + serde::Serialize + Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,
@@ -542,7 +541,7 @@ impl<T, B: BookmarkError> Peer<T, B> {
 
     pub(crate) fn send(&self, message: T) -> Batch<'_, T>
     where
-        T: BorshSerialize + Send + Sync,
+        T: serde::Serialize + Send + Sync,
     {
         let mut batch = self.batch();
         batch.send(message);

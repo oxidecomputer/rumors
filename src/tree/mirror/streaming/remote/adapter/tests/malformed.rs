@@ -486,7 +486,7 @@ fn a_zero_length_record_fails_as_a_version_decode_error() {
     let DecodeError::Record(DecodeLeafError::Version(source)) = error else {
         panic!("expected a version decode error, got {error:?}");
     };
-    assert_eq!(source.kind(), borsh::io::ErrorKind::UnexpectedEof);
+    assert_eq!(source.kind(), std::io::ErrorKind::UnexpectedEof);
 }
 
 /// The declared version bound admits exactly the versions it covers.
