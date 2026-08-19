@@ -70,6 +70,7 @@ impl<T, B: BookmarkError> Clone for Rumors<T, B> {
                 inner: self.peer.inner.clone(),
                 bookmark: Arc::clone(&self.peer.bookmark),
                 deserializer: self.peer.deserializer,
+                observe: self.peer.observe.clone(),
             },
             extant: self.extant.clone(),
         }

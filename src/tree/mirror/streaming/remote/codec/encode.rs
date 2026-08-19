@@ -94,6 +94,28 @@ impl<'a> FrameEncoding<'a> {
         Ok(Self { head, body })
     }
 
+    /// Render the whole frame into one contiguous buffer: byte for byte
+    /// what the piece-wise writers emit, materialized only for an
+    /// attached observer's one-item view.
+    fn to_vec(&self) -> Vec<u8> {
+        let body_len = match &self.body {
+            BodyEncoding::Empty => 0,
+            BodyEncoding::Listing(listing) => listing.len(),
+            BodyEncoding::Supply { head, run } => head.len() + run.as_bytes().len(),
+        };
+        let mut bytes = Vec::with_capacity(self.head.len() + body_len);
+        bytes.extend_from_slice(&self.head);
+        match &self.body {
+            BodyEncoding::Empty => {}
+            BodyEncoding::Listing(listing) => bytes.extend_from_slice(listing),
+            BodyEncoding::Supply { head, run } => {
+                bytes.extend_from_slice(head);
+                bytes.extend_from_slice(run.as_bytes());
+            }
+        }
+        bytes
+    }
+
     #[cfg(test)]
     fn write(&self, out: &mut impl Write) -> Result<(), EncodeErrorKind> {
         write(out, FramePart::FrameHead, &self.head)?;

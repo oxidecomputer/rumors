@@ -1,5 +1,6 @@
 //! The dense signal code and its semantic components.
 
+use crate::observe::Role;
 use crate::tree::typed::height::{Height, Root, UnderRoot, Z};
 
 /// Lowest node height carried by a logical stream.
@@ -119,6 +120,14 @@ impl Speaker {
         match self {
             Speaker::Initiator => Speaker::Responder,
             Speaker::Responder => Speaker::Initiator,
+        }
+    }
+
+    /// This role in the observation hook's public vocabulary.
+    pub fn role(self) -> Role {
+        match self {
+            Speaker::Initiator => Role::Initiator,
+            Speaker::Responder => Role::Responder,
         }
     }
 }

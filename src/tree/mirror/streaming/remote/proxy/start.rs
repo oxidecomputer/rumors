@@ -6,6 +6,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::{
     link::{Acceptor, Connector, Link},
+    observe::{CaptureRead, Role, SessionHandle},
     tree::{
         mirror::streaming::{
             Backend, Leaf,
@@ -53,6 +54,9 @@ where
     /// leaf record decodes through (see
     /// [`Message::deserializer`](crate::message::Message::deserializer)).
     deserializer: PayloadDeserializer,
+    /// The session's observation handle: every wire item this session
+    /// moves is delivered through it (inert unless a handler attached).
+    observe: SessionHandle,
 }
 
 impl<B, R, W, C, A> Handshaking<B, R, W, C, A>
@@ -71,6 +75,7 @@ where
             window: WindowConfig::default(),
             stats: Recorder::default(),
             deserializer,
+            observe: SessionHandle::default(),
         }
     }
 
@@ -88,6 +93,15 @@ where
     /// reads.
     pub fn stats(mut self, stats: Recorder) -> Self {
         self.stats = stats;
+        self
+    }
+
+    /// Share the session's observation handle, so the greeting exchange
+    /// and every stream this session binds deliver their wire items.
+    ///
+    /// Without this call the session runs with the inert default.
+    pub fn observe(mut self, observe: SessionHandle) -> Self {
+        self.observe = observe;
         self
     }
 }
@@ -126,7 +140,7 @@ where
 
     /// Receive the remote greeting before asking the local server to answer it.
     async fn connect(mut self) -> Result<(Greeting, Self::Next), Self::Error> {
-        let remote = receive::<B::Error, _>(&mut self.link.control_read).await?;
+        let remote = receive::<B::Error, _>(&mut self.link.control_read, &self.observe).await?;
         let greeting = remote.clone();
         let next = Handshaking {
             backend: self.backend,
@@ -135,6 +149,7 @@ where
             window: self.window,
             stats: self.stats,
             deserializer: self.deserializer,
+            observe: self.observe,
         };
         Ok((greeting, next))
     }
@@ -152,7 +167,7 @@ where
 
     /// Send the local server's greeting, then open only if versions differ.
     async fn complete_connect(mut self, theirs: Greeting) -> Result<Self::Next, Self::Error> {
-        send::<B::Error, _>(&theirs, &mut self.link.control_write).await?;
+        send::<B::Error, _>(&theirs, &mut self.link.control_write, &self.observe).await?;
         let window = self.window.resolve(
             theirs.set_len,
             self.versions.remote.set_len,
@@ -170,6 +185,7 @@ where
             self.link,
             self.stats,
             self.deserializer,
+            self.observe,
         ))
     }
 }
@@ -186,8 +202,8 @@ where
 
     /// Exchange greetings concurrently, then open only if versions differ.
     async fn accept(mut self, request: Greeting) -> Result<(Greeting, Self::Next), Self::Error> {
-        let send = send::<B::Error, _>(&request, &mut self.link.control_write);
-        let receive = receive::<B::Error, _>(&mut self.link.control_read);
+        let send = send::<B::Error, _>(&request, &mut self.link.control_write, &self.observe);
+        let receive = receive::<B::Error, _>(&mut self.link.control_read, &self.observe);
         let (_, remote) = futures_util::future::try_join(send, receive).await?;
         let greeting = remote.clone();
         let window = self.window.resolve(
@@ -207,6 +223,7 @@ where
             self.link,
             self.stats,
             self.deserializer,
+            self.observe,
         );
         Ok((greeting, next))
     }
@@ -229,7 +246,11 @@ fn run_budget(ours: &Greeting, theirs: &Greeting) -> RunBudget {
 /// [`codec::greeting`](crate::tree::mirror::streaming::remote::codec::greeting).
 /// The listing rides inside the item — the wire carriage of the opening
 /// question's content (see [`Greeting`] for the always-carry trade).
-async fn send<E, W>(greeting: &Greeting, write: &mut W) -> Result<(), Error<E>>
+async fn send<E, W>(
+    greeting: &Greeting,
+    write: &mut W,
+    observe: &SessionHandle,
+) -> Result<(), Error<E>>
 where
     W: AsyncWrite + Unpin,
 {
@@ -239,7 +260,9 @@ where
         .write_all(&item)
         .await
         .map_err(Error::HandshakeWrite)?;
-    write.flush().await.map_err(Error::HandshakeWrite)
+    write.flush().await.map_err(Error::HandshakeWrite)?;
+    observe.control_sent(&item);
+    Ok(())
 }
 
 /// Receive and canonically decode one greeting item.
@@ -249,17 +272,25 @@ where
 /// listing's canonical strictly-ascending radix order, the same rule the
 /// frame codec applies to a wire query — before any scope is built
 /// from it.
-async fn receive<E, R>(read: &mut R) -> Result<Greeting, Error<E>>
+async fn receive<E, R>(read: &mut R, observe: &SessionHandle) -> Result<Greeting, Error<E>>
 where
     R: AsyncRead + Unpin,
 {
-    greeting_codec::read_greeting(read)
-        .await
-        .map_err(|e| match e {
-            greeting_codec::ReadGreetingError::Io(io) => Error::HandshakeRead(io),
-            greeting_codec::ReadGreetingError::Decode(io) => Error::HandshakeDecode(io),
-            greeting_codec::ReadGreetingError::Listing(order) => Error::HandshakeListing(order),
-        })
+    let route = |e| match e {
+        greeting_codec::ReadGreetingError::Io(io) => Error::HandshakeRead(io),
+        greeting_codec::ReadGreetingError::Decode(io) => Error::HandshakeDecode(io),
+        greeting_codec::ReadGreetingError::Listing(order) => Error::HandshakeListing(order),
+    };
+    if observe.attached() {
+        let mut capture = CaptureRead::new(read);
+        let greeting = greeting_codec::read_greeting(&mut capture)
+            .await
+            .map_err(route)?;
+        observe.control_received(capture.bytes());
+        Ok(greeting)
+    } else {
+        greeting_codec::read_greeting(read).await.map_err(route)
+    }
 }
 
 /// Return untouched control halves on equality, otherwise open the session.
@@ -277,6 +308,7 @@ fn connected<B, R, W, C, A>(
     link: Link<R, W, C, A>,
     stats: Recorder,
     deserializer: PayloadDeserializer,
+    observe: SessionHandle,
 ) -> Connected<B, R, W, C, A>
 where
     B: Backend<Node<Z>: Leaf>,
@@ -298,6 +330,12 @@ where
     } else {
         Speaker::Responder
     };
+    // The election is decided exactly here; observers learn it before
+    // any data stream can open.
+    observe.elected(match local {
+        Speaker::Initiator => Role::Initiator,
+        Speaker::Responder => Role::Responder,
+    });
     open(
         backend,
         window,
@@ -309,6 +347,7 @@ where
         link,
         stats,
         deserializer,
+        observe,
     )
 }
 
@@ -333,6 +372,7 @@ fn open<B, R, W, C, A>(
     link: Link<R, W, C, A>,
     stats: Recorder,
     deserializer: PayloadDeserializer,
+    observe: SessionHandle,
 ) -> Connected<B, R, W, C, A>
 where
     B: Backend<Node<Z>: Leaf>,
@@ -367,7 +407,9 @@ where
         },
         deserializer,
     );
-    Connected::new(remote, epoch, connector, claims, route, budget, stats, work)
+    Connected::new(
+        remote, epoch, connector, claims, route, budget, stats, observe, work,
+    )
 }
 
 #[cfg(test)]

@@ -6,8 +6,11 @@ use std::marker::PhantomData;
 
 use tokio::io::{AsyncRead, AsyncWrite};
 
+use std::sync::Arc;
+
 use crate::bookmark::{Bookmark, BookmarkError};
 use crate::link::{Acceptor, Connector, Link};
+use crate::observe::{Attachment, Observer};
 use crate::tree::mirror::streaming::remote::RunBudget;
 use crate::tree::mirror::streaming::window::WindowConfig;
 use crate::{Error, Peer, Protocol};
@@ -36,9 +39,9 @@ use serde::de::DeserializeOwned;
 /// [`BookmarkedBootstrap`] state (whose `join` reports outcomes as a
 /// [`Joined`], since a persist can fail while the peer lives).
 ///
-/// The builder is `Copy`: after a mutual-bootstrap bail
-/// ([`join`](Self::join)'s `Ok(None)`) or a failed session, the same
-/// configuration retries against another provider as-is.
+/// The builder is `Clone`: after a mutual-bootstrap bail
+/// ([`join`](Self::join)'s `Ok(None)`) or a failed session, a clone of
+/// the same configuration retries against another provider as-is.
 ///
 /// # The provider's side
 ///
@@ -55,21 +58,28 @@ pub struct Bootstrap<T> {
     pub(crate) protocol: Protocol,
     pub(crate) window: WindowConfig,
     pub(crate) run_budget: RunBudget,
+    /// The wire-observation handler selected by
+    /// [`observe`](Self::observe), carried into the joined peer.
+    pub(crate) observe: Attachment,
     /// Covariant, `Send`/`Sync`-neutral marker for the payload type the
     /// new [`Peer`] will carry.
     marker: PhantomData<fn() -> T>,
 }
 
-// Manual, unbounded impls: the payload type is phantom (the builder holds
-// configuration only), so the `T: Clone`/`T: Copy` bounds `derive` would
-// add have nothing to constrain.
+// A manual, unbounded impl: the payload type is phantom (the builder
+// holds configuration only), so the `T: Clone` bound `derive` would add
+// has nothing to constrain.
 impl<T> Clone for Bootstrap<T> {
     fn clone(&self) -> Self {
-        *self
+        Self {
+            protocol: self.protocol,
+            window: self.window,
+            run_budget: self.run_budget,
+            observe: self.observe.clone(),
+            marker: PhantomData,
+        }
     }
 }
-
-impl<T> Copy for Bootstrap<T> {}
 
 /// The configuration only; the payload type parameter carries no state.
 impl<T> std::fmt::Debug for Bootstrap<T> {
@@ -90,6 +100,7 @@ impl<T> Bootstrap<T> {
             protocol: Protocol::default(),
             window: WindowConfig::default(),
             run_budget: RunBudget::default(),
+            observe: Attachment::default(),
             marker: PhantomData,
         }
     }
@@ -149,6 +160,20 @@ impl<T> Bootstrap<T> {
         self
     }
 
+    /// Attach a wire-observation handler, starting with the bootstrap
+    /// session itself.
+    ///
+    /// The join is the one session that runs before the peer exists,
+    /// so observing it means selecting the handler here; the joined
+    /// peer then keeps the handler exactly as
+    /// [`Peer::observe`] would attach it, its session ordinals
+    /// counting from the join (session `0`). The observation contract
+    /// is the [`observe`](crate::observe) module's.
+    pub fn observe(mut self, observer: Arc<dyn Observer>) -> Self {
+        self.observe.attach(observer);
+        self
+    }
+
     /// Persist the received identity as part of joining: the peer comes
     /// back already [`bookmark`](Peer::bookmark)ed.
     ///
@@ -190,7 +215,7 @@ impl<T> Bootstrap<T> {
     /// `Ok(None)` means the counterparty was itself still bootstrapping,
     /// so neither side had anything to share and no identity moved. It is
     /// a clean session boundary: the link remains usable. Connect to
-    /// another peer and try again (the builder is `Copy`, so the same
+    /// another peer and try again (the builder is `Clone`, so the same
     /// configuration retries as-is).
     ///
     /// On `Ok(Some(peer))` the provider has confirmed committing its side
@@ -280,6 +305,13 @@ impl<T, B: Bookmark> BookmarkedBootstrap<T, B> {
     /// [`Bootstrap::target_message_size`]'s.
     pub fn target_message_size(mut self, bytes: usize) -> Self {
         self.config = self.config.target_message_size(bytes);
+        self
+    }
+
+    /// Attach a wire-observation handler; the contract is
+    /// [`Bootstrap::observe`]'s.
+    pub fn observe(mut self, observer: Arc<dyn Observer>) -> Self {
+        self.config = self.config.observe(observer);
         self
     }
 

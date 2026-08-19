@@ -2,6 +2,7 @@ use proptest::prelude::*;
 use tokio::io::{duplex, split};
 
 use super::{Error, Intent, Preamble, Staged, V2_PREAMBLE_LEN, V2_PREFIX, preamble};
+use crate::observe::SessionHandle;
 use crate::{Network, Protocol};
 
 /// Construct a fully received V2 preamble with one caller-selected raw
@@ -51,6 +52,7 @@ fn fragmented_exchange_is_symmetric() {
         let mut left_staged = Staged::new(protocol);
         let mut right_staged = Staged::new(protocol);
 
+        let observe = SessionHandle::default();
         let (seen_by_left, seen_by_right) = pollster::block_on(async {
             tokio::join!(
                 preamble(
@@ -60,6 +62,7 @@ fn fragmented_exchange_is_symmetric() {
                     &mut left_staged,
                     &mut left_read,
                     &mut left_write,
+                    &observe,
                 ),
                 preamble(
                     protocol,
@@ -68,6 +71,7 @@ fn fragmented_exchange_is_symmetric() {
                     &mut right_staged,
                     &mut right_read,
                     &mut right_write,
+                    &observe,
                 ),
             )
         });
@@ -142,6 +146,7 @@ fn every_truncation_boundary_is_a_typed_eof() {
                 &mut staged,
                 &mut reader,
                 &mut writer,
+                &SessionHandle::default(),
             ));
             match result {
                 Err(Error::Io(error)) => assert_eq!(
@@ -180,6 +185,7 @@ fn legacy_peer_is_a_version_mismatch() {
         &mut staged,
         &mut reader,
         &mut writer,
+        &SessionHandle::default(),
     ));
     assert!(
         matches!(
@@ -207,6 +213,7 @@ fn legacy_peer_is_a_version_mismatch() {
         &mut staged,
         &mut reader,
         &mut writer,
+        &SessionHandle::default(),
     ));
     assert!(matches!(
         result,

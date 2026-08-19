@@ -33,6 +33,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use crate::{
     Network, Protocol,
+    observe::SessionHandle,
     tree::mirror::cbor::{self, MAJOR_BSTR, MAJOR_UINT},
 };
 
@@ -367,6 +368,12 @@ impl Staged {
         debug_assert_eq!(self.filled, self.want, "validate before full");
         Preamble::decode(&self.buf[..self.want], self.protocol)
     }
+
+    /// The completely received frame's bytes.
+    fn received(&self) -> &[u8] {
+        debug_assert_eq!(self.filled, self.want, "read back before full");
+        &self.buf[..self.want]
+    }
 }
 
 /// Exchange the fixed preamble before either protocol trusts framed traffic.
@@ -377,6 +384,7 @@ pub(crate) async fn preamble<R, W>(
     staged: &mut Staged,
     reader: &mut R,
     writer: &mut W,
+    observe: &SessionHandle,
 ) -> Result<Preamble, Error>
 where
     R: AsyncRead + Unpin + ?Sized,
@@ -386,7 +394,9 @@ where
 
     let write = async {
         writer.write_all(&local).await.map_err(Error::Io)?;
-        writer.flush().await.map_err(Error::Io)
+        writer.flush().await.map_err(Error::Io)?;
+        observe.control_sent(&local);
+        Ok(())
     };
     let read = async {
         match staged.fill(reader).await? {
@@ -398,7 +408,12 @@ where
         }
     };
     futures_util::future::try_join(write, read).await?;
-    staged.validate()
+    let preamble = staged.validate()?;
+    // Only a validated frame is delivered: the item contract holds for
+    // conforming exchanges, and a malformed preamble aborts the session
+    // instead of feeding observers a non-item.
+    observe.control_received(staged.received());
+    Ok(preamble)
 }
 
 /// Progress of a cancel-safe preamble arrival.

@@ -212,6 +212,11 @@ stops being live, and no redaction object exists anywhere for an observer
 to yield (`Rumors::redact` explains why none is needed); an application
 that needs deletion events sends them as ordinary messages of its own.
 
+All of the above observe the *set*. To watch the *wire* instead — every
+protocol message of a live session, as raw CBOR items, for debuggers,
+recorders, and tracing adapters — attach a handler from the `observe`
+module (`Peer::observe`).
+
 ## Transport: bring a `Link`
 
 A session's transport is a `Link`: one persistent bidirectional

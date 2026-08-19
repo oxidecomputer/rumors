@@ -12,6 +12,7 @@ use tokio::sync::{Mutex, watch};
 use crate::bookmark::{BookmarkError, Bookmarked, NoBookmark};
 use crate::link::{Acceptor, Connector, Link};
 use crate::message::{Message, PayloadDeserializer};
+use crate::observe::{Attachment, Observer};
 use crate::tree::Tree;
 pub use crate::tree::mirror::streaming::remote::DEFAULT_TARGET_MESSAGE_SIZE;
 use crate::tree::mirror::streaming::remote::RunBudget;
@@ -162,6 +163,9 @@ pub struct Peer<T, B: BookmarkError = NoBookmark> {
     /// every gossip session's supplied leaf records decode through (see
     /// [`Message::deserializer`](crate::message::Message::deserializer)).
     pub(crate) deserializer: PayloadDeserializer,
+    /// The wire-observation handler selected by [`observe`](Self::observe),
+    /// with the session-ordinal counter it stamps sessions from.
+    pub(crate) observe: Attachment,
 }
 
 /// The replica's shared mutable state, behind the `watch` channel every
@@ -218,6 +222,7 @@ impl<T: DeserializeOwned + Send + Sync + 'static> Peer<T, NoBookmark> {
             }),
             bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
             deserializer: Message::deserializer::<T>(),
+            observe: Attachment::default(),
         }
     }
 }
@@ -493,6 +498,29 @@ impl<T, B: BookmarkError> Peer<T, B> {
     #[must_use]
     pub fn sync_window_floor(mut self) -> Self {
         self.window = WindowConfig::FLOOR;
+        self
+    }
+
+    /// Attach a wire-observation handler to this peer's future sessions.
+    ///
+    /// For every session the peer enters — gossip, bootstrap serving,
+    /// and retirement alike — the handler is asked for a per-session
+    /// observer, which sees each directed stream's protocol messages
+    /// as raw CBOR items. The full contract (the three handler levels,
+    /// the ordering and back-pressure rules, what exactly is observed)
+    /// is the [`observe`](crate::observe) module's.
+    ///
+    /// Observation never changes the wire: an observed session's bytes
+    /// are identical to an unobserved one's. Like
+    /// [`protocol`](Self::protocol), the choice follows the peer
+    /// through [`into_rumors`](Self::into_rumors), cloning and
+    /// reunion, bookmarking, and retirement; every
+    /// [`Rumors`](crate::Rumors) clone shares the one handler. To
+    /// observe a joining peer's own bootstrap session, attach on the
+    /// builder instead ([`Bootstrap::observe`](crate::Bootstrap::observe)).
+    #[must_use]
+    pub fn observe(mut self, observer: Arc<dyn Observer>) -> Self {
+        self.observe.attach(observer);
         self
     }
 

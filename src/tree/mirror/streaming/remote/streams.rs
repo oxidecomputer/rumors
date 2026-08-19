@@ -46,6 +46,7 @@ use tokio::{
 };
 
 use crate::link::{Acceptor, Connector, Done};
+use crate::observe::{Direction, SessionHandle};
 use crate::tree::mirror::streaming::stats::{CountedRead, CountedWrite, Recorder};
 use crate::tree::mirror::streaming::tasks::cancelled;
 
@@ -120,6 +121,10 @@ pub struct StreamSender<C: Connector> {
     /// count as [`bytes_sent`](crate::SessionStats::bytes_sent), the
     /// label excluded (it is written before the counted wrapper wraps).
     stats: Recorder,
+    /// The session's observation handle: the stream mints its own
+    /// observer from it when it opens, so a sender that never carries
+    /// a frame observes nothing.
+    observe: SessionHandle,
     state: SendState<C::Tx>,
 }
 
@@ -130,13 +135,21 @@ enum SendState<Tx> {
 
 impl<C: Connector> StreamSender<C> {
     /// Bind one outgoing logical stream to a link's stream supply.
-    pub fn new(connector: C, epoch: u8, speaker: Speaker, stream: Stream, stats: Recorder) -> Self {
+    pub fn new(
+        connector: C,
+        epoch: u8,
+        speaker: Speaker,
+        stream: Stream,
+        stats: Recorder,
+        observe: SessionHandle,
+    ) -> Self {
         Self {
             connector,
             epoch,
             speaker,
             stream,
             stats,
+            observe,
             state: SendState::Unopened,
         }
     }
@@ -200,7 +213,12 @@ impl<C: Connector> StreamSender<C> {
                         source,
                     })?;
                 *state = SendState::Open(
-                    FrameWrite::new(self.speaker, CountedWrite::new(tx, self.stats.clone())),
+                    FrameWrite::new(self.speaker, CountedWrite::new(tx, self.stats.clone()))
+                        .observed(self.observe.data(
+                            self.speaker.role(),
+                            stream.index(),
+                            Direction::Sent,
+                        )),
                     done,
                 );
                 let SendState::Open(write, _) = state else {
@@ -306,6 +324,10 @@ struct ReceiverStart<Rx> {
     /// the label excluded (the accept driver consumed it before
     /// delivery).
     stats: Recorder,
+    /// The session's observation handle: the stream mints its own
+    /// observer from it when its claim resolves, so a stream that is
+    /// never claimed observes nothing.
+    observe: SessionHandle,
 }
 
 impl<Rx> StreamReceiver<Rx>
@@ -320,6 +342,7 @@ where
         budget: RunBudget,
         route: ErrorRoute,
         stats: Recorder,
+        observe: SessionHandle,
     ) -> Self {
         Self {
             start: Some(ReceiverStart {
@@ -329,6 +352,7 @@ where
                 budget,
                 route,
                 stats,
+                observe,
             }),
             frames: None,
         }
@@ -361,10 +385,13 @@ where
                 budget,
                 route,
                 stats,
+                observe,
             } = start
                 .take()
                 .expect("the start state is consumed exactly once");
-            Box::pin(read_frames(claim, speaker, stream, budget, route, stats))
+            Box::pin(read_frames(
+                claim, speaker, stream, budget, route, stats, observe,
+            ))
         })
     }
 }
@@ -393,6 +420,7 @@ where
 ///
 /// Every failure path publishes to the session error route and parks: the
 /// consumer never observes a truncated stream as a clean end.
+#[allow(clippy::too_many_arguments)]
 fn read_frames<Rx>(
     claim: oneshot::Receiver<(Rx, Done<Rx>)>,
     speaker: Speaker,
@@ -400,6 +428,7 @@ fn read_frames<Rx>(
     budget: RunBudget,
     route: ErrorRoute,
     stats: Recorder,
+    observe: SessionHandle,
 ) -> impl futures::Stream<Item = Frame> + Send
 where
     Rx: tokio::io::AsyncRead + Unpin + Send + 'static,
@@ -421,7 +450,9 @@ where
             });
             cancelled().await
         };
-        let mut read = FrameRead::new(speaker, budget, CountedRead::new(rx, stats));
+        let mut read = FrameRead::new(speaker, budget, CountedRead::new(rx, stats)).observed(
+            observe.data(speaker.role(), stream.index(), Direction::Received),
+        );
         loop {
             let frame = match read.frame().await {
                 Ok(Some((framed, frame))) if framed == stream => frame,

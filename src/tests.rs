@@ -16,6 +16,7 @@ use tokio::sync::{Mutex, watch};
 
 use crate::bookmark::{Bookmarked, NoBookmark};
 use crate::link::{Connector, Link, MemoryAcceptor, MemoryConnector, MemoryLink, memory};
+use crate::observe::Attachment;
 use crate::testing::{Quiescence, run_to_quiescence};
 use crate::tree::{Root, Tree};
 use crate::{Error, Inner, Peer, Retire};
@@ -105,6 +106,7 @@ fn overlapping_retiree_party_is_rejected() {
             tree: Tree::from_root(Root::default()),
         }),
         bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
+        observe: Attachment::default(),
     };
 
     // Each side's future owns its link: the absorber rejects the overlap

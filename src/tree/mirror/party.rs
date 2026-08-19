@@ -5,6 +5,8 @@ use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
 use crate::{
     Error, Protocol,
+    observe::{CaptureRead, SessionHandle},
+    tags::PARTY_TAG,
     tree::mirror::cbor::{self, MAJOR_BSTR},
 };
 
@@ -17,7 +19,12 @@ use crate::{
 /// the party's canonical encoding — and under the frozen V1 wire, one
 /// length-delimited frame of the bare encoding. Either way its exact
 /// boundary leaves a following session preamble untouched.
-pub(crate) async fn send<W>(protocol: Protocol, party: Party, writer: &mut W) -> Result<(), Error>
+pub(crate) async fn send<W>(
+    protocol: Protocol,
+    party: Party,
+    writer: &mut W,
+    observe: &SessionHandle,
+) -> Result<(), Error>
 where
     W: AsyncWrite + Unpin + ?Sized,
 {
@@ -33,17 +40,23 @@ where
     let _ = protocol;
     let bytes = party.as_bytes();
     let mut item = Vec::with_capacity(
-        cbor::head_len(crate::tags::PARTY_TAG) + cbor::head_len(bytes.len() as u64) + bytes.len(),
+        cbor::head_len(PARTY_TAG) + cbor::head_len(bytes.len() as u64) + bytes.len(),
     );
-    cbor::write_tag(&mut item, crate::tags::PARTY_TAG);
+    cbor::write_tag(&mut item, PARTY_TAG);
     cbor::write_head(&mut item, MAJOR_BSTR, bytes.len() as u64);
     item.extend_from_slice(bytes);
     writer.write_all(&item).await.map_err(Error::Io)?;
-    writer.flush().await.map_err(Error::Io)
+    writer.flush().await.map_err(Error::Io)?;
+    observe.control_sent(&item);
+    Ok(())
 }
 
 /// Receive the identity donation promised by the peer's preamble intent.
-pub(crate) async fn receive<R>(protocol: Protocol, reader: &mut R) -> Result<Party, Error>
+pub(crate) async fn receive<R>(
+    protocol: Protocol,
+    reader: &mut R,
+    observe: &SessionHandle,
+) -> Result<Party, Error>
 where
     R: AsyncRead + Unpin + ?Sized,
 {
@@ -55,6 +68,21 @@ where
         return decode_party(&bytes);
     }
     let _ = protocol;
+    if observe.attached() {
+        let mut capture = CaptureRead::new(reader);
+        let party = receive_v2(&mut capture).await?;
+        observe.control_received(capture.bytes());
+        Ok(party)
+    } else {
+        receive_v2(reader).await
+    }
+}
+
+/// Read and decode one V2 hand-off item.
+async fn receive_v2<R>(reader: &mut R) -> Result<Party, Error>
+where
+    R: AsyncRead + Unpin + ?Sized,
+{
     let invalid = |message: &'static str| {
         Error::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
@@ -62,7 +90,7 @@ where
         ))
     };
     let head = read_head(reader).await?;
-    if head.major != cbor::MAJOR_TAG || head.value != crate::tags::PARTY_TAG {
+    if head.major != cbor::MAJOR_TAG || head.value != PARTY_TAG {
         return Err(invalid(
             "identity hand-off does not carry the party-atom tag",
         ));

@@ -8,6 +8,7 @@ use proptest::prelude::*;
 use tokio::runtime::Runtime;
 
 use crate::Network;
+use crate::observe::SessionHandle;
 use crate::tree::arb::{
     arb_tree_root, leaf_parent_dispute_pair, leaf_parent_redaction_pair, nth_party,
     uncontained_supply_pair,
@@ -448,6 +449,7 @@ fn handshake_flushes_over_buffering_transport() {
             // The preamble carries only magic + version + network + intent, so
             // this exercises purely the flush/deadlock behavior of the framed
             // greeting exchange.
+            let observe = SessionHandle::default();
             let (ra, rb) = tokio::join!(
                 handshake::preamble(
                     crate::Protocol::V1,
@@ -455,7 +457,8 @@ fn handshake_flushes_over_buffering_transport() {
                     Intent::Remain,
                     &mut a_staged,
                     &mut a_r,
-                    &mut a_w
+                    &mut a_w,
+                    &observe
                 ),
                 handshake::preamble(
                     crate::Protocol::V1,
@@ -463,7 +466,8 @@ fn handshake_flushes_over_buffering_transport() {
                     Intent::Remain,
                     &mut b_staged,
                     &mut b_r,
-                    &mut b_w
+                    &mut b_w,
+                    &observe
                 ),
             );
             ra.is_ok() && rb.is_ok()

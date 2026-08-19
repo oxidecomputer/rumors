@@ -20,6 +20,7 @@ use proptest::prelude::*;
 
 use super::{Error, Greeting, receive};
 use crate::Version;
+use crate::observe::SessionHandle;
 use crate::tree::arb::nth_party;
 use crate::tree::mirror::cbor::{self, MAJOR_BSTR, TAG_EMBEDDED_ITEM};
 use crate::tree::mirror::streaming::remote::codec::QueryOrderError;
@@ -51,7 +52,7 @@ fn greeting(listing: Vec<(u8, Hash)>) -> Vec<u8> {
 
 /// Decode crafted greeting bytes through the production ingress.
 async fn receive_greeting(bytes: &[u8]) -> Result<Greeting, Error<Infallible>> {
-    receive(&mut &bytes[..]).await
+    receive(&mut &bytes[..], &SessionHandle::default()).await
 }
 
 /// The map content behind a greeting item's heads.

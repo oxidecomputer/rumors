@@ -175,21 +175,31 @@ redundancy and pay the byte (codes ≥ 24 cost two).
 
 ## The observation hook
 
-The capture path is a public hook, installed at `Peer` construction,
-scoped in three levels — peer, session, directed stream (ruled
-2026-08-19):
+The capture path is a public hook — the `observe` module's three
+traits, scoped peer, session, directed stream (ruled 2026-08-19; the
+module's rustdoc is the documentation of record, this section the
+design rationale):
 
-- **A handler attaches to the `Peer` when it is created.** For each
-  session the peer runs (gossip, and equally bootstrap and retire — a
-  capture that skips session kinds is a debugger with blind spots), the
-  handler is asked for a **per-session sub-handler**. The sub-handler's
-  creation call carries what identifies the session (intent, protocol,
-  role election, an ordinal): each captured session is uniquely
-  identifiable, and the sub-handler's lifetime is the session's.
+- **A handler attaches at construction** (`Peer::observe`, and
+  `Bootstrap::observe` for the joining session that runs before the
+  peer exists — attaching an `Arc` field is what retired the builder's
+  `Copy`; its retry affordance survives as `Clone`). For each session
+  the peer enters (gossip, and equally bootstrap and retire — a
+  capture that skips session kinds is a debugger with blind spots),
+  the handler is asked for a **per-session sub-handler**. The
+  sub-handler's creation carries what identifies the session — kind,
+  protocol, a per-peer ordinal — and its lifetime is the session's.
+  The role election is deliberately *not* part of that identity: it
+  does not exist yet at session start. It is delivered by a dedicated
+  notification when decided (after the greetings, before any data
+  stream), and never for an equal-versions session, which elects no
+  one.
 - **The per-session handler yields a per-directed-stream handler** for
-  each directed stream of the session as it opens (control and data,
-  both directions — sent and received are both captured). The creation
-  call carries the directed-stream identity (speaker + stream); the
+  each directed stream as it opens: the control stream's two
+  directions at session start, each data stream when first spoken or
+  read (a stream the session never uses yields no handler). The
+  creation call carries the directed-stream identity — control, or
+  data with its speaking role and wire index, plus the direction; the
   handler's lifetime is the stream's.
 - **The per-stream handler is invoked once per protocol message, in
   stream order.** Invocation order within one directed stream is that
@@ -202,19 +212,27 @@ scoped in three levels — peer, session, directed stream (ruled
   as it arrives. A slow handler back-pressures only its own stream;
   the hook must still never block on protocol progress, documented at
   the hook.
-- **The per-message payload is the frame's wire bytes, not parsed
-  values**: `bytes: &[u8]`, **exactly one CBOR item** per invocation.
-  Two deliberate choices here: borrowing keeps the hot path zero-copy,
-  and bytes-not-types keeps the hook *itself* rumors-blind — no
-  protocol type appears in its signature, so the hook's API is stable
-  across wire evolution and its consumers parse with any CBOR library
-  (or none). Stream identity lives at the per-stream handler's creation
-  rather than on every message, so the message call carries only what
-  varies per message.
+- **The per-message payload is the message's wire bytes, not parsed
+  values**: `bytes: &[u8]`, **exactly one CBOR item** per invocation —
+  a data frame, or one control item (preamble, greeting, hand-off,
+  epilogue; the two-byte stream-open label is addressing, not an
+  item). Received items are captured off the transport, never
+  re-encoded; only complete, accepted items are delivered. Two
+  deliberate choices here: borrowing keeps the hot path zero-copy
+  (attachment costs one branch per frame unattached, one contiguous
+  materialization per frame attached), and bytes-not-types keeps the
+  hook *itself* rumors-blind — no protocol type appears in its
+  signature, so the hook's API is stable across wire evolution and its
+  consumers parse with any CBOR library (or none). Stream identity
+  lives at the per-stream handler's creation rather than on every
+  message, so the message call carries only what varies per message.
 - Attachment is dynamic (`Arc<dyn …>` held as an `Option`), not a
   generic parameter on `Peer`: one branch per frame when unattached,
   and the public type stays unparameterized. An observability surface
   does not warrant monomorphization.
+- **Only the CBOR dialect is observable**: `Protocol::V1` sessions are
+  not observed, because the frozen legacy wire is not a CBOR sequence
+  and cannot honor the one-item contract.
 
 ## The two consumers
 
@@ -349,6 +367,13 @@ the codec and the hook.
   contract — the transport-captured whole-stream render proptest
   (external capture) and the hook's per-item plus concatenation
   differential (internal capture); neither migrates into the other.
+- 2026-08-19 (Claude, implementer resolutions within the hook ruling,
+  each flagged for review): the role election rides a dedicated
+  session-handler notification rather than session-creation identity
+  (it does not exist at session start); `Protocol::V1` sessions are
+  unobserved (the frozen wire cannot honor the one-item contract);
+  and the `Bootstrap` builder's `Copy` gave way to `Clone` so the
+  handler can attach before the peer exists.
 - 2026-08-19 (Finch): a one-off whole-session bytes measurement
   (before vs after the conversion, mirroring the fixed-corpus gossip
   bench shape) runs as a final bandwidth sanity check; deliberately

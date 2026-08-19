@@ -21,6 +21,7 @@ use crate::link::{
     erased::{DynAcceptor, DynConnector},
 };
 use crate::message::{Message, PayloadDeserializer};
+use crate::observe::{SessionHandle, SessionKind};
 #[cfg(any(test, feature = "protocol-v1"))]
 use crate::tree::mirror::{
     alternating::{self, local as alternating_local, remote as alternating_remote},
@@ -256,6 +257,9 @@ impl<T> Peer<T, NoBookmark> {
             // exists: the bootstrap session's ingress decodes through it,
             // and the constructed peer inherits it.
             let deserializer = Message::deserializer::<T>();
+            let observe = config
+                .observe
+                .begin(SessionKind::Bootstrap, config.protocol);
             // Magic/version/network/intent preamble first, before either protocol
             // is allowed to trust peer-declared frame lengths.
             let mut staged = handshake::Staged::new(config.protocol);
@@ -266,6 +270,7 @@ impl<T> Peer<T, NoBookmark> {
                 &mut staged,
                 read,
                 write,
+                &observe,
             )
             .await
             .map_err(Error::from)?;
@@ -289,6 +294,7 @@ impl<T> Peer<T, NoBookmark> {
                     config.window,
                     config.run_budget,
                     both_bootstrapping,
+                    observe.clone(),
                 ),
                 #[cfg(any(test, feature = "protocol-v1"))]
                 Protocol::V1 => bootstrap_v1(read, write, deserializer, both_bootstrapping),
@@ -296,7 +302,7 @@ impl<T> Peer<T, NoBookmark> {
             let Some((root, mut read, mut write)) = reconcile.await? else {
                 return Ok(None);
             };
-            let party = party::receive(config.protocol, &mut read).await?;
+            let party = party::receive(config.protocol, &mut read, &observe).await?;
             // Our absorption of the received identity completes with the
             // in-memory `Peer` construction below, which cannot fail: certify
             // completion now, and require the provider's certificate so `Ok`
@@ -304,7 +310,7 @@ impl<T> Peer<T, NoBookmark> {
             // frozen.) On `Err` the received fork is dropped — its region
             // leaks, benignly, like any fork lost in flight.
             if config.protocol == Protocol::V2 {
-                epilogue(&mut read, &mut write).await?;
+                epilogue(&mut read, &mut write, &observe).await?;
             }
             let peer = Self {
                 network: remote.network,
@@ -317,6 +323,7 @@ impl<T> Peer<T, NoBookmark> {
                 }),
                 bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
                 deserializer,
+                observe: config.observe,
             };
             Ok(Some(peer))
         })
@@ -334,6 +341,7 @@ impl<T> Peer<T, NoBookmark> {
             run_budget,
             inner,
             deserializer,
+            observe,
             ..
         } = self;
         let peer = Peer {
@@ -344,6 +352,7 @@ impl<T> Peer<T, NoBookmark> {
             inner,
             bookmark: Arc::new(Mutex::new(Bookmarked::new(bookmark))),
             deserializer,
+            observe,
         };
 
         // A pristine seed has no identity worth recording yet; persisting it
@@ -373,6 +382,7 @@ impl<T> Peer<T, NoBookmark> {
                     inner: peer.inner,
                     bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
                     deserializer: peer.deserializer,
+                    observe: peer.observe,
                 },
                 error,
             }),
@@ -593,15 +603,30 @@ impl<T, B: Persist> Peer<T, B> {
         // bytes), and its snapshot rides the `Ok`. A session that ends
         // before reconciliation, and every V1 session, reports zeros.
         let stats = Recorder::default();
+        // The session's observation handle: inert unless a handler is
+        // attached and the dialect is observable, and shared, like the
+        // recorder, by every layer that moves a wire item.
+        let kind = match intent {
+            Intent::Remain => SessionKind::Gossip,
+            Intent::Retire => SessionKind::Retire,
+        };
+        let observe = self.observe.begin(kind, self.protocol);
         // Magic/version preamble: reject a non-rumors or incompatible peer
         // before the framing trusts any peer-supplied frame length.
-        let remote =
-            match handshake::preamble(self.protocol, self.network, intent, staged, read, write)
-                .await
-            {
-                Err(error) => return (Intent::Remain, Err(Error::from(error).widen())),
-                Ok(remote) => remote,
-            };
+        let remote = match handshake::preamble(
+            self.protocol,
+            self.network,
+            intent,
+            staged,
+            read,
+            write,
+            &observe,
+        )
+        .await
+        {
+            Err(error) => return (Intent::Remain, Err(Error::from(error).widen())),
+            Ok(remote) => remote,
+        };
         let peer_bootstrapping = remote.network.is_bootstrap();
         let self_retiring = intent == Intent::Retire;
         let peer_retiring = remote.intent == Intent::Retire;
@@ -611,7 +636,7 @@ impl<T, B: Persist> Peer<T, B> {
         // epilogue markers pair up with no session body between them.
         if self_retiring && peer_retiring {
             if self.protocol == Protocol::V2
-                && let Err(e) = epilogue(read, write).await
+                && let Err(e) = epilogue(read, write, &observe).await
             {
                 return (Intent::Remain, Err(e.widen()));
             }
@@ -711,6 +736,7 @@ impl<T, B: Persist> Peer<T, B> {
             window: self.window,
             run_budget: self.run_budget,
             stats: stats.clone(),
+            observe: observe.clone(),
             peer_bootstrapping,
             remote_network: remote.network,
             network: self.network,
@@ -738,7 +764,7 @@ impl<T, B: Persist> Peer<T, B> {
             // The preamble rejects a peer that claims to both bootstrap and
             // retire, and we bailed early if we were retiring too, so no
             // party of ours is in flight here: `guarded.party` is `None`.
-            absorbed = match party::receive(self.protocol, read).await {
+            absorbed = match party::receive(self.protocol, read, &observe).await {
                 Err(e) => return (Intent::Remain, Err(e.widen())),
                 Ok(donated_party) => Some(donated_party),
             };
@@ -759,7 +785,7 @@ impl<T, B: Persist> Peer<T, B> {
             // the peer may hold the party even if the send errors, so it can
             // never be safely re-joined.
             let donated = guarded.party.take().expect("is_some");
-            match party::send(self.protocol, donated, write).await {
+            match party::send(self.protocol, donated, write, &observe).await {
                 Err(e) => {
                     // A retiring donation in limbo must be assumed received:
                     // report `Intent::Retire` alongside the error so that the
@@ -870,7 +896,7 @@ impl<T, B: Persist> Peer<T, B> {
         // crossed the wire but whose epilogue failed is post-hand-off, and
         // mapping it back to `Intent::Remain` would duplicate the identity.
         if self.protocol == Protocol::V2
-            && let Err(e) = epilogue(read, write).await
+            && let Err(e) = epilogue(read, write, &observe).await
         {
             return (outcome, Err(e.widen()));
         }
@@ -1061,6 +1087,10 @@ struct Reconciliation<'a> {
     run_budget: RunBudget,
     /// The session's stats recorder, shared by both V2 participants.
     stats: Recorder,
+    /// The session's observation handle: inert unless a handler is
+    /// attached and the dialect is observable, and shared, like the
+    /// recorder, by every layer that moves a wire item.
+    observe: SessionHandle,
     /// Whether the remote's preamble declared it a bootstrap claimant.
     peer_bootstrapping: bool,
     /// The network the remote's preamble declared.
@@ -1094,6 +1124,7 @@ impl<'a> Reconciliation<'a> {
                 window,
                 run_budget,
                 stats,
+                observe,
                 peer_bootstrapping,
                 remote_network,
                 network,
@@ -1107,7 +1138,8 @@ impl<'a> Reconciliation<'a> {
             let carrier = Link::for_session(read, write, connector, acceptor, epoch);
             let proxy = streaming_remote::Handshaking::start(Local, carrier, deserializer)
                 .window(window)
-                .stats(stats);
+                .stats(stats)
+                .observe(observe);
             let handshaken = streaming::handshake(local, proxy)
                 .await
                 .map_err(streaming_error)?;
@@ -1194,6 +1226,7 @@ fn bootstrap_v2<'a>(
     window: WindowConfig,
     run_budget: RunBudget,
     both_bootstrapping: bool,
+    observe: SessionHandle,
 ) -> BoxFuture<'a, Result<Option<(tree::Root, DynRead<'a>, DynWrite<'a>)>, Error>> {
     Box::pin(async move {
         let (read, write, connector, acceptor, epoch) = link;
@@ -1208,8 +1241,9 @@ fn bootstrap_v2<'a>(
             .window(window)
             .target_message_size(run_budget.bytes() as u64);
         let carrier = Link::for_session(read, write, connector, acceptor, epoch);
-        let proxy =
-            streaming_remote::Handshaking::start(Local, carrier, deserializer).window(window);
+        let proxy = streaming_remote::Handshaking::start(Local, carrier, deserializer)
+            .window(window)
+            .observe(observe.clone());
         let handshaken = streaming::handshake(local, proxy)
             .await
             .map_err(streaming_error)?;
@@ -1226,7 +1260,7 @@ fn bootstrap_v2<'a>(
         let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
         let (root, (mut read, mut write)) = descent.await.map_err(streaming_error)?;
         if both_bootstrapping {
-            epilogue(&mut read, &mut write).await?;
+            epilogue(&mut read, &mut write, &observe).await?;
             return Ok(None);
         }
         Ok(Some((root.into(), read, write)))
@@ -1324,10 +1358,13 @@ fn bootstrap_claimant_is_newborn(claimed: &Version) -> Result<(), Error> {
 async fn epilogue(
     read: &mut (dyn AsyncRead + Unpin + Send + '_),
     write: &mut (dyn AsyncWrite + Unpin + Send + '_),
+    observe: &SessionHandle,
 ) -> Result<(), Error> {
     let send = async {
         write.write_all(&EPILOGUE_MARKER).await?;
-        write.flush().await
+        write.flush().await?;
+        observe.control_sent(&EPILOGUE_MARKER);
+        Ok(())
     };
     let receive = async {
         let mut marker = [0u8; EPILOGUE_MARKER.len()];
@@ -1341,6 +1378,9 @@ async fn epilogue(
                 ),
             ));
         }
+        // The validated marker is byte-equal to the local constant, so
+        // the constant is the received item.
+        observe.control_received(&EPILOGUE_MARKER);
         Ok(())
     };
     futures_util::future::try_join(send, receive)

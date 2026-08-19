@@ -3,6 +3,8 @@
 use std::io::ErrorKind;
 use tokio::io::{AsyncRead, AsyncReadExt};
 
+use crate::observe::{CaptureRead, StreamObserver};
+
 use super::super::{
     budget::RunBudget,
     error::{DecodeError, DecodeErrorKind, FramePart},
@@ -33,6 +35,9 @@ pub struct FrameRead<R> {
     /// this direction delivers.
     budget: RunBudget,
     read: R,
+    /// The directed stream's observer, if any: handed each accepted
+    /// frame's exact wire bytes, and costing one branch when absent.
+    observe: Option<Box<dyn StreamObserver>>,
 }
 
 impl<R> FrameRead<R> {
@@ -43,7 +48,14 @@ impl<R> FrameRead<R> {
             speaker,
             budget,
             read,
+            observe: None,
         }
+    }
+
+    /// Deliver every accepted frame to `observe`, when one is minted.
+    pub fn observed(mut self, observe: Option<Box<dyn StreamObserver>>) -> Self {
+        self.observe = observe;
+        self
     }
 
     /// Recover the transport half. The reader buffers nothing (every
@@ -66,30 +78,53 @@ impl<R: AsyncRead + Unpin> FrameRead<R> {
     /// until it resolves, or read nothing further from this direction after
     /// a cancellation.
     pub async fn frame(&mut self) -> Result<Option<WireFrame>, DecodeError> {
-        let Some(head) = cbor::read_head_async(&mut self.read)
-            .await
-            .map_err(|e| head_error(FramePart::FrameHead, e))
-            .map_err(|kind| DecodeError::direction(self.speaker, kind))?
-        else {
-            return Ok(None);
-        };
-        let mut decoder = AsyncFrameDecoder::new(&mut self.read, self.budget);
-        let arity = frame_arity(head).map_err(|kind| DecodeError::direction(self.speaker, kind))?;
-        let signal_head = decoder
-            .head(FramePart::Signal)
-            .await
-            .map_err(|kind| DecodeError::direction(self.speaker, kind))?;
-        let code =
-            signal_code(signal_head).map_err(|kind| DecodeError::direction(self.speaker, kind))?;
-        let (stream, signal) = decode_signal(self.speaker, code)?;
-        let frame = async {
-            check_arity(signal, arity)?;
-            decoder.body(signal).await
+        match &mut self.observe {
+            None => read_frame(&mut self.read, self.speaker, self.budget).await,
+            Some(observe) => {
+                // Retain the consumed bytes so the observer sees the
+                // frame's true wire spelling, never a re-encoding. Only
+                // an accepted whole frame is delivered: a clean close
+                // consumed nothing, and an error leaves a fragment.
+                let mut capture = CaptureRead::new(&mut self.read);
+                let result = read_frame(&mut capture, self.speaker, self.budget).await;
+                if let Ok(Some(_)) = &result {
+                    observe.message(capture.bytes());
+                }
+                result
+            }
         }
-        .await
-        .map_err(|kind| DecodeError::stream(self.speaker, stream, kind))?;
-        Ok(Some((stream, frame)))
     }
+}
+
+/// Read and decode one frame from `read`; the contract is
+/// [`FrameRead::frame`]'s.
+async fn read_frame<R: AsyncRead + Unpin>(
+    read: &mut R,
+    speaker: Speaker,
+    budget: RunBudget,
+) -> Result<Option<WireFrame>, DecodeError> {
+    let Some(head) = cbor::read_head_async(&mut *read)
+        .await
+        .map_err(|e| head_error(FramePart::FrameHead, e))
+        .map_err(|kind| DecodeError::direction(speaker, kind))?
+    else {
+        return Ok(None);
+    };
+    let mut decoder = AsyncFrameDecoder::new(read, budget);
+    let arity = frame_arity(head).map_err(|kind| DecodeError::direction(speaker, kind))?;
+    let signal_head = decoder
+        .head(FramePart::Signal)
+        .await
+        .map_err(|kind| DecodeError::direction(speaker, kind))?;
+    let code = signal_code(signal_head).map_err(|kind| DecodeError::direction(speaker, kind))?;
+    let (stream, signal) = decode_signal(speaker, code)?;
+    let frame = async {
+        check_arity(signal, arity)?;
+        decoder.body(signal).await
+    }
+    .await
+    .map_err(|kind| DecodeError::stream(speaker, stream, kind))?;
+    Ok(Some((stream, frame)))
 }
 
 /// Reads a body after its signal has established the frame grammar.

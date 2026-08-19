@@ -7,6 +7,7 @@ use tokio::sync::oneshot;
 
 use super::{Physical, Work};
 use crate::link::{MemoryAcceptor, MemoryLink, memory};
+use crate::observe::SessionHandle;
 use crate::testing::run_to_quiescence;
 use crate::tree::mirror::streaming::window::Window;
 use crate::tree::mirror::streaming::{
@@ -244,6 +245,7 @@ fn queued_supply_closed_outranks_a_selected_consequence_at_stream_granularity() 
         RunBudget::default(),
         route,
         Recorder::default(),
+        SessionHandle::default(),
     );
     work.spawn(async move {
         receiver.next().await;
@@ -310,6 +312,7 @@ fn published_stream_error_preempts_a_parked_protocol() {
         RunBudget::default(),
         route,
         Recorder::default(),
+        SessionHandle::default(),
     );
     work.spawn(async move {
         receiver.next().await;

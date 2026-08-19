@@ -37,6 +37,7 @@ use tokio::io::{duplex, split};
 
 use super::{EPILOGUE_MARKER, alternating_error, epilogue, erase, streaming_error};
 use crate::link::{Link, MemoryLink, memory};
+use crate::observe::SessionHandle;
 use crate::tree::mirror::{
     alternating::{self, local as alternating_local, remote as alternating_remote},
     framing::{FrameRead, FrameWrite},
@@ -67,9 +68,10 @@ fn concurrent_exchange_is_symmetric() {
     let (mut right_read, mut right_write) = split(right_io);
 
     let (left, right) = pollster::block_on(async {
+        let observe = SessionHandle::default();
         tokio::join!(
-            epilogue(&mut left_read, &mut left_write),
-            epilogue(&mut right_read, &mut right_write),
+            epilogue(&mut left_read, &mut left_write, &observe),
+            epilogue(&mut right_read, &mut right_write, &observe),
         )
     });
     left.expect("left epilogue completes");
@@ -89,7 +91,11 @@ fn marker_byte_space_is_exhaustive() {
         let bytes = [EPILOGUE_MARKER[0], byte];
         let mut reader = &bytes[..];
         let mut writer = tokio::io::sink();
-        let result = pollster::block_on(epilogue(&mut reader, &mut writer));
+        let result = pollster::block_on(epilogue(
+            &mut reader,
+            &mut writer,
+            &SessionHandle::default(),
+        ));
         if byte == EPILOGUE_MARKER[1] {
             result.expect("the marker byte completes the epilogue");
         } else {
@@ -113,7 +119,11 @@ fn marker_byte_space_is_exhaustive() {
 fn close_before_the_marker_is_a_typed_eof() {
     let mut reader: &[u8] = &[];
     let mut writer = tokio::io::sink();
-    let result = pollster::block_on(epilogue(&mut reader, &mut writer));
+    let result = pollster::block_on(epilogue(
+        &mut reader,
+        &mut writer,
+        &SessionHandle::default(),
+    ));
     let error = epilogue_error(result);
     assert_eq!(error.kind(), std::io::ErrorKind::UnexpectedEof);
 }
@@ -129,7 +139,12 @@ fn bytes_after_the_marker_stay_untouched() {
     let bytes = [EPILOGUE_MARKER[0], EPILOGUE_MARKER[1], b'R', b'U'];
     let mut reader = &bytes[..];
     let mut writer = tokio::io::sink();
-    pollster::block_on(epilogue(&mut reader, &mut writer)).expect("the marker completes");
+    pollster::block_on(epilogue(
+        &mut reader,
+        &mut writer,
+        &SessionHandle::default(),
+    ))
+    .expect("the marker completes");
     assert_eq!(reader, b"RU", "the next session's bytes were consumed");
 }
 
@@ -192,6 +207,7 @@ async fn claim_bootstrap_v2(
         &mut staged,
         read,
         write,
+        &SessionHandle::default(),
     )
     .await
     .map_err(Error::from)?;
@@ -205,8 +221,8 @@ async fn claim_bootstrap_v2(
         .map_err(streaming_error)?;
     let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
     let (root, (mut read, mut write)) = descent.await.map_err(streaming_error)?;
-    let party = party::receive(Protocol::V2, &mut read).await?;
-    epilogue(&mut read, &mut write).await?;
+    let party = party::receive(Protocol::V2, &mut read, &SessionHandle::default()).await?;
+    epilogue(&mut read, &mut write, &SessionHandle::default()).await?;
     Ok((party, Tree::from_root(root.into())))
 }
 
@@ -228,6 +244,7 @@ async fn claim_bootstrap_v1(
         &mut staged,
         read,
         write,
+        &SessionHandle::default(),
     )
     .await
     .map_err(Error::from)?;
@@ -243,7 +260,7 @@ async fn claim_bootstrap_v1(
     let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
     let (root, (read, _write)) = descent.await.map_err(alternating_error)?;
     let mut read = read.into_inner();
-    let party = party::receive(Protocol::V1, &mut read).await?;
+    let party = party::receive(Protocol::V1, &mut read, &SessionHandle::default()).await?;
     Ok((party, Tree::from_root(root)))
 }
 

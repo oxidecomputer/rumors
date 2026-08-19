@@ -10,6 +10,7 @@ use proptest::collection::vec;
 use proptest::prelude::*;
 
 use crate::link::memory_with_capacity;
+use crate::observe::SessionHandle;
 use crate::testing::{
     IoPlan, IoReportHandle, IoSide, Quiescence, reorder_accepts, run_to_quiescence, wrap_link,
 };
@@ -138,6 +139,7 @@ where
     let network = crate::Network::from_bytes([1; 16]);
     let mut a_staged = handshake::Staged::new(crate::Protocol::V2);
     let mut b_staged = handshake::Staged::new(crate::Protocol::V2);
+    let observe = SessionHandle::default();
     let (seen_a, seen_b) = join!(
         handshake::preamble(
             crate::Protocol::V2,
@@ -146,6 +148,7 @@ where
             &mut a_staged,
             &mut a_link.control_read,
             &mut a_link.control_write,
+            &observe
         ),
         handshake::preamble(
             crate::Protocol::V2,
@@ -154,6 +157,7 @@ where
             &mut b_staged,
             &mut b_link.control_read,
             &mut b_link.control_write,
+            &observe
         ),
     );
     seen_a.expect("A preamble");
