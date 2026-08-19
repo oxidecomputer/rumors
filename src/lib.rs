@@ -287,6 +287,7 @@ mod protocol;
 pub mod reconciliation;
 mod rumors;
 mod snapshot;
+pub mod tags;
 #[cfg(any(test, feature = "test-internals"))]
 #[doc(hidden)]
 pub mod testing;
