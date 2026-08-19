@@ -16,6 +16,9 @@
 //!   binding.
 //! - [`window`]: how one byte budget becomes per-height channel capacities.
 //! - [`message`]: the wire vocabulary, the greeting included.
+//! - [`erased`]: the height-erased seam both implementors run on — the
+//!   wire vocabulary's erased twin, its typed exits, and the dispatch
+//!   back into the height-typed backend surface.
 //! - [`convert`]: the leaf conversion boundary between backends.
 //! - [`driver`], [`channel`], [`tasks`]: plumbing — phase scheduling and
 //!   error routing, named bounded edges, task completion.
