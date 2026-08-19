@@ -10,10 +10,10 @@ use crate::tree::mirror::streaming::stats::Recorder;
 use crate::{
     Version,
     tree::mirror::streaming::{
-        Local,
-        erased::QueryReceiver,
+        Backend, Local,
         materialized::{
-            Error, Query, SupplyLedger, Violation, Work, channel::with_schedule, unknown::Unknown,
+            Error, Query, SupplyLedger, Violation, Work,
+            channel::{Receiver, with_schedule},
             work::queues::internal_child_queries,
         },
         message::{Reaction, Reply},
@@ -25,6 +25,10 @@ use crate::{
         height::{Height, S, Z},
     },
 };
+
+/// The in-memory backend's erased node representation, which the walk's
+/// query queues carry.
+type Erased = <Local as Backend<()>>::Erased;
 /// One deliberately malformed counterparty script and the exact violation it
 /// must surface.
 #[derive(Clone, Copy, Debug)]
@@ -98,11 +102,7 @@ fn violation_script<H>(
     injection: Injection,
     parent: u8,
     radixes: &BTreeSet<u8>,
-) -> (
-    Option<Query<Local, (), H>>,
-    Vec<Reply<Local, (), H>>,
-    Version,
-)
+) -> (Option<Query<Erased>>, Vec<Reply<Local, (), H>>, Version)
 where
     H: TestHeight,
     S<H>: Height,
@@ -119,8 +119,11 @@ where
     path[0] = parent;
     let prefix = Prefix::<S<H>>::containing(&Path::from(path));
     let query = Query {
-        prefix,
-        ours: ours.clone(),
+        prefix: prefix.erase(),
+        ours: ours
+            .iter()
+            .map(|(radix, node)| (*radix, <Local as Backend<()>>::erase(node.clone())))
+            .collect(),
     };
 
     let matches = || {
@@ -167,7 +170,7 @@ where
             let radix = *radixes.first().expect("the strategy produces a child");
             (
                 Some(Query {
-                    prefix,
+                    prefix: prefix.erase(),
                     ours: Vec::new(),
                 }),
                 vec![Reply {
@@ -184,7 +187,7 @@ where
             let radix = *radixes.first().expect("the strategy produces a child");
             (
                 Some(Query {
-                    prefix,
+                    prefix: prefix.erase(),
                     ours: Vec::new(),
                 }),
                 vec![Reply {
@@ -196,13 +199,14 @@ where
     (query, replies, declared)
 }
 
-/// Put the script's optional outstanding query into the walk's pairing queue.
-fn query_receiver<H>(query: Option<Query<Local, (), H>>) -> QueryReceiver<Local, (), H>
+/// Put the script's optional outstanding query into the walk's pairing
+/// queue, labeled at the script's height.
+fn query_receiver<H>(query: Option<Query<Erased>>) -> Receiver<Query<Erased>>
 where
     H: Height,
     S<H>: Height,
 {
-    let (queries, queries_rx) = internal_child_queries::<Local, (), H>(1);
+    let (queries, queries_rx) = internal_child_queries::<Local, ()>(H::HEIGHT, 1);
     if let Some(query) = query {
         pollster::block_on(queries.send(query)).expect("the walk is live");
     }
@@ -242,7 +246,7 @@ trait InjectHeight: TestHeight {
 impl InjectHeight for Z {
     fn inject(injection: Injection, parent: u8, radixes: &BTreeSet<u8>) -> Violation {
         let (query, requests, declared) = violation_script::<Self>(injection, parent, radixes);
-        let queries = query_receiver(query);
+        let queries = query_receiver::<Self>(query);
         let mut work = Work::new(Local, Window::FLOOR, Recorder::default());
         let (responses, _resolutions) = work.leaf_level(
             declared,
@@ -257,7 +261,7 @@ impl InjectHeight for Z {
 impl InjectHeight for S<Z> {
     fn inject(injection: Injection, parent: u8, radixes: &BTreeSet<u8>) -> Violation {
         let (query, requests, declared) = violation_script::<Self>(injection, parent, radixes);
-        let queries = query_receiver(query);
+        let queries = query_receiver::<Self>(query);
         let mut work = Work::new(Local, Window::FLOOR, Recorder::default());
         let (responses, _asked, _upper, _lower) = work.leaf_parent_level(
             declared,
@@ -271,14 +275,14 @@ impl InjectHeight for S<Z> {
 
 impl<H> InjectHeight for S<S<H>>
 where
-    H: TestHeight + Unknown,
-    S<H>: Unknown,
-    S<S<H>>: TestHeight + Unknown,
+    H: TestHeight,
+    S<H>: Height,
+    S<S<H>>: TestHeight,
     S<S<S<H>>>: Height,
 {
     fn inject(injection: Injection, parent: u8, radixes: &BTreeSet<u8>) -> Violation {
         let (query, requests, declared) = violation_script::<Self>(injection, parent, radixes);
-        let queries = query_receiver(query);
+        let queries = query_receiver::<Self>(query);
         let mut work = Work::new(Local, Window::FLOOR, Recorder::default());
         let (responses, _asked, _upper, _lower) = work.internal_level::<H>(
             declared,

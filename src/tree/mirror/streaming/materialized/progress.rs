@@ -4,14 +4,8 @@ use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 
 use crate::tree::{
-    mirror::streaming::{
-        Backend, Leaf,
-        materialized::{Query, Resolution, Resolve},
-    },
-    typed::{
-        Prefix,
-        height::{Height, S, Z},
-    },
+    mirror::streaming::materialized::{Query, Resolution, Resolve},
+    typed::{ErasedPrefix, Prefix, height::Height},
 };
 
 /// The kind of one observable publication in a work graph.
@@ -440,27 +434,15 @@ pub(super) fn new_work() -> usize {
     })
 }
 
-pub(super) fn wire<H: Height>(work: usize, scope: Prefix<H>) {
+pub(super) fn wire(work: usize, scope: ErasedPrefix) {
     record(work, scope, Kind::Wire);
 }
 
-pub(super) fn initial_query<B, T, H>(work: usize, query: &Query<B, T, H>)
-where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
-    H: Height,
-    S<H>: Height,
-{
+pub(super) fn initial_query<E>(work: usize, query: &Query<E>) {
     record(work, query.prefix, Kind::InitialQuery);
 }
 
-pub(super) fn resolution<B, T, H>(work: usize, resolution: &Resolution<B, T, H>)
-where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
-    H: Height,
-    S<H>: Height,
-{
+pub(super) fn resolution<E>(work: usize, resolution: &Resolution<E>) {
     record(
         work,
         resolution.prefix,
@@ -480,13 +462,7 @@ impl<H: Height> Scoped for Prefix<H> {
     }
 }
 
-impl<B, T, H> Scoped for Query<B, T, H>
-where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
-    H: Height,
-    S<H>: Height,
-{
+impl<E> Scoped for Query<E> {
     fn scope(&self) -> &[u8] {
         self.prefix.as_bytes()
     }
@@ -496,17 +472,11 @@ pub(super) fn dependent(work: usize, item: &impl Scoped) {
     record_bytes(work, item.scope(), Kind::DependentWork);
 }
 
-pub(super) fn ready<H: Height>(work: usize, scope: Prefix<H>) {
+pub(super) fn ready(work: usize, scope: ErasedPrefix) {
     record(work, scope, Kind::Ready);
 }
 
-pub(super) fn parent_resolution<B, T, H>(work: usize, resolution: &Resolution<B, T, H>)
-where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
-    H: Height,
-    S<H>: Height,
-{
+pub(super) fn parent_resolution<E>(work: usize, resolution: &Resolution<E>) {
     record(
         work,
         resolution.prefix,
@@ -516,19 +486,14 @@ where
     );
 }
 
-fn pending<B, T, H>(resolved: &[(u8, Resolve<B, T, H>)]) -> usize
-where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
-    H: Height,
-{
+fn pending<E>(resolved: &[(u8, Resolve<E>)]) -> usize {
     resolved
         .iter()
         .filter(|(_, slot)| matches!(slot, Resolve::Pending))
         .count()
 }
 
-fn record<H: Height>(work: usize, scope: Prefix<H>, kind: Kind) {
+fn record(work: usize, scope: ErasedPrefix, kind: Kind) {
     record_bytes(work, scope.as_bytes(), kind);
 }
 

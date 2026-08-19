@@ -1,30 +1,44 @@
-//! Height-erased twins of the session's channel payloads, and the typed
-//! facades that are the only way in or out of them.
+//! The height-erased seam of the streaming session: the wire vocabulary's
+//! erased twin, the typed exits, and the dispatch back into the typed
+//! backend surface.
 //!
-//! Every item the walk's bounded channels carry is height-indexed in the
-//! type system but height-uniform at runtime: nodes erase to one
-//! representation per backend ([`Backend::Erased`]), prefixes to their
-//! bytes ([`ErasedPrefix`]), and nothing else in a payload ever depended
-//! on the height. Minting channels of the erased twins therefore costs
-//! nothing at runtime — every conversion below is a phantom-tag swap over
-//! the value the program already holds — and collapses the channel
-//! machinery from one instantiation per height to one per backend.
+//! The materialized walk's payloads and workers are height-uniform at
+//! runtime: nodes erase to one representation per backend
+//! ([`Backend::Erased`]), prefixes to their bytes
+//! ([`ErasedPrefix`](crate::tree::typed::ErasedPrefix)), and nothing else
+//! in a payload ever depended on the height. The walk therefore runs on
+//! erased values — one instantiation of its channels, generators, and
+//! loops per backend, instead of one per height — while the protocol
+//! schedule around it stays fully typed. This module owns the seam
+//! between the two:
+//!
+//! - [`Reply`] and [`Reaction`] are [`message::Reply`]'s and
+//!   [`message::Reaction`]'s erased twins, converted exactly at the
+//!   schedule boundary: [`erase_reply`] where a typed request stream
+//!   enters a walk worker, and [`reply_channel`]'s typed exit where a
+//!   worker's responses become the schedule's typed response stream.
+//!   Every conversion is a phantom-tag swap over values the program
+//!   already holds.
+//! - [`ops`] carries erased node operations back into the height-typed
+//!   [`Backend`] surface, selecting the type-level height from the one
+//!   runtime witness every erased scope carries: its prefix's byte
+//!   length.
 //!
 //! # What the types stop proving, and what catches it instead
 //!
-//! Outside this module, sending a height-5 payload into a height-6 queue
-//! is a compile error, exactly as before: the constructors here pair each
-//! erased channel with typed facades ([`TypedSender`], [`TypedReceiver`],
-//! [`TypedStream`], [`TypedOkStream`]) minted at one height parameter, so
-//! both halves of an edge speak the same height by construction, and a
-//! mispairing can only be authored *inside this module* by wiring a
-//! constructor's two halves to different conversions. That one-module
-//! audit surface is the design's locality argument. At runtime, every
-//! prefix re-tag debug-asserts its byte length against the claimed height
-//! ([`ErasedPrefix::assume`]), and every channel keeps its
-//! [`QueueRole`] height label for the instrumented diagnostics.
+//! Outside the walk, pairing a height-5 payload with a height-6 consumer
+//! is a compile error, exactly as before: the schedule's typestates and
+//! message streams remain height-typed, and this module's two boundary
+//! conversions are minted at one height parameter apiece. Inside the
+//! walk, height agreement is a runtime-witnessed property: every prefix
+//! re-tag debug-asserts its byte length against the claimed height, the
+//! [`ops`] dispatch derives its height from that same length (so the
+//! coordinate and the witness cannot drift apart), and every channel
+//! keeps its [`QueueRole`] height label for
+//! the instrumented diagnostics. The behavioral pins — the alternating
+//! oracle, the violation and capacity suites, the byte-pinned wire
+//! snapshots — exercise exactly these pairings.
 
-use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -36,16 +50,17 @@ use crate::tree::{
     mirror::streaming::{
         Backend, Leaf,
         channel::{QueueRole, Receiver, Sender, channel},
-        materialized::{self, Error},
+        materialized::Error,
         message,
     },
     typed::{
-        ErasedPrefix, Hash,
-        height::{Height, S, Z},
+        Hash,
+        height::{Height, Z},
     },
 };
 
-/// [`message::Reply`] with its height forgotten.
+/// [`message::Reply`] with its height forgotten: what the walk's workers
+/// produce and consume.
 pub(crate) struct Reply<E> {
     pub replies: Vec<Reaction<E>>,
 }
@@ -57,164 +72,9 @@ pub(crate) enum Reaction<E> {
     Query(Vec<(u8, Hash)>),
 }
 
-/// [`materialized::Query`] with its height forgotten.
-pub(crate) struct Query<E> {
-    pub prefix: ErasedPrefix,
-    pub ours: Vec<(u8, E)>,
-}
-
-/// [`materialized::Resolution`] with its height forgotten.
-pub(crate) struct Resolution<E> {
-    pub prefix: ErasedPrefix,
-    pub resolved: Vec<(u8, Resolve<E>)>,
-}
-
-/// [`materialized::Resolve`] with its height forgotten.
-pub(crate) enum Resolve<E> {
-    Ready(Option<E>),
-    Pending,
-}
-
-/// Shorthand for the erased node representation of one backend.
-type ErasedOf<B, T> = <B as Backend<T>>::Erased;
-
-/// The typed halves of the outgoing-response edge
-/// ([`reply_channel`]): items are whole replies or the error that ends
-/// the stream.
-pub(crate) type ReplyResultSender<B, T, H> = TypedSender<
-    Result<message::Reply<B, T, H>, Error<<B as Backend<T>>::Error>>,
-    Result<Reply<ErasedOf<B, T>>, Error<<B as Backend<T>>::Error>>,
->;
-/// The receiving half of [`reply_channel`], as the response stream shape.
-pub(crate) type ReplyResultStream<B, T, H> = TypedStream<
-    Result<message::Reply<B, T, H>, Error<<B as Backend<T>>::Error>>,
-    Result<Reply<ErasedOf<B, T>>, Error<<B as Backend<T>>::Error>>,
->;
-/// The typed sending half of a query edge ([`query_channel`]).
-pub(crate) type QuerySender<B, T, H> =
-    TypedSender<materialized::Query<B, T, H>, Query<ErasedOf<B, T>>>;
-/// The typed receiving half of a query edge ([`query_channel`]).
-pub(crate) type QueryReceiver<B, T, H> =
-    TypedReceiver<materialized::Query<B, T, H>, Query<ErasedOf<B, T>>>;
-/// The typed sending half of a return edge ([`return_channel`],
-/// [`return_ok_channel`]): one reconciled node per query, in query order.
-pub(crate) type ReturnSender<B, T, H> =
-    TypedSender<Option<<B as Backend<T>>::Node<H>>, Option<ErasedOf<B, T>>>;
-/// The typed receiving half of [`return_channel`].
-pub(crate) type ReturnReceiver<B, T, H> =
-    TypedReceiver<Option<<B as Backend<T>>::Node<H>>, Option<ErasedOf<B, T>>>;
-/// The receiving half of [`return_ok_channel`], as an `Ok`-wrapping stream.
-pub(crate) type ReturnOkStream<B, T, H> = TypedOkStream<
-    Option<<B as Backend<T>>::Node<H>>,
-    Option<ErasedOf<B, T>>,
-    Error<<B as Backend<T>>::Error>,
->;
-/// The typed sending half of a resolution edge ([`resolution_ok_channel`]).
-pub(crate) type ResolutionSender<B, T, H> =
-    TypedSender<materialized::Resolution<B, T, H>, Resolution<ErasedOf<B, T>>>;
-/// The receiving half of [`resolution_ok_channel`], as an `Ok`-wrapping
-/// stream.
-pub(crate) type ResolutionOkStream<B, T, H> = TypedOkStream<
-    materialized::Resolution<B, T, H>,
-    Resolution<ErasedOf<B, T>>,
-    Error<<B as Backend<T>>::Error>,
->;
-
-/// Mint the outgoing-response edge: a typed sender and the typed response
-/// stream its receiver drains into.
-pub(crate) fn reply_channel<B, T, H>(
-    role: QueueRole,
-    capacity: usize,
-) -> (ReplyResultSender<B, T, H>, ReplyResultStream<B, T, H>)
-where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
-    H: Height,
-{
-    let (sender, receiver) = channel(role, capacity);
-    (
-        TypedSender::new(sender, |item: Result<_, _>| {
-            item.map(erase_reply::<B, T, H>)
-        }),
-        TypedStream::new(receiver, |item: Result<_, _>| {
-            item.map(assume_reply::<B, T, H>)
-        }),
-    )
-}
-
-/// Mint one query edge at height `H` (the children's height; the scope
-/// sits at `S<H>`).
-pub(crate) fn query_channel<B, T, H>(
-    role: QueueRole,
-    capacity: usize,
-) -> (QuerySender<B, T, H>, QueryReceiver<B, T, H>)
-where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
-    H: Height,
-    S<H>: Height,
-{
-    let (sender, receiver) = channel(role, capacity);
-    (
-        TypedSender::new(sender, erase_query::<B, T, H>),
-        TypedReceiver::new(receiver, assume_query::<B, T, H>),
-    )
-}
-
-/// Mint one return edge at height `H`, received item by item.
-pub(crate) fn return_channel<B, T, H>(
-    role: QueueRole,
-    capacity: usize,
-) -> (ReturnSender<B, T, H>, ReturnReceiver<B, T, H>)
-where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
-    H: Height,
-{
-    let (sender, receiver) = channel(role, capacity);
-    (
-        TypedSender::new(sender, erase_return::<B, T, H>),
-        TypedReceiver::new(receiver, assume_return::<B, T, H>),
-    )
-}
-
-/// Mint one return edge at height `H`, received as an `Ok`-wrapping stream.
-pub(crate) fn return_ok_channel<B, T, H>(
-    role: QueueRole,
-    capacity: usize,
-) -> (ReturnSender<B, T, H>, ReturnOkStream<B, T, H>)
-where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
-    H: Height,
-{
-    let (sender, receiver) = channel(role, capacity);
-    (
-        TypedSender::new(sender, erase_return::<B, T, H>),
-        TypedOkStream::new(receiver, assume_return::<B, T, H>),
-    )
-}
-
-/// Mint one resolution edge at height `H`, received as an `Ok`-wrapping
-/// stream.
-pub(crate) fn resolution_ok_channel<B, T, H>(
-    role: QueueRole,
-    capacity: usize,
-) -> (ResolutionSender<B, T, H>, ResolutionOkStream<B, T, H>)
-where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
-    H: Height,
-    S<H>: Height,
-{
-    let (sender, receiver) = channel(role, capacity);
-    (
-        TypedSender::new(sender, erase_resolution::<B, T, H>),
-        TypedOkStream::new(receiver, assume_resolution::<B, T, H>),
-    )
-}
-
-fn erase_reply<B, T, H>(reply: message::Reply<B, T, H>) -> Reply<ErasedOf<B, T>>
+/// Erase one typed reply where a schedule-typed request stream enters a
+/// walk worker.
+pub(crate) fn erase_reply<B, T, H>(reply: message::Reply<B, T, H>) -> Reply<B::Erased>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
@@ -233,7 +93,8 @@ where
     }
 }
 
-fn assume_reply<B, T, H>(reply: Reply<ErasedOf<B, T>>) -> message::Reply<B, T, H>
+/// Re-tag one erased reply at the typed exit of [`reply_channel`].
+fn assume_reply<B, T, H>(reply: Reply<B::Erased>) -> message::Reply<B, T, H>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
@@ -252,174 +113,33 @@ where
     }
 }
 
-fn erase_query<B, T, H>(query: materialized::Query<B, T, H>) -> Query<ErasedOf<B, T>>
-where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
-    H: Height,
-    S<H>: Height,
-{
-    Query {
-        prefix: query.prefix.erase(),
-        ours: query
-            .ours
-            .into_iter()
-            .map(|(radix, node)| (radix, B::erase(node)))
-            .collect(),
-    }
-}
-
-fn assume_query<B, T, H>(query: Query<ErasedOf<B, T>>) -> materialized::Query<B, T, H>
-where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
-    H: Height,
-    S<H>: Height,
-{
-    materialized::Query {
-        prefix: query.prefix.assume(),
-        ours: query
-            .ours
-            .into_iter()
-            .map(|(radix, node)| (radix, B::assume(node)))
-            .collect(),
-    }
-}
-
-fn erase_resolution<B, T, H>(
-    resolution: materialized::Resolution<B, T, H>,
-) -> Resolution<ErasedOf<B, T>>
-where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
-    H: Height,
-    S<H>: Height,
-{
-    Resolution {
-        prefix: resolution.prefix.erase(),
-        resolved: resolution
-            .resolved
-            .into_iter()
-            .map(|(radix, slot)| {
-                (
-                    radix,
-                    match slot {
-                        materialized::Resolve::Ready(node) => Resolve::Ready(node.map(B::erase)),
-                        materialized::Resolve::Pending => Resolve::Pending,
-                    },
-                )
-            })
-            .collect(),
-    }
-}
-
-fn assume_resolution<B, T, H>(
-    resolution: Resolution<ErasedOf<B, T>>,
-) -> materialized::Resolution<B, T, H>
-where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
-    H: Height,
-    S<H>: Height,
-{
-    materialized::Resolution {
-        prefix: resolution.prefix.assume(),
-        resolved: resolution
-            .resolved
-            .into_iter()
-            .map(|(radix, slot)| {
-                (
-                    radix,
-                    match slot {
-                        Resolve::Ready(node) => {
-                            materialized::Resolve::Ready(node.map(B::assume::<H>))
-                        }
-                        Resolve::Pending => materialized::Resolve::Pending,
-                    },
-                )
-            })
-            .collect(),
-    }
-}
-
-fn erase_return<B, T, H>(node: Option<B::Node<H>>) -> Option<ErasedOf<B, T>>
+/// The typed exit of [`reply_channel`]: the erased receiver as a stream
+/// of schedule-typed replies.
+pub(crate) struct ReplyResultStream<B, T, H>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
     H: Height,
 {
-    node.map(B::erase)
+    inner: ReceiverStreamOf<Result<Reply<B::Erased>, Error<B::Error>>>,
+    assume: fn(
+        Result<Reply<B::Erased>, Error<B::Error>>,
+    ) -> Result<message::Reply<B, T, H>, Error<B::Error>>,
 }
 
-fn assume_return<B, T, H>(node: Option<ErasedOf<B, T>>) -> Option<B::Node<H>>
+impl<B, T, H> Stream for ReplyResultStream<B, T, H>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
     H: Height,
 {
-    node.map(B::assume::<H>)
-}
+    type Item = Result<message::Reply<B, T, H>, Error<B::Error>>;
 
-// --------------------------------------------------------------------------------
-// The typed facades: each pairs one erased channel half with the fixed
-// conversion its constructor minted it with.
-// --------------------------------------------------------------------------------
-
-/// The typed sending half of an erased channel.
-pub(crate) struct TypedSender<M, E> {
-    inner: Sender<E>,
-    erase: fn(M) -> E,
-}
-
-impl<M, E> Clone for TypedSender<M, E> {
-    fn clone(&self) -> Self {
-        Self {
-            inner: self.inner.clone(),
-            erase: self.erase,
-        }
-    }
-}
-
-impl<M, E: Send> TypedSender<M, E> {
-    fn new(inner: Sender<E>, erase: fn(M) -> E) -> Self {
-        Self { inner, erase }
-    }
-
-    /// Send one typed item, erased in place.
-    ///
-    /// Like the underlying channel's send: an error means the receiving
-    /// half is gone, and the producer should wind down.
-    pub(crate) async fn send(&self, message: M) -> Result<(), ClosedChannel> {
-        self.inner
-            .send((self.erase)(message))
-            .await
-            .map_err(|_| ClosedChannel)
-    }
-}
-
-/// The receiver of a typed send has hung up; the payload is dropped.
-///
-/// The typed sender cannot return the underlying
-/// [`SendError`](tokio::sync::mpsc::error::SendError) because that hands
-/// back the *erased* payload; no caller inspects it — a failed send means
-/// "stop producing" on every edge.
-#[derive(Debug)]
-pub(crate) struct ClosedChannel;
-
-/// The typed receiving half of an erased channel.
-pub(crate) struct TypedReceiver<M, E> {
-    inner: Receiver<E>,
-    assume: fn(E) -> M,
-}
-
-impl<M, E: Send> TypedReceiver<M, E> {
-    fn new(inner: Receiver<E>, assume: fn(E) -> M) -> Self {
-        Self { inner, assume }
-    }
-
-    /// Receive one typed item, re-tagged in place.
-    pub(crate) async fn recv(&mut self) -> Option<M> {
-        self.inner.recv().await.map(self.assume)
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+        Pin::new(&mut this.inner)
+            .poll_next(cx)
+            .map(|item| item.map(this.assume))
     }
 }
 
@@ -443,57 +163,121 @@ fn receiver_stream<E: Send>(receiver: Receiver<E>) -> ReceiverStreamOf<E> {
     }
 }
 
-/// An erased channel's receiving half as a stream of typed items.
-pub(crate) struct TypedStream<M, E> {
-    inner: ReceiverStreamOf<E>,
-    assume: fn(E) -> M,
+/// Mint the outgoing-response edge: an erased sender for the response
+/// pump, and the typed response stream the schedule consumes.
+///
+/// The one edge whose two halves speak different vocabularies — erased
+/// in, typed out — and therefore the outgoing half of the walk's typed
+/// boundary. Its height parameter fixes the exit's re-tag; the erased
+/// sender needs none.
+pub(crate) fn reply_channel<B, T, H>(
+    role: QueueRole,
+    capacity: usize,
+) -> (
+    Sender<Result<Reply<B::Erased>, Error<B::Error>>>,
+    ReplyResultStream<B, T, H>,
+)
+where
+    B: Backend<T, Node<Z>: Leaf<T>>,
+    T: Send + Sync + 'static,
+    H: Height,
+{
+    let (sender, receiver) = channel(role, capacity);
+    (
+        sender,
+        ReplyResultStream {
+            inner: receiver_stream(receiver),
+            assume: |item| item.map(assume_reply::<B, T, H>),
+        },
+    )
 }
 
-impl<M, E: Send> TypedStream<M, E> {
-    fn new(inner: Receiver<E>, assume: fn(E) -> M) -> Self {
-        Self {
-            inner: receiver_stream(inner),
-            assume,
-        }
+/// Erased node operations dispatched back into the height-typed
+/// [`Backend`] surface.
+///
+/// The backend's traversal operations are generic over type-level
+/// heights; an erased caller selects the height at runtime from the one
+/// witness every erased scope carries — its prefix's byte length — via a
+/// 33-arm match whose arms each instantiate one thin typed call. Deriving
+/// the height from the prefix (rather than threading a separate counter)
+/// is what keeps the coordinate and the witness structurally inseparable.
+pub(crate) mod ops {
+    use super::*;
+    use crate::tree::{
+        mirror::streaming::materialized::children_of as children_of_typed,
+        typed::{ErasedPrefix, height::Pred},
+    };
+
+    /// Select the type-level height matching a runtime *parent* height.
+    ///
+    /// `$H` is bound to the parent's height type within `$body`, and
+    /// `<$H as Pred>::Pred` names the children's. Each arm monomorphizes
+    /// the body once, so bodies must stay thin.
+    macro_rules! at_parent_height {
+        ($height:expr, $H:ident => $body:expr) => {{
+            seq_macro::seq!(N in 1..=32 {
+                match $height {
+                    0 => unreachable!("a leaf-height node has no children"),
+                    #(N => { type $H = crate::tree::typed::height::H~N; $body })*
+                    _ => unreachable!("a tree height is 0..=32"),
+                }
+            })
+        }};
     }
-}
 
-impl<M, E: Send> Stream for TypedStream<M, E> {
-    type Item = M;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let this = self.get_mut();
-        Pin::new(&mut this.inner)
-            .poll_next(cx)
-            .map(|item| item.map(this.assume))
+    /// Collect one erased node's children, addressed by radix
+    /// ([`children_of_typed`], erased).
+    ///
+    /// `prefix` is the node's own prefix; its length names the height the
+    /// node is re-tagged at, so a walk cannot explode a node at any level
+    /// other than the one its coordinate claims.
+    pub(crate) async fn children_of<B, T>(
+        backend: &B,
+        prefix: ErasedPrefix,
+        node: B::Erased,
+    ) -> Result<Vec<(u8, B::Erased)>, B::Error>
+    where
+        B: Backend<T, Node<Z>: Leaf<T>>,
+        T: Send + Sync + 'static,
+    {
+        at_parent_height!(prefix.height(), H => {
+            let children =
+                children_of_typed::<B, T, <H as Pred>::Pred>(
+                    backend,
+                    prefix.assume::<H>(),
+                    B::assume::<H>(node),
+                )
+                .await?;
+            Ok(children
+                .into_iter()
+                .map(|(radix, child)| (radix, B::erase(child)))
+                .collect())
+        })
     }
-}
 
-/// An erased channel's receiving half as a stream of `Ok`-wrapped typed
-/// items: the shape the assembly and walk consumers pull from.
-pub(crate) struct TypedOkStream<M, E, Err> {
-    inner: ReceiverStreamOf<E>,
-    assume: fn(E) -> M,
-    error: PhantomData<fn() -> Err>,
-}
-
-impl<M, E: Send, Err> TypedOkStream<M, E, Err> {
-    fn new(inner: Receiver<E>, assume: fn(E) -> M) -> Self {
-        Self {
-            inner: receiver_stream(inner),
-            assume,
-            error: PhantomData,
-        }
-    }
-}
-
-impl<M, E: Send, Err> Stream for TypedOkStream<M, E, Err> {
-    type Item = Result<M, Err>;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let this = self.get_mut();
-        Pin::new(&mut this.inner)
-            .poll_next(cx)
-            .map(|item| item.map(|item| Ok((this.assume)(item))))
+    /// Assemble one erased parent node at `prefix` from one radix-keyed
+    /// child group ([`Backend::parent`], erased).
+    ///
+    /// `prefix` is the parent's own prefix, carrying the same
+    /// length-is-height witness as [`children_of`].
+    pub(crate) async fn parent<B, T>(
+        backend: B,
+        prefix: ErasedPrefix,
+        children: Vec<(u8, Option<B::Erased>)>,
+    ) -> Result<Option<B::Erased>, B::Error>
+    where
+        B: Backend<T, Node<Z>: Leaf<T>>,
+        T: Send + Sync + 'static,
+    {
+        at_parent_height!(prefix.height(), H => {
+            let children = children
+                .into_iter()
+                .map(|(radix, child)| (radix, child.map(B::assume::<<H as Pred>::Pred>)))
+                .collect();
+            Ok(backend
+                .parent::<<H as Pred>::Pred>(prefix.assume::<H>(), children)
+                .await?
+                .map(B::erase))
+        })
     }
 }

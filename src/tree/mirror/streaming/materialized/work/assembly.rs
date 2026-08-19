@@ -10,11 +10,11 @@ use super::{Work, queues::assembly_level_returns};
 use crate::tree::{
     mirror::streaming::{
         Backend, Leaf,
-        erased::ReturnSender,
-        materialized::{Error, Resolution, Resolve},
+        erased::ops,
+        materialized::{Error, Resolution, Resolve, channel::Sender},
         tasks::next_or_cancelled,
     },
-    typed::height::{Height, S, Z},
+    typed::height::Z,
 };
 
 impl<B, T> Work<B, T>
@@ -24,19 +24,19 @@ where
 {
     /// Assemble one level upward and return its lower-level sender.
     ///
+    /// `height` is the resolutions' children height, labeling the level
+    /// boundary's queue for the instrumented diagnostics.
+    ///
     /// A full fan lets every lower scope enqueue before the parent resolution
     /// containing its [`Resolve::Pending`] slots is published, without relying
     /// on blocked sender futures remaining independently runnable.
-    pub fn assemble<H>(
+    pub fn assemble(
         &mut self,
-        returns: ReturnSender<B, T, S<H>>,
-        resolutions: impl Stream<Item = Result<Resolution<B, T, H>, Error<B::Error>>> + Send + 'static,
-    ) -> ReturnSender<B, T, H>
-    where
-        H: Height,
-        S<H>: Height,
-    {
-        let (level, level_rx) = assembly_level_returns::<B, T, H>();
+        height: usize,
+        returns: Sender<Option<B::Erased>>,
+        resolutions: impl Stream<Item = Result<Resolution<B::Erased>, Error<B::Error>>> + Send + 'static,
+    ) -> Sender<Option<B::Erased>> {
+        let (level, level_rx) = assembly_level_returns::<B, T>(height);
         self.return_into(
             returns,
             assemble(self.backend.clone(), resolutions, level_rx),
@@ -47,8 +47,8 @@ where
     /// Assemble leaf resolutions upward with no level beneath them.
     pub fn assemble_leaves(
         &mut self,
-        returns: ReturnSender<B, T, S<Z>>,
-        resolutions: impl Stream<Item = Result<Resolution<B, T, Z>, Error<B::Error>>> + Send + 'static,
+        returns: Sender<Option<B::Erased>>,
+        resolutions: impl Stream<Item = Result<Resolution<B::Erased>, Error<B::Error>>> + Send + 'static,
     ) {
         self.return_into(
             returns,
@@ -62,13 +62,14 @@ where
 /// Pairing is positional: resolutions arrive in query order and `level`
 /// carries one item per `Pending` in that same order. An empty resolution
 /// reaches [`Backend::parent`] with an empty group and resolves to `None`.
-pub(super) fn assemble<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, H: Height>(
+pub(super) fn assemble<B, T>(
     backend: B,
-    resolutions: impl Stream<Item = Result<Resolution<B, T, H>, Error<B::Error>>> + Send,
-    level: impl Stream<Item = Result<Option<B::Node<H>>, Error<B::Error>>> + Send,
-) -> impl Stream<Item = Result<Option<B::Node<S<H>>>, Error<B::Error>>> + Send
+    resolutions: impl Stream<Item = Result<Resolution<B::Erased>, Error<B::Error>>> + Send,
+    level: impl Stream<Item = Result<Option<B::Erased>, Error<B::Error>>> + Send,
+) -> impl Stream<Item = Result<Option<B::Erased>, Error<B::Error>>> + Send
 where
-    S<H>: Height,
+    B: Backend<T, Node<Z>: Leaf<T>>,
+    T: Send + Sync + 'static,
 {
     try_stream! {
         let mut level = pin!(level.fuse());
@@ -86,7 +87,7 @@ where
                     }
                 }));
             }
-            yield backend.clone().parent(prefix, children).await?;
+            yield ops::parent(backend.clone(), prefix, children).await?;
         }
     }
 }

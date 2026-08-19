@@ -55,6 +55,32 @@ impl ErasedPrefix {
             hash: self.hash,
         }
     }
+
+    /// The height this prefix sits at: its byte length's complement,
+    /// exactly the `H::HEIGHT` of the [`Prefix<H>`] it erases.
+    pub fn height(&self) -> usize {
+        32 - self.hash.len()
+    }
+
+    /// The accumulated path bytes, shallowest-first ([`Prefix::as_bytes`]).
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.hash
+    }
+
+    /// Push one hash byte onto the end of the prefix, descending one
+    /// height ([`Prefix::push`]).
+    ///
+    /// # Panics
+    ///
+    /// If the prefix is already at height zero (a full 32-byte path).
+    pub fn push(mut self, byte: u8) -> ErasedPrefix {
+        assert!(
+            self.height() > 0,
+            "a leaf-height prefix has no level to descend into",
+        );
+        self.hash.push(byte);
+        self
+    }
 }
 
 impl Debug for ErasedPrefix {

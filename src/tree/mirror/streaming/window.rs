@@ -16,7 +16,7 @@
 //! capacities** using what the two replicas exchange in their greetings —
 //! exact set sizes and version-size bounds — priced through the storage
 //! backend's own cost function
-//! ([`Backend::node_bytes`](super::Backend::node_bytes)). Channels stay
+//! ([`Backend::node_bytes`]). Channels stay
 //! plain bounded queues; the [link](crate::link) remains the only
 //! backpressure boundary with runtime semantics.
 //!
@@ -120,7 +120,7 @@
 //!   its own producer — the premise the session's whole liveness argument
 //!   already rests on.
 
-use super::{Local, materialized::Resolve};
+use super::{Backend, Local, materialized::Resolve};
 use crate::link::STREAM_COUNT;
 use crate::tree::typed::{self, Prefix, height::Z};
 
@@ -152,7 +152,7 @@ const KEY_DEPTH: usize = 32;
 /// layout pads the real slots beyond this constant and owes that padding
 /// to its own `node_bytes` price.
 const REFERENCE_SLOT_BYTES: usize = std::mem::size_of::<(u8, typed::Node<(), Z>)>()
-    + std::mem::size_of::<(u8, Resolve<Local, (), Z>)>()
+    + std::mem::size_of::<(u8, Resolve<<Local as Backend<()>>::Erased>)>()
     + std::mem::size_of::<(u8, typed::Hash)>();
 
 /// Fixed in-memory bytes per buffered scope beyond its per-child slots:
@@ -328,7 +328,7 @@ impl Window {
     /// materialized, so the pair sum there is a priced envelope, pinned
     /// against reality by the census suite's reconciled-bound
     /// measurements. `node_bytes` must be an upper bound and monotone in
-    /// both arguments ([`Backend::node_bytes`](super::Backend::node_bytes)),
+    /// both arguments ([`Backend::node_bytes`]),
     /// so evaluating it at quantiles keeps the whole charge an upper
     /// bound; monotonicity is spot-checked here in debug builds.
     pub(crate) fn from_budget(

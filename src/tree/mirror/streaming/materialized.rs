@@ -105,17 +105,17 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use crate::tree::{
     mirror::contained,
     mirror::streaming::{
-        Backend, Leaf, Node, Root,
-        erased::{QueryReceiver, ReturnSender},
-        materialized::{unknown::Unknown, work::Work},
-        message::{Greeting, Reaction, Reply},
+        Backend, ErasedNode, Leaf, Root,
+        erased::{self, Reaction, Reply},
+        materialized::work::Work,
+        message::Greeting,
         protocol::{self, BoxResponses, Requests},
         remote::DEFAULT_TARGET_MESSAGE_SIZE,
         stats::Recorder,
         window::WindowConfig,
     },
     typed::{
-        Hash, Prefix,
+        ErasedPrefix, Hash, Prefix,
         height::{self, Height, S, UnderRoot, UnderUnderRoot, Z},
     },
 };
@@ -180,7 +180,8 @@ mod tests;
 pub(super) mod transcript;
 pub(super) mod unknown;
 mod work;
-use channel::Receiver;
+use channel::{Receiver, Sender};
+use common::*;
 // The remote proxy explodes early-supplied whole root children into the
 // same per-child shape the walks consume, with the walks' own helper.
 pub(crate) use common::children_of;
@@ -252,38 +253,35 @@ impl SupplyLedger {
 /// queue between consecutive same-side stages, and the in-process twin of
 /// the wire's expected scopes.
 ///
-/// `H` is the children's height; the scope sits at `S<H>`, so
-/// `Query<_, _, H>` pairs with [`Reply<_, _, H>`](Reply).
+/// `E` is the backend's erased node representation
+/// ([`Backend::Erased`]); the prefix names the queried scope, and its
+/// byte length is the scope's height witness (see
+/// [`erased`]). A query pairs with the reply at its
+/// children's height, one level below the prefix.
 ///
 /// If we issued a request for a node, `ours` is empty and we expect the
 /// reply to consist entirely of supplied nodes.
-pub struct Query<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, H: Height>
-where
-    S<H>: Height,
-{
+pub struct Query<E> {
     /// The prefix at which the resolved node will sit.
-    pub prefix: Prefix<S<H>>,
+    pub prefix: ErasedPrefix,
     /// Our children of the node (empty if we don't have it at all).
-    pub ours: Vec<(u8, B::Node<H>)>,
+    pub ours: Vec<(u8, E)>,
 }
 
 /// One scope's resolution: its children in radix order, each resolved
 /// locally or pending on the stages beneath.
-pub struct Resolution<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, H: Height>
-where
-    S<H>: Height,
-{
+pub struct Resolution<E> {
     /// The prefix at which the resolved node will sit.
-    pub(crate) prefix: Prefix<S<H>>,
+    pub(crate) prefix: ErasedPrefix,
     /// The possibly-resolved children of the node.
-    pub(crate) resolved: Vec<(u8, Resolve<B, T, H>)>,
+    pub(crate) resolved: Vec<(u8, Resolve<E>)>,
 }
 
 /// One child's slot in a [`Resolution`].
-pub enum Resolve<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, H: Height> {
+pub enum Resolve<E> {
     /// Resolved at the current level: kept, absorbed, or pruned (`None` = gone;
     /// flows into `Backend::parent` as its deletion vocabulary).
-    Ready(Option<B::Node<H>>),
+    Ready(Option<E>),
     /// Resolved elsewhere: filled by the level stream's next item.
     Pending,
 }
@@ -330,7 +328,10 @@ pub struct Start {
 /// second time (the memory model's one-query-per-prefix rule).
 pub struct Connecting<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> {
     our_version: Version,
-    fan: Vec<(u8, B::Node<UnderRoot>)>,
+    /// The root fan, already erased: everything downstream of the
+    /// greeting — the descent's workers included — speaks the erased
+    /// representation.
+    fan: Vec<(u8, B::Erased)>,
 }
 
 /// The version state of a stage that has exchanged greetings with its peer
@@ -349,7 +350,8 @@ pub struct Connected<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> 
     /// initiator merges its own fan against to ship its exclusive root
     /// children as the opening's early supplies.
     their_listing: Vec<(u8, Hash)>,
-    fan: Vec<(u8, B::Node<UnderRoot>)>,
+    /// The root fan, erased at greeting time ([`Connecting`]).
+    fan: Vec<(u8, B::Erased)>,
 }
 
 /// A mirror stage inside the descent, consuming [`Reply<B, T, H>`](Reply)
@@ -364,13 +366,18 @@ where
     /// absorbed supply ([`SupplyLedger`]).
     ledger: SupplyLedger,
     /// The questions we asked, awaiting their replies in order.
-    queries: QueryReceiver<B, T, H>,
+    ///
+    /// The payloads are erased ([`Backend::Erased`]); the typestate's
+    /// `H` is what pins this queue to the walk stage that consumes it at
+    /// the right height, and every payload's prefix carries the runtime
+    /// witness.
+    queries: Receiver<Query<B::Erased>>,
     /// One resolved scope per query, in query order, to the stage above.
-    returns: ReturnSender<B, T, S<H>>,
+    returns: Sender<Option<B::Erased>>,
     /// An elected initiator's opening hand-off: the early-supplied root
     /// radices' survivors, consumed by the first descending stage to answer
     /// the responder's empty queries about them (`None` below it).
-    early_survivors: Option<oneshot::Receiver<Vec<(u8, Option<B::Node<H>>)>>>,
+    early_survivors: Option<oneshot::Receiver<Vec<(u8, Option<B::Erased>)>>>,
     /// An elected responder's opening hand-off (`None` below the first
     /// descending stage).
     ///
@@ -378,12 +385,18 @@ where
     /// their own children, consumed by the first descending stage to
     /// resolve its own root-level requests.
     #[allow(clippy::type_complexity)]
-    early_supplies: Option<oneshot::Receiver<Vec<(u8, Vec<(u8, B::Node<H>)>)>>>,
+    early_supplies: Option<oneshot::Receiver<Vec<(u8, Vec<(u8, B::Erased)>)>>>,
     /// The reassembly work accumulated so far; the terminals drive it to
     /// completion.
     work: Work<B, T>,
     /// Resolves to this side's reconciled root once the top return arrives.
     finish: BoxFuture<'static, Result<Root<B, T>, Error<B::Error>>>,
+    /// The stage's height, phantom.
+    ///
+    /// The payloads above are erased; this tag is what the schedule's
+    /// typestates keep proving about them (`PhantomData<fn() -> H>` for
+    /// the auto-trait shortcut; see [`typed::Node`](crate::tree::typed::Node)).
+    height: std::marker::PhantomData<fn() -> H>,
 }
 
 /// The initiator's terminal state: the pending leaf requests, and the
@@ -403,7 +416,7 @@ pub struct Completing<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>
     /// Where each requested leaf will sit, one per request, in order.
     queries: Receiver<Prefix<Z>>,
     /// The requested leaves' resolutions, in request order.
-    returns: ReturnSender<B, T, Z>,
+    returns: Sender<Option<B::Erased>>,
     /// The accumulated work to drive the pipeline.
     work: Work<B, T>,
     /// The future result of the pipeline.
@@ -469,9 +482,11 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, V: Send> protoco
 pub(crate) async fn greeting_fan<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>(
     backend: &B,
     root: Option<B::Node<height::Root>>,
-) -> Result<Vec<(u8, B::Node<UnderRoot>)>, B::Error> {
+) -> Result<Vec<(u8, B::Erased)>, B::Error> {
     match root {
-        Some(node) => children_of(backend, Prefix::new(), node).await,
+        Some(node) => {
+            erased::ops::children_of(backend, Prefix::new().erase(), B::erase(node)).await
+        }
         None => Ok(Vec::new()),
     }
 }
@@ -484,9 +499,7 @@ pub(crate) async fn greeting_fan<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync
 /// proxy pairs the two positionally, so they must be byte-identical;
 /// routing both through this one function makes drift structurally
 /// impossible rather than a coincidence of two matching code bodies.
-pub(crate) fn fan_listing<N: Node<T>, T: Send + Sync + 'static>(
-    fan: &[(u8, N)],
-) -> Vec<(u8, Hash)> {
+pub(crate) fn fan_listing<E: ErasedNode>(fan: &[(u8, E)]) -> Vec<(u8, Hash)> {
     fan.iter()
         .map(|(radix, node)| (*radix, node.hash()))
         .collect()
@@ -635,6 +648,7 @@ impl<B: Backend<T, Node<Z>: Leaf<T>> + Sync, T: Send + Sync + 'static> protocol:
                 early_supplies: None,
                 work,
                 finish,
+                height: std::marker::PhantomData,
             },
         )
     }
@@ -688,6 +702,7 @@ impl<B: Backend<T, Node<Z>: Leaf<T>> + Sync, T: Send + Sync + 'static> protocol:
                 early_supplies: Some(early),
                 work,
                 finish,
+                height: std::marker::PhantomData,
             },
         )
     }
@@ -707,9 +722,9 @@ impl<B, T, H> protocol::Reply<B, T> for Descending<B, T, S<S<H>>>
 where
     B: Backend<T, Node<Z>: Leaf<T>> + Sync,
     T: Send + Sync + 'static,
-    H: Unknown,
-    S<H>: Unknown,
-    S<S<H>>: Unknown,
+    H: Height,
+    S<H>: Height,
+    S<S<H>>: Height,
     S<S<S<H>>>: Height,
 {
     type Next = Descending<B, T, H>;
@@ -718,7 +733,7 @@ where
         mut self,
         requests: impl Requests<B, T, S<S<H>>>,
     ) -> (BoxResponses<B, T, S<H>, Self::Error>, Self::Next) {
-        let (responses, queries, upper, lower) = self.work.internal_level(
+        let (responses, queries, upper, lower) = self.work.internal_level::<H>(
             self.their_version.clone(),
             self.ledger.clone(),
             self.early_survivors.take(),
@@ -726,8 +741,8 @@ where
             requests,
             self.queries,
         );
-        let returns = self.work.assemble(self.returns, upper);
-        let returns = self.work.assemble(returns, lower);
+        let returns = self.work.assemble(<S<S<H>>>::HEIGHT, self.returns, upper);
+        let returns = self.work.assemble(<S<H>>::HEIGHT, returns, lower);
 
         (
             responses,
@@ -740,6 +755,7 @@ where
                 early_supplies: None,
                 work: self.work,
                 finish: self.finish,
+                height: std::marker::PhantomData,
             },
         )
     }
@@ -766,8 +782,8 @@ where
             requests,
             self.queries,
         );
-        let returns = self.work.assemble(self.returns, upper);
-        let returns = self.work.assemble(returns, lower);
+        let returns = self.work.assemble(<S<Z>>::HEIGHT, self.returns, upper);
+        let returns = self.work.assemble(Z::HEIGHT, returns, lower);
 
         (
             responses,
@@ -821,10 +837,10 @@ where
         requests: impl Requests<B, T, Z>,
     ) -> Result<Root<B, T>, Self::Error> {
         let stats = self.work.stats();
-        let mut absorb = pin!(absorb(
+        let mut absorb = pin!(absorb::<B, T>(
             self.their_version,
             self.ledger,
-            requests,
+            requests.map(erased::erase_reply::<B, T, Z>),
             self.queries,
             self.returns,
             stats,
@@ -858,9 +874,9 @@ where
 async fn absorb<B, T>(
     their_version: Version,
     ledger: SupplyLedger,
-    requests: impl Requests<B, T, Z>,
+    requests: impl futures::Stream<Item = Reply<B::Erased>> + Send,
     mut queries: Receiver<Prefix<Z>>,
-    returns: ReturnSender<B, T, Z>,
+    returns: Sender<Option<B::Erased>>,
     stats: Recorder,
 ) -> Result<(), Error<B::Error>>
 where

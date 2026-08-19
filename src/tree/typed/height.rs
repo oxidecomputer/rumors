@@ -132,6 +132,39 @@ pub type Root =
 //  0 1 2 3 4 5 6 7 8 9 a b c d e f
     Z>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>;
 
+/// Numbered aliases `H0` (= [`Z`]) through `H32` (= [`Root`]), one per
+/// height.
+///
+/// The vocabulary a runtime-to-type dispatch table indexes with
+/// `seq_macro` ident pasting, which can splice a numbered name but cannot
+/// build an `S<…>` chain (see the erased plumbing's `at_parent_height!`).
+/// Each alias is one successor over its predecessor by construction of
+/// the emitting macro, so a name always denotes its own number's height.
+macro_rules! alias_heights {
+    (@emit $t:ty; $name:ident $($rest:ident)*) => {
+        pub(crate) type $name = $t;
+        alias_heights!(@emit S<$t>; $($rest)*);
+    };
+    (@emit $t:ty;) => {};
+    ($($name:ident)*) => {
+        alias_heights!(@emit Z; $($name)*);
+    };
+}
+
+#[rustfmt::skip]
+alias_heights!(
+    H0  H1  H2  H3  H4  H5  H6  H7
+    H8  H9  H10 H11 H12 H13 H14 H15
+    H16 H17 H18 H19 H20 H21 H22 H23
+    H24 H25 H26 H27 H28 H29 H30 H31
+    H32
+);
+
+/// The table's endpoints are what their names claim; each alias being one
+/// successor over its predecessor by construction, every name between
+/// denotes its own number's height.
+const _: () = assert!(H0::HEIGHT == 0 && H32::HEIGHT == 32);
+
 mod sealed {
     use super::*;
     pub trait Sealed {}

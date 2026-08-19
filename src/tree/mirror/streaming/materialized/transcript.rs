@@ -21,13 +21,7 @@
 
 use std::cell::RefCell;
 
-use crate::tree::{
-    mirror::streaming::{
-        Backend, Leaf,
-        message::{Reaction, Reply},
-    },
-    typed::height::{Height, Z},
-};
+use crate::tree::mirror::streaming::erased::{Reaction, Reply};
 
 /// One reaction of a captured reply, with every payload erased.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -91,13 +85,10 @@ pub fn with_transcript<R>(f: impl FnOnce() -> R) -> (R, Transcript) {
     (result, Transcript(sent))
 }
 
-/// Record one outgoing reply, payload-erased.
-pub(super) fn reply<B, T, H>(work: usize, reply: &Reply<B, T, H>)
-where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
-    H: Height,
-{
+/// Record one outgoing reply, payload-erased; `height` is the reply's
+/// children height (which logical stream it rides), threaded from the
+/// capturing pump's typed exit.
+pub(super) fn reply<E>(work: usize, height: usize, reply: &Reply<E>) {
     let labels = reply
         .replies
         .iter()
@@ -113,7 +104,7 @@ where
         if let Some(sent) = sent.borrow_mut().as_mut() {
             sent.push(Sent {
                 work,
-                height: H::HEIGHT,
+                height,
                 labels,
             });
         }

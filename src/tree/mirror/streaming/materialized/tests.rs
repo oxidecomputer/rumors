@@ -22,10 +22,7 @@ use crate::{
     message::Message,
     tree::{
         arb::nth_party,
-        mirror::streaming::{
-            Local,
-            message::{Reaction, Reply},
-        },
+        mirror::streaming::{Backend, Local},
         typed::{
             self, Path, Prefix,
             height::{Height, Z},
@@ -65,14 +62,17 @@ fn absorb_scripted(
     pollster::block_on(queries.send(Prefix::containing(&path))).expect("the loop is live");
     drop(queries);
 
-    let (returns, mut returns_rx) = erased::return_channel::<Local, (), Z>(
+    let (returns, mut returns_rx) = channel::<Option<<Local as Backend<()>>::Erased>>(
         QueueRole::new(QueueKind::TerminalLeafResolutions, Z::HEIGHT),
         1,
     );
 
     let leaf = typed::Node::leaf(leaf_version, Message::new(()));
-    let requests = stream::iter(vec![Reply::<Local, (), Z> {
-        replies: vec![Reaction::Supply(0, leaf)],
+    let requests = stream::iter(vec![erased::Reply {
+        replies: vec![erased::Reaction::Supply(
+            0,
+            <Local as Backend<()>>::erase(leaf),
+        )],
     }]);
 
     let result = pollster::block_on(absorb::<Local, ()>(
@@ -83,7 +83,8 @@ fn absorb_scripted(
         returns,
         Recorder::default(),
     ));
-    let returned = pollster::block_on(async move { returns_rx.recv().await });
+    let returned = pollster::block_on(async move { returns_rx.recv().await })
+        .map(|leaf| leaf.map(<Local as Backend<()>>::assume::<Z>));
     (result, returned)
 }
 

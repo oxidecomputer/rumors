@@ -11,7 +11,7 @@ use crate::{
     message::Message,
     tree::{
         arb::nth_party,
-        mirror::streaming::{Local, materialized::unknown::unknown},
+        mirror::streaming::{Backend, Local, materialized::unknown::unknown},
         traverse::{Action, act, unknown::Unknown},
         typed::{self, Path, Prefix, height::Root},
     },
@@ -54,14 +54,15 @@ fn stream_prune(
     known: &Version,
 ) -> Option<typed::node::Root<()>> {
     root.and_then(|node| {
-        pollster::block_on(unknown::<Local, (), Root>(
+        pollster::block_on(unknown::<Local, ()>(
             &Local,
             known,
-            Prefix::new(),
-            node,
+            Prefix::new().erase(),
+            <Local as Backend<()>>::erase(node),
             &Recorder::default(),
         ))
         .unwrap_or_else(|e| match e {})
+        .map(<Local as Backend<()>>::assume::<Root>)
     })
 }
 

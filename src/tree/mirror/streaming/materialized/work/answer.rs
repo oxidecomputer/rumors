@@ -4,22 +4,22 @@ use crate::{
     Version,
     tree::{
         mirror::streaming::{
-            Backend, Leaf, Node,
+            Backend, ErasedNode, Leaf,
+            erased::{Reaction, ops},
             materialized::{
-                Query, Resolve, Violation, children_of,
-                unknown::{Unknown, known, unknown},
+                Query, Resolve, Violation,
+                unknown::{known, unknown},
             },
-            message::Reaction,
             stats::Recorder,
         },
-        typed::{
-            Hash, Prefix,
-            height::{Height, S, Z},
-        },
+        typed::{ErasedPrefix, Hash, Prefix, height::Z},
     },
 };
 
 /// Answer one nonempty internal query by merge-joining both child listings.
+///
+/// `prefix` names the queried scope; `ours` are our children of it, one
+/// level below.
 ///
 /// This merge-join is the chokepoint where
 /// [`disputed_scopes`](crate::SessionStats::disputed_scopes) is counted: it
@@ -28,27 +28,25 @@ use crate::{
 /// held the subtree) and some child failed to match. An all-match join is a
 /// confirmation, not a dispute, and a one-sided join is a request being
 /// served.
-pub(super) async fn internal<B, T, H>(
+#[allow(clippy::type_complexity)]
+pub(super) async fn internal<B, T>(
     backend: &B,
     their_version: &Version,
-    prefix: Prefix<S<S<H>>>,
-    ours: Vec<(u8, B::Node<S<H>>)>,
+    prefix: ErasedPrefix,
+    ours: Vec<(u8, B::Erased)>,
     theirs: Vec<(u8, Hash)>,
     stats: &Recorder,
 ) -> Result<
     (
-        Vec<Reaction<B, T, S<H>>>,
-        Vec<Query<B, T, H>>,
-        Vec<(u8, Resolve<B, T, S<H>>)>,
+        Vec<Reaction<B::Erased>>,
+        Vec<Query<B::Erased>>,
+        Vec<(u8, Resolve<B::Erased>)>,
     ),
     B::Error,
 >
 where
     B: Backend<T, Node<Z>: Leaf<T>> + Sync,
     T: Send + Sync + 'static,
-    H: Unknown,
-    S<H>: Unknown,
-    S<S<H>>: Height,
 {
     let mut reactions = Vec::new();
     let mut asked = Vec::new();
@@ -68,7 +66,7 @@ where
             EitherOrBoth::Both((radix, node), _) => {
                 differed = true;
                 let prefix = prefix.push(radix);
-                let ours = children_of(backend, prefix, node).await?;
+                let ours = ops::children_of(backend, prefix, node).await?;
                 reactions.push(Reaction::Query(
                     ours.iter()
                         .map(|(radix, child)| (*radix, child.hash()))
@@ -113,21 +111,14 @@ where
 /// were non-empty and some leaf sat on one side alone. Each exclusive local
 /// leaf the causal filter drops is one deletion honored
 /// ([`messages_shed`](crate::SessionStats::messages_shed)).
-pub(super) fn leaf_parent<B, T>(
+#[allow(clippy::type_complexity)]
+pub(super) fn leaf_parent<E: ErasedNode + Clone>(
     their_version: &Version,
-    prefix: Prefix<S<Z>>,
-    ours: Vec<(u8, B::Node<Z>)>,
+    prefix: ErasedPrefix,
+    ours: Vec<(u8, E)>,
     theirs: Vec<(u8, Hash)>,
     stats: &Recorder,
-) -> (
-    Vec<Reaction<B, T, Z>>,
-    Vec<Prefix<Z>>,
-    Vec<(u8, Resolve<B, T, Z>)>,
-)
-where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
-{
+) -> (Vec<Reaction<E>>, Vec<Prefix<Z>>, Vec<(u8, Resolve<E>)>) {
     let mut reactions = Vec::new();
     let mut asked = Vec::new();
     let mut resolved = Vec::new();
@@ -156,7 +147,10 @@ where
             EitherOrBoth::Right((radix, _)) => {
                 differed = true;
                 reactions.push(Reaction::Query(Vec::new()));
-                asked.push(prefix.push(radix));
+                // A leaf-parent scope's child prefix is a full 32-byte
+                // path: the length witness makes the leaf-height re-tag
+                // exact.
+                asked.push(prefix.push(radix).assume::<Z>());
                 resolved.push((radix, Resolve::Pending));
             }
         }
@@ -176,17 +170,13 @@ where
 /// listing here is a protocol violation), so no dispute is counted. A
 /// requested leaf the causal filter drops is one deletion honored
 /// ([`messages_shed`](crate::SessionStats::messages_shed)).
-pub(super) fn leaf<B, T>(
+pub(super) fn leaf<E: ErasedNode + Clone>(
     their_version: &Version,
     radix: u8,
-    node: B::Node<Z>,
+    node: E,
     listing: Vec<(u8, Hash)>,
     stats: &Recorder,
-) -> Result<(Vec<Reaction<B, T, Z>>, Option<B::Node<Z>>), Violation>
-where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
-{
+) -> Result<(Vec<Reaction<E>>, Option<E>), Violation> {
     if !listing.is_empty() {
         return Err(Violation::UnexpectedQuery);
     }

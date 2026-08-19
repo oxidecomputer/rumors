@@ -5,11 +5,17 @@
 //! reconstructs their resolved scopes upward. The terminal protocol state
 //! drives the accumulated tasks and its final result through one shared
 //! fail-fast completion primitive.
+//!
+//! The walks and pumps run on the erased vocabulary (see
+//! [`erased`]): one instantiation
+//! per backend. The typed surface is the thin boundary the protocol
+//! schedule sees — [`Work::respond`]'s [`BoxResponses`] exit re-tags each
+//! outgoing reply at its stage's height, and each walk's public method
+//! erases its typed request stream on the way in.
 
-use std::pin::pin;
+use std::pin::Pin;
 
-use futures::{Stream, future::BoxFuture};
-use tokio_stream::StreamExt;
+use futures::{Stream, StreamExt, future::BoxFuture};
 
 mod answer;
 mod assembly;
@@ -21,10 +27,9 @@ mod resolver;
 use super::{progress, transcript};
 use crate::tree::{
     mirror::streaming::{
-        Backend, Leaf,
-        erased::ReturnSender,
-        materialized::Error,
-        protocol::{BoxResponses, Responses},
+        Backend, Leaf, erased,
+        materialized::{Error, channel::Sender},
+        protocol::BoxResponses,
         stats::Recorder,
         tasks::{complete, park_after_published_error},
         window::Window,
@@ -79,47 +84,31 @@ where
         self.stats.clone()
     }
 
-    /// Add a task which actively drives a response stream.
-    ///
-    /// One buffered response is sufficient: whenever the pump blocks, that
-    /// response is already available to advance the counterparty and release
-    /// the slot. Buffering a fan would retain whole protocol messages without
-    /// breaking any additional dependency.
+    /// Add a task which actively drives a response stream, and return the
+    /// stream's typed exit: the one point where a walk's erased replies
+    /// re-tag at their stage's height.
     fn respond<H: Height>(
         &mut self,
-        messages: impl Responses<B, T, H, Error<B::Error>>,
+        messages: impl Stream<Item = Result<erased::Reply<B::Erased>, Error<B::Error>>> + Send + 'static,
     ) -> BoxResponses<B, T, H, Error<B::Error>> {
-        let (send, responses) = outgoing_responses();
-        #[cfg(test)]
-        let work = self.trace_id;
-        self.tasks.push(Box::pin(async move {
-            let mut messages = pin!(messages);
-            while let Some(item) = messages.next().await {
-                // Capture the payload-erased wire transcript at the pump:
-                // per-stream pull order is exactly the wire order.
-                #[cfg(test)]
-                if let Ok(reply) = &item {
-                    transcript::reply(work, reply);
-                }
-                let failed = item.is_err();
-                if send.send(item).await.is_err() {
-                    return Ok(());
-                }
-                park_after_published_error(failed).await;
-            }
-            Ok::<(), Error<B::Error>>(())
-        }));
-        responses
+        let (send, responses) = outgoing_responses::<B, T, H>();
+        self.tasks.push(Box::pin(pump(
+            Box::pin(messages),
+            send,
+            #[cfg(test)]
+            (self.trace_id, H::HEIGHT),
+        )));
+        Box::pin(responses)
     }
 
     /// Forward a stream of nodes into an upward return channel.
-    fn return_into<H: Height>(
+    fn return_into(
         &mut self,
-        returns: ReturnSender<B, T, H>,
-        stream: impl Stream<Item = Result<Option<B::Node<H>>, Error<B::Error>>> + Send + 'static,
+        returns: Sender<Option<B::Erased>>,
+        stream: impl Stream<Item = Result<Option<B::Erased>, Error<B::Error>>> + Send + 'static,
     ) {
         self.tasks.push(Box::pin(async move {
-            let mut stream = pin!(stream);
+            let mut stream = std::pin::pin!(stream);
             while let Some(item) = stream.next().await {
                 if returns.send(item?).await.is_err() {
                     return Ok(());
@@ -136,6 +125,33 @@ where
     ) -> Result<O, Error<B::Error>> {
         complete(self.tasks, finish).await
     }
+}
+
+/// Drive one walk's response stream into its outgoing edge.
+///
+/// One buffered response is sufficient: whenever the pump blocks, that
+/// response is already available to advance the counterparty and release
+/// the slot. Buffering a fan would retain whole protocol messages without
+/// breaking another dependency.
+async fn pump<E: Send, Err: Send + 'static>(
+    mut messages: Pin<Box<dyn Stream<Item = Result<erased::Reply<E>, Error<Err>>> + Send>>,
+    send: Sender<Result<erased::Reply<E>, Error<Err>>>,
+    #[cfg(test)] (work, height): (usize, usize),
+) -> Result<(), Error<Err>> {
+    while let Some(item) = messages.next().await {
+        // Capture the payload-erased wire transcript at the pump:
+        // per-stream pull order is exactly the wire order.
+        #[cfg(test)]
+        if let Ok(reply) = &item {
+            transcript::reply(work, height, reply);
+        }
+        let failed = item.is_err();
+        if send.send(item).await.is_err() {
+            return Ok(());
+        }
+        park_after_published_error(failed).await;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

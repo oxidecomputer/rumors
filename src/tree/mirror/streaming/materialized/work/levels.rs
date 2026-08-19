@@ -1,13 +1,19 @@
 //! Phase-specific materialized reconciliation walks.
+//!
+//! Every walk body runs on the erased vocabulary — one instantiation per
+//! backend — behind a thin typed method that erases the stage's request
+//! stream on the way in and re-tags its responses on the way out
+//! ([`Work::respond`]). The generic methods carry the type-level height
+//! the schedule proves; the walk bodies carry it as the runtime witness
+//! every scope's prefix length *is*.
 
 use std::collections::BTreeMap;
 use std::pin::pin;
 
 use async_stream::try_stream;
 use before::Version;
-use futures::future::BoxFuture;
+use futures::{Stream, StreamExt, future::BoxFuture, stream::BoxStream};
 use tokio::sync::oneshot;
-use tokio_stream::StreamExt;
 
 use super::{Work, answer, assembly::assemble, queues::*, resolver::Resolver};
 #[cfg(test)]
@@ -15,16 +21,15 @@ use crate::tree::mirror::streaming::materialized::progress;
 use crate::tree::{
     mirror::contained,
     mirror::streaming::{
-        Backend, Leaf, Node, Root,
-        erased::{QueryReceiver, ResolutionOkStream, ReturnSender},
+        Backend, ErasedNode, Leaf, Root,
+        erased::{self, Reaction, Reply},
         materialized::{
-            Error, Query, Resolution, Resolve, SupplyLedger, Violation,
-            channel::Receiver,
-            children_of, fan_listing,
-            unknown::{Unknown, unknown, unknown_providing},
+            Error, OkReceiverStream, Query, Resolution, Resolve, SupplyLedger, Violation,
+            channel::{Receiver, Sender},
+            fan_listing,
+            unknown::{unknown, unknown_providing},
             violation,
         },
-        message::{self, Reaction, Reply},
         protocol::{BoxResponses, Requests},
         tasks::next_or_cancelled,
     },
@@ -33,6 +38,11 @@ use crate::tree::{
         height::{self, Height, S, UnderRoot, UnderUnderRoot, Z},
     },
 };
+
+/// A request stream already erased and boxed at the walk boundary: what
+/// every walk body consumes, so each body instantiates once per backend
+/// rather than once per concrete schedule stream.
+type Replies<E> = BoxStream<'static, Reply<E>>;
 
 impl<B, T> Work<B, T>
 where
@@ -55,23 +65,24 @@ where
     /// handed to the next level through the returned channel, so the root
     /// resolution answers the responder's now-vestigial empty queries from
     /// local state instead of re-walking the subtrees.
+    #[allow(clippy::type_complexity)]
     pub fn initiator_level(
         &mut self,
         their_version: Version,
         ceiling: Version,
-        fan: Vec<(u8, B::Node<UnderRoot>)>,
+        fan: Vec<(u8, B::Erased)>,
         their_listing: Vec<(u8, Hash)>,
     ) -> (
         BoxResponses<B, T, UnderRoot, Error<B::Error>>,
-        QueryReceiver<B, T, UnderRoot>,
-        ReturnSender<B, T, height::Root>,
-        oneshot::Receiver<Vec<(u8, Option<B::Node<UnderRoot>>)>>,
+        Receiver<Query<B::Erased>>,
+        Sender<Option<B::Erased>>,
+        oneshot::Receiver<Vec<(u8, Option<B::Erased>)>>,
         BoxFuture<'static, Result<Root<B, T>, Error<B::Error>>>,
     )
     where
         B: Sync,
     {
-        let (queries, queries_rx) = initiator_root_query();
+        let (queries, queries_rx) = initiator_root_query::<B, T>();
         let (returns, mut returns_rx) = initiator_root_return::<B, T>();
         let (early_tx, early_rx) = oneshot::channel();
         let backend = self.backend();
@@ -80,6 +91,7 @@ where
         let trace_id = self.trace_id;
 
         let responses = try_stream! {
+            let root_scope = Prefix::new().erase();
             // The Left-arm-only merge over (fan, their listing): exclusive
             // root children, pruned, in radix order. Asking no question, it
             // adds no question-owner anywhere: every scope keeps exactly one.
@@ -97,10 +109,10 @@ where
             let mut early = Vec::new();
             for (radix, node) in exclusive {
                 let survivor =
-                    unknown(&backend, &their_version, Prefix::new().push(radix), node, &stats)
+                    unknown(&backend, &their_version, root_scope.push(radix), node, &stats)
                         .await?;
                 if let Some(survivor) = &survivor {
-                    supplies.push(message::Reaction::Supply(radix, survivor.clone()));
+                    supplies.push(Reaction::Supply(radix, survivor.clone()));
                 }
                 early.push((radix, survivor));
             }
@@ -108,14 +120,14 @@ where
             // never waits: its first query cannot arrive earlier.
             let _ = early_tx.send(early);
             #[cfg(test)]
-            progress::wire(trace_id, Prefix::new());
+            progress::wire(trace_id, root_scope);
             yield Reply {
-                replies: std::iter::once(message::Reaction::Query(fan_listing(&fan)))
+                replies: std::iter::once(Reaction::Query(fan_listing(&fan)))
                     .chain(supplies)
                     .collect(),
             };
             let query = Query {
-                prefix: Prefix::new(),
+                prefix: root_scope,
                 ours: fan,
             };
             #[cfg(test)]
@@ -127,11 +139,17 @@ where
 
         let finish = Box::pin(async move {
             let root = next_or_cancelled(returns_rx.recv()).await;
-            Ok(Root { ceiling, root })
+            Ok(Root {
+                ceiling,
+                // The root return is this walk's one fixed-height re-tag:
+                // the initiator's single return channel carries exactly the
+                // reconciled root.
+                root: root.map(B::assume::<height::Root>),
+            })
         });
 
         (
-            self.respond(responses),
+            self.respond::<UnderRoot>(responses),
             queries_rx,
             returns,
             early_rx,
@@ -160,40 +178,43 @@ where
         their_version: Version,
         ledger: SupplyLedger,
         ceiling: Version,
-        fan: Vec<(u8, B::Node<UnderRoot>)>,
+        fan: Vec<(u8, B::Erased)>,
         requests: impl Requests<B, T, UnderRoot>,
     ) -> (
         BoxResponses<B, T, UnderRoot, Error<B::Error>>,
-        QueryReceiver<B, T, UnderUnderRoot>,
-        ReturnSender<B, T, UnderRoot>,
-        oneshot::Receiver<Vec<(u8, Vec<(u8, B::Node<UnderUnderRoot>)>)>>,
+        Receiver<Query<B::Erased>>,
+        Sender<Option<B::Erased>>,
+        oneshot::Receiver<Vec<(u8, Vec<(u8, B::Erased)>)>>,
         BoxFuture<'static, Result<Root<B, T>, Error<B::Error>>>,
     )
     where
         B: Sync,
     {
+        let requests: Replies<B::Erased> =
+            Box::pin(requests.map(erased::erase_reply::<B, T, UnderRoot>));
         let backend = self.backend();
         let stats = self.stats.clone();
         let (asked, asked_rx) =
-            responder_child_queries(self.window.capacity(UnderUnderRoot::HEIGHT));
-        let (resolution, resolution_rx) = responder_root_resolution();
+            responder_child_queries::<B, T>(self.window.capacity(UnderUnderRoot::HEIGHT));
+        let (resolution, resolution_rx) = responder_root_resolution::<B, T>();
         let (early_tx, early_rx) = oneshot::channel();
         let assembling = backend.clone();
         #[cfg(test)]
         let trace_id = self.trace_id;
 
         let responses = try_stream! {
-            let mut requests = pin!(requests);
+            let mut requests = requests;
+            let root_scope = Prefix::new().erase();
             let Some(Reply { replies }) = requests.next().await else {
                 return violation(Violation::UnansweredQuery)?;
             };
             let mut reactions = replies.into_iter();
-            let Some(message::Reaction::Query(theirs)) = reactions.next() else {
+            let Some(Reaction::Query(theirs)) = reactions.next() else {
                 return violation(Violation::UnexpectedQuery)?;
             };
             let mut early = Vec::new();
             for reaction in reactions {
-                let message::Reaction::Supply(radix, node) = reaction else {
+                let Reaction::Supply(radix, node) = reaction else {
                     return violation(Violation::UnexpectedQuery)?;
                 };
                 // Early supplies are absorbed here, ahead of the descent's
@@ -206,7 +227,7 @@ where
                 }
                 ledger.absorb(node.len() as u64)?;
                 let children =
-                    children_of(&backend, Prefix::new().push(radix), node).await?;
+                    erased::ops::children_of(&backend, root_scope.push(radix), node).await?;
                 early.push((radix, children));
             }
             // Filled before this reply yields, so the level consuming it
@@ -214,13 +235,13 @@ where
             let _ = early_tx.send(early);
             let ours = fan;
             let (reactions, next_queries, resolved) =
-                answer::internal(&backend, &their_version, Prefix::new(), ours, theirs, &stats)
+                answer::internal(&backend, &their_version, root_scope, ours, theirs, &stats)
                     .await?;
             yield_resolve_query!(
-                trace_id, Prefix::new();
+                trace_id, root_scope;
                 yield Reply { replies: reactions };
                 resolution => Resolution {
-                    prefix: Prefix::new(),
+                    prefix: root_scope,
                     resolved,
                 };
                 asked => next_queries;
@@ -234,14 +255,29 @@ where
             let root = next_or_cancelled(assembled.next()).await;
             Ok(Root {
                 ceiling,
-                root: root?,
+                // The responder's root assembles at the top of the return
+                // chain: the same one fixed-height re-tag as the
+                // initiator's.
+                root: root?.map(B::assume::<height::Root>),
             })
         });
 
-        (self.respond(responses), asked_rx, returns, early_rx, finish)
+        (
+            self.respond::<UnderRoot>(responses),
+            asked_rx,
+            returns,
+            early_rx,
+            finish,
+        )
     }
 
-    /// Walk an internal level, where disputes recur into another internal level.
+    /// Walk an internal level, where disputes recur into another internal
+    /// level.
+    ///
+    /// `H` is the height the walk's dependent queries descend to; the
+    /// walk's own scopes sit two levels above it, exactly as the schedule's
+    /// [`Reply`](crate::tree::mirror::streaming::protocol::Reply)
+    /// transition demands.
     ///
     /// The two `early_*` channels are the opening exchange's hand-off into
     /// the one instance that resolves root scopes; every deeper instance
@@ -263,38 +299,86 @@ where
         &mut self,
         their_version: Version,
         ledger: SupplyLedger,
-        early_survivors: Option<oneshot::Receiver<Vec<(u8, Option<B::Node<S<S<H>>>>)>>>,
-        early_supplies: Option<oneshot::Receiver<Vec<(u8, Vec<(u8, B::Node<S<S<H>>>)>)>>>,
+        early_survivors: Option<oneshot::Receiver<Vec<(u8, Option<B::Erased>)>>>,
+        early_supplies: Option<oneshot::Receiver<Vec<(u8, Vec<(u8, B::Erased)>)>>>,
         requests: impl Requests<B, T, S<S<H>>>,
-        mut queries: QueryReceiver<B, T, S<S<H>>>,
+        queries: Receiver<Query<B::Erased>>,
     ) -> (
         BoxResponses<B, T, S<H>, Error<B::Error>>,
-        QueryReceiver<B, T, H>,
-        ResolutionOkStream<B, T, S<S<H>>>,
-        ResolutionOkStream<B, T, S<H>>,
+        Receiver<Query<B::Erased>>,
+        OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
+        OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
     )
     where
         B: Sync,
-        H: Unknown,
-        S<H>: Unknown,
-        S<S<H>>: Unknown,
-        S<S<S<H>>>: Height,
+        H: Height,
+        S<H>: Height,
+        S<S<H>>: Height,
+    {
+        let requests: Replies<B::Erased> =
+            Box::pin(requests.map(erased::erase_reply::<B, T, S<S<H>>>));
+        let (responses, asked_rx, upper_rx, lower_rx) = self.internal_walk(
+            their_version,
+            ledger,
+            early_survivors,
+            early_supplies,
+            requests,
+            queries,
+            H::HEIGHT,
+        );
+        (
+            self.respond::<S<H>>(responses),
+            asked_rx,
+            upper_rx,
+            lower_rx,
+        )
+    }
+
+    /// The internal walk's body, shared by every height:
+    /// [`internal_level`](Self::internal_level) with the descent height as
+    /// the runtime datum it already is everywhere below the types.
+    // The argument list is the stage's dataflow, one edge per argument;
+    // bundling edges into a struct would only rename the arity.
+    #[allow(clippy::too_many_arguments, clippy::type_complexity)]
+    fn internal_walk(
+        &mut self,
+        their_version: Version,
+        ledger: SupplyLedger,
+        early_survivors: Option<oneshot::Receiver<Vec<(u8, Option<B::Erased>)>>>,
+        early_supplies: Option<oneshot::Receiver<Vec<(u8, Vec<(u8, B::Erased)>)>>>,
+        requests: Replies<B::Erased>,
+        mut queries: Receiver<Query<B::Erased>>,
+        asked_height: usize,
+    ) -> (
+        impl Stream<Item = Result<Reply<B::Erased>, Error<B::Error>>> + Send + 'static + use<B, T>,
+        Receiver<Query<B::Erased>>,
+        OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
+        OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
+    )
+    where
+        B: Sync,
     {
         let backend = self.backend();
         let stats = self.stats.clone();
-        let (asked, asked_rx) = internal_child_queries(self.window.capacity(H::HEIGHT));
-        let (upper, upper_rx) =
-            internal_parent_resolutions(self.window.capacity(<S<S<H>>>::HEIGHT));
-        let (lower, lower_rx) = internal_child_resolutions(self.window.capacity(<S<H>>::HEIGHT));
+        let (asked, asked_rx) =
+            internal_child_queries::<B, T>(asked_height, self.window.capacity(asked_height));
+        let (upper, upper_rx) = internal_parent_resolutions::<B, T>(
+            asked_height + 2,
+            self.window.capacity(asked_height + 2),
+        );
+        let (lower, lower_rx) = internal_child_resolutions::<B, T>(
+            asked_height + 1,
+            self.window.capacity(asked_height + 1),
+        );
         #[cfg(test)]
         let trace_id = self.trace_id;
 
         let responses = try_stream! {
-            let mut requests = pin!(requests);
+            let mut requests = requests;
             let mut early_survivors = early_survivors;
-            let mut survivors: Option<BTreeMap<u8, Option<B::Node<S<S<H>>>>>> = None;
+            let mut survivors: Option<BTreeMap<u8, Option<B::Erased>>> = None;
             let mut early_supplies = early_supplies;
-            let mut supplied: Option<BTreeMap<u8, Vec<(u8, B::Node<S<S<H>>>)>>> = None;
+            let mut supplied: Option<BTreeMap<u8, Vec<(u8, B::Erased)>>> = None;
             while let Some(query) = queries.recv().await {
                 let Some(Reply { replies }) = requests.next().await else {
                     return violation(Violation::UnansweredQuery)?;
@@ -343,7 +427,8 @@ where
                     }
                 }
 
-                let mut resolver = Resolver::new(query, &their_version, &ledger, stats.clone());
+                let mut resolver =
+                    Resolver::<B, T>::new(query, &their_version, &ledger, stats.clone());
                 for reaction in replies {
                     let Some((prefix, radix, node, listing)) = resolver.react(reaction)? else {
                         continue;
@@ -389,7 +474,7 @@ where
                         continue;
                     }
 
-                    let children = children_of(&backend, child_prefix, node).await?;
+                    let children = erased::ops::children_of(&backend, child_prefix, node).await?;
                     let (reactions, next_queries, resolved) = answer::internal(
                         &backend,
                         &their_version,
@@ -426,7 +511,7 @@ where
             }
         };
 
-        (self.respond(responses), asked_rx, upper_rx, lower_rx)
+        (responses, asked_rx, upper_rx, lower_rx)
     }
 
     /// Walk leaf parents, where disputes compare version-addressed leaves.
@@ -435,12 +520,36 @@ where
         their_version: Version,
         ledger: SupplyLedger,
         requests: impl Requests<B, T, S<Z>>,
-        mut queries: QueryReceiver<B, T, S<Z>>,
+        queries: Receiver<Query<B::Erased>>,
     ) -> (
         BoxResponses<B, T, Z, Error<B::Error>>,
         Receiver<Prefix<Z>>,
-        ResolutionOkStream<B, T, S<Z>>,
-        ResolutionOkStream<B, T, Z>,
+        OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
+        OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
+    )
+    where
+        B: Sync,
+    {
+        let requests: Replies<B::Erased> =
+            Box::pin(requests.map(erased::erase_reply::<B, T, S<Z>>));
+        let (responses, asked_rx, upper_rx, lower_rx) =
+            self.leaf_parent_walk(their_version, ledger, requests, queries);
+        (self.respond::<Z>(responses), asked_rx, upper_rx, lower_rx)
+    }
+
+    /// The leaf-parent walk's body ([`leaf_parent_level`](Self::leaf_parent_level)).
+    #[allow(clippy::type_complexity)]
+    fn leaf_parent_walk(
+        &mut self,
+        their_version: Version,
+        ledger: SupplyLedger,
+        requests: Replies<B::Erased>,
+        mut queries: Receiver<Query<B::Erased>>,
+    ) -> (
+        impl Stream<Item = Result<Reply<B::Erased>, Error<B::Error>>> + Send + 'static + use<B, T>,
+        Receiver<Prefix<Z>>,
+        OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
+        OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
     )
     where
         B: Sync,
@@ -448,19 +557,21 @@ where
         let backend = self.backend();
         let stats = self.stats.clone();
         let (asked, asked_rx) = leaf_requests(self.window.capacity(Z::HEIGHT));
-        let (upper, upper_rx) = leaf_parent_resolutions(self.window.capacity(<S<Z>>::HEIGHT));
-        let (lower, lower_rx) = leaf_child_resolutions(self.window.capacity(Z::HEIGHT));
+        let (upper, upper_rx) =
+            leaf_parent_resolutions::<B, T>(self.window.capacity(<S<Z>>::HEIGHT));
+        let (lower, lower_rx) = leaf_child_resolutions::<B, T>(self.window.capacity(Z::HEIGHT));
         #[cfg(test)]
         let trace_id = self.trace_id;
 
         let responses = try_stream! {
-            let mut requests = pin!(requests);
+            let mut requests = requests;
             while let Some(query) = queries.recv().await {
                 let Some(Reply { replies }) = requests.next().await else {
                     return violation(Violation::UnansweredQuery)?;
                 };
 
-                let mut resolver = Resolver::new(query, &their_version, &ledger, stats.clone());
+                let mut resolver =
+                    Resolver::<B, T>::new(query, &their_version, &ledger, stats.clone());
                 for reaction in replies {
                     let Some((prefix, radix, node, listing)) = resolver.react(reaction)? else {
                         continue;
@@ -483,7 +594,7 @@ where
                         continue;
                     }
 
-                    let leaves = children_of(&backend, child_prefix, node).await?;
+                    let leaves = erased::ops::children_of(&backend, child_prefix, node).await?;
                     let (replies, next_queries, resolved) =
                         answer::leaf_parent(&their_version, child_prefix, leaves, listing, &stats);
                     yield_resolve_query!(
@@ -513,7 +624,7 @@ where
             }
         };
 
-        (self.respond(responses), asked_rx, upper_rx, lower_rx)
+        (responses, asked_rx, upper_rx, lower_rx)
     }
 
     /// Walk leaves, where every query is a terminal request.
@@ -522,24 +633,42 @@ where
         their_version: Version,
         ledger: SupplyLedger,
         requests: impl Requests<B, T, Z>,
-        mut queries: QueryReceiver<B, T, Z>,
+        queries: Receiver<Query<B::Erased>>,
     ) -> (
         BoxResponses<B, T, Z, Error<B::Error>>,
-        ResolutionOkStream<B, T, Z>,
+        OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
     ) {
-        let (upper, upper_rx) = terminal_leaf_resolutions();
+        let requests: Replies<B::Erased> = Box::pin(requests.map(erased::erase_reply::<B, T, Z>));
+        let (responses, upper_rx) = self.leaf_walk(their_version, ledger, requests, queries);
+        (self.respond::<Z>(responses), upper_rx)
+    }
+
+    /// The leaf walk's body ([`leaf_level`](Self::leaf_level)).
+    #[allow(clippy::type_complexity)]
+    fn leaf_walk(
+        &mut self,
+        their_version: Version,
+        ledger: SupplyLedger,
+        requests: Replies<B::Erased>,
+        mut queries: Receiver<Query<B::Erased>>,
+    ) -> (
+        impl Stream<Item = Result<Reply<B::Erased>, Error<B::Error>>> + Send + 'static + use<B, T>,
+        OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
+    ) {
+        let (upper, upper_rx) = terminal_leaf_resolutions::<B, T>();
         let stats = self.stats.clone();
         #[cfg(test)]
         let trace_id = self.trace_id;
 
         let responses = try_stream! {
-            let mut requests = pin!(requests);
+            let mut requests = requests;
             while let Some(query) = queries.recv().await {
                 let Some(Reply { replies }) = requests.next().await else {
                     return violation(Violation::UnansweredQuery)?;
                 };
 
-                let mut resolver = Resolver::new(query, &their_version, &ledger, stats.clone());
+                let mut resolver =
+                    Resolver::<B, T>::new(query, &their_version, &ledger, stats.clone());
                 for reaction in replies {
                     let Some((prefix, radix, node, listing)) = resolver.react(reaction)? else {
                         continue;
@@ -568,6 +697,6 @@ where
             }
         };
 
-        (self.respond(responses), upper_rx)
+        (responses, upper_rx)
     }
 }
