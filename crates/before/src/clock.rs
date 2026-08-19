@@ -674,21 +674,12 @@ impl Clock {
         self.version() / self.party()
     }
 
-    /// The clock's shape: its [`Version`]'s plateaus overlaid with its
-    /// [`Party`]'s ownership, as one iterator of
-    /// `(`[`Plateau`](crate::shape::Plateau)`, bool)` items, left to
-    /// right.
+    /// The clock's shape.
     ///
-    /// The flag says whether the clock's party owns the plateau's
-    /// interval. Where the party subdivides a version plateau, the
-    /// plateau is split: the first fragment carries the plateau's rise
-    /// and later fragments continue level, so this stream is a
-    /// *refinement* of the version's shape (see
-    /// [`shape::Overlay`](crate::shape::Overlay)). This is the walk a
-    /// renderer draws a clock from — the version's profile with the
-    /// party's custody shaded — composed here because writing the
-    /// two-walk overlay as a consumer is nontrivial; walking one side
-    /// alone is [`Version::shape`] or [`Party::shape`] on the parts.
+    /// This iterator overlays its [`Version`]'s [`Plateau`](crate::shape::Plateau)s
+    /// with its [`Party`]'s ownership of [`Region`](crate::shape::Region)s, as one
+    /// iterator, left to right across the interval `[0, 1)`. The boolean flag says
+    /// whether the clock's party owns the plateau's interval.
     ///
     /// # Complexity
     ///
