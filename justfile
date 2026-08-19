@@ -590,13 +590,13 @@ fuzzfit-calibrate: fuzzfit-build
 # the tree's one place 32-bit code *executes*: the guest drives the
 # public surface — the byte and borsh decode doors, the semantic walks
 # and emitters, and rank arithmetic — at the exact sizes where 32-bit
-# position arithmetic has boundaries (bitvec's borrowed-view cap on the
-# walk surface, the emitter's build-buffer cap, the usize bit-length
-# boundary at 512 MiB, the rank exponent's usize seam, the big-integer
-# backend's word cap, the rank alignment-gap seam), and the harness pins
-# each boundary's exact outcome, with adjacency witnesses beside each
-# boundary so a failure is attributable to its seam. Pins land red-first
-# when a seam is found; each pin's history lives in git.
+# arithmetic has coordinates (the 2^29-bit and 2^29-byte marks where a
+# usize spelling of bit counts or positions would bind, the big-integer
+# backend's word cap on decoded values and on the rank fold's numerator,
+# the rank exponent's usize seam, the rank alignment-gap seam), and the
+# harness pins each coordinate's exact outcome, with adjacency witnesses
+# beside each boundary so a failure is attributable to its seam. Pins
+# land red-first when a seam is found; each pin's history lives in git.
 # The guest builds with overflow checks on,
 # so a 32-bit wrap is an observable trap, never a silently wrong value.
 

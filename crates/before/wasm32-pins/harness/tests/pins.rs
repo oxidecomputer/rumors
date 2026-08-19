@@ -78,22 +78,77 @@ fn version_decode_past_build_cap() {
     );
 }
 
-/// A valid 512 MiB (2^29-byte) version encoding — the largest stored
-/// stream a 32-bit `usize` can denominate bit positions for — decodes
-/// correctly on wasm32 with its exact live bit length.
+/// A valid 512 MiB (2^29-byte) version encoding decodes correctly on
+/// wasm32 with its exact live bit length.
 ///
 /// The returned length is 2^32 - 8, within one marker byte of
 /// `usize::MAX`. The size is where a `usize` spelling of the stored
 /// length arithmetic (`bytes.len() * 8`) wraps a 32-bit target — a wrap
 /// coincidentally correct at exactly 2^29 bytes and short by 2^32 for
-/// anything larger — so this pin holds `Bits::len`'s wider arithmetic
-/// exact at the boundary, under a build whose overflow checks would
-/// surface any wrap as a trap.
+/// anything larger — so this pin holds the stored form's `u64` length
+/// arithmetic exact at the coordinate, under a build whose overflow
+/// checks would surface any wrap as a trap.
 #[test]
-fn version_decode_at_bit_length_boundary() {
+fn version_decode_at_usize_positions_coordinate() {
     assert_eq!(
         call1("pin_version_decode", 536_870_912),
         Outcome::Value(8 * 536_870_912 - 8),
+    );
+}
+
+/// A valid 536870913-byte version encoding — one byte past the 2^29-byte
+/// coordinate where a 32-bit `usize` runs out of bit positions — decodes
+/// correctly on wasm32 with its exact live bit length.
+///
+/// Streams are bounded only by allocatable memory: the stored form, the
+/// doors, and the walks denominate bit positions in `u64` on every
+/// target, so no size below memory has a structural cap to trip. This
+/// pin and the deep witnesses below hold that upward exactness.
+#[test]
+fn version_decode_past_usize_positions_coordinate() {
+    assert_eq!(
+        call1("pin_version_decode", 536_870_913),
+        Outcome::Value(8 * 536_870_913 - 8),
+    );
+}
+
+/// A valid 768 MiB version encoding — its single leaf's height a
+/// ~3.2-gigabit value, half again as wide as any 32-bit position quantity
+/// — decodes correctly on wasm32 with its exact live bit length.
+///
+/// The decode doors' deep upward witness: input, materialized height, and
+/// the validator's running-height fold are priced only by memory, deep
+/// past every 32-bit position coordinate.
+#[test]
+fn version_decode_deep_in_memory_bounded_range() {
+    assert_eq!(
+        call1("pin_version_decode", 805_306_368),
+        Outcome::Value(8 * 805_306_368 - 8),
+    );
+}
+
+/// PINNED AS FOUND: a valid ~1 GiB (1073741817-byte) version encoding
+/// aborts on allocation failure — the doors' one terminal here.
+///
+/// The memory bound fires as a loud abort, never a silent wrong value.
+/// The working set at the abort (the input, its read copy, the ~512 MiB
+/// materialized height, and the validator's running-height accumulator)
+/// crosses what the 4 GiB address space allocates; the probe backtrace
+/// attributes the trap to the accumulator's buffer growth inside the
+/// height fold. This size's height is one flush nibble under the
+/// big-integer backend's 2^32 - 32-bit capacity, so the capacity itself
+/// is unreachable through the doors on this target: a wide value's gamma
+/// code alone costs a quarter of the address space, and the decode's
+/// working set exhausts memory first. (The rank wire door reaches the
+/// same capacity with no fold transients, where
+/// `rank_decode_past_backend_bit_capacity_traps` pins it.) A leaner
+/// working set — not a wider denomination — is what would move this
+/// terminal outward.
+#[test]
+fn version_decode_memory_terminal_traps() {
+    assert_eq!(
+        call1("pin_version_decode", 1_073_741_817),
+        Outcome::Trapped(Trap::UnreachableCodeReached),
     );
 }
 
@@ -238,6 +293,28 @@ fn ranked_decode_deep_in_storable_range() {
     assert_eq!(call1("pin_ranked_decode", 268_435_456), Outcome::Value(0),);
 }
 
+/// PINNED AS FOUND: a valid composite key whose version component is one
+/// byte past the 2^29-byte coordinate aborts on allocation failure in the
+/// byte door `Ranked::decode`.
+///
+/// The component is 536870913 bytes, one past where a 32-bit `usize`
+/// runs out of bit positions. No denomination binds here: the door's own straddle pins hold it exact
+/// across the 2^29-bit coordinate, and the version door crosses this very
+/// coordinate green (`version_decode_past_usize_positions_coordinate`).
+/// What fires is the memory bound: the composite's working set — the key,
+/// its read copy, and the rank re-derivation's fold and ~2^31-bit
+/// numerator — crosses what the 4 GiB address space allocates, and the
+/// probe backtrace attributes the trap to the fold accumulator's buffer
+/// growth inside the re-derivation. A leaner working set — not a wider
+/// denomination — is what would flip this pin to `Value(0)`.
+#[test]
+fn ranked_decode_memory_terminal_traps() {
+    assert_eq!(
+        call1("pin_ranked_decode", 536_870_913),
+        Outcome::Trapped(Trap::UnreachableCodeReached),
+    );
+}
+
 /// A valid composite key decodes through the borsh door
 /// `Ranked::deserialize_reader` at the largest version size below the
 /// straddle coordinate, consuming exactly its own bytes.
@@ -294,8 +371,8 @@ fn ranked_borsh_deep_in_storable_range() {
 /// The door consumes exactly its own bytes.
 /// It validates the second stream against `lo`'s view in one fused
 /// admission walk: the boundary straddle's lower witness. (The byte door
-/// `Span::decode` runs the same admission and is exact to 512 MiB per
-/// component.)
+/// `Span::decode` runs the same admission, exact at every size memory
+/// admits.)
 #[test]
 fn span_borsh_below_build_cap() {
     assert_eq!(call1("pin_span_borsh", BUILD_CAP_BYTES), Outcome::Value(0));
@@ -371,16 +448,27 @@ fn version_cmp_past_build_cap() {
     );
 }
 
-/// Causal comparison decides a valid stored pair exactly at 512 MiB — the
-/// largest storable stream on a 32-bit target — both ways around.
+/// Causal comparison decides a valid stored pair exactly at 512 MiB both
+/// ways around.
 ///
-/// The comparison class's upward exactness spot-check at the storage
-/// bound itself: the operand's live length (2^32 - 8 bits) is within one
-/// marker byte of `usize::MAX`, so this also exercises the view's `u64`
-/// length arithmetic at the very top of the storable range.
+/// The comparison class's spot-check at the 2^29-byte coordinate where a
+/// 32-bit `usize` runs out of bit positions: the operand's live length
+/// (2^32 - 8 bits) is within one marker byte of `usize::MAX`, so this
+/// exercises the view's `u64` length arithmetic right at the coordinate.
 #[test]
-fn version_cmp_at_storage_bound() {
+fn version_cmp_at_usize_positions_coordinate() {
     assert_eq!(call1("pin_version_cmp", 536_870_912), Outcome::Value(0),);
+}
+
+/// Causal comparison decides a valid stored 536870913-byte pair — one
+/// byte past the 2^29-byte coordinate — exactly, both ways around.
+///
+/// The comparison class's upward witness past the coordinate: stored
+/// streams and their walks are bounded only by allocatable memory, so
+/// ordering reads stay exact wherever the doors can admit an operand.
+#[test]
+fn version_cmp_past_usize_positions_coordinate() {
+    assert_eq!(call1("pin_version_cmp", 536_870_913), Outcome::Value(0),);
 }
 
 /// Join emits a covered pair exactly at the largest operand size below the
@@ -462,6 +550,23 @@ fn version_join_emit_at_build_cap() {
     );
 }
 
+/// A join of two valid operands (~25 MB and ~488 MB) emits an output of
+/// 4294967299 live bits — 536870913 finished bytes, one byte past the
+/// 2^29-byte coordinate where a 32-bit `usize` runs out of bit positions.
+///
+/// The emitting class's upward witness past the coordinate: the build
+/// buffer, the freeze seam, and the frozen form all carry `u64` bit
+/// counts, so an emission is storable whenever its buffer is allocatable —
+/// the output's live length itself exceeds 2^32 here, past any `usize`
+/// spelling on this target.
+#[test]
+fn version_join_emit_past_usize_positions_coordinate() {
+    assert_eq!(
+        call2("pin_version_join_emit", 100_000_000, 2_047_483_647),
+        Outcome::Value(4_294_967_299),
+    );
+}
+
 /// Rank addition is exact just below the 32-bit alignment-gap boundary.
 ///
 /// A fraction 2^32 expansion bits deep plus one 128 bits deep — an
@@ -532,6 +637,53 @@ fn rank_checked_sub_below_gap_boundary() {
 fn rank_checked_sub_at_gap_boundary_traps() {
     assert_eq!(
         call1("pin_rank_checked_sub", 0),
+        Outcome::Trapped(Trap::UnreachableCodeReached),
+    );
+}
+
+/// The rank fold is exact on a numerator wider than any 32-bit quantity,
+/// ordering strictly above the rank of the version `1` and equal to its
+/// own clone.
+///
+/// The ladder version's numerator is exactly 2684354560 bits — five
+/// quarters of 2^31, past every `usize` and `u32` coordinate on this
+/// target. The fold path's deep upward witness: the ~640 MiB input decodes with
+/// only the first height materialized (2684354496 bits), and the fold's
+/// depth-weighted numerator crosses 2^31 bits without meeting any
+/// denomination — only memory prices it.
+#[test]
+fn version_rank_deep_in_memory_bounded_range() {
+    assert_eq!(
+        call2("pin_version_rank", 2_684_354_496, 64),
+        Outcome::Value(0),
+    );
+}
+
+/// PINNED AS FOUND: folding the rank of a ladder version whose numerator
+/// is 2^32 - 32 bits aborts on allocation failure — the fold's one
+/// terminal here.
+///
+/// The numerator sits exactly at the big-integer backend's 32-bit
+/// capacity, and the memory bound fires first, as a loud abort, never a
+/// silent wrong value. The fold's working set at the abort (the ~1 GiB stream, the
+/// 2^32 - 96-bit first height, the integral's base component, and the
+/// close's shifted-add target) crosses what the 4 GiB address space
+/// allocates; the probe backtrace attributes the trap to the
+/// accumulator's buffer growth inside the integral's close. The backend
+/// capacity itself is therefore unreachable through the fold on this
+/// target: a numerator of `W` bits needs a stream of at least `2W` bits
+/// alive underneath it (heights pay their own width in code bits, depth
+/// pays five stream bits per level), and that plus the fold's transients
+/// exhausts memory just below the capacity — the rank wire door, which
+/// assembles its numerator from bytes with no fold transients, is where
+/// the capacity is reachable and pinned
+/// (`rank_decode_past_backend_bit_capacity_traps`). A leaner working
+/// set — not a wider denomination — is what would move this terminal
+/// outward.
+#[test]
+fn version_rank_memory_terminal_traps() {
+    assert_eq!(
+        call2("pin_version_rank", (1u64 << 32) - 96, 64),
         Outcome::Trapped(Trap::UnreachableCodeReached),
     );
 }

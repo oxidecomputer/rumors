@@ -92,10 +92,12 @@ pub extern "C" fn pin_version_small() -> i64 {
 /// `encoded_bits` (always `8n - 8` for the synthesized layout), checking
 /// that the stored bytes round-trip the input exactly.
 ///
-/// The harness aims this at the 32-bit boundaries: the sizes straddling
+/// The harness aims this at the 32-bit coordinates: the sizes straddling
 /// 2^29 bits (where a `usize >> 3` bit-count encoding would bind on a
-/// 32-bit target) and the 512 MiB bit-length boundary of `usize`
-/// position arithmetic.
+/// 32-bit target), the 2^29-byte coordinate where a `usize` spelling of
+/// bit positions would wrap, and — through the synthesized single wide
+/// leaf — the sizes where the decode's working set meets the 4 GiB
+/// address space, the doors' one terminal on this target.
 #[no_mangle]
 pub extern "C" fn pin_version_decode(n_bytes: u64) -> i64 {
     let n = match usize::try_from(n_bytes) {
@@ -334,8 +336,8 @@ fn synth_ranked(n: usize) -> (Vec<u8>, usize) {
 ///
 /// The door re-derives the version's rank to verify the key's rank
 /// component — a whole-stream fold over the version's stored view — so this
-/// export observes the composite door's walk surface at sizes the byte
-/// doors admit (up to 512 MiB per stream).
+/// export observes the composite door's walk surface at any size memory
+/// admits.
 #[no_mangle]
 pub extern "C" fn pin_ranked_decode(n_bytes: u64) -> i64 {
     let n = match usize::try_from(n_bytes) {
@@ -387,7 +389,7 @@ pub extern "C" fn pin_ranked_borsh(n_bytes: u64) -> i64 {
 /// The door validates the second stream against the first component's
 /// stored view in one fused admission walk, so this export observes that
 /// walk on the `lo` component; the endpoint checks are byte compares,
-/// exact at any storable size.
+/// exact at any size memory admits.
 #[no_mangle]
 pub extern "C" fn pin_span_borsh(n_bytes: u64) -> i64 {
     let n = match usize::try_from(n_bytes) {
@@ -452,7 +454,7 @@ pub extern "C" fn pin_version_cmp(n_bytes: u64) -> i64 {
 /// merge emission, so this export observes the emitting operation class:
 /// the walk surface on its input side, and the build buffer on its output
 /// side (a covered join's output reproduces the big operand whole); the
-/// result check is a byte compare, exact at any storable size.
+/// result check is a byte compare, exact at any size memory admits.
 #[no_mangle]
 pub extern "C" fn pin_version_join_covering(n_bytes: u64) -> i64 {
     let n = match usize::try_from(n_bytes) {
@@ -478,13 +480,12 @@ pub extern "C" fn pin_version_join_covering(n_bytes: u64) -> i64 {
 /// [`synth_two_leaf_right`]`(k, j)`, returning the joined stream's exact
 /// live bit length, `2k + 2j + 5`.
 ///
-/// Each operand sits well under the walk surface's per-operand bound.
 /// The join is `node(leaf(2^k - 1), leaf(2^k - 1 + 2^(j-1)))`: each half of
 /// the unit interval takes its taller side, so the output concatenates the
 /// left operand's tall code with a fresh `2j + 1`-bit delta code instead of
 /// collapsing — the output outgrows both inputs. The harness aims `(k, j)`
 /// at the emitter's output side — the build buffer and its freeze hand-off,
-/// not any per-operand bound, are what this export observes.
+/// not the operands, are what this export observes.
 #[no_mangle]
 pub extern "C" fn pin_version_join_emit(k: u64, j: u64) -> i64 {
     let a = match Version::decode(&synth_two_leaf_left(k)[..]) {
@@ -497,10 +498,94 @@ pub extern "C" fn pin_version_join_emit(k: u64, j: u64) -> i64 {
     };
     let joined = a.join(&b);
     let expected = 2 * k + 2 * j + 5;
-    if joined.encoded_bits() as u64 != expected {
+    if joined.encoded_bits() != expected {
         return -3;
     }
     i64::try_from(expected).unwrap_or(-4)
+}
+
+/// The canonical encoding of a depth-`d` right-descending ladder whose
+/// first leaf carries the height `2^(b-1)`: the shape whose rank numerator
+/// is wider than any value its decode materializes.
+///
+/// The tree is `node(leaf(h), node(leaf(h+1), node(leaf(h+2), ... ,
+/// node(leaf(h+d-1), leaf(h+d))...)))` with `h = 2^(b-1)`: the root's left
+/// leaf at depth 1 carries `h` as the stream's absolute first payload (a
+/// `2b - 1`-bit gamma code), and every later leaf is one `+1` delta (the
+/// 3-bit zigzag-gamma code `011`), descending one level per step to the
+/// sibling pair at depth `d`. Canonical: every delta is nonzero and every
+/// height a natural. Live length `2b + 5d` bits.
+///
+/// The point of the shape: decode materializes only the `b`-bit first
+/// height (every delta is machine-word small), while the rank fold weights
+/// each leaf by `2^(d - depth)`, so the rank numerator is exactly `b + d`
+/// bits wide — depth converts into numerator width that no decoded value
+/// ever had, which is what lets the harness aim `b + d` at the fold's own
+/// coordinates independently of the doors'.
+fn synth_rank_ladder(b: u64, d: u64) -> Vec<u8> {
+    assert!(
+        b >= 3 && d >= 1,
+        "the ladder wants a wide height and a level"
+    );
+    let live = 2 * b + 5 * d;
+    let total_bytes = usize::try_from((live + 1).div_ceil(8)).expect("the stream is addressable");
+    let mut bytes = vec![0u8; total_bytes];
+    // Root '0' at position 0; the first leaf's flag, then gamma(2^(b-1)):
+    // b - 1 zeros, then the b-bit mantissa `2^(b-1) + 1` (its ends set).
+    set_bit(&mut bytes, 1);
+    set_bit(&mut bytes, b + 1); // the mantissa's leading 1
+    set_bit(&mut bytes, 2 * b); // its trailing 1
+    let mut p = 2 * b + 1;
+    // Interior levels: an internal flag, a leaf flag, and the +1 delta
+    // (zigzag 2, gamma code `011`).
+    for _ in 1..d {
+        set_bit(&mut bytes, p + 1); // the leaf flag (after the internal '0')
+        set_bit(&mut bytes, p + 3); // gamma(2): '0', then '11'
+        set_bit(&mut bytes, p + 4);
+        p += 5;
+    }
+    // The deepest pair's right leaf: flag and one more +1 delta.
+    set_bit(&mut bytes, p); // the leaf flag (no internal precedes a right child)
+    set_bit(&mut bytes, p + 2);
+    set_bit(&mut bytes, p + 3);
+    p += 4;
+    debug_assert_eq!(p, live);
+    set_bit(&mut bytes, live); // the padding marker
+    bytes
+}
+
+/// Decode a depth-`d` ladder whose first height is `2^(b-1)`
+/// ([`synth_rank_ladder`]), then fold its rank, checking exact-order
+/// observations: the rank exceeds the rank of the version `1` and equals
+/// its own clone.
+///
+/// The harness aims `(b, d)` at the rank fold's numerator width, `b + d`
+/// bits: the one quantity on the fold path that outgrows every decoded
+/// value (decode materializes `b` bits at most). ~`b/4` bytes of input is
+/// the smallest honest trigger: a numerator is at most its widest height
+/// times `2^depth`, heights pay their own width in code bits, and depth
+/// pays five stream bits per level.
+#[no_mangle]
+pub extern "C" fn pin_version_rank(b: u64, d: u64) -> i64 {
+    let bytes = synth_rank_ladder(b, d);
+    let v = match Version::decode(&bytes[..]) {
+        Ok(v) => v,
+        Err(_) => return -1,
+    };
+    drop(bytes);
+    let r = v.rank();
+    drop(v);
+    let one = match Version::try_from(1) {
+        Ok(v) => v.rank(),
+        Err(_) => return -2,
+    };
+    if r <= one {
+        return -3;
+    }
+    if r != r.clone() {
+        return -4;
+    }
+    0
 }
 
 /// The small second operand of the rank-arithmetic pins, keyed by its
