@@ -61,7 +61,7 @@ static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 use before_fuelscape::ops::ROSTER;
 use before_fuelscape::plan::{run_op_with_progress, Plan, Samplers};
-use before_fuelscape::render::{render_gallery, render_op, AtlasData, RenderMeta};
+use before_fuelscape::render::{render_gallery, render_op, AtlasData, RenderMeta, RunParams};
 use before_fuelscape::select::{listing, select};
 use fuzzfit_harness::wasm::Guest;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
@@ -291,17 +291,18 @@ fn main() {
         .into_iter()
         .map(|slot| slot.expect("every selected row ran"))
         .collect();
-    let gallery = render_gallery(&rendered, &meta, &out).expect("gallery must render");
+    let gallery =
+        render_gallery(&rendered, &RunParams::from(&meta), &out).expect("gallery must render");
     println!("gallery → {}", gallery.display());
 }
 
 /// Replay rendering from a dump: no guest, no count tables, no sampling.
 fn render_from_dump(dump_path: &Path, out: &Path, font_scale: f64) {
-    let (meta, atlases) = dump::read(dump_path).expect("dump must load");
+    let (params, atlases) = dump::read(dump_path).expect("dump must load");
     std::fs::create_dir_all(out).expect("output directory must be creatable");
     let mut rendered = Vec::new();
-    for data in &atlases {
-        let path = render_op(data, &meta, out, font_scale).expect("render must succeed");
+    for (meta, data) in &atlases {
+        let path = render_op(data, meta, out, font_scale).expect("render must succeed");
         println!(
             "{}: {} samples, {} overlay points → {}",
             data.op_name,
@@ -311,6 +312,6 @@ fn render_from_dump(dump_path: &Path, out: &Path, font_scale: f64) {
         );
         rendered.push((data.op_name.clone(), path));
     }
-    let gallery = render_gallery(&rendered, &meta, out).expect("gallery must render");
+    let gallery = render_gallery(&rendered, &params, out).expect("gallery must render");
     println!("gallery → {}", gallery.display());
 }

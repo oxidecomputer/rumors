@@ -48,7 +48,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::render::{aggregate, AtlasData, HeatGrid, RenderMeta};
+use crate::render::{aggregate, AtlasData, HeatGrid, RenderMeta, RunParams};
 
 #[cfg(test)]
 mod tests;
@@ -63,7 +63,11 @@ const INDEX_FORMAT: &str = "fuelscape-atlas-index";
 const OP_FORMAT: &str = "fuelscape-op-atlas";
 
 /// The dump format version both banners carry.
-const FORMAT_VERSION: u32 = 1;
+///
+/// Version 2 moved the measurement commit from the index into each
+/// operation document: a dataset accretes across measuring runs, so the
+/// index holds only the run parameters every document must share.
+const FORMAT_VERSION: u32 = 2;
 
 /// The index document: run provenance plus the ordered operation list.
 #[derive(Serialize, Deserialize)]
@@ -73,8 +77,9 @@ struct IndexDoc {
     format: String,
     /// Always [`FORMAT_VERSION`].
     version: u32,
-    /// The run's provenance, identical in every file of the dump.
-    meta: RenderMeta,
+    /// The run parameters, identical in every file of the dump; each
+    /// operation document carries its own measurement commit.
+    meta: RunParams,
     /// Operation names in measuring order (the gallery's order); one
     /// `<name>.json` per entry.
     ops: Vec<String>,
@@ -88,7 +93,8 @@ struct OpDoc {
     format: String,
     /// Always [`FORMAT_VERSION`].
     version: u32,
-    /// The run's provenance, identical in every file of the dump.
+    /// The measuring run's provenance: its commit, and the run
+    /// parameters (which must match the index's).
     meta: RenderMeta,
     /// The operation's complete render input.
     op: AtlasData,
@@ -147,7 +153,7 @@ impl DumpWriter {
         let doc = IndexDoc {
             format: INDEX_FORMAT.to_string(),
             version: FORMAT_VERSION,
-            meta: self.meta.clone(),
+            meta: RunParams::from(&self.meta),
             ops: self.ops.clone(),
         };
         // Pretty for the index: it is small, and it is the file an
@@ -168,8 +174,8 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     std::fs::rename(&tmp, path)
 }
 
-/// Load a whole dump: the run's provenance and every operation's atlas,
-/// in the index's order.
+/// Load a whole dump: the shared run parameters and every operation's
+/// atlas with its own measurement provenance, in the index's order.
 ///
 /// `path` names the dump: its `atlas.json` or the directory holding it.
 ///
@@ -177,7 +183,7 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
 ///
 /// Any I/O failure, and every strictness rejection the module doc
 /// enumerates; the error message names the offending file and check.
-pub fn read(path: &Path) -> io::Result<(RenderMeta, Vec<AtlasData>)> {
+pub fn read(path: &Path) -> io::Result<(RunParams, Vec<(RenderMeta, AtlasData)>)> {
     let index_path = if path.is_dir() {
         path.join(INDEX_FILE)
     } else {
@@ -210,8 +216,11 @@ pub fn read(path: &Path) -> io::Result<(RenderMeta, Vec<AtlasData>)> {
             doc.version,
             FORMAT_VERSION,
         )?;
-        if doc.meta != index.meta {
-            return Err(malformed(&op_path, "meta differs from the index's"));
+        if RunParams::from(&doc.meta) != index.meta {
+            return Err(malformed(
+                &op_path,
+                "run parameters differ from the index's",
+            ));
         }
         if doc.op.op_name != *name {
             return Err(malformed(
@@ -232,7 +241,7 @@ pub fn read(path: &Path) -> io::Result<(RenderMeta, Vec<AtlasData>)> {
                  (the dump was altered, or it predates a change to the aggregation)",
             ));
         }
-        atlases.push(doc.op);
+        atlases.push((doc.meta, doc.op));
     }
     Ok((index.meta, atlases))
 }

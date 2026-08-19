@@ -51,7 +51,8 @@ fn pipeline_smoke_samples_measures_and_renders() {
         );
         rendered.push((op.name.to_string(), path));
     }
-    let gallery = render_gallery(&rendered, &meta, &out).expect("gallery must render");
+    let gallery = render_gallery(&rendered, &crate::render::RunParams::from(&meta), &out)
+        .expect("gallery must render");
     let html = std::fs::read_to_string(&gallery).expect("gallery exists");
     for op in ROSTER {
         assert!(

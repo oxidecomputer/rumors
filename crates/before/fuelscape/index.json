@@ -1,8 +1,7 @@
 {
   "format": "fuelscape-widget-index",
-  "version": 2,
+  "version": 3,
   "meta": {
-    "commit": "f77011e31b08d3aa5304a6ece55c83684a9f81b3",
     "base_seed": 684453,
     "samples_per_column": 4096
   },

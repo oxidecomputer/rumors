@@ -51,6 +51,32 @@ pub struct RenderMeta {
     pub samples_per_column: usize,
 }
 
+/// The run parameters every document of one dataset shares.
+///
+/// The commit is deliberately absent: a dataset accretes across
+/// measuring runs (a new operation's panel is measured alone rather
+/// than re-measuring the whole atlas), so each operation document
+/// carries its own measurement commit ([`RenderMeta`]) while the
+/// parameters that make readings comparable — the seed schedule and the
+/// per-column budget — stay dataset-wide and uniform.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RunParams {
+    /// The base seed every cell derived from.
+    pub base_seed: u64,
+    /// Samples per size column, on average ([`RenderMeta`]'s field).
+    pub samples_per_column: usize,
+}
+
+impl From<&RenderMeta> for RunParams {
+    fn from(meta: &RenderMeta) -> RunParams {
+        RunParams {
+            base_seed: meta.base_seed,
+            samples_per_column: meta.samples_per_column,
+        }
+    }
+}
+
 /// One operation's atlas as plain data: everything one panel render
 /// consumes, decoupled from the roster so a live measuring run and a
 /// loaded dump feed the identical renderer.
@@ -566,9 +592,12 @@ pub fn render_op(
 }
 
 /// Render the small-multiples gallery page linking every per-op SVG.
+///
+/// The stamp carries the dataset-wide run parameters; each panel's own
+/// SVG carries its measurement commit.
 pub fn render_gallery(
     ops: &[(String, PathBuf)],
-    meta: &RenderMeta,
+    params: &RunParams,
     dir: &Path,
 ) -> io::Result<PathBuf> {
     let path = dir.join("index.html");
@@ -597,9 +626,9 @@ pub fn render_gallery(
          spaces (bulk, blue density), committed adversarial families (orange crosses), reference\n\
          slopes (dashed). Audit view only — enforcement lives in the envelope suite and the\n\
          fuzz-fit bands.</p>\n\
-         <p class=\"stamp\">commit {} · seed {:#x} · {} samples/column (avg; spread-weighted) · fuel: wasmtime instruction metering</p>\n\
+         <p class=\"stamp\">seed {:#x} · {} samples/column (avg; spread-weighted) · fuel: wasmtime instruction metering · each panel carries its measurement commit</p>\n\
          <div class=\"grid\">\n{figures}</div>\n</body>\n</html>\n",
-        meta.commit, meta.base_seed, meta.samples_per_column,
+        params.base_seed, params.samples_per_column,
     );
     std::fs::write(&path, html)?;
     Ok(path)

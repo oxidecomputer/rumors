@@ -2,7 +2,9 @@ use std::path::Path;
 
 use crate::ops::ROSTER;
 use crate::plan::{run_op, Plan, Samplers};
-use crate::render::{render_gallery, render_op, AtlasData, OverlayData, RenderMeta, SampleData};
+use crate::render::{
+    render_gallery, render_op, AtlasData, OverlayData, RenderMeta, RunParams, SampleData,
+};
 
 use super::{read, DumpWriter};
 
@@ -88,21 +90,30 @@ fn dump_and_rerender_matches_direct_render_byte_for_byte() {
         direct.push((data.op_name.clone(), path));
         measured.push(data);
     }
-    let direct_gallery = render_gallery(&direct, &meta, &direct_dir).expect("gallery must render");
+    let direct_gallery =
+        render_gallery(&direct, &RunParams::from(&meta), &direct_dir).expect("gallery must render");
 
     // Load the dump: provenance and every atlas come back exactly.
-    let (loaded_meta, loaded) = read(&dump_dir).expect("dump must load");
-    assert_eq!(loaded_meta, meta, "the dump must return the run's meta");
-    assert_eq!(loaded, measured, "the dump must round-trip every atlas");
+    let (loaded_params, loaded) = read(&dump_dir).expect("dump must load");
+    assert_eq!(
+        loaded_params,
+        RunParams::from(&meta),
+        "the dump must return the run's parameters"
+    );
+    let want: Vec<(RenderMeta, AtlasData)> = measured
+        .into_iter()
+        .map(|data| (meta.clone(), data))
+        .collect();
+    assert_eq!(loaded, want, "the dump must round-trip every atlas");
 
     // Replay rendering from the loaded dump: byte-identical output.
     let mut replay = Vec::new();
-    for data in &loaded {
-        let path = render_op(data, &loaded_meta, &replay_dir, 1.0).expect("render must succeed");
+    for (op_meta, data) in &loaded {
+        let path = render_op(data, op_meta, &replay_dir, 1.0).expect("render must succeed");
         replay.push((data.op_name.clone(), path));
     }
     let replay_gallery =
-        render_gallery(&replay, &loaded_meta, &replay_dir).expect("gallery must render");
+        render_gallery(&replay, &loaded_params, &replay_dir).expect("gallery must render");
     for ((name, direct_svg), (_, replay_svg)) in direct.iter().zip(&replay) {
         assert_eq!(
             std::fs::read(direct_svg).expect("direct SVG exists"),
@@ -135,9 +146,17 @@ fn synthetic_atlas_round_trips_losslessly() {
     let mut writer = DumpWriter::new(&dir, meta.clone()).expect("dump opens");
     writer.append(&data).expect("dump must append");
 
-    let (loaded_meta, loaded) = read(&dir).expect("dump must load");
-    assert_eq!(loaded_meta, meta, "meta must round-trip exactly");
-    assert_eq!(loaded, vec![data], "the atlas must round-trip exactly");
+    let (loaded_params, loaded) = read(&dir).expect("dump must load");
+    assert_eq!(
+        loaded_params,
+        RunParams::from(&meta),
+        "the run parameters must round-trip exactly"
+    );
+    assert_eq!(
+        loaded,
+        vec![(meta, data)],
+        "the provenance and atlas must round-trip exactly"
+    );
     std::fs::remove_dir_all(&dir).expect("round-trip output cleans up");
 }
 
