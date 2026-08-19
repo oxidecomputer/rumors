@@ -1,0 +1,32 @@
+# Standalone 32-bit boundary-pin workspace. The empty `[workspace]` table
+# detaches it from the parent `rumors` workspace, so the ordinary gate never
+# builds it (the harness carries wasmtime, a heavy tool-side dependency that
+# must stay out of the production crates' graph; the guest builds only for
+# wasm32-unknown-unknown). Build/run through the `just wasm32-pins*` recipes.
+#
+# Why this exists: `just wasm-check` only proves `before` *compiles* for a
+# 32-bit target; nothing in the tree *executes* there, so a 32-bit-only
+# arithmetic seam (a `usize` wrap, a pointer-width-capped dependency limit)
+# can pass every native suite while decoding wrongly on wasm32. This
+# workspace is the execution leg: the guest drives `before`'s public byte
+# decode doors at the exact sizes where 32-bit position arithmetic has
+# boundaries, and the harness pins each boundary's behavior — red first
+# (the trap or wrong value as found), then green when the seam is engineered
+# around.
+#
+# Two members:
+#   guest    the wasm kernel: boundary-size decode cases over `before`'s
+#            public surface, compiled to wasm32-unknown-unknown and executed
+#            under wasmtime with a full 4 GiB 32-bit address space
+#   harness  the native side: the wasmtime driver plus the pin tests
+[workspace]
+members = ["guest", "harness"]
+resolver = "2"
+
+# The pins run at release speed (the boundary cases walk hundreds of
+# megabytes), but with overflow checks kept ON: the 32-bit failure class
+# under audit includes silent release-mode wraps, and the checks turn
+# exactly those wraps into observable traps instead of wrong values the
+# guest would have to detect after the fact.
+[profile.release]
+overflow-checks = true

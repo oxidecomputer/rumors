@@ -69,7 +69,7 @@ use core::fmt::Write as _;
 use suanpan::Accumulator;
 
 use crate::codec::text::{parse_base, Cur};
-use crate::codec::{Base, BitCursor, BitsMut, BitsSlice, DsiCursor};
+use crate::codec::{Base, BitCursor, BitsBuf, BitsView, DsiCursor};
 use crate::error::Parse;
 
 use super::build::SkylineBuilder;
@@ -227,7 +227,7 @@ impl<T> ParkedStack<T> {
 /// # Panics
 ///
 /// Panics if the stream is not a canonical skyline encoding.
-pub fn render(bits: &BitsSlice) -> String {
+pub fn render(bits: BitsView<'_>) -> String {
     let mut cursor = DsiCursor::new(bits);
 
     // Finalize state. `topology`: per-node internal flags (semantic, not the
@@ -236,8 +236,8 @@ pub fn render(bits: &BitsSlice) -> String {
     // left child), `open` its preorder index, and `lefts` the parked left-child
     // summary of each open node past its left phase — parallel stacks, where an
     // enum-of-frames layout would pad every open level to its widest variant.
-    let mut topology = BitsMut::new();
-    let mut phase = BitsMut::new();
+    let mut topology = BitsBuf::new();
+    let mut phase = BitsBuf::new();
     let mut open: Vec<usize> = Vec::new();
     let mut lefts = ParkedStack::new();
     // The digit arena: every printed nonzero base, rendered at the merge that
@@ -253,10 +253,10 @@ pub fn render(bits: &BitsSlice) -> String {
         let internal_nodes = cursor.read_unary().expect("canonical skyline bits");
         for _ in 0..internal_nodes {
             phase.push(LEFT_PHASE);
-            open.push(topology.len());
+            open.push(node_index(topology.len()));
             topology.push(true);
         }
-        let index = topology.len();
+        let index = node_index(topology.len());
         topology.push(false);
         // The cursor's own `read_int`: word-parallel payload decode.
         let code = cursor
@@ -326,8 +326,8 @@ pub fn render(bits: &BitsSlice) -> String {
     // terminators) plus one `0` per node without an entry, and each internal
     // node adds its fixed syntax bytes.
     let exact = (arena.len() - entries.len())
-        + (topology.len() - entries.len())
-        + topology.count_ones() * INTERNAL_SYNTAX_BYTES;
+        + (node_index(topology.len()) - entries.len())
+        + node_index(topology.count_ones()) * INTERNAL_SYNTAX_BYTES;
 
     // The finalize-only stacks are drained; release them before the output
     // materializes rather than holding their capacity across the emit pass.
@@ -352,9 +352,9 @@ pub fn render(bits: &BitsSlice) -> String {
     let mut out = String::with_capacity(exact);
     #[cfg(before_alloc_ab = "display_growth")]
     let mut out = String::new();
-    let mut pending = BitsMut::new();
+    let mut pending = BitsBuf::new();
     let mut next_entry = 0usize;
-    for (node, internal) in topology.iter().by_vals().enumerate() {
+    for (node, internal) in topology.iter().enumerate() {
         let digits: &str = match entries.get(next_entry) {
             Some(&(entry_node, start)) if entry_node == node => {
                 next_entry += 1;
@@ -400,6 +400,16 @@ pub fn render(bits: &BitsSlice) -> String {
 /// non-digit byte delimits an entry, and the emit pass scans to it for the
 /// entry's length.
 const ARENA_SEP: char = ';';
+
+/// A node count or preorder node index as the renderer's `usize` vocabulary.
+///
+/// Checked, and priced in output bytes: the rendered text prints at least
+/// one byte per node, so a node count past `usize` names an output no
+/// allocation on this target can hold — failing loudly here is the same
+/// abort the output's own allocation would deliver.
+fn node_index(count: u64) -> usize {
+    usize::try_from(count).expect("node indexes are bounded by the rendered text's length")
+}
 
 /// Render one finalized printed base into the digit arena, keyed by its node's
 /// preorder index — unless it is zero.
@@ -481,7 +491,7 @@ fn merge(
 /// sibling leaves) is checked at each close and reported after the whole syntax
 /// pass, so syntax errors — including trailing junk — outrank
 /// [`Parse::NotCanonical`].
-pub fn parse(text: &str) -> Result<BitsMut, Parse> {
+pub fn parse(text: &str) -> Result<BitsBuf, Parse> {
     /// What a parsed subtree contributes to its parent's normal-form check: its
     /// written base and whether it is a single leaf.
     struct Child {
@@ -490,7 +500,7 @@ pub fn parse(text: &str) -> Result<BitsMut, Parse> {
     }
 
     let mut cursor = Cur::new(text);
-    let mut builder = SkylineBuilder::with_capacity(text.len());
+    let mut builder = SkylineBuilder::with_capacity(text.len() as u64);
     // The open-node stacks, innermost last — the render's parallel-stack
     // discipline: `phase` holds one bit per open node ([`LEFT_PHASE`] while it
     // awaits its left child), `bases` the node's own written base, and `lefts`
@@ -499,7 +509,7 @@ pub fn parse(text: &str) -> Result<BitsMut, Parse> {
     // and a flat `Vec` of frames holds an old and a new buffer at once while it
     // doubles — on a deep spine that padded coexistence alone is most of the
     // parse's transient.
-    let mut phase = BitsMut::new();
+    let mut phase = BitsBuf::new();
     let mut bases: ParkedStack<Base> = ParkedStack::new();
     let mut lefts: ParkedStack<Child> = ParkedStack::new();
     // The signed height movement since the last emitted leaf.

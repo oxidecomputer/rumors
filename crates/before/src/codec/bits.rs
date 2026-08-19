@@ -1,6 +1,9 @@
-//! The packed bit-stream storage forms: the mutable build buffer ([`BitsMut`]),
-//! the refcounted frozen at-rest form ([`Bits`]), and the canonicality helpers
-//! both rest on.
+//! The packed bit-stream storage forms: the refcounted frozen at-rest form
+//! ([`Bits`]) and the borrowed live-bits view ([`BitsView`]).
+//!
+//! The canonicality helpers both forms rest on live here too. The mutable
+//! build-side form lives in the sibling `buf` module; [`Bits::freeze`] is
+//! the seam between the two.
 //!
 //! # The identity fast-path ladder, and where each rung belongs
 //!
@@ -58,26 +61,11 @@
 #![allow(rustdoc::private_intra_doc_links)]
 
 use core::hash::Hasher;
-use core::ops::Deref;
 
-use bitvec::domain::Domain;
-use bitvec::prelude::*;
 use bytes::Bytes;
 
+use super::buf::{seal_padding, BitsBuf};
 use crate::error::Decode;
-
-/// The mutable build-side form of a packed bit stream: a
-/// most-significant-bit-first bit vector over bytes.
-///
-/// Every emitter and builder writes into one of these (the crate's
-/// packed-stream builder wraps one with the metered move set); a finished
-/// stream freezes into the at-rest [`Bits`] at the storage seam. The
-/// `Bytes`/`BytesMut` naming echo is deliberate: `BitsMut` is where mutation
-/// happens, [`Bits`] is the shared, immutable result.
-pub type BitsMut = BitVec<u8, Msb0>;
-
-/// A borrowed view of a packed bit stream, mutable or frozen.
-pub type BitsSlice = BitSlice<u8, Msb0>;
 
 /// The at-rest storage form of a `Party`/`Version`: the canonical packed
 /// preorder bit stream, marker-padded to a byte boundary, over a refcounted
@@ -95,11 +83,11 @@ pub type BitsSlice = BitSlice<u8, Msb0>;
 /// The backing store is [`Bytes`], so [`Clone`] is a refcount bump: two clones
 /// share one buffer, cost `O(1)`, and that shared identity is observable
 /// through [`ptr_eq`](Self::ptr_eq) — the fast path the identity-law shortcuts
-/// (`x ∨ x`, `cmp(x, x)`, `distance(x, x)`) dispatch on. Reading is still
-/// `bitvec`'s: the struct [derefs](core::ops::Deref) to [`BitsSlice`], which
-/// exposes exactly the live bits — the padding stays behind the view — so
-/// every cursor and walk consumes the frozen form exactly as it consumes a
-/// [`BitsMut`].
+/// (`x ∨ x`, `cmp(x, x)`, `distance(x, x)`) dispatch on. Reading is the
+/// crate-owned [`BitsView`] ([`live`](Self::live)), which exposes exactly the
+/// live bits — the padding stays behind the view — at every size on every
+/// target: a stream is bounded only by allocatable memory, never by a
+/// length denomination.
 #[derive(Clone)]
 pub struct Bits {
     /// The canonical marker-padded bytes: the live bits, one `1`, then
@@ -120,15 +108,19 @@ impl Bits {
     /// the single gate between the mutable build-side world and the shared
     /// frozen one.
     ///
-    /// Seals the padding ([`seal_padding`]: the `1` marker, then zeroed dead
-    /// bits — see the type docs for what the marker underpins, and
-    /// [`seal_padding`] for why a tree op can leave the tail dirty), then
-    /// adopts the buffer without copying: [`BitVec::into_vec`] hands back the
-    /// underlying allocation and `Bytes::from(vec)` wraps it in place.
-    pub(crate) fn freeze(mut buf: BitsMut) -> Self {
+    /// Seals the padding ([`seal_padding`]: the `1` marker completing the
+    /// canonical `1 0*` tail the build buffer's zeroed-dead-bits invariant
+    /// already established — see the type docs for what the marker
+    /// underpins), then adopts the buffer's allocation whole:
+    /// `Bytes::from(vec)` wraps it in place, no copy.
+    ///
+    /// Exact at every size on every target: lengths and positions are `u64`
+    /// on both sides of this seam, so an emission is storable whenever its
+    /// buffer is allocatable — the door imposes no bound of its own.
+    pub(crate) fn freeze(mut buf: BitsBuf) -> Self {
         seal_padding(&mut buf);
         Bits {
-            bytes: Bytes::from(buf.into_vec()),
+            bytes: Bytes::from(buf.into_bytes()),
         }
     }
 
@@ -139,6 +131,11 @@ impl Bits {
     /// the byte boundary; empty for the empty stream — which is what
     /// `require_marker_padding` accepts. Debug builds assert it; release builds
     /// trust the validator.
+    ///
+    /// Exact at every size on every target: the stored form denominates its
+    /// bit positions in `u64` ([`len`](Self::len), [`live`](Self::live)), so
+    /// any buffer the validator admits is adoptable whole — the door imposes
+    /// no bound of its own.
     pub(crate) fn from_canonical(bytes: Bytes) -> Self {
         let bits = Bits { bytes };
         debug_assert!(
@@ -148,19 +145,38 @@ impl Bits {
         bits
     }
 
-    /// The live bit length of the stream, recovered from the padding.
+    /// The live bit length of the stream at `u64` width, recovered from the
+    /// padding.
     ///
     /// The marker is the buffer's final set bit, so the length is one
     /// `trailing_zeros` over the final byte: `O(1)`, no walk. The one storage
     /// invariant this rests on — a nonempty buffer's final byte is nonzero — is
     /// exactly what the freeze and decode doors establish.
-    pub fn len(&self) -> usize {
+    ///
+    /// The arithmetic runs at `u64` width: `bytes.len() * 8` wraps a 32-bit
+    /// `usize` from 512 MiB of buffer, while the length itself stays exactly
+    /// representable up to allocatable memory — the only bound a stored
+    /// stream has, on any target.
+    pub fn len(&self) -> u64 {
         match self.bytes.last() {
             None => 0,
             Some(&last) => {
                 debug_assert!(last != 0, "stored stream missing its padding marker");
-                self.bytes.len() * 8 - 1 - last.trailing_zeros() as usize
+                self.bytes.len() as u64 * 8 - 1 - u64::from(last.trailing_zeros())
             }
+        }
+    }
+
+    /// Read the frozen stream as live bits — the padding stays behind the
+    /// view: every cursor and walk consumes [`Bits`] through this view.
+    ///
+    /// Exact at every size on every target: the view carries the buffer's
+    /// bytes beside a `u64` live length, so no 32-bit length encoding
+    /// narrows what a walk can read below what memory can hold.
+    pub fn live(&self) -> BitsView<'_> {
+        BitsView {
+            bytes: &self.bytes,
+            live: self.len(),
         }
     }
 
@@ -203,13 +219,174 @@ impl Bits {
     }
 }
 
-/// Read the frozen stream as live bits — the padding stays behind the view:
-/// every cursor and walk consumes [`Bits`] through this slice, exactly as it
-/// consumes a [`BitsMut`].
-impl Deref for Bits {
-    type Target = BitsSlice;
-    fn deref(&self) -> &BitsSlice {
-        &self.bytes.view_bits::<Msb0>()[..self.len()]
+/// A borrowed view of one packed bit stream's live bits: the stream's bytes
+/// beside a `u64` live bit length.
+///
+/// The walk surface's one read form. Every semantic walk — comparison sweeps,
+/// emissions, admission walks, the id operations — consumes stored streams
+/// and door buffers through this view, so a walk's reach is every stream
+/// memory can hold, on every target, never narrowed by a borrowed-view
+/// length encoding.
+///
+/// A view always starts on byte 0 of its `bytes`: sub-stream *ranges* travel
+/// as explicit bit positions beside the view (the copy and parse seams take
+/// `(view, start, end)`), never as re-sliced views, so byte alignment of
+/// every view is an invariant of the type, not a runtime question.
+///
+/// Bits at or past `live` — the padding, for a stored stream's buffer — are
+/// not part of the view: [`bit`](Self::bit)/[`get`](Self::get) never read
+/// them and [`body_tail`](Self::body_tail) masks them.
+#[derive(Clone, Copy)]
+pub struct BitsView<'a> {
+    /// The bytes holding the live bits (and possibly padding past them).
+    bytes: &'a [u8],
+    /// The live bit length: at most `8 · bytes.len()`.
+    live: u64,
+}
+
+impl<'a> BitsView<'a> {
+    /// A view of the first `live` bits of `bytes`.
+    ///
+    /// # Panics
+    ///
+    /// `live` must be at most `8 · bytes.len()`.
+    pub(crate) fn new(bytes: &'a [u8], live: u64) -> Self {
+        assert!(
+            live <= bytes.len() as u64 * 8,
+            "live bits within the buffer"
+        );
+        BitsView { bytes, live }
+    }
+
+    /// The whole buffer as live bits — all `8 · bytes.len()` of them,
+    /// padding included.
+    ///
+    /// The byte decode doors' entry: a door walks its whole input buffer as
+    /// bits, and its marker check afterwards judges the remainder.
+    pub(crate) fn whole(bytes: &'a [u8]) -> Self {
+        BitsView {
+            bytes,
+            live: bytes.len() as u64 * 8,
+        }
+    }
+
+    /// The empty view: no bits, no bytes.
+    pub(crate) fn empty() -> Self {
+        BitsView {
+            bytes: &[],
+            live: 0,
+        }
+    }
+
+    /// The live bit length.
+    pub fn len(&self) -> u64 {
+        self.live
+    }
+
+    /// Whether the view holds no bits at all.
+    pub fn is_empty(&self) -> bool {
+        self.live == 0
+    }
+
+    /// The bit at `pos`, or `None` at or past the live length: the
+    /// sequential cursors' bounded read.
+    pub(crate) fn get(&self, pos: u64) -> Option<bool> {
+        if pos >= self.live {
+            return None;
+        }
+        // `pos / 8` indexes an allocated buffer, so it fits `usize`.
+        let byte = self.bytes[(pos / 8) as usize];
+        Some(byte >> (7 - pos % 8) & 1 == 1)
+    }
+
+    /// The bit at `pos`.
+    ///
+    /// # Panics
+    ///
+    /// `pos` must be below the live length; the trusted-stream walks index
+    /// positions their own parses established.
+    pub(crate) fn bit(&self, pos: u64) -> bool {
+        assert!(pos < self.live, "bit read past the view's live length");
+        let byte = self.bytes[(pos / 8) as usize];
+        byte >> (7 - pos % 8) & 1 == 1
+    }
+
+    /// The `len <= 64` bits at `start`, value-packed at the low end of the
+    /// result: one gathered big-endian window, no per-bit loop.
+    ///
+    /// # Panics
+    ///
+    /// Debug-asserted: `start + len` must be within the live length (every
+    /// read bit is live, so no masking is needed).
+    pub(crate) fn load_be(&self, start: u64, len: u32) -> u64 {
+        debug_assert!(
+            u64::from(len) <= 64 && start + u64::from(len) <= self.live,
+            "loaded range within the view's live length"
+        );
+        if len == 0 {
+            return 0;
+        }
+        // Gather the (up to) 9 bytes covering bits `start..start + 64`: 8
+        // whole bytes plus the partial ninth a mid-byte `start` shifts in.
+        let byte = (start / 8) as usize;
+        let shift = (start % 8) as u32;
+        let mut buf = [0u8; 9];
+        let end = (byte + buf.len()).min(self.bytes.len());
+        buf[..end - byte].copy_from_slice(&self.bytes[byte..end]);
+        let word = u64::from_be_bytes(buf[..8].try_into().expect("buf holds 8 whole bytes"));
+        let window = if shift == 0 {
+            word
+        } else {
+            (word << shift) | (u64::from(buf[8]) >> (8 - shift))
+        };
+        window >> (64 - len)
+    }
+
+    /// The view's bytes: whole body bytes, then the masked partial tail
+    /// byte, if any.
+    ///
+    /// The word-source destructuring: dead bits past the live length read
+    /// zero through the mask, so a reader's phantom bits can only lengthen
+    /// an apparent unary run past the live length (where its bounds checks
+    /// reject), never terminate one early.
+    pub(crate) fn body_tail(&self) -> (&'a [u8], Option<u8>) {
+        let whole = (self.live / 8) as usize;
+        let rem = (self.live % 8) as u32;
+        if rem == 0 {
+            (&self.bytes[..whole], None)
+        } else {
+            (
+                &self.bytes[..whole],
+                Some(self.bytes[whole] & !(0xFF >> rem)),
+            )
+        }
+    }
+
+    /// The underlying bytes, whole: `(live + padding)` bits' worth. The
+    /// byte-copy seams read body bytes straight out of them.
+    pub(crate) fn bytes(&self) -> &'a [u8] {
+        self.bytes
+    }
+
+    /// The view's bits copied into a build buffer: the test suites'
+    /// bridge to buffer-vocabulary assertions.
+    #[cfg(test)]
+    pub(crate) fn to_buf(self) -> BitsBuf {
+        let mut out = BitsBuf::with_capacity(self.live);
+        super::buf::extend_from_view(&mut out, self, 0, self.live);
+        out
+    }
+
+    /// Whether two views read one memory region: [`Bits::ptr_eq`]'s clone
+    /// identity, observable at the view level the walk kernels consume.
+    ///
+    /// Two views of one frozen buffer — a [`Bits`] viewed twice, through any
+    /// number of `O(1)` clones — carry the same byte pointer and live length,
+    /// so view identity implies bit-for-bit equality and an identity-law fast
+    /// path may answer without a walk. Never the converse: equal streams in
+    /// distinct buffers fall through to the walk that reads them.
+    pub(crate) fn ptr_eq(&self, other: &BitsView<'_>) -> bool {
+        self.bytes.as_ptr() == other.bytes.as_ptr() && self.live == other.live
     }
 }
 
@@ -223,46 +400,6 @@ impl PartialEq for Bits {
 }
 
 impl Eq for Bits {}
-
-/// Borrow bytes as an MSB-first bit stream without first copying them into a
-/// [`BitsMut`].
-pub(crate) fn bytes_as_bits(bytes: &[u8]) -> &BitsSlice {
-    bytes.view_bits::<Msb0>()
-}
-
-/// Whether two bit-slice views read one memory region: [`Bits::ptr_eq`]'s clone
-/// identity, observable at the slice level the walk kernels consume.
-///
-/// Two views of one frozen buffer — a [`Bits`] deref'd twice, through any
-/// number of `O(1)` clones — carry the same bit pointer and length, so view
-/// identity implies bit-for-bit equality and an identity-law fast path may
-/// answer without a walk. Never the converse: equal streams in distinct buffers
-/// fall through to the walk that reads them.
-pub(crate) fn slice_ptr_eq(a: &BitsSlice, b: &BitsSlice) -> bool {
-    a.as_bitptr() == b.as_bitptr() && a.len() == b.len()
-}
-
-/// Seal a built stream's canonical padding: one `1` marker bit, then zeroed
-/// dead bits to the byte boundary.
-///
-/// Sealing makes the packed bytes ([`BitVec::as_raw_slice`]) the canonical wire
-/// spelling — injective, byte-equal if and only if the bit content is equal.
-///
-/// The zeroing is load-bearing on its own: the tree builders write into a
-/// reused buffer, and a collapsing node (the party `sum`/`diff` ops, via
-/// `IdBuilder::close_node`) `truncate`s it, shrinking the live length while
-/// leaving the bits it shed in the final partial byte, where `as_raw_slice`
-/// would expose them. The marker then pins the live length inside the sealed
-/// byte. The empty stream seals to itself: no marker, no bytes.
-/// [`Bits::freeze`] applies this at the storage seam; the standalone form seals
-/// buffers that stay build-side — all of them meter/test instruments producing
-/// decodable bytes.
-pub(crate) fn seal_padding(bits: &mut BitsMut) {
-    if !bits.is_empty() {
-        bits.push(true);
-    }
-    bits.set_uninitialized(false);
-}
 
 /// Byte-level equality of two canonical stored streams: equal raw
 /// bytes, entered through the clone-identity fast path.
@@ -315,41 +452,17 @@ pub(crate) fn padding_is_canonical(bits: &Bits) -> bool {
     }
 }
 
-/// The direct byte view of a bit slice that starts on a byte boundary of its
-/// backing store: the whole body bytes plus the masked partial tail byte, if
-/// any.
+/// Require that the bits from `pos` to the buffer's end are exactly the
+/// canonical padding: one `1` marker bit, then zeros to the byte boundary.
+/// The byte decode doors' padding judge, over the raw stream bytes.
 ///
-/// `None` for the one shape with no direct byte view — a slice whose
-/// backing-store offset puts live bits behind a partial head element. Every
-/// stored stream starts on a byte boundary (offsets travel as bit positions,
-/// never as re-sliced heads), so the `None` arm is a caller policy decision,
-/// not a reachable production state: the gamma window loader degrades to its
-/// bit-addressed fallback, the dsi cursor treats it as a violated precondition.
-/// The destructuring lives here once so its callers cannot drift on the
-/// byte-alignment invariant while keeping their deliberately different failure
-/// policies.
-pub(crate) fn byte_view(bits: &BitsSlice) -> Option<(&[u8], Option<u8>)> {
-    match bits.domain() {
-        Domain::Region {
-            head: None,
-            body,
-            tail,
-        } => Some((body, tail.map(|elem| elem.load_value()))),
-        Domain::Enclave(elem) if elem.head().into_inner() == 0 => {
-            Some((&[], Some(elem.load_value())))
-        }
-        Domain::Region { head: Some(_), .. } | Domain::Enclave(_) => None,
-    }
-}
-
-/// Require that the bits from `pos` onward are exactly the canonical padding:
-/// one `1` marker bit, then zeros to the byte boundary.
-///
-/// A canonical encoding pads with a single marker and at most 7 zeros, all
-/// inside the final byte, so an intact remainder here is 1 to 8 bits: a `1`,
-/// then zeros. (A stream whose live bits end flush against a byte boundary
-/// carries its marker in a whole final `1000_0000` byte.) The rejections
-/// split by genre:
+/// Positions are `u64` because a door walks the whole byte buffer as bits and
+/// `8·bytes.len()` itself can exceed a 32-bit `usize`. A canonical encoding
+/// pads with a single marker and at most 7 zeros, all inside the final byte,
+/// so an intact remainder here is 1 to 8 bits — a `1`, then zeros — decided
+/// by one mask compare on the final byte. (A stream whose live bits end flush
+/// against a byte boundary carries its marker in a whole final `1000_0000`
+/// byte.) The rejections split by genre:
 ///
 /// - An empty remainder is [`Decode::Truncated`]: the input ends where the
 ///   padding should begin — a flush stream cut before its whole marker byte —
@@ -362,10 +475,35 @@ pub(crate) fn byte_view(bits: &BitsSlice) -> Option<(&[u8], Option<u8>)> {
 /// The marker plus the length bound are what make `decode` injective on
 /// bytes: every stream has exactly one padded spelling, and no byte string
 /// spells two streams.
-pub(crate) fn require_marker_padding(bits: &BitsSlice, pos: usize) -> Result<(), Decode> {
-    match bits.len() - pos {
+///
+/// # Panics
+///
+/// `pos` must be at or before the buffer's end in bits (it is a walk's end
+/// position over this very buffer).
+pub(crate) fn require_marker_padding(bytes: &[u8], pos: u64) -> Result<(), Decode> {
+    let total = bytes.len() as u64 * 8;
+    assert!(
+        pos <= total,
+        "padding checked at a position inside the buffer"
+    );
+    let remainder = total - pos;
+    match remainder {
         0 => Err(Decode::Truncated),
-        1..=8 if bits[pos] && !bits[pos + 1..].any() => Ok(()),
+        1..=8 => {
+            // The remainder lives entirely in the final byte: its low
+            // `remainder` bits must be a `1` followed by zeros.
+            let last = bytes[bytes.len() - 1];
+            let mask = if remainder == 8 {
+                0xFF
+            } else {
+                (1u8 << remainder) - 1
+            };
+            if last & mask == 1 << (remainder - 1) {
+                Ok(())
+            } else {
+                Err(Decode::TrailingBits)
+            }
+        }
         _ => Err(Decode::TrailingBits),
     }
 }

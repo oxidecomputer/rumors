@@ -19,7 +19,7 @@ use proptest::prelude::*;
 use suanpan::Accumulator;
 
 use crate::codec::text::{parse_base, Cur};
-use crate::codec::{Base, BitsMut};
+use crate::codec::{Base, BitsBuf};
 use crate::error::Parse;
 use crate::meter::registry::Shape;
 use crate::meter::Packed;
@@ -46,7 +46,7 @@ fn version_of(p: &Packed) -> Version {
 /// pins entry agreement (the public entry routes to the kernel).
 fn assert_text_kernels_agree(v: &Version) {
     let enc = super::super::encode(v);
-    let text = render(&enc);
+    let text = render(crate::codec::built_view(&enc));
     assert_eq!(
         text,
         v.to_string(),
@@ -127,7 +127,7 @@ fn parse_corpus_pins_the_grammar_decisions() {
         let v: Version = text.parse().expect("the public entry accepts");
         let enc = parse(text).expect("the kernel accepts the corpus's accepted texts");
         assert!(
-            super::super::validate_bits(&enc).is_ok(),
+            super::super::validate_bits(crate::codec::built_view(&enc)).is_ok(),
             "an accepted parse must build a canonical skyline stream: {text:?}"
         );
         assert_eq!(
@@ -238,7 +238,7 @@ fn mutated_texts_hold_reject_parity_through_the_public_entry() {
         |mutated| match (mutated.parse::<Version>(), parse(mutated)) {
             (Ok(v), Ok(enc)) => {
                 assert!(
-                    validate_bits(&enc).is_ok(),
+                    validate_bits(crate::codec::built_view(&enc)).is_ok(),
                     "an accepted mutant {mutated:?} must build a canonical skyline stream"
                 );
                 assert_eq!(
@@ -311,7 +311,7 @@ fn schoolbook_twin_agrees_on_the_mutant_corpus() {
 /// after each leaf's extraction it re-zeroes the accumulator by subtracting
 /// the extracted magnitude back, which zeroes the *value* but not the digit
 /// buffer's top — the high-water walk the wide-arming family prices.
-fn parse_schoolbook(s: &str) -> Result<BitsMut, Parse> {
+fn parse_schoolbook(s: &str) -> Result<BitsBuf, Parse> {
     /// What a parsed subtree contributes to its parent's
     /// normal-form check.
     struct Child {
@@ -328,7 +328,7 @@ fn parse_schoolbook(s: &str) -> Result<BitsMut, Parse> {
     }
 
     let mut cur = Cur::new(s);
-    let mut builder = SkylineBuilder::with_capacity(s.len());
+    let mut builder = SkylineBuilder::with_capacity(s.len() as u64);
     let mut frames: Vec<EvFrame> = Vec::new();
     let mut delta = Accumulator::new();
     let mut emitted_first = false;
@@ -369,7 +369,7 @@ fn parse_schoolbook(s: &str) -> Result<BitsMut, Parse> {
             Ordering::Less => delta.add_wide(&magnitude),
             Ordering::Equal => {}
         }
-        builder.leaf(frames.len(), code);
+        builder.leaf(frames.len() as u64, code);
         delta.sub_magnitude(&base);
 
         let mut summary = Child {
@@ -415,7 +415,8 @@ fn parse_schoolbook(s: &str) -> Result<BitsMut, Parse> {
         return Err(Parse::NotCanonical);
     }
     let bits = builder.finish();
-    validate_bits(&bits).expect("a canonical text parse builds a canonical skyline stream");
+    validate_bits(crate::codec::built_view(&bits))
+        .expect("a canonical text parse builds a canonical skyline stream");
     Ok(bits)
 }
 
@@ -498,7 +499,7 @@ proptest! {
 mod schoolbook_contrast {
     use suanpan::touch_meter;
 
-    use crate::codec::BitsMut;
+    use crate::codec::BitsBuf;
     use crate::error::Parse;
     use crate::meter::registry::Shape;
     use crate::version::skyline::encode;
@@ -508,10 +509,10 @@ mod schoolbook_contrast {
     /// One kernel run over `Shape::WideArming.packed2(s, s)`'s rendered text: text
     /// bytes and accumulator touches over the parse body alone,
     /// value-pinned against the stored stream.
-    fn run(s: usize, kernel: fn(&str) -> Result<BitsMut, Parse>) -> (u64, u64) {
+    fn run(s: usize, kernel: fn(&str) -> Result<BitsBuf, Parse>) -> (u64, u64) {
         let v = Shape::WideArming.packed2(s, s).version();
         let enc = encode(&v);
-        let text = render(&enc);
+        let text = render(crate::codec::built_view(&enc));
         let bytes = text.len() as u64;
         touch_meter::reset();
         let parsed = kernel(&text).expect("rendered text parses");

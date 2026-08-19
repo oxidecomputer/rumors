@@ -456,7 +456,7 @@ impl Mirror {
                 done(SEED_DENOM_BITS, OK)
             }
             Op::ClockTick { c } => {
-                let denom = self.clock(c).ok_or_else(malformed)?.encoded_bits() as u64;
+                let denom = self.clock(c).ok_or_else(malformed)?.encoded_bits();
                 match self.regs.get_mut(c as usize) {
                     Some(Some(NVal::C(clock))) => {
                         clock.tick();
@@ -466,7 +466,7 @@ impl Mirror {
                 }
             }
             Op::ClockSend { c } => {
-                let denom = self.clock(c).ok_or_else(malformed)?.encoded_bits() as u64;
+                let denom = self.clock(c).ok_or_else(malformed)?.encoded_bits();
                 match self.regs.get_mut(c as usize) {
                     Some(Some(NVal::C(clock))) => {
                         clock.send();
@@ -476,7 +476,7 @@ impl Mirror {
                 }
             }
             Op::ClockFork { dst, src } => {
-                let denom = self.clock(src).ok_or_else(malformed)?.encoded_bits() as u64;
+                let denom = self.clock(src).ok_or_else(malformed)?.encoded_bits();
                 let forked = match self.regs.get_mut(src as usize) {
                     Some(Some(NVal::C(clock))) => clock.fork(),
                     _ => return Err(malformed()),
@@ -485,9 +485,8 @@ impl Mirror {
                 done(denom, OK)
             }
             Op::ClockJoin { a, b } => {
-                let denom = (self.clock(a).ok_or_else(malformed)?.encoded_bits()
-                    + self.clock(b).ok_or_else(malformed)?.encoded_bits())
-                    as u64;
+                let denom = self.clock(a).ok_or_else(malformed)?.encoded_bits()
+                    + self.clock(b).ok_or_else(malformed)?.encoded_bits();
                 let Some(NVal::C(cb)) = self.take(b) else {
                     return Err(malformed());
                 };
@@ -503,9 +502,8 @@ impl Mirror {
                 }
             }
             Op::ClockRecv { c, v } => {
-                let denom = (self.clock(c).ok_or_else(malformed)?.encoded_bits()
-                    + self.version(v).ok_or_else(malformed)?.encoded_bits())
-                    as u64;
+                let denom = self.clock(c).ok_or_else(malformed)?.encoded_bits()
+                    + self.version(v).ok_or_else(malformed)?.encoded_bits();
                 let version = self.version(v).ok_or_else(malformed)?.clone();
                 match self.regs.get_mut(c as usize) {
                     Some(Some(NVal::C(clock))) => {
@@ -516,9 +514,8 @@ impl Mirror {
                 }
             }
             Op::ClockSync { a, b } => {
-                let denom = (self.clock(a).ok_or_else(malformed)?.encoded_bits()
-                    + self.clock(b).ok_or_else(malformed)?.encoded_bits())
-                    as u64;
+                let denom = self.clock(a).ok_or_else(malformed)?.encoded_bits()
+                    + self.clock(b).ok_or_else(malformed)?.encoded_bits();
                 // Two mutable borrows out of one file: take, sync, put back.
                 let Some(NVal::C(mut cb)) = self.take(b) else {
                     return Err(malformed());
@@ -532,25 +529,25 @@ impl Mirror {
             }
             Op::ClockOwnVersion { dst, src } => {
                 let clock = self.clock(src).ok_or_else(malformed)?;
-                let input = clock.encoded_bits() as u64;
+                let input = clock.encoded_bits();
                 // The explicit materialization: the view itself is O(1)
                 // and prices nothing.
                 let own = clock.own_version().to_version();
                 // Output-dominated row: input + packed output, output read
                 // from the actual result.
-                let denom = input + own.encoded_bits() as u64;
+                let denom = input + own.encoded_bits();
                 self.put(dst, NVal::V(own));
                 done(denom, OK)
             }
             Op::ClockVersion { dst, src } => {
                 let clock = self.clock(src).ok_or_else(malformed)?;
                 let version = clock.version().clone();
-                let denom = clock.encoded_bits() as u64;
+                let denom = clock.encoded_bits();
                 self.put(dst, NVal::V(version));
                 done(denom, OK)
             }
             Op::ClockIntoParts { dst_p, dst_v, src } => {
-                let denom = self.clock(src).ok_or_else(malformed)?.encoded_bits() as u64;
+                let denom = self.clock(src).ok_or_else(malformed)?.encoded_bits();
                 let Some(NVal::C(clock)) = self.take(src) else {
                     return Err(malformed());
                 };
@@ -560,9 +557,8 @@ impl Mirror {
                 done(denom, OK)
             }
             Op::ClockFromParts { dst, p, v } => {
-                let denom = (self.party(p).ok_or_else(malformed)?.encoded_bits()
-                    + self.version(v).ok_or_else(malformed)?.encoded_bits())
-                    as u64;
+                let denom = self.party(p).ok_or_else(malformed)?.encoded_bits()
+                    + self.version(v).ok_or_else(malformed)?.encoded_bits();
                 let Some(NVal::P(party)) = self.take(p) else {
                     return Err(malformed());
                 };
@@ -574,7 +570,7 @@ impl Mirror {
             }
             Op::ClockEncode { src } => {
                 let clock = self.clock(src).ok_or_else(malformed)?;
-                let denom = clock.encoded_bits() as u64;
+                let denom = clock.encoded_bits();
                 self.stage = clock.encode();
                 done(denom, OK)
             }
@@ -585,9 +581,8 @@ impl Mirror {
                 done(denom, OK)
             }
             Op::VersionTick { v, p } => {
-                let denom = (self.version(v).ok_or_else(malformed)?.encoded_bits()
-                    + self.party(p).ok_or_else(malformed)?.encoded_bits())
-                    as u64;
+                let denom = self.version(v).ok_or_else(malformed)?.encoded_bits()
+                    + self.party(p).ok_or_else(malformed)?.encoded_bits();
                 let Some(NVal::P(party)) = self.take(p) else {
                     return Err(malformed());
                 };
@@ -606,9 +601,8 @@ impl Mirror {
                 }
             }
             Op::VersionJoin { dst, a, b } => {
-                let denom = (self.version(a).ok_or_else(malformed)?.encoded_bits()
-                    + self.version(b).ok_or_else(malformed)?.encoded_bits())
-                    as u64;
+                let denom = self.version(a).ok_or_else(malformed)?.encoded_bits()
+                    + self.version(b).ok_or_else(malformed)?.encoded_bits();
                 let Some(NVal::V(va)) = self.take(a) else {
                     return Err(malformed());
                 };
@@ -620,9 +614,8 @@ impl Mirror {
                 done_pair(denom, OK, identity)
             }
             Op::VersionMeet { dst, a, b } => {
-                let denom = (self.version(a).ok_or_else(malformed)?.encoded_bits()
-                    + self.version(b).ok_or_else(malformed)?.encoded_bits())
-                    as u64;
+                let denom = self.version(a).ok_or_else(malformed)?.encoded_bits()
+                    + self.version(b).ok_or_else(malformed)?.encoded_bits();
                 let Some(NVal::V(va)) = self.take(a) else {
                     return Err(malformed());
                 };
@@ -635,19 +628,19 @@ impl Mirror {
             Op::VersionProject { dst, v, p } => {
                 let version = self.version(v).ok_or_else(malformed)?;
                 let party = self.party(p).ok_or_else(malformed)?;
-                let input = (version.encoded_bits() + party.encoded_bits()) as u64;
+                let input = version.encoded_bits() + party.encoded_bits();
                 // The explicit materialization: the view itself is O(1)
                 // and prices nothing.
                 let projected = (version / party).to_version();
                 // Output-dominated row: input + packed output.
-                let denom = input + projected.encoded_bits() as u64;
+                let denom = input + projected.encoded_bits();
                 self.put(dst, NVal::V(projected));
                 done(denom, OK)
             }
             Op::VersionCmp { a, b } => {
                 let va = self.version(a).ok_or_else(malformed)?;
                 let vb = self.version(b).ok_or_else(malformed)?;
-                let denom = (va.encoded_bits() + vb.encoded_bits()) as u64;
+                let denom = va.encoded_bits() + vb.encoded_bits();
                 let expect = match va.partial_cmp(vb) {
                     Some(Ordering::Less) => 0,
                     Some(Ordering::Equal) => 1,
@@ -661,13 +654,13 @@ impl Mirror {
             Op::VersionConcurrent { a, b } => {
                 let va = self.version(a).ok_or_else(malformed)?;
                 let vb = self.version(b).ok_or_else(malformed)?;
-                let denom = (va.encoded_bits() + vb.encoded_bits()) as u64;
+                let denom = va.encoded_bits() + vb.encoded_bits();
                 let identity = version_buffers_alias(va, vb);
                 done_pair(denom, i64::from(va.concurrent(vb)), identity)
             }
             Op::VersionRank { dst, src } => {
                 let version = self.version(src).ok_or_else(malformed)?;
-                let denom = version.encoded_bits() as u64;
+                let denom = version.encoded_bits();
                 let rank = version.rank();
                 self.put(dst, NVal::R(rank));
                 done(denom, OK)
@@ -675,7 +668,7 @@ impl Mirror {
             Op::VersionDistance { dst, a, b } => {
                 let va = self.version(a).ok_or_else(malformed)?;
                 let vb = self.version(b).ok_or_else(malformed)?;
-                let denom = (va.encoded_bits() + vb.encoded_bits()) as u64;
+                let denom = va.encoded_bits() + vb.encoded_bits();
                 // The metric's rung is canonical equality: equal values
                 // answer zero whichever buffers carry them.
                 let identity = va == vb;
@@ -686,7 +679,7 @@ impl Mirror {
             Op::VersionLag { dst, a, b } => {
                 let va = self.version(a).ok_or_else(malformed)?;
                 let vb = self.version(b).ok_or_else(malformed)?;
-                let denom = (va.encoded_bits() + vb.encoded_bits()) as u64;
+                let denom = va.encoded_bits() + vb.encoded_bits();
                 // The metric's rung is canonical equality, as `distance`.
                 let identity = va == vb;
                 let rank = va.lag(vb);
@@ -695,7 +688,7 @@ impl Mirror {
             }
             Op::VersionMinTicks { src } => {
                 let version = self.version(src).ok_or_else(malformed)?;
-                let denom = version.encoded_bits() as u64;
+                let denom = version.encoded_bits();
                 // The guest returns the count's decimal digest (the
                 // count is unbounded; the i64 channel carries FNV-1a of
                 // its rendering, computed identically here).
@@ -709,7 +702,7 @@ impl Mirror {
                         Some(NVal::V(v)) => v,
                         _ => return Err(malformed()),
                     };
-                    denom += v.encoded_bits() as u64;
+                    denom += v.encoded_bits();
                     operands.push(v);
                 }
                 let mut operands = operands.into_iter();
@@ -729,7 +722,7 @@ impl Mirror {
                         Some(NVal::V(v)) => v,
                         _ => return Err(malformed()),
                     };
-                    denom += v.encoded_bits() as u64;
+                    denom += v.encoded_bits();
                     operands.push(v);
                 }
                 let mut operands = operands.into_iter();
@@ -743,7 +736,7 @@ impl Mirror {
             }
             Op::VersionEncode { src } => {
                 let version = self.version(src).ok_or_else(malformed)?;
-                let denom = version.encoded_bits() as u64;
+                let denom = version.encoded_bits();
                 self.stage = version.encode();
                 done(denom, OK)
             }
@@ -755,7 +748,7 @@ impl Mirror {
             }
             Op::VersionDisplay { src } => {
                 let version = self.version(src).ok_or_else(malformed)?;
-                let input = version.encoded_bits() as u64;
+                let input = version.encoded_bits();
                 let text = version.to_string();
                 // Text I/O: packed input + text output, output read from
                 // the actual result.
@@ -773,7 +766,7 @@ impl Mirror {
                 done(denom, OK)
             }
             Op::PartyFork { dst, src } => {
-                let denom = self.party(src).ok_or_else(malformed)?.encoded_bits() as u64;
+                let denom = self.party(src).ok_or_else(malformed)?.encoded_bits();
                 let forked = match self.regs.get_mut(src as usize) {
                     Some(Some(NVal::P(party))) => party.fork(),
                     _ => return Err(malformed()),
@@ -782,22 +775,21 @@ impl Mirror {
                 done(denom, OK)
             }
             Op::PartyForks { dst, src, n } => {
-                let input = self.party(src).ok_or_else(malformed)?.encoded_bits() as u64;
+                let input = self.party(src).ok_or_else(malformed)?.encoded_bits();
                 let shares = match self.regs.get_mut(src as usize) {
                     Some(Some(NVal::P(party))) => party.forks(u64::from(n)).collect::<Vec<_>>(),
                     _ => return Err(malformed()),
                 };
                 // Share splitting: the output is n packed parties.
-                let denom = input + shares.iter().map(|s| s.encoded_bits() as u64).sum::<u64>();
+                let denom = input + shares.iter().map(|s| s.encoded_bits()).sum::<u64>();
                 for (i, share) in shares.into_iter().enumerate() {
                     self.put(dst + i as u32, NVal::P(share));
                 }
                 done(denom, OK)
             }
             Op::PartyJoin { a, b } => {
-                let denom = (self.party(a).ok_or_else(malformed)?.encoded_bits()
-                    + self.party(b).ok_or_else(malformed)?.encoded_bits())
-                    as u64;
+                let denom = self.party(a).ok_or_else(malformed)?.encoded_bits()
+                    + self.party(b).ok_or_else(malformed)?.encoded_bits();
                 let Some(NVal::P(pb)) = self.take(b) else {
                     return Err(malformed());
                 };
@@ -815,19 +807,18 @@ impl Mirror {
             Op::PartyIsDisjoint { a, b } => {
                 let pa = self.party(a).ok_or_else(malformed)?;
                 let pb = self.party(b).ok_or_else(malformed)?;
-                let denom = (pa.encoded_bits() + pb.encoded_bits()) as u64;
+                let denom = pa.encoded_bits() + pb.encoded_bits();
                 done(denom, i64::from(pa.is_disjoint(pb)))
             }
             Op::PartyCovers { a, b } => {
                 let pa = self.party(a).ok_or_else(malformed)?;
                 let pb = self.party(b).ok_or_else(malformed)?;
-                let denom = (pa.encoded_bits() + pb.encoded_bits()) as u64;
+                let denom = pa.encoded_bits() + pb.encoded_bits();
                 done(denom, i64::from(pa.covers(pb)))
             }
             Op::PartyWithout { dst, a, b } => {
-                let denom = (self.party(a).ok_or_else(malformed)?.encoded_bits()
-                    + self.party(b).ok_or_else(malformed)?.encoded_bits())
-                    as u64;
+                let denom = self.party(a).ok_or_else(malformed)?.encoded_bits()
+                    + self.party(b).ok_or_else(malformed)?.encoded_bits();
                 let Some(NVal::P(pa)) = self.take(a) else {
                     return Err(malformed());
                 };
@@ -842,7 +833,7 @@ impl Mirror {
             }
             Op::PartyEncode { src } => {
                 let party = self.party(src).ok_or_else(malformed)?;
-                let denom = party.encoded_bits() as u64;
+                let denom = party.encoded_bits();
                 self.stage = party.encode();
                 done(denom, OK)
             }
@@ -854,7 +845,7 @@ impl Mirror {
             }
             Op::PartyDisplay { src } => {
                 let party = self.party(src).ok_or_else(malformed)?;
-                let input = party.encoded_bits() as u64;
+                let input = party.encoded_bits();
                 let text = party.to_string();
                 let denom = input + (text.len() as u64) * 8;
                 self.stage = text.into_bytes();

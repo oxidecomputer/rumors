@@ -14,7 +14,7 @@ use core::cmp::Ordering;
 use proptest::prelude::*;
 use rayon::prelude::*;
 
-use crate::codec::BitsMut;
+use crate::codec::BitsBuf;
 use crate::meter::registry::Shape;
 use crate::meter::Packed;
 use crate::testing::bridge::{from_oracle_version, to_oracle_version};
@@ -32,7 +32,10 @@ fn version_of(p: &Packed) -> Version {
 
 /// The sweep's causal order of two versions, on their stored streams.
 fn cmp_enc(a: &Version, b: &Version) -> Option<Ordering> {
-    causal_cmp(&encode(a), &encode(b))
+    causal_cmp(
+        crate::codec::built_view(&encode(a)),
+        crate::codec::built_view(&encode(b)),
+    )
 }
 
 /// Assert all four entry points agree with the recursive oracle's
@@ -41,30 +44,38 @@ fn assert_verdicts(a: &Version, b: &Version) {
     let (ea, eb) = (encode(a), encode(b));
     let want = to_oracle_version(a).partial_cmp(&to_oracle_version(b));
     assert_eq!(
-        causal_cmp(&ea, &eb),
+        causal_cmp(crate::codec::built_view(&ea), crate::codec::built_view(&eb)),
         want,
         "causal_cmp disagrees with the recursive oracle: {a} vs {b}"
     );
     assert_eq!(
-        causal_cmp(&eb, &ea),
+        causal_cmp(crate::codec::built_view(&eb), crate::codec::built_view(&ea)),
         want.map(Ordering::reverse),
         "causal_cmp breaks antisymmetry against the recursive oracle: {b} vs {a}"
     );
     let equal = want == Some(Ordering::Equal);
-    assert_eq!(eq(&ea, &eb), equal, "eq disagrees: {a} vs {b}");
-    assert_eq!(eq(&eb, &ea), equal, "eq disagrees: {b} vs {a}");
     assert_eq!(
-        concurrent(&ea, &eb),
+        eq(crate::codec::built_view(&ea), crate::codec::built_view(&eb)),
+        equal,
+        "eq disagrees: {a} vs {b}"
+    );
+    assert_eq!(
+        eq(crate::codec::built_view(&eb), crate::codec::built_view(&ea)),
+        equal,
+        "eq disagrees: {b} vs {a}"
+    );
+    assert_eq!(
+        concurrent(crate::codec::built_view(&ea), crate::codec::built_view(&eb)),
         want.is_none(),
         "concurrent disagrees: {a} vs {b}"
     );
     assert_eq!(
-        le(&ea, &eb),
+        le(crate::codec::built_view(&ea), crate::codec::built_view(&eb)),
         matches!(want, Some(Ordering::Less | Ordering::Equal)),
         "le disagrees: {a} vs {b}"
     );
     assert_eq!(
-        le(&eb, &ea),
+        le(crate::codec::built_view(&eb), crate::codec::built_view(&ea)),
         matches!(want, Some(Ordering::Greater | Ordering::Equal)),
         "le disagrees: {b} vs {a}"
     );
@@ -180,7 +191,7 @@ fn family_pairs_agree() {
 /// consumption, zero deltas across subtree boundaries.
 #[test]
 fn exhaustive_small_scope_agrees() {
-    let pool: Vec<(oracle::Version, Version, BitsMut)> = all_normal_events(EV_SMALL_DEPTH)
+    let pool: Vec<(oracle::Version, Version, BitsBuf)> = all_normal_events(EV_SMALL_DEPTH)
         .iter()
         .map(|t| {
             let v = from_oracle_version(t);
@@ -192,22 +203,22 @@ fn exhaustive_small_scope_agrees() {
         for (tb, vb, eb) in &pool {
             let want = ta.partial_cmp(tb);
             assert_eq!(
-                causal_cmp(ea, eb),
+                causal_cmp(crate::codec::built_view(ea), crate::codec::built_view(eb)),
                 want,
                 "causal_cmp disagrees: {va} vs {vb}"
             );
             assert_eq!(
-                eq(ea, eb),
+                eq(crate::codec::built_view(ea), crate::codec::built_view(eb)),
                 want == Some(Ordering::Equal),
                 "eq disagrees: {va} vs {vb}"
             );
             assert_eq!(
-                concurrent(ea, eb),
+                concurrent(crate::codec::built_view(ea), crate::codec::built_view(eb)),
                 want.is_none(),
                 "concurrent disagrees: {va} vs {vb}"
             );
             assert_eq!(
-                le(ea, eb),
+                le(crate::codec::built_view(ea), crate::codec::built_view(eb)),
                 matches!(want, Some(Ordering::Less | Ordering::Equal)),
                 "le disagrees: {va} vs {vb}"
             );
@@ -242,26 +253,26 @@ proptest! {
         for op in &ops {
             optrace::step_impl(&mut clocks, op);
         }
-        let pool: Vec<(oracle::Version, &Version, BitsMut)> = clocks
+        let pool: Vec<(oracle::Version, &Version, BitsBuf)> = clocks
             .iter()
             .map(|c| (to_oracle_version(c.version()), c.version(), encode(c.version())))
             .collect();
         for (ta, va, ea) in &pool {
             for (tb, vb, eb) in &pool {
                 let want = ta.partial_cmp(tb);
-                prop_assert_eq!(causal_cmp(ea, eb), want, "causal_cmp disagrees: {} vs {}", va, vb);
+                prop_assert_eq!(causal_cmp(crate::codec::built_view(ea), crate::codec::built_view(eb)), want, "causal_cmp disagrees: {} vs {}", va, vb);
                 prop_assert_eq!(
-                    eq(ea, eb),
+                    eq(crate::codec::built_view(ea), crate::codec::built_view(eb)),
                     want == Some(Ordering::Equal),
                     "eq disagrees: {} vs {}", va, vb
                 );
                 prop_assert_eq!(
-                    concurrent(ea, eb),
+                    concurrent(crate::codec::built_view(ea), crate::codec::built_view(eb)),
                     want.is_none(),
                     "concurrent disagrees: {} vs {}", va, vb
                 );
                 prop_assert_eq!(
-                    le(ea, eb),
+                    le(crate::codec::built_view(ea), crate::codec::built_view(eb)),
                     matches!(want, Some(Ordering::Less | Ordering::Equal)),
                     "le disagrees: {} vs {}", va, vb
                 );

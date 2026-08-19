@@ -156,8 +156,8 @@ use crate::Version;
 #[cfg(any(test, feature = "meter"))]
 pub use crate::codec::Bits;
 #[cfg(any(test, feature = "meter"))]
-pub use crate::codec::BitsMut;
-pub use crate::codec::BitsSlice;
+pub use crate::codec::BitsBuf;
+pub use crate::codec::BitsView;
 
 // The admission walk: the span wire form's fused second-component parse,
 // consumed by `Span::decode` and the borsh span leg.
@@ -216,16 +216,25 @@ pub(crate) use validate::validate_prefix;
 #[cfg(feature = "borsh")]
 pub(crate) use validate::validate_from;
 
+/// A build buffer's contents as a [`BitsView`]: the instrument surface's
+/// bridge from [`encode()`](fn@encode)'s buffer to the view the walk entries read.
+///
+/// Test- and meter-only, like the buffers it views.
+#[cfg(any(test, feature = "meter"))]
+pub fn view(bits: &BitsBuf) -> BitsView<'_> {
+    crate::codec::built_view(bits)
+}
+
 /// A [`Version`]'s canonical skyline stream: the stored form, cloned.
 ///
 /// Test- and meter-only: production callers reach the stored stream through
 /// [`Version::as_bytes`]/[`Version::encode`].
 #[cfg(any(test, feature = "meter"))]
-pub fn encode(version: &Version) -> BitsMut {
-    let mut bits = version.as_bits().to_bitvec();
-    // Live bits only — no padding: consumers walk these as a stream. The
-    // dead tail is zeroed so the buffer reads deterministically anyway.
-    bits.set_uninitialized(false);
+pub fn encode(version: &Version) -> BitsBuf {
+    let view = version.as_bits();
+    let mut bits = BitsBuf::with_capacity(view.len());
+    // Live bits only — no padding: consumers walk these as a stream.
+    crate::codec::extend_from_view(&mut bits, view, 0, view.len());
     bits
 }
 
@@ -243,7 +252,7 @@ pub fn encode(version: &Version) -> BitsMut {
 /// ([`Version::decode`], the borsh leg) run the underlying pass through
 /// `validate_prefix`/`validate_from` directly.
 #[cfg(any(test, feature = "meter"))]
-pub fn validate(bits: &BitsSlice) -> Result<(), Decode> {
+pub fn validate(bits: BitsView<'_>) -> Result<(), Decode> {
     validate_bits(bits)
 }
 
@@ -257,7 +266,7 @@ pub fn validate(bits: &BitsSlice) -> Result<(), Decode> {
 /// Test- and meter-only: the production decode ([`Version::decode`]) validates
 /// the prefix and adopts the buffer without this wrapper.
 #[cfg(any(test, feature = "meter"))]
-pub fn decode(bits: &BitsSlice) -> Result<Version, Decode> {
+pub fn decode(bits: BitsView<'_>) -> Result<Version, Decode> {
     decode_bits(bits)
 }
 
@@ -266,6 +275,6 @@ pub fn decode(bits: &BitsSlice) -> Result<Version, Decode> {
 /// The empty version is exactly the 2-bit stream `11` (leaf flag `1`, then
 /// gamma(0), the single bit `1`). Canonical uniqueness makes this O(1) test the
 /// whole question.
-pub(crate) fn is_empty_stream(bits: &BitsSlice) -> bool {
-    bits.len() == 2 && bits[0] && bits[1]
+pub(crate) fn is_empty_stream(bits: BitsView<'_>) -> bool {
+    bits.len() == 2 && bits.bit(0) && bits.bit(1)
 }

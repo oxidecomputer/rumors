@@ -13,7 +13,7 @@
 
 use std::sync::Arc;
 
-use crate::codec::{self, BitsMut};
+use crate::codec::{self, BitsBuf};
 use crate::oracle;
 use crate::recurse::descend;
 use crate::{Clock, Party, Version};
@@ -26,7 +26,7 @@ fn id_is_zero(t: &oracle::Party) -> bool {
     matches!(t, oracle::Party::Leaf(false))
 }
 
-fn emit_id(out: &mut BitsMut, t: &oracle::Party) {
+fn emit_id(out: &mut BitsBuf, t: &oracle::Party) {
     match t {
         oracle::Party::Leaf(false) => {} // `0`: absence, no bits
         oracle::Party::Leaf(true) => {
@@ -44,7 +44,7 @@ fn emit_id(out: &mut BitsMut, t: &oracle::Party) {
     }
 }
 
-fn emit_ev(out: &mut BitsMut, t: &oracle::Version) {
+fn emit_ev(out: &mut BitsBuf, t: &oracle::Version) {
     match t {
         oracle::Version::Leaf(n) => {
             out.push(false);
@@ -61,8 +61,8 @@ fn emit_ev(out: &mut BitsMut, t: &oracle::Version) {
 
 /// The min-lifted packed preorder stream of an oracle tree: the
 /// construction language the generators and the skyline transcoder share.
-pub(crate) fn packed_bits_of(t: &oracle::Version) -> BitsMut {
-    let mut bits = BitsMut::new();
+pub(crate) fn packed_bits_of(t: &oracle::Version) -> BitsBuf {
+    let mut bits = BitsBuf::new();
     emit_ev(&mut bits, t);
     bits
 }
@@ -70,7 +70,7 @@ pub(crate) fn packed_bits_of(t: &oracle::Version) -> BitsMut {
 /// Build the impl `Party` whose canonical bits encode `t`. Recursive over a bounded
 /// oracle tree (test-only; the impl's own traversals are iterative).
 pub(crate) fn from_oracle_party(t: &oracle::Party) -> Party {
-    let mut bits = BitsMut::new();
+    let mut bits = BitsBuf::new();
     emit_id(&mut bits, t);
     Party::from_bits(bits)
 }
@@ -81,9 +81,11 @@ pub(crate) fn from_oracle_party(t: &oracle::Party) -> Party {
 /// traversals are iterative): emits the min-lifted packed preorder stream,
 /// then transcodes it into the skyline coding the version stores.
 pub(crate) fn from_oracle_version(t: &oracle::Version) -> Version {
-    let mut bits = BitsMut::new();
+    let mut bits = BitsBuf::new();
     emit_ev(&mut bits, t);
-    Version::from_bits(crate::version::skyline::encode_bits(&bits))
+    Version::from_bits(crate::version::skyline::encode_bits(
+        crate::codec::built_view(&bits),
+    ))
 }
 
 /// Build the impl `Clock` mirroring an oracle clock.
@@ -104,9 +106,9 @@ pub(crate) fn from_oracle_clock(c: &oracle::Clock) -> Clock {
 // bounded tree (test-only; the impl's own traversals are iterative). Both
 // forms are normalized, so structural `==` ⇔ semantic equality.
 
-fn read_id(bits: &codec::BitsSlice, pos: usize) -> (oracle::Party, usize) {
-    let left = bits[pos];
-    let right = bits[pos + 1];
+fn read_id(bits: codec::BitsView<'_>, pos: u64) -> (oracle::Party, u64) {
+    let left = bits.bit(pos);
+    let right = bits.bit(pos + 1);
     if !left && !right {
         return (oracle::Party::Leaf(true), pos + 2); // terminal = `1`
     }
@@ -138,12 +140,12 @@ fn read_id(bits: &codec::BitsSlice, pos: usize) -> (oracle::Party, usize) {
 /// The oracle base is the arbitrary-precision `Base` (matching the impl),
 /// so lowering is lossless for any magnitude: no `u64` truncation point.
 fn read_ev(
-    bits: &codec::BitsSlice,
-    pos: usize,
+    bits: codec::BitsView<'_>,
+    pos: u64,
     prev: &mut Option<codec::Base>,
-) -> (oracle::Version, usize) {
+) -> (oracle::Version, u64) {
     // Skyline topology flag: `0` internal, `1` leaf.
-    let internal = !bits[pos];
+    let internal = !bits.bit(pos);
     if internal {
         let (l, after_l) = descend!(0, read_ev(bits, pos + 1, prev));
         let (r, after_r) = descend!(0, read_ev(bits, after_l, prev));

@@ -395,7 +395,7 @@ proptest! {
         web.open(1);
         web.emit_here(); // the outer range arms at v = 0
         web.fold_height(Sign::Positive, &Int::Small(7)); // h = 7
-        web.open(n);
+        web.open(n as u64);
         web.emit_here(); // all n inner ranges arm at v = 7: one boundary, n − 1 zeros
         for i in 0..n {
             if i < n - 1 {

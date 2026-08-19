@@ -133,6 +133,12 @@ pub(super) fn mul_into(
     if *factor == Base::ZERO {
         return;
     }
+    // The shifts routed below are digit positions of walked-value widths
+    // (a width over 32, plus the caller's scale): bounded by the stored
+    // stream's bit length, which the storage caps below 2^32 — multiple
+    // binary orders of magnitude under the accumulator entry points'
+    // documented panic bound (a digit position past `usize`, from shift
+    // 2^37 on a 32-bit target).
     let mut carry = 0u64;
     let mut add_term = |digit: u64, sign: Sign, shift: u64| {
         if digit == 0 {
@@ -228,7 +234,7 @@ impl ReignWeb {
     }
 
     /// Open `count` ranges: the internal nodes a descent just entered.
-    pub(super) fn open(&mut self, count: usize) {
+    pub(super) fn open(&mut self, count: u64) {
         self.web.open(count);
     }
 

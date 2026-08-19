@@ -755,21 +755,24 @@ impl Clock {
         // exhausted input. Both parts then adopt slices of the ONE read buffer
         // as their storage: no per-component copy, and the id is parsed once
         // where handing byte ranges to the component decoders re-parsed it.
+        // Each walk's input is its component's whole byte range as bits,
+        // padding included, judged by its marker check.
         let id_bytes = {
-            let bits = codec::bytes_as_bits(&buf);
-            let id_end = codec::parse_id(bits, 0)?;
+            let id_end = codec::parse_id(codec::BitsView::whole(&buf), 0)?;
             // The party's padding marker rides in its final byte — which an
             // input cut right after a flush id tree lacks. That cut is
             // missing required data (the marker byte, and the whole version
             // after it): the truncation genre, exactly as a byte-starved
             // reader reports the same boundary.
             let id_bytes = (id_end + 1).div_ceil(8);
-            if 8 * id_bytes > bits.len() {
+            if id_bytes > buf.len() as u64 {
                 return Err(Decode::Truncated);
             }
-            codec::require_marker_padding(&bits[..8 * id_bytes], id_end)?;
-            let tail = &bits[8 * id_bytes..];
-            let v_end = crate::version::skyline::validate_prefix(tail)?;
+            let id_bytes =
+                usize::try_from(id_bytes).expect("the id prefix ends within the read buffer");
+            codec::require_marker_padding(&buf[..id_bytes], id_end)?;
+            let tail = &buf[id_bytes..];
+            let v_end = crate::version::skyline::validate_prefix(codec::BitsView::whole(tail))?;
             codec::require_marker_padding(tail, v_end)?;
             id_bytes
         };
@@ -789,6 +792,11 @@ impl Clock {
     /// this is the byte-aligned party length plus the version's own bit
     /// length.
     ///
+    /// Instrument surface, public under the `meter` feature: the resource
+    /// meters, coverage suites, and boundary pins denominate readings in
+    /// exact encoded bit lengths. Applications measure wire cost as
+    /// `encode().len()` — the byte length actually shipped.
+    ///
     /// # Complexity
     ///
     /// `O(1)`.
@@ -798,10 +806,15 @@ impl Clock {
     /// ```
     /// use before::Clock;
     /// let clock = Clock::seed();
-    /// assert_eq!(clock.encode().len(), (clock.encoded_bits() + 1).div_ceil(8));
+    /// assert_eq!(clock.encode().len() as u64, (clock.encoded_bits() + 1).div_ceil(8));
     /// ```
-    pub fn encoded_bits(&self) -> usize {
-        8 * (self.party().encoded_bits() + 1).div_ceil(8) + self.version().encoded_bits()
+    #[cfg(any(test, feature = "meter"))]
+    pub fn encoded_bits(&self) -> u64 {
+        // `u64` throughout, as both components' lengths are: the sum of two
+        // allocated streams' bit lengths sits orders of magnitude under any
+        // `u64` wrap on every target.
+        let party = 8 * (self.party().encoded_bits() + 1).div_ceil(8);
+        party + self.version().encoded_bits()
     }
 
     /// Duplicates this clock, producing a second handle to the same clock: an
@@ -891,7 +904,7 @@ impl FromStr for Clock {
     fn from_str(s: &str) -> Result<Self, Parse> {
         let (id, ev) = codec::parse_clock_str(s)?;
         let version: Version = ev.parse()?;
-        if codec::id_is_empty(&id) {
+        if codec::id_is_empty(codec::built_view(&id)) {
             return Err(Parse::Anonymous);
         }
         Ok(Clock::from_parts(Party::from_bits(id), version))

@@ -1109,12 +1109,13 @@ impl FamilyData {
 fn disjoint_mounted_pair(id: &[u8]) -> (Vec<u8>, Vec<u8>) {
     let shape = decode_party(id);
     let mount = |left: bool| -> Vec<u8> {
-        let mut bits = codec::BitsMut::with_capacity(shape.as_bits().len() + 2);
+        let view = shape.as_bits();
+        let mut bits = codec::BitsBuf::with_capacity(view.len() + 2);
         bits.push(left);
         bits.push(!left);
-        bits.extend_from_bitslice(shape.as_bits());
+        codec::extend_from_view(&mut bits, view, 0, view.len());
         codec::seal_padding(&mut bits);
-        bits.into_vec()
+        bits.into_bytes()
     };
     let (a, b) = (mount(true), mount(false));
     assert!(
@@ -1151,10 +1152,10 @@ pub(super) fn overlap_mounted_pair(id: &[u8]) -> (Vec<u8>, Vec<u8>) {
         "the overlap-mount adapter needs a non-terminal shape: a full shape's mount would \
          not be normal form"
     );
-    let mut a = codec::BitsMut::with_capacity(bits.len() + 2 * path.len() + 4);
+    let mut a = codec::BitsBuf::with_capacity(bits.len() + 2 * path.len() as u64 + 4);
     a.push(true); // root: both children present
     a.push(true);
-    a.extend_from_bitslice(bits); // left: the shape
+    codec::extend_from_view(&mut a, bits, 0, bits.len()); // left: the shape
     for &go_right in &path {
         // right: the marker chain, one single-child node per level
         a.push(!go_right);
@@ -1163,12 +1164,12 @@ pub(super) fn overlap_mounted_pair(id: &[u8]) -> (Vec<u8>, Vec<u8>) {
     a.push(false); // the marker's terminal, at the shape's last owned position
     a.push(false);
     codec::seal_padding(&mut a);
-    let mut b = codec::BitsMut::with_capacity(bits.len() + 2);
+    let mut b = codec::BitsBuf::with_capacity(bits.len() + 2);
     b.push(false); // root: right child only
     b.push(true);
-    b.extend_from_bitslice(bits); // right: the shape
+    codec::extend_from_view(&mut b, bits, 0, bits.len()); // right: the shape
     codec::seal_padding(&mut b);
-    let (a, b) = (a.into_vec(), b.into_vec());
+    let (a, b) = (a.into_bytes(), b.into_bytes());
     assert!(
         !decode_party(&a).is_disjoint(&decode_party(&b)),
         "the overlap-mount adapter must mint an overlapping pair"
@@ -1183,12 +1184,12 @@ pub(super) fn overlap_mounted_pair(id: &[u8]) -> (Vec<u8>, Vec<u8>) {
 /// belongs to the node reached by always taking the rightmost present child;
 /// left subtrees along the way are skipped (each exactly once, so the walk is
 /// linear). Runs at bundle build, outside any measurement.
-fn rightmost_terminal_path(bits: &codec::BitsSlice) -> Vec<bool> {
-    let mut pos = 0usize;
+fn rightmost_terminal_path(bits: codec::BitsView<'_>) -> Vec<bool> {
+    let mut pos = 0u64;
     let mut path = Vec::new();
     loop {
-        let left = bits[pos];
-        let right = bits[pos + 1];
+        let left = bits.bit(pos);
+        let right = bits.bit(pos + 1);
         pos += 2;
         if !left && !right {
             return path; // the terminal
@@ -1196,7 +1197,7 @@ fn rightmost_terminal_path(bits: &codec::BitsSlice) -> Vec<bool> {
         if right {
             if left {
                 pos = crate::idbits::skip_subtree(pos, |at| {
-                    let children = usize::from(bits[at]) + usize::from(bits[at + 1]);
+                    let children = u64::from(bits.bit(at)) + u64::from(bits.bit(at + 1));
                     (children, at + 2)
                 });
             }
@@ -1218,13 +1219,13 @@ fn rightmost_terminal_path(bits: &codec::BitsSlice) -> Vec<bool> {
 /// accumulator index answers the same test in O(probe), which is the separation
 /// the row watches.
 pub(super) fn overlap_fold_probe() -> Vec<u8> {
-    let mut probe = codec::BitsMut::with_capacity(4);
+    let mut probe = codec::BitsBuf::with_capacity(4);
     probe.push(false); // root: right child only
     probe.push(true);
     probe.push(false); // the right child: a full leaf
     probe.push(false);
     codec::seal_padding(&mut probe);
-    probe.into_vec()
+    probe.into_bytes()
 }
 
 /// Decode packed bytes the board itself generated.

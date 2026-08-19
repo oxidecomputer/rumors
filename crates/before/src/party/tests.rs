@@ -435,9 +435,9 @@ proptest! {
 #[test]
 fn unindexed_fallback_matches_the_walk_on_constructed_pairs() {
     use self::constructed::{complement_leftmost, full, leftmost, node};
-    use crate::codec::BitsMut;
-    let empty = BitsMut::new();
-    let pairs: Vec<(BitsMut, BitsMut)> = vec![
+    use crate::codec::BitsBuf;
+    let empty = BitsBuf::new();
+    let pairs: Vec<(BitsBuf, BitsBuf)> = vec![
         (leftmost(6), complement_leftmost(6)),
         (leftmost(6), leftmost(6)),
         (leftmost(6), leftmost(3)),
@@ -451,14 +451,17 @@ fn unindexed_fallback_matches_the_walk_on_constructed_pairs() {
     ];
     for (a, b) in &pairs {
         for (x, y) in [(a, b), (b, a)] {
-            let walk = IdReader::root(x).is_disjoint(IdReader::root(y));
+            let walk = IdReader::root(crate::codec::built_view(x))
+                .is_disjoint(IdReader::root(crate::codec::built_view(y)));
             assert_eq!(
-                IdIndex::build(x).is_disjoint(IdReader::root(y)),
+                IdIndex::build(crate::codec::built_view(x))
+                    .is_disjoint(IdReader::root(crate::codec::built_view(y))),
                 walk,
                 "the built index diverged from the cursor walk"
             );
             assert_eq!(
-                IdIndex::build_unindexed(x).is_disjoint(IdReader::root(y)),
+                IdIndex::build_unindexed(crate::codec::built_view(x))
+                    .is_disjoint(IdReader::root(crate::codec::built_view(y))),
                 walk,
                 "the unindexed fallback diverged from the cursor walk"
             );
@@ -547,7 +550,7 @@ proptest! {
         let fused = IdReader::root(ia.as_bits()).sum_split(IdReader::root(ib.as_bits()));
         let composed = IdReader::root(ia.as_bits())
             .sum(IdReader::root(ib.as_bits()))
-            .map(|union| IdReader::root(&union).split());
+            .map(|union| IdReader::root(crate::codec::built_view(&union)).split());
         prop_assert_eq!(fused, composed);
     }
 }
@@ -569,7 +572,7 @@ fn sum_split_collapsed_union_matches_terminal_split() {
     let union = IdReader::root(keep.as_bits())
         .sum(IdReader::root(give.as_bits()))
         .expect("the seed's halves are disjoint");
-    let composed = IdReader::root(&union).split();
+    let composed = IdReader::root(crate::codec::built_view(&union)).split();
     assert_eq!(fused, composed);
     assert_eq!(Party::from_bits(fused.0), keep, "the keep half is (1, 0)");
     assert_eq!(Party::from_bits(fused.1), give, "the give half is (0, 1)");
@@ -581,11 +584,11 @@ fn sum_split_collapsed_union_matches_terminal_split() {
 /// witnesses and tripwires assemble their operands from, each built tags-first
 /// in one pass so a deep stream costs one allocation, not one per level.
 mod constructed {
-    use crate::codec::BitsMut;
+    use crate::codec::BitsBuf;
 
     /// The full `1` leaf: terminal tag `00`.
-    pub(super) fn full() -> BitsMut {
-        let mut b = BitsMut::new();
+    pub(super) fn full() -> BitsBuf {
+        let mut b = BitsBuf::new();
         b.push(false);
         b.push(false);
         b
@@ -593,33 +596,33 @@ mod constructed {
 
     /// An internal node over the present children (normal form is the caller's
     /// obligation: at least one child, never two terminals).
-    pub(super) fn node(left: Option<&BitsMut>, right: Option<&BitsMut>) -> BitsMut {
-        let mut b = BitsMut::new();
+    pub(super) fn node(left: Option<&BitsBuf>, right: Option<&BitsBuf>) -> BitsBuf {
+        let mut b = BitsBuf::new();
         b.push(left.is_some());
         b.push(right.is_some());
         if let Some(l) = left {
-            b.extend_from_bitslice(l);
+            b.extend_from_buf(l);
         }
         if let Some(r) = right {
-            b.extend_from_bitslice(r);
+            b.extend_from_buf(r);
         }
         b
     }
 
     /// `levels` unary nodes toward `left_side` over `tail` (built tags-first,
     /// so a deep spine costs one pass, not one per level).
-    pub(super) fn spine(levels: usize, left_side: bool, tail: BitsMut) -> BitsMut {
-        let mut b = BitsMut::with_capacity(2 * levels + tail.len());
+    pub(super) fn spine(levels: usize, left_side: bool, tail: BitsBuf) -> BitsBuf {
+        let mut b = BitsBuf::with_capacity(2 * levels as u64 + tail.len());
         for _ in 0..levels {
             b.push(left_side);
             b.push(!left_side);
         }
-        b.extend_from_bitslice(&tail);
+        b.extend_from_buf(&tail);
         b
     }
 
     /// The leftmost `2^-k` cell: a `k`-level left-unary spine over `1`.
-    pub(super) fn leftmost(k: usize) -> BitsMut {
+    pub(super) fn leftmost(k: usize) -> BitsBuf {
         spine(k, true, full())
     }
 
@@ -629,17 +632,17 @@ mod constructed {
     /// Built by one preorder pass — `k − 1` both-present nodes whose left child
     /// continues and whose right child is full, then the deepest right-only
     /// cell.
-    pub(super) fn complement_leftmost(k: usize) -> BitsMut {
-        let mut b = BitsMut::with_capacity(4 * k);
+    pub(super) fn complement_leftmost(k: usize) -> BitsBuf {
+        let mut b = BitsBuf::with_capacity(4 * k as u64);
         for _ in 1..k {
             b.push(true);
             b.push(true);
         }
         b.push(false);
         b.push(true);
-        b.extend_from_bitslice(&full());
+        b.extend_from_buf(&full());
         for _ in 1..k {
-            b.extend_from_bitslice(&full());
+            b.extend_from_buf(&full());
         }
         b
     }
@@ -660,16 +663,17 @@ mod constructed {
 mod sum_split_constructed {
     use super::constructed::{complement_leftmost, full, leftmost, node, spine};
     use super::*;
-    use crate::codec::BitsMut;
+    use crate::codec::BitsBuf;
 
     /// The fused walk against its composition on one id pair, in both operand
     /// orders (byte equality, `None` arms included).
-    fn assert_matches_composition(a: &BitsMut, b: &BitsMut) {
+    fn assert_matches_composition(a: &BitsBuf, b: &BitsBuf) {
         for (x, y) in [(a, b), (b, a)] {
-            let fused = IdReader::root(x).sum_split(IdReader::root(y));
-            let composed = IdReader::root(x)
-                .sum(IdReader::root(y))
-                .map(|union| IdReader::root(&union).split());
+            let fused = IdReader::root(crate::codec::built_view(x))
+                .sum_split(IdReader::root(crate::codec::built_view(y)));
+            let composed = IdReader::root(crate::codec::built_view(x))
+                .sum(IdReader::root(crate::codec::built_view(y)))
+                .map(|union| IdReader::root(crate::codec::built_view(&union)).split());
             assert_eq!(fused, composed);
         }
     }
@@ -751,14 +755,15 @@ mod sum_split_constructed {
             f();
             crate::codec::scan::scan_bits()
         };
-        let compare = |name: &str, a: &BitsMut, b: &BitsMut| -> u64 {
+        let compare = |name: &str, a: &BitsBuf, b: &BitsBuf| -> u64 {
             let fused = scan(&|| {
-                IdReader::root(a).sum_split(IdReader::root(b));
+                IdReader::root(crate::codec::built_view(a))
+                    .sum_split(IdReader::root(crate::codec::built_view(b)));
             });
             let composed = scan(&|| {
-                IdReader::root(a)
-                    .sum(IdReader::root(b))
-                    .map(|u| IdReader::root(&u).split());
+                IdReader::root(crate::codec::built_view(a))
+                    .sum(IdReader::root(crate::codec::built_view(b)))
+                    .map(|u| IdReader::root(crate::codec::built_view(&u)).split());
             });
             assert!(
                 0 < fused && fused <= composed,
@@ -796,7 +801,7 @@ mod sum_split_constructed {
     /// other, and two empties split to empties.
     #[test]
     fn root_leaf_and_empty_operands_match_composition() {
-        let empty = BitsMut::new();
+        let empty = BitsBuf::new();
         assert_matches_composition(&full(), &leftmost(3));
         assert_matches_composition(&full(), &empty);
         assert_matches_composition(&empty, &empty.clone());
@@ -819,7 +824,7 @@ mod sum_split_constructed {
 mod diff_constructed {
     use super::constructed::{complement_leftmost, full, leftmost, node};
     use super::*;
-    use crate::codec::BitsMut;
+    use crate::codec::BitsBuf;
 
     /// The scale ladder: every family runs at each `k`, byte-checked.
     const SCALES: [usize; 3] = [256, 4096, 100_000];
@@ -831,8 +836,9 @@ mod diff_constructed {
     /// `self \ other` on one constructed pair: byte-equal to `expected`, and
     /// at oracle-reachable scales (`k <= ORACLE_SCALE_MAX`) also equal to the
     /// recursive oracle's `without`, compared over lowered oracle trees.
-    fn assert_diff(a: &BitsMut, b: &BitsMut, expected: &BitsMut, k: usize) {
-        let d = IdReader::root(a).diff(IdReader::root(b));
+    fn assert_diff(a: &BitsBuf, b: &BitsBuf, expected: &BitsBuf, k: usize) {
+        let d = IdReader::root(crate::codec::built_view(a))
+            .diff(IdReader::root(crate::codec::built_view(b)));
         assert_eq!(
             &d, expected,
             "diff diverged from the constructed expectation (k={k})"
@@ -883,7 +889,7 @@ mod diff_constructed {
         for k in SCALES {
             let a = leftmost(k);
             let b = node(Some(&full()), None);
-            assert_diff(&a, &b, &BitsMut::new(), k);
+            assert_diff(&a, &b, &BitsBuf::new(), k);
         }
     }
 
@@ -923,9 +929,10 @@ mod diff_constructed {
         /// Constant scan overhead of a settled block beyond its operand reads
         /// and output write: the root-level tag reservations and patches.
         const BLOCK_SLACK: u64 = 8;
-        let scan = |a: &BitsMut, b: &BitsMut| -> u64 {
+        let scan = |a: &BitsBuf, b: &BitsBuf| -> u64 {
             crate::codec::scan::reset();
-            IdReader::root(a).diff(IdReader::root(b));
+            IdReader::root(crate::codec::built_view(a))
+                .diff(IdReader::root(crate::codec::built_view(b)));
             crate::codec::scan::scan_bits()
         };
         for k in [256usize, 4096] {
@@ -938,8 +945,8 @@ mod diff_constructed {
                 ("owned-cover block", &owned_cover, 0),
             ] {
                 let blocked = scan(&spine, cover);
-                let floor = (spine.len() + cover.len()) as u64;
-                let ceiling = floor + output_len as u64 + BLOCK_SLACK;
+                let floor = spine.len() + cover.len();
+                let ceiling = floor + output_len + BLOCK_SLACK;
                 assert!(
                     floor <= blocked && blocked <= ceiling,
                     "{name} k={k}: scanned {blocked} bits outside \
@@ -1010,7 +1017,7 @@ proptest! {
     ) {
         let a = from_oracle_party(&oa);
         let b = from_oracle_party(&ob);
-        let bit_eq = a.as_bits() == b.as_bits();
+        let bit_eq = a.as_bits().to_buf() == b.as_bits().to_buf();
         prop_assert_eq!(a == b, bit_eq);
         prop_assert_eq!(b == a, bit_eq);
         if a == b {
@@ -1048,7 +1055,7 @@ proptest! {
 fn fork_chain_orbit_sizes_are_exactly_affine() {
     let mut p = Party::seed();
     assert_eq!(p.encoded_bits(), 2, "the seed is the 2-bit whole region");
-    for k in 1usize..=512 {
+    for k in 1u64..=512 {
         let q = p.fork();
         assert_eq!(p.encoded_bits(), 2 + 2 * k, "keeper id bits after fork {k}");
         assert_eq!(q.encoded_bits(), 2 + 2 * k, "mover id bits after fork {k}");
@@ -1071,7 +1078,7 @@ fn fork_chain_orbit_sizes_are_exactly_affine() {
 fn fork_fan_orbit_grows_affine_and_unwinds_to_seed() {
     let mut root = Party::seed();
     let mut children = Vec::new();
-    for k in 1usize..=512 {
+    for k in 1u64..=512 {
         let q = root.fork();
         assert_eq!(
             root.encoded_bits(),
@@ -1086,7 +1093,7 @@ fn fork_fan_orbit_grows_affine_and_unwinds_to_seed() {
             .expect("fan children are disjoint from the root");
         assert_eq!(
             root.encoded_bits(),
-            2 + 2 * (511 - i),
+            2 + 2 * (511 - i as u64),
             "root id bits after unwind join {i}"
         );
     }

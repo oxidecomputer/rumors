@@ -21,8 +21,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use proptest::prelude::*;
 use rayon::prelude::*;
 
-use crate::codec::BitsMut;
-use crate::codec::BitsSlice;
+use crate::codec::BitsBuf;
+use crate::codec::BitsView;
 use crate::meter::registry::Shape;
 use crate::meter::Packed;
 use crate::recurse::descend;
@@ -79,21 +79,21 @@ fn assert_grow(v: &Version, p: &Party) -> bool {
 ///
 /// The recursive oracle walks on native frames, so the deep-spine test calls
 /// this directly and takes its value witnesses from closed forms instead.
-fn assert_grow_depth_safe(v: &Version, p: &Party) -> Option<BitsMut> {
+fn assert_grow_depth_safe(v: &Version, p: &Party) -> Option<BitsBuf> {
     let enc = encode(v);
-    match fused_fill(&enc, p) {
+    match fused_fill(crate::codec::built_view(&enc), p) {
         // fill moved the tree: the splice is unreachable for this pair.
         FillOutcome::Changed(_) => None,
         FillOutcome::Unchanged(route) => {
-            let (reference, _) = reference_probe(enc.as_bitslice(), p.as_bits());
+            let (reference, _) = reference_probe(crate::codec::built_view(&enc), p.as_bits());
             assert_eq!(
                 route.dirs(),
                 reference.dirs(),
                 "the fused walk's route must match the recursive reference bit for bit: \
                  {v} with {p}"
             );
-            let out = tick(&enc, p);
-            validate(&out).expect("a grown stream is canonical");
+            let out = tick(crate::codec::built_view(&enc), p);
+            validate(crate::codec::built_view(&out)).expect("a grown stream is canonical");
             Some(out)
         }
     }
@@ -113,10 +113,10 @@ enum RefId {
 /// Probe the cheapest inflation by direct recursion over the `(id, ev)` shape —
 /// the transliteration of the recursive walk whose route fold the fused tick
 /// walk carries, kept as its structural witness.
-fn reference_probe(ev_bits: &BitsSlice, id_bits: &BitsSlice) -> (Route, Cost) {
+fn reference_probe(ev_bits: BitsView<'_>, id_bits: BitsView<'_>) -> (Route, Cost) {
     let mut route = Route::new(id_bits.len());
     let mut ev = EvScan::new(ev_bits);
-    let mut id_pos = 0usize;
+    let mut id_pos = 0u64;
     let root = if id_bits.is_empty() {
         RefId::Empty
     } else {
@@ -135,8 +135,8 @@ fn reference_probe(ev_bits: &BitsSlice, id_bits: &BitsSlice) -> (Route, Cost) {
 fn rec(
     route: &mut Route,
     ev: &mut EvScan<'_>,
-    id_bits: &BitsSlice,
-    id_pos: &mut usize,
+    id_bits: BitsView<'_>,
+    id_pos: &mut u64,
     id: RefId,
     ev_zero: bool,
     depth: usize,
@@ -189,7 +189,7 @@ fn rec(
 ///
 /// Component steps included ([`Cost::deepen`]: infeasibility propagates,
 /// feasible components saturate strictly below the infeasible sentinel).
-fn combine(route: &mut Route, expand: bool, key: usize, left: Cost, right: Cost) -> Cost {
+fn combine(route: &mut Route, expand: bool, key: u64, left: Cost, right: Cost) -> Cost {
     let left_chosen = left < right;
     route.record(key, left_chosen);
     let m = if left_chosen { left } else { right };
@@ -368,7 +368,7 @@ fn worked_examples_grow_exactly() {
         let v: Version = before.parse().expect("test version literals parse");
         let expected: Version = after.parse().expect("test version literals parse");
         assert_eq!(
-            tick(&encode(&v), &p),
+            tick(crate::codec::built_view(&encode(&v)), &p),
             encode(&expected),
             "grow of {before} with {party} must yield {after}"
         );
@@ -452,7 +452,7 @@ proptest! {
             let (best, _) = best_inflation(&op, &ov).expect("an owning id always inflates");
             let minimal = from_oracle_version(&best.normalized_for_test());
             prop_assert_eq!(
-                tick(&encode(&v), &p),
+                tick(crate::codec::built_view(&encode(&v)), &p),
                 encode(&minimal),
                 "grow must register the brute-force minimal inflation: {} with {}", v, p
             );

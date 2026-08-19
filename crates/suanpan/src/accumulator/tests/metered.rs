@@ -430,6 +430,17 @@ fn held_width_rows_cost_the_held_digits() {
         assert_eq!((sign, magnitude), (Ordering::Greater, wide_value.clone()));
 
         touch_meter::reset();
+        let (limb_sign, limbs) = acc.sign_limbs();
+        assert_eq!(
+            touch_meter::touches(),
+            held_digits,
+            "sign_limbs at {held_digits} held digits: the same one carry \
+             pass as sign_magnitude"
+        );
+        assert_eq!(limb_sign, Ordering::Greater);
+        assert_eq!(from_limbs(&limbs), wide_value.clone());
+
+        touch_meter::reset();
         acc.shl(32);
         assert_eq!(
             touch_meter::touches(),
@@ -541,6 +552,114 @@ fn wide_writes_cost_the_operand_at_any_held_width() {
         );
         let (sign, magnitude) = acc.sign_magnitude();
         assert_eq!((sign, magnitude), (Ordering::Greater, held));
+    }
+}
+
+/// The streaming limb entry points cost the limbs the stream yields,
+/// independent of the shift and the held width: exact totals on the
+/// alternating-pair schedule, plus the padded-stream clause.
+///
+/// A one-limb stream oscillating at digit `shift/32` costs exactly 5
+/// touches per sub/add pair — the same accounting as the wide rows (2
+/// limb reads + 2 deposits + 1 certificate skip), pinned identical
+/// across a shift doubling. The second clause pins the contract's
+/// padding sentence exactly: a `[5, 0, 0]` stream costs 4 touches (3
+/// yielded-limb reads + 1 deposit) — high zero limbs are value-neutral
+/// but each yielded limb pays its touch.
+#[test]
+fn limb_stream_writes_cost_the_yielded_limbs() {
+    for shift in [32_000u64, 64_000] {
+        let mut acc = Accumulator::new();
+        acc.add_limbs_shl([1u64], shift);
+        touch_meter::reset();
+        for _ in 0..1_000 {
+            acc.sub_limbs_shl([1u64], shift);
+            acc.add_limbs_shl([1u64], shift);
+        }
+        assert_eq!(
+            touch_meter::touches(),
+            5_000,
+            "1,000 alternating one-limb stream pairs at shift {shift}: \
+             5 touches per pair, whatever the shift"
+        );
+        let (sign, magnitude) = acc.sign_magnitude();
+        assert_eq!(sign, Ordering::Greater);
+        assert_eq!(
+            magnitude,
+            UBig::from(1u8) << usize::try_from(shift).unwrap()
+        );
+    }
+    let mut acc = Accumulator::new();
+    acc.add_limbs_shl([5u64, 0, 0], 0);
+    touch_meter::reset();
+    acc.add_limbs_shl([5u64, 0, 0], 0);
+    assert_eq!(
+        touch_meter::touches(),
+        4,
+        "a padded [5, 0, 0] stream: 3 yielded-limb reads + 1 deposit — \
+         zero limbs are value-neutral but pay their touch"
+    );
+    let (sign, magnitude) = acc.sign_magnitude();
+    assert_eq!((sign, magnitude), (Ordering::Greater, UBig::from(10u8)));
+}
+
+/// The streaming limb entries are the wide entries with the backend
+/// value elided: identical held values and identical exact touch counts
+/// when fed the same minimal limbs, in both signs, at zero and nonzero
+/// shifts.
+///
+/// This pins the streaming entry as a re-spelling of `add_wide_shl`'s
+/// cost model, not a second cost model: whatever evidence prices the
+/// wide rows prices these.
+#[test]
+fn limb_stream_matches_the_wide_entry() {
+    let shapes: [(&[u64], u64); 4] = [
+        (&[3, 5], 0),
+        (&[3, 5], 32_000),
+        (&[u64::MAX, 0, 1], 17),
+        (&[7, 0], 63),
+    ];
+    for (limbs, shift) in shapes {
+        for negative in [false, true] {
+            let seed = (UBig::from(1u8) << 4_096usize) - 1u8;
+            let mut via_wide = Accumulator::new();
+            via_wide.add_wide(&seed);
+            let mut via_stream = Accumulator::new();
+            via_stream.add_wide(&seed);
+
+            touch_meter::reset();
+            if negative {
+                via_wide.sub_wide_shl(&from_limbs(limbs), shift);
+            } else {
+                via_wide.add_wide_shl(&from_limbs(limbs), shift);
+            }
+            let wide_touches = touch_meter::touches();
+
+            touch_meter::reset();
+            // `Limbs` yields minimal limbs; strip the shape's padding so
+            // both entries are fed the identical stream.
+            let minimal = limbs
+                .iter()
+                .copied()
+                .take(limbs.len() - limbs.iter().rev().take_while(|&&limb| limb == 0).count());
+            if negative {
+                via_stream.sub_limbs_shl(minimal, shift);
+            } else {
+                via_stream.add_limbs_shl(minimal, shift);
+            }
+            assert_eq!(
+                touch_meter::touches(),
+                wide_touches,
+                "the streaming entry costs exactly the wide entry's touches"
+            );
+            let (wide_sign, wide_magnitude) = via_wide.sign_magnitude();
+            let (stream_sign, stream_magnitude) = via_stream.sign_magnitude();
+            assert_eq!(
+                (wide_sign, wide_magnitude),
+                (stream_sign, stream_magnitude),
+                "the streaming entry holds exactly the wide entry's value"
+            );
+        }
     }
 }
 

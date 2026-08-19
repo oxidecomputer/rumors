@@ -19,6 +19,7 @@
 
 pub(crate) mod base;
 mod bits;
+mod buf;
 mod build;
 mod code;
 mod cursor;
@@ -38,19 +39,20 @@ mod tests;
 #[cfg(feature = "limb-meter")]
 pub(crate) use base::limb_meter;
 pub use base::Base;
-pub(crate) use bits::{
-    byte_view, bytes_as_bits, canonical_eq, canonical_hash, padding_is_canonical,
-    require_marker_padding, slice_ptr_eq,
-};
+pub(crate) use bits::{canonical_eq, canonical_hash, padding_is_canonical, require_marker_padding};
+#[cfg(test)]
+pub(crate) use buf::bits_buf;
+pub(crate) use buf::{built_view, extend_from_view};
 // Production streams seal at the freeze seam (`Bits::freeze`); the
 // standalone form serves the buffers that stay build-side, all of them
 // meter/test instruments producing decodable bytes (the generators'
 // packed outputs, the board's defect shapes, the snapshot corpus).
 #[cfg(any(test, feature = "meter"))]
-pub(crate) use bits::seal_padding;
+pub(crate) use buf::seal_padding;
 // The storage forms are `pub` (the enclosing module is not), so the
 // meter surface can re-export them for the resource-envelope suite.
-pub use bits::{Bits, BitsMut, BitsSlice};
+pub use bits::{Bits, BitsView};
+pub use buf::BitsBuf;
 pub(crate) use build::PackedBuilder;
 pub(crate) use code::Code;
 pub(crate) use cursor::{BitCursor, SliceCursor};
@@ -71,4 +73,8 @@ pub(crate) use tree::{parse_id, validate_id};
 // (everything else parses whole streams); gating the re-export keeps default
 // builds warning-free for downstream consumers.
 #[cfg(feature = "borsh")]
+pub(crate) use tree::parse_id_core;
+// The generic-position parse serves the wire-side (borsh) test suite; the
+// grammar body above is what production readers drive.
+#[cfg(all(test, feature = "borsh"))]
 pub(crate) use tree::parse_id_from;

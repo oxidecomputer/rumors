@@ -1,4 +1,4 @@
-use crate::codec::{BitStack, BitsMut, BitsSlice, PackedBuilder, PopStack};
+use crate::codec::{BitStack, BitsBuf, BitsView, PackedBuilder, PopStack};
 use crate::idbits::{IdNode, IdReader};
 
 /// Single-buffer builder for normalized id output.
@@ -37,17 +37,17 @@ pub(super) enum Built {
 /// borrow checker stops it being reused or dropped silently — so an open with
 /// no matching close cannot compile.
 #[must_use = "an opened node must be closed with close_node"]
-pub(super) struct Open(usize);
+pub(super) struct Open(u64);
 
 /// The width of an id node's presence tag: one bit per child.
 const TAG_BITS: usize = 2;
 
 /// The output width of a node whose two children are both terminals: its own
 /// tag followed by the two terminal tags.
-const TERMINAL_PAIR_BITS: usize = 3 * TAG_BITS;
+const TERMINAL_PAIR_BITS: u64 = 3 * TAG_BITS as u64;
 
 impl IdBuilder {
-    pub(super) fn with_capacity(capacity: usize) -> Self {
+    pub(super) fn with_capacity(capacity: u64) -> Self {
         IdBuilder {
             out: PackedBuilder::with_capacity(capacity),
         }
@@ -91,7 +91,7 @@ impl IdBuilder {
         src.skip();
         // The peek and the skip above record their own reads; the splice
         // records the write.
-        self.out.splice(&src.bits()[start..src.pos()]);
+        self.out.splice(src.bits(), start, src.pos());
         if is_terminal {
             Built::Terminal
         } else {
@@ -99,11 +99,12 @@ impl IdBuilder {
         }
     }
 
-    /// Append a complete already-normal subtree's bits verbatim (the splice
-    /// records the write), for a spliced child whose kind the caller reports to
-    /// [`close_node`](Self::close_node) itself.
-    pub(super) fn splice(&mut self, src: &BitsSlice) {
-        self.out.splice(src);
+    /// Append an already-normal subtree's bits — the range `start..end` of
+    /// `src` — verbatim (the splice records the write), for a spliced child
+    /// whose kind the caller reports to [`close_node`](Self::close_node)
+    /// itself.
+    pub(super) fn splice(&mut self, src: BitsView<'_>, start: u64, end: u64) {
+        self.out.splice(src, start, end);
     }
 
     /// Normalize and close the node opened at `node` from what its two children
@@ -148,7 +149,7 @@ impl IdBuilder {
         self.terminal()
     }
 
-    pub(super) fn finish(self) -> BitsMut {
+    pub(super) fn finish(self) -> BitsBuf {
         self.out.finish()
     }
 }
@@ -190,7 +191,7 @@ pub(super) struct IdSkylineBuilder {
 
 impl IdSkylineBuilder {
     /// Create a builder with room for `capacity` output bits.
-    pub(super) fn with_capacity(capacity: usize) -> Self {
+    pub(super) fn with_capacity(capacity: u64) -> Self {
         IdSkylineBuilder {
             out: IdBuilder::with_capacity(capacity),
             path: BitStack::new(),
@@ -206,7 +207,7 @@ impl IdSkylineBuilder {
     /// The plateau sequence must be the preorder tiling of one dyadic tree:
     /// each new depth must be reachable from the last by the forced
     /// flip-and-descend, which the builder debug-asserts.
-    pub(super) fn leaf(&mut self, depth: usize, owned: bool) {
+    pub(super) fn leaf(&mut self, depth: u64, owned: bool) {
         debug_assert!(
             self.root.is_none(),
             "a plateau arrived after the final one: the tiling is complete"
@@ -243,7 +244,7 @@ impl IdSkylineBuilder {
     /// by plateau would close as (its root has a child that is neither
     /// both-empty nor both-terminal), so the ancestors' presence patches and
     /// collapses are unchanged.
-    pub(super) fn subtree(&mut self, depth: usize, src: &BitsSlice) {
+    pub(super) fn subtree(&mut self, depth: u64, src: BitsView<'_>, start: u64, end: u64) {
         debug_assert!(
             self.root.is_none(),
             "a subtree arrived after the final plateau: the tiling is complete"
@@ -253,7 +254,7 @@ impl IdSkylineBuilder {
             "a subtree depth above its forced flip level: the input is not one preorder tiling"
         );
         debug_assert!(
-            src[0] || src[1],
+            src.bit(start) || src.bit(start + 1),
             "a spliced block is an internal subtree, never a lone terminal"
         );
         // Open an ancestor per level entered, exactly as a leaf would.
@@ -262,12 +263,12 @@ impl IdSkylineBuilder {
             self.tags.push(at);
             self.path.push(false);
         }
-        self.out.splice(src);
+        self.out.splice(src, start, end);
         self.close_up(Built::Node);
     }
 
     /// Take the finished canonical stream (empty for a wholly unowned tiling).
-    pub(super) fn finish(self) -> BitsMut {
+    pub(super) fn finish(self) -> BitsBuf {
         debug_assert!(
             self.root.is_some(),
             "an id tiling closes its root exactly once"
@@ -334,7 +335,7 @@ impl IdSkylineBuilder {
 /// here the same way it does in the path stacks.
 struct PosStack {
     /// The innermost entry's absolute position (0 when empty).
-    top: usize,
+    top: u64,
     /// The entries' deltas from the entry under them, stored off by one
     /// so the width is nonzero even at delta 0 (the first entry at
     /// position 0).
@@ -350,9 +351,9 @@ impl PosStack {
     }
 
     /// Push a position at or above the current top.
-    fn push(&mut self, pos: usize) {
+    fn push(&mut self, pos: u64) {
         debug_assert!(pos >= self.top, "reserved tag positions never move left");
-        self.deltas.push((pos - self.top + 1) as u64);
+        self.deltas.push(pos - self.top + 1);
         self.top = pos;
     }
 
@@ -361,9 +362,9 @@ impl PosStack {
     /// # Panics
     ///
     /// Panics if the stack is empty.
-    fn pop(&mut self) -> usize {
+    fn pop(&mut self) -> u64 {
         let pos = self.top;
-        self.top -= self.deltas.pop() as usize - 1;
+        self.top -= self.deltas.pop() - 1;
         pos
     }
 }

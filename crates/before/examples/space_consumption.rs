@@ -334,7 +334,7 @@ fn build_population(n: usize) -> Vec<Clock> {
 /// `⌈bits/8⌉` per stamp (the per-stamp ceiling is what biases the byte mean).
 fn mean_stamp_sizes(clocks: &[Clock]) -> (f64, f64) {
     let n = clocks.len() as f64;
-    let bits: usize = clocks.iter().map(Clock::encoded_bits).sum();
+    let bits: u64 = clocks.iter().map(Clock::encoded_bits).sum();
     let bytes: usize = clocks.iter().map(|c| c.encode().len()).sum();
     (bits as f64 / n, bytes as f64 / n)
 }

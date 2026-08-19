@@ -80,7 +80,7 @@ use core::cmp::Ordering;
 
 use suanpan::Accumulator;
 
-use crate::codec::{BitsMut, BitsSlice, Code, Int};
+use crate::codec::{BitsBuf, BitsView, Code, Int};
 
 use super::build::SkylineBuilder;
 use super::overlay::{advance_diff, OpenedPair, PlateauCursor, Side, Step};
@@ -116,8 +116,8 @@ fn follow_min(sign: Ordering, current: Side) -> Side {
 ///
 /// One merge over the two streams; the module doc carries the emission algebra
 /// and the cost bounds. The output stream equals the recursive oracle's join
-/// bit for bit (the differential suite pins it); its dead pad bits are left as
-/// built — zeroing them is the storage gate's job (`Version::from_bits`).
+/// bit for bit (the differential suite pins it); the marker padding is the
+/// storage gate's job (`Version::from_bits`).
 ///
 /// # Panics
 ///
@@ -126,7 +126,7 @@ fn follow_min(sign: Ordering, current: Side) -> Side {
 /// the walk structurally notices (truncation, malformation) panic; the rest (a
 /// collapsible sibling pair, a delta driving the running height negative) sweep
 /// silently, and the output is then unspecified.
-pub fn join(a: &BitsSlice, b: &BitsSlice) -> BitsMut {
+pub fn join(a: BitsView<'_>, b: BitsView<'_>) -> BitsBuf {
     emit(a, b, follow_max)
 }
 
@@ -139,7 +139,7 @@ pub fn join(a: &BitsSlice, b: &BitsSlice) -> BitsMut {
 ///
 /// [`join`]'s contract exactly: canonical operands required, structural
 /// violations panic, the rest yield an unspecified output.
-pub fn meet(a: &BitsSlice, b: &BitsSlice) -> BitsMut {
+pub fn meet(a: BitsView<'_>, b: BitsView<'_>) -> BitsBuf {
     emit(a, b, follow_min)
 }
 
@@ -154,9 +154,9 @@ pub struct Hull {
     /// pair: the fold sees only signs, never buffers.
     pub relation: Option<Ordering>,
     /// The meet (pointwise min) stream.
-    pub lo: BitsMut,
+    pub lo: BitsBuf,
     /// The join (pointwise max) stream.
-    pub hi: BitsMut,
+    pub hi: BitsBuf,
 }
 
 /// The hull `(meet, join)` of the versions two skyline streams denote, as
@@ -187,7 +187,7 @@ pub struct Hull {
 ///
 /// [`join`]'s contract exactly: canonical operands required, structural
 /// violations panic, the rest yield an unspecified output triple.
-pub fn hull(a_bits: &BitsSlice, b_bits: &BitsSlice) -> Hull {
+pub fn hull(a_bits: BitsView<'_>, b_bits: BitsView<'_>) -> Hull {
     /// One output of the fused sweep: its side selection (pointwise min or max
     /// — the only point where the two outputs differ), the side it is currently
     /// following, and its builder.
@@ -276,7 +276,11 @@ pub fn hull(a_bits: &BitsSlice, b_bits: &BitsSlice) -> Hull {
 /// difference's sign and the current side — the winner by sign, sticky at ties,
 /// and the only point where join and meet differ (see the module doc's
 /// side-switch algebra).
-fn emit(a_bits: &BitsSlice, b_bits: &BitsSlice, pick: impl Fn(Ordering, Side) -> Side) -> BitsMut {
+fn emit(
+    a_bits: BitsView<'_>,
+    b_bits: BitsView<'_>,
+    pick: impl Fn(Ordering, Side) -> Side,
+) -> BitsBuf {
     let OpenedPair {
         a: mut cursor_a,
         b: mut cursor_b,
@@ -314,9 +318,9 @@ fn emit(a_bits: &BitsSlice, b_bits: &BitsSlice, pick: impl Fn(Ordering, Side) ->
         out.leaf(cursor_a.depth().max(cursor_b.depth()), code);
     }
 
-    // Canonicalizing the storage (zeroing dead pad bits) is the job of
-    // `Version::from_bits`, the single gate a stream passes through when it
-    // becomes a stored value; intermediate streams stay as built.
+    // Sealing the marker padding is the job of `Version::from_bits`, the
+    // single gate a stream passes through when it becomes a stored value;
+    // intermediate streams stay unsealed.
     out.finish()
 }
 

@@ -1,4 +1,4 @@
-use crate::codec::{BitsMut, BitsSlice};
+use crate::codec::{built_view, extend_from_view, BitsBuf, BitsView};
 use crate::idbits::{IdNode, IdReader};
 
 impl<'a> IdReader<'a> {
@@ -64,7 +64,7 @@ impl<'a> IdReader<'a> {
     /// present on one side alone is spliced without reading its nodes, where
     /// the composition pays two scans of it (`sum`'s copy skip, then `split`'s
     /// subtree-end scan) plus its bytes in the built union.
-    pub(crate) fn sum_split(mut self, mut other: IdReader) -> Option<(BitsMut, BitsMut)> {
+    pub(crate) fn sum_split(mut self, mut other: IdReader) -> Option<(BitsBuf, BitsBuf)> {
         // An empty operand leaves the union the other operand, whole, so the
         // halves are its plain split. Only the root can be empty: below it,
         // presence in the union keeps both cursors live.
@@ -75,7 +75,7 @@ impl<'a> IdReader<'a> {
             return Some(self.split());
         }
         // The union's spine tags, shared by both halves (split's prefix).
-        let mut spine = BitsMut::new();
+        let mut spine = BitsBuf::new();
         loop {
             let (a_node, b_node) = (self.peek(), other.peek());
             let (al, ar) = match a_node {
@@ -102,7 +102,7 @@ impl<'a> IdReader<'a> {
                     // full, so `split` cuts it exactly where it would cut the
                     // built union's branch.
                     let union = self.sum(other)?;
-                    let (keep_child, give_child) = IdReader::root(&union).split();
+                    let (keep_child, give_child) = IdReader::root(built_view(&union)).split();
                     return Some((splice(&spine, &keep_child), splice(&spine, &give_child)));
                 }
                 // The targeted branch: each half keeps the spine, a one-child
@@ -111,8 +111,8 @@ impl<'a> IdReader<'a> {
                 other.read();
                 let (a_left, a_right) = branch_children(&self, al, ar);
                 let (b_left, b_right) = branch_children(&other, bl, br);
-                let keep_child = union_child(a_left, b_left)?;
-                let give_child = union_child(a_right, b_right)?;
+                let keep_child = union_child(self.bits(), other.bits(), a_left, b_left)?;
+                let give_child = union_child(self.bits(), other.bits(), a_right, b_right)?;
                 let keep = half(&spine, true, false, &keep_child);
                 let give = half(&spine, false, true, &give_child);
                 return Some((keep, give));
@@ -131,17 +131,27 @@ impl<'a> IdReader<'a> {
 /// One union child's bits at the branch: an operand's subtree verbatim, or a
 /// freshly merged pair.
 enum UnionChild<'a> {
-    /// The child is one operand's subtree alone: its verbatim bit range.
-    Verbatim(&'a BitsSlice),
+    /// The child is one operand's subtree alone: its stream and the
+    /// subtree's verbatim bit range within it.
+    Verbatim(BitsView<'a>, u64, u64),
     /// The child is present on both sides: the merged (summed) subtree.
-    Merged(BitsMut),
+    Merged(BitsBuf),
 }
 
 impl UnionChild<'_> {
-    fn bits(&self) -> &BitsSlice {
+    /// The child's bit length, for the halves' exact capacity hints.
+    fn len(&self) -> u64 {
         match self {
-            UnionChild::Verbatim(bits) => bits,
-            UnionChild::Merged(bits) => bits,
+            UnionChild::Verbatim(_, start, end) => end - start,
+            UnionChild::Merged(bits) => bits.len(),
+        }
+    }
+
+    /// Append the child's bits to a half.
+    fn append_to(&self, out: &mut BitsBuf) {
+        match self {
+            UnionChild::Verbatim(bits, start, end) => extend_from_view(out, *bits, *start, *end),
+            UnionChild::Merged(bits) => out.extend_from_buf(bits),
         }
     }
 }
@@ -153,11 +163,12 @@ impl UnionChild<'_> {
 /// it consumed only unary tags), so the last present child runs to the stream's
 /// end and only a both-present operand pays a skip — of its left child, to find
 /// the boundary between the two.
-fn branch_children<'a>(
-    reader: &IdReader<'a>,
+#[allow(clippy::type_complexity)] // two optional bit ranges: an inline pair over a minted name
+fn branch_children(
+    reader: &IdReader<'_>,
     left: bool,
     right: bool,
-) -> (Option<&'a BitsSlice>, Option<&'a BitsSlice>) {
+) -> (Option<(u64, u64)>, Option<(u64, u64)>) {
     let bits = reader.bits();
     let start = reader.pos();
     match (left, right) {
@@ -165,22 +176,27 @@ fn branch_children<'a>(
             let mut probe = IdReader::at(bits, start);
             probe.skip();
             let mid = probe.pos();
-            (Some(&bits[start..mid]), Some(&bits[mid..]))
+            (Some((start, mid)), Some((mid, bits.len())))
         }
-        (true, false) => (Some(&bits[start..]), None),
-        (false, true) => (None, Some(&bits[start..])),
+        (true, false) => (Some((start, bits.len())), None),
+        (false, true) => (None, Some((start, bits.len()))),
         (false, false) => unreachable!("an internal id node has a present child"),
     }
 }
 
 /// One union child at the branch: the side present alone, verbatim, or the
 /// merge of both — `None` if the merged subtrees overlap.
-fn union_child<'a>(a: Option<&'a BitsSlice>, b: Option<&'a BitsSlice>) -> Option<UnionChild<'a>> {
+fn union_child<'a>(
+    a_bits: BitsView<'a>,
+    b_bits: BitsView<'a>,
+    a: Option<(u64, u64)>,
+    b: Option<(u64, u64)>,
+) -> Option<UnionChild<'a>> {
     match (a, b) {
-        (Some(a), None) => Some(UnionChild::Verbatim(a)),
-        (None, Some(b)) => Some(UnionChild::Verbatim(b)),
-        (Some(a), Some(b)) => IdReader::root(a)
-            .sum(IdReader::root(b))
+        (Some((start, end)), None) => Some(UnionChild::Verbatim(a_bits, start, end)),
+        (None, Some((start, end))) => Some(UnionChild::Verbatim(b_bits, start, end)),
+        (Some(a), Some(b)) => IdReader::at(a_bits, a.0)
+            .sum(IdReader::at(b_bits, b.0))
             .map(UnionChild::Merged),
         (None, None) => unreachable!("a union branch child is present on some side"),
     }
@@ -188,20 +204,20 @@ fn union_child<'a>(a: Option<&'a BitsSlice>, b: Option<&'a BitsSlice>) -> Option
 
 /// Assemble one half: the spine, the branch retagged to its kept side, and the
 /// kept child's bits.
-fn half(spine: &BitsSlice, left: bool, right: bool, child: &UnionChild) -> BitsMut {
-    let mut out = BitsMut::with_capacity(spine.len() + 2 + child.bits().len());
-    out.extend_from_bitslice(spine);
+fn half(spine: &BitsBuf, left: bool, right: bool, child: &UnionChild) -> BitsBuf {
+    let mut out = BitsBuf::with_capacity(spine.len() + 2 + child.len());
+    out.extend_from_buf(spine);
     out.push(left);
     out.push(right);
-    out.extend_from_bitslice(child.bits());
+    child.append_to(&mut out);
     out
 }
 
 /// Assemble one delegated-mode half: the spine, then the composition's own half
 /// of the branch subtree's union.
-fn splice(spine: &BitsSlice, tail: &BitsSlice) -> BitsMut {
-    let mut out = BitsMut::with_capacity(spine.len() + tail.len());
-    out.extend_from_bitslice(spine);
-    out.extend_from_bitslice(tail);
+fn splice(spine: &BitsBuf, tail: &BitsBuf) -> BitsBuf {
+    let mut out = BitsBuf::with_capacity(spine.len() + tail.len());
+    out.extend_from_buf(spine);
+    out.extend_from_buf(tail);
     out
 }

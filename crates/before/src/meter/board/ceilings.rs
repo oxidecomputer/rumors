@@ -291,7 +291,7 @@ pub(super) fn both_present_nodes(p: &Party) -> u64 {
     let mut count = 0u64;
     let mut i = 0;
     while i + 1 < bits.len() {
-        count += u64::from(bits[i] && bits[i + 1]);
+        count += u64::from(bits.bit(i) && bits.bit(i + 1));
         i += 2;
     }
     count

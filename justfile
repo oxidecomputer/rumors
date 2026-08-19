@@ -69,6 +69,14 @@ fuzz_smoke_secs := "20"
 fuzzfit_target := justfile_directory() + "/target/fuzzfit"
 fuzzfit_guest_wasm := fuzzfit_target + "/wasm32-unknown-unknown/release/fuzzfit_guest.wasm"
 
+# The 32-bit boundary-pin guest's wasm: produced by `wasm32-pins-build`,
+# read by the `wasm32-pins` harness run. Named and passed explicitly for
+# the same reason as the fuzz-fit guest above: an ambient CARGO_TARGET_DIR
+# must not separate the producer from the consumer.
+
+wasm32pins_target := justfile_directory() + "/target/wasm32-pins"
+wasm32pins_guest_wasm := wasm32pins_target + "/wasm32-unknown-unknown/release/wasm32_pins_guest.wasm"
+
 # Criterion's output root: the bench-judge recipes save baselines and
 # denominator sidecars here, honoring CARGO_TARGET_DIR so a fresh or
 # redirected target directory keeps the baselines and the sidecars together.
@@ -431,7 +439,7 @@ gate-streams:
     start_stream workspace     0 clippy clippy-default docs test-all citecheck
     start_stream doctest      10 doctest
     start_stream board        10 amp-board-acceptance worst-cases-pin
-    start_stream wasm         10 fuzzfit fuelscape-test
+    start_stream wasm         10 fuzzfit fuelscape-test wasm32-pins
     start_stream fuzz         10 fuzz-build
     start_stream surface      10 surface-totality
     start_stream internal-docs 10 docs-internal
@@ -573,6 +581,43 @@ fuzzfit: fuzzfit-build
 [working-directory("crates/before/fuzzfit")]
 fuzzfit-calibrate: fuzzfit-build
     FUZZFIT_GUEST_WASM={{ fuzzfit_guest_wasm }} cargo run --release -p fuzzfit-harness --bin calibrate
+
+# The 32-bit boundary pins live in their own detached workspace
+# (crates/before/wasm32-pins, the fuzz-fit idiom: workspace-wide builds
+# never compile it, and wasmtime stays out of the production crates'
+# graph); the gate reaches it only through these recipes by name.
+# `wasm-check` proves before *compiles* for a 32-bit target; this leg is
+# the tree's one place 32-bit code *executes*: the guest drives the
+# public surface — the byte and borsh decode doors, the semantic walks
+# and emitters, and rank arithmetic — at the exact sizes where 32-bit
+# arithmetic has coordinates (the 2^29-bit and 2^29-byte marks where a
+# usize spelling of bit counts or positions would bind, the big-integer
+# backend's word cap on decoded values and on the rank fold's numerator,
+# the rank exponent's usize seam, the rank alignment-gap seam), and the
+# harness pins each coordinate's exact outcome, with adjacency witnesses
+# beside each boundary so a failure is attributable to its seam. Pins
+# land red-first when a seam is found; each pin's history lives in git.
+# The guest builds with overflow checks on,
+# so a 32-bit wrap is an observable trap, never a silently wrong value.
+
+# Build the 32-bit boundary-pin wasm guest and its harness (both halves).
+[working-directory("crates/before/wasm32-pins")]
+wasm32-pins-build:
+    cargo build -p wasm32-pins-guest --release --target wasm32-unknown-unknown --target-dir {{ wasm32pins_target }}
+    cargo build -p wasm32-pins-harness --tests --release
+
+# Run the 32-bit boundary pins under wasmtime. The deep pins walk
+# hundreds of megabytes inside a 32-bit guest, so this leg costs minutes
+# of wall time and peaks at a few GiB of host memory across nextest's
+# parallel workers. The fmt/clippy lines are the detached workspace's own
+# lint leg (the root `cargo fmt --all`/clippy cannot reach a detached
+# workspace, so without them its source rots invisibly through green
+# gates — the fuzzfit recipes carry the same discipline).
+[working-directory("crates/before/wasm32-pins")]
+wasm32-pins: wasm32-pins-build
+    cargo fmt --check
+    cargo clippy --all-targets -- -D warnings
+    WASM32_PINS_GUEST_WASM={{ wasm32pins_guest_wasm }} cargo nextest run --cargo-profile release
 
 # The population atlas lives in its own detached workspace
 # (crates/before-fuelscape, the fuzz-fit idiom: workspace-wide builds never

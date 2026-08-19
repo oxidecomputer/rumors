@@ -1,6 +1,6 @@
 use crate::error::{Decode, Parse};
 
-use super::{BitCursor, BitsSlice, SliceCursor};
+use super::{BitCursor, BitsView};
 
 /// While building a node bottom-up, what we still need from the stream.
 ///
@@ -21,7 +21,9 @@ enum IdFrame {
 /// Parse one packed id tree at `pos`, validating id normal form (no node with
 /// two terminal children, that is `(1, 1)`).
 ///
-/// Returns the position just past the tree. Iterative: depth lives on an
+/// Returns the position just past the tree, at the walk's own `u64` width:
+/// the byte decode doors walk their whole padded buffer as bits, whose
+/// positions can exceed a 32-bit `usize`. Iterative: depth lives on an
 /// explicit stack, never the call stack.
 ///
 /// Each node is a 2-bit presence tag (bit 0 = left child follows, bit 1 = right
@@ -30,13 +32,29 @@ enum IdFrame {
 /// tag, no bits of its own — so the grammar has no empty production: input
 /// exhausted before a tag completes, the empty input included, is
 /// [`Decode::Truncated`], exactly as a byte-starved reader reports it.
-pub(crate) fn parse_id(bits: &BitsSlice, pos: usize) -> Result<usize, Decode> {
-    let mut cursor = SliceCursor::new(bits, pos);
-    parse_id_from(&mut cursor)
+pub(crate) fn parse_id(bits: BitsView<'_>, pos: u64) -> Result<u64, Decode> {
+    let mut cursor = super::DsiCursor::new_at(bits, pos);
+    parse_id_core(&mut cursor)?;
+    Ok(cursor.position())
 }
 
-/// Parse and validate one id tree from a sequential bit cursor.
-pub(crate) fn parse_id_from<C: BitCursor>(cursor: &mut C) -> Result<usize, Decode>
+/// Parse and validate one id tree from a sequential bit cursor, returning the
+/// position just past it.
+#[cfg(all(test, feature = "borsh"))]
+pub(crate) fn parse_id_from<C: BitCursor>(cursor: &mut C) -> Result<u64, Decode>
+where
+    Decode: From<C::Error>,
+{
+    parse_id_core(cursor)?;
+    Ok(cursor.position())
+}
+
+/// Parse and validate one id tree from a sequential bit cursor: the one
+/// grammar body.
+///
+/// The end position is left to the caller's own [`BitCursor::position`]
+/// read.
+pub(crate) fn parse_id_core<C: BitCursor>(cursor: &mut C) -> Result<(), Decode>
 where
     Decode: From<C::Error>,
 {
@@ -62,7 +80,7 @@ where
         // Attach the completed subtree to its parent, possibly completing it too.
         loop {
             match stack.pop() {
-                None => return Ok(cursor.position()), // the root is complete
+                None => return Ok(()), // the root is complete
                 Some(IdFrame::BothNeedLeft) => {
                     stack.push(IdFrame::BothNeedRight {
                         left_terminal: summary,
@@ -93,7 +111,7 @@ where
 /// id is *allowed* is the caller's question, answered at the standalone-value
 /// gates (`Parse::Anonymous`); the wire grammar never asks it, because no
 /// encoder spells the anonymous id on the wire.
-pub(crate) fn validate_id(bits: &BitsSlice) -> Result<(), Parse> {
+pub(crate) fn validate_id(bits: BitsView<'_>) -> Result<(), Parse> {
     if bits.is_empty() {
         return Ok(());
     }

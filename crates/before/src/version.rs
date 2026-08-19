@@ -155,7 +155,7 @@ impl Version {
         // `codec::encode_int`). The stored skyline stream is a unique
         // representation, so this O(1) bit test is the whole question — no
         // allocation, no walk.
-        skyline::is_empty_stream(&self.0)
+        skyline::is_empty_stream(self.0.live())
     }
 
     /// Advances this version by one event for `party`.
@@ -178,7 +178,7 @@ impl Version {
     /// assert!(v > Version::new()); // one event: strictly after the empty history
     /// ```
     pub fn tick(&mut self, party: &Party) {
-        *self = Version::from_bits(skyline::fill::tick(&self.0, party));
+        *self = Version::from_bits(skyline::fill::tick(self.0.live(), party));
     }
 
     /// Advances this version by `k` events for `party`.
@@ -214,7 +214,7 @@ impl Version {
         if k.0.bits() == 0 {
             return;
         }
-        *self = Version::from_bits(skyline::fill::ticks(&self.0, party, &k.0));
+        *self = Version::from_bits(skyline::fill::ticks(self.0.live(), party, &k.0));
     }
 
     /// Tests whether two [`Version`]s are concurrent (incomparable).
@@ -276,7 +276,7 @@ impl Version {
     /// assert_eq!(peaks.min_ticks(), Ticks::from(2u64));
     /// ```
     pub fn min_ticks(&self) -> Ticks {
-        Ticks(skyline::query::min_ticks(&self.0))
+        Ticks(skyline::query::min_ticks(self.0.live()))
     }
 
     /// This [`Version`]'s exact causal [`Rank`]: `v < w` implies `v.rank() <
@@ -307,7 +307,7 @@ impl Version {
     /// assert!(b.version().rank() < joined.rank());
     /// ```
     pub fn rank(&self) -> Rank {
-        skyline::query::rank(&self.0)
+        skyline::query::rank(self.0.live())
     }
 
     /// Views this version ordered totally by its causal rank, using its own
@@ -391,7 +391,7 @@ impl Version {
         if codec::canonical_eq(&self.0, &other.0) {
             return Rank::ZERO;
         }
-        skyline::query::distance(&self.0, &other.0)
+        skyline::query::distance(self.0.live(), other.0.live())
     }
 
     /// How far `self` lags behind `other`.
@@ -432,7 +432,7 @@ impl Version {
         if codec::canonical_eq(&self.0, &other.0) {
             return Rank::ZERO;
         }
-        skyline::query::lag(&self.0, &other.0)
+        skyline::query::lag(self.0.live(), other.0.live())
     }
 
     /// The join (least upper bound) of this [`Version`] and `other`: their
@@ -817,17 +817,17 @@ impl Version {
         if codec::canonical_eq(&self.0, incoming) {
             return; // a ∨ a = a
         }
-        if skyline::is_empty_stream(incoming) {
+        if skyline::is_empty_stream(incoming.live()) {
             return; // v ∨ 0 = v: nothing to fold in
         }
-        if skyline::is_empty_stream(&self.0) {
+        if skyline::is_empty_stream(self.0.live()) {
             // 0 ∨ v = v: adopt the incoming stream wholesale. Both streams are
             // canonical, so the shared buffer (an `O(1)` refcount clone) equals
             // the merge byte for byte.
             *self = Version::from_frozen(incoming.clone());
             return;
         }
-        *self = Version::from_bits(skyline::emit::join(&self.0, incoming));
+        *self = Version::from_bits(skyline::emit::join(self.0.live(), incoming.live()));
     }
 
     /// The borrowed-operands join: `a ∨ b` as a fresh [`Version`], reading both
@@ -842,13 +842,13 @@ impl Version {
         if codec::canonical_eq(&a.0, &b.0) {
             return a.clone(); // a ∨ a = a
         }
-        if skyline::is_empty_stream(&b.0) {
+        if skyline::is_empty_stream(b.0.live()) {
             return a.clone(); // v ∨ 0 = v
         }
-        if skyline::is_empty_stream(&a.0) {
+        if skyline::is_empty_stream(a.0.live()) {
             return b.clone(); // 0 ∨ v = v
         }
-        Version::from_bits(skyline::emit::join(&a.0, &b.0))
+        Version::from_bits(skyline::emit::join(a.0.live(), b.0.live()))
     }
 
     /// The view-taking meet core, the dual of [`join_view`](Self::join_view):
@@ -865,15 +865,15 @@ impl Version {
         if codec::canonical_eq(&self.0, incoming) {
             return; // a ∧ a == a
         }
-        if skyline::is_empty_stream(&self.0) {
+        if skyline::is_empty_stream(self.0.live()) {
             return; // 0 ∧ v = 0: already empty, nothing can shrink it
         }
-        if skyline::is_empty_stream(incoming) {
+        if skyline::is_empty_stream(incoming.live()) {
             // v ∧ 0 = 0: the result is the empty version, whatever `v` was.
             *self = Version::new();
             return;
         }
-        *self = Version::from_bits(skyline::emit::meet(&self.0, incoming));
+        *self = Version::from_bits(skyline::emit::meet(self.0.live(), incoming.live()));
     }
 
     /// The borrowed-operands meet: `a ∧ b` as a fresh [`Version`], reading both
@@ -887,13 +887,13 @@ impl Version {
         if codec::canonical_eq(&a.0, &b.0) {
             return a.clone(); // a ∧ a = a
         }
-        if skyline::is_empty_stream(&a.0) {
+        if skyline::is_empty_stream(a.0.live()) {
             return a.clone(); // 0 ∧ v = 0: `a` is already the answer
         }
-        if skyline::is_empty_stream(&b.0) {
+        if skyline::is_empty_stream(b.0.live()) {
             return Version::new(); // v ∧ 0 = 0, whatever `v` was
         }
-        Version::from_bits(skyline::emit::meet(&a.0, &b.0))
+        Version::from_bits(skyline::emit::meet(a.0.live(), b.0.live()))
     }
 
     /// The borrowed-operands hull: `(a ∧ b, a ∨ b)` as fresh [`Version`]s,
@@ -923,17 +923,17 @@ impl Version {
             hull_traffic::record(Rung::Equal);
             return (a.clone(), a.clone()); // a ∧ a = a = a ∨ a
         }
-        if skyline::is_empty_stream(&a.0) {
+        if skyline::is_empty_stream(a.0.live()) {
             // 0 ∧ v = 0 (`a` is already the meet), 0 ∨ v = v.
             hull_traffic::record(Rung::Empty);
             return (a.clone(), b.clone());
         }
-        if skyline::is_empty_stream(&b.0) {
+        if skyline::is_empty_stream(b.0.live()) {
             // v ∧ 0 = 0, v ∨ 0 = v.
             hull_traffic::record(Rung::Empty);
             return (Version::new(), a.clone());
         }
-        match skyline::sweep::causal_cmp(&a.0, &b.0) {
+        match skyline::sweep::causal_cmp(a.0.live(), b.0.live()) {
             // The comparable case's answer IS an operand pair.
             Some(Ordering::Less) => {
                 hull_traffic::record(Rung::Comparable);
@@ -949,7 +949,7 @@ impl Version {
             None => {}
         }
         hull_traffic::record(Rung::Concurrent);
-        let hull = skyline::emit::hull(&a.0, &b.0);
+        let hull = skyline::emit::hull(a.0.live(), b.0.live());
         // The fused walk folds the pair relation beside its emissions (an O(1)
         // flag pair riding sign reads the walk performs anyway), so the
         // ladder's classification is cross-checked at the only door that emits.
@@ -1062,10 +1062,12 @@ impl Version {
     pub fn decode<R: Read>(mut reader: R) -> Result<Self, Decode> {
         let mut buf = Vec::new();
         reader.read_to_end(&mut buf).map_err(Decode::Io)?;
+        // Validate over the whole buffer as bits, padding included: the
+        // walk's input is the whole `8 · buf.len()`-bit view, and the marker
+        // check judges the remainder.
         {
-            let bits = codec::bytes_as_bits(&buf);
-            let end = skyline::validate_prefix(bits)?;
-            codec::require_marker_padding(bits, end)?;
+            let end = skyline::validate_prefix(codec::BitsView::whole(&buf))?;
+            codec::require_marker_padding(&buf, end)?;
         }
         // Adopt the read buffer as the result's backing store without
         // copying: the padding check proved the buffer is the stream's one
@@ -1080,6 +1082,12 @@ impl Version {
     /// padding — the marker bit and zero-pad to the byte boundary, so
     /// `encode().len()` is `(encoded_bits() + 1).div_ceil(8)`.
     ///
+    /// Instrument surface, public under the `meter` feature: the resource
+    /// meters, coverage suites, and boundary pins denominate readings in
+    /// exact encoded bit lengths. Applications measure wire cost as
+    /// `encode().len()` or [`as_bytes`](Self::as_bytes)`.len()` — the byte
+    /// length actually shipped.
+    ///
     /// # Complexity
     ///
     /// `O(1)`.
@@ -1091,7 +1099,8 @@ impl Version {
     /// // The empty version is a single `0` leaf: a flag bit plus a value bit.
     /// assert_eq!(Version::new().encoded_bits(), 2);
     /// ```
-    pub fn encoded_bits(&self) -> usize {
+    #[cfg(any(test, feature = "meter"))]
+    pub fn encoded_bits(&self) -> u64 {
         self.0.len()
     }
 
@@ -1128,8 +1137,8 @@ impl Version {
     /// differential bridges read it; production code goes through
     /// [`Self::as_bytes`] or the crate-internal `view`.
     #[cfg(any(test, feature = "meter"))]
-    pub(crate) fn as_bits(&self) -> &codec::BitsSlice {
-        &self.0
+    pub(crate) fn as_bits(&self) -> codec::BitsView<'_> {
+        self.0.live()
     }
 
     /// Freeze a normal-form skyline bit stream as a `Version`, canonicalizing
@@ -1139,7 +1148,7 @@ impl Version {
     /// Callers guarantee canonical skyline form; the freeze seals the
     /// marker padding so the stored bytes are canonical (see
     /// [`codec::Bits::freeze`]).
-    pub(crate) fn from_bits(bits: codec::BitsMut) -> Self {
+    pub(crate) fn from_bits(bits: codec::BitsBuf) -> Self {
         Version(codec::Bits::freeze(bits))
     }
 
@@ -1363,7 +1372,7 @@ impl<'a> FromIterator<&'a Version> for Version {
 /// ```
 impl Display for Version {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str(&skyline::text::render(&self.0))
+        f.write_str(&skyline::text::render(self.0.live()))
     }
 }
 
@@ -1445,7 +1454,11 @@ where
     fn try_from((n, l, r): (u64, T, S)) -> Result<Self, Parse> {
         let l = Version::try_from(l)?;
         let r = Version::try_from(r)?;
-        Ok(Version::from_bits(skyline::literal::node(n, &l.0, &r.0)?))
+        Ok(Version::from_bits(skyline::literal::node(
+            n,
+            l.0.live(),
+            r.0.live(),
+        )?))
     }
 }
 
@@ -1667,7 +1680,7 @@ macro_rules! causal_cmp_impls {
             }
             impl PartialOrd<$rhs> for $lhs {
                 fn partial_cmp(&self, o: &$rhs) -> Option<Ordering> {
-                    skyline::sweep::causal_cmp(self.view(), o.view())
+                    skyline::sweep::causal_cmp(self.view().live(), o.view().live())
                 }
             }
             impl PartialEq<$rhs> for &$lhs {
@@ -1677,7 +1690,7 @@ macro_rules! causal_cmp_impls {
             }
             impl PartialOrd<$rhs> for &$lhs {
                 fn partial_cmp(&self, o: &$rhs) -> Option<Ordering> {
-                    skyline::sweep::causal_cmp(self.view(), o.view())
+                    skyline::sweep::causal_cmp(self.view().live(), o.view().live())
                 }
             }
             impl PartialEq<&$rhs> for $lhs {
@@ -1687,7 +1700,7 @@ macro_rules! causal_cmp_impls {
             }
             impl PartialOrd<&$rhs> for $lhs {
                 fn partial_cmp(&self, o: &&$rhs) -> Option<Ordering> {
-                    skyline::sweep::causal_cmp(self.view(), o.view())
+                    skyline::sweep::causal_cmp(self.view().live(), o.view().live())
                 }
             }
         )*

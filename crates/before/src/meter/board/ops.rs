@@ -1313,7 +1313,7 @@ pub(super) fn ops() -> Vec<Op> {
                 let child_bytes = {
                     let bytes = f.parties.as_ref().map(|(a, _)| a.clone())?;
                     let mut probe = decode_party(&bytes);
-                    (probe.fork().encoded_bits() / 8) as u64
+                    probe.fork().encoded_bits() / 8
                 };
                 let floors = Floors {
                     heap: if child_bytes == 0 {
@@ -1486,7 +1486,10 @@ pub(super) fn ops() -> Vec<Op> {
                     output_is_text: false,
                 };
                 assert_honest_text("party_from_str input", s.len(), spec.radix_units);
-                let packed = a.encoded_bits().div_ceil(8);
+                // The operand's stored buffer is allocated on this host, so
+                // its byte count fits `usize`.
+                let packed = usize::try_from(a.encoded_bits().div_ceil(8))
+                    .expect("an allocated buffer's byte count");
                 let floors = Floors {
                     heap: heap_materializes(packed),
                     limb: na(NA_LIMB_ID_TREE),
@@ -1498,10 +1501,13 @@ pub(super) fn ops() -> Vec<Op> {
                     s.len(),
                     floors,
                     |r| {
-                        r.downcast_ref::<Party>()
+                        let bits = r
+                            .downcast_ref::<Party>()
                             .expect("the parse body yields a party")
-                            .encoded_bits()
-                            .div_ceil(8)
+                            .encoded_bits();
+                        // An output the body materialized: its byte count
+                        // fits this host's `usize`.
+                        usize::try_from(bits.div_ceil(8)).expect("an allocated buffer's byte count")
                     },
                     spec,
                     move || s.parse::<Party>().expect("a displayed party parses back"),
@@ -1783,7 +1789,10 @@ pub(super) fn ops() -> Vec<Op> {
                     output_is_text: false,
                 };
                 assert_honest_text("clock_from_str input", s.len(), spec.radix_units);
-                let packed = clock.encoded_bits().div_ceil(8);
+                // The operand's stored buffers are allocated on this host,
+                // so their byte count fits `usize`.
+                let packed = usize::try_from(clock.encoded_bits().div_ceil(8))
+                    .expect("an allocated buffer's byte count");
                 let floors = Floors {
                     heap: heap_materializes(packed),
                     limb: limb_wide(mandatory_limbs_version(clock.version())),
@@ -1795,10 +1804,13 @@ pub(super) fn ops() -> Vec<Op> {
                     s.len(),
                     floors,
                     |r| {
-                        r.downcast_ref::<Clock>()
+                        let bits = r
+                            .downcast_ref::<Clock>()
                             .expect("the parse body yields a clock")
-                            .encoded_bits()
-                            .div_ceil(8)
+                            .encoded_bits();
+                        // An output the body materialized: its byte count
+                        // fits this host's `usize`.
+                        usize::try_from(bits.div_ceil(8)).expect("an allocated buffer's byte count")
                     },
                     spec,
                     move || s.parse::<Clock>().expect("a displayed clock parses back"),

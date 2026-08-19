@@ -424,7 +424,7 @@ laws! {
     /// `encoded_bits` is the pre-padding bit length of `encode`: the byte length
     /// is the bit length plus the marker, rounded up to whole bytes.
     fn version_encoded_bits_matches_encode_len {
-        a.encode().len() == (a.encoded_bits() + 1).div_ceil(8)
+        a.encode().len() as u64 == (a.encoded_bits() + 1).div_ceil(8)
     }
 }
 
@@ -2159,7 +2159,7 @@ laws! {
 
     /// `encoded_bits` is the pre-pad bit length of `encode`.
     fn party_encoded_bits_matches_encode_len {
-        p.encode().len() == (p.encoded_bits() + 1).div_ceil(8)
+        p.encode().len() as u64 == (p.encoded_bits() + 1).div_ceil(8)
     }
 }
 
@@ -3102,7 +3102,7 @@ laws! {
     /// `encoded_bits` is the pre-pad bit length of `encode`, at the clock level
     /// too.
     fn clock_encoded_bits_matches_encode_len {
-        c.encode().len() == (c.encoded_bits() + 1).div_ceil(8)
+        c.encode().len() as u64 == (c.encoded_bits() + 1).div_ceil(8)
     }
 }
 

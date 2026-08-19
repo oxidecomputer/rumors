@@ -45,11 +45,17 @@ const JOIN_MEET_BOUNDARY_SLACK_BITS: u64 = 4;
 /// total Tier 2 bits within [`JOIN_MEET_BOUNDARY_SLACK_BITS`] per input leaf of
 /// the inputs' sum.
 fn check_join_meet_lipschitz(a: &Version, b: &Version) {
-    let sa = tier2_size(&packed_bits_of(&to_oracle_version(a)));
-    let sb = tier2_size(&packed_bits_of(&to_oracle_version(b)));
+    let sa = tier2_size(crate::codec::built_view(&packed_bits_of(
+        &to_oracle_version(a),
+    )));
+    let sb = tier2_size(crate::codec::built_view(&packed_bits_of(
+        &to_oracle_version(b),
+    )));
     for (name, emit) in EMITTERS {
         let out = emit(a, b);
-        let so = tier2_size(&packed_bits_of(&to_oracle_version(&out)));
+        let so = tier2_size(crate::codec::built_view(&packed_bits_of(
+            &to_oracle_version(&out),
+        )));
         assert!(
             so.leaves < sa.leaves + sb.leaves,
             "{name}: {} output leaves reach the input leaf total {} + {}: \
@@ -78,7 +84,9 @@ fn check_join_meet_lipschitz(a: &Version, b: &Version) {
 #[test]
 fn empty_version_is_two_bits() {
     let v = Version::new();
-    let size = tier2_size(&packed_bits_of(&to_oracle_version(&v)));
+    let size = tier2_size(crate::codec::built_view(&packed_bits_of(
+        &to_oracle_version(&v),
+    )));
     assert_eq!(
         size,
         Tier2Size {
@@ -89,7 +97,7 @@ fn empty_version_is_two_bits() {
             delta_bits: 0,
         }
     );
-    assert_eq!(size.total_bits, v.encoded_bits() as u64);
+    assert_eq!(size.total_bits, v.encoded_bits());
 }
 
 /// A single ticked leaf (value 1) is one topology bit plus `gamma(1) = 3`, 4
@@ -98,10 +106,12 @@ fn empty_version_is_two_bits() {
 fn single_small_leaf_matches_current_size() {
     let mut v = Version::new();
     v.tick(&Party::seed());
-    let size = tier2_size(&packed_bits_of(&to_oracle_version(&v)));
+    let size = tier2_size(crate::codec::built_view(&packed_bits_of(
+        &to_oracle_version(&v),
+    )));
     assert_eq!(size.total_bits, 4);
     assert_eq!((size.nodes, size.leaves), (1, 1));
-    assert_eq!(size.total_bits, v.encoded_bits() as u64);
+    assert_eq!(size.total_bits, v.encoded_bits());
 }
 
 /// A single huge leaf `2^b - 1` is one topology bit plus `gamma(2^b - 1) = 2b +
@@ -115,7 +125,7 @@ fn single_big_leaf_matches_current_size() {
         assert_eq!(size.total_bits as usize, 2 * b + 2);
         assert_eq!((size.nodes, size.leaves), (1, 1));
         assert_eq!(size.first_leaf_bits as usize, 2 * b + 1);
-        assert_eq!(size.total_bits, packed.version().encoded_bits() as u64);
+        assert_eq!(size.total_bits, packed.version().encoded_bits());
     }
 }
 
@@ -133,7 +143,9 @@ fn one_fork_matches_hand_computation() {
     ));
     assert_eq!(packed_bits_of(&to_oracle_version(&v)).len(), 10);
     assert_eq!(v.encoded_bits(), 11, "the stored coding is Tier 2 itself");
-    let size = tier2_size(&packed_bits_of(&to_oracle_version(&v)));
+    let size = tier2_size(crate::codec::built_view(&packed_bits_of(
+        &to_oracle_version(&v),
+    )));
     assert_eq!(
         size,
         Tier2Size {
@@ -164,7 +176,7 @@ fn dense_spine_matches_hand_computation() {
             delta_bits: 6,
         }
     );
-    assert_eq!(size.total_bits, packed.version().encoded_bits() as u64);
+    assert_eq!(size.total_bits, packed.version().encoded_bits());
 }
 
 /// The boundary comb's Tier 2 size is exactly `10n + 4k + 2` bits against the
@@ -366,11 +378,18 @@ fn operator_meet(a: &Version, b: &Version) -> Version {
 /// [`tier2_size`] on the result: the pins then price the kernel's own
 /// output stream, not merely the value it denotes.
 fn skyline_join(a: &Version, b: &Version) -> Version {
-    let out = skyline::emit::join(&skyline::encode(a), &skyline::encode(b));
-    let decoded = skyline::decode(&out).expect("an emitted join is canonical");
+    let out = skyline::emit::join(
+        crate::codec::built_view(&skyline::encode(a)),
+        crate::codec::built_view(&skyline::encode(b)),
+    );
+    let decoded =
+        skyline::decode(crate::codec::built_view(&out)).expect("an emitted join is canonical");
     assert_eq!(
-        out.len() as u64,
-        tier2_size(&packed_bits_of(&to_oracle_version(&decoded))).total_bits,
+        out.len(),
+        tier2_size(crate::codec::built_view(&packed_bits_of(
+            &to_oracle_version(&decoded)
+        )))
+        .total_bits,
         "the emitted join stream must be exactly the canonical coded size"
     );
     decoded
@@ -378,11 +397,18 @@ fn skyline_join(a: &Version, b: &Version) -> Version {
 
 /// The emission kernel's meet, called directly (no short-circuits).
 fn skyline_meet(a: &Version, b: &Version) -> Version {
-    let out = skyline::emit::meet(&skyline::encode(a), &skyline::encode(b));
-    let decoded = skyline::decode(&out).expect("an emitted meet is canonical");
+    let out = skyline::emit::meet(
+        crate::codec::built_view(&skyline::encode(a)),
+        crate::codec::built_view(&skyline::encode(b)),
+    );
+    let decoded =
+        skyline::decode(crate::codec::built_view(&out)).expect("an emitted meet is canonical");
     assert_eq!(
-        out.len() as u64,
-        tier2_size(&packed_bits_of(&to_oracle_version(&decoded))).total_bits,
+        out.len(),
+        tier2_size(crate::codec::built_view(&packed_bits_of(
+            &to_oracle_version(&decoded)
+        )))
+        .total_bits,
         "the emitted meet stream must be exactly the canonical coded size"
     );
     decoded
@@ -399,9 +425,15 @@ fn check_subadditive(
     a: &Version,
     b: &Version,
 ) {
-    let sa = tier2_size(&packed_bits_of(&to_oracle_version(a)));
-    let sb = tier2_size(&packed_bits_of(&to_oracle_version(b)));
-    let so = tier2_size(&packed_bits_of(&to_oracle_version(&emit(a, b))));
+    let sa = tier2_size(crate::codec::built_view(&packed_bits_of(
+        &to_oracle_version(a),
+    )));
+    let sb = tier2_size(crate::codec::built_view(&packed_bits_of(
+        &to_oracle_version(b),
+    )));
+    let so = tier2_size(crate::codec::built_view(&packed_bits_of(
+        &to_oracle_version(&emit(a, b)),
+    )));
     assert!(
         so.total_bits + JOIN_MEET_SUBADDITIVITY_SAVINGS_BITS <= sa.total_bits + sb.total_bits,
         "{name}: subadditivity violated: {} output bits > {} + {} input bits - {} pinned savings",
@@ -465,11 +497,19 @@ fn magnitude_bits() -> impl Strategy<Value = usize> {
 fn empty_pair_is_the_subadditivity_equality_case() {
     let (a, b) = (Version::new(), Version::new());
     for (name, emit) in EMITTERS {
-        let so = tier2_size(&packed_bits_of(&to_oracle_version(&emit(&a, &b))));
+        let so = tier2_size(crate::codec::built_view(&packed_bits_of(
+            &to_oracle_version(&emit(&a, &b)),
+        )));
         assert_eq!(
             so.total_bits + JOIN_MEET_SUBADDITIVITY_SAVINGS_BITS,
-            tier2_size(&packed_bits_of(&to_oracle_version(&a))).total_bits
-                + tier2_size(&packed_bits_of(&to_oracle_version(&b))).total_bits,
+            tier2_size(crate::codec::built_view(&packed_bits_of(
+                &to_oracle_version(&a)
+            )))
+            .total_bits
+                + tier2_size(crate::codec::built_view(&packed_bits_of(
+                    &to_oracle_version(&b)
+                )))
+                .total_bits,
             "{name} of two empty versions must realize the savings margin exactly",
         );
     }
@@ -679,7 +719,9 @@ fn cross_boundary_equal_leaves_are_smaller_in_tier2() {
         oracle::Version::leaf(1u64),
     ));
     assert_eq!(packed_bits_of(&to_oracle_version(&v)).len(), 14);
-    let size = tier2_size(&packed_bits_of(&to_oracle_version(&v)));
+    let size = tier2_size(crate::codec::built_view(&packed_bits_of(
+        &to_oracle_version(&v),
+    )));
     assert_eq!(
         size,
         Tier2Size {

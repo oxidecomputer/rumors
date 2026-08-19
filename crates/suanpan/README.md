@@ -217,12 +217,13 @@ worst-case per call.
 | `add_u64_shl`, `sub_u64_shl` | amortized O(1), independent of the shift |
 | `add_magnitude`, `sub_magnitude` | word-scale: amortized O(1); wide: amortized O(\|delta\|) |
 | `add_magnitude_shl`, `sub_magnitude_shl` | as `add_magnitude`/`sub_magnitude`, at any shift |
+| `add_limbs_shl`, `sub_limbs_shl` | amortized O(limbs yielded), independent of the shift |
 | `add_accum`, `sub_accum` | amortized O(\|other\|) |
 | `add_accum_shl`, `sub_accum_shl` | amortized O(\|other\|), independent of the shift |
 | `merge_into_wider` | amortized O(min(\|self\|, \|other\|)) |
 | `sign`, `is_negative`, `sign_dominates_word`, `sign_dominates_at` | amortized O(1) |
 | `is_literally_zero` (one-sided: `true` means zero, `false` means unknown), `digit_count` | O(1) |
-| `shl`, `negate`, `reset`, `sign_magnitude` | O(\|self\|) |
+| `shl`, `negate`, `reset`, `sign_magnitude`, `sign_limbs` | O(\|self\|) |
 | `sign_magnitude_shl` | O(w), w the written span since the last reset |
 
 Digit touches are shift-independent; memory is not. A shifted entry point
@@ -238,9 +239,17 @@ touched.
 The `*_magnitude` entry points are generic over `Magnitude`, the seam for
 a caller's own stored-magnitude type: the operand reports whether it fits a
 machine word, and the accumulator dispatches to the small or wide path
-accordingly. There is no from-value constructor: build with
+accordingly. The `*_limbs_shl` entry points and
+`sign_limbs` are the same seam past the
+backend's reach: on a 32-bit target a `UBig` magnitude caps out near
+`usize::MAX` bits while the digit buffer is bounded only by memory, so
+operands and totals wider than that stream in and read out as plain
+little-endian 64-bit limb sequences with no backend value in between.
+There is no from-value constructor: build with
 `new` (or `Default`) and a single `add_*` call, read out
-with `sign_magnitude`.
+with `sign_magnitude` (or
+`sign_limbs` at widths the backend cannot
+hold).
 
 ## When not to reach for it
 

@@ -55,7 +55,10 @@ fn party_of(p: &Packed) -> Party {
 
 /// Whether the fused walk's changed flag tripped on one pair.
 fn flag_of(v: &Version, p: &Party) -> bool {
-    matches!(fused_fill(&encode(v), p), FillOutcome::Changed(_))
+    matches!(
+        fused_fill(crate::codec::built_view(&encode(v)), p),
+        FillOutcome::Changed(_)
+    )
 }
 
 /// The two differentials of record on one pair, plus entry agreement and
@@ -71,7 +74,7 @@ fn assert_tick(v: &Version, p: &Party) {
     let enc = encode(v);
     let filled = from_oracle_version(&to_oracle_version(v).fill_for_test(&to_oracle_party(p)));
     let changed = filled != *v;
-    match fused_fill(&enc, p) {
+    match fused_fill(crate::codec::built_view(&enc), p) {
         FillOutcome::Changed(bits) => {
             assert!(
                 changed,
@@ -90,8 +93,8 @@ fn assert_tick(v: &Version, p: &Party) {
             );
         }
     }
-    let out = tick(&enc, p);
-    validate(&out).expect("a ticked stream is canonical");
+    let out = tick(crate::codec::built_view(&enc), p);
+    validate(crate::codec::built_view(&out)).expect("a ticked stream is canonical");
     let mut oracle = to_oracle_version(v);
     oracle.tick(&to_oracle_party(p));
     assert_eq!(
@@ -287,7 +290,7 @@ fn worked_examples_tick_exactly() {
         let p: Party = party.parse().expect("test party literals parse");
         let v: Version = before.parse().expect("test version literals parse");
         let expected: Version = after.parse().expect("test version literals parse");
-        match fused_fill(&encode(&v), &p) {
+        match fused_fill(crate::codec::built_view(&encode(&v)), &p) {
             FillOutcome::Changed(bits) => assert_eq!(
                 bits,
                 encode(&expected),
@@ -407,22 +410,22 @@ fn materialize_is_a_noop_once_built() {
     let matched_end = event.len();
 
     let mut once = Out::Verbatim { matched_end };
-    once.materialize(&event);
+    once.materialize(crate::codec::built_view(&event));
 
     let mut twice = Out::Verbatim { matched_end };
-    twice.materialize(&event);
+    twice.materialize(crate::codec::built_view(&event));
     assert!(
         !twice.is_verbatim(),
         "the first materialize leaves the output built"
     );
     // The second call runs against the built output: the no-op contract.
-    twice.materialize(&event);
+    twice.materialize(crate::codec::built_view(&event));
 
     let once_out = once
-        .finish(&event)
+        .finish(crate::codec::built_view(&event))
         .expect("a built output finishes to a stream");
     let twice_out = twice
-        .finish(&event)
+        .finish(crate::codec::built_view(&event))
         .expect("a built output finishes to a stream");
     assert_eq!(
         once_out, event,
@@ -1029,9 +1032,9 @@ fn deep_spines_tick_and_flag_identically() {
     // (fill idempotence, flag-denominated).
     let assert_deep_changed = |v: &Version, p: &Party, expected: &Version| {
         let enc = encode(v);
-        match fused_fill(&enc, p) {
+        match fused_fill(crate::codec::built_view(&enc), p) {
             FillOutcome::Changed(bits) => {
-                validate(&bits).expect("a filled stream is canonical");
+                validate(crate::codec::built_view(&bits)).expect("a filled stream is canonical");
                 assert_eq!(bits, encode(expected), "the derived closed form");
                 let again: Version = Version::from_bits(bits.clone());
                 assert!(
@@ -1042,7 +1045,7 @@ fn deep_spines_tick_and_flag_identically() {
             FillOutcome::Unchanged(_) => panic!("fill moves this pair: the flag must trip"),
         }
         assert_eq!(
-            tick(&enc, p),
+            tick(crate::codec::built_view(&enc), p),
             encode(expected),
             "tick takes the fill branch: the collapse"
         );
@@ -1055,8 +1058,8 @@ fn deep_spines_tick_and_flag_identically() {
     let assert_deep_unchanged = |v: &Version, p: &Party, grown: &Version| {
         let enc = encode(v);
         assert!(!flag_of(v, p), "fill is the identity: the flag stays clear");
-        let out = tick(&enc, p);
-        validate(&out).expect("a ticked stream is canonical");
+        let out = tick(crate::codec::built_view(&enc), p);
+        validate(crate::codec::built_view(&out)).expect("a ticked stream is canonical");
         assert_eq!(out, encode(grown), "the derived grow closed form");
         let mut ticked = v.clone();
         ticked.tick(p);
@@ -1097,7 +1100,7 @@ fn deep_spines_tick_and_flag_identically() {
     );
     let mut grown = matched.clone();
     grown.tick(&nested);
-    validate(&encode(&grown)).expect("a ticked stream is canonical");
+    validate(crate::codec::built_view(&encode(&grown))).expect("a ticked stream is canonical");
 
     // The mirror id over the wide-tail spine: a left-full shortcut site at
     // every one of the 4096 levels — the memoized pre-scan at full depth, every
@@ -1199,10 +1202,16 @@ fn tick_splices_fill_and_grow() {
     // fill simplifies: the collapse is the tick.
     let v: Version = "(2, 0, 1)".parse().expect("test literals parse");
     let p: Party = "(1, 0)".parse().expect("test literals parse");
-    assert_eq!(tick(&encode(&v), &p), encode(&"3".parse().unwrap()));
+    assert_eq!(
+        tick(crate::codec::built_view(&encode(&v)), &p),
+        encode(&"3".parse().unwrap())
+    );
     // fill is the identity: grow registers the event.
     let v: Version = "(0, 1, 0)".parse().expect("test literals parse");
-    assert_eq!(tick(&encode(&v), &p), encode(&"(0, 2, 0)".parse().unwrap()));
+    assert_eq!(
+        tick(crate::codec::built_view(&encode(&v)), &p),
+        encode(&"(0, 2, 0)".parse().unwrap())
+    );
     assert_tick(&v, &p);
 }
 
@@ -1267,7 +1276,7 @@ proptest! {
         let v = from_oracle_version(&ov);
         if !p.as_bits().is_empty() {
             let ev = encode(&v);
-            let out = tick(&ev, &p);
+            let out = tick(crate::codec::built_view(&ev), &p);
             let bound = 2 * ev.len() + 4 * p.as_bits().len() + 32;
             prop_assert!(
                 out.len() <= bound,
@@ -1302,17 +1311,17 @@ proptest! {
         let v = from_oracle_version(&ov);
         if !p.as_bits().is_empty() {
             let mut e = encode(&v);
-            e = tick(&e, &p);
+            e = tick(crate::codec::built_view(&e), &p);
             let b1 = e.len();
             for k in 2u32..=48 {
-                e = tick(&e, &p);
+                e = tick(crate::codec::built_view(&e), &p);
                 let logk = u64::from(32 - (k + 1).leading_zeros());
-                let bound = b1 as u64
-                    + 4 * p.as_bits().len() as u64
+                let bound = b1
+                    + 4 * p.as_bits().len()
                     + 4 * logk
                     + 8;
                 prop_assert!(
-                    e.len() as u64 <= bound,
+                    e.len() <= bound,
                     "orbit size {} bits at tick {k} exceeds the transient-plus-log \
                      envelope {bound} (first-tick size {b1}, id {} bits)",
                     e.len(), p.as_bits().len(),
@@ -1336,27 +1345,30 @@ fn tick_deep_orbits_stay_banded() {
     let idb = party_of(&Shape::IdSpine.packed_flagged(4, true));
 
     let mut e = encode(&ev);
-    e = tick(&e, &ida);
+    e = tick(crate::codec::built_view(&e), &ida);
     let b1 = e.len();
     for k in 2u32..=4096 {
-        e = tick(&e, &ida);
+        e = tick(crate::codec::built_view(&e), &ida);
         let logk = usize::try_from(32 - (k + 1).leading_zeros()).expect("small");
         assert!(
-            e.len() <= b1 + 4 * logk + 8,
+            e.len() <= b1 + 4 * logk as u64 + 8,
             "fixed-id orbit: {} bits at tick {k} (first-tick size {b1})",
             e.len(),
         );
     }
 
     let mut e = encode(&ev);
-    e = tick(&e, &ida);
-    e = tick(&e, &idb);
+    e = tick(crate::codec::built_view(&e), &ida);
+    e = tick(crate::codec::built_view(&e), &idb);
     let b2 = e.len();
     for k in 3u32..=2048 {
-        e = tick(&e, if k % 2 == 1 { &ida } else { &idb });
+        e = tick(
+            crate::codec::built_view(&e),
+            if k % 2 == 1 { &ida } else { &idb },
+        );
         let logk = usize::try_from(32 - (k + 1).leading_zeros()).expect("small");
         assert!(
-            e.len() <= b2 + 4 * logk + 8,
+            e.len() <= b2 + 4 * logk as u64 + 8,
             "alternating orbit: {} bits at tick {k} (two-tick size {b2})",
             e.len(),
         );
@@ -1428,7 +1440,7 @@ fn assert_chain_saturation(path: &[bool], ceiling: u64) {
     let route = probe.take_route();
     for (level, &left) in path.iter().enumerate() {
         assert_eq!(
-            route.dirs()[2 * level],
+            route.dirs().get(2 * level as u64),
             left,
             "the route at level {level} must turn into the present child",
         );
@@ -1485,7 +1497,7 @@ proptest! {
 /// [`ticks`] lifted to the stored-value level, through the same `from_bits`
 /// gate the public entry commits through.
 fn ticks_version(v: &Version, id: &Party, n: &Base) -> Version {
-    Version::from_bits(ticks(&encode(v), id, n))
+    Version::from_bits(ticks(crate::codec::built_view(&encode(v)), id, n))
 }
 
 /// Check `ticks(n)` against the iterated public tick for every `n` in
@@ -1562,9 +1574,9 @@ proptest! {
     ) {
         let v = from_oracle_version(&ov);
         let p = from_oracle_party(&op);
-        if let FillOutcome::Changed(bits) = fused_fill(&encode(&v), &p) {
+        if let FillOutcome::Changed(bits) = fused_fill(crate::codec::built_view(&encode(&v)), &p) {
             prop_assert!(
-                matches!(fused_fill(&bits, &p), FillOutcome::Unchanged(_)),
+                matches!(fused_fill(crate::codec::built_view(&bits), &p), FillOutcome::Unchanged(_)),
                 "fill moved a tree it had already filled: {} with {}", v, p
             );
         }
@@ -1588,7 +1600,7 @@ proptest! {
         cur.tick(&p);
         for _ in 0..4 {
             prop_assert!(
-                matches!(fused_fill(&encode(&cur), &p), FillOutcome::Unchanged(_)),
+                matches!(fused_fill(crate::codec::built_view(&encode(&cur)), &p), FillOutcome::Unchanged(_)),
                 "a grow re-opened the fill branch: {} with {}", v, p
             );
             cur.tick(&p);
@@ -1668,7 +1680,10 @@ fn ticks_covers_fill_changed_branch() {
     let v = generators::shape_version(generators::Shape::Bushy, 5);
     let p = Party::seed(); // the full owner of everything
     assert!(
-        matches!(fused_fill(&encode(&v), &p), FillOutcome::Changed(_)),
+        matches!(
+            fused_fill(crate::codec::built_view(&encode(&v)), &p),
+            FillOutcome::Changed(_)
+        ),
         "witness must take the fill branch"
     );
     check_ticks_equivalence(&v, &p, &[0, 1, 2, 3, 7, 64, 1000]);
@@ -1734,22 +1749,22 @@ fn ticks_composes_at_wide_n() {
 /// `PreScan::max_range`'s entry assertion).
 mod prescan_raise_shapes {
     use super::*;
-    use crate::codec::{self, BitsMut};
+    use crate::codec::{self, BitsBuf};
 
     /// Construction-language pushers (the meter shape builders' vocabulary):
     /// internal node = `1 · gamma(0)`, leaf = `0 · gamma(n)`.
-    fn nd(ev: &mut BitsMut) {
+    fn nd(ev: &mut BitsBuf) {
         ev.push(true);
         codec::encode_int(ev, &Base::ZERO);
     }
-    fn lf(ev: &mut BitsMut, n: u64) {
+    fn lf(ev: &mut BitsBuf, n: u64) {
         ev.push(false);
         codec::encode_int(ev, &Base::from(n));
     }
     /// A deep staircase region (the meter `hole_region`'s lead-2 shape):
     /// wrapper node, staircase `m..0`, wrapper floor leaf — deep enough to
     /// route every consuming scan and copy through its block summary.
-    fn hole(ev: &mut BitsMut, m: u64) {
+    fn hole(ev: &mut BitsBuf, m: u64) {
         nd(ev); // wrapper
         nd(ev); // staircase root
         lf(ev, m);
@@ -1761,13 +1776,13 @@ mod prescan_raise_shapes {
         lf(ev, 0); // wrapper floor
     }
     /// Seal a built construction-language stream (the meter `Packed` form).
-    fn pk(bits: BitsMut) -> Packed {
+    fn pk(bits: BitsBuf) -> Packed {
         let live = bits.len();
         let mut sealed = bits;
         codec::seal_padding(&mut sealed);
         Packed {
-            bytes: sealed.into_vec(),
-            bits: live,
+            bytes: sealed.into_bytes(),
+            bits: usize::try_from(live).expect("test streams are small"),
         }
     }
 
@@ -1777,12 +1792,12 @@ mod prescan_raise_shapes {
     /// Wrap an entry range and its id in the covering left-full site that
     /// launches the fresh pre-scan: a root site over a fully-owned collapse
     /// leaf, the entry range as its sibling.
-    fn covered(er: &BitsMut, ir: &[bool]) -> (Version, Party) {
-        let mut ev = BitsMut::new();
+    fn covered(er: &BitsBuf, ir: &[bool]) -> (Version, Party) {
+        let mut ev = BitsBuf::new();
         nd(&mut ev); // the covering site's node
         lf(&mut ev, 2); // its fully-owned collapse leaf
-        ev.extend_from_bitslice(er);
-        let mut id = BitsMut::new();
+        ev.extend_from_buf(er);
+        let mut id = BitsBuf::new();
         for b in [T, T, F, F] {
             id.push(b); // the covering site: internal, full left child
         }
@@ -1799,7 +1814,7 @@ mod prescan_raise_shapes {
     /// leaf. `k = 0` is the minimum-latency raise: the entry range's root
     /// raises immediately after its left leaf's single emission.
     fn chain_raise(k: usize, deep: bool) -> (Version, Party) {
-        let mut er = BitsMut::new();
+        let mut er = BitsBuf::new();
         nd(&mut er); // the raising node
         for _ in 0..k {
             nd(&mut er); // a site along the chain ...
@@ -1848,7 +1863,7 @@ mod prescan_raise_shapes {
     #[test]
     fn suspended_and_skipping_site_raises_match_oracle() {
         // The raise under suspension: site over (collapse leaf, raising node).
-        let mut er = BitsMut::new();
+        let mut er = BitsBuf::new();
         nd(&mut er); // the site
         lf(&mut er, 1); // its collapse (skipped, unemitted)
         nd(&mut er); // the raising node
@@ -1866,7 +1881,7 @@ mod prescan_raise_shapes {
         assert_tick(&v, &p);
         // The skip-then-forced-copy dual: raising node over (no-sibling site
         // with a deep collapse, raise range).
-        let mut er = BitsMut::new();
+        let mut er = BitsBuf::new();
         nd(&mut er); // the raising node
         nd(&mut er); // the no-sibling site
         hole(&mut er, 4); // its deep collapse (skipped net-only, unemitted)
@@ -1891,13 +1906,13 @@ mod prescan_raise_shapes {
     /// full child's sibling or a child its caller peeked as not-full.
     #[test]
     fn full_sibling_of_full_child_is_undecodable() {
-        let mut id = BitsMut::new();
+        let mut id = BitsBuf::new();
         for b in [T, T, F, F, F, F] {
             id.push(b);
         }
         codec::seal_padding(&mut id);
         assert!(
-            Party::decode(&id.into_vec()[..]).is_err(),
+            Party::decode(&id.into_bytes()[..]).is_err(),
             "id (1, 1) must be rejected as non-normal"
         );
     }

@@ -15,13 +15,12 @@
 //! ([`decode_int_window`]) and emitted with one store, with per-bit loops as
 //! the fallback — and, on decode, the sole arbiter of every reject.
 
-use bitvec::field::BitField;
 use dashu_int::UBig;
 
 use crate::error::Decode;
 
 use super::code::SMALL_CODE_BITS;
-use super::{Base, BitCursor, BitsMut, BitsSlice, Code, SliceCursor};
+use super::{Base, BitCursor, BitsBuf, BitsView, Code, SliceCursor};
 
 /// Append `n` as the Elias gamma code of `m = n + 1`: `floor(log2(m))` zero
 /// bits, then `m` in `floor(log2(m)) + 1` bits, most-significant first.
@@ -29,20 +28,20 @@ use super::{Base, BitCursor, BitsMut, BitsSlice, Code, SliceCursor};
 /// Cost is `2*floor(log2(n+1)) + 1` bits; `0` costs a single bit. Canonical and
 /// prefix-free, for an arbitrary-width non-negative `n` (there is no value
 /// cap).
-pub(crate) fn encode_int(out: &mut BitsMut, n: &Base) {
+pub(crate) fn encode_int(out: &mut BitsBuf, n: &Base) {
     let m = n + 1u32;
     match m.to_u64() {
         // Word case: the mantissa fits a machine word, so append the whole code
-        // word-wise — the `2k+1` bits (zeros and all) in one `resize`, then the
-        // `k+1` mantissa bits in one `store_be` — instead of one `push` per
-        // bit. Byte-identical to the per-bit emit below.
+        // word-wise — the `k`-zero prefix in one append, then the `k+1`-bit
+        // mantissa (`m` value-packed, its leading 1 included) in another —
+        // instead of one `push` per bit. Byte-identical to the per-bit emit
+        // below.
         Some(m) => {
             // m >= 1, so `leading_zeros < 64` and `k = floor(log2(m))` never
-            // underflows.
-            let k = (u64::BITS - 1 - m.leading_zeros()) as usize;
-            let start = out.len();
-            out.resize(start + 2 * k + 1, false);
-            out[start + k..].store_be::<u64>(m);
+            // underflows; both appends stay within one machine word.
+            let k = u64::BITS - 1 - m.leading_zeros();
+            out.push_bits(0, k);
+            out.push_bits(m, k + 1);
         }
         // Wide case (`n >= u64::MAX`): per-bit emit of the wide mantissa.
         None => {
@@ -69,8 +68,8 @@ pub(crate) fn encode_int(out: &mut BitsMut, n: &Base) {
 /// is two shifts — and as an owned buffer past that.
 pub(crate) fn code_int(n: &Base) -> Code {
     if let Some(m) = n.to_u64().and_then(|n| n.checked_add(1)) {
-        let k = (u64::BITS - 1 - m.leading_zeros()) as usize;
-        let len = 2 * k + 1;
+        let k = u64::BITS - 1 - m.leading_zeros();
+        let len = u64::from(2 * k + 1);
         if len <= SMALL_CODE_BITS {
             return Code::Small {
                 bits: m,
@@ -78,7 +77,7 @@ pub(crate) fn code_int(n: &Base) -> Code {
             };
         }
     }
-    let mut out = BitsMut::new();
+    let mut out = BitsBuf::new();
     encode_int(&mut out, n);
     Code::Wide(out)
 }
@@ -87,8 +86,8 @@ pub(crate) fn code_int(n: &Base) -> Code {
 /// machine-word form, with no intermediate [`Base`].
 pub(crate) fn code_int_small(n: u64) -> Code {
     if let Some(m) = n.checked_add(1) {
-        let k = (u64::BITS - 1 - m.leading_zeros()) as usize;
-        let len = 2 * k + 1;
+        let k = u64::BITS - 1 - m.leading_zeros();
+        let len = u64::from(2 * k + 1);
         if len <= SMALL_CODE_BITS {
             return Code::Small {
                 bits: m,
@@ -96,7 +95,7 @@ pub(crate) fn code_int_small(n: u64) -> Code {
             };
         }
     }
-    let mut out = BitsMut::new();
+    let mut out = BitsBuf::new();
     encode_int(&mut out, &Base::from(n));
     Code::Wide(out)
 }
@@ -114,14 +113,14 @@ pub(crate) fn code_int_small(n: u64) -> Code {
 /// per-bit loop ([`decode_int_from`]), so the two paths accept and reject
 /// identically by construction (the routing lives in
 /// [`SliceCursor::read_int`](BitCursor::read_int)).
-pub(crate) fn decode_int(bits: &BitsSlice, pos: usize) -> Result<(Base, usize), Decode> {
+pub(crate) fn decode_int(bits: BitsView<'_>, pos: u64) -> Result<(Base, u64), Decode> {
     let mut cursor = SliceCursor::new(bits, pos);
     let base = cursor.read_int()?.into_base();
     Ok((base, cursor.position()))
 }
 
 /// The number of bits a [`decode_int_window`] window holds.
-const WINDOW_BITS: usize = u64::BITS as usize;
+const WINDOW_BITS: u64 = u64::BITS as u64;
 
 /// One-window fast path of the gamma decoder: the value and end position of the
 /// code at `pos`, when a single 64-bit window proves the whole code.
@@ -133,8 +132,6 @@ const WINDOW_BITS: usize = u64::BITS as usize;
 /// Returns `None` — decode nothing, let the caller run the per-bit loop from
 /// `pos` instead — whenever the window cannot *prove* a complete code:
 ///
-/// - the slice does not start on a byte boundary of its backing store (no
-///   cheap byte view; stored forms always do);
 /// - `pos` lies past the end of the stream (the bit loop reports `Truncated`);
 /// - the `2k+1`-bit code overruns the window's proven bits, either because the
 ///   stream ends first (the bit loop reports `Truncated`) or because the code
@@ -149,11 +146,23 @@ const WINDOW_BITS: usize = u64::BITS as usize;
 /// bits are masked, missing bytes are zero-filled), which only ever *lengthens*
 /// the apparent prefix — pushing `2k+1` past the proven bits and into the
 /// fallback — never shortens it into a bogus accept.
-pub(crate) fn decode_int_window(bits: &BitsSlice, pos: usize) -> Option<(u64, usize)> {
+///
+/// Positions are the view's own `u64`: the wire-side reader windows its
+/// buffered bytes ([`BitsView::whole`]) at the same width its own position
+/// runs at.
+pub(crate) fn decode_int_window(bits: BitsView<'_>, pos: u64) -> Option<(u64, u64)> {
+    let (body, tail) = bits.body_tail();
+    window_int(body, tail, bits.len(), pos)
+}
+
+/// The one-window decoder's body over raw parts: `len` live bits across
+/// `body` plus the masked partial `tail` byte, positions in `u64` (a byte
+/// door's whole-buffer view holds more bit positions than a 32-bit `usize`).
+fn window_int(body: &[u8], tail: Option<u8>, len: u64, pos: u64) -> Option<(u64, u64)> {
     // Bits of real stream between `pos` and the window's end.
-    let proven = bits.len().checked_sub(pos)?.min(WINDOW_BITS);
-    let window = load_window(bits, pos)?;
-    let k = window.leading_zeros() as usize;
+    let proven = len.checked_sub(pos)?.min(WINDOW_BITS);
+    let window = load_window(body, tail, pos);
+    let k = u64::from(window.leading_zeros());
     let code_len = 2 * k + 1;
     if code_len > proven {
         return None;
@@ -164,39 +173,37 @@ pub(crate) fn decode_int_window(bits: &BitsSlice, pos: usize) -> Option<(u64, us
     Some((m - 1, pos + code_len))
 }
 
-/// Load a 64-bit big-endian window of `bits` starting at bit `pos`: bit `pos`
-/// of the stream in the most significant position, zero past the stream's end.
-///
-/// `None` when the slice does not begin on a byte boundary of its own backing
-/// store, the one shape with no direct byte view. Every decode surface hands in
-/// a whole stored stream (offsets travel as `pos`), so this fallback is latent,
-/// kept for correctness rather than reached in practice.
-fn load_window(bits: &BitsSlice, pos: usize) -> Option<u64> {
-    let (body, tail) = super::byte_view(bits)?;
-    let byte = pos / 8;
-    let shift = pos % 8;
+/// Load a 64-bit big-endian window starting at bit `pos` of the stream held
+/// as `body` plus the masked partial `tail` byte: bit `pos` in the most
+/// significant position, zero past the stream's end.
+fn load_window(body: &[u8], tail: Option<u8>, pos: u64) -> u64 {
+    // In-range byte indices fit `usize` (they index an allocated buffer);
+    // the clamps below keep every computed index in range.
+    let byte = usize::try_from(pos / 8).unwrap_or(usize::MAX);
+    let shift = (pos % 8) as usize;
     // Gather the (up to) 9 bytes covering bits `pos..pos + 64`: 8 whole bytes
     // plus the partial ninth that a mid-byte `pos` shifts in. Bytes past the
-    // stream stay zero — `load_value` masks the tail byte's dead bits, and the
-    // buffer zero-fills past the last byte — so phantom bits are always zero.
+    // stream stay zero — the tail byte arrives with its dead bits masked, and
+    // the buffer zero-fills past the last byte — so phantom bits are always
+    // zero.
     let mut buf = [0u8; 9];
     let start = byte.min(body.len());
-    let end = (byte + buf.len()).min(body.len());
+    let end = byte.saturating_add(buf.len()).min(body.len());
     buf[..end - start].copy_from_slice(&body[start..end]);
     if let Some(t) = tail {
-        // `pos <= bits.len()` (checked by the caller) puts `byte` at or before
-        // the tail byte, so the index never underflows.
+        // The callers bound `pos` by the live length, which puts `byte` at or
+        // before the tail byte, so the index never underflows.
         let tail_at = body.len();
-        if tail_at < byte + buf.len() {
+        if tail_at < byte.saturating_add(buf.len()) {
             buf[tail_at - byte] = t;
         }
     }
     let word = u64::from_be_bytes(buf[..8].try_into().expect("buf holds 8 whole bytes"));
-    Some(if shift == 0 {
+    if shift == 0 {
         word
     } else {
         (word << shift) | (u64::from(buf[8]) >> (8 - shift))
-    })
+    }
 }
 
 /// Read one Elias-gamma-coded integer from a sequential bit cursor.
@@ -204,19 +211,16 @@ pub(crate) fn decode_int_from<C: BitCursor>(cursor: &mut C) -> Result<Base, Deco
 where
     Decode: From<C::Error>,
 {
-    let mut k = 0usize;
+    // `u64`, as every bit count here: each counted zero occupies real input
+    // (a buffer bit or a byte the reader yielded), so the count is bounded
+    // by memory, far below any `u64` wrap.
+    let mut k = 0u64;
     while !cursor.read_bit()? {
-        // The match (rather than `ok_or`) keeps the error value — `Decode` has
-        // drop glue — from being constructed and dropped on every iteration of
-        // this per-bit loop; see `codec::cursor::Truncated`.
-        k = match k.checked_add(1) {
-            Some(k) => k,
-            None => return Err(Decode::NotCanonical),
-        };
+        k += 1;
     }
 
     // Common case: read small codes into a machine integer, then widen once.
-    if k < u64::BITS as usize {
+    if k < u64::from(u64::BITS) {
         let mut m = 1u64;
         for _ in 0..k {
             m <<= 1;
@@ -235,6 +239,16 @@ where
     // the only allocation is the value itself. A truncated stream still fails
     // at the same `read_bit` position it would reading into an accumulator, so
     // the accept/reject boundary is unchanged.
+    //
+    // A mantissa at or past `usize` bits names a value the big-integer
+    // backend cannot hold on this target (it caps magnitudes below
+    // `usize::MAX` bits), so the reject genre is the value's, not the
+    // machine's — the word-parallel reader (`DsiCursor::read_int`) rejects
+    // at the same width with the same genre. On 64-bit targets the arm is
+    // dead: reading 2^64 prefix bits first needs an unallocatable input.
+    let Ok(k) = usize::try_from(k) else {
+        return Err(Decode::NotCanonical);
+    };
     let mut m = UBig::ZERO;
     m.set_bit(k);
     for i in (0..k).rev() {

@@ -10,6 +10,7 @@ use std::borrow::Cow;
 use std::io::{self, Read, Write};
 
 use crate::codec;
+use crate::codec::BitCursor;
 use crate::error::Decode;
 use crate::version::skyline;
 use crate::Version;
@@ -127,24 +128,30 @@ impl<'a> Span<'a> {
         //
         // The pair verdict is pronounced last, after the padding check, so a
         // composite defective several ways rejects by its structural genre
-        // first, exactly as decoding the components would.
+        // first, exactly as decoding the components would. Each component
+        // walk's input is its whole byte range as bits, padding included,
+        // judged by its marker check.
         let (lo_bytes, admission) = {
-            let bits = codec::bytes_as_bits(&buf);
-            let lo_end = skyline::validate_prefix(bits)?;
+            let lo_end = skyline::validate_prefix(codec::BitsView::whole(&buf))?;
             // The meet's padding marker sits in its final byte — which an
             // input cut right after a flush stream lacks. That cut is
             // missing required data (the marker byte, and the whole join
             // after it): the truncation genre, exactly as a byte-starved
             // reader reports the same boundary.
             let lo_bytes = (lo_end + 1).div_ceil(8);
-            if 8 * lo_bytes > bits.len() {
+            if lo_bytes > buf.len() as u64 {
                 return Err(Decode::Truncated);
             }
-            codec::require_marker_padding(&bits[..8 * lo_bytes], lo_end)?;
-            let tail = &bits[8 * lo_bytes..];
-            let mut cursor = codec::DsiCursor::new(tail);
-            let admission = skyline::validate_dominating_from(&bits[..lo_end], &mut cursor)?;
-            let hi_end = codec::BitCursor::position(&cursor);
+            let lo_bytes =
+                usize::try_from(lo_bytes).expect("the meet's prefix ends within the read buffer");
+            codec::require_marker_padding(&buf[..lo_bytes], lo_end)?;
+            // The meet re-walks beside the join's parse, viewed at its own
+            // validated live length.
+            let lo = codec::BitsView::new(&buf[..lo_bytes], lo_end);
+            let tail = &buf[lo_bytes..];
+            let mut cursor = codec::DsiCursor::new(codec::BitsView::whole(tail));
+            let admission = skyline::validate_dominating_from(lo, &mut cursor)?;
+            let hi_end = cursor.position();
             codec::require_marker_padding(tail, hi_end)?;
             if admission == skyline::Admission::Refuted {
                 return Err(Decode::NotCanonical);

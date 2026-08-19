@@ -11,8 +11,8 @@ use crate::{Clock, Version};
 /// The composed two-sweep spelling of the span mode: the nine-state verdict
 /// transcribed from the raw relations.
 fn composed_span(probe: &Version, lo: &Version, hi: &Version) -> Placement {
-    let lo_rel = sweep::causal_cmp(probe.view(), lo.view());
-    let hi_rel = sweep::causal_cmp(probe.view(), hi.view());
+    let lo_rel = sweep::causal_cmp((probe.view()).live(), (lo.view()).live());
+    let hi_rel = sweep::causal_cmp((probe.view()).live(), (hi.view()).live());
     match lo_rel {
         Some(Ordering::Less) => Placement::Before,
         Some(Ordering::Equal) => match hi_rel {
@@ -72,7 +72,7 @@ fn composed_contains(probe: &Version, lo: &Version, hi: &Version) -> bool {
 /// The composed pairwise spelling of one demand's verdict: the filter walks'
 /// stream-level oracle, per bound.
 fn demand_admits(probe: &Version, bound: &Version, demand: Demand) -> bool {
-    let rel = sweep::causal_cmp(probe.view(), bound.view());
+    let rel = sweep::causal_cmp((probe.view()).live(), (bound.view()).live());
     let le = matches!(rel, Some(Ordering::Less | Ordering::Equal));
     let lt = rel == Some(Ordering::Less);
     let ge = matches!(rel, Some(Ordering::Greater | Ordering::Equal));
@@ -95,18 +95,22 @@ fn composed_coverage(lo: &Version, hi: &Version, bounds: &[(&Version, Demand)]) 
     for &(bound, demand) in bounds {
         let le = |p: &Version| {
             matches!(
-                sweep::causal_cmp(p.view(), bound.view()),
+                sweep::causal_cmp((p.view()).live(), (bound.view()).live()),
                 Some(Ordering::Less | Ordering::Equal)
             )
         };
-        let lt = |p: &Version| sweep::causal_cmp(p.view(), bound.view()) == Some(Ordering::Less);
+        let lt = |p: &Version| {
+            sweep::causal_cmp((p.view()).live(), (bound.view()).live()) == Some(Ordering::Less)
+        };
         let ge = |p: &Version| {
             matches!(
-                sweep::causal_cmp(p.view(), bound.view()),
+                sweep::causal_cmp((p.view()).live(), (bound.view()).live()),
                 Some(Ordering::Greater | Ordering::Equal)
             )
         };
-        let gt = |p: &Version| sweep::causal_cmp(p.view(), bound.view()) == Some(Ordering::Greater);
+        let gt = |p: &Version| {
+            sweep::causal_cmp((p.view()).live(), (bound.view()).live()) == Some(Ordering::Greater)
+        };
         let (empties, admits_all) = match demand {
             Demand::After => (!ge(hi), ge(lo)),
             Demand::Before => (!le(lo), le(hi)),
@@ -159,10 +163,10 @@ fn demand_lists<'a>(b: &'a Version, c: &'a Version) -> Vec<Vec<(&'a Version, Dem
 }
 
 /// Materialize a demand list at the stream layer.
-fn streams<'a>(bounds: &[(&'a Version, Demand)]) -> Vec<(&'a BitsSlice, Demand)> {
+fn streams<'a>(bounds: &[(&'a Version, Demand)]) -> Vec<(BitsView<'a>, Demand)> {
     bounds
         .iter()
-        .map(|&(bound, demand)| (&**bound.view(), demand))
+        .map(|&(bound, demand)| (bound.view().live(), demand))
         .collect()
 }
 
@@ -179,8 +183,13 @@ fn span_walk_places_organic_witnesses() {
     let b1 = bob.tick().clone();
     let joined = &a2 | &b1;
 
-    let placed =
-        |probe: &Version, lo: &Version, hi: &Version| span(probe.view(), lo.view(), hi.view());
+    let placed = |probe: &Version, lo: &Version, hi: &Version| {
+        span(
+            (probe.view()).live(),
+            (lo.view()).live(),
+            (hi.view()).live(),
+        )
+    };
     // The chain verdicts.
     assert_eq!(placed(&Version::new(), &a1, &a3), Placement::Before);
     assert_eq!(placed(&a1, &a1, &a3), Placement::At(Endpoint::Start));
@@ -222,7 +231,11 @@ fn precedence_walk_verdicts_organic_witnesses() {
     let joined = &a2 | &b1;
 
     let preceded = |probe: &Version, lo: &Version, hi: &Version| {
-        precedence(probe.view(), lo.view(), hi.view())
+        precedence(
+            (probe.view()).live(),
+            (lo.view()).live(),
+            (hi.view()).live(),
+        )
     };
     // Exhaustion confirmations: the whole span preceded, at and below the
     // start.
@@ -254,8 +267,13 @@ fn contains_walk_verdicts_organic_witnesses() {
     let a3 = alice.tick().clone();
     let b1 = bob.tick().clone();
 
-    let within =
-        |probe: &Version, lo: &Version, hi: &Version| contains(probe.view(), lo.view(), hi.view());
+    let within = |probe: &Version, lo: &Version, hi: &Version| {
+        contains(
+            (probe.view()).live(),
+            (lo.view()).live(),
+            (hi.view()).live(),
+        )
+    };
     // Exhaustion confirmations: both endpoints and the interior.
     assert!(within(&a1, &a1, &a3));
     assert!(within(&a2, &a1, &a3));
@@ -287,7 +305,7 @@ fn filter_admits_organic_witnesses() {
     let b1 = bob.tick().clone();
 
     let admits = |probe: &Version, bounds: &[(&Version, Demand)]| {
-        filter::admits(probe.view(), streams(bounds))
+        filter::admits((probe.view()).live(), streams(bounds))
     };
     // The required-direction bail: a floor above the probe.
     assert!(!admits(&a1, &[(&a2, Demand::After)]));
@@ -322,7 +340,7 @@ fn filter_coverage_organic_witnesses() {
     let b1 = bob.tick().clone();
 
     let coverage = |lo: &Version, hi: &Version, bounds: &[(&Version, Demand)]| {
-        filter::coverage(lo.view(), hi.view(), streams(bounds))
+        filter::coverage((lo.view()).live(), (hi.view()).live(), streams(bounds))
     };
     // A floor refuting `floor <= hi`: the early Empty, whether above
     // or concurrent to the whole segment.
@@ -392,22 +410,22 @@ proptest! {
         for (lo, hi) in pairs {
             for probe in [&a, &b, &c, &meet, &join] {
                 prop_assert_eq!(
-                    span(probe.view(), lo.view(), hi.view()),
+                    span((probe.view()).live(), (lo.view()).live(), (hi.view()).live()),
                     composed_span(probe, lo, hi),
                     "fused span walk vs composed sweeps",
                 );
                 prop_assert_eq!(
-                    dominance(probe.view(), lo.view(), hi.view()),
+                    dominance((probe.view()).live(), (lo.view()).live(), (hi.view()).live()),
                     composed_dominance(probe, lo, hi),
                     "fused dominance walk vs composed coarsening",
                 );
                 prop_assert_eq!(
-                    precedence(probe.view(), lo.view(), hi.view()),
+                    precedence((probe.view()).live(), (lo.view()).live(), (hi.view()).live()),
                     composed_precedence(probe, lo, hi),
                     "fused precedence walk vs composed coarsening",
                 );
                 prop_assert_eq!(
-                    contains(probe.view(), lo.view(), hi.view()),
+                    contains((probe.view()).live(), (lo.view()).live(), (hi.view()).live()),
                     composed_contains(probe, lo, hi),
                     "fused membership walk vs composed coarsening",
                 );
@@ -438,7 +456,7 @@ proptest! {
                     .iter()
                     .all(|&(bound, demand)| demand_admits(probe, bound, demand));
                 prop_assert_eq!(
-                    filter::admits(probe.view(), streams(&bounds)),
+                    filter::admits((probe.view()).live(), streams(&bounds)),
                     composed,
                     "fused membership walk vs composed sweeps over {:?}",
                     bounds,
@@ -478,7 +496,7 @@ proptest! {
         for (lo, hi) in segments {
             for bounds in demand_lists(&b, &c) {
                 prop_assert_eq!(
-                    filter::coverage(lo.view(), hi.view(), streams(&bounds)),
+                    filter::coverage((lo.view()).live(), (hi.view()).live(), streams(&bounds)),
                     composed_coverage(lo, hi, &bounds),
                     "fused coverage walk vs composed fold over {:?}",
                     bounds,

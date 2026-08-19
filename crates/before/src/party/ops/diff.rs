@@ -44,7 +44,7 @@
 //! the shape on which a structural walk's recursion depth tracks the full tree
 //! depth — cost bits, not stack frames or grown segments.
 
-use crate::codec::{BitsMut, BitsSlice};
+use crate::codec::{BitsBuf, BitsView};
 use crate::idbits::IdReader;
 use crate::version::skyline::overlay::{self, PlateauCursor};
 
@@ -70,7 +70,7 @@ impl IdReader<'_> {
     /// `O(|self| + |other|)`: the sweep form of `oracle::Party::without` (the
     /// module doc), reading each operand's tags at most once and emitting one
     /// output plateau or covered block per item of the overlay.
-    pub(crate) fn diff(self, other: IdReader) -> BitsMut {
+    pub(crate) fn diff(self, other: IdReader) -> BitsBuf {
         // `self \ other ⊆ self`, but over a full `self` plateau the output
         // is `other`'s complement, which can be as large as `other`. Both
         // inputs combined is a safe bound; normalization only shrinks it.
@@ -89,7 +89,7 @@ impl IdReader<'_> {
                         b.depth() <= a.depth() && !b.owned(),
                         "a splice is covered by an unowned `other` plateau"
                     );
-                    out.subtree(a.depth(), &a.bits[start..a.pos]);
+                    out.subtree(a.depth(), a.bits, start, a.pos);
                 }
                 Item::Plateau { owned } => {
                     out.leaf(a.depth().max(b.depth()), owned && !b.owned());
@@ -210,7 +210,7 @@ enum Item {
     /// A whole `self` subtree consumed as one covered block, to be spliced
     /// verbatim: `bits[start..pos]`. Only ever formed on the `self` cursor,
     /// under an unowned `other` plateau.
-    Splice { start: usize },
+    Splice { start: u64 },
 }
 
 /// What one descent move resolved to (see [`IdLeafCursor::enter`]).
@@ -243,21 +243,24 @@ enum Enter {
 /// ([`consume`](Self::consume)) or walked plateau by plateau
 /// ([`enter`](Self::enter)/[`descend`](Self::descend)).
 struct IdLeafCursor<'a> {
-    bits: &'a BitsSlice,
+    bits: BitsView<'a>,
     /// The next unread tag's bit offset. Preorder consumption keeps it at the
     /// subtree of the next *present* child slot the walk flips into; synthetic
     /// plateaus consume nothing.
-    pos: usize,
+    pos: u64,
     /// Root-to-item branch directions: `false` inside a left child slot, `true`
     /// inside a right.
-    path: BitsMut,
+    path: BitsBuf,
     /// One bit per open left-branch level, innermost last: whether that
     /// ancestor's right child is present in the stream (`false` = the right
     /// slot is a synthetic unowned plateau).
-    pending_right: BitsMut,
+    pending_right: BitsBuf,
     /// Count of left-branch levels in `path`: zero exactly at the final item
     /// (the all-right path), so [`done`](Self::done) is `O(1)`.
-    open_lefts: usize,
+    ///
+    /// `u64`, as the path height it counts within: each open left branch
+    /// is one stored path bit.
+    open_lefts: u64,
     /// The current item (meaningless while the cursor is unsettled atop a
     /// just-entered subtree; every unsettled state is resolved before the sweep
     /// emits).
@@ -273,10 +276,10 @@ impl<'a> IdLeafCursor<'a> {
     /// (`false`).
     fn open(src: IdReader<'a>) -> (Self, bool) {
         let mut this = IdLeafCursor {
-            bits: BitsSlice::empty(),
+            bits: BitsView::empty(),
             pos: 0,
-            path: BitsMut::new(),
-            pending_right: BitsMut::new(),
+            path: BitsBuf::new(),
+            pending_right: BitsBuf::new(),
             open_lefts: 0,
             item: Item::Plateau { owned: false },
         };
@@ -307,7 +310,7 @@ impl<'a> IdLeafCursor<'a> {
     /// present ([`Enter::Left`]).
     fn enter(&mut self) -> Enter {
         crate::codec::scan::record_bits(2); // one 2-bit tag read
-        let (left, right) = (self.bits[self.pos], self.bits[self.pos + 1]);
+        let (left, right) = (self.bits.bit(self.pos), self.bits.bit(self.pos + 1));
         self.pos += 2;
         if !left && !right {
             // The terminal `1` leaf.
@@ -347,18 +350,18 @@ impl<'a> IdLeafCursor<'a> {
     fn consume(&mut self, splice: bool) {
         let start = self.pos;
         crate::codec::scan::record_bits(2); // the subtree top's 2-bit tag
-        let (left, right) = (self.bits[self.pos], self.bits[self.pos + 1]);
+        let (left, right) = (self.bits.bit(self.pos), self.bits.bit(self.pos + 1));
         self.pos += 2;
         if !left && !right {
             self.item = Item::Plateau { owned: true };
             return;
         }
         let bits = self.bits;
-        let scan = |at: usize| {
+        let scan = |at: u64| {
             // One 2-bit tag scanned per skipped node. Children present = the
             // two tag bits; the tag is 2 bits wide.
             crate::codec::scan::record_bits(2);
-            let children = usize::from(bits[at]) + usize::from(bits[at + 1]);
+            let children = u64::from(bits.bit(at)) + u64::from(bits.bit(at + 1));
             (children, at + 2)
         };
         if left {
@@ -385,7 +388,10 @@ impl PlateauCursor for IdLeafCursor<'_> {
     type Crossing = bool;
 
     /// The current item's depth: its interval has width `2^-depth`.
-    fn depth(&self) -> usize {
+    ///
+    /// Depths are `u64` across the walk surface, as every stream position
+    /// is: each open ancestor costs at least one bit of the stored id.
+    fn depth(&self) -> u64 {
         self.path.len()
     }
 
@@ -405,7 +411,7 @@ impl PlateauCursor for IdLeafCursor<'_> {
     /// Never called on a final item: a sweep stops when both cursors are done,
     /// and the skyline sweep module's bookkeeping (which this cursor inherits)
     /// shows a final item is never the advanced side before then.
-    fn step(&mut self) -> (usize, bool) {
+    fn step(&mut self) -> (u64, bool) {
         loop {
             match self.path.pop() {
                 Some(true) => continue, // this ancestor closed with the item
@@ -417,7 +423,7 @@ impl PlateauCursor for IdLeafCursor<'_> {
         }
         self.open_lefts -= 1;
         self.path.push(true);
-        let flip = self.path.len();
+        let flip = self.depth();
         let right_present = self
             .pending_right
             .pop()

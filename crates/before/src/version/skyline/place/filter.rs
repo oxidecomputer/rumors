@@ -52,7 +52,7 @@ use core::cmp::Ordering;
 use suanpan::Accumulator;
 
 use crate::causally::Coverage;
-use crate::codec::{BitsSlice, Int};
+use crate::codec::{BitsView, Int};
 
 use super::super::overlay::{advance_set, fold, CursorSet, LeafCursor, PlateauCursor, Side};
 use super::super::signed::Sign;
@@ -159,8 +159,8 @@ struct BoundSide<'a> {
 /// exactly: the violations the walk structurally notices panic, the rest sweep
 /// silently with an unspecified verdict.
 pub(crate) fn admits<'a>(
-    probe: &'a BitsSlice,
-    bounds: impl IntoIterator<Item = (&'a BitsSlice, Demand)>,
+    probe: BitsView<'a>,
+    bounds: impl IntoIterator<Item = (BitsView<'a>, Demand)>,
 ) -> bool {
     let mut bounds = bounds.into_iter().peekable();
     if bounds.peek().is_none() {
@@ -260,7 +260,7 @@ impl CursorSet for MemberCursors<'_> {
     }
 
     /// A dropped (satisfied-hole) bound reads zero and never steps.
-    fn depth(&self, slot: usize) -> usize {
+    fn depth(&self, slot: usize) -> u64 {
         match slot {
             Self::PROBE => self.probe.depth(),
             _ => self.sides[slot - 1]
@@ -276,7 +276,7 @@ impl CursorSet for MemberCursors<'_> {
     /// Every present side's pair reads every interval: membership never
     /// settles a pair — a satisfied hole drops its whole side — so presence
     /// is the only gate.
-    fn step(&mut self, slot: usize) -> usize {
+    fn step(&mut self, slot: usize) -> u64 {
         match slot {
             Self::PROBE => {
                 let (flip, step) = self.probe.step();
@@ -322,9 +322,9 @@ struct SpanSide<'a> {
 ///
 /// The canonical-stream contract of [`admits`], on all operands.
 pub(crate) fn coverage<'a>(
-    lo: &'a BitsSlice,
-    hi: &'a BitsSlice,
-    bounds: impl IntoIterator<Item = (&'a BitsSlice, Demand)>,
+    lo: BitsView<'a>,
+    hi: BitsView<'a>,
+    bounds: impl IntoIterator<Item = (BitsView<'a>, Demand)>,
 ) -> Coverage {
     let mut bounds = bounds.into_iter().peekable();
     if bounds.peek().is_none() {
@@ -552,7 +552,7 @@ impl CursorSet for SpanCursors<'_> {
     }
 
     /// A settled probe endpoint or dropped bound reads zero and never steps.
-    fn depth(&self, slot: usize) -> usize {
+    fn depth(&self, slot: usize) -> u64 {
         match slot {
             Self::HI => {
                 if self.hi_live {
@@ -577,7 +577,7 @@ impl CursorSet for SpanCursors<'_> {
     /// An endpoint's step folds its crossing into its own live pairs as the
     /// `A` operand; a bound's step folds into both its live pairs as the `B`
     /// operand (settled pairs advance unread).
-    fn step(&mut self, slot: usize) -> usize {
+    fn step(&mut self, slot: usize) -> u64 {
         match slot {
             Self::HI => {
                 let (flip, step) = self.hi.step();

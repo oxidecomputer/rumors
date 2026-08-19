@@ -388,7 +388,7 @@ fn mandatory_limbs_match_hand_counts() {
 #[cfg(feature = "scan-meter")]
 fn bypass_walk(v: &Version) -> usize {
     let bits = v.as_bits();
-    (0..bits.len()).filter(|&i| bits[i]).count()
+    (0..bits.len()).filter(|&i| bits.bit(i)).count()
 }
 
 /// A body that does its traversal outside the metered primitives reads green

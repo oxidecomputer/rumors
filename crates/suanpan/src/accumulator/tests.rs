@@ -67,6 +67,19 @@ fn assert_value(acc: &Accumulator, oracle: &IBig) {
         _ => IBig::from(magnitude),
     };
     assert_eq!(&rebuilt, oracle, "sign_magnitude magnitude");
+    // The limb read is the same value spelled as minimal LE 64-bit limbs.
+    let (limb_sign, limbs) = acc.sign_limbs();
+    assert_eq!(limb_sign, sign, "sign_limbs sign");
+    assert_ne!(
+        limbs.last(),
+        Some(&0),
+        "sign_limbs limbs are minimal: no high zero limb"
+    );
+    let rebuilt = match limb_sign {
+        Ordering::Less => -IBig::from(from_limbs(&limbs)),
+        _ => IBig::from(from_limbs(&limbs)),
+    };
+    assert_eq!(&rebuilt, oracle, "sign_limbs magnitude");
     // The scaled read denotes the same value: ±magnitude · 2^shift.
     let (shl_sign, shl_magnitude, shift) = acc.sign_magnitude_shl();
     assert_eq!(shl_sign, sign, "sign_magnitude_shl sign");

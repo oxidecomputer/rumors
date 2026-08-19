@@ -42,7 +42,7 @@ fn check_version(p: &Packed, bits: usize) {
 fn check_party(p: &Packed, bits: usize) -> Party {
     assert_eq!(p.bits, bits, "closed-form bit length");
     let id = Party::decode(&p.bytes[..]).expect("generated shape is strict normal form");
-    assert_eq!(id.encoded_bits(), p.bits, "decoded live bit length");
+    assert_eq!(id.encoded_bits(), p.bits as u64, "decoded live bit length");
     assert_eq!(id.encode(), p.bytes, "byte-identical re-encode");
     id
 }
@@ -543,7 +543,7 @@ fn scan_meter_counts_deterministically_and_resets() {
     a.join(b).expect("the divert arms are disjoint");
     let joined = super::scan_bits();
     assert!(
-        joined as usize >= a.encoded_bits(),
+        joined >= a.encoded_bits(),
         "a join that wrote {} output bits recorded only {joined} scan bits: \
          the id builder is not recording its writes: {ISOLATION_NOTE}",
         a.encoded_bits(),
@@ -651,7 +651,7 @@ fn scattered_id_decodes_canonically_at_predicted_length() {
         Party::decode(&scattered_id(n / 2).bytes[..]).expect("scattered id is strict normal form");
     let projected = (&comb / &party).to_version();
     assert!(
-        projected.encoded_bits() >= (n / 2) * k,
+        projected.encoded_bits() >= ((n / 2) * k) as u64,
         "projection through the scattered id must keep a wide magnitude per kept tooth \
          (got {} bits from {} teeth of {} bits)",
         projected.encoded_bits(),
@@ -799,9 +799,7 @@ fn masked_hole_decodes_canonically_and_realizes_less() {
 /// topology walk (payload codes skipped unread).
 fn leaf_count(v: &Version) -> usize {
     use codec::BitCursor;
-    let all = codec::bytes_as_bits(v.as_bytes());
-    let bits = &all[..v.encoded_bits()];
-    let mut cur = codec::DsiCursor::new(bits);
+    let mut cur = codec::DsiCursor::new(v.as_bits());
     let mut pending = 1usize;
     let mut leaves = 0usize;
     while pending > 0 {
@@ -1217,7 +1215,7 @@ fn plateau_puncture_decodes_canonically_at_predicted_length() {
         // the same bound as an inequality).
         assert_eq!(
             plateau_puncture(w, d).version().encoded_bits(),
-            128 * w + 198 * d + 2,
+            (128 * w + 198 * d + 2) as u64,
             "the stored stream must stay linear in the factors' widths"
         );
         let (x, y) = plateau_puncture_factors(w, d);

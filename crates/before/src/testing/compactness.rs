@@ -21,7 +21,7 @@
 
 use proptest::prelude::*;
 
-use crate::codec::{self, Base, BitsMut};
+use crate::codec::{self, Base, BitsBuf};
 use crate::meter::tier2::{tier2_size, Tier2Size};
 use crate::Version;
 
@@ -80,8 +80,8 @@ pub(crate) fn check_sample(version: &Version) -> Sample {
     // oracle lowering; the stored coding is Tier 2 itself.
     let packed =
         crate::testing::bridge::packed_bits_of(&crate::testing::bridge::to_oracle_version(version));
-    let tier2 = tier2_size(&packed);
-    let current_bits = packed.len() as u64;
+    let tier2 = tier2_size(crate::codec::built_view(&packed));
+    let current_bits = packed.len();
     let ratio = tier2.total_bits as f64 / current_bits as f64;
 
     let envelope = 2.0 * current_bits as f64 + TIER2_NODE_ENVELOPE_BITS * tier2.nodes as f64;
@@ -135,7 +135,7 @@ pub(crate) fn comb(m_bits: usize, pairs: usize) -> Version {
     let m = (Base::from(1u8) << m_bits_u32) - &Base::from(1u8);
 
     let pair_bits = 2 * m_bits + 8;
-    let mut bits = BitsMut::with_capacity(pairs * pair_bits - 2);
+    let mut bits = BitsBuf::with_capacity((pairs * pair_bits - 2) as u64);
     // The spine: each node is `1 . gamma(0)`, its left child the next spine
     // node (the innermost left child is the first pair subtree).
     for _ in 0..pairs - 1 {
@@ -154,7 +154,9 @@ pub(crate) fn comb(m_bits: usize, pairs: usize) -> Version {
     }
     // The comb is hand-built in the min-lifted packed construction
     // language; the transcoding bridge lifts it into the stored coding.
-    let version = Version::from_bits(crate::version::skyline::encode_bits(&bits));
+    let version = Version::from_bits(crate::version::skyline::encode_bits(
+        crate::codec::built_view(&bits),
+    ));
 
     // Self-check: the built stream is canonical and round-trips the wire.
     let decoded = Version::decode(version.encode().as_slice())

@@ -13,7 +13,7 @@ use std::marker::PhantomData;
 
 use super::polarity::{Hole, Neutral, Polarity};
 use super::{le, Version};
-use crate::codec::BitsSlice;
+use crate::codec::BitsView;
 use crate::span::Span;
 use crate::version::skyline::place::filter::{self, Demand};
 
@@ -71,20 +71,20 @@ impl<'a, P: Polarity> Query<'a, P> {
 
     /// The stored bounds as (stream, demand) pairs, in the walks' deterministic
     /// read order: floor, holes in stored order, ceiling.
-    fn demands(&self) -> impl Iterator<Item = (&BitsSlice, Demand)> {
+    fn demands(&self) -> impl Iterator<Item = (BitsView<'_>, Demand)> {
         self.floor
             .as_deref()
-            .map(|p| (&**p.view(), Demand::After))
+            .map(|p| (p.view().live(), Demand::After))
             .into_iter()
             .chain(
                 self.holes
                     .iter()
-                    .map(|hole| (&**hole.at.view(), P::hole_demand(hole.strict))),
+                    .map(|hole| (hole.at.view().live(), P::hole_demand(hole.strict))),
             )
             .chain(
                 self.ceiling
                     .as_deref()
-                    .map(|e| (&**e.view(), Demand::Before)),
+                    .map(|e| (e.view().live(), Demand::Before)),
             )
     }
 
@@ -103,7 +103,7 @@ impl<'a, P: Polarity> Query<'a, P> {
     #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_contains_ceiling_hole.html"))]
     #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_contains_floor_ceiling_hole.html"))]
     pub fn contains(&self, version: &Version) -> bool {
-        filter::admits(version.view(), self.demands())
+        filter::admits(version.view().live(), self.demands())
     }
 
     /// How much of `span` this query admits.
@@ -133,7 +133,7 @@ impl<'a, P: Polarity> Query<'a, P> {
                 Coverage::Empty
             };
         }
-        match filter::coverage(lo.view(), hi.view(), self.demands()) {
+        match filter::coverage(lo.view().live(), hi.view().live(), self.demands()) {
             Coverage::Full => Coverage::Full,
             Coverage::Empty => Coverage::Empty,
             Coverage::Partial => self.refine_partial(lo, hi),

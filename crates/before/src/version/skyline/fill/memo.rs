@@ -82,7 +82,7 @@ pub(super) struct Memo {
     pub(super) cursor: usize,
     /// The end position of the current fresh scan's span: sites before it are
     /// recorded; a site at or past it launches a new scan.
-    pub(super) covered_until: usize,
+    pub(super) covered_until: u64,
     /// Order-sensitive checksum of the recorded sites' positions, matched
     /// against the consumed ones when the scan drains — O(1) state where a
     /// position list would bill the heap meter for a debug-only buffer.
@@ -98,8 +98,8 @@ const _: () = assert!(core::mem::size_of::<Option<NonZeroU32>>() == core::mem::s
 
 /// Fold one position into an order-sensitive checksum (FNV-style).
 #[cfg(debug_assertions)]
-pub(super) fn position_check(check: u64, pos: usize) -> u64 {
-    (check ^ pos as u64).wrapping_mul(0x0100_0000_01b3)
+pub(super) fn position_check(check: u64, pos: u64) -> u64 {
+    (check ^ pos).wrapping_mul(0x0100_0000_01b3)
 }
 
 impl Memo {

@@ -50,7 +50,7 @@ use core::cmp::Ordering;
 
 use suanpan::Accumulator;
 
-use crate::codec::{BitCursor, BitsMut, BitsSlice, Int};
+use crate::codec::{BitCursor, BitsBuf, BitsView, Int};
 use crate::error::Decode;
 
 use super::overlay::{fold, LeafCursor, PlateauCursor, Side, Step};
@@ -75,14 +75,17 @@ struct CheckedCursor<'a, C> {
     cursor: &'a mut C,
     /// Root-to-leaf branch directions, root first (`false`: inside the left
     /// child, its right sibling still pending in the stream).
-    path: BitsMut,
+    path: BitsBuf,
     /// Per open ancestor: whether its completed left child was a leaf (a
     /// placeholder `false` until that child completes).
-    left_was_leaf: BitsMut,
+    left_was_leaf: BitsBuf,
     /// The count of `false` bits in `path`: zero exactly when the current
     /// leaf's plateau ends at the unit interval's right edge — the tree is
     /// whole and the stream's bits end here.
-    open_lefts: usize,
+    ///
+    /// `u64`, as the path height it counts within: each open left branch
+    /// is one stored path bit.
+    open_lefts: u64,
     /// Whether the current leaf's payload code was zero — the collapsible-pair
     /// check's right-child half. Never read for the first leaf (preorder puts
     /// it leftmost, so it is no ancestor's right child).
@@ -98,8 +101,8 @@ where
     fn open(cursor: &'a mut C) -> Result<(Self, Int), Decode> {
         let mut this = CheckedCursor {
             cursor,
-            path: BitsMut::new(),
-            left_was_leaf: BitsMut::new(),
+            path: BitsBuf::new(),
+            left_was_leaf: BitsBuf::new(),
             open_lefts: 0,
             last_delta_zero: false,
         };
@@ -121,7 +124,11 @@ where
     }
 
     /// The current leaf's depth: its plateau has width `2^-depth`.
-    fn depth(&self) -> usize {
+    ///
+    /// Depths are `u64` across the walk surface, as every stream position
+    /// is: each open ancestor costs at least one bit of the walked stream,
+    /// whose live length outgrows a 32-bit `usize` from 512 MiB.
+    fn depth(&self) -> u64 {
         self.path.len()
     }
 
@@ -158,7 +165,7 @@ where
     /// [`close_ancestor`](Self::close_ancestor)'s collapsible-pair check.
     ///
     /// Never called on a done cursor; the walk asks first.
-    fn step(&mut self) -> Result<(usize, Step), Decode> {
+    fn step(&mut self) -> Result<(u64, Step), Decode> {
         // The consumed leaf completes one subtree per popped right branch;
         // `is_leaf`/`zero_delta` describe the completed subtree (the leaf
         // itself on the first iteration).
@@ -187,7 +194,7 @@ where
                 ),
             }
         }
-        let flip = self.path.len();
+        let flip = self.depth();
         let code = self.descend()?;
         self.last_delta_zero = code.is_zero();
         let (sign, magnitude) = unzigzag(code);
@@ -274,7 +281,7 @@ pub(crate) enum Admission {
 /// shares [`causal_cmp`](super::sweep::causal_cmp)'s contract. The parsed
 /// stream needs no such trust; that is the point.
 pub(crate) fn validate_dominating_from<C: BitCursor>(
-    lo: &BitsSlice,
+    lo: BitsView<'_>,
     cursor: &mut C,
 ) -> Result<Admission, Decode>
 where

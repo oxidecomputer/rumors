@@ -16,11 +16,10 @@
 //! word-scale value may travel as [`Int::Small`] or parked in [`Int::Wide`],
 //! and the order must not see the difference.
 
-use bitvec::field::BitField;
 use dashu_int::IBig;
 use proptest::prelude::*;
 
-use crate::codec::{self, Base, BitsMut, Code, Int};
+use crate::codec::{self, Base, BitsBuf, Code, Int};
 
 use super::{
     gamma_code_signed, gamma_code_signed_int, signed_le, signed_max, zigzag_signed, Sign, Signed,
@@ -29,12 +28,11 @@ use super::{
 /// Render a payload code into live bits by [`Code`]'s own representation
 /// contract (a small code sits value-packed at the register's low end, first
 /// bit most significant) — independent of both coders under comparison.
-fn bits_of(code: &Code) -> BitsMut {
+fn bits_of(code: &Code) -> BitsBuf {
     match code {
         Code::Small { bits, len } => {
-            let mut out = BitsMut::new();
-            out.resize(usize::from(*len), false);
-            out[..].store_be::<u64>(*bits);
+            let mut out = BitsBuf::new();
+            out.push_bits(*bits, u32::from(*len));
             out
         }
         Code::Wide(bits) => bits.clone(),
@@ -44,7 +42,7 @@ fn bits_of(code: &Code) -> BitsMut {
 /// Assert both fused coders agree with the unfused composition on one signed
 /// delta, bit for bit.
 fn assert_fused_matches(sign: Sign, magnitude: &Base) {
-    let mut reference = BitsMut::new();
+    let mut reference = BitsBuf::new();
     codec::encode_int(&mut reference, &zigzag_signed(sign, magnitude.clone()));
     assert_eq!(
         bits_of(&gamma_code_signed(sign, magnitude)),

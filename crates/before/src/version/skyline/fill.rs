@@ -153,7 +153,7 @@ use core::cmp::Ordering;
 
 use suanpan::Accumulator;
 
-use crate::codec::{self, Base, BitCursor, BitStack, BitsMut, BitsSlice, Int, PopStack};
+use crate::codec::{self, Base, BitCursor, BitStack, BitsBuf, BitsView, Int, PopStack};
 use crate::idbits::{IdNode, IdReader};
 
 use self::fuse::{decode_cost_component, encode_cost_component, Out, RouteProbe};
@@ -206,7 +206,7 @@ const _: () = assert!(
 /// at least one region: an empty id leaves `fill` the identity, and the grow
 /// fallback requires an owning id (debug builds assert it; the result on an
 /// empty id is unspecified in release builds).
-pub fn tick(event: &BitsSlice, id: &crate::Party) -> BitsMut {
+pub fn tick(event: BitsView<'_>, id: &crate::Party) -> BitsBuf {
     // `n = 1` performs exactly one fused walk plus at most one splice:
     // the delta against a direct dispatch is two unmetered width tests
     // and one non-allocating `Base` construction. The committed
@@ -244,11 +244,13 @@ pub fn tick(event: &BitsSlice, id: &crate::Party) -> BitsMut {
 /// [`validate`](fn@super::validate) first on untrusted bytes. For `n >= 1` the
 /// id must own at least one region, exactly as [`tick`] (debug builds assert
 /// it; the result on an empty id is unspecified in release builds).
-pub fn ticks(event: &BitsSlice, id: &crate::Party, n: &Base) -> BitsMut {
+pub fn ticks(event: BitsView<'_>, id: &crate::Party, n: &Base) -> BitsBuf {
     // Width tests, not value compares: n = 0 has no bits, n = 1 is the
     // one-bit magnitude, and neither test touches the limb meter.
     if n.bits() == 0 {
-        return event.to_bitvec();
+        let mut out = BitsBuf::with_capacity(event.len());
+        codec::extend_from_view(&mut out, event, 0, event.len());
+        return out;
     }
     match fused_fill(event, id) {
         FillOutcome::Changed(bits) => {
@@ -257,9 +259,9 @@ pub fn ticks(event: &BitsSlice, id: &crate::Party, n: &Base) -> BitsMut {
                 return bits;
             }
             let remaining = n.clone() - &Base::from(1u8);
-            match fused_fill(&bits, id) {
+            match fused_fill(codec::built_view(&bits), id) {
                 FillOutcome::Unchanged(route) => {
-                    super::grow::emit(&bits, id.as_bits(), &route, &remaining)
+                    super::grow::emit(codec::built_view(&bits), id.as_bits(), &route, &remaining)
                 }
                 FillOutcome::Changed(_) => {
                     unreachable!("fill is idempotent: a filled tree cannot fill again")
@@ -274,7 +276,7 @@ pub fn ticks(event: &BitsSlice, id: &crate::Party, n: &Base) -> BitsMut {
 /// tick), or it was the identity and the recorded route drives the grow splice.
 pub(super) enum FillOutcome {
     /// `fill(id, e) ≠ e`: the canonical filled stream.
-    Changed(BitsMut),
+    Changed(BitsBuf),
     /// `fill(id, e) = e`: the inflation route for
     /// [`grow::emit`](super::grow::emit).
     Unchanged(super::grow::Route),
@@ -288,7 +290,7 @@ pub(super) enum FillOutcome {
 /// # Panics
 ///
 /// Panics if the event operand is not a canonical skyline stream.
-pub(super) fn fused_fill(event_bits: &BitsSlice, id: &crate::Party) -> FillOutcome {
+pub(super) fn fused_fill(event_bits: BitsView<'_>, id: &crate::Party) -> FillOutcome {
     let id_bits = id.as_bits();
     let mut walk = FillWalk {
         event: event_bits,
@@ -344,7 +346,7 @@ pub(super) fn fused_fill(event_bits: &BitsSlice, id: &crate::Party) -> FillOutco
 struct FillWalk<'a> {
     /// The input skyline stream (kept beside the cursor for the unmetered
     /// single-flag peek and the sub-scans' spawn positions).
-    event: &'a BitsSlice,
+    event: BitsView<'a>,
     /// The input cursor.
     cursor: codec::DsiCursor<'a>,
     /// Whether the next payload is the stream's first (coded absolute, not as a
@@ -430,22 +432,10 @@ impl FillWalk<'_> {
         let mut frames = Frames::new();
         // Derived state: always equal to `frames.len()` (the assert below),
         // carried as a word so the hot loop never recounts a bit stack.
-        // Width: `usize`, justified per target rather than by the mirror
-        // alone — the mirrored `frames.len()` is itself a `usize` that
-        // would wrap in step, the frame stacks' own bit lengths included.
-        // On 64-bit targets, 2^64 open frames is unreachable outright. On
-        // 32-bit targets (wasm32), the derivation is the load-bearing
-        // fact and its margin is thin: every open frame has consumed at
-        // least 3 live input bits (an id tag and an event flag) and holds
-        // at least 4 transient bits (the site/phase/aux stacks and the
-        // route-key delta), so 2^32 open frames demand upwards of 3.5 GiB
-        // across live input and frame stacks alone — nearly the whole
-        // 4 GiB address space, before the web, memo, and output are
-        // counted — and allocation fails loudly before this counter or
-        // any stack's own bit length (which crosses 2^32 at the same
-        // instant) can wrap. The pre-scan's counters carry their own
-        // width contract (the `prescan` module doc).
-        let mut depth = 0usize;
+        // `u64`, the walk surface's depth denomination: every open frame
+        // holds transient bits in real memory, so the count is bounded by
+        // allocatable memory, far below any `u64` wrap on every target.
+        let mut depth = 0u64;
         'descend: loop {
             debug_assert_eq!(depth, frames.len(), "one frame per open branch level");
             // Descend: resolve the subtree at the cursor to a cost, or suspend
@@ -633,7 +623,7 @@ impl FillWalk<'_> {
     }
 
     /// The cursor's bit position: the next node's flag.
-    fn pos(&self) -> usize {
+    fn pos(&self) -> u64 {
         self.cursor.position()
     }
 
@@ -685,7 +675,7 @@ impl FillWalk<'_> {
 
     /// Consume the queue-front memoized site: resolve its minimum by one fold
     /// of its ledger link into the live relation, decide the raise, and emit.
-    fn consume_site(&mut self, above: &Signed, depth: usize) {
+    fn consume_site(&mut self, above: &Signed, depth: u64) {
         debug_assert!(
             self.memo.cursor < self.memo.queue.len(),
             "a covered site has a recorded entry"
@@ -752,7 +742,7 @@ impl FillWalk<'_> {
         mut relation: Accumulator,
         link: Option<Accumulator>,
         above: &Signed,
-        depth: usize,
+        depth: u64,
     ) {
         // The decision is sign((h + above) − m_s) = sign(relation + above −
         // link); the link stays folded in, so the accumulator then holds h −
@@ -859,7 +849,7 @@ impl FillWalk<'_> {
     /// past its absolute-coded first leaf ([`Out::Built`]'s contract), so the
     /// body codes a delta unconditionally — from the registers, never from
     /// the step itself.
-    fn emit_step(&mut self, depth: usize) {
+    fn emit_step(&mut self, depth: u64) {
         self.web.emit_here();
         if self.out.note_match(self.pos()) {
             self.gap.reset();
@@ -899,7 +889,7 @@ impl FillWalk<'_> {
     /// absolute: output position ≡ input position while the walk is verbatim,
     /// so a first leaf compares absolute against absolute). A value-reproducing
     /// raise is a match, never a divergence.
-    fn emit_offset(&mut self, depth: usize, offset: Signed) {
+    fn emit_offset(&mut self, depth: u64, offset: Signed) {
         self.web.emit_offset(&offset);
         if self.out.is_verbatim() && self.range_is_leaf && offset.is_zero() {
             // A value-reproducing emission on a verbatim walk always
@@ -963,7 +953,7 @@ impl FillWalk<'_> {
     /// tracked minimum strictly exceeds `h + above`, and `h + above` is the
     /// consumed range's maximum — at or above every input plateau the emission
     /// replaces — so the emitted value moved.
-    fn emit_at_min(&mut self, depth: usize) {
+    fn emit_at_min(&mut self, depth: u64) {
         debug_assert!(
             !self.out.is_unstarted(),
             "a tracked minimum implies an emission"
@@ -1014,7 +1004,7 @@ impl FillWalk<'_> {
     /// its own depth, deltas passing straight through (the first through the
     /// divergence gap); the watermark web absorbs each emission in amortized
     /// O(1).
-    fn copy_subtree(&mut self, depth: usize) {
+    fn copy_subtree(&mut self, depth: u64) {
         // Three regimes, selected in order: (1) a verbatim walk over a
         // depth-2+ region block-scans it as one matched prefix extension;
         // (2) post-divergence a depth-2+ region feeds its first leaf
@@ -1068,7 +1058,9 @@ impl FillWalk<'_> {
             // The region's last leaf is the last emission.
             self.gap.reset();
             self.out.continue_verbatim(
-                &self.event[rest_start..self.pos()],
+                self.event,
+                rest_start,
+                self.pos(),
                 depth,
                 first_leaf_depth,
                 skip.last_depth,
@@ -1095,7 +1087,7 @@ impl FillWalk<'_> {
         // reproduces the input's topology iff the range is a single leaf —
         // exactly its first flag bit (`1` = leaf). An unmetered peek of the bit
         // the scan is about to read as its first flag.
-        self.range_is_leaf = self.event[self.pos()];
+        self.range_is_leaf = self.event.bit(self.pos());
         let mut above = Extremum::max(self.web.lease());
         let mut walk = LeafWalk::new();
         let first_leaf_depth = walk
@@ -1156,7 +1148,7 @@ enum Frame {
 /// delta's width in transient, never a machine word.
 struct DeltaReg {
     /// The most recently pushed position (zero before any push).
-    register: usize,
+    register: u64,
 }
 
 impl DeltaReg {
@@ -1166,20 +1158,20 @@ impl DeltaReg {
 
     /// Suspend `position`: its delta against the register goes onto `values`,
     /// and the register advances to it.
-    fn push(&mut self, values: &mut PopStack, position: usize) {
+    fn push(&mut self, values: &mut PopStack, position: u64) {
         debug_assert!(
             position >= self.register,
             "registered positions only advance"
         );
-        values.push((position - self.register) as u64);
+        values.push(position - self.register);
         self.register = position;
     }
 
     /// Restore the register to the previous position, returning the popped
     /// one.
-    fn pop(&mut self, values: &mut PopStack) -> usize {
+    fn pop(&mut self, values: &mut PopStack) -> u64 {
         let position = self.register;
-        self.register = position - values.pop() as usize;
+        self.register = position - values.pop();
         position
     }
 }
@@ -1220,7 +1212,7 @@ impl Frames {
     }
 
     /// Open branch levels (the walk's current depth).
-    fn len(&self) -> usize {
+    fn len(&self) -> u64 {
         self.site.len()
     }
 
@@ -1247,7 +1239,7 @@ impl Frames {
 
     /// Suspend an ordinary node: key delta on the value stack, control bits
     /// armed for the left child.
-    fn push_node(&mut self, key: usize, right: bool) {
+    fn push_node(&mut self, key: u64, right: bool) {
         self.keys.push(&mut self.values, key);
         self.site.push(false);
         self.phase.push(false);
@@ -1255,7 +1247,7 @@ impl Frames {
     }
 
     /// Suspend a consume-site around its sibling walk.
-    fn push_site(&mut self, key: usize, outermost: bool) {
+    fn push_site(&mut self, key: u64, outermost: bool) {
         self.keys.push(&mut self.values, key);
         self.site.push(true);
         self.phase.push(false);
@@ -1277,7 +1269,7 @@ impl Frames {
 
     /// Pop the control bits of the top frame and restore the key register,
     /// returning the frame's key.
-    fn pop_key(&mut self) -> usize {
+    fn pop_key(&mut self) -> u64 {
         self.site.pop();
         self.phase.pop();
         self.aux.pop();
@@ -1286,19 +1278,19 @@ impl Frames {
 
     /// Close a left-awaiting node whose right side resolved in place: its route
     /// key.
-    fn pop_await_left(&mut self) -> usize {
+    fn pop_await_left(&mut self) -> u64 {
         self.pop_key()
     }
 
     /// Close a right-awaiting node: its route key and deferred left cost.
-    fn pop_await_right(&mut self) -> (usize, Cost) {
+    fn pop_await_right(&mut self) -> (u64, Cost) {
         let depth = decode_cost_component(self.values.pop());
         let expansions = decode_cost_component(self.values.pop());
         (self.pop_key(), Cost { expansions, depth })
     }
 
     /// Close a site frame: its route key and outermost flag.
-    fn pop_site(&mut self) -> (usize, bool) {
+    fn pop_site(&mut self) -> (u64, bool) {
         let outermost = self.aux_top();
         (self.pop_key(), outermost)
     }
@@ -1309,7 +1301,7 @@ impl Frames {
 ///
 /// The absent-right-sibling raise's argument (`min(fill(0, er)) = min(er)`),
 /// priced by the scan that reads the range.
-fn scan_min_from(event: &BitsSlice, pos: usize) -> Signed {
+fn scan_min_from(event: BitsView<'_>, pos: u64) -> Signed {
     let mut cursor = codec::DsiCursor::new_at(event, pos);
     let skip = skip_region(&mut cursor);
     // `min = h_entry + net + (min − h_exit)`.

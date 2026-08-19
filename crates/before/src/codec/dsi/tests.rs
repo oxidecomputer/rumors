@@ -5,7 +5,7 @@
 use proptest::prelude::*;
 
 use crate::codec::cursor::Truncated;
-use crate::codec::{self, Base, BitCursor, BitsMut, SliceCursor};
+use crate::codec::{self, Base, BitCursor, BitsBuf, SliceCursor};
 
 use super::DsiCursor;
 
@@ -34,11 +34,11 @@ fn gamma_reader_matches_decoder_across_the_word_seam() {
         Base::from((UBig::ONE << 100usize) + 12345u32),
     ];
     for value in &values {
-        let mut bits = BitsMut::new();
+        let mut bits = BitsBuf::new();
         codec::encode_int(&mut bits, value);
-        let (want, want_end) =
-            codec::decode_int(&bits, 0).expect("the committed decoder reads its own encoding");
-        let mut cursor = DsiCursor::new(&bits);
+        let (want, want_end) = codec::decode_int(crate::codec::built_view(&bits), 0)
+            .expect("the committed decoder reads its own encoding");
+        let mut cursor = DsiCursor::new(crate::codec::built_view(&bits));
         let got = cursor
             .read_int()
             .expect("the word-parallel reader reads the same code");
@@ -48,7 +48,7 @@ fn gamma_reader_matches_decoder_across_the_word_seam() {
             want_end,
             "consumed bits diverge at {value}"
         );
-        let mut skipper = DsiCursor::new(&bits);
+        let mut skipper = DsiCursor::new(crate::codec::built_view(&bits));
         skipper
             .skip_int()
             .expect("the skip accepts what the read accepts");
@@ -82,16 +82,16 @@ fn skip_int_meters_exactly_the_code_width_read_int_pays() {
         Base::from(u64::MAX),     // k = 64: the first wide-arm code
         Base::from(UBig::ONE << 100usize),
     ] {
-        let mut bits = BitsMut::new();
+        let mut bits = BitsBuf::new();
         codec::encode_int(&mut bits, &value);
-        let mut reader = DsiCursor::new(&bits);
+        let mut reader = DsiCursor::new(crate::codec::built_view(&bits));
         crate::meter::reset_scan_bits();
         reader
             .read_int()
             .expect("the reader reads its own encoding");
         let read_record = crate::meter::scan_bits();
-        let width = reader.position() as u64;
-        let mut skipper = DsiCursor::new(&bits);
+        let width = reader.position();
+        let mut skipper = DsiCursor::new(crate::codec::built_view(&bits));
         crate::meter::reset_scan_bits();
         skipper
             .skip_int()
@@ -120,10 +120,10 @@ fn truncated_codes_reject_at_every_cut_point() {
         Base::from(u64::MAX),
         Base::from(UBig::ONE << 100usize),
     ] {
-        let mut bits = BitsMut::new();
+        let mut bits = BitsBuf::new();
         codec::encode_int(&mut bits, &value);
         for cut in 0..bits.len() {
-            let prefix = &bits[..cut];
+            let prefix = codec::BitsView::new(bits.as_raw_slice(), cut);
             assert!(
                 codec::decode_int(prefix, 0).is_err(),
                 "the per-bit loop accepts a truncated code at {cut} of {value}"
@@ -150,14 +150,14 @@ fn truncated_codes_reject_at_every_cut_point() {
 /// never terminate rejects.
 #[test]
 fn unary_reads_match_the_per_bit_loop_across_word_seams() {
-    for run in [0usize, 1, 7, 8, 31, 32, 33, 63, 64, 65, 200] {
-        let mut bits = BitsMut::new();
+    for run in [0u64, 1, 7, 8, 31, 32, 33, 63, 64, 65, 200] {
+        let mut bits = BitsBuf::new();
         for _ in 0..run {
             bits.push(false);
         }
         bits.push(true);
         bits.push(true); // one trailing live bit so the terminator is interior
-        let mut cursor = DsiCursor::new(&bits);
+        let mut cursor = DsiCursor::new(crate::codec::built_view(&bits));
         assert_eq!(
             cursor.read_unary().expect("a terminated run reads"),
             run,
@@ -165,11 +165,11 @@ fn unary_reads_match_the_per_bit_loop_across_word_seams() {
         );
         assert_eq!(cursor.position(), run + 1, "the terminating 1 is consumed");
         // The same bits through the default per-bit trait loop.
-        let mut slice = SliceCursor::new(&bits, 0);
+        let mut slice = SliceCursor::new(crate::codec::built_view(&bits), 0);
         assert_eq!(slice.read_unary().expect("a terminated run reads"), run);
         assert_eq!(slice.position(), run + 1);
 
-        let unterminated = &bits[..run];
+        let unterminated = codec::BitsView::new(bits.as_raw_slice(), run);
         let mut cursor = DsiCursor::new(unterminated);
         assert!(
             matches!(cursor.read_unary(), Err(Truncated)),
@@ -183,7 +183,7 @@ fn unary_reads_match_the_per_bit_loop_across_word_seams() {
 /// stream, at and off byte boundaries.
 #[test]
 fn mid_stream_opens_read_the_same_suffix() {
-    let mut bits = BitsMut::new();
+    let mut bits = BitsBuf::new();
     // A mixed stream: alternating flags and codes of assorted widths.
     for (flag, value) in [
         (true, 0u64),
@@ -197,9 +197,9 @@ fn mid_stream_opens_read_the_same_suffix() {
         codec::encode_int(&mut bits, &Base::from(value));
     }
     for pos in 0..=bits.len() {
-        let mut fresh = DsiCursor::new_at(&bits, pos);
-        let mut walked = DsiCursor::new(&bits);
-        let mut consumed = 0usize;
+        let mut fresh = DsiCursor::new_at(crate::codec::built_view(&bits), pos);
+        let mut walked = DsiCursor::new(crate::codec::built_view(&bits));
+        let mut consumed = 0u64;
         while consumed < pos {
             walked.read_bit().expect("within the live length");
             consumed += 1;
@@ -238,7 +238,7 @@ proptest! {
             1..40,
         ),
     ) {
-        let mut bits = BitsMut::new();
+        let mut bits = BitsBuf::new();
         for (unary, v) in &ops {
             if *unary {
                 for _ in 0..*v {
@@ -249,8 +249,8 @@ proptest! {
                 codec::encode_int(&mut bits, &Base::from(*v));
             }
         }
-        let mut dsi = DsiCursor::new(&bits);
-        let mut slice = SliceCursor::new(&bits, 0);
+        let mut dsi = DsiCursor::new(crate::codec::built_view(&bits));
+        let mut slice = SliceCursor::new(crate::codec::built_view(&bits), 0);
         for (unary, _) in &ops {
             if *unary {
                 let want = slice.read_unary().expect("the stream holds the run");
@@ -258,7 +258,8 @@ proptest! {
                 prop_assert_eq!(got, want);
             } else {
                 let want = slice.read_int().expect("the stream holds the code");
-                let mut skipper = DsiCursor::new_at(&bits, dsi.position());
+                let mut skipper =
+                    DsiCursor::new_at(crate::codec::built_view(&bits), dsi.position());
                 let got = dsi.read_int().expect("the stream holds the code");
                 prop_assert_eq!(&got, &want);
                 skipper.skip_int().expect("the skip accepts the code");

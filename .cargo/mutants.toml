@@ -82,11 +82,11 @@ additional_cargo_args = ["--all-features"]
 exclude_re = [
     # --- suanpan::accumulator ---
 
-    # Proven equivalent: read_magnitude's final carry has magnitude at
+    # Proven equivalent: read_digits' final carry has magnitude at
     # most 3 (bound derived in the comment at the site), so each high-part
     # drain emits its whole value in its first digit and the mutated shift
     # direction has an empty discriminating class.
-    "accumulator\\.rs.*: replace >>= with <<= in Accumulator::read_magnitude",
+    "accumulator\\.rs.*: replace >>= with <<= in Accumulator::read_digits",
 
     # Performance genre, owner-declared benign fast path: the identity
     # guard routes cost and representation only (the comment at the site
@@ -139,7 +139,7 @@ exclude_re = [
     # Proven equivalent, line-pinned (the match arm's guard shares the
     # operator pattern and is killed): at equal magnitude the cross and
     # shrink paths both land on the positive zero zigzag.
-    "grow\\.rs:457:38: replace < with <= in recode",
+    "grow\\.rs:463:38: replace < with <= in recode",
 
     # --- before::version::skyline::fill / prescan ---
 

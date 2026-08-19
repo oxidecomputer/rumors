@@ -1,6 +1,6 @@
 use crate::idbits::{IdNode, IdReader};
 
-use super::{BitsMut, BitsSlice};
+use super::{BitsBuf, BitsView};
 
 /// While rendering an open id node, which child the walk is inside.
 ///
@@ -22,14 +22,14 @@ const RIGHT_PHASE: bool = false;
 /// sees the traversal), and its control state is one to two bits per open node
 /// on a bit stack — a deep id costs bits, never stack frames or grown segments.
 pub(crate) fn write_id(
-    bits: &BitsSlice,
+    bits: BitsView<'_>,
     f: &mut core::fmt::Formatter<'_>,
     sep: &str,
 ) -> core::fmt::Result {
     let mut reader = IdReader::root(bits);
     // Per open node: a phase bit on top ([`LEFT_PHASE`]/[`RIGHT_PHASE`]); under
     // a left phase, the right child's presence bit.
-    let mut pending = BitsMut::new();
+    let mut pending = BitsBuf::new();
     // Whether the child to render next is present (decode the cursor) or an
     // absent `0` (the cursor holds no bits for it).
     let mut present = true;

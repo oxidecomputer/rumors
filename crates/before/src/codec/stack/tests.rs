@@ -35,7 +35,7 @@ proptest! {
                 prop_assert_eq!(stack.pop(), model.pop());
             }
             prop_assert_eq!(stack.last(), model.last().copied());
-            prop_assert_eq!(stack.len(), model.len());
+            prop_assert_eq!(stack.len(), model.len() as u64);
             prop_assert_eq!(stack.all_set(), model.iter().all(|&b| b));
         }
     }

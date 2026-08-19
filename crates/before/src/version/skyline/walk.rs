@@ -77,7 +77,7 @@ impl LeafWalk {
     /// notices — truncation, malformation — panic; the rest walk silently
     /// with an unspecified result (the contract of
     /// [`causal_cmp`](super::sweep::causal_cmp), stated once there).
-    pub(super) fn descend(&mut self, cursor: &mut DsiCursor<'_>) -> Option<usize> {
+    pub(super) fn descend(&mut self, cursor: &mut DsiCursor<'_>) -> Option<u64> {
         if self.started {
             loop {
                 match self.path.pop() {
@@ -212,9 +212,13 @@ pub(super) struct RegionSkip {
     /// leaf's, itself in the minimum's range).
     pub(super) min_from_exit: Signed,
     /// The last leaf's depth below the walked subtree's root.
-    pub(super) last_depth: usize,
-    /// The last leaf's payload code length in bits.
-    pub(super) last_code_len: usize,
+    ///
+    /// `u64`, as every depth on the walk surface: each level below the
+    /// root costs at least one bit of the walked stream.
+    pub(super) last_depth: u64,
+    /// The last leaf's payload code length in bits, in the stream's own
+    /// `u64` denomination.
+    pub(super) last_code_len: u64,
 }
 
 /// Drive `walk` over the remaining leaves of the subtree at the cursor, folding
@@ -243,8 +247,8 @@ pub(super) fn fold_region(
     first: bool,
     net: &mut Accumulator,
     extremum: &mut Extremum,
-    pending: Option<usize>,
-) -> Option<(usize, usize)> {
+    pending: Option<u64>,
+) -> Option<(u64, u64)> {
     let mut first = first;
     let mut last = None;
     let mut pending = pending;
@@ -348,7 +352,7 @@ pub(super) fn skip_leaves(
     walk: &mut LeafWalk,
     cursor: &mut DsiCursor<'_>,
     first: bool,
-    pending: Option<usize>,
+    pending: Option<u64>,
 ) -> Option<RegionSkip> {
     let mut net = Accumulator::new();
     let mut min = Extremum::min(Accumulator::new());

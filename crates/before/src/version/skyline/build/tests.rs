@@ -4,7 +4,7 @@
 //! stream, so a bookkeeping error in absorb, re-anchor, or the cascade fails
 //! against bits a reader can re-derive in the margin.
 
-use crate::codec::{self, Base, BitsMut, Code};
+use crate::codec::{self, Base, BitsBuf, Code};
 use crate::version::skyline::signed::{gamma_code_signed, Sign};
 
 use super::SkylineBuilder;
@@ -20,7 +20,7 @@ fn delta(sign: Sign, magnitude: u64) -> Code {
 }
 
 /// Drive a builder over `(depth, code)` leaves and return the stream.
-fn built(leaves: Vec<(usize, Code)>) -> BitsMut {
+fn built(leaves: Vec<(u64, Code)>) -> BitsBuf {
     let mut builder = SkylineBuilder::with_capacity(64);
     for (depth, code) in leaves {
         builder.leaf(depth, code);
@@ -29,7 +29,7 @@ fn built(leaves: Vec<(usize, Code)>) -> BitsMut {
 }
 
 /// A stream literal from a `0`/`1` string, whitespace ignored.
-fn bits(s: &str) -> BitsMut {
+fn bits(s: &str) -> BitsBuf {
     s.chars()
         .filter(|c| !c.is_whitespace())
         .map(|c| match c {
@@ -111,7 +111,7 @@ fn zero_delta_against_internal_sibling_survives() {
 /// held code is written exactly once.
 #[test]
 fn deep_uniform_collapse_holds_the_wide_code() {
-    const DEPTH: usize = 8;
+    const DEPTH: u64 = 8;
     const WIDE: u64 = u64::MAX >> 1;
     let mut leaves = vec![(DEPTH, gamma(WIDE)), (DEPTH, delta(Sign::Positive, 0))];
     for level in (1..DEPTH).rev() {
@@ -178,14 +178,14 @@ fn partial_equality_collapses_only_the_equal_pair() {
 /// leaves' relative depths and the last code's length — the coordinates the
 /// splice re-anchors the builder around.
 fn continuation(
-    root_depth: usize,
-    first_depth: usize,
-    leaves: &[(usize, Code)],
-) -> (BitsMut, usize, usize, usize) {
-    let mut range = BitsMut::new();
+    root_depth: u64,
+    first_depth: u64,
+    leaves: &[(u64, Code)],
+) -> (BitsBuf, u64, u64, u64) {
+    let mut range = BitsBuf::new();
     // The within-subtree path to the previous leaf; the subtree's first leaf is
     // its leftmost, so the path starts all left branches.
-    let mut path = vec![false; first_depth - root_depth];
+    let mut path = vec![false; (first_depth - root_depth) as usize];
     for (depth, code) in leaves {
         // Close the ancestors the previous leaf completed and flip the
         // deepest left branch, then descend, emitting one internal flag
@@ -197,7 +197,7 @@ fn continuation(
             }
         }
         let rel = depth - root_depth;
-        let entered = rel - path.len();
+        let entered = (rel - path.len() as u64) as usize;
         range.extend(std::iter::repeat_n(false, entered));
         path.extend(std::iter::repeat_n(false, entered));
         range.push(true);
@@ -207,7 +207,7 @@ fn continuation(
                     range.push(bits >> i & 1 == 1);
                 }
             }
-            Code::Wide(code) => range.extend_from_bitslice(code),
+            Code::Wide(code) => range.extend_from_buf(code),
         }
     }
     let (last_depth, last_code) = leaves.last().expect("a continuation has at least one leaf");
@@ -241,7 +241,16 @@ fn continue_verbatim_matches_per_leaf_feeding() {
     spliced.leaf(3, delta(Sign::Positive, 2));
     let (range, first_rel, last_rel, last_len) =
         continuation(2, 3, &[(3, delta(Sign::Positive, 1))]);
-    spliced.continue_verbatim(&range, 2, first_rel, last_rel, last_len);
+    let range_view = crate::codec::built_view(&range);
+    spliced.continue_verbatim(
+        range_view,
+        0,
+        range_view.len(),
+        2,
+        first_rel,
+        last_rel,
+        last_len,
+    );
     spliced.leaf(1, delta(Sign::Negative, 1));
     assert_eq!(spliced.finish(), per_leaf);
 }
@@ -269,7 +278,16 @@ fn continue_verbatim_reanchors_across_levels() {
         4,
         &[(4, delta(Sign::Positive, 3)), (3, delta(Sign::Negative, 1))],
     );
-    spliced.continue_verbatim(&range, 2, first_rel, last_rel, last_len);
+    let range_view = crate::codec::built_view(&range);
+    spliced.continue_verbatim(
+        range_view,
+        0,
+        range_view.len(),
+        2,
+        first_rel,
+        last_rel,
+        last_len,
+    );
     spliced.leaf(1, delta(Sign::Positive, 3));
     assert_eq!(spliced.finish(), per_leaf);
 }
@@ -293,7 +311,16 @@ fn collapse_after_a_splice_matches_per_leaf_feeding() {
     spliced.leaf(3, delta(Sign::Positive, 2));
     let (range, first_rel, last_rel, last_len) =
         continuation(2, 3, &[(3, delta(Sign::Positive, 1))]);
-    spliced.continue_verbatim(&range, 2, first_rel, last_rel, last_len);
+    let range_view = crate::codec::built_view(&range);
+    spliced.continue_verbatim(
+        range_view,
+        0,
+        range_view.len(),
+        2,
+        first_rel,
+        last_rel,
+        last_len,
+    );
     spliced.leaf(2, delta(Sign::Positive, 2));
     spliced.leaf(2, delta(Sign::Positive, 0));
     assert_eq!(spliced.finish(), per_leaf);

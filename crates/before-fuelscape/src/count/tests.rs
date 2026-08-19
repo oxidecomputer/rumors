@@ -133,7 +133,7 @@ const CENSUS_BITS: usize = 8 * CENSUS_BYTES - 1;
 /// and tallies acceptances per live bit length. The sweep fans out over
 /// rayon; per-chunk histograms add commutatively, so the fan-out cannot
 /// change any count.
-fn decoder_census(accept: impl Fn(&[u8]) -> Option<usize> + Sync) -> Vec<u64> {
+fn decoder_census(accept: impl Fn(&[u8]) -> Option<u64> + Sync) -> Vec<u64> {
     let empty = || vec![0u64; CENSUS_BITS + 1];
     let mut census = empty();
     for len in 1..=CENSUS_BYTES {
@@ -147,10 +147,12 @@ fn decoder_census(accept: impl Fn(&[u8]) -> Option<usize> + Sync) -> Vec<u64> {
                 }
                 if let Some(bits) = accept(&buf[..len]) {
                     assert!(
-                        bits < 8 * len,
+                        bits < 8 * len as u64,
                         "decoder reported {bits} live bits from a {len}-byte input"
                     );
-                    hist[bits] += 1;
+                    // In range per the assert above: census inputs are a few
+                    // bytes, so the bit length indexes the histogram.
+                    hist[bits as usize] += 1;
                 }
                 hist
             })

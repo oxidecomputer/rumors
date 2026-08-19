@@ -8,7 +8,7 @@
 //! [`read_unary`](DsiCursor::read_unary) (a `leading_zeros` over a buffered
 //! window) and whole payload codes in `O(1)` word operations. The accept/reject
 //! boundary lives in this wrapper, not the library: `position`/`len` bound
-//! every read against the slice's live bit length, so the reader's zero padding
+//! every read against the view's live bit length, so the reader's zero padding
 //! past the live bits is never surfaced as data.
 //!
 //! Values are read through the in-house wide arm, never `dsi-bitstream`'s own
@@ -39,9 +39,9 @@ use dsi_bitstream::traits::{BitRead, WordRead, BE};
 use crate::error::Decode;
 
 use super::cursor::Truncated;
-use super::{Base, BitCursor, BitsSlice, Int};
+use super::{Base, BitCursor, BitsView, Int};
 
-/// A word-parallel sequential cursor over an existing packed bit slice.
+/// A word-parallel sequential cursor over an existing packed bit view.
 ///
 /// The skyline walks' reader: [`read_bit`](BitCursor::read_bit) for interleaved
 /// single flags, [`read_unary`](BitCursor::read_unary) for topology runs,
@@ -52,23 +52,27 @@ use super::{Base, BitCursor, BitsSlice, Int};
 pub(crate) struct DsiCursor<'a> {
     reader: BufBitReader<BE, ByteWords<'a>>,
     /// The position immediately after the last live bit read.
-    position: usize,
-    /// The stream's live bit length.
-    len: usize,
+    ///
+    /// `u64`, not `usize`: every walked buffer — a stored stream's or a
+    /// byte decode door's — holds `8 · bytes.len()` bit positions, which
+    /// exceeds a 32-bit `usize` from 512 MiB (a size a 4 GiB address space
+    /// allocates comfortably) while remaining exactly representable here.
+    position: u64,
+    /// The stream's live bit length, in the same `u64` denomination.
+    len: u64,
 }
 
 impl<'a> DsiCursor<'a> {
-    /// Open a cursor at bit 0 of a stored stream.
+    /// Open a cursor at bit 0 of a stream's view.
     ///
-    /// # Panics
-    ///
-    /// Panics if the slice does not start on a byte boundary of its backing
-    /// store; every stored `Version` stream does.
-    pub(crate) fn new(bits: &'a BitsSlice) -> Self {
+    /// A stored stream's live view and a byte decode door's whole padded
+    /// buffer enter identically: padding bits are data to a door's walk,
+    /// and the door's marker check afterwards judges the remainder.
+    pub(crate) fn new(bits: BitsView<'a>) -> Self {
         DsiCursor::new_at(bits, 0)
     }
 
-    /// Open a cursor at bit `pos` of a stored stream.
+    /// Open a cursor at bit `pos` of a stream's view.
     ///
     /// `O(1)`: the word source starts at `pos`'s byte and the cursor discards
     /// the at most 7 leading bits before `pos` unrecorded (the walk never
@@ -76,16 +80,12 @@ impl<'a> DsiCursor<'a> {
     ///
     /// # Panics
     ///
-    /// Panics if `pos` lies past the stream's end, or if the slice does not
-    /// start on a byte boundary of its backing store; every stored
-    /// `Version` stream does.
-    pub(crate) fn new_at(bits: &'a BitsSlice, pos: usize) -> Self {
+    /// Panics if `pos` lies past the view's live length.
+    pub(crate) fn new_at(bits: BitsView<'a>, pos: u64) -> Self {
         assert!(pos <= bits.len(), "cursor opened past the stream's end");
-        let Some((body, tail)) = super::byte_view(bits) else {
-            unreachable!("stored streams start on a byte boundary")
-        };
-        let mut reader = BufBitReader::new(ByteWords::new(body, tail, pos / 8));
-        let skip = pos % 8;
+        let (body, tail) = bits.body_tail();
+        let mut reader = BufBitReader::new(ByteWords::new(body, tail, (pos / 8) as usize));
+        let skip = (pos % 8) as usize;
         if skip != 0 {
             reader
                 .skip_bits(skip)
@@ -106,11 +106,13 @@ impl<'a> DsiCursor<'a> {
     /// byte's dead bits and zero-fills past the stream) can only
     /// lengthen an apparent prefix past `len`, never terminate one
     /// early.
-    fn unary_raw(&mut self) -> Result<usize, Truncated> {
+    fn unary_raw(&mut self) -> Result<u64, Truncated> {
         match self.reader.read_unary() {
             Err(_) => Err(self.truncated()),
             Ok(k) => {
-                let k = k as usize;
+                // No overflow: position and len are at most 8 · a buffer's
+                // byte count and k is bounded by the word source's total
+                // bits, all far below 2^64.
                 if self.position + k + 1 > self.len {
                     return Err(self.truncated());
                 }
@@ -128,7 +130,7 @@ impl<'a> DsiCursor<'a> {
     /// cursor parks at the live length, where the per-bit loop's failing read
     /// leaves its own cursor.
     fn truncated(&mut self) -> Truncated {
-        super::scan::record_bits(self.len - self.position);
+        super::scan::record_bits_u64(self.len - self.position);
         self.position = self.len;
         Truncated
     }
@@ -149,13 +151,13 @@ impl<'a> DsiCursor<'a> {
         }
         let mut remaining = k;
         while remaining > 0 {
-            let chunk = remaining.min(u64::BITS as usize);
+            let chunk = remaining.min(u64::from(u64::BITS));
             self.reader
-                .skip_bits(chunk)
+                .skip_bits(chunk as usize)
                 .expect("the mantissa was proven to fit the live length");
             remaining -= chunk;
         }
-        super::scan::record_bits(code_len);
+        super::scan::record_bits_u64(code_len);
         self.position += code_len;
         Ok(())
     }
@@ -180,13 +182,13 @@ impl BitCursor for DsiCursor<'_> {
         Ok(bit)
     }
 
-    fn position(&self) -> usize {
+    fn position(&self) -> u64 {
         self.position
     }
 
-    fn read_unary(&mut self) -> Result<usize, Truncated> {
+    fn read_unary(&mut self) -> Result<u64, Truncated> {
         let k = self.unary_raw()?;
-        super::scan::record_bits(k + 1);
+        super::scan::record_bits_u64(k + 1);
         self.position += k + 1;
         Ok(k)
     }
@@ -215,10 +217,10 @@ impl BitCursor for DsiCursor<'_> {
     /// the per-bit loop does.
     fn read_int(&mut self) -> Result<Int, Decode> {
         // Table tier: only when the peeked 9 bits are all live.
-        if self.len - self.position >= gamma_tables::READ_BITS {
+        if self.len - self.position >= gamma_tables::READ_BITS as u64 {
             if let Some((value, used)) = gamma_tables::read_table_be(&mut self.reader) {
                 super::scan::record_bits(used);
-                self.position += used;
+                self.position += used as u64;
                 return Ok(Int::Small(value));
             }
         }
@@ -233,19 +235,34 @@ impl BitCursor for DsiCursor<'_> {
             self.truncated();
             return Err(Decode::Truncated);
         }
-        if k < u64::BITS as usize {
+        if k < u64::from(u64::BITS) {
             let rest = self
                 .reader
-                .read_bits(k)
+                .read_bits(k as usize)
                 .expect("the mantissa was proven to fit the live length");
             let m = (1u64 << k) | rest;
-            super::scan::record_bits(code_len);
+            super::scan::record_bits_u64(code_len);
             self.position += code_len;
             return Ok(Int::Small(m - 1));
         }
         // Wide arm: the mantissa's top bit is at position `k`; the next `k`
         // stream bits fill positions `k - 1 ..= 0`, most-significant first,
-        // read in machine-word chunks.
+        // read in machine-word chunks. A mantissa at or past `usize` bits
+        // names a value the big-integer backend cannot hold on this target
+        // (it caps magnitudes below `usize::MAX` bits), so the reject genre
+        // is the value's, not the machine's — the same genre the per-bit
+        // loop (`decode_int_from`) reports at the same width.
+        let Ok(k) = usize::try_from(k) else {
+            // The examined prefix (its terminating 1 included) records
+            // before the reject surfaces — exactly the bits the per-bit
+            // loop's own reads have recorded when it rejects at this
+            // width — and the cursor parks just past it, where the loop's
+            // cursor stands at the same reject.
+            let prefix = k + 1;
+            super::scan::record_bits_u64(prefix);
+            self.position += prefix;
+            return Err(Decode::NotCanonical);
+        };
         let mut m = UBig::ZERO;
         m.set_bit(k);
         let mut remaining = k;
@@ -266,7 +283,7 @@ impl BitCursor for DsiCursor<'_> {
         // wide fallback records.
         #[cfg(feature = "limb-meter")]
         super::limb_meter::record_wide(&m);
-        super::scan::record_bits(code_len);
+        super::scan::record_bits_u64(code_len);
         self.position += code_len;
         Ok(Int::from_base(Base::from(m - 1u32)))
     }
@@ -275,8 +292,9 @@ impl BitCursor for DsiCursor<'_> {
 /// Native-order `u32` words over one stored stream's packed bytes: the word
 /// source under the buffered reader.
 ///
-/// The final partial word zero-fills past the stream's bytes (the tail byte's
-/// dead bits arrive already masked through `bitvec`'s domain view), which
+/// The final partial word zero-fills past the stream's bytes (the tail byte
+/// arrives with its dead bits already masked, the view's `body_tail`
+/// destructuring), which
 /// parallels the slice cursor's zero-filled decode window: the phantom zeros
 /// can only lengthen an apparent unary prefix, and the cursor's live-length
 /// checks keep them from ever surfacing in a decoded value. Reads past the last

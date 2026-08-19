@@ -260,7 +260,11 @@ impl<'a> Span<'a> {
                 None => Placement::Concurrent(Endpoint::Both),
             };
         }
-        place::span(version.view(), self.lo.view(), self.hi.view())
+        place::span(
+            version.view().live(),
+            self.lo.view().live(),
+            self.hi.view().live(),
+        )
     }
 
     /// Determines how much of this [`Span`] `version` *dominates*, rendering a
@@ -320,7 +324,11 @@ impl<'a> Span<'a> {
                 Dominance::Before
             };
         }
-        place::dominance(version.view(), self.lo.view(), self.hi.view())
+        place::dominance(
+            version.view().live(),
+            self.lo.view().live(),
+            self.hi.view().live(),
+        )
     }
 
     /// Determines how much of this [`Span`] `version` *precedes*, rendering a
@@ -381,7 +389,11 @@ impl<'a> Span<'a> {
                 Precedence::After
             };
         }
-        place::precedence(version.view(), self.lo.view(), self.hi.view())
+        place::precedence(
+            version.view().live(),
+            self.lo.view().live(),
+            self.hi.view().live(),
+        )
     }
 
     /// Whether this [`Span`] contains `other`, in the containment order:
@@ -447,7 +459,11 @@ impl<'a> Span<'a> {
             if self.lo.view().ptr_eq(self.hi.view()) {
                 return codec::canonical_eq(version.view(), self.lo().view());
             }
-            return place::contains(version.view(), self.lo.view(), self.hi.view());
+            return place::contains(
+                version.view().live(),
+                self.lo.view().live(),
+                self.hi.view().live(),
+            );
         }
         // A span is contained iff both its endpoints are: every version
         // between them lies within `self` by transitivity of the bounds.

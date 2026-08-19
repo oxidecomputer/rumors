@@ -98,37 +98,35 @@ impl Base {
     /// `a · 2^x` versus `b · 2^y` whenever the two values share a magnitude
     /// class (`bits(a) − x == bits(b) − y`).
     ///
-    /// Streams 64-bit windows most-significant-first — no alignment shift
-    /// is ever materialized — and stops at the first differing window, so
-    /// the cost is O(shared-prefix limbs) with zero allocation. When every
-    /// shared window agrees, the longer bit string is the larger value:
-    /// this rides on the caller's normalization invariant that the strings
-    /// end in a set bit (an odd numerator), so the longer string's
-    /// extension is nonzero. The limb meter records one limb per streamed
-    /// window, keeping the metered cost honest about the scan.
+    /// The stored-magnitude instance of [`msb_cmp_windows`], which carries
+    /// the streaming argument, the tail rule's normalization premise, and
+    /// the per-window metering.
     pub(crate) fn msb_cmp(a: &Base, b: &Base) -> Ordering {
-        let mut wa = MsbWindows::new(a);
-        let mut wb = MsbWindows::new(b);
-        loop {
-            match (wa.next(), wb.next()) {
-                (Some(x), Some(y)) => {
-                    #[cfg(feature = "limb-meter")]
-                    limb_meter::record(2);
-                    match x.cmp(&y) {
-                        Ordering::Equal => continue,
-                        decided => return decided,
-                    }
-                }
-                (Some(_), None) => return Ordering::Greater,
-                (None, Some(_)) => return Ordering::Less,
-                (None, None) => return Ordering::Equal,
-            }
-        }
+        msb_cmp_windows(a.msb_windows(), b.msb_windows())
+    }
+
+    /// The MSB-first 64-bit windows of this magnitude's bit string, for
+    /// [`msb_cmp_windows`].
+    pub(crate) fn msb_windows(&self) -> MsbWindows<impl Iterator<Item = u64> + '_> {
+        MsbWindows::new(Limbs::new(&self.0).rev(), self.bits())
     }
 
     #[cfg(test)]
     pub(crate) fn to_bytes_le(&self) -> Vec<u8> {
         self.0.to_le_bytes().into_vec()
+    }
+
+    /// The magnitude's minimal big-endian bytes: empty for zero, no leading
+    /// zero byte otherwise.
+    ///
+    /// The materialization dual of [`from_be_bytes`](Self::from_be_bytes),
+    /// for byte-assembled values (the rank decoder concatenates an integral's
+    /// bytes with fraction groups instead of shifting by an exponent a 32-bit
+    /// `usize` cannot hold). Width-scale work, so the limb meter records the
+    /// operand's width.
+    pub(crate) fn to_be_bytes(&self) -> Vec<u8> {
+        meter_limbs_solo(self);
+        self.0.to_be_bytes().into_vec()
     }
 
     /// Assemble a magnitude from big-endian bytes.
@@ -147,16 +145,51 @@ impl Base {
     }
 }
 
+/// Compare two MSB-aligned window streams ([`MsbWindows`]): the shared
+/// kernel behind [`Base::msb_cmp`] and the rank numerator's cross-arm
+/// class-tie comparison.
+///
+/// Streams 64-bit windows most-significant-first — no alignment shift is
+/// ever materialized — and stops at the first differing window, so the
+/// cost is O(shared-prefix limbs) with zero allocation. When every shared
+/// window agrees, the longer bit string is the larger value: this rides on
+/// the caller's normalization invariant that the strings end in a set bit
+/// (an odd numerator), so the longer string's extension is nonzero. The
+/// limb meter records one limb per streamed window pair, keeping the
+/// metered cost honest about the scan.
+pub(crate) fn msb_cmp_windows(
+    mut a: impl Iterator<Item = u64>,
+    mut b: impl Iterator<Item = u64>,
+) -> Ordering {
+    loop {
+        match (a.next(), b.next()) {
+            (Some(x), Some(y)) => {
+                #[cfg(feature = "limb-meter")]
+                limb_meter::record(2);
+                match x.cmp(&y) {
+                    Ordering::Equal => continue,
+                    decided => return decided,
+                }
+            }
+            (Some(_), None) => return Ordering::Greater,
+            (None, Some(_)) => return Ordering::Less,
+            (None, None) => return Ordering::Equal,
+        }
+    }
+}
+
 /// The 64-bit windows of a magnitude's bit string, most-significant first.
 ///
 /// The first window is the value's top 64 bits left-aligned (the MSB in
 /// bit 63); the last is zero-padded below the final significant bit. A
 /// zero value has no windows. Streams the stored limbs top-down with one
 /// register of carry, so a window costs O(1) and no shifted copy of the
-/// value ever exists.
-struct MsbWindows<'a> {
+/// value ever exists. Generic over the reversed limb source so both
+/// numerator arms (the stored magnitude here, the rank's wide limb vector)
+/// stream through one implementation.
+pub(crate) struct MsbWindows<I> {
     /// Remaining limbs, top first; exhausted once the tail is consumed.
-    limbs: core::iter::Rev<Limbs<'a>>,
+    limbs: I,
     /// The previously consumed limb, still owed its low bits.
     held: Option<u64>,
     /// The left-alignment shift: `64 − (bits mod 64)`, zero for a
@@ -164,18 +197,19 @@ struct MsbWindows<'a> {
     shift: u32,
 }
 
-impl<'a> MsbWindows<'a> {
-    fn new(value: &'a Base) -> Self {
-        let bits = value.bits();
+impl<I: Iterator<Item = u64>> MsbWindows<I> {
+    /// The windows over `limbs` — the value's 64-bit limbs, **already
+    /// reversed** (most significant first) — for a value `bits` wide.
+    pub(crate) fn new(limbs: I, bits: u64) -> Self {
         MsbWindows {
-            limbs: Limbs::new(&value.0).rev(),
+            limbs,
             held: None,
             shift: ((64 - bits % 64) % 64) as u32,
         }
     }
 }
 
-impl Iterator for MsbWindows<'_> {
+impl<I: Iterator<Item = u64>> Iterator for MsbWindows<I> {
     type Item = u64;
 
     fn next(&mut self) -> Option<u64> {
@@ -430,17 +464,26 @@ impl Shr<u32> for Base {
 }
 
 // The u64 shift forms serve exponent-denominated callers (a `Rank`'s
-// exponent is u64). A shift amount is realizable only when the shifted
-// value fits the address space, so the conversion to the backend's
-// usize is checked, not truncating: an amount past usize denotes a
-// value that could not be allocated anyway.
+// exponent is u64). The two directions part on totality. A left shift's
+// checked conversion fails only for amounts at or past usize bits: never
+// on 64-bit targets (the shifted value would dwarf the address space
+// first), and on 32-bit targets only where the shifted result exceeds
+// the backend's representable width anyway (its buffer caps at
+// usize::MAX / word-bits words), so the expect and the backend's own
+// capacity assert bound the same values — results the dependency cannot
+// hold, failing loudly by name instead of wrapping. A right shift is
+// total: an amount at or past the value's width yields zero, and on a
+// 32-bit target an amount past usize can only name that case (the
+// value's width is capped below usize::MAX bits by the same backend
+// bound), so the conversion clamps, value-preserving.
 
 impl Shl<u64> for Base {
     type Output = Base;
 
     fn shl(self, rhs: u64) -> Base {
         meter_limbs_shl(&self, rhs);
-        let rhs = usize::try_from(rhs).expect("shift amount fits the address space");
+        let rhs = usize::try_from(rhs)
+            .expect("a left shift this wide exceeds the backend's representable width");
         Base(self.0 << rhs)
     }
 }
@@ -450,7 +493,9 @@ impl Shr<u64> for Base {
 
     fn shr(self, rhs: u64) -> Base {
         meter_limbs1(&self);
-        let rhs = usize::try_from(rhs).expect("shift amount fits the address space");
+        // The clamp is exact, never a truncation: any amount at or past the
+        // value's width — everything past usize included — yields zero.
+        let rhs = usize::try_from(rhs).unwrap_or(usize::MAX);
         Base(self.0 >> rhs)
     }
 }

@@ -113,7 +113,7 @@ use core::ops::ControlFlow;
 
 use suanpan::Accumulator;
 
-use crate::codec::{BitsSlice, Int};
+use crate::codec::{BitsView, Int};
 use crate::span::{Dominance, Endpoint, Placement, Precedence};
 
 use super::overlay::{advance_set, fold, CursorSet, LeafCursor, PlateauCursor, Side};
@@ -147,7 +147,7 @@ impl<'a> BoundSide<'a> {
     /// # Panics
     ///
     /// Panics if the stream is not a canonical skyline encoding.
-    fn open(bits: &'a BitsSlice, probe_first: &Int) -> BoundSide<'a> {
+    fn open(bits: BitsView<'a>, probe_first: &Int) -> BoundSide<'a> {
         let (cursor, first) = LeafCursor::open(bits);
         let mut diff = Accumulator::new();
         super::signed::fold_signed_int(&mut diff, Sign::Positive, probe_first);
@@ -171,7 +171,7 @@ impl<'a> BoundSide<'a> {
 
     /// Step this bound past its plateau, folding its crossing into its own
     /// difference as the `B` operand; returns the flip level.
-    fn step(&mut self) -> usize {
+    fn step(&mut self) -> u64 {
         let (flip, step) = self.cursor.step();
         fold(&mut self.diff, Side::B, step.sign, &step.magnitude);
         flip
@@ -188,7 +188,7 @@ impl<'a> BoundSide<'a> {
 ///
 /// The canonical-stream contract of [`causal_cmp`](super::sweep::causal_cmp),
 /// on all three operands.
-pub(crate) fn span(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> Placement {
+pub(crate) fn span(probe: BitsView<'_>, lo: BitsView<'_>, hi: BitsView<'_>) -> Placement {
     /// Either endpoint's decided concurrency drops its own cursor while the
     /// other still sweeps.
     ///
@@ -250,7 +250,7 @@ pub(crate) fn span(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> Placeme
 ///
 /// The canonical-stream contract of [`causal_cmp`](super::sweep::causal_cmp),
 /// on all three operands.
-pub(crate) fn dominance(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> Dominance {
+pub(crate) fn dominance(probe: BitsView<'_>, lo: BitsView<'_>, hi: BitsView<'_>) -> Dominance {
     walk(
         probe,
         lo,
@@ -313,7 +313,7 @@ pub(crate) fn dominance(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> Do
 ///
 /// The canonical-stream contract of [`causal_cmp`](super::sweep::causal_cmp),
 /// on all three operands.
-pub(crate) fn precedence(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> Precedence {
+pub(crate) fn precedence(probe: BitsView<'_>, lo: BitsView<'_>, hi: BitsView<'_>) -> Precedence {
     walk(
         probe,
         lo,
@@ -377,7 +377,7 @@ pub(crate) fn precedence(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> P
 ///
 /// The canonical-stream contract of [`causal_cmp`](super::sweep::causal_cmp),
 /// on all three operands.
-pub(crate) fn contains(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> bool {
+pub(crate) fn contains(probe: BitsView<'_>, lo: BitsView<'_>, hi: BitsView<'_>) -> bool {
     walk(
         probe,
         lo,
@@ -441,9 +441,9 @@ pub(crate) fn contains(probe: &BitsSlice, lo: &BitsSlice, hi: &BitsSlice) -> boo
 /// flattened `None` and the decided relation give the same answer. Each entry
 /// point carries the per-verdict argument at its closures.
 fn walk<V>(
-    probe: &BitsSlice,
-    start: &BitsSlice,
-    end: &BitsSlice,
+    probe: BitsView<'_>,
+    start: BitsView<'_>,
+    end: BitsView<'_>,
     on_start: impl Fn(Directions, bool) -> ControlFlow<V, Fate>,
     on_end: impl Fn(Directions, bool) -> ControlFlow<V, Fate>,
     finish: impl FnOnce(Option<Option<Ordering>>, Option<Option<Ordering>>) -> V,
@@ -514,7 +514,7 @@ impl Cursors<'_> {
 
     /// Step one bound slot; a dropped side never steps (its depth reads zero,
     /// and every flip level is at least one).
-    fn step_bound(side: &mut Option<BoundSide<'_>>) -> usize {
+    fn step_bound(side: &mut Option<BoundSide<'_>>) -> u64 {
         side.as_mut()
             .expect("a dropped side reads depth zero and never steps")
             .step()
@@ -536,7 +536,7 @@ impl CursorSet for Cursors<'_> {
     }
 
     /// A dropped side reads zero, like the masked walk's absent mask.
-    fn depth(&self, slot: usize) -> usize {
+    fn depth(&self, slot: usize) -> u64 {
         match slot {
             Self::PROBE => self.probe.depth(),
             Self::START => self.start.as_ref().map_or(0, |side| side.cursor.depth()),
@@ -548,7 +548,7 @@ impl CursorSet for Cursors<'_> {
     /// The probe's step folds its crossing into every live difference as the
     /// `A` operand (the probe is every pair's first operand); a bound's step
     /// folds into its own difference as the `B` operand.
-    fn step(&mut self, slot: usize) -> usize {
+    fn step(&mut self, slot: usize) -> u64 {
         match slot {
             Self::PROBE => {
                 let (flip, step) = self.probe.step();

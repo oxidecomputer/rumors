@@ -293,11 +293,11 @@ mod envelope {
     // Skyline decoder rows: validation plus the wrap into storage — the
     // stored coding is the skyline stream itself, so decode materializes
     // nothing beyond the copy and stays priced by the wire input.
-    pub const SKYLINE_DECODE_DENSE: SweepEnvelope = sweep_envelope(122_880, 0, 0, 468_758, 0); // decode is validate + wrap
-    pub const SKYLINE_DECODE_CLIFF: SweepEnvelope = sweep_envelope(3_840, 0, 88, 17_923, 52); // decode is validate + wrap
-    pub const SKYLINE_DECODE_WIDE_TOOTH: SweepEnvelope = sweep_envelope(245_760, 0, 29_509, 1_000_480, 17_705); // decode is validate + wrap; the wrap's copy prices the wide payloads
+    pub const SKYLINE_DECODE_DENSE: SweepEnvelope = sweep_envelope(61_440, 0, 0, 468_758, 0); // decode is validate + wrap: the wrap allocates the copy once, exactly sized
+    pub const SKYLINE_DECODE_CLIFF: SweepEnvelope = sweep_envelope(2_250, 0, 88, 17_923, 52); // decode is validate + wrap: the wrap allocates the copy once, exactly sized
+    pub const SKYLINE_DECODE_WIDE_TOOTH: SweepEnvelope = sweep_envelope(125_100, 0, 29_509, 1_000_480, 17_705); // decode is validate + wrap; the once-allocated copy prices the wide payloads
     pub const SKYLINE_DECODE_HUGELEAF: SweepEnvelope     = sweep_envelope(    83_440,        0,         2_443, 312_503, 1_465); // decode is validate + wrap
-    pub const SKYLINE_DECODE_ALT_SPINE: SweepEnvelope = sweep_envelope(122_880, 0, 0, 468_758, 0); // decode is validate + wrap
+    pub const SKYLINE_DECODE_ALT_SPINE: SweepEnvelope = sweep_envelope(61_440, 0, 0, 468_758, 0); // decode is validate + wrap: the wrap allocates the copy once, exactly sized
 }
 
 // ─── meter liveness canaries ────────────────────────────────────────────────
@@ -1408,7 +1408,7 @@ fn rank_sum_mixed_envelope() {
 // carries the wire-bit-linear claim).
 
 /// The skyline stream of a packed family shape, built outside measurement.
-fn skyline_of(p: &meter::Packed) -> meter::skyline::BitsMut {
+fn skyline_of(p: &meter::Packed) -> meter::skyline::BitsBuf {
     meter::skyline::encode(&version_of(p))
 }
 
@@ -1424,7 +1424,7 @@ fn skyline_validate_dense_envelope() {
         "skyline_validate_dense",
         enc.as_raw_slice().len(),
         &envelope::SKYLINE_VALIDATE_DENSE,
-        || meter::skyline::validate(&enc),
+        || meter::skyline::validate(meter::skyline::view(&enc)),
     );
     assert!(r.is_ok(), "the transcoded dense spine is canonical");
 }
@@ -1442,7 +1442,7 @@ fn skyline_validate_cliff_envelope() {
         "skyline_validate_cliff",
         enc.as_raw_slice().len(),
         &envelope::SKYLINE_VALIDATE_CLIFF,
-        || meter::skyline::validate(&enc),
+        || meter::skyline::validate(meter::skyline::view(&enc)),
     );
     assert!(r.is_ok(), "the transcoded boundary comb is canonical");
 }
@@ -1458,7 +1458,7 @@ fn skyline_validate_wide_tooth_envelope() {
         "skyline_validate_wide_tooth",
         enc.as_raw_slice().len(),
         &envelope::SKYLINE_VALIDATE_WIDE_TOOTH,
-        || meter::skyline::validate(&enc),
+        || meter::skyline::validate(meter::skyline::view(&enc)),
     );
     assert!(r.is_ok(), "the transcoded wide-tooth comb is canonical");
 }
@@ -1476,7 +1476,7 @@ fn skyline_validate_hugeleaf_envelope() {
         "skyline_validate_hugeleaf",
         enc.as_raw_slice().len(),
         &envelope::SKYLINE_VALIDATE_HUGELEAF,
-        || meter::skyline::validate(&enc),
+        || meter::skyline::validate(meter::skyline::view(&enc)),
     );
     assert!(r.is_ok(), "the transcoded hugeleaf is canonical");
 }
@@ -1492,7 +1492,7 @@ fn skyline_validate_alt_spine_envelope() {
         "skyline_validate_alt_spine",
         enc.as_raw_slice().len(),
         &envelope::SKYLINE_VALIDATE_ALT_SPINE,
-        || meter::skyline::validate(&enc),
+        || meter::skyline::validate(meter::skyline::view(&enc)),
     );
     assert!(r.is_ok(), "the transcoded alternating spine is canonical");
 }
@@ -1507,7 +1507,7 @@ fn skyline_decode_dense_envelope() {
         "skyline_decode_dense",
         enc.as_raw_slice().len(),
         &envelope::SKYLINE_DECODE_DENSE,
-        || meter::skyline::decode(&enc).expect("canonical"),
+        || meter::skyline::decode(meter::skyline::view(&enc)).expect("canonical"),
     );
     assert_eq!(v, version_of(&p), "the transcode round-trips");
 }
@@ -1525,7 +1525,7 @@ fn skyline_decode_cliff_envelope() {
         "skyline_decode_cliff",
         enc.as_raw_slice().len(),
         &envelope::SKYLINE_DECODE_CLIFF,
-        || meter::skyline::decode(&enc).expect("canonical"),
+        || meter::skyline::decode(meter::skyline::view(&enc)).expect("canonical"),
     );
     assert_eq!(v, version_of(&p), "the transcode round-trips");
 }
@@ -1540,7 +1540,7 @@ fn skyline_decode_wide_tooth_envelope() {
         "skyline_decode_wide_tooth",
         enc.as_raw_slice().len(),
         &envelope::SKYLINE_DECODE_WIDE_TOOTH,
-        || meter::skyline::decode(&enc).expect("canonical"),
+        || meter::skyline::decode(meter::skyline::view(&enc)).expect("canonical"),
     );
     assert_eq!(v, version_of(&p), "the transcode round-trips");
 }
@@ -1555,7 +1555,7 @@ fn skyline_decode_hugeleaf_envelope() {
         "skyline_decode_hugeleaf",
         enc.as_raw_slice().len(),
         &envelope::SKYLINE_DECODE_HUGELEAF,
-        || meter::skyline::decode(&enc).expect("canonical"),
+        || meter::skyline::decode(meter::skyline::view(&enc)).expect("canonical"),
     );
     assert_eq!(v, version_of(&p), "the transcode round-trips");
 }
@@ -1570,7 +1570,7 @@ fn skyline_decode_alt_spine_envelope() {
         "skyline_decode_alt_spine",
         enc.as_raw_slice().len(),
         &envelope::SKYLINE_DECODE_ALT_SPINE,
-        || meter::skyline::decode(&enc).expect("canonical"),
+        || meter::skyline::decode(meter::skyline::view(&enc)).expect("canonical"),
     );
     assert_eq!(v, version_of(&p), "the transcode round-trips");
 }
@@ -1733,12 +1733,12 @@ fn sweep_metered<R>(
 
 /// The empty version's two-bit skyline stream: the shallow operand of
 /// the family cmp scenarios.
-fn skyline_empty() -> meter::skyline::BitsMut {
+fn skyline_empty() -> meter::skyline::BitsBuf {
     meter::skyline::encode(&Version::new())
 }
 
 /// The combined operand bytes of a sweep scenario.
-fn sweep_input_bytes(a: &meter::skyline::BitsMut, b: &meter::skyline::BitsMut) -> usize {
+fn sweep_input_bytes(a: &meter::skyline::BitsBuf, b: &meter::skyline::BitsBuf) -> usize {
     a.as_raw_slice().len() + b.as_raw_slice().len()
 }
 
@@ -1755,7 +1755,7 @@ fn skyline_cmp_dense_envelope() {
         "skyline_cmp_dense",
         sweep_input_bytes(&a, &b),
         &sweep_env::SKYLINE_CMP_DENSE,
-        || meter::skyline::sweep::causal_cmp(&a, &b),
+        || meter::skyline::sweep::causal_cmp(meter::skyline::view(&a), meter::skyline::view(&b)),
     );
     assert_eq!(
         r,
@@ -1777,7 +1777,7 @@ fn skyline_cmp_dense_self_envelope() {
         "skyline_cmp_dense_self",
         sweep_input_bytes(&a, &b),
         &sweep_env::SKYLINE_CMP_DENSE_SELF,
-        || meter::skyline::sweep::causal_cmp(&a, &b),
+        || meter::skyline::sweep::causal_cmp(meter::skyline::view(&a), meter::skyline::view(&b)),
     );
     assert_eq!(r, Some(Ordering::Equal), "identical streams read equal");
 }
@@ -1793,7 +1793,7 @@ fn skyline_cmp_bigroot_envelope() {
         "skyline_cmp_bigroot",
         sweep_input_bytes(&a, &b),
         &sweep_env::SKYLINE_CMP_BIGROOT,
-        || meter::skyline::sweep::causal_cmp(&a, &b),
+        || meter::skyline::sweep::causal_cmp(meter::skyline::view(&a), meter::skyline::view(&b)),
     );
     assert_eq!(
         r,
@@ -1816,7 +1816,7 @@ fn skyline_cmp_cliff_envelope() {
         "skyline_cmp_cliff",
         sweep_input_bytes(&a, &b),
         &sweep_env::SKYLINE_CMP_CLIFF,
-        || meter::skyline::sweep::causal_cmp(&a, &b),
+        || meter::skyline::sweep::causal_cmp(meter::skyline::view(&a), meter::skyline::view(&b)),
     );
     assert_eq!(
         r,
@@ -1839,7 +1839,7 @@ fn skyline_cmp_wide_tooth_envelope() {
         "skyline_cmp_wide_tooth",
         sweep_input_bytes(&a, &b),
         &sweep_env::SKYLINE_CMP_WIDE_TOOTH,
-        || meter::skyline::sweep::causal_cmp(&a, &b),
+        || meter::skyline::sweep::causal_cmp(meter::skyline::view(&a), meter::skyline::view(&b)),
     );
     assert_eq!(
         r,
@@ -1888,7 +1888,7 @@ mod emit_env {
 
 /// The one-tick version's skyline stream: the shallow operand of the
 /// family join/meet scenarios, mirroring the packed-form join rows.
-fn skyline_one_tick() -> meter::skyline::BitsMut {
+fn skyline_one_tick() -> meter::skyline::BitsBuf {
     let one = Version::try_from(1u64).expect("a one-tick version is valid");
     meter::skyline::encode(&one)
 }
@@ -1899,7 +1899,7 @@ fn skyline_one_tick() -> meter::skyline::BitsMut {
 fn skyline_oracle(
     p: &meter::Packed,
     join: bool,
-) -> (meter::skyline::BitsMut, meter::skyline::BitsMut) {
+) -> (meter::skyline::BitsBuf, meter::skyline::BitsBuf) {
     let v = version_of(p);
     let one = Version::try_from(1u64).expect("a one-tick version is valid");
     let out = if join { &v | &one } else { &v & &one };
@@ -1921,7 +1921,7 @@ fn skyline_join_dense_envelope() {
         "skyline_join_dense",
         sweep_input_bytes(&a, &b),
         &emit_env::SKYLINE_JOIN_DENSE,
-        || meter::skyline::emit::join(&a, &b),
+        || meter::skyline::emit::join(meter::skyline::view(&a), meter::skyline::view(&b)),
     );
     assert_eq!(out, expected, "the emitted join must match the oracle");
 }
@@ -1943,7 +1943,7 @@ fn skyline_join_absorb_envelope() {
         "skyline_join_absorb",
         sweep_input_bytes(&a, &b),
         &emit_env::SKYLINE_JOIN_ABSORB,
-        || meter::skyline::emit::join(&a, &b),
+        || meter::skyline::emit::join(meter::skyline::view(&a), meter::skyline::view(&b)),
     );
     assert_eq!(out, expected, "a dominating flat operand is the whole join");
 }
@@ -1960,7 +1960,7 @@ fn skyline_join_bigroot_envelope() {
         "skyline_join_bigroot",
         sweep_input_bytes(&a, &b),
         &emit_env::SKYLINE_JOIN_BIGROOT,
-        || meter::skyline::emit::join(&a, &b),
+        || meter::skyline::emit::join(meter::skyline::view(&a), meter::skyline::view(&b)),
     );
     assert_eq!(out, expected, "the emitted join must match the oracle");
 }
@@ -1978,7 +1978,7 @@ fn skyline_join_cliff_envelope() {
         "skyline_join_cliff",
         sweep_input_bytes(&a, &b),
         &emit_env::SKYLINE_JOIN_CLIFF,
-        || meter::skyline::emit::join(&a, &b),
+        || meter::skyline::emit::join(meter::skyline::view(&a), meter::skyline::view(&b)),
     );
     assert_eq!(out, expected, "the emitted join must match the oracle");
 }
@@ -1995,7 +1995,7 @@ fn skyline_join_wide_tooth_envelope() {
         "skyline_join_wide_tooth",
         sweep_input_bytes(&a, &b),
         &emit_env::SKYLINE_JOIN_WIDE_TOOTH,
-        || meter::skyline::emit::join(&a, &b),
+        || meter::skyline::emit::join(meter::skyline::view(&a), meter::skyline::view(&b)),
     );
     assert_eq!(out, expected, "the emitted join must match the oracle");
 }
@@ -2015,7 +2015,7 @@ fn skyline_meet_cliff_envelope() {
         "skyline_meet_cliff",
         sweep_input_bytes(&a, &b),
         &emit_env::SKYLINE_MEET_CLIFF,
-        || meter::skyline::emit::meet(&a, &b),
+        || meter::skyline::emit::meet(meter::skyline::view(&a), meter::skyline::view(&b)),
     );
     assert_eq!(out, expected, "the emitted meet must match the oracle");
 }
@@ -2035,7 +2035,7 @@ fn skyline_meet_wide_tooth_envelope() {
         "skyline_meet_wide_tooth",
         sweep_input_bytes(&a, &b),
         &emit_env::SKYLINE_MEET_WIDE_TOOTH,
-        || meter::skyline::emit::meet(&a, &b),
+        || meter::skyline::emit::meet(meter::skyline::view(&a), meter::skyline::view(&b)),
     );
     assert_eq!(out, expected, "the emitted meet must match the oracle");
 }
@@ -2075,7 +2075,9 @@ fn left_spike(depth: usize) -> Version {
 fn tick_expand_spine_envelope() {
     let mut v = Version::new();
     let party = party_of(&Shape::IdSpine.packed_flagged(ID_DEPTH, false));
-    let input = meter::skyline::encode(&v).len() / 8 + party.encoded_bits().div_ceil(8);
+    // Byte sizes of buffers this test just allocated fit `usize`.
+    let input =
+        ((meter::skyline::encode(&v).len() / 8) + party.encoded_bits().div_ceil(8)) as usize;
     query_metered(
         "tick_expand_spine",
         input,
@@ -2105,7 +2107,8 @@ fn tick_expand_cross_envelope() {
     let mut v = version_of(&ev);
     let party = party_of(&Shape::IdSpine.packed_flagged(ID_DEPTH, false));
     let expected = &v | &left_spike(ID_DEPTH);
-    let input = ev.bytes.len() + party.encoded_bits().div_ceil(8);
+    // Byte sizes of buffers this test just allocated fit `usize`.
+    let input = ev.bytes.len() + party.encoded_bits().div_ceil(8) as usize;
     query_metered(
         "tick_expand_cross",
         input,
@@ -2170,7 +2173,7 @@ fn skyline_render_dense_envelope() {
         "skyline_render_dense",
         a.as_raw_slice().len(),
         &text_env::SKYLINE_RENDER_DENSE,
-        || meter::skyline::text::render(&a),
+        || meter::skyline::text::render(meter::skyline::view(&a)),
     );
     assert_eq!(out, expected, "the kernel must render Display's bytes");
 }
@@ -2191,7 +2194,7 @@ fn skyline_render_bigroot_envelope() {
         "skyline_render_bigroot",
         a.as_raw_slice().len(),
         &text_env::SKYLINE_RENDER_BIGROOT,
-        || meter::skyline::text::render(&a),
+        || meter::skyline::text::render(meter::skyline::view(&a)),
     );
     assert_eq!(out, expected, "the kernel must render Display's bytes");
 }
@@ -2208,7 +2211,7 @@ fn skyline_render_hugeleaf_envelope() {
         "skyline_render_hugeleaf",
         a.as_raw_slice().len(),
         &text_env::SKYLINE_RENDER_HUGELEAF,
-        || meter::skyline::text::render(&a),
+        || meter::skyline::text::render(meter::skyline::view(&a)),
     );
     assert_eq!(out, expected, "the kernel must render Display's bytes");
 }
@@ -2226,7 +2229,7 @@ fn skyline_render_cliff_envelope() {
         "skyline_render_cliff",
         a.as_raw_slice().len(),
         &text_env::SKYLINE_RENDER_CLIFF,
-        || meter::skyline::text::render(&a),
+        || meter::skyline::text::render(meter::skyline::view(&a)),
     );
     assert_eq!(out, expected, "the kernel must render Display's bytes");
 }
@@ -2368,7 +2371,7 @@ mod skyline_flatness {
         let enc = meter::skyline::encode(&v);
         touch_meter::reset();
         meter::reset_limb_ops();
-        meter::skyline::validate(&enc).expect("the comb stream is canonical");
+        meter::skyline::validate(meter::skyline::view(&enc)).expect("the comb stream is canonical");
         let run = Run {
             // 2n + 1 leaves: 2n delta codes follow the first leaf.
             deltas: 2 * scale as u64,
@@ -2443,7 +2446,8 @@ mod skyline_flatness {
         let b = meter::skyline::encode(&before::Version::new());
         touch_meter::reset();
         meter::reset_limb_ops();
-        let verdict = meter::skyline::sweep::causal_cmp(&a, &b);
+        let verdict =
+            meter::skyline::sweep::causal_cmp(meter::skyline::view(&a), meter::skyline::view(&b));
         assert_eq!(
             verdict,
             Some(std::cmp::Ordering::Greater),
@@ -2514,7 +2518,7 @@ mod skyline_flatness {
         let expected = meter::skyline::encode(&(&v | &one));
         touch_meter::reset();
         meter::reset_limb_ops();
-        let out = meter::skyline::emit::join(&a, &b);
+        let out = meter::skyline::emit::join(meter::skyline::view(&a), meter::skyline::view(&b));
         let run = Run {
             // 2n + 1 leaves: 2n delta codes follow the first leaf.
             deltas: 2 * scale as u64,
@@ -2653,7 +2657,7 @@ mod skyline_flatness {
             let v = packed.version();
             let enc = meter::skyline::encode(&v);
             touch_meter::reset();
-            let out = meter::skyline::text::render(&enc);
+            let out = meter::skyline::text::render(meter::skyline::view(&enc));
             assert!(!out.is_empty(), "the render does real work");
             assert_eq!(
                 touch_meter::touches(),
@@ -2697,7 +2701,7 @@ mod skyline_flatness {
         let enc = meter::skyline::encode(&v);
         touch_meter::reset();
         meter::reset_limb_ops();
-        let r = meter::skyline::query::rank(&enc);
+        let r = meter::skyline::query::rank(meter::skyline::view(&enc));
         let run = Run {
             // Each tooth's two leaves follow the first leaf as deltas.
             deltas: 2 * n as u64,
@@ -2828,7 +2832,7 @@ mod skyline_flatness {
         let enc = meter::skyline::encode(&v);
         touch_meter::reset();
         meter::reset_limb_ops();
-        let r = meter::skyline::query::rank(&enc);
+        let r = meter::skyline::query::rank(meter::skyline::view(&enc));
         let run = Run {
             // Each tooth's two leaves follow the first leaf as deltas.
             deltas: 2 * n as u64,
@@ -4708,7 +4712,8 @@ mod skyline_flatness {
         let bytes = (ea.as_raw_slice().len() + eb.as_raw_slice().len()) as u64;
         touch_meter::reset();
         meter::reset_limb_ops();
-        let verdict = meter::skyline::sweep::causal_cmp(&ea, &eb);
+        let verdict =
+            meter::skyline::sweep::causal_cmp(meter::skyline::view(&ea), meter::skyline::view(&eb));
         let run = QueryRun {
             bytes,
             touches: touch_meter::touches(),
@@ -5037,7 +5042,7 @@ mod eq_early_exit {
         touch_meter::reset();
         #[cfg(feature = "scan-meter")]
         meter::reset_scan_bits();
-        let verdict = meter::skyline::sweep::eq(&a, &b);
+        let verdict = meter::skyline::sweep::eq(meter::skyline::view(&a), meter::skyline::view(&b));
         let run = Run {
             bytes: (a.as_raw_slice().len() + b.as_raw_slice().len()) as u64,
             touches: touch_meter::touches(),
@@ -5564,7 +5569,7 @@ mod parse_wide_arming {
              generator does not build the tree this band reasons about"
         );
         let enc = meter::skyline::encode(&v);
-        let text = meter::skyline::text::render(&enc);
+        let text = meter::skyline::text::render(meter::skyline::view(&enc));
         let bytes = text.len() as u64;
         touch_meter::reset();
         let parsed = meter::skyline::text::parse(&text).expect("rendered text parses");
@@ -6982,7 +6987,7 @@ fn skyline_rank_dense_envelope() {
         "skyline_rank_dense",
         enc.as_raw_slice().len(),
         &query_env::SKYLINE_RANK_DENSE,
-        || meter::skyline::query::rank(&enc),
+        || meter::skyline::query::rank(meter::skyline::view(&enc)),
     );
     assert_eq!(r, v.rank(), "the kernel must match the packed rank");
 }
@@ -7001,7 +7006,7 @@ fn skyline_rank_bigroot_envelope() {
         "skyline_rank_bigroot",
         enc.as_raw_slice().len(),
         &query_env::SKYLINE_RANK_BIGROOT,
-        || meter::skyline::query::rank(&enc),
+        || meter::skyline::query::rank(meter::skyline::view(&enc)),
     );
     assert_eq!(r, v.rank(), "the kernel must match the packed rank");
 }
@@ -7021,7 +7026,7 @@ fn skyline_rank_harmonic_envelope() {
         "skyline_rank_harmonic",
         enc.as_raw_slice().len(),
         &query_env::SKYLINE_RANK_HARMONIC,
-        || meter::skyline::query::rank(&enc),
+        || meter::skyline::query::rank(meter::skyline::view(&enc)),
     );
     assert_eq!(r, v.rank(), "the kernel must match the packed rank");
 }
@@ -7042,7 +7047,7 @@ fn skyline_rank_cliff_envelope() {
         "skyline_rank_cliff",
         enc.as_raw_slice().len(),
         &query_env::SKYLINE_RANK_CLIFF,
-        || meter::skyline::query::rank(&enc),
+        || meter::skyline::query::rank(meter::skyline::view(&enc)),
     );
     assert_eq!(r, v.rank(), "the kernel must match the packed rank");
 }
@@ -7064,7 +7069,7 @@ fn skyline_rank_wide_tooth_envelope() {
         "skyline_rank_wide_tooth",
         enc.as_raw_slice().len(),
         &query_env::SKYLINE_RANK_WIDE_TOOTH,
-        || meter::skyline::query::rank(&enc),
+        || meter::skyline::query::rank(meter::skyline::view(&enc)),
     );
     assert_eq!(r, v.rank(), "the kernel must match the packed rank");
 }
@@ -7081,7 +7086,7 @@ fn skyline_min_ticks_dense_envelope() {
         "skyline_min_ticks_dense",
         enc.as_raw_slice().len(),
         &query_env::SKYLINE_MIN_TICKS_DENSE,
-        || meter::skyline::query::min_ticks(&enc),
+        || meter::skyline::query::min_ticks(meter::skyline::view(&enc)),
     );
     assert_eq!(
         r.to_string(),
@@ -7104,7 +7109,7 @@ fn skyline_min_ticks_cliff_envelope() {
         "skyline_min_ticks_cliff",
         enc.as_raw_slice().len(),
         &query_env::SKYLINE_MIN_TICKS_CLIFF,
-        || meter::skyline::query::min_ticks(&enc),
+        || meter::skyline::query::min_ticks(meter::skyline::view(&enc)),
     );
     assert!(
         r.to_string().len() > 20,
@@ -7142,7 +7147,7 @@ fn skyline_min_ticks_ascend_envelope() {
         "skyline_min_ticks_ascend",
         enc.as_raw_slice().len(),
         &query_env::SKYLINE_MIN_TICKS_ASCEND,
-        || meter::skyline::query::min_ticks(&enc),
+        || meter::skyline::query::min_ticks(meter::skyline::view(&enc)),
     );
     // The family's closed form: k leaves at 2^b + i over spine minima
     // all zero (the terminal cliff), so min_ticks = k·2^b + k(k+1)/2.
@@ -7182,7 +7187,7 @@ fn skyline_project_comb_scatter_envelope() {
         "skyline_project_comb_scatter",
         io_bytes_in,
         &query_env::SKYLINE_PROJECT_COMB_SCATTER,
-        || meter::skyline::query::project(&enc, &party),
+        || meter::skyline::query::project(meter::skyline::view(&enc), &party),
     );
     eprintln!(
         "MEASURED skyline_project_comb_scatter: output_bytes={}",

@@ -24,7 +24,7 @@ use core::cmp::Ordering;
 
 use suanpan::Accumulator;
 
-use crate::codec::{BitCursor, BitsMut, BitsSlice, DsiCursor};
+use crate::codec::{BitCursor, BitsBuf, BitsView, DsiCursor};
 use crate::error::Decode;
 
 use super::signed::{fold_signed_int, unzigzag, Sign};
@@ -38,7 +38,7 @@ use super::signed::{fold_signed_int, unzigzag, Sign};
 /// Test- and meter-only: the production entries run [`validate_prefix`] and
 /// [`validate_from`], which leave the tail to their callers.
 #[cfg(any(test, feature = "meter"))]
-pub(crate) fn validate_bits(bits: &BitsSlice) -> Result<(), Decode> {
+pub(crate) fn validate_bits(bits: BitsView<'_>) -> Result<(), Decode> {
     let mut cursor = DsiCursor::new(bits);
     validate_from(&mut cursor)?;
     if cursor.position() != bits.len() {
@@ -47,13 +47,14 @@ pub(crate) fn validate_bits(bits: &BitsSlice) -> Result<(), Decode> {
     Ok(())
 }
 
-/// Strictly validate one skyline tree at the head of a bit stream,
-/// returning the position just past it.
+/// Strictly validate one skyline tree at the head of a view, returning the
+/// position just past it.
 ///
 /// The wire decoder's entry: a version's skyline stream is bit-self-delimiting
 /// (one complete tree), so the returned end position is where any zero padding
-/// must begin.
-pub(crate) fn validate_prefix(bits: &BitsSlice) -> Result<usize, Decode> {
+/// must begin. The end is `u64`, the view's own width: a byte door's
+/// whole-buffer view holds more bit positions than a 32-bit `usize`.
+pub(crate) fn validate_prefix(bits: BitsView<'_>) -> Result<u64, Decode> {
     let mut cursor = DsiCursor::new(bits);
     validate_from(&mut cursor)?;
     Ok(cursor.position())
@@ -72,7 +73,7 @@ where
     // Two bits per open ancestor, pushed [left-complete, left-was-leaf] and
     // popped in reverse order below. A packed bit stack, so depth costs bits,
     // not frames.
-    let mut open: BitsMut = BitsMut::new();
+    let mut open: BitsBuf = BitsBuf::new();
     // The running leaf height. Only its sign is ever read, and only after a
     // subtracting delta: an adding delta cannot take a valid height negative,
     // and the first leaf's absolute payload is a natural.

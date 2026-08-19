@@ -50,7 +50,7 @@ use core::cmp::Ordering;
 
 use suanpan::Accumulator;
 
-use crate::codec::{self, BitCursor, BitStack, BitsSlice, PopStack};
+use crate::codec::{self, BitCursor, BitStack, BitsView, PopStack};
 use crate::idbits::{IdNode, IdReader};
 
 use super::super::signed::{fold_signed_int, unzigzag, Signed};
@@ -119,7 +119,7 @@ pub(super) struct SuspendedLevel {
 impl<'a, 'm> PreScan<'a, 'm> {
     /// A fresh scan entered at `start`: the cursor at the entry, an empty web,
     /// the entry net alive at zero, no head seeded, the outermost level.
-    pub(super) fn new(event: &'a BitsSlice, start: usize, memo: &'m mut Memo) -> Self {
+    pub(super) fn new(event: BitsView<'a>, start: u64, memo: &'m mut Memo) -> Self {
         PreScan {
             cursor: codec::DsiCursor::new_at(event, start),
             web: MinWeb::new(),
@@ -152,7 +152,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
     /// consequence). The site-nesting level is one plus the count of open
     /// site frames: a site's own range walks at `level + 1`, and its close
     /// records at `level`.
-    pub(super) fn run(&mut self, id: &mut IdReader) -> usize {
+    pub(super) fn run(&mut self, id: &mut IdReader) -> u64 {
         let mut frames = PreFrames::new();
         let mut level: u64 = 1;
         'descend: loop {
@@ -286,7 +286,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
 
     /// Reserve the next consumption-order queue slot for the site whose range
     /// starts at `pos`.
-    pub(super) fn reserve(&mut self, pos: usize) -> usize {
+    pub(super) fn reserve(&mut self, pos: u64) -> usize {
         let slot = self.memo.queue.len();
         self.memo.queue.push(None);
         #[cfg(debug_assertions)]
@@ -660,7 +660,7 @@ impl PreFrames {
 
     /// Suspend a left-full site around its sibling walk.
     fn push_site(&mut self, slot: usize) {
-        self.slots.push(&mut self.values, slot);
+        self.slots.push(&mut self.values, slot as u64);
         self.site.push(true);
         self.phase.push(false);
         self.aux.push(false);
@@ -688,6 +688,8 @@ impl PreFrames {
         self.site.pop();
         self.phase.pop();
         self.aux.pop();
-        self.slots.pop(&mut self.values)
+        // Ledger slots are queue indices, capped far below `u32::MAX` by the
+        // ledger's own link-storage contract.
+        self.slots.pop(&mut self.values) as usize
     }
 }

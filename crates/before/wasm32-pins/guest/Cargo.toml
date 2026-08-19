@@ -1,0 +1,21 @@
+[package]
+name = "wasm32-pins-guest"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+# A cdylib so `cargo build --target wasm32-unknown-unknown` emits a plain wasm
+# module (no wasm-bindgen: the ABI is hand-written i64 exports, one per pinned
+# boundary case, and the interesting inputs are synthesized inside the guest —
+# nothing bulk ever crosses the host boundary).
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# The borsh feature lights the composite streaming doors
+# (`Ranked`/`Span::deserialize_reader`), whose walk boundaries the guest
+# pins beside the byte doors'; the borsh crate itself names the trait the
+# exports drive. The meter feature lights the instrument surface: the
+# exact-bit-length observation (`encoded_bits`) the pins report through.
+before = { path = "../..", features = ["borsh", "meter"] }
+borsh = "1"

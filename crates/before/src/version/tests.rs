@@ -1319,9 +1319,9 @@ proptest! {
         let b = if extend {
             // A strict extension of `a`'s expansion: the genre where
             // one stream continues past the other's content.
-            let (num, exp) = a.raw_parts();
+            let (num, exp) = rank_parts(&a);
             super::Rank::from_raw(
-                (num.clone() << deepen) + 1u32,
+                crate::codec::Base::from((num << (deepen as usize)) + 1u8),
                 exp.saturating_add(u64::from(deepen)),
             )
         } else {
@@ -1342,6 +1342,326 @@ proptest! {
             Ordering::Equal => {}
         }
     }
+}
+
+// ────────────────────── the numerator's wide arm ──────────────────────
+//
+// The wide arm is honestly reachable only past the backend's capacity —
+// ~2³² bits, on 32-bit targets, from hundreds of megabytes of input — so
+// these suites lower the arm ceiling (`rank::arm_ceiling::force`, a
+// test-only routing override that moves no values) and drive the same
+// public doors production serves: every rank built under the lowered
+// ceiling straddles or crosses the seam at host-friendly sizes, while the
+// host backend — whose real capacity is astronomically higher — remains an
+// exact oracle for every value. The wasm32 boundary pins hold the same
+// doors at the production coordinate itself.
+
+/// The lowered arm ceiling the wide-regime suites run under: four limbs.
+///
+/// Low enough that the seeded generators cross it constantly, high enough
+/// that word-scale and multi-limb base-arm values still appear beside the
+/// wide ones.
+const WIDE_REGIME_CEILING_BITS: u64 = 256;
+
+/// Assert a rank's structural invariants under the ceiling in force.
+///
+/// Canonical arm dispatch (wide iff the numerator outgrows the ceiling)
+/// and the normalization the order rests on (an odd numerator whenever a
+/// fraction exists; zero pinned to exponent zero).
+fn assert_rank_canonical(r: &super::Rank, ceiling: u64) {
+    let (num, exp) = r.raw_parts();
+    assert_eq!(
+        r.numerator_is_wide(),
+        num.bits() > ceiling,
+        "canonical arm dispatch: wide iff past the ceiling ({})",
+        r
+    );
+    if exp > 0 {
+        assert!(num.bit(0), "a fractional numerator is odd: {r}");
+    }
+    if num.bits() == 0 {
+        assert_eq!(exp, 0, "zero is pinned to exponent zero");
+    }
+}
+
+/// Without an override, arm dispatch sits at the backend's own capacity:
+/// every host-constructible rank is backend-armed, and the constant agrees
+/// with the backend's buffer-cap formula.
+///
+/// This is the production-routing sanity leg beside the lowered-ceiling
+/// suites: on this host the wide arm must never engage (its honest
+/// coordinate is 2⁶⁴ − 64 bits here), so the historical numerator path is
+/// what every other suite in this file measures and pins.
+#[test]
+fn rank_arm_dispatch_defaults_to_the_backend_capacity() {
+    assert_eq!(
+        super::rank::BACKEND_CAPACITY_BITS,
+        (usize::MAX / dashu_int::Word::BITS as usize) as u64 * u64::from(dashu_int::Word::BITS),
+    );
+    let mut next = crate::testing::rng::word_stream(RANK_CMP_SWEEP_SEED);
+    for _ in 0..64 {
+        assert!(
+            !stream_rank(&mut next).numerator_is_wide(),
+            "no host-constructible rank reaches the backend's capacity"
+        );
+    }
+}
+
+/// The class-first streamed order agrees with the alignment oracle across
+/// the wide arm and the arm seam, and `checked_sub`'s pre-check stays
+/// consistent: 10,000 adversarial pairs under the lowered ceiling.
+///
+/// The same generator and oracle as the backend-arm sweep above; under
+/// the 256-bit ceiling the pairs mix base–base, base–wide, and wide–wide
+/// arms (deep shared prefixes included), so every `msb_cmp` dispatch arm
+/// and the cross-arm class comparison run against the exact oracle.
+/// Canonicity is asserted on every rank built.
+#[test]
+fn rank_wide_arm_cmp_agrees_with_the_alignment_oracle_on_10k_pairs() {
+    let _guard = super::rank::arm_ceiling::force(WIDE_REGIME_CEILING_BITS);
+    let mut next = crate::testing::rng::word_stream(RANK_CMP_SWEEP_SEED ^ 0xC0FF_EE00_D00D_F00D);
+    let mut wide_pairs = 0u32;
+    for case in 0..10_000u32 {
+        let a = stream_rank(&mut next);
+        let b = match next() % 4 {
+            0 => stream_rank(&mut next),
+            1 => a.clone(),
+            2 => {
+                let (num, exp) = rank_parts(&a);
+                super::Rank::from_raw(
+                    crate::codec::Base::from(num),
+                    exp.saturating_add(next() % 64 + 1),
+                )
+            }
+            _ => {
+                let (num, exp) = rank_parts(&a);
+                use dashu_int::ops::BitTest;
+                let flipped = num ^ (dashu_int::UBig::from(2u8) << ((next() % 16) as usize));
+                let bits_kept = flipped.bit_len() as u64 == a_bits(&a);
+                let candidate = super::Rank::from_raw(crate::codec::Base::from(flipped), exp);
+                if bits_kept {
+                    candidate
+                } else {
+                    a.clone()
+                }
+            }
+        };
+        assert_rank_canonical(&a, WIDE_REGIME_CEILING_BITS);
+        assert_rank_canonical(&b, WIDE_REGIME_CEILING_BITS);
+        if a.numerator_is_wide() && b.numerator_is_wide() {
+            wide_pairs += 1;
+        }
+        let want = alignment_cmp(&a, &b);
+        assert_eq!(a.cmp(&b), want, "case {case}: order disagrees: {a} vs {b}");
+        assert_eq!(
+            b.cmp(&a),
+            want.reverse(),
+            "case {case}: antisymmetry breaks: {b} vs {a}"
+        );
+        assert_eq!(
+            a.checked_sub(&b).is_some(),
+            want != core::cmp::Ordering::Less,
+            "case {case}: checked_sub pre-check disagrees with the order"
+        );
+    }
+    assert!(
+        wide_pairs > 100,
+        "the wide–wide pairing is live: {wide_pairs} pairs"
+    );
+}
+
+proptest! {
+    /// Every `laws::RANK_TRIPLE` law — the monoid, order, codec
+    /// round-trip, lexicographic, prefix-freedom, and cross-path
+    /// normalization laws — holds on ranks straddling the wide arm's
+    /// seam.
+    ///
+    /// The same law group the backend-arm drivers run, under the lowered
+    /// ceiling: addition, subtraction, and `Sum` route through the
+    /// accumulator wherever an aligned width crosses the ceiling, and the
+    /// wire laws hold the wide arm's emission to the same canonical bytes
+    /// order discipline.
+    #[test]
+    fn rank_wide_arm_triple_laws_on_seeded_ranks(seeds in proptest::collection::vec(any::<u64>(), 3)) {
+        let _guard = super::rank::arm_ceiling::force(WIDE_REGIME_CEILING_BITS);
+        let ranks: Vec<super::Rank> = seeds.iter().map(|&seed| seeded_rank(seed)).collect();
+        let (a, b, c) = (&ranks[0], &ranks[1], &ranks[2]);
+        for (name, law) in crate::laws::RANK_TRIPLE {
+            prop_assert!(law(a, b, c), "law violated: {}", name);
+        }
+    }
+
+    /// `Sum` is the pairwise fold on the wide arm too: over mixed-arm
+    /// multisets, the streaming-limb fold returns exactly the value the
+    /// pairwise `+` fold produces, and the result is canonical.
+    #[test]
+    fn rank_wide_arm_sum_equals_the_pairwise_fold(seeds in proptest::collection::vec(any::<u64>(), 0..16)) {
+        let _guard = super::rank::arm_ceiling::force(WIDE_REGIME_CEILING_BITS);
+        let ranks: Vec<super::Rank> = seeds.iter().map(|&seed| seeded_rank(seed)).collect();
+        let reference = ranks
+            .iter()
+            .fold(super::Rank::ZERO, |acc, r| acc + r);
+        let sum = ranks.iter().sum::<super::Rank>();
+        prop_assert_eq!(&sum, &reference);
+        assert_rank_canonical(&sum, WIDE_REGIME_CEILING_BITS);
+        prop_assert_eq!(&ranks.into_iter().sum::<super::Rank>(), &reference);
+    }
+
+    /// Wide-arm addition and subtraction compute the exact rational
+    /// values: differentially against plain backend arithmetic on the raw
+    /// parts, which the host backend can hold at these sizes.
+    ///
+    /// The oracle aligns both numerators to the common exponent with
+    /// materialized shifts, adds or subtracts, and strips shared factors
+    /// of two; the door values must match it exactly, and land canonical.
+    #[test]
+    fn rank_wide_arm_arithmetic_matches_the_backend_oracle(sa in any::<u64>(), sb in any::<u64>()) {
+        let _guard = super::rank::arm_ceiling::force(WIDE_REGIME_CEILING_BITS);
+        let a = seeded_rank(sa);
+        let b = seeded_rank(sb);
+        let (an, ae) = rank_parts(&a);
+        let (bn, be) = rank_parts(&b);
+        let e = ae.max(be);
+        let aligned_a = an << usize::try_from(e - ae).unwrap();
+        let aligned_b = bn << usize::try_from(e - be).unwrap();
+
+        // The oracle's normalization: strip shared factors of two, pin
+        // zero to exponent zero.
+        let normalize = |num: dashu_int::UBig, exp: u64| -> (dashu_int::UBig, u64) {
+            match num.trailing_zeros() {
+                None => (num, 0),
+                Some(tz) => {
+                    let shift = (tz as u64).min(exp);
+                    (num >> usize::try_from(shift).unwrap(), exp - shift)
+                }
+            }
+        };
+
+        let sum = &a + &b;
+        assert_rank_canonical(&sum, WIDE_REGIME_CEILING_BITS);
+        let (sn, se) = rank_parts(&sum);
+        prop_assert_eq!((sn, se), normalize(aligned_a.clone() + &aligned_b, e), "sum: {} + {}", a, b);
+
+        let (minuend, subtrahend, aligned_hi, aligned_lo) = if a >= b {
+            (&a, &b, aligned_a.clone(), aligned_b.clone())
+        } else {
+            (&b, &a, aligned_b.clone(), aligned_a.clone())
+        };
+        let difference = minuend
+            .checked_sub(subtrahend)
+            .expect("the minuend dominates");
+        assert_rank_canonical(&difference, WIDE_REGIME_CEILING_BITS);
+        let (dn, de) = rank_parts(&difference);
+        prop_assert_eq!(
+            (dn, de),
+            normalize(aligned_hi - aligned_lo, e),
+            "difference: {} - {}", minuend, subtrahend
+        );
+    }
+
+    /// Raw-parts normalization lands every wide-regime construction on
+    /// the canonical form.
+    ///
+    /// Odd-or-zero numerator, zero pinned to exponent zero, canonical
+    /// arm — stated as a family over arbitrary raw numerators and
+    /// exponents, exercised through the same `from_raw` every fold and
+    /// reference computation lands through.
+    #[test]
+    fn rank_wide_arm_normalization_is_canonical(
+        limbs in proptest::collection::vec(any::<u64>(), 0..12),
+        twos in 0u64..300,
+        exp in 0u64..600,
+    ) {
+        let _guard = super::rank::arm_ceiling::force(WIDE_REGIME_CEILING_BITS);
+        let bytes: Vec<u8> = limbs.iter().flat_map(|limb| limb.to_le_bytes()).collect();
+        let raw = dashu_int::UBig::from_le_bytes(&bytes) << usize::try_from(twos).unwrap();
+        let rank = super::Rank::from_raw(crate::codec::Base::from(raw.clone()), exp);
+        assert_rank_canonical(&rank, WIDE_REGIME_CEILING_BITS);
+        // The normalized parts denote the same rational: num · 2^-exp is
+        // invariant under the strip.
+        let (num, e) = rank_parts(&rank);
+        prop_assert_eq!(num << usize::try_from(exp - e).unwrap(), raw);
+    }
+
+    /// The wire round-trip is exact and byte-canonical across the seam.
+    ///
+    /// Known-arm constructions — wide integral parts, wide fractions, and
+    /// base-arm controls — encode, decode to the same value on the same
+    /// arm, and re-encode to identical bytes through the public doors.
+    ///
+    /// This drives the encoder's wide-arm emission (the biased integral
+    /// re-dispatch included: `width` may sit exactly at the ceiling) and
+    /// the decoder's wide materialization of both the mantissa and the
+    /// fraction image, at sizes where the whole stream is a few hundred
+    /// bytes.
+    #[test]
+    fn rank_wide_arm_codec_roundtrips_canonically(
+        width in 1u64..600,
+        exp_frac in 0u64..600,
+        odd_tail in any::<bool>(),
+    ) {
+        let _guard = super::rank::arm_ceiling::force(WIDE_REGIME_CEILING_BITS);
+        // A `width`-bit numerator: a top bit, an optional odd tail, and a
+        // mid bit so both header and mantissa carry structure.
+        let mut num = dashu_int::UBig::ONE << usize::try_from(width - 1).unwrap();
+        if odd_tail {
+            num |= dashu_int::UBig::ONE;
+            num |= dashu_int::UBig::ONE << usize::try_from(width / 2).unwrap();
+        }
+        let exp = if odd_tail { exp_frac } else { 0 };
+        let rank = super::Rank::from_raw(crate::codec::Base::from(num), exp);
+        assert_rank_canonical(&rank, WIDE_REGIME_CEILING_BITS);
+        let bytes = rank.encode();
+        let decoded = super::Rank::decode(&bytes[..]).expect("canonical bytes decode");
+        prop_assert_eq!(&decoded, &rank);
+        assert_rank_canonical(&decoded, WIDE_REGIME_CEILING_BITS);
+        prop_assert_eq!(decoded.encode(), bytes);
+    }
+
+    /// The wide arm renders the exact decimal: `Display` against the
+    /// backend's own conversion, integral and fractional forms both.
+    #[test]
+    fn rank_wide_arm_display_matches_the_backend(seed in any::<u64>()) {
+        let _guard = super::rank::arm_ceiling::force(WIDE_REGIME_CEILING_BITS);
+        let rank = seeded_rank(seed);
+        let (num, exp) = rank_parts(&rank);
+        let expected = match exp {
+            0 => format!("{num}"),
+            1 => format!("{num}/2"),
+            exp => format!("{num}/2^{exp}"),
+        };
+        prop_assert_eq!(rank.to_string(), expected);
+    }
+}
+
+/// The composite key survives the wide arm end to end.
+///
+/// A version whose rank numerator crosses the lowered ceiling encodes
+/// through `Ranked::encode` (the fused emission from the fold's raw
+/// parts) and decodes through `Ranked::decode` (the streaming rank door
+/// plus the fold re-derivation), byte-identically.
+///
+/// This is the one door pair whose rank wire form is produced and
+/// consumed *around* a version fold, so it pins the fold-output
+/// re-dispatch (`from_raw` crossing to the wide arm) against the wire.
+#[test]
+fn rank_wide_arm_ranked_composite_roundtrips() {
+    let _guard = super::rank::arm_ceiling::force(WIDE_REGIME_CEILING_BITS);
+    // A lone leaf of height 2^400 + 1: its rank is the height itself,
+    // 401 bits — past the 256-bit ceiling.
+    let height = (dashu_int::UBig::ONE << 400usize) + 1u8;
+    let version: Version = format!("{height}").parse().expect("a leaf parses");
+    let rank = version.rank();
+    assert!(
+        rank.numerator_is_wide(),
+        "the fold output crosses the ceiling"
+    );
+    assert_rank_canonical(&rank, WIDE_REGIME_CEILING_BITS);
+    let ranked = crate::Ranked::from(&version);
+    let key = ranked.encode();
+    let decoded = crate::Ranked::decode(&key[..]).expect("the composite decodes");
+    assert_eq!(decoded.version(), &version);
+    assert_eq!(decoded.encode(), key, "byte-identical re-emission");
 }
 
 // ─────────────────────────────── the join fold ───────────────────────────────
@@ -1895,7 +2215,7 @@ proptest! {
     ) {
         let a = from_oracle_version(&oa);
         let b = from_oracle_version(&ob);
-        let bit_eq = a.as_bits() == b.as_bits();
+        let bit_eq = a.as_bits().to_buf() == b.as_bits().to_buf();
         prop_assert_eq!(a == b, bit_eq);
         prop_assert_eq!(b == a, bit_eq);
         if a == b {

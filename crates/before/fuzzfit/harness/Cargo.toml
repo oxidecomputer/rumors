@@ -8,7 +8,9 @@ edition = "2021"
 # The native mirror: the harness executes every generated program twice —
 # natively (for denominators and expected bytes) and in the wasm guest (for
 # fuel) — so the same `before` build the guest wraps is a direct dependency.
-before = { path = "../.." }
+# The meter feature lights the instrument surface: the exact-bit-length
+# observation (`encoded_bits`) the fuel denominators read.
+before = { path = "../..", features = ["meter"] }
 # Executes the guest under fuel metering: fuel decrements per executed wasm
 # instruction, deterministic and host-independent. Tool-side only: this
 # workspace is detached from the parent, so wasmtime never enters the

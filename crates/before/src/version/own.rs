@@ -82,7 +82,10 @@ impl OwnVersion<'_> {
         if self.party.is_seed() {
             return self.version.clone();
         }
-        Version::from_bits(skyline::query::project(self.version.view(), self.party))
+        Version::from_bits(skyline::query::project(
+            self.version.view().live(),
+            self.party,
+        ))
     }
 }
 
@@ -110,9 +113,9 @@ impl From<OwnVersion<'_>> for Version {
 /// The fused three-stream comparison: `(v / p) ⋚ w`, no materialization.
 fn view_cmp_version(view: &OwnVersion<'_>, w: &Version) -> Option<Ordering> {
     skyline::masked::causal_cmp(
-        view.version.view(),
+        view.version.view().live(),
         Some(view.party.as_bits()),
-        w.view(),
+        w.view().live(),
         None,
     )
 }
@@ -120,9 +123,9 @@ fn view_cmp_version(view: &OwnVersion<'_>, w: &Version) -> Option<Ordering> {
 /// The fused three-stream equality: `(v / p) == w`, no materialization.
 fn view_eq_version(view: &OwnVersion<'_>, w: &Version) -> bool {
     skyline::masked::eq(
-        view.version.view(),
+        view.version.view().live(),
         Some(view.party.as_bits()),
-        w.view(),
+        w.view().live(),
         None,
     )
 }
@@ -138,9 +141,9 @@ fn view_eq_version(view: &OwnVersion<'_>, w: &Version) -> bool {
 /// tests pins against the materialized projection.
 fn version_cmp_view(w: &Version, view: &OwnVersion<'_>) -> Option<Ordering> {
     skyline::masked::causal_cmp(
-        w.view(),
+        w.view().live(),
         None,
-        view.version.view(),
+        view.version.view().live(),
         Some(view.party.as_bits()),
     )
 }
@@ -148,9 +151,9 @@ fn version_cmp_view(w: &Version, view: &OwnVersion<'_>) -> Option<Ordering> {
 /// The mirror three-stream equality: `w == (v / p)`, mask on the second side.
 fn version_eq_view(w: &Version, view: &OwnVersion<'_>) -> bool {
     skyline::masked::eq(
-        w.view(),
+        w.view().live(),
         None,
-        view.version.view(),
+        view.version.view().live(),
         Some(view.party.as_bits()),
     )
 }
@@ -158,9 +161,9 @@ fn version_eq_view(w: &Version, view: &OwnVersion<'_>) -> bool {
 /// The fused four-stream comparison: `(v₁ / p₁) ⋚ (v₂ / p₂)`.
 fn view_cmp_view(a: &OwnVersion<'_>, b: &OwnVersion<'_>) -> Option<Ordering> {
     skyline::masked::causal_cmp(
-        a.version.view(),
+        a.version.view().live(),
         Some(a.party.as_bits()),
-        b.version.view(),
+        b.version.view().live(),
         Some(b.party.as_bits()),
     )
 }
@@ -168,9 +171,9 @@ fn view_cmp_view(a: &OwnVersion<'_>, b: &OwnVersion<'_>) -> Option<Ordering> {
 /// The fused four-stream equality: the projected histories agree.
 fn view_eq_view(a: &OwnVersion<'_>, b: &OwnVersion<'_>) -> bool {
     skyline::masked::eq(
-        a.version.view(),
+        a.version.view().live(),
         Some(a.party.as_bits()),
-        b.version.view(),
+        b.version.view().live(),
         Some(b.party.as_bits()),
     )
 }

@@ -21,7 +21,6 @@ rustdoc-args = ["--html-in-header", "docs/fuelscape-header.html"]
 serde_json = "1"
 
 [dependencies]
-bitvec = "1"
 bytes = "1"
 dashu-int = { version = "0.5", default-features = false, features = ["std"] }
 suanpan = { path = "../suanpan" }
@@ -32,6 +31,9 @@ serde = { version = "1", optional = true, default-features = false, features = [
 borsh = { version = "1", optional = true }
 
 [dev-dependencies]
+# The emit_probe example's external comparison baseline: the production
+# build buffer is the crate-owned BitsBuf, and nothing shipped links bitvec.
+bitvec = "1"
 proptest = "1"
 serde_json = "1"
 criterion = "0.5"
@@ -60,12 +62,15 @@ oracle = []
 # worst-case inputs and read the counters they envelope, and the public
 # operation surface roster (`src/surface.rs`) as `before::surface`, so external
 # instrument crates can bind their coverage to the rows the surface-coverage
-# suite enforces totality over. Bench/test-only.
+# suite enforces totality over, and the instrument-side value observations
+# (`encoded_bits` on `Party`/`Version`/`Clock`), the exact bit-length
+# denomination the meters and boundary pins read. Bench/test-only.
 meter = []
 # Exposes the named algebraic-law predicates (`src/laws.rs`) as `before::laws`,
 # so the fuzz workspace can drive the same law collection the in-tree proptests
-# assert. Test/fuzz-only.
-laws = []
+# assert. Implies `meter`: the representational laws read the instrument-side
+# observations (`encoded_bits`) that feature exposes. Test/fuzz-only.
+laws = ["meter"]
 # Counts big-integer limb-scale work (operand limbs per `Base` operation:
 # arithmetic, comparison, equality, and hashing; plus one value-width record per
 # decoded wide-gamma value) into a process-global counter read via
