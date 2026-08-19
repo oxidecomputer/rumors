@@ -479,6 +479,8 @@ impl Party {
     ///
     /// # Complexity
     ///
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_shape.html"))]
+    ///
     /// Draining the iterator is linear in the party's encoded size: each
     /// region costs `O(1)`, and nothing allocates.
     ///

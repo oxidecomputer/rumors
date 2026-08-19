@@ -105,6 +105,10 @@
     "query_coverage_floor_ceiling_hole",
     "query_conjoin_floors",
     "query_conjoin_ceilings",
-    "query_conjoin_bounded_holes"
+    "query_conjoin_bounded_holes",
+    "version_shape",
+    "shape_combine",
+    "party_shape",
+    "clock_shape"
   ]
 }

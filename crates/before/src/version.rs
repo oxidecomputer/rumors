@@ -356,6 +356,8 @@ impl Version {
     ///
     /// # Complexity
     ///
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_shape.html"))]
+    ///
     /// Draining the iterator is linear in the version's encoded size:
     /// each plateau costs `O(1)` plus its own rise's encoded width, and
     /// the walk itself performs no arithmetic.

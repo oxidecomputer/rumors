@@ -332,6 +332,10 @@ impl FusedIterator for Overlay<'_> {}
 /// folds each input's rises independently. `N = 0` yields the trivial
 /// refinement: one all-interval cell of depth 0 with no entries.
 ///
+/// # Complexity
+///
+#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/shape_combine.html"))]
+///
 /// # Panics
 ///
 /// Panics if any input has already yielded an item: a mid-walk shape has

@@ -692,6 +692,8 @@ impl Clock {
     ///
     /// # Complexity
     ///
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_shape.html"))]
+    ///
     /// Draining the iterator is linear in the clock's encoded size: each
     /// fragment costs `O(1)` plus its own rise's encoded width, and the
     /// walk itself performs no arithmetic. [`Version::shape`]'s caveat on
