@@ -1,6 +1,8 @@
 /-
-The elastic-demux variant and its deadlock-freedom by simulation
-(design/eager-absorption.md is the design this formalizes).
+The elastic-demux variant and its deadlock-freedom by simulation: the
+model of eager absorption, where incoming frames are converted to
+logical replies at arrival and parked, rather than gated by a
+capacity-1 demux slot.
 
 # The semantics
 
@@ -9,21 +11,21 @@ changed: `deliver` moves the pipe head into its per-stream cell WITHOUT
 the slot-empty guard. The cell stops being a capacity-1 demux slot and
 becomes the parked-reply queue of the eager-absorption design: incoming
 frames are converted to logical replies at arrival and parked, in
-order, until the consumer's cursor reaches them (design/
-eager-absorption.md §2–§3 — the receiver half, at unbounded parking
-depth). Everything else — the committed hand, the bounded pipe, the
+order, until the consumer's cursor reaches them (the receiver half of
+the design, at unbounded parking depth). Everything else — the
+committed hand, the bounded pipe, the
 strategy-gated push, the F8-strengthened closes — is the record
 harness verbatim; the base arms and the push arm are shared
 definitionally, so every lemma about them transports.
 
-# Memory accounting (the §7.1 bound, restated at the model boundary)
+# Memory accounting (the parking bound, restated at the model boundary)
 
 Parking is denominated in logical replies, so the parked residue per
 stream is fan-bounded PER REPLY: a parked reply is `O(fan)` node
 handles (a provision run's subtree rides as one cheap handle — payload
 custody is the `Backend`'s, whose nodes are persistent-structure
-pointers), worst-case `fan²` hashes for a maximally disputed reply
-(design/eager-absorption.md §7.1). The model's unbounded cell counts
+pointers), worst-case `fan²` hashes for a maximally disputed reply.
+The model's unbounded cell counts
 REPLIES, not bytes — the same reply denomination as the pipe capacity
 (the adjudicated reply denomination), so byte soundness sits at the same model
 boundary, and what the model leaves unbounded is exactly the number of
@@ -105,8 +107,8 @@ open Model
 
 /-- The elastic demux move: pipe head into the per-stream parked-reply
 queue, unconditionally — the receiver absorbs at line rate
-(design/eager-absorption.md §3.1; the `deliver` arm of the record
-harness minus the slot-empty guard). -/
+(the `deliver` arm of the record harness minus the slot-empty
+guard). -/
 def deliverStepE (p : Party) (s : MState) : Option MState :=
   match s.pipe p with
   | c :: rest =>
@@ -1042,9 +1044,9 @@ Proofs/SigmaStarKLive.lean): with unbounded reply parking, every pair
 from the pushes-when-nonempty class is deadlock-free at every capacity
 C ≥ 1 — liveness inherited from the
 base flagship through the weak-invariant reduction, no new liveness
-induction (module doc; design/eager-absorption.md §7.4: receiver
-parking supplies the buffer a credit window grants explicitly, and at
-unbounded depth no sender inference is needed at all).
+induction (module doc; receiver parking supplies the buffer a credit
+window grants explicitly, and at unbounded depth no sender inference
+is needed at all).
 
 Unconditional (T10's secondary deliverable): the
 former explicit `hinv` seam is discharged by `eMuxInv_reachable`, the

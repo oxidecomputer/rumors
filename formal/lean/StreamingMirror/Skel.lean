@@ -239,8 +239,8 @@ end Skel
 /-- The axiom mode: which `Trace::assert_valid` ledgers guard the
 committed-choice publisher. Quint: the six `AX_*`/`WIRE_FIRST` consts
 (`d4`, `d5`, and `d6` postdate the frozen Quint spec). `d5` and `d6`
-are the two corners of the parent-placement design space
-(design/parent-placement.md) and are never asserted together: their
+are the two corners of the parent-placement design space and are never
+asserted together: their
 guards contradict at any scope with a send left after the final
 D-resolution, so a mode carrying both can wedge at the choice point. -/
 structure AxMode where
@@ -269,7 +269,7 @@ structure AxMode where
 /-- All axioms of the parent-EARLY corner on, scaffolding off: the
 `d5` (weave-placement) interface. Deadlock-free at any capacity
 (`Sched.deadlock_free_d5`) — the priced alternative encoder design
-point, NOT the shipping encoder's order (design/parent-placement.md).
+point, NOT the shipping encoder's order.
 The shipping interface is `AxMode.impl`. -/
 def AxMode.full : AxMode :=
   ⟨true, true, true, true, true, true, true, false, false⟩

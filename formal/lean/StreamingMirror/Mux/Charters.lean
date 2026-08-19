@@ -48,10 +48,9 @@ SCOPE CAVEAT. Necessity holds relative to liveness on ALL skeletons; a
 scheduler tuned to a restricted workload class may legitimately
 over-push, and the statement must say so.
 
-VALUE. Converts the product conclusion (the `Link` contract stands —
-design/single-socket.md's revision of record) from theorem-backed to
-theorem-stated: windowing is not just sufficient but what correctness
-means over one channel.
+VALUE. Converts the product conclusion (the `Link` contract stands)
+from theorem-backed to theorem-stated: windowing is not just
+sufficient but what correctness means over one channel.
 
 # The latency conjectures
 
@@ -63,7 +62,7 @@ SETTLED AT EVIDENCE TIER. The per-skeleton RTT-optimum is the
 δ-weighted critical path of the event DAG (the multi-link baseline
 achieves it; the deepest dispute path is information-theoretically
 sequential). σ*ₖ at K ≥ P\* + 1 matches it — the K-dial law,
-probe-exact on a 54-cell sweep (design/mux-latency.md §7) — so a LOCAL
+probe-exact on a 54-cell sweep — so a LOCAL
 optimal scheduler exists at sufficient window.
 
 THE CONJECTURE (constrained K < P\* + 1): no local strategy is
@@ -79,8 +78,8 @@ inference — the zero-lag baseline is the shared-memory model's
 fiction, not a transport), and strictly worse on silent runs.
 
 THE THREE-THEOREM PLAN, after a timed-run semantics lands (a thin
-layer; the RTT-metered harness in design/mux-latency/ is its
-calibration oracle, probe-first): (i) the DAG critical-path lower
+layer; an RTT-metered harness is its calibration oracle,
+probe-first): (i) the DAG critical-path lower
 bound over all schedulers (EventDag.lean's depth machinery is the
 unweighted version); (ii) the constructive optimal witness — σ*ₖ at
 K ≥ P\* + 1 via the formalized K-dial law, or the timed
@@ -89,8 +88,8 @@ K — quantitative fooling over view-equal pairs (the two-witness
 structure of `oracle_not_local`, upgraded from "the orders differ" to
 "the achievable times differ by at least the proof-lag term").
 
-SEQUENCING. After the tracecheck plan (design/tracecheck.md) or
-independently; both wait on the single-R/W refactor landing first.
+SEQUENCING. After the tracecheck plan or independently; both wait on
+the single-R/W refactor landing first.
 -/
 
 /-- Documentation-only module: the chartered follow-on campaigns (T11,

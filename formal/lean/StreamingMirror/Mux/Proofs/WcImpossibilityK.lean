@@ -1,7 +1,6 @@
 /-
-T8's impossibility half, `wc_impossibility_K`
-(design/eager-absorption.md §1 is the design it brackets): K-deep
-reply parking is
+T8's impossibility half, `wc_impossibility_K`, brackets the
+eager-absorption design: K-deep reply parking is
 a real mitigation and not a cure — for every FIXED parking depth the
 widened wedge family kills every work-conserving pair at every pipe
 capacity.
@@ -9,8 +8,8 @@ capacity.
 # Per-direction depths (the single-socket design's advertisement)
 
 The deployed configuration advertises parking depths per direction
-(design/single-socket.md: parties may run K_I ≠ K_R, each sender gated
-at its peer's advertised value), so the variant here carries two
+(parties may run K_I ≠ K_R, each sender gated at its peer's advertised
+value), so the variant here carries two
 parameters: `KI` is the depth of the initiator's demux (gating
 `deliver .R`, the R→I frames), `KR` the responder's (gating
 `deliver .I`). The burial mechanism of the wedge lives entirely in the
@@ -78,8 +77,7 @@ open Pin (sc)
 
 /-- The advertised parking depth of the RECEIVING party of pipe `p`:
 frames from the initiator park at the responder's depth and vice
-versa (module doc; design/single-socket.md's per-direction
-advertisement). -/
+versa (module doc; the per-direction advertisement). -/
 def recvDepth (KI KR : Nat) : Party → Nat
   | .I => KR
   | .R => KI
@@ -552,9 +550,9 @@ theorem wedgeW8_K_stuck_ge4 :
 /-- T8's impossibility half: at every anchored responder depth
 `KR ∈ {1, 2, 3}`, EVERY initiator depth `KI ≥ 1`, and EVERY pipe
 capacity `C ≥ 1`, the width-`KR + 5` wedge defeats every
-work-conserving pair — K-deep parking moves the wall, never removes it
-(design/eager-absorption.md §1: "K-parking alone converts the
-deterministic w = 4 wedge into a w > K wedge … not a liveness proof").
+work-conserving pair — K-deep parking moves the wall, never removes
+it: K-parking alone converts the deterministic w = 4 wedge into a
+w > K wedge, which is not a liveness proof.
 
 The `∀ KI` quantifier is genuine (not an anchor grid): the burial is
 directional and the forced run's reverse pipe drains, so the

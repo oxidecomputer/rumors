@@ -970,7 +970,7 @@ theorem progress_d5 (hwf : sk.wellFormed = true)
 interface (`AxMode.full`, the weave's placement), every well-formed,
 schedulable session is deadlock-free — no reachable state is stuck, at
 ANY `capLevel ≥ 1`. This is the capacity-universal corner of the
-parent-placement design space (design/parent-placement.md): the priced
+parent-placement design space: the priced
 alternative encoder discipline, NOT the shipping encoder's order. The
 implementation-facing flagship theorem — deadlock freedom under
 `AxMode.impl` (the `d6`/epilogue corner, the order the Rust encoder

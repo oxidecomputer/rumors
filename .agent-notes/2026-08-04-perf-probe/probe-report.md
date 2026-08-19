@@ -161,10 +161,12 @@ Join beats the oracle at every corpus size (0.62–0.78x).
 
 ## Ownership-gated walks (2026-08-04, second round)
 
-`design/before-ownership-gated-walks.md` landed for the fill consumer:
-unowned regions are consumed as blocks (net movement + streaming
-minimum + verbatim output), routed for free on the first descent's
-depth, in both the verbatim and the diverged walk and the pre-scan.
+The ownership-gated walk design
+([../2026-08-04-before-ownership-gated-walks/](../2026-08-04-before-ownership-gated-walks/))
+landed for the fill consumer: unowned regions are consumed as blocks
+(net movement + streaming minimum + verbatim output), routed for free
+on the first descent's depth, in both the verbatim and the diverged
+walk and the pre-scan.
 Measured:
 
 - the hole regime (a 26-bit party over a 40,337-bit joined version —

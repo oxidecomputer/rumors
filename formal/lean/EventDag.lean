@@ -2115,9 +2115,9 @@ def runAll (outDir : System.FilePath) : IO Bool := do
   let pd0Term := terminal pd0 (drainAdv pd0 .impl 50000 (init pd0))
   IO.println s!"  pdelay margin-0 drain under .impl terminal: {pd0Term} (want true)"
   if !pd0Term then allOk := false
-  -- borrowed-slots accounting (design/parent-placement.md §2, PLAN.md
-  -- #15(5b)), read off pdelay's stuck state: the +2 the schedulable
-  -- bound allows over capLevel is one item in each hand — the level
+  -- borrowed-slots accounting (PLAN.md #15(5b)), read off pdelay's
+  -- stuck state: the +2 the schedulable bound allows over capLevel is
+  -- one item in each hand — the level
   -- buffers full (the channel proper), consumers mid-collection
   -- (asm got > 0), and producers parked on committed sends.
   let lvlOcc := (chanList pdE).foldl (fun acc c =>

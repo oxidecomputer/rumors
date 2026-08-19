@@ -5,9 +5,9 @@ enough to audit by reading them.
 # The two theorems
 
 One statement shape, two theorems — one per corner of the
-parent-placement design space (design/parent-placement.md), each on the
-three standard axioms only (`propext`, `Classical.choice`,
-`Quot.sound`; no `sorry`, no `native_decide`):
+parent-placement design space, each on the three standard axioms only
+(`propext`, `Classical.choice`, `Quot.sound`; no `sorry`, no
+`native_decide`):
 
 - **The flagship** (the shipping implementation's discipline):
   `Sched.deadlock_free : sk.wellFormed = true →
@@ -23,7 +23,7 @@ three standard axioms only (`propext`, `Classical.choice`,
   (Proofs/Endgame.lean, via `Sched.progress_d5`). The mode is the
   parent-EARLY discipline (`d5` — no shipping encoder follows it);
   deadlock freedom holds at ANY assembler capacity, at the price of
-  descent/assembly serialization (design/parent-placement.md §4–5).
+  descent/assembly serialization.
 
 # What a skeptical reader must read, in full
 
@@ -45,7 +45,7 @@ three standard axioms only (`propext`, `Classical.choice`,
   parent-late order deadlocks under an adversarial interleaving
   (`Control.parentTrap`) even though the encoder's own poll schedules
   complete — the −2 boundary is poll-schedule-specific, margin 0 is
-  the interleaving-robust line (design/parent-placement.md §2);
+  the interleaving-robust line;
 - `AxMode`, `AxMode.full`, `AxMode.impl` (Skel.lean, ~40 lines) — the
   send-order ledgers. In one sentence each: `w` — a child's wire
   precedes its internal publications; `d1root`/`d1int` — a resolution
@@ -122,8 +122,10 @@ tied to them by checks at both ends (branch `parent-first`,
   remains assumed is the `d5` corner's
   wire-widening: `deadlock_free_d5`'s chain still consumes the full
   `InvP`, so widened wire cells under the parent-early discipline rest
-  on the informal Kahn argument (design/parent-placement.md §6) until
-  Endgame.lean is re-typed over `InvPW`.
+  on the informal Kahn argument — with per-walk order fixed each
+  process is deterministic in its I/O behavior, and in such process
+  networks added buffer capacity only relaxes back-pressure and cannot
+  introduce deadlock — until Endgame.lean is re-typed over `InvPW`.
 - **Modeled-world premises** (MODEL.md §1/§5): error-free conforming
   peers, SPSC channels, sequential scopes per walk, per-channel
   in-order delivery (the last is now also `assert_valid`'s radix-order

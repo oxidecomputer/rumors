@@ -229,8 +229,7 @@ the placement the weave pins (parent immediately after the final
 resolution; first in an undisputed scope). The `d6` conjunct on the
 parent arm is the opposite corner — the shipping encoder's epilogue
 placement: the parent departs only after every other send of the scope
-(design/parent-placement.md; `d5` and `d6` are never asserted
-together). -/
+(`d5` and `d6` are never asserted together). -/
 def wkChoosable (pk : Party × Nat) (ws : WalkSt) (o : Oblig) : Bool :=
   if ws.phase != 2 || ws.committed.isSome then false
   else

@@ -1030,7 +1030,8 @@ parent in the scope epilogue (`materialized/levels.rs`: "Launch every
 resolution"), and MODEL.md §5 had documented that order all along
 ("orderings the Rust scheduler can never produce" includes the `d5`
 placement). Full analysis and the design-space record:
-`design/parent-placement.md` (parent-first branch). The user's
+`.agent-notes/2026-07-18-parent-placement/parent-placement.md`
+(parent-first branch). The user's
 adjudications: re-target the implementation-facing theorem at the
 encoder's real order; capacity hypothesis at margin 0
 (`capLevel ≥` max per-scope `dCount` — the robust bound provable
@@ -1099,7 +1100,8 @@ mid-collection (`got > 0` — the consumer's hand), 3 walks parked on
 committed sends (the producers' hands: last-chunk query, trailing
 wire, undrainable parent). The commit/fire split IS the producer-hand
 slot; `asmLocalOk`'s phase-1 collection IS the consumer-hand slot —
-the borrowed-slots mechanism of design/parent-placement.md §2, now
+the borrowed-slots mechanism of §2 in
+.agent-notes/2026-07-18-parent-placement/parent-placement.md, now
 [checked] in the model as well as in Rust.
 
 Task #16 consumes: `AxMode.impl`, the pillar under

@@ -87,10 +87,10 @@ number of steps.
 
 Model-tier, reply-denominated, single conforming session. The kernel
 guarantees the model; the proptest bridge suite argues the model is
-the Rust. Byte-level liveness additionally requires the byte pacing of
-design/single-socket.md — the byte caveat of record is Mux/Basic.lean's
-module doc (# The byte-denomination caveat). No performance content:
-latency lives at the executable tier (design/mux-latency.md).
+the Rust. Byte-level liveness additionally requires byte pacing at the
+transport — the byte caveat of record is Mux/Basic.lean's module doc
+(# The byte-denomination caveat). No performance content: latency
+lives at the executable tier.
 -/
 import StreamingMirror.Mux.Proofs.SigmaStarKInv
 import StreamingMirror.Mux.Proofs.CausalMint

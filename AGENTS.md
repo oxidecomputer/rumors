@@ -17,8 +17,8 @@ Interval Tree Clock library (`crates/before-viz` visualizes the clocks).
   supply of independent, lazily opened data streams. The contract (which
   the deadlock-freedom argument rests on) is in `src/link.rs`; the
   `conformance` cargo feature ships the public validation suite for
-  caller-built links; `design/streaming-wire-deadlock.md` records why the
-  contract exists and the deadlock analysis behind it.
+  caller-built links; `.agent-notes/2026-07-17-streaming-wire-deadlock/`
+  records why the contract exists and the deadlock analysis behind it.
 - The tree (sparse Merkle radix trie, path compression, version-addressed
   leaves, the memo/version-bounds design): module docs in `src/tree.rs` and
   `src/tree/typed/`.
@@ -92,7 +92,12 @@ wants `wasm-pack` and node/npm.
   branches assert, exclude only with a rationale naming every leg —
   and the campaign configuration of record live in that file's header.
 
-# Writing style
+## Your own notes
+
+You can leave durable notes and other artifacts of exploration and ideation in
+`.agent-notes`. Read the README there for the ground rules.
+
+## Writing style
 
 - When writing user-facing documentation (all public rustdoc comments), consider
   first *who is reading it* (the developer wanting to *use* the library) and
@@ -162,5 +167,5 @@ wants `wasm-pack` and node/npm.
   `frame_empty` is a bookmark *format* change — versioned by
   `BOOKMARK_FORMAT_VERSION`, owner-ruled, and named in the re-accepting
   commit like any other deliberate format change.
-- Redaction leaves no tombstones: deletion-honoring rides on version bounds.
+- Redaction leaves no tombstones: deletions are honored by observing versions.
   When reasoning about it, think version ceilings/floors, not markers.

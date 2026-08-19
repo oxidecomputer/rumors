@@ -9,9 +9,9 @@ to know how the claims are DISCHARGED.
 
 # The two theorems
 
-Both corners of the parent-placement design space
-(design/parent-placement.md) carry a kernel-checked deadlock-freedom
-theorem, on the three standard axioms each:
+Both corners of the parent-placement design space carry a
+kernel-checked deadlock-freedom theorem, on the three standard axioms
+each:
 
 - **The flagship** (the shipping encoder's order):
   `Sched.deadlock_free : wellFormed → (∀ s, dCount s ≤ capLevel) →

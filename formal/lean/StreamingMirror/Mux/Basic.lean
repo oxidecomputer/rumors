@@ -77,11 +77,17 @@ the definition exists (`terminal_drained`, a stage-2 door).
 
 Every capacity in this harness is denominated in MESSAGES: one pipe
 entry = one scope-level reply. Byte-level soundness of one-reply slots
-is design/streaming-wire-deadlock.md §5A's W = 1 structural argument,
-ASSUMED at the model boundary and not re-proven here
-(the reply-denomination ruling). The direction that does not transfer for
-free is liveness: a positive (deadlock-freedom or completion) theorem
-at message denomination says less than its byte-level reading, so
+rests on the W = 1 structural argument, ASSUMED at the model boundary
+and not re-proven here (the reply-denomination ruling): a sender may
+start a reply on a stream only once the receiver has granted a credit
+for it, and a pump never parks mid-reply, so the frames of the one
+granted reply drain through the existing one-frame handoff with no new
+buffer anywhere. Each wire stream therefore behaves exactly as the
+capacity-1 channel it replaces, which is what makes this harness's
+message grain a faithful reading of the byte grain. The direction that
+does not transfer for free is liveness: a positive (deadlock-freedom or
+completion) theorem at message denomination says less than its
+byte-level reading, so
 every positive statement of record carries a one-line pointer to this
 section — this is the §1 ruling's canonical home. Impossibilities
 transfer unweakened (a jam at message grain is a jam at byte grain).

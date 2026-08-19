@@ -1,7 +1,7 @@
 /-
 σ*-causal: the charter-grain local demand-lockstep strategy — the Lean
-counterpart of the stage-0 probe's faulting view (design/tracecheck/causal-reference.py;
-counterpart, not twin — see the probe-relationship section below),
+counterpart of the stage-0 probe's faulting view (counterpart, not
+twin — see the probe-relationship section below),
 discharging the definitional half of the σ*-locality residue (Finch's
 ruling: claims of record bind the charter grain — locality means
 information in the causal past, never a Rust-side bridge, which a

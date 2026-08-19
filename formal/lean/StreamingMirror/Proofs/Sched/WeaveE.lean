@@ -13,7 +13,7 @@ token-release discipline), the eweave is valid only under the margin-0
 capacity hypothesis (`∀ s, dCount s ≤ capLevel`): at the scope tail
 the upper window needs the level channel to have drained everything
 below, and margin 0 is what bounds the in-flight uppers of the parent
-scope's dispute group (design/parent-placement.md §6). Sub-margin the
+scope's dispute group. Sub-margin the
 eweave emits through a closed guard — `Control.pdelay` pins this
 executably (`weaveOrderE` reports the disabled emission), the
 capacity hypothesis shown load-bearing at the witness itself.

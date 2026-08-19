@@ -928,8 +928,9 @@ stuck reachable state. The margin-0 hypothesis subsumes `schedulable`
 parent-delay cycle is a real deadlock (`Control.parentTrap`). The
 capacity-UNIVERSAL corner of the design space — deadlock freedom at
 any `capLevel ≥ 1` under the parent-early `d5` discipline the weave
-uses (not the encoder) — is `deadlock_free_d5`
-(design/parent-placement.md has the trade). Wider production
+uses (not the encoder) — is `deadlock_free_d5`; the trade is
+capacity-universal liveness bought with descent/assembly
+serialization. Wider production
 capacities are covered by `deadlock_free_wide` (Proofs/Wide.lean):
 this theorem at every pointwise capacity vector κ ≥ `sk.cap`, the
 former capacity-monotonicity assumption made kernel. -/

@@ -239,7 +239,7 @@ def schedule : List Ev := (finalState sk).out
 the parent summary last.
 
 The `d6`/epilogue corner of the parent-placement design space
-(design/parent-placement.md, PROGRESS.md §8): where `scopeSends`
+(PROGRESS.md §8): where `scopeSends`
 splices the parent immediately after the scope's final resolution (the
 `d5` weave order), the shipping encoder defers it past the last
 chunk's queries and any trailing witness wires — the parent summary is

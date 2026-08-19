@@ -37,9 +37,10 @@ consumption order fails because commit dependencies can force a send
 early whose consumption comes late (cross-stream skew); pushing in
 SEND order (τ's own emission order) is always safe because the demux
 slots absorb exactly that skew. Scope notes: capacity is denominated in
-messages (= scope replies); byte-level soundness of one-reply slots is
-design/streaming-wire-deadlock.md §5A's W = 1 structural argument,
-assumed at the model boundary (the reply-denomination ruling). NOT claimed:
+messages (= scope replies); byte-level soundness of one-reply slots
+rests on the W = 1 structural argument, assumed at the model boundary
+(the reply-denomination ruling, stated canonically in Mux/Basic.lean's
+module doc). NOT claimed:
 overlap/latency optimality (executable tier only, H-c demoted).
 
 # The `MuxInv` hypothesis

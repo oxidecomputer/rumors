@@ -36,9 +36,9 @@ at fan ≥ 3 — the `ledgerGap` instance), wire contiguity (D4, finding #6,
 2026-07-16), and parent placement (finding #7, 2026-07-17 — resolved
 2026-07-18 as a two-corner design space: D5 is the weave's parent-early
 discipline, D6 the shipping encoder's epilogue discipline; §6 and
-`design/parent-placement.md`). `assert_valid` is tightened alongside
-each finding so that the checked invariant and the assumed axiom set
-coincide — for finding #7 the check is the D6 (epilogue) form, the
+`.agent-notes/2026-07-18-parent-placement/parent-placement.md`).
+`assert_valid` is tightened alongside each finding so that the checked
+invariant and the assumed axiom set coincide — for finding #7 the check is the D6 (epilogue) form, the
 order the encoder actually has. The Rust's hard-wired
 `yield_resolve_query!` order is one refinement of the guarded-
 nondeterministic publication relation; the theorems cover every
@@ -520,8 +520,9 @@ trivially ordered.)
   emits the parent in the scope *epilogue*, after the last chunk's
   queries and trailing wires (§5 above lists parent-before-last-queries
   among the orderings "the Rust scheduler can never produce";
-  `design/parent-placement.md` records the full design space and why
-  the epilogue order wins on pipelining). An earlier revision of this
+  `.agent-notes/2026-07-18-parent-placement/parent-placement.md`
+  records the full design space and why the epilogue order wins on
+  pipelining). An earlier revision of this
   paragraph claimed the encoder enforces the D5 placement; that was
   wrong, caught 2026-07-18 when the Rust-side probe found the real
   publication order violating the minted check.
@@ -633,7 +634,7 @@ proof.
 | sibling-contiguity check (progress.rs, added 2026-07-15) | Axiom D3 guard |
 | wire-contiguity check (progress.rs, added 2026-07-16) | Axiom D4 guard |
 | epilogue-placement check (`Trace::assert_parent_last`, progress.rs, added with finding #7's resolution, 2026-07-18) | Axiom D6 guard (mode `AxMode.impl`) |
-| `Trace::assert_parent_early` (deliberately unwired, `should_panic`-pinned: the weave's parent-early corner, design/parent-placement.md) | Axiom D5 guard (mode `AxMode.full`) |
+| `Trace::assert_parent_early` (deliberately unwired, `should_panic`-pinned: the weave's parent-early corner, .agent-notes/2026-07-18-parent-placement/parent-placement.md) | Axiom D5 guard (mode `AxMode.full`) |
 | radix-order check (progress.rs, added 2026-07-15) | per-channel in-order program structure (§5.3) |
 | `yield_resolve_query!` (materialized.rs) | the honest linearization (one refinement of the poset) |
 | `outgoing_responses` doc (`work/queues.rs`) | `wire` cap 1 + pump hand |
