@@ -2,7 +2,7 @@
 //! generators' construction language (min-lifted preorder packed streams, one
 //! gamma-coded base per node) to the stored skyline coding.
 
-use crate::codec::{self, Base, BitsMut, BitsView};
+use crate::codec::{self, Base, BitsBuf, BitsView};
 
 use super::signed::zigzag;
 
@@ -20,8 +20,8 @@ use super::signed::zigzag;
 ///
 /// Panics if the packed form does not parse cleanly; callers hand in
 /// generator-built canonical streams.
-pub(crate) fn encode_bits(bits: BitsView<'_>) -> BitsMut {
-    let mut out = BitsMut::with_capacity(bits.len() as usize);
+pub(crate) fn encode_bits(bits: BitsView<'_>) -> BitsBuf {
+    let mut out = BitsBuf::with_capacity(bits.len());
     let mut pos = 0u64;
     // Inherited root-to-node path sums for the nodes not yet visited, top of
     // stack belonging to the next node in the preorder stream. Both children of

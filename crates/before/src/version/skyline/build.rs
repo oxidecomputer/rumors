@@ -53,7 +53,7 @@
 //! `skyline_join_*` rows) pins the whole emission's transient against these
 //! bounds.
 
-use crate::codec::{BitStack, BitsMut, BitsView, Code, PackedBuilder, PopStack};
+use crate::codec::{BitStack, BitsBuf, BitsView, Code, PackedBuilder, PopStack};
 
 /// The 1-bit payload code: `gamma(zigzag(0))`, the zero delta.
 ///
@@ -68,7 +68,7 @@ use crate::codec::{BitStack, BitsMut, BitsView, Code, PackedBuilder, PopStack};
 /// which is the absolute code only while the first leaf is held — and the first
 /// leaf lies on the leftmost, all-`false` path, so cascade's right-child test
 /// fails before the length is consulted.
-const ZERO_DELTA_CODE_BITS: usize = 1;
+const ZERO_DELTA_CODE_BITS: u64 = 1;
 
 /// A canonical-skyline stream builder driven by the output leaf sequence.
 ///
@@ -98,7 +98,7 @@ pub(super) struct SkylineBuilder {
 
 impl SkylineBuilder {
     /// Create a builder with room for `capacity` output bits.
-    pub(super) fn with_capacity(capacity: usize) -> Self {
+    pub(super) fn with_capacity(capacity: u64) -> Self {
         SkylineBuilder {
             out: PackedBuilder::with_capacity(capacity),
             held: None,
@@ -179,7 +179,7 @@ impl SkylineBuilder {
         self.left_leaf.push(left_is_leaf);
         if left_is_leaf {
             debug_assert!(flushed_len > 0, "payload codes are never empty");
-            self.lens.push(flushed_len as u64);
+            self.lens.push(flushed_len);
         }
         debug_assert!(
             depth >= self.path.len(),
@@ -291,7 +291,7 @@ impl SkylineBuilder {
     /// # Panics
     ///
     /// Panics if no leaf was ever appended.
-    pub(super) fn finish(mut self) -> BitsMut {
+    pub(super) fn finish(mut self) -> BitsBuf {
         let held = self
             .held
             .take()
@@ -330,7 +330,7 @@ impl SkylineBuilder {
             // flag, left leaf code. The merged leaf keeps the left code — same
             // height, same predecessor — and the pair leaves the stream; each
             // copied bit is one being truncated.
-            let code_len = self.lens.pop() as usize;
+            let code_len = self.lens.pop();
             let code = self.out.extract_code(self.out.len() - code_len);
             self.out.truncate(self.out.len() - code_len - 2);
             self.path.pop();

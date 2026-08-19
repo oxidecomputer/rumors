@@ -1141,7 +1141,7 @@ impl Version {
     /// Callers guarantee canonical skyline form; the freeze seals the
     /// marker padding so the stored bytes are canonical (see
     /// [`codec::Bits::freeze`]).
-    pub(crate) fn from_bits(bits: codec::BitsMut) -> Self {
+    pub(crate) fn from_bits(bits: codec::BitsBuf) -> Self {
         Version(codec::Bits::freeze(bits))
     }
 

@@ -50,7 +50,7 @@ use core::cmp::Ordering;
 
 use suanpan::Accumulator;
 
-use crate::codec::{BitCursor, BitsMut, BitsView, Int};
+use crate::codec::{BitCursor, BitsBuf, BitsView, Int};
 use crate::error::Decode;
 
 use super::overlay::{fold, LeafCursor, PlateauCursor, Side, Step};
@@ -75,10 +75,10 @@ struct CheckedCursor<'a, C> {
     cursor: &'a mut C,
     /// Root-to-leaf branch directions, root first (`false`: inside the left
     /// child, its right sibling still pending in the stream).
-    path: BitsMut,
+    path: BitsBuf,
     /// Per open ancestor: whether its completed left child was a leaf (a
     /// placeholder `false` until that child completes).
-    left_was_leaf: BitsMut,
+    left_was_leaf: BitsBuf,
     /// The count of `false` bits in `path`: zero exactly when the current
     /// leaf's plateau ends at the unit interval's right edge — the tree is
     /// whole and the stream's bits end here.
@@ -98,8 +98,8 @@ where
     fn open(cursor: &'a mut C) -> Result<(Self, Int), Decode> {
         let mut this = CheckedCursor {
             cursor,
-            path: BitsMut::new(),
-            left_was_leaf: BitsMut::new(),
+            path: BitsBuf::new(),
+            left_was_leaf: BitsBuf::new(),
             open_lefts: 0,
             last_delta_zero: false,
         };
@@ -121,8 +121,12 @@ where
     }
 
     /// The current leaf's depth: its plateau has width `2^-depth`.
+    ///
+    /// Depths are `usize` across the walk surface: each open ancestor costs
+    /// at least one bit of the walked stream, whose live length fits `usize`
+    /// on every target (the storage doors' bound).
     fn depth(&self) -> usize {
-        self.path.len()
+        usize::try_from(self.path.len()).expect("depth is bounded by the stream's live length")
     }
 
     /// Whether the current leaf completes the tree (see `open_lefts`).
@@ -187,7 +191,7 @@ where
                 ),
             }
         }
-        let flip = self.path.len();
+        let flip = self.depth();
         let code = self.descend()?;
         self.last_delta_zero = code.is_zero();
         let (sign, magnitude) = unzigzag(code);

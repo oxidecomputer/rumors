@@ -15,13 +15,12 @@
 //! ([`decode_int_window`]) and emitted with one store, with per-bit loops as
 //! the fallback — and, on decode, the sole arbiter of every reject.
 
-use bitvec::field::BitField;
 use dashu_int::UBig;
 
 use crate::error::Decode;
 
 use super::code::SMALL_CODE_BITS;
-use super::{Base, BitCursor, BitsMut, BitsView, Code, SliceCursor};
+use super::{Base, BitCursor, BitsBuf, BitsView, Code, SliceCursor};
 
 /// Append `n` as the Elias gamma code of `m = n + 1`: `floor(log2(m))` zero
 /// bits, then `m` in `floor(log2(m)) + 1` bits, most-significant first.
@@ -29,20 +28,20 @@ use super::{Base, BitCursor, BitsMut, BitsView, Code, SliceCursor};
 /// Cost is `2*floor(log2(n+1)) + 1` bits; `0` costs a single bit. Canonical and
 /// prefix-free, for an arbitrary-width non-negative `n` (there is no value
 /// cap).
-pub(crate) fn encode_int(out: &mut BitsMut, n: &Base) {
+pub(crate) fn encode_int(out: &mut BitsBuf, n: &Base) {
     let m = n + 1u32;
     match m.to_u64() {
         // Word case: the mantissa fits a machine word, so append the whole code
-        // word-wise — the `2k+1` bits (zeros and all) in one `resize`, then the
-        // `k+1` mantissa bits in one `store_be` — instead of one `push` per
-        // bit. Byte-identical to the per-bit emit below.
+        // word-wise — the `k`-zero prefix in one append, then the `k+1`-bit
+        // mantissa (`m` value-packed, its leading 1 included) in another —
+        // instead of one `push` per bit. Byte-identical to the per-bit emit
+        // below.
         Some(m) => {
             // m >= 1, so `leading_zeros < 64` and `k = floor(log2(m))` never
-            // underflows.
-            let k = (u64::BITS - 1 - m.leading_zeros()) as usize;
-            let start = out.len();
-            out.resize(start + 2 * k + 1, false);
-            out[start + k..].store_be::<u64>(m);
+            // underflows; both appends stay within one machine word.
+            let k = u64::BITS - 1 - m.leading_zeros();
+            out.push_bits(0, k);
+            out.push_bits(m, k + 1);
         }
         // Wide case (`n >= u64::MAX`): per-bit emit of the wide mantissa.
         None => {
@@ -69,8 +68,8 @@ pub(crate) fn encode_int(out: &mut BitsMut, n: &Base) {
 /// is two shifts — and as an owned buffer past that.
 pub(crate) fn code_int(n: &Base) -> Code {
     if let Some(m) = n.to_u64().and_then(|n| n.checked_add(1)) {
-        let k = (u64::BITS - 1 - m.leading_zeros()) as usize;
-        let len = 2 * k + 1;
+        let k = u64::BITS - 1 - m.leading_zeros();
+        let len = u64::from(2 * k + 1);
         if len <= SMALL_CODE_BITS {
             return Code::Small {
                 bits: m,
@@ -78,7 +77,7 @@ pub(crate) fn code_int(n: &Base) -> Code {
             };
         }
     }
-    let mut out = BitsMut::new();
+    let mut out = BitsBuf::new();
     encode_int(&mut out, n);
     Code::Wide(out)
 }
@@ -87,8 +86,8 @@ pub(crate) fn code_int(n: &Base) -> Code {
 /// machine-word form, with no intermediate [`Base`].
 pub(crate) fn code_int_small(n: u64) -> Code {
     if let Some(m) = n.checked_add(1) {
-        let k = (u64::BITS - 1 - m.leading_zeros()) as usize;
-        let len = 2 * k + 1;
+        let k = u64::BITS - 1 - m.leading_zeros();
+        let len = u64::from(2 * k + 1);
         if len <= SMALL_CODE_BITS {
             return Code::Small {
                 bits: m,
@@ -96,7 +95,7 @@ pub(crate) fn code_int_small(n: u64) -> Code {
             };
         }
     }
-    let mut out = BitsMut::new();
+    let mut out = BitsBuf::new();
     encode_int(&mut out, &Base::from(n));
     Code::Wide(out)
 }

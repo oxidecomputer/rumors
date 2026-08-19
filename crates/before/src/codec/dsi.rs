@@ -300,8 +300,9 @@ impl BitCursor for DsiCursor<'_> {
 /// Native-order `u32` words over one stored stream's packed bytes: the word
 /// source under the buffered reader.
 ///
-/// The final partial word zero-fills past the stream's bytes (the tail byte's
-/// dead bits arrive already masked through `bitvec`'s domain view), which
+/// The final partial word zero-fills past the stream's bytes (the tail byte
+/// arrives with its dead bits already masked, the view's `body_tail`
+/// destructuring), which
 /// parallels the slice cursor's zero-filled decode window: the phantom zeros
 /// can only lengthen an apparent unary prefix, and the cursor's live-length
 /// checks keep them from ever surfacing in a decoded value. Reads past the last

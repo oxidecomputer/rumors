@@ -174,7 +174,7 @@ use core::cmp::Ordering;
 
 use suanpan::{Accumulator, UBig};
 
-use crate::codec::{self, Base, BitsMut, BitsView, Int};
+use crate::codec::{self, Base, BitsBuf, BitsView, Int};
 use crate::Rank;
 
 use self::integral::{int_digits, Integrator, FREEZE_ALLOWANCE_DIGITS};
@@ -496,7 +496,7 @@ pub fn min_ticks(bits: BitsView<'_>) -> Base {
 /// # Panics
 ///
 /// Panics if the skyline operand is not a canonical stream.
-pub fn project(event_bits: BitsView<'_>, id: &crate::Party) -> BitsMut {
+pub fn project(event_bits: BitsView<'_>, id: &crate::Party) -> BitsBuf {
     let id_bits = id.as_bits();
     let (mut event_cursor, first) = LeafCursor::open(event_bits);
     let mut id_cursor = IdLeafCursor::open(id_bits);
@@ -511,7 +511,7 @@ pub fn project(event_bits: BitsView<'_>, id: &crate::Party) -> BitsMut {
     // the allocation benchmark to measure against the shipped pre-size; shipped
     // builds always take the pre-sized arm.
     #[cfg(not(before_alloc_ab = "projection_growth"))]
-    let capacity = (event_bits.len() + id_bits.len()) as usize;
+    let capacity = event_bits.len() + id_bits.len();
     #[cfg(before_alloc_ab = "projection_growth")]
     let capacity = 0;
     let mut out = SkylineBuilder::with_capacity(capacity);

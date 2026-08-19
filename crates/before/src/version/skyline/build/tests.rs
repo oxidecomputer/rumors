@@ -4,7 +4,7 @@
 //! stream, so a bookkeeping error in absorb, re-anchor, or the cascade fails
 //! against bits a reader can re-derive in the margin.
 
-use crate::codec::{self, Base, BitsMut, Code};
+use crate::codec::{self, Base, BitsBuf, Code};
 use crate::version::skyline::signed::{gamma_code_signed, Sign};
 
 use super::SkylineBuilder;
@@ -20,7 +20,7 @@ fn delta(sign: Sign, magnitude: u64) -> Code {
 }
 
 /// Drive a builder over `(depth, code)` leaves and return the stream.
-fn built(leaves: Vec<(usize, Code)>) -> BitsMut {
+fn built(leaves: Vec<(usize, Code)>) -> BitsBuf {
     let mut builder = SkylineBuilder::with_capacity(64);
     for (depth, code) in leaves {
         builder.leaf(depth, code);
@@ -29,7 +29,7 @@ fn built(leaves: Vec<(usize, Code)>) -> BitsMut {
 }
 
 /// A stream literal from a `0`/`1` string, whitespace ignored.
-fn bits(s: &str) -> BitsMut {
+fn bits(s: &str) -> BitsBuf {
     s.chars()
         .filter(|c| !c.is_whitespace())
         .map(|c| match c {
@@ -181,8 +181,8 @@ fn continuation(
     root_depth: usize,
     first_depth: usize,
     leaves: &[(usize, Code)],
-) -> (BitsMut, usize, usize, usize) {
-    let mut range = BitsMut::new();
+) -> (BitsBuf, usize, usize, usize) {
+    let mut range = BitsBuf::new();
     // The within-subtree path to the previous leaf; the subtree's first leaf is
     // its leftmost, so the path starts all left branches.
     let mut path = vec![false; first_depth - root_depth];
@@ -207,7 +207,7 @@ fn continuation(
                     range.push(bits >> i & 1 == 1);
                 }
             }
-            Code::Wide(code) => range.extend_from_bitslice(code),
+            Code::Wide(code) => range.extend_from_buf(code),
         }
     }
     let (last_depth, last_code) = leaves.last().expect("a continuation has at least one leaf");
@@ -215,7 +215,7 @@ fn continuation(
         range,
         first_depth - root_depth,
         last_depth - root_depth,
-        last_code.len(),
+        usize::try_from(last_code.len()).expect("test codes are small"),
     )
 }
 

@@ -1,4 +1,4 @@
-use crate::codec::{extend_from_view, BitsMut, BitsView};
+use crate::codec::{extend_from_view, BitsBuf, BitsView};
 use crate::idbits::{IdNode, IdReader};
 
 impl IdReader<'_> {
@@ -17,10 +17,10 @@ impl IdReader<'_> {
     /// is absence, not a leaf). At a terminal the split is `(1,0)`/`(0,1)`.
     ///
     /// The recursive form of `oracle::Party::split` (the paper's `split`).
-    pub(crate) fn split(self) -> (BitsMut, BitsMut) {
+    pub(crate) fn split(self) -> (BitsBuf, BitsBuf) {
         // split(0) = (0, 0): the empty id splits into two empties.
         if let IdNode::Empty = self.peek() {
-            return (BitsMut::new(), BitsMut::new());
+            return (BitsBuf::new(), BitsBuf::new());
         }
         let start = self.pos();
         build_split(self.bits(), start)
@@ -42,7 +42,7 @@ enum SpineEnd {
 /// copy of already-normal bit ranges, normal by construction (the kept child is
 /// nonempty, so no collapse can arise). Iterative: the spine walk is a loop, so
 /// deep ids cannot overflow.
-fn build_split(bits: BitsView<'_>, start: u64) -> (BitsMut, BitsMut) {
+fn build_split(bits: BitsView<'_>, start: u64) -> (BitsBuf, BitsBuf) {
     let mut pos = start;
     let (prefix_end, kind) = loop {
         match (bits.bit(pos), bits.bit(pos + 1)) {
@@ -52,7 +52,7 @@ fn build_split(bits: BitsView<'_>, start: u64) -> (BitsMut, BitsMut) {
         }
     };
     let prefix = start..prefix_end;
-    let prefix_len = (prefix_end - start) as usize;
+    let prefix_len = prefix_end - start;
 
     match kind {
         SpineEnd::Branch => {
@@ -69,15 +69,13 @@ fn build_split(bits: BitsView<'_>, start: u64) -> (BitsMut, BitsMut) {
 
             // Each half keeps one child and drops the other, so its length is
             // exact: prefix + the 2-bit retagged branch + the kept child.
-            let mut a =
-                BitsMut::with_capacity(prefix_len + 2 + (right_child - left_child) as usize);
+            let mut a = BitsBuf::with_capacity(prefix_len + 2 + (right_child - left_child));
             extend_from_view(&mut a, bits, prefix.start, prefix.end);
             a.push(true); // branch → Left-only: keep i1 ...
             a.push(false); // ... drop i2
             extend_from_view(&mut a, bits, left_child, right_child);
 
-            let mut b =
-                BitsMut::with_capacity(prefix_len + 2 + (branch_end - right_child) as usize);
+            let mut b = BitsBuf::with_capacity(prefix_len + 2 + (branch_end - right_child));
             extend_from_view(&mut b, bits, prefix.start, prefix.end);
             b.push(false); // branch → Right-only: drop i1 ...
             b.push(true); // ... keep i2
@@ -93,14 +91,14 @@ fn build_split(bits: BitsView<'_>, start: u64) -> (BitsMut, BitsMut) {
                 bits.len(),
                 "the terminal is the spine's tail",
             );
-            let mut a = BitsMut::with_capacity(prefix_len + 4);
+            let mut a = BitsBuf::with_capacity(prefix_len + 4);
             extend_from_view(&mut a, bits, prefix.start, prefix.end);
             a.push(true); // (1, 0): Left-only ...
             a.push(false);
             a.push(false); // ... over a terminal
             a.push(false);
 
-            let mut b = BitsMut::with_capacity(prefix_len + 4);
+            let mut b = BitsBuf::with_capacity(prefix_len + 4);
             extend_from_view(&mut b, bits, prefix.start, prefix.end);
             b.push(false); // (0, 1): Right-only ...
             b.push(true);

@@ -74,11 +74,11 @@ pub struct Party(codec::Bits);
 static_assertions::assert_not_impl_any!(Party: Clone, Copy);
 
 // Equality and hashing are byte-level over the stored stream's raw bytes plus
-// its live length, resting on the canonical-raw-slice invariant: `from_bits`
-// zeroes the dead pad bits at every storage seam, so raw-byte equality is
-// exactly bit equality (see `codec::canonical_eq` for the argument and the
-// measurement). The two impls read the same pair, so `Eq`/`Hash` consistency
-// holds by construction.
+// its live length, resting on the canonical-raw-slice invariant: the build
+// buffer keeps its dead bits zero and `from_bits` seals the marker at every
+// storage seam, so raw-byte equality is exactly bit equality (see
+// `codec::canonical_eq` for the argument and the measurement). The two impls
+// read the same pair, so `Eq`/`Hash` consistency holds by construction.
 impl PartialEq for Party {
     fn eq(&self, other: &Self) -> bool {
         codec::canonical_eq(&self.0, &other.0)
@@ -671,9 +671,9 @@ impl Party {
     ///
     /// Callers guarantee normal *tree* form (a nonempty, normalized id);
     /// the freeze seals the marker padding so the stored bytes are
-    /// canonical — see [`codec::Bits::freeze`] for why a tree op can leave
-    /// the tail dirty, and what the padding underpins.
-    pub(crate) fn from_bits(bits: codec::BitsMut) -> Self {
+    /// canonical — see [`codec::Bits::freeze`] for the seam's contract and
+    /// what the padding underpins.
+    pub(crate) fn from_bits(bits: codec::BitsBuf) -> Self {
         Party(codec::Bits::freeze(bits))
     }
 
@@ -747,7 +747,7 @@ impl core::str::FromStr for Party {
 /// Wrap validated id bits as a `Party`, rejecting the anonymous (empty)
 /// identity. The single gate through which every parsed/built top-level `Party`
 /// passes.
-fn finish_id(bits: codec::BitsMut) -> Result<Party, Parse> {
+fn finish_id(bits: codec::BitsBuf) -> Result<Party, Parse> {
     if codec::id_is_empty(codec::built_view(&bits)) {
         Err(Parse::Anonymous)
     } else {
@@ -772,11 +772,11 @@ mod sealed {
 #[doc(hidden)]
 pub trait PartyLiteral: sealed::Sealed {
     #[doc(hidden)]
-    fn into_id_bits(self) -> Result<codec::BitsMut, Parse>;
+    fn into_id_bits(self) -> Result<codec::BitsBuf, Parse>;
 }
 
 impl PartyLiteral for u8 {
-    fn into_id_bits(self) -> Result<codec::BitsMut, Parse> {
+    fn into_id_bits(self) -> Result<codec::BitsBuf, Parse> {
         match self {
             0 => Ok(codec::id_leaf(false)),
             1 => Ok(codec::id_leaf(true)),
@@ -786,13 +786,13 @@ impl PartyLiteral for u8 {
 }
 
 impl PartyLiteral for bool {
-    fn into_id_bits(self) -> Result<codec::BitsMut, Parse> {
+    fn into_id_bits(self) -> Result<codec::BitsBuf, Parse> {
         Ok(codec::id_leaf(self))
     }
 }
 
 impl<T: PartyLiteral, S: PartyLiteral> PartyLiteral for (T, S) {
-    fn into_id_bits(self) -> Result<codec::BitsMut, Parse> {
+    fn into_id_bits(self) -> Result<codec::BitsBuf, Parse> {
         let l = self.0.into_id_bits()?;
         let r = self.1.into_id_bits()?;
         codec::id_node(&l, &r) // assembles + validates normal form

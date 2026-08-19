@@ -153,7 +153,7 @@ use core::cmp::Ordering;
 
 use suanpan::Accumulator;
 
-use crate::codec::{self, Base, BitCursor, BitStack, BitsMut, BitsView, Int, PopStack};
+use crate::codec::{self, Base, BitCursor, BitStack, BitsBuf, BitsView, Int, PopStack};
 use crate::idbits::{IdNode, IdReader};
 
 use self::fuse::{decode_cost_component, encode_cost_component, Out, RouteProbe};
@@ -206,7 +206,7 @@ const _: () = assert!(
 /// at least one region: an empty id leaves `fill` the identity, and the grow
 /// fallback requires an owning id (debug builds assert it; the result on an
 /// empty id is unspecified in release builds).
-pub fn tick(event: BitsView<'_>, id: &crate::Party) -> BitsMut {
+pub fn tick(event: BitsView<'_>, id: &crate::Party) -> BitsBuf {
     // `n = 1` performs exactly one fused walk plus at most one splice:
     // the delta against a direct dispatch is two unmetered width tests
     // and one non-allocating `Base` construction. The committed
@@ -244,11 +244,11 @@ pub fn tick(event: BitsView<'_>, id: &crate::Party) -> BitsMut {
 /// [`validate`](fn@super::validate) first on untrusted bytes. For `n >= 1` the
 /// id must own at least one region, exactly as [`tick`] (debug builds assert
 /// it; the result on an empty id is unspecified in release builds).
-pub fn ticks(event: BitsView<'_>, id: &crate::Party, n: &Base) -> BitsMut {
+pub fn ticks(event: BitsView<'_>, id: &crate::Party, n: &Base) -> BitsBuf {
     // Width tests, not value compares: n = 0 has no bits, n = 1 is the
     // one-bit magnitude, and neither test touches the limb meter.
     if n.bits() == 0 {
-        let mut out = BitsMut::with_capacity(event.len() as usize);
+        let mut out = BitsBuf::with_capacity(event.len());
         codec::extend_from_view(&mut out, event, 0, event.len());
         return out;
     }
@@ -276,7 +276,7 @@ pub fn ticks(event: BitsView<'_>, id: &crate::Party, n: &Base) -> BitsMut {
 /// tick), or it was the identity and the recorded route drives the grow splice.
 pub(super) enum FillOutcome {
     /// `fill(id, e) ≠ e`: the canonical filled stream.
-    Changed(BitsMut),
+    Changed(BitsBuf),
     /// `fill(id, e) = e`: the inflation route for
     /// [`grow::emit`](super::grow::emit).
     Unchanged(super::grow::Route),
@@ -304,7 +304,7 @@ pub(super) fn fused_fill(event_bits: BitsView<'_>, id: &crate::Party) -> FillOut
         memo: Memo::new(),
         relation: Relation::None,
         out: Out::Unstarted,
-        probe: RouteProbe::new(id_bits.len() as usize),
+        probe: RouteProbe::new(id_bits.len()),
     };
     let mut reader = IdReader::root(id_bits);
     walk.web.open(1);

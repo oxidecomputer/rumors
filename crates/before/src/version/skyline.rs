@@ -156,7 +156,7 @@ use crate::Version;
 #[cfg(any(test, feature = "meter"))]
 pub use crate::codec::Bits;
 #[cfg(any(test, feature = "meter"))]
-pub use crate::codec::BitsMut;
+pub use crate::codec::BitsBuf;
 pub use crate::codec::BitsView;
 
 // The admission walk: the span wire form's fused second-component parse,
@@ -221,7 +221,7 @@ pub(crate) use validate::validate_from;
 ///
 /// Test- and meter-only, like the buffers it views.
 #[cfg(any(test, feature = "meter"))]
-pub fn view(bits: &BitsMut) -> BitsView<'_> {
+pub fn view(bits: &BitsBuf) -> BitsView<'_> {
     crate::codec::built_view(bits)
 }
 
@@ -230,9 +230,9 @@ pub fn view(bits: &BitsMut) -> BitsView<'_> {
 /// Test- and meter-only: production callers reach the stored stream through
 /// [`Version::as_bytes`]/[`Version::encode`].
 #[cfg(any(test, feature = "meter"))]
-pub fn encode(version: &Version) -> BitsMut {
+pub fn encode(version: &Version) -> BitsBuf {
     let view = version.as_bits();
-    let mut bits = BitsMut::with_capacity(view.len() as usize);
+    let mut bits = BitsBuf::with_capacity(view.len());
     // Live bits only — no padding: consumers walk these as a stream.
     crate::codec::extend_from_view(&mut bits, view, 0, view.len());
     bits

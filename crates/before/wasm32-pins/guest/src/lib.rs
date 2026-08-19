@@ -93,9 +93,9 @@ pub extern "C" fn pin_version_small() -> i64 {
 /// that the stored bytes round-trip the input exactly.
 ///
 /// The harness aims this at the 32-bit boundaries: the sizes straddling
-/// 2^29 bits (the 32-bit bit-vector length encoding's cap, which the
-/// build side still carries) and the 512 MiB bit-length boundary of
-/// `usize` position arithmetic.
+/// 2^29 bits (where a `usize >> 3` bit-count encoding would bind on a
+/// 32-bit target) and the 512 MiB bit-length boundary of `usize`
+/// position arithmetic.
 #[no_mangle]
 pub extern "C" fn pin_version_decode(n_bytes: u64) -> i64 {
     let n = match usize::try_from(n_bytes) {
@@ -483,8 +483,8 @@ pub extern "C" fn pin_version_join_covering(n_bytes: u64) -> i64 {
 /// the unit interval takes its taller side, so the output concatenates the
 /// left operand's tall code with a fresh `2j + 1`-bit delta code instead of
 /// collapsing — the output outgrows both inputs. The harness aims `(k, j)`
-/// at the emitter's output-side boundary: the build buffer's own length
-/// encoding, not any per-operand bound, is what this export observes.
+/// at the emitter's output side — the build buffer and its freeze hand-off,
+/// not any per-operand bound, are what this export observes.
 #[no_mangle]
 pub extern "C" fn pin_version_join_emit(k: u64, j: u64) -> i64 {
     let a = match Version::decode(&synth_two_leaf_left(k)[..]) {

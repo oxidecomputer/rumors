@@ -1,10 +1,11 @@
 //! Primitive-cost probe for the emission machinery.
 //!
-//! Measures the raw output-side primitives the join/tick sweeps spend
-//! their cycles in (per-bit `bitvec` pushes, per-leaf heap-allocated
-//! code buffers, bit-addressed splices) against word-buffered
-//! equivalents, on the same workload shape (~5k leaves, 3-9 bit codes,
-//! 75k output bits).
+//! Measures candidate output-side primitive shapes (per-bit pushes into a
+//! general bit vector — the external `bitvec` baseline — per-leaf
+//! heap-allocated code buffers, bit-addressed splices) against the
+//! word-buffered equivalents the crate's own builder ships, on the
+//! join/tick sweeps' workload shape (~5k leaves, 3-9 bit codes, 75k
+//! output bits).
 //!
 //! Usage: cargo run -p before --profile bench --example emit_probe
 
@@ -12,7 +13,7 @@ use bitvec::prelude::*;
 use std::hint::black_box;
 use std::time::Instant;
 
-type BitsMut = BitVec<u8, Msb0>;
+type BaselineBits = BitVec<u8, Msb0>;
 
 const LEAVES: usize = 5000;
 
@@ -97,7 +98,7 @@ fn main() {
     // 1. Per-bit bitvec push: the current PackedBuilder discipline
     //    (1 flag push + per-bit code pushes per leaf).
     bench("bitvec push per bit", 2000, || {
-        let mut out: BitsMut = BitVec::with_capacity(total_bits);
+        let mut out: BaselineBits = BitVec::with_capacity(total_bits);
         for &(code, len) in &codes {
             out.push(true);
             for i in (0..len).rev() {
@@ -111,9 +112,9 @@ fn main() {
     // 2. Current per-leaf heap code + extend_from_bitslice splice: what
     //    gamma_code + SkylineBuilder::leaf actually do.
     bench("bitvec alloc code + splice per leaf", 2000, || {
-        let mut out: BitsMut = BitVec::with_capacity(total_bits);
+        let mut out: BaselineBits = BitVec::with_capacity(total_bits);
         for &(code, len) in &codes {
-            let mut c: BitsMut = BitsMut::new();
+            let mut c: BaselineBits = BaselineBits::new();
             for i in (0..len).rev() {
                 c.push((code >> i) & 1 == 1);
             }
@@ -137,8 +138,8 @@ fn main() {
 
     // 4. Bulk copy comparison: one 37.5k-bit misaligned splice, bitvec vs
     //    word shifts (the tick grow-path verbatim copy).
-    let src: BitsMut = {
-        let mut v = BitsMut::new();
+    let src: BaselineBits = {
+        let mut v = BaselineBits::new();
         let mut state = 7u64;
         for _ in 0..37_500 {
             state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
@@ -150,7 +151,7 @@ fn main() {
         "bitvec extend_from_bitslice 37.5kbit misaligned",
         2000,
         || {
-            let mut out: BitsMut = BitVec::with_capacity(38_000);
+            let mut out: BaselineBits = BitVec::with_capacity(38_000);
             out.push(true); // force misalignment
             out.extend_from_bitslice(&src[3..]);
             out.len()

@@ -2,7 +2,7 @@
 
 use insta::assert_snapshot;
 
-use crate::codec::{encode_int, Base, BitsMut, BitsView};
+use crate::codec::{encode_int, Base, BitsBuf, BitsView};
 use crate::error::{Crossed, Decode, Overlap, Parse};
 use crate::{Clock, Party, Rank, Version};
 
@@ -25,7 +25,7 @@ fn bytes_to_hex(bytes: &[u8]) -> String {
 
 /// One Elias-gamma row: `n` then its code as an MSB-first bit string and the bit count.
 fn gamma_row(n: u64) -> String {
-    let mut bits = BitsMut::new();
+    let mut bits = BitsBuf::new();
     encode_int(&mut bits, &Base::from(n));
     format!(
         "{:>20} -> {} ({} bits)",
@@ -68,7 +68,7 @@ fn gamma_bit_layout_table() {
 
     // Arbitrary-width witness: 2^64 has no u64 representation, but the gamma code (and
     // therefore an event base of this magnitude) encodes and round-trips regardless.
-    let mut big_bits = BitsMut::new();
+    let mut big_bits = BitsBuf::new();
     let big = Base::from(1u8) << 64u32; // 2^64
     encode_int(&mut big_bits, &big);
     assert_snapshot!(
@@ -172,8 +172,8 @@ fn clock_canonical_form() {
     // A `Clock`'s canonical stream is its `Party` bits followed by its `Version` bits,
     // with no padding between (padding is added only by `encode`). Rebuild that unpadded
     // concatenation here to show the boundary between the two halves.
-    let mut bits = c.party().as_bits().to_bitvec();
-    bits.extend_from_bitslice(&c.version().as_bits().to_bitvec());
+    let mut bits = c.party().as_bits().to_buf();
+    bits.extend_from_buf(&c.version().as_bits().to_buf());
     let fields = format!(
         "display: {c}\ndebug:   {c:?}\nbits:    {} ({} bits)\nbytes:   {}",
         bits_to_string(crate::codec::built_view(&bits)),

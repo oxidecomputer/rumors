@@ -407,7 +407,7 @@ fn materialize_is_a_noop_once_built() {
         .parse()
         .expect("test version literals parse");
     let event = encode(&v);
-    let matched_end = event.len() as u64;
+    let matched_end = event.len();
 
     let mut once = Out::Verbatim { matched_end };
     once.materialize(crate::codec::built_view(&event));
@@ -1277,7 +1277,7 @@ proptest! {
         if !p.as_bits().is_empty() {
             let ev = encode(&v);
             let out = tick(crate::codec::built_view(&ev), &p);
-            let bound = 2 * ev.len() + 4 * p.as_bits().len() as usize + 32;
+            let bound = 2 * ev.len() + 4 * p.as_bits().len() + 32;
             prop_assert!(
                 out.len() <= bound,
                 "tick output {} bits exceeds input envelope {} (event {}, id {})",
@@ -1316,12 +1316,12 @@ proptest! {
             for k in 2u32..=48 {
                 e = tick(crate::codec::built_view(&e), &p);
                 let logk = u64::from(32 - (k + 1).leading_zeros());
-                let bound = b1 as u64
+                let bound = b1
                     + 4 * p.as_bits().len()
                     + 4 * logk
                     + 8;
                 prop_assert!(
-                    e.len() as u64 <= bound,
+                    e.len() <= bound,
                     "orbit size {} bits at tick {k} exceeds the transient-plus-log \
                      envelope {bound} (first-tick size {b1}, id {} bits)",
                     e.len(), p.as_bits().len(),
@@ -1351,7 +1351,7 @@ fn tick_deep_orbits_stay_banded() {
         e = tick(crate::codec::built_view(&e), &ida);
         let logk = usize::try_from(32 - (k + 1).leading_zeros()).expect("small");
         assert!(
-            e.len() <= b1 + 4 * logk + 8,
+            e.len() <= b1 + 4 * logk as u64 + 8,
             "fixed-id orbit: {} bits at tick {k} (first-tick size {b1})",
             e.len(),
         );
@@ -1368,7 +1368,7 @@ fn tick_deep_orbits_stay_banded() {
         );
         let logk = usize::try_from(32 - (k + 1).leading_zeros()).expect("small");
         assert!(
-            e.len() <= b2 + 4 * logk + 8,
+            e.len() <= b2 + 4 * logk as u64 + 8,
             "alternating orbit: {} bits at tick {k} (two-tick size {b2})",
             e.len(),
         );
@@ -1419,7 +1419,7 @@ fn direction_chain(path: &[bool]) -> Party {
 fn assert_chain_saturation(path: &[bool], ceiling: u64) {
     let p = direction_chain(path);
     let bits = p.as_bits();
-    let mut probe = RouteProbe::new(bits.len() as usize);
+    let mut probe = RouteProbe::new(bits.len());
     let mut id = IdReader::root(bits);
     let cost = probe.expand_subtree(&mut id, ceiling);
     assert_eq!(id.pos(), bits.len(), "the DP consumes exactly the subtree");
@@ -1440,7 +1440,7 @@ fn assert_chain_saturation(path: &[bool], ceiling: u64) {
     let route = probe.take_route();
     for (level, &left) in path.iter().enumerate() {
         assert_eq!(
-            route.dirs()[2 * level],
+            route.dirs().get(2 * level as u64),
             left,
             "the route at level {level} must turn into the present child",
         );
@@ -1749,22 +1749,22 @@ fn ticks_composes_at_wide_n() {
 /// `PreScan::max_range`'s entry assertion).
 mod prescan_raise_shapes {
     use super::*;
-    use crate::codec::{self, BitsMut};
+    use crate::codec::{self, BitsBuf};
 
     /// Construction-language pushers (the meter shape builders' vocabulary):
     /// internal node = `1 · gamma(0)`, leaf = `0 · gamma(n)`.
-    fn nd(ev: &mut BitsMut) {
+    fn nd(ev: &mut BitsBuf) {
         ev.push(true);
         codec::encode_int(ev, &Base::ZERO);
     }
-    fn lf(ev: &mut BitsMut, n: u64) {
+    fn lf(ev: &mut BitsBuf, n: u64) {
         ev.push(false);
         codec::encode_int(ev, &Base::from(n));
     }
     /// A deep staircase region (the meter `hole_region`'s lead-2 shape):
     /// wrapper node, staircase `m..0`, wrapper floor leaf — deep enough to
     /// route every consuming scan and copy through its block summary.
-    fn hole(ev: &mut BitsMut, m: u64) {
+    fn hole(ev: &mut BitsBuf, m: u64) {
         nd(ev); // wrapper
         nd(ev); // staircase root
         lf(ev, m);
@@ -1776,13 +1776,13 @@ mod prescan_raise_shapes {
         lf(ev, 0); // wrapper floor
     }
     /// Seal a built construction-language stream (the meter `Packed` form).
-    fn pk(bits: BitsMut) -> Packed {
+    fn pk(bits: BitsBuf) -> Packed {
         let live = bits.len();
         let mut sealed = bits;
         codec::seal_padding(&mut sealed);
         Packed {
-            bytes: sealed.into_vec(),
-            bits: live,
+            bytes: sealed.into_bytes(),
+            bits: usize::try_from(live).expect("test streams are small"),
         }
     }
 
@@ -1792,12 +1792,12 @@ mod prescan_raise_shapes {
     /// Wrap an entry range and its id in the covering left-full site that
     /// launches the fresh pre-scan: a root site over a fully-owned collapse
     /// leaf, the entry range as its sibling.
-    fn covered(er: &BitsMut, ir: &[bool]) -> (Version, Party) {
-        let mut ev = BitsMut::new();
+    fn covered(er: &BitsBuf, ir: &[bool]) -> (Version, Party) {
+        let mut ev = BitsBuf::new();
         nd(&mut ev); // the covering site's node
         lf(&mut ev, 2); // its fully-owned collapse leaf
-        ev.extend_from_bitslice(er);
-        let mut id = BitsMut::new();
+        ev.extend_from_buf(er);
+        let mut id = BitsBuf::new();
         for b in [T, T, F, F] {
             id.push(b); // the covering site: internal, full left child
         }
@@ -1814,7 +1814,7 @@ mod prescan_raise_shapes {
     /// leaf. `k = 0` is the minimum-latency raise: the entry range's root
     /// raises immediately after its left leaf's single emission.
     fn chain_raise(k: usize, deep: bool) -> (Version, Party) {
-        let mut er = BitsMut::new();
+        let mut er = BitsBuf::new();
         nd(&mut er); // the raising node
         for _ in 0..k {
             nd(&mut er); // a site along the chain ...
@@ -1863,7 +1863,7 @@ mod prescan_raise_shapes {
     #[test]
     fn suspended_and_skipping_site_raises_match_oracle() {
         // The raise under suspension: site over (collapse leaf, raising node).
-        let mut er = BitsMut::new();
+        let mut er = BitsBuf::new();
         nd(&mut er); // the site
         lf(&mut er, 1); // its collapse (skipped, unemitted)
         nd(&mut er); // the raising node
@@ -1881,7 +1881,7 @@ mod prescan_raise_shapes {
         assert_tick(&v, &p);
         // The skip-then-forced-copy dual: raising node over (no-sibling site
         // with a deep collapse, raise range).
-        let mut er = BitsMut::new();
+        let mut er = BitsBuf::new();
         nd(&mut er); // the raising node
         nd(&mut er); // the no-sibling site
         hole(&mut er, 4); // its deep collapse (skipped net-only, unemitted)
@@ -1906,13 +1906,13 @@ mod prescan_raise_shapes {
     /// full child's sibling or a child its caller peeked as not-full.
     #[test]
     fn full_sibling_of_full_child_is_undecodable() {
-        let mut id = BitsMut::new();
+        let mut id = BitsBuf::new();
         for b in [T, T, F, F, F, F] {
             id.push(b);
         }
         codec::seal_padding(&mut id);
         assert!(
-            Party::decode(&id.into_vec()[..]).is_err(),
+            Party::decode(&id.into_bytes()[..]).is_err(),
             "id (1, 1) must be rejected as non-normal"
         );
     }

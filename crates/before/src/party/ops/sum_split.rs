@@ -1,4 +1,4 @@
-use crate::codec::{built_view, extend_from_view, BitsMut, BitsView};
+use crate::codec::{built_view, extend_from_view, BitsBuf, BitsView};
 use crate::idbits::{IdNode, IdReader};
 
 impl<'a> IdReader<'a> {
@@ -64,7 +64,7 @@ impl<'a> IdReader<'a> {
     /// present on one side alone is spliced without reading its nodes, where
     /// the composition pays two scans of it (`sum`'s copy skip, then `split`'s
     /// subtree-end scan) plus its bytes in the built union.
-    pub(crate) fn sum_split(mut self, mut other: IdReader) -> Option<(BitsMut, BitsMut)> {
+    pub(crate) fn sum_split(mut self, mut other: IdReader) -> Option<(BitsBuf, BitsBuf)> {
         // An empty operand leaves the union the other operand, whole, so the
         // halves are its plain split. Only the root can be empty: below it,
         // presence in the union keeps both cursors live.
@@ -75,7 +75,7 @@ impl<'a> IdReader<'a> {
             return Some(self.split());
         }
         // The union's spine tags, shared by both halves (split's prefix).
-        let mut spine = BitsMut::new();
+        let mut spine = BitsBuf::new();
         loop {
             let (a_node, b_node) = (self.peek(), other.peek());
             let (al, ar) = match a_node {
@@ -135,23 +135,23 @@ enum UnionChild<'a> {
     /// subtree's verbatim bit range within it.
     Verbatim(BitsView<'a>, u64, u64),
     /// The child is present on both sides: the merged (summed) subtree.
-    Merged(BitsMut),
+    Merged(BitsBuf),
 }
 
 impl UnionChild<'_> {
     /// The child's bit length, for the halves' exact capacity hints.
-    fn len(&self) -> usize {
+    fn len(&self) -> u64 {
         match self {
-            UnionChild::Verbatim(_, start, end) => (end - start) as usize,
+            UnionChild::Verbatim(_, start, end) => end - start,
             UnionChild::Merged(bits) => bits.len(),
         }
     }
 
     /// Append the child's bits to a half.
-    fn append_to(&self, out: &mut BitsMut) {
+    fn append_to(&self, out: &mut BitsBuf) {
         match self {
             UnionChild::Verbatim(bits, start, end) => extend_from_view(out, *bits, *start, *end),
-            UnionChild::Merged(bits) => out.extend_from_bitslice(bits),
+            UnionChild::Merged(bits) => out.extend_from_buf(bits),
         }
     }
 }
@@ -204,9 +204,9 @@ fn union_child<'a>(
 
 /// Assemble one half: the spine, the branch retagged to its kept side, and the
 /// kept child's bits.
-fn half(spine: &BitsMut, left: bool, right: bool, child: &UnionChild) -> BitsMut {
-    let mut out = BitsMut::with_capacity(spine.len() + 2 + child.len());
-    out.extend_from_bitslice(spine);
+fn half(spine: &BitsBuf, left: bool, right: bool, child: &UnionChild) -> BitsBuf {
+    let mut out = BitsBuf::with_capacity(spine.len() + 2 + child.len());
+    out.extend_from_buf(spine);
     out.push(left);
     out.push(right);
     child.append_to(&mut out);
@@ -215,9 +215,9 @@ fn half(spine: &BitsMut, left: bool, right: bool, child: &UnionChild) -> BitsMut
 
 /// Assemble one delegated-mode half: the spine, then the composition's own half
 /// of the branch subtree's union.
-fn splice(spine: &BitsMut, tail: &BitsMut) -> BitsMut {
-    let mut out = BitsMut::with_capacity(spine.len() + tail.len());
-    out.extend_from_bitslice(spine);
-    out.extend_from_bitslice(tail);
+fn splice(spine: &BitsBuf, tail: &BitsBuf) -> BitsBuf {
+    let mut out = BitsBuf::with_capacity(spine.len() + tail.len());
+    out.extend_from_buf(spine);
+    out.extend_from_buf(tail);
     out
 }

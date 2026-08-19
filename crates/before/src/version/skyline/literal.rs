@@ -9,14 +9,14 @@
 //! its inner node hoards a liftable minimum, so it is not the normal spelling
 //! and is refused.
 
-use crate::codec::{self, Base, BitCursor, BitsMut, BitsView, DsiCursor};
+use crate::codec::{self, Base, BitCursor, BitsBuf, BitsView, DsiCursor};
 use crate::error::Parse;
 
 use super::signed::{unzigzag_base, zigzag};
 
 /// The skyline stream of an event leaf with base `base`.
-pub(crate) fn leaf(base: u64) -> BitsMut {
-    let mut bits = BitsMut::new();
+pub(crate) fn leaf(base: u64) -> BitsBuf {
+    let mut bits = BitsBuf::new();
     bits.push(true); // topology: a leaf
     codec::encode_int(&mut bits, &Base::from(base)); // absolute height
     bits
@@ -29,7 +29,7 @@ pub(crate) fn leaf(base: u64) -> BitsMut {
 /// children of equal height, which is just the leaf itself) or when the node
 /// hoards a liftable minimum (neither child's minimum leaf height is zero —
 /// normal form stores the shared minimum at the parent).
-pub(crate) fn node(base: u64, left: BitsView<'_>, right: BitsView<'_>) -> Result<BitsMut, Parse> {
+pub(crate) fn node(base: u64, left: BitsView<'_>, right: BitsView<'_>) -> Result<BitsBuf, Parse> {
     let (left_topology, left_heights) = scan(left);
     let (right_topology, right_heights) = scan(right);
 
@@ -50,13 +50,14 @@ pub(crate) fn node(base: u64, left: BitsView<'_>, right: BitsView<'_>) -> Result
     }
 
     let base = Base::from(base);
-    let mut bits = BitsMut::new();
+    let mut bits = BitsBuf::new();
     bits.push(false); // topology: this node
-    bits.extend_from_bitslice(&left_topology); // then the left subtree's topology…
-    bits.extend_from_bitslice(&right_topology); // …then the right's — but the
-                                                // payloads interleave, so re-emit.
-    let mut out = BitsMut::new();
-    let mut flags = bits.iter().by_vals();
+                      // …then the left subtree's topology, then the right's — but the
+                      // payloads interleave, so re-emit.
+    bits.extend_from_buf(&left_topology);
+    bits.extend_from_buf(&right_topology);
+    let mut out = BitsBuf::new();
+    let mut flags = bits.iter();
     let mut heights = left_heights.iter().chain(right_heights.iter());
     let mut prev: Option<Base> = None;
     for flag in &mut flags {
@@ -78,9 +79,9 @@ pub(crate) fn node(base: u64, left: BitsView<'_>, right: BitsView<'_>) -> Result
 
 /// Split a canonical stream into its topology flags (wire convention: `0`
 /// internal, `1` leaf) and absolute leaf heights.
-fn scan(bits: BitsView<'_>) -> (BitsMut, Vec<Base>) {
+fn scan(bits: BitsView<'_>) -> (BitsBuf, Vec<Base>) {
     let mut cursor = DsiCursor::new(bits);
-    let mut topology = BitsMut::new();
+    let mut topology = BitsBuf::new();
     let mut heights: Vec<Base> = Vec::new();
     let mut pending = 1usize;
     while pending > 0 {

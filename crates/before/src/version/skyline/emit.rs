@@ -80,7 +80,7 @@ use core::cmp::Ordering;
 
 use suanpan::Accumulator;
 
-use crate::codec::{BitsMut, BitsView, Code, Int};
+use crate::codec::{BitsBuf, BitsView, Code, Int};
 
 use super::build::SkylineBuilder;
 use super::overlay::{advance_diff, OpenedPair, PlateauCursor, Side, Step};
@@ -116,8 +116,8 @@ fn follow_min(sign: Ordering, current: Side) -> Side {
 ///
 /// One merge over the two streams; the module doc carries the emission algebra
 /// and the cost bounds. The output stream equals the recursive oracle's join
-/// bit for bit (the differential suite pins it); its dead pad bits are left as
-/// built — zeroing them is the storage gate's job (`Version::from_bits`).
+/// bit for bit (the differential suite pins it); the marker padding is the
+/// storage gate's job (`Version::from_bits`).
 ///
 /// # Panics
 ///
@@ -126,7 +126,7 @@ fn follow_min(sign: Ordering, current: Side) -> Side {
 /// the walk structurally notices (truncation, malformation) panic; the rest (a
 /// collapsible sibling pair, a delta driving the running height negative) sweep
 /// silently, and the output is then unspecified.
-pub fn join(a: BitsView<'_>, b: BitsView<'_>) -> BitsMut {
+pub fn join(a: BitsView<'_>, b: BitsView<'_>) -> BitsBuf {
     emit(a, b, follow_max)
 }
 
@@ -139,7 +139,7 @@ pub fn join(a: BitsView<'_>, b: BitsView<'_>) -> BitsMut {
 ///
 /// [`join`]'s contract exactly: canonical operands required, structural
 /// violations panic, the rest yield an unspecified output.
-pub fn meet(a: BitsView<'_>, b: BitsView<'_>) -> BitsMut {
+pub fn meet(a: BitsView<'_>, b: BitsView<'_>) -> BitsBuf {
     emit(a, b, follow_min)
 }
 
@@ -154,9 +154,9 @@ pub struct Hull {
     /// pair: the fold sees only signs, never buffers.
     pub relation: Option<Ordering>,
     /// The meet (pointwise min) stream.
-    pub lo: BitsMut,
+    pub lo: BitsBuf,
     /// The join (pointwise max) stream.
-    pub hi: BitsMut,
+    pub hi: BitsBuf,
 }
 
 /// The hull `(meet, join)` of the versions two skyline streams denote, as
@@ -220,12 +220,12 @@ pub fn hull(a_bits: BitsView<'_>, b_bits: BitsView<'_>) -> Hull {
         Emission {
             pick: follow_min,
             side: Side::A,
-            out: SkylineBuilder::with_capacity((a_bits.len() + b_bits.len()) as usize),
+            out: SkylineBuilder::with_capacity(a_bits.len() + b_bits.len()),
         },
         Emission {
             pick: follow_max,
             side: Side::A,
-            out: SkylineBuilder::with_capacity((a_bits.len() + b_bits.len()) as usize),
+            out: SkylineBuilder::with_capacity(a_bits.len() + b_bits.len()),
         },
     ];
     for emission in &mut outputs {
@@ -280,7 +280,7 @@ fn emit(
     a_bits: BitsView<'_>,
     b_bits: BitsView<'_>,
     pick: impl Fn(Ordering, Side) -> Side,
-) -> BitsMut {
+) -> BitsBuf {
     let OpenedPair {
         a: mut cursor_a,
         b: mut cursor_b,
@@ -300,7 +300,7 @@ fn emit(
     // arbitrary: at a tie the two first heights are equal, so either side opens
     // the output identically.
     let mut side = pick(diff.sign(), Side::A);
-    let mut out = SkylineBuilder::with_capacity((a_bits.len() + b_bits.len()) as usize);
+    let mut out = SkylineBuilder::with_capacity(a_bits.len() + b_bits.len());
     let first = match side {
         Side::A => &a_first,
         Side::B => &b_first,
@@ -318,9 +318,9 @@ fn emit(
         out.leaf(cursor_a.depth().max(cursor_b.depth()), code);
     }
 
-    // Canonicalizing the storage (zeroing dead pad bits) is the job of
-    // `Version::from_bits`, the single gate a stream passes through when it
-    // becomes a stored value; intermediate streams stay as built.
+    // Sealing the marker padding is the job of `Version::from_bits`, the
+    // single gate a stream passes through when it becomes a stored value;
+    // intermediate streams stay unsealed.
     out.finish()
 }
 

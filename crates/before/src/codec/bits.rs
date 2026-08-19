@@ -1,6 +1,9 @@
-//! The packed bit-stream storage forms: the mutable build buffer ([`BitsMut`]),
-//! the refcounted frozen at-rest form ([`Bits`]), and the canonicality helpers
-//! both rest on.
+//! The packed bit-stream storage forms: the refcounted frozen at-rest form
+//! ([`Bits`]) and the borrowed live-bits view ([`BitsView`]).
+//!
+//! The canonicality helpers both forms rest on live here too. The mutable
+//! build-side form lives in the sibling `buf` module; [`Bits::freeze`] is
+//! the seam between the two.
 //!
 //! # The identity fast-path ladder, and where each rung belongs
 //!
@@ -59,20 +62,10 @@
 
 use core::hash::Hasher;
 
-use bitvec::prelude::*;
 use bytes::Bytes;
 
+use super::buf::{seal_padding, BitsBuf};
 use crate::error::Decode;
-
-/// The mutable build-side form of a packed bit stream: a
-/// most-significant-bit-first bit vector over bytes.
-///
-/// Every emitter and builder writes into one of these (the crate's
-/// packed-stream builder wraps one with the metered move set); a finished
-/// stream freezes into the at-rest [`Bits`] at the storage seam. The
-/// `Bytes`/`BytesMut` naming echo is deliberate: `BitsMut` is where mutation
-/// happens, [`Bits`] is the shared, immutable result.
-pub type BitsMut = BitVec<u8, Msb0>;
 
 /// The at-rest storage form of a `Party`/`Version`: the canonical packed
 /// preorder bit stream, marker-padded to a byte boundary, over a refcounted
@@ -114,15 +107,36 @@ impl Bits {
     /// the single gate between the mutable build-side world and the shared
     /// frozen one.
     ///
-    /// Seals the padding ([`seal_padding`]: the `1` marker, then zeroed dead
-    /// bits — see the type docs for what the marker underpins, and
-    /// [`seal_padding`] for why a tree op can leave the tail dirty), then
-    /// adopts the buffer without copying: [`BitVec::into_vec`] hands back the
-    /// underlying allocation and `Bytes::from(vec)` wraps it in place.
-    pub(crate) fn freeze(mut buf: BitsMut) -> Self {
+    /// Seals the padding ([`seal_padding`]: the `1` marker completing the
+    /// canonical `1 0*` tail the build buffer's zeroed-dead-bits invariant
+    /// already established — see the type docs for what the marker
+    /// underpins), then adopts the buffer's allocation whole:
+    /// `Bytes::from(vec)` wraps it in place, no copy.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the sealed buffer's byte count exceeds what `usize` bit
+    /// positions can denominate — reachable only on targets narrower than
+    /// 64 bits, from an emission past 512 MiB of output. The build side
+    /// itself is exact to allocatable memory (its lengths are `u64`), but a
+    /// stored stream's live length is `usize`-denominated
+    /// ([`len`](Self::len) and the value types' `encoded_bits`), so a
+    /// stream past that bound has no in-memory form here and this check
+    /// keeps the failure at the door — the same bound the decode door
+    /// ([`from_canonical`](Self::from_canonical)) holds. On 64-bit targets
+    /// the bound is 2^61 bytes, which no allocator can hand over, so the
+    /// check is dead there.
+    pub(crate) fn freeze(mut buf: BitsBuf) -> Self {
         seal_padding(&mut buf);
+        let bytes = buf.into_bytes();
+        assert!(
+            bytes.len() as u128 <= (usize::MAX as u128 + 1) / 8,
+            "stored streams denominate bit positions in usize: \
+             a {}-byte buffer's bits do not fit this target's usize",
+            bytes.len(),
+        );
         Bits {
-            bytes: Bytes::from(buf.into_vec()),
+            bytes: Bytes::from(bytes),
         }
     }
 
@@ -185,10 +199,10 @@ impl Bits {
     /// [`live_bits`](Self::live_bits) converted to `usize`.
     ///
     /// The conversion is checked, not truncating, and cannot fail on a
-    /// constructed stream: every door bounds its buffer so the live length
-    /// fits `usize` ([`from_canonical`](Self::from_canonical) asserts it;
-    /// [`freeze`](Self::freeze)'s build buffer is bounded far below it by
-    /// the build buffer's own encoding).
+    /// constructed stream: both doors assert the same byte-count bound
+    /// ([`from_canonical`](Self::from_canonical) on adoption,
+    /// [`freeze`](Self::freeze) on sealing), under which every live length
+    /// fits `usize`.
     pub fn len(&self) -> usize {
         usize::try_from(self.live_bits()).expect("a constructed stream's live length fits usize")
     }
@@ -395,11 +409,11 @@ impl<'a> BitsView<'a> {
     }
 
     /// The view's bits copied into a build buffer: the test suites'
-    /// bridge to `bitvec`-vocabulary assertions.
+    /// bridge to buffer-vocabulary assertions.
     #[cfg(test)]
-    pub(crate) fn to_bitvec(self) -> BitsMut {
-        let mut out = BitsMut::with_capacity(self.live as usize);
-        extend_from_view(&mut out, self, 0, self.live);
+    pub(crate) fn to_buf(self) -> BitsBuf {
+        let mut out = BitsBuf::with_capacity(self.live);
+        super::buf::extend_from_view(&mut out, self, 0, self.live);
         out
     }
 
@@ -426,28 +440,6 @@ impl PartialEq for Bits {
 }
 
 impl Eq for Bits {}
-
-/// Seal a built stream's canonical padding: one `1` marker bit, then zeroed
-/// dead bits to the byte boundary.
-///
-/// Sealing makes the packed bytes ([`BitVec::as_raw_slice`]) the canonical wire
-/// spelling — injective, byte-equal if and only if the bit content is equal.
-///
-/// The zeroing is load-bearing on its own: the tree builders write into a
-/// reused buffer, and a collapsing node (the party `sum`/`diff` ops, via
-/// `IdBuilder::close_node`) `truncate`s it, shrinking the live length while
-/// leaving the bits it shed in the final partial byte, where `as_raw_slice`
-/// would expose them. The marker then pins the live length inside the sealed
-/// byte. The empty stream seals to itself: no marker, no bytes.
-/// [`Bits::freeze`] applies this at the storage seam; the standalone form seals
-/// buffers that stay build-side — all of them meter/test instruments producing
-/// decodable bytes.
-pub(crate) fn seal_padding(bits: &mut BitsMut) {
-    if !bits.is_empty() {
-        bits.push(true);
-    }
-    bits.set_uninitialized(false);
-}
 
 /// Byte-level equality of two canonical stored streams: equal raw
 /// bytes, entered through the clone-identity fast path.
@@ -497,58 +489,6 @@ pub(crate) fn padding_is_canonical(bits: &Bits) -> bool {
         [0x80] => false,
         [.., 0] => false,
         _ => true,
-    }
-}
-
-/// A build buffer's contents as a [`BitsView`]: the underlying bytes beside
-/// the live bit length.
-///
-/// A [`BitsMut`] always starts on byte 0 of its storage and its raw bytes
-/// travel with it, so the view is a plain destructuring; bits past the live
-/// length (a truncated buffer's shed tail) stay behind the view exactly as a
-/// frozen stream's padding does.
-pub(crate) fn built_view(bits: &BitsMut) -> BitsView<'_> {
-    BitsView::new(bits.as_raw_slice(), bits.len() as u64)
-}
-
-/// Extend a build buffer with the bit range `start..end` copied verbatim
-/// from a stored stream's view.
-///
-/// The build-side copy seam of the operations that assemble their output
-/// from input subtrees (the party split/sum families). The source range is
-/// walked through bounded chunk views — never one whole-buffer borrowed
-/// view, whose length encoding a storable stream can exceed on a 32-bit
-/// target — so the copy is exact at every storable source size; the output
-/// buffer's own bounds are the build side's, unchanged.
-///
-/// # Panics
-///
-/// `start..end` must be a range within the view's live length.
-pub(crate) fn extend_from_view(out: &mut BitsMut, src: BitsView<'_>, start: u64, end: u64) {
-    assert!(
-        start <= end && end <= src.len(),
-        "copied range within the view's live length"
-    );
-    let mut pos = start;
-    // Head bits to the source's byte boundary, one at a time (at most 7).
-    while pos < end && !pos.is_multiple_of(8) {
-        out.push(src.bit(pos));
-        pos += 1;
-    }
-    // Whole-byte body, in bounded chunks: each chunk's borrowed bit view is
-    // far below any length-encoding bound on every target.
-    const CHUNK_BYTES: usize = 1024;
-    while end - pos >= 8 {
-        let at = (pos / 8) as usize;
-        let take_bytes = (((end - pos) / 8) as usize).min(CHUNK_BYTES);
-        let chunk = &src.bytes()[at..at + take_bytes];
-        out.extend_from_bitslice(chunk.view_bits::<Msb0>());
-        pos += take_bytes as u64 * 8;
-    }
-    // Tail bits (fewer than 8).
-    while pos < end {
-        out.push(src.bit(pos));
-        pos += 1;
     }
 }
 

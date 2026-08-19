@@ -1,4 +1,4 @@
-use crate::codec::{BitStack, BitsMut, BitsView, PackedBuilder, PopStack};
+use crate::codec::{BitStack, BitsBuf, BitsView, PackedBuilder, PopStack};
 use crate::idbits::{IdNode, IdReader};
 
 /// Single-buffer builder for normalized id output.
@@ -37,17 +37,17 @@ pub(super) enum Built {
 /// borrow checker stops it being reused or dropped silently — so an open with
 /// no matching close cannot compile.
 #[must_use = "an opened node must be closed with close_node"]
-pub(super) struct Open(usize);
+pub(super) struct Open(u64);
 
 /// The width of an id node's presence tag: one bit per child.
 const TAG_BITS: usize = 2;
 
 /// The output width of a node whose two children are both terminals: its own
 /// tag followed by the two terminal tags.
-const TERMINAL_PAIR_BITS: usize = 3 * TAG_BITS;
+const TERMINAL_PAIR_BITS: u64 = 3 * TAG_BITS as u64;
 
 impl IdBuilder {
-    pub(super) fn with_capacity(capacity: usize) -> Self {
+    pub(super) fn with_capacity(capacity: u64) -> Self {
         IdBuilder {
             out: PackedBuilder::with_capacity(capacity),
         }
@@ -149,7 +149,7 @@ impl IdBuilder {
         self.terminal()
     }
 
-    pub(super) fn finish(self) -> BitsMut {
+    pub(super) fn finish(self) -> BitsBuf {
         self.out.finish()
     }
 }
@@ -191,7 +191,7 @@ pub(super) struct IdSkylineBuilder {
 
 impl IdSkylineBuilder {
     /// Create a builder with room for `capacity` output bits.
-    pub(super) fn with_capacity(capacity: usize) -> Self {
+    pub(super) fn with_capacity(capacity: u64) -> Self {
         IdSkylineBuilder {
             out: IdBuilder::with_capacity(capacity),
             path: BitStack::new(),
@@ -268,7 +268,7 @@ impl IdSkylineBuilder {
     }
 
     /// Take the finished canonical stream (empty for a wholly unowned tiling).
-    pub(super) fn finish(self) -> BitsMut {
+    pub(super) fn finish(self) -> BitsBuf {
         debug_assert!(
             self.root.is_some(),
             "an id tiling closes its root exactly once"
@@ -335,7 +335,7 @@ impl IdSkylineBuilder {
 /// here the same way it does in the path stacks.
 struct PosStack {
     /// The innermost entry's absolute position (0 when empty).
-    top: usize,
+    top: u64,
     /// The entries' deltas from the entry under them, stored off by one
     /// so the width is nonzero even at delta 0 (the first entry at
     /// position 0).
@@ -351,9 +351,9 @@ impl PosStack {
     }
 
     /// Push a position at or above the current top.
-    fn push(&mut self, pos: usize) {
+    fn push(&mut self, pos: u64) {
         debug_assert!(pos >= self.top, "reserved tag positions never move left");
-        self.deltas.push((pos - self.top + 1) as u64);
+        self.deltas.push(pos - self.top + 1);
         self.top = pos;
     }
 
@@ -362,9 +362,9 @@ impl PosStack {
     /// # Panics
     ///
     /// Panics if the stack is empty.
-    fn pop(&mut self) -> usize {
+    fn pop(&mut self) -> u64 {
         let pos = self.top;
-        self.top -= self.deltas.pop() as usize - 1;
+        self.top -= self.deltas.pop() - 1;
         pos
     }
 }

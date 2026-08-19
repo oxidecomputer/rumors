@@ -44,7 +44,7 @@
 //! that shifts which leaf is first trips on topology (the replaced range was
 //! not a single leaf) before any code comparison is reached.
 
-use crate::codec::{BitStack, BitsMut, BitsView, Code, PopStack};
+use crate::codec::{BitStack, BitsBuf, BitsView, Code, PopStack};
 use crate::idbits::{IdNode, IdReader};
 
 use super::super::build::SkylineBuilder;
@@ -214,7 +214,7 @@ impl Out {
             Out::Verbatim { matched_end } => *matched_end,
             Out::Built(_) => return,
         };
-        let mut builder = SkylineBuilder::with_capacity(event.len() as usize);
+        let mut builder = SkylineBuilder::with_capacity(event.len());
         let mut cursor = crate::codec::DsiCursor::new(event);
         let mut walk = LeafWalk::new();
         while cursor.position_u64() < matched_end {
@@ -242,7 +242,7 @@ impl Out {
     /// Finish the walk's output: the built stream when a plateau diverged, or
     /// `None` for an unchanged walk (every plateau matched; `fill(i, e) = e`,
     /// byte-exact by canonical uniqueness).
-    pub(super) fn finish(self, event: BitsView<'_>) -> Option<BitsMut> {
+    pub(super) fn finish(self, event: BitsView<'_>) -> Option<BitsBuf> {
         let matched_end = match self {
             Out::Built(builder) => return Some(builder.finish()),
             Out::Unstarted => 0,
@@ -266,7 +266,7 @@ pub(super) struct RouteProbe {
     /// The id stream's bit length (the route's key space), held so
     /// [`take_route`](Self::take_route)'s never-recorded fallback can still
     /// build a well-formed (empty, never-read) route.
-    id_span: usize,
+    id_span: u64,
     /// False once the walk diverges.
     ///
     /// Dead, every fold degenerates to the plain skip and no direction is
@@ -277,7 +277,7 @@ pub(super) struct RouteProbe {
 }
 
 impl RouteProbe {
-    pub(super) fn new(id_span: usize) -> Self {
+    pub(super) fn new(id_span: u64) -> Self {
         RouteProbe {
             route: None,
             id_span,

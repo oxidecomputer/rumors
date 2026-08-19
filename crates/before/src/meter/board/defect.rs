@@ -94,14 +94,14 @@ fn last_leaf_flag_pos(v: &Version) -> u64 {
 pub(super) fn version_noncanonical_bytes(v: &Version) -> Vec<u8> {
     let bits = v.as_bits();
     let leaf = last_leaf_flag_pos(v);
-    let mut out = codec::BitsMut::with_capacity(bits.len() as usize + 4);
+    let mut out = codec::BitsBuf::with_capacity(bits.len() + 4);
     codec::extend_from_view(&mut out, bits, 0, leaf);
     out.push(false); // the old leaf's position becomes an internal node
     codec::extend_from_view(&mut out, bits, leaf, bits.len()); // left child: the old leaf verbatim
     out.push(true); // right child: a leaf equal to its sibling
     codec::encode_int(&mut out, &Base::from(0u32)); // zero delta
     codec::seal_padding(&mut out);
-    out.into_vec()
+    out.into_bytes()
 }
 
 /// `p`'s stream with its preorder-last terminal split into a collapsible
@@ -117,7 +117,7 @@ pub(super) fn party_noncanonical_bytes(p: &Party) -> Vec<u8> {
         !bits.bit(end - 2) && !bits.bit(end - 1),
         "a preorder id stream ends in a terminal tag"
     );
-    let mut out = codec::BitsMut::with_capacity(end as usize + 4);
+    let mut out = codec::BitsBuf::with_capacity(end + 4);
     codec::extend_from_view(&mut out, bits, 0, end - 2);
     out.push(true); // the last terminal becomes a node with both children
     out.push(true);
@@ -126,7 +126,7 @@ pub(super) fn party_noncanonical_bytes(p: &Party) -> Vec<u8> {
         out.push(false);
     }
     codec::seal_padding(&mut out);
-    out.into_vec()
+    out.into_bytes()
 }
 
 /// `text` with junk appended after the complete valid notation: the parser

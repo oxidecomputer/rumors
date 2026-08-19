@@ -1110,12 +1110,12 @@ fn disjoint_mounted_pair(id: &[u8]) -> (Vec<u8>, Vec<u8>) {
     let shape = decode_party(id);
     let mount = |left: bool| -> Vec<u8> {
         let view = shape.as_bits();
-        let mut bits = codec::BitsMut::with_capacity(view.len() as usize + 2);
+        let mut bits = codec::BitsBuf::with_capacity(view.len() + 2);
         bits.push(left);
         bits.push(!left);
         codec::extend_from_view(&mut bits, view, 0, view.len());
         codec::seal_padding(&mut bits);
-        bits.into_vec()
+        bits.into_bytes()
     };
     let (a, b) = (mount(true), mount(false));
     assert!(
@@ -1152,7 +1152,7 @@ pub(super) fn overlap_mounted_pair(id: &[u8]) -> (Vec<u8>, Vec<u8>) {
         "the overlap-mount adapter needs a non-terminal shape: a full shape's mount would \
          not be normal form"
     );
-    let mut a = codec::BitsMut::with_capacity(bits.len() as usize + 2 * path.len() + 4);
+    let mut a = codec::BitsBuf::with_capacity(bits.len() + 2 * path.len() as u64 + 4);
     a.push(true); // root: both children present
     a.push(true);
     codec::extend_from_view(&mut a, bits, 0, bits.len()); // left: the shape
@@ -1164,12 +1164,12 @@ pub(super) fn overlap_mounted_pair(id: &[u8]) -> (Vec<u8>, Vec<u8>) {
     a.push(false); // the marker's terminal, at the shape's last owned position
     a.push(false);
     codec::seal_padding(&mut a);
-    let mut b = codec::BitsMut::with_capacity(bits.len() as usize + 2);
+    let mut b = codec::BitsBuf::with_capacity(bits.len() + 2);
     b.push(false); // root: right child only
     b.push(true);
     codec::extend_from_view(&mut b, bits, 0, bits.len()); // right: the shape
     codec::seal_padding(&mut b);
-    let (a, b) = (a.into_vec(), b.into_vec());
+    let (a, b) = (a.into_bytes(), b.into_bytes());
     assert!(
         !decode_party(&a).is_disjoint(&decode_party(&b)),
         "the overlap-mount adapter must mint an overlapping pair"
@@ -1219,13 +1219,13 @@ fn rightmost_terminal_path(bits: codec::BitsView<'_>) -> Vec<bool> {
 /// accumulator index answers the same test in O(probe), which is the separation
 /// the row watches.
 pub(super) fn overlap_fold_probe() -> Vec<u8> {
-    let mut probe = codec::BitsMut::with_capacity(4);
+    let mut probe = codec::BitsBuf::with_capacity(4);
     probe.push(false); // root: right child only
     probe.push(true);
     probe.push(false); // the right child: a full leaf
     probe.push(false);
     codec::seal_padding(&mut probe);
-    probe.into_vec()
+    probe.into_bytes()
 }
 
 /// Decode packed bytes the board itself generated.

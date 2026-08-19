@@ -792,11 +792,11 @@ proptest! {
 //
 // `Clock::encode` lays the id directly before the event, so the event begins at
 // a generally non-byte-aligned bit offset. A `decode` that extracts the event
-// with `slice.to_bitvec()` keeps that head offset (rather than shifting to bit
-// 0), leaving the recovered `Version`'s packed stream non-canonical:
+// as an offset slice of the clock's buffer (rather than copying it down to
+// bit 0) leaves the recovered `Version`'s packed stream non-canonical:
 // `version().encode()` mis-packs it and `Version::decode` then disagrees.
 // Whole-clock round-trips hide this, because `Clock::encode` re-aligns each
-// component via `extend_from_bitslice`; the bug only shows when a component
+// component as it copies it in; the bug only shows when a component
 // extracted from a decoded clock is encoded on its own.
 
 /// The seed's id is two bits, so its event starts at a non-byte-aligned offset.

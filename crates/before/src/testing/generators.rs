@@ -272,7 +272,7 @@ pub(crate) fn shape_party(shape: Shape, scale: usize) -> Party {
 /// children). Built with a flat loop: no recursion at any depth, in the builder
 /// or in `Drop` (the packed forms are flat buffers).
 pub(crate) fn deep_left_spine_party(depth: usize) -> Party {
-    let mut bits = codec::BitsMut::with_capacity(2 * depth + 2);
+    let mut bits = codec::BitsBuf::with_capacity(2 * depth as u64 + 2);
     for _ in 0..depth {
         bits.push(true); // Left-only tag `10`: left child present ...
         bits.push(false); //   ... right child absent

@@ -1,6 +1,6 @@
 use crate::error::Parse;
 
-use super::{validate_id, BitsMut, BitsView};
+use super::{validate_id, BitsBuf, BitsView};
 
 /// Whether a normal-form id stream is the anonymous (empty) identity.
 ///
@@ -30,8 +30,8 @@ pub(crate) fn id_is_empty(bits: BitsView<'_>) -> bool {
 
 /// The bits for an id leaf: the empty stream for `0` (absence), the terminal
 /// tag `00` for `1`.
-pub(crate) fn id_leaf(v: bool) -> BitsMut {
-    let mut b = BitsMut::with_capacity(2);
+pub(crate) fn id_leaf(v: bool) -> BitsBuf {
+    let mut b = BitsBuf::with_capacity(2);
     if v {
         b.push(false); // terminal tag `00`: an owned leaf, no children
         b.push(false);
@@ -40,8 +40,8 @@ pub(crate) fn id_leaf(v: bool) -> BitsMut {
 }
 
 /// Whether `bits` is exactly the terminal tag `00` (the `1` leaf).
-fn id_is_terminal(bits: &BitsMut) -> bool {
-    bits.len() == 2 && !bits[0] && !bits[1]
+fn id_is_terminal(bits: &BitsBuf) -> bool {
+    bits.len() == 2 && !bits.get(0) && !bits.get(1)
 }
 
 /// Assemble an id node from two already-normal child streams: a `0` child is
@@ -49,18 +49,18 @@ fn id_is_terminal(bits: &BitsMut) -> bool {
 /// present.
 ///
 /// Rejects a collapsible `(0, 0)` or `(1, 1)`, then validates the result.
-pub(crate) fn id_node(l: &BitsMut, r: &BitsMut) -> Result<BitsMut, Parse> {
+pub(crate) fn id_node(l: &BitsBuf, r: &BitsBuf) -> Result<BitsBuf, Parse> {
     if l.is_empty() && r.is_empty() {
         return Err(Parse::NotCanonical); // (0, 0) → 0, not a node
     }
     if id_is_terminal(l) && id_is_terminal(r) {
         return Err(Parse::NotCanonical); // (1, 1) → 1, not a node
     }
-    let mut b = BitsMut::with_capacity(2 + l.len() + r.len());
+    let mut b = BitsBuf::with_capacity(2 + l.len() + r.len());
     b.push(!l.is_empty()); // bit 0 = left present
     b.push(!r.is_empty()); // bit 1 = right present
-    b.extend_from_bitslice(l);
-    b.extend_from_bitslice(r);
-    validate_id(super::bits::built_view(&b))?;
+    b.extend_from_buf(l);
+    b.extend_from_buf(r);
+    validate_id(super::buf::built_view(&b))?;
     Ok(b)
 }

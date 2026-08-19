@@ -24,7 +24,7 @@ use core::cmp::Ordering;
 
 use suanpan::Accumulator;
 
-use crate::codec::{BitCursor, BitsMut, BitsView, DsiCursor};
+use crate::codec::{BitCursor, BitsBuf, BitsView, DsiCursor};
 use crate::error::Decode;
 
 use super::signed::{fold_signed_int, unzigzag, Sign};
@@ -73,7 +73,7 @@ where
     // Two bits per open ancestor, pushed [left-complete, left-was-leaf] and
     // popped in reverse order below. A packed bit stack, so depth costs bits,
     // not frames.
-    let mut open: BitsMut = BitsMut::new();
+    let mut open: BitsBuf = BitsBuf::new();
     // The running leaf height. Only its sign is ever read, and only after a
     // subtracting delta: an adding delta cannot take a valid height negative,
     // and the first leaf's absolute payload is a natural.

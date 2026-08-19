@@ -530,7 +530,7 @@ fn exhaustive_small_scope_agrees() {
 /// quadratic pair product stays fast.
 #[test]
 fn exhaustive_small_scope_pairs_agree() {
-    let events: Vec<crate::codec::BitsMut> = all_normal_events(EV_SMALL_DEPTH)
+    let events: Vec<crate::codec::BitsBuf> = all_normal_events(EV_SMALL_DEPTH)
         .iter()
         .map(|t| encode(&from_oracle_version(t)))
         .collect();
@@ -1478,7 +1478,7 @@ mod adequacy {
             "the known-bad fold must stay value-exact: a wrong demonstrator \
              proves nothing about the family's coverage"
         );
-        (enc.len().div_ceil(8) as u64, touches)
+        (enc.len().div_ceil(8), touches)
     }
 
     /// `FP(k)` catches the absolute-position accounting red: its per-byte touch
@@ -1768,7 +1768,7 @@ mod adequacy {
             "the known-bad fold must stay value-exact: a wrong demonstrator \
              proves nothing about the family's coverage"
         );
-        (enc.len().div_ceil(8) as u64, touches)
+        (enc.len().div_ceil(8), touches)
     }
 
     /// One pair tripwire run over `(PR(p), PRM(p))`: the pair's packed bytes
@@ -1789,7 +1789,7 @@ mod adequacy {
             "the known-bad co-sweep must stay value-exact: a wrong \
              demonstrator proves nothing about the family's coverage"
         );
-        ((ea.len() + eb.len()).div_ceil(8) as u64, touches)
+        ((ea.len() + eb.len()).div_ceil(8), touches)
     }
 
     /// `PR(p)` catches the span-reading promotion red on the single-stream
@@ -2132,7 +2132,7 @@ mod adequacy {
             "the known-bad fold must stay value-exact: a wrong demonstrator \
              proves nothing about the family's coverage"
         );
-        (enc.len().div_ceil(8) as u64, touches)
+        (enc.len().div_ceil(8), touches)
     }
 
     /// One pair tripwire run over `(DS(p, p), DSM(p, p))`: the pair's packed
@@ -2152,7 +2152,7 @@ mod adequacy {
             "the known-bad co-sweep must stay value-exact: a wrong \
              demonstrator proves nothing about the family's coverage"
         );
-        ((ea.len() + eb.len()).div_ceil(8) as u64, touches)
+        ((ea.len() + eb.len()).div_ceil(8), touches)
     }
 
     /// `DS(p, p)` catches the per-arming suffix walk red on the single-stream
@@ -2390,7 +2390,7 @@ mod adequacy {
             "the known-bad fold must stay value-exact: a wrong demonstrator \
              proves nothing about the family's coverage"
         );
-        (enc.len().div_ceil(8) as u64, limbs)
+        (enc.len().div_ceil(8), limbs)
     }
 
     /// `DS(p, p)` catches the per-digit window absorb red through the combine
@@ -2621,7 +2621,7 @@ mod adequacy {
             "the known-bad fold must stay value-exact: a wrong demonstrator \
              proves nothing about the family's coverage"
         );
-        (enc.len().div_ceil(8) as u64, touches, limbs)
+        (enc.len().div_ceil(8), touches, limbs)
     }
 
     /// `WA(w, w)` catches the schoolbook charge red in both width currencies:

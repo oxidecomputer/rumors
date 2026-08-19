@@ -6,7 +6,7 @@
 //! lives here is the Panics contract's negative space — the silent sweep over
 //! the canonicality violations the walk does not structurally notice.
 
-use crate::codec::{self, Base, BitsMut};
+use crate::codec::{self, Base, BitsBuf};
 use crate::error::Decode;
 use crate::version::skyline::validate_bits;
 
@@ -25,7 +25,7 @@ use super::{causal_cmp, eq};
 fn collapsible_sibling_pair_sweeps_without_panicking() {
     // (5, 5): internal root, first leaf absolute gamma(5), then the zero
     // right-sibling delta — the collapsible pair.
-    let mut bad = BitsMut::new();
+    let mut bad = BitsBuf::new();
     bad.push(false); // root: internal
     bad.push(true); // left leaf
     codec::encode_int(&mut bad, &Base::from(5u64));
@@ -39,7 +39,7 @@ fn collapsible_sibling_pair_sweeps_without_panicking() {
         "the witness must sit outside the contract's canonical-operand precondition"
     );
     // The canonical spelling of the same step function: the single leaf 5.
-    let mut good = BitsMut::new();
+    let mut good = BitsBuf::new();
     good.push(true);
     codec::encode_int(&mut good, &Base::from(5u64));
     validate_bits(crate::codec::built_view(&good)).expect("the peer operand is canonical");

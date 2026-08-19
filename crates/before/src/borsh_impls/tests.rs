@@ -4,7 +4,7 @@ use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
 
 use super::decode_error;
-use crate::codec::{self, BitCursor, BitsMut};
+use crate::codec::{self, BitCursor, BitsBuf};
 use crate::error::Decode;
 use crate::span::Span;
 use crate::testing::bridge::{from_oracle_party, from_oracle_version};
@@ -304,7 +304,7 @@ proptest! {
 /// byte at a time, per-bit reads only, and the default per-bit `read_int`.
 struct BitwiseReaderCursor<'a, R> {
     reader: &'a mut R,
-    bits: BitsMut,
+    bits: BitsBuf,
     position: usize,
 }
 
@@ -312,14 +312,12 @@ impl<R: Read> BitCursor for BitwiseReaderCursor<'_, R> {
     type Error = Decode;
 
     fn read_bit(&mut self) -> Result<bool, Decode> {
-        if self.position == self.bits.len() {
+        if self.position as u64 == self.bits.len() {
             let mut byte = [0];
             self.reader.read_exact(&mut byte).map_err(Decode::Io)?;
-            use bitvec::view::BitView;
-            self.bits
-                .extend_from_bitslice(byte.view_bits::<bitvec::order::Msb0>());
+            self.bits.push_bits(u64::from(byte[0]), 8);
         }
-        let bit = self.bits[self.position];
+        let bit = self.bits.get(self.position as u64);
         self.position += 1;
         Ok(bit)
     }
@@ -354,14 +352,14 @@ fn reference_consume_padding<R: Read>(
 fn reference_version<R: Read>(reader: &mut R) -> Result<Version, Decode> {
     let mut cursor = BitwiseReaderCursor {
         reader,
-        bits: BitsMut::new(),
+        bits: BitsBuf::new(),
         position: 0,
     };
     crate::version::skyline::validate_from(&mut cursor)?;
     let position = cursor.position;
     reference_consume_padding(&mut cursor)?;
     let mut bits = cursor.bits;
-    bits.truncate(position);
+    bits.truncate(position as u64);
     Ok(Version::from_bits(bits))
 }
 
@@ -374,14 +372,14 @@ fn reference_version<R: Read>(reader: &mut R) -> Result<Version, Decode> {
 fn reference_party<R: Read>(reader: &mut R) -> Result<Party, Decode> {
     let mut cursor = BitwiseReaderCursor {
         reader,
-        bits: BitsMut::new(),
+        bits: BitsBuf::new(),
         position: 0,
     };
     codec::parse_id_from(&mut cursor)?;
     let position = cursor.position;
     reference_consume_padding(&mut cursor)?;
     let mut bits = cursor.bits;
-    bits.truncate(position);
+    bits.truncate(position as u64);
     Ok(Party::from_bits(bits))
 }
 
@@ -522,14 +520,14 @@ fn reference_span<R: Read>(reader: &mut R) -> Result<Span<'static>, Decode> {
     let lo = reference_version(reader)?;
     let mut cursor = BitwiseReaderCursor {
         reader,
-        bits: BitsMut::new(),
+        bits: BitsBuf::new(),
         position: 0,
     };
     let admission = validate_dominating_from((lo.view()).live(), &mut cursor)?;
     let position = cursor.position;
     reference_consume_padding(&mut cursor)?;
     let mut bits = cursor.bits;
-    bits.truncate(position);
+    bits.truncate(position as u64);
     let hi = match admission {
         Admission::Refuted => return Err(Decode::NotCanonical),
         Admission::Equal => lo.clone(),

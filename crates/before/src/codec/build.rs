@@ -33,23 +33,20 @@
 //! empty, a two-shift merge per byte otherwise.
 
 use super::code::SMALL_CODE_BITS;
-use super::{BitsMut, BitsView, Code};
+use super::{BitsBuf, BitsView, Code};
 
 /// An append-truncate builder over one packed preorder bit stream.
 ///
 /// The wrapper owning it defines the tree coding; this core owns the
 /// buffer, the primitive moves, and the write metering.
+///
+/// Positions and lengths run at `u64` width on every target, the build
+/// side's discipline (the `buf` module doc): the builder is exact to
+/// allocatable memory, and byte *indexes* — which fit `usize` because they
+/// index an allocated buffer — are converted exactly where a byte is
+/// touched.
 pub(crate) struct PackedBuilder {
     /// The committed prefix: whole bytes, most-significant bit first.
-    ///
-    /// `bytes.len() * 8` fits `usize` on every target — the width the
-    /// position arithmetic below (`len`, `patch_bit`, `read_bits`,
-    /// `bit_at`) rests on. The bound: every finished stream hands over
-    /// through the build buffer, whose own length encoding caps at
-    /// `usize::MAX >> 3` bits, and the emitters write at most a small
-    /// constant per input node — so the committed prefix stays multiple
-    /// binary orders of magnitude below any `usize` wrap, even on 32-bit
-    /// targets.
     bytes: Vec<u8>,
     /// The trailing not-yet-committed bits, value-packed at the low end
     /// (the stream's next bit is the register's most significant live
@@ -62,9 +59,13 @@ pub(crate) struct PackedBuilder {
 
 impl PackedBuilder {
     /// Create a builder with room for `capacity` bits before reallocation.
-    pub(crate) fn with_capacity(capacity: usize) -> Self {
+    ///
+    /// The capacity is a hint: a request past the target's address space
+    /// allocates nothing up front, and the buffer still grows to whatever
+    /// the appends actually demand.
+    pub(crate) fn with_capacity(capacity: u64) -> Self {
         PackedBuilder {
-            bytes: Vec::with_capacity(capacity / 8 + 1),
+            bytes: Vec::with_capacity(usize::try_from(capacity / 8 + 1).unwrap_or(0)),
             staged: 0,
             staged_len: 0,
         }
@@ -73,8 +74,8 @@ impl PackedBuilder {
     /// The current output length in bits: the position the next append
     /// lands at, and the coordinate [`truncate`](Self::truncate) rolls
     /// back to.
-    pub(crate) fn len(&self) -> usize {
-        self.bytes.len() * 8 + self.staged_len as usize
+    pub(crate) fn len(&self) -> u64 {
+        self.bytes.len() as u64 * 8 + u64::from(self.staged_len)
     }
 
     /// Append one bit.
@@ -89,16 +90,16 @@ impl PackedBuilder {
     /// Collapse repairs re-anchor a surviving code before truncating the
     /// region it sits in; this is the read half of that repair (the
     /// skyline builder's cascade, on the production join/meet path).
-    pub(crate) fn extract_code(&self, start: usize) -> Code {
+    pub(crate) fn extract_code(&self, start: u64) -> Code {
         let n = self.len() - start;
-        super::scan::record_bits(n);
+        super::scan::record_bits_u64(n);
         if n <= SMALL_CODE_BITS {
             return Code::Small {
                 bits: self.read_bits(start, n as u32),
                 len: n as u8,
             };
         }
-        let mut out = BitsMut::with_capacity(n);
+        let mut out = BitsBuf::with_capacity(n);
         for i in start..start + n {
             out.push(self.bit_at(i));
         }
@@ -114,7 +115,7 @@ impl PackedBuilder {
             }
             // The splice records its own write.
             Code::Wide(bits) => {
-                let src = super::bits::built_view(bits);
+                let src = super::buf::built_view(bits);
                 self.splice(src, 0, src.len());
             }
         }
@@ -123,7 +124,7 @@ impl PackedBuilder {
     /// Append `width` zero bits as a header slot to be
     /// [`patch_bit`](Self::patch_bit)ed once the children are known,
     /// returning the slot's position.
-    pub(crate) fn reserve(&mut self, width: usize) -> usize {
+    pub(crate) fn reserve(&mut self, width: usize) -> u64 {
         super::scan::record_bits(width);
         let at = self.len();
         let mut remaining = width;
@@ -140,15 +141,15 @@ impl PackedBuilder {
     /// # Panics
     ///
     /// Panics if `at` is at or past the current output length.
-    pub(crate) fn patch_bit(&mut self, at: usize, bit: bool) {
+    pub(crate) fn patch_bit(&mut self, at: u64, bit: bool) {
         super::scan::record_bits(1);
-        let committed = self.bytes.len() * 8;
+        let committed = self.bytes.len() as u64 * 8;
         if at < committed {
             let mask = 1u8 << (7 - at % 8);
             if bit {
-                self.bytes[at / 8] |= mask;
+                self.bytes[(at / 8) as usize] |= mask;
             } else {
-                self.bytes[at / 8] &= !mask;
+                self.bytes[(at / 8) as usize] &= !mask;
             }
         } else {
             let offset = (at - committed) as u32;
@@ -204,7 +205,7 @@ impl PackedBuilder {
     ///
     /// Panics if `len` exceeds the current output length: truncation only
     /// ever shortens.
-    pub(crate) fn truncate(&mut self, len: usize) {
+    pub(crate) fn truncate(&mut self, len: u64) {
         assert!(
             len <= self.len(),
             "builder truncation target {len} exceeds the {} bits written",
@@ -212,30 +213,30 @@ impl PackedBuilder {
         );
         let whole = len / 8;
         let rem = (len % 8) as u32;
-        if whole < self.bytes.len() {
+        if whole < self.bytes.len() as u64 {
             self.staged = if rem > 0 {
-                u64::from(self.bytes[whole] >> (8 - rem))
+                u64::from(self.bytes[whole as usize] >> (8 - rem))
             } else {
                 0
             };
             self.staged_len = rem;
-            self.bytes.truncate(whole);
+            self.bytes.truncate(whole as usize);
         } else {
             self.staged >>= self.staged_len - rem;
             self.staged_len = rem;
         }
     }
 
-    /// Take the finished stream.
-    pub(crate) fn finish(self) -> BitsMut {
+    /// Take the finished stream: the committed bytes adopted whole, the
+    /// staging register flushed as the final (zero-padded) partial byte —
+    /// no length-encoding conversion binds the hand-off on any target.
+    pub(crate) fn finish(self) -> BitsBuf {
         let bit_len = self.len();
         let mut bytes = self.bytes;
         if self.staged_len > 0 {
             bytes.push((self.staged << (8 - self.staged_len)) as u8);
         }
-        let mut out = BitsMut::from_vec(bytes);
-        out.truncate(bit_len);
-        out
+        BitsBuf::from_raw_parts(bytes, bit_len)
     }
 
     /// Append `len <= 63` bits, value-packed at the low end of `value`
@@ -282,9 +283,9 @@ impl PackedBuilder {
 
     /// Read `n <= 63` bits at `pos` back out of the output, value-packed
     /// at the low end of the result.
-    fn read_bits(&self, pos: usize, n: u32) -> u64 {
-        debug_assert!(n as usize <= SMALL_CODE_BITS && pos + n as usize <= self.len());
-        let committed = self.bytes.len() * 8;
+    fn read_bits(&self, pos: u64, n: u32) -> u64 {
+        debug_assert!(u64::from(n) <= SMALL_CODE_BITS && pos + u64::from(n) <= self.len());
+        let committed = self.bytes.len() as u64 * 8;
         let mut acc = 0u64;
         let mut got = 0u32;
         let mut p = pos;
@@ -292,11 +293,11 @@ impl PackedBuilder {
             if p < committed {
                 let within = (p % 8) as u32;
                 let take = (8 - within).min(n - got);
-                let byte = self.bytes[p / 8];
+                let byte = self.bytes[(p / 8) as usize];
                 let chunk = u64::from(byte >> (8 - within - take)) & ((1u64 << take) - 1);
                 acc = (acc << take) | chunk;
                 got += take;
-                p += take as usize;
+                p += u64::from(take);
             } else {
                 let offset = (p - committed) as u32;
                 let take = n - got;
@@ -304,7 +305,7 @@ impl PackedBuilder {
                     (self.staged >> (self.staged_len - offset - take)) & ((1u64 << take) - 1);
                 acc = (acc << take) | chunk;
                 got += take;
-                p += take as usize;
+                p += u64::from(take);
             }
         }
         acc
@@ -312,10 +313,10 @@ impl PackedBuilder {
 
     /// The bit at `pos`, read back out of the committed prefix or the
     /// staging register.
-    fn bit_at(&self, pos: usize) -> bool {
-        let committed = self.bytes.len() * 8;
+    fn bit_at(&self, pos: u64) -> bool {
+        let committed = self.bytes.len() as u64 * 8;
         if pos < committed {
-            self.bytes[pos / 8] >> (7 - pos % 8) & 1 == 1
+            self.bytes[(pos / 8) as usize] >> (7 - pos % 8) & 1 == 1
         } else {
             let offset = (pos - committed) as u32;
             debug_assert!(offset < self.staged_len, "read past the output");

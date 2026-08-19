@@ -90,7 +90,7 @@
 
 use core::ops::Range;
 
-use crate::codec::{self, Base, BitCursor, BitsMut, BitsView, Code};
+use crate::codec::{self, Base, BitCursor, BitsBuf, BitsView, Code};
 
 use super::build::SkylineBuilder;
 use super::signed::{gamma_code, gamma_code_signed, unzigzag_base, zigzag_signed, Sign};
@@ -183,35 +183,35 @@ static_assertions::const_assert!(Cost::CEILING < Cost::INFEASIBLE);
 /// panic, which is why the route differential pins the walk's route against a
 /// reference recursive probe bit for bit.
 pub(super) struct Route {
-    dirs: BitsMut,
+    dirs: BitsBuf,
 }
 
 impl Route {
     /// All directions cleared, sized to the id's bit positions.
-    pub(super) fn new(id_span: usize) -> Self {
+    pub(super) fn new(id_span: u64) -> Self {
         Route {
-            dirs: BitsMut::repeat(false, id_span),
+            dirs: BitsBuf::repeat(false, id_span),
         }
     }
 
     /// Record that the cheapest inflation at the branch keyed by `key`
     /// descends into the left child (`left = true`).
     ///
-    /// Keys are id bit positions, bounded by the direction table's own
-    /// length, far below `usize` on every target.
+    /// Keys are id bit positions, bounded by the direction table's
+    /// own length, which its allocation keeps addressable.
     pub(super) fn record(&mut self, key: u64, left: bool) {
-        self.dirs.set(key as usize, left);
+        self.dirs.set(key, left);
     }
 
     /// Whether the cheapest inflation at the branch keyed by `key`
     /// descends into the left child.
     fn descends_left(&self, key: u64) -> bool {
-        self.dirs[key as usize]
+        self.dirs.get(key)
     }
 
     /// The raw direction bits, for the route differential.
     #[cfg(test)]
-    pub(super) fn dirs(&self) -> &BitsMut {
+    pub(super) fn dirs(&self) -> &BitsBuf {
         &self.dirs
     }
 }
@@ -500,7 +500,7 @@ pub(super) fn emit(
     id_bits: BitsView<'_>,
     route: &Route,
     events: &Base,
-) -> BitsMut {
+) -> BitsBuf {
     debug_assert!(
         !id_bits.is_empty(),
         "grow requires an id owning at least one region"
@@ -515,10 +515,10 @@ pub(super) fn emit(
     let mut id_pos = 0u64;
     // Subadditivity of the coding bounds the output by the input plus the
     // expansion chain's fresh codes, each a few bits per id level.
-    let mut out = SkylineBuilder::with_capacity((event_bits.len() + id_bits.len()) as usize + 64);
+    let mut out = SkylineBuilder::with_capacity(event_bits.len() + id_bits.len() + 64);
     // One bit per chosen-path level: `true` = the branch descended left, so its
     // right sibling subtree is pending after the inflation point.
-    let mut pending = BitsMut::new();
+    let mut pending = BitsBuf::new();
     let mut depth = 0usize;
     // Whether any leaf has entered the output ahead of the grown leaf. The
     // grown leaf's own code is absolute exactly when none has (Phase 2's
@@ -546,7 +546,7 @@ pub(super) fn emit(
             // collapsed the region and tripped the changed flag), and
             // incrementing that leaf in place is the inflation.
             match event.read() {
-                Some(code) => break (code, BitsMut::new()),
+                Some(code) => break (code, BitsBuf::new()),
                 None => unreachable!("a full id over an event node collapses under fill"),
             }
         }
@@ -576,7 +576,7 @@ pub(super) fn emit(
             // An id node over an event leaf — the chain below is id-only, its
             // directions collected for the fresh leaves' preorder.
             Some(code) => {
-                let mut directions = BitsMut::new();
+                let mut directions = BitsBuf::new();
                 let mut current = (key, left_present, right_present);
                 loop {
                     let (key, left_present, right_present) = current;
@@ -617,10 +617,14 @@ pub(super) fn emit(
     // code (same height, same predecessor) or re-codes it `+k` when the grown
     // leaf itself comes first.
     let path_depth = depth;
-    let chain = chain_dirs.len();
+    // Depths are `usize` across the walk surface: a chain level costs at
+    // least one bit of the stored id, whose live length fits `usize` on
+    // every target (the storage doors' bound).
+    let chain =
+        usize::try_from(chain_dirs.len()).expect("chain depth is bounded by the id's live length");
     let original = original_range;
     debug_assert_eq!(
-        path_depth,
+        path_depth as u64,
         pending.len(),
         "one pending record per path level"
     );
@@ -628,7 +632,7 @@ pub(super) fn emit(
     // Fresh sibling leaves that precede the grown leaf: one per level whose
     // branch descended right (the sibling is the left child).
     for level in 0..chain {
-        if !chain_dirs[level] {
+        if !chain_dirs.get(level as u64) {
             let code = if emitted_in_chain {
                 gamma_code(&Base::ZERO)
             } else {
@@ -658,7 +662,7 @@ pub(super) fn emit(
     // Fresh sibling leaves that follow the grown leaf, deepest first.
     let mut first_after_grown = true;
     for level in (0..chain).rev() {
-        if chain_dirs[level] {
+        if chain_dirs.get(level as u64) {
             let code = if first_after_grown {
                 gamma_code_signed(Sign::Negative, events)
             } else {

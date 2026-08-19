@@ -9,7 +9,7 @@
 //! the band organic histories occupy — in two machine words, and spills wider
 //! codes to the buffer form unchanged.
 
-use super::{BitsMut, BitsView};
+use super::{BitsBuf, BitsView};
 
 /// One complete payload code, value-packed when it fits a word.
 pub(crate) enum Code {
@@ -18,17 +18,17 @@ pub(crate) enum Code {
     /// live bit; bits above `len` are zero).
     Small { bits: u64, len: u8 },
     /// A code wider than 63 bits, as an owned bit buffer.
-    Wide(BitsMut),
+    Wide(BitsBuf),
 }
 
 /// The widest code [`Code::Small`] carries.
-pub(crate) const SMALL_CODE_BITS: usize = 63;
+pub(crate) const SMALL_CODE_BITS: u64 = 63;
 
 impl Code {
     /// The code's length in bits.
-    pub(crate) fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> u64 {
         match self {
-            Code::Small { len, .. } => usize::from(*len),
+            Code::Small { len, .. } => u64::from(*len),
             Code::Wide(bits) => bits.len(),
         }
     }
@@ -46,14 +46,14 @@ impl Code {
             "copied range within the view's live length"
         );
         let len = end - start;
-        if len <= SMALL_CODE_BITS as u64 {
+        if len <= SMALL_CODE_BITS {
             Code::Small {
                 bits: src.load_be(start, len as u32),
                 len: len as u8,
             }
         } else {
-            let mut out = BitsMut::with_capacity(len as usize);
-            super::bits::extend_from_view(&mut out, src, start, end);
+            let mut out = BitsBuf::with_capacity(len);
+            super::buf::extend_from_view(&mut out, src, start, end);
             Code::Wide(out)
         }
     }

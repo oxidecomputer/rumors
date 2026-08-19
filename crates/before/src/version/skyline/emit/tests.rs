@@ -20,7 +20,7 @@ use rayon::prelude::*;
 use suanpan::Accumulator;
 
 use crate::codec::Base;
-use crate::codec::{BitsMut, BitsView};
+use crate::codec::{BitsBuf, BitsView};
 use crate::meter::registry::Shape;
 use crate::meter::Packed;
 use crate::testing::bridge::{from_oracle_version, to_oracle_version};
@@ -84,7 +84,7 @@ fn assert_emits(a: &Version, b: &Version) {
 /// Independent of the sweep under test on both faces — the meet comes from the
 /// recursive oracle, the reading from the order-theoretic definition — so the
 /// fused verdict differential shares nothing with the fold it checks.
-fn oracle_relation(met: &BitsMut, x: &BitsMut, y: &BitsMut) -> Option<core::cmp::Ordering> {
+fn oracle_relation(met: &BitsBuf, x: &BitsBuf, y: &BitsBuf) -> Option<core::cmp::Ordering> {
     match (met == x, met == y) {
         (true, true) => Some(core::cmp::Ordering::Equal),
         (true, false) => Some(core::cmp::Ordering::Less),
@@ -269,7 +269,7 @@ fn flat_over_deep_collapses_totally() {
 /// deterministically rather than by sampling.
 #[test]
 fn exhaustive_small_scope_emits_identically() {
-    let pool: Vec<(crate::oracle::Version, Version, BitsMut)> = all_normal_events(EV_SMALL_DEPTH)
+    let pool: Vec<(crate::oracle::Version, Version, BitsBuf)> = all_normal_events(EV_SMALL_DEPTH)
         .iter()
         .map(|t| {
             let v = from_oracle_version(t);
@@ -311,7 +311,7 @@ fn exhaustive_small_scope_emits_identically() {
 /// equality of canonical streams.
 #[test]
 fn family_lattice_laws_hold_on_the_kernel() {
-    let pool: Vec<BitsMut> = family_pool().iter().map(encode).collect();
+    let pool: Vec<BitsBuf> = family_pool().iter().map(encode).collect();
     for ea in &pool {
         assert_eq!(
             join(crate::codec::built_view(ea), crate::codec::built_view(ea)),
@@ -353,7 +353,7 @@ fn family_lattice_laws_hold_on_the_kernel() {
 /// Associativity holds on the emitted streams over every family triple.
 #[test]
 fn family_associativity_holds_on_the_kernel() {
-    let pool: Vec<BitsMut> = family_pool().iter().map(encode).collect();
+    let pool: Vec<BitsBuf> = family_pool().iter().map(encode).collect();
     pool.par_iter().for_each(|ea| {
         for eb in &pool {
             for ec in &pool {
@@ -441,7 +441,7 @@ proptest! {
         for op in &ops {
             optrace::step_impl(&mut clocks, op);
         }
-        let pool: Vec<(crate::oracle::Version, &Version, BitsMut)> = clocks
+        let pool: Vec<(crate::oracle::Version, &Version, BitsBuf)> = clocks
             .iter()
             .map(|c| (to_oracle_version(c.version()), c.version(), encode(c.version())))
             .collect();

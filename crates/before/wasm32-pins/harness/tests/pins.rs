@@ -12,14 +12,16 @@
 use wasm32_pins_harness::{call0, call1, call2, Outcome, Trap};
 
 /// The largest buffer byte count whose whole-buffer bit count stays below
-/// 2^29: one byte under the 32-bit bit-vector length encoding's cap
-/// (`usize::MAX >> 3` bits), so 67108863 bytes.
+/// 2^29 bits — `usize::MAX >> 3`, the cap a 32-bit bit-vector length
+/// encoding imposes — so 67108863 bytes.
 ///
-/// The walk surface reads stored streams through the crate-owned view and is
-/// exact at every storable size; the emitters' build buffer is the one
-/// surface still bounded by this encoding, so the walk pins straddle the
-/// boundary (below, at, and past it) to hold the read side clean of it, and
-/// the emitting pins meet it on their output side.
+/// This is the coordinate of the boundary class this suite exists to catch:
+/// a `usize`-denominated bit count binding or wrapping on a 32-bit target.
+/// Every surface is exact across it — the walks and doors read stored
+/// streams through the crate-owned view, and the emitters build into the
+/// crate-owned buffer, both `u64`-denominated — and the pins straddle it
+/// (below, at, and past) on every surface class to hold that exactness
+/// pinned.
 const BUILD_CAP_BYTES: u64 = 67_108_863;
 
 /// Liveness: a small valid version decodes on wasm32 with the exact bit
@@ -32,11 +34,11 @@ fn version_small_roundtrips_and_rejects_typed() {
     assert_eq!(call0("pin_version_small"), Outcome::Value(0));
 }
 
-/// The largest input whose whole-buffer bit count stays below the 32-bit
-/// bit-vector length encoding's cap decodes with its exact bit length.
+/// The largest input whose whole-buffer bit count stays below the 2^29-bit
+/// straddle coordinate ([`BUILD_CAP_BYTES`]) decodes with its exact bit
+/// length.
 ///
-/// The cap is `usize::MAX >> 3` = 2^29 - 1 bits, so 67108863 bytes: the
-/// boundary's lower adjacency witness, so a failure at the sizes just
+/// The boundary's lower adjacency witness: a failure at the sizes just
 /// above is attributable to the boundary, never to general large-input
 /// handling.
 #[test]
@@ -50,9 +52,9 @@ fn version_decode_below_build_cap() {
 /// A valid 64 MiB (67108864-byte) version encoding decodes correctly on
 /// wasm32, returning its exact live bit length.
 ///
-/// The size is exactly 2^29 bits: the first size past the 32-bit
-/// bit-vector length encoding, so this pin holds the doors to a walk on
-/// which no such encoding binds.
+/// The size is exactly 2^29 bits: the first size past the straddle
+/// coordinate, so this pin holds the doors to a walk on which no 32-bit
+/// length encoding binds.
 #[test]
 fn version_decode_at_build_cap() {
     assert_eq!(
@@ -64,10 +66,10 @@ fn version_decode_at_build_cap() {
 /// A valid 67108865-byte version encoding decodes correctly on wasm32,
 /// returning its exact live bit length.
 ///
-/// One byte past the length-encoding boundary's silent-wrap size; together
+/// One byte past the straddle coordinate's silent-wrap size; together
 /// with the pin one byte below, this holds the doors clear of both failure
-/// genres a 2^29-bit length encoding produces (a silently empty view, then
-/// an element-count guard panic).
+/// genres a 2^29-bit length encoding would produce (a silently empty view,
+/// then an element-count guard panic).
 #[test]
 fn version_decode_past_build_cap() {
     assert_eq!(
@@ -183,7 +185,7 @@ fn rank_decode_past_backend_bit_capacity_traps() {
 
 /// A valid composite key — the rank stream, then the version whose rank it
 /// is — decodes through the byte door `Ranked::decode` at the largest
-/// version size below the build buffer's length-encoding boundary.
+/// version size below the straddle coordinate.
 ///
 /// The door re-derives the version's rank to verify the key, and that fold
 /// walks the version through the crate-owned view: the lower adjacency
@@ -238,8 +240,7 @@ fn ranked_decode_deep_in_storable_range() {
 
 /// A valid composite key decodes through the borsh door
 /// `Ranked::deserialize_reader` at the largest version size below the
-/// build buffer's length-encoding boundary, consuming exactly its own
-/// bytes.
+/// straddle coordinate, consuming exactly its own bytes.
 ///
 /// The streaming door runs the same rank re-derivation as the byte door:
 /// the boundary straddle's lower witness.
@@ -288,7 +289,7 @@ fn ranked_borsh_deep_in_storable_range() {
 
 /// A valid coincident span — two byte-equal version streams — decodes
 /// through the borsh door `Span::deserialize_reader` at the largest `lo`
-/// size below the build buffer's length-encoding boundary.
+/// size below the straddle coordinate.
 ///
 /// The door consumes exactly its own bytes.
 /// It validates the second stream against `lo`'s view in one fused
@@ -334,8 +335,8 @@ fn span_borsh_deep_in_storable_range() {
 }
 
 /// Causal comparison decides a valid stored pair exactly at the largest
-/// operand size below the build buffer's length-encoding boundary: the
-/// taller lone leaf reads strictly greater both ways around.
+/// operand size below the straddle coordinate: the taller lone leaf reads
+/// strictly greater both ways around.
 ///
 /// The comparison-class walk's boundary straddle, lower witness: ordering
 /// reads each operand through the crate-owned view, with no decode door in
@@ -383,12 +384,12 @@ fn version_cmp_at_storage_bound() {
 }
 
 /// Join emits a covered pair exactly at the largest operand size below the
-/// build buffer's length-encoding boundary: the taller lone leaf joined
-/// with a short one reproduces the taller, byte for byte.
+/// straddle coordinate: the taller lone leaf joined with a short one
+/// reproduces the taller, byte for byte.
 ///
 /// The join-class walk's lower adjacency witness — and its emission
 /// rebuilds the full-size output, so the pin also witnesses the build
-/// buffer just below its own cap.
+/// buffer just below the coordinate.
 #[test]
 fn version_join_below_build_cap() {
     assert_eq!(
@@ -397,51 +398,44 @@ fn version_join_below_build_cap() {
     );
 }
 
-/// PINNED AS FOUND: joining a valid stored 67108864-byte version —
-/// exactly 2^29 bits — with a small one it covers traps on wasm32 instead
-/// of emitting the covered result.
+/// Joining a valid stored 67108864-byte version — exactly 2^29 bits — with
+/// a small one it covers emits the covered result on wasm32, byte for
+/// byte.
 ///
-/// The walk itself is exact at this size (the comparison pins beside this
-/// one decide the same operands both ways around); the trap is the
-/// emission's output side: the covered join reproduces the big operand, a
-/// finished stream whose element-rounded bit count exceeds the build
-/// buffer's `usize::MAX >> 3`-bit length encoding at the freeze seam —
-/// the same boundary `version_join_emit_at_build_cap_traps` pins from its
-/// two-operand family. The cure is the crate-owned build buffer, which
-/// flips this pin to the correct-value assertion.
+/// The emitting operation class's middle straddle witness, on the output
+/// side: the covered join rebuilds the big operand whole, a finished
+/// stream whose bit count sits exactly at the straddle coordinate when it
+/// crosses the freeze seam — which the crate-owned build buffer carries at
+/// `u64` width on every target.
 #[test]
-fn version_join_at_build_cap_traps() {
+fn version_join_at_build_cap() {
     assert_eq!(
         call1("pin_version_join_covering", BUILD_CAP_BYTES + 1),
-        Outcome::Trapped(Trap::UnreachableCodeReached),
+        Outcome::Value(0),
     );
 }
 
-/// PINNED AS FOUND: joining a valid stored 67108865-byte version with a
-/// small one it covers traps on wasm32.
-///
-/// The output boundary's second witness, one byte further: the covered
-/// output's live bit count itself exceeds the build buffer's length
-/// encoding. The cure is the crate-owned build buffer, beside
-/// `version_join_at_build_cap_traps`.
+/// Joining a valid stored 67108865-byte version with a small one it covers
+/// emits the covered result on wasm32: the emitting class's upper straddle
+/// witness, one byte past the coordinate, beside
+/// `version_join_at_build_cap`.
 #[test]
-fn version_join_past_build_cap_traps() {
+fn version_join_past_build_cap() {
     assert_eq!(
         call1("pin_version_join_covering", BUILD_CAP_BYTES + 2),
-        Outcome::Trapped(Trap::UnreachableCodeReached),
+        Outcome::Value(0),
     );
 }
 
-/// Join emits the largest output this operand family can pass through the
-/// emitter's finish seam on wasm32: 536870903 live bits.
+/// Join emits an output of 536870903 live bits — one bit under 67108863
+/// whole output bytes, the straddle coordinate — from two operands each
+/// comfortably under 64 MiB.
 ///
-/// That is one bit under the 67108863 whole output bytes the finished
-/// stream's bit-vector adoption can represent, from two operands each
-/// comfortably under 64 MiB. The operands are complementary two-leaf
-/// skylines (~50 MB and ~42 MB) whose join concatenates: the output
-/// outgrows both inputs, so this witnesses the emitter's output-side
-/// boundary from below, independent of any operand size. The returned
-/// observation is the output's exact live bit length.
+/// The operands are complementary two-leaf skylines (~50 MB and ~42 MB)
+/// whose join concatenates: the output outgrows both inputs, so this
+/// witnesses the emitter's output side just below the coordinate,
+/// independent of any operand size. The returned observation is the
+/// output's exact live bit length.
 #[test]
 fn version_join_emit_below_build_cap() {
     assert_eq!(
@@ -450,25 +444,21 @@ fn version_join_emit_below_build_cap() {
     );
 }
 
-/// PINNED AS FOUND: a join of two valid operands, each under every
-/// per-operand bound, traps on wasm32 instead of emitting when its
-/// output's finished byte length reaches 67108864.
+/// A join of two valid operands, each under every per-operand bound, emits
+/// on wasm32 with an output of 536870905 live bits — 67108864 finished
+/// bytes, the first byte length past the straddle coordinate at the freeze
+/// seam.
 ///
-/// That is 536870905 live bits: the first length whose whole-byte buffer
-/// exceeds the bit vector's `usize::MAX >> 3`-bit length encoding when the
-/// emitter's byte-backed builder hands the finished stream over. The
-/// operands are complementary two-leaf skylines, ~50 MB and ~42 MB.
-/// The boundary is the build-side buffer's length encoding, documented at
-/// no public operation, and it sits below the byte doors' 512 MiB storage
-/// bound: valid operand pairs admitted and walkable on this target have no
-/// emittable join. Unconditional 32-bit correctness requires every
-/// storable join to emit; the cure flips this pin to the exact-length
-/// assertion beside its witness `version_join_emit_below_build_cap`.
+/// The operands are complementary two-leaf skylines, ~50 MB and ~42 MB,
+/// whose join concatenates: the emitting class's upper output-side
+/// straddle witness, beside `version_join_emit_below_build_cap` — every
+/// storable join emits, whatever its output size, because the build
+/// buffer and the freeze hand-off carry `u64` bit counts on every target.
 #[test]
-fn version_join_emit_at_build_cap_traps() {
+fn version_join_emit_at_build_cap() {
     assert_eq!(
         call2("pin_version_join_emit", 100_000_000, 168_435_450),
-        Outcome::Trapped(Trap::UnreachableCodeReached),
+        Outcome::Value(536_870_905),
     );
 }
 

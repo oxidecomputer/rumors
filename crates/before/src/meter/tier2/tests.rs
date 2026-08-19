@@ -385,7 +385,7 @@ fn skyline_join(a: &Version, b: &Version) -> Version {
     let decoded =
         skyline::decode(crate::codec::built_view(&out)).expect("an emitted join is canonical");
     assert_eq!(
-        out.len() as u64,
+        out.len(),
         tier2_size(crate::codec::built_view(&packed_bits_of(
             &to_oracle_version(&decoded)
         )))
@@ -404,7 +404,7 @@ fn skyline_meet(a: &Version, b: &Version) -> Version {
     let decoded =
         skyline::decode(crate::codec::built_view(&out)).expect("an emitted meet is canonical");
     assert_eq!(
-        out.len() as u64,
+        out.len(),
         tier2_size(crate::codec::built_view(&packed_bits_of(
             &to_oracle_version(&decoded)
         )))

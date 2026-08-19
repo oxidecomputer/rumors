@@ -19,7 +19,7 @@ use proptest::prelude::*;
 use suanpan::Accumulator;
 
 use crate::codec::text::{parse_base, Cur};
-use crate::codec::{Base, BitsMut};
+use crate::codec::{Base, BitsBuf};
 use crate::error::Parse;
 use crate::meter::registry::Shape;
 use crate::meter::Packed;
@@ -311,7 +311,7 @@ fn schoolbook_twin_agrees_on_the_mutant_corpus() {
 /// after each leaf's extraction it re-zeroes the accumulator by subtracting
 /// the extracted magnitude back, which zeroes the *value* but not the digit
 /// buffer's top — the high-water walk the wide-arming family prices.
-fn parse_schoolbook(s: &str) -> Result<BitsMut, Parse> {
+fn parse_schoolbook(s: &str) -> Result<BitsBuf, Parse> {
     /// What a parsed subtree contributes to its parent's
     /// normal-form check.
     struct Child {
@@ -328,7 +328,7 @@ fn parse_schoolbook(s: &str) -> Result<BitsMut, Parse> {
     }
 
     let mut cur = Cur::new(s);
-    let mut builder = SkylineBuilder::with_capacity(s.len());
+    let mut builder = SkylineBuilder::with_capacity(s.len() as u64);
     let mut frames: Vec<EvFrame> = Vec::new();
     let mut delta = Accumulator::new();
     let mut emitted_first = false;
@@ -499,7 +499,7 @@ proptest! {
 mod schoolbook_contrast {
     use suanpan::touch_meter;
 
-    use crate::codec::BitsMut;
+    use crate::codec::BitsBuf;
     use crate::error::Parse;
     use crate::meter::registry::Shape;
     use crate::version::skyline::encode;
@@ -509,7 +509,7 @@ mod schoolbook_contrast {
     /// One kernel run over `Shape::WideArming.packed2(s, s)`'s rendered text: text
     /// bytes and accumulator touches over the parse body alone,
     /// value-pinned against the stored stream.
-    fn run(s: usize, kernel: fn(&str) -> Result<BitsMut, Parse>) -> (u64, u64) {
+    fn run(s: usize, kernel: fn(&str) -> Result<BitsBuf, Parse>) -> (u64, u64) {
         let v = Shape::WideArming.packed2(s, s).version();
         let enc = encode(&v);
         let text = render(crate::codec::built_view(&enc));

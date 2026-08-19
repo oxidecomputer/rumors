@@ -1,6 +1,6 @@
 use crate::error::Parse;
 
-use super::{validate_id, Base, BitsMut};
+use super::{validate_id, Base, BitsBuf};
 
 /// A whitespace-skipping byte cursor over the input string. The grammar is pure
 /// ASCII (`(`, `)`, `,`, digits, `0`/`1`), so byte-level scanning is exact.
@@ -72,9 +72,9 @@ pub(crate) fn parse_base(cur: &mut Cur) -> Result<Base, Parse> {
 /// Iterative, like the packed-tree parsers in [`super::tree`]: depth lives on
 /// an explicit frame stack, never the call stack, so nesting depth cannot
 /// overflow.
-pub(crate) fn parse_id_str(s: &str) -> Result<BitsMut, Parse> {
+pub(crate) fn parse_id_str(s: &str) -> Result<BitsBuf, Parse> {
     let mut cur = Cur::new(s);
-    let mut bits = BitsMut::new();
+    let mut bits = BitsBuf::new();
     parse_id_tree(&mut cur, &mut bits)?;
     if cur.peek().is_some() {
         return Err(Parse::Syntax); // trailing junk
@@ -106,13 +106,13 @@ enum IdFrame {
     /// The next subtree is the node's left child.
     NeedLeft {
         /// The node's tag position in the output bits.
-        tag: usize,
+        tag: u64,
     },
     /// The left child is parsed and its `,` consumed; the next subtree is the
     /// node's right child.
     NeedRight {
         /// The node's tag position in the output bits.
-        tag: usize,
+        tag: u64,
         /// What the left child was (the presence patch and the collapsible-node
         /// check both need it).
         left: IdKind,
@@ -126,7 +126,7 @@ enum IdFrame {
 /// `(0, 0)` / `(1, 1)` once its `)` has parsed (a structural defect outranks
 /// the canonicality check, exactly the token order of the grammar). One frame
 /// per unfinished ancestor.
-fn parse_id_tree(cur: &mut Cur, bits: &mut BitsMut) -> Result<(), Parse> {
+fn parse_id_tree(cur: &mut Cur, bits: &mut BitsBuf) -> Result<(), Parse> {
     let mut stack: Vec<IdFrame> = Vec::new();
     loop {
         // One atom: a leaf token, or a `(` opening the next unfinished node.
@@ -182,7 +182,7 @@ fn parse_id_tree(cur: &mut Cur, bits: &mut BitsMut) -> Result<(), Parse> {
 /// Parse a stamp `(i, e)` into its id bit stream and the event component's
 /// text. Splits at the top-level (depth-0) comma, parses the id side, and
 /// returns the event side for the caller's version parser. Iterative.
-pub(crate) fn parse_clock_str(s: &str) -> Result<(BitsMut, &str), Parse> {
+pub(crate) fn parse_clock_str(s: &str) -> Result<(BitsBuf, &str), Parse> {
     let t = s.trim();
     let bytes = t.as_bytes();
     if bytes.first() != Some(&b'(') || bytes.last() != Some(&b')') {

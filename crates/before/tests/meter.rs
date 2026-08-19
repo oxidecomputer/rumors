@@ -1408,7 +1408,7 @@ fn rank_sum_mixed_envelope() {
 // carries the wire-bit-linear claim).
 
 /// The skyline stream of a packed family shape, built outside measurement.
-fn skyline_of(p: &meter::Packed) -> meter::skyline::BitsMut {
+fn skyline_of(p: &meter::Packed) -> meter::skyline::BitsBuf {
     meter::skyline::encode(&version_of(p))
 }
 
@@ -1733,12 +1733,12 @@ fn sweep_metered<R>(
 
 /// The empty version's two-bit skyline stream: the shallow operand of
 /// the family cmp scenarios.
-fn skyline_empty() -> meter::skyline::BitsMut {
+fn skyline_empty() -> meter::skyline::BitsBuf {
     meter::skyline::encode(&Version::new())
 }
 
 /// The combined operand bytes of a sweep scenario.
-fn sweep_input_bytes(a: &meter::skyline::BitsMut, b: &meter::skyline::BitsMut) -> usize {
+fn sweep_input_bytes(a: &meter::skyline::BitsBuf, b: &meter::skyline::BitsBuf) -> usize {
     a.as_raw_slice().len() + b.as_raw_slice().len()
 }
 
@@ -1888,7 +1888,7 @@ mod emit_env {
 
 /// The one-tick version's skyline stream: the shallow operand of the
 /// family join/meet scenarios, mirroring the packed-form join rows.
-fn skyline_one_tick() -> meter::skyline::BitsMut {
+fn skyline_one_tick() -> meter::skyline::BitsBuf {
     let one = Version::try_from(1u64).expect("a one-tick version is valid");
     meter::skyline::encode(&one)
 }
@@ -1899,7 +1899,7 @@ fn skyline_one_tick() -> meter::skyline::BitsMut {
 fn skyline_oracle(
     p: &meter::Packed,
     join: bool,
-) -> (meter::skyline::BitsMut, meter::skyline::BitsMut) {
+) -> (meter::skyline::BitsBuf, meter::skyline::BitsBuf) {
     let v = version_of(p);
     let one = Version::try_from(1u64).expect("a one-tick version is valid");
     let out = if join { &v | &one } else { &v & &one };
@@ -2075,7 +2075,7 @@ fn left_spike(depth: usize) -> Version {
 fn tick_expand_spine_envelope() {
     let mut v = Version::new();
     let party = party_of(&Shape::IdSpine.packed_flagged(ID_DEPTH, false));
-    let input = meter::skyline::encode(&v).len() / 8 + party.encoded_bits().div_ceil(8);
+    let input = meter::skyline::encode(&v).len() as usize / 8 + party.encoded_bits().div_ceil(8);
     query_metered(
         "tick_expand_spine",
         input,

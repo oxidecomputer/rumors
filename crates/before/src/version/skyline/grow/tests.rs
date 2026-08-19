@@ -21,7 +21,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use proptest::prelude::*;
 use rayon::prelude::*;
 
-use crate::codec::BitsMut;
+use crate::codec::BitsBuf;
 use crate::codec::BitsView;
 use crate::meter::registry::Shape;
 use crate::meter::Packed;
@@ -79,7 +79,7 @@ fn assert_grow(v: &Version, p: &Party) -> bool {
 ///
 /// The recursive oracle walks on native frames, so the deep-spine test calls
 /// this directly and takes its value witnesses from closed forms instead.
-fn assert_grow_depth_safe(v: &Version, p: &Party) -> Option<BitsMut> {
+fn assert_grow_depth_safe(v: &Version, p: &Party) -> Option<BitsBuf> {
     let enc = encode(v);
     match fused_fill(crate::codec::built_view(&enc), p) {
         // fill moved the tree: the splice is unreachable for this pair.
@@ -114,7 +114,7 @@ enum RefId {
 /// the transliteration of the recursive walk whose route fold the fused tick
 /// walk carries, kept as its structural witness.
 fn reference_probe(ev_bits: BitsView<'_>, id_bits: BitsView<'_>) -> (Route, Cost) {
-    let mut route = Route::new(id_bits.len() as usize);
+    let mut route = Route::new(id_bits.len());
     let mut ev = EvScan::new(ev_bits);
     let mut id_pos = 0u64;
     let root = if id_bits.is_empty() {

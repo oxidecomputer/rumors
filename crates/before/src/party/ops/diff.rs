@@ -44,7 +44,7 @@
 //! the shape on which a structural walk's recursion depth tracks the full tree
 //! depth — cost bits, not stack frames or grown segments.
 
-use crate::codec::{BitsMut, BitsView};
+use crate::codec::{BitsBuf, BitsView};
 use crate::idbits::IdReader;
 use crate::version::skyline::overlay::{self, PlateauCursor};
 
@@ -70,12 +70,11 @@ impl IdReader<'_> {
     /// `O(|self| + |other|)`: the sweep form of `oracle::Party::without` (the
     /// module doc), reading each operand's tags at most once and emitting one
     /// output plateau or covered block per item of the overlay.
-    pub(crate) fn diff(self, other: IdReader) -> BitsMut {
+    pub(crate) fn diff(self, other: IdReader) -> BitsBuf {
         // `self \ other ⊆ self`, but over a full `self` plateau the output
         // is `other`'s complement, which can be as large as `other`. Both
         // inputs combined is a safe bound; normalization only shrinks it.
-        let mut out =
-            IdSkylineBuilder::with_capacity((self.bits().len() + other.bits().len()) as usize);
+        let mut out = IdSkylineBuilder::with_capacity(self.bits().len() + other.bits().len());
         let (mut a, a_entering) = IdLeafCursor::open(self);
         let (mut b, b_entering) = IdLeafCursor::open(other);
         settle_pair(&mut a, &mut b, a_entering, b_entering);
@@ -251,11 +250,11 @@ struct IdLeafCursor<'a> {
     pos: u64,
     /// Root-to-item branch directions: `false` inside a left child slot, `true`
     /// inside a right.
-    path: BitsMut,
+    path: BitsBuf,
     /// One bit per open left-branch level, innermost last: whether that
     /// ancestor's right child is present in the stream (`false` = the right
     /// slot is a synthetic unowned plateau).
-    pending_right: BitsMut,
+    pending_right: BitsBuf,
     /// Count of left-branch levels in `path`: zero exactly at the final item
     /// (the all-right path), so [`done`](Self::done) is `O(1)`.
     open_lefts: usize,
@@ -276,8 +275,8 @@ impl<'a> IdLeafCursor<'a> {
         let mut this = IdLeafCursor {
             bits: BitsView::empty(),
             pos: 0,
-            path: BitsMut::new(),
-            pending_right: BitsMut::new(),
+            path: BitsBuf::new(),
+            pending_right: BitsBuf::new(),
             open_lefts: 0,
             item: Item::Plateau { owned: false },
         };
@@ -386,8 +385,12 @@ impl PlateauCursor for IdLeafCursor<'_> {
     type Crossing = bool;
 
     /// The current item's depth: its interval has width `2^-depth`.
+    ///
+    /// Depths are `usize` across the walk surface: each open ancestor costs
+    /// at least one bit of the stored id, whose live length fits `usize` on
+    /// every target (the storage doors' bound).
     fn depth(&self) -> usize {
-        self.path.len()
+        usize::try_from(self.path.len()).expect("depth is bounded by the id's live length")
     }
 
     /// Whether the current item is the tiling's last (it ends at the
@@ -418,7 +421,7 @@ impl PlateauCursor for IdLeafCursor<'_> {
         }
         self.open_lefts -= 1;
         self.path.push(true);
-        let flip = self.path.len();
+        let flip = self.depth();
         let right_present = self
             .pending_right
             .pop()
