@@ -2,7 +2,6 @@ use itertools::Itertools;
 
 use crate::{Version, message::Message};
 
-use super::join::LeafCollision;
 use super::typed::*;
 use height::{Height, Root, S, Z};
 
@@ -25,24 +24,27 @@ pub enum Action<T> {
 /// `actions` is consumed lazily: the only materialization is the radix sort
 /// at each branch level, so callers can feed a `map` chain straight in.
 ///
-/// # Errors
+/// # Panics
 ///
-/// [`LeafCollision`] if an insert lands on a live leaf disagreeing with it
-/// on version or payload (unreachable from any input; see
-/// [`LeafCollision`]). On `Err` nothing has been published: the caller's
-/// commit point is never reached.
+/// Panics if an insert lands on a live leaf disagreeing with it on
+/// version or payload: version reuse. No input reaches that state —
+/// every production insert carries a freshly minted version (a fresh
+/// tick strictly dominates the ceiling bounding every live leaf, and
+/// party linearity keeps regions disjoint), and no wire-derived leaf
+/// passes through this walk — so the panic marks a bug in this crate,
+/// never an environmental failure.
 pub fn act<T, F, I>(
     node: Option<Node<T, Root>>,
     actions: I,
     mut on_action: F,
-) -> Result<Option<Node<T, Root>>, LeafCollision>
+) -> Option<Node<T, Root>>
 where
     T: Send + Sync,
     F: FnMut(&Version),
     I: IntoIterator<Item = (Path, Version, Action<T>)>,
 {
     // Test-only unwind source for the panic-atomicity pins: this walk is
-    // the fallible region of `Tree::react`'s commit section, and its entry
+    // the unwind-source region of `Tree::react`'s commit section, and its entry
     // burns the first fuse step (each branch-level step below burns one
     // more).
     #[cfg(test)]
@@ -63,7 +65,7 @@ pub trait Act: Height {
         node: Option<Node<T, Self>>,
         actions: I,
         on_action: &mut F,
-    ) -> Result<Option<Node<T, Self>>, LeafCollision>
+    ) -> Option<Node<T, Self>>
     where
         T: Send + Sync,
         F: FnMut(&Version),
@@ -78,7 +80,7 @@ where
         node: Option<Node<T, S<H>>>,
         actions: I,
         on_action: &mut F,
-    ) -> Result<Option<Node<T, S<H>>>, LeafCollision>
+    ) -> Option<Node<T, S<H>>>
     where
         T: Send + Sync,
         F: FnMut(&Version),
@@ -135,15 +137,13 @@ where
                 continue;
             }
 
-            if let Some(child) = Act::act(existing_child, actions, on_action)? {
+            if let Some(child) = Act::act(existing_child, actions, on_action) {
                 updated.push((radix, child));
             }
         }
 
         // Re-assemble: updated children + untouched existing children.
-        Ok(Node::branch(
-            updated.into_iter().chain(existing_children).collect(),
-        ))
+        Node::branch(updated.into_iter().chain(existing_children).collect())
     }
 }
 
@@ -152,7 +152,7 @@ impl Act for Z {
         mut node: Option<Node<T, Self>>,
         actions: I,
         on_action: &mut F,
-    ) -> Result<Option<Node<T, Z>>, LeafCollision>
+    ) -> Option<Node<T, Z>>
     where
         T: Send + Sync,
         F: FnMut(&Version),
@@ -183,18 +183,17 @@ impl Act for Z {
             // Paths are version-derived, so an insert landing on a live
             // leaf claims a version the tree already binds. Verify identity
             // instead of assuming it: a byte-identical pair is the same
-            // send twice (keep the resident leaf); any mismatch is a
-            // `LeafCollision` — unreachable except through a crate bug or
-            // an off-model hash collision (see `LeafCollision`), and
-            // errored before anything commits.
+            // send twice (keep the resident leaf), and any mismatch is
+            // version reuse — no input reaches it (fresh ticks strictly
+            // dominate the ceiling; party linearity keeps regions
+            // disjoint; no wire-derived leaf passes through this walk), so
+            // the assert marks a crate bug before anything commits.
             if let (Action::Insert(value), Some(existing)) = (&action, &node) {
-                if *existing.ceiling() != version
-                    || existing.message().as_slice() != value.as_slice()
-                {
-                    return Err(LeafCollision {
-                        path: Path::for_leaf(&version).into(),
-                    });
-                }
+                assert!(
+                    *existing.ceiling() == version
+                        && existing.message().as_slice() == value.as_slice(),
+                    "version reuse: an insert landed on a live leaf disagreeing on version or payload",
+                );
                 continue;
             }
 
@@ -212,6 +211,6 @@ impl Act for Z {
             _ => on_action(&greatest_version),
         }
 
-        Ok(node)
+        node
     }
 }

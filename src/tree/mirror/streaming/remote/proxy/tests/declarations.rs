@@ -38,9 +38,7 @@ fn hash_of(root: &crate::tree::Root<()>) -> [u8; MERKLE_HASH_LEN] {
 /// The expected reconciled union, computed by the in-memory join oracle.
 fn union_hash(a: &crate::tree::Root<()>, b: &crate::tree::Root<()>) -> [u8; MERKLE_HASH_LEN] {
     let mut union = Tree { root: a.clone() };
-    union
-        .join(Tree { root: b.clone() })
-        .expect("collision-free by construction");
+    union.join(Tree { root: b.clone() });
     union.hash()
 }
 
@@ -49,16 +47,12 @@ fn union_hash(a: &crate::tree::Root<()>, b: &crate::tree::Root<()>) -> [u8; MERK
 /// initiator election under honest declarations.
 fn uneven_pair() -> (crate::tree::Root<()>, crate::tree::Root<()>) {
     let mut small = Tree::new();
-    small
-        .act(&nth_party(1), [Action::Insert(Message::new(()))])
-        .expect("collision-free by construction");
+    small.act(&nth_party(1), [Action::Insert(Message::new(()))]);
     let mut large = Tree::new();
-    large
-        .act(
-            &nth_party(0),
-            (0..4).map(|_| Action::Insert(Message::new(()))),
-        )
-        .expect("collision-free by construction");
+    large.act(
+        &nth_party(0),
+        (0..4).map(|_| Action::Insert(Message::new(()))),
+    );
     (small.root, large.root)
 }
 
@@ -76,16 +70,12 @@ const BULK_MESSAGES: usize = FAN + 1;
 /// side includes a genuinely batched multi-record run.
 fn batched_uneven_pair() -> (crate::tree::Root<()>, crate::tree::Root<()>) {
     let mut small = Tree::new();
-    small
-        .act(&nth_party(1), [Action::Insert(Message::new(()))])
-        .expect("collision-free by construction");
+    small.act(&nth_party(1), [Action::Insert(Message::new(()))]);
     let mut large = Tree::new();
-    large
-        .act(
-            &nth_party(0),
-            (0..BULK_MESSAGES).map(|_| Action::Insert(Message::new(()))),
-        )
-        .expect("collision-free by construction");
+    large.act(
+        &nth_party(0),
+        (0..BULK_MESSAGES).map(|_| Action::Insert(Message::new(()))),
+    );
     (small.root, large.root)
 }
 
@@ -284,19 +274,15 @@ fn understated_set_len_fails_the_session() {
 /// exclusive content rides the opening-supply stream as one reply.
 fn opening_bulk_pair() -> (crate::tree::Root<()>, crate::tree::Root<()>) {
     let mut small = Tree::new();
-    small
-        .act(
-            &nth_party(1),
-            (0..4).map(|_| Action::Insert(Message::new(()))),
-        )
-        .expect("collision-free by construction");
+    small.act(
+        &nth_party(1),
+        (0..4).map(|_| Action::Insert(Message::new(()))),
+    );
     let mut large = Tree::new();
-    large
-        .act(
-            &nth_party(0),
-            (0..8).map(|_| Action::Insert(Message::new(()))),
-        )
-        .expect("collision-free by construction");
+    large.act(
+        &nth_party(0),
+        (0..8).map(|_| Action::Insert(Message::new(()))),
+    );
     (small.root, large.root)
 }
 

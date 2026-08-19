@@ -404,19 +404,7 @@ impl<T> Tree<T> {
     ///   produce `true` without a hash change, and then the cost is one
     ///   spurious watch wakeup, never a missed one.
     ///
-    /// # Errors
-    ///
-    /// [`traverse::LeafCollision`] if an insert lands on an occupied path
-    /// disagreeing on version or payload; the tree is untouched. Paths are
-    /// version-derived and each insert's fresh tick strictly dominates the
-    /// ceiling bounding every live leaf, so this is unreachable outside a
-    /// crate bug or an off-model hash collision — callers `expect` it, and
-    /// it is never user-visible ([`traverse::LeafCollision`]).
-    pub fn act<I>(
-        &mut self,
-        party: &before::Party,
-        actions: I,
-    ) -> Result<bool, traverse::LeafCollision>
+    pub fn act<I>(&mut self, party: &before::Party, actions: I) -> bool
     where
         T: Send + Sync,
         I: IntoIterator<Item = Action<T>>,
@@ -472,9 +460,10 @@ impl<T> Tree<T> {
     /// Returns whether the effectual-action observer fired at all — the
     /// changed flag [`act`](Self::act) hands out, with the contract stated
     /// there. `false` means no observation and therefore no ceiling
-    /// movement either: the tree is untouched. Errors exactly as
-    /// [`act`](Self::act) does, with the tree untouched on `Err`.
-    fn react<M, I>(&mut self, reactions: I) -> Result<bool, traverse::LeafCollision>
+    /// movement either: the tree is untouched. Panics exactly as
+    /// [`traverse::act`](fn@traverse::act) does (version reuse: a crate bug, never an input),
+    /// with the tree untouched on unwind.
+    fn react<M, I>(&mut self, reactions: I) -> bool
     where
         T: Send + Sync,
         M: Into<Option<Message<T>>>,
@@ -526,11 +515,9 @@ impl<T> Tree<T> {
         let new_root = traverse::act(self.root.root.clone(), actions, |v: &Version| {
             new_ceiling |= v;
             changed = true;
-        })?;
+        });
 
-        // The commit point: the walk returned without unwinding or erroring
-        // (a leaf-collision error above returns before anything of `self`
-        // mutates, the same atomicity as an unwind). Both fields
+        // The commit point: the walk returned without unwinding. Both fields
         // are assigned before the pre-image drops, because that drop runs
         // user code — everything the batch displaced becomes uniquely held
         // here, so its cascading `T` destructors run now, and a panicking
@@ -539,7 +526,7 @@ impl<T> Tree<T> {
         let pre_image = std::mem::replace(&mut self.root.root, new_root);
         self.root.ceiling = new_ceiling;
         drop(pre_image);
-        Ok(changed)
+        changed
     }
 
     /// Merges `other` into `self` by a single simultaneous recursion over
@@ -566,14 +553,7 @@ impl<T> Tree<T> {
     /// answers for what observers of the *set* can see, and a ceiling-only
     /// join leaves the set untouched.
     ///
-    /// # Errors
-    ///
-    /// [`traverse::LeafCollision`] if the two trees hold leaves at one path
-    /// that disagree on version or payload; this tree is untouched (hash,
-    /// ceiling, and content all unchanged). Unreachable outside a crate bug
-    /// or an off-model hash collision — callers `expect` it, and it is
-    /// never user-visible ([`traverse::LeafCollision`]).
-    pub fn join(&mut self, other: Tree<T>) -> Result<bool, traverse::LeafCollision>
+    pub fn join(&mut self, other: Tree<T>) -> bool
     where
         T: Send + Sync,
     {
@@ -605,13 +585,11 @@ impl<T> Tree<T> {
             &self.root.ceiling,
             &their_version,
             &mut changed,
-        )?;
+        );
         let new_ceiling = &self.root.ceiling | their_version;
 
         // The commit point: the walk and the ceiling fold both completed
-        // without unwinding or erroring (a leaf-collision error above
-        // returns before anything of `self` mutates, the same atomicity as
-        // an unwind). Both fields are assigned before the pre-image drops,
+        // without unwinding. Both fields are assigned before the pre-image drops,
         // because that drop runs user code — everything deletion honoring
         // removed from our side becomes uniquely held here, so its
         // cascading `T` destructors run now, and a panicking destructor
@@ -620,7 +598,7 @@ impl<T> Tree<T> {
         let pre_image = std::mem::replace(&mut self.root.root, merged);
         self.root.ceiling = new_ceiling;
         drop(pre_image);
-        Ok(changed)
+        changed
     }
 }
 

@@ -114,7 +114,7 @@ fn insert_at(
 /// first divergence byte is the branch's compressed prefix, with one child
 /// recursing per divergence radix — so every branch has >= 2 children and
 /// maximal prefixes by construction. Preimages are assembled with literal
-/// tag bytes, `LEAF_TAG ‖ len ‖ suffix ‖ version` and
+/// tag bytes, `LEAF_TAG ‖ len ‖ suffix` and
 /// `BRANCH_TAG ‖ len ‖ prefix ‖ count(u16 BE) ‖ (radix ‖ hash)*`, each hash
 /// truncated to its leading
 /// [`MERKLE_HASH_LEN`](crate::tree::typed::hash::MERKLE_HASH_LEN) bytes. The
@@ -125,10 +125,9 @@ fn reference_hash(values: &[(Version, Bytes)]) -> Hash {
     const BRANCH_TAG: u8 = 1;
 
     fn hash_at(depth: usize, leaves: &[([u8; 32], &Version)]) -> Hash {
-        if let [(path, version)] = leaves {
+        if let [(path, _version)] = leaves {
             let mut preimage = vec![LEAF_TAG, (32 - depth) as u8];
             preimage.extend_from_slice(&path[depth..]);
-            preimage.extend_from_slice(version.as_bytes());
             return Hash::of(&preimage);
         }
 
@@ -198,8 +197,7 @@ fn empty_tree_hash_matches_reference() {
 fn single_value_hash_matches_reference() {
     let value = Bytes::from(&b"hello"[..]);
     let mut tree: Tree<Bytes> = Tree::new();
-    tree.act(&party_of("P"), [insert_action(value.clone())])
-        .expect("collision-free by construction");
+    tree.act(&party_of("P"), [insert_action(value.clone())]);
     let tree_hash = tree.hash();
     let reference = reference_hash(&[(version_for("P", 1), value)]);
     assert_eq!(&tree_hash, reference.as_bytes());
@@ -221,7 +219,7 @@ proptest! {
             .prop_map(|v| v.into_iter().map(Bytes::from).collect::<Vec<_>>()),
     ) {
         let mut tree = Tree::new();
-        tree.act(&party_of("P"), values.iter().cloned().map(insert_action)).expect("collision-free by construction");
+        tree.act(&party_of("P"), values.iter().cloned().map(insert_action));
         let reference_input: Vec<_> = values
             .into_iter()
             .enumerate()
@@ -274,7 +272,7 @@ proptest! {
 
         // Route A: one react batch, base order.
         let mut direct = Tree::new();
-        direct.react(kept.iter().map(versioned)).expect("collision-free by construction");
+        direct.react(kept.iter().map(versioned));
 
         // Route B: shuffled order, split into two batches, with the extra
         // leaves inserted in between and redacted again afterwards.
@@ -284,20 +282,20 @@ proptest! {
             .map(|(i, b)| event(kept.len() + i, b))
             .collect();
         let mut detoured = Tree::new();
-        detoured.react(shuffled[..cut].iter().map(versioned)).expect("collision-free by construction");
-        detoured.react(extra_events.iter().map(|(k, v, m)| (*k, v.clone(), m.clone()))).expect("collision-free by construction");
-        detoured.react(shuffled[cut..].iter().map(versioned)).expect("collision-free by construction");
+        detoured.react(shuffled[..cut].iter().map(versioned));
+        detoured.react(extra_events.iter().map(|(k, v, m)| (*k, v.clone(), m.clone())));
+        detoured.react(shuffled[cut..].iter().map(versioned));
         detoured.act(
             &party_of("P"),
             extra_events.iter().rev().map(|(k, _, _)| Action::Forget(*k)),
-        ).expect("collision-free by construction");
+        );
 
         // Route C: two disjoint halves, merged in memory.
         let mut joined = Tree::new();
-        joined.react(kept[..cut].iter().map(versioned)).expect("collision-free by construction");
+        joined.react(kept[..cut].iter().map(versioned));
         let mut right = Tree::new();
-        right.react(kept[cut..].iter().map(versioned)).expect("collision-free by construction");
-        joined.join(right).expect("collision-free by construction");
+        right.react(kept[cut..].iter().map(versioned));
+        joined.join(right);
 
         let serialize = |tree: &Tree<Bytes>| -> Option<Vec<u8>> {
             tree.root
@@ -360,8 +358,7 @@ proptest! {
 
         let mut all_in_one = Tree::new();
         all_in_one
-            .react(bytes.iter().cloned().enumerate().map(event))
-            .expect("collision-free by construction");
+            .react(bytes.iter().cloned().enumerate().map(event));
 
         let mut partitioned = Tree::new();
         let mut chunk: Vec<(usize, Bytes)> = Vec::new();
@@ -374,7 +371,7 @@ proptest! {
                     .into_iter()
                     .map(event)
                     .collect();
-                partitioned.react(batch).expect("collision-free by construction");
+                partitioned.react(batch);
             }
         }
 
@@ -394,7 +391,7 @@ proptest! {
     ) {
         let mut t_act = Tree::new();
         for b in &bytes {
-            t_act.act(&party_of("P"), [insert_action(b.clone())]).expect("collision-free by construction");
+            t_act.act(&party_of("P"), [insert_action(b.clone())]);
         }
 
         let party = "P".to_string();
@@ -408,7 +405,7 @@ proptest! {
                 .into_iter()
                 .zip(bytes.iter().cloned())
                 .enumerate()
-                .map(|(i, (v, b))| insert_at(v, &party, (i + 1) as u64, b))).expect("collision-free by construction");
+                .map(|(i, (v, b))| insert_at(v, &party, (i + 1) as u64, b)));
 
         prop_assert_eq!(t_act.hash(), t_react.hash());
         prop_assert_eq!(t_act.latest(), t_react.latest());
@@ -429,7 +426,7 @@ proptest! {
         if !bytes.is_empty() {
             tree.act(
                 &party_of("P"),
-                bytes.iter().cloned().map(insert_action)).expect("collision-free by construction");
+                bytes.iter().cloned().map(insert_action));
         }
         let n = bytes.len();
 
@@ -474,7 +471,7 @@ proptest! {
         if !bytes.is_empty() {
             tree.act(
                 &party_of("P"),
-                bytes.iter().cloned().map(insert_action)).expect("collision-free by construction");
+                bytes.iter().cloned().map(insert_action));
         }
 
         // Forward order is strictly ascending by path.
@@ -518,8 +515,8 @@ proptest! {
         let path = leaf_path(&party, 1);
 
         let mut tree = Tree::new();
-        tree.act(&party_of("P"), [insert_action(value)]).expect("collision-free by construction");
-        tree.act(&party_of("P"), [Action::Forget(path)]).expect("collision-free by construction");
+        tree.act(&party_of("P"), [insert_action(value)]);
+        tree.act(&party_of("P"), [Action::Forget(path)]);
 
         prop_assert_eq!(tree.hash(), *reference_hash(&[]).as_bytes());
         prop_assert_eq!(tree.latest(), version_for(&party, 2));
@@ -536,7 +533,7 @@ proptest! {
         let path = leaf_path(&party, 1);
 
         let mut tree = Tree::new();
-        tree.act(&party_of("P"), [insert_action(value), Action::Forget(path)]).expect("collision-free by construction");
+        tree.act(&party_of("P"), [insert_action(value), Action::Forget(path)]);
 
         prop_assert_eq!(tree.hash(), *reference_hash(&[]).as_bytes());
         prop_assert_eq!(tree.latest(), Version::new());
@@ -557,9 +554,9 @@ proptest! {
         prop_assume!(!present.contains(&nuke));
 
         let mut t_before = Tree::new();
-        t_before.act(&party_of("P"), bytes.into_iter().map(insert_action)).expect("collision-free by construction");
+        t_before.act(&party_of("P"), bytes.into_iter().map(insert_action));
         let mut t_after = t_before.clone();
-        t_after.act(&party_of("P"), [Action::Forget(nuke)]).expect("collision-free by construction");
+        t_after.act(&party_of("P"), [Action::Forget(nuke)]);
 
         prop_assert_eq!(t_before.hash(), t_after.hash());
         prop_assert_eq!(t_before.latest(), t_after.latest());
@@ -584,7 +581,7 @@ proptest! {
         for i in 0..prior_inserts {
             tree.act(&party_of(&party), [insert_action(Bytes::from(
                 format!("prior-{i}").into_bytes(),
-            ))]).expect("collision-free by construction");
+            ))]);
         }
 
         let actions: Vec<Action<Bytes>> = (0..batch_size)
@@ -592,7 +589,7 @@ proptest! {
                 insert_action(Bytes::from(format!("batch-{i}").into_bytes()))
             })
             .collect();
-        tree.act(&party_of(&party), actions).expect("collision-free by construction");
+        tree.act(&party_of(&party), actions);
 
         // Each prior insert and each batch insert ticks the party once, so the
         // tree's version is exactly that many ticks of the owning party.
@@ -609,10 +606,10 @@ proptest! {
         for i in 0..prior_batches {
             tree.act(&party_of("P"), [insert_action(Bytes::from(
                 format!("prior-{i}").into_bytes(),
-            ))]).expect("collision-free by construction");
+            ))]);
         }
         let before = tree.latest().clone();
-        tree.act(&party_of("P"), std::iter::empty::<Action<Bytes>>()).expect("collision-free by construction");
+        tree.act(&party_of("P"), std::iter::empty::<Action<Bytes>>());
         prop_assert_eq!(tree.latest(), before);
     }
 
@@ -648,12 +645,12 @@ proptest! {
             .collect();
 
         let mut t_ab = Tree::new();
-        t_ab.react(batch_a.clone()).expect("collision-free by construction");
-        t_ab.react(batch_b.clone()).expect("collision-free by construction");
+        t_ab.react(batch_a.clone());
+        t_ab.react(batch_b.clone());
 
         let mut t_ba = Tree::new();
-        t_ba.react(batch_b).expect("collision-free by construction");
-        t_ba.react(batch_a).expect("collision-free by construction");
+        t_ba.react(batch_b);
+        t_ba.react(batch_a);
 
         prop_assert_eq!(t_ab, t_ba);
     }
@@ -679,11 +676,11 @@ proptest! {
             .collect();
 
         let mut t_once = Tree::new();
-        t_once.react(batch.clone()).expect("collision-free by construction");
+        t_once.react(batch.clone());
 
         let mut t_twice = Tree::new();
-        t_twice.react(batch.clone()).expect("collision-free by construction");
-        t_twice.react(batch).expect("collision-free by construction");
+        t_twice.react(batch.clone());
+        t_twice.react(batch);
 
         prop_assert_eq!(t_once, t_twice);
     }
@@ -716,13 +713,13 @@ proptest! {
         t_base.react(base.iter().cloned().map(|b| {
             let (v, scalar) = meta_by_value.get(&b).unwrap();
             insert_at(v.clone(), &party, *scalar, b)
-        })).expect("collision-free by construction");
+        }));
 
         let mut t_shuf = Tree::new();
         t_shuf.react(shuffled.iter().cloned().map(|b| {
             let (v, scalar) = meta_by_value.get(&b).unwrap();
             insert_at(v.clone(), &party, *scalar, b)
-        })).expect("collision-free by construction");
+        }));
 
         prop_assert_eq!(t_base, t_shuf);
     }
@@ -750,7 +747,7 @@ proptest! {
             let scalar = (i + 1) as u64;
             let mut recorded = tree_a.latest().clone();
             recorded.tick(&party_of(&a_id));
-            tree_a.act(&party_of("A"), [insert_action(value.clone())]).expect("collision-free by construction");
+            tree_a.act(&party_of("A"), [insert_action(value.clone())]);
             a_events.push(insert_at(recorded, &a_id, scalar, value.clone()));
         }
 
@@ -760,12 +757,12 @@ proptest! {
             let scalar = (i + 1) as u64;
             let mut recorded = tree_b.latest().clone();
             recorded.tick(&party_of(&b_id));
-            tree_b.act(&party_of("B"), [insert_action(value.clone())]).expect("collision-free by construction");
+            tree_b.act(&party_of("B"), [insert_action(value.clone())]);
             b_events.push(insert_at(recorded, &b_id, scalar, value.clone()));
         }
 
-        tree_a.react(b_events.iter().map(|(k, v, m)| (*k, v.clone(), m.clone()))).expect("collision-free by construction");
-        tree_b.react(a_events.iter().map(|(k, v, m)| (*k, v.clone(), m.clone()))).expect("collision-free by construction");
+        tree_a.react(b_events.iter().map(|(k, v, m)| (*k, v.clone(), m.clone())));
+        tree_b.react(a_events.iter().map(|(k, v, m)| (*k, v.clone(), m.clone())));
 
         prop_assert_eq!(tree_a.latest(), tree_b.latest());
         prop_assert_eq!(tree_a.hash(), tree_b.hash());
@@ -777,7 +774,7 @@ proptest! {
     #[test]
     fn clone_preserves_all_observables(acts in distinct_bytes(8)) {
         let mut tree = Tree::new();
-        tree.act(&party_of("P"), acts.into_iter().map(insert_action)).expect("collision-free by construction");
+        tree.act(&party_of("P"), acts.into_iter().map(insert_action));
         let cloned = tree.clone();
 
         prop_assert_eq!(cloned.latest(), tree.latest());
@@ -795,9 +792,9 @@ proptest! {
     #[test]
     fn eq_implies_same_hash(acts in distinct_bytes(8)) {
         let mut t1 = Tree::new();
-        t1.act(&party_of("P"), acts.iter().cloned().map(insert_action)).expect("collision-free by construction");
+        t1.act(&party_of("P"), acts.iter().cloned().map(insert_action));
         let mut t2 = Tree::new();
-        t2.act(&party_of("P"), acts.into_iter().map(insert_action)).expect("collision-free by construction");
+        t2.act(&party_of("P"), acts.into_iter().map(insert_action));
 
         prop_assert_eq!(&t1, &t2);
         prop_assert_eq!(t1.hash(), t2.hash());
@@ -815,8 +812,8 @@ proptest! {
         let value = Bytes::from(value);
         let mut t_a = Tree::new();
         let mut t_b = Tree::new();
-        t_a.act(&party_of("A"), [insert_action(value.clone())]).expect("collision-free by construction");
-        t_b.act(&party_of("B"), [insert_action(value)]).expect("collision-free by construction");
+        t_a.act(&party_of("A"), [insert_action(value.clone())]);
+        t_b.act(&party_of("B"), [insert_action(value)]);
 
         prop_assert_ne!(t_a.hash(), t_b.hash());
     }
@@ -832,8 +829,8 @@ proptest! {
         let party = "P".to_string();
         let value = Bytes::from(value);
         let mut tree = Tree::new();
-        tree.act(&party_of("P"), [insert_action(value.clone())]).expect("collision-free by construction");
-        tree.act(&party_of("P"), [insert_action(value.clone())]).expect("collision-free by construction");
+        tree.act(&party_of("P"), [insert_action(value.clone())]);
+        tree.act(&party_of("P"), [insert_action(value.clone())]);
 
         let path_v1 = leaf_path(&party, 1);
         let path_v2 = leaf_path(&party, 2);
@@ -853,8 +850,7 @@ proptest! {
 #[test]
 fn delete_nonexistent_key() {
     let mut tree: Tree<()> = Tree::new();
-    tree.act(&party_of("P"), [Action::Forget(Path::from([0; 32]))])
-        .expect("collision-free by construction");
+    tree.act(&party_of("P"), [Action::Forget(Path::from([0; 32]))]);
     assert_eq!(tree, Tree::new());
 }
 
@@ -1030,7 +1026,7 @@ proptest! {
         for (i, value) in values.iter().enumerate() {
             // Rotating parties makes sibling versions concurrent, not just
             // points on one chain, so branch maxima genuinely compare.
-            tree.act(&party_of([b'a' + (i % 5) as u8]), [insert_action(value.clone())]).expect("collision-free by construction");
+            tree.act(&party_of([b'a' + (i % 5) as u8]), [insert_action(value.clone())]);
             prop_assert_eq!(tree.max_version_bytes(), naive_max_version_bytes(&tree));
         }
 
@@ -1053,8 +1049,7 @@ proptest! {
                     }
                 })
                 .unwrap_or(version);
-            tree.act(&party_of("P"), [Action::Forget(Path::for_leaf(&version))])
-                .expect("collision-free by construction");
+            tree.act(&party_of("P"), [Action::Forget(Path::for_leaf(&version))]);
             prop_assert_eq!(tree.max_version_bytes(), naive_max_version_bytes(&tree));
         }
     }
@@ -1078,11 +1073,11 @@ proptest! {
     ) {
         let mut left: Tree<Bytes> = Tree::new();
         for value in &left_values {
-            left.act(&party_of("A"), [insert_action(value.clone())]).expect("collision-free by construction");
+            left.act(&party_of("A"), [insert_action(value.clone())]);
         }
         let mut right: Tree<Bytes> = Tree::new();
         for value in &right_values {
-            right.act(&party_of("B"), [insert_action(value.clone())]).expect("collision-free by construction");
+            right.act(&party_of("B"), [insert_action(value.clone())]);
         }
 
         // A fork of `right` that `left` first absorbs wholesale: the
@@ -1091,7 +1086,7 @@ proptest! {
         // the deletion-honoring arm, aimed at the argmax half the time
         // so the resize-down direction is exercised through the merge.
         let absorbed = right.clone();
-        left.join(absorbed).expect("collision-free by construction");
+        left.join(absorbed);
         prop_assert_eq!(left.max_version_bytes(), naive_max_version_bytes(&left));
 
         for forget in forgets {
@@ -1108,11 +1103,10 @@ proptest! {
             else {
                 break;
             };
-            left.act(&party_of("A"), [Action::Forget(Path::for_leaf(&version))])
-                .expect("collision-free by construction");
+            left.act(&party_of("A"), [Action::Forget(Path::for_leaf(&version))]);
         }
 
-        left.join(right).expect("collision-free by construction");
+        left.join(right);
         prop_assert_eq!(left.max_version_bytes(), naive_max_version_bytes(&left));
     }
 }
@@ -1144,7 +1138,7 @@ proptest! {
         tree.act(
             &party_of("A"),
             base_values.iter().cloned().map(insert_action),
-        ).expect("collision-free by construction");
+        );
         let live: Vec<Path> = tree.iter().map(|(v, _)| Path::for_leaf(v)).collect();
 
         let mut actions: Vec<Action<Bytes>> =
@@ -1160,7 +1154,7 @@ proptest! {
         actions.extend(forget_missing.into_iter().map(Action::Forget));
 
         let before = tree.hash();
-        let changed = tree.act(&party_of("A"), actions).expect("collision-free by construction");
+        let changed = tree.act(&party_of("A"), actions);
         prop_assert_eq!(changed, tree.hash() != before);
     }
 
@@ -1182,7 +1176,7 @@ proptest! {
     ) {
         let mut tree = Tree { root: a };
         let before = tree.hash();
-        let changed = tree.join(Tree { root: b }).expect("collision-free by construction");
+        let changed = tree.join(Tree { root: b });
         prop_assert_eq!(changed, tree.hash() != before);
     }
 
@@ -1200,7 +1194,7 @@ proptest! {
     ) {
         let mut tree = Tree { root: a };
         let before = tree.hash();
-        let changed = tree.join(Tree { root: b }).expect("collision-free by construction");
+        let changed = tree.join(Tree { root: b });
         prop_assert_eq!(changed, tree.hash() != before);
     }
 }
@@ -1219,9 +1213,7 @@ fn deep_divergent_join_changed_flag_is_exact() {
     for (receiver, counter) in [(a.clone(), b.clone()), (b, a.clone())] {
         let mut tree = Tree { root: receiver };
         let before = tree.hash();
-        let changed = tree
-            .join(Tree { root: counter })
-            .expect("collision-free by construction");
+        let changed = tree.join(Tree { root: counter });
         assert_eq!(changed, tree.hash() != before, "deep gain is biconditional");
         assert!(changed, "a deep gain must report changed");
     }
@@ -1230,9 +1222,7 @@ fn deep_divergent_join_changed_flag_is_exact() {
     // counterparty has, so the full-depth divergent descent nets nothing.
     let mut tree = Tree { root: expected };
     let before = tree.hash();
-    let changed = tree
-        .join(Tree { root: a })
-        .expect("collision-free by construction");
+    let changed = tree.join(Tree { root: a });
     assert_eq!(
         changed,
         tree.hash() != before,
@@ -1244,9 +1234,7 @@ fn deep_divergent_join_changed_flag_is_exact() {
     let (a, b, _survivor) = crate::tree::arb::leaf_parent_redaction_pair();
     let mut tree = Tree { root: a };
     let before = tree.hash();
-    let changed = tree
-        .join(Tree { root: b })
-        .expect("collision-free by construction");
+    let changed = tree.join(Tree { root: b });
     assert_eq!(
         changed,
         tree.hash() != before,
@@ -1264,24 +1252,19 @@ fn deep_divergent_join_changed_flag_is_exact() {
 #[test]
 fn ceiling_only_join_reports_unchanged() {
     let mut tree: Tree<Bytes> = Tree::new();
-    tree.act(&party_of("A"), [insert_action(Bytes::from_static(b"kept"))])
-        .expect("collision-free by construction");
+    tree.act(&party_of("A"), [insert_action(Bytes::from_static(b"kept"))]);
 
     // The counterparty: a tree that sent one message on its own disjoint
     // party and then redacted it, leaving no content but an advanced
     // ceiling. Its frontier is news to us; its (empty) content is not.
     let mut other: Tree<Bytes> = Tree::new();
-    other
-        .act(&party_of("B"), [insert_action(Bytes::from_static(b"gone"))])
-        .expect("collision-free by construction");
+    other.act(&party_of("B"), [insert_action(Bytes::from_static(b"gone"))]);
     let version = other
         .iter()
         .map(|(v, _)| v.clone())
         .next()
         .expect("one live message");
-    other
-        .act(&party_of("B"), [Action::Forget(Path::for_leaf(&version))])
-        .expect("collision-free by construction");
+    other.act(&party_of("B"), [Action::Forget(Path::for_leaf(&version))]);
     assert!(
         other.is_empty(),
         "the counterparty redacted its only message"
@@ -1289,7 +1272,7 @@ fn ceiling_only_join_reports_unchanged() {
 
     let before = tree.hash();
     let ceiling_before = tree.latest().clone();
-    let changed = tree.join(other).expect("collision-free by construction");
+    let changed = tree.join(other);
     assert!(
         !changed,
         "a merge that teaches the set nothing reports unchanged",
@@ -1322,15 +1305,12 @@ fn act_changed_flag_is_conservative_only_in_a_poisoned_store() {
 
     let mut tree = Tree { root: receiver };
     assert!(
-        tree.join(Tree { root: poisoned })
-            .expect("collision-free by construction"),
+        tree.join(Tree { root: poisoned }),
         "planting the escaped leaf is a real change",
     );
 
     let before = tree.hash();
-    let changed = tree
-        .act(&receiver_party, [Action::Forget(key)])
-        .expect("collision-free by construction");
+    let changed = tree.act(&receiver_party, [Action::Forget(key)]);
     assert!(
         changed,
         "the skipped forget reports changed: the conservative direction",
@@ -1365,8 +1345,7 @@ fn escaped_version_defeats_redaction_in_a_poisoned_store() {
     // Plant the escaped leaf by in-memory join: `Tree::join` is a local
     // merge, not wire ingestion, so no session tripwire guards it.
     let mut tree = Tree { root: receiver };
-    tree.join(Tree { root: poisoned })
-        .expect("collision-free by construction");
+    tree.join(Tree { root: poisoned });
     assert!(
         tree.get(&escaped).is_some(),
         "the join plants the escaped leaf"
@@ -1378,8 +1357,7 @@ fn escaped_version_defeats_redaction_in_a_poisoned_store() {
 
     // Redaction is silently skipped: the forget's version ticks from the
     // ceiling, which the escaped version strictly dominates.
-    tree.act(&receiver_party, [Action::Forget(key)])
-        .expect("collision-free by construction");
+    tree.act(&receiver_party, [Action::Forget(key)]);
     assert!(
         tree.get(&escaped).is_some(),
         "redacting the escaped leaf is silently skipped",
@@ -1389,7 +1367,7 @@ fn escaped_version_defeats_redaction_in_a_poisoned_store() {
     // receives it on merge, because no ceiling ever classifies it as
     // already-seen-and-deleted.
     let mut fresh: Tree<()> = Tree::new();
-    fresh.join(tree).expect("collision-free by construction");
+    fresh.join(tree);
     assert!(
         fresh.get(&escaped).is_some(),
         "the escaped leaf re-plants into a fresh replica",
@@ -1442,8 +1420,7 @@ mod span_door_traffic {
         let (equal, empty, comparable, concurrent) = cells(|| {
             let mut tree: Tree<Bytes> = Tree::new();
             for round in 0..8 {
-                tree.act(&party_of("A"), batch("a", round, 64).map(insert_action))
-                    .expect("collision-free by construction");
+                tree.act(&party_of("A"), batch("a", round, 64).map(insert_action));
                 tree.warm_caches();
             }
         });
@@ -1475,20 +1452,17 @@ mod span_door_traffic {
             for label in ["A", "B", "C", "D"] {
                 let mut tree: Tree<Bytes> = Tree::new();
                 for round in 0..4 {
-                    tree.act(&party_of(label), batch(label, round, 32).map(insert_action))
-                        .expect("collision-free by construction");
+                    tree.act(&party_of(label), batch(label, round, 32).map(insert_action));
                 }
                 tree.warm_caches();
-                merged.join(tree).expect("collision-free by construction");
+                merged.join(tree);
             }
             merged.warm_caches();
             // Incremental rounds on the merged tree: acts invalidate
             // ancestor memos, so re-warming re-folds them against the
             // merged population.
             for round in 100..104 {
-                merged
-                    .act(&party_of("A"), batch("a", round, 32).map(insert_action))
-                    .expect("collision-free by construction");
+                merged.act(&party_of("A"), batch("a", round, 32).map(insert_action));
                 merged.warm_caches();
             }
         });
@@ -1525,8 +1499,7 @@ fn act_unwind_leaves_tree_byte_identical() {
     tree.act(
         &party_of("P"),
         [insert_action(Bytes::from_static(b"survivor"))],
-    )
-    .expect("collision-free by construction");
+    );
     let hash_before = tree.hash();
     let ceiling_before = tree.latest().clone();
     assert!(!tree.is_empty());
@@ -1540,8 +1513,7 @@ fn act_unwind_leaves_tree_byte_identical() {
             panic!("injected: actions iterator panics mid-drain")
         }));
     let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        tree.act(&party_of("P"), panicking_actions)
-            .expect("collision-free by construction");
+        tree.act(&party_of("P"), panicking_actions);
     }));
     assert!(unwound.is_err(), "the injected panic must unwind out");
 
@@ -1579,16 +1551,13 @@ fn join_unwind_leaves_tree_byte_identical() {
     ours.act(
         &party_of("A"),
         [b"ours-1" as &[u8], b"ours-2", b"ours-3"].map(|b| insert_action(Bytes::from_static(b))),
-    )
-    .expect("collision-free by construction");
+    );
     let mut theirs: Tree<Bytes> = Tree::new();
-    theirs
-        .act(
-            &party_of("B"),
-            [b"theirs-1" as &[u8], b"theirs-2", b"theirs-3"]
-                .map(|b| insert_action(Bytes::from_static(b))),
-        )
-        .expect("collision-free by construction");
+    theirs.act(
+        &party_of("B"),
+        [b"theirs-1" as &[u8], b"theirs-2", b"theirs-3"]
+            .map(|b| insert_action(Bytes::from_static(b))),
+    );
     let hash_before = ours.hash();
     let ceiling_before = ours.latest().clone();
     assert!(!ours.is_empty());
@@ -1598,7 +1567,7 @@ fn join_unwind_leaves_tree_byte_identical() {
     // already merged into the root frame's copied fan.
     let _fuse = super::panic_injection::arm(3);
     let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        ours.join(theirs).expect("collision-free by construction");
+        ours.join(theirs);
     }));
     assert!(
         unwound.is_err(),
@@ -1670,8 +1639,7 @@ fn act_mid_walk_unwind_leaves_tree_byte_identical() {
     tree.act(
         &party_of("A"),
         [b"held-1" as &[u8], b"held-2", b"held-3"].map(|b| insert_action(Bytes::from_static(b))),
-    )
-    .expect("collision-free by construction");
+    );
     let hash_before = tree.hash();
     let ceiling_before = tree.latest().clone();
     assert!(!tree.is_empty());
@@ -1686,8 +1654,7 @@ fn act_mid_walk_unwind_leaves_tree_byte_identical() {
         tree.act(
             &party_of("A"),
             [b"new-1" as &[u8], b"new-2", b"new-3"].map(|b| insert_action(Bytes::from_static(b))),
-        )
-        .expect("collision-free by construction");
+        );
     }));
     assert!(
         unwound.is_err(),
@@ -1723,8 +1690,7 @@ fn act_destructor_unwind_leaves_tree_byte_identical() {
     let mut tree: Tree<DropBomb> = Tree::new();
     let existing = Message::new(DropBomb { armed: false });
     let key = Path::for_leaf(&version_for("A", 2));
-    tree.react([(key, version_for("A", 2), existing)])
-        .expect("collision-free by construction");
+    tree.react([(key, version_for("A", 2), existing)]);
 
     let hash_before = tree.hash();
     let ceiling_before = tree.latest().clone();
@@ -1735,8 +1701,7 @@ fn act_destructor_unwind_leaves_tree_byte_identical() {
     // last handle — mid-walk.
     let bomb = Message::new(DropBomb { armed: true });
     let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        tree.react([(key, version_for("A", 1), bomb)])
-            .expect("collision-free by construction");
+        tree.react([(key, version_for("A", 1), bomb)]);
     }));
     let payload = unwound.expect_err("the armed destructor must unwind out of the apply walk");
     assert_eq!(
@@ -1778,22 +1743,19 @@ fn join_destructor_unwind_leaves_tree_byte_identical() {
     ours.act(
         &party_of("A"),
         [Action::Insert(Message::new(DropBomb { armed: false }))],
-    )
-    .expect("collision-free by construction");
+    );
     let bomb = Message::new(DropBomb { armed: true });
     // The key `act` derives for the bomb's insert (the second action on
     // this tree ticks party A to 2), computed up front so the redaction
     // below can name it.
     let bomb_key = Path::for_leaf(&version_for("A", 2));
-    ours.act(&party_of("A"), [Action::Insert(bomb)])
-        .expect("collision-free by construction");
+    ours.act(&party_of("A"), [Action::Insert(bomb)]);
 
     // The counterparty forks while the bomb is live: the clone shares our
     // nodes (no `T` code runs), and after our forget below releases our
     // handles, the counterparty holds the bomb's only ones.
     let theirs = ours.clone();
-    ours.act(&party_of("A"), [Action::Forget(bomb_key)])
-        .expect("collision-free by construction");
+    ours.act(&party_of("A"), [Action::Forget(bomb_key)]);
 
     let hash_before = ours.hash();
     let ceiling_before = ours.latest().clone();
@@ -1803,7 +1765,7 @@ fn join_destructor_unwind_leaves_tree_byte_identical() {
     // (A at 3) and we lack its content, so deletion honoring drops the
     // incoming leaf mid-walk: the last handle, the armed destructor.
     let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        ours.join(theirs).expect("collision-free by construction");
+        ours.join(theirs);
     }));
     let payload = unwound.expect_err("the armed destructor must unwind out of the merge walk");
     assert_eq!(
@@ -1823,70 +1785,55 @@ fn join_destructor_unwind_leaves_tree_byte_identical() {
     );
 }
 
-/// `Tree::join` halts with a `LeafCollision` when the two trees bind one
-/// path to *different versions* — the shape only a full-width path-hash
-/// collision (or a crate bug) can produce — and leaves the receiving tree
-/// untouched.
+/// Two leaves at one position digest equally whatever their contents — a
+/// leaf digest is a pure function of its path suffix — so `Tree::join`
+/// prunes the pair as equal, keeps its own side, and reports no change.
 ///
-/// The colliding pair is planted directly through `react` at a synthetic
-/// shared path, which no public insert can mint; the leaf digest commits
-/// the version, so the merge walk descends to the pair instead of pruning
-/// it as equal.
+/// The pair is planted directly through `react` at a synthetic shared
+/// path, which no public insert can mint: this pins the digest's
+/// suffix-only preimage behaviorally (the merge walk trusts path
+/// derivation; collision detection is ingestion's job, where both leaves
+/// are in hand).
 #[test]
-fn join_detects_a_version_collision_at_one_path() {
+fn join_prunes_same_position_leaves_whatever_their_contents() {
     let shared = Path::from([0x42; 32]);
 
     let mut ours: Tree<Bytes> = Tree::new();
-    ours.react([(shared, version_for("A", 1), msg(Bytes::from_static(b"a")))])
-        .expect("first insert at a fresh path cannot collide");
+    ours.react([(shared, version_for("A", 1), msg(Bytes::from_static(b"a")))]);
 
     let mut theirs: Tree<Bytes> = Tree::new();
-    theirs
-        .react([(shared, version_for("B", 1), msg(Bytes::from_static(b"b")))])
-        .expect("first insert at a fresh path cannot collide");
+    theirs.react([(shared, version_for("B", 1), msg(Bytes::from_static(b"b")))]);
 
     let hash_before = ours.hash();
-    let ceiling_before = ours.latest().clone();
-    let collision = ours
-        .join(theirs)
-        .expect_err("distinct versions at one path must halt the merge");
-    // The diagnostic names the resident leaf by its version-derived path
-    // (the synthetic location itself is not recoverable at the leaf level).
-    assert_eq!(
-        collision.path,
-        <[u8; 32]>::from(Path::for_leaf(&version_for("A", 1)))
-    );
-    assert_eq!(ours.hash(), hash_before, "the tree is untouched on Err");
-    assert_eq!(
-        ours.latest(),
-        &ceiling_before,
-        "the ceiling is untouched on Err"
-    );
+    let changed = ours.join(theirs);
+    assert!(!changed, "a digest-equal pair teaches the set nothing");
+    assert_eq!(ours.hash(), hash_before, "ours is kept verbatim");
+    let (_, message) = ours
+        .iter()
+        .map(|(v, m)| (v.clone(), m.clone()))
+        .next()
+        .expect("one live message");
+    assert_eq!(&*message, &Bytes::from_static(b"a"), "ours is kept");
 }
 
 /// Two leaves carrying the *same version* with different payloads compare
 /// digest-equal, so `Tree::join` keeps one side and reports no change.
 ///
 /// Digests are content-blind by design: this is the modeled trade, pinned
-/// so its boundary with the detected (version-mismatch) case stays
-/// explicit.
+/// so its boundary with ingestion's detected case (`react` asserting on a
+/// disagreeing occupied-path insert) stays explicit.
 #[test]
 fn join_prunes_same_version_payload_divergence_as_equal() {
     let version = version_for("A", 1);
     let path = Path::for_leaf(&version);
 
     let mut ours: Tree<Bytes> = Tree::new();
-    ours.react([(path, version.clone(), msg(Bytes::from_static(b"ours")))])
-        .expect("first insert at a fresh path cannot collide");
+    ours.react([(path, version.clone(), msg(Bytes::from_static(b"ours")))]);
     let mut theirs: Tree<Bytes> = Tree::new();
-    theirs
-        .react([(path, version, msg(Bytes::from_static(b"theirs")))])
-        .expect("first insert at a fresh path cannot collide");
+    theirs.react([(path, version, msg(Bytes::from_static(b"theirs")))]);
 
     let hash_before = ours.hash();
-    let changed = ours
-        .join(theirs)
-        .expect("digest-equal leaves prune before the leaf arm");
+    let changed = ours.join(theirs);
     assert!(!changed, "a digest-equal pair teaches the set nothing");
     assert_eq!(ours.hash(), hash_before);
     let (_, message) = ours
@@ -1907,49 +1854,36 @@ fn reinserting_an_identical_leaf_is_idempotent() {
     let message = msg(Bytes::from_static(b"same"));
 
     let mut tree: Tree<Bytes> = Tree::new();
-    tree.react([(path, version.clone(), message.clone())])
-        .expect("first insert at a fresh path cannot collide");
+    tree.react([(path, version.clone(), message.clone())]);
     let hash_before = tree.hash();
-    tree.react([(path, version, message)])
-        .expect("a byte-identical re-insert is idempotent");
+    tree.react([(path, version, message)]);
     assert_eq!(tree.hash(), hash_before, "the tree is unchanged");
 }
 
 /// An insert landing on a live leaf that disagrees on payload bytes under
-/// one version is version reuse: `react` halts with a `LeafCollision`
-/// naming the path, and the tree is untouched.
+/// one version is version reuse: the apply walk asserts (a crate bug,
+/// never an input — every production insert carries a freshly minted
+/// version).
 #[test]
-fn react_detects_version_reuse_at_an_occupied_path() {
+#[should_panic(expected = "version reuse")]
+fn react_asserts_on_version_reuse_at_an_occupied_path() {
     let version = version_for("A", 1);
     let path = Path::for_leaf(&version);
 
     let mut tree: Tree<Bytes> = Tree::new();
-    tree.react([(path, version.clone(), msg(Bytes::from_static(b"first")))])
-        .expect("first insert at a fresh path cannot collide");
-    let hash_before = tree.hash();
-    let collision = tree
-        .react([(path, version, msg(Bytes::from_static(b"second")))])
-        .expect_err("a second payload under one version must halt the apply");
-    assert_eq!(collision.path, <[u8; 32]>::from(path));
-    assert_eq!(tree.hash(), hash_before, "the tree is untouched on Err");
+    tree.react([(path, version.clone(), msg(Bytes::from_static(b"first")))]);
+    tree.react([(path, version, msg(Bytes::from_static(b"second")))]);
 }
 
 /// An insert landing on a live leaf whose version *differs* (a synthetic
-/// path collision) halts with a `LeafCollision` too: both legs of the
-/// identity check are enforced, not just payload equality.
+/// path collision) trips the same assertion: both legs of the identity
+/// check are enforced, not just payload equality.
 #[test]
-fn react_detects_a_path_collision_between_distinct_versions() {
+#[should_panic(expected = "version reuse")]
+fn react_asserts_on_a_path_collision_between_distinct_versions() {
     let shared = Path::from([0x24; 32]);
 
     let mut tree: Tree<Bytes> = Tree::new();
-    tree.react([(shared, version_for("A", 1), msg(Bytes::from_static(b"a")))])
-        .expect("first insert at a fresh path cannot collide");
-    let collision = tree
-        .react([(shared, version_for("B", 1), msg(Bytes::from_static(b"a")))])
-        .expect_err("a distinct version at an occupied path must halt the apply");
-    // The diagnostic names the incoming insert by its version-derived path.
-    assert_eq!(
-        collision.path,
-        <[u8; 32]>::from(Path::for_leaf(&version_for("B", 1)))
-    );
+    tree.react([(shared, version_for("A", 1), msg(Bytes::from_static(b"a")))]);
+    tree.react([(shared, version_for("B", 1), msg(Bytes::from_static(b"a")))]);
 }

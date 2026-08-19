@@ -77,8 +77,7 @@ fn parked_supply_reply_holds_handles_not_subtrees() {
 
     let party = before::Party::seed();
     let mut tree = Tree::new();
-    tree.act(&party, (0..LEAVES).map(|v| Action::Insert(Message::new(v))))
-        .expect("collision-free by construction");
+    tree.act(&party, (0..LEAVES).map(|v| Action::Insert(Message::new(v))));
     let root = tree
         .root
         .root

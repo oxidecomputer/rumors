@@ -261,7 +261,7 @@ proptest! {
             ceiling: actions
                 .iter()
                 .fold(Version::default(), |acc, (_, v, _)| acc | v.clone()),
-            root: act(None, actions.to_vec(), |_| ()).expect("collision-free by construction"),
+            root: act(None, actions.to_vec(), |_| ()),
         };
 
         let tree_a = wrap(&actions_a);

@@ -84,37 +84,34 @@ impl Hash {
     }
 
     /// The hash of a leaf observed from the top of its compressed `suffix`:
-    /// `blake3(LEAF_TAG ‖ suffix_len ‖ suffix ‖ version)`.
+    /// `blake3(LEAF_TAG ‖ suffix_len ‖ suffix)`.
     ///
     /// `suffix` is the leaf's path-compressed span in **path order** —
     /// shallowest byte first, as the node serializer emits it — and
     /// `suffix_len` is one byte (a compressed span never exceeds the
-    /// 32-byte path). `version` is the leaf's canonical encoding:
-    /// self-delimiting, so the preimage stays injective with the suffix
-    /// length-tagged and the version last.
+    /// 32-byte path).
     ///
-    /// A leaf commits its path bytes and its version, never its message
-    /// bytes: every compared digest is a pure function of the version set,
-    /// and a content author contributes no bit to any compared quantity.
-    /// The path already commits the version through its hash
-    /// ([`Path::for_leaf`](super::Path::for_leaf)); committing the raw
-    /// version bytes too makes two *distinct* versions that collided into
-    /// one path (off-model) digest-unequal, so the merge walk surfaces
-    /// that impossibility as a local violation instead of keeping a side.
+    /// The suffix is a complete commitment: a leaf's path is the
+    /// full-width hash of its version ([`Path::for_leaf`](super::Path::for_leaf)),
+    /// so under the crate's uniform-hash model one path is one version,
+    /// and every compared digest is a pure function of the version set. A
+    /// leaf commits no message bytes: a content author contributes no bit
+    /// to any compared quantity — digests are content-blind by design, a
+    /// modeled trade. Collision detection is ingestion's job
+    /// ([`react`](crate::tree::Tree::react)'s occupied-path arms), where
+    /// both leaves are in hand; the merge walk trusts path derivation.
     ///
     /// # Panics
     ///
     /// Panics if `suffix` exceeds 255 bytes. Unreachable through the typed
     /// tree, whose height cap bounds compressed spans at the 32-byte path.
-    pub fn leaf(suffix: &[u8], version: &crate::Version) -> Self {
-        let version = version.as_bytes();
+    pub fn leaf(suffix: &[u8]) -> Self {
         let suffix_len =
             u8::try_from(suffix.len()).expect("a compressed span fits in one length byte");
-        let mut buf = Vec::with_capacity(2 + suffix.len() + version.len());
+        let mut buf = Vec::with_capacity(2 + suffix.len());
         buf.push(LEAF_TAG);
         buf.push(suffix_len);
         buf.extend_from_slice(suffix);
-        buf.extend_from_slice(version);
         Hash::of(&buf)
     }
 

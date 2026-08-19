@@ -912,14 +912,7 @@ impl<T, B: Persist> Peer<T, B> {
                 merged.latest().partial_cmp(inner.tree.latest()),
                 None | Some(std::cmp::Ordering::Greater)
             );
-            // A leaf collision in the merge is unreachable from any input:
-            // both trees derive paths from versions locally, so it would
-            // take a full-width hash collision between distinct versions
-            // (off-model) or a broken tree invariant in this crate.
-            let tree_changed = inner
-                .tree
-                .join(merged)
-                .expect("reconciled leaves cannot collide: paths are version-derived");
+            let tree_changed = inner.tree.join(merged);
             peer_retiring || tree_changed || ceiling_advancing
         });
         if party_overlap {

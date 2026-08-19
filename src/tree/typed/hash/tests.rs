@@ -27,16 +27,17 @@ fn branch_preimage_layout() {
     assert_eq!(Hash::branch(&prefix, children), Hash::of(&expected));
 }
 
-/// A leaf commits to exactly `LEAF_TAG ‖ suffix_len ‖ suffix ‖ version` —
-/// its compressed suffix, length-tagged, then the version's canonical
-/// bytes, and never any message bytes.
+/// A leaf commits to exactly `LEAF_TAG ‖ suffix_len ‖ suffix` — its
+/// compressed suffix, length-tagged, and never any version or message
+/// bytes.
+///
+/// The path (which the suffix spells) is version-derived, so the suffix
+/// is already a complete commitment to the version set.
 #[test]
 fn leaf_preimage_layout() {
     let suffix = [0x01, 0x02, 0x03, 0x04];
-    let version = crate::Version::try_from(5).expect("a small scalar version is valid");
-    let mut expected = vec![LEAF_TAG, 4, 0x01, 0x02, 0x03, 0x04];
-    expected.extend_from_slice(version.as_bytes());
-    assert_eq!(Hash::leaf(&suffix, &version), Hash::of(&expected));
+    let expected = vec![LEAF_TAG, 4, 0x01, 0x02, 0x03, 0x04];
+    assert_eq!(Hash::leaf(&suffix), Hash::of(&expected));
 }
 
 /// The empty tree hashes as a prefixless branch with no children —
@@ -53,8 +54,7 @@ fn empty_root_is_the_empty_branch() {
 /// load-bearing under the single-preimage rule.
 #[test]
 fn empty_suffix_leaf_is_not_the_empty_root() {
-    let version = crate::Version::new();
-    assert_ne!(Hash::leaf(&[], &version), Hash::empty_root());
+    assert_ne!(Hash::leaf(&[]), Hash::empty_root());
 }
 
 /// A prefix byte cannot masquerade as child-record bytes: two branches whose

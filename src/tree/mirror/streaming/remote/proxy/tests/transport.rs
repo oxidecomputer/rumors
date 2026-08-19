@@ -28,15 +28,12 @@ fn flush_only_one_byte_transport_reconciles() {
     left.act(
         &nth_party(0),
         (0..8).map(|_| Action::Insert(Message::new(()))),
-    )
-    .expect("collision-free by construction");
+    );
     let mut right = Tree::new();
-    right
-        .act(
-            &nth_party(1),
-            (0..8).map(|_| Action::Insert(Message::new(()))),
-        )
-        .expect("collision-free by construction");
+    right.act(
+        &nth_party(1),
+        (0..8).map(|_| Action::Insert(Message::new(()))),
+    );
     let expected = run_to_quiescence(reconcile_locally(left.root.clone(), right.root.clone()))
         .expect("materialized oracle should remain live");
     let flush_only = plan(1, 1, vec![1; 512], true);

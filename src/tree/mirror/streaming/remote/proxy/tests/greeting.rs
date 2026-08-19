@@ -46,9 +46,7 @@ fn wire_reconcile(
 /// oracle.
 fn union_hash(a: &crate::tree::Root<()>, b: &crate::tree::Root<()>) -> [u8; MERKLE_HASH_LEN] {
     let mut union = Tree { root: a.clone() };
-    union
-        .join(Tree { root: b.clone() })
-        .expect("collision-free by construction");
+    union.join(Tree { root: b.clone() });
     union.hash()
 }
 
@@ -117,30 +115,22 @@ fn order_by_election(
 fn empty_carried_listing_asks_for_everything() {
     // The populated responder: one message on party 0.
     let mut populated = Tree::new();
-    populated
-        .act(&nth_party(0), [Action::Insert(Message::new(()))])
-        .expect("collision-free by construction");
+    populated.act(&nth_party(0), [Action::Insert(Message::new(()))]);
 
     // The emptied initiator: insert-then-forget on party 1 ticks its version
     // while redaction keeps the tree (and so its advertised set) empty.
     let mut emptied = Tree::new();
-    emptied
-        .act(&nth_party(1), [Action::Insert(Message::new(()))])
-        .expect("collision-free by construction");
+    emptied.act(&nth_party(1), [Action::Insert(Message::new(()))]);
     let paths: Vec<_> = emptied
         .iter()
         .map(|(v, _)| crate::tree::typed::Path::for_leaf(v))
         .collect();
-    emptied
-        .act(&nth_party(1), paths.into_iter().map(Action::Forget))
-        .expect("collision-free by construction");
+    emptied.act(&nth_party(1), paths.into_iter().map(Action::Forget));
     assert!(emptied.is_empty(), "the initiator's tree must be empty");
 
     let expected = {
         let mut union = populated.clone();
-        union
-            .join(emptied.clone())
-            .expect("collision-free by construction");
+        union.join(emptied.clone());
         union
     };
     let (left, right) = wire_reconcile(emptied.root, populated.root.clone());
@@ -161,8 +151,7 @@ fn empty_carried_listing_asks_for_everything() {
 fn converged_session_carries_listings_unused() {
     let build = || {
         let mut tree = Tree::new();
-        tree.act(&nth_party(0), [Action::Insert(Message::new(()))])
-            .expect("collision-free by construction");
+        tree.act(&nth_party(0), [Action::Insert(Message::new(()))]);
         tree
     };
     let (a, b) = (build(), build());
@@ -199,12 +188,10 @@ fn converged_session_carries_listings_unused() {
 fn mixed_empty_and_populated_converges() {
     let empty = Tree::<()>::new();
     let mut populated = Tree::new();
-    populated
-        .act(
-            &nth_party(0),
-            (0..4).map(|_| Action::Insert(Message::new(()))),
-        )
-        .expect("collision-free by construction");
+    populated.act(
+        &nth_party(0),
+        (0..4).map(|_| Action::Insert(Message::new(()))),
+    );
     assert_ne!(
         populated.latest().as_bytes(),
         empty.latest().as_bytes(),
@@ -252,8 +239,7 @@ fn overlapping_sessions_lose_innocent_leaf_after_honored_redaction() {
     // puts shared runs on both sides of every divergence point.
     let p = nth_party(0);
     let mut t0 = Tree::new();
-    t0.act(&p, (0..25).map(|_| Action::Insert(Message::new(()))))
-        .expect("collision-free by construction");
+    t0.act(&p, (0..25).map(|_| Action::Insert(Message::new(()))));
     let leaves: Vec<_> = t0
         .iter()
         .map(|(v, _)| (crate::tree::typed::Path::for_leaf(v), v.clone()))
@@ -271,8 +257,7 @@ fn overlapping_sessions_lose_innocent_leaf_after_honored_redaction() {
         let mut twin = Tree {
             root: t0.root.clone(),
         };
-        twin.act(&nth_party(1), [Action::Forget(*k)])
-            .expect("collision-free by construction");
+        twin.act(&nth_party(1), [Action::Forget(*k)]);
 
         // S1's session and install: reconcile T0 against the redacting
         // twin over the wire, then join the result into the live tree.
@@ -284,16 +269,14 @@ fn overlapping_sessions_lose_innocent_leaf_after_honored_redaction() {
         };
         live.join(Tree {
             root: s1_reconciled,
-        })
-        .expect("collision-free by construction");
+        });
         let expected = live.hash();
 
         // S2's install, after S1's: joining our own causal past must be an
         // identity on the tree.
         live.join(Tree {
             root: s2_reconciled.clone(),
-        })
-        .expect("collision-free by construction");
+        });
 
         if live.hash() != expected {
             let missing: Vec<_> = leaves

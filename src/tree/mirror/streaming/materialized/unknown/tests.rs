@@ -44,10 +44,7 @@ fn tree_and_known(flags_a: &[bool], flags_b: &[bool]) -> (Option<typed::node::Ro
         }
     }
 
-    (
-        act(None, actions, |_| ()).expect("collision-free by construction"),
-        known,
-    )
+    (act(None, actions, |_| ()), known)
 }
 
 /// Prune an optional root through the single-node streaming filter, driving

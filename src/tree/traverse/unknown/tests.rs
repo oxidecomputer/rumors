@@ -111,10 +111,7 @@ fn wide_divergence(
         }
     }
 
-    (
-        act(None, actions, |_| ()).expect("collision-free by construction"),
-        known,
-    )
+    (act(None, actions, |_| ()), known)
 }
 
 /// `body`'s result with its scanned-bits reading, on a fresh counter.

@@ -470,7 +470,7 @@ impl<T> Node<T> {
             // path).
             let prefix: ArrayVec<[u8; 32]> = self.inner.prefix.iter().rev().copied().collect();
             match &self.inner.children {
-                Children::Leaf { version, .. } => Hash::leaf(&prefix, version),
+                Children::Leaf { .. } => Hash::leaf(&prefix),
                 Children::Branch { children, .. } => Hash::branch(
                     &prefix,
                     children.iter().map(|(radix, child)| (radix, child.hash())),

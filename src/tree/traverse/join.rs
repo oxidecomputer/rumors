@@ -19,8 +19,8 @@
 //!   version was deleted there (the version vector is the entire deletion
 //!   mechanism; there are no tombstones) and is dropped.
 //! - **both have it, hashes equal**: the subtrees hold the same version
-//!   set (hashes commit shape and versions), hence the same messages;
-//!   keep one verbatim.
+//!   set (paths are version-derived, so a hash commits the versions
+//!   beneath it), hence the same messages; keep one verbatim.
 //! - **both have it, hashes differ**: explode both one level and merge-walk
 //!   the two ascending radix fans in lockstep, recursing only into the
 //!   radixes whose child subtrees differ — children equal by pointer or by
@@ -40,26 +40,6 @@ use super::typed::*;
 use super::unknown::Unknown;
 use height::{Height, Root, S, Z};
 
-/// Crate-internal: two live leaves met at one tree path while disagreeing
-/// on version or payload.
-///
-/// Never user-visible, because no input can produce it: paths are
-/// full-width hashes of versions, live leaf versions never exceed the
-/// ceiling a fresh tick strictly dominates, and ingestion enforces
-/// containment — so a collision requires a bug in this crate or a
-/// full-width hash collision (off-model). The traversals return it as a
-/// typed error so tests can construct and observe the detector directly;
-/// the public seams (`Batch`'s drop commit, the gossip commit) `expect` it
-/// away as the invariant breach it is.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("two distinct leaves collided at one tree path: a version was reused")]
-pub struct LeafCollision {
-    /// The 32-byte version-derived path naming one colliding leaf: the
-    /// resident leaf's in the merge walk, the incoming insert's in the
-    /// apply walk.
-    pub path: [u8; 32],
-}
-
 /// Merges two trees rooted at `a` and `b` into one.
 ///
 /// `a_version` / `b_version` are the two roots' version vectors, used to honor
@@ -74,25 +54,19 @@ pub struct LeafCollision {
 /// drops live at distinct version-addressed paths and each is monotone at its
 /// path, so they cannot cancel: an untouched flag really means the merged
 /// tree is `a`, content-identical, equal root hash.
-///
-/// # Errors
-///
-/// [`LeafCollision`] if two leaves meet at one path while disagreeing on
-/// version or payload (unreachable from any input; see [`LeafCollision`]).
-/// On `Err`, `changed` may have been set but nothing has been published:
-/// the caller's commit point is never reached.
 pub fn join<T>(
     a: Option<Node<T, Root>>,
     b: Option<Node<T, Root>>,
     a_version: &Version,
     b_version: &Version,
     changed: &mut bool,
-) -> Result<Option<Node<T, Root>>, LeafCollision>
+) -> Option<Node<T, Root>>
 where
     T: Send + Sync,
 {
     // Test-only unwind source for the panic-atomicity pin: the merge walk
-    // is the fallible region of `Tree::join`'s commit section, and its
+    // is the unwind-source region of `Tree::join`'s commit section (deletion
+    // honoring and the duplicate-subtree drops run `T` destructors), and its
     // entry burns the first fuse step (each branch-level step below burns
     // one more).
     #[cfg(test)]
@@ -114,7 +88,7 @@ pub trait Join: Unknown {
         a_version: &Version,
         b_version: &Version,
         changed: &mut bool,
-    ) -> Result<Option<Node<T, Self>>, LeafCollision>
+    ) -> Option<Node<T, Self>>
     where
         T: Send + Sync;
 }
@@ -129,7 +103,7 @@ where
         a_version: &Version,
         b_version: &Version,
         changed: &mut bool,
-    ) -> Result<Option<Node<T, S<H>>>, LeafCollision>
+    ) -> Option<Node<T, S<H>>>
     where
         T: Send + Sync,
     {
@@ -139,7 +113,7 @@ where
         #[cfg(test)]
         crate::tree::panic_injection::fire_if_armed();
 
-        Ok(match (a, b) {
+        match (a, b) {
             (None, None) => None,
             // Asymmetric cases: a subtree one side holds and the other lacks.
             // Filter it against the *other* side's version vector to honor
@@ -167,7 +141,7 @@ where
                 // hash-free), else on the Merkle hash — same version set, hence
                 // same messages: nothing to learn on either side.
                 if ours == theirs {
-                    return Ok(Some(ours));
+                    return Some(ours);
                 }
 
                 // Differing subtrees: descend one level, merge-walking the
@@ -216,7 +190,7 @@ where
                         continue;
                     }
 
-                    match Join::join(our_child, their_child, a_version, b_version, changed)? {
+                    match Join::join(our_child, their_child, a_version, b_version, changed) {
                         Some(child) => {
                             merged.insert(radix, child);
                         }
@@ -228,7 +202,7 @@ where
 
                 Node::branch(merged)
             }
-        })
+        }
     }
 }
 
@@ -239,11 +213,11 @@ impl Join for Z {
         a_version: &Version,
         b_version: &Version,
         changed: &mut bool,
-    ) -> Result<Option<Node<T, Z>>, LeafCollision>
+    ) -> Option<Node<T, Z>>
     where
         T: Send + Sync,
     {
-        Ok(match (a, b) {
+        match (a, b) {
             (None, None) => None,
             // The leaf-level base of the asymmetric arms' change detection:
             // our leaf dropped by deletion honoring is a change, and their
@@ -258,26 +232,16 @@ impl Join for Z {
                 *changed |= gained.is_some();
                 gained
             }
-            // Two leaves at one path are the same leaf: the path
-            // is the full-width hash of the version (`Path::for_leaf`), so
-            // one path is one version, and one version is one message.
-            // Verify both legs instead of assuming them; a mismatch is a
-            // `LeafCollision`, unreachable except through a crate bug or an
-            // off-model hash collision (see `LeafCollision`), and halting
-            // beats silently keeping a side. (A same-version pair with
-            // different payloads digests equal and prunes above — digests
-            // are content-blind by design, a modeled trade.)
-            (Some(ours), Some(theirs)) => {
-                if ours.ceiling() != theirs.ceiling()
-                    || ours.message().as_slice() != theirs.message().as_slice()
-                {
-                    return Err(LeafCollision {
-                        path: Path::for_leaf(ours.ceiling()).into(),
-                    });
-                }
-                Some(ours)
+            // Two leaves at one position share the path, and a leaf digest
+            // is a pure function of its path (`Hash::leaf`), so the pair
+            // hashes equal and the level above carries it over verbatim
+            // without recursing. Collision detection is ingestion's job
+            // (`react`'s occupied-path arms), where both leaves are in
+            // hand; the merge walk trusts path derivation.
+            (Some(_), Some(_)) => {
+                unreachable!("same-position leaves hash equally and prune above")
             }
-        })
+        }
     }
 }
 

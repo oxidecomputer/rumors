@@ -79,7 +79,7 @@ pub fn arb_root_node(
                     (path, version.clone(), Action::Insert(message))
                 })
                 .collect();
-            act(None, actions, |_| ()).expect("collision-free by construction")
+            act(None, actions, |_| ())
         })
         .boxed()
 }
@@ -151,21 +151,18 @@ pub fn arb_divergent_pair() -> BoxedStrategy<(crate::tree::Root<()>, crate::tree
             base.act(
                 &p_s,
                 (0..n_shared).map(|_| Action::Insert(Message::new(()))),
-            )
-            .expect("collision-free by construction");
+            );
             let shared_keys: Vec<_> = base.iter().map(|(v, _)| Path::for_leaf(v)).collect();
 
             let side = |party: &Party, n: usize, redact: &[bool]| {
                 let mut t = base.clone();
-                t.act(party, (0..n).map(|_| Action::Insert(Message::new(()))))
-                    .expect("collision-free by construction");
+                t.act(party, (0..n).map(|_| Action::Insert(Message::new(()))));
                 let forgets: Vec<_> = shared_keys
                     .iter()
                     .zip(redact)
                     .filter_map(|(k, &r)| r.then_some(Action::Forget(*k)))
                     .collect();
-                t.act(party, forgets)
-                    .expect("collision-free by construction");
+                t.act(party, forgets);
                 t.root
             };
 
@@ -212,21 +209,18 @@ pub fn arb_wide_divergent_pair() -> BoxedStrategy<(crate::tree::Root<()>, crate:
             base.act(
                 &p_s,
                 (0..n_shared).map(|_| Action::Insert(Message::new(()))),
-            )
-            .expect("collision-free by construction");
+            );
             let shared_keys: Vec<_> = base.iter().map(|(v, _)| Path::for_leaf(v)).collect();
 
             let side = |party: &Party, n: usize, redact: &[bool]| {
                 let mut t = base.clone();
-                t.act(party, (0..n).map(|_| Action::Insert(Message::new(()))))
-                    .expect("collision-free by construction");
+                t.act(party, (0..n).map(|_| Action::Insert(Message::new(()))));
                 let forgets: Vec<_> = shared_keys
                     .iter()
                     .zip(redact)
                     .filter_map(|(k, &r)| r.then_some(Action::Forget(*k)))
                     .collect();
-                t.act(party, forgets)
-                    .expect("collision-free by construction");
+                t.act(party, forgets);
                 t.root
             };
 
@@ -266,8 +260,7 @@ pub fn arb_deep_divergent_pair() -> BoxedStrategy<(crate::tree::Root<()>, crate:
                     Action::Insert(Message::new(())),
                 )],
                 |_| (),
-            )
-            .expect("collision-free by construction");
+            );
 
             // One side: `width` sibling leaves diverging at `depth`, all on
             // the side's own party. The branch ranges are disjoint across
@@ -287,7 +280,7 @@ pub fn arb_deep_divergent_pair() -> BoxedStrategy<(crate::tree::Root<()>, crate:
                 let node = if leaves.is_empty() {
                     base.clone()
                 } else {
-                    act(base.clone(), leaves, |_| ()).expect("collision-free by construction")
+                    act(base.clone(), leaves, |_| ())
                 };
                 root_with_ceiling(node, shared_version.clone() | version)
             };
@@ -394,8 +387,7 @@ pub fn early_first_child_dispute_pair() -> (crate::tree::Root<()>, crate::tree::
             let build = |party: &Party, base: Version, live: usize| {
                 let mut tree = Tree::new();
                 tree.root.ceiling = base;
-                tree.act(party, (0..live).map(|_| Action::Insert(Message::new(()))))
-                    .expect("collision-free by construction");
+                tree.act(party, (0..live).map(|_| Action::Insert(Message::new(()))));
                 tree
             };
             let left = build(&p_a, burnt(&p_a, at), LEFT_LEAVES);
@@ -479,8 +471,7 @@ pub fn uncontained_supply_pair() -> (crate::tree::Root<()>, crate::tree::Root<()
                 Action::Insert(receiver_message),
             )],
             |_| (),
-        )
-        .expect("collision-free by construction"),
+        ),
         receiver_version.clone(),
     );
 
@@ -503,8 +494,7 @@ pub fn uncontained_supply_pair() -> (crate::tree::Root<()>, crate::tree::Root<()
             None,
             vec![(path, escaped.clone(), Action::Insert(message))],
             |_| (),
-        )
-        .expect("collision-free by construction"),
+        ),
         declared,
     );
     (receiver, poisoned, path, escaped)
@@ -560,8 +550,7 @@ pub fn poisoned_root<T: Send + Sync>(
             None,
             vec![(path, escaped.clone(), Action::Insert(message))],
             |_| (),
-        )
-        .expect("collision-free by construction"),
+        ),
         Version::new(),
     );
     (root, path, escaped)
@@ -592,8 +581,7 @@ pub fn leaf_parent_dispute_pair() -> (
             Action::Insert(Message::new(())),
         )],
         |_| (),
-    )
-    .expect("collision-free by construction");
+    );
 
     // Each side's extra rides its own disjoint party, so both extras are
     // causally concurrent with everything else and survive deletion-pruning.
@@ -607,8 +595,7 @@ pub fn leaf_parent_dispute_pair() -> (
             Action::Insert(Message::new(())),
         )],
         |_| (),
-    )
-    .expect("collision-free by construction");
+    );
 
     let mut b_version = Version::new();
     b_version.tick(&nth_party(2));
@@ -617,9 +604,9 @@ pub fn leaf_parent_dispute_pair() -> (
         b_version.clone(),
         Action::Insert(Message::new(())),
     );
-    let b_node = act(base, vec![b_extra.clone()], |_| ()).expect("collision-free by construction");
+    let b_node = act(base, vec![b_extra.clone()], |_| ());
 
-    let union = act(a_node.clone(), vec![b_extra], |_| ()).expect("collision-free by construction");
+    let union = act(a_node.clone(), vec![b_extra], |_| ());
 
     let a_ceiling = shared_version.clone() | a_version;
     let b_ceiling = shared_version | b_version;
@@ -655,8 +642,7 @@ pub fn leaf_parent_redaction_pair() -> (
             Action::Insert(Message::new(())),
         )],
         |_| (),
-    )
-    .expect("collision-free by construction");
+    );
 
     // b: built on a's history, inserts a concurrent sibling, then forgets
     // a's leaf. The forget leaves no tombstone; b remembers only through its
@@ -671,18 +657,16 @@ pub fn leaf_parent_redaction_pair() -> (
     let mut forget_version = b_version.clone();
     forget_version.tick(&nth_party(1));
     let b_node = act(
-        act(a_node.clone(), vec![b_insert.clone()], |_| ())
-            .expect("collision-free by construction"),
+        act(a_node.clone(), vec![b_insert.clone()], |_| ()),
         vec![(
             leaf_sibling_path(0x00),
             forget_version.clone(),
             Action::Forget,
         )],
         |_| (),
-    )
-    .expect("collision-free by construction");
+    );
 
-    let survivor = act(None, vec![b_insert], |_| ()).expect("collision-free by construction");
+    let survivor = act(None, vec![b_insert], |_| ());
 
     let b_ceiling = a_version.clone() | forget_version;
     let expected = root_with_ceiling(survivor, a_version.clone() | b_ceiling.clone());

@@ -28,11 +28,12 @@
 //!   bytes. What that buys is stated under
 //!   [Twenty-four-byte digests](#twenty-four-byte-digests).
 //!
-//! Version reuse — the only way two messages could claim one address — is
-//! detected the moment two claimants meet at one replica, and the
-//! detecting operation halts: producing such a pair at all requires
-//! violating the linearity invariant the crate docs' safety rules state,
-//! a regime that is already fatal to causal gossip.
+//! Version reuse — the only way two messages could claim one address —
+//! cannot arise: every send mints a fresh version (a tick strictly above
+//! everything the replica has ever held), and the linearity of parties
+//! keeps replicas' versions disjoint. Producing a reused version at all
+//! requires violating the linearity invariant the crate docs' safety
+//! rules state, a regime that is already fatal to causal gossip.
 //!
 //! The 32-byte address is also the message's *location*: addresses are
 //! the paths of a 256-ary radix trie, one byte per level, 32 levels deep,

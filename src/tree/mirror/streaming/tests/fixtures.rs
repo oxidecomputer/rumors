@@ -55,7 +55,7 @@ where
             Action::Insert(Message::new(value.clone())),
         ));
     }
-    act(node, actions, |_| ()).expect("collision-free by construction")
+    act(node, actions, |_| ())
 }
 
 /// Wrap a node as a [`Root`] whose ceiling is the node's own.
@@ -349,7 +349,7 @@ pub(super) fn one_sided_pair(spec: &[(u8, u8, u8)]) -> (Root<()>, Root<()>) {
             ));
         }
     }
-    let a_node = act(None, shared, |_| ()).expect("collision-free by construction");
+    let a_node = act(None, shared, |_| ());
 
     // b's extras: a separate chain on a disjoint party, so they are causally
     // concurrent with a's version and survive deletion-pruning when provided.
@@ -367,7 +367,7 @@ pub(super) fn one_sided_pair(spec: &[(u8, u8, u8)]) -> (Root<()>, Root<()>) {
             ));
         }
     }
-    let b_node = act(a_node.clone(), extras, |_| ()).expect("collision-free by construction");
+    let b_node = act(a_node.clone(), extras, |_| ());
 
     let root = |node: Option<TreeNode<(), height::Root>>| Root {
         ceiling: node
@@ -438,7 +438,7 @@ pub(super) fn divergent_cells_pair(
             ));
         }
     }
-    let base_node = act(None, base, |_| ()).expect("collision-free by construction");
+    let base_node = act(None, base, |_| ());
 
     // Each side's extras ride their own party's chain, concurrent with the
     // shared chain and with each other, so both survive deletion-pruning
@@ -457,9 +457,8 @@ pub(super) fn divergent_cells_pair(
         }
         actions
     };
-    let a_node =
-        act(base_node.clone(), extras(2, a_slot), |_| ()).expect("collision-free by construction");
-    let b_node = act(base_node, extras(1, b_slot), |_| ()).expect("collision-free by construction");
+    let a_node = act(base_node.clone(), extras(2, a_slot), |_| ());
+    let b_node = act(base_node, extras(1, b_slot), |_| ());
 
     let root = |node: Option<TreeNode<(), height::Root>>| Root {
         ceiling: node
