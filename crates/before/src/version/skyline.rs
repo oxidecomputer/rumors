@@ -217,7 +217,7 @@ pub(crate) use validate::validate_prefix;
 pub(crate) use validate::validate_from;
 
 /// A build buffer's contents as a [`BitsView`]: the instrument surface's
-/// bridge from [`encode`]'s buffer to the view the walk entries read.
+/// bridge from [`encode()`](fn@encode)'s buffer to the view the walk entries read.
 ///
 /// Test- and meter-only, like the buffers it views.
 #[cfg(any(test, feature = "meter"))]
