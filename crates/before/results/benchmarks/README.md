@@ -1,7 +1,7 @@
 # Benchmark results: optimized impl vs. reference oracle
 
 Per-operation timing comparison of this crate's optimized implementation
-(`before` — packed `BitVec` storage with a transient working form) against the
+(`before` — packed bit-stream storage with a transient working form) against the
 naive recursive reference (`oracle`, `src/oracle.rs`), on identical randomized
 inputs. The inputs are built through the public API by the
 fork-a-universe / preserve-a-subset / join-each-group recipe in

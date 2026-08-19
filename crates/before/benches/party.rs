@@ -1,4 +1,4 @@
-//! `Party` benchmarks: the optimized packed-`BitVec` implementation against the naive
+//! `Party` benchmarks: the optimized packed-bit-stream implementation against the naive
 //! recursive oracle, on the same randomized trees (see `common`). Codec ops have no
 //! oracle counterpart and are timed for the impl alone.
 

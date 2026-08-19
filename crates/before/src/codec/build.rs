@@ -245,7 +245,7 @@ impl PackedBuilder {
     fn append_bits(&mut self, value: u64, len: u32) {
         debug_assert!(len <= 63, "appends stage at most 63 bits at once");
         debug_assert!(
-            len == 64 || value >> len == 0,
+            value >> len == 0,
             "append value has bits above its stated width"
         );
         let total = self.staged_len + len;

@@ -300,7 +300,7 @@ proptest! {
 
 /// The per-bit reference cursor, the wire decode's differential oracle.
 ///
-/// The definitional shape with no fast paths: a growing `BitVec` refilled one
+/// The definitional shape with no fast paths: a growing `BitsBuf` refilled one
 /// byte at a time, per-bit reads only, and the default per-bit `read_int`.
 struct BitwiseReaderCursor<'a, R> {
     reader: &'a mut R,

@@ -47,8 +47,9 @@ fn bench(name: &str, iters: u32, mut f: impl FnMut() -> usize) {
     );
 }
 
-/// A minimal word-buffered MSB-first bit writer: the shape a
-/// `PackedBuilder` replacement would have.
+/// A minimal word-buffered MSB-first bit writer: the staging discipline
+/// the crate's own `PackedBuilder` ships, reproduced standalone so the
+/// comparison needs no crate internals.
 struct WordWriter {
     words: Vec<u64>,
     /// Bits already committed to `words` (multiple of 64).
@@ -95,7 +96,7 @@ fn main() {
     let total_bits: usize = codes.iter().map(|(_, l)| 2 + *l as usize).sum();
     println!("leaves={LEAVES} total output bits≈{total_bits}");
 
-    // 1. Per-bit bitvec push: the current PackedBuilder discipline
+    // 1. Per-bit bitvec push: the external baseline at its simplest
     //    (1 flag push + per-bit code pushes per leaf).
     bench("bitvec push per bit", 2000, || {
         let mut out: BaselineBits = BitVec::with_capacity(total_bits);
@@ -109,8 +110,9 @@ fn main() {
         out.len()
     });
 
-    // 2. Current per-leaf heap code + extend_from_bitslice splice: what
-    //    gamma_code + SkylineBuilder::leaf actually do.
+    // 2. Per-leaf heap code + extend_from_bitslice splice: the external
+    //    baseline shaped like a builder that allocates each code before
+    //    splicing it.
     bench("bitvec alloc code + splice per leaf", 2000, || {
         let mut out: BaselineBits = BitVec::with_capacity(total_bits);
         for &(code, len) in &codes {
