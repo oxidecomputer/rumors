@@ -35,7 +35,10 @@ use std::time::Duration;
 
 use rand::rngs::SmallRng;
 use rand::{RngCore, SeedableRng};
-use rumors::testing::{envelope_and_wire_bytes, supply_decode_envelope_bytes, window_capacities};
+use rumors::testing::{
+    dispute_overhead_bytes, envelope_and_wire_bytes, supply_decode_envelope_bytes,
+    window_capacities,
+};
 use rumors::{Peer, Protocol, Rumors};
 
 use serde::Serialize;
@@ -136,7 +139,9 @@ fn run_cells<T>(
     T: Serialize + DeserializeOwned + Send + Sync + Clone + 'static,
 {
     let (envelope, _) = envelope_and_wire_bytes();
-    let overhead = 28usize;
+    // The shipped intercept, never a transcribed copy: the probe's byte
+    // denominators move with the wire's own calibration.
+    let overhead = dispute_overhead_bytes();
     let transfer = wire_hops(UNBOUNDED, pipe, mint);
     assert!(transfer >= 4, "degenerate transfer count {transfer}");
     let bdp_messages = 2.0 * DIVERGENT as f64 / transfer as f64;
@@ -186,25 +191,27 @@ fn run_cells<T>(
 #[test]
 #[ignore = "one-shot validation instrument: run explicitly with --run-ignored"]
 fn tradeoff_closed_form_validation_run() {
-    // m = 8: minimal u64 records (the table's first column). Targets
-    // (denominated in the closed-form estimate, a budget-choosing
-    // device only) span a constricted, a near-crossover, and a
-    // comfortable cell at derived windows of a thousand scopes and up.
+    // m = 9: minimal u64 records (the table's first column; a random
+    // u64's CBOR encoding is nine bytes). Targets (denominated in the
+    // closed-form estimate, a budget-choosing device only) span a
+    // constricted, a near-crossover, and a comfortable cell at derived
+    // windows of a thousand scopes and up.
     run_cells(
         "u64",
-        8,
+        9,
         256 * 1024,
         &[4.0, 1.3, 0.4],
         &mut |rng: &mut SmallRng| rng.next_u64(),
     );
 
-    // m = 172: the design record (the table's third column), one
+    // m = 172: the design record (the table's third column; a 170-byte
+    // `Bytes` payload behind CBOR's two-byte byte-string head), one
     // constricted cell on a wider pipe so the window stays past the
     // near-root band.
     let mut design = |rng: &mut SmallRng| {
-        let mut payload = vec![0u8; 168];
+        let mut payload = vec![0u8; 170];
         rng.fill_bytes(&mut payload);
-        payload
+        bytes::Bytes::from(payload)
     };
     run_cells("design", 172, 1024 * 1024, &[3.0], &mut design);
 }

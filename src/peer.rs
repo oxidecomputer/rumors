@@ -418,13 +418,13 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// The estimate has a stated accuracy band. It overstates the
     /// window by roughly `F / budget`, where `F` is the corpus-fixed
     /// component of the real charge, so the slowdown it returns runs
-    /// ~2.3× low at a 10 MB budget, ~1.6× low at 16 MiB, and within a
+    /// ~2–3× low at ~10 MB budgets, ~1.4× low at ~26 MB, and within a
     /// few percent past ~300 MB. It also prices no population ceiling,
     /// so where windows reach corpus scale, the exact solve's numbers
     /// (the table below, and the pinned crossover) replace it.
     /// Measured: sessions whose serialized one-way trips are counted
-    /// exactly on a virtual clock, at 10–31 MB budgets on the design
-    /// corpus, ran 1.3–1.65× the form's figure
+    /// exactly on a virtual clock, at 8–26 MB budgets on the minimal
+    /// and design corpora, ran 1.35–1.96× the form's figure
     /// (`tests/tradeoff_probe.rs`).
     ///
     /// The ballpark answers, at the specification BDP:
