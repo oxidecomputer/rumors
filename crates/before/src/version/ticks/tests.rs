@@ -77,3 +77,46 @@ proptest! {
         prop_assert_eq!(summed, &(&ta + &tb) + &tc);
     }
 }
+
+proptest! {
+    /// The limb spelling is exact and canonical: `Σ limbᵢ · 2^(64·i)`
+    /// rebuilds the count, no trailing zero limb appears, the zero count
+    /// yields no limbs, and the exact-size length stays truthful at
+    /// every step of the drain.
+    #[test]
+    fn limbs_respell_the_count(base in crate::testing::generators::arb_base()) {
+        let count = Ticks(base);
+        let limbs: Vec<u64> = count.limbs().collect();
+        if let Some(last) = limbs.last() {
+            prop_assert_ne!(*last, 0u64, "no trailing zero limbs");
+        } else {
+            prop_assert_eq!(&count, &Ticks::ZERO);
+        }
+        let mut rebuilt = crate::codec::Base::ZERO;
+        for (index, limb) in limbs.iter().enumerate() {
+            rebuilt += &(crate::codec::Base::from(*limb) << (64 * index as u32));
+        }
+        prop_assert_eq!(&Ticks(rebuilt), &count);
+        let mut iter = count.limbs();
+        let mut remaining = limbs.len();
+        prop_assert_eq!(iter.len(), remaining);
+        while iter.next().is_some() {
+            remaining -= 1;
+            prop_assert_eq!(iter.len(), remaining);
+        }
+        prop_assert_eq!(iter.len(), 0);
+        prop_assert_eq!(iter.next(), None); // fused past the end
+    }
+
+    /// `u64::try_from` answers every machine-range count with its value
+    /// and every wider count with `TooWide`, in agreement with the limb
+    /// spelling's length.
+    #[test]
+    fn u64_conversion_matches_the_range(base in crate::testing::generators::arb_base()) {
+        let count = Ticks(base);
+        match u64::try_from(&count) {
+            Ok(word) => prop_assert_eq!(&Ticks::from(word), &count),
+            Err(_) => prop_assert!(count.limbs().len() > 1, "only wide counts refuse"),
+        }
+    }
+}

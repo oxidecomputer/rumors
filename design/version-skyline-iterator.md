@@ -1,7 +1,12 @@
-# A public skyline walk for `Version` and `Party`
+# A public shape walk for `Version` and `Party`
 
-Status: proposal, pre-implementation. Owner: Finch. Origin: design
+Status: ruled, in implementation. Owner: Finch. Origin: design
 conversation, 2026-08-19.
+
+Public vocabulary: the method is `shape()`, and the public rustdoc speaks
+of a version's *shape* — the step function — and its *plateaus*. *Skyline*
+stays a maintainer-facing term for the coding and is not coined publicly
+(ruled 2026-08-19; decision record below).
 
 ## Goal
 
@@ -124,38 +129,55 @@ Settled by this design:
   and implements `FusedIterator`. (Not `ExactSizeIterator`: the leaf
   count is not known without a scan.)
 
-Open, wanting a ruling before implementation:
+Ruled 2026-08-19 (decision record below):
 
-- The method names (`Version::skyline()`, `Party::skyline()`), and the
-  item type names (`Plateau`/`Rise`/`Owned`/`Cell` are placeholders).
-- The combiner's arity form: const-generic array, runtime `Vec`, or both
-  (see "The N-way combiner").
-- Whether a projected-stream variant (the `masked` machinery's overlays)
-  should be anticipated in the naming now, even if it lands later.
+- The methods are `Version::shape()`, `Party::shape()`, `Clock::shape()`;
+  `Plateau` and `Rise` stand as the item type names; *skyline* is not
+  coined publicly.
+- The combiner ships publicly with const-generic array arity.
+- No naming anticipation for a projected-stream variant: such a variant
+  would live on a different receiver (`OwnVersion`, or a method taking
+  the projection), so the plain names collide with nothing.
 
 ## `Party`
 
-A `Party` is the 0/1-valued skyline over the same interval: identical item
-type, magnitudes always 1. The item vocabulary is designed once and shared.
+A `Party` is the 0/1-valued step function over the same interval, and its
+item is its own type (ruled 2026-08-19), absolute rather than
+delta-encoded:
+
+```rust
+/// One constant-ownership region of the party: whether the party owns
+/// it, and the dyadic interval it spans.
+pub struct Region {
+    pub owned: bool,
+    pub depth: u64,
+}
+```
+
+Two forces, both from the binary codomain. The delta rationale has no
+force at height ∈ {0, 1}: the absolute value is cheaper than any delta
+spelling (a `bool` — no magnitude, no `Option`). And a shared `Plateau`
+would hand party consumers two prose invariants to trust forever
+("magnitude is always 1", "`Up` only from 0, `Down` only from 1") —
+the same canonicality-leak shape the `Option<Rise>` decision already
+killed for level steps, resolved the same way: by making the invalid
+states unrepresentable. The absolute item also matches the coding it
+transliterates — the id walk's boundary crossings carry no payload;
+ownership is per-region state.
+
+*Region* mirrors *plateau*: the maximal constant runs of the two step
+functions, named by their own codomains.
 
 ## `Clock`: the combined overlay walk
 
 A `Clock` walks as one iterator rather than a compose-it-yourself pair —
 writing the composition as a consumer is nontrivial, and the overlay is
-what before-viz actually draws. The item is the version's plateau plus an
-ownership flag:
-
-```rust
-pub struct Owned {
-    pub plateau: Plateau,
-    /// Whether the clock's party owns this plateau's interval.
-    pub owned: bool,
-}
-```
-
-(the name is a placeholder; a named struct rather than a bare tuple, so
-the flag's meaning has a documentation home). When the party subdivides a
-version plateau, the iterator splits it internally.
+what before-viz actually draws. The item is a tuple: the version's plateau
+plus an ownership flag, `(Plateau, bool)`, the flag reading "the clock's
+party owns this plateau's interval" (ruled 2026-08-19: a tuple, not a
+named struct; the flag's meaning is documented at the method and the
+iterator's item docs). When the party subdivides a version plateau, the
+iterator splits it internally.
 
 The splitting is well-formed for free, because **dyadic intervals form a
 laminar family**: two of them either nest or are disjoint, never partially
@@ -171,27 +193,31 @@ roundtrip property lives on the primitive iterators, never on overlays.
 
 The generalization (recorded as a companion option, and the natural
 implementation substrate for the `Clock` walk): a combiner over an
-arbitrary number of plateau iterators — parties or versions — yielding the
-coarsest common refinement. Since every entry in a cell shares the cell's
-interval, per-entry depths are redundant; the item is the cell plus the
-rises entering it:
+arbitrary number of *version* shape iterators, yielding the coarsest
+common refinement. Version-only (ruled 2026-08-19, a consequence of the
+`Region` split): the version × party mix is exactly what the `Clock`
+walk is, and a party × party combiner — if a multi-party region map ever
+wants one — has a different natural cell entry (`[bool; N]`, an
+ownership bitmap per cell) and ships with its first consumer rather
+than being anticipated here. Since every entry in a cell shares the
+cell's interval, per-entry depths are redundant; the item is the cell
+plus the rises entering it:
 
 ```rust
-pub struct Cell<M> {
+pub struct Cell<const N: usize> {
     pub depth: u64,
     /// One entry per input, in argument order: the rise entering this
     /// cell from that input (`None` continues level, including on every
     /// fragment a split produced after its first).
-    pub rises: /* [Option<Rise<M>>; N] or Vec<Option<Rise<M>>> */,
+    pub rises: [Option<Rise>; N],
 }
 ```
 
 This stays in the delta domain end to end (no height is materialized),
-and the `Clock` walk is its two-input instance with the party's entry
-folded into a running `owned` flag. Open: the arity form — const-generic
-arrays (allocation-free, `N` static) versus runtime `Vec` (one allocation
-per cell, or an internal-buffer visitor variant); possibly both, with the
-array form primitive.
+and the `Clock` walk is its heterogeneous two-input sibling, the party
+side read as the absolute `owned` flag. Arity form ruled 2026-08-19:
+const-generic arrays (allocation-free, `N` static); no runtime-`Vec`
+form ships.
 
 This combiner is the public, rendering-grade counterpart of the `overlay`
 machinery's tiling-and-advance law — the same subdivision the internal
@@ -226,9 +252,10 @@ In the house differential style, all through the public door:
 - `Rise` is closed by construction (a step function steps up or down);
   by the crate's non-exhaustiveness criterion it stays exhaustive, and
   renderers match it exhaustively.
-- *Skyline* and *plateau* are today maintainer-facing terms; the public
-  rustdoc defines them at the method, promoting the skyline module doc's
-  existing definitions.
+- *Plateau* is promoted to a public term, defined at the item type; the
+  public rustdoc speaks of a version's *shape* (its step function) and
+  never coins *skyline*, which stays maintainer-facing (ruled
+  2026-08-19).
 
 ## Could a generic iterator become the internal substrate?
 
@@ -240,8 +267,10 @@ item were generic over its magnitude type, constrained only by what the
 iterator needs to construct one, could the crate's internals radically
 simplify?
 
-**Assessment: only partially — but the partial is worth having, and the
-genericization itself is cheap and should ship with the feature.**
+**Assessment: only partially — and the genericization does not ship with
+the feature (ruled 2026-08-19, superseding this section's earlier
+recommendation; the sections below record the analysis for the day a
+kernel adoption is actually constructed).**
 
 ### The contract
 
@@ -301,13 +330,17 @@ materializes an absolute height unless its own semantics demand one.
 
 ### Recommendation
 
-Genericize the item now (the sealed one-trait bound above), because it is
-nearly free and it is the door everything else walks through. Then treat
-each existing kernel as its own dissolution candidate under the standing
-governor — adopt where a construction measures neutral-or-better and
-reads simpler; the likely first adoptions are `text`, validation, and the
-`query` functionals; the likely never is `fill`'s splice and any merge
-whose equal-span skipping would be forfeit.
+Ship the item concrete over `Ticks`; defer the sealed-trait
+genericization until the first kernel re-expression is actually
+constructed (ruled 2026-08-19). The deferral is safe because only the
+`Ticks` instantiation was ever public: the sealed trait is pure internal
+enablement, and introducing it later with its first internal consumer
+breaks nothing on the public surface. Kernel re-expression itself remains
+candidate-by-candidate under the standing governor — adopt where a
+construction measures neutral-or-better and reads simpler; the likely
+first adoptions are `text`, validation, and the `query` functionals; the
+likely never is `fill`'s splice and any merge whose equal-span skipping
+would be forfeit.
 
 ## Sequencing
 
@@ -333,3 +366,28 @@ inherits the u64-clean depth denomination from that work for free.
   the version's plateaus with a party-ownership flag, splitting performed
   internally. The N-way combiner is recorded as a companion option
   (and/or); its arity form is open.
+- 2026-08-19 (Finch): the method is `shape()` on all three receivers, and
+  the term *skyline* is not coined publicly — it stays maintainer-facing.
+  `Plateau` and `Rise` stand as the item names.
+- 2026-08-19 (Finch): the `Clock` walk's item is the tuple
+  `(Plateau, bool)`, not a named struct.
+- 2026-08-19 (Finch): the N-way combiner ships publicly, const-generic
+  array arity; no runtime-`Vec` form.
+- 2026-08-19 (Finch): no naming anticipation for projected-stream
+  variants — a projected walk would live on a different receiver, so
+  plain names collide with nothing.
+- 2026-08-19 (Finch): the magnitude genericization does not ship with the
+  feature — the item is concrete over `Ticks`. Deferred, not rejected:
+  the sealed trait lands (crate-privately) with the first constructed
+  kernel re-expression, if one ever measures its way in.
+- 2026-08-19 (Finch): the combiner takes `[&Version; N]` directly rather
+  than shape iterators — a mid-walk input is unrepresentable instead of
+  guarded by a documented panic, by the same
+  invalid-states-unrepresentable reasoning as the `Region` ruling.
+- 2026-08-19 (Finch): `Party::shape()` yields its own absolute item type
+  (`Region { owned: bool, depth: u64 }`) rather than sharing `Plateau` —
+  a binary codomain makes the absolute spelling cheaper than any delta
+  and makes the magnitude-1 invariant unrepresentable rather than
+  policed. Consequence: the public combiner is version-only; a
+  party × party combiner (`[bool; N]` cells) ships with its first
+  consumer, if ever.

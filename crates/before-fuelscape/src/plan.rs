@@ -290,6 +290,25 @@ fn draw_inputs(
                 .collect();
             (inputs, arity, rejected)
         }
+        Inputs::VersionSliceCapped(cap) => {
+            // As `VersionSlice`, the arity draw capped at the roster
+            // row's declared bound.
+            let arity = draw_arity(size.min(cap as usize), rng);
+            let sizes = split_budget(size, arity, rng);
+            let mut rejected = 0;
+            let inputs = sizes
+                .into_iter()
+                .map(|n| {
+                    let draw = samplers
+                        .version
+                        .sample_bytes(n, rng)
+                        .expect("every byte size down to 1 has canonical versions");
+                    rejected += draw.rejected;
+                    draw.bytes
+                })
+                .collect();
+            (inputs, arity, rejected)
+        }
         Inputs::ClockSlice => {
             // Clock count first, then the split (party's part first),
             // then the members, so the stream is stable however the

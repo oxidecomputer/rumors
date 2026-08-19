@@ -2,7 +2,7 @@ use std::path::Path;
 
 use crate::dump::DumpWriter;
 use crate::ops::ROSTER;
-use crate::render::{AtlasData, OverlayData, RenderMeta, SampleData};
+use crate::render::{AtlasData, OverlayData, RenderMeta, RunParams, SampleData};
 
 use super::{compact, compact_dump, read, write, WidgetCol, RES};
 
@@ -104,10 +104,18 @@ fn dataset_round_trips_losslessly() {
         "n log n",
     )
     .expect("synthetic atlas compacts");
-    write(&dir, &meta(), std::slice::from_ref(&op)).expect("dataset writes");
-    let (loaded_meta, loaded) = read(&dir).expect("dataset loads");
-    assert_eq!(loaded_meta, meta(), "meta round-trips exactly");
-    assert_eq!(loaded, vec![op], "the widget data round-trips exactly");
+    write(&dir, &RunParams::from(&meta()), &[(meta(), op.clone())]).expect("dataset writes");
+    let (loaded_params, loaded) = read(&dir).expect("dataset loads");
+    assert_eq!(
+        loaded_params,
+        RunParams::from(&meta()),
+        "the run parameters round-trip exactly"
+    );
+    assert_eq!(
+        loaded,
+        vec![(meta(), op)],
+        "the provenance and widget data round-trip exactly"
+    );
     std::fs::remove_dir_all(&dir).expect("round-trip output cleans up");
 }
 
@@ -133,7 +141,7 @@ fn compaction_rejects_zero_fuel() {
 fn read_rejects_each_tampered_document() {
     let dir = temp_dir("tamper");
     let op = compact(&synthetic_atlas(), "", "`O(1)`.", "1").expect("synthetic atlas compacts");
-    write(&dir, &meta(), std::slice::from_ref(&op)).expect("dataset writes");
+    write(&dir, &RunParams::from(&meta()), &[(meta(), op)]).expect("dataset writes");
     let op_path = dir.join("synthetic.json");
     let pristine = std::fs::read(&op_path).expect("op file exists");
 
@@ -161,7 +169,7 @@ fn read_rejects_each_tampered_document() {
         &|doc| doc["format"] = "fuelscape-atlas-index".into(),
         "format",
     );
-    tamper(&|doc| doc["meta"]["base_seed"] = 7.into(), "meta");
+    tamper(&|doc| doc["meta"]["base_seed"] = 7.into(), "run parameters");
     tamper(&|doc| doc["op"]["claim"] = "".into(), "non-empty");
     tamper(&|doc| doc["op"]["res"] = 0.0.into(), "resolution");
     tamper(
@@ -184,8 +192,8 @@ fn read_rejects_each_tampered_document() {
 fn gzipped_documents_read_transparently() {
     let dir = temp_dir("gz");
     let op = compact(&synthetic_atlas(), "", "`O(1)`.", "1").expect("synthetic atlas compacts");
-    write(&dir, &meta(), std::slice::from_ref(&op)).expect("dataset writes");
-    let (plain_meta, plain_ops) = read(&dir).expect("plain dataset loads");
+    write(&dir, &RunParams::from(&meta()), &[(meta(), op)]).expect("dataset writes");
+    let (plain_params, plain_ops) = read(&dir).expect("plain dataset loads");
     for name in ["synthetic.json", super::INDEX_FILE] {
         let path = dir.join(name);
         let bytes = std::fs::read(&path).expect("document exists");
@@ -196,10 +204,10 @@ fn gzipped_documents_read_transparently() {
         std::fs::write(gz_path, gz.finish().expect("gzip finishes")).expect("gz file writes");
         std::fs::remove_file(&path).expect("plain file removes");
     }
-    let (gz_meta, gz_ops) = read(&dir).expect("gzipped dataset loads");
+    let (gz_params, gz_ops) = read(&dir).expect("gzipped dataset loads");
     assert_eq!(
-        (gz_meta, gz_ops),
-        (plain_meta, plain_ops),
+        (gz_params, gz_ops),
+        (plain_params, plain_ops),
         "gz and plain forms load equal"
     );
     std::fs::remove_dir_all(&dir).expect("gz output cleans up");
@@ -230,15 +238,15 @@ fn compact_dump_joins_the_roster_and_rejects_measure_drift() {
     compact_dump(&dump_dir, &out_dir).expect("a roster-matched dump compacts");
     let (_, ops) = read(&out_dir).expect("compacted dataset loads");
     assert_eq!(
-        ops[0].variant, spec.variant,
+        ops[0].1.variant, spec.variant,
         "the roster row's variant is stamped"
     );
     assert_eq!(
-        ops[0].contract, spec.contract,
+        ops[0].1.contract, spec.contract,
         "the roster row's contract is stamped"
     );
     assert_eq!(
-        ops[0].claim, spec.claim,
+        ops[0].1.claim, spec.claim,
         "the roster row's claim is stamped"
     );
 

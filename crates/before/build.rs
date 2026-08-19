@@ -52,9 +52,18 @@ fn main() {
         let file = format!("fuelscape/{name}.json");
         let doc = read_json(Path::new(&file));
         check_banner(&file, &doc, "fuelscape-widget-data");
-        assert_eq!(
-            doc["meta"], index["meta"],
-            "{file}: meta differs from the index's"
+        // The dataset accretes across measuring runs: each operation
+        // document carries its own measurement commit, and only the run
+        // parameters are dataset-wide.
+        for param in ["base_seed", "samples_per_column"] {
+            assert_eq!(
+                doc["meta"][param], index["meta"][param],
+                "{file}: run parameter {param} differs from the index's"
+            );
+        }
+        assert!(
+            doc["meta"]["commit"].is_string(),
+            "{file}: the measurement commit is missing"
         );
         let op = &doc["op"];
         assert_eq!(
@@ -263,8 +272,8 @@ fn read_json(path: &Path) -> serde_json::Value {
 fn check_banner(file: &str, doc: &serde_json::Value, expected: &str) {
     assert_eq!(
         (doc["format"].as_str(), doc["version"].as_u64()),
-        (Some(expected), Some(2)),
-        "{file}: not a {expected} v2 document"
+        (Some(expected), Some(3)),
+        "{file}: not a {expected} v3 document"
     );
 }
 

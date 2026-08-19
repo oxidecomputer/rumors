@@ -49,7 +49,8 @@
 
 use std::cmp::Ordering;
 
-use crate::testing::{bridge, semantic_oracle};
+use crate::codec::Base;
+use crate::testing::{bridge, semantic_oracle, shape_rows};
 use crate::{oracle, Party, Rank, Ticks, Version};
 
 /// One descriptor: its name and the check the drivers run.
@@ -130,6 +131,33 @@ impl Matches<Rank> for Rank {
     }
 }
 
+/// Shape rows — plateau, region, overlay, and refinement-cell listings —
+/// compare directly: both sides are already folded into the same
+/// absolute vocabulary.
+impl Matches<Vec<(Base, u64)>> for Vec<(Base, u64)> {
+    fn matches(&self, reference: &Vec<(Base, u64)>) -> bool {
+        self == reference
+    }
+}
+
+impl Matches<Vec<(bool, u64)>> for Vec<(bool, u64)> {
+    fn matches(&self, reference: &Vec<(bool, u64)>) -> bool {
+        self == reference
+    }
+}
+
+impl Matches<Vec<(u64, Base, bool)>> for Vec<(u64, Base, bool)> {
+    fn matches(&self, reference: &Vec<(u64, Base, bool)>) -> bool {
+        self == reference
+    }
+}
+
+impl Matches<Vec<(u64, Vec<Base>)>> for Vec<(u64, Vec<Base>)> {
+    fn matches(&self, reference: &Vec<(u64, Vec<Base>)>) -> bool {
+        self == reference
+    }
+}
+
 /// How a function-space result is compared with the recursive oracle's, at
 /// a comparison grid.
 ///
@@ -183,6 +211,52 @@ impl FsMatches<Ticks> for Ticks {
 impl FsMatches<Rank> for Rank {
     fn fs_matches(&self, reference: &Rank, _grid: u32) -> bool {
         self == reference
+    }
+}
+
+/// Shape rows against the function space.
+///
+/// The rows rebuild into normal oracle trees (the reconstruction
+/// collapses any refinement fragments), and the existing
+/// tree-versus-function scans decide. The rows come from the
+/// descriptor's tree spelling, whose depths the grid already covers.
+impl FsMatches<Vec<(Base, u64)>> for semantic_oracle::Event {
+    fn fs_matches(&self, reference: &Vec<(Base, u64)>, grid: u32) -> bool {
+        let tree = shape_rows::version_from_rows(reference);
+        <semantic_oracle::Event as FsMatches<oracle::Version>>::fs_matches(self, &tree, grid)
+    }
+}
+
+impl FsMatches<Vec<(bool, u64)>> for semantic_oracle::Id {
+    fn fs_matches(&self, reference: &Vec<(bool, u64)>, grid: u32) -> bool {
+        let tree = shape_rows::party_from_rows(reference);
+        <semantic_oracle::Id as FsMatches<oracle::Party>>::fs_matches(self, &tree, grid)
+    }
+}
+
+impl FsMatches<Vec<(u64, Base, bool)>> for semantic_oracle::FunctionClock {
+    fn fs_matches(&self, reference: &Vec<(u64, Base, bool)>, grid: u32) -> bool {
+        let heights: Vec<(Base, u64)> = reference
+            .iter()
+            .map(|(depth, height, _)| (height.clone(), *depth))
+            .collect();
+        let owned: Vec<(bool, u64)> = reference
+            .iter()
+            .map(|(depth, _, owned)| (*owned, *depth))
+            .collect();
+        self.ev.fs_matches(&heights, grid) && self.id.fs_matches(&owned, grid)
+    }
+}
+
+impl FsMatches<Vec<(u64, Vec<Base>)>> for (semantic_oracle::Event, semantic_oracle::Event) {
+    fn fs_matches(&self, reference: &Vec<(u64, Vec<Base>)>, grid: u32) -> bool {
+        let column = |index: usize| -> Vec<(Base, u64)> {
+            reference
+                .iter()
+                .map(|(depth, heights)| (heights[index].clone(), *depth))
+                .collect()
+        };
+        self.0.fs_matches(&column(0), grid) && self.1.fs_matches(&column(1), grid)
     }
 }
 
@@ -431,6 +505,32 @@ diff_ops! {
         tree: c.own_version(),
         fs(_g): semantic_oracle::project(c.ev, c.id),
     }
+
+    /// `shape`: the clock's overlay walk.
+    ///
+    /// The clock's version plateaus overlaid with its party's ownership
+    /// are the coarsest common refinement of the two tilings.
+    ///
+    /// Production folds the public overlay walk (the fold asserts
+    /// nonzero rises, a nonnegative running height, and exact tiling in
+    /// passing); the oracle refines its version against its party read
+    /// as a 0/1 step function; the function space scans both rebuilt
+    /// component functions against the geometric lifts.
+    fn clock_shape_matches_the_oracle {
+        prod: shape_rows::fold_overlay(c.shape()),
+        tree: shape_rows::oracle_cells(vec![
+            (crate::codec::Base::ZERO, c.version()),
+            (crate::codec::Base::ZERO, shape_rows::party_as_steps(c.party())),
+        ])
+        .into_iter()
+        .map(|(depth, heights)| {
+            let [height, owned] = <[crate::codec::Base; 2]>::try_from(heights)
+                .expect("two inputs, two heights");
+            (depth, height, owned == crate::codec::Base::from(1u8))
+        })
+        .collect::<Vec<_>>(),
+        fs(_g): c,
+    }
 }
 
 diff_ops! {
@@ -443,6 +543,19 @@ diff_ops! {
     fn party_is_seed_matches_the_oracle {
         prod: a.is_seed(),
         tree: a == oracle::Party::seed(),
+    }
+
+    /// `shape`: the party's membership function as region items.
+    ///
+    /// Production folds the public walk (the fold asserts exact tiling
+    /// in passing); the oracle enumerates its leaves directly; the
+    /// function space scans the rows' own membership function, rebuilt
+    /// as a tree, against the geometric lift. The anonymous id is in the
+    /// population: its walk is the single unowned whole-interval region.
+    fn party_shape_matches_the_oracle {
+        prod: shape_rows::fold_regions(a.shape()),
+        tree: shape_rows::oracle_regions(&a),
+        fs(_g): a,
     }
 }
 
@@ -543,6 +656,19 @@ diff_ops! {
         fs(g): crate::Ticks(semantic_oracle::min_ticks(&a, g)),
     }
 
+    /// `shape`: the version's step function as plateau items.
+    ///
+    /// Production folds the public walk's rises into absolute rows (the
+    /// fold asserts nonzero rises, a nonnegative running height, and
+    /// exact tiling in passing); the oracle enumerates its leaves
+    /// directly; the function space scans the rows' own step function,
+    /// rebuilt as a tree, against the geometric lift.
+    fn version_shape_matches_the_oracle {
+        prod: shape_rows::fold_heights(a.shape()),
+        tree: shape_rows::oracle_plateaus(&a),
+        fs(_g): a,
+    }
+
     /// `rank`: the area the history covers, against the oracle's fold and
     /// the function space's plain Riemann sum over the resolving grid.
     ///
@@ -570,6 +696,25 @@ diff_ops! {
     fn version_join_matches_the_oracle {
         prod: a | b,
         tree: a | b,
+    }
+
+    /// `shape::combine`: two shapes walked as the coarsest common
+    /// refinement of their plateau intervals.
+    ///
+    /// Production folds the public combined walk's per-input rises into
+    /// per-cell absolute rows (the fold asserts nonzero rises,
+    /// nonnegative running heights, and exact tiling in passing); the
+    /// oracle computes the refinement directly by recursion — splitting
+    /// only where some input splits, which also pins the tiling as the
+    /// coarsest one; the function space scans each rebuilt column
+    /// against its own geometric lift.
+    fn shape_combine_matches_the_oracle {
+        prod: shape_rows::fold_cells(crate::shape::combine([&a, &b])),
+        tree: shape_rows::oracle_cells(vec![
+            (crate::codec::Base::ZERO, a),
+            (crate::codec::Base::ZERO, b),
+        ]),
+        fs(_g): (a, b),
     }
 
     /// The meet (`&`): the greatest lower bound of two histories, realized

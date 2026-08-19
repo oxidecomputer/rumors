@@ -59,7 +59,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::dump;
-use crate::render::{AtlasData, OverlayData, RenderMeta};
+use crate::render::{AtlasData, OverlayData, RenderMeta, RunParams};
 
 #[cfg(test)]
 mod tests;
@@ -74,7 +74,12 @@ const INDEX_FORMAT: &str = "fuelscape-widget-index";
 const OP_FORMAT: &str = "fuelscape-widget-data";
 
 /// The compact format version both banners carry.
-const FORMAT_VERSION: u32 = 2;
+///
+/// Version 3 moved the measurement commit from the index into each
+/// operation document, mirroring the dump format: a dataset accretes
+/// across measuring runs, so the index holds only the run parameters
+/// every document must share.
+const FORMAT_VERSION: u32 = 3;
 
 /// Histogram resolution: octaves of fuel per bin.
 ///
@@ -92,8 +97,9 @@ struct IndexDoc {
     format: String,
     /// Always [`FORMAT_VERSION`].
     version: u32,
-    /// The measuring run's provenance, identical in every file.
-    meta: RenderMeta,
+    /// The run parameters, identical in every file; each operation
+    /// document carries its own measurement commit.
+    meta: RunParams,
     /// Operation names in the dump's order; one `<name>.json` per entry.
     ops: Vec<String>,
 }
@@ -106,7 +112,8 @@ struct OpDoc {
     format: String,
     /// Always [`FORMAT_VERSION`].
     version: u32,
-    /// The measuring run's provenance, identical in every file.
+    /// The measuring run's provenance: its commit, and the run
+    /// parameters (which must match the index's).
     meta: RenderMeta,
     /// The operation's compact render input.
     op: WidgetOp,
@@ -234,9 +241,9 @@ pub fn compact(
 /// Any dump-loading failure, a dump operation missing from the roster,
 /// a `size_measure` disagreement, and any I/O failure writing `out`.
 pub fn compact_dump(dump_path: &Path, out: &Path) -> io::Result<Vec<String>> {
-    let (meta, atlases) = dump::read(dump_path)?;
+    let (params, atlases) = dump::read(dump_path)?;
     let mut ops = Vec::with_capacity(atlases.len());
-    for data in &atlases {
+    for (meta, data) in &atlases {
         let spec = crate::ops::ROSTER
             .iter()
             .find(|spec| spec.name == data.op_name)
@@ -262,17 +269,20 @@ pub fn compact_dump(dump_path: &Path, out: &Path) -> io::Result<Vec<String>> {
                 ),
             ));
         }
-        ops.push(compact(data, spec.variant, spec.contract, spec.claim)?);
+        ops.push((
+            meta.clone(),
+            compact(data, spec.variant, spec.contract, spec.claim)?,
+        ));
     }
-    write(out, &meta, &ops)?;
-    Ok(ops.into_iter().map(|op| op.op_name).collect())
+    write(out, &params, &ops)?;
+    Ok(ops.into_iter().map(|(_, op)| op.op_name).collect())
 }
 
-/// Write a compact dataset: every operation document, then the index,
-/// each atomically.
-pub fn write(dir: &Path, meta: &RenderMeta, ops: &[WidgetOp]) -> io::Result<()> {
+/// Write a compact dataset: every operation document (each with its own
+/// measurement provenance), then the index, each atomically.
+pub fn write(dir: &Path, params: &RunParams, ops: &[(RenderMeta, WidgetOp)]) -> io::Result<()> {
     std::fs::create_dir_all(dir)?;
-    for op in ops {
+    for (meta, op) in ops {
         let doc = OpDoc {
             format: OP_FORMAT.to_string(),
             version: FORMAT_VERSION,
@@ -289,15 +299,16 @@ pub fn write(dir: &Path, meta: &RenderMeta, ops: &[WidgetOp]) -> io::Result<()> 
     let index = IndexDoc {
         format: INDEX_FORMAT.to_string(),
         version: FORMAT_VERSION,
-        meta: meta.clone(),
-        ops: ops.iter().map(|op| op.op_name.clone()).collect(),
+        meta: params.clone(),
+        ops: ops.iter().map(|(_, op)| op.op_name.clone()).collect(),
     };
     // Pretty for the index: it is the file an operator opens.
     dump::write_atomic(&dir.join(INDEX_FILE), &serde_json::to_vec_pretty(&index)?)
 }
 
-/// Load a whole compact dataset: the measuring run's provenance and
-/// every operation's widget data, in the index's order.
+/// Load a whole compact dataset: the shared run parameters and every
+/// operation's widget data with its own measurement provenance, in the
+/// index's order.
 ///
 /// `path` names the dataset: its `index.json` or the directory holding
 /// it.
@@ -306,7 +317,7 @@ pub fn write(dir: &Path, meta: &RenderMeta, ops: &[WidgetOp]) -> io::Result<()> 
 ///
 /// Any I/O failure, and every strictness rejection the module doc
 /// enumerates; the error message names the offending file and check.
-pub fn read(path: &Path) -> io::Result<(RenderMeta, Vec<WidgetOp>)> {
+pub fn read(path: &Path) -> io::Result<(RunParams, Vec<(RenderMeta, WidgetOp)>)> {
     let index_path = if path.is_dir() {
         path.join(INDEX_FILE)
     } else {
@@ -342,8 +353,11 @@ pub fn read(path: &Path) -> io::Result<(RenderMeta, Vec<WidgetOp>)> {
             doc.version,
             FORMAT_VERSION,
         )?;
-        if doc.meta != index.meta {
-            return Err(dump::malformed(&op_path, "meta differs from the index's"));
+        if RunParams::from(&doc.meta) != index.meta {
+            return Err(dump::malformed(
+                &op_path,
+                "run parameters differ from the index's",
+            ));
         }
         if doc.op.op_name != *name {
             return Err(dump::malformed(
@@ -355,7 +369,7 @@ pub fn read(path: &Path) -> io::Result<(RenderMeta, Vec<WidgetOp>)> {
             ));
         }
         validate(&op_path, &doc.op)?;
-        ops.push(doc.op);
+        ops.push((doc.meta, doc.op));
     }
     Ok((index.meta, ops))
 }

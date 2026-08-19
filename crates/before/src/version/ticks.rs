@@ -10,24 +10,24 @@ use core::ops::{Add, AddAssign};
 use core::str::FromStr;
 
 use crate::codec::Base;
-use crate::error::Parse;
+use crate::error::{Parse, TooWide};
 
 /// A count of [`tick`](crate::Version::tick)s: an unbounded natural
 /// number.
 ///
-/// Event counts have no ceiling, so the count vocabulary is opaque and
-/// unbounded rather than any fixed-width integer: every conversion *into* it is
-/// total ([`From`] on the unsigned machine integers, decimal [`FromStr`] for
-/// counts wider than any of them), and no accessor converts back out to a
-/// machine integer. Render a count with [`Display`](fmt::Display) (decimal)
-/// instead.
+/// Event counts have no ceiling, so the count is unbounded rather than any
+/// fixed-width integer: every conversion *into* it is total ([`From`] on
+/// unsigned machine integers, and every conversion *out* is explicit
+/// about width: `TryFrom<&Ticks> for u64` answers the machine-range case
+/// fallibly, [`limbs`](Ticks::limbs) spells any count in base-2^64 for
+/// consumers with their own wide arithmetic, and [`Display`](fmt::Display)
+/// renders decimal.
 ///
 /// This type is produced by [`Version::min_ticks`](crate::Version::min_ticks);
 /// and consumed by [`Version::ticks`](crate::Version::ticks),
 /// [`Party::ticks`](crate::Party::ticks), and
 /// [`Clock::ticks`](crate::Clock::ticks), each of which take `impl
-/// Into<Ticks>`, so call sites pass integer literals directly and the type
-/// appears only where a count is genuinely carried or genuinely wide.
+/// Into<Ticks>`, so call sites can pass integer literals directly.
 ///
 /// Counts are totally ordered ([`Ord`]) and can be added ([`Add`],
 /// [`AddAssign`], [`Sum`]); [`ZERO`](Ticks::ZERO) is the additive identity.
@@ -38,7 +38,7 @@ use crate::error::Parse;
 /// comparison and hashing do, and an n-ary [`Sum`]'s `N` is the
 /// summands' total numeric size.
 ///
-/// Constructionis `O(1)`; comparison and hashing `O(‖n‖)`; addition `O(‖a‖ +
+/// Construction is `O(1)`; comparison and hashing `O(‖n‖)`; addition `O(‖a‖ +
 /// ‖b‖)`, `Sum` `O(N)`; text I/O is superlinear but subquadratic in the count's
 /// width (because it requires decimal conversion).
 ///
@@ -87,7 +87,66 @@ impl Ticks {
     /// assert_eq!(Ticks::from(7u64) + Ticks::ZERO, Ticks::from(7u64));
     /// ```
     pub const ZERO: Ticks = Ticks(Base::ZERO);
+
+    /// The count's base-2^64 "digits", i.e. its *limbs*, least significant
+    /// first, then ascending.
+    ///
+    /// For a count known to be within machine range, `u64::try_from(&count)`
+    /// skips the limbs entirely; for text, [`Display`](fmt::Display) renders
+    /// decimal directly.
+    ///
+    /// # Complexity
+    ///
+    /// Construction is `O(1)`; the full drain is `O(‖n‖)` and allocates
+    /// nothing.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use before::Ticks;
+    /// let wide: Ticks = "340282366920938463463374607431768211457".parse().unwrap();
+    /// // 2^128 + 1: three limbs, least significant first.
+    /// assert_eq!(wide.limbs().collect::<Vec<u64>>(), vec![1, 0, 1]);
+    /// assert_eq!(Ticks::ZERO.limbs().len(), 0);
+    /// ```
+    pub fn limbs(&self) -> Limbs<'_> {
+        Limbs {
+            limbs: suanpan::Limbs::new(&self.0 .0),
+            remaining: usize::try_from(self.0.bits().div_ceil(64))
+                .expect("a stored count's limb count fits usize"),
+        }
+    }
 }
+
+/// An iterator over the base-2^64 limbs of a [`Ticks`] count, least
+/// significant first; see [`Ticks::limbs`].
+///
+/// Exact-size and [fused](core::iter::FusedIterator).
+pub struct Limbs<'a> {
+    limbs: suanpan::Limbs<'a>,
+    /// Limbs not yet yielded, for the exact-size contract.
+    remaining: usize,
+}
+
+impl Iterator for Limbs<'_> {
+    type Item = u64;
+
+    fn next(&mut self) -> Option<u64> {
+        let limb = self.limbs.next();
+        if limb.is_some() {
+            self.remaining -= 1;
+        }
+        limb
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.remaining, Some(self.remaining))
+    }
+}
+
+impl ExactSizeIterator for Limbs<'_> {}
+
+impl core::iter::FusedIterator for Limbs<'_> {}
 
 /// A count from a machine integer: total, `O(1)`.
 macro_rules! ticks_from_unsigned {
@@ -103,6 +162,32 @@ macro_rules! ticks_from_unsigned {
 }
 
 ticks_from_unsigned!(u8, u16, u32, u64, u128);
+
+/// The count as a machine word, when it fits: the narrow dual of
+/// [`From<u64>`](Ticks#impl-From<u64>-for-Ticks).
+///
+/// A count past the `u64` range answers [`error::TooWide`](TooWide);
+/// spell such a count with [`Ticks::limbs`] or render it with
+/// [`Display`](fmt::Display).
+///
+/// # Complexity
+///
+/// `O(1)`.
+///
+/// # Example
+///
+/// ```
+/// use before::Ticks;
+/// assert_eq!(u64::try_from(&Ticks::from(42u64)), Ok(42));
+/// let wide: Ticks = "340282366920938463463374607431768211456".parse().unwrap();
+/// assert!(u64::try_from(&wide).is_err());
+/// ```
+impl TryFrom<&Ticks> for u64 {
+    type Error = TooWide;
+    fn try_from(count: &Ticks) -> Result<u64, TooWide> {
+        count.0.to_u64().ok_or(TooWide)
+    }
+}
 
 /// A count from a machine size: total, `O(1)`.
 impl From<usize> for Ticks {

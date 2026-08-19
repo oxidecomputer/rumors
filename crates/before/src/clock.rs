@@ -674,6 +674,46 @@ impl Clock {
         self.version() / self.party()
     }
 
+    /// The clock's shape.
+    ///
+    /// This iterator overlays its [`Version`]'s [`Plateau`](crate::shape::Plateau)s
+    /// with its [`Party`]'s ownership of [`Region`](crate::shape::Region)s, as one
+    /// iterator, left to right across the interval `[0, 1)`. The boolean flag says
+    /// whether the clock's party owns the plateau's interval.
+    ///
+    /// # Complexity
+    ///
+    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_shape.html"))]
+    ///
+    /// Draining the iterator is linear in the clock's encoded size: each
+    /// fragment costs `O(1)` plus its own rise's encoded width, and the
+    /// walk itself performs no arithmetic. [`Version::shape`]'s caveat on
+    /// the cost of folding rises applies here too.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use before::shape::{Plateau, Rise};
+    /// use before::{Clock, Ticks};
+    ///
+    /// let clock = Clock::from_parts(
+    ///     "(1, 0)".parse().unwrap(),          // owns the left half
+    ///     "(1, 1, (0, 0, 2))".parse().unwrap(),
+    /// );
+    /// let overlay: Vec<(Plateau, bool)> = clock.shape().collect();
+    /// assert_eq!(
+    ///     overlay,
+    ///     vec![
+    ///         (Plateau { rise: Some(Rise::Up(Ticks::from(2u64))), depth: 1 }, true),
+    ///         (Plateau { rise: Some(Rise::Down(Ticks::from(1u64))), depth: 2 }, false),
+    ///         (Plateau { rise: Some(Rise::Up(Ticks::from(2u64))), depth: 2 }, false),
+    ///     ],
+    /// );
+    /// ```
+    pub fn shape(&self) -> crate::shape::Overlay<'_> {
+        crate::shape::Overlay::of_clock(self)
+    }
+
     /// Encodes this [`Clock`] as canonical bytes.
     ///
     /// The bytes are the [`Party`]'s encoding followed by the [`Version`]'s.

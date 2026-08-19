@@ -67,6 +67,16 @@ pub enum Inputs {
     /// committed fold-cure families mark the adversarial arity ramps on
     /// top of this bulk measure.
     VersionSlice,
+    /// [`VersionSlice`](Inputs::VersionSlice) with the arity draw capped:
+    /// arity uniform over `1..=min(cap, size)`, then the same
+    /// uniform-composition split.
+    ///
+    /// For rows whose public operation takes its arity as a compile-time
+    /// constant (`shape::combine`): the guest dispatches one
+    /// instantiation per arity up to the cap, so the drawn arity must
+    /// stay inside it, and the row's size measure stamps the sampled
+    /// population.
+    VersionSliceCapped(u32),
     /// One packed party followed by a version slice: the n-ary clock
     /// rows' input space, composed in each row's own preparation.
     ///
@@ -109,7 +119,7 @@ impl Inputs {
         match self {
             Inputs::Packed(operands) | Inputs::PackedDistinct(operands) => operands.len().max(1),
             // One one-byte operand: the smallest slice is unary.
-            Inputs::VersionSlice => 1,
+            Inputs::VersionSlice | Inputs::VersionSliceCapped(_) => 1,
             // One byte for the party, one for the smallest slice.
             Inputs::ClockSlice => 2,
             // The one party; the share count costs no bytes.
@@ -185,6 +195,16 @@ const M_BINARY: &str = "total packed bytes; split uniform across the two operand
 /// The size measure of a slice row.
 const M_SLICE: &str =
     "total packed bytes; arity uniform over 1..=size, split uniform over the compositions";
+/// The `shape_combine` row's arity cap.
+///
+/// The public combiner's arity is a compile-time constant, so the guest
+/// dispatches one instantiation per arity up to this bound (the guest's
+/// own cap, kept equal by the pipeline smoke test's combine case).
+const COMBINE_ARITY_CAP: u32 = 16;
+/// The size measure of the capped-arity slice row.
+const M_SLICE_CAPPED: &str = "total packed bytes; arity uniform over 1..=min(16, size) \
+     (the combiner's compile-time arity, capped at the guest's dispatch table), split \
+     uniform over the compositions";
 /// The size measure of a composed-clock unary row.
 const M_CLOCK: &str = "total packed bytes of the clock's party and version parts, split uniform";
 /// The size measure of the fork-split disjoint-clock rows.
@@ -355,6 +375,33 @@ pub const ROSTER: &[OpSpec] = &[
         measure: |g, inputs, _| {
             load_version(g, 0, &inputs[0]);
             g.call_i64("ff_version_min_ticks", &[0])
+        },
+    },
+    OpSpec {
+        name: "version_shape",
+        inputs: Inputs::Packed(&[Operand::Version]),
+        covers: &["Version::shape"],
+        size_measure: M_UNARY,
+        variant: "",
+        contract: "`O(|self|)` to drain",
+        claim: "n",
+        measure: |g, inputs, _| {
+            load_version(g, 0, &inputs[0]);
+            g.call_i64("ff_version_shape", &[0])
+        },
+    },
+    OpSpec {
+        name: "shape_combine",
+        inputs: Inputs::VersionSliceCapped(COMBINE_ARITY_CAP),
+        covers: &["shape::combine"],
+        size_measure: M_SLICE_CAPPED,
+        variant: "",
+        contract: "`O(N · total input size)` to drain, `N` the compile-time arity",
+        claim: "n",
+        measure: |g, inputs, arity| {
+            let n = load_slice(g, inputs);
+            debug_assert_eq!(n as usize, arity, "one drawn version per slice operand");
+            g.call("ff_shape_combine", &[0, n])
         },
     },
     OpSpec {
@@ -633,6 +680,19 @@ pub const ROSTER: &[OpSpec] = &[
         },
     },
     // ───────────────────────────── Party ─────────────────────────────
+    OpSpec {
+        name: "party_shape",
+        inputs: Inputs::Packed(&[Operand::Party]),
+        covers: &["Party::shape"],
+        size_measure: M_UNARY,
+        variant: "",
+        contract: "`O(|self|)` to drain",
+        claim: "n",
+        measure: |g, inputs, _| {
+            load_party(g, 0, &inputs[0]);
+            g.call_i64("ff_party_shape", &[0])
+        },
+    },
     OpSpec {
         name: "party_decode",
         inputs: Inputs::Packed(&[Operand::Party]),
@@ -1104,6 +1164,19 @@ pub const ROSTER: &[OpSpec] = &[
         measure: |g, inputs, _| {
             compose_clock(g, &inputs[0], &inputs[1]);
             g.call("ff_clock_own_version", &[3, 0])
+        },
+    },
+    OpSpec {
+        name: "clock_shape",
+        inputs: Inputs::Packed(&[Operand::Party, Operand::Version]),
+        covers: &["Clock::shape"],
+        size_measure: M_CLOCK,
+        variant: "",
+        contract: "`O(|self|)` to drain",
+        claim: "n",
+        measure: |g, inputs, _| {
+            compose_clock(g, &inputs[0], &inputs[1]);
+            g.call_i64("ff_clock_shape", &[0])
         },
     },
     // ───────────────────────────── Rank ─────────────────────────────
@@ -2279,9 +2352,24 @@ pub const EXEMPTIONS: &[(&str, &str)] = &[
     ),
     // ── representation mechanics ──
     (
-        "Ticks ZERO / From / FromStr / Display / Add / Sum / Ord / Eq / Hash",
+        "Ticks ZERO / From / TryFrom / FromStr / Display / Add / Sum / Ord / Eq / Hash",
         "the opaque count carrier's own arithmetic and text, not a tree walk; its \
          semantics are priced at the min_ticks panel",
+    ),
+    (
+        "Ticks::limbs",
+        "a borrowing limb view of the count carrier, not a packed-input walk: \
+         construction is O(1) and the drain is one word per stored limb",
+    ),
+    (
+        "shape iterators (Plateaus / Regions / Overlay / Cells / Limbs: Iterator, FusedIterator, ExactSizeIterator)",
+        "the shape methods' own walks, item by item; priced at the shape and \
+         combine panels",
+    ),
+    (
+        "shape item types (Plateau / Rise / Region / Cell: Clone, Eq, Debug)",
+        "value carriers of the shape walks' items: word-scale fields plus one \
+         count held at its own width — no packed-input axis",
     ),
     // ── linearity escape hatches ──
     (

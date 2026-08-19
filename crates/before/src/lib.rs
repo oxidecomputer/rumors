@@ -428,8 +428,9 @@ pub mod causally;
 pub mod error;
 pub use party::Party;
 pub use span::{Dominance, Endpoint, OwnSpan, Placement, Precedence, Span};
-pub use version::{OwnVersion, Rank, Ranked, Ticks, Version};
+pub use version::{Limbs, OwnVersion, Rank, Ranked, Ticks, Version};
 pub mod iter;
+pub mod shape;
 
 #[cfg(any(test, feature = "oracle"))]
 pub mod oracle;
