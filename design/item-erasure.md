@@ -61,25 +61,56 @@ already does). The session core becomes generic over an opaque
   the session, is now the larger half of the re-bought code, which
   argues for option B (or C's second phase) rather than stopping at A.
 
-### Option B: erase the tree's storage too
+### Option B (recommended; Finch's shape): erase the stored value
+behind `Arc<dyn Any>`
 
-`untyped::Node` stores `Message<Raw>` (canonical bytes); the typed
-facade decodes on read (`iter`/`get` return decoded values or a lazy
-view) and encodes on insert.
+`Message<T>` already stores `{ message: Arc<T>, serialized: Bytes }`,
+and everything the tree and session do with a payload other than the
+typed reads — the hash preimage, wire encode, size accounting — reads
+the cached canonical bytes, never the value. So the erased message is
+simply
 
-- Buys: tree + session compile once; the whole gossip stack becomes
-  rlib code. The `T`-facade shrinks to (de)serialization at the public
-  API.
-- Costs: decode-on-read for iteration (each read pays a CBOR decode;
-  today reads are free); or cache decoded values (memory). Insertion
-  already pays one encode (for hashing) — verify: if hashing already
-  encodes, insertion cost is unchanged.
-- This is the full "compiles only once".
+```rust
+struct Message /* erased */ {
+    message: Arc<dyn Any + Send + Sync>,  // the same allocation,
+                                          // unsized: +8 B fat pointer
+    serialized: Bytes,                    // unchanged, and already
+                                          // everything the erased
+                                          // core consumes
+}
+```
+
+with the typed boundary reading by checked downcast (a `TypeId`
+compare; a failed downcast is a *caught* mispairing — stronger
+witnessing than the height seam's debug-only prefix asserts). The one
+per-`T` residue beyond the facade is a deserialize witness
+(`fn(&[u8]) -> Result<Arc<dyn Any + Send + Sync>, _>`) threaded from
+peer construction to the wire-decode boundary, which keeps malformed
+payloads failing at ingress as `DecodeError::Record` exactly as today.
+
+- Buys: tree + session compile once — the full "compiles only once" —
+  with today's runtime behavior preserved at every point: reads free,
+  ingress single-decode, hash/encode off the cached bytes.
+- Costs: a fat pointer per `Message` handle and a `TypeId` compare per
+  typed read; the `gossip_fixed` bench pin guards the claim that this
+  is nothing.
+- Public API consequence, the part to shape deliberately: `iter`/`get`
+  and `Leaf::message` return `&Message<T>` today, which cannot survive
+  as-is once the payload inside is erased — the API becomes a typed
+  accessor (`message.get::<T>() -> &T`) or a `MessageView<'_, T>`.
+  `T: Serialize` migrates to the insert boundary and
+  `DeserializeOwned` to witness minting; nothing new is demanded of
+  `T`.
+
+A decode-on-read variant (store the bytes only, decode at the typed
+boundary) loses to this on every axis: it saves the fat pointer but
+charges every read a CBOR decode that today is free.
 
 ### Option C: A now, B later
 
-A is strictly smaller and proves the seam; B builds on it. The
-measurement after A decides whether B's read-path trade is worth it.
+A is strictly smaller and proves the session seam; B builds on it. But
+the measured residue above says the tree is the larger half, so
+stopping at A forfeits most of the prize.
 
 ## What the types stop proving
 
@@ -103,9 +134,8 @@ security-relevant: payload validation stays exactly where it is
 1. Is `Message<T>`'s canonical encoding stable enough to be the stored
    representation (option B), or is decode-on-read unacceptable for the
    read path's contract?
-2. Should the erased payload be a newtype (`Payload(Bytes)`) with the
-   canonicality invariant documented, or the existing
-   `Message<RawValue>`-style vehicle if one exists?
+2. The `&Message<T>` return type's replacement: typed accessor on an
+   erased `Message`, or a borrowed `MessageView<'_, T>`?
 3. Facade shape: seal the session core behind non-generic functions in
    the rlib (taking `&mut dyn` link objects — the transport is already
    dyn-erased), or keep generic entry points that immediately erase?
