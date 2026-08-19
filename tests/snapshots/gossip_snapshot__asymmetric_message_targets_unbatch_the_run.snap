@@ -8,34 +8,32 @@ preamble: 25 bytes
   0008: 8c 18 96 68 c9 e4 83 72
   0010: 37 bf 31 e0 2d 7f 6b 70
   0018: 00
-version: (0, 2, 0)
-greeting words: set len 2, version-size bound 2, message-size target 1638912
-version frame: 30 bytes
-  0000: 00 00 00 1a 02 00 00 00
-  0008: 00 00 00 00 02 00 00 00
+version: (0, 2046, 0)
+greeting words: set len 2, version-size bound 3, message-size target 1638912
+version frame: 34 bytes
+  0000: 00 00 00 1e 02 00 00 00
+  0008: 00 00 00 00 03 00 00 00
   0010: 00 00 00 00 00 02 19 00
-  0018: 00 00 00 00 5c 90
+  0018: 00 00 00 00 40 0f ff 00
+  0020: 1f f9
 listing: 1 child(ren)
-  child 0x71: d02b23197dc11ce40f401e66b46b11040502f40d37ce905d
-listing frame: 33 bytes
-  0000: 00 00 00 1d 01 00 00 00
-  0008: 71 d0 2b 23 19 7d c1 1c
-  0010: e4 0f 40 1e 66 b4 6b 11
-  0018: 04 05 02 f4 0d 37 ce 90
-  0020: 5d
+  child 0x79: 97fdeb2f910d20fbe119f2671eb624cf9c8417143a2435d4
+listing frame: 29 bytes
+  0000: 00 00 00 19 79 97 fd eb
+  0008: 2f 91 0d 20 fb e1 19 f2
+  0010: 67 1e b6 24 cf 9c 84 17
+  0018: 14 3a 24 35 d4
 Responder stream 0 (height 31), epoch 0
   frame 0: Supply(Continue)
     supply run: 1 record(s)
-      record 0: version (0, 2, 0), message 8 byte(s)
-    0000: 66 00 00 00 0e 00 00 00
-    0008: 0a 5c 90 52 6c 00 00 00
-    0010: 00 00 00
+      record 0: version (0, 26, 0), message 2 byte(s)
+    0000: 66 00 00 00 0a 00 00 00
+    0008: 06 43 43 70 69 18 19
   frame 1: Supply(End)
     supply run: 1 record(s)
-      record 0: version (0, 1, 0), message 8 byte(s)
-    0000: 77 00 00 00 0e 00 00 00
-    0008: 0a 55 40 01 00 00 00 00
-    0010: 00 00 00
+      record 0: version (0, 20, 0), message 1 byte(s)
+    0000: 77 00 00 00 09 00 00 00
+    0008: 05 43 42 b0 51 13
   frame 2: End(Stream)
     0000: 99
 trailing frame: 1 bytes
@@ -55,7 +53,7 @@ version frame: 29 bytes
   0010: 00 00 00 00 00 00 00 00
   0018: 00 00 00 00 e0
 listing: 0 child(ren)
-listing frame: 8 bytes
-  0000: 00 00 00 04 00 00 00 00
+listing frame: 4 bytes
+  0000: 00 00 00 00
 trailing frame: 1 bytes
   0000: 2e

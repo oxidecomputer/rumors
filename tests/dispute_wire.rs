@@ -14,12 +14,17 @@
 //! What the counts establish: the current format's end-to-end cost of one
 //! disputed message — its question share, reply share, and leaf record —
 //! is affine in the record's encoded payload, the calibrated intercept
-//! plus the payload's borsh encoding. The constant is that cost at the
+//! plus the payload's CBOR encoding. The constant is that cost at the
 //! design point's [`DESIGN_ENCODED_PAYLOAD_BYTES`]-byte record; leaner
 //! records cost proportionally less wire per message. Three cells pin
 //! the line — the intercept, an interior point, and the design point —
 //! so a change to the per-record framing or the record body moves at
 //! least one loudly, and the linearity claim is itself gated.
+//!
+//! Payload corpora are [`bytes::Bytes`], which serde carries as a CBOR
+//! byte string: a fixed-length payload has one deterministic encoded
+//! size (a header plus the raw bytes), which is what lets each cell
+//! state its encoded payload size exactly.
 
 mod common;
 
@@ -29,6 +34,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::task::{Context, Poll};
 
+use bytes::Bytes;
 use rand::rngs::SmallRng;
 use rand::{RngCore, SeedableRng};
 use rumors::link::{Connector, Done, Link, LinkParts, MemoryLink};
@@ -62,21 +68,30 @@ fn fixed_overhead_bytes() -> usize {
     dispute_overhead_bytes()
 }
 
-/// The `Vec<u8>` payload length whose borsh encoding (a 4-byte length
-/// prefix plus the bytes, 172 B) prices a disputed message at exactly
+/// The `Bytes` payload length whose CBOR encoding (a 2-byte byte-string
+/// header plus the bytes, 172 B) prices a disputed message at exactly
 /// `DISPUTE_WIRE_BYTES` under the current format.
 ///
 /// This is the record size the design-point constant is denominated in.
-const DESIGN_PAYLOAD_LEN: usize = 168;
+const DESIGN_PAYLOAD_LEN: usize = 170;
 
-/// A mid-size `Vec<u8>` payload length (64 B encoded behind borsh's
-/// 4-byte length prefix): the interior cell that holds the affine law
+/// A mid-size `Bytes` payload length (64 B encoded behind CBOR's 2-byte
+/// byte-string header): the interior cell that holds the affine law
 /// between the minimal and design endpoints.
-const MID_PAYLOAD_LEN: usize = 60;
+const MID_PAYLOAD_LEN: usize = 62;
+
+/// CBOR's byte-string header width for lengths in `24..=255`: the major
+/// type byte plus one length byte.
+const CBOR_BSTR_HEADER_BYTES: usize = 2;
 
 /// The design record's encoded payload: [`DESIGN_PAYLOAD_LEN`] bytes
-/// behind borsh's 4-byte length prefix.
-const DESIGN_ENCODED_PAYLOAD_BYTES: usize = 4 + DESIGN_PAYLOAD_LEN;
+/// behind CBOR's byte-string header.
+const DESIGN_ENCODED_PAYLOAD_BYTES: usize = CBOR_BSTR_HEADER_BYTES + DESIGN_PAYLOAD_LEN;
+
+/// A random `u64`'s CBOR encoding: the one-byte major-type header plus
+/// eight value bytes (every seeded draw exceeds 2³², so the width is
+/// deterministic for the minimal cell's corpus).
+const U64_ENCODED_BYTES: usize = 9;
 
 /// Slack on each pinned per-message figure, in bytes. The counts are
 /// deterministic, so the slack only absorbs integer-division adjacency;
@@ -239,9 +254,9 @@ fn dispute_wire_bytes_is_the_design_record_cost() {
     let mut mint = |rng: &mut SmallRng| {
         let mut payload = vec![0u8; DESIGN_PAYLOAD_LEN];
         rng.fill_bytes(&mut payload);
-        payload
+        Bytes::from(payload)
     };
-    let implied = implied_bytes_per_message::<Vec<u8>>(&mut mint);
+    let implied = implied_bytes_per_message::<Bytes>(&mut mint);
     let (_, constant) = envelope_and_wire_bytes();
     eprintln!(
         "design-record cell: implied {implied} B/message at {DESIGN_ENCODED_PAYLOAD_BYTES} B \
@@ -259,23 +274,23 @@ fn dispute_wire_bytes_is_the_design_record_cost() {
 /// record framing beyond the encoded payload — is pinned at the
 /// minimal-payload end of the line.
 ///
-/// The invariant: a `u64` corpus (8 B encoded payloads) implies
-/// the calibrated intercept + 8 bytes per disputed message. Together
-/// with the design-record cell this pins both parameters of the affine
-/// cost `overhead + encoded_payload`, so framing drift cannot hide
-/// inside the design cell's payload term. It is also the honest floor:
-/// minimal-payload sessions cost ~42 B of wire per disputed message,
-/// several times less than the design constant, and correspondingly
-/// need more scopes in flight to fill the same link.
+/// The invariant: a `u64` corpus ([`U64_ENCODED_BYTES`]-byte encoded
+/// payloads) implies the calibrated intercept + that width per disputed
+/// message. Together with the design-record cell this pins both
+/// parameters of the affine cost `overhead + encoded_payload`, so
+/// framing drift cannot hide inside the design cell's payload term. It
+/// is also the honest floor: minimal-payload sessions cost several
+/// times less wire per disputed message than the design constant, and
+/// correspondingly need more scopes in flight to fill the same link.
 #[test]
 fn minimal_records_pin_the_fixed_overhead() {
     let implied = implied_bytes_per_message::<u64>(|rng| rng.next_u64());
-    let expected = fixed_overhead_bytes() + std::mem::size_of::<u64>();
+    let expected = fixed_overhead_bytes() + U64_ENCODED_BYTES;
     eprintln!("minimal-record cell: implied {implied} B/message (expected {expected})");
     assert!(
         expected.abs_diff(implied) <= TOLERANCE_BYTES,
-        "the fixed per-message overhead moved: measured {implied} B at 8 B encoded \
-         payloads against the pinned {expected} B",
+        "the fixed per-message overhead moved: measured {implied} B at \
+         {U64_ENCODED_BYTES} B encoded payloads against the pinned {expected} B",
     );
 }
 
@@ -294,16 +309,16 @@ fn mid_size_records_ride_the_affine_law() {
     let mut mint = |rng: &mut SmallRng| {
         let mut payload = vec![0u8; MID_PAYLOAD_LEN];
         rng.fill_bytes(&mut payload);
-        payload
+        Bytes::from(payload)
     };
-    let implied = implied_bytes_per_message::<Vec<u8>>(&mut mint);
-    let expected = fixed_overhead_bytes() + 4 + MID_PAYLOAD_LEN;
+    let implied = implied_bytes_per_message::<Bytes>(&mut mint);
+    let expected = fixed_overhead_bytes() + CBOR_BSTR_HEADER_BYTES + MID_PAYLOAD_LEN;
     eprintln!("mid-record cell: implied {implied} B/message (expected {expected})");
     assert!(
         expected.abs_diff(implied) <= TOLERANCE_BYTES,
         "the affine cost law broke in the interior: measured {implied} B at \
          {} B encoded payloads against the pinned {expected} B",
-        4 + MID_PAYLOAD_LEN,
+        CBOR_BSTR_HEADER_BYTES + MID_PAYLOAD_LEN,
     );
 }
 

@@ -201,18 +201,20 @@ pub(crate) const SUPPLY_DECODE_ENVELOPE_BYTES: usize =
 pub(crate) const SPEC_BDP_BYTES: usize = 12_500_000;
 
 /// End-to-end wire bytes of one disputed message beyond its record's
-/// encoded payload: its question share, reply share, and record framing.
+/// encoded payload: its question share, reply share, and record framing
+/// (the record's version atom rides as a CBOR byte string, whose header
+/// is part of this intercept).
 ///
 /// Calibrated: `tests/dispute_wire.rs` counts every byte of
 /// deterministic in-memory sessions and pins the per-message cost as an
-/// affine law — this intercept plus the record's borsh-encoded
+/// affine law — this intercept plus the record's CBOR-encoded
 /// payload — at three payload sizes. The closed form documented at
 /// [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget) is
 /// denominated in it.
 #[cfg(any(test, feature = "test-internals"))]
-pub(crate) const DISPUTE_OVERHEAD_BYTES: usize = 34;
+pub(crate) const DISPUTE_OVERHEAD_BYTES: usize = 35;
 
-/// The design record's borsh-encoded payload size: the `m = 172` column
+/// The design record's CBOR-encoded payload size: the `m = 172` column
 /// of the trade-off table, and the record size the wire-cost anchor
 /// below is stated at.
 #[cfg(any(test, feature = "test-internals"))]

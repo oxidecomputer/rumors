@@ -381,13 +381,13 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// measure it. Worked figures below use the specification BDP of
     /// 12.5 MB, where 1 Gbps × 100 ms and 100 Gbps × 1 ms coincide;
     /// substitute your own measurement. Your corpus contributes the
-    /// other: `m`, the mean encoded record size (the borsh-encoded
+    /// other: `m`, the mean encoded record size (the CBOR-encoded
     /// payload of a disputed message's leaf record). Two constants
     /// then convert between bytes and disputes, both derived and
     /// pinned: each in-flight dispute (one disputed subtree, the unit
     /// the table below counts as a disputed scope) charges the budget
     /// a 5431 B envelope (recomputed exactly by test), and each disputed
-    /// message costs 34 B of wire overhead on top of its record
+    /// message costs 35 B of wire overhead on top of its record
     /// (calibrated by deterministic byte counts,
     /// `tests/dispute_wire.rs`).
     ///
@@ -395,10 +395,10 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// trade. A session's worst-case slowdown, relative to a session
     /// limited only by wire time, is about
     ///
-    /// > `slowdown ≈ max(1, BDP × 5431 / (budget × (34 + m)))`
+    /// > `slowdown ≈ max(1, BDP × 5431 / (budget × (35 + m)))`
     ///
     /// Read it as a ratio of two message counts: how many disputed
-    /// messages the wire holds, `BDP / (34 + m)`, against how many the
+    /// messages the wire holds, `BDP / (35 + m)`, against how many the
     /// budget keeps in flight, `budget / 5431`. Slowdown 1 is
     /// wire-time-optimal: bandwidth-bound stays bandwidth-bound.
     ///
@@ -417,27 +417,28 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// The ballpark answers, at the specification BDP:
     ///
     /// - **Is the default enough?** For any corpus whose mean encoded
-    ///   record size is at least 61 B, yes: the default imposes no
+    ///   record size is at least 60 B, yes: the default imposes no
     ///   window-induced serialization at all, because the in-flight
     ///   disputes' own transfer time covers the round trip. That
-    ///   61 B crossover comes from the exact solve, evaluated
+    ///   60 B crossover comes from the exact solve, evaluated
     ///   self-consistently (each record size at its own BDP-scale
     ///   corpus: the specification BDP in `m`-sized records, per side)
     ///   and pinned by `default_crossover_matches_the_solve`;
-    ///   the closed form's safe-side estimate is ~92 B.
+    ///   the closed form's safe-side estimate is ~91 B.
     /// - **What budget removes the wait entirely?** About
-    ///   `BDP × 5431 / (34 + m)` bytes. The design record (`m = 172`)
+    ///   `BDP × 5431 / (35 + m)` bytes. The design record (`m = 172`)
     ///   needs ~330 MB, where the solve agrees with the form to three
     ///   digits (this is the design point the envelope is pinned at).
-    ///   A minimal 8-byte-record corpus needs ~1.6 GB by the form,
-    ///   ~1.08 GB by the solve: population caps thin the deep charge
-    ///   at BDP-scale corpora, so the estimate is conservative there.
+    ///   A minimal `u64`-record corpus (9 B encoded) needs ~1.5 GB by
+    ///   the form, ~1.1 GB by the solve: population caps thin the deep
+    ///   charge at BDP-scale corpora, so the estimate is conservative
+    ///   there.
     /// - **What does a smaller budget cost?** Smooth latency, never
     ///   memory, and only on the interleaved dispute walk (bulk supply
     ///   runs stream outside the window). `u64` records at the default
-    ///   run at ~4.6× wire time for a BDP-scale corpus, and the factor
+    ///   run at ~4.3× wire time for a BDP-scale corpus, and the factor
     ///   grows slowly with set size as the derived window narrows:
-    ///   ~14.2× at 10⁷ messages, ~26.5× at 10¹⁰ (all derived from the
+    ///   ~13.6× at 10⁷ messages, ~25.3× at 10¹⁰ (all derived from the
     ///   solve). `tests/window_operator.rs` holds the wave model
     ///   against measured sessions on a bandwidth-limited link.
     ///
@@ -449,7 +450,7 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// session of 62500-message corpora a side; larger corpora derive
     /// narrower windows. Each cell then applies the measured wave form
     /// `slowdown = max(1, BDP_messages / K)`, with
-    /// `BDP_messages = BDP / (34 + m)` evaluated at the specification
+    /// `BDP_messages = BDP / (35 + m)` evaluated at the specification
     /// BDP of 12.5 MB (the wave form is measured:
     /// `tests/window_knee.rs`, `tests/window_operator.rs`). One
     /// caution when reading it: in rows whose window reaches the

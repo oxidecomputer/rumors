@@ -209,10 +209,11 @@ pub fn window_tradeoff_table() -> String {
         ("2 GiB", 2 << 30),
     ];
 
-    /// The mean-encoded-record-size columns: the minimal `u64` record,
-    /// a mid value, the design record, and a fat value.
+    /// The mean-encoded-record-size columns: the minimal `u64` record
+    /// (9 B in CBOR: header plus value), a mid value, the design record,
+    /// and a fat value.
     const RECORD_SIZES: &[(usize, &str)] = &[
-        (8, "m = 8 (u64)"),
+        (9, "m = 9 (u64)"),
         (64, "m = 64"),
         (DESIGN_RECORD_BYTES, "m = 172 (design record)"),
         (1024, "m = 1024"),

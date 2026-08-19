@@ -10,9 +10,9 @@
 //! never as an accommodation of drift; the two-regime re-accept rule and
 //! its procedure (`cargo insta review`) are in `AGENTS.md`.
 //!
-//! The payload type is `u64` throughout: it borsh-encodes to a fixed 8 bytes
-//! and is trivial to make distinct, which keeps the dumps short and lets
-//! distinct payloads (`1`, `2`, `3`, `4`) be spotted directly in the hex.
+//! The payload type is `u64` throughout: a small integer is one CBOR byte
+//! (`01`, `02`, …), which keeps the dumps short and lets distinct payloads
+//! be spotted directly in the hex.
 
 mod common;
 
@@ -25,6 +25,9 @@ use rumors::{Peer, Rumors, Version};
 use crate::common::gossip_snapshot::capture_gossip;
 #[cfg(feature = "protocol-v1")]
 use crate::common::gossip_snapshot::capture_gossip_v1;
+use crate::common::shape::{
+    ballast_avoiding, keep_only, leaf_path, path_radix, pool, send_pool, shaped_pair,
+};
 #[cfg(feature = "protocol-v1")]
 use crate::common::wire::bootstrap_fork_async_with_protocol;
 use crate::common::wire::{block_on, bootstrap_fork, bootstrap_fork_async};
@@ -47,13 +50,6 @@ fn version_for(rumors: &Rumors<u64>, value: u64) -> Version {
         .iter()
         .find_map(|(v, m)| (**m == value).then_some(v.clone()))
         .unwrap_or_else(|| panic!("no live message holds {value}"))
-}
-
-/// A leaf's tree path: the full-width BLAKE3 hash of its version's
-/// canonical bytes. The fixture self-checks read path bytes through this
-/// to verify the tree shapes the pinned sessions rely on.
-fn leaf_path(version: &Version) -> [u8; 32] {
-    *blake3::hash(version.as_bytes()).as_bytes()
 }
 
 /// Two empty peers: the minimal session.
@@ -90,15 +86,48 @@ fn one_sided_transfer() {
     insta::assert_snapshot!(capture_gossip(a, b));
 }
 
-/// The two payload values batch-sent into the seeded universe of
-/// [`batched_supply_run`]. The fixture requires the two minted leaves'
-/// paths (each the hash of its version) to share their first two bytes:
-/// the populated responder ships its root children as whole height-31
-/// supplies, so the shared leading byte places both leaves inside one
-/// supplied subtree (the two-byte collision is stronger than that supply
-/// needs, and keeps the pair inside one subtree at height 30 as well).
-/// The self-check below enforces the shape.
-const COLLIDING_VALUES: (u64, u64) = (1, 27730);
+/// Pool size for [`colliding_pair`]'s two-byte search: paths are uniform,
+/// so a two-byte agreement needs a birthday-scale pool over 2¹⁶.
+const COLLIDING_POOL: u64 = 1024;
+
+/// Stage the batched-run universe: a populated peer holding exactly two
+/// leaves whose paths share their first two bytes, against an empty fork.
+///
+/// Paths are version-derived, so the shape is staged by minting a pool of
+/// sends, searching the minted versions for the first two-byte agreement,
+/// and redacting the rest — deterministic under the seeded universe (see
+/// `common::shape`). The shared leading byte places both leaves inside one
+/// supplied root child (the two-byte agreement is stronger than that
+/// supply needs, and keeps the pair inside one subtree at height 30 as
+/// well).
+fn colliding_pair() -> (Rumors<u64>, Rumors<u64>) {
+    let (a, b) = block_on(async {
+        let a: Rumors<u64> = seeded();
+        let b = bootstrap_fork_async(&a).await;
+        send_pool(&a, 0, COLLIDING_POOL);
+        (a, b)
+    });
+    let (first, second) = shaped_pair(&pool(&a, 0, COLLIDING_POOL), 2, false);
+    keep_only(&a, 0, COLLIDING_POOL, &[first, second]);
+
+    // Self-check the landed shape: if hashing or version assignment
+    // drifts, fail here with a clear message rather than in the hex.
+    let prefixes: Vec<[u8; 2]> = a
+        .snapshot()
+        .iter()
+        .map(|(v, _)| {
+            let path = leaf_path(v);
+            [path[0], path[1]]
+        })
+        .collect();
+    assert_eq!(prefixes.len(), 2, "the fixture holds exactly the pair");
+    assert_eq!(
+        prefixes.first(),
+        prefixes.last(),
+        "the fixture's two leaf paths must share a two-byte prefix to share a supplied subtree"
+    );
+    (a, b)
+}
 
 /// One supplied subtree holding two leaves pins a batched run on the wire.
 ///
@@ -109,28 +138,7 @@ const COLLIDING_VALUES: (u64, u64) = (1, 27730);
 /// — the byte-for-byte pin of the batched wire form.
 #[test]
 fn batched_supply_run() {
-    let (a, b) = block_on(async {
-        let a: Rumors<u64> = seeded();
-        let b = bootstrap_fork_async(&a).await;
-        let (first, second) = COLLIDING_VALUES;
-        a.batch().send(first).send(second);
-        (a, b)
-    });
-    // Self-check the fixture: if hashing or version assignment drifts, fail
-    // here with a clear message rather than in the snapshot hex.
-    let prefixes: Vec<[u8; 2]> = a
-        .snapshot()
-        .iter()
-        .map(|(v, _)| {
-            let path = leaf_path(v);
-            [path[0], path[1]]
-        })
-        .collect();
-    assert_eq!(
-        prefixes.first(),
-        prefixes.last(),
-        "the fixture's two leaf paths must share a two-byte prefix to share a supplied subtree"
-    );
+    let (a, b) = colliding_pair();
     insta::assert_snapshot!(capture_gossip(a, b));
 }
 
@@ -145,18 +153,13 @@ fn batched_supply_run() {
 /// ran at the minimum of the two settings.
 #[test]
 fn asymmetric_message_targets_unbatch_the_run() {
-    let (a, b) = block_on(async {
-        let a: Rumors<u64> = seeded();
-        let b = bootstrap_fork_async(&a).await;
-        let (first, second) = COLLIDING_VALUES;
-        a.batch().send(first).send(second);
-        let b = b
-            .try_into_peer()
+    let (a, b) = colliding_pair();
+    let b = block_on(async {
+        b.try_into_peer()
             .await
             .expect("the bootstrapped handle is sole")
             .target_message_size(0)
-            .into_rumors();
-        (a, b)
+            .into_rumors()
     });
     insta::assert_snapshot!(capture_gossip(a, b));
 }
@@ -187,22 +190,18 @@ fn stream_frames(capture: &str, header: &str) -> Option<Vec<String>> {
     frames
 }
 
-/// The two payload values batch-sent into the seeded universe of
-/// [`bulk_initiator_ships_opening_supplies`]. The fixture requires the two
-/// minted leaves' paths to share their first byte with distinct second
-/// bytes, so the initiator's one exclusive root child holds a two-leaf
-/// subtree whose leaves split one level down. The self-checks below
-/// enforce the shape.
-const INITIATOR_SUBTREE_VALUES: (u64, u64) = (1, 287);
+/// Pool size for a one-byte *pair* search (any two paths agreeing on
+/// their root radix): a birthday search over 256 radixes, hit early.
+const RADIX_POOL: u64 = 64;
 
-/// First of three consecutive ballast values for the responder of
-/// [`bulk_initiator_ships_opening_supplies`].
-///
-/// The fixture requires their leaf paths' first bytes to avoid the
-/// initiator's exclusive radix, and the extra message makes the responder
-/// the larger set, so the subtree holder wins the initiator election. The
-/// self-checks below enforce the shape.
-const RESPONDER_BALLAST_FROM: u64 = 100;
+/// Pool size for hitting one *specific* root radix: a direct-hit search
+/// with mean 256, sized well past it.
+const TARGETED_POOL: u64 = 2048;
+
+/// Payload base and pool size for a fixture's responder ballast: a
+/// disjoint payload range so pool cleanups never touch the other side's
+/// messages.
+const BALLAST_POOL: (u64, u64) = (10_000, 16);
 
 /// A bulk-holding initiator ships its exclusive root children whole at the
 /// opening, on its own stream 0, without waiting for the responder's empty
@@ -216,15 +215,24 @@ const RESPONDER_BALLAST_FROM: u64 = 100;
 /// instead of one decomposed Supply frame per second-byte child.
 #[test]
 fn bulk_initiator_ships_opening_supplies() {
+    // Stage: the initiator holds exactly two leaves sharing a root radix
+    // and splitting one level down (pool-search-and-redact; the shape is a
+    // function of the minted versions, see `common::shape`); the responder
+    // holds three ballast leaves outside that radix, making it the larger
+    // set so the subtree holder initiates.
     let (a, b) = block_on(async {
         let a: Rumors<u64> = seeded();
         let b = bootstrap_fork_async(&a).await;
-        let (first, second) = INITIATOR_SUBTREE_VALUES;
-        a.batch().send(first).send(second);
-        let y = RESPONDER_BALLAST_FROM;
-        b.batch().send(y).send(y + 1).send(y + 2);
+        send_pool(&a, 0, RADIX_POOL);
         (a, b)
     });
+    let (first, second) = shaped_pair(&pool(&a, 0, RADIX_POOL), 1, true);
+    keep_only(&a, 0, RADIX_POOL, &[first, second]);
+    let radix = path_radix(&version_for(&a, first));
+    let (ballast_from, ballast_pool) = BALLAST_POOL;
+    send_pool(&b, ballast_from, ballast_pool);
+    let ballast = ballast_avoiding(&pool(&b, ballast_from, ballast_pool), radix, 3);
+    keep_only(&b, ballast_from, ballast_pool, &ballast);
 
     // Fixture self-checks: the initiator-exclusive subtree and the election.
     let apaths: Vec<[u8; 2]> = a
@@ -274,17 +282,6 @@ fn bulk_initiator_ships_opening_supplies() {
     insta::assert_snapshot!(capture);
 }
 
-/// Values for [`early_supplies_honor_redactions`]: the second, sent after
-/// the responder forks, lands its key under the same root radix as the
-/// first's (keys `09 a7` and `09 5a`), found by search.
-const REDACTION_SUBTREE_VALUE: u64 = 165;
-
-/// First of three consecutive ballast values for the responder of
-/// [`early_supplies_honor_redactions`]: their keys' first bytes (`94`,
-/// `cf`, `e9`) avoid the shared radix (`09`), and they make the responder
-/// the larger set.
-const REDACTION_BALLAST_FROM: u64 = 100;
-
 /// Deletion honoring prunes the opening supplies: a redacted message does
 /// not resurrect through the early path, and the supply carries the
 /// survivor rather than the full subtree.
@@ -298,16 +295,30 @@ const REDACTION_BALLAST_FROM: u64 = 100;
 /// pinned bytes show one.
 #[test]
 fn early_supplies_honor_redactions() {
+    // Stage: the initiator's first message exists before the fork (so the
+    // responder once held it), and a pool search lands a second initiator
+    // leaf under the same root radix; the responder redacts its copy of
+    // the first and keeps three ballast leaves outside that radix, making
+    // it the larger set.
     let (a, b) = block_on(async {
         let a: Rumors<u64> = seeded();
         a.send(1);
         let b = bootstrap_fork_async(&a).await;
-        a.send(REDACTION_SUBTREE_VALUE);
         b.redact(&version_for(&b, 1));
-        let y = REDACTION_BALLAST_FROM;
-        b.batch().send(y).send(y + 1).send(y + 2);
         (a, b)
     });
+    let radix = path_radix(&version_for(&a, 1));
+    send_pool(&a, 2, TARGETED_POOL);
+    let sibling = pool(&a, 2, TARGETED_POOL)
+        .into_iter()
+        .find(|(_, v)| path_radix(v) == radix)
+        .map(|(value, _)| value)
+        .expect("some pool leaf lands under the first message's radix");
+    keep_only(&a, 2, TARGETED_POOL, &[1, sibling]);
+    let (ballast_from, ballast_pool) = BALLAST_POOL;
+    send_pool(&b, ballast_from, ballast_pool);
+    let ballast = ballast_avoiding(&pool(&b, ballast_from, ballast_pool), radix, 3);
+    keep_only(&b, ballast_from, ballast_pool, &ballast);
 
     // Fixture self-checks: shared radix, cover of the redacted message,
     // and the election.
@@ -346,15 +357,11 @@ fn early_supplies_honor_redactions() {
         "the redacted message must not resurrect at the responder"
     );
     assert!(
-        a.snapshot()
-            .iter()
-            .any(|(_, m)| **m == REDACTION_SUBTREE_VALUE),
+        a.snapshot().iter().any(|(_, m)| **m == sibling),
         "the survivor converges to the initiator"
     );
     assert!(
-        b.snapshot()
-            .iter()
-            .any(|(_, m)| **m == REDACTION_SUBTREE_VALUE),
+        b.snapshot().iter().any(|(_, m)| **m == sibling),
         "the survivor converges to the responder"
     );
     insta::assert_snapshot!(capture);
@@ -493,11 +500,10 @@ fn deep_trie_divergence() {
 
 /// A non-primitive, variable-length payload type.
 ///
-/// `u64` borsh-encodes to a
-/// fixed 8 bytes; `String` encodes as a length prefix followed by its UTF-8
-/// bytes, so this is the only scenario that pins how a variable-length value
-/// is framed inside a leaf on the wire. `A` and `B` each contribute one
-/// distinct string and converge on both.
+/// A `String` encodes as a CBOR text string — a header byte carrying the
+/// length, then the UTF-8 bytes — so this is the scenario that pins how a
+/// variable-length value is framed inside a leaf on the wire. `A` and `B`
+/// each contribute one distinct string and converge on both.
 #[test]
 fn string_payload() {
     let (a, b) = block_on(async {
@@ -545,7 +551,7 @@ fn same_live_content_divergent_versions() {
 /// idempotently on `{2}` rather than treating the two redactions as
 /// conflicting work to reconcile.
 #[test]
-fn both_redact_same_key() {
+fn both_redact_the_same_message() {
     let (a, b) = block_on(async {
         let a: Rumors<u64> = seeded();
         a.batch().send(1).send(2);

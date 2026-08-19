@@ -535,19 +535,75 @@ fn trace_redaction_session() {
 /// its version's canonical bytes, so the shape is a property of the minted
 /// version sequence; the self-checks below verify it.
 fn transfer_pair() -> (Rumors<u64>, Rumors<u64>) {
+    // Stage by pool search: paths are version-derived, so the shape is a
+    // deterministic function of the seeded universe and send order — mint
+    // a pool, pick the versions whose paths land the shape, redact the
+    // rest. The left peer keeps exactly two leaves sharing a root radix;
+    // the right keeps three ballast leaves outside it and advertises the
+    // larger set.
+    let path_radix = |version: &Version| blake3::hash(version.as_bytes()).as_bytes()[0];
+    let keep_only = |rumors: &Rumors<u64>, keep: &[u64]| {
+        let losers: Vec<Version> = rumors
+            .snapshot()
+            .iter()
+            .filter(|(_, m)| !keep.contains(m))
+            .map(|(v, _)| v.clone())
+            .collect();
+        let mut batch = rumors.batch();
+        for version in &losers {
+            batch.redact(version);
+        }
+    };
+
     let left = Peer::seed_rng(&mut SmallRng::seed_from_u64(0))
         .sync_memory_budget(DEFAULT_SYNC_MEMORY_BUDGET)
         .into_rumors();
     let right = bootstrap_fork(&left);
-    left.batch().send(1).send(287);
-    right.batch().send(100).send(101).send(102);
+    {
+        let mut batch = left.batch();
+        for value in 0..64u64 {
+            batch.send(value);
+        }
+    }
+    let mut pool: Vec<(u64, u8)> = left
+        .snapshot()
+        .iter()
+        .map(|(v, m)| (**m, path_radix(v)))
+        .collect();
+    pool.sort_unstable();
+    let (first, second) = pool
+        .iter()
+        .find_map(|&(value, radix)| {
+            pool.iter()
+                .find(|&&(other, r)| other > value && r == radix)
+                .map(|&(other, _)| (value, other))
+        })
+        .expect("some pool pair shares a root radix");
+    keep_only(&left, &[first, second]);
+    let radix = pool
+        .iter()
+        .find_map(|&(value, radix)| (value == first).then_some(radix))
+        .expect("the kept pair is in the pool");
+    {
+        let mut batch = right.batch();
+        for value in 10_000..10_016u64 {
+            batch.send(value);
+        }
+    }
+    let ballast: Vec<u64> = right
+        .snapshot()
+        .iter()
+        .filter(|(v, _)| path_radix(v) != radix)
+        .take(3)
+        .map(|(_, m)| **m)
+        .collect();
+    assert_eq!(ballast.len(), 3, "the ballast pool cannot fill its quota");
+    keep_only(&right, &ballast);
 
     // Fixture self-checks: mirror the required shape so drift in hashing
-    // or version assignment fails here, not in the hop arithmetic. A
-    // leaf's path is the full-width BLAKE3 hash of its version's
-    // canonical bytes.
-    let path_radix = |version: &Version| blake3::hash(version.as_bytes()).as_bytes()[0];
+    // or version assignment fails here, not in the hop arithmetic.
     let radices: Vec<u8> = left.snapshot().iter().map(|(v, _)| path_radix(v)).collect();
+    assert_eq!(radices.len(), 2, "the left peer holds exactly the pair");
     assert_eq!(radices.first(), radices.last(), "one exclusive subtree");
     assert!(
         right

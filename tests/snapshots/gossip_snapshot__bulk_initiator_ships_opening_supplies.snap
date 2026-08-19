@@ -8,31 +8,28 @@ preamble: 25 bytes
   0008: 8c 18 96 68 c9 e4 83 72
   0010: 37 bf 31 e0 2d 7f 6b 70
   0018: 00
-version: (0, 2, 0)
-greeting words: set len 2, version-size bound 2, message-size target 1638912
-version frame: 30 bytes
-  0000: 00 00 00 1a 02 00 00 00
-  0008: 00 00 00 00 02 00 00 00
+version: (0, 126, 0)
+greeting words: set len 2, version-size bound 4, message-size target 1638912
+version frame: 32 bytes
+  0000: 00 00 00 1c 02 00 00 00
+  0008: 00 00 00 00 04 00 00 00
   0010: 00 00 00 00 00 02 19 00
-  0018: 00 00 00 00 5c 90
+  0018: 00 00 00 00 40 ff 01 f9
 listing: 1 child(ren)
-  child 0x71: c22fb6b572126e113c6e2ec3ac068d1d8d06a292391a535d
-listing frame: 33 bytes
-  0000: 00 00 00 1d 01 00 00 00
-  0008: 71 c2 2f b6 b5 72 12 6e
-  0010: 11 3c 6e 2e c3 ac 06 8d
-  0018: 1d 8d 06 a2 92 39 1a 53
-  0020: 5d
+  child 0x1b: 176df43d3144011ce7429832cad9212cf152a4d343757e68
+listing frame: 29 bytes
+  0000: 00 00 00 19 1b 17 6d f4
+  0008: 3d 31 44 01 1c e7 42 98
+  0010: 32 ca d9 21 2c f1 52 a4
+  0018: d3 43 75 7e 68
 Initiator stream 0 (height 31), epoch 0
   frame 0: Supply(End)
     supply run: 2 record(s)
-      record 0: version (0, 1, 0), message 8 byte(s)
-      record 1: version (0, 2, 0), message 8 byte(s)
-    0000: 77 00 00 00 1c 00 00 00
-    0008: 0a 55 40 01 00 00 00 00
-    0010: 00 00 00 00 00 00 0a 5c
-    0018: 90 1f 01 00 00 00 00 00
-    0020: 00
+      record 0: version (0, 31, 0), message 2 byte(s)
+      record 1: version (0, 4, 0), message 1 byte(s)
+    0000: 77 00 00 00 13 00 00 00
+    0008: 07 44 41 04 1f 40 18 1e
+    0010: 00 00 00 04 42 4b 11 03
   frame 1: End(Stream)
     0000: 99
 Initiator stream 1 (height 30), epoch 0
@@ -49,50 +46,46 @@ preamble: 25 bytes
   0008: 8c 18 96 68 c9 e4 83 72
   0010: 37 bf 31 e0 2d 7f 6b 70
   0018: 00
-version: (0, 0, 3)
+version: (0, 0, 29)
 greeting words: set len 3, version-size bound 2, message-size target 1638912
 version frame: 30 bytes
   0000: 00 00 00 1a 03 00 00 00
   0008: 00 00 00 00 02 00 00 00
   0010: 00 00 00 00 00 02 19 00
-  0018: 00 00 00 00 73 c0
+  0018: 00 00 00 00 70 77
 listing: 3 child(ren)
-  child 0x1e: 1696ea4f18588296856f27cfda68cb1f105f515fb9af8201
-  child 0x6a: 777d5b030dc38261c051534243674f5a3e47610a7d18e223
-  child 0xf6: df6854dada8919279a624fb24ac491c31762c3e530f88d5d
-listing frame: 83 bytes
-  0000: 00 00 00 4f 03 00 00 00
-  0008: 1e 16 96 ea 4f 18 58 82
-  0010: 96 85 6f 27 cf da 68 cb
-  0018: 1f 10 5f 51 5f b9 af 82
-  0020: 01 6a 77 7d 5b 03 0d c3
-  0028: 82 61 c0 51 53 42 43 67
-  0030: 4f 5a 3e 47 61 0a 7d 18
-  0038: e2 23 f6 df 68 54 da da
-  0040: 89 19 27 9a 62 4f b2 4a
-  0048: c4 91 c3 17 62 c3 e5 30
-  0050: f8 8d 5d
+  child 0x1a: f03024f7dbe56599296b2eb532822f29be44c48777943703
+  child 0x36: 9ddf089f8c85ffebaf8a346d1af381f138082ce95f276640
+  child 0xf2: 9b77e29e06b3bb072170d1851eb26c6007fd01cbd5c9a2f7
+listing frame: 79 bytes
+  0000: 00 00 00 4b 1a f0 30 24
+  0008: f7 db e5 65 99 29 6b 2e
+  0010: b5 32 82 2f 29 be 44 c4
+  0018: 87 77 94 37 03 36 9d df
+  0020: 08 9f 8c 85 ff eb af 8a
+  0028: 34 6d 1a f3 81 f1 38 08
+  0030: 2c e9 5f 27 66 40 f2 9b
+  0038: 77 e2 9e 06 b3 bb 07 21
+  0040: 70 d1 85 1e b2 6c 60 07
+  0048: fd 01 cb d5 c9 a2 f7
 Responder stream 0 (height 31), epoch 0
   frame 0: Supply(Continue)
     supply run: 1 record(s)
-      record 0: version (0, 0, 2), message 8 byte(s)
-    0000: 66 00 00 00 0e 00 00 00
-    0008: 0a 72 c0 65 00 00 00 00
-    0010: 00 00 00
-  frame 1: Supply(Continue)
-    supply run: 1 record(s)
-      record 0: version (0, 0, 3), message 8 byte(s)
-    0000: 66 00 00 00 0e 00 00 00
-    0008: 0a 73 c0 66 00 00 00 00
-    0010: 00 00 00
-  frame 2: QueryEmpty(Continue)
+      record 0: version (0, 0, 3), message 3 byte(s)
+    0000: 66 00 00 00 0a 00 00 00
+    0008: 06 42 73 c0 19 27 12
+  frame 1: QueryEmpty(Continue)
     0000: 22
+  frame 2: Supply(Continue)
+    supply run: 1 record(s)
+      record 0: version (0, 0, 2), message 3 byte(s)
+    0000: 66 00 00 00 0a 00 00 00
+    0008: 06 42 72 c0 19 27 11
   frame 3: Supply(End)
     supply run: 1 record(s)
-      record 0: version (0, 0, 1), message 8 byte(s)
-    0000: 77 00 00 00 0d 00 00 00
-    0008: 09 77 64 00 00 00 00 00
-    0010: 00 00
+      record 0: version (0, 0, 1), message 3 byte(s)
+    0000: 77 00 00 00 09 00 00 00
+    0008: 05 41 77 19 27 10
   frame 4: End(Stream)
     0000: 99
 trailing frame: 1 bytes
