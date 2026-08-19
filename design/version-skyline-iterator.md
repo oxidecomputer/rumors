@@ -126,9 +126,10 @@ Settled by this design:
 
 Open, wanting a ruling before implementation:
 
-- The method names (`Version::skyline()`, `Party::skyline()`), the item
-  type names, and whether `Clock` gets a combined overlay walk or stays a
-  compose-it-yourself pair.
+- The method names (`Version::skyline()`, `Party::skyline()`), and the
+  item type names (`Plateau`/`Rise`/`Owned`/`Cell` are placeholders).
+- The combiner's arity form: const-generic array, runtime `Vec`, or both
+  (see "The N-way combiner").
 - Whether a projected-stream variant (the `masked` machinery's overlays)
   should be anticipated in the naming now, even if it lands later.
 
@@ -136,6 +137,68 @@ Open, wanting a ruling before implementation:
 
 A `Party` is the 0/1-valued skyline over the same interval: identical item
 type, magnitudes always 1. The item vocabulary is designed once and shared.
+
+## `Clock`: the combined overlay walk
+
+A `Clock` walks as one iterator rather than a compose-it-yourself pair —
+writing the composition as a consumer is nontrivial, and the overlay is
+what before-viz actually draws. The item is the version's plateau plus an
+ownership flag:
+
+```rust
+pub struct Owned {
+    pub plateau: Plateau,
+    /// Whether the clock's party owns this plateau's interval.
+    pub owned: bool,
+}
+```
+
+(the name is a placeholder; a named struct rather than a bare tuple, so
+the flag's meaning has a documentation home). When the party subdivides a
+version plateau, the iterator splits it internally.
+
+The splitting is well-formed for free, because **dyadic intervals form a
+laminar family**: two of them either nest or are disjoint, never partially
+overlapping. Every cell of the common refinement is therefore itself a
+dyadic interval — `depth` on a split fragment is simply the deeper of the
+two sides, and no new width vocabulary is needed. Conventions: the first
+fragment of a split carries the version plateau's rise; subsequent
+fragments continue level (`rise: None`). The overlay stream is a
+*refinement* of the version's stream, not a transliteration — the
+roundtrip property lives on the primitive iterators, never on overlays.
+
+## The N-way combiner
+
+The generalization (recorded as a companion option, and the natural
+implementation substrate for the `Clock` walk): a combiner over an
+arbitrary number of plateau iterators — parties or versions — yielding the
+coarsest common refinement. Since every entry in a cell shares the cell's
+interval, per-entry depths are redundant; the item is the cell plus the
+rises entering it:
+
+```rust
+pub struct Cell<M> {
+    pub depth: u64,
+    /// One entry per input, in argument order: the rise entering this
+    /// cell from that input (`None` continues level, including on every
+    /// fragment a split produced after its first).
+    pub rises: /* [Option<Rise<M>>; N] or Vec<Option<Rise<M>>> */,
+}
+```
+
+This stays in the delta domain end to end (no height is materialized),
+and the `Clock` walk is its two-input instance with the party's entry
+folded into a running `owned` flag. Open: the arity form — const-generic
+arrays (allocation-free, `N` static) versus runtime `Vec` (one allocation
+per cell, or an internal-buffer visitor variant); possibly both, with the
+array form primitive.
+
+This combiner is the public, rendering-grade counterpart of the `overlay`
+machinery's tiling-and-advance law — the same subdivision the internal
+extremum walks perform. It is deliberately *not* a replacement for them:
+as the assessment below records, the internal merges keep byte- and
+slice-oriented fast paths (equal-span skipping in sub-leaf time) that a
+per-cell iterator inherently forfeits.
 
 ## Testing plan
 
@@ -152,6 +215,11 @@ In the house differential style, all through the public door:
   streams — the same witness for `sweep`.
 - Limb iterator: roundtrip against `Ticks` parsing/display; canonicality
   (no trailing zeros); `TryFrom` agreement on the small range.
+- Overlay/combiner: refinement totality (cell widths sum to exactly 1);
+  coarsest-common (every cell boundary is some input's plateau boundary —
+  no cell is splittable without crossing one); the `Clock` walk agrees
+  with independently walking its party and version and projecting the
+  flag.
 
 ## API stability notes
 
@@ -261,3 +329,7 @@ inherits the u64-clean depth denomination from that work for free.
   currency behind a sealed trait (assessment above); internal kernel
   re-expression proceeds candidate-by-candidate under construct-and-
   measure, never as a campaign.
+- 2026-08-19 (Finch): `Clock` gets the combined overlay walk — items are
+  the version's plateaus with a party-ownership flag, splitting performed
+  internally. The N-way combiner is recorded as a companion option
+  (and/or); its arity form is open.
