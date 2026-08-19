@@ -13,6 +13,7 @@ use crate::tree::mirror::streaming::remote::{adapter, codec, streams};
 /// transport). Errors the supply did not cause surface from the failing
 /// operation itself.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum Error<E> {
     /// Reading one of the peer's greeting frames failed.
     #[error("failed to read streaming handshake")]

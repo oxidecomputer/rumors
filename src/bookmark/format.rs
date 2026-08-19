@@ -65,6 +65,7 @@ const HEADER_LEN: usize = PAYLOAD_OFFSET;
 /// foreign file, a format this build predates, or corruption — and means the
 /// stored identity is unusable, not merely unavailable.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum FormatError {
     /// Fewer bytes than the fixed header: a truncated or empty file. (An
     /// *absent* bookmark is reported by [`load`](super::Bookmark::load)

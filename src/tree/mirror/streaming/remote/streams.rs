@@ -246,6 +246,7 @@ pub enum SendError {
 /// expect infallible frame streams, so the failing stream parks after
 /// publishing and the session driver surfaces the cause.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum StreamError {
     /// The incoming frame codec rejected bytes or the transport failed.
     #[error(transparent)]
@@ -738,6 +739,7 @@ impl From<AcceptError> for AcceptFate {
 
 /// An incoming transport stream violated the session's stream discipline.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum AcceptError {
     /// A stream was labeled with another session's epoch.
     ///

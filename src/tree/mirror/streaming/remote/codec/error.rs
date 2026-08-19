@@ -112,6 +112,7 @@ pub enum DecodeLeafError {
 
 /// Why an incoming frame could not be decoded.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum DecodeErrorKind {
     #[error("could not read the frame's {part}")]
     Read {

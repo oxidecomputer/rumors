@@ -9,6 +9,7 @@
 /// [`V2`]: Self::V2
 #[repr(u16)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum Protocol {
     /// The original strictly alternating wire protocol.
     ///
