@@ -588,6 +588,60 @@ pub extern "C" fn pin_version_rank(b: u64, d: u64) -> i64 {
     0
 }
 
+/// Decode a valid synthesized integral rank `2^k - 1` ([`synth_integral_rank`])
+/// and check exact-order observations: the rank exceeds the rank of the
+/// version `1` and equals its own clone.
+///
+/// The harness aims `k` at the big-integer backend's capacity through the
+/// *integral* wire form — the second path to that coordinate beside the
+/// fraction form: the mantissa is read as one `k + 1`-bit stream (the
+/// biased value `2^k`), so both the value's own width and the one-wider
+/// biased transient cross the backend's capacity here. ~`k/8` bytes of
+/// input is the smallest honest trigger: the mantissa's bits are all
+/// stream bits.
+#[no_mangle]
+pub extern "C" fn pin_rank_integral_decode(k: u64) -> i64 {
+    let bytes = synth_integral_rank(k);
+    let r = match Rank::decode(&bytes[..]) {
+        Ok(r) => r,
+        Err(_) => return -1,
+    };
+    drop(bytes);
+    let one = match Version::try_from(1) {
+        Ok(v) => v.rank(),
+        Err(_) => return -2,
+    };
+    if r <= one {
+        return -3;
+    }
+    if r != r.clone() {
+        return -4;
+    }
+    0
+}
+
+/// Decode a valid synthesized rank whose fraction is exactly `exp`
+/// expansion bits deep ([`synth_rank`]), re-encode it, and check the
+/// canonical bytes reproduce the input exactly.
+///
+/// The full-width wire round-trip: byte-identical re-emission is what the
+/// lexicographic-order law rides on, so this pins encode-after-decode at
+/// the same coordinate the decode pins hold — the harness aims `exp` past
+/// the backend capacity, where the emission walks a numerator wider than
+/// the backend can hold.
+#[no_mangle]
+pub extern "C" fn pin_rank_roundtrip(exp: u64) -> i64 {
+    let bytes = synth_rank(exp);
+    let r = match Rank::decode(&bytes[..]) {
+        Ok(r) => r,
+        Err(_) => return -1,
+    };
+    if r.encode() != bytes {
+        return -2;
+    }
+    0
+}
+
 /// The small second operand of the rank-arithmetic pins, keyed by its
 /// exponent: `0` is the integral rank `1`, `1` is the rank `1/2`, and any
 /// larger value is [`synth_rank`]'s fraction at that depth.

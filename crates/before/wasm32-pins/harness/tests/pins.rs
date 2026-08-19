@@ -140,10 +140,10 @@ fn version_decode_deep_in_memory_bounded_range() {
 /// is unreachable through the doors on this target: a wide value's gamma
 /// code alone costs a quarter of the address space, and the decode's
 /// working set exhausts memory first. (The rank wire door reaches the
-/// same capacity with no fold transients, where
-/// `rank_decode_past_backend_bit_capacity_traps` pins it.) A leaner
-/// working set — not a wider denomination — is what would move this
-/// terminal outward.
+/// same coordinate with no fold transients and crosses it exactly — it
+/// is the numerator's arm seam there, pinned by
+/// `rank_decode_past_backend_bit_capacity`.) A leaner working set — not
+/// a wider denomination — is what would move this terminal outward.
 #[test]
 fn version_decode_memory_terminal_traps() {
     assert_eq!(
@@ -157,10 +157,11 @@ fn version_decode_memory_terminal_traps() {
 ///
 /// The deepest flush-group exponent whose whole fraction image fits the
 /// big-integer backend's 32-bit buffer capacity without any stripping:
-/// the backend-capacity boundary's lower adjacency witness. ~604 MB of
-/// input is the smallest honest trigger, since the fraction's depth is
-/// deliberately counted from bits actually read, never from a header's
-/// claim.
+/// the lower adjacency witness of the numerator's arm seam — the widths
+/// where storage crosses from the backend magnitude to the rank's own
+/// limb vector. ~604 MB of input is the smallest honest trigger, since
+/// the fraction's depth is deliberately counted from bits actually read,
+/// never from a header's claim.
 #[test]
 fn rank_decode_below_backend_capacity() {
     assert_eq!(
@@ -208,9 +209,10 @@ fn rank_decode_at_usize_exp_boundary() {
 /// expansion bits deep opening with 64 zero bits.
 /// The backend caps a magnitude at `usize::MAX / 32` words so bit counts
 /// fit `usize`; a numerator of exactly that many bits fills the buffer to
-/// its last word. This is the backend-capacity boundary's lower adjacency
-/// witness on the numerator's own width (the byte-capacity witness above
-/// covers the unstripped image's width).
+/// its last word. This is the arm seam's at-capacity witness on the
+/// numerator's own width (the byte-capacity witness above covers the
+/// unstripped image's width): the widest numerator the backend arm
+/// stores, holding the arm ceiling to the real backend from below.
 #[test]
 fn rank_decode_at_backend_bit_capacity() {
     assert_eq!(
@@ -219,22 +221,83 @@ fn rank_decode_at_backend_bit_capacity() {
     );
 }
 
-/// PINNED AS FOUND: a valid rank whose numerator is 2^32 - 24 value bits —
-/// one flush group past the backend's 2^32 - 32-bit capacity — traps on
-/// wasm32 instead of decoding or rejecting with a typed error.
+/// A valid rank whose numerator is 2^32 - 24 value bits — one flush group
+/// past the backend's 2^32 - 32-bit capacity — decodes correctly on
+/// wasm32 and orders exactly against reference ranks.
 ///
-/// The ~604 MB input and its ~512 MiB numerator both fit the 4 GiB address
-/// space with the decode's whole working set beside them, so the boundary
-/// is the backend's structural word cap, not memory: the backend clamps
-/// the buffer's capacity to its maximum and the fill's release assert
-/// panics on the word past it. Unconditional 32-bit correctness requires
-/// this input to decode; the cure flips this pin to the correct-value
-/// assertion beside its lower witness `rank_decode_at_backend_bit_capacity`.
+/// The arm seam's upper witness, beside
+/// `rank_decode_at_backend_bit_capacity`: the ~604 MB input and its
+/// ~512 MiB numerator both fit the 4 GiB address space, and past the
+/// backend's structural word cap the decoder assembles the numerator
+/// into the rank's own limb vector — bounded only by memory — so the
+/// wire door is exact on both sides of the backend's capacity.
 #[test]
-fn rank_decode_past_backend_bit_capacity_traps() {
+fn rank_decode_past_backend_bit_capacity() {
     assert_eq!(
         call1("pin_rank_decode", (1u64 << 32) + 40),
-        Outcome::Trapped(Trap::UnreachableCodeReached),
+        Outcome::Value(0),
+    );
+}
+
+/// A valid integral rank of 2^32 - 40 value bits — the biased mantissa
+/// one byte under the backend's capacity — decodes correctly on wasm32
+/// and orders exactly against reference ranks.
+///
+/// The integral wire form's lower adjacency witness at the arm seam: the
+/// whole path (mantissa read, bias removal) runs on the backend arm.
+/// ~512 MiB of input is the smallest honest trigger — the mantissa's
+/// bits are all stream bits.
+#[test]
+fn rank_integral_decode_below_backend_bit_capacity() {
+    assert_eq!(
+        call1("pin_rank_integral_decode", (1u64 << 32) - 40),
+        Outcome::Value(0),
+    );
+}
+
+/// A valid integral rank of exactly 2^32 - 32 value bits — the backend's
+/// capacity — decodes correctly on wasm32.
+///
+/// The integral form's at-capacity witness, and the biased-transient
+/// seam: the mantissa is read as the biased value `2^k` at `k + 1` bits,
+/// one past the capacity, so the transient rides the limb arm while the
+/// unbiased value re-dispatches back onto the backend arm at exactly its
+/// widest representable width.
+#[test]
+fn rank_integral_decode_at_backend_bit_capacity() {
+    assert_eq!(
+        call1("pin_rank_integral_decode", (1u64 << 32) - 32),
+        Outcome::Value(0),
+    );
+}
+
+/// A valid integral rank of 2^32 - 24 value bits — one byte past the
+/// backend's capacity — decodes correctly on wasm32.
+///
+/// The integral form's upper arm-seam witness, beside the fraction
+/// form's `rank_decode_past_backend_bit_capacity`: both wire paths to a
+/// past-capacity numerator land on the limb arm, priced by memory alone.
+#[test]
+fn rank_integral_decode_past_backend_bit_capacity() {
+    assert_eq!(
+        call1("pin_rank_integral_decode", (1u64 << 32) - 24),
+        Outcome::Value(0),
+    );
+}
+
+/// A valid rank whose fraction is 2^32 + 40 expansion bits deep — the
+/// numerator one flush group past the backend's capacity — decodes and
+/// re-encodes to byte-identical canonical form on wasm32.
+///
+/// The full-width round-trip witness: byte-identical re-emission is what
+/// the lexicographic-order law rides on, and this holds it at the arm
+/// seam's far side, where the emission walks a numerator wider than the
+/// backend can hold.
+#[test]
+fn rank_roundtrip_past_backend_bit_capacity() {
+    assert_eq!(
+        call1("pin_rank_roundtrip", (1u64 << 32) + 40),
+        Outcome::Value(0),
     );
 }
 
@@ -578,39 +641,31 @@ fn rank_add_below_gap_boundary() {
     assert_eq!(call1("pin_rank_add", 128), Outcome::Value(0));
 }
 
-/// PINNED AS FOUND: adding the integral rank 1 to a fraction 2^32
-/// expansion bits deep traps on wasm32: the alignment shift's exponent
-/// gap is exactly 2^32, one past the widest shift amount a 32-bit target
-/// can name.
+/// Adding the integral rank 1 to a fraction 2^32 expansion bits deep is
+/// exact on wasm32: the sum strictly exceeds both summands.
 ///
-/// Both operands are honest decoded/derived values and the exact sum is
-/// representable in memory; the boundary is the alignment shift's `usize`
-/// conversion (loud by construction, documented at the shift). The cure
-/// flips this pin to the correct-value assertion.
+/// The exponent gap is exactly 2^32, one past the widest shift amount a
+/// 32-bit target can name — so the addition routes through the streaming
+/// accumulator, on which no aligned numerator is ever materialized in the
+/// backend, and the 2^32 + 1-bit result lands on the numerator's limb
+/// arm. The gap boundary's at-seam witness, beside
+/// `rank_add_below_gap_boundary`.
 #[test]
-fn rank_add_at_gap_boundary_traps() {
-    assert_eq!(
-        call1("pin_rank_add", 0),
-        Outcome::Trapped(Trap::UnreachableCodeReached),
-    );
+fn rank_add_at_gap_boundary() {
+    assert_eq!(call1("pin_rank_add", 0), Outcome::Value(0));
 }
 
-/// PINNED AS FOUND: adding the rank 1/2 to a fraction 2^32 expansion bits
-/// deep traps on wasm32.
+/// Adding the rank 1/2 to a fraction 2^32 expansion bits deep is exact
+/// on wasm32: the sum strictly exceeds both summands.
 ///
-/// The exponent gap, 2^32 - 1, fits the shift amount, but the aligned
-/// numerator — 2^32 value bits — exceeds the backend's 2^32 - 32-bit
-/// capacity.
-/// The gap boundary's other genre: just below the shift-amount seam the
-/// terminal moves from the shift's conversion to the backend's capacity
-/// assert, so no sub-boundary gap is safe unless the aligned width also
-/// fits. The cure flips this pin to the correct-value assertion.
+/// The exponent gap, 2^32 - 1, fits a 32-bit shift amount, but the
+/// aligned numerator — 2^32 value bits — exceeds the backend's
+/// 2^32 - 32-bit capacity: the gap boundary's other genre, routed to the
+/// accumulator by the aligned-width clause of the routing predicate
+/// rather than the gap clause, with the result on the limb arm.
 #[test]
-fn rank_add_below_gap_wide_result_traps() {
-    assert_eq!(
-        call1("pin_rank_add", 1),
-        Outcome::Trapped(Trap::UnreachableCodeReached),
-    );
+fn rank_add_below_gap_wide_result() {
+    assert_eq!(call1("pin_rank_add", 1), Outcome::Value(0));
 }
 
 /// Rank subtraction is exact just below the 32-bit alignment-gap boundary.
@@ -624,21 +679,19 @@ fn rank_checked_sub_below_gap_boundary() {
     assert_eq!(call1("pin_rank_checked_sub", 128), Outcome::Value(0));
 }
 
-/// PINNED AS FOUND: subtracting a fraction 2^32 expansion bits deep from
-/// the integral rank 1 traps on wasm32.
+/// Subtracting a fraction 2^32 expansion bits deep from the integral
+/// rank 1 is exact on wasm32: the difference sits strictly between zero
+/// and the minuend.
 ///
-/// The strictly positive difference aligns the minuend by a shift whose
-/// exponent gap is exactly 2^32, one past the widest amount a 32-bit
-/// target can name.
-/// The ordering pre-check settles sign without alignment, so `None` and
-/// zero results stay exact at any gap; only the positive arm reaches the
-/// shift. The cure flips this pin to the correct-value assertion.
+/// The strictly positive difference aligns at an exponent gap of exactly
+/// 2^32, one past the widest shift amount a 32-bit target can name — so
+/// the subtraction routes through the streaming accumulator, and the
+/// ~2^32-bit difference lands on the numerator's limb arm. The ordering
+/// pre-check settles sign without alignment, so `None` and zero results
+/// never leave the class comparison at any gap.
 #[test]
-fn rank_checked_sub_at_gap_boundary_traps() {
-    assert_eq!(
-        call1("pin_rank_checked_sub", 0),
-        Outcome::Trapped(Trap::UnreachableCodeReached),
-    );
+fn rank_checked_sub_at_gap_boundary() {
+    assert_eq!(call1("pin_rank_checked_sub", 0), Outcome::Value(0));
 }
 
 /// The rank fold is exact on a numerator wider than any 32-bit quantity,
@@ -676,10 +729,10 @@ fn version_rank_deep_in_memory_bounded_range() {
 /// pays five stream bits per level), and that plus the fold's transients
 /// exhausts memory just below the capacity — the rank wire door, which
 /// assembles its numerator from bytes with no fold transients, is where
-/// the capacity is reachable and pinned
-/// (`rank_decode_past_backend_bit_capacity_traps`). A leaner working
-/// set — not a wider denomination — is what would move this terminal
-/// outward.
+/// the capacity is reachable, and it crosses exactly there onto the
+/// numerator's limb arm (`rank_decode_past_backend_bit_capacity`). A
+/// leaner working set — not a wider denomination — is what would move
+/// this terminal outward.
 #[test]
 fn version_rank_memory_terminal_traps() {
     assert_eq!(

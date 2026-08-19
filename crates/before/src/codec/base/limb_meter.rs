@@ -8,7 +8,13 @@
 //! they run, and the wide-gamma decode in `codec::gamma` records one
 //! value-width count per decoded value — so amortized-linear algorithms count
 //! linearly in packed input bits and magnitude-quadratic ones count
-//! quadratically. Relaxed ordering suffices: the metering binaries run one
+//! quadratically. The denomination is the value's width in 64-bit limbs,
+//! not any particular storage: the rank numerator's wide arm
+//! (`version::rank::num`, magnitudes past the backend's capacity on
+//! 32-bit targets) records its operations' operand and materialization
+//! widths into this same counter under the same unit, so limb-denominated
+//! envelopes read continuously across that arm seam. Relaxed ordering
+//! suffices: the metering binaries run one
 //! scenario per process and read the counters only after the metered call
 //! returns.
 //!
