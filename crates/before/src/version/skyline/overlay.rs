@@ -110,7 +110,11 @@ pub(crate) trait PlateauCursor {
     type Crossing;
 
     /// The current plateau's depth: its interval has width `2^-depth`.
-    fn depth(&self) -> usize;
+    ///
+    /// Depths are `u64` across the walk surface, as every stream position
+    /// is: each open ancestor costs at least one bit of the walked stream,
+    /// whose live length outgrows a 32-bit `usize` from 512 MiB.
+    fn depth(&self) -> u64;
 
     /// Whether the current plateau is the tiling's last (its interval ends at
     /// the unit interval's right edge).
@@ -124,7 +128,7 @@ pub(crate) trait PlateauCursor {
     /// `2^-flip`, which is what the law's tie test reads — the deeper side's
     /// plateau end reaches the shallower side's exactly when `flip <=
     /// other.depth()` (the module doc's bookkeeping).
-    fn step(&mut self) -> (usize, Self::Crossing);
+    fn step(&mut self) -> (u64, Self::Crossing);
 }
 
 /// One crossing the overlay law consumed, tagged with the cursor that crossed
@@ -236,11 +240,11 @@ pub(crate) trait CursorSet {
 
     /// The slot's current plateau depth: its interval has width `2^-depth`.
     /// An absent or dropped slot reads zero.
-    fn depth(&self, slot: usize) -> usize;
+    fn depth(&self, slot: usize) -> u64;
 
     /// Step the slot past its plateau, folding its crossing into the walk's
     /// own algebra; returns the flip level.
-    fn step(&mut self, slot: usize) -> usize;
+    fn step(&mut self, slot: usize) -> u64;
 }
 
 /// Advance an overlay walk of N cursors one boundary — the overlay-advance law
@@ -263,7 +267,7 @@ pub(crate) trait CursorSet {
 /// integrals need.
 pub(crate) fn advance_set(set: &mut impl CursorSet) {
     let priority = set.priority();
-    let mut deepest: Option<(usize, usize)> = None;
+    let mut deepest: Option<(usize, u64)> = None;
     for slot in priority.clone() {
         let depth = set.depth(slot);
         // Strict: the first slot in priority order achieving the maximum.
@@ -345,7 +349,7 @@ impl<'a> LeafCursor<'a> {
     /// The path's trailing right-branch run popped and the deepest left branch
     /// flipped. Zero on a final leaf (the all-right path), where no step
     /// remains — every real flip level is at least one.
-    pub(super) fn peek_flip(&self) -> usize {
+    pub(super) fn peek_flip(&self) -> u64 {
         self.path.len() - self.path.trailing_ones()
     }
 
@@ -370,7 +374,7 @@ impl<'a> LeafCursor<'a> {
     /// notices — truncation, malformation — panic; the rest walk silently with
     /// an unspecified result (the contract of
     /// [`causal_cmp`](super::sweep::causal_cmp), stated once there).
-    pub(super) fn skip_deeper(&mut self, bound: usize, net: &mut Accumulator) {
+    pub(super) fn skip_deeper(&mut self, bound: u64, net: &mut Accumulator) {
         while self.peek_flip() > bound {
             let (_, step) = self.step();
             super::signed::fold_signed_int(net, step.sign, &step.magnitude);
@@ -408,14 +412,14 @@ impl PlateauCursor for LeafCursor<'_> {
     type Crossing = Step;
 
     /// The current leaf's depth: its plateau has width `2^-depth`.
-    fn depth(&self) -> usize {
+    fn depth(&self) -> u64 {
         self.path.len()
     }
 
     /// Whether the current leaf is the stream's last (its plateau ends at the
     /// unit interval's right edge).
     fn done(&self) -> bool {
-        self.cursor.position_u64() == self.len
+        self.cursor.position() == self.len
     }
 
     /// Advance past the current leaf to the next: the flip level's depth for
@@ -435,7 +439,7 @@ impl PlateauCursor for LeafCursor<'_> {
     /// called on a final leaf: a sweep stops when both cursors are done, and
     /// the module doc's bookkeeping shows a final leaf is never the advanced
     /// side before then.
-    fn step(&mut self) -> (usize, Step) {
+    fn step(&mut self) -> (u64, Step) {
         loop {
             match self.path.pop() {
                 Some(true) => continue, // this ancestor closed with the leaf
@@ -472,7 +476,10 @@ pub(super) struct IdLeafCursor<'a> {
     /// stream (a clear flag is a synthetic unowned leaf).
     right_present: BitStack,
     /// Left-branch levels still open; zero exactly at the final leaf.
-    lefts: usize,
+    ///
+    /// `u64`, as the path height it counts within: each open left branch
+    /// is one stored path bit.
+    lefts: u64,
     /// Whether the current leaf's region is owned.
     owned: bool,
 }
@@ -552,7 +559,7 @@ impl PlateauCursor for IdLeafCursor<'_> {
     type Crossing = ();
 
     /// The current region's depth: its interval has width `2^-depth`.
-    fn depth(&self) -> usize {
+    fn depth(&self) -> u64 {
         self.path.len()
     }
 
@@ -573,7 +580,7 @@ impl PlateauCursor for IdLeafCursor<'_> {
     /// mask-operand contract of [`causal_cmp`](super::masked::causal_cmp),
     /// stated once there). Never called on a final region (the overlay stops
     /// when both cursors are done).
-    fn step(&mut self) -> (usize, ()) {
+    fn step(&mut self) -> (u64, ()) {
         loop {
             match self.path.pop() {
                 Some(true) => {

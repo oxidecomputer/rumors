@@ -207,7 +207,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
                         self.web.close();
                         break;
                     }
-                    let slot = self.reserve(self.cursor.position_u64());
+                    let slot = self.reserve(self.cursor.position());
                     frames.push_site(slot);
                     level += 1;
                     self.web.open(1);
@@ -227,7 +227,7 @@ impl<'a, 'm> PreScan<'a, 'm> {
             // Ascend: resume suspended nodes as their children complete.
             loop {
                 let Some(top) = frames.top() else {
-                    return self.cursor.position_u64();
+                    return self.cursor.position();
                 };
                 self.web.close();
                 match top {

@@ -207,7 +207,7 @@ impl IdSkylineBuilder {
     /// The plateau sequence must be the preorder tiling of one dyadic tree:
     /// each new depth must be reachable from the last by the forced
     /// flip-and-descend, which the builder debug-asserts.
-    pub(super) fn leaf(&mut self, depth: usize, owned: bool) {
+    pub(super) fn leaf(&mut self, depth: u64, owned: bool) {
         debug_assert!(
             self.root.is_none(),
             "a plateau arrived after the final one: the tiling is complete"
@@ -244,7 +244,7 @@ impl IdSkylineBuilder {
     /// by plateau would close as (its root has a child that is neither
     /// both-empty nor both-terminal), so the ancestors' presence patches and
     /// collapses are unchanged.
-    pub(super) fn subtree(&mut self, depth: usize, src: BitsView<'_>, start: u64, end: u64) {
+    pub(super) fn subtree(&mut self, depth: u64, src: BitsView<'_>, start: u64, end: u64) {
         debug_assert!(
             self.root.is_none(),
             "a subtree arrived after the final plateau: the tiling is complete"

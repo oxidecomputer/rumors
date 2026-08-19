@@ -285,7 +285,7 @@ impl<'a> Walk<'a> {
     /// The deepest current depth among every cursor slot but `slot`: the block
     /// consume's bound — a boundary whose flip level exceeds it is crossed by
     /// `slot`'s cursor alone.
-    fn others_deepest(&self, slot: usize) -> usize {
+    fn others_deepest(&self, slot: usize) -> u64 {
         self.priority()
             .filter(|&other| other != slot)
             .map(|other| self.depth(other))
@@ -375,7 +375,7 @@ impl CursorSet for Walk<'_> {
 
     /// An absent mask reads zero: one all-owned region over the whole
     /// interval, which never steps.
-    fn depth(&self, slot: usize) -> usize {
+    fn depth(&self, slot: usize) -> u64 {
         match slot {
             Self::A => self.a.depth(),
             Self::A_MASK => self.a_mask.as_ref().map_or(0, PlateauCursor::depth),
@@ -391,7 +391,7 @@ impl CursorSet for Walk<'_> {
     /// The watchers are `diff` always, plus the side's height integrator when
     /// present. A mask crossing carries no delta — ownership is per-region
     /// state read between boundaries.
-    fn step(&mut self, slot: usize) -> usize {
+    fn step(&mut self, slot: usize) -> u64 {
         match slot {
             Self::A => {
                 let (flip, step) = self.a.step();

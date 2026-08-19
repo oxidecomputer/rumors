@@ -260,7 +260,7 @@ impl CursorSet for MemberCursors<'_> {
     }
 
     /// A dropped (satisfied-hole) bound reads zero and never steps.
-    fn depth(&self, slot: usize) -> usize {
+    fn depth(&self, slot: usize) -> u64 {
         match slot {
             Self::PROBE => self.probe.depth(),
             _ => self.sides[slot - 1]
@@ -276,7 +276,7 @@ impl CursorSet for MemberCursors<'_> {
     /// Every present side's pair reads every interval: membership never
     /// settles a pair — a satisfied hole drops its whole side — so presence
     /// is the only gate.
-    fn step(&mut self, slot: usize) -> usize {
+    fn step(&mut self, slot: usize) -> u64 {
         match slot {
             Self::PROBE => {
                 let (flip, step) = self.probe.step();
@@ -552,7 +552,7 @@ impl CursorSet for SpanCursors<'_> {
     }
 
     /// A settled probe endpoint or dropped bound reads zero and never steps.
-    fn depth(&self, slot: usize) -> usize {
+    fn depth(&self, slot: usize) -> u64 {
         match slot {
             Self::HI => {
                 if self.hi_live {
@@ -577,7 +577,7 @@ impl CursorSet for SpanCursors<'_> {
     /// An endpoint's step folds its crossing into its own live pairs as the
     /// `A` operand; a bound's step folds into both its live pairs as the `B`
     /// operand (settled pairs advance unread).
-    fn step(&mut self, slot: usize) -> usize {
+    fn step(&mut self, slot: usize) -> u64 {
         match slot {
             Self::HI => {
                 let (flip, step) = self.hi.step();

@@ -2075,7 +2075,9 @@ fn left_spike(depth: usize) -> Version {
 fn tick_expand_spine_envelope() {
     let mut v = Version::new();
     let party = party_of(&Shape::IdSpine.packed_flagged(ID_DEPTH, false));
-    let input = meter::skyline::encode(&v).len() as usize / 8 + party.encoded_bits().div_ceil(8);
+    // Byte sizes of buffers this test just allocated fit `usize`.
+    let input =
+        ((meter::skyline::encode(&v).len() / 8) + party.encoded_bits().div_ceil(8)) as usize;
     query_metered(
         "tick_expand_spine",
         input,
@@ -2105,7 +2107,8 @@ fn tick_expand_cross_envelope() {
     let mut v = version_of(&ev);
     let party = party_of(&Shape::IdSpine.packed_flagged(ID_DEPTH, false));
     let expected = &v | &left_spike(ID_DEPTH);
-    let input = ev.bytes.len() + party.encoded_bits().div_ceil(8);
+    // Byte sizes of buffers this test just allocated fit `usize`.
+    let input = ev.bytes.len() + party.encoded_bits().div_ceil(8) as usize;
     query_metered(
         "tick_expand_cross",
         input,

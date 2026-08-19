@@ -97,7 +97,7 @@ fn empty_version_is_two_bits() {
             delta_bits: 0,
         }
     );
-    assert_eq!(size.total_bits, v.encoded_bits() as u64);
+    assert_eq!(size.total_bits, v.encoded_bits());
 }
 
 /// A single ticked leaf (value 1) is one topology bit plus `gamma(1) = 3`, 4
@@ -111,7 +111,7 @@ fn single_small_leaf_matches_current_size() {
     )));
     assert_eq!(size.total_bits, 4);
     assert_eq!((size.nodes, size.leaves), (1, 1));
-    assert_eq!(size.total_bits, v.encoded_bits() as u64);
+    assert_eq!(size.total_bits, v.encoded_bits());
 }
 
 /// A single huge leaf `2^b - 1` is one topology bit plus `gamma(2^b - 1) = 2b +
@@ -125,7 +125,7 @@ fn single_big_leaf_matches_current_size() {
         assert_eq!(size.total_bits as usize, 2 * b + 2);
         assert_eq!((size.nodes, size.leaves), (1, 1));
         assert_eq!(size.first_leaf_bits as usize, 2 * b + 1);
-        assert_eq!(size.total_bits, packed.version().encoded_bits() as u64);
+        assert_eq!(size.total_bits, packed.version().encoded_bits());
     }
 }
 
@@ -176,7 +176,7 @@ fn dense_spine_matches_hand_computation() {
             delta_bits: 6,
         }
     );
-    assert_eq!(size.total_bits, packed.version().encoded_bits() as u64);
+    assert_eq!(size.total_bits, packed.version().encoded_bits());
 }
 
 /// The boundary comb's Tier 2 size is exactly `10n + 4k + 2` bits against the

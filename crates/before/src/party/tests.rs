@@ -1055,7 +1055,7 @@ proptest! {
 fn fork_chain_orbit_sizes_are_exactly_affine() {
     let mut p = Party::seed();
     assert_eq!(p.encoded_bits(), 2, "the seed is the 2-bit whole region");
-    for k in 1usize..=512 {
+    for k in 1u64..=512 {
         let q = p.fork();
         assert_eq!(p.encoded_bits(), 2 + 2 * k, "keeper id bits after fork {k}");
         assert_eq!(q.encoded_bits(), 2 + 2 * k, "mover id bits after fork {k}");
@@ -1078,7 +1078,7 @@ fn fork_chain_orbit_sizes_are_exactly_affine() {
 fn fork_fan_orbit_grows_affine_and_unwinds_to_seed() {
     let mut root = Party::seed();
     let mut children = Vec::new();
-    for k in 1usize..=512 {
+    for k in 1u64..=512 {
         let q = root.fork();
         assert_eq!(
             root.encoded_bits(),
@@ -1093,7 +1093,7 @@ fn fork_fan_orbit_grows_affine_and_unwinds_to_seed() {
             .expect("fan children are disjoint from the root");
         assert_eq!(
             root.encoded_bits(),
-            2 + 2 * (511 - i),
+            2 + 2 * (511 - i as u64),
             "root id bits after unwind join {i}"
         );
     }

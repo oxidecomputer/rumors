@@ -75,7 +75,10 @@ rand = "0.8"
 
 [dev-dependencies]
 rumors = { path = ".", features = ["test-internals", "conformance"] }
-before = { path = "crates/before", features = ["borsh"] }
+# The meter feature lights before's instrument surface for this crate's
+# own tests: the conservation suite reads the exact-bit-length observation
+# (`encoded_bits`) it denominates identity conservation in.
+before = { path = "crates/before", features = ["borsh", "meter"] }
 proptest = "1"
 criterion = { version = "0.5", features = ["html_reports"] }
 insta = "1.47"

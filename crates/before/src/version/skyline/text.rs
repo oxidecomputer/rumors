@@ -307,7 +307,7 @@ pub fn render(bits: BitsView<'_>) -> String {
         }
     };
     assert_eq!(
-        cursor.position_u64(),
+        cursor.position(),
         bits.len(),
         "a canonical skyline stream is exactly one tree"
     );
@@ -401,11 +401,14 @@ pub fn render(bits: BitsView<'_>) -> String {
 /// entry's length.
 const ARENA_SEP: char = ';';
 
-/// A node count or preorder node index as the renderer's `usize` vocabulary:
-/// each node costs at least one bit of the rendered stream, whose live length
-/// fits `usize` on every target (the storage doors' bound).
+/// A node count or preorder node index as the renderer's `usize` vocabulary.
+///
+/// Checked, and priced in output bytes: the rendered text prints at least
+/// one byte per node, so a node count past `usize` names an output no
+/// allocation on this target can hold — failing loudly here is the same
+/// abort the output's own allocation would deliver.
 fn node_index(count: u64) -> usize {
-    usize::try_from(count).expect("node indexes are bounded by the stream's live length")
+    usize::try_from(count).expect("node indexes are bounded by the rendered text's length")
 }
 
 /// Render one finalized printed base into the digit arena, keyed by its node's
@@ -566,10 +569,7 @@ pub fn parse(text: &str) -> Result<BitsBuf, Parse> {
             debug_assert_ne!(sign, Ordering::Less, "a path sum of naturals is a natural");
             gamma_code(&Base::from(magnitude))
         };
-        builder.leaf(
-            usize::try_from(phase.len()).expect("depth is bounded by the parsed text's length"),
-            code,
-        );
+        builder.leaf(phase.len(), code);
         delta.sub_magnitude(&base); // the leaf's base exits the path
 
         // Close every node the leaf completes.

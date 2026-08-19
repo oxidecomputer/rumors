@@ -116,7 +116,7 @@ pub(crate) fn code_int_small(n: u64) -> Code {
 pub(crate) fn decode_int(bits: BitsView<'_>, pos: u64) -> Result<(Base, u64), Decode> {
     let mut cursor = SliceCursor::new(bits, pos);
     let base = cursor.read_int()?.into_base();
-    Ok((base, cursor.position_u64()))
+    Ok((base, cursor.position()))
 }
 
 /// The number of bits a [`decode_int_window`] window holds.
@@ -211,26 +211,16 @@ pub(crate) fn decode_int_from<C: BitCursor>(cursor: &mut C) -> Result<Base, Deco
 where
     Decode: From<C::Error>,
 {
-    let mut k = 0usize;
+    // `u64`, as every bit count here: each counted zero occupies real input
+    // (a buffer bit or a byte the reader yielded), so the count is bounded
+    // by memory, far below any `u64` wrap.
+    let mut k = 0u64;
     while !cursor.read_bit()? {
-        // The match (rather than `ok_or`) keeps the error value — `Decode` has
-        // drop glue — from being constructed and dropped on every iteration of
-        // this per-bit loop; see `codec::cursor::Truncated`.
-        //
-        // The overflow arm names a value no target can hold: a prefix of
-        // usize::MAX zeros declares a mantissa past the big-integer
-        // backend's representable width (the backend caps below usize::MAX
-        // bits), so the reject genre is the value's, not the machine's. On
-        // 64-bit targets the arm is dead — reading 2^64 bits first needs
-        // an unallocatable input.
-        k = match k.checked_add(1) {
-            Some(k) => k,
-            None => return Err(Decode::NotCanonical),
-        };
+        k += 1;
     }
 
     // Common case: read small codes into a machine integer, then widen once.
-    if k < u64::BITS as usize {
+    if k < u64::from(u64::BITS) {
         let mut m = 1u64;
         for _ in 0..k {
             m <<= 1;
@@ -249,6 +239,16 @@ where
     // the only allocation is the value itself. A truncated stream still fails
     // at the same `read_bit` position it would reading into an accumulator, so
     // the accept/reject boundary is unchanged.
+    //
+    // A mantissa at or past `usize` bits names a value the big-integer
+    // backend cannot hold on this target (it caps magnitudes below
+    // `usize::MAX` bits), so the reject genre is the value's, not the
+    // machine's — the word-parallel reader (`DsiCursor::read_int`) rejects
+    // at the same width with the same genre. On 64-bit targets the arm is
+    // dead: reading 2^64 prefix bits first needs an unallocatable input.
+    let Ok(k) = usize::try_from(k) else {
+        return Err(Decode::NotCanonical);
+    };
     let mut m = UBig::ZERO;
     m.set_bit(k);
     for i in (0..k).rev() {

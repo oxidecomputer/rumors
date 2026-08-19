@@ -103,12 +103,8 @@ impl<R: Read> BitCursor for ReaderCursor<'_, R> {
         Ok(bit)
     }
 
-    fn position(&self) -> usize {
-        // The grammar walks read no positions on this cursor (they return
-        // `()` or are read after `finish`); the conversion stays checked so
-        // a future position-reading walk over a past-usize field fails
-        // loudly instead of truncating.
-        usize::try_from(self.position).expect("a read position fits usize")
+    fn position(&self) -> u64 {
+        self.position
     }
 
     fn read_int(&mut self) -> Result<codec::Int, Decode> {

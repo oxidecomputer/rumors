@@ -240,7 +240,7 @@ impl<'a> EvScan<'a> {
 
     /// The cursor's bit position: the next node's flag.
     fn pos(&self) -> u64 {
-        self.cursor.position_u64()
+        self.cursor.position()
     }
 
     /// Move the cursor to `pos` (a node-flag position located by a side scan):
@@ -261,9 +261,9 @@ impl<'a> EvScan<'a> {
         if !leaf {
             None
         } else {
-            let start = self.cursor.position_u64();
+            let start = self.cursor.position();
             self.cursor.skip_int().expect("canonical skyline bits");
-            Some(start..self.cursor.position_u64())
+            Some(start..self.cursor.position())
         }
     }
 
@@ -278,7 +278,7 @@ impl<'a> EvScan<'a> {
     fn skip(&mut self) {
         // One unary read per descent: each internal node in the run opens two
         // children, and the terminating leaf closes one.
-        let mut pending = 1usize;
+        let mut pending = 1u64;
         while pending > 0 {
             let internal_nodes = self.cursor.read_unary().expect("canonical skyline bits");
             self.cursor.skip_int().expect("canonical skyline bits");
@@ -323,11 +323,11 @@ struct Subtree {
     first_code: Range<u64>,
     /// The first leaf's depth below the subtree root; `0` means the
     /// subtree is a single leaf.
-    first_rel_depth: usize,
+    first_rel_depth: u64,
     /// The last (rightmost) leaf's payload code range.
     last_code: Range<u64>,
     /// The last leaf's depth below the subtree root.
-    last_rel_depth: usize,
+    last_rel_depth: u64,
 }
 
 /// Locate the subtree at `start`: its end, and the first/last leaf coordinates
@@ -343,14 +343,14 @@ fn scan_subtree(bits: BitsView<'_>, start: u64) -> Subtree {
     let mut cursor = codec::DsiCursor::new_at(bits, start);
     // The first leaf's coordinates, recorded once; the last leaf's are whatever
     // the loop recorded most recently when the walk ends.
-    let mut first: Option<(Range<u64>, usize)> = None;
+    let mut first: Option<(Range<u64>, u64)> = None;
     let mut last_code = 0..0;
     let mut last_rel_depth = 0;
     let mut walk = LeafWalk::new();
     while let Some(depth) = walk.descend(&mut cursor) {
-        let code_start = cursor.position_u64();
+        let code_start = cursor.position();
         cursor.skip_int().expect("canonical skyline bits");
-        last_code = code_start..cursor.position_u64();
+        last_code = code_start..cursor.position();
         last_rel_depth = depth;
         if first.is_none() {
             first = Some((last_code.clone(), last_rel_depth));
@@ -358,7 +358,7 @@ fn scan_subtree(bits: BitsView<'_>, start: u64) -> Subtree {
     }
     let (first_code, first_rel_depth) = first.expect("a subtree has at least one leaf");
     Subtree {
-        end: cursor.position_u64(),
+        end: cursor.position(),
         first_code,
         first_rel_depth,
         last_code,
@@ -372,12 +372,7 @@ fn scan_subtree(bits: BitsView<'_>, start: u64) -> Subtree {
 /// The first leaf goes through the builder's collapse checks (with the
 /// successor repair when the grown leaf precedes it); the remainder is one
 /// verbatim splice.
-fn feed_subtree(
-    out: &mut SkylineBuilder,
-    event: &mut EvScan<'_>,
-    depth: usize,
-    repair: Repair<'_>,
-) {
+fn feed_subtree(out: &mut SkylineBuilder, event: &mut EvScan<'_>, depth: u64, repair: Repair<'_>) {
     let subtree = scan_subtree(event.bits, event.pos());
     let first_code = match repair {
         Repair::None => {
@@ -401,7 +396,7 @@ fn feed_subtree(
             depth,
             subtree.first_rel_depth,
             subtree.last_rel_depth,
-            (subtree.last_code.end - subtree.last_code.start) as usize,
+            subtree.last_code.end - subtree.last_code.start,
         );
     }
     event.seek(subtree.end);
@@ -519,7 +514,9 @@ pub(super) fn emit(
     // One bit per chosen-path level: `true` = the branch descended left, so its
     // right sibling subtree is pending after the inflation point.
     let mut pending = BitsBuf::new();
-    let mut depth = 0usize;
+    // `u64`, the walk surface's depth denomination: each level holds one
+    // pending bit in real memory.
+    let mut depth = 0u64;
     // Whether any leaf has entered the output ahead of the grown leaf. The
     // grown leaf's own code is absolute exactly when none has (Phase 2's
     // UpAbsolute/UpDelta selection): the decision is the walk's, not recode's,
@@ -617,14 +614,12 @@ pub(super) fn emit(
     // code (same height, same predecessor) or re-codes it `+k` when the grown
     // leaf itself comes first.
     let path_depth = depth;
-    // Depths are `usize` across the walk surface: a chain level costs at
-    // least one bit of the stored id, whose live length fits `usize` on
-    // every target (the storage doors' bound).
-    let chain =
-        usize::try_from(chain_dirs.len()).expect("chain depth is bounded by the id's live length");
+    // Depths are `u64` across the walk surface, as every stream position
+    // is: a chain level costs at least one bit of the stored id.
+    let chain = chain_dirs.len();
     let original = original_range;
     debug_assert_eq!(
-        path_depth as u64,
+        path_depth,
         pending.len(),
         "one pending record per path level"
     );
@@ -632,7 +627,7 @@ pub(super) fn emit(
     // Fresh sibling leaves that precede the grown leaf: one per level whose
     // branch descended right (the sibling is the left child).
     for level in 0..chain {
-        if !chain_dirs.get(level as u64) {
+        if !chain_dirs.get(level) {
             let code = if emitted_in_chain {
                 gamma_code(&Base::ZERO)
             } else {
@@ -662,7 +657,7 @@ pub(super) fn emit(
     // Fresh sibling leaves that follow the grown leaf, deepest first.
     let mut first_after_grown = true;
     for level in (0..chain).rev() {
-        if chain_dirs.get(level as u64) {
+        if chain_dirs.get(level) {
             let code = if first_after_grown {
                 gamma_code_signed(Sign::Negative, events)
             } else {

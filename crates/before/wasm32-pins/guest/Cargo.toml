@@ -15,6 +15,7 @@ crate-type = ["cdylib"]
 # The borsh feature lights the composite streaming doors
 # (`Ranked`/`Span::deserialize_reader`), whose walk boundaries the guest
 # pins beside the byte doors'; the borsh crate itself names the trait the
-# exports drive.
-before = { path = "../..", features = ["borsh"] }
+# exports drive. The meter feature lights the instrument surface: the
+# exact-bit-length observation (`encoded_bits`) the pins report through.
+before = { path = "../..", features = ["borsh", "meter"] }
 borsh = "1"

@@ -305,24 +305,24 @@ proptest! {
 struct BitwiseReaderCursor<'a, R> {
     reader: &'a mut R,
     bits: BitsBuf,
-    position: usize,
+    position: u64,
 }
 
 impl<R: Read> BitCursor for BitwiseReaderCursor<'_, R> {
     type Error = Decode;
 
     fn read_bit(&mut self) -> Result<bool, Decode> {
-        if self.position as u64 == self.bits.len() {
+        if self.position == self.bits.len() {
             let mut byte = [0];
             self.reader.read_exact(&mut byte).map_err(Decode::Io)?;
             self.bits.push_bits(u64::from(byte[0]), 8);
         }
-        let bit = self.bits.get(self.position as u64);
+        let bit = self.bits.get(self.position);
         self.position += 1;
         Ok(bit)
     }
 
-    fn position(&self) -> usize {
+    fn position(&self) -> u64 {
         self.position
     }
 }
@@ -359,7 +359,7 @@ fn reference_version<R: Read>(reader: &mut R) -> Result<Version, Decode> {
     let position = cursor.position;
     reference_consume_padding(&mut cursor)?;
     let mut bits = cursor.bits;
-    bits.truncate(position as u64);
+    bits.truncate(position);
     Ok(Version::from_bits(bits))
 }
 
@@ -379,7 +379,7 @@ fn reference_party<R: Read>(reader: &mut R) -> Result<Party, Decode> {
     let position = cursor.position;
     reference_consume_padding(&mut cursor)?;
     let mut bits = cursor.bits;
-    bits.truncate(position as u64);
+    bits.truncate(position);
     Ok(Party::from_bits(bits))
 }
 
@@ -527,7 +527,7 @@ fn reference_span<R: Read>(reader: &mut R) -> Result<Span<'static>, Decode> {
     let position = cursor.position;
     reference_consume_padding(&mut cursor)?;
     let mut bits = cursor.bits;
-    bits.truncate(position as u64);
+    bits.truncate(position);
     let hi = match admission {
         Admission::Refuted => return Err(Decode::NotCanonical),
         Admission::Equal => lo.clone(),

@@ -138,7 +138,7 @@ fn outgrow_family() -> Vec<(u32, Version, Party)> {
 fn resident_line<T>(
     site: &str,
     x: impl std::fmt::Display,
-    out_bits: usize,
+    out_bits: u64,
     build: impl FnOnce() -> T,
 ) {
     let arm = common::alloc_arms();
@@ -196,7 +196,7 @@ fn resident_report() {
         let plan = common::plan(&mut r, n, 1);
         let v = common::impl_versions(&plan, 1).pop().expect("one group");
         let s = v.to_string();
-        resident_line("display", n, s.len() * 8, || v.to_string());
+        resident_line("display", n, s.len() as u64 * 8, || v.to_string());
         resident_line("parse", n, v.encoded_bits(), || {
             s.parse::<Version>().expect("a rendered version parses")
         });

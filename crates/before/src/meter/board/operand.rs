@@ -291,5 +291,7 @@ pub(super) fn radix_units_clock(c: &Clock) -> u64 {
 
 /// The packed byte size of a version produced by a measured body.
 pub(super) fn version_output_bytes(v: &Version) -> usize {
-    v.encoded_bits().div_ceil(8)
+    // The measured value's stored buffer is allocated on this host, so its
+    // byte count fits `usize`.
+    usize::try_from(v.encoded_bits().div_ceil(8)).expect("an allocated buffer's byte count")
 }

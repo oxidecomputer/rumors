@@ -85,8 +85,9 @@ use crate::error::Decode;
 /// through [`ptr_eq`](Self::ptr_eq) — the fast path the identity-law shortcuts
 /// (`x ∨ x`, `cmp(x, x)`, `distance(x, x)`) dispatch on. Reading is the
 /// crate-owned [`BitsView`] ([`live`](Self::live)), which exposes exactly the
-/// live bits — the padding stays behind the view — at every storable size on
-/// every target.
+/// live bits — the padding stays behind the view — at every size on every
+/// target: a stream is bounded only by allocatable memory, never by a
+/// length denomination.
 #[derive(Clone)]
 pub struct Bits {
     /// The canonical marker-padded bytes: the live bits, one `1`, then
@@ -113,30 +114,13 @@ impl Bits {
     /// underpins), then adopts the buffer's allocation whole:
     /// `Bytes::from(vec)` wraps it in place, no copy.
     ///
-    /// # Panics
-    ///
-    /// Panics when the sealed buffer's byte count exceeds what `usize` bit
-    /// positions can denominate — reachable only on targets narrower than
-    /// 64 bits, from an emission past 512 MiB of output. The build side
-    /// itself is exact to allocatable memory (its lengths are `u64`), but a
-    /// stored stream's live length is `usize`-denominated
-    /// ([`len`](Self::len) and the value types' `encoded_bits`), so a
-    /// stream past that bound has no in-memory form here and this check
-    /// keeps the failure at the door — the same bound the decode door
-    /// ([`from_canonical`](Self::from_canonical)) holds. On 64-bit targets
-    /// the bound is 2^61 bytes, which no allocator can hand over, so the
-    /// check is dead there.
+    /// Exact at every size on every target: lengths and positions are `u64`
+    /// on both sides of this seam, so an emission is storable whenever its
+    /// buffer is allocatable — the door imposes no bound of its own.
     pub(crate) fn freeze(mut buf: BitsBuf) -> Self {
         seal_padding(&mut buf);
-        let bytes = buf.into_bytes();
-        assert!(
-            bytes.len() as u128 <= (usize::MAX as u128 + 1) / 8,
-            "stored streams denominate bit positions in usize: \
-             a {}-byte buffer's bits do not fit this target's usize",
-            bytes.len(),
-        );
         Bits {
-            bytes: Bytes::from(bytes),
+            bytes: Bytes::from(buf.into_bytes()),
         }
     }
 
@@ -148,23 +132,11 @@ impl Bits {
     /// `require_marker_padding` accepts. Debug builds assert it; release builds
     /// trust the validator.
     ///
-    /// # Panics
-    ///
-    /// Panics when the buffer's bit count exceeds `usize` — reachable only on
-    /// targets narrower than 64 bits, from 512 MiB of buffer. A stored
-    /// stream's live length is `usize`-denominated ([`len`](Self::len) and
-    /// the value types' `encoded_bits`), so a stream past that bound has no
-    /// in-memory form here: adopting it would make [`len`](Self::len)
-    /// incorrect, and this check keeps the failure at the door instead. On
-    /// 64-bit targets the bound is 2^61 bytes, which no allocator can hand
-    /// over, so the check is dead there.
+    /// Exact at every size on every target: the stored form denominates its
+    /// bit positions in `u64` ([`len`](Self::len), [`live`](Self::live)), so
+    /// any buffer the validator admits is adoptable whole — the door imposes
+    /// no bound of its own.
     pub(crate) fn from_canonical(bytes: Bytes) -> Self {
-        assert!(
-            bytes.len() as u128 <= (usize::MAX as u128 + 1) / 8,
-            "stored streams denominate bit positions in usize: \
-             a {}-byte buffer's bits do not fit this target's usize",
-            bytes.len(),
-        );
         let bits = Bits { bytes };
         debug_assert!(
             padding_is_canonical(&bits),
@@ -182,10 +154,10 @@ impl Bits {
     /// exactly what the freeze and decode doors establish.
     ///
     /// The arithmetic runs at `u64` width: `bytes.len() * 8` wraps a 32-bit
-    /// `usize` from 512 MiB of buffer, while the live length itself still
-    /// fits at exactly that boundary (the marker spends at least one of the
-    /// buffer's bits).
-    fn live_bits(&self) -> u64 {
+    /// `usize` from 512 MiB of buffer, while the length itself stays exactly
+    /// representable up to allocatable memory — the only bound a stored
+    /// stream has, on any target.
+    pub fn len(&self) -> u64 {
         match self.bytes.last() {
             None => 0,
             Some(&last) => {
@@ -195,28 +167,16 @@ impl Bits {
         }
     }
 
-    /// The live bit length of the stream, recovered from the padding:
-    /// [`live_bits`](Self::live_bits) converted to `usize`.
-    ///
-    /// The conversion is checked, not truncating, and cannot fail on a
-    /// constructed stream: both doors assert the same byte-count bound
-    /// ([`from_canonical`](Self::from_canonical) on adoption,
-    /// [`freeze`](Self::freeze) on sealing), under which every live length
-    /// fits `usize`.
-    pub fn len(&self) -> usize {
-        usize::try_from(self.live_bits()).expect("a constructed stream's live length fits usize")
-    }
-
     /// Read the frozen stream as live bits — the padding stays behind the
     /// view: every cursor and walk consumes [`Bits`] through this view.
     ///
-    /// Exact at every storable size on every target: the view carries the
-    /// buffer's bytes beside a `u64` live length, so no 32-bit length
-    /// encoding narrows what a walk can read below what the doors admit.
+    /// Exact at every size on every target: the view carries the buffer's
+    /// bytes beside a `u64` live length, so no 32-bit length encoding
+    /// narrows what a walk can read below what memory can hold.
     pub fn live(&self) -> BitsView<'_> {
         BitsView {
             bytes: &self.bytes,
-            live: self.live_bits(),
+            live: self.len(),
         }
     }
 
@@ -264,9 +224,9 @@ impl Bits {
 ///
 /// The walk surface's one read form. Every semantic walk — comparison sweeps,
 /// emissions, admission walks, the id operations — consumes stored streams
-/// and door buffers through this view, so a walk's reach is exactly the
-/// doors' (every storable stream, on every target), never narrowed by a
-/// borrowed-view length encoding.
+/// and door buffers through this view, so a walk's reach is every stream
+/// memory can hold, on every target, never narrowed by a borrowed-view
+/// length encoding.
 ///
 /// A view always starts on byte 0 of its `bytes`: sub-stream *ranges* travel
 /// as explicit bit positions beside the view (the copy and parse seams take

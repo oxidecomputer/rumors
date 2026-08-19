@@ -26,8 +26,9 @@
 //! to allocatable memory, and no `usize`-denominated bit count anywhere in
 //! the build path can wrap or bind on a 32-bit target. (A 32-bit `usize`
 //! spelling of `bytes.len() * 8` wraps from 512 MiB of buffer — sizes a
-//! 4 GiB address space allocates comfortably.) The one storable bound is the
-//! frozen form's, checked at its door (`Bits::freeze`), never here.
+//! 4 GiB address space allocates comfortably.) The frozen form (`Bits`)
+//! carries the same `u64` denomination, so the freeze seam is exact too:
+//! allocatable memory is the only bound anywhere on the build path.
 //!
 //! Byte *indexes* stay `usize`: an index into an allocated buffer fits the
 //! target's address width by construction.

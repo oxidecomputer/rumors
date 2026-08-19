@@ -760,7 +760,7 @@ proptest! {
         // a stored size nothing checks: a fold could be charged M(|v|) against
         // an operand secretly as large as the product itself.
         prop_assert!(
-            v.encoded_bits() <= 4 * x.bit_len() + 4 * (y.bit_len() + 1) + 64,
+            v.encoded_bits() <= (4 * x.bit_len() + 4 * (y.bit_len() + 1) + 64) as u64,
             "the stored stream must stay linear in the factors' widths: \
              {} stored bits against bits(x) = {}, bits(y) = {}",
             v.encoded_bits(),
@@ -1421,7 +1421,7 @@ mod adequacy {
     /// grows with every block.
     fn absolute_position_rank(bits: BitsView<'_>) -> Rank {
         let max_depth = max_depth(bits);
-        let scale = max_depth as u64;
+        let scale = max_depth;
         let (mut cursor, first) = LeafCursor::open(bits);
         let mut total = Accumulator::new();
         let mut live_height = Accumulator::new();
@@ -1430,7 +1430,7 @@ mod adequacy {
         let mut position = Accumulator::new();
         let one = Base::from(1u8);
         loop {
-            let weight_shift = (max_depth - cursor.depth()) as u64;
+            let weight_shift = max_depth - cursor.depth();
             if !live_height.is_literally_zero() {
                 total.add_accum_shl(&live_height, weight_shift);
             }
@@ -1458,7 +1458,7 @@ mod adequacy {
                 live_height = Accumulator::new();
             }
         }
-        total.add_accum_shl(&frozen, max_depth as u64);
+        total.add_accum_shl(&frozen, max_depth);
         let (sign, num) = total.sign_magnitude();
         debug_assert_ne!(sign, Ordering::Less, "heights are nonnegative");
         Rank::from_raw(Base::from(num), scale)
@@ -1689,7 +1689,7 @@ mod adequacy {
         let mut integral = SpanIntegrator::new();
         integral.open(&first);
         loop {
-            let weight_shift = (max_depth - cursor.depth()) as u64;
+            let weight_shift = max_depth - cursor.depth();
             integral.interval(weight_shift);
             if cursor.done() {
                 break;
@@ -1698,7 +1698,7 @@ mod adequacy {
             fold(&mut integral.live, Side::A, step.sign, &step.magnitude);
             integral.boundary(super::super::integral::int_digits(&step.magnitude));
         }
-        integral.finish(max_depth as u64)
+        integral.finish(max_depth)
     }
 
     /// The distance co-sweep on the span-reading integrator: the shipped pair
@@ -1724,7 +1724,7 @@ mod adequacy {
             integral.open(&Int::from_ubig(opening));
         }
         loop {
-            let weight_shift = (overlay_depth - ca.depth().max(cb.depth())) as u64;
+            let weight_shift = overlay_depth - ca.depth().max(cb.depth());
             integral.interval(weight_shift);
             if ca.done() && cb.done() {
                 break;
@@ -1751,7 +1751,7 @@ mod adequacy {
                 .unwrap_or(1);
             integral.boundary(funded);
         }
-        integral.finish(overlay_depth as u64)
+        integral.finish(overlay_depth)
     }
 
     /// One rank tripwire run over `PR(p)`: packed bytes and the touch count
@@ -2053,7 +2053,7 @@ mod adequacy {
         let mut integral = SuffixWalkIntegrator::new();
         integral.open(&first);
         loop {
-            let weight_shift = (max_depth - cursor.depth()) as u64;
+            let weight_shift = max_depth - cursor.depth();
             integral.interval(weight_shift);
             if cursor.done() {
                 break;
@@ -2062,7 +2062,7 @@ mod adequacy {
             fold(&mut integral.live, Side::A, step.sign, &step.magnitude);
             integral.boundary(super::super::integral::int_digits(&step.magnitude));
         }
-        integral.finish(max_depth as u64)
+        integral.finish(max_depth)
     }
 
     /// The distance co-sweep on the suffix-walk integrator: the shipped pair
@@ -2088,7 +2088,7 @@ mod adequacy {
             integral.open(&Int::from_ubig(opening));
         }
         loop {
-            let weight_shift = (overlay_depth - ca.depth().max(cb.depth())) as u64;
+            let weight_shift = overlay_depth - ca.depth().max(cb.depth());
             integral.interval(weight_shift);
             if ca.done() && cb.done() {
                 break;
@@ -2115,7 +2115,7 @@ mod adequacy {
                 .unwrap_or(1);
             integral.boundary(funded);
         }
-        integral.finish(overlay_depth as u64)
+        integral.finish(overlay_depth)
     }
 
     /// One rank tripwire run over `DS(p, p)`: packed bytes and the touch count
@@ -2360,7 +2360,7 @@ mod adequacy {
         let mut integral = Integrator::new();
         integral.open(Sign::Positive, &first);
         loop {
-            let weight_shift = (max_depth - cursor.depth()) as u64;
+            let weight_shift = max_depth - cursor.depth();
             integral.interval(weight_shift);
             if cursor.done() {
                 break;
@@ -2369,7 +2369,7 @@ mod adequacy {
             fold(&mut integral.live, Side::A, step.sign, &step.magnitude);
             integral.boundary(super::super::integral::int_digits(&step.magnitude));
         }
-        per_digit_finish(integral, max_depth as u64)
+        per_digit_finish(integral, max_depth)
     }
 
     /// One tripwire run over `DS(p, p)`: packed bytes and the limb
@@ -2593,7 +2593,7 @@ mod adequacy {
         let mut integral = Integrator::new();
         integral.open(Sign::Positive, &first);
         loop {
-            let weight_shift = (max_depth - cursor.depth()) as u64;
+            let weight_shift = max_depth - cursor.depth();
             integral.interval(weight_shift);
             if cursor.done() {
                 break;
@@ -2602,7 +2602,7 @@ mod adequacy {
             fold(&mut integral.live, Side::A, step.sign, &step.magnitude);
             integral.boundary(super::super::integral::int_digits(&step.magnitude));
         }
-        schoolbook_finish(integral, max_depth as u64)
+        schoolbook_finish(integral, max_depth)
     }
 
     /// One schoolbook tripwire run: packed bytes and both counters over

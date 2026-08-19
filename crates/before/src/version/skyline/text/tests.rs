@@ -369,7 +369,7 @@ fn parse_schoolbook(s: &str) -> Result<BitsBuf, Parse> {
             Ordering::Less => delta.add_wide(&magnitude),
             Ordering::Equal => {}
         }
-        builder.leaf(frames.len(), code);
+        builder.leaf(frames.len() as u64, code);
         delta.sub_magnitude(&base);
 
         let mut summary = Child {

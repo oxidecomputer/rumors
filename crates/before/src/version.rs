@@ -1082,6 +1082,12 @@ impl Version {
     /// padding — the marker bit and zero-pad to the byte boundary, so
     /// `encode().len()` is `(encoded_bits() + 1).div_ceil(8)`.
     ///
+    /// Instrument surface, public under the `meter` feature: the resource
+    /// meters, coverage suites, and boundary pins denominate readings in
+    /// exact encoded bit lengths. Applications measure wire cost as
+    /// `encode().len()` or [`as_bytes`](Self::as_bytes)`.len()` — the byte
+    /// length actually shipped.
+    ///
     /// # Complexity
     ///
     /// `O(1)`.
@@ -1093,7 +1099,8 @@ impl Version {
     /// // The empty version is a single `0` leaf: a flag bit plus a value bit.
     /// assert_eq!(Version::new().encoded_bits(), 2);
     /// ```
-    pub fn encoded_bits(&self) -> usize {
+    #[cfg(any(test, feature = "meter"))]
+    pub fn encoded_bits(&self) -> u64 {
         self.0.len()
     }
 

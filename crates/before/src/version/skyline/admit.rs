@@ -82,7 +82,10 @@ struct CheckedCursor<'a, C> {
     /// The count of `false` bits in `path`: zero exactly when the current
     /// leaf's plateau ends at the unit interval's right edge — the tree is
     /// whole and the stream's bits end here.
-    open_lefts: usize,
+    ///
+    /// `u64`, as the path height it counts within: each open left branch
+    /// is one stored path bit.
+    open_lefts: u64,
     /// Whether the current leaf's payload code was zero — the collapsible-pair
     /// check's right-child half. Never read for the first leaf (preorder puts
     /// it leftmost, so it is no ancestor's right child).
@@ -122,11 +125,11 @@ where
 
     /// The current leaf's depth: its plateau has width `2^-depth`.
     ///
-    /// Depths are `usize` across the walk surface: each open ancestor costs
-    /// at least one bit of the walked stream, whose live length fits `usize`
-    /// on every target (the storage doors' bound).
-    fn depth(&self) -> usize {
-        usize::try_from(self.path.len()).expect("depth is bounded by the stream's live length")
+    /// Depths are `u64` across the walk surface, as every stream position
+    /// is: each open ancestor costs at least one bit of the walked stream,
+    /// whose live length outgrows a 32-bit `usize` from 512 MiB.
+    fn depth(&self) -> u64 {
+        self.path.len()
     }
 
     /// Whether the current leaf completes the tree (see `open_lefts`).
@@ -162,7 +165,7 @@ where
     /// [`close_ancestor`](Self::close_ancestor)'s collapsible-pair check.
     ///
     /// Never called on a done cursor; the walk asks first.
-    fn step(&mut self) -> Result<(usize, Step), Decode> {
+    fn step(&mut self) -> Result<(u64, Step), Decode> {
         // The consumed leaf completes one subtree per popped right branch;
         // `is_leaf`/`zero_delta` describe the completed subtree (the leaf
         // itself on the first iteration).

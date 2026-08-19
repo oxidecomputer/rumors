@@ -432,22 +432,10 @@ impl FillWalk<'_> {
         let mut frames = Frames::new();
         // Derived state: always equal to `frames.len()` (the assert below),
         // carried as a word so the hot loop never recounts a bit stack.
-        // Width: `usize`, justified per target rather than by the mirror
-        // alone — the mirrored `frames.len()` is itself a `usize` that
-        // would wrap in step, the frame stacks' own bit lengths included.
-        // On 64-bit targets, 2^64 open frames is unreachable outright. On
-        // 32-bit targets (wasm32), the derivation is the load-bearing
-        // fact and its margin is thin: every open frame has consumed at
-        // least 3 live input bits (an id tag and an event flag) and holds
-        // at least 4 transient bits (the site/phase/aux stacks and the
-        // route-key delta), so 2^32 open frames demand upwards of 3.5 GiB
-        // across live input and frame stacks alone — nearly the whole
-        // 4 GiB address space, before the web, memo, and output are
-        // counted — and allocation fails loudly before this counter or
-        // any stack's own bit length (which crosses 2^32 at the same
-        // instant) can wrap. The pre-scan's counters carry their own
-        // width contract (the `prescan` module doc).
-        let mut depth = 0usize;
+        // `u64`, the walk surface's depth denomination: every open frame
+        // holds transient bits in real memory, so the count is bounded by
+        // allocatable memory, far below any `u64` wrap on every target.
+        let mut depth = 0u64;
         'descend: loop {
             debug_assert_eq!(depth, frames.len(), "one frame per open branch level");
             // Descend: resolve the subtree at the cursor to a cost, or suspend
@@ -636,7 +624,7 @@ impl FillWalk<'_> {
 
     /// The cursor's bit position: the next node's flag.
     fn pos(&self) -> u64 {
-        self.cursor.position_u64()
+        self.cursor.position()
     }
 
     /// Read one topology flag at the cursor (`true` = leaf), recording the
@@ -687,7 +675,7 @@ impl FillWalk<'_> {
 
     /// Consume the queue-front memoized site: resolve its minimum by one fold
     /// of its ledger link into the live relation, decide the raise, and emit.
-    fn consume_site(&mut self, above: &Signed, depth: usize) {
+    fn consume_site(&mut self, above: &Signed, depth: u64) {
         debug_assert!(
             self.memo.cursor < self.memo.queue.len(),
             "a covered site has a recorded entry"
@@ -754,7 +742,7 @@ impl FillWalk<'_> {
         mut relation: Accumulator,
         link: Option<Accumulator>,
         above: &Signed,
-        depth: usize,
+        depth: u64,
     ) {
         // The decision is sign((h + above) − m_s) = sign(relation + above −
         // link); the link stays folded in, so the accumulator then holds h −
@@ -861,7 +849,7 @@ impl FillWalk<'_> {
     /// past its absolute-coded first leaf ([`Out::Built`]'s contract), so the
     /// body codes a delta unconditionally — from the registers, never from
     /// the step itself.
-    fn emit_step(&mut self, depth: usize) {
+    fn emit_step(&mut self, depth: u64) {
         self.web.emit_here();
         if self.out.note_match(self.pos()) {
             self.gap.reset();
@@ -901,7 +889,7 @@ impl FillWalk<'_> {
     /// absolute: output position ≡ input position while the walk is verbatim,
     /// so a first leaf compares absolute against absolute). A value-reproducing
     /// raise is a match, never a divergence.
-    fn emit_offset(&mut self, depth: usize, offset: Signed) {
+    fn emit_offset(&mut self, depth: u64, offset: Signed) {
         self.web.emit_offset(&offset);
         if self.out.is_verbatim() && self.range_is_leaf && offset.is_zero() {
             // A value-reproducing emission on a verbatim walk always
@@ -965,7 +953,7 @@ impl FillWalk<'_> {
     /// tracked minimum strictly exceeds `h + above`, and `h + above` is the
     /// consumed range's maximum — at or above every input plateau the emission
     /// replaces — so the emitted value moved.
-    fn emit_at_min(&mut self, depth: usize) {
+    fn emit_at_min(&mut self, depth: u64) {
         debug_assert!(
             !self.out.is_unstarted(),
             "a tracked minimum implies an emission"
@@ -1016,7 +1004,7 @@ impl FillWalk<'_> {
     /// its own depth, deltas passing straight through (the first through the
     /// divergence gap); the watermark web absorbs each emission in amortized
     /// O(1).
-    fn copy_subtree(&mut self, depth: usize) {
+    fn copy_subtree(&mut self, depth: u64) {
         // Three regimes, selected in order: (1) a verbatim walk over a
         // depth-2+ region block-scans it as one matched prefix extension;
         // (2) post-divergence a depth-2+ region feeds its first leaf
@@ -1224,7 +1212,7 @@ impl Frames {
     }
 
     /// Open branch levels (the walk's current depth).
-    fn len(&self) -> usize {
+    fn len(&self) -> u64 {
         self.site.len()
     }
 

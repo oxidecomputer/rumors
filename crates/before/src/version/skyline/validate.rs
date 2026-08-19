@@ -41,7 +41,7 @@ use super::signed::{fold_signed_int, unzigzag, Sign};
 pub(crate) fn validate_bits(bits: BitsView<'_>) -> Result<(), Decode> {
     let mut cursor = DsiCursor::new(bits);
     validate_from(&mut cursor)?;
-    if cursor.position_u64() != bits.len() {
+    if cursor.position() != bits.len() {
         return Err(Decode::TrailingBits);
     }
     Ok(())
@@ -57,7 +57,7 @@ pub(crate) fn validate_bits(bits: BitsView<'_>) -> Result<(), Decode> {
 pub(crate) fn validate_prefix(bits: BitsView<'_>) -> Result<u64, Decode> {
     let mut cursor = DsiCursor::new(bits);
     validate_from(&mut cursor)?;
-    Ok(cursor.position_u64())
+    Ok(cursor.position())
 }
 
 /// Validate one skyline tree from a sequential bit cursor.

@@ -44,7 +44,7 @@ fn gamma_reader_matches_decoder_across_the_word_seam() {
             .expect("the word-parallel reader reads the same code");
         assert_eq!(&got.clone().into_base(), &want, "value diverges at {value}");
         assert_eq!(
-            cursor.position_u64(),
+            cursor.position(),
             want_end,
             "consumed bits diverge at {value}"
         );
@@ -53,7 +53,7 @@ fn gamma_reader_matches_decoder_across_the_word_seam() {
             .skip_int()
             .expect("the skip accepts what the read accepts");
         assert_eq!(
-            skipper.position_u64(),
+            skipper.position(),
             want_end,
             "skip width diverges at {value}"
         );
@@ -90,7 +90,7 @@ fn skip_int_meters_exactly_the_code_width_read_int_pays() {
             .read_int()
             .expect("the reader reads its own encoding");
         let read_record = crate::meter::scan_bits();
-        let width = reader.position() as u64;
+        let width = reader.position();
         let mut skipper = DsiCursor::new(crate::codec::built_view(&bits));
         crate::meter::reset_scan_bits();
         skipper
@@ -150,7 +150,7 @@ fn truncated_codes_reject_at_every_cut_point() {
 /// never terminate rejects.
 #[test]
 fn unary_reads_match_the_per_bit_loop_across_word_seams() {
-    for run in [0usize, 1, 7, 8, 31, 32, 33, 63, 64, 65, 200] {
+    for run in [0u64, 1, 7, 8, 31, 32, 33, 63, 64, 65, 200] {
         let mut bits = BitsBuf::new();
         for _ in 0..run {
             bits.push(false);
@@ -169,7 +169,7 @@ fn unary_reads_match_the_per_bit_loop_across_word_seams() {
         assert_eq!(slice.read_unary().expect("a terminated run reads"), run);
         assert_eq!(slice.position(), run + 1);
 
-        let unterminated = codec::BitsView::new(bits.as_raw_slice(), run as u64);
+        let unterminated = codec::BitsView::new(bits.as_raw_slice(), run);
         let mut cursor = DsiCursor::new(unterminated);
         assert!(
             matches!(cursor.read_unary(), Err(Truncated)),
@@ -259,7 +259,7 @@ proptest! {
             } else {
                 let want = slice.read_int().expect("the stream holds the code");
                 let mut skipper =
-                    DsiCursor::new_at(crate::codec::built_view(&bits), dsi.position_u64());
+                    DsiCursor::new_at(crate::codec::built_view(&bits), dsi.position());
                 let got = dsi.read_int().expect("the stream holds the code");
                 prop_assert_eq!(&got, &want);
                 skipper.skip_int().expect("the skip accepts the code");

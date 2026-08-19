@@ -171,7 +171,7 @@ impl<'a> BoundSide<'a> {
 
     /// Step this bound past its plateau, folding its crossing into its own
     /// difference as the `B` operand; returns the flip level.
-    fn step(&mut self) -> usize {
+    fn step(&mut self) -> u64 {
         let (flip, step) = self.cursor.step();
         fold(&mut self.diff, Side::B, step.sign, &step.magnitude);
         flip
@@ -514,7 +514,7 @@ impl Cursors<'_> {
 
     /// Step one bound slot; a dropped side never steps (its depth reads zero,
     /// and every flip level is at least one).
-    fn step_bound(side: &mut Option<BoundSide<'_>>) -> usize {
+    fn step_bound(side: &mut Option<BoundSide<'_>>) -> u64 {
         side.as_mut()
             .expect("a dropped side reads depth zero and never steps")
             .step()
@@ -536,7 +536,7 @@ impl CursorSet for Cursors<'_> {
     }
 
     /// A dropped side reads zero, like the masked walk's absent mask.
-    fn depth(&self, slot: usize) -> usize {
+    fn depth(&self, slot: usize) -> u64 {
         match slot {
             Self::PROBE => self.probe.depth(),
             Self::START => self.start.as_ref().map_or(0, |side| side.cursor.depth()),
@@ -548,7 +548,7 @@ impl CursorSet for Cursors<'_> {
     /// The probe's step folds its crossing into every live difference as the
     /// `A` operand (the probe is every pair's first operand); a bound's step
     /// folds into its own difference as the `B` operand.
-    fn step(&mut self, slot: usize) -> usize {
+    fn step(&mut self, slot: usize) -> u64 {
         match slot {
             Self::PROBE => {
                 let (flip, step) = self.probe.step();

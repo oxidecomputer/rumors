@@ -1241,7 +1241,7 @@ fn orbit_population(n: usize) -> Vec<Clock> {
 /// Max over each octave `[2^i, 2^(i+1))` of a per-round trajectory (`traj[k -
 /// 1]` is the reading after round `k`), starting at octave `[4, 8)`: the
 /// resolution the scenario orbits' bands are pinned at.
-fn octave_maxima(traj: &[usize]) -> Vec<usize> {
+fn octave_maxima(traj: &[u64]) -> Vec<u64> {
     let mut maxima = Vec::new();
     let mut hi = 8usize;
     while hi <= traj.len() {
@@ -1297,7 +1297,7 @@ fn fork_join_round_trip_orbit_is_byte_stationary() {
 fn fork_tick_join_orbit_returns_party_and_grows_gamma() {
     let mut c = Clock::seed();
     let seed_party = c.party().encode();
-    for k in 1usize..=512 {
+    for k in 1u64..=512 {
         let mut child = c.fork();
         child.tick();
         c.join(child).expect("a clock's own fork is disjoint");
@@ -1308,7 +1308,7 @@ fn fork_tick_join_orbit_returns_party_and_grows_gamma() {
         );
         assert_eq!(
             c.version().encoded_bits(),
-            7 + 2 * k.ilog2() as usize,
+            7 + 2 * u64::from(k.ilog2()),
             "version bits after round {k}"
         );
     }
@@ -1464,7 +1464,7 @@ fn static_orbit_ids_freeze_and_versions_grow_log() {
     let octaves = octave_maxima(&version_max);
     assert_eq!(octaves[0], 22, "the transient octave [4, 8)");
     for (j, &m) in octaves.iter().enumerate().skip(1) {
-        let i = j + 3; // octave j ends at round 2^(j + 3)
+        let i = j as u64 + 3; // octave j ends at round 2^(j + 3)
         assert_eq!(
             m,
             8 * i - 4,

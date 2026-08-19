@@ -244,8 +244,9 @@ impl Code {
 // ─── the skyline stream walker ──────────────────────────────────────────────
 
 /// Read bit `i` of an Msb0 packed stream.
-fn bit(bytes: &[u8], i: usize) -> bool {
-    (bytes[i / 8] >> (7 - i % 8)) & 1 == 1
+fn bit(bytes: &[u8], i: u64) -> bool {
+    // An in-range byte index fits `usize`: it indexes an allocated buffer.
+    (bytes[(i / 8) as usize] >> (7 - i % 8)) & 1 == 1
 }
 
 /// Walk one stored version stream, recording payload values per class and
@@ -253,7 +254,7 @@ fn bit(bytes: &[u8], i: usize) -> bool {
 fn walk(v: &Version, corpus: &mut Corpus) {
     let bytes = v.as_bytes();
     let bits = v.encoded_bits();
-    let mut pos = 0usize;
+    let mut pos = 0u64;
     let mut pending = 1u64; // subtrees still owed
     let mut nodes = 0u128;
     let mut first = true;
@@ -272,7 +273,7 @@ fn walk(v: &Version, corpus: &mut Corpus) {
         }
         pending -= 1;
         // Leaf (`1`) payload: one gamma code. Count the unary prefix.
-        let mut k = 0usize;
+        let mut k = 0u64;
         while !bit(bytes, pos) {
             pos += 1;
             k += 1;
@@ -301,7 +302,7 @@ fn walk(v: &Version, corpus: &mut Corpus) {
             }
         } else {
             pos += k; // skip the wide mantissa remainder
-            let l = (k + 1) as u64;
+            let l = k + 1;
             hist.record_wide(l);
             for (slot, (_, code)) in code_bits.iter_mut().zip(CODES) {
                 *slot = match (*slot, code.len_wide(l)) {

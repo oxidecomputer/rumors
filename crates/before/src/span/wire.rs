@@ -10,6 +10,7 @@ use std::borrow::Cow;
 use std::io::{self, Read, Write};
 
 use crate::codec;
+use crate::codec::BitCursor;
 use crate::error::Decode;
 use crate::version::skyline;
 use crate::Version;
@@ -150,7 +151,7 @@ impl<'a> Span<'a> {
             let tail = &buf[lo_bytes..];
             let mut cursor = codec::DsiCursor::new(codec::BitsView::whole(tail));
             let admission = skyline::validate_dominating_from(lo, &mut cursor)?;
-            let hi_end = cursor.position_u64();
+            let hi_end = cursor.position();
             codec::require_marker_padding(tail, hi_end)?;
             if admission == skyline::Admission::Refuted {
                 return Err(Decode::NotCanonical);

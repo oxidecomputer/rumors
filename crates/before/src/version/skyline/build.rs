@@ -116,7 +116,7 @@ impl SkylineBuilder {
     /// must be the preorder tiling of one tree: each new depth must be
     /// reachable from the last by the forced flip-and-descend, which the
     /// builder debug-asserts.
-    pub(super) fn leaf(&mut self, depth: usize, code: Code) {
+    pub(super) fn leaf(&mut self, depth: u64, code: Code) {
         debug_assert!(code.len() > 0, "a leaf payload code is never empty");
         let Some(held) = self.held.take() else {
             // The first leaf: the leftmost path, one flag per ancestor.
@@ -156,7 +156,7 @@ impl SkylineBuilder {
         // Close the ancestors the flushed leaf completed: pop the trailing
         // right-branch levels, retiring their left-sibling records, then flip
         // the deepest left branch to its right child.
-        let mut popped_rights = 0usize;
+        let mut popped_rights = 0u64;
         loop {
             match self.path.pop() {
                 Some(true) => {
@@ -195,7 +195,7 @@ impl SkylineBuilder {
     /// The predicate behind
     /// [`continue_verbatim`](Self::continue_verbatim)'s held-first-leaf
     /// precondition: the splice extends exactly that leaf.
-    pub(super) fn held_at(&self, depth: usize) -> bool {
+    pub(super) fn held_at(&self, depth: u64) -> bool {
         self.held.is_some() && self.path.len() == depth
     }
 
@@ -236,10 +236,10 @@ impl SkylineBuilder {
         src: BitsView<'_>,
         start: u64,
         end: u64,
-        root_depth: usize,
-        first_rel_depth: usize,
-        last_rel_depth: usize,
-        last_code_len: usize,
+        root_depth: u64,
+        first_rel_depth: u64,
+        last_rel_depth: u64,
+        last_code_len: u64,
     ) {
         debug_assert!(
             first_rel_depth >= 1 && last_rel_depth >= 1,
@@ -252,10 +252,10 @@ impl SkylineBuilder {
              its subtree root enters as a left child"
         );
         debug_assert!(
-            end - start > last_code_len as u64,
+            end - start > last_code_len,
             "the continuation holds at least the last leaf's flag and code"
         );
-        let last_flag = end - last_code_len as u64 - 1;
+        let last_flag = end - last_code_len - 1;
         debug_assert!(src.bit(last_flag), "the continuation ends with a leaf");
         let held = self
             .held
@@ -341,7 +341,7 @@ impl SkylineBuilder {
 
     /// Descend left from the current path to a leaf at `depth`, emitting one
     /// internal-node flag per level entered.
-    fn descend_to(&mut self, depth: usize) {
+    fn descend_to(&mut self, depth: u64) {
         for _ in self.path.len()..depth {
             self.out.push_bit(false);
             self.path.push(false);

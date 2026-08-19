@@ -12,8 +12,8 @@ use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
 
 use super::{
-    bits_buf, decode_int, decode_int_from, encode_int, Base, BitsBuf, BitsView, DsiCursor,
-    SliceCursor,
+    bits_buf, decode_int, decode_int_from, encode_int, Base, BitCursor, BitsBuf, BitsView,
+    DsiCursor, SliceCursor,
 };
 use crate::oracle;
 use crate::span::Span;
@@ -438,7 +438,7 @@ fn assert_decode_matches_bit_loop(bits: BitsView<'_>, pos: u64) -> Result<(), Te
     match (subject, oracle) {
         (Ok((value, end)), Ok(oracle_value)) => {
             prop_assert_eq!(value, oracle_value);
-            prop_assert_eq!(end, cursor.position_u64());
+            prop_assert_eq!(end, cursor.position());
         }
         (Err(s), Err(o)) => {
             prop_assert_eq!(std::mem::discriminant(&s), std::mem::discriminant(&o));
@@ -457,7 +457,7 @@ fn assert_decode_matches_bit_loop(bits: BitsView<'_>, pos: u64) -> Result<(), Te
 fn assert_skip_matches_bit_loop(bits: BitsView<'_>, pos: u64) -> Result<(), TestCaseError> {
     let mut cursor = DsiCursor::new_at(bits, pos);
     match (cursor.skip_int(), skip_int_bitwise(bits, pos)) {
-        (Ok(()), Ok(o)) => prop_assert_eq!(cursor.position_u64(), o),
+        (Ok(()), Ok(o)) => prop_assert_eq!(cursor.position(), o),
         (Err(_), Err(o)) => {
             prop_assert!(
                 matches!(o, Decode::Truncated),
@@ -1536,7 +1536,7 @@ proptest! {
     ) {
         let bytes = v.encode();
         prop_assert_eq!(
-            bytes.len() * 8,
+            bytes.len() as u64 * 8,
             v.encoded_bits() + 8,
             "the padding occupies a whole final byte",
         );
@@ -1583,7 +1583,7 @@ proptest! {
     fn flush_cut_party_reads_truncated_at_every_door(p in arb_flush_party()) {
         let bytes = p.encode();
         prop_assert_eq!(
-            bytes.len() * 8,
+            bytes.len() as u64 * 8,
             p.encoded_bits() + 8,
             "the padding occupies a whole final byte",
         );

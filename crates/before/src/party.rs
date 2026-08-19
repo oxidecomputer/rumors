@@ -540,6 +540,12 @@ impl Party {
     /// padding — the marker bit and zero-pad to the byte boundary, so
     /// `encode().len()` is `(encoded_bits() + 1).div_ceil(8)`.
     ///
+    /// Instrument surface, public under the `meter` feature: the resource
+    /// meters, coverage suites, and boundary pins denominate readings in
+    /// exact encoded bit lengths. Applications measure wire cost as
+    /// `encode().len()` or [`as_bytes`](Self::as_bytes)`.len()` — the byte
+    /// length actually shipped.
+    ///
     /// # Complexity
     ///
     /// `O(1)`.
@@ -550,8 +556,9 @@ impl Party {
     /// // The seed is a single terminal: a 2-bit presence tag (`00`).
     /// assert_eq!(before::Party::seed().encoded_bits(), 2);
     /// ```
-    pub fn encoded_bits(&self) -> usize {
-        // The stored form's O(1) length: exact at every storable size.
+    #[cfg(any(test, feature = "meter"))]
+    pub fn encoded_bits(&self) -> u64 {
+        // The stored form's O(1) length: exact at every size memory holds.
         self.0.len()
     }
 

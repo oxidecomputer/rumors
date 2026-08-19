@@ -44,7 +44,7 @@
 //! that shifts which leaf is first trips on topology (the replaced range was
 //! not a single leaf) before any code comparison is reached.
 
-use crate::codec::{BitStack, BitsBuf, BitsView, Code, PopStack};
+use crate::codec::{BitCursor, BitStack, BitsBuf, BitsView, Code, PopStack};
 use crate::idbits::{IdNode, IdReader};
 
 use super::super::build::SkylineBuilder;
@@ -151,7 +151,7 @@ impl Out {
     ///
     /// Panics on a verbatim walk — unreachable there: matched emissions
     /// return before their bodies, and diverging ones materialize first.
-    pub(super) fn leaf(&mut self, depth: usize, code: Code) {
+    pub(super) fn leaf(&mut self, depth: u64, code: Code) {
         match self {
             Out::Built(builder) => builder.leaf(depth, code),
             Out::Unstarted | Out::Verbatim { .. } => {
@@ -176,10 +176,10 @@ impl Out {
         src: BitsView<'_>,
         start: u64,
         end: u64,
-        root_depth: usize,
-        first_rel_depth: usize,
-        last_rel_depth: usize,
-        last_code_len: usize,
+        root_depth: u64,
+        first_rel_depth: u64,
+        last_rel_depth: u64,
+        last_code_len: u64,
     ) {
         match self {
             Out::Built(builder) => builder.continue_verbatim(
@@ -217,7 +217,7 @@ impl Out {
         let mut builder = SkylineBuilder::with_capacity(event.len());
         let mut cursor = crate::codec::DsiCursor::new(event);
         let mut walk = LeafWalk::new();
-        while cursor.position_u64() < matched_end {
+        while cursor.position() < matched_end {
             // A descent never straddles `matched_end` (a matched prefix ends on
             // a plateau boundary), and a divergence always leaves its own
             // consumed range beyond the matched prefix, so the prefix is a
@@ -227,12 +227,12 @@ impl Out {
             let depth = walk
                 .descend(&mut cursor)
                 .expect("a matched prefix is a proper prefix of the tiling");
-            let start = cursor.position_u64();
+            let start = cursor.position();
             cursor.skip_int().expect("canonical skyline bits");
-            builder.leaf(depth, Code::from_range(event, start, cursor.position_u64()));
+            builder.leaf(depth, Code::from_range(event, start, cursor.position()));
         }
         debug_assert_eq!(
-            cursor.position_u64(),
+            cursor.position(),
             matched_end,
             "a matched prefix ends on a plateau boundary"
         );

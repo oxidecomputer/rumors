@@ -145,7 +145,7 @@ fn assert_pointwise(a: BitsView<'_>, b: BitsView<'_>, out: BitsView<'_>, meet: b
         // level ties (the two-cursor sweeps' rule, which extends to three
         // streams unchanged).
         let depth = ca.depth().max(cb.depth()).max(co.depth());
-        let mut flip = usize::MAX;
+        let mut flip = u64::MAX;
         let (mut so, mut sa, mut sb) = (None, None, None);
         if co.depth() == depth {
             let (f, step) = co.step();

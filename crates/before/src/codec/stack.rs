@@ -36,13 +36,12 @@ impl BitStack {
 
     /// The stack's height in bits.
     ///
-    /// `words.len() * 64` fits `usize` on every target: a walk holds a few
-    /// bits per open ancestor here, depth is bounded by the walked stream's
-    /// live bit length, and a storable stream's live length itself fits
-    /// `usize` — so the height stays below any `usize` wrap, even on 32-bit
-    /// targets.
-    pub(crate) fn len(&self) -> usize {
-        self.words.len() * 64 + self.top_len as usize
+    /// `u64`, the walks' depth denomination: a stack this deep occupies
+    /// real memory (its words), so the height is bounded by allocatable
+    /// memory — past a 32-bit `usize` from 512 MiB of stack, and exactly
+    /// representable here on every target.
+    pub(crate) fn len(&self) -> u64 {
+        self.words.len() as u64 * 64 + u64::from(self.top_len)
     }
 
     /// Push one bit.
@@ -105,16 +104,17 @@ impl BitStack {
     /// The exact run of set bits at the top of the stack.
     ///
     /// One word read per 64 bits of the run: the cost is the run the caller is
-    /// about to pop (or has decided not to), never the whole stack.
-    pub(crate) fn trailing_ones(&self) -> usize {
+    /// about to pop (or has decided not to), never the whole stack. `u64`,
+    /// as [`len`](Self::len): the run is bounded by the stack's own height.
+    pub(crate) fn trailing_ones(&self) -> u64 {
         let top_run = self.top.trailing_ones().min(self.top_len);
         if top_run < self.top_len {
-            return top_run as usize;
+            return u64::from(top_run);
         }
-        let mut run = top_run as usize;
+        let mut run = u64::from(top_run);
         for &word in self.words.iter().rev() {
             let w = word.trailing_ones();
-            run += w as usize;
+            run += u64::from(w);
             if w < 64 {
                 break;
             }

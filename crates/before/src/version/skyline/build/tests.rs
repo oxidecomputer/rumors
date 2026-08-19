@@ -20,7 +20,7 @@ fn delta(sign: Sign, magnitude: u64) -> Code {
 }
 
 /// Drive a builder over `(depth, code)` leaves and return the stream.
-fn built(leaves: Vec<(usize, Code)>) -> BitsBuf {
+fn built(leaves: Vec<(u64, Code)>) -> BitsBuf {
     let mut builder = SkylineBuilder::with_capacity(64);
     for (depth, code) in leaves {
         builder.leaf(depth, code);
@@ -111,7 +111,7 @@ fn zero_delta_against_internal_sibling_survives() {
 /// held code is written exactly once.
 #[test]
 fn deep_uniform_collapse_holds_the_wide_code() {
-    const DEPTH: usize = 8;
+    const DEPTH: u64 = 8;
     const WIDE: u64 = u64::MAX >> 1;
     let mut leaves = vec![(DEPTH, gamma(WIDE)), (DEPTH, delta(Sign::Positive, 0))];
     for level in (1..DEPTH).rev() {
@@ -178,14 +178,14 @@ fn partial_equality_collapses_only_the_equal_pair() {
 /// leaves' relative depths and the last code's length — the coordinates the
 /// splice re-anchors the builder around.
 fn continuation(
-    root_depth: usize,
-    first_depth: usize,
-    leaves: &[(usize, Code)],
-) -> (BitsBuf, usize, usize, usize) {
+    root_depth: u64,
+    first_depth: u64,
+    leaves: &[(u64, Code)],
+) -> (BitsBuf, u64, u64, u64) {
     let mut range = BitsBuf::new();
     // The within-subtree path to the previous leaf; the subtree's first leaf is
     // its leftmost, so the path starts all left branches.
-    let mut path = vec![false; first_depth - root_depth];
+    let mut path = vec![false; (first_depth - root_depth) as usize];
     for (depth, code) in leaves {
         // Close the ancestors the previous leaf completed and flip the
         // deepest left branch, then descend, emitting one internal flag
@@ -197,7 +197,7 @@ fn continuation(
             }
         }
         let rel = depth - root_depth;
-        let entered = rel - path.len();
+        let entered = (rel - path.len() as u64) as usize;
         range.extend(std::iter::repeat_n(false, entered));
         path.extend(std::iter::repeat_n(false, entered));
         range.push(true);
@@ -215,7 +215,7 @@ fn continuation(
         range,
         first_depth - root_depth,
         last_depth - root_depth,
-        usize::try_from(last_code.len()).expect("test codes are small"),
+        last_code.len(),
     )
 }
 

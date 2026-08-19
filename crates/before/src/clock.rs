@@ -792,6 +792,11 @@ impl Clock {
     /// this is the byte-aligned party length plus the version's own bit
     /// length.
     ///
+    /// Instrument surface, public under the `meter` feature: the resource
+    /// meters, coverage suites, and boundary pins denominate readings in
+    /// exact encoded bit lengths. Applications measure wire cost as
+    /// `encode().len()` — the byte length actually shipped.
+    ///
     /// # Complexity
     ///
     /// `O(1)`.
@@ -801,17 +806,15 @@ impl Clock {
     /// ```
     /// use before::Clock;
     /// let clock = Clock::seed();
-    /// assert_eq!(clock.encode().len(), (clock.encoded_bits() + 1).div_ceil(8));
+    /// assert_eq!(clock.encode().len() as u64, (clock.encoded_bits() + 1).div_ceil(8));
     /// ```
-    pub fn encoded_bits(&self) -> usize {
-        // u64 width: on a 32-bit target each component's bit length fits
-        // usize (the storable bound), but the byte-rounded party plus the
-        // version can exceed it — a clock is two independently bounded
-        // streams. The conversion is checked, so a composite too long for
-        // this target's usize fails loudly by name instead of wrapping.
-        let party = 8 * (self.party().encoded_bits() as u64 + 1).div_ceil(8);
-        let bits = party + self.version().encoded_bits() as u64;
-        usize::try_from(bits).expect("the clock's combined bit length fits usize")
+    #[cfg(any(test, feature = "meter"))]
+    pub fn encoded_bits(&self) -> u64 {
+        // `u64` throughout, as both components' lengths are: the sum of two
+        // allocated streams' bit lengths sits orders of magnitude under any
+        // `u64` wrap on every target.
+        let party = 8 * (self.party().encoded_bits() + 1).div_ceil(8);
+        party + self.version().encoded_bits()
     }
 
     /// Duplicates this clock, producing a second handle to the same clock: an

@@ -257,7 +257,10 @@ struct IdLeafCursor<'a> {
     pending_right: BitsBuf,
     /// Count of left-branch levels in `path`: zero exactly at the final item
     /// (the all-right path), so [`done`](Self::done) is `O(1)`.
-    open_lefts: usize,
+    ///
+    /// `u64`, as the path height it counts within: each open left branch
+    /// is one stored path bit.
+    open_lefts: u64,
     /// The current item (meaningless while the cursor is unsettled atop a
     /// just-entered subtree; every unsettled state is resolved before the sweep
     /// emits).
@@ -386,11 +389,10 @@ impl PlateauCursor for IdLeafCursor<'_> {
 
     /// The current item's depth: its interval has width `2^-depth`.
     ///
-    /// Depths are `usize` across the walk surface: each open ancestor costs
-    /// at least one bit of the stored id, whose live length fits `usize` on
-    /// every target (the storage doors' bound).
-    fn depth(&self) -> usize {
-        usize::try_from(self.path.len()).expect("depth is bounded by the id's live length")
+    /// Depths are `u64` across the walk surface, as every stream position
+    /// is: each open ancestor costs at least one bit of the stored id.
+    fn depth(&self) -> u64 {
+        self.path.len()
     }
 
     /// Whether the current item is the tiling's last (it ends at the
@@ -409,7 +411,7 @@ impl PlateauCursor for IdLeafCursor<'_> {
     /// Never called on a final item: a sweep stops when both cursors are done,
     /// and the skyline sweep module's bookkeeping (which this cursor inherits)
     /// shows a final item is never the advanced side before then.
-    fn step(&mut self) -> (usize, bool) {
+    fn step(&mut self) -> (u64, bool) {
         loop {
             match self.path.pop() {
                 Some(true) => continue, // this ancestor closed with the item

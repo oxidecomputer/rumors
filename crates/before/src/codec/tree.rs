@@ -35,13 +35,13 @@ enum IdFrame {
 pub(crate) fn parse_id(bits: BitsView<'_>, pos: u64) -> Result<u64, Decode> {
     let mut cursor = super::DsiCursor::new_at(bits, pos);
     parse_id_core(&mut cursor)?;
-    Ok(cursor.position_u64())
+    Ok(cursor.position())
 }
 
 /// Parse and validate one id tree from a sequential bit cursor, returning the
 /// position just past it.
 #[cfg(all(test, feature = "borsh"))]
-pub(crate) fn parse_id_from<C: BitCursor>(cursor: &mut C) -> Result<usize, Decode>
+pub(crate) fn parse_id_from<C: BitCursor>(cursor: &mut C) -> Result<u64, Decode>
 where
     Decode: From<C::Error>,
 {
@@ -52,9 +52,8 @@ where
 /// Parse and validate one id tree from a sequential bit cursor: the one
 /// grammar body.
 ///
-/// The end position is left to the caller's own read: the byte decode doors
-/// read it at `u64` width, everything else through
-/// [`BitCursor::position`].
+/// The end position is left to the caller's own [`BitCursor::position`]
+/// read.
 pub(crate) fn parse_id_core<C: BitCursor>(cursor: &mut C) -> Result<(), Decode>
 where
     Decode: From<C::Error>,

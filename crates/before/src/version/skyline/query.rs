@@ -202,7 +202,7 @@ pub fn rank(bits: BitsView<'_>) -> Rank {
     let max_depth = max_depth(bits);
     // Depth counts levels of a stream held in memory, so it always fits the u64
     // rank exponent.
-    let scale = max_depth as u64;
+    let scale = max_depth;
     let (mut cursor, first) = LeafCursor::open(bits);
     // The single-stream instance of the anchored-segment integral: the
     // integrand is the height itself, opened at the first leaf's absolute (the
@@ -210,7 +210,7 @@ pub fn rank(bits: BitsView<'_>) -> Rank {
     let mut integral = Integrator::new();
     integral.open(Sign::Positive, &first);
     loop {
-        let weight_shift = (max_depth - cursor.depth()) as u64;
+        let weight_shift = max_depth - cursor.depth();
         integral.interval(weight_shift);
         if cursor.done() {
             break;
@@ -219,7 +219,7 @@ pub fn rank(bits: BitsView<'_>) -> Rank {
         fold(&mut integral.live, Side::A, step.sign, &step.magnitude);
         integral.boundary(int_digits(&step.magnitude));
     }
-    let (sign, numerator) = integral.finish(max_depth as u64);
+    let (sign, numerator) = integral.finish(max_depth);
     debug_assert_ne!(sign, Ordering::Less, "heights are nonnegative");
     Rank::from_raw(Base::from(numerator), scale)
 }
@@ -334,7 +334,7 @@ fn pair_fold(
     // Depth counts levels of streams held in memory, so it always fits the u64
     // rank exponent.
     let overlay_depth = max_depth(a_bits).max(max_depth(b_bits));
-    let scale = overlay_depth as u64;
+    let scale = overlay_depth;
     let OpenedPair {
         a: mut cursor_a,
         b: mut cursor_b,
@@ -357,7 +357,7 @@ fn pair_fold(
         integral.open(sign, &Int::from_ubig(opening));
     }
     loop {
-        let weight_shift = (overlay_depth - cursor_a.depth().max(cursor_b.depth())) as u64;
+        let weight_shift = overlay_depth - cursor_a.depth().max(cursor_b.depth());
         integral.interval(weight_shift);
         if cursor_a.done() && cursor_b.done() {
             break;
@@ -396,7 +396,7 @@ fn pair_fold(
             .expect("the advance law steps at least one side per boundary");
         integral.boundary(funded);
     }
-    let (sign, total) = integral.finish(overlay_depth as u64);
+    let (sign, total) = integral.finish(overlay_depth);
     (sign, total, scale)
 }
 
@@ -633,9 +633,9 @@ fn absolute_height(height: &mut Accumulator) -> Base {
 /// # Panics
 ///
 /// Panics if the stream is not a canonical skyline encoding.
-fn max_depth(bits: BitsView<'_>) -> usize {
+fn max_depth(bits: BitsView<'_>) -> u64 {
     let mut cursor = codec::DsiCursor::new(bits);
-    let mut deepest = 0usize;
+    let mut deepest = 0u64;
     let mut walk = LeafWalk::new();
     while let Some(depth) = walk.descend(&mut cursor) {
         deepest = deepest.max(depth);

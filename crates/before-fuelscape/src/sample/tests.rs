@@ -240,7 +240,7 @@ proptest! {
             .expect("every byte size down to 1 has canonical versions");
         prop_assert_eq!(draw.bytes.len(), size);
         let version = Version::decode(&draw.bytes[..]).expect("sampler output must be canonical");
-        prop_assert_eq!(version.encoded_bits(), draw.bits);
+        prop_assert_eq!(version.encoded_bits(), draw.bits as u64);
         prop_assert_eq!(version.encode(), draw.bytes);
     }
 
@@ -257,7 +257,7 @@ proptest! {
             .expect("every byte size down to 1 has canonical parties");
         prop_assert_eq!(draw.bytes.len(), size);
         let party = Party::decode(&draw.bytes[..]).expect("sampler output must be canonical");
-        prop_assert_eq!(party.encoded_bits(), draw.bits);
+        prop_assert_eq!(party.encoded_bits(), draw.bits as u64);
         prop_assert_eq!(party.encode(), draw.bytes);
     }
 }

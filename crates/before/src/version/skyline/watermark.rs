@@ -161,7 +161,7 @@ enum Boundary {
 /// One record of the difference stack.
 enum Entry<P> {
     /// `count` consecutive ranges whose minima equal the next inner range's.
-    ZeroRun(usize),
+    ZeroRun(u64),
     /// A range whose minimum sits `boundary` below the next-inner one, with
     /// the payload its client rode on that boundary.
     Diff { boundary: Boundary, payload: P },
@@ -200,10 +200,10 @@ pub(super) struct MinWeb<P> {
     /// runs compressed; last entry = nearest the innermost.
     diffs: Vec<Entry<P>>,
     /// Open ranges with no emission yet, all inner of every armed one.
-    pending: usize,
+    pending: u64,
     /// Armed ranges (the difference stack carries `armed − 1` range
     /// records).
-    armed: usize,
+    armed: u64,
     /// Active followers (module doc), tracking `m − X` (anchor-relative while
     /// the slot's tag is set). The fill walk installs them; the min-ticks
     /// fold leaves both slots empty.
@@ -275,7 +275,7 @@ impl<P> MinWeb<P> {
 
     /// Open `count` ranges: `count` more ranges, each unarmed until the
     /// next emission.
-    pub(super) fn open(&mut self, count: usize) {
+    pub(super) fn open(&mut self, count: u64) {
         self.pending += count;
     }
 
@@ -632,7 +632,7 @@ impl<P> MinWeb<P> {
     fn push_boundary(
         &mut self,
         offset: Accumulator,
-        pending: usize,
+        pending: u64,
         payload: impl FnOnce() -> P,
         mut on_die: impl FnMut(P),
     ) {
@@ -698,7 +698,7 @@ impl<P> MinWeb<P> {
         // minimum now equals the new innermost one's counts here, and one flush
         // after the loop pushes the merged run — every escape path below
         // reaches that flush.
-        let mut zeros = 0usize;
+        let mut zeros = 0u64;
         // Loop invariant: `residue > 0` is always the drop still to apply at
         // the current stack position. Every arm either kills it (the stopping
         // range absorbs it, or the stack empties — break), consumes a
@@ -864,7 +864,7 @@ impl<P> MinWeb<P> {
     }
 
     /// Push `count` zero-difference ranges, merging with a top run.
-    fn push_zeros(&mut self, count: usize) {
+    fn push_zeros(&mut self, count: u64) {
         if count == 0 {
             return;
         }

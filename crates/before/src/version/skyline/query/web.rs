@@ -234,7 +234,7 @@ impl ReignWeb {
     }
 
     /// Open `count` ranges: the internal nodes a descent just entered.
-    pub(super) fn open(&mut self, count: usize) {
+    pub(super) fn open(&mut self, count: u64) {
         self.web.open(count);
     }
 

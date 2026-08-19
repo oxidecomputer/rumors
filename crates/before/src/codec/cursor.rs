@@ -40,7 +40,10 @@ pub(crate) trait BitCursor {
     fn read_bit(&mut self) -> Result<bool, Self::Error>;
 
     /// The position immediately after the last bit read.
-    fn position(&self) -> usize;
+    ///
+    /// `u64`, the stream denomination shared by every cursor: a walked
+    /// buffer holds more bit positions than a 32-bit `usize` from 512 MiB.
+    fn position(&self) -> u64;
 
     /// Read the unary run at the cursor: the count of `false` bits before — and
     /// consuming — the terminating `true` bit.
@@ -51,8 +54,12 @@ pub(crate) trait BitCursor {
     /// ([`DsiCursor`](super::DsiCursor)) overrides it to take the run from a
     /// buffered window. Running out of bits mid-run is the per-bit error, at
     /// the same position either way.
-    fn read_unary(&mut self) -> Result<usize, Self::Error> {
-        let mut k = 0usize;
+    ///
+    /// `u64`, as every bit count here: every counted zero occupies real
+    /// input (a buffer bit or a byte the reader yielded), so the count is
+    /// bounded by memory, far below any `u64` wrap.
+    fn read_unary(&mut self) -> Result<u64, Self::Error> {
+        let mut k = 0u64;
         while !self.read_bit()? {
             k += 1;
         }
@@ -92,13 +99,6 @@ impl<'a> SliceCursor<'a> {
     pub(crate) fn new(bits: BitsView<'a>, position: u64) -> Self {
         SliceCursor { bits, position }
     }
-
-    /// The position immediately after the last bit read, in the cursor's own
-    /// `u64` denomination: exact even where the walked buffer holds more bit
-    /// positions than `usize`.
-    pub(crate) fn position_u64(&self) -> u64 {
-        self.position
-    }
 }
 
 impl BitCursor for SliceCursor<'_> {
@@ -116,12 +116,8 @@ impl BitCursor for SliceCursor<'_> {
         Ok(bit)
     }
 
-    fn position(&self) -> usize {
-        // Exact for every walk that reads positions through the trait: a
-        // stored stream's live length fits `usize` on every target (the
-        // storage doors bound it), and the byte decode doors read their end
-        // positions through `position_u64` instead.
-        usize::try_from(self.position).expect("a walked position fits usize")
+    fn position(&self) -> u64 {
+        self.position
     }
 
     fn read_int(&mut self) -> Result<Int, Decode> {

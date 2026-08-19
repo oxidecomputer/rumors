@@ -83,7 +83,9 @@ fn scan(bits: BitsView<'_>) -> (BitsBuf, Vec<Base>) {
     let mut cursor = DsiCursor::new(bits);
     let mut topology = BitsBuf::new();
     let mut heights: Vec<Base> = Vec::new();
-    let mut pending = 1usize;
+    // `u64`, as the unary runs it accumulates: every counted node costs
+    // at least one stream bit.
+    let mut pending = 1u64;
     while pending > 0 {
         // One whole descent per unary read: the run's internal nodes, then the
         // leaf whose flag terminates the run. Each internal node opens two

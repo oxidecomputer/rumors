@@ -53,11 +53,10 @@ pub(crate) struct DsiCursor<'a> {
     reader: BufBitReader<BE, ByteWords<'a>>,
     /// The position immediately after the last live bit read.
     ///
-    /// `u64`, not `usize`: the byte decode doors walk a whole input buffer
-    /// as bits, and `8 · bytes.len()` can exceed a 32-bit `usize` (a 600
-    /// MiB buffer holds 2^32+ bit positions) while remaining exactly
-    /// representable here. Stored-stream walks never leave `usize` range —
-    /// the storage doors bound a stream's live length below it.
+    /// `u64`, not `usize`: every walked buffer — a stored stream's or a
+    /// byte decode door's — holds `8 · bytes.len()` bit positions, which
+    /// exceeds a 32-bit `usize` from 512 MiB (a size a 4 GiB address space
+    /// allocates comfortably) while remaining exactly representable here.
     position: u64,
     /// The stream's live bit length, in the same `u64` denomination.
     len: u64,
@@ -97,13 +96,6 @@ impl<'a> DsiCursor<'a> {
             position: pos,
             len: bits.len(),
         }
-    }
-
-    /// The position immediately after the last bit read, in the cursor's own
-    /// `u64` denomination: the byte decode doors' end-position read, exact
-    /// even where the walked buffer holds more bit positions than `usize`.
-    pub(crate) fn position_u64(&self) -> u64 {
-        self.position
     }
 
     /// Read the unary prefix at the cursor without recording a successful run:
@@ -190,26 +182,15 @@ impl BitCursor for DsiCursor<'_> {
         Ok(bit)
     }
 
-    fn position(&self) -> usize {
-        // Exact for every walk that reads positions through the trait: a
-        // stored stream's live length fits `usize` on every target (the
-        // storage doors bound it), and the byte decode doors read their
-        // end positions through `position_u64` instead. A byte-door
-        // walk parking past usize (its truncation reject on a buffer past
-        // the storable bound) is never followed by a trait position read.
-        usize::try_from(self.position).expect("a walked position fits usize")
+    fn position(&self) -> u64 {
+        self.position
     }
 
-    fn read_unary(&mut self) -> Result<usize, Truncated> {
+    fn read_unary(&mut self) -> Result<u64, Truncated> {
         let k = self.unary_raw()?;
         super::scan::record_bits_u64(k + 1);
         self.position += k + 1;
-        // A run at or past usize bits (possible only on a 32-bit target,
-        // inside a multi-part door buffer past 512 MiB) can only belong to
-        // a stream past the storable bound — its part could never freeze —
-        // so the checked conversion fails loudly there instead of handing
-        // the walk a truncated count.
-        Ok(usize::try_from(k).expect("a unary run fits usize"))
+        Ok(k)
     }
 
     /// Read one Elias-gamma-coded integer: accepting and rejecting on exactly
@@ -266,11 +247,22 @@ impl BitCursor for DsiCursor<'_> {
         }
         // Wide arm: the mantissa's top bit is at position `k`; the next `k`
         // stream bits fill positions `k - 1 ..= 0`, most-significant first,
-        // read in machine-word chunks. The bit-index conversion is checked:
-        // a mantissa at or past usize bits (a 32-bit target, a code deeper
-        // than the storable bound) fails loudly instead of aliasing a low
-        // bit index — and the value's backend caps below that width anyway.
-        let k = usize::try_from(k).expect("a mantissa width fits usize");
+        // read in machine-word chunks. A mantissa at or past `usize` bits
+        // names a value the big-integer backend cannot hold on this target
+        // (it caps magnitudes below `usize::MAX` bits), so the reject genre
+        // is the value's, not the machine's — the same genre the per-bit
+        // loop (`decode_int_from`) reports at the same width.
+        let Ok(k) = usize::try_from(k) else {
+            // The examined prefix (its terminating 1 included) records
+            // before the reject surfaces — exactly the bits the per-bit
+            // loop's own reads have recorded when it rejects at this
+            // width — and the cursor parks just past it, where the loop's
+            // cursor stands at the same reject.
+            let prefix = k + 1;
+            super::scan::record_bits_u64(prefix);
+            self.position += prefix;
+            return Err(Decode::NotCanonical);
+        };
         let mut m = UBig::ZERO;
         m.set_bit(k);
         let mut remaining = k;
