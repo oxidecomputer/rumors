@@ -45,6 +45,7 @@ mod backend;
 mod channel;
 pub(crate) mod convert;
 mod driver;
+mod erased;
 pub mod materialized;
 mod message;
 mod protocol;

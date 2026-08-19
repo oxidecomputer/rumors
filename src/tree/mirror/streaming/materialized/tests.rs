@@ -15,6 +15,7 @@ use super::{
     Error, SupplyLedger, Violation, absorb,
     channel::{QueueKind, QueueRole, channel},
 };
+use crate::tree::mirror::streaming::erased;
 use crate::tree::mirror::streaming::stats::Recorder;
 use crate::{
     Version,
@@ -64,7 +65,7 @@ fn absorb_scripted(
     pollster::block_on(queries.send(Prefix::containing(&path))).expect("the loop is live");
     drop(queries);
 
-    let (returns, mut returns_rx) = channel::<Option<typed::Node<(), Z>>>(
+    let (returns, mut returns_rx) = erased::return_channel::<Local, (), Z>(
         QueueRole::new(QueueKind::TerminalLeafResolutions, Z::HEIGHT),
         1,
     );

@@ -32,5 +32,6 @@ pub use hash::Hash;
 pub use levels::{Level, Levels};
 pub use node::{Children, Node};
 pub use path::Path;
+pub(crate) use prefix::ErasedPrefix;
 pub use prefix::Prefix;
 pub use untyped::{Iter, Leaf, RangeOwned};

@@ -106,6 +106,7 @@ use crate::tree::{
     mirror::contained,
     mirror::streaming::{
         Backend, Leaf, Node, Root,
+        erased::{QueryReceiver, ReturnSender},
         materialized::{unknown::Unknown, work::Work},
         message::{Greeting, Reaction, Reply},
         protocol::{self, BoxResponses, Requests},
@@ -179,8 +180,7 @@ mod tests;
 pub(super) mod transcript;
 pub(super) mod unknown;
 mod work;
-use channel::{Receiver, Sender};
-use common::*;
+use channel::Receiver;
 // The remote proxy explodes early-supplied whole root children into the
 // same per-child shape the walks consume, with the walks' own helper.
 pub(crate) use common::children_of;
@@ -274,9 +274,9 @@ where
     S<H>: Height,
 {
     /// The prefix at which the resolved node will sit.
-    prefix: Prefix<S<H>>,
+    pub(crate) prefix: Prefix<S<H>>,
     /// The possibly-resolved children of the node.
-    resolved: Vec<(u8, Resolve<B, T, H>)>,
+    pub(crate) resolved: Vec<(u8, Resolve<B, T, H>)>,
 }
 
 /// One child's slot in a [`Resolution`].
@@ -364,9 +364,9 @@ where
     /// absorbed supply ([`SupplyLedger`]).
     ledger: SupplyLedger,
     /// The questions we asked, awaiting their replies in order.
-    queries: Receiver<Query<B, T, H>>,
+    queries: QueryReceiver<B, T, H>,
     /// One resolved scope per query, in query order, to the stage above.
-    returns: Sender<Option<B::Node<S<H>>>>,
+    returns: ReturnSender<B, T, S<H>>,
     /// An elected initiator's opening hand-off: the early-supplied root
     /// radices' survivors, consumed by the first descending stage to answer
     /// the responder's empty queries about them (`None` below it).
@@ -403,7 +403,7 @@ pub struct Completing<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>
     /// Where each requested leaf will sit, one per request, in order.
     queries: Receiver<Prefix<Z>>,
     /// The requested leaves' resolutions, in request order.
-    returns: Sender<Option<B::Node<Z>>>,
+    returns: ReturnSender<B, T, Z>,
     /// The accumulated work to drive the pipeline.
     work: Work<B, T>,
     /// The future result of the pipeline.
@@ -860,7 +860,7 @@ async fn absorb<B, T>(
     ledger: SupplyLedger,
     requests: impl Requests<B, T, Z>,
     mut queries: Receiver<Prefix<Z>>,
-    returns: Sender<Option<B::Node<Z>>>,
+    returns: ReturnSender<B, T, Z>,
     stats: Recorder,
 ) -> Result<(), Error<B::Error>>
 where

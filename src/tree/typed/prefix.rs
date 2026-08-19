@@ -23,6 +23,46 @@ pub struct Prefix<H: Height = Z> {
     hash: ArrayVec<[u8; 32]>,
 }
 
+/// A prefix with its height tag forgotten: the same accumulated path
+/// bytes, whose length *is* the height (`32 - height` bytes at `height`).
+///
+/// The typed [`Prefix<H>`] wraps runtime bytes in a compile-time tag; this
+/// is those bytes without the tag, for plumbing that carries prefixes of
+/// every height through one instantiation. [`Prefix::erase`] forgets the
+/// tag and [`ErasedPrefix::assume`] restores it, checking the length
+/// against the claimed height in debug builds.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct ErasedPrefix {
+    hash: ArrayVec<[u8; 32]>,
+}
+
+impl ErasedPrefix {
+    /// Re-tag this prefix at height `H`.
+    ///
+    /// `H` must be the height the prefix was erased at — equivalently,
+    /// `32 - H::HEIGHT` must be its byte length, debug-asserted here. A
+    /// cross-height re-tag is a programmer error in the erased plumbing,
+    /// never a consequence of peer input: every wire prefix decodes
+    /// through the typed reader, which fixes the length from the type.
+    pub fn assume<H: Height>(self) -> Prefix<H> {
+        debug_assert_eq!(
+            self.hash.len(),
+            32 - H::HEIGHT,
+            "an erased prefix re-tags at the height it was erased at",
+        );
+        Prefix {
+            height: PhantomData,
+            hash: self.hash,
+        }
+    }
+}
+
+impl Debug for ErasedPrefix {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.hash.fmt(f)
+    }
+}
+
 impl Prefix<Root> {
     /// Make a new empty prefix.
     pub fn new() -> Self {
@@ -83,6 +123,11 @@ impl<H: Height> Prefix<H> {
     /// this point reconstructs a full 32-byte path.
     pub fn as_bytes(&self) -> &[u8] {
         &self.hash
+    }
+
+    /// Forget this prefix's height tag; [`ErasedPrefix::assume`] restores it.
+    pub(crate) fn erase(self) -> ErasedPrefix {
+        ErasedPrefix { hash: self.hash }
     }
 
     /// The prefix naming the height-`H` subtree that contains `path`: its

@@ -10,7 +10,8 @@ use super::{Work, queues::assembly_level_returns};
 use crate::tree::{
     mirror::streaming::{
         Backend, Leaf,
-        materialized::{Error, Resolution, Resolve, channel::Sender},
+        erased::ReturnSender,
+        materialized::{Error, Resolution, Resolve},
         tasks::next_or_cancelled,
     },
     typed::height::{Height, S, Z},
@@ -28,9 +29,9 @@ where
     /// on blocked sender futures remaining independently runnable.
     pub fn assemble<H>(
         &mut self,
-        returns: Sender<Option<B::Node<S<H>>>>,
+        returns: ReturnSender<B, T, S<H>>,
         resolutions: impl Stream<Item = Result<Resolution<B, T, H>, Error<B::Error>>> + Send + 'static,
-    ) -> Sender<Option<B::Node<H>>>
+    ) -> ReturnSender<B, T, H>
     where
         H: Height,
         S<H>: Height,
@@ -46,7 +47,7 @@ where
     /// Assemble leaf resolutions upward with no level beneath them.
     pub fn assemble_leaves(
         &mut self,
-        returns: Sender<Option<B::Node<S<Z>>>>,
+        returns: ReturnSender<B, T, S<Z>>,
         resolutions: impl Stream<Item = Result<Resolution<B, T, Z>, Error<B::Error>>> + Send + 'static,
     ) {
         self.return_into(

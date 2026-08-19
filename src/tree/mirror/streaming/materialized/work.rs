@@ -22,7 +22,8 @@ use super::{progress, transcript};
 use crate::tree::{
     mirror::streaming::{
         Backend, Leaf,
-        materialized::{Error, channel::Sender},
+        erased::ReturnSender,
+        materialized::Error,
         protocol::{BoxResponses, Responses},
         stats::Recorder,
         tasks::{complete, park_after_published_error},
@@ -114,7 +115,7 @@ where
     /// Forward a stream of nodes into an upward return channel.
     fn return_into<H: Height>(
         &mut self,
-        returns: Sender<Option<B::Node<H>>>,
+        returns: ReturnSender<B, T, H>,
         stream: impl Stream<Item = Result<Option<B::Node<H>>, Error<B::Error>>> + Send + 'static,
     ) {
         self.tasks.push(Box::pin(async move {

@@ -11,10 +11,9 @@ use crate::{
     Version,
     tree::mirror::streaming::{
         Local,
+        erased::QueryReceiver,
         materialized::{
-            Error, Query, SupplyLedger, Violation, Work,
-            channel::{Receiver, with_schedule},
-            unknown::Unknown,
+            Error, Query, SupplyLedger, Violation, Work, channel::with_schedule, unknown::Unknown,
             work::queues::internal_child_queries,
         },
         message::{Reaction, Reply},
@@ -198,7 +197,7 @@ where
 }
 
 /// Put the script's optional outstanding query into the walk's pairing queue.
-fn query_receiver<H>(query: Option<Query<Local, (), H>>) -> Receiver<Query<Local, (), H>>
+fn query_receiver<H>(query: Option<Query<Local, (), H>>) -> QueryReceiver<Local, (), H>
 where
     H: Height,
     S<H>: Height,

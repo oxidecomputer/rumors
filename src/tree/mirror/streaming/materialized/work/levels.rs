@@ -16,9 +16,10 @@ use crate::tree::{
     mirror::contained,
     mirror::streaming::{
         Backend, Leaf, Node, Root,
+        erased::{QueryReceiver, ResolutionOkStream, ReturnSender},
         materialized::{
-            Error, OkReceiverStream, Query, Resolution, Resolve, SupplyLedger, Violation,
-            channel::{Receiver, Sender},
+            Error, Query, Resolution, Resolve, SupplyLedger, Violation,
+            channel::Receiver,
             children_of, fan_listing,
             unknown::{Unknown, unknown, unknown_providing},
             violation,
@@ -62,8 +63,8 @@ where
         their_listing: Vec<(u8, Hash)>,
     ) -> (
         BoxResponses<B, T, UnderRoot, Error<B::Error>>,
-        Receiver<Query<B, T, UnderRoot>>,
-        Sender<Option<B::Node<height::Root>>>,
+        QueryReceiver<B, T, UnderRoot>,
+        ReturnSender<B, T, height::Root>,
         oneshot::Receiver<Vec<(u8, Option<B::Node<UnderRoot>>)>>,
         BoxFuture<'static, Result<Root<B, T>, Error<B::Error>>>,
     )
@@ -163,8 +164,8 @@ where
         requests: impl Requests<B, T, UnderRoot>,
     ) -> (
         BoxResponses<B, T, UnderRoot, Error<B::Error>>,
-        Receiver<Query<B, T, UnderUnderRoot>>,
-        Sender<Option<B::Node<UnderRoot>>>,
+        QueryReceiver<B, T, UnderUnderRoot>,
+        ReturnSender<B, T, UnderRoot>,
         oneshot::Receiver<Vec<(u8, Vec<(u8, B::Node<UnderUnderRoot>)>)>>,
         BoxFuture<'static, Result<Root<B, T>, Error<B::Error>>>,
     )
@@ -265,12 +266,12 @@ where
         early_survivors: Option<oneshot::Receiver<Vec<(u8, Option<B::Node<S<S<H>>>>)>>>,
         early_supplies: Option<oneshot::Receiver<Vec<(u8, Vec<(u8, B::Node<S<S<H>>>)>)>>>,
         requests: impl Requests<B, T, S<S<H>>>,
-        mut queries: Receiver<Query<B, T, S<S<H>>>>,
+        mut queries: QueryReceiver<B, T, S<S<H>>>,
     ) -> (
         BoxResponses<B, T, S<H>, Error<B::Error>>,
-        Receiver<Query<B, T, H>>,
-        OkReceiverStream<Resolution<B, T, S<S<H>>>, Error<B::Error>>,
-        OkReceiverStream<Resolution<B, T, S<H>>, Error<B::Error>>,
+        QueryReceiver<B, T, H>,
+        ResolutionOkStream<B, T, S<S<H>>>,
+        ResolutionOkStream<B, T, S<H>>,
     )
     where
         B: Sync,
@@ -434,12 +435,12 @@ where
         their_version: Version,
         ledger: SupplyLedger,
         requests: impl Requests<B, T, S<Z>>,
-        mut queries: Receiver<Query<B, T, S<Z>>>,
+        mut queries: QueryReceiver<B, T, S<Z>>,
     ) -> (
         BoxResponses<B, T, Z, Error<B::Error>>,
         Receiver<Prefix<Z>>,
-        OkReceiverStream<Resolution<B, T, S<Z>>, Error<B::Error>>,
-        OkReceiverStream<Resolution<B, T, Z>, Error<B::Error>>,
+        ResolutionOkStream<B, T, S<Z>>,
+        ResolutionOkStream<B, T, Z>,
     )
     where
         B: Sync,
@@ -521,10 +522,10 @@ where
         their_version: Version,
         ledger: SupplyLedger,
         requests: impl Requests<B, T, Z>,
-        mut queries: Receiver<Query<B, T, Z>>,
+        mut queries: QueryReceiver<B, T, Z>,
     ) -> (
         BoxResponses<B, T, Z, Error<B::Error>>,
-        OkReceiverStream<Resolution<B, T, Z>, Error<B::Error>>,
+        ResolutionOkStream<B, T, Z>,
     ) {
         let (upper, upper_rx) = terminal_leaf_resolutions();
         let stats = self.stats.clone();
