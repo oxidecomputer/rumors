@@ -94,13 +94,17 @@ payloads failing at ingress as `DecodeError::Record` exactly as today.
 - Costs: a fat pointer per `Message` handle and a `TypeId` compare per
   typed read; the `gossip_fixed` bench pin guards the claim that this
   is nothing.
-- Public API consequence, the part to shape deliberately: `iter`/`get`
-  and `Leaf::message` return `&Message<T>` today, which cannot survive
-  as-is once the payload inside is erased — the API becomes a typed
-  accessor (`message.get::<T>() -> &T`) or a `MessageView<'_, T>`.
-  `T: Serialize` migrates to the insert boundary and
-  `DeserializeOwned` to witness minting; nothing new is demanded of
-  `T`.
+- No public API movement: `Message` is crate-internal (nothing
+  re-exports it; verified against the public rustdoc surface), and the
+  public observers already speak `(Version, Arc<T>)`. The one
+  mechanical seam is the observers' lending contract —
+  `borrow_next() -> (&Version, &Arc<T>)` lends from a retained
+  most-recent-leaf slot, so that slot becomes the downcast point: one
+  `Arc::downcast::<T>()` (a refcount bump plus the `TypeId` check) per
+  yielded message, a cost the owned `(Version, Arc<T>)` item already
+  pays. `T: Serialize` migrates to the insert boundary and
+  `DeserializeOwned` to witness minting; the public bounds stay
+  equivalent.
 
 A decode-on-read variant (store the bytes only, decode at the typed
 boundary) loses to this on every axis: it saves the fat pointer but
@@ -131,11 +135,14 @@ security-relevant: payload validation stays exactly where it is
 
 ## Open questions for review
 
-1. Is `Message<T>`'s canonical encoding stable enough to be the stored
-   representation (option B), or is decode-on-read unacceptable for the
-   read path's contract?
-2. The `&Message<T>` return type's replacement: typed accessor on an
-   erased `Message`, or a borrowed `MessageView<'_, T>`?
-3. Facade shape: seal the session core behind non-generic functions in
+1. Witness minting site: at `Peer<T>` construction (one witness for the
+   peer's lifetime, threaded through sessions), or per gossip call?
+   Construction seems right — it is also where `DeserializeOwned`
+   naturally lives.
+2. Facade shape: seal the session core behind non-generic functions in
    the rlib (taking `&mut dyn` link objects — the transport is already
    dyn-erased), or keep generic entry points that immediately erase?
+3. Does the tree erase in the same stroke (it must for the full win —
+   `untyped::Node<T>`'s only `T` is the stored `Message`), or does a
+   first landing keep a typed tree and erase at the session boundary
+   (option A) to de-risk?
