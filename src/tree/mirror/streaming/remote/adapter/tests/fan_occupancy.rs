@@ -27,10 +27,7 @@ use crate::{
             remote::codec::{Flow, Frame, LeafRun, Reaction as WireReaction},
             window::FAN,
         },
-        typed::{
-            Path, Prefix,
-            height::{UnderRoot, UnderUnderRoot},
-        },
+        typed::{Path, Prefix},
     },
 };
 
@@ -82,11 +79,11 @@ fn peak_occupancy(mut input: impl Stream<Item = Frame<u64>> + Unpin) -> usize {
     let runtime = super::runtime();
     fan_probe::reset();
     runtime.block_on(async {
-        decode_reply::<Local, u64, UnderUnderRoot, _>(
+        decode_reply::<Local, u64, _>(
             Local,
             u64::MAX,
             unbounded(),
-            Scope::<UnderRoot>::opening(&[]),
+            Scope::opening(&[]),
             &mut input,
         )
         .await
@@ -134,11 +131,11 @@ fn eager_early_supplies_ride_the_same_ceiling() {
     let runtime = super::runtime();
     fan_probe::reset();
     runtime.block_on(async {
-        let assembled: Vec<_> = early_supplies::<Local, u64, UnderRoot, _>(
+        let assembled: Vec<_> = early_supplies::<Local, u64, _>(
             Local,
             u64::MAX,
             unbounded(),
-            Prefix::new(),
+            Prefix::new().erase(),
             stream::iter(frames(&leaves)),
         )
         .try_collect()

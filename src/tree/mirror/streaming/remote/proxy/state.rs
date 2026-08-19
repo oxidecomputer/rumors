@@ -7,12 +7,13 @@
 //! stage yield its reply before publishing the lower scopes derived from it,
 //! so one-slot backpressure cannot withhold the reply which releases it.
 
+use std::marker::PhantomData;
+
 use crate::link::{Acceptor, Connector};
 use crate::tree::{
     mirror::streaming::{
         Backend, Leaf,
         channel::Receiver,
-        convert::Convert,
         protocol::{self, BoxResponses, Requests},
         remote::{
             adapter::Scope,
@@ -180,13 +181,19 @@ where
     A: Acceptor,
 {
     session: Session<B, T, R, W, C, A>,
-    scopes: Receiver<Scope<H>>,
+    /// The next local reply's scopes, erased: the typestate's `H` is what
+    /// pins this queue to the stage that consumes it at the right height,
+    /// and every scope's parent prefix carries the runtime witness.
+    scopes: Receiver<Scope>,
     /// The remote initiator's opening-supply stream (`None` below the
     /// stage right after the opening, the one whose scopes are root-level).
     ///
     /// The receiver claims its transport stream on first read, so a
     /// session without early supplies never touches it.
     early: Option<StreamReceiver<A::Rx, T>>,
+    /// The stage's height, phantom (`fn() -> H` for the auto-trait
+    /// shortcut; see [`typed::Node`](crate::tree::typed::Node)).
+    height: PhantomData<fn() -> H>,
 }
 
 /// The initiator proxy's leaf terminal and accumulated transport work.
@@ -197,7 +204,7 @@ where
     A: Acceptor,
 {
     session: Session<B, T, R, W, C, A>,
-    scopes: Receiver<Scope<Z>>,
+    scopes: Receiver<Scope>,
 }
 
 impl<B, T, H, R, W, C, A> protocol::Protocol for Descending<B, T, H, R, W, C, A>
@@ -275,6 +282,7 @@ where
             session,
             scopes,
             early: Some(early),
+            height: PhantomData,
         };
         (responses, next)
     }
@@ -288,7 +296,6 @@ where
     W: Send,
     C: Connector,
     A: Acceptor,
-    UnderRoot: crate::tree::mirror::streaming::convert::Convert,
 {
     type Next = Descending<B, T, UnderUnderRoot, R, W, C, A>;
 
@@ -314,6 +321,7 @@ where
             session,
             scopes: next_scopes,
             early: None,
+            height: PhantomData,
         };
         (responses, next)
     }
@@ -328,8 +336,8 @@ where
     C: Connector,
     A: Acceptor,
     H: Height,
-    S<H>: Convert,
-    S<S<H>>: Convert,
+    S<H>: Height,
+    S<S<H>>: Height,
     S<S<S<H>>>: Height,
 {
     type Next = Descending<B, T, H, R, W, C, A>;
@@ -350,6 +358,7 @@ where
             session: self.session,
             scopes: next_scopes,
             early: None,
+            height: PhantomData,
         };
         (responses, next)
     }

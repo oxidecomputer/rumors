@@ -24,14 +24,14 @@ async fn send_or_cancel<T>(sender: &Sender<T>, value: T) {
 /// proxy analogue of the materialized implementation's `yield_resolve_query!`.
 macro_rules! yield_reply_scopes {
     (
-        $progress:expr, $height:ty, $count:expr;
+        $progress:expr, $height:expr, $count:expr;
         $yielded:expr;
         $scopes:expr => $next_scopes:expr;
     ) => {{
-        $progress.decoded_reply::<$height>($count);
+        $progress.decoded_reply($height, $count);
         $yielded;
         for scope in $next_scopes {
-            $progress.next_scope::<$height>();
+            $progress.next_scope($height);
             $crate::tree::mirror::streaming::remote::proxy::send_or_cancel(&$scopes, scope).await;
         }
     }};

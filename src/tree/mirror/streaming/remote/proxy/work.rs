@@ -5,16 +5,18 @@
 //! protocol operation concurrently drives the stored pumps, its own terminal
 //! work, the session's accept driver, and the incoming-stream error route.
 
-use std::pin::pin;
+use std::pin::{Pin, pin};
 
-use futures::{StreamExt, future::BoxFuture};
+use futures::{Stream, StreamExt, future::BoxFuture};
 
 use crate::link::Acceptor;
 use crate::tree::{
     mirror::streaming::{
         Backend, Leaf,
+        channel::{QueueKind, QueueRole, Sender},
+        erased,
         materialized::SupplyLedger,
-        protocol::{BoxResponses, Responses},
+        protocol::BoxResponses,
         remote::{
             adapter::{DecodeError, EncodeError},
             codec::{Origin, RunBudget, Speaker},
@@ -125,34 +127,26 @@ where
         self.tasks.push(Box::pin(task));
     }
 
-    /// Add a task which actively drives a response stream.
-    ///
-    /// One buffered response is sufficient: whenever the task blocks, that
-    /// response is already available to advance the counterparty and release
-    /// the slot. Buffering a fan would retain whole protocol messages without
-    /// breaking any additional dependency.
+    /// Add a task which actively drives a response stream, and return the
+    /// stream's typed exit: the one point where the proxy's decoded erased
+    /// replies re-tag at their stage's height.
     fn respond<H>(
         &mut self,
-        messages: impl Responses<B, T, H, Error<B::Error>>,
+        messages: impl Stream<Item = Result<erased::Reply<B::Erased>, Error<B::Error>>> + Send + 'static,
     ) -> BoxResponses<B, T, H, Error<B::Error>>
     where
         H: Height,
     {
-        let (send, receive) = self::queues::responses::<_, H>();
-        self.spawn(async move {
-            let mut messages = pin!(messages);
-            while let Some(message) = messages.next().await {
-                let failed = message.is_err();
-                send_or_cancel(&send, message).await;
-                park_after_published_error(failed).await;
-            }
-            Ok(())
-        });
-        #[cfg(test)]
-        let responses = Box::pin(receive);
-        #[cfg(not(test))]
-        let responses = Box::pin(tokio_stream::wrappers::ReceiverStream::new(receive));
-        responses
+        // One buffered response is sufficient: whenever the pump blocks,
+        // that response is already available to advance the counterparty
+        // and release the slot. Buffering a fan would retain whole
+        // protocol messages without breaking any additional dependency.
+        let (send, responses) = erased::reply_channel::<B, T, H, Error<B::Error>>(
+            QueueRole::new(QueueKind::ProxyResponses, H::HEIGHT),
+            1,
+        );
+        self.spawn(pump(Box::pin(messages), send));
+        Box::pin(responses)
     }
 
     /// Drive all accumulated pumps, the terminal operation, and the session's
@@ -265,6 +259,19 @@ where
             },
         }
     }
+}
+
+/// Drive one decoded response stream into its outgoing relay edge.
+async fn pump<E: Send, Err: Send + 'static>(
+    mut messages: Pin<Box<dyn Stream<Item = Result<erased::Reply<E>, Error<Err>>> + Send>>,
+    send: Sender<Result<erased::Reply<E>, Error<Err>>>,
+) -> Result<(), Error<Err>> {
+    while let Some(message) = messages.next().await {
+        let failed = message.is_err();
+        send_or_cancel(&send, message).await;
+        park_after_published_error(failed).await;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

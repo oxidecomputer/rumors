@@ -15,8 +15,8 @@ use futures::{TryStreamExt, stream};
 use crate::message::Message;
 use crate::tree::{
     mirror::streaming::{
-        Local,
-        message::{Reaction, Reply},
+        Backend, Local,
+        erased::{Reaction, Reply},
         remote::codec::{End, Flow, Frame, Reaction as WireReaction},
     },
     typed::{
@@ -24,6 +24,11 @@ use crate::tree::{
         height::{Height, S, UnderRoot, Z},
     },
 };
+
+/// One erased opening node over the unit payload.
+fn erased(node: typed::Node<(), UnderRoot>) -> <Local as Backend<()>>::Erased {
+    <Local as Backend<()>>::erase(node)
+}
 
 use super::{
     super::{DecodeError, OpeningError, Scope, early_supplies, opening_parts, opening_reply},
@@ -54,7 +59,7 @@ where
 #[test]
 fn opening_listing_agrees_with_greeting_replay() {
     let listing = vec![(3, hash(1)), (9, hash(2))];
-    let reply = Reply::<Local, (), UnderRoot> {
+    let reply = Reply::<<Local as Backend<()>>::Erased> {
         replies: vec![Reaction::Query(listing.clone())],
     };
 
@@ -63,7 +68,8 @@ fn opening_listing_agrees_with_greeting_replay() {
     assert!(supplies.is_empty(), "no supplies trailed the question");
     let scope = Scope::opening(&split);
 
-    let (replayed, replayed_scope) = opening_reply::<Local, ()>(listing.clone());
+    let (replayed, replayed_scope) =
+        opening_reply::<<Local as Backend<()>>::Erased>(listing.clone());
     assert_eq!(replayed_scope, scope);
     let [Reaction::Query(replayed)] = replayed.replies.as_slice() else {
         panic!("the replayed opening must remain one query")
@@ -75,11 +81,11 @@ fn opening_listing_agrees_with_greeting_replay() {
 #[test]
 fn opening_supplies_split_off_the_question() {
     let listing = vec![(3, hash(1))];
-    let reply = Reply::<Local, (), UnderRoot> {
+    let reply = Reply::<<Local as Backend<()>>::Erased> {
         replies: vec![
             Reaction::Query(listing.clone()),
-            Reaction::Supply(5, UnderRoot::node()),
-            Reaction::Supply(9, UnderRoot::node()),
+            Reaction::Supply(5, erased(UnderRoot::node())),
+            Reaction::Supply(9, erased(UnderRoot::node())),
         ],
     };
     let (split, supplies) = opening_parts(reply).expect("canonical opening with supplies");
@@ -99,7 +105,7 @@ fn opening_supplies_split_off_the_question() {
 /// scope holding no positional children.
 #[test]
 fn empty_listing_replays_the_empty_opening() {
-    let (replayed, mut scope) = opening_reply::<Local, ()>(Vec::new());
+    let (replayed, mut scope) = opening_reply::<<Local as Backend<()>>::Erased>(Vec::new());
     let [Reaction::Query(listing)] = replayed.replies.as_slice() else {
         panic!("the replayed opening must be one query")
     };
@@ -146,11 +152,11 @@ fn opening_supplies_decode_by_radix_group() {
 
     let decoded: Vec<(u8, _)> = runtime()
         .block_on(
-            early_supplies::<Local, u64, UnderRoot, _>(
+            early_supplies::<Local, u64, _>(
                 Local,
                 u64::MAX,
                 unbounded(),
-                Prefix::new(),
+                Prefix::new().erase(),
                 stream::iter(frames),
             )
             .try_collect(),
@@ -193,11 +199,11 @@ fn opening_supplies_past_the_declared_set_len_are_rejected() {
 
     let error = runtime()
         .block_on(async {
-            early_supplies::<Local, u64, UnderRoot, _>(
+            early_supplies::<Local, u64, _>(
                 Local,
                 u64::MAX,
                 SupplyLedger::new(1),
-                Prefix::new(),
+                Prefix::new().erase(),
                 stream::iter(frames),
             )
             .try_collect::<Vec<_>>()
@@ -220,11 +226,11 @@ fn empty_opening_supply_reply_decodes_to_nothing() {
     let frames: Vec<Frame<u64>> = vec![Frame::End(End::Reply)];
     let decoded: Vec<(u8, _)> = runtime()
         .block_on(
-            early_supplies::<Local, u64, UnderRoot, _>(
+            early_supplies::<Local, u64, _>(
                 Local,
                 u64::MAX,
                 unbounded(),
-                Prefix::new(),
+                Prefix::new().erase(),
                 stream::iter(frames),
             )
             .try_collect(),
@@ -240,11 +246,11 @@ fn second_opening_supply_reply_is_rejected() {
     let frames: Vec<Frame<u64>> = vec![Frame::End(End::Reply), Frame::End(End::Reply)];
     let error = runtime()
         .block_on(async {
-            early_supplies::<Local, u64, UnderRoot, _>(
+            early_supplies::<Local, u64, _>(
                 Local,
                 u64::MAX,
                 unbounded(),
-                Prefix::new(),
+                Prefix::new().erase(),
                 stream::iter(frames),
             )
             .try_collect::<Vec<_>>()
@@ -261,11 +267,11 @@ fn positional_reaction_in_opening_supplies_is_rejected() {
     let frames: Vec<Frame<u64>> = vec![Frame::Reaction(WireReaction::Match, Flow::End)];
     let error = runtime()
         .block_on(async {
-            early_supplies::<Local, u64, UnderRoot, _>(
+            early_supplies::<Local, u64, _>(
                 Local,
                 u64::MAX,
                 unbounded(),
-                Prefix::new(),
+                Prefix::new().erase(),
                 stream::iter(frames),
             )
             .try_collect::<Vec<_>>()
@@ -282,29 +288,29 @@ fn positional_reaction_in_opening_supplies_is_rejected() {
 /// form or its exact typed rejection.
 #[test]
 fn opening_rejections_are_exhaustive() {
-    let empty = Reply::<Local, (), UnderRoot> {
+    let empty = Reply::<<Local as Backend<()>>::Erased> {
         replies: Vec::new(),
     };
     assert_eq!(opening_parts(empty).err(), Some(OpeningError::Empty));
 
     for count in 1..=3 {
-        let reply = Reply::<Local, (), UnderRoot> {
+        let reply = Reply::<<Local as Backend<()>>::Erased> {
             replies: (0..count).map(|_| Reaction::Match).collect(),
         };
         assert_eq!(opening_parts(reply).err(), Some(OpeningError::NotQuery));
     }
 
-    let supplied = Reply::<Local, (), UnderRoot> {
-        replies: vec![Reaction::Supply(0, UnderRoot::node())],
+    let supplied = Reply::<<Local as Backend<()>>::Erased> {
+        replies: vec![Reaction::Supply(0, erased(UnderRoot::node()))],
     };
     assert_eq!(opening_parts(supplied).err(), Some(OpeningError::NotQuery));
 
     // A non-supply reaction anywhere behind the question is rejected at
     // its whole-reply position.
-    let trailing = Reply::<Local, (), UnderRoot> {
+    let trailing = Reply::<<Local as Backend<()>>::Erased> {
         replies: vec![
             Reaction::Query(vec![(3, hash(1))]),
-            Reaction::Supply(5, UnderRoot::node()),
+            Reaction::Supply(5, erased(UnderRoot::node())),
             Reaction::Match,
         ],
     };

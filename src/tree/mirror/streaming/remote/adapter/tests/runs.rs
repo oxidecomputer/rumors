@@ -20,16 +20,13 @@ use crate::{
     tree::{
         mirror::streaming::{
             Backend, Local,
-            message::Reaction,
+            erased::Reaction,
             remote::codec::{
                 DEFAULT_TARGET_MESSAGE_SIZE, Flow, Frame, LeafRun, Reaction as WireReaction,
                 RunBudget, SUPPLY_FRAME_OVERHEAD,
             },
         },
-        typed::{
-            Prefix,
-            height::{UnderRoot, UnderUnderRoot},
-        },
+        typed::{Prefix, height::UnderRoot},
     },
 };
 
@@ -111,11 +108,11 @@ fn recode(frames: Vec<Frame<u64>>, budget: RunBudget) -> Vec<Frame<u64>> {
     let runtime = runtime();
     runtime.block_on(async {
         let mut input = stream::iter(frames);
-        let decoded = decode_reply::<Local, u64, UnderUnderRoot, _>(
+        let decoded = decode_reply::<Local, u64, _>(
             Local,
             u64::MAX,
             unbounded(),
-            Scope::<UnderRoot>::opening(&[]),
+            Scope::opening(&[]),
             &mut input,
         )
         .await
@@ -267,11 +264,11 @@ fn a_batched_run_round_trips_the_reply() {
     let runtime = runtime();
     let reply = runtime.block_on(async {
         let mut input = stream::iter(frames);
-        decode_reply::<Local, u64, UnderUnderRoot, _>(
+        decode_reply::<Local, u64, _>(
             Local,
             u64::MAX,
             unbounded(),
-            Scope::<UnderRoot>::opening(&[]),
+            Scope::opening(&[]),
             &mut input,
         )
         .await
@@ -284,7 +281,10 @@ fn a_batched_run_round_trips_the_reply() {
     let prefix = Prefix::<UnderRoot>::containing(&leaves[0].path());
     let rebuilt = runtime.block_on(async {
         Local
-            .leaves(prefix, node.clone())
+            .leaves(
+                prefix,
+                <Local as Backend<u64>>::assume::<UnderRoot>(node.clone()),
+            )
             .try_collect::<Vec<_>>()
             .await
             .expect("the local backend is infallible")

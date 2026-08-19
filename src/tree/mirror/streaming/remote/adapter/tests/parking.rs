@@ -28,15 +28,12 @@ use crate::{
     tree::{
         Action, Tree,
         mirror::streaming::{
-            Local,
-            message::{Reaction, Reply},
+            Backend, Local,
+            erased::{Reaction, Reply},
             remote::codec::{self, RunBudget, Speaker, Stream},
             window::FAN,
         },
-        typed::{
-            self, Hash,
-            height::{UnderRoot, UnderUnderRoot},
-        },
+        typed::{self, Hash, height::UnderRoot},
     },
 };
 
@@ -106,14 +103,14 @@ fn parked_supply_reply_holds_handles_not_subtrees() {
         "the fan partitions every committed leaf",
     );
 
-    let reply = Reply::<Local, u64, UnderRoot> {
+    let reply = Reply {
         replies: children
             .into_iter()
-            .map(|(radix, node)| Reaction::Supply(radix, node))
+            .map(|(radix, node)| Reaction::Supply(radix, <Local as Backend<u64>>::erase(node)))
             .collect(),
     };
     let runtime = runtime();
-    let scope = Scope::<UnderRoot>::opening(&[]);
+    let scope = Scope::opening(&[]);
     let frames = runtime.block_on(async {
         encode_reply(Local, RunBudget::default(), scope.clone(), reply)
             .map_ok(|encoded| encoded.into_parts().0)
@@ -124,7 +121,7 @@ fn parked_supply_reply_holds_handles_not_subtrees() {
 
     let mut frames = stream::iter(frames);
     let decoded = runtime
-        .block_on(decode_reply::<Local, u64, UnderUnderRoot, _>(
+        .block_on(decode_reply::<Local, u64, _>(
             Local,
             u64::MAX,
             unbounded(),
@@ -166,12 +163,12 @@ fn maximally_disputed_reply_parks_bounded_skeleton() {
     let listing: Vec<(u8, Hash)> = (0..FAN)
         .map(|radix| (radix as u8, hash(radix as u8)))
         .collect();
-    let reply = Reply::<Local, u64, UnderRoot> {
+    let reply = Reply::<<Local as Backend<u64>>::Erased> {
         replies: (0..FAN).map(|_| Reaction::Query(listing.clone())).collect(),
     };
 
     let runtime = runtime();
-    let scope = Scope::<UnderRoot>::opening(&listing);
+    let scope = Scope::opening(&listing);
     let frames = runtime.block_on(async {
         encode_reply(Local, RunBudget::default(), scope.clone(), reply)
             .map_ok(|encoded| encoded.into_parts().0)
@@ -211,11 +208,11 @@ fn maximally_disputed_reply_parks_bounded_skeleton() {
 
     let mut frames = stream::iter(frames);
     let decoded = runtime
-        .block_on(decode_reply::<Local, u64, UnderUnderRoot, _>(
+        .block_on(decode_reply::<Local, u64, _>(
             Local,
             u64::MAX,
             unbounded(),
-            Scope::<UnderRoot>::opening(&listing),
+            Scope::opening(&listing),
             &mut frames,
         ))
         .expect("a canonical maximally disputed reply decodes");

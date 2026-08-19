@@ -6,8 +6,8 @@ use futures::{StreamExt, stream};
 
 use crate::tree::{
     mirror::streaming::{
-        Failing, FailingNode, Failure, Local, Operation,
-        message::{Reaction, Reply},
+        Backend, Failing, FailingNode, Failure, Local, Operation,
+        erased::{Reaction, Reply},
     },
     typed::{
         self, Prefix,
@@ -68,7 +68,8 @@ where
 
         for fail_after in 0..Self::HEIGHT {
             let backend = Failing::after(Local, fail_after);
-            let supply = FailingNode::new(Self::node(leaf));
+            let supply =
+                <Failing<Local> as Backend<u64>>::erase(FailingNode::new(Self::node(leaf)));
             let replies = if supply_radix < u8::MAX {
                 vec![
                     Reaction::Supply(supply_radix, supply),
@@ -83,7 +84,7 @@ where
             let mut encoded = encode_reply(
                 backend.clone(),
                 RunBudget::default(),
-                Scope::new(parent, &listing),
+                Scope::new(parent.erase(), &listing),
                 Reply { replies },
             );
             let (yielded, error, ended) = runtime.block_on(async {
@@ -129,11 +130,11 @@ where
                 sentinel.clone(),
             ]);
             let error = runtime
-                .block_on(decode_reply::<Failing<Local>, u64, H, _>(
+                .block_on(decode_reply::<Failing<Local>, u64, _>(
                     backend.clone(),
                     u64::MAX,
                     unbounded(),
-                    Scope::new(parent, &[]),
+                    Scope::new(parent.erase(), &[]),
                     &mut frames,
                 ))
                 .err()

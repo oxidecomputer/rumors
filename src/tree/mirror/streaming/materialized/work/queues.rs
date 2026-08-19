@@ -45,14 +45,17 @@ use crate::tree::{
 /// retain whole messages without breaking another dependency.
 pub(super) fn outgoing_responses<B, T, H>() -> (
     Sender<Result<Reply<B::Erased>, Error<B::Error>>>,
-    ReplyResultStream<B, T, H>,
+    ReplyResultStream<B, T, H, Error<B::Error>>,
 )
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
     H: Height,
 {
-    erased::reply_channel::<B, T, H>(QueueRole::new(QueueKind::OutgoingResponses, H::HEIGHT), 1)
+    erased::reply_channel::<B, T, H, Error<B::Error>>(
+        QueueRole::new(QueueKind::OutgoingResponses, H::HEIGHT),
+        1,
+    )
 }
 
 /// Buffer lower-level completions until their enclosing resolution arrives.

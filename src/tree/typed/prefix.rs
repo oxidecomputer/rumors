@@ -81,6 +81,20 @@ impl ErasedPrefix {
         self.hash.push(byte);
         self
     }
+
+    /// Pop one hash byte off the end of the prefix, ascending one height:
+    /// the remainder and the byte ([`Prefix::pop`]).
+    ///
+    /// # Panics
+    ///
+    /// If the prefix is empty (the root has no parent).
+    pub fn pop(mut self) -> (ErasedPrefix, u8) {
+        let byte = self
+            .hash
+            .pop()
+            .expect("a prefix below the root has at least one byte to pop");
+        (self, byte)
+    }
 }
 
 impl Debug for ErasedPrefix {

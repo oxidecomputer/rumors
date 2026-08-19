@@ -50,7 +50,6 @@ use crate::tree::{
     mirror::streaming::{
         Backend, Leaf,
         channel::{QueueRole, Receiver, Sender, channel},
-        materialized::Error,
         message,
     },
     typed::{
@@ -114,26 +113,26 @@ where
 }
 
 /// The typed exit of [`reply_channel`]: the erased receiver as a stream
-/// of schedule-typed replies.
-pub(crate) struct ReplyResultStream<B, T, H>
+/// of schedule-typed replies. `Err` is the session's error type, passed
+/// through untouched.
+pub(crate) struct ReplyResultStream<B, T, H, Err>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
     H: Height,
 {
-    inner: ReceiverStreamOf<Result<Reply<B::Erased>, Error<B::Error>>>,
-    assume: fn(
-        Result<Reply<B::Erased>, Error<B::Error>>,
-    ) -> Result<message::Reply<B, T, H>, Error<B::Error>>,
+    inner: ReceiverStreamOf<Result<Reply<B::Erased>, Err>>,
+    assume: fn(Result<Reply<B::Erased>, Err>) -> Result<message::Reply<B, T, H>, Err>,
 }
 
-impl<B, T, H> Stream for ReplyResultStream<B, T, H>
+impl<B, T, H, Err> Stream for ReplyResultStream<B, T, H, Err>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
     H: Height,
+    Err: Send,
 {
-    type Item = Result<message::Reply<B, T, H>, Error<B::Error>>;
+    type Item = Result<message::Reply<B, T, H>, Err>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
@@ -170,17 +169,18 @@ fn receiver_stream<E: Send>(receiver: Receiver<E>) -> ReceiverStreamOf<E> {
 /// in, typed out — and therefore the outgoing half of the walk's typed
 /// boundary. Its height parameter fixes the exit's re-tag; the erased
 /// sender needs none.
-pub(crate) fn reply_channel<B, T, H>(
+pub(crate) fn reply_channel<B, T, H, Err>(
     role: QueueRole,
     capacity: usize,
 ) -> (
-    Sender<Result<Reply<B::Erased>, Error<B::Error>>>,
-    ReplyResultStream<B, T, H>,
+    Sender<Result<Reply<B::Erased>, Err>>,
+    ReplyResultStream<B, T, H, Err>,
 )
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
     T: Send + Sync + 'static,
     H: Height,
+    Err: Send,
 {
     let (sender, receiver) = channel(role, capacity);
     (
@@ -202,9 +202,13 @@ where
 /// the height from the prefix (rather than threading a separate counter)
 /// is what keeps the coordinate and the witness structurally inseparable.
 pub(crate) mod ops {
+    use futures::StreamExt;
+
     use super::*;
     use crate::tree::{
-        mirror::streaming::materialized::children_of as children_of_typed,
+        mirror::streaming::{
+            backend::BoxNodeStream, materialized::children_of as children_of_typed,
+        },
         typed::{ErasedPrefix, height::Pred},
     };
 
@@ -218,6 +222,19 @@ pub(crate) mod ops {
             seq_macro::seq!(N in 1..=32 {
                 match $height {
                     0 => unreachable!("a leaf-height node has no children"),
+                    #(N => { type $H = crate::tree::typed::height::H~N; $body })*
+                    _ => unreachable!("a tree height is 0..=32"),
+                }
+            })
+        }};
+    }
+
+    /// Select the type-level height matching a runtime height, leaves
+    /// included: [`at_parent_height!`] minus the nonzero premise.
+    macro_rules! at_height {
+        ($height:expr, $H:ident => $body:expr) => {{
+            seq_macro::seq!(N in 0..=32 {
+                match $height {
                     #(N => { type $H = crate::tree::typed::height::H~N; $body })*
                     _ => unreachable!("a tree height is 0..=32"),
                 }
@@ -278,6 +295,50 @@ pub(crate) mod ops {
                 .parent::<<H as Pred>::Pred>(prefix.assume::<H>(), children)
                 .await?
                 .map(B::erase))
+        })
+    }
+
+    /// Walk every leaf beneath an erased node, in ascending path order
+    /// ([`Backend::leaves`], erased).
+    ///
+    /// The yielded leaves stay typed: `Z` is a single height, so nothing
+    /// about a leaf ever needed erasing.
+    pub(crate) fn leaves<B, T>(
+        backend: B,
+        prefix: ErasedPrefix,
+        node: B::Erased,
+    ) -> BoxNodeStream<'static, B, T, Z>
+    where
+        B: Backend<T, Node<Z>: Leaf<T>>,
+        T: Send + Sync + 'static,
+    {
+        at_height!(prefix.height(), H => {
+            Box::pin(backend.leaves::<H>(prefix.assume::<H>(), B::assume::<H>(node)))
+        })
+    }
+
+    /// Assemble a strictly ascending leaf stream into erased nodes at
+    /// `height`, one per maximal same-prefix run, in run order
+    /// ([`Backend::assemble`], erased).
+    ///
+    /// The one dispatch keyed by an explicit height rather than a prefix:
+    /// its input is a whole leaf stream, and the target height is the
+    /// consuming scope's — whose prefix length the caller derives it from.
+    pub(crate) fn assemble<B, T>(
+        backend: B,
+        height: usize,
+        leaves: BoxNodeStream<'static, B, T, Z>,
+    ) -> Pin<Box<dyn Stream<Item = Result<(ErasedPrefix, B::Erased), B::Error>> + Send>>
+    where
+        B: Backend<T, Node<Z>: Leaf<T>>,
+        T: Send + Sync + 'static,
+    {
+        at_height!(height, H => {
+            Box::pin(
+                backend
+                    .assemble::<H>(leaves)
+                    .map(|item| item.map(|(prefix, node)| (prefix.erase(), B::erase(node)))),
+            )
         })
     }
 }
