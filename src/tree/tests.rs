@@ -7,6 +7,7 @@ use super::typed::{Hash, Path, untyped};
 use super::*;
 use crate::message::Message;
 
+use serde::Serialize;
 /// An arbitrary 32-byte leaf path (almost surely naming no live leaf).
 fn arb_path() -> impl Strategy<Value = Path> {
     any::<[u8; 32]>().prop_map(Path::from)
@@ -1625,7 +1626,7 @@ fn join_unwind_leaves_tree_byte_identical() {
 /// stay safe; only the drop is booby-trapped, and it holds fire while
 /// another panic is already unwinding (a second panic mid-unwind aborts
 /// the process instead of failing the test).
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, Serialize)]
 struct DropBomb {
     armed: bool,
 }

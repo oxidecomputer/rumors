@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use super::Message;
 
+use serde::Serializer;
 /// A small serde payload with varied field types, so proptests exercise
 /// nontrivial serialization structure (nested containers, strings) rather
 /// than only fixed-width primitives.
@@ -86,8 +87,8 @@ proptest! {
     #[test]
     fn serde_form_wraps_cached_bytes(p in payload()) {
         struct Bstr<'a>(&'a [u8]);
-        impl serde::Serialize for Bstr<'_> {
-            fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        impl Serialize for Bstr<'_> {
+            fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
                 s.serialize_bytes(self.0)
             }
         }

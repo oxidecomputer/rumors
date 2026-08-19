@@ -21,6 +21,8 @@ use crate::common::flaky::{DurableStore, FaultFeed, FlakyInMemoryBookmark, persi
 use crate::common::oracle::readout;
 use crate::common::wire::{assert_control_drained, block_on, bootstrap_fork, wire_gossip};
 
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 /// Capacity for each in-memory link stream. Roomy enough that the bootstrap
 /// descent's largest frames fit without the test depending on backpressure
 /// subtleties.
@@ -30,7 +32,7 @@ const LINK_BUF: usize = 64 * 1024;
 /// link, returning whatever the bootstrapper produced.
 fn wire_bootstrap<T>(provider: &Rumors<T>) -> Option<Rumors<T>>
 where
-    T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static,
+    T: Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     block_on(async move {
         let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(LINK_BUF);

@@ -35,6 +35,7 @@ use crate::{
     },
 };
 
+use serde::de::DeserializeOwned;
 /// A wire-bound protocol participant ready for the version handshake.
 ///
 /// Consumes a [`Link`] carrier for one session: the control halves host the
@@ -120,7 +121,7 @@ where
 impl<B, T, R, W, C, A> Connect<B, T> for Handshaking<B, T, R, W, C, A>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    T: serde::de::DeserializeOwned + Send + Sync + 'static,
+    T: DeserializeOwned + Send + Sync + 'static,
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
     C: Connector,
@@ -147,7 +148,7 @@ where
 impl<B, T, R, W, C, A> CompleteConnect<B, T> for Handshaking<B, T, R, W, C, A, Connecting>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    T: serde::de::DeserializeOwned + Send + Sync + 'static,
+    T: DeserializeOwned + Send + Sync + 'static,
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
     C: Connector,
@@ -181,7 +182,7 @@ where
 impl<B, T, R, W, C, A> Accept<B, T> for Handshaking<B, T, R, W, C, A>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    T: serde::de::DeserializeOwned + Send + Sync + 'static,
+    T: DeserializeOwned + Send + Sync + 'static,
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
     C: Connector,
@@ -322,7 +323,7 @@ fn connected<B, T, R, W, C, A>(
 ) -> Connected<B, T, R, W, C, A>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    T: serde::de::DeserializeOwned + Send + Sync + 'static,
+    T: DeserializeOwned + Send + Sync + 'static,
     C: Connector,
     A: Acceptor,
 {
@@ -377,7 +378,7 @@ fn open<B, T, R, W, C, A>(
 ) -> Connected<B, T, R, W, C, A>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    T: serde::de::DeserializeOwned + Send + Sync + 'static,
+    T: DeserializeOwned + Send + Sync + 'static,
     C: Connector,
     A: Acceptor,
 {

@@ -17,6 +17,8 @@ use tokio::runtime::Runtime;
 
 use crate::common::window::WindowChoice;
 
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 // clippy's `missing_const_for_thread_local` misreads `thread_local!`'s
 // fallback-TLS lowering (illumos among the gate's targets) and denies
 // initializers that already sit in `const` blocks; the allow keeps
@@ -120,7 +122,7 @@ fn unread_control_bytes<R: AsyncRead + Unpin>(mut read: R) -> Vec<u8> {
 #[track_caller]
 pub fn wire_gossip<T>(a: &Rumors<T>, b: &Rumors<T>)
 where
-    T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static,
+    T: Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     block_on(wire_gossip_async(a, b));
 }
@@ -129,7 +131,7 @@ where
 /// block on this thread's runtime (where a nested [`block_on`] would panic).
 pub async fn wire_gossip_async<T>(a: &Rumors<T>, b: &Rumors<T>)
 where
-    T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static,
+    T: Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     let _ = gossip_pair_async(a, b).await;
 }
@@ -144,7 +146,7 @@ pub async fn gossip_pair_async<T>(
     b: &Rumors<T>,
 ) -> (rumors::Gossiped, rumors::Gossiped)
 where
-    T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static,
+    T: Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(LINK_BUF);
 
@@ -205,7 +207,7 @@ pub async fn divergent_pair(
 #[track_caller]
 pub fn bootstrap_fork<T>(parent: &Rumors<T>) -> Rumors<T>
 where
-    T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + Clone + 'static,
+    T: Serialize + DeserializeOwned + Send + Sync + Clone + 'static,
 {
     block_on(bootstrap_fork_async_with_protocol(parent, Protocol::V2))
 }
@@ -214,7 +216,7 @@ where
 /// block on this thread's runtime (where a nested [`block_on`] would panic).
 pub async fn bootstrap_fork_async<T>(parent: &Rumors<T>) -> Rumors<T>
 where
-    T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + Clone + 'static,
+    T: Serialize + DeserializeOwned + Send + Sync + Clone + 'static,
 {
     bootstrap_fork_async_with_protocol(parent, Protocol::V2).await
 }
@@ -230,7 +232,7 @@ pub async fn bootstrap_fork_async_with_protocol<T>(
     protocol: Protocol,
 ) -> Rumors<T>
 where
-    T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + Clone + 'static,
+    T: Serialize + DeserializeOwned + Send + Sync + Clone + 'static,
 {
     bootstrap_fork_configured(parent, protocol, WindowChoice::Floor).await
 }
@@ -240,7 +242,7 @@ where
 #[track_caller]
 pub fn bootstrap_fork_with_window<T>(parent: &Rumors<T>, window: WindowChoice) -> Rumors<T>
 where
-    T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + Clone + 'static,
+    T: Serialize + DeserializeOwned + Send + Sync + Clone + 'static,
 {
     block_on(bootstrap_fork_with_window_async(parent, window))
 }
@@ -252,7 +254,7 @@ pub async fn bootstrap_fork_with_window_async<T>(
     window: WindowChoice,
 ) -> Rumors<T>
 where
-    T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + Clone + 'static,
+    T: Serialize + DeserializeOwned + Send + Sync + Clone + 'static,
 {
     bootstrap_fork_configured(parent, Protocol::V2, window).await
 }
@@ -265,7 +267,7 @@ async fn bootstrap_fork_configured<T>(
     window: WindowChoice,
 ) -> Rumors<T>
 where
-    T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + Clone + 'static,
+    T: Serialize + DeserializeOwned + Send + Sync + Clone + 'static,
 {
     let (mut parent_link, mut boot_link) = rumors::link::memory_with_capacity(LINK_BUF);
 

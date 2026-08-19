@@ -15,6 +15,8 @@ use rumors::{Peer, Rumors, Version, causally};
 
 use crate::common::wire::block_on;
 
+use serde::Serialize;
+use serde::Serializer;
 /// Commit `values` to `peer` as one batch, returning the [`Version`]s it
 /// minted (recovered as the live leaves above the pre-commit frontier).
 fn batch_send(peer: &Rumors<u64>, values: &[u64]) -> Vec<Version> {
@@ -153,8 +155,8 @@ struct Explosive {
     fail: bool,
 }
 
-impl serde::Serialize for Explosive {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+impl Serialize for Explosive {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         if self.fail {
             return Err(serde::ser::Error::custom("detonated"));
         }

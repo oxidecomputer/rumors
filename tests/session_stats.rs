@@ -25,11 +25,13 @@ use tokio::io::AsyncWrite;
 
 use crate::common::wire::{LINK_BUF, assert_control_drained, block_on, bootstrap_fork_async};
 
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 /// Run one gossip session between two handles over an in-memory link,
 /// returning both sides' [`Gossiped`].
 async fn gossip_pair<T>(a: &Rumors<T>, b: &Rumors<T>) -> (Gossiped, Gossiped)
 where
-    T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static,
+    T: Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(LINK_BUF);
     let (a_out, b_out) = tokio::join!(a.gossip(&mut a_link), b.gossip(&mut b_link));

@@ -80,6 +80,7 @@ use crate::tree::typed::{
     height::{Height, Root, S, UnderRoot, Z},
 };
 
+use serde::de::DeserializeOwned;
 #[cfg(test)]
 mod tests;
 
@@ -225,7 +226,7 @@ where
 // discharges it.
 impl<T, H> Decode for Exchange<T, H>
 where
-    T: serde::de::DeserializeOwned,
+    T: DeserializeOwned,
     S<H>: Height,
     H: Height,
     Node<T, S<H>>: Decode,
@@ -309,7 +310,7 @@ impl<T> Encode for Closing<T> {
 
 impl<T> Decode for Closing<T>
 where
-    T: serde::de::DeserializeOwned,
+    T: DeserializeOwned,
 {
     fn read_wire<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
         let providing: Providing<T, Z> = Decode::read_wire(reader)?;
@@ -355,7 +356,7 @@ impl<T> Encode for Complete<T> {
 
 impl<T> Decode for Complete<T>
 where
-    T: serde::de::DeserializeOwned,
+    T: DeserializeOwned,
 {
     fn read_wire<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
         let providing: Providing<T, Z> = Decode::read_wire(reader)?;

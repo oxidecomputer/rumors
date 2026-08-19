@@ -4,6 +4,8 @@ use proptest::collection::vec;
 use proptest::prelude::*;
 use rumors::{Snapshot, Version, causally};
 
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 const MAX_ACTIONS: usize = 16;
 
 #[derive(Debug, Clone)]
@@ -64,7 +66,7 @@ pub fn minted_version<T: Send + Sync>(snapshot: &Snapshot<T>, pre: &Version) -> 
 /// Apply a `LocalAction` sequence to an already-bootstrapped local replica.
 pub fn build_local<T>(local: rumors::Rumors<T>, actions: &[LocalAction<T>]) -> rumors::Rumors<T>
 where
-    T: Send + Sync + Clone + serde::Serialize + serde::de::DeserializeOwned + 'static,
+    T: Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
 {
     let mut versions: Vec<Version> = Vec::new();
     for a in actions {

@@ -14,6 +14,9 @@ use super::untyped;
 use crate::tree::wire;
 use untyped::fan::{self, Fan};
 
+#[cfg(any(test, feature = "protocol-v1"))]
+use serde::de::DeserializeOwned;
+
 /// The typed node with a height of 32; the root of the tree.
 pub type Root<T> = Node<T, height::Root>;
 
@@ -473,7 +476,7 @@ where
 #[cfg(any(test, feature = "protocol-v1"))]
 impl<T> wire::Decode for Node<T, Z>
 where
-    T: serde::de::DeserializeOwned,
+    T: DeserializeOwned,
 {
     fn read_wire<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
         let prefix_len = u8::read_wire(reader)?;
@@ -489,7 +492,7 @@ where
 #[cfg(any(test, feature = "protocol-v1"))]
 impl<T, H> wire::Decode for Node<T, S<H>>
 where
-    T: serde::de::DeserializeOwned,
+    T: DeserializeOwned,
     H: Height,
     S<H>: Height,
     Node<T, H>: wire::Decode,

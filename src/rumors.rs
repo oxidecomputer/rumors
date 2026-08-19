@@ -17,6 +17,8 @@ use tokio::{
     sync::watch,
 };
 
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 /// A handle for [`send`](Rumors::send)ing and [`redact`](Rumors::redact)ing
 /// messages, and [`gossip`](Rumors::gossip)ing the result with peers.
 ///
@@ -160,7 +162,7 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     /// If `message` fails to serialize (see [`Batch::send`]).
     pub fn send(&self, message: T) -> Batch<'_, T>
     where
-        T: serde::Serialize + Send + Sync,
+        T: Serialize + Send + Sync,
     {
         self.peer.send(message)
     }
@@ -391,7 +393,7 @@ impl<T, B: Bookmark> Rumors<T, B> {
         link: &mut Link<CR, CW, C, A>,
     ) -> Result<Gossiped, Error<B>>
     where
-        T: serde::de::DeserializeOwned + serde::Serialize + Send + Sync + 'static,
+        T: DeserializeOwned + Serialize + Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,
@@ -507,7 +509,7 @@ impl<T, B: Bookmark> Rumors<T, B> {
         link: &'a mut Link<CR, CW, C, A>,
     ) -> impl Stream<Item = Result<Gossiped, Error<B>>> + Unpin + 'a
     where
-        T: serde::de::DeserializeOwned + serde::Serialize + Send + Sync + 'static,
+        T: DeserializeOwned + Serialize + Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,

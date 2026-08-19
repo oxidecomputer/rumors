@@ -14,6 +14,7 @@ use crate::{
     },
 };
 
+use serde::Serialize;
 /// A 32-byte path with the given prefix, zero-padded.
 pub(super) fn path_at(prefix: &[u8]) -> Path {
     let mut bytes = [0u8; 32];
@@ -38,7 +39,7 @@ pub(super) fn grown<T>(
     paths: &[Path],
 ) -> Option<TreeNode<T, height::Root>>
 where
-    T: serde::Serialize + Clone + Send + Sync,
+    T: Serialize + Clone + Send + Sync,
 {
     assert!(stride > 0, "each leaf needs a fresh version");
     let party = nth_party(party);
@@ -237,7 +238,7 @@ impl Divergence {
     /// in both.
     pub fn trees<T>(&self, value: &T) -> (Root<T>, Root<T>, Root<T>)
     where
-        T: serde::Serialize + Clone + Send + Sync,
+        T: Serialize + Clone + Send + Sync,
     {
         let as_paths =
             |bytes: Vec<[u8; 32]>| -> Vec<Path> { bytes.into_iter().map(Path::from).collect() };

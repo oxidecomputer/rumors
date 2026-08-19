@@ -19,6 +19,8 @@ use crate::common::peer::{Peer, gossip_step, quiesce, quiesce_slots};
 use crate::common::window::WindowAssignment;
 use crate::common::wire::{LINK_BUF, assert_control_drained, block_on, bootstrap_fork_with_window};
 
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 pub struct ExecutionResult<T> {
     pub peers: Vec<Peer<T>>,
     pub oracle: Oracle<T>,
@@ -63,7 +65,7 @@ impl<T> MembershipExecutionResult<T> {
 /// between differently-configured endpoints).
 pub fn execute<T>(schedule: &Schedule<T>, windows: &WindowAssignment) -> ExecutionResult<T>
 where
-    T: Clone + Ord + serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static,
+    T: Clone + Ord + Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     execute_with(schedule, windows, |_, _, _| true)
 }
@@ -76,7 +78,7 @@ pub fn execute_and_quiesce<T>(
     windows: &WindowAssignment,
 ) -> ExecutionResult<T>
 where
-    T: Clone + Eq + Ord + serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static,
+    T: Clone + Eq + Ord + Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     let mut result = execute(schedule, windows);
     quiesce(&mut result.peers);
@@ -110,7 +112,7 @@ pub fn execute_with<T, F>(
     allow_gossip: F,
 ) -> ExecutionResult<T>
 where
-    T: Clone + Ord + serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static,
+    T: Clone + Ord + Serialize + DeserializeOwned + Send + Sync + 'static,
     F: Fn(usize, usize, EventIdx) -> bool,
 {
     assert!(
@@ -139,7 +141,7 @@ pub fn execute_membership<T>(
     windows: &WindowAssignment,
 ) -> MembershipExecutionResult<T>
 where
-    T: Clone + Ord + serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static,
+    T: Clone + Ord + Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     execute_slots(schedule, windows, |_, _, _| true)
 }
@@ -151,7 +153,7 @@ pub fn execute_membership_and_quiesce<T>(
     windows: &WindowAssignment,
 ) -> MembershipExecutionResult<T>
 where
-    T: Clone + Eq + Ord + serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static,
+    T: Clone + Eq + Ord + Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     let mut result = execute_membership(schedule, windows);
     quiesce_slots(&mut result.slots);
@@ -176,7 +178,7 @@ fn execute_slots<T, F>(
     allow_gossip: F,
 ) -> MembershipExecutionResult<T>
 where
-    T: Clone + Ord + serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static,
+    T: Clone + Ord + Serialize + DeserializeOwned + Send + Sync + 'static,
     F: Fn(usize, usize, EventIdx) -> bool,
 {
     let mut slots: Vec<Option<Peer<T>>> = Vec::with_capacity(schedule.n_peers);

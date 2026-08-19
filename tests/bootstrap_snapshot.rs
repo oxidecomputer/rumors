@@ -33,6 +33,8 @@ use crate::common::gossip_snapshot::capture_session;
 #[cfg(feature = "protocol-v1")]
 use crate::common::gossip_snapshot::capture_session_v1;
 
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 /// A provider seeded from a fixed RNG, so the [`rumors::Network`] id carried in
 /// the preamble — and the party region it forks off for the newcomer — are
 /// deterministic and these captures stay reproducible.
@@ -49,7 +51,7 @@ fn seeded<T>() -> Rumors<T> {
 /// expected to be served a successor.
 fn capture_bootstrap<T>(provider: Rumors<T>) -> String
 where
-    T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static,
+    T: Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     capture_session(
         move |mut link| async move {

@@ -17,6 +17,7 @@ use crate::tree::{
     typed::Hash,
 };
 
+use serde::de::DeserializeOwned;
 /// Async frame reader over one speaker's transport direction.
 ///
 /// EOF before a signal is a clean direction close and returns `None`. Once a
@@ -62,7 +63,7 @@ impl<R: AsyncRead + Unpin> FrameRead<R> {
     /// as a signal. Either retain the in-flight future across polls until
     /// it resolves, or read nothing further from this direction after a
     /// cancellation.
-    pub async fn frame<T: serde::de::DeserializeOwned>(
+    pub async fn frame<T: DeserializeOwned>(
         &mut self,
     ) -> Result<Option<WireFrame<T>>, DecodeError> {
         let Some((stream, signal)) = read_signal(self.speaker, &mut self.read).await? else {
@@ -107,7 +108,7 @@ impl<'a, R: AsyncRead + Unpin> AsyncFrameDecoder<'a, R> {
         Self { read, budget }
     }
 
-    async fn body<T: serde::de::DeserializeOwned>(
+    async fn body<T: DeserializeOwned>(
         &mut self,
         signal: Signal,
     ) -> Result<Frame<T>, DecodeErrorKind> {

@@ -21,6 +21,8 @@ use crate::{
     Version,
 };
 
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 mod bootstrap;
 mod gossip;
 
@@ -273,7 +275,7 @@ impl<T, B: Bookmark> Peer<T, B> {
     /// promises](crate::link::Link#what-a-session-promises).
     pub async fn retire<CR, CW, C, A>(self, link: &mut Link<CR, CW, C, A>) -> Retire<T, B>
     where
-        T: serde::de::DeserializeOwned + serde::Serialize + Send + Sync + 'static,
+        T: DeserializeOwned + Serialize + Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,
@@ -542,7 +544,7 @@ impl<T, B: BookmarkError> Peer<T, B> {
 
     pub(crate) fn send(&self, message: T) -> Batch<'_, T>
     where
-        T: serde::Serialize + Send + Sync,
+        T: Serialize + Send + Sync,
     {
         let mut batch = self.batch();
         batch.send(message);

@@ -44,6 +44,8 @@ use tokio::io::AsyncWrite;
 
 use crate::common::wire::block_on;
 
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 /// Messages both peers share before the fork: enough that the disputed
 /// frontier crosses shared structure, as real sessions do.
 const COMMON: usize = 2_048;
@@ -181,7 +183,7 @@ fn counting(
 /// [`DIVERGENT`] minted payloads on each side, deterministically.
 fn diverged<T>(mut mint: impl FnMut(&mut SmallRng) -> T) -> (Rumors<T>, Rumors<T>)
 where
-    T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + Clone + 'static,
+    T: Serialize + DeserializeOwned + Send + Sync + Clone + 'static,
 {
     let left = Peer::seed().sync_window_floor().into_rumors();
     let mut rng = SmallRng::seed_from_u64(0x0b05_2026_d15b_073e);
@@ -203,7 +205,7 @@ where
 /// side of each end.
 fn session_wire_bytes<T>(a: &Rumors<T>, b: &Rumors<T>) -> usize
 where
-    T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static,
+    T: Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     let written = Arc::new(AtomicUsize::new(0));
     let (a_link, b_link) = rumors::link::memory_with_capacity(LINK_CAPACITY);
@@ -226,7 +228,7 @@ where
 /// cost the constant states.
 fn implied_bytes_per_message<T>(mint: impl FnMut(&mut SmallRng) -> T) -> usize
 where
-    T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + Clone + 'static,
+    T: Serialize + DeserializeOwned + Send + Sync + Clone + 'static,
 {
     let (left, right) = diverged(mint);
     let total = session_wire_bytes(&left, &right);

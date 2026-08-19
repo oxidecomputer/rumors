@@ -4,6 +4,10 @@ use std::fmt;
 
 use rand::RngCore;
 
+use serde::Deserialize;
+use serde::Deserializer;
+use serde::Serialize;
+use serde::Serializer;
 /// The identifier shared by every [`Rumors`](crate::Rumors) that descends from
 /// the same [`seed`](crate::Peer::seed).
 ///
@@ -24,14 +28,14 @@ pub struct Network([u8; 16]);
 // opaque, so no structure beyond its width belongs on the wire or on disk
 // (the bookmark record keys its map by it).
 
-impl serde::Serialize for Network {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+impl Serialize for Network {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_bytes(&self.0)
     }
 }
 
-impl<'de> serde::Deserialize<'de> for Network {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+impl<'de> Deserialize<'de> for Network {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let bytes = <Vec<u8>>::deserialize(deserializer)?;
         let bytes: [u8; 16] = bytes
             .as_slice()

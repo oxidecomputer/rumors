@@ -21,6 +21,7 @@ use crate::Version;
 use crate::message::Message;
 use crate::tree::typed::Hash;
 
+use serde::de::DeserializeOwned;
 /// Encode `self` onto a byte stream.
 ///
 /// The method is `write_wire`, not `encode_to`: `before`'s types carry
@@ -213,7 +214,7 @@ impl<T> Encode for Message<T> {
     }
 }
 
-impl<T: serde::de::DeserializeOwned> Decode for Message<T> {
+impl<T: DeserializeOwned> Decode for Message<T> {
     fn read_wire<R: Read>(reader: &mut R) -> std::io::Result<Self> {
         ciborium::de::from_reader(reader).map_err(de_error)
     }

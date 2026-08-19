@@ -47,6 +47,8 @@ use tokio::time::Instant;
 
 use latency::{DelayedReader, DelayedWriter, delayed_pipe};
 
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 /// One-way link delay; whole milliseconds per the timer wheel's grain.
 const DELAY: Duration = Duration::from_millis(10);
 
@@ -327,7 +329,7 @@ fn traced_pair(trace: &Trace) -> (TracedLink, TracedLink) {
 /// Gossip one pair over a traced delayed link and return the trace.
 fn traced_session<T>(a: Rumors<T>, b: Rumors<T>) -> Trace
 where
-    T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static,
+    T: Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     let trace = Trace::default();
     let (mut a_link, mut b_link) = traced_pair(&trace);

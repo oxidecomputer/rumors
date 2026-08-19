@@ -25,11 +25,13 @@ use crate::common::action::{arb_local_actions, build_local};
 use crate::common::oracle::readout;
 use crate::common::wire::{bootstrap_fork, wire_gossip};
 
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 /// A genuine, party-disjoint copy of `k`'s content: a fresh originator that
 /// holds the same live messages but ticks its own party region.
 fn dup<T>(k: &Rumors<T>) -> Rumors<T>
 where
-    T: Clone + serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static,
+    T: Clone + Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     bootstrap_fork(k)
 }

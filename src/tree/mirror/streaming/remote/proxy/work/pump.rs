@@ -51,10 +51,11 @@ use crate::tree::{
 
 use super::{encode, queues};
 
+use serde::de::DeserializeOwned;
 impl<B, T, R, W, A> Work<B, T, R, W, A>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    T: serde::de::DeserializeOwned + Send + Sync + 'static,
+    T: DeserializeOwned + Send + Sync + 'static,
     R: Send,
     W: Send,
     A: Acceptor,
@@ -367,7 +368,7 @@ where
 impl<B, T, G, Rx> Early<B, T, G, Rx>
 where
     B: Backend<T, Node<Z>: Leaf<T>>,
-    T: serde::de::DeserializeOwned + Send + Sync + 'static,
+    T: DeserializeOwned + Send + Sync + 'static,
     G: Convert,
     S<G>: Height,
     Rx: tokio::io::AsyncRead + Unpin + Send + 'static,
@@ -465,7 +466,7 @@ where
 async fn reject_extra<Rx, T, E>(incoming: &mut StreamReceiver<Rx, T>) -> Result<(), Error<E>>
 where
     Rx: tokio::io::AsyncRead + Unpin + Send + 'static,
-    T: serde::de::DeserializeOwned + Send + Sync + 'static,
+    T: DeserializeOwned + Send + Sync + 'static,
 {
     match incoming.finish().await {
         ReceiverFinish::Clean => Ok(()),

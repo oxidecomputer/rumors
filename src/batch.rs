@@ -5,6 +5,7 @@ use crate::tree::Action;
 use crate::tree::typed::Path;
 use crate::{Inner, Version};
 
+use serde::Serialize;
 /// A batch of insertions and redactions against a [`Rumors`](crate::Rumors),
 /// applied in one commit.
 ///
@@ -62,7 +63,7 @@ impl<'a, T: Send + Sync> Batch<'a, T> {
     /// commit: the failure surfaces at the offending call.
     pub fn send(&mut self, message: T) -> &mut Self
     where
-        T: serde::Serialize,
+        T: Serialize,
     {
         self.actions.push(Action::Insert(Message::from(message)));
         self

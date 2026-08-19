@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 
 use rumors::Peer;
 
+use serde::de::DeserializeOwned;
 /// A struct payload in one field order.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 struct WideV1 {
@@ -55,8 +56,8 @@ enum EventV2 {
 /// across two payload *types*.
 async fn exchanged<A, B>(payload: A) -> B
 where
-    A: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static,
-    B: serde::Serialize + serde::de::DeserializeOwned + Clone + Send + Sync + 'static,
+    A: Serialize + DeserializeOwned + Send + Sync + 'static,
+    B: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
 {
     let sender = Peer::<A>::seed().into_rumors();
     sender.send(payload);

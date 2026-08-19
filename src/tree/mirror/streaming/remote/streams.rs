@@ -54,6 +54,7 @@ use super::codec::{
     DecodeError, EncodeError, End, Frame, FrameRead, FrameWrite, Origin, RunBudget, Speaker, Stream,
 };
 
+use serde::de::DeserializeOwned;
 /// Bytes of the label a sender writes before its first frame.
 ///
 /// The canonical definition of the wire label's width: the capture
@@ -311,7 +312,7 @@ struct ReceiverStart<Rx> {
 impl<Rx, T> StreamReceiver<Rx, T>
 where
     Rx: tokio::io::AsyncRead + Unpin + Send + 'static,
-    T: serde::de::DeserializeOwned + Send + Sync + 'static,
+    T: DeserializeOwned + Send + Sync + 'static,
 {
     /// Bind one incoming logical stream to its claim slot.
     pub fn new(
@@ -382,7 +383,7 @@ pub enum ReceiverFinish {
 impl<Rx, T> futures::Stream for StreamReceiver<Rx, T>
 where
     Rx: tokio::io::AsyncRead + Unpin + Send + 'static,
-    T: serde::de::DeserializeOwned + Send + Sync + 'static,
+    T: DeserializeOwned + Send + Sync + 'static,
 {
     type Item = Frame<T>;
 
@@ -405,7 +406,7 @@ fn read_frames<Rx, T>(
 ) -> impl futures::Stream<Item = Frame<T>> + Send
 where
     Rx: tokio::io::AsyncRead + Unpin + Send + 'static,
-    T: serde::de::DeserializeOwned + Send + Sync + 'static,
+    T: DeserializeOwned + Send + Sync + 'static,
 {
     stream! {
         let Ok((rx, done)) = claim.await else {

@@ -41,6 +41,8 @@ use crate::common::peer::{Peer, gossip_step, quiesce};
 use crate::common::schedule::EventIdx;
 use crate::common::wire::bootstrap_fork;
 
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 /// Capacity of an overlapped session's link streams, in bytes.
 ///
 /// Deliberately tiny, unlike [`wire::LINK_BUF`](crate::common::wire::LINK_BUF):
@@ -90,7 +92,7 @@ pub struct Session {
 /// Open a wire gossip session between `a` and `b` without polling it.
 pub fn open<T>(a: &Rumors<T>, b: &Rumors<T>) -> Session
 where
-    T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static,
+    T: Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     let a = a.clone();
     let b = b.clone();
@@ -199,7 +201,7 @@ pub struct OverlapSchedule<T> {
 /// two agree.
 pub fn execute_overlap_and_quiesce<T>(schedule: &OverlapSchedule<T>) -> (Vec<Peer<T>>, Oracle<T>)
 where
-    T: Clone + Eq + Ord + serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static,
+    T: Clone + Eq + Ord + Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     let mut peers: Vec<Peer<T>> = Vec::with_capacity(schedule.n_peers);
     for i in 0..schedule.n_peers {

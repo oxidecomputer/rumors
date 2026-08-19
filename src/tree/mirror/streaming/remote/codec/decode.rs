@@ -26,9 +26,12 @@ use super::{
     signal::{Signal, Speaker, Stream, WireSignal},
 };
 
+#[cfg(test)]
+use serde::de::DeserializeOwned;
+
 /// Decode one frame from `read`, leaving subsequent bytes untouched.
 #[cfg(test)]
-pub fn decode<T: serde::de::DeserializeOwned>(
+pub fn decode<T: DeserializeOwned>(
     speaker: Speaker,
     budget: RunBudget,
     read: &mut impl Read,
@@ -38,7 +41,7 @@ pub fn decode<T: serde::de::DeserializeOwned>(
 
 /// Decode exactly one frame from a slice, rejecting bytes after it.
 #[cfg(test)]
-pub fn decode_exact<T: serde::de::DeserializeOwned>(
+pub fn decode_exact<T: DeserializeOwned>(
     speaker: Speaker,
     budget: RunBudget,
     input: &[u8],
@@ -75,7 +78,7 @@ impl<'a, R: Read> FrameDecoder<'a, R> {
         }
     }
 
-    fn decode<T: serde::de::DeserializeOwned>(mut self) -> Result<WireFrame<T>, DecodeError> {
+    fn decode<T: DeserializeOwned>(mut self) -> Result<WireFrame<T>, DecodeError> {
         let (stream, signal) = self.signal()?;
         let frame = self
             .body(signal)
@@ -90,10 +93,7 @@ impl<'a, R: Read> FrameDecoder<'a, R> {
         decode_signal(self.speaker, byte)
     }
 
-    fn body<T: serde::de::DeserializeOwned>(
-        &mut self,
-        signal: Signal,
-    ) -> Result<Frame<T>, DecodeErrorKind> {
+    fn body<T: DeserializeOwned>(&mut self, signal: Signal) -> Result<Frame<T>, DecodeErrorKind> {
         let frame = match signal {
             Signal::Match(flow) => Frame::Reaction(Reaction::Match, flow),
             Signal::QueryEmpty(flow) => Frame::Reaction(Reaction::Query(Vec::new()), flow),

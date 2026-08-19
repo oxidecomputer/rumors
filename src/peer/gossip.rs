@@ -41,6 +41,8 @@ use crate::{
 
 use super::{Inner, Peer, bootstrap::Bootstrap};
 
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 /// Magic bytes that open every `rumors` gossip session's preamble frame.
 pub const PROTOCOL_MAGIC: [u8; 6] = *b"RUMORS";
 
@@ -209,7 +211,7 @@ impl<T> Peer<T, NoBookmark> {
         link: &'a mut Link<CR, CW, C, A>,
     ) -> BoxFuture<'a, Result<Option<Self>, Error>>
     where
-        T: serde::de::DeserializeOwned + serde::Serialize + Send + Sync + 'static,
+        T: DeserializeOwned + Serialize + Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,
@@ -236,7 +238,7 @@ impl<T> Peer<T, NoBookmark> {
         link: DynLinkParts<'a>,
     ) -> BoxFuture<'a, Result<Option<Self>, Error>>
     where
-        T: serde::de::DeserializeOwned + serde::Serialize + Send + Sync + 'static,
+        T: DeserializeOwned + Serialize + Send + Sync + 'static,
     {
         Box::pin(async move {
             let (read, write, connector, acceptor, epoch) = link;
@@ -435,7 +437,7 @@ impl<T, B: Persist> Peer<T, B> {
         link: &mut Link<CR, CW, C, A>,
     ) -> Retire<T, B>
     where
-        T: serde::de::DeserializeOwned + serde::Serialize + Send + Sync + 'static,
+        T: DeserializeOwned + Serialize + Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,
@@ -474,7 +476,7 @@ impl<T, B: Persist> Peer<T, B> {
         link: &mut Link<CR, CW, C, A>,
     ) -> Result<Gossiped, Error<B>>
     where
-        T: serde::de::DeserializeOwned + serde::Serialize + Send + Sync + 'static,
+        T: DeserializeOwned + Serialize + Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,
@@ -614,7 +616,7 @@ impl<T, B: Persist> Peer<T, B> {
         link: DynLinkParts<'a>,
     ) -> (Intent, Result<(Version, SessionStats), Error<B>>)
     where
-        T: serde::de::DeserializeOwned + serde::Serialize + Send + Sync + 'static,
+        T: DeserializeOwned + Serialize + Send + Sync + 'static,
     {
         let (read, write, connector, acceptor, epoch) = link;
         // The session's stats recorder: under V2, both protocol
@@ -969,7 +971,7 @@ impl<T, B: Bookmark> Peer<T, B> {
         link: &'a mut Link<CR, CW, C, A>,
     ) -> impl Stream<Item = Result<Gossiped, Error<B>>> + Unpin + 'a
     where
-        T: serde::de::DeserializeOwned + serde::Serialize + Send + Sync + 'static,
+        T: DeserializeOwned + Serialize + Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,

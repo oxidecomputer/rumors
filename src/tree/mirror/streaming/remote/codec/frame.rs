@@ -14,6 +14,7 @@ use crate::{
 use super::error::{DecodeLeafError, QueryOrderError};
 use super::signal::{End, Flow, Stream};
 
+use serde::de::DeserializeOwned;
 /// The count byte stores one less than the nonempty query's actual fan.
 pub const QUERY_COUNT_BIAS: usize = 1;
 
@@ -207,7 +208,7 @@ impl<T> LeafRun<T> {
     /// Iterate the run's records, decoding each into its canonical pair.
     pub fn records(&self) -> impl Iterator<Item = Result<(Version, Message<T>), DecodeLeafError>>
     where
-        T: serde::de::DeserializeOwned,
+        T: DeserializeOwned,
     {
         self.record_slices().map(parse_record)
     }
@@ -262,7 +263,7 @@ fn record_header(header: &[u8]) -> usize {
 }
 
 /// Decode one exact record body into its canonical pair.
-fn parse_record<T: serde::de::DeserializeOwned>(
+fn parse_record<T: DeserializeOwned>(
     record: &[u8],
 ) -> Result<(Version, Message<T>), DecodeLeafError> {
     // Both fields are self-delimiting CBOR values, so the exact record

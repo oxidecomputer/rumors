@@ -64,6 +64,8 @@ use super::super::{
     protocol::{self, Step},
 };
 
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 /// The version state for an [`Exchange`] which has just been initialized but
 /// has not yet connected.
 pub struct Start;
@@ -170,7 +172,7 @@ impl<T, R, W> protocol::Accept<T> for Exchange<T, R, W, Start, Root>
 where
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
-    T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
+    T: Serialize + DeserializeOwned + Send + Sync,
 {
     type Next = Exchange<T, R, W, Connected, Root>;
 
@@ -208,7 +210,7 @@ where
 
 impl<T, R, W> protocol::Initiator<T> for Exchange<T, R, W, Connected, Root>
 where
-    T: serde::de::DeserializeOwned + Send + Sync,
+    T: DeserializeOwned + Send + Sync,
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
     Node<T, UnderRoot>: wire::Decode,
@@ -230,7 +232,7 @@ where
 
 impl<T, R, W> protocol::Responder<T> for Exchange<T, R, W, Connected, Root>
 where
-    T: serde::de::DeserializeOwned + Send + Sync,
+    T: DeserializeOwned + Send + Sync,
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
     Node<T, UnderRoot>: wire::Decode,
@@ -258,7 +260,7 @@ where
 
 impl<T, R, W> protocol::OpenInitiator<T> for Exchange<T, R, W, Connected, Root>
 where
-    T: serde::de::DeserializeOwned + Send + Sync,
+    T: DeserializeOwned + Send + Sync,
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
     Node<T, UnderRoot>: wire::Decode,
@@ -292,7 +294,7 @@ where
 
 impl<T, R, W, H> protocol::Exchange<T> for Exchange<T, R, W, Connected, S<S<H>>>
 where
-    T: serde::de::DeserializeOwned + Send + Sync,
+    T: DeserializeOwned + Send + Sync,
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
     H: Height,
@@ -341,7 +343,7 @@ where
 
 impl<T, R, W> protocol::CloseResponder<T> for Exchange<T, R, W, Connected, S<Z>>
 where
-    T: serde::de::DeserializeOwned + Send + Sync,
+    T: DeserializeOwned + Send + Sync,
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
 {
@@ -382,7 +384,7 @@ where
 
 impl<T, R, W> protocol::CompleteInitiator<T> for Exchange<T, R, W, Connected, Z>
 where
-    T: serde::de::DeserializeOwned + Send + Sync,
+    T: DeserializeOwned + Send + Sync,
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
 {

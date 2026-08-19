@@ -30,6 +30,7 @@ use super::super::{
 };
 use crate::{Version, message::Message, tree::typed::Hash};
 
+use serde::Serialize;
 /// One rendered marker per error variant the atlas must witness.
 ///
 /// Grouped by the enum whose `describe_*` match is the compile-time
@@ -81,7 +82,7 @@ const INTERIOR_STREAM: u8 = 8;
 const FIRST_RESERVED_SIGNAL: u8 = WireSignal::BYTE_COUNT;
 
 /// Build a supply run holding one leaf record.
-fn one_record_run<T: serde::Serialize>(version: Version, value: T) -> LeafRun<T> {
+fn one_record_run<T: Serialize>(version: Version, value: T) -> LeafRun<T> {
     let mut run = LeafRun::new();
     run.push(&version, &Message::new(value))
         .expect("an atlas record fits the run framing");

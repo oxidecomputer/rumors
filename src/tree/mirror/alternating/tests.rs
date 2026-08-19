@@ -20,6 +20,8 @@ use crate::{Version, message::Message};
 use super::{local, mirror, remote};
 use crate::tree::mirror::handshake::{self, Intent};
 
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 // clippy's `missing_const_for_thread_local` misreads `thread_local!`'s
 // fallback-TLS lowering (illumos among the gate's targets) and denies
 // initializers that already sit in `const` blocks; the allow keeps
@@ -82,7 +84,7 @@ fn mirror_via<T>(
     scenario: Scenario,
 ) -> crate::tree::Root<T>
 where
-    T: PartialEq + std::fmt::Debug + serde::Serialize + serde::de::DeserializeOwned + Send + Sync,
+    T: PartialEq + std::fmt::Debug + Serialize + DeserializeOwned + Send + Sync,
 {
     block_on(async move {
         match scenario {

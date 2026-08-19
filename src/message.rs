@@ -6,6 +6,11 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 
+use serde::Deserialize;
+use serde::Deserializer;
+use serde::Serialize;
+use serde::Serializer;
+use serde::de::DeserializeOwned;
 /// A message of type `T` paired with its cached serialization.
 ///
 /// The cache avoids repeated roundtrips through serialization: a `Message<T>`
@@ -61,7 +66,7 @@ fn de_error(error: ciborium::de::Error<io::Error>) -> io::Error {
 /// If `T`'s `Serialize` implementation reports an error ([`Message`]'s
 /// panic contract: serializability is the caller's obligation). Writing
 /// into a `Vec` cannot fail.
-fn to_vec<T: serde::Serialize>(value: &T) -> Vec<u8> {
+fn to_vec<T: Serialize>(value: &T) -> Vec<u8> {
     let mut buf = Vec::new();
     ciborium::ser::into_writer(value, &mut buf)
         .expect("every message value must serialize (see Message's panic contract)");
@@ -77,7 +82,7 @@ impl<T> Message<T> {
     /// If the message cannot be serialized (see [`Message`]).
     pub fn new(message: T) -> Self
     where
-        T: serde::Serialize,
+        T: Serialize,
     {
         Message {
             serialized: Bytes::from(to_vec(&message)),
@@ -93,7 +98,7 @@ impl<T> Message<T> {
     /// encoding.
     pub fn from_slice(bytes: &[u8]) -> io::Result<Self>
     where
-        T: serde::de::DeserializeOwned,
+        T: DeserializeOwned,
     {
         let mut input = bytes;
         let message: T = ciborium::de::from_reader(&mut input).map_err(de_error)?;
@@ -130,7 +135,7 @@ impl<T> Message<T> {
     /// [`from_slice`](Self::from_slice)'s exactly-one-value contract.
     pub fn from_bytes(bytes: Bytes) -> io::Result<Self>
     where
-        T: serde::de::DeserializeOwned,
+        T: DeserializeOwned,
     {
         let mut input = bytes.as_ref();
         let message: T = ciborium::de::from_reader(&mut input).map_err(de_error)?;
@@ -153,7 +158,7 @@ impl<T> Message<T> {
     /// If the message cannot be serialized (see [`Message`]).
     pub fn from_arc(arc: Arc<T>) -> Self
     where
-        T: serde::Serialize,
+        T: Serialize,
     {
         Message {
             serialized: Bytes::from(to_vec(&*arc)),
@@ -212,7 +217,7 @@ impl<T> Message<T> {
     }
 }
 
-impl<T: serde::Serialize> From<T> for Message<T> {
+impl<T: Serialize> From<T> for Message<T> {
     /// Creates a `Message` pairing the given object with its cached
     /// serialization.
     ///
@@ -278,14 +283,14 @@ impl<T: Hash> Hash for Message<T> {
 // wrapper is what makes a nested message self-delimiting wherever the
 // container does not delimit it.
 
-impl<T> serde::Serialize for Message<T> {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+impl<T> Serialize for Message<T> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_bytes(&self.serialized)
     }
 }
 
-impl<'de, T: serde::de::DeserializeOwned> serde::Deserialize<'de> for Message<T> {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+impl<'de, T: DeserializeOwned> Deserialize<'de> for Message<T> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let bytes = <Vec<u8>>::deserialize(deserializer)?;
         Message::from_slice(&bytes).map_err(serde::de::Error::custom)
     }
