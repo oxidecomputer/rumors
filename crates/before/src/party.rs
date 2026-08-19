@@ -464,18 +464,14 @@ impl Party {
         }
     }
 
-    /// The party's shape — its 0/1-valued membership function over the
-    /// unit id interval — as an iterator of
-    /// [`Region`](crate::shape::Region)s, left to right.
+    /// The party's shape.
+    ///
+    /// This iterator renders its 0/1-valued membership function over the
+    /// interval `[0, 1)` as an iterator of [`Region`](crate::shape::Region)s,
+    /// left to right.
     ///
     /// One item per maximal constant run: whether the party owns it and
-    /// the dyadic interval it spans. The walk borrows the party and
-    /// streams its stored form in place; the item sequence and the party
-    /// determine each other exactly. The [`shape`](crate::shape) module
-    /// docs give the vocabulary; this is the entry point for renderers
-    /// and tooling that draw or inspect ownership rather than test it
-    /// (for the tests themselves, use
-    /// [`is_disjoint`](Party::is_disjoint) and [`covers`](Party::covers)).
+    /// the dyadic interval it spans.
     ///
     /// # Complexity
     ///
