@@ -284,15 +284,19 @@ fn understated_set_len_fails_the_session() {
 /// exclusive content rides the opening-supply stream as one reply.
 fn opening_bulk_pair() -> (crate::tree::Root<()>, crate::tree::Root<()>) {
     let mut small = Tree::new();
-    small.act(
-        &nth_party(1),
-        (0..4).map(|_| Action::Insert(Message::new(()))),
-    );
+    small
+        .act(
+            &nth_party(1),
+            (0..4).map(|_| Action::Insert(Message::new(()))),
+        )
+        .expect("collision-free by construction");
     let mut large = Tree::new();
-    large.act(
-        &nth_party(0),
-        (0..8).map(|_| Action::Insert(Message::new(()))),
-    );
+    large
+        .act(
+            &nth_party(0),
+            (0..8).map(|_| Action::Insert(Message::new(()))),
+        )
+        .expect("collision-free by construction");
     (small.root, large.root)
 }
 
