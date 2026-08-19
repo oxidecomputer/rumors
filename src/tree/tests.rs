@@ -658,10 +658,12 @@ proptest! {
     }
 
     /// `react` is idempotent: applying the same batch twice is identical to
-    /// applying it once. This is the CRDT property that lets us re-deliver
-    /// messages safely in the face of retries or out-of-order transport,
-    /// and it rides the identical-leaf arm: a re-delivered insert matches
-    /// the resident leaf byte-for-byte and is kept, never a collision.
+    /// applying it once.
+    ///
+    /// This is the CRDT property that lets us re-deliver messages safely
+    /// in the face of retries or out-of-order transport, and it rides the
+    /// identical-leaf arm: a re-delivered insert matches the resident leaf
+    /// byte-for-byte and is kept, never a collision.
     #[test]
     fn react_idempotent(bytes in distinct_bytes(16)) {
         let party = "P".to_string();
@@ -1187,7 +1189,7 @@ proptest! {
     ///
     /// The pairs' paths share a drawn-length spine (the constructed
     /// analogue of a hash-prefix collision), driving the merge's divergent
-    /// arm at every level down to the split, where content-addressed pairs
+    /// arm at every level down to the split, where version-addressed pairs
     /// scatter at the root fan and never descend. Zero novelty widths are
     /// drawn too, so subset, identical, and ceiling-only merges — the
     /// flag's `false` arm — are sampled at depth alongside the gains.
@@ -1570,7 +1572,7 @@ fn act_unwind_leaves_tree_byte_identical() {
 #[test]
 fn join_unwind_leaves_tree_byte_identical() {
     // Several divergent leaves per side spread the root fan across
-    // multiple radixes (paths are content hashes), so the root frame
+    // multiple radixes (paths are version hashes), so the root frame
     // performs several merge steps for the fuse to count.
     let mut ours: Tree<Bytes> = Tree::new();
     ours.act(
@@ -1862,9 +1864,11 @@ fn join_detects_a_version_collision_at_one_path() {
 }
 
 /// Two leaves carrying the *same version* with different payloads compare
-/// digest-equal — digests are content-blind — so `Tree::join` keeps one
-/// side and reports no change: the modeled trade, pinned so its boundary
-/// with the detected (version-mismatch) case stays explicit.
+/// digest-equal, so `Tree::join` keeps one side and reports no change.
+///
+/// Digests are content-blind by design: this is the modeled trade, pinned
+/// so its boundary with the detected (version-mismatch) case stays
+/// explicit.
 #[test]
 fn join_prunes_same_version_payload_divergence_as_equal() {
     let version = version_for("A", 1);

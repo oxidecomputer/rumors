@@ -2,7 +2,7 @@
 //! the single-preimage node hash, and the collision pairs its kind tags and
 //! length fields exist to prevent.
 
-use super::{BRANCH_TAG, ContentHash, Hash, LEAF_TAG, MERKLE_HASH_LEN};
+use super::{BRANCH_TAG, Hash, LEAF_TAG, MERKLE_HASH_LEN, PathHash};
 
 /// A branch commits to exactly `BRANCH_TAG ‖ prefix_len ‖ prefix ‖
 /// child_count ‖ (radix ‖ child_hash)*`.
@@ -142,6 +142,6 @@ fn saturated_fan_count_uses_the_high_byte() {
 fn merkle_hash_is_prefix_of_full_width() {
     let preimage = b"any preimage at all";
     let truncated = Hash::of(preimage);
-    let full = ContentHash::of(preimage);
+    let full = PathHash::of(preimage);
     assert_eq!(truncated.as_bytes()[..], full.as_bytes()[..MERKLE_HASH_LEN]);
 }

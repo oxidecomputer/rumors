@@ -30,6 +30,10 @@ fn encode_listing(children: &[(u8, Hash)]) -> Vec<u8> {
     body
 }
 
+/// The capture renderer decodes each supply record structurally: two runs
+/// differing only in the record's version render record lines that differ
+/// exactly at the named version field, with the record count and the
+/// (identical) payload accounting unchanged.
 #[test]
 fn supply_decode_names_the_field_that_moved() {
     let party = before::Party::seed();

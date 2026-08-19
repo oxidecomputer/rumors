@@ -3,7 +3,7 @@
 //! These cover the operations that mutate or read a rumor set entirely in
 //! memory: everything except [`gossip`](rumors::Rumors::gossip), which
 //! serializes onto the wire (see `gossip_grid.rs` and `gossip_fixed.rs`).
-//! The message payload is `()`, which borsh-encodes to zero bytes, so each
+//! The message payload is `()`, whose encoding is one CBOR null byte, so each
 //! measurement reflects the tree / clock / hashing work rather than the cost
 //! of serializing a payload.
 //!

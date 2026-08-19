@@ -653,7 +653,8 @@ impl<T> Node<T> {
 
     /// Serialize the node in its in-memory layout.
     ///
-    /// This is the canonical encoder: the typed [`wire::Encode`] impl is a
+    /// This is the canonical encoder: the typed
+    /// [`wire::Encode`](crate::tree::wire::Encode) impl is a
     /// thin delegate over it, and on the decode side the same shape is
     /// reconstructed via the chain-reader trick that synthesizes per-level
     /// `prefix_len` bytes.

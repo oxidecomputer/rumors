@@ -51,9 +51,9 @@ pub const DIFFERING: &[usize] = &[0, 1, 10, 100, 1_000, 10_000, 100_000];
 /// (see the module docs). Bounded per cell by `common / 2`.
 pub const REDACTED: &[usize] = &[0, 1, 10, 100, 1_000, 10_000, 100_000];
 
-/// Commit `n` unit payloads to `rumors` as one batch. `()` borsh-encodes to
-/// zero bytes, so fixtures measure tree / clock / hashing work, not payload
-/// serialization.
+/// Commit `n` unit payloads to `rumors` as one batch. `()` encodes as one
+/// CBOR null byte, so fixtures measure tree / clock / hashing work, not
+/// payload serialization.
 pub fn send_units(rumors: &Rumors<()>, n: usize) {
     let mut batch = rumors.batch();
     for _ in 0..n {

@@ -190,7 +190,7 @@ proptest! {
     ///
     /// Both frames are honestly sized around arbitrary bodies, so the fuzz
     /// lands on the body decoders (the version's bit codec, the listing's
-    /// borsh shape and order check) rather than on the allocator via a lied
+    /// record shape and order check) rather than on the allocator via a lied
     /// length header — the header lies are pinned deterministically above.
     /// Every outcome must be `Ok` or one of the three typed greeting
     /// errors.
@@ -259,7 +259,7 @@ async fn duplicate_listing_radix_is_rejected() {
     );
 }
 
-/// A listing frame whose borsh body is truncated fails as a typed decode
+/// A listing frame whose record body is truncated fails as a typed decode
 /// error.
 ///
 /// A frame declaring more listing entries than its body carries must surface

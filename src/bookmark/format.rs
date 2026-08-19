@@ -18,7 +18,7 @@
 //! silent-divergence failure mode this crate exists to prevent.
 //!
 //! The hash is a plain [`blake3`] digest, deliberately *not* the tree's
-//! content-addressing hash: that type's contract is identity (a leaf's path), a
+//! path-identity hash: that type's contract is identity (a leaf's path), a
 //! different concern from this one's local, non-adversarial corruption check.
 //!
 //! The framing ([`frame`]/[`unframe`]) is kept separate from the record codec

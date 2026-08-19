@@ -241,7 +241,7 @@ async fn claim_bootstrap_v1(
     Ok((party, Tree { root }))
 }
 
-/// A provider holding `values`, plus its pre-session content hash.
+/// A provider holding `values`, plus its pre-session root hash.
 fn provider_with(values: &[u64]) -> Peer<u64> {
     let provider = Peer::<u64>::seed();
     {

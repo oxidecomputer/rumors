@@ -85,7 +85,7 @@ fn parked_supply_reply_holds_handles_not_subtrees() {
         .clone()
         .expect("a populated tree has a root node");
 
-    // The real root fan: content-addressed leaves scatter across first
+    // The real root fan: version-addressed leaves scatter across first
     // bytes, so the fan is wide and its children are multi-leaf.
     let children: Vec<(u8, typed::Node<u64, UnderRoot>)> =
         root.into_children().into_iter().collect();

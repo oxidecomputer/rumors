@@ -8,7 +8,7 @@
 //!
 //! | Variant | Replica | Beyond reconnecting |
 //! |---|---|---|
-//! | [`Error::Io`] | unchanged | transport failure (retry over a fresh link), or a Borsh framing fault outside the streaming mirror (counterparty bug: report it) |
+//! | [`Error::Io`] | unchanged | transport failure (retry over a fresh link), or a wire framing fault outside the streaming mirror (counterparty bug: report it) |
 //! | [`Error::MagicMismatch`] | unchanged | the counterparty is not speaking rumors: fix the dial target |
 //! | [`Error::VersionMismatch`] | unchanged | select the same [`Protocol`] at both ends; if both already do, the selected protocol's wire version differs across the two releases: align crate versions |
 //! | [`Error::NetworkMismatch`] | unchanged | unrelated universes: apply the dominance rule ([`Peer`](crate::Peer)'s "Bootstrapping without consensus") |
@@ -52,7 +52,7 @@ pub type MirrorError = mirror::Error<MaterializedError<Infallible>, RemoteError<
 #[non_exhaustive]
 #[derive(Debug, thiserror::Error)]
 pub enum Error<B: BookmarkError = NoBookmark> {
-    /// An underlying reader/writer error, or a Borsh framing failure outside
+    /// An underlying reader/writer error, or a wire framing failure outside
     /// the streaming mirror itself.
     #[error(transparent)]
     Io(#[from] std::io::Error),

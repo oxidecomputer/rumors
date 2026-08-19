@@ -25,8 +25,9 @@ fn seeded<T>() -> Rumors<T> {
     Peer::seed_rng(&mut SmallRng::seed_from_u64(0)).into_rumors()
 }
 
-/// Pool size for the one-byte path search staging the disputed sibling:
-/// the search must hit one *specific* root radix, a direct-hit search with
+/// Pool size for the one-byte path search staging the disputed sibling.
+///
+/// The search must hit one *specific* root radix, a direct-hit search with
 /// mean 256, so the pool is sized well past it (`common::shape` explains
 /// the search-and-redact staging; it is deterministic under the seeded
 /// universe).

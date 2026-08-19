@@ -31,13 +31,14 @@
 //! count-minus-one admits every fan from 1 through 256.
 //!
 //! Supplied leaves ship in *runs*: one exact-length-delimited body carrying
-//! one or more leaf records, each itself an exact-length-delimited
-//! canonical borsh encoding of its [`Version`](crate::Version) and
-//! [`Message<T>`](crate::message::Message). The encoder chunks a supplied
-//! subtree's leaves into runs by a byte budget ([`RunBudget`]); once a run's
-//! whole body arrives, the frame codec validates its record framing and the
-//! incoming adapter decodes each backend-neutral pair exactly once,
-//! constructing a backend leaf and validating its content-derived path.
+//! one or more leaf records, each itself exact-length-delimited — a CBOR
+//! byte string wrapping the [`Version`](crate::Version)'s canonical bytes,
+//! then the [`Message<T>`](crate::message::Message)'s CBOR payload. The
+//! encoder chunks a supplied subtree's leaves into runs by a byte budget
+//! ([`RunBudget`]); once a run's whole body arrives, the frame codec
+//! validates its record framing and the incoming adapter decodes each
+//! backend-neutral pair exactly once, constructing a backend leaf and
+//! validating its version-derived path.
 //!
 //! The initiator's distinguished opening question needs no wire frame: its
 //! content — the initiator's root-fan listing — rides the greeting on the

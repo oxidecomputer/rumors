@@ -118,10 +118,10 @@ fn v1_populated_provider() {
 
 /// Bootstrap of a non-primitive, variable-length payload.
 ///
-/// `u64` borsh-encodes
-/// to a fixed 8 bytes; `String` encodes as a length prefix followed by its
-/// UTF-8 bytes, so this is the only bootstrap scenario that pins how a
-/// variable-length value is framed inside a served leaf.
+/// A `u64` payload CBOR-encodes
+/// as one compact integer; a `String` encodes as a CBOR text string with
+/// its own length header, so this is the only bootstrap scenario that pins
+/// how a variable-length value is framed inside a served leaf.
 #[test]
 fn string_payload() {
     let provider: Rumors<String> = seeded();

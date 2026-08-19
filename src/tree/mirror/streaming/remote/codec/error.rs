@@ -94,7 +94,7 @@ impl EncodeError {
     }
 }
 
-/// A Borsh or canonicality failure while decoding a supplied leaf record.
+/// A decode or canonicality failure in a supplied leaf record.
 ///
 /// Produced by the run's record iterator (`LeafRun::records`), which the
 /// incoming adapter drives record by record; run *structure* is instead

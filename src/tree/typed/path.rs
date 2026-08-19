@@ -1,6 +1,6 @@
 use std::{fmt::Debug, marker::PhantomData};
 
-use super::hash::ContentHash;
+use super::hash::PathHash;
 use super::height::{Height, Root, S};
 use crate::Version;
 
@@ -28,14 +28,14 @@ impl Path<Root> {
     /// Message bytes enter no path and no digest: no actor can steer where
     /// anything lands by choosing content.
     ///
-    /// The path is the full-width 32-byte `ContentHash`, never the
+    /// The path is the full-width 32-byte `PathHash`, never the
     /// truncated Merkle `Hash`: a path collision is permanent split-brain
-    /// (see `ContentHash`). The preimage is one self-delimiting canonical
+    /// (see `PathHash`). The preimage is one self-delimiting canonical
     /// byte string, so no concatenation ambiguity arises.
     pub fn for_leaf(version: &Version) -> Self {
         Self {
             height: PhantomData,
-            hash: ContentHash::of(version.as_bytes()).into(),
+            hash: PathHash::of(version.as_bytes()).into(),
         }
     }
 }

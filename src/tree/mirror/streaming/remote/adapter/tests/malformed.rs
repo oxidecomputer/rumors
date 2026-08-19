@@ -319,7 +319,7 @@ fn under_root_pair() -> [(Version, Message<u64>, Path); 2] {
     unreachable!("the finite radix alphabet forces a collision")
 }
 
-/// Consecutive leaves in one content-derived run assemble as one node and reexplode exactly.
+/// Consecutive leaves in one version-derived run assemble as one node and reexplode exactly.
 #[test]
 fn a_multi_leaf_run_is_one_supplied_subtree() {
     let leaves = under_root_pair();

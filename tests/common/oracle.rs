@@ -61,9 +61,11 @@ impl<T: Clone + Ord> Oracle<T> {
 }
 
 /// A message's identity as an orderable map key: its [`Version`]'s
-/// canonical bytes. Canonical and injective, so equality of byte keys is
-/// equality of versions; the lexicographic order is an arbitrary total
-/// order ([`Version`] itself is only partially ordered).
+/// canonical bytes.
+///
+/// Canonical and injective, so equality of byte keys is equality of
+/// versions; the lexicographic order is an arbitrary total order
+/// ([`Version`] itself is only partially ordered).
 pub fn version_key(version: &Version) -> Vec<u8> {
     version.as_bytes().to_vec()
 }

@@ -64,7 +64,7 @@ pub fn arb_root_node(
         .prop_map(move |draws| {
             // Tick this tree's party once per leaf, so the leaves carry a
             // strictly-increasing chain of versions on a single party. Each
-            // leaf is placed at its content-addressed path, exactly as a real
+            // leaf is placed at its version-derived path, exactly as a real
             // insert does (see [`Path::for_leaf`] and `Tree::act`): a tree with
             // a leaf anywhere else can never arise in production, so gossiping
             // one would test an impossible state.
@@ -186,7 +186,7 @@ pub fn arb_divergent_pair() -> BoxedStrategy<(crate::tree::Root<()>, crate::tree
 /// both.
 ///
 /// This strategy closes the proxy tier's generator gap on *budget* only,
-/// deliberately not on *bias*: content addressing makes each child's radix a
+/// deliberately not on *bias*: version hashing makes each child's radix a
 /// function of leaf
 /// hashes, so steering generation toward the early-radix-order deep-dispute
 /// shape would mean a per-case search inside the strategy. The geometry pin
@@ -431,7 +431,7 @@ pub fn early_first_child_dispute_pair() -> (crate::tree::Root<()>, crate::tree::
 /// the declared versions within a test's horizon — the session ceiling the
 /// receiver adopts, or the receiver's own later redact ticks — ever
 /// contains it. Returns the two roots plus the escaped leaf's
-/// content-addressed path and its version.
+/// version-derived path and its version.
 pub fn uncontained_supply_pair() -> (crate::tree::Root<()>, crate::tree::Root<()>, Path, Version) {
     /// How far the escaped version outruns both declared ceilings, per
     /// party: an upper bound on the honest ticks a test performs after
@@ -513,7 +513,7 @@ pub fn uncontained_supply_pair() -> (crate::tree::Root<()>, crate::tree::Root<()
 /// A path all-zero except its final byte: siblings under a single leaf-parent
 /// (`S<Z>`) prefix.
 ///
-/// Real leaves are content-addressed, so two distinct messages share a
+/// Real leaves are version-addressed, so two distinct messages share a
 /// 31-byte prefix only under a hash-prefix collision; these hand-picked
 /// paths let a test construct that shape deliberately.
 fn leaf_sibling_path(last: u8) -> Path {
@@ -539,7 +539,7 @@ fn root_with_ceiling<T>(node: Option<Node<T, Root>>, ceiling: Version) -> crate:
 /// leaving the store's own declared ceiling untouched — the shape only a
 /// nonconforming implementation can then transmit. The margin bounds the
 /// honest ticks a test may perform afterward without containing the
-/// escape. Returns the root plus the escaped leaf's content-addressed path
+/// escape. Returns the root plus the escaped leaf's version-derived path
 /// and its version.
 pub fn poisoned_root<T: Send + Sync>(
     party: &Party,

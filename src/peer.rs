@@ -335,7 +335,7 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// capacities from what the two replicas exchange at session start:
     /// exact set sizes and version-size bounds, so every input to the
     /// worst case is on the table before the descent begins. Under
-    /// uniform content hashing, dispute populations thin geometrically
+    /// uniform version hashing, dispute populations thin geometrically
     /// with depth and scale with the *product* of the two set sizes, so
     /// the budget buys width only where disputes can exist. The setting
     /// is not wire-visible: peers with different budgets interoperate.

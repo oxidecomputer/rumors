@@ -1,4 +1,4 @@
-//! Borsh round-trip property tests for the five mirror message types, plus the
+//! Wire round-trip property tests for the five mirror message types, plus the
 //! canonical-order rejection each channel enforces on deserialize.
 //!
 //! Every channel is a length-prefixed `Vec` that must arrive in strictly

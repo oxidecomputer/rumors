@@ -207,7 +207,7 @@ fn store_covers(record: &BTreeMap<Network, Vec<Version>>, emission: &Emission) -
 }
 
 /// Decode the id-regions a node has durably checkpointed for `network`, via the
-/// same Borsh round trip the bookmark itself makes.
+/// same encode/decode round trip the bookmark itself makes.
 ///
 /// The dual of
 /// [`decompose_store`]: that keeps each clock's version (for durability), this

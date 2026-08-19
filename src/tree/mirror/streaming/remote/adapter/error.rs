@@ -69,10 +69,10 @@ pub enum DecodeError<E> {
     /// Transport control leaked through the demultiplexer into reply decoding.
     #[error("a stream-end control reached the protocol reply decoder")]
     UnexpectedStreamEnd,
-    /// A supplied leaf's content-derived path is outside the expected scope.
+    /// A supplied leaf's version-derived path is outside the expected scope.
     #[error("supplied leaf {actual:02x?} is outside reply scope {expected:02x?}")]
     LeafOutsideScope { expected: Vec<u8>, actual: [u8; 32] },
-    /// Supplied leaves were not strictly ascending by content-derived path.
+    /// Supplied leaves were not strictly ascending by version-derived path.
     #[error("supplied leaf {current:02x?} does not follow {previous:02x?}")]
     LeafOrder {
         previous: [u8; 32],

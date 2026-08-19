@@ -225,7 +225,7 @@ proptest! {
         // Tick the party's disjoint clock once per action so every action
         // carries a strictly-increasing version on that party: inserts take
         // the first `len` ticks, forgets the ticks after them.
-        // Each leaf goes to its content-addressed path (as a real insert does),
+        // Each leaf goes to its version-derived path (as a real insert does),
         // and a forget targets the path of the insert it cancels — matching how
         // `redact` reuses the key surfaced by the original insert.
         let make_actions = |party_index: usize, forgets: &[bool]| -> Vec<_> {

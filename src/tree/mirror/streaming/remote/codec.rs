@@ -23,7 +23,7 @@
 //! exact `u32` record length. The codec validates the run's record framing
 //! once its whole body arrives but leaves the records encoded; the adapter
 //! decodes them one at a time, constructs its backend-specific leaves, and
-//! validates their content-addressed paths. How many records share one run
+//! validates their version-derived paths. How many records share one run
 //! is the sender's choice within the session's [`RunBudget`], and the
 //! decoder holds arriving frames to that same budget: any within-budget
 //! batching decodes, a single record of any size decodes (the encoder's

@@ -13,8 +13,10 @@ pub enum Event<T> {
     },
     /// Redact the message (by its minted `Version`) sent by the
     /// `Insert` event at this index in the schedule's emitted event
-    /// sequence. The strategy guarantees the redacting peer has
-    /// observed that message by the time this event runs.
+    /// sequence.
+    ///
+    /// The strategy guarantees the redacting peer has observed that
+    /// message by the time this event runs.
     Redact {
         peer: usize,
         target_event_idx: EventIdx,

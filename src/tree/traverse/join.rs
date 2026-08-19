@@ -24,7 +24,7 @@
 //! - **both have it, hashes differ**: explode both one level and merge-walk
 //!   the two ascending radix fans in lockstep, recursing only into the
 //!   radixes whose child subtrees differ — children equal by pointer or by
-//!   content hash carry over verbatim through the shared structure — and
+//!   Merkle hash carry over verbatim through the shared structure — and
 //!   reassembling with [`Node::branch`] (which re-compresses singletons and
 //!   recomputes the joined branch version).
 //!

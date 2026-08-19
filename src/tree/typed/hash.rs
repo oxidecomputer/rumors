@@ -18,7 +18,7 @@ pub const MERKLE_HASH_LEN: usize = 24;
 /// [`MERKLE_HASH_LEN`] bytes — BLAKE3 is an extendable-output function, so
 /// prefix truncation is the sanctioned narrow form, with collision resistance
 /// 2⁹⁶ and preimage resistance 2¹⁹². Callers use [`Hash::of`] (or
-/// [`ContentHash`] for the full width) and never touch the `blake3` types
+/// [`PathHash`] for the full width) and never touch the `blake3` types
 /// directly.
 ///
 /// # Why 24 bytes here, and 32 for content
@@ -80,7 +80,7 @@ impl Hash {
     /// One-shot Merkle hash of a contiguous byte slice: the leading
     /// [`MERKLE_HASH_LEN`] bytes of the full-width hash of the same bytes.
     pub fn of(bytes: &[u8]) -> Self {
-        ContentHash::of(bytes).truncate()
+        PathHash::of(bytes).truncate()
     }
 
     /// The hash of a leaf observed from the top of its compressed `suffix`:
@@ -242,23 +242,23 @@ impl From<Hash> for [u8; MERKLE_HASH_LEN] {
     }
 }
 
-/// Full-width 32-byte BLAKE3 hash: the identity primitive.
+/// Full-width 32-byte BLAKE3 hash: the identity primitive a leaf's path
+/// is made of.
 ///
 /// This is the width that carries identity. A leaf's path *is* a hash of this
 /// width over its version's canonical bytes (see
 /// [`Path::for_leaf`](super::Path::for_leaf)), and every ingestion site
 /// treats one path as one identity, so a collision here would be permanent
 /// split-brain — full width is load-bearing for the path even though the
-/// comparison digests are narrower. A `ContentHash` is never stored in a
-/// branch and never
-/// travels as a hash on the wire; it reaches the protocol only as a leaf's path
-/// bytes.
-pub struct ContentHash([u8; 32]);
+/// comparison digests are narrower. A `PathHash` is never stored in a
+/// branch and never travels as a hash on the wire; it reaches the protocol
+/// only as a leaf's path bytes.
+pub struct PathHash([u8; 32]);
 
-impl ContentHash {
+impl PathHash {
     /// One-shot full-width hash of a contiguous byte slice.
     pub fn of(bytes: &[u8]) -> Self {
-        ContentHash(*blake3::hash(bytes).as_bytes())
+        PathHash(*blake3::hash(bytes).as_bytes())
     }
 
     /// Truncate to the Merkle width: the leading [`MERKLE_HASH_LEN`] bytes.
@@ -278,8 +278,8 @@ impl ContentHash {
     }
 }
 
-impl From<ContentHash> for [u8; 32] {
-    fn from(hash: ContentHash) -> Self {
+impl From<PathHash> for [u8; 32] {
+    fn from(hash: PathHash) -> Self {
         hash.0
     }
 }

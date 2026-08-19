@@ -270,7 +270,7 @@ async fn equal_versions_return_both_roots() {
     assert_eq!(b, root);
 }
 
-/// Concurrent content-addressed leaves cross every proxy layer and converge.
+/// Concurrent version-addressed leaves cross every proxy layer and converge.
 #[pollster::test]
 async fn divergent_leaves_converge() {
     let mut a = Tree::new();

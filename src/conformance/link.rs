@@ -137,7 +137,7 @@ const CANCEL_DROP_PATIENCE: usize = 32;
 /// pair.
 ///
 /// Stream count follows the reconciled tree's depth, not the payload
-/// count: content-addressed keys keep a corpus this size one or two levels
+/// count: hashed leaf paths keep a corpus this size one or two levels
 /// deep, opening one or two streams per direction. The check's final
 /// assertion pins exactly what the sizing buys (every direction opened at
 /// least one data stream in-session), so it cannot rot silently; the

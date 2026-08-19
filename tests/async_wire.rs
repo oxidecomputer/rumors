@@ -12,7 +12,7 @@
 //!
 //! Both tests share the `Insert`/`Redact` action shape, so redactions cross
 //! the wire too (not just inserts), and run against both a primitive (`u64`)
-//! and a non-primitive (`String`) value type to cover the borsh round-trip.
+//! and a non-primitive (`String`) value type to cover the payload round-trip.
 
 mod common;
 
@@ -59,7 +59,7 @@ proptest! {
     }
 
     /// String-T variant of [`async_gossip_converges_on_the_union`]: same
-    /// invariant for `T = String`, exercising the borsh round-trip for a
+    /// invariant for `T = String`, exercising the payload round-trip for a
     /// non-primitive value type over the concurrent wire.
     #[test]
     fn async_gossip_converges_on_the_union_string(

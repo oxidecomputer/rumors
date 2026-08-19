@@ -64,7 +64,7 @@ where
 ///
 /// The wire shape is one supplies-only reply — empty when deletion pruning
 /// left nothing to ship — whose leaf records group into height-`G`
-/// subtrees by their content-derived paths under `parent`, followed by the
+/// subtrees by their version-derived paths under `parent`, followed by the
 /// stream end. Unlike [`decode_reply`], which materializes one whole reply
 /// before yielding it, this stream yields each assembled node as soon as
 /// its group completes: the consumer pairs supplies with the responder's
@@ -444,7 +444,7 @@ where
                     .expect("each supplied run assembles to exactly one node");
                 assert_eq!(
                     actual, prefix,
-                    "assembly preserves the content-derived supplied prefix",
+                    "assembly preserves the version-derived supplied prefix",
                 );
                 ProtocolReaction::Supply(radix, node)
             }

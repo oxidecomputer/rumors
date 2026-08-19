@@ -180,7 +180,7 @@ proptest! {
     }
 
     /// String-T variant of `readout_matches_oracle_after_quiesce`,
-    /// exercising the borsh round-trip for a non-primitive value
+    /// exercising the wire round-trip for a non-primitive value
     /// type. Catches any serialization-path bug invisible to
     /// fixed-size scalars.
     #[test]

@@ -46,8 +46,9 @@ pub struct CausalMessages<T> {
     /// staged, undelivered message nor the delivered message still in the
     /// caller's hands.
     checkpoint: Version,
-    /// The undelivered backlog in rank-then-canonical-bytes order — the
-    /// same total order as [`before::Ranked`], with the [`Rank`]
+    /// The undelivered backlog in rank-then-canonical-bytes order.
+    ///
+    /// The same total order as [`before::Ranked`], with the [`Rank`]
     /// materialized once per leaf so repeated map comparisons stay cheap.
     /// Rank extends the causal order and the byte tiebreak fires only
     /// between concurrent messages, so delivery order is causal and

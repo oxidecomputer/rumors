@@ -182,9 +182,9 @@ fn bootstrap_fork(
         .into_rumors()
 }
 
-/// Message payload type: opaque, randomized bytes. Borsh serializes `Vec<u8>`
-/// as a length-prefixed blob, so the wire cost tracks the message size
-/// directly.
+/// Message payload type: opaque, randomized bytes. CBOR encodes `Vec<u8>`
+/// as an integer array, so the wire cost tracks the message size (within
+/// a small per-element constant).
 type Payload = Vec<u8>;
 
 /// One endpoint of a sync session, handed from an initiator to the responder

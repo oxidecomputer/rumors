@@ -88,7 +88,7 @@ proptest! {
     }
 
     /// `String`-`T` variant of [`bootstrap_reproduces_a_fork`]: the same
-    /// invariant for a non-primitive value type, exercising the borsh
+    /// invariant for a non-primitive value type, exercising the wire
     /// round-trip of the whole-tree frame for `T = String`.
     #[test]
     fn bootstrap_reproduces_a_fork_string(actions in arb_string_actions()) {

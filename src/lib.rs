@@ -230,6 +230,19 @@
 //! [`AsyncRead`](tokio::io::AsyncRead) and [`AsyncWrite`](tokio::io::AsyncWrite);
 //! no Tokio runtime, spawning, sockets, or timers are required by this crate.
 //!
+//! # Message payloads
+//!
+//! Your message type `T` needs [`serde::Serialize`] and
+//! [`serde::de::DeserializeOwned`]; payloads travel and are cached as
+//! CBOR ([RFC 8949](https://www.rfc-editor.org/rfc/rfc8949)). Because
+//! CBOR carries field and variant *names*, reordering struct fields or
+//! enum variants does not change what peers understand: names are the
+//! evolution contract (rename with `#[serde(rename)]` deliberately),
+//! peers skip fields they don't know, and a missing field is an error
+//! unless the type supplies `#[serde(default)]`. No canonical encoding
+//! is required of `T`: a message's identity is the [`Version`] stamped
+//! on it, never its bytes.
+//!
 //! # Wire compatibility
 //!
 //! Every session opens with a fixed 25-byte preamble carrying

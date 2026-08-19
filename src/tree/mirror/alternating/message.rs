@@ -1,6 +1,6 @@
 //! # Wire format
 //!
-//! Each message is encoded by the tree's [`wire`](crate::tree::wire)
+//! Each message is encoded by the tree's [`wire`]
 //! codec: explicit structural framing whose variable-width atoms are
 //! single CBOR values. Container lengths are `u32` little-endian.
 //!
@@ -23,9 +23,9 @@
 //!
 //! ## Typed [`Node<T, H>`](crate::tree::typed::Node)
 //!
-//! Encoded in its in-memory layout. The typed `BorshSerialize` impl is a
-//! thin delegate over the untyped node's `serialize_to`, which is the
-//! canonical encoder:
+//! Encoded in its in-memory layout. The typed node's wire impl is a thin
+//! delegate over the untyped node's `serialize_to`, which is the canonical
+//! encoder:
 //!
 //! ```text
 //! NodeWire ::=
