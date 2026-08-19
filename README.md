@@ -234,32 +234,17 @@ the caller. The I/O traits are Tokio's runtime-independent
 `AsyncRead` and `AsyncWrite`;
 no Tokio runtime, spawning, sockets, or timers are required by this crate.
 
-## Message payloads
+## Message payloads and compatibility
 
 Your message type `T` needs `serde::Serialize` and
-`serde::de::DeserializeOwned`; payloads travel and are cached as
+`serde::de::DeserializeOwned`; payloads are serialized as
 CBOR ([RFC 8949](https://www.rfc-editor.org/rfc/rfc8949)). Because
-CBOR carries field and variant *names*, reordering struct fields or
-enum variants does not change what peers understand: names are the
-evolution contract (rename with `#[serde(rename)]` deliberately),
-peers skip fields they don't know, and a missing field is an error
-unless the type supplies `#[serde(default)]`. No canonical encoding
-is required of `T`: a message's identity is the `Version` stamped
-on it, never its bytes.
-
-## Wire compatibility
-
-Every session opens with a fixed 25-byte preamble carrying
-`PROTOCOL_MAGIC`, the selected `Protocol`'s version, the network, and
-session intent.
-A counterparty that is not speaking `rumors`, or speaks an incompatible
-version, is rejected before any peer-declared frame length is trusted
-(`Error::MagicMismatch`, `Error::VersionMismatch`).
-`Protocol::V2` is the default; `Protocol::V1` (behind the `protocol-v1`
-cargo feature) can be selected on an established `Peer` with
-`Peer::protocol`, or while joining with
-`Bootstrap::protocol`. Both endpoints must select the same
-protocol.
+CBOR carries field and variant *names*, reordering `struct` fields
+or `enum` variants does not break compatibility with prior versions
+of your type `T`; however, *renaming breaks compabitility*. It is worth
+designing around this from the get-go: consider an outer `enum` indicating
+the version of your application-level message type, even if it starts
+out only having one variant, `V1`.
 
 ## Cargo features
 
@@ -268,20 +253,16 @@ Every feature is off by default.
 - `conformance`: the public validation suite for caller-built `link`
   instantiations (the `conformance::link` module). Enable it from a
   dev-dependency; it is safe, though pointless, in an application.
-- `protocol-v1`: the strictly alternating `Protocol::V1`, kept for wire
-  compatibility with V1 peers and comparative measurement. Enabling it
-  compiles a large per-height state-machine surface into the binary,
-  which is why it is off by default.
+- `protocol-v1`: the strictly alternating `Protocol::V1`, kept for
+  comparative measurement.
 - `test-internals`: this crate's own test scaffolding, enabled through
-  its self-referential dev-dependency. Never enable it in an
-  application.
+  its self-referential dev-dependency. Never enable it in an application.
 
 ## Stability and testing
 
 The wire format is steady by design: each `Protocol` is pinned
 byte-for-byte by snapshot tests, and once a version has shipped, a wire
-change introduces a new protocol version rather than mutating a released
-one.
+change introduces a new protocol version.
 
 The crate is validated by property tests stating the model's invariants
 (convergence under arbitrary gossip schedules, deletion honoring, observer
