@@ -64,6 +64,9 @@ use std::sync::Arc;
 
 pub(crate) mod traverse;
 pub(crate) mod typed;
+// The alternating protocol is the only production consumer; the typed
+// tree's own tests exercise the codec regardless of features.
+#[cfg(any(test, feature = "protocol-v1"))]
 pub(crate) mod wire;
 
 use crate::{Version, causally, message::Message, tree::typed::Node};

@@ -259,7 +259,7 @@ proptest! {
             let mut version = Version::new();
             version.tick(&crate::tree::arb::nth_party(index));
             let message = msg(b.clone());
-            let key = Path::for_leaf(&version).into();
+            let key = Path::for_leaf(&version);
             (key, version, message)
         };
         let index_of: HashMap<Bytes, usize> = kept

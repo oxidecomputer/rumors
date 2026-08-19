@@ -62,14 +62,6 @@ fn ticked_version() -> Version {
     version
 }
 
-/// A greeting cut inside the version frame's length header fails as a typed
-/// read error.
-///
-/// The four header bytes are the first peer-controlled bytes of the
-/// greeting; a peer that closes mid-header must surface
-/// [`Error::HandshakeRead`] with `UnexpectedEof` — never a hang waiting on
-/// bytes that cannot arrive.
-
 /// Encode a root-fan listing as its wire form: raw radix-hash records,
 /// the frame length carrying the count.
 fn encode_listing(children: &[(u8, Hash)]) -> Vec<u8> {
@@ -81,6 +73,13 @@ fn encode_listing(children: &[(u8, Hash)]) -> Vec<u8> {
     body
 }
 
+/// A greeting cut inside the version frame's length header fails as a typed
+/// read error.
+///
+/// The four header bytes are the first peer-controlled bytes of the
+/// greeting; a peer that closes mid-header must surface
+/// [`Error::HandshakeRead`] with `UnexpectedEof` — never a hang waiting on
+/// bytes that cannot arrive.
 #[pollster::test]
 async fn truncated_version_header_is_a_typed_read_error() {
     let result = receive_greeting(&[0, 0]).await.map(|_| ());

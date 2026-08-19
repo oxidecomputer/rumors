@@ -675,6 +675,7 @@ impl<T> Node<T> {
     /// typed height and the running `prefix_len` together name the body's
     /// shape. Multi-child branches always carry at least two children, by
     /// the path-compression invariant.
+    #[cfg(any(test, feature = "protocol-v1"))]
     pub fn serialize_to<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
         use crate::tree::wire::{Encode, invalid};
         let prefix_len = u8::try_from(self.inner.prefix.len())

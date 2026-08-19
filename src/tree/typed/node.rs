@@ -10,6 +10,7 @@ use super::height::{self, Height, S, Z};
 #[cfg(any(test, feature = "protocol-v1"))]
 use super::levels::{Top, levels};
 use super::untyped;
+#[cfg(any(test, feature = "protocol-v1"))]
 use crate::tree::wire;
 use untyped::fan::{self, Fan};
 
@@ -459,6 +460,7 @@ impl<T, H: Height> PartialEq for Node<T, H> {
 // [`Node::branch`]. The wire's ascending radix order makes each insert an
 // appending binary-search miss, so the rebuild costs no shifting.
 
+#[cfg(any(test, feature = "protocol-v1"))]
 impl<T, H> wire::Encode for Node<T, H>
 where
     H: Height,
@@ -468,6 +470,7 @@ where
     }
 }
 
+#[cfg(any(test, feature = "protocol-v1"))]
 impl<T> wire::Decode for Node<T, Z>
 where
     T: serde::de::DeserializeOwned,
@@ -483,6 +486,7 @@ where
     }
 }
 
+#[cfg(any(test, feature = "protocol-v1"))]
 impl<T, H> wire::Decode for Node<T, S<H>>
 where
     T: serde::de::DeserializeOwned,

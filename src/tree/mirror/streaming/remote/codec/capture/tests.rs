@@ -13,13 +13,6 @@ use crate::tree::typed::hash::MERKLE_HASH_LEN;
 
 use super::super::frame::LeafRun;
 
-/// The committed fixture pair: two supply runs identical except one
-/// record's version decode to renderings differing at exactly the line
-/// naming that record.
-///
-/// That one-line diff is the field-level account an insta re-accept
-/// shows beside the hex.
-
 /// Encode a listing as its wire form: raw radix-hash records.
 fn encode_listing(children: &[(u8, Hash)]) -> Vec<u8> {
     let mut body = Vec::new();
@@ -33,8 +26,9 @@ fn encode_listing(children: &[(u8, Hash)]) -> Vec<u8> {
 /// The capture renderer decodes each supply record structurally.
 ///
 /// Two runs differing only in the record's version render record lines
-/// that differ exactly at the named version field, with the record count
-/// and the (identical) payload accounting unchanged.
+/// that differ exactly at the line naming that record, with the record
+/// count and the (identical) payload accounting unchanged: the
+/// field-level account an insta re-accept shows beside the hex.
 #[test]
 fn supply_decode_names_the_field_that_moved() {
     let party = before::Party::seed();

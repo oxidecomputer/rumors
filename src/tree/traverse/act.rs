@@ -188,7 +188,7 @@ impl Act for Z {
             // an off-model hash collision (see `LeafCollision`), and
             // errored before anything commits.
             if let (Action::Insert(value), Some(existing)) = (&action, &node) {
-                if existing.ceiling() != &version
+                if *existing.ceiling() != version
                     || existing.message().as_slice() != value.as_slice()
                 {
                     return Err(LeafCollision {

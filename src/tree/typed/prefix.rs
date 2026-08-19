@@ -2,6 +2,7 @@ use std::{fmt::Debug, marker::PhantomData};
 
 use tinyvec::ArrayVec;
 
+#[cfg(any(test, feature = "protocol-v1"))]
 use crate::tree::wire;
 
 use super::height::{Height, Root, S, Z};
@@ -157,6 +158,7 @@ impl<H: Height> Debug for Prefix<H> {
 /// On the wire a `Prefix<H>` is exactly `32 - H::HEIGHT` raw bytes. The height
 /// is pinned by the type, so no length prefix is transmitted: deserialization
 /// reads exactly the byte count the type demands.
+#[cfg(any(test, feature = "protocol-v1"))]
 impl<H: Height> wire::Encode for Prefix<H> {
     fn write_wire<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
         let expected = 32 - H::HEIGHT;
@@ -171,6 +173,7 @@ impl<H: Height> wire::Encode for Prefix<H> {
     }
 }
 
+#[cfg(any(test, feature = "protocol-v1"))]
 impl<H: Height> wire::Decode for Prefix<H> {
     fn read_wire<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
         let len = 32 - H::HEIGHT;
