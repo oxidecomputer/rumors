@@ -141,8 +141,32 @@ Ruled 2026-08-19 (decision record below):
 
 ## `Party`
 
-A `Party` is the 0/1-valued skyline over the same interval: identical item
-type, magnitudes always 1. The item vocabulary is designed once and shared.
+A `Party` is the 0/1-valued step function over the same interval, and its
+item is its own type (ruled 2026-08-19), absolute rather than
+delta-encoded:
+
+```rust
+/// One constant-ownership region of the party: whether the party owns
+/// it, and the dyadic interval it spans.
+pub struct Region {
+    pub owned: bool,
+    pub depth: u64,
+}
+```
+
+Two forces, both from the binary codomain. The delta rationale has no
+force at height ∈ {0, 1}: the absolute value is cheaper than any delta
+spelling (a `bool` — no magnitude, no `Option`). And a shared `Plateau`
+would hand party consumers two prose invariants to trust forever
+("magnitude is always 1", "`Up` only from 0, `Down` only from 1") —
+the same canonicality-leak shape the `Option<Rise>` decision already
+killed for level steps, resolved the same way: by making the invalid
+states unrepresentable. The absolute item also matches the coding it
+transliterates — the id walk's boundary crossings carry no payload;
+ownership is per-region state.
+
+*Region* mirrors *plateau*: the maximal constant runs of the two step
+functions, named by their own codomains.
 
 ## `Clock`: the combined overlay walk
 
@@ -169,10 +193,15 @@ roundtrip property lives on the primitive iterators, never on overlays.
 
 The generalization (recorded as a companion option, and the natural
 implementation substrate for the `Clock` walk): a combiner over an
-arbitrary number of plateau iterators — parties or versions — yielding the
-coarsest common refinement. Since every entry in a cell shares the cell's
-interval, per-entry depths are redundant; the item is the cell plus the
-rises entering it:
+arbitrary number of *version* shape iterators, yielding the coarsest
+common refinement. Version-only (ruled 2026-08-19, a consequence of the
+`Region` split): the version × party mix is exactly what the `Clock`
+walk is, and a party × party combiner — if a multi-party region map ever
+wants one — has a different natural cell entry (`[bool; N]`, an
+ownership bitmap per cell) and ships with its first consumer rather
+than being anticipated here. Since every entry in a cell shares the
+cell's interval, per-entry depths are redundant; the item is the cell
+plus the rises entering it:
 
 ```rust
 pub struct Cell<const N: usize> {
@@ -185,12 +214,10 @@ pub struct Cell<const N: usize> {
 ```
 
 This stays in the delta domain end to end (no height is materialized),
-and the `Clock` walk is its two-input instance with the party's entry
-folded into a running `owned` flag. Arity form ruled 2026-08-19:
+and the `Clock` walk is its heterogeneous two-input sibling, the party
+side read as the absolute `owned` flag. Arity form ruled 2026-08-19:
 const-generic arrays (allocation-free, `N` static); no runtime-`Vec`
-form ships. It follows that the two primitive walks share one iterator
-type — a heterogeneous input array needs `Version` and `Party` shapes to
-enter as the same type.
+form ships.
 
 This combiner is the public, rendering-grade counterpart of the `overlay`
 machinery's tiling-and-advance law — the same subdivision the internal
@@ -353,3 +380,10 @@ inherits the u64-clean depth denomination from that work for free.
   feature — the item is concrete over `Ticks`. Deferred, not rejected:
   the sealed trait lands (crate-privately) with the first constructed
   kernel re-expression, if one ever measures its way in.
+- 2026-08-19 (Finch): `Party::shape()` yields its own absolute item type
+  (`Region { owned: bool, depth: u64 }`) rather than sharing `Plateau` —
+  a binary codomain makes the absolute spelling cheaper than any delta
+  and makes the magnitude-1 invariant unrepresentable rather than
+  policed. Consequence: the public combiner is version-only; a
+  party × party combiner (`[bool; N]` cells) ships with its first
+  consumer, if ever.
