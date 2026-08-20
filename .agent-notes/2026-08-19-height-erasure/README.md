@@ -124,9 +124,10 @@ mispairing: wire prefixes decode through height-typed readers.
   The durable fix named then was this height erasure, which shrank every
   tower from the inside.
 
-## What remains: the T axis
+## What followed: the T axis
 
-Height erasure deliberately kept the payload axis. The follow-on design
-(`design/item-erasure.md`) sketches erasing `T` at the leaf conversion
-boundary so the subsystem compiles once into the rlib; height erasure
-shrank what that phase must move.
+Height erasure deliberately kept the payload axis. The follow-on work
+erased `T` at the leaf conversion boundary so the subsystem compiles
+once into the rlib — its record is
+[`2026-08-20-item-erasure`](../2026-08-20-item-erasure/README.md) —
+and height erasure shrank what that phase had to move.

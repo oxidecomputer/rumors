@@ -1,9 +1,13 @@
-# Item-type erasure at the leaf boundary (part II sketch)
+# Item-type erasure at the leaf boundary: the record
 
-Status: accepted (option B, with the rulings below); implemented on the
-`height-erasure` branch, all four stages measured, awaiting the owner's
-merge ruling. Numbers marked *measured* come from `cargo llvm-lines
---test pairwise` (debug, default features) on the height-erased tree.
+Status: implemented (option B, with the rulings below), the four staged
+commits gate-clean on the `height-erasure` branch; this note is the
+decision and measurement record. The mechanism's documentation of record
+is the rustdoc — start at `Message`'s type docs and `peer::gossip`'s
+`Reconciliation`. Part I of the erasure arc has its own record in
+[`2026-08-19-height-erasure`](../2026-08-19-height-erasure/README.md).
+Numbers marked *measured* come from `cargo llvm-lines --test pairwise`
+(debug, default features) on the height-erased tree.
 
 ## The problem, precisely
 
