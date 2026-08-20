@@ -25,7 +25,7 @@ impl Wire {
     /// Reconcile one pair while driving both endpoints concurrently.
     pub fn round_trip<T>(&mut self, a: Rumors<T>, b: Rumors<T>) -> (Rumors<T>, Rumors<T>)
     where
-        T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static,
+        T: serde::Serialize + serde::de::DeserializeOwned + Eq + Send + Sync + 'static,
     {
         let (a_result, b_result) = pollster::block_on(async {
             tokio::join!(a.gossip(&mut self.a_link), b.gossip(&mut self.b_link))
@@ -39,7 +39,7 @@ impl Wire {
 /// Mint one disjoint replica by serving a bootstrap over an ephemeral link.
 pub fn bootstrap_fork<T>(parent: &Rumors<T>, protocol: Protocol) -> Rumors<T>
 where
-    T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static,
+    T: serde::Serialize + serde::de::DeserializeOwned + Eq + Send + Sync + 'static,
 {
     pollster::block_on(async {
         let (mut parent_link, mut newcomer_link) = rumors::link::memory_with_capacity(CAPACITY);

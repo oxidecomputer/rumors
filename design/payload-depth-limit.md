@@ -26,10 +26,13 @@ protocol, enforced at three points that share a single computation:
 - **Send admission**: `Message::try_new` serializes, then runs the
   peer's minted deserializer — the exact fn every receiver's wire
   ingress runs for the payload type, at the same limit — over the
-  just-serialized bytes, discarding the decoded value; a payload the
-  decode rejects is a typed `EncodeError` at its author, at the moment
-  of choice (`Depth` for the recursion limit, `Roundtrip` for a type
-  whose `Deserialize` rejects its own `Serialize` output).
+  just-serialized bytes, and requires the decoded value to equal the
+  value sent (by the payload type's own `Eq`, mandated in the payload
+  bounds); a payload the decode rejects or misreads is a typed
+  `EncodeError` at its author, at the moment of choice (`Depth` for the
+  recursion limit, `Roundtrip` for a type whose `Deserialize` rejects
+  its own `Serialize` output, `Unfaithful` for an encoding that decodes
+  to a different value).
 - **Handshake equality**: the V2 greeting carries each side's configured
   limit, and a session proceeds only if the two are exactly equal;
   a mismatch is `Error::PayloadDepthMismatch` on both sides, after the
@@ -63,7 +66,7 @@ traveled before. What this provides: the limit cannot be missed — every `Messa
 creation and every ingress parse in the peer's orbit goes through the
 one codec value, so no creation or ingress site can carry a different
 bound — the payload type's serde bounds concentrate at construction
-(`Serialize` joins `DeserializeOwned` there and drops from
+(`Serialize` and `Eq` join `DeserializeOwned` there and drop from
 `Rumors::send`/`Batch::send`), and the greeting reads the limit off the
 codec sessions already carry. The accepted cost: `Peer` construction
 demands `Serialize` even for a peer that never sends, symmetric with
@@ -130,6 +133,28 @@ outer batch).
   account recursion differently could still diverge on acceptance at
   equal limits — a fleet upgrades its decode engine in coordination,
   like the limit itself.
+- **Faithful encoding, checked by `Eq`** (Finch): payload types must be
+  `Eq` — table stakes for any wire message type — and every send
+  requires the value decoded from the just-serialized bytes to equal
+  the value sent, rejecting inequality as the typed
+  `EncodeError::Unfaithful`. The deep why: `rumors` exists to
+  synchronize causal messages so a fleet can replicate a
+  causally-convergent state machine from the stream; a message that
+  decodes to anything other than what was meant violates that premise,
+  allowing any state machine driven by consumption of the stream to
+  diverge arbitrarily. The runtime check guarantees no implementation
+  can pollute the set with a value replicas would read differently.
+  Considered and rejected: a byte-fixpoint check (re-serialize the
+  decoded value, compare bytes) needs no `Eq` bound but cannot catch
+  the known lossy class — `Some(None)` serializes to CBOR null and
+  decodes as `None`, and re-serializing that `None` is byte-identical,
+  so the divergence is invisible in byte space; the value space is
+  finer than the byte space, so value equality is the only total
+  instrument. The check is send-side only (ingress holds no original to
+  compare against), and the bound is `Eq` rather than `PartialEq` by
+  design: equality must be an equivalence relation for the check to be
+  total and never spurious, which excludes NaN-capable float fields
+  from payload types.
 - **ciborium pinned exactly (`=0.2.2`)** (Finch): the workspace pins its
   CBOR engine to one exact version. Within a binary, admission and
   ingress run the same compiled deserializer, so their symmetry is exact

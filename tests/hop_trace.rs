@@ -329,7 +329,7 @@ fn traced_pair(trace: &Trace) -> (TracedLink, TracedLink) {
 /// Gossip one pair over a traced delayed link and return the trace.
 fn traced_session<T>(a: Rumors<T>, b: Rumors<T>) -> Trace
 where
-    T: Serialize + DeserializeOwned + Send + Sync + 'static,
+    T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
     let trace = Trace::default();
     let (mut a_link, mut b_link) = traced_pair(&trace);

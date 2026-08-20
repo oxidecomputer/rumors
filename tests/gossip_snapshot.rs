@@ -35,8 +35,8 @@ use crate::common::wire::{batch_send, block_on, bootstrap_fork, bootstrap_fork_a
 /// A peer seeded from a fixed RNG, so the [`rumors::Network`] id carried in
 /// the preamble is deterministic and these byte-level captures stay
 /// reproducible across runs.
-fn seeded<T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static>() -> Rumors<T>
-{
+fn seeded<T: serde::Serialize + serde::de::DeserializeOwned + Eq + Send + Sync + 'static>()
+-> Rumors<T> {
     Peer::seed_rng(&mut SmallRng::seed_from_u64(0))
         .sync_window_floor()
         .into_rumors()

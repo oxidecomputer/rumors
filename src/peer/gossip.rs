@@ -226,7 +226,7 @@ impl<T> Peer<T, NoBookmark> {
         link: &'a mut Link<CR, CW, C, A>,
     ) -> BoxFuture<'a, Result<Option<Self>, Error>>
     where
-        T: Serialize + DeserializeOwned + Send + Sync + 'static,
+        T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,
@@ -253,7 +253,7 @@ impl<T> Peer<T, NoBookmark> {
         link: DynLinkParts<'a>,
     ) -> BoxFuture<'a, Result<Option<Self>, Error>>
     where
-        T: Serialize + DeserializeOwned + Send + Sync + 'static,
+        T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
     {
         Box::pin(async move {
             let (read, write, connector, acceptor, epoch) = link;

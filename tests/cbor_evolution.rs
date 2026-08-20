@@ -27,7 +27,7 @@ use rumors::Peer;
 
 use serde::de::DeserializeOwned;
 /// A struct payload in one field order.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct WideV1 {
     id: u64,
     tag: String,
@@ -36,7 +36,7 @@ struct WideV1 {
 
 /// The same struct with its fields reordered: names unchanged, positions
 /// scrambled.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct WideV2 {
     data: Vec<u8>,
     id: u64,
@@ -44,7 +44,7 @@ struct WideV2 {
 }
 
 /// An enum payload in one variant order.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 enum EventV1 {
     Ping(u64),
     Note { text: String, level: u8 },
@@ -52,7 +52,7 @@ enum EventV1 {
 }
 
 /// The same enum with its variants (and one variant's fields) reordered.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 enum EventV2 {
     Stop,
     Note { level: u8, text: String },
@@ -64,8 +64,8 @@ enum EventV2 {
 /// across two payload *types*.
 async fn exchanged<A, B>(payload: A) -> B
 where
-    A: Serialize + DeserializeOwned + Send + Sync + 'static,
-    B: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
+    A: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
+    B: Serialize + DeserializeOwned + Eq + Clone + Send + Sync + 'static,
 {
     let sender = Peer::<A>::seed().into_rumors();
     sender.send(payload).unwrap();
@@ -134,7 +134,7 @@ async fn reordered_enum_variants_decode_by_name() {
 /// struct interoperates with a receiver speaking a narrower one.
 #[tokio::test]
 async fn unknown_fields_are_skipped() {
-    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
     struct Narrow {
         id: u64,
     }
@@ -217,16 +217,16 @@ async fn out_of_range_payload_fails_gossip_cleanly() {
 /// the documented boundary between tolerated and rejected evolution.
 #[test]
 fn missing_fields_error_absent_a_default() {
-    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
     struct Narrow {
         id: u64,
     }
-    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
     struct Wide {
         id: u64,
         tag: String,
     }
-    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
     struct WideDefaulted {
         id: u64,
         #[serde(default)]

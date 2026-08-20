@@ -540,7 +540,7 @@ fn indefinite_payload_spelling_is_not_spelling_judged() {
 
     let run = LeafRun::from_encoded(raw_record(&content)).unwrap();
     let (version, message) = run
-        .records(PayloadCodec::mint::<ciborium::Value>(
+        .records(PayloadCodec::mint::<std::collections::BTreeMap<u8, u8>>(
             PayloadDepthLimit::default(),
         ))
         .next()
@@ -548,8 +548,8 @@ fn indefinite_payload_spelling_is_not_spelling_judged() {
         .expect("an indefinite-length payload decodes: spelling is not judged here");
     assert_eq!(version, Version::new());
     assert_eq!(
-        *message.arc::<ciborium::Value>(),
-        ciborium::Value::Map(Vec::new())
+        *message.arc::<std::collections::BTreeMap<u8, u8>>(),
+        std::collections::BTreeMap::new()
     );
 }
 
@@ -1063,12 +1063,16 @@ fn overbatched_corners_classify_exactly() {
 /// untyped abort.
 #[test]
 fn an_over_deep_supplied_payload_dies_typed_at_ingress() {
+    /// The receiving payload type: pure array nesting, the innermost
+    /// array empty, matching the hand-crafted bytes below.
+    #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    struct Arr(Vec<Arr>);
     let limit = PayloadDepthLimit::default();
     let deep_payload = |depth: usize| -> Vec<u8> {
-        // `depth` single-element array heads around one integer: nesting
-        // depth is exactly `depth` scopes.
-        let mut bytes = vec![0x81; depth];
-        bytes.push(0x00);
+        // `depth - 1` single-element array heads around one empty array:
+        // nesting depth is exactly `depth` scopes.
+        let mut bytes = vec![0x81; depth - 1];
+        bytes.push(0x80);
         bytes
     };
     let record_with_payload = |payload: &[u8]| -> Vec<u8> {
@@ -1078,7 +1082,7 @@ fn an_over_deep_supplied_payload_dies_typed_at_ingress() {
         content.extend_from_slice(payload);
         content
     };
-    let codec = PayloadCodec::mint::<ciborium::Value>(limit);
+    let codec = PayloadCodec::mint::<Arr>(limit);
 
     // One scope past the limit: typed rejection at the record iterator.
     let over = record_with_payload(&deep_payload(limit.get() as usize + 1));

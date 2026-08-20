@@ -42,8 +42,8 @@ use serde::de::DeserializeOwned;
 /// deterministic and these captures stay reproducible.
 ///
 /// Mirrors `gossip_snapshot::seeded`.
-fn seeded<T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static>() -> Rumors<T>
-{
+fn seeded<T: serde::Serialize + serde::de::DeserializeOwned + Eq + Send + Sync + 'static>()
+-> Rumors<T> {
     Peer::seed_rng(&mut SmallRng::seed_from_u64(0))
         .sync_window_floor()
         .into_rumors()
@@ -54,7 +54,7 @@ fn seeded<T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'sta
 /// expected to be served a successor.
 fn capture_bootstrap<T>(provider: Rumors<T>) -> String
 where
-    T: Serialize + DeserializeOwned + Send + Sync + 'static,
+    T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
     capture_session(
         move |mut link, hook| async move {

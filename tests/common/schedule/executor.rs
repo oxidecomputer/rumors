@@ -65,7 +65,7 @@ impl<T> MembershipExecutionResult<T> {
 /// between differently-configured endpoints).
 pub fn execute<T>(schedule: &Schedule<T>, windows: &WindowAssignment) -> ExecutionResult<T>
 where
-    T: Clone + Ord + Serialize + DeserializeOwned + Send + Sync + 'static,
+    T: Clone + Ord + Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
     execute_with(schedule, windows, |_, _, _| true)
 }
@@ -112,7 +112,7 @@ pub fn execute_with<T, F>(
     allow_gossip: F,
 ) -> ExecutionResult<T>
 where
-    T: Clone + Ord + Serialize + DeserializeOwned + Send + Sync + 'static,
+    T: Clone + Ord + Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
     F: Fn(usize, usize, EventIdx) -> bool,
 {
     assert!(
@@ -141,7 +141,7 @@ pub fn execute_membership<T>(
     windows: &WindowAssignment,
 ) -> MembershipExecutionResult<T>
 where
-    T: Clone + Ord + Serialize + DeserializeOwned + Send + Sync + 'static,
+    T: Clone + Ord + Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
     execute_slots(schedule, windows, |_, _, _| true)
 }
@@ -178,7 +178,7 @@ fn execute_slots<T, F>(
     allow_gossip: F,
 ) -> MembershipExecutionResult<T>
 where
-    T: Clone + Ord + Serialize + DeserializeOwned + Send + Sync + 'static,
+    T: Clone + Ord + Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
     F: Fn(usize, usize, EventIdx) -> bool,
 {
     let mut slots: Vec<Option<Peer<T>>> = Vec::with_capacity(schedule.n_peers);

@@ -136,12 +136,14 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     ///
     /// The message is serialized and admitted here, at the call:
     /// admission runs the exact decode every receiver's wire ingress
-    /// runs, so a payload a receiver would reject — one nesting deeper
-    /// than the peer's
-    /// [`payload_depth_limit`](crate::Peer::payload_depth_limit), or one
-    /// whose type does not survive its own serde round-trip — is the
-    /// typed [`EncodeError`] instead, and nothing commits. To apply
-    /// several changes in one commit, use [`batch`](Self::batch).
+    /// runs and requires the decoded value to equal the value sent, so
+    /// a payload a receiver would reject or misread — one nesting
+    /// deeper than the peer's
+    /// [`payload_depth_limit`](crate::Peer::payload_depth_limit), one
+    /// whose type does not survive its own serde round-trip, or one
+    /// whose encoding decodes to a different value — is the typed
+    /// [`EncodeError`] instead, and nothing commits. To apply several
+    /// changes in one commit, use [`batch`](Self::batch).
     ///
     /// `send` does not return the message's [`Version`]. Versions come back
     /// through observation: the observers and [`Snapshot`] attach every
@@ -162,7 +164,9 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     ///
     /// # Panics
     ///
-    /// If `message` fails to serialize (see [`Batch::send`]).
+    /// If `message` fails to serialize: a violation of the payload
+    /// contract ([choosing a payload
+    /// type](crate#choosing-a-payload-type)).
     pub fn send(&self, message: T) -> Result<(), EncodeError>
     where
         T: Send + Sync + 'static,

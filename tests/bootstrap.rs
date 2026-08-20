@@ -34,7 +34,7 @@ const LINK_BUF: usize = 64 * 1024;
 /// link, returning whatever the bootstrapper produced.
 fn wire_bootstrap<T>(provider: &Rumors<T>) -> Option<Rumors<T>>
 where
-    T: Serialize + DeserializeOwned + Send + Sync + 'static,
+    T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
     block_on(async move {
         let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(LINK_BUF);

@@ -107,10 +107,12 @@
 //! alice holds: the meeting is at noon
 //! ```
 //!
-//! A `send` commits right there, at the call, and is fallible only in
-//! one way: a payload nested deeper than the peer's
-//! [`payload_depth_limit`](crate::Peer::payload_depth_limit) is rejected
-//! typed, and a flat string can never be. Applying several changes as
+//! A `send` commits right there, at the call, and errs only on a
+//! payload that violates the [payload
+//! contract](crate#choosing-a-payload-type) — nested past the peer's
+//! [`payload_depth_limit`](crate::Peer::payload_depth_limit), or
+//! decoding to a different value than was sent — which a flat string
+//! never does. Applying several changes as
 //! one commit is [`batch`](crate::Rumors::batch)'s job. Notice that the snapshot yields a
 //! [`Version`](crate::Version) alongside each message — the message's
 //! identity, which we ignore for now; it returns in step 6.

@@ -198,26 +198,14 @@ fn rehydration_honors_the_explicit_limit() {
     assert_eq!(m.as_slice(), deep.as_slice());
 }
 
-/// One wrapper scope for the boundary tests' constructed spines.
-#[derive(Debug, Clone, Copy)]
-enum Wrap {
-    Array,
-    Map,
-    Tag(u64),
-}
+/// Pure CBOR array nesting from a type satisfying the payload contract:
+/// each layer serializes as a one-element array, the innermost empty.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct Arr(Vec<Arr>);
 
-/// Wrap `leaf` in the given scopes, outermost first.
-fn wrapped(kinds: &[Wrap], leaf: ciborium::Value) -> ciborium::Value {
-    use ciborium::Value;
-    let mut value = leaf;
-    for kind in kinds.iter().rev() {
-        value = match kind {
-            Wrap::Array => Value::Array(vec![value]),
-            Wrap::Map => Value::Map(vec![(Value::Integer(0.into()), value)]),
-            Wrap::Tag(tag) => Value::Tag(*tag, Box::new(value)),
-        };
-    }
-    value
+/// A value of exactly `depth` nested array scopes (`depth` >= 1).
+fn nested_arr(depth: u64) -> Arr {
+    (1..depth).fold(Arr(vec![]), |a, _| Arr(vec![a]))
 }
 
 /// The admission boundary is exact and typed.
@@ -230,11 +218,11 @@ fn wrapped(kinds: &[Wrap], leaf: ciborium::Value) -> ciborium::Value {
 #[test]
 fn try_new_admits_exactly_the_limit() {
     let limit = super::PayloadDepthLimit::new(8);
-    let at = wrapped(&[Wrap::Array; 8], ciborium::Value::Integer(0.into()));
+    let at = nested_arr(8);
     let m = Message::try_new(at.clone(), limit).expect("at the limit is admitted");
     assert_eq!(m.bytes(), cbor_vec(&at).as_slice());
 
-    let over = ciborium::Value::Array(vec![at]);
+    let over = nested_arr(9);
     let error = Message::try_new(over.clone(), limit).unwrap_err();
     assert!(
         matches!(error, super::EncodeError::Depth { limit: l } if l == limit),
@@ -243,7 +231,7 @@ fn try_new_admits_exactly_the_limit() {
 
     // Rehydration rejects the same bytes admission rejects.
     assert!(
-        Message::from_slice::<ciborium::Value>(&cbor_vec(&over), limit).is_err(),
+        Message::from_slice::<Arr>(&cbor_vec(&over), limit).is_err(),
         "the decoder rejects what admission rejects"
     );
     let raised = super::PayloadDepthLimit::new(9);
@@ -296,7 +284,7 @@ fn try_new_prices_an_enums_own_decode() {
 
 /// A payload type violating the round-trip obligation: it serializes as
 /// an integer but deserializes expecting text.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 struct Lopsided;
 
 impl Serialize for Lopsided {
@@ -327,26 +315,29 @@ fn a_type_that_cannot_read_its_own_output_fails_admission() {
 /// reuses the caller's allocation.
 ///
 /// The codec is `Message::try_new` with the peer's configured limit
-/// riding along.
+/// riding along; the spine here is the enum's map scopes, so the codec
+/// path is exercised on the type-dependent accounting.
 #[test]
 fn codec_serializes_through_the_carried_limit() {
     use std::sync::Arc;
     let limit = super::PayloadDepthLimit::new(4);
-    let codec = super::PayloadCodec::mint::<ciborium::Value>(limit);
+    let codec = super::PayloadCodec::mint::<E>(limit);
 
-    let deep = wrapped(&[Wrap::Map; 5], ciborium::Value::Bool(true));
+    // 4 map scopes + the unit-variant step: one past the limit.
+    let deep = nested_enum(4);
     let error = codec.message(Arc::new(deep)).unwrap_err();
     assert!(
         matches!(error, super::EncodeError::Depth { limit: l } if l == limit),
         "the codec surfaces the carried limit: {error:?}"
     );
 
-    let shallow = wrapped(&[Wrap::Tag(24); 4], ciborium::Value::Null);
-    let stored: Arc<ciborium::Value> = Arc::new(shallow.clone());
+    // 3 map scopes + the unit-variant step: exactly the limit.
+    let shallow = nested_enum(3);
+    let stored: Arc<E> = Arc::new(shallow.clone());
     let m = codec.message(stored.clone()).expect("within the limit");
     assert_eq!(m.bytes(), cbor_vec(&shallow).as_slice());
     assert!(
-        std::sync::Arc::ptr_eq(&stored, &m.arc::<ciborium::Value>()),
+        std::sync::Arc::ptr_eq(&stored, &m.arc::<E>()),
         "the codec stores the caller's own allocation"
     );
 }

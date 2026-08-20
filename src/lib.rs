@@ -236,25 +236,54 @@
 //! [`AsyncRead`](tokio::io::AsyncRead) and [`AsyncWrite`](tokio::io::AsyncWrite);
 //! no Tokio runtime, spawning, sockets, or timers are required by this crate.
 //!
-//! # Message payloads and compatibility
+//! # Choosing a payload type
 //!
-//! Your message type `T` needs [`serde::Serialize`] and
-//! [`serde::de::DeserializeOwned`]; payloads are serialized as
-//! CBOR ([RFC 8949](https://www.rfc-editor.org/rfc/rfc8949)). Because
-//! CBOR carries field and variant *names*, reordering `struct` fields
-//! or `enum` variants does not break compatibility with prior versions
-//! of your type `T`; however, *renaming breaks compatibility*. It is worth
-//! designing around this from the get-go: consider an outer `enum` indicating
-//! the version of your application-level message type, even if it starts
-//! out only having one variant, `V1`.
+//! Your message type `T` needs [`serde::Serialize`],
+//! [`serde::de::DeserializeOwned`], [`Eq`], [`Send`], [`Sync`], and
+//! `'static`, all demanded once, at peer construction. The bounds are
+//! not boilerplate: `rumors` exists to synchronize causal messages so a
+//! fleet can replicate causally-convergent state from the stream, and
+//! that premise holds only if every replica reads every message exactly
+//! as its author meant it. Each bound obligates something toward that:
 //!
-//! Payload nesting depth is bounded: decoding a payload as your type `T`
-//! may recurse at most [`Peer::payload_depth_limit`] steps (256 by
-//! default, ample for ordinary message types). Admission at send runs
-//! the exact decode every receiver's wire ingress runs, and the limit is
-//! held to exact equality across a fleet at every handshake, so an
-//! admitted payload is transferable everywhere. The knob's docs carry
-//! the full contract.
+//! - **`Serialize` must succeed on every value you send.** Payloads are
+//!   serialized as CBOR
+//!   ([RFC 8949](https://www.rfc-editor.org/rfc/rfc8949)), which imposes
+//!   no format-driven failures (any map key, any nesting), so the only
+//!   possible failure is the implementation itself declining a value —
+//!   which this crate treats as a bug in the payload type: sending
+//!   panics. Types whose `Serialize` is data-dependently fallible (for
+//!   example `std::path::PathBuf`, which errors on non-UTF-8 paths)
+//!   violate the obligation and must not be used as message types.
+//! - **Encoding must be faithful, and `Eq` is how that is checked.**
+//!   Every send re-decodes the just-encoded value with the exact
+//!   decoder every receiver's wire ingress runs and requires the result
+//!   to equal the value sent; an encoding that decodes to a different
+//!   value is the typed [`EncodeError`], rejected before anything is
+//!   stored or gossiped. The canonical lossy shape is a nested `Option`
+//!   holding `Some(None)`, which serializes to CBOR null and decodes as
+//!   `None`: invisible in byte space, divergent in value space —
+//!   unchecked, one such message would let every state machine driven
+//!   by the stream diverge arbitrarily from its author's. The bound is
+//!   `Eq` rather than `PartialEq` by design, which excludes
+//!   `f32`/`f64` fields: equality must be an equivalence relation for
+//!   the check to be total and never spurious (NaN compares unequal to
+//!   itself).
+//! - **Nesting depth is bounded.** Decoding a payload as your type `T`
+//!   may recurse at most [`Peer::payload_depth_limit`] steps (256 by
+//!   default, ample for ordinary message types). Admission at send runs
+//!   that same receiving decode, and the limit is held to exact
+//!   equality across a fleet at every handshake, so an admitted payload
+//!   is transferable everywhere. The knob's docs carry the full
+//!   contract.
+//!
+//! On compatibility across versions of your own type: because CBOR
+//! carries field and variant *names*, reordering `struct` fields or
+//! `enum` variants does not break compatibility with prior versions of
+//! your type `T`; however, *renaming breaks compatibility*. It is worth
+//! designing around this from the get-go: consider an outer `enum`
+//! indicating the version of your application-level message type, even
+//! if it starts out only having one variant, `V1`.
 //!
 //! # Cargo features
 //!

@@ -62,7 +62,7 @@ const UNBOUNDED: usize = 8 << 30;
 
 fn diverged<T>(budget: usize, mint: &mut impl FnMut(&mut SmallRng) -> T) -> (Rumors<T>, Rumors<T>)
 where
-    T: Serialize + DeserializeOwned + Send + Sync + Clone + 'static,
+    T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
     let left = Peer::seed().sync_memory_budget(budget).into_rumors();
     let mut rng = SmallRng::seed_from_u64(0x0b05_2026_7ade_0ff1);
@@ -108,7 +108,7 @@ where
 /// principle: every wire event lands on an exact delay multiple).
 fn wire_hops<T>(budget: usize, pipe: usize, mint: &mut impl FnMut(&mut SmallRng) -> T) -> u64
 where
-    T: Serialize + DeserializeOwned + Send + Sync + Clone + 'static,
+    T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
     let (left, right) = diverged(budget, mint);
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -140,7 +140,7 @@ fn run_cells<T>(
     targets: &[f64],
     mint: &mut impl FnMut(&mut SmallRng) -> T,
 ) where
-    T: Serialize + DeserializeOwned + Send + Sync + Clone + 'static,
+    T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
     let (envelope, _) = envelope_and_wire_bytes();
     // The shipped intercept, never a transcribed copy: the probe's byte

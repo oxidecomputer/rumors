@@ -521,7 +521,7 @@ where
 /// reconcile cleanly; a gossip error panics the helper.
 pub fn capture_gossip<T>(a: Rumors<T>, b: Rumors<T>) -> String
 where
-    T: Serialize + DeserializeOwned + Send + Sync + 'static,
+    T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
     capture_gossip_returning(a, b).0
 }
@@ -537,7 +537,7 @@ where
 /// reports the whole session stalled).
 pub fn capture_gossip_returning<T>(a: Rumors<T>, b: Rumors<T>) -> (String, Rumors<T>, Rumors<T>)
 where
-    T: Serialize + DeserializeOwned + Send + Sync + 'static,
+    T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
     let a_out = Arc::new(Mutex::new(None));
     let b_out = Arc::new(Mutex::new(None));
@@ -564,7 +564,7 @@ where
 /// Capture the strict V1 timeline for a gossip/gossip session.
 pub fn capture_gossip_v1<T>(a: Rumors<T>, b: Rumors<T>) -> String
 where
-    T: Serialize + DeserializeOwned + Send + Sync + 'static,
+    T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
     capture_session_v1(
         move |mut link| async move {

@@ -92,7 +92,7 @@ pub struct Session {
 /// Open a wire gossip session between `a` and `b` without polling it.
 pub fn open<T>(a: &Rumors<T>, b: &Rumors<T>) -> Session
 where
-    T: Serialize + DeserializeOwned + Send + Sync + 'static,
+    T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
     let a = a.clone();
     let b = b.clone();

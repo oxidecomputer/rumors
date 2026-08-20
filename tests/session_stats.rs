@@ -33,7 +33,7 @@ use serde::de::DeserializeOwned;
 /// returning both sides' [`Gossiped`].
 async fn gossip_pair<T>(a: &Rumors<T>, b: &Rumors<T>) -> (Gossiped, Gossiped)
 where
-    T: Serialize + DeserializeOwned + Send + Sync + 'static,
+    T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
     let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(LINK_BUF);
     let (a_out, b_out) = tokio::join!(a.gossip(&mut a_link), b.gossip(&mut b_link));

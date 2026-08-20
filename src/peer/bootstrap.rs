@@ -264,7 +264,7 @@ impl<T> Bootstrap<T> {
         link: &mut Link<CR, CW, C, A>,
     ) -> Result<Option<Peer<T>>, Error>
     where
-        T: Serialize + DeserializeOwned + Send + Sync + 'static,
+        T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,
@@ -358,7 +358,7 @@ impl<T, B: Bookmark> BookmarkedBootstrap<T, B> {
     /// in every outcome that never used it.
     pub async fn join<CR, CW, C, A>(self, link: &mut Link<CR, CW, C, A>) -> Joined<T, B>
     where
-        T: Serialize + DeserializeOwned + Send + Sync + 'static,
+        T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,

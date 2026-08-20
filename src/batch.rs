@@ -45,10 +45,12 @@ impl<'a, T: Send + Sync> Batch<'a, T> {
     ///
     /// Serialization and admission run here, not at commit: the message
     /// is serialized through the peer's codec immediately, and a payload
-    /// a receiver would reject — one nesting deeper than the peer's
-    /// [`payload_depth_limit`](crate::Peer::payload_depth_limit), or one
-    /// whose type does not survive its own serde round-trip — is the
-    /// typed [`EncodeError`], surfacing at the offending call
+    /// a receiver would reject or misread — one nesting deeper than the
+    /// peer's
+    /// [`payload_depth_limit`](crate::Peer::payload_depth_limit), one
+    /// whose type does not survive its own serde round-trip, or one
+    /// whose encoding decodes to a different value — is the typed
+    /// [`EncodeError`], surfacing at the offending call
     /// ([`Rumors::send`](crate::Rumors::send) states the admission
     /// contract). Propagating the
     /// error out of the closure cancels the whole batch
@@ -58,9 +60,9 @@ impl<'a, T: Send + Sync> Batch<'a, T> {
     ///
     /// # Panics
     ///
-    /// If `message` fails to serialize: serializability is the caller's
-    /// obligation, so a payload type whose `Serialize` implementation
-    /// reports an error is a bug in the payload type, exactly as
+    /// If `message` fails to serialize: a violation of the payload
+    /// contract ([choosing a payload
+    /// type](crate#choosing-a-payload-type)), exactly as
     /// [`Rumors::send`](crate::Rumors::send) treats it.
     pub fn send(&mut self, message: T) -> Result<(), EncodeError>
     where

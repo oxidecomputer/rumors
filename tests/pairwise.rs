@@ -31,7 +31,7 @@ use serde::de::DeserializeOwned;
 /// holds the same live messages but ticks its own party region.
 fn dup<T>(k: &Rumors<T>) -> Rumors<T>
 where
-    T: Clone + Serialize + DeserializeOwned + Send + Sync + 'static,
+    T: Clone + Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
     bootstrap_fork(k)
 }

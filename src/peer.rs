@@ -197,7 +197,7 @@ impl<T, B: BookmarkError> std::fmt::Debug for Peer<T, B> {
     }
 }
 
-impl<T: Serialize + DeserializeOwned + Send + Sync + 'static> Peer<T, NoBookmark> {
+impl<T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<T, NoBookmark> {
     /// Create the distinguished seed rumor set: the single root from which
     /// every other participant must [`bootstrap`](Peer::bootstrap).
     ///

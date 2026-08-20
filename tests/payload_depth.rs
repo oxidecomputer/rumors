@@ -1,28 +1,33 @@
-//! The payload nesting-depth limit, exercised peer-to-peer.
+//! The payload admission contract, exercised peer-to-peer.
 //!
 //! Send-side admission ([`Rumors::send`]) runs the exact decode every
 //! receiver's wire ingress runs — same payload type, same limit, same
-//! engine — so a payload admitted anywhere is transferable everywhere.
-//! The boundary pins here send payloads at exactly the default limit
-//! through real gossip sessions (the container spine and the
-//! recommended versioning-`enum` shape, whose decode recursion is
-//! type-dependent), reject one step past the limit at its author, and
-//! carry deep content across a fleet whose limit was raised in concert;
-//! the last pin holds the sender's exit typed when a counterparty
-//! aborts mid-session on a decode failure.
+//! engine — and requires the decoded value to equal the value sent, so
+//! a payload admitted anywhere is transferable everywhere and reads
+//! back everywhere as what its author meant. The boundary pins here
+//! send payloads at exactly the default depth limit through real
+//! gossip sessions (the container spine and the recommended
+//! versioning-`enum` shape, whose decode recursion is type-dependent),
+//! reject one step past the limit at its author, reject a lossy value
+//! (`Some(None)`) at its author, and carry deep content across a fleet
+//! whose limit was raised in concert; the last pin holds the sender's
+//! exit typed when a counterparty aborts mid-session on a decode
+//! failure.
 
 mod common;
 
-use ciborium::Value;
 use rumors::{DEFAULT_PAYLOAD_DEPTH_LIMIT, PayloadDepthLimit, Peer, Rumors};
 
 use crate::common::wire::{bootstrap_fork, wire_gossip};
 
-/// A payload nested in exactly `depth` array scopes around one integer.
-fn nested(depth: u64) -> Value {
-    (0..depth).fold(Value::Integer(0.into()), |value, _| {
-        Value::Array(vec![value])
-    })
+/// Pure CBOR array nesting from a type satisfying the payload contract:
+/// each layer serializes as a one-element array, the innermost empty.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+struct Arr(Vec<Arr>);
+
+/// A payload of exactly `depth` nested array scopes (`depth` >= 1).
+fn nested(depth: u64) -> Arr {
+    (1..depth).fold(Arr(vec![]), |a, _| Arr(vec![a]))
 }
 
 /// A payload at exactly the default depth limit is admitted at send and
@@ -31,7 +36,7 @@ fn nested(depth: u64) -> Value {
 #[test]
 fn a_payload_at_the_default_depth_round_trips() {
     let at_limit = nested(DEFAULT_PAYLOAD_DEPTH_LIMIT.get());
-    let a: Rumors<Value> = Peer::seed().sync_window_floor().into_rumors();
+    let a: Rumors<Arr> = Peer::seed().sync_window_floor().into_rumors();
     let b = bootstrap_fork(&a);
 
     a.send(at_limit.clone())
@@ -51,7 +56,7 @@ fn a_payload_at_the_default_depth_round_trips() {
 /// stored, so no session can ever wedge on it.
 #[test]
 fn one_step_past_the_limit_is_rejected_at_send() {
-    let rumors: Rumors<Value> = Peer::seed().sync_window_floor().into_rumors();
+    let rumors: Rumors<Arr> = Peer::seed().sync_window_floor().into_rumors();
     let error = rumors
         .send(nested(DEFAULT_PAYLOAD_DEPTH_LIMIT.get() + 1))
         .expect_err("one step past the limit is rejected");
@@ -128,7 +133,7 @@ fn equal_raised_limits_gossip_deep_content_clean() {
     let raised = PayloadDepthLimit::new(DEFAULT_PAYLOAD_DEPTH_LIMIT.get() + 64);
     let deep = nested(DEFAULT_PAYLOAD_DEPTH_LIMIT.get() + 32);
 
-    let a: Rumors<Value> = Peer::seed()
+    let a: Rumors<Arr> = Peer::seed()
         .payload_depth_limit(raised)
         .sync_window_floor()
         .into_rumors();
@@ -138,7 +143,7 @@ fn equal_raised_limits_gossip_deep_content_clean() {
         let (mut provider, mut newcomer) = rumors::link::memory();
         let (served, joined) = tokio::join!(
             a.gossip(&mut provider),
-            Peer::<Value>::bootstrap()
+            Peer::<Arr>::bootstrap()
                 .payload_depth_limit(raised)
                 .join(&mut newcomer),
         );
@@ -156,6 +161,42 @@ fn equal_raised_limits_gossip_deep_content_clean() {
     let snapshot = b.snapshot();
     let (_, received) = snapshot.iter().next().expect("the deep payload arrived");
     assert_eq!(*received, deep);
+}
+
+/// The canonical faithfulness regression: a payload whose encoding
+/// decodes to a different value is rejected at send, and nothing is
+/// stored.
+///
+/// A nested `Option` holding `Some(None)` serializes to CBOR null and
+/// decodes as `None` — a silent divergence in value space that is
+/// invisible in byte space (re-serializing the decoded `None` yields
+/// the same null). Admission compares the decoded value against the
+/// value sent, so the lossy value dies typed at its author and no
+/// replica can ever read a message differently than it was meant.
+#[test]
+fn a_lossy_value_is_rejected_at_send() {
+    #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    struct P {
+        field: Option<Option<u32>>,
+    }
+    let rumors: Rumors<P> = Peer::seed().sync_window_floor().into_rumors();
+    let error = rumors
+        .send(P { field: Some(None) })
+        .expect_err("a value whose encoding decodes differently is rejected");
+    assert!(
+        matches!(error, rumors::EncodeError::Unfaithful),
+        "the rejection is the typed faithfulness case: {error:?}"
+    );
+    assert_eq!(rumors.snapshot().len(), 0, "a rejected send stores nothing");
+
+    // The faithful values of the same type pass: admission judges the
+    // value, not the type.
+    rumors.send(P { field: None }).expect("None is faithful");
+    rumors
+        .send(P {
+            field: Some(Some(7)),
+        })
+        .expect("Some(Some(_)) is faithful");
 }
 
 /// A recording observer for the mismatch pin: retains whether a session
@@ -215,7 +256,7 @@ impl rumors::observe::SessionObserver for ShapeSession {
 #[test]
 fn mismatched_limits_abort_both_sides_at_the_handshake() {
     use rumors::Error;
-    let a: Rumors<Value> = Peer::seed().sync_window_floor().into_rumors();
+    let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
     let b = bootstrap_fork(&a);
 
     // Re-key one side's limit through the Peer knob: the fork was minted
@@ -286,7 +327,7 @@ fn mismatched_limits_abort_both_sides_at_the_handshake() {
 /// decode. The receiver's own exit is the typed decode error.
 #[test]
 fn a_sender_exits_typed_when_its_counterparty_aborts_on_decode() {
-    let a: Rumors<Value> = Peer::seed().sync_window_floor().into_rumors();
+    let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
     let b = crate::common::wire::block_on(async {
         let (mut provider, mut newcomer) = rumors::link::memory();
         let (served, joined) = tokio::join!(
@@ -301,7 +342,7 @@ fn a_sender_exits_typed_when_its_counterparty_aborts_on_decode() {
             .into_rumors()
     });
 
-    a.send(Value::Integer(7.into())).expect("a flat integer");
+    a.send(7u64).expect("a flat integer");
 
     // Production-shaped teardown: each side drives its own end, and the
     // aborting side discards its link, as every session `Err` instructs.

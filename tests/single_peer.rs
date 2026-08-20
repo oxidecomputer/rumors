@@ -148,7 +148,7 @@ proptest! {
 /// A value whose serialization fails on demand, so a test can fire
 /// [`rumors::Batch::send`]'s documented serialization panic at a chosen
 /// point mid-batch.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 struct Explosive {
     value: u64,
     fail: bool,
@@ -251,17 +251,20 @@ fn a_batch_commits_iff_the_closure_returns_ok() {
 /// untouched.
 #[test]
 fn a_depth_error_cancels_the_whole_batch() {
-    use ciborium::Value;
+    /// Pure CBOR array nesting from a type satisfying the payload
+    /// contract: each layer is a one-element array, the innermost empty.
+    #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    struct Arr(Vec<Arr>);
     let limit = rumors::PayloadDepthLimit::new(4);
-    let rumors: Rumors<Value> = Peer::seed()
+    let rumors: Rumors<Arr> = Peer::seed()
         .payload_depth_limit(limit)
         .sync_window_floor()
         .into_rumors();
-    let deep = (0..5).fold(Value::Integer(0.into()), |v, _| Value::Array(vec![v]));
+    let deep = (1..5).fold(Arr(vec![]), |a, _| Arr(vec![a]));
 
     let error = rumors
         .batch(|batch| {
-            batch.send(Value::Bool(true))?;
+            batch.send(Arr(vec![]))?;
             batch.send(deep.clone())?;
             Ok::<(), rumors::EncodeError>(())
         })

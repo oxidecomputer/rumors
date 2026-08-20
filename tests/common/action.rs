@@ -66,7 +66,7 @@ pub fn minted_version<T: Send + Sync + 'static>(snapshot: &Snapshot<T>, pre: &Ve
 /// Apply a `LocalAction` sequence to an already-bootstrapped local replica.
 pub fn build_local<T>(local: rumors::Rumors<T>, actions: &[LocalAction<T>]) -> rumors::Rumors<T>
 where
-    T: Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
+    T: Send + Sync + Clone + Serialize + DeserializeOwned + Eq + 'static,
 {
     let mut versions: Vec<Version> = Vec::new();
     for a in actions {

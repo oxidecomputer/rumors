@@ -36,7 +36,7 @@ pub struct Peer<T> {
     pub observations: Vec<(Version, T)>,
 }
 
-impl<T: Clone + Serialize + DeserializeOwned + Send + Sync + 'static> Peer<T> {
+impl<T: Clone + Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<T> {
     /// Wrap an already-forked `Rumors` as a simulated peer. Observation
     /// starts at the wrapped set's current frontier: content already present
     /// is never logged, only what arrives afterwards.
@@ -99,7 +99,7 @@ impl<T: Clone + Serialize + DeserializeOwned + Send + Sync + 'static> Peer<T> {
 /// version, and both observation logs have caught up.
 pub fn gossip_step<T>(a: &mut Peer<T>, b: &mut Peer<T>)
 where
-    T: Clone + Serialize + DeserializeOwned + Send + Sync + 'static,
+    T: Clone + Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
     block_on(wire_gossip_async(&a.local, &b.local));
     a.drain();
@@ -112,7 +112,7 @@ where
 /// non-termination guard.
 pub fn quiesce<T>(peers: &mut [Peer<T>])
 where
-    T: Clone + Eq + Serialize + DeserializeOwned + Send + Sync + 'static,
+    T: Clone + Eq + Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
     let mut refs: Vec<&mut Peer<T>> = peers.iter_mut().collect();
     quiesce_refs(&mut refs);
@@ -122,7 +122,7 @@ where
 /// slotted fleet, skipping retired peers' vacated slots.
 pub fn quiesce_slots<T>(slots: &mut [Option<Peer<T>>])
 where
-    T: Clone + Eq + Serialize + DeserializeOwned + Send + Sync + 'static,
+    T: Clone + Eq + Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
     let mut refs: Vec<&mut Peer<T>> = slots.iter_mut().filter_map(Option::as_mut).collect();
     quiesce_refs(&mut refs);
@@ -139,7 +139,7 @@ where
 /// should catch).
 fn quiesce_refs<T>(peers: &mut [&mut Peer<T>])
 where
-    T: Clone + Eq + Serialize + DeserializeOwned + Send + Sync + 'static,
+    T: Clone + Eq + Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
     let n = peers.len();
     if n < 2 {
