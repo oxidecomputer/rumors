@@ -1,8 +1,9 @@
 //! The reflection renderer's pins.
 //!
-//! Three commitments: the rendered value tree names the semantic field a
-//! snapshot re-accept moved (the committed fixture pair below differs in
-//! exactly one rendered line), bytes the walk cannot vouch for render as
+//! Three commitments: the rendered value tree localizes the semantic
+//! field a snapshot re-accept moved to exactly one rendered line
+//! carrying the exact value (its surrounding vocabulary is the wire
+//! snapshots' to pin), bytes the walk cannot vouch for render as
 //! an explicit failure above their exact hex (never as a silently pretty
 //! tree, never as silent omission), and the totality witness
 //! ([`assert_items_account_for`]) refuses any gap between observed items
@@ -33,15 +34,24 @@ fn run_lines(run: &LeafRun) -> Vec<String> {
 }
 
 /// Two supply runs differing only in one record's version render line
-/// sets that differ in exactly the line annotating that version: the
-/// field-level account an insta re-accept diff shows.
+/// sets that differ in exactly one line, and that line carries the
+/// version's exact rendering: the field-level account an insta
+/// re-accept diff shows.
+///
+/// Containment, not equality: the record's version-addressed hash
+/// moves on the same line. The annotation's surrounding vocabulary is
+/// deliberately not asserted here; the wire snapshots pin it, and a
+/// reviewer judges its changes at re-accept.
 #[test]
-fn supply_reflection_names_the_field_that_moved() {
-    let party = before::Party::seed();
+fn supply_reflection_localizes_the_field_that_moved() {
+    let mut party = before::Party::seed();
+    let other = party.fork();
     let mut low = Version::new();
     low.tick(&party);
+    low.tick(&other);
+    low.tick(&other);
     let mut high = low.clone();
-    high.tick(&party);
+    high.tick(&other);
 
     let render = |version: &Version| {
         let mut run = LeafRun::new();
@@ -55,13 +65,23 @@ fn supply_reflection_names_the_field_that_moved() {
     let diffs: Vec<_> = a.iter().zip(&b).filter(|(a, b)| a != b).collect();
     assert_eq!(diffs.len(), 1, "exactly one rendered line moved: {diffs:?}");
     let (a_line, b_line) = diffs[0];
+    // The unbalanced ticks across the fork keep the event tree
+    // non-flat, so its rendering carries punctuation neither hex nor a
+    // tag digit can spell: containment cannot match vacuously inside
+    // the line's other tokens.
+    let low_text = low.to_string();
+    let high_text = high.to_string();
     assert!(
-        a_line.contains(&format!("causal version, event tree: {low}")),
-        "{a_line}"
+        low_text.contains('('),
+        "the fixture is non-flat: {low_text}"
     );
     assert!(
-        b_line.contains(&format!("causal version, event tree: {high}")),
-        "{b_line}"
+        a_line.contains(&low_text),
+        "the moved line carries the exact version rendering: {a_line}"
+    );
+    assert!(
+        b_line.contains(&high_text),
+        "the moved line carries the exact version rendering: {b_line}"
     );
     // The identical payload renders identically as its own line: the
     // small u64 is a bare CBOR int, visible directly.
