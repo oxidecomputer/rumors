@@ -22,7 +22,7 @@ control item 1 (134 bytes) / greeting /
         }
       "set_len" => 2
       "version" =>
-        53846(h'40ff01f9') / version (0, 126, 0) /
+        53846(h'40ff01f9') / causal version, event tree: (0, 126, 0) /
       "max_version_bytes" => 4
       "payload_depth_limit" => 256
       "target_message_size" => 1830400
@@ -36,11 +36,11 @@ Initiator stream 0 (height 31), epoch 0, 34 wire bytes
       119 / Supply(End) /
       63(<< / supply run, 2 record(s), 23 bytes /
         63(<< / record, 2 item(s), 10 bytes /
-          53846(h'41041f40') / version (0, 31, 0) /
+          53846(h'41041f40') / causal version, event tree: (0, 31, 0) /
           30
         >>)
         63(<< / record, 2 item(s), 7 bytes /
-          53846(h'4b11') / version (0, 4, 0) /
+          53846(h'4b11') / causal version, event tree: (0, 4, 0) /
           3
         >>)
       >>)
@@ -81,7 +81,7 @@ control item 1 (188 bytes) / greeting /
         }
       "set_len" => 3
       "version" =>
-        53846(h'7077') / version (0, 0, 29) /
+        53846(h'7077') / causal version, event tree: (0, 0, 29) /
       "max_version_bytes" => 2
       "payload_depth_limit" => 256
       "target_message_size" => 1830400
@@ -95,7 +95,7 @@ Responder stream 0 (height 31), epoch 0, 61 wire bytes
       102 / Supply(Continue) /
       63(<< / supply run, 1 record(s), 12 bytes /
         63(<< / record, 2 item(s), 9 bytes /
-          53846(h'73c0') / version (0, 0, 3) /
+          53846(h'73c0') / causal version, event tree: (0, 0, 3) /
           10002
         >>)
       >>)
@@ -109,7 +109,7 @@ Responder stream 0 (height 31), epoch 0, 61 wire bytes
       102 / Supply(Continue) /
       63(<< / supply run, 1 record(s), 12 bytes /
         63(<< / record, 2 item(s), 9 bytes /
-          53846(h'72c0') / version (0, 0, 2) /
+          53846(h'72c0') / causal version, event tree: (0, 0, 2) /
           10001
         >>)
       >>)
@@ -119,7 +119,7 @@ Responder stream 0 (height 31), epoch 0, 61 wire bytes
       119 / Supply(End) /
       63(<< / supply run, 1 record(s), 11 bytes /
         63(<< / record, 2 item(s), 8 bytes /
-          53846(h'77') / version (0, 0, 1) /
+          53846(h'77') / causal version, event tree: (0, 0, 1) /
           10000
         >>)
       >>)

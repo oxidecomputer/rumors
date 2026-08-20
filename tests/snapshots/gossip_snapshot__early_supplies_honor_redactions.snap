@@ -22,7 +22,7 @@ control item 1 (137 bytes) / greeting /
         }
       "set_len" => 2
       "version" =>
-        53846(h'4002003000fff4') / version (1, 4095, 0) /
+        53846(h'4002003000fff4') / causal version, event tree: (1, 4095, 0) /
       "max_version_bytes" => 5
       "payload_depth_limit" => 256
       "target_message_size" => 1830400
@@ -36,7 +36,7 @@ Initiator stream 0 (height 31), epoch 0, 26 wire bytes
       119 / Supply(End) /
       63(<< / supply run, 1 record(s), 15 bytes /
         63(<< / record, 2 item(s), 12 bytes /
-          53846(h'40365006c1') / version (1, 432, 0) /
+          53846(h'40365006c1') / causal version, event tree: (1, 432, 0) /
           433
         >>)
       >>)
@@ -77,7 +77,7 @@ control item 1 (189 bytes) / greeting /
         }
       "set_len" => 3
       "version" =>
-        53846(h'541ec0') / version (1, 0, 30) /
+        53846(h'541ec0') / causal version, event tree: (1, 0, 30) /
       "max_version_bytes" => 2
       "payload_depth_limit" => 256
       "target_message_size" => 1830400
@@ -91,7 +91,7 @@ Responder stream 0 (height 31), epoch 0, 62 wire bytes
       102 / Supply(Continue) /
       63(<< / supply run, 1 record(s), 12 bytes /
         63(<< / record, 2 item(s), 9 bytes /
-          53846(h'544c') / version (1, 0, 4) /
+          53846(h'544c') / causal version, event tree: (1, 0, 4) /
           10002
         >>)
       >>)
@@ -105,7 +105,7 @@ Responder stream 0 (height 31), epoch 0, 62 wire bytes
       102 / Supply(Continue) /
       63(<< / supply run, 1 record(s), 12 bytes /
         63(<< / record, 2 item(s), 9 bytes /
-          53846(h'54b0') / version (1, 0, 2) /
+          53846(h'54b0') / causal version, event tree: (1, 0, 2) /
           10000
         >>)
       >>)
@@ -115,7 +115,7 @@ Responder stream 0 (height 31), epoch 0, 62 wire bytes
       119 / Supply(End) /
       63(<< / supply run, 1 record(s), 12 bytes /
         63(<< / record, 2 item(s), 9 bytes /
-          53846(h'54f0') / version (1, 0, 3) /
+          53846(h'54f0') / causal version, event tree: (1, 0, 3) /
           10001
         >>)
       >>)

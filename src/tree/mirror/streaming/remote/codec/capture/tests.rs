@@ -55,8 +55,14 @@ fn supply_reflection_names_the_field_that_moved() {
     let diffs: Vec<_> = a.iter().zip(&b).filter(|(a, b)| a != b).collect();
     assert_eq!(diffs.len(), 1, "exactly one rendered line moved: {diffs:?}");
     let (a_line, b_line) = diffs[0];
-    assert!(a_line.contains(&format!("version {low}")), "{a_line}");
-    assert!(b_line.contains(&format!("version {high}")), "{b_line}");
+    assert!(
+        a_line.contains(&format!("causal version, event tree: {low}")),
+        "{a_line}"
+    );
+    assert!(
+        b_line.contains(&format!("causal version, event tree: {high}")),
+        "{b_line}"
+    );
     // The identical payload renders identically as its own line: the
     // small u64 is a bare CBOR int, visible directly.
     assert!(a.iter().any(|line| line.trim() == "7"), "{a:?}");
@@ -168,7 +174,7 @@ fn garbage_version_atom_annotates_undecodable() {
     let node = parse_node(&mut input, 0).expect("the wrapper is canonical");
     let mut out = String::new();
     render_node(&node, Naming::Plain, "", 0, &mut out);
-    assert!(out.contains("version undecodable"), "{out}");
+    assert!(out.contains("causal version undecodable"), "{out}");
     assert!(out.contains("h'ffffff'"), "the atom bytes stand: {out}");
 }
 
