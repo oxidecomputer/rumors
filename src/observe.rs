@@ -1,117 +1,59 @@
 //! Bytes-level observation of live wire sessions.
 //!
-//! This module is the crate's capture surface: the hook a debugger, a
-//! session recorder, or a tracing adapter attaches to a
-//! [`Peer`](crate::Peer) (or a [`Bootstrap`](crate::Bootstrap) builder,
-//! for the joining session itself) to watch every protocol message a
-//! peer exchanges, as raw wire bytes. The hook is *rumors-blind by
-//! design*: no protocol type appears in its signature, an invocation
-//! carries **exactly one CBOR item** of the wire, and a consumer parses
-//! with any CBOR library — or none. What the items mean is the wire
-//! format's contract; what this module promises is that you see each
-//! one, whole, with its stream identity.
+//! The hook a debugger, session recorder, or tracing adapter attaches
+//! to a [`Peer`](crate::Peer) ([`Peer::observe`](crate::Peer::observe))
+//! or a [`Bootstrap`](crate::Bootstrap) builder
+//! ([`Bootstrap::observe`](crate::Bootstrap::observe)) to watch every
+//! protocol message the peer exchanges, as raw wire bytes. The hook is
+//! rumors-blind: no protocol type appears in its signature, each
+//! invocation carries exactly one whole CBOR item with its stream
+//! identity, and a consumer parses with any CBOR library — or none.
 //!
-//! # The three levels
+//! Attachment has three levels, one handler per level, each supplied
+//! by the level above; every level can return `None` to skip what it
+//! does not care about:
 //!
-//! Attachment mirrors the session machinery's own shape, one handler
-//! per level, each minted by the level above:
-//!
-//! - **Peer**: an [`Observer`] attaches once, at construction
-//!   ([`Peer::observe`](crate::Peer::observe),
-//!   [`Bootstrap::observe`](crate::Bootstrap::observe)), and follows
-//!   the peer through cloning, bookmarking, and reunion. For every
-//!   session the peer enters — gossip, bootstrap, and retire alike —
-//!   it is asked for a session handler.
+//! - **Peer**: an [`Observer`] attaches once, follows the peer through
+//!   cloning, bookmarking, and reunion, and is asked for a session
+//!   handler for every session the peer enters — gossip, bootstrap,
+//!   and retire alike.
 //! - **Session**: a [`SessionObserver`] lives exactly as long as its
-//!   session. Its [`SessionInfo`] identifies the session (kind and
-//!   protocol; numbering sessions is the observer's own concern — see
-//!   [`SessionInfo`]), and it is asked for a stream handler for each
-//!   directed stream of the session as that stream opens: the control
-//!   stream's two directions at session start, and each data stream
-//!   when the protocol first speaks or reads it.
+//!   session and is asked for a stream handler for each directed
+//!   stream as it opens.
 //! - **Stream**: a [`StreamObserver`] receives that one directed
-//!   stream's messages, in stream order, one whole CBOR item per
+//!   stream's messages, in stream order, one CBOR item per
 //!   [`message`](StreamObserver::message) call.
 //!
-//! Every level can decline (return `None`) to skip what it does not
-//! care about; an unattached peer pays one branch per frame and
-//! nothing else.
+//! The contract:
 //!
-//! # Ordering
+//! - **Ordering**: within one directed stream, invocations arrive in
+//!   the stream's byte order; across streams there is no ordering at
+//!   all (a session's streams pump concurrently). To recover the
+//!   observed interleaving, stamp each message from a session-scoped
+//!   atomic counter shared by the stream handlers.
+//! - **Never block**: handlers run synchronously inside the session's
+//!   own stream tasks. Blocking in
+//!   [`message`](StreamObserver::message) stalls that directed stream,
+//!   and waiting on protocol progress deadlocks; hand bytes off to a
+//!   channel if the consumer is slow.
+//! - **Coverage**: every directed stream of a `Protocol::V2` session,
+//!   both directions, control and data streams alike. The stream-open
+//!   label is stream *addressing*, not an item, and is not delivered.
+//!   Only complete items are observed: a session that dies mid-frame
+//!   does not deliver the fragment, and an aborted session may have
+//!   observed fewer items than crossed the wire. `Protocol::V1`
+//!   sessions are not observed: the frozen legacy wire is not a CBOR
+//!   sequence, so it cannot honor the one-item contract.
+//! - **Cost**: unattached (or a level declined), one branch per frame;
+//!   attached, one extra contiguous copy of each observed frame. The
+//!   wire bytes themselves are unchanged either way.
 //!
-//! Within one directed stream, invocations arrive in the stream's own
-//! byte order. **Across streams, the hook imposes no ordering at
-//! all**: a session's streams pump concurrently, and the library does
-//! not serialize observation across them. A consumer that wants the
-//! observed interleaving reconstructs it without a lock by stamping
-//! each message from a session-scoped atomic counter:
-//!
-//! ```
-//! use std::sync::Arc;
-//! use std::sync::atomic::{AtomicU64, Ordering};
-//! use rumors::observe::{SessionObserver, StreamInfo, StreamObserver};
-//!
-//! struct Session {
-//!     order: Arc<AtomicU64>,
-//! }
-//!
-//! struct Stream {
-//!     order: Arc<AtomicU64>,
-//! }
-//!
-//! impl SessionObserver for Session {
-//!     fn stream(&self, _: &StreamInfo) -> Option<Box<dyn StreamObserver>> {
-//!         Some(Box::new(Stream { order: Arc::clone(&self.order) }))
-//!     }
-//! }
-//!
-//! impl StreamObserver for Stream {
-//!     fn message(&mut self, bytes: &[u8]) {
-//!         let ordinal = self.order.fetch_add(1, Ordering::Relaxed);
-//!         // record (ordinal, bytes) …
-//!         let _ = (ordinal, bytes);
-//!     }
-//! }
-//! ```
-//!
-//! This is deliberately unlike the crate's *content* observers
+//! The hook watches the **wire**, synchronously, from inside the
+//! session's tasks; the content observers
 //! ([`UnorderedMessages`](crate::UnorderedMessages),
 //! [`CausalMessages`](crate::CausalMessages), and
-//! [`Changes`](crate::Changes)), which are pull-based streams over the
-//! replica's state. The hook watches the **wire**, synchronously, from
-//! inside the session's own tasks; the content observers watch the
-//! **set**, asynchronously, from outside.
-//!
-//! # Back-pressure
-//!
-//! Handlers run synchronously inside the session's stream tasks: a
-//! [`message`](StreamObserver::message) call that blocks stalls its
-//! own directed stream (and only it) until the call returns. Handlers
-//! **must never wait on protocol progress** — deadlock — and should
-//! return promptly; hand bytes off to a channel or buffer if the
-//! consumer is slow. The same contract the session's internal error
-//! reporting follows: never block the reporter.
-//!
-//! # What is observed, exactly
-//!
-//! Every directed stream of a `Protocol::V2` session, both directions:
-//! the control stream (preamble, greeting, any identity hand-off, and
-//! the epilogue marker — each its own item) and every data stream
-//! (each reconciliation frame an item, the stream-end control frames
-//! included; the stream-open label (two leading unsigned-int items) is
-//! stream *addressing*, not an item, and is not delivered). Only
-//! complete items are observed: a session that dies mid-frame does not
-//! deliver the fragment, and a session aborted by a protocol violation
-//! may have observed fewer items than crossed the wire. `Protocol::V1`
-//! sessions are not observed: the frozen legacy wire is not a CBOR
-//! sequence, so its bytes cannot honor this module's one-item contract.
-//!
-//! # Cost
-//!
-//! Unattached (or a level declined): one branch per frame. Attached:
-//! each observed frame is additionally materialized once as a
-//! contiguous buffer for the handler's `&[u8]`; the wire path itself
-//! is unchanged, byte for byte.
+//! [`Changes`](crate::Changes)) watch the **set**, asynchronously,
+//! from outside.
 
 use std::sync::{Arc, Mutex, PoisonError};
 
