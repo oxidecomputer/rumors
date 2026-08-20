@@ -1492,6 +1492,17 @@ fn streaming_error(
         streaming_remote::Error<std::convert::Infallible>,
     >,
 ) -> Error {
+    // The depth-limit mismatch is a configuration diagnosis, not a
+    // reconciliation failure: surface it as its own top-level variant.
+    // Only the proxy (the server side of every production handshake)
+    // detects it; the materialized participant has no wire.
+    if let tree::mirror::Error::Server(streaming_remote::Error::PayloadDepthMismatch {
+        local,
+        remote,
+    }) = error
+    {
+        return Error::PayloadDepthMismatch { local, remote };
+    }
     Error::Mirror(error)
 }
 

@@ -92,3 +92,115 @@ fn equal_raised_limits_gossip_deep_content_clean() {
     let (_, received) = snapshot.iter().next().expect("the deep payload arrived");
     assert_eq!(*received, deep);
 }
+
+/// A recording observer for the mismatch pin: retains whether a session
+/// elected roles and how many *data* streams it opened.
+///
+/// The control stream's two directions open with the session itself, so
+/// they are not counted; what this makes observable is the abort's
+/// placement — after the greetings, before the election and any data
+/// stream.
+#[derive(Default)]
+struct SessionShape {
+    elected: std::sync::Mutex<bool>,
+    streams: std::sync::Mutex<usize>,
+}
+
+struct ShapeObserver(std::sync::Arc<SessionShape>);
+
+struct ShapeSession(std::sync::Arc<SessionShape>);
+
+impl rumors::observe::Observer for ShapeObserver {
+    fn session(
+        &self,
+        _session: &rumors::observe::SessionInfo,
+    ) -> Option<Box<dyn rumors::observe::SessionObserver>> {
+        Some(Box::new(ShapeSession(self.0.clone())))
+    }
+}
+
+impl rumors::observe::SessionObserver for ShapeSession {
+    fn elected(&self, _role: rumors::observe::Role) {
+        *self.0.elected.lock().unwrap() = true;
+    }
+
+    fn stream(
+        &self,
+        stream: &rumors::observe::StreamInfo,
+    ) -> Option<Box<dyn rumors::observe::StreamObserver>> {
+        // The control stream's two directions open with the session
+        // itself; only data streams witness the descent starting.
+        if matches!(stream.id, rumors::observe::StreamId::Data { .. }) {
+            *self.0.streams.lock().unwrap() += 1;
+        }
+        None
+    }
+}
+
+/// Peers with different payload depth limits abort on both sides with
+/// the typed mismatch, each error naming both limits from its own
+/// vantage.
+///
+/// The session opens no data stream and elects no role: the check runs
+/// after the greetings and before anything else.
+///
+/// The pair is *converged* (freshly forked, no divergence), so the pin
+/// also proves the check precedes the equal-versions short-circuit:
+/// mixed configurations surface even on no-op sessions.
+#[test]
+fn mismatched_limits_abort_both_sides_at_the_handshake() {
+    use rumors::Error;
+    let a: Rumors<Value> = Peer::seed().sync_window_floor().into_rumors();
+    let b = bootstrap_fork(&a);
+
+    // Re-key one side's limit through the Peer knob: the fork was minted
+    // at the default, and the setting follows the peer through reunion.
+    let raised = PayloadDepthLimit::new(DEFAULT_PAYLOAD_DEPTH_LIMIT.get() + 1);
+    let b = crate::common::wire::block_on(async {
+        let peer = b.try_into_peer().await.expect("the sole handle reunites");
+        peer.payload_depth_limit(raised).into_rumors()
+    });
+
+    let a_shape = std::sync::Arc::new(SessionShape::default());
+    let b_shape = std::sync::Arc::new(SessionShape::default());
+    let a = crate::common::wire::block_on(async {
+        let peer = a.try_into_peer().await.expect("the sole handle reunites");
+        peer.observe(std::sync::Arc::new(ShapeObserver(a_shape.clone())))
+            .into_rumors()
+    });
+    let b = crate::common::wire::block_on(async {
+        let peer = b.try_into_peer().await.expect("the sole handle reunites");
+        peer.observe(std::sync::Arc::new(ShapeObserver(b_shape.clone())))
+            .into_rumors()
+    });
+
+    let (a_err, b_err) = crate::common::wire::block_on(async {
+        let (mut a_link, mut b_link) = rumors::link::memory();
+        let (a_out, b_out) = tokio::join!(a.gossip(&mut a_link), b.gossip(&mut b_link));
+        (
+            a_out.expect_err("mismatched limits must abort"),
+            b_out.expect_err("mismatched limits must abort"),
+        )
+    });
+
+    let Error::PayloadDepthMismatch { local, remote } = a_err else {
+        panic!("a's error must be the typed mismatch: {a_err:?}");
+    };
+    assert_eq!((local, remote), (DEFAULT_PAYLOAD_DEPTH_LIMIT, raised));
+    let Error::PayloadDepthMismatch { local, remote } = b_err else {
+        panic!("b's error must be the typed mismatch: {b_err:?}");
+    };
+    assert_eq!((local, remote), (raised, DEFAULT_PAYLOAD_DEPTH_LIMIT));
+
+    for shape in [&a_shape, &b_shape] {
+        assert!(
+            !*shape.elected.lock().unwrap(),
+            "the mismatch precedes the role election"
+        );
+        assert_eq!(
+            *shape.streams.lock().unwrap(),
+            0,
+            "the mismatch opens no data stream"
+        );
+    }
+}

@@ -39,7 +39,7 @@ sequences are the right choice.)
 | Record body | CBOR bstr(version) ‖ CBOR(payload) — already a sequence | the version atom gains its tag; payload unchanged | +3 bytes (the version tag) |
 | Run length | u32 BE | the whole run is `63(bstr(record*))`; its byte-string head is the run length | ≈ 0 (tag 2B + head 1–5B vs flat 4B) |
 | Query child listing | raw `(radix ‖ 24-byte hash)*` | map `{radix: hash}` (+3 B/child; ruled over the +2 B/child alternating array for the canonicality coincidence below) | the one hot cost, **measured** at the calibration cells: the whole change moved the calibrated per-disputed-message intercept 35 → 43 B — +3.9% at the design record (207 → 215 B/message), +8% at mid-size records, +14% at minimal `u64` records |
-| Greeting | fixed-offset block + frames | one item, `24(bstr(map))`: a text-keyed map (`{"listing": {radix: hash}, "set_len": …, "version": <tagged atom>, "protocol": "rumors", "max_version_bytes": …, "target_message_size": …}`, keys in deterministic order) behind the embedded-item tag, so the control-stream reader gets the item's length up front. The `protocol` entry is the rumors magic — tag 55799 announces only "CBOR", never whose — and the version atom rides tagged, dissolving its old bare-canonical spelling | few dozen bytes, once per session |
+| Greeting | fixed-offset block + frames | one item, `24(bstr(map))`: a text-keyed map (`{"listing": {radix: hash}, "set_len": …, "version": <tagged atom>, "protocol": "rumors", "max_version_bytes": …, "payload_depth_limit": …, "target_message_size": …}`, keys in deterministic order) behind the embedded-item tag, so the control-stream reader gets the item's length up front. The `protocol` entry is the rumors magic — tag 55799 announces only "CBOR", never whose — the version atom rides tagged, dissolving its old bare-canonical spelling, and the `payload_depth_limit` entry is held to exact equality across the pair (`Error::PayloadDepthMismatch`) | few dozen bytes, once per session |
 | Preamble magic | 6 raw bytes opening a 25-byte fixed block | one 30-byte self-described item: `55799(["rumors", version: uint, network: bstr, intent: uint])` — the magic survives as the text item, so "not rumors" still diagnoses at the preamble | once per session |
 | Party hand-off | one length-framed frame carrying the party's canonical bytes on the control stream | tagged bstr (the party atom, tagged per the table below) | few bytes, once per hand-off |
 | Stream open label | epoch byte ‖ index byte | two leading uint items | +0–1 bytes per stream |
@@ -318,11 +318,15 @@ read +16.4% total session bytes, about 51 KB on a 308 KB session,
 falling toward the +3.9% figure as payloads approach the design
 record size. The
 committed snapshot corpus — toy sessions dominated by their per-session
-constants — stands at 8,441 wire B carrying 1,656 digest B (69 digests
-at 24 B, 19.6%, measured by `tools/digestshare` over the reflection
-renders); against the pre-conversion corpus's 5,273 B that is a 60%
+constants — stands at 9,853 wire B carrying 1,776 digest B (74 digests
+at 24 B, 18.0%, measured by `tools/digestshare` over the reflection
+renders); against the pre-conversion corpus's 5,273 B that is an 87%
 growth, a denominator that overweights the once-per-session surfaces
 by design, and the per-message figures above are the hot-path claim.
+(Of that corpus figure, the greeting's `payload_depth_limit` entry
+accounts for 23 B per greeting — the corpus stood at 8,887 wire B just
+before that entry landed; the earlier corpus rows this paragraph once
+quoted had drifted with the corpus itself and are re-measured here.)
 What does not change: session semantics, the
 deadlock-freedom argument (framing-independent; the hook adds
 observation, never a protocol dependency), and every validation
@@ -405,3 +409,11 @@ the codec and the hook.
   message interleaving — the hook's session identity carries no
   ordinal; an observer wanting "the peer's Nth session" counts inside
   its own handler with its own synchronization.
+- 2026-08-20 (Finch): the greeting map gains a `payload_depth_limit`
+  entry, held to exact equality across the pair — the payload depth
+  limit is a property of the shared set (every replica must hold and
+  forward all content), so it is Network-like, never negotiated:
+  negotiating down is unsound, since a peer may already hold messages
+  deeper than a negotiated bound. A deliberate pre-release wire
+  format change, with its snapshot corpus re-accepted in the
+  implementing commit.

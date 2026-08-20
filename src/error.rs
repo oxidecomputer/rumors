@@ -12,6 +12,7 @@
 //! | [`Error::MagicMismatch`] | unchanged | the counterparty is not speaking rumors: fix the dial target |
 //! | [`Error::VersionMismatch`] | unchanged | select the same [`Protocol`] at both ends; if both already do, the selected protocol's wire version differs across the two releases: align crate versions |
 //! | [`Error::NetworkMismatch`] | unchanged | unrelated universes: apply the dominance rule ([`Peer`](crate::Peer)'s "Bootstrapping without consensus") |
+//! | [`Error::PayloadDepthMismatch`] | unchanged | fix the configuration: the payload depth limit is a fleet-wide parameter ([`Peer::payload_depth_limit`](crate::Peer::payload_depth_limit)); align it and reconnect |
 //! | [`Error::PartyOverlap`] | unchanged | nothing was absorbed: the retiring peer's identity overlaps ours |
 //! | [`Error::Epilogue`] | **committed** (a bootstrapping side instead applies nothing) | none locally: what was certainly lost is the peer's confirmation (a donor's identity may be lost with it: see the variant) |
 //! | [`Error::LinkPoisoned`] | unchanged | handle the first non-poisoned error; repeats mean the reconnect is not producing a fresh link |
@@ -28,7 +29,7 @@
 use std::convert::Infallible;
 
 use crate::{
-    Network, Protocol, Ticks,
+    Network, PayloadDepthLimit, Protocol, Ticks,
     bookmark::{BookmarkError, BookmarkIo, NoBookmark},
     tree::mirror::{self, handshake},
 };
@@ -98,6 +99,25 @@ pub enum Error<B: BookmarkError = NoBookmark> {
     /// A retiring peer offered an identity overlapping one already held here.
     #[error("retiring peer's party overlaps ours")]
     PartyOverlap,
+
+    /// The peer's configured payload depth limit differs from ours.
+    ///
+    /// The limit is a property of the shared set — every replica must be
+    /// able to hold and forward all content — so all peers of a fleet
+    /// must select the same [`Peer::payload_depth_limit`](crate::Peer::payload_depth_limit).
+    /// Both sides detect the mismatch symmetrically, after the greetings
+    /// are exchanged and before anything else (the converged-session
+    /// short-circuit included), so mixed configurations surface
+    /// deterministically at every pairing rather than mid-session on
+    /// particular content. Fix the configuration — align the limit
+    /// fleet-wide — and reconnect.
+    #[error("peer's payload depth limit ({remote}) differs from ours ({local})")]
+    PayloadDepthMismatch {
+        /// This side's configured limit.
+        local: PayloadDepthLimit,
+        /// The limit the peer's greeting declared.
+        remote: PayloadDepthLimit,
+    },
 
     /// The session's closing epilogue failed *after* the session's local
     /// work committed.
@@ -321,6 +341,9 @@ impl Error<NoBookmark> {
                 local_min_events,
             },
             Error::PartyOverlap => Error::PartyOverlap,
+            Error::PayloadDepthMismatch { local, remote } => {
+                Error::PayloadDepthMismatch { local, remote }
+            }
             Error::Epilogue(error) => Error::Epilogue(error),
             Error::LinkPoisoned => Error::LinkPoisoned,
             Error::PreambleMalformed { defect } => Error::PreambleMalformed { defect },

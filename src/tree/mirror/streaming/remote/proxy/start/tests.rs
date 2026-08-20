@@ -45,6 +45,7 @@ fn greeting(listing: Vec<(u8, Hash)>) -> Vec<u8> {
         version: Version::new(),
         set_len: 0,
         max_version_bytes: 0,
+        payload_depth_limit: 0,
         target_message_size: 0,
         listing,
     })
@@ -284,6 +285,7 @@ async fn empty_listing_greeting_decodes() {
         version: version.clone(),
         set_len: 7,
         max_version_bytes: 512,
+        payload_depth_limit: 256,
         target_message_size: 1 << 16,
         listing: Vec::new(),
     });

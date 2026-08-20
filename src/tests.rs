@@ -280,6 +280,7 @@ fn greeting_frame_len(retiree: &Peer<u64>) -> usize {
         version: retiree.snapshot().latest().clone(),
         set_len: root.len(),
         max_version_bytes: root.max_version_bytes(),
+        payload_depth_limit: retiree.codec.limit().get(),
         target_message_size: retiree.run_budget.bytes() as u64,
         listing: materialized::fan_listing(&fan),
     };

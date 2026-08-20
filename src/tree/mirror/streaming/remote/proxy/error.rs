@@ -1,5 +1,6 @@
 //! Failures surfaced by the remote protocol participant.
 
+use crate::message::PayloadDepthLimit;
 use crate::tree::mirror::streaming::remote::{adapter, codec, streams};
 
 /// A protocol or adapter failure while proxying one remote counterparty.
@@ -27,6 +28,20 @@ pub enum Error<E> {
     /// The peer's greeting listing violated canonical ascending radix order.
     #[error("peer greeting carried a non-canonical root-fan listing")]
     HandshakeListing(#[source] codec::QueryOrderError),
+    /// The peer's configured payload depth limit differs from ours.
+    ///
+    /// The limit is a property of the shared set, so it must be equal
+    /// fleet-wide; both sides detect the mismatch symmetrically, after
+    /// the greetings and before anything else — the equal-versions
+    /// resolution included — so mixed configurations surface even on
+    /// converged sessions.
+    #[error("peer's payload depth limit ({remote}) differs from ours ({local})")]
+    PayloadDepthMismatch {
+        /// This side's configured limit.
+        local: PayloadDepthLimit,
+        /// The limit the peer's greeting declared.
+        remote: PayloadDepthLimit,
+    },
     /// The locally-produced distinguished opening could not be encoded.
     #[error("local opening reply is invalid")]
     OpeningEncode(#[source] adapter::OpeningError),

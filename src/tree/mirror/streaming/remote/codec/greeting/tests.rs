@@ -9,6 +9,7 @@ fn sample(listing: Vec<(u8, Hash)>) -> Greeting {
         version,
         set_len: 7,
         max_version_bytes: 4096,
+        payload_depth_limit: 300,
         target_message_size: 1 << 20,
         listing,
     }
@@ -42,6 +43,7 @@ fn greetings_round_trip() {
         assert_eq!(parsed.version, greeting.version);
         assert_eq!(parsed.set_len, greeting.set_len);
         assert_eq!(parsed.max_version_bytes, greeting.max_version_bytes);
+        assert_eq!(parsed.payload_depth_limit, greeting.payload_depth_limit);
         assert_eq!(parsed.target_message_size, greeting.target_message_size);
         assert_eq!(parsed.listing, greeting.listing);
     }

@@ -21,6 +21,8 @@
 //!   this entry is what marks the session as a rumors stream to a
 //!   reader holding nothing but the bytes.
 //! - `"max_version_bytes"`: the sender's version-size bound.
+//! - `"payload_depth_limit"`: the sender's payload nesting-depth limit,
+//!   which the counterparty's must equal for the session to proceed.
 //! - `"target_message_size"`: the sender's supply-run byte target.
 
 use crate::{
@@ -36,12 +38,13 @@ use super::frame::{ListingIssue, parse_listing_map, write_listing};
 
 /// The greeting map's keys, in the deterministic (bytewise lexicographic)
 /// order the wire requires.
-const KEYS: [&str; 6] = [
+const KEYS: [&str; 7] = [
     "listing",
     "set_len",
     "version",
     "protocol",
     "max_version_bytes",
+    "payload_depth_limit",
     "target_message_size",
 ];
 
@@ -83,6 +86,9 @@ fn greeting_map(greeting: &Greeting) -> Vec<u8> {
             }
             "max_version_bytes" => {
                 cbor::write_head(&mut map, MAJOR_UINT, greeting.max_version_bytes);
+            }
+            "payload_depth_limit" => {
+                cbor::write_head(&mut map, MAJOR_UINT, greeting.payload_depth_limit);
             }
             "target_message_size" => {
                 cbor::write_head(&mut map, MAJOR_UINT, greeting.target_message_size);
@@ -134,6 +140,7 @@ pub(crate) fn parse_greeting(bytes: &[u8]) -> Result<Greeting, GreetingError> {
     let mut version = None;
     let mut set_len = None;
     let mut max_version_bytes = None;
+    let mut payload_depth_limit = None;
     let mut target_message_size = None;
     let mut listing = None;
     for key in KEYS {
@@ -203,6 +210,12 @@ pub(crate) fn parse_greeting(bytes: &[u8]) -> Result<Greeting, GreetingError> {
                     "max_version_bytes is not an unsigned int",
                 )?);
             }
+            "payload_depth_limit" => {
+                payload_depth_limit = Some(uint(
+                    &mut input,
+                    "payload_depth_limit is not an unsigned int",
+                )?);
+            }
             "target_message_size" => {
                 target_message_size = Some(uint(
                     &mut input,
@@ -219,6 +232,7 @@ pub(crate) fn parse_greeting(bytes: &[u8]) -> Result<Greeting, GreetingError> {
         version: version.expect("the roster visits version"),
         set_len: set_len.expect("the roster visits set_len"),
         max_version_bytes: max_version_bytes.expect("the roster visits max_version_bytes"),
+        payload_depth_limit: payload_depth_limit.expect("the roster visits payload_depth_limit"),
         target_message_size: target_message_size.expect("the roster visits target_message_size"),
         listing: listing.expect("the roster visits listing"),
     })

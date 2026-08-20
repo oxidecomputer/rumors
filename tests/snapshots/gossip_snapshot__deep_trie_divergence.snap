@@ -13,8 +13,8 @@ control item 0 (30 bytes) / preamble /
       0
     ]
   )
-control item 1 (546 bytes) / greeting /
-  24(<< / embedded item, 541 bytes /
+control item 1 (569 bytes) / greeting /
+  24(<< / embedded item, 564 bytes /
     {
       "listing" =>
         { / listing: 16 child(ren) /
@@ -40,6 +40,7 @@ control item 1 (546 bytes) / greeting /
         53846(h'423041') / version (0, 16, 0) /
       "protocol" => "rumors"
       "max_version_bytes" => 3
+      "payload_depth_limit" => 256
       "target_message_size" => 1830400
     }
   >>)
@@ -282,8 +283,8 @@ control item 0 (30 bytes) / preamble /
       0
     ]
   )
-control item 1 (518 bytes) / greeting /
-  24(<< / embedded item, 513 bytes /
+control item 1 (541 bytes) / greeting /
+  24(<< / embedded item, 536 bytes /
     {
       "listing" =>
         { / listing: 15 child(ren) /
@@ -308,6 +309,7 @@ control item 1 (518 bytes) / greeting /
         53846(h'7043') / version (0, 0, 16) /
       "protocol" => "rumors"
       "max_version_bytes" => 2
+      "payload_depth_limit" => 256
       "target_message_size" => 1830400
     }
   >>)

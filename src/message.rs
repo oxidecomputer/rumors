@@ -194,6 +194,12 @@ impl PayloadCodec {
         (self.serialize)(payload, self.limit)
     }
 
+    /// The configured payload depth limit this codec enforces: what the
+    /// greeting declares and the handshake holds to equality.
+    pub(crate) fn limit(&self) -> PayloadDepthLimit {
+        self.limit
+    }
+
     /// Replace the carried depth limit, keeping the minted pointer.
     #[must_use]
     pub(crate) fn with_limit(self, limit: PayloadDepthLimit) -> Self {

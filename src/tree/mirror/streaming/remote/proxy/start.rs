@@ -1,6 +1,6 @@
 //! The wire participant's protocol handshake states.
 
-use crate::message::PayloadCodec;
+use crate::message::{PayloadCodec, PayloadDepthLimit};
 
 use tokio::io::{AsyncRead, AsyncWrite};
 
@@ -165,8 +165,15 @@ where
     type Next = Connected<B, R, W, C, A>;
 
     /// Send the local server's greeting, then open only if versions differ.
-    async fn complete_connect(mut self, theirs: Greeting) -> Result<Self::Next, Self::Error> {
+    async fn complete_connect(mut self, mut theirs: Greeting) -> Result<Self::Next, Self::Error> {
+        // The wire value of the local limit is the codec's: the one
+        // configuration every parse of this session already runs under.
+        theirs.payload_depth_limit = self.codec.limit().get();
         send::<B::Error, _>(&theirs, &mut self.link.control_write, &self.observe).await?;
+        // Payload depth limits must be equal — checked after both
+        // greetings are in hand and before the equal-versions resolution,
+        // so mixed configurations surface even on converged sessions.
+        payload_depth_limits_match::<B::Error>(&self.codec, &self.versions.remote)?;
         let window = self.window.resolve(
             theirs.set_len,
             self.versions.remote.set_len,
@@ -200,10 +207,20 @@ where
     type Next = Connected<B, R, W, C, A>;
 
     /// Exchange greetings concurrently, then open only if versions differ.
-    async fn accept(mut self, request: Greeting) -> Result<(Greeting, Self::Next), Self::Error> {
+    async fn accept(
+        mut self,
+        mut request: Greeting,
+    ) -> Result<(Greeting, Self::Next), Self::Error> {
+        // The wire value of the local limit is the codec's: the one
+        // configuration every parse of this session already runs under.
+        request.payload_depth_limit = self.codec.limit().get();
         let send = send::<B::Error, _>(&request, &mut self.link.control_write, &self.observe);
         let receive = receive::<B::Error, _>(&mut self.link.control_read, &self.observe);
         let (_, remote) = futures_util::future::try_join(send, receive).await?;
+        // Payload depth limits must be equal — checked after both
+        // greetings are in hand and before the equal-versions resolution,
+        // so mixed configurations surface even on converged sessions.
+        payload_depth_limits_match::<B::Error>(&self.codec, &remote)?;
         let greeting = remote.clone();
         let window = self.window.resolve(
             request.set_len,
@@ -226,6 +243,28 @@ where
         );
         Ok((greeting, next))
     }
+}
+
+/// Require the peer's declared payload depth limit to equal ours.
+///
+/// The limit is a property of the shared set — every replica must be
+/// able to hold and forward all content — so it is exchanged for
+/// equality, never negotiated: negotiating down is unsound (a peer may
+/// already hold messages deeper than a negotiated bound, which it would
+/// then not be allowed to gossip), so any negotiation scheme merely
+/// relocates the failure to mid-session, conditional on which leaves
+/// differ. Both sides detect the mismatch symmetrically, like a network
+/// mismatch.
+fn payload_depth_limits_match<E>(codec: &PayloadCodec, remote: &Greeting) -> Result<(), Error<E>> {
+    let local = codec.limit();
+    let declared = PayloadDepthLimit::new(remote.payload_depth_limit);
+    if declared != local {
+        return Err(Error::PayloadDepthMismatch {
+            local,
+            remote: declared,
+        });
+    }
+    Ok(())
 }
 
 /// Compute the session's supply-run budget.
