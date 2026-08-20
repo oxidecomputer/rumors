@@ -51,8 +51,10 @@
 //!
 //! - **One `session` span per observed session** (level `INFO`):
 //!   fields `kind` (`Gossip`, `Bootstrap`, `Retire`), `protocol`, and
-//!   `ordinal` (the peer's session counter, so concurrent sessions
-//!   stay distinguishable).
+//!   `ordinal` — the adapter's own count of the sessions it has
+//!   observed, so concurrent sessions stay distinguishable. (The hook
+//!   deliberately carries no session number; numbering is the
+//!   observer's concern, and this adapter counts internally.)
 //! - **One `role elected` event** (level `INFO`, inside the session
 //!   span) when the session's role election is decided, with the
 //!   elected `role`. Sessions whose greetings carry equal versions
@@ -128,15 +130,15 @@ mod render;
 /// let peer = Peer::<u64>::seed().observe(Arc::new(TracingObserver::new()));
 /// ```
 ///
-/// The adapter is stateless between sessions; one instance serves
-/// every session of a peer, concurrent sessions included. See the
-/// crate docs for the emitted vocabulary.
-#[derive(Debug, Default, Clone, Copy)]
+/// One instance serves every session of a peer, concurrent sessions
+/// included; its only state is the counter it numbers their spans
+/// from. See the crate docs for the emitted vocabulary.
+#[derive(Debug, Default)]
 pub struct TracingObserver {
-    // Purely a future-proofing seam: construction goes through
-    // `new`/`Default` so configuration (level choices, render caps)
-    // can arrive without breaking attachment sites.
-    _private: (),
+    /// Sessions this adapter has observed: the next span's `ordinal`.
+    /// The hook carries no session number, so the adapter counts for
+    /// itself — relaxed suffices, `session` being `&self`-concurrent.
+    sessions: AtomicU64,
 }
 
 impl TracingObserver {
@@ -153,7 +155,7 @@ impl Observer for TracingObserver {
             "session",
             kind = ?session.kind,
             protocol = ?session.protocol,
-            ordinal = session.ordinal,
+            ordinal = self.sessions.fetch_add(1, Ordering::Relaxed),
         );
         Some(Box::new(SessionAdapter {
             span,
