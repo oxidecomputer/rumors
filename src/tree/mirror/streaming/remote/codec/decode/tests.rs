@@ -9,7 +9,7 @@ use crate::tree::typed::{Hash, hash::MERKLE_HASH_LEN};
 
 use super::super::{
     error::{DecodeLeafError, Origin, QueryOrderError},
-    frame::{LeafRunError, RECORD_TAG_LEN},
+    frame::{LeafRunError, MAX_QUERY_CHILDREN, RECORD_TAG_LEN},
     signal::{DecodeSignalError, End, Flow, Speaker, Stream, StreamError},
 };
 
@@ -104,17 +104,23 @@ fn arb_flow() -> impl Strategy<Value = Flow> {
     prop_oneof![Just(Flow::Continue), Just(Flow::End)]
 }
 
-/// Reserved signal codes within the byte range retain the stream encoded
-/// alongside them; codes past the byte range and non-int signal items are
-/// malformed signals.
+/// The stream constructor rejects an index past the stream range with a
+/// typed error naming the index.
 #[test]
-fn invalid_signals_are_rejected() {
+fn out_of_range_stream_index_is_rejected() {
     assert_eq!(
         Stream::new(Stream::COUNT),
         Err(StreamError::Invalid {
             index: Stream::COUNT
         })
     );
+}
+
+/// Reserved signal codes within the byte range retain the stream encoded
+/// alongside them; codes past the byte range and non-int signal items are
+/// malformed signals.
+#[test]
+fn invalid_signals_are_rejected() {
     for byte in WireSignal::BYTE_COUNT..=u8::MAX {
         for speaker in SPEAKERS {
             let invalid = WireSignal::from_byte(speaker, byte).unwrap_err();
@@ -275,7 +281,12 @@ fn truncated_bodies_are_rejected() {
 
 proptest! {
     /// An arbitrary run of supplied records decodes into a frame carrying the
-    /// exact run body, without decoding any record eagerly.
+    /// exact run body, byte for byte.
+    ///
+    /// Deferral of record decoding is what
+    /// `a_zero_length_record_is_structurally_valid` pins: its record only a
+    /// non-eager decoder can accept; this body's records are all well-formed,
+    /// so byte equality alone cannot tell eager from lazy.
     #[test]
     fn supplied_run_is_decoded_structurally(
         index in 1_u8..Stream::MAX,
@@ -407,7 +418,10 @@ fn supplied_record_errors_are_typed() {
         .next()
         .unwrap()
         .unwrap_err();
-    assert!(matches!(error, DecodeLeafError::Version(_)));
+    let DecodeLeafError::Version(source) = error else {
+        panic!("unexpected record error");
+    };
+    assert_eq!(source.kind(), std::io::ErrorKind::InvalidData);
 
     // A tagged version with no message behind it.
     let content = record_content(&Version::new(), &Message::new(0u64));
@@ -583,8 +597,9 @@ proptest! {
 }
 
 /// A query body whose listing map is empty is rejected: an empty query
-/// travels as its own signal, so the map spelling admits one to 256
-/// children only.
+/// travels as its own signal, so the map spelling requires at least one
+/// child (the upper bound is pinned by
+/// `oversized_query_listing_is_rejected`).
 #[test]
 fn empty_query_listing_is_rejected() {
     let stream = stream(5);
@@ -596,6 +611,31 @@ fn empty_query_listing_is_rejected() {
             DecodeErrorKind::Malformed {
                 part: FramePart::QueryChildren,
                 ..
+            }
+        ));
+    }
+}
+
+/// A query listing declaring more children than the radix space holds is
+/// rejected at its map head, before any entry is read: the map spelling
+/// admits at most one child per radix value.
+#[test]
+fn oversized_query_listing_is_rejected() {
+    let stream = stream(5);
+    let mut encoded = frame_head(2, signal(stream, Signal::Query(Flow::Continue)));
+    // A map head declaring one entry past the radix space, with no
+    // entries behind it: the rejection is decided on the head alone, in
+    // both decoders.
+    cbor::write_head(&mut encoded, MAJOR_MAP, MAX_QUERY_CHILDREN as u64 + 1);
+    for speaker in SPEAKERS {
+        let error = decode_both(speaker, RunBudget::default(), &encoded)
+            .expect_err("a listing past the radix space cannot decode");
+        assert_eq!(error.origin, Origin::stream(speaker, stream));
+        assert!(matches!(
+            error.kind,
+            DecodeErrorKind::Malformed {
+                part: FramePart::QueryChildren,
+                detail: "listing exceeds the radix space",
             }
         ));
     }
@@ -628,7 +668,10 @@ fn exact_decode_rejects_trailing_frame() {
 }
 
 /// Async EOF is clean only before a frame head; every partial body reports
-/// the same missing part and stream context as synchronous decoding.
+/// the same missing part and stream context in both decoders.
+///
+/// The clean close is checked async-only: the sync oracle's callers always
+/// expect a frame, so it deliberately treats a clean close as a truncation.
 #[test]
 fn async_eof_distinguishes_close_from_truncation() {
     let stream = stream(4);
@@ -662,8 +705,8 @@ fn async_eof_distinguishes_close_from_truncation() {
             ),
         ];
         for (encoded, missing) in cases {
-            let mut reader = FrameRead::new(speaker, RunBudget::default(), encoded.as_slice());
-            let error = pollster::block_on(reader.frame()).unwrap_err();
+            let error = decode_both(speaker, RunBudget::default(), &encoded)
+                .expect_err("a truncated frame cannot decode");
             assert_eq!(error.origin, Origin::stream(speaker, stream));
             assert!(matches!(
                 error.kind,
@@ -744,12 +787,15 @@ fn reader_errors_are_contextual() {
     }
 }
 
-/// Supply-body truncation cuts landing one byte short of, exactly on, and
-/// one byte past each payload chunk boundary all classify as a truncated
-/// `SupplyRun` with an `UnexpectedEof` source.
+/// Supply-body truncation cuts at every seeded offset all classify as a
+/// truncated `SupplyRun` with an `UnexpectedEof` source.
 ///
-/// The chunked body read preserves the typed truncation contract at every
-/// seam.
+/// The seeded offsets are one byte short of, exactly on, and one byte
+/// past each payload chunk boundary, plus the zero-byte, one-byte, and
+/// one-short-of-total cuts. The chunked body read preserves the typed
+/// truncation contract at every seam, and the zero- and one-byte cuts
+/// land inside the first record's heads, which the budget check reads
+/// out of the body ahead of the rest.
 #[test]
 fn supply_truncation_at_chunk_boundaries_is_typed() {
     use crate::tree::mirror::framing::{PAYLOAD_CHUNK_LEN, chunk_boundary_cuts};
@@ -827,16 +873,16 @@ fn decode_both(
 }
 
 proptest! {
-    /// Ingress enforces the run budget as the exact complement of the
-    /// encoder's flush rule, deciding before any body byte is read.
+    /// Ingress enforces the run budget, deciding from at most the first
+    /// record's heads.
     ///
     /// A multi-record supply frame decodes when its charged wire size is
     /// within the budget and fails typed as `OverbatchedRun` — carrying
     /// that wire size and the budget — when it is past it. The rejection
-    /// is decided ahead of the body: a stream ending right after the
-    /// first record's heads still classifies as the budget violation,
-    /// never as a truncation. Both decoders (the async reader and the
-    /// sync oracle) agree throughout.
+    /// is decided ahead of the rest of the body: a stream ending right
+    /// after the first record's heads still classifies as the budget
+    /// violation, never as a truncation. Both decoders (the async reader
+    /// and the sync oracle) agree throughout.
     #[test]
     fn multi_record_frames_are_held_to_the_run_budget(
         index in 1_u8..Stream::MAX,
@@ -887,10 +933,10 @@ proptest! {
         );
         prop_assert!(typed, "mistyped over-budget batching: {:?}", error.kind);
 
-        // Before the body read: the same rejection from only the frame
-        // head, the run head, and the first record's heads — no body byte
-        // exists to read, so a decoder that buffered the body first would
-        // classify this as a truncation instead.
+        // From at most the first record's heads: the same rejection when
+        // the stream ends right after them (the heads are the leading
+        // body bytes the check reads) — a decoder that buffered the whole
+        // body first would classify this as a truncation instead.
         let prefix = &encoded[..encoded.len() - body.len() + first_record_heads];
         let error = decode_both(speaker, over, prefix).expect_err(
             "undetected over-budget batching: the violation must be decided \

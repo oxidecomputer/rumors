@@ -75,10 +75,13 @@ pub type WireFrame = (Stream, Frame);
 /// [`from_encoded`](Self::from_encoded) rejects wire bytes whose record
 /// items do not chain exactly to the end in canonical form. A [`records`]
 /// iterator therefore never fails structurally, only on a record's
-/// content — a version atom whose content bytes fail the strict
-/// [`Version`] decoder (its CBOR byte-string head is read by a general
-/// CBOR parser and not re-judged for shortest form), or an application
-/// payload that does not decode.
+/// content: a version-atom tag that is missing, non-canonical, or cut
+/// short by the record's end (the tag's head is hand-parsed and
+/// spelling-judged), a version item the general CBOR reader cannot
+/// decode behind that tag, a version atom whose content bytes fail the
+/// strict [`Version`] decoder (the atom's byte-string head is read by
+/// that general reader and not re-judged for spelling), or an
+/// application payload that does not decode.
 ///
 /// [`push`]: Self::push
 /// [`records`]: Self::records

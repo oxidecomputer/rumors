@@ -127,7 +127,9 @@ pub(crate) fn parse_greeting(bytes: &[u8]) -> Result<Greeting, GreetingError> {
     let mut input = bytes;
     let head = cbor::read_head(&mut input).map_err(GreetingError::Head)?;
     if head.major != cbor::MAJOR_MAP || head.value != KEYS.len() as u64 {
-        return Err(GreetingError::Shape("greeting is not the six-entry map"));
+        return Err(GreetingError::Shape(
+            "greeting is not a map of one entry per roster key",
+        ));
     }
     let mut version = None;
     let mut set_len = None;

@@ -99,12 +99,12 @@
 //! the epilogue marker — each its own item) and every data stream
 //! (each reconciliation frame an item, the stream-end control frames
 //! included; the stream-open label (two leading unsigned-int items) is
-//! stream *addressing*, not an item, and is not delivered). Only complete items are
-//! observed: a session that dies mid-frame does not deliver the
-//! fragment, and a session aborted by a protocol violation may have
-//! observed fewer items than crossed the wire. `Protocol::V1` sessions
-//! are not observed: the frozen legacy wire is not a CBOR sequence, so
-//! its bytes cannot honor this module's one-item contract.
+//! stream *addressing*, not an item, and is not delivered). Only
+//! complete items are observed: a session that dies mid-frame does not
+//! deliver the fragment, and a session aborted by a protocol violation
+//! may have observed fewer items than crossed the wire. `Protocol::V1`
+//! sessions are not observed: the frozen legacy wire is not a CBOR
+//! sequence, so its bytes cannot honor this module's one-item contract.
 //!
 //! # Cost
 //!
