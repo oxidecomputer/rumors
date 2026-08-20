@@ -232,7 +232,7 @@ impl Attachment {
         self.handler = Some(observer);
     }
 
-    /// Enter one session: mint its handle.
+    /// Enter one session: create its handle.
     ///
     /// The handle is inert — every invocation a no-op branch — when no
     /// observer is attached, when the observer declines the session,
@@ -251,7 +251,7 @@ impl Attachment {
             return SessionHandle::default();
         };
         // The control stream's two directions open with the session
-        // itself: mint both handlers now, ahead of the preamble.
+        // itself: create both handlers now, ahead of the preamble.
         let sent = session.stream(&StreamInfo {
             id: StreamId::Control,
             direction: Direction::Sent,
@@ -275,7 +275,7 @@ impl Attachment {
 ///
 /// The session machinery threads a clone to every layer that emits or
 /// accepts wire items (the pattern the stats recorder set). Data
-/// streams mint their own owned [`StreamObserver`]s through
+/// streams create their own owned [`StreamObserver`]s through
 /// [`data`](Self::data) when they open; the control stream's two
 /// handlers live here, behind mutexes, because the control stream's
 /// items are written from several protocol layers in sequence — the
@@ -319,7 +319,7 @@ impl SessionHandle {
         }
     }
 
-    /// Mint the handler for one opening data stream, if the session
+    /// Create the handler for one opening data stream, if the session
     /// handler wants it.
     pub(crate) fn data(
         &self,

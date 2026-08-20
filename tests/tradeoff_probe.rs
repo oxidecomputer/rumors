@@ -60,7 +60,7 @@ const DIVERGENT: usize = 62_500;
 /// An effectively unbounded budget: the transfer-bound baseline.
 const UNBOUNDED: usize = 8 << 30;
 
-fn diverged<T>(budget: usize, mint: &mut impl FnMut(&mut SmallRng) -> T) -> (Rumors<T>, Rumors<T>)
+fn diverged<T>(budget: usize, make: &mut impl FnMut(&mut SmallRng) -> T) -> (Rumors<T>, Rumors<T>)
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
@@ -70,7 +70,7 @@ where
         rumors
             .batch(|batch| {
                 for _ in 0..n {
-                    batch.send(mint(rng))?;
+                    batch.send(make(rng))?;
                 }
                 Ok::<(), rumors::EncodeError>(())
             })
@@ -106,11 +106,11 @@ where
 /// advances only while every task is blocked on the wire, so wall
 /// compute is excluded and the count is deterministic (the hop-trace
 /// principle: every wire event lands on an exact delay multiple).
-fn wire_hops<T>(budget: usize, pipe: usize, mint: &mut impl FnMut(&mut SmallRng) -> T) -> u64
+fn wire_hops<T>(budget: usize, pipe: usize, make: &mut impl FnMut(&mut SmallRng) -> T) -> u64
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
-    let (left, right) = diverged(budget, mint);
+    let (left, right) = diverged(budget, make);
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_time()
         .start_paused(true)
@@ -138,7 +138,7 @@ fn run_cells<T>(
     encoded_m: usize,
     pipe: usize,
     targets: &[f64],
-    mint: &mut impl FnMut(&mut SmallRng) -> T,
+    make: &mut impl FnMut(&mut SmallRng) -> T,
 ) where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
@@ -146,7 +146,7 @@ fn run_cells<T>(
     // The shipped intercept, never a transcribed copy: the probe's byte
     // denominators move with the wire's own calibration.
     let overhead = dispute_overhead_bytes();
-    let transfer = wire_hops(UNBOUNDED, pipe, mint);
+    let transfer = wire_hops(UNBOUNDED, pipe, make);
     assert!(transfer >= 4, "degenerate transfer count {transfer}");
     let bdp_messages = 2.0 * DIVERGENT as f64 / transfer as f64;
     let bdp_bytes = bdp_messages * (overhead + encoded_m) as f64;
@@ -165,7 +165,7 @@ fn run_cells<T>(
         let caps = window_capacities(session_len, session_len, budget);
         let k_max = caps.iter().copied().max().unwrap_or(1);
         let exact = (bdp_messages / k_max as f64).max(1.0);
-        let hops = wire_hops(budget, pipe, mint);
+        let hops = wire_hops(budget, pipe, make);
         let observed = hops as f64 / transfer as f64;
         let fans = supply_decode_envelope_bytes();
         eprintln!(

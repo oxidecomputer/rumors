@@ -204,7 +204,7 @@ pub async fn divergent_pair(
     (a, b)
 }
 
-/// Mint a genuine, party-disjoint `Rumors` from `parent` by serving it a
+/// Create a genuine, party-disjoint `Rumors` from `parent` by serving it a
 /// bootstrap over an in-memory link.
 ///
 /// This is how a test obtains a second *originator*: the returned peer
@@ -230,11 +230,11 @@ where
     bootstrap_fork_async_with_protocol(parent, Protocol::V2).await
 }
 
-/// Mint a disjoint peer using an explicitly selected wire protocol.
+/// Create a disjoint peer using an explicitly selected wire protocol.
 ///
-/// Pins the minted peer at the serialization floor, keeping the
+/// Pins the new peer at the serialization floor, keeping the
 /// capacity-one orderings the deadlock-freedom argument certifies
-/// exercised; suites sweeping the window dimension mint through
+/// exercised; suites sweeping the window dimension fork through
 /// [`bootstrap_fork_with_window_async`] instead.
 pub async fn bootstrap_fork_async_with_protocol<T>(
     parent: &Rumors<T>,
@@ -246,7 +246,7 @@ where
     bootstrap_fork_configured(parent, protocol, WindowChoice::Floor).await
 }
 
-/// [`bootstrap_fork`] with the minted peer's window taken from the sweep
+/// [`bootstrap_fork`] with the new peer's window taken from the sweep
 /// dimension instead of pinned at the floor.
 #[track_caller]
 pub fn bootstrap_fork_with_window<T>(parent: &Rumors<T>, window: WindowChoice) -> Rumors<T>
@@ -268,7 +268,7 @@ where
     bootstrap_fork_configured(parent, Protocol::V2, window).await
 }
 
-/// Mint a disjoint peer over an in-memory link, with the minted peer's
+/// Create a disjoint peer over an in-memory link, with the new peer's
 /// wire protocol and window configuration both chosen by the caller.
 async fn bootstrap_fork_configured<T>(
     parent: &Rumors<T>,
@@ -287,7 +287,7 @@ where
             .join(&mut boot_link),
     );
     server_out.expect("bootstrap server gossip");
-    let minted = window
+    let forked = window
         .apply(
             boot_out
                 .expect("bootstrap handshake")
@@ -295,5 +295,5 @@ where
         )
         .into_rumors();
     assert_control_drained(parent_link, boot_link);
-    minted
+    forked
 }

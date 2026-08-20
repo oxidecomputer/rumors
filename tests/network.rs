@@ -44,7 +44,7 @@ fn rumors_preserves_network() {
     assert_eq!(parent.network(), network);
 }
 
-/// Independent [`seed`](Peer::seed)s mint distinct networks — the positive
+/// Independent [`seed`](Peer::seed)s create distinct networks — the positive
 /// signal that they share no causal history.
 #[test]
 fn independent_seeds_differ() {
@@ -91,11 +91,11 @@ fn bootstrap_adopts_provider_network() {
             Peer::<u64>::bootstrap().join(&mut b_link),
         );
         provider_out.expect("provider gossip");
-        let minted = bootstrap_out
+        let joined = bootstrap_out
             .expect("bootstrap handshake")
             .expect("provider served the bootstrap");
         assert_control_drained(a_link, b_link);
-        minted
+        joined
     });
 
     assert_eq!(

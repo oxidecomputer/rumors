@@ -278,7 +278,7 @@ impl SimState {
         (0..self.alive.len()).filter(|&p| self.alive[p]).collect()
     }
 
-    /// Mint a new peer as a bootstrap copy of `parent`.
+    /// Create a new peer as a bootstrap copy of `parent`.
     ///
     /// The newcomer holds everything the parent holds (including the
     /// version frontier that carries the parent's redactions), but its

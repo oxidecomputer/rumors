@@ -257,10 +257,10 @@ impl<T> Peer<T, NoBookmark> {
     {
         Box::pin(async move {
             let (read, write, connector, acceptor, epoch) = link;
-            // The peer-to-be's payload codec, minted before it exists:
+            // The peer-to-be's payload codec, built before it exists:
             // the bootstrap session's ingress decodes through it, and the
             // constructed peer inherits it.
-            let codec = PayloadCodec::mint::<T>(config.payload_depth_limit);
+            let codec = PayloadCodec::new::<T>(config.payload_depth_limit);
             let observe = config
                 .observe
                 .begin(SessionKind::Bootstrap, config.protocol);
@@ -656,7 +656,7 @@ impl<T, B: Persist> Peer<T, B> {
         // - The persisted record's own-party projection dominates the
         //   snapshot's own-party version, so every own event this session can
         //   transmit is durably accounted for before it crosses the wire, and
-        //   a crash-and-reclaim can never remint a causal coordinate some
+        //   a crash-and-reclaim can never reuse a causal coordinate some
         //   replica already holds. A `send` committed while the record's
         //   write is in flight lands *after* the snapshot: it stays out of
         //   this session and the next session's update covers it.
@@ -1083,7 +1083,12 @@ struct Reconciliation<'a> {
     root: tree::Root,
     /// The session's erased link.
     link: DynLinkParts<'a>,
-    /// The peer's payload codec, applied at wire ingress.
+    /// The peer's payload codec: the payload boundary in both directions.
+    ///
+    /// Supplied leaves decode through it at wire ingress, and egress
+    /// replays only bytes it previously admitted (at send, or at an
+    /// earlier session's ingress). Its depth limit rides the greeting,
+    /// where the counterparty's must match.
     codec: PayloadCodec,
     /// The window policy the V2 session negotiates under.
     window: WindowConfig,

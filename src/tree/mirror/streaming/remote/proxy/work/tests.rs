@@ -64,7 +64,7 @@ fn parked_session() -> ParkedSession {
             accept,
             errors,
         },
-        PayloadCodec::mint::<u64>(PayloadDepthLimit::default()),
+        PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
     );
     ParkedSession {
         work,

@@ -62,13 +62,13 @@ async fn reconcile(a: TreeRoot, b: TreeRoot) -> (TreeRoot, TreeRoot) {
     let remote_b = RemoteHandshaking::start(
         Local,
         a_link,
-        PayloadCodec::mint::<()>(PayloadDepthLimit::default()),
+        PayloadCodec::new::<()>(PayloadDepthLimit::default()),
     )
     .window(WindowConfig::FLOOR);
     let remote_a = RemoteHandshaking::start(
         Local,
         b_link,
-        PayloadCodec::mint::<()>(PayloadDepthLimit::default()),
+        PayloadCodec::new::<()>(PayloadDepthLimit::default()),
     )
     .window(WindowConfig::FLOOR);
 
@@ -94,13 +94,13 @@ where
     let remote_b = RemoteHandshaking::start(
         Local,
         a_link,
-        PayloadCodec::mint::<T>(PayloadDepthLimit::default()),
+        PayloadCodec::new::<T>(PayloadDepthLimit::default()),
     )
     .window(WindowConfig::FLOOR);
     let remote_a = RemoteHandshaking::start(
         Local,
         b_link,
-        PayloadCodec::mint::<T>(PayloadDepthLimit::default()),
+        PayloadCodec::new::<T>(PayloadDepthLimit::default()),
     )
     .window(WindowConfig::FLOOR);
 
@@ -137,13 +137,13 @@ where
     let remote_b = RemoteHandshaking::start(
         Local,
         a_link,
-        PayloadCodec::mint::<T>(PayloadDepthLimit::default()),
+        PayloadCodec::new::<T>(PayloadDepthLimit::default()),
     )
     .window(WindowConfig::FLOOR);
     let remote_a = RemoteHandshaking::start(
         Local,
         b_link,
-        PayloadCodec::mint::<T>(PayloadDepthLimit::default()),
+        PayloadCodec::new::<T>(PayloadDepthLimit::default()),
     )
     .window(WindowConfig::FLOOR);
 
@@ -192,13 +192,13 @@ where
     let remote_b = RemoteHandshaking::start(
         Local,
         a_link,
-        PayloadCodec::mint::<T>(PayloadDepthLimit::default()),
+        PayloadCodec::new::<T>(PayloadDepthLimit::default()),
     )
     .window(WindowConfig::FLOOR);
     let remote_a = RemoteHandshaking::start(
         Local,
         b_link,
-        PayloadCodec::mint::<T>(PayloadDepthLimit::default()),
+        PayloadCodec::new::<T>(PayloadDepthLimit::default()),
     )
     .window(WindowConfig::FLOOR);
     let (a, b) = join!(Box::pin(mirror(a, remote_b)), Box::pin(mirror(b, remote_a)),);
@@ -285,13 +285,13 @@ async fn reconcile_with_stacked_failures(
     let remote_b = RemoteHandshaking::start(
         left_backend,
         a_link,
-        PayloadCodec::mint::<()>(PayloadDepthLimit::default()),
+        PayloadCodec::new::<()>(PayloadDepthLimit::default()),
     )
     .window(WindowConfig::FLOOR);
     let remote_a = RemoteHandshaking::start(
         right_backend,
         b_link,
-        PayloadCodec::mint::<()>(PayloadDepthLimit::default()),
+        PayloadCodec::new::<()>(PayloadDepthLimit::default()),
     )
     .window(WindowConfig::FLOOR);
 

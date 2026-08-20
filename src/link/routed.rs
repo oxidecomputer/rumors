@@ -14,7 +14,7 @@
 //!
 //! What makes that routable is a small connect header. Every dialed
 //! connection opens by naming the link it belongs to (a 16-byte random
-//! *token* minted at link establishment), and one **router** per
+//! *token* drawn at link establishment), and one **router** per
 //! [`Endpoint`] owns the listener: it reads each arriving connection's
 //! header and hands the connection — whole, never its bytes — to that
 //! link's bounded queue, where the link's [`Acceptor`] collects it. A

@@ -259,7 +259,7 @@ fn mismatched_limits_abort_both_sides_at_the_handshake() {
     let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
     let b = bootstrap_fork(&a);
 
-    // Re-key one side's limit through the Peer knob: the fork was minted
+    // Re-key one side's limit through the Peer knob: the fork was created
     // at the default, and the setting follows the peer through reunion.
     let raised = PayloadDepthLimit::new(DEFAULT_PAYLOAD_DEPTH_LIMIT.get() + 1);
     let b = crate::common::wire::block_on(async {

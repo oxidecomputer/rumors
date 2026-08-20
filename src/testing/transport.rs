@@ -230,7 +230,7 @@ impl State {
         }
     }
 
-    /// Record the read fault as injected and mint its error.
+    /// Record the read fault as injected and produce its error.
     fn inject_read(&mut self) -> io::Error {
         let fault = self.plan.fault.expect("an armed fault is configured");
         let injected = InjectedIo {

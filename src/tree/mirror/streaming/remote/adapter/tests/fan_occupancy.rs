@@ -86,7 +86,7 @@ fn peak_occupancy(mut input: impl Stream<Item = Frame> + Unpin) -> usize {
             unbounded(),
             Scope::opening(&[]),
             &mut input,
-            PayloadCodec::mint::<u64>(PayloadDepthLimit::default()),
+            PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
         )
         .await
         .expect("ascending in-scope leaves assemble");
@@ -139,7 +139,7 @@ fn eager_early_supplies_ride_the_same_ceiling() {
             unbounded(),
             Prefix::new().erase(),
             stream::iter(frames(&leaves)),
-            PayloadCodec::mint::<u64>(PayloadDepthLimit::default()),
+            PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
         )
         .try_collect()
         .await

@@ -136,7 +136,7 @@ where
                     unbounded(),
                     Scope::new(parent.erase(), &[]),
                     &mut frames,
-                    PayloadCodec::mint::<u64>(PayloadDepthLimit::default()),
+                    PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
                 ))
                 .err()
                 .expect("the injected decoding failure was not reached");

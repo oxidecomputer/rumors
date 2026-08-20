@@ -18,7 +18,7 @@ const SYMMETRIC: u64 = 10_000_000_000;
 /// The exact quotient moves with the pinned wire-cost anchor; the
 /// round figure is the stable benchmark shape.
 ///
-/// Stated, not minted: the budget default is policy, so nothing here
+/// Stated, not derived: the budget default is policy, so nothing here
 /// derives from the wire-cost anchor at compile time; this constant
 /// names the session shape [`SCOPE_ENVELOPE_BYTES`] prices.
 const DESIGN_SESSION_MESSAGES: u64 = 62_500;

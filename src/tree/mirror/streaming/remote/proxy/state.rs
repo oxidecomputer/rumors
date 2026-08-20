@@ -46,7 +46,7 @@ where
     /// binds so the codec seam's byte counts accumulate in one place.
     stats: Recorder,
     /// The session's observation handle, handed to every stream this
-    /// session binds so each can mint its own observer when it opens.
+    /// session binds so each can create its own observer when it opens.
     observe: SessionHandle,
     work: Work<B, R, W, A>,
 }

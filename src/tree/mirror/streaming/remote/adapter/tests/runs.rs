@@ -115,7 +115,7 @@ fn recode(frames: Vec<Frame>, budget: RunBudget) -> Vec<Frame> {
             unbounded(),
             Scope::opening(&[]),
             &mut input,
-            PayloadCodec::mint::<u64>(PayloadDepthLimit::default()),
+            PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
         )
         .await
         .expect("ascending in-scope leaves assemble");
@@ -142,7 +142,7 @@ fn runs_of(frames: &[Frame]) -> Vec<&LeafRun> {
 fn records_of(runs: &[&LeafRun]) -> Vec<(Version, Message)> {
     runs.iter()
         .flat_map(|run| {
-            run.records(PayloadCodec::mint::<u64>(PayloadDepthLimit::default()))
+            run.records(PayloadCodec::new::<u64>(PayloadDepthLimit::default()))
                 .collect::<Result<Vec<_>, _>>()
                 .expect("an encoder-produced run holds canonical records")
         })
@@ -192,7 +192,7 @@ proptest! {
             // would have pushed its frame past the budget.
             if position + 1 < runs.len() {
                 let (version, message) = runs[position + 1]
-                    .records(PayloadCodec::mint::<u64>(PayloadDepthLimit::default()))
+                    .records(PayloadCodec::new::<u64>(PayloadDepthLimit::default()))
                     .next()
                     .expect("a nonempty run yields a first record")
                     .expect("an encoder-produced run holds canonical records");
@@ -272,7 +272,7 @@ fn a_batched_run_round_trips_the_reply() {
             unbounded(),
             Scope::opening(&[]),
             &mut input,
-            PayloadCodec::mint::<u64>(PayloadDepthLimit::default()),
+            PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
         )
         .await
         .expect("the batched frame decodes")

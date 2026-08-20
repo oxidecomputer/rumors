@@ -16,7 +16,7 @@
 //!
 //! The walk runs on erased nodes, its level named by its prefix's byte
 //! length: one instantiation per backend, where a height-typed recursion
-//! would mint one per level. Each recursive call boxes its future
+//! would instantiate one per level. Each recursive call boxes its future
 //! ([`BoxFuture`]) exactly as the typed tower did — the type stays flat —
 //! and the depth is bounded by the prefix's remaining height, at most 32,
 //! so the recursion is stack-safe by construction rather than by input

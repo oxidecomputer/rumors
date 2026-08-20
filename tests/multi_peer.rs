@@ -71,7 +71,7 @@ proptest! {
     }
 
     /// Every peer's readout identity → value map equals the canonical
-    /// map built from the originating peers' minted `Version`s and the
+    /// map built from the originating peers' created `Version`s and the
     /// oracle's per-insert values, filtered by the oracle's redaction set.
     ///
     /// Pins down that every peer converges on exactly the same

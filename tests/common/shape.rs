@@ -4,7 +4,7 @@
 //! universe's versions are a pure function of the staging script (the
 //! seeded network, the fork points, the send order) — payload bytes steer
 //! nothing. A fixture therefore stages a required shape in three steps:
-//! mint a pool of messages, search the minted versions for ones whose
+//! send a pool of messages, search the created versions for ones whose
 //! paths satisfy the shape, and redact the rest. Same script, same
 //! versions, same winners, every run: the searches here are deterministic,
 //! and each fixture's self-checks still verify the landed shape.

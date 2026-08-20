@@ -44,18 +44,18 @@ where
             Peer::<T>::bootstrap().join(&mut b_link),
         );
         provider_out.expect("provider gossip");
-        let minted = bootstrap_out
+        let joined = bootstrap_out
             .expect("bootstrap handshake")
             .map(|peer| peer.sync_window_floor().into_rumors());
         assert_control_drained(a_link, b_link);
-        minted
+        joined
     })
 }
 
 proptest! {
     /// Bootstrapping from a provider yields exactly the provider's live
     /// content, message identities included (versions are stable across
-    /// peers), leaves the provider's own content untouched, and mints a
+    /// peers), leaves the provider's own content untouched, and creates a
     /// *disjoint* party.
     ///
     /// Disjointness is proven behaviorally: a message the newcomer originates
@@ -80,7 +80,7 @@ proptest! {
             "serving a bootstrap must not change provider content",
         );
 
-        // The minted party is disjoint from the provider's retained half
+        // The newcomer's party is disjoint from the provider's retained half
         // and floored at the served tree's version, so a fresh origination
         // survives reconciliation on both sides.
         bootstrapped.send(u64::MAX).unwrap();
@@ -155,7 +155,7 @@ fn both_bootstrapping_bail_with_none() {
 /// break the session.
 ///
 /// The join completes, delivers the provider's whole
-/// set, and the minted peer — retaining the zero budget for its own
+/// set, and the joined peer — retaining the zero budget for its own
 /// sessions — still reconciles a fresh origination back into the provider.
 ///
 /// The budget's any-value safety therefore holds at the one entry point
@@ -175,12 +175,12 @@ fn zero_budget_bootstrap_converges() {
                 .join(&mut newcomer_link),
         );
         served.expect("the provider serves the zero-budget bootstrap");
-        let minted = joined
+        let newcomer = joined
             .expect("a zero budget must not fail the bootstrap handshake")
             .expect("the provider is established")
             .into_rumors();
         assert_control_drained(provider_link, newcomer_link);
-        minted
+        newcomer
     });
 
     assert_eq!(
@@ -189,7 +189,7 @@ fn zero_budget_bootstrap_converges() {
         "the zero-budget join must still deliver the provider's whole set",
     );
 
-    // The minted peer gossips under its retained zero budget: every
+    // The joined peer gossips under its retained zero budget: every
     // window edge at the liveness floor, and the session still converges.
     bootstrapped.send(u64::MAX).unwrap();
     wire_gossip(&provider, &bootstrapped);
@@ -254,7 +254,7 @@ fn bookmarked_join_persists_the_arriving_identity() {
     );
 
     let Joined::Joined { peer } = wire_bookmarked_join(&provider, bookmark) else {
-        panic!("an established provider and healthy storage must mint a joined peer");
+        panic!("an established provider and healthy storage must produce a joined peer");
     };
 
     let record = persisted_record(&store);
@@ -321,7 +321,7 @@ fn mutual_bookmarked_bail_returns_the_bookmark() {
     );
 }
 
-/// The `Failed` arm: a session that dies before any peer is minted leaves
+/// The `Failed` arm: a session that dies before any peer is created leaves
 /// storage untouched and hands the bookmark back for the retry.
 ///
 /// The retry
@@ -435,12 +435,12 @@ fn v1_bootstrap_selection_persists_into_gossip() {
                 .join(&mut newcomer_link),
         );
         served.expect("V1 provider serves bootstrap");
-        let minted = joined
+        let newcomer = joined
             .expect("V1 bootstrap succeeds")
             .expect("provider is established")
             .into_rumors();
         assert_control_drained(provider_link, newcomer_link);
-        minted
+        newcomer
     });
 
     newcomer.send(2).unwrap();

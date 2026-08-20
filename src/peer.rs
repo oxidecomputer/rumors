@@ -162,11 +162,11 @@ pub struct Peer<T, B: BookmarkError = NoBookmark> {
     /// Separate from `inner` because persisting is `async` and the record is
     /// `!Clone`; see [`Bookmarked`].
     pub(crate) bookmark: Arc<Mutex<Bookmarked<B>>>,
-    /// The payload codec minted at construction: the typed ingress every
+    /// The payload codec built at construction: the typed ingress every
     /// gossip session's supplied leaf records decode through.
     ///
     /// Carries the [`payload_depth_limit`](Self::payload_depth_limit)
-    /// beside the minted pointer (see [`PayloadCodec`]).
+    /// beside the codec's fn pointers (see [`PayloadCodec`]).
     pub(crate) codec: PayloadCodec,
     /// The wire-observation handler selected by [`observe`](Self::observe).
     pub(crate) observe: Attachment,
@@ -205,7 +205,7 @@ impl<T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<T, NoBoo
     ///
     /// The payload type's serde obligations — [`Serialize`] and
     /// [`DeserializeOwned`] both — live here, at construction: the peer
-    /// mints its payload codec once, every send serializes through it,
+    /// builds its payload codec once, every send serializes through it,
     /// and every gossip session decodes through it, so neither the send
     /// paths nor the gossip entry points carry serde bounds of their own.
     pub fn seed() -> Self {
@@ -226,7 +226,7 @@ impl<T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<T, NoBoo
                 tree: Tree::new(),
             }),
             bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
-            codec: PayloadCodec::mint::<T>(PayloadDepthLimit::default()),
+            codec: PayloadCodec::new::<T>(PayloadDepthLimit::default()),
             observe: Attachment::default(),
         }
     }

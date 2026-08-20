@@ -196,7 +196,7 @@ impl Trace {
     /// weave's placement) — deliberately NOT wired into `assert_valid`:
     /// the encoder does not and should not satisfy it.
     ///
-    /// D5 as minted: once the resolution of a scope's last disputed child
+    /// D5 as stated: once the resolution of a scope's last disputed child
     /// has been emitted, any further wire or query of that scope before
     /// the parent summary is a violation; a scope with no disputed
     /// children must emit its parent before any wire or query. The

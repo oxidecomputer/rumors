@@ -20,7 +20,7 @@ use proptest::collection::vec;
 use proptest::prelude::*;
 use rumors::{CausalMessages, Peer, Rumors, Version};
 
-use crate::common::action::minted_version;
+use crate::common::action::created_version;
 use crate::common::wire::{batch_send, bootstrap_fork, wire_gossip};
 
 /// One observer step, with the borrowed faces cloned out.
@@ -265,10 +265,10 @@ fn staged_then_redacted_is_still_delivered() {
     let known = Peer::<u64>::seed().sync_window_floor().into_rumors();
     let pre = known.snapshot().latest().clone();
     known.send(1).unwrap();
-    let version_1 = minted_version(&known.snapshot(), &pre);
+    let version_1 = created_version(&known.snapshot(), &pre);
     let pre = known.snapshot().latest().clone();
     known.send(2).unwrap();
-    let version_2 = minted_version(&known.snapshot(), &pre);
+    let version_2 = created_version(&known.snapshot(), &pre);
 
     // First step ingests the whole pass (both messages) and delivers the
     // causally least; the other is staged.
@@ -295,7 +295,7 @@ fn staged_then_redacted_is_still_delivered() {
     // Redacted wholly before any ingest: never delivered.
     let pre = known.snapshot().latest().clone();
     known.send(3).unwrap();
-    known.redact(&minted_version(&known.snapshot(), &pre));
+    known.redact(&created_version(&known.snapshot(), &pre));
     let (items, _) = drain(&mut obs);
     assert!(items.is_empty(), "pre-ingest redactions never fire");
 }
@@ -363,7 +363,7 @@ enum Op {
     SendA(u64),
     /// `b` sends this value (concurrent to `a` until a gossip).
     SendB(u64),
-    /// Redact the `idx % minted`-th message minted at `a` so far (dropped
+    /// Redact the `idx % sent`-th message sent at `a` so far (dropped
     /// if none).
     Redact(usize),
     /// Converge the replicas.
@@ -399,7 +399,7 @@ proptest! {
         let b = bootstrap_fork(&a);
 
         let mut obs = a.causal_messages();
-        let mut minted: Vec<Version> = Vec::new();
+        let mut sent: Vec<Version> = Vec::new();
         let mut delivered: Vec<(Version, u64)> = Vec::new();
 
         for op in &ops {
@@ -407,14 +407,14 @@ proptest! {
                 Op::SendA(v) => {
                     let pre = a.snapshot().latest().clone();
                     a.send(*v).unwrap();
-                    minted.push(minted_version(&a.snapshot(), &pre));
+                    sent.push(created_version(&a.snapshot(), &pre));
                 }
                 Op::SendB(v) => {
                     b.send(*v).unwrap();
                 }
                 Op::Redact(idx) => {
-                    if !minted.is_empty() {
-                        a.redact(&minted[idx % minted.len()]);
+                    if !sent.is_empty() {
+                        a.redact(&sent[idx % sent.len()]);
                     }
                 }
                 Op::Gossip => wire_gossip(&a, &b),

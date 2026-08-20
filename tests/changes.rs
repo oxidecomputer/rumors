@@ -10,7 +10,7 @@ mod common;
 use futures::{FutureExt, StreamExt};
 use rumors::{Peer, Rumors};
 
-use crate::common::action::minted_version;
+use crate::common::action::created_version;
 use crate::common::wire::{batch_send, bootstrap_fork_async, wire_gossip_async};
 
 /// A fresh observer yields immediately — even on an empty set — because a
@@ -115,7 +115,7 @@ async fn gossip_frontier_only_advance_ticks_the_observer() {
     // and the redaction's only trace is A's advanced causal frontier.
     let pre = a.snapshot().latest().clone();
     a.send(7).unwrap();
-    a.redact(&minted_version(&a.snapshot(), &pre));
+    a.redact(&created_version(&a.snapshot(), &pre));
 
     // B learns that frontier by gossip: verifiably an observed advance of
     // B's own causal frontier, with no content movement (both trees empty).

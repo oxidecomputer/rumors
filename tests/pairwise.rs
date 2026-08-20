@@ -11,7 +11,7 @@
 //! assertion is "nothing changed at all".
 //!
 //! Every peer in a test is a genuine, party-disjoint fork of one shared
-//! [`Peer::seed`](rumors::Peer::seed), minted by [`bootstrap_fork`]. They
+//! [`Peer::seed`](rumors::Peer::seed), created by [`bootstrap_fork`]. They
 //! share a [`Network`](rumors::Network) but tick disjoint parties, so their
 //! concurrent inserts stay incomparable and gossip between them never
 //! fails.
@@ -196,7 +196,7 @@ proptest! {
         let (va, _) = snap_a
             .range(causally::since(&pre_a))
             .next()
-            .expect("alice's insert mints a live leaf");
+            .expect("alice's insert creates a live leaf");
 
         let pre_b = bob.snapshot().latest().clone();
         bob.send(b_value).unwrap();
@@ -204,7 +204,7 @@ proptest! {
         let (vb, _) = snap_b
             .range(causally::since(&pre_b))
             .next()
-            .expect("bob's insert mints a live leaf");
+            .expect("bob's insert creates a live leaf");
 
         prop_assert_eq!(va.partial_cmp(vb), None);
     }
@@ -215,7 +215,7 @@ proptest! {
     /// The "union of readouts" is computed by `BTreeMap::extend`,
     /// which is sound here only because readout keys are the leaf
     /// versions' canonical bytes and `alice` / `bob` tick disjoint
-    /// parties, so they can't mint the same version.
+    /// parties, so they can't create the same version.
     #[test]
     fn gossip_unions_content(
         a_actions in arb_local_actions(),

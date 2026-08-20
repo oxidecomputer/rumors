@@ -58,8 +58,17 @@ use serde::de::DeserializeOwned;
 /// one, never by both sides.
 #[must_use = "a `Bootstrap` does nothing until `join` runs it against a link"]
 pub struct Bootstrap<T> {
+    /// The wire protocol selected by [`protocol`](Self::protocol): spoken
+    /// by the join session, carried into the joined peer.
     pub(crate) protocol: Protocol,
+    /// The window policy selected by
+    /// [`sync_memory_budget`](Self::sync_memory_budget): the join
+    /// session's reconciliation memory bound, carried into the joined
+    /// peer.
     pub(crate) window: WindowConfig,
+    /// The supply-run sizing budget selected by
+    /// [`target_message_size`](Self::target_message_size): the join
+    /// session's byte target, carried into the joined peer.
     pub(crate) run_budget: RunBudget,
     /// The payload depth limit selected by
     /// [`payload_depth_limit`](Self::payload_depth_limit): the join

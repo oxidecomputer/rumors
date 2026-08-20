@@ -165,7 +165,7 @@ impl Session {
 pub enum OverlapEvent<T> {
     /// Insert `value` at `peer`.
     Insert { peer: usize, value: T },
-    /// Redact the message minted by the `Insert` at `target_event_idx`.
+    /// Redact the message created by the `Insert` at `target_event_idx`.
     /// Valid by construction: the generator's shadow guarantees `peer`
     /// has observed that message when this event runs.
     Redact {

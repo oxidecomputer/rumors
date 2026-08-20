@@ -232,7 +232,7 @@ proptest! {
     /// disjoint from the provider's remainder, and joining the two
     /// reconstitutes exactly the provider's pre-session party.
     ///
-    /// No other identity moved, none was minted, none was lost.
+    /// No other identity moved, none was created, none was lost.
     #[test]
     fn bootstrap_donates_exactly_once(actions in arb_local_actions()) {
         let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
@@ -243,16 +243,16 @@ proptest! {
         let pre = alias(&provider);
         let newcomer = bootstrap_fork(&provider);
         let remainder = alias(&provider);
-        let minted = alias(&newcomer);
+        let donated = alias(&newcomer);
 
         prop_assert!(
-            remainder.is_disjoint(&minted),
+            remainder.is_disjoint(&donated),
             "the newcomer's party must be disjoint from the provider's \
-             remainder ({minted:?} vs {remainder:?})"
+             remainder ({donated:?} vs {remainder:?})"
         );
         let mut rejoined = remainder;
         rejoined
-            .join(minted)
+            .join(donated)
             .expect("disjoint parties always join");
         prop_assert!(
             rejoined == pre,

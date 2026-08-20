@@ -20,7 +20,7 @@
 //! - **returns** flow up: exactly one `Option<Node>` per query, in query
 //!   order — the reconciled scope, `None` meaning it resolved to nothing
 //!   (recursive deletion, the same reading as [`Backend::parent`]'s `None`
-//!   return). Returns are prefix-less: the consumer minted the query, so
+//!   return). Returns are prefix-less: the consumer issued the query, so
 //!   the key is redundant and the pairing is purely positional.
 //!
 //! # Why this is deadlock-free

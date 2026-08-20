@@ -36,13 +36,13 @@ async fn reconcile_results(
     let remote_b = RemoteHandshaking::start(
         Local,
         a_link,
-        PayloadCodec::mint::<()>(PayloadDepthLimit::default()),
+        PayloadCodec::new::<()>(PayloadDepthLimit::default()),
     )
     .window(WindowConfig::FLOOR);
     let remote_a = RemoteHandshaking::start(
         Local,
         b_link,
-        PayloadCodec::mint::<()>(PayloadDepthLimit::default()),
+        PayloadCodec::new::<()>(PayloadDepthLimit::default()),
     )
     .window(WindowConfig::FLOOR);
 

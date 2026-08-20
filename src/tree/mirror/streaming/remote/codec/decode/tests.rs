@@ -380,7 +380,7 @@ fn a_zero_length_record_is_structurally_valid() {
         };
         assert_eq!(run.record_count(), 1);
         let error = run
-            .records(PayloadCodec::mint::<u64>(PayloadDepthLimit::default()))
+            .records(PayloadCodec::new::<u64>(PayloadDepthLimit::default()))
             .next()
             .unwrap()
             .unwrap_err();
@@ -401,7 +401,7 @@ fn supplied_record_errors_are_typed() {
     content.extend_from_slice(&[0x42, 0x01]);
     let run = LeafRun::from_encoded(raw_record(&content)).unwrap();
     let error = run
-        .records(PayloadCodec::mint::<u64>(PayloadDepthLimit::default()))
+        .records(PayloadCodec::new::<u64>(PayloadDepthLimit::default()))
         .next()
         .unwrap()
         .unwrap_err();
@@ -415,7 +415,7 @@ fn supplied_record_errors_are_typed() {
     ciborium::ser::into_writer(&Version::new(), &mut content).unwrap();
     let run = LeafRun::from_encoded(raw_record(&content)).unwrap();
     let error = run
-        .records(PayloadCodec::mint::<u64>(PayloadDepthLimit::default()))
+        .records(PayloadCodec::new::<u64>(PayloadDepthLimit::default()))
         .next()
         .unwrap()
         .unwrap_err();
@@ -429,7 +429,7 @@ fn supplied_record_errors_are_typed() {
     let missing_message = &content[..content.len() - Message::new(0u64).as_slice().len()];
     let run = LeafRun::from_encoded(raw_record(missing_message)).unwrap();
     let error = run
-        .records(PayloadCodec::mint::<u64>(PayloadDepthLimit::default()))
+        .records(PayloadCodec::new::<u64>(PayloadDepthLimit::default()))
         .next()
         .unwrap()
         .unwrap_err();
@@ -445,7 +445,7 @@ fn supplied_record_errors_are_typed() {
     content.push(u8::MIN);
     let run = LeafRun::from_encoded(raw_record(&content)).unwrap();
     let error = run
-        .records(PayloadCodec::mint::<u64>(PayloadDepthLimit::default()))
+        .records(PayloadCodec::new::<u64>(PayloadDepthLimit::default()))
         .next()
         .unwrap()
         .unwrap_err();
@@ -481,7 +481,7 @@ fn widened_version_atom_head_is_not_spelling_judged() {
 
     let run = LeafRun::from_encoded(raw_record(&content)).unwrap();
     let (version, _message) = run
-        .records(PayloadCodec::mint::<u64>(PayloadDepthLimit::default()))
+        .records(PayloadCodec::new::<u64>(PayloadDepthLimit::default()))
         .next()
         .unwrap()
         .expect("a widened version-atom head decodes: spelling is not re-judged here");
@@ -517,7 +517,7 @@ fn indefinite_version_atom_head_is_not_spelling_judged() {
 
     let run = LeafRun::from_encoded(raw_record(&content)).unwrap();
     let (version, _message) = run
-        .records(PayloadCodec::mint::<u64>(PayloadDepthLimit::default()))
+        .records(PayloadCodec::new::<u64>(PayloadDepthLimit::default()))
         .next()
         .unwrap()
         .expect("an indefinite version-atom head decodes: spelling is not re-judged here");
@@ -540,7 +540,7 @@ fn indefinite_payload_spelling_is_not_spelling_judged() {
 
     let run = LeafRun::from_encoded(raw_record(&content)).unwrap();
     let (version, message) = run
-        .records(PayloadCodec::mint::<std::collections::BTreeMap<u8, u8>>(
+        .records(PayloadCodec::new::<std::collections::BTreeMap<u8, u8>>(
             PayloadDepthLimit::default(),
         ))
         .next()
@@ -1082,7 +1082,7 @@ fn an_over_deep_supplied_payload_dies_typed_at_ingress() {
         content.extend_from_slice(payload);
         content
     };
-    let codec = PayloadCodec::mint::<Arr>(limit);
+    let codec = PayloadCodec::new::<Arr>(limit);
 
     // One scope past the limit: typed rejection at the record iterator.
     let over = record_with_payload(&deep_payload(limit.get() as usize + 1));

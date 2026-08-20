@@ -46,9 +46,9 @@ const PRE_WRAP_SESSIONS: usize = 253;
 /// and the wrapped 0, 1, 2.
 const WRAP_ROUNDS: u64 = 6;
 
-/// Mint a connected, party-disjoint pair: a freshly seeded peer and a
+/// Create a connected, party-disjoint pair: a freshly seeded peer and a
 /// bootstrap fork of it. The two ends of one link they will keep reusing are
-/// minted per test.
+/// created per test.
 async fn pair() -> (Rumors<u64>, Rumors<u64>) {
     let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
     let b = bootstrap_fork_async(&a).await;

@@ -224,7 +224,7 @@ impl AsyncRead for TracedReader {
     }
 }
 
-/// The traced delayed-pipe connector: labels each minted pipe in open order.
+/// The traced delayed-pipe connector: labels each opened pipe in open order.
 #[derive(Clone)]
 struct TracedConnector {
     announce: mpsc::Sender<TracedReader>,
@@ -542,11 +542,11 @@ fn trace_redaction_session() {
 /// first byte while its ballast counterpart's three land under other root
 /// radices, so no root child is populated on both sides and the session is
 /// pure transfer in both directions. A leaf's path is the BLAKE3 hash of
-/// its version's canonical bytes, so the shape is a property of the minted
+/// its version's canonical bytes, so the shape is a property of the created
 /// version sequence; the self-checks below verify it.
 fn transfer_pair() -> (Rumors<u64>, Rumors<u64>) {
     // Stage by pool search: paths are version-derived, so the shape is a
-    // deterministic function of the seeded universe and send order — mint
+    // deterministic function of the seeded universe and send order — send
     // a pool, pick the versions whose paths land the shape, redact the
     // rest. The left peer keeps exactly two leaves sharing a root radix;
     // the right keeps three ballast leaves outside it and advertises the

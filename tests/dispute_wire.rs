@@ -194,8 +194,8 @@ fn counting(
 }
 
 /// Two floor-window peers sharing [`COMMON`] messages, then diverged by
-/// [`DIVERGENT`] minted payloads on each side, deterministically.
-fn diverged<T>(mut mint: impl FnMut(&mut SmallRng) -> T) -> (Rumors<T>, Rumors<T>)
+/// [`DIVERGENT`] freshly generated payloads on each side, deterministically.
+fn diverged<T>(mut make: impl FnMut(&mut SmallRng) -> T) -> (Rumors<T>, Rumors<T>)
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
@@ -205,7 +205,7 @@ where
         rumors
             .batch(|batch| {
                 for _ in 0..n {
-                    batch.send(mint(rng))?;
+                    batch.send(make(rng))?;
                 }
                 Ok::<(), rumors::EncodeError>(())
             })
@@ -244,11 +244,11 @@ where
 /// Each side's divergence crosses once; shared content crosses
 /// only as dispute-descent overhead, which is part of the per-message
 /// cost the constant states.
-fn implied_bytes_per_message<T>(mint: impl FnMut(&mut SmallRng) -> T) -> usize
+fn implied_bytes_per_message<T>(make: impl FnMut(&mut SmallRng) -> T) -> usize
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
-    let (left, right) = diverged(mint);
+    let (left, right) = diverged(make);
     let total = session_wire_bytes(&left, &right);
     assert_eq!(
         left.snapshot().hash(),
@@ -271,12 +271,12 @@ where
 /// moves it off the pin.
 #[test]
 fn dispute_wire_bytes_is_the_design_record_cost() {
-    let mut mint = |rng: &mut SmallRng| {
+    let mut make = |rng: &mut SmallRng| {
         let mut payload = vec![0u8; DESIGN_PAYLOAD_LEN];
         rng.fill_bytes(&mut payload);
         Bytes::from(payload)
     };
-    let implied = implied_bytes_per_message::<Bytes>(&mut mint);
+    let implied = implied_bytes_per_message::<Bytes>(&mut make);
     let (_, constant) = envelope_and_wire_bytes();
     eprintln!(
         "design-record cell: implied {implied} B/message at {DESIGN_ENCODED_PAYLOAD_BYTES} B \
@@ -330,12 +330,12 @@ fn minimal_records_pin_the_fixed_overhead() {
 /// [`MINIMAL_CELL_RESIDUAL`]-byte offset below the same line.
 #[test]
 fn mid_size_records_ride_the_affine_law() {
-    let mut mint = |rng: &mut SmallRng| {
+    let mut make = |rng: &mut SmallRng| {
         let mut payload = vec![0u8; MID_PAYLOAD_LEN];
         rng.fill_bytes(&mut payload);
         Bytes::from(payload)
     };
-    let implied = implied_bytes_per_message::<Bytes>(&mut mint);
+    let implied = implied_bytes_per_message::<Bytes>(&mut make);
     let expected = fixed_overhead_bytes() + CBOR_BSTR_HEADER_BYTES + MID_PAYLOAD_LEN;
     eprintln!("mid-record cell: implied {implied} B/message (expected {expected})");
     assert_eq!(

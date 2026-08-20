@@ -9,6 +9,17 @@
 //! is enforced on ingress: [`read_head`] and [`read_head_async`] reject a
 //! head that is indefinite, reserved, or wider than its value requires.
 //!
+//! Hand-written primitives, not a general CBOR reader, because the wire
+//! needs the head as its unit of work: a codec here parses one head
+//! incrementally against the transport, learns the item's declared
+//! length, and skips or prices what follows in O(1) without
+//! materializing it — and these hand-parsed positions are exactly where
+//! the non-shortest, indefinite, and reserved spellings above are
+//! rejected. A general CBOR reader offers no head-level incremental
+//! API: it decodes whole items into values and buffers past item
+//! boundaries, so neither the streaming boundary nor the spelling
+//! enforcement can live there.
+//!
 //! This module owns only the *head* grammar (RFC 8949 §3: the initial
 //! byte's major type and its argument). What follows a head — payload
 //! bytes, nested items, tag content — belongs to the codec reading it;

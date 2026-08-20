@@ -24,7 +24,7 @@ use serde::de::DeserializeOwned;
 pub struct ExecutionResult<T> {
     pub peers: Vec<Peer<T>>,
     pub oracle: Oracle<T>,
-    /// For each `Insert` event, the [`Version`] minted at the originating
+    /// For each `Insert` event, the [`Version`] created at the originating
     /// peer.
     pub resolved_versions: BTreeMap<EventIdx, Version>,
 }
@@ -34,14 +34,14 @@ pub struct ExecutionResult<T> {
 /// observation log, and the same oracle and version map as the
 /// membership-free result.
 pub struct MembershipExecutionResult<T> {
-    /// One slot per peer ever minted — the initial fleet, then every
+    /// One slot per peer ever created — the initial fleet, then every
     /// mid-schedule bootstrap in order. `None` marks a retired peer.
     pub slots: Vec<Option<Peer<T>>>,
     /// Each retired peer's observation log, complete as of the drain
     /// that preceded its retirement.
     pub retired_observations: BTreeMap<usize, Vec<(Version, T)>>,
     pub oracle: Oracle<T>,
-    /// For each `Insert` event, the [`Version`] minted at the originating
+    /// For each `Insert` event, the [`Version`] created at the originating
     /// peer.
     pub resolved_versions: BTreeMap<EventIdx, Version>,
 }
@@ -166,7 +166,7 @@ where
 /// The fleet starts along the schedule's fork tree: peer 0 is the
 /// universe seed, and every other initial peer is a genuine
 /// party-disjoint fork of an already-built peer (`fork_parents[i] < i`),
-/// minted by serving it a bootstrap. Mid-schedule `Bootstrap` events
+/// created by serving it a bootstrap. Mid-schedule `Bootstrap` events
 /// append newcomer slots the same way; `Retire` events run a real
 /// retirement session over a clean in-memory link (the absorber side is
 /// plain gossip) and vacate the retiree's slot, saving its observation
@@ -235,7 +235,7 @@ where
                 assert_eq!(
                     *newcomer,
                     slots.len(),
-                    "bootstrap events mint indices in order"
+                    "bootstrap events assign indices in order"
                 );
                 let parent = slots[*parent]
                     .as_ref()
