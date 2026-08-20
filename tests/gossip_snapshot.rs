@@ -22,9 +22,9 @@ use rand::rngs::SmallRng;
 use rumors::Protocol;
 use rumors::{Peer, Rumors, Version};
 
-use crate::common::gossip_snapshot::capture_gossip;
 #[cfg(feature = "protocol-v1")]
 use crate::common::gossip_snapshot::capture_gossip_v1;
+use crate::common::gossip_snapshot::{capture_gossip, capture_gossip_returning};
 use crate::common::shape::{
     ballast_avoiding, keep_only, leaf_path, path_radix, pool, send_pool, shaped_pair,
 };
@@ -164,26 +164,41 @@ fn asymmetric_message_targets_unbatch_the_run() {
     insta::assert_snapshot!(capture_gossip(a, b));
 }
 
+/// Extract one rendered signal line's semantic.
+///
+/// A signal line has the form `<dense code> / <semantic> /`. The
+/// bare-digit code distinguishes signal lines from every other
+/// annotated line (tagged atoms carry parentheses, listings carry
+/// `=>`, payloads carry no comment), so the extraction cannot misfire
+/// inside a frame body.
+fn signal_semantic(line: &str) -> Option<&str> {
+    let (code, rest) = line.trim_start().split_once(" / ")?;
+    if code.is_empty() || !code.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    rest.strip_suffix(" /")
+}
+
 /// Count the frames rendered under one stream header of a wire capture.
 ///
-/// Returns `None` when the header never appears; the header must match the
-/// capture's `"{Speaker} stream {index} (height {height})"` form exactly.
-/// A stream's body lines — frame labels, decoded payload trees, hex — are
-/// all indented, so the section ends at the next column-zero line (the
-/// following stream or direction header, or a control-frame label).
+/// Returns `None` when the header never appears; the header must be a
+/// prefix of the capture's
+/// `"{Speaker} stream {index} (height {height}), epoch {e}, {n} wire bytes"`
+/// header line. A stream's body lines — frame headers, rendered value
+/// trees — are all indented, so the section ends at the next column-zero
+/// line (the following stream or direction header, or a control-item
+/// label); within the section each frame contributes exactly one signal
+/// line, whose comment is the frame's semantic.
 fn stream_frames(capture: &str, header: &str) -> Option<Vec<String>> {
     let mut frames = None;
     for line in capture.lines() {
         if line.starts_with(header) {
             frames = Some(Vec::new());
         } else if let Some(frames) = frames.as_mut() {
-            match line.trim_start().strip_prefix("frame ") {
-                Some(frame) => {
-                    let (_, semantic) = frame.split_once(": ").expect("frame lines are labeled");
-                    frames.push(semantic.to_string());
-                }
-                None if !line.starts_with(char::is_whitespace) => break,
-                None => {}
+            if let Some(semantic) = signal_semantic(line) {
+                frames.push(semantic.to_string());
+            } else if !line.starts_with(char::is_whitespace) {
+                break;
             }
         }
     }
@@ -340,7 +355,7 @@ fn early_supplies_honor_redactions() {
         "the subtree holder must advertise the smaller set and initiate"
     );
 
-    let capture = capture_gossip(a.clone(), b.clone());
+    let (capture, a, b) = capture_gossip_returning(a, b);
     let opening = stream_frames(&capture, "Initiator stream 0 (height 31)")
         .expect("the surviving message rides the opening supplies");
     assert_eq!(

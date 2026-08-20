@@ -244,13 +244,17 @@ the hook's bytes-only signature suffices.
 the opaque hexdump wire snapshots with human-readable introspection:
 the snapshot suites capture sessions through the public hook and pin a
 deterministic rendering of every observed item — structure unfolded
-(ints, text, arrays, maps), tagged atoms named from the tag table,
-opaque byte strings as length-plus-hex. The byte-pinning discipline
-survives the legibility: because the wire is deterministic-encoding
-CBOR as a stated contract, a rendering that shows every item's complete
-content is injective on wire bytes — two different byte streams cannot
-render identically — so the legible snapshot still pins the wire, while
-a reviewer can finally *audit* what moved and why.
+(ints, text, arrays, maps, embedded items), tagged atoms named from
+the tag table, opaque byte strings as full hex. The byte-pinning
+discipline survives the legibility twice over: because the wire is
+deterministic-encoding CBOR as a stated contract, a rendering that
+shows every item's complete content is injective on wire bytes — two
+different byte streams cannot render identically, with anything the
+walk cannot vouch for falling back to explicit exact hex — and the
+harness holds the rendered items to the transport capture as a
+totality oracle (label plus concatenated items reproduce every wire
+byte). So the legible snapshot still pins the wire, while a reviewer
+can finally *audit* what moved and why.
 
 **The tracing adapter.** A separate crate (or feature-gated module) so
 the core keeps its dependency surface: sessions open `tracing` spans
@@ -309,9 +313,12 @@ read +16.4% total session bytes, about 51 KB on a 308 KB session,
 falling toward the +3.9% figure as payloads approach the design
 record size. The
 committed snapshot corpus — toy sessions dominated by their per-session
-constants — grew 62% (5,273 → 8,567 B), a denominator that overweights
-the once-per-session surfaces by design; the per-message figures above
-are the hot-path claim. What does not change: session semantics, the
+constants — stands at 8,441 wire B carrying 1,656 digest B (69 digests
+at 24 B, 19.6%, measured by `tools/digestshare` over the reflection
+renders); against the pre-conversion corpus's 5,273 B that is a 60%
+growth, a denominator that overweights the once-per-session surfaces
+by design, and the per-message figures above are the hot-path claim.
+What does not change: session semantics, the
 deadlock-freedom argument (framing-independent; the hook adds
 observation, never a protocol dependency), and every validation
 property, re-denominated.

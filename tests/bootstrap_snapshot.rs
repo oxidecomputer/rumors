@@ -29,9 +29,9 @@ use rand::rngs::SmallRng;
 use rumors::Protocol;
 use rumors::{Peer, Rumors};
 
-use crate::common::gossip_snapshot::capture_session;
 #[cfg(feature = "protocol-v1")]
 use crate::common::gossip_snapshot::capture_session_v1;
+use crate::common::gossip_snapshot::{capture_session, observed};
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -54,11 +54,13 @@ where
     T: Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     capture_session(
-        move |mut link| async move {
+        move |mut link, hook| async move {
+            let provider = observed(provider, hook).await;
             provider.gossip(&mut link).await.expect("provider gossip");
         },
-        move |mut link| async move {
+        move |mut link, hook| async move {
             Peer::<T>::bootstrap()
+                .observe(hook)
                 .join(&mut link)
                 .await
                 .expect("bootstrap handshake")
@@ -143,8 +145,9 @@ fn string_payload() {
 #[test]
 fn mutual_bootstrap_bails() {
     let capture = capture_session(
-        |mut link| async move {
+        |mut link, hook| async move {
             let out = Peer::<u64>::bootstrap()
+                .observe(hook)
                 .join(&mut link)
                 .await
                 .expect("handshake A");
@@ -153,8 +156,9 @@ fn mutual_bootstrap_bails() {
                 "a mutually-bootstrapping peer must bail with None"
             );
         },
-        |mut link| async move {
+        |mut link, hook| async move {
             let out = Peer::<u64>::bootstrap()
+                .observe(hook)
                 .join(&mut link)
                 .await
                 .expect("handshake B");

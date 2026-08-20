@@ -42,6 +42,10 @@ pub(crate) const TAG_CBOR_SEQUENCE: u64 = 63;
 /// Tag number for an embedded CBOR data item in a byte string (RFC 8949).
 pub(crate) const TAG_EMBEDDED_ITEM: u64 = 24;
 
+/// Tag number for self-described CBOR (RFC 8949 §3.4.6): CBOR's own
+/// magic, opening the V2 preamble and the stored bookmark.
+pub(crate) const TAG_SELF_DESCRIBED: u64 = 55799;
+
 /// Bytes the shortest-form head for `value` occupies, any major type.
 pub(crate) const fn head_len(value: u64) -> usize {
     match value {

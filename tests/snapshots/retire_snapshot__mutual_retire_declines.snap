@@ -3,19 +3,27 @@ source: tests/retire_snapshot.rs
 expression: capture
 ---
 direction A -> B
-preamble: 30 bytes
-  0000: d9 d9 f7 84 66 72 75 6d
-  0008: 6f 72 73 02 50 8c 18 96
-  0010: 68 c9 e4 83 72 37 bf 31
-  0018: e0 2d 7f 6b 70 01
-trailing frame: 2 bytes
-  0000: 61 2e
+control item 0 (30 bytes) / preamble /
+  55799( / self-described CBOR /
+    [
+      "rumors"
+      2
+      h'8c189668c9e4837237bf31e02d7f6b70'
+      1
+    ]
+  )
+control item 1 (2 bytes) / epilogue /
+  "."
 
 direction B -> A
-preamble: 30 bytes
-  0000: d9 d9 f7 84 66 72 75 6d
-  0008: 6f 72 73 02 50 8c 18 96
-  0010: 68 c9 e4 83 72 37 bf 31
-  0018: e0 2d 7f 6b 70 01
-trailing frame: 2 bytes
-  0000: 61 2e
+control item 0 (30 bytes) / preamble /
+  55799( / self-described CBOR /
+    [
+      "rumors"
+      2
+      h'8c189668c9e4837237bf31e02d7f6b70'
+      1
+    ]
+  )
+control item 1 (2 bytes) / epilogue /
+  "."

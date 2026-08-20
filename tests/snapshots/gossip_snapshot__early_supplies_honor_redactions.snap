@@ -3,108 +3,124 @@ source: tests/gossip_snapshot.rs
 expression: capture
 ---
 direction A -> B
-preamble: 30 bytes
-  0000: d9 d9 f7 84 66 72 75 6d
-  0008: 6f 72 73 02 50 8c 18 96
-  0010: 68 c9 e4 83 72 37 bf 31
-  0018: e0 2d 7f 6b 70 00
-version: (1, 4095, 0)
-greeting words: set len 2, version-size bound 5, message-size target 1830400
-listing: 1 child(ren)
-  child 0x9a: 636d485e0ec23826ab88a639e80fe993d036c716de1441a1
-greeting frame: 130 bytes
-  0000: d8 18 58 7e a6 67 6c 69
-  0008: 73 74 69 6e 67 a1 18 9a
-  0010: 58 18 63 6d 48 5e 0e c2
-  0018: 38 26 ab 88 a6 39 e8 0f
-  0020: e9 93 d0 36 c7 16 de 14
-  0028: 41 a1 67 73 65 74 5f 6c
-  0030: 65 6e 02 67 76 65 72 73
-  0038: 69 6f 6e d9 d2 56 47 40
-  0040: 02 00 30 00 ff f4 68 70
-  0048: 72 6f 74 6f 63 6f 6c 66
-  0050: 72 75 6d 6f 72 73 71 6d
-  0058: 61 78 5f 76 65 72 73 69
-  0060: 6f 6e 5f 62 79 74 65 73
-  0068: 05 73 74 61 72 67 65 74
-  0070: 5f 6d 65 73 73 61 67 65
-  0078: 5f 73 69 7a 65 1a 00 1b
-  0080: ee 00
-Initiator stream 0 (height 31), epoch 0
-  frame 0: Supply(End)
-    supply run: 1 record(s)
-      record 0: version (1, 432, 0), message 3 byte(s)
-    0000: 82 18 77 d8 3f 4f d8 3f
-    0008: 4c d9 d2 56 45 40 36 50
-    0010: 06 c1 19 01 b1
-  frame 1: End(Stream)
-    0000: 81 18 99
-Initiator stream 1 (height 30), epoch 0
-  frame 0: End(Reply)
-    0000: 81 18 89
-  frame 1: End(Stream)
-    0000: 81 18 9a
-trailing frame: 2 bytes
-  0000: 61 2e
+role: Initiator
+control item 0 (30 bytes) / preamble /
+  55799( / self-described CBOR /
+    [
+      "rumors"
+      2
+      h'8c189668c9e4837237bf31e02d7f6b70'
+      0
+    ]
+  )
+control item 1 (130 bytes) / greeting /
+  24(<< / embedded item, 126 bytes /
+    {
+      "listing" =>
+        { / listing: 1 child(ren) /
+          0x9a => h'636d485e0ec23826ab88a639e80fe993d036c716de1441a1' / digest /
+        }
+      "set_len" => 2
+      "version" =>
+        53846(h'4002003000fff4') / version (1, 4095, 0) /
+      "protocol" => "rumors"
+      "max_version_bytes" => 5
+      "target_message_size" => 1830400
+    }
+  >>)
+control item 2 (2 bytes) / epilogue /
+  "."
+Initiator stream 0 (height 31), epoch 0, 26 wire bytes
+  frame 0 (21 bytes)
+    [
+      119 / Supply(End) /
+      63(<< / supply run, 1 record(s), 15 bytes /
+        63(<< / record, 2 item(s), 12 bytes /
+          53846(h'40365006c1') / version (1, 432, 0) /
+          433
+        >>)
+      >>)
+    ]
+  frame 1 (3 bytes)
+    [
+      153 / End(Stream) /
+    ]
+Initiator stream 1 (height 30), epoch 0, 8 wire bytes
+  frame 0 (3 bytes)
+    [
+      137 / End(Reply) /
+    ]
+  frame 1 (3 bytes)
+    [
+      154 / End(Stream) /
+    ]
 
 direction B -> A
-preamble: 30 bytes
-  0000: d9 d9 f7 84 66 72 75 6d
-  0008: 6f 72 73 02 50 8c 18 96
-  0010: 68 c9 e4 83 72 37 bf 31
-  0018: e0 2d 7f 6b 70 00
-version: (1, 0, 30)
-greeting words: set len 3, version-size bound 2, message-size target 1830400
-listing: 3 child(ren)
-  child 0x90: 937506250024599968f64f7c4e2f3ac050a148a65441140d
-  child 0xab: 0e0630bedb15ab6e5a395048d02bb03e950f377b95eed0b1
-  child 0xfa: 096df9d6e522813481d0f18c5e7cb824eb404882002c26a2
-greeting frame: 182 bytes
-  0000: d8 18 58 b2 a6 67 6c 69
-  0008: 73 74 69 6e 67 a3 18 90
-  0010: 58 18 93 75 06 25 00 24
-  0018: 59 99 68 f6 4f 7c 4e 2f
-  0020: 3a c0 50 a1 48 a6 54 41
-  0028: 14 0d 18 ab 58 18 0e 06
-  0030: 30 be db 15 ab 6e 5a 39
-  0038: 50 48 d0 2b b0 3e 95 0f
-  0040: 37 7b 95 ee d0 b1 18 fa
-  0048: 58 18 09 6d f9 d6 e5 22
-  0050: 81 34 81 d0 f1 8c 5e 7c
-  0058: b8 24 eb 40 48 82 00 2c
-  0060: 26 a2 67 73 65 74 5f 6c
-  0068: 65 6e 03 67 76 65 72 73
-  0070: 69 6f 6e d9 d2 56 43 54
-  0078: 1e c0 68 70 72 6f 74 6f
-  0080: 63 6f 6c 66 72 75 6d 6f
-  0088: 72 73 71 6d 61 78 5f 76
-  0090: 65 72 73 69 6f 6e 5f 62
-  0098: 79 74 65 73 02 73 74 61
-  00a0: 72 67 65 74 5f 6d 65 73
-  00a8: 73 61 67 65 5f 73 69 7a
-  00b0: 65 1a 00 1b ee 00
-Responder stream 0 (height 31), epoch 0
-  frame 0: Supply(Continue)
-    supply run: 1 record(s)
-      record 0: version (1, 0, 4), message 3 byte(s)
-    0000: 82 18 66 d8 3f 4c d8 3f
-    0008: 49 d9 d2 56 42 54 4c 19
-    0010: 27 12
-  frame 1: QueryEmpty(Continue)
-    0000: 81 18 22
-  frame 2: Supply(Continue)
-    supply run: 1 record(s)
-      record 0: version (1, 0, 2), message 3 byte(s)
-    0000: 82 18 66 d8 3f 4c d8 3f
-    0008: 49 d9 d2 56 42 54 b0 19
-    0010: 27 10
-  frame 3: Supply(End)
-    supply run: 1 record(s)
-      record 0: version (1, 0, 3), message 3 byte(s)
-    0000: 82 18 77 d8 3f 4c d8 3f
-    0008: 49 d9 d2 56 42 54 f0 19
-    0010: 27 11
-  frame 4: End(Stream)
-    0000: 81 18 99
-trailing frame: 2 bytes
-  0000: 61 2e
+role: Responder
+control item 0 (30 bytes) / preamble /
+  55799( / self-described CBOR /
+    [
+      "rumors"
+      2
+      h'8c189668c9e4837237bf31e02d7f6b70'
+      0
+    ]
+  )
+control item 1 (182 bytes) / greeting /
+  24(<< / embedded item, 178 bytes /
+    {
+      "listing" =>
+        { / listing: 3 child(ren) /
+          0x90 => h'937506250024599968f64f7c4e2f3ac050a148a65441140d' / digest /
+          0xab => h'0e0630bedb15ab6e5a395048d02bb03e950f377b95eed0b1' / digest /
+          0xfa => h'096df9d6e522813481d0f18c5e7cb824eb404882002c26a2' / digest /
+        }
+      "set_len" => 3
+      "version" =>
+        53846(h'541ec0') / version (1, 0, 30) /
+      "protocol" => "rumors"
+      "max_version_bytes" => 2
+      "target_message_size" => 1830400
+    }
+  >>)
+control item 2 (2 bytes) / epilogue /
+  "."
+Responder stream 0 (height 31), epoch 0, 62 wire bytes
+  frame 0 (18 bytes)
+    [
+      102 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 12 bytes /
+        63(<< / record, 2 item(s), 9 bytes /
+          53846(h'544c') / version (1, 0, 4) /
+          10002
+        >>)
+      >>)
+    ]
+  frame 1 (3 bytes)
+    [
+      34 / QueryEmpty(Continue) /
+    ]
+  frame 2 (18 bytes)
+    [
+      102 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 12 bytes /
+        63(<< / record, 2 item(s), 9 bytes /
+          53846(h'54b0') / version (1, 0, 2) /
+          10000
+        >>)
+      >>)
+    ]
+  frame 3 (18 bytes)
+    [
+      119 / Supply(End) /
+      63(<< / supply run, 1 record(s), 12 bytes /
+        63(<< / record, 2 item(s), 9 bytes /
+          53846(h'54f0') / version (1, 0, 3) /
+          10001
+        >>)
+      >>)
+    ]
+  frame 4 (3 bytes)
+    [
+      153 / End(Stream) /
+    ]

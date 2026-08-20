@@ -3,68 +3,77 @@ source: tests/gossip_snapshot.rs
 expression: "capture_gossip(a, b)"
 ---
 direction A -> B
-preamble: 30 bytes
-  0000: d9 d9 f7 84 66 72 75 6d
-  0008: 6f 72 73 02 50 8c 18 96
-  0010: 68 c9 e4 83 72 37 bf 31
-  0018: e0 2d 7f 6b 70 00
-version: (0, 2046, 0)
-greeting words: set len 2, version-size bound 3, message-size target 1830400
-listing: 1 child(ren)
-  child 0x79: 5f06438950116f9d1463d15d1c3b1dadd5e17dcd5e244f29
-greeting frame: 129 bytes
-  0000: d8 18 58 7d a6 67 6c 69
-  0008: 73 74 69 6e 67 a1 18 79
-  0010: 58 18 5f 06 43 89 50 11
-  0018: 6f 9d 14 63 d1 5d 1c 3b
-  0020: 1d ad d5 e1 7d cd 5e 24
-  0028: 4f 29 67 73 65 74 5f 6c
-  0030: 65 6e 02 67 76 65 72 73
-  0038: 69 6f 6e d9 d2 56 46 40
-  0040: 0f ff 00 1f f9 68 70 72
-  0048: 6f 74 6f 63 6f 6c 66 72
-  0050: 75 6d 6f 72 73 71 6d 61
-  0058: 78 5f 76 65 72 73 69 6f
-  0060: 6e 5f 62 79 74 65 73 03
-  0068: 73 74 61 72 67 65 74 5f
-  0070: 6d 65 73 73 61 67 65 5f
-  0078: 73 69 7a 65 1a 00 1b ee
-  0080: 00
-Responder stream 0 (height 31), epoch 0
-  frame 0: Supply(End)
-    supply run: 2 record(s)
-      record 0: version (0, 26, 0), message 2 byte(s)
-      record 1: version (0, 20, 0), message 1 byte(s)
-    0000: 82 18 77 d8 3f 57 d8 3f
-    0008: 49 d9 d2 56 43 43 70 69
-    0010: 18 19 d8 3f 48 d9 d2 56
-    0018: 43 42 b0 51 13
-  frame 1: End(Stream)
-    0000: 81 18 99
-trailing frame: 2 bytes
-  0000: 61 2e
+role: Responder
+control item 0 (30 bytes) / preamble /
+  55799( / self-described CBOR /
+    [
+      "rumors"
+      2
+      h'8c189668c9e4837237bf31e02d7f6b70'
+      0
+    ]
+  )
+control item 1 (129 bytes) / greeting /
+  24(<< / embedded item, 125 bytes /
+    {
+      "listing" =>
+        { / listing: 1 child(ren) /
+          0x79 => h'5f06438950116f9d1463d15d1c3b1dadd5e17dcd5e244f29' / digest /
+        }
+      "set_len" => 2
+      "version" =>
+        53846(h'400fff001ff9') / version (0, 2046, 0) /
+      "protocol" => "rumors"
+      "max_version_bytes" => 3
+      "target_message_size" => 1830400
+    }
+  >>)
+control item 2 (2 bytes) / epilogue /
+  "."
+Responder stream 0 (height 31), epoch 0, 34 wire bytes
+  frame 0 (29 bytes)
+    [
+      119 / Supply(End) /
+      63(<< / supply run, 2 record(s), 23 bytes /
+        63(<< / record, 2 item(s), 9 bytes /
+          53846(h'437069') / version (0, 26, 0) /
+          25
+        >>)
+        63(<< / record, 2 item(s), 8 bytes /
+          53846(h'42b051') / version (0, 20, 0) /
+          19
+        >>)
+      >>)
+    ]
+  frame 1 (3 bytes)
+    [
+      153 / End(Stream) /
+    ]
 
 direction B -> A
-preamble: 30 bytes
-  0000: d9 d9 f7 84 66 72 75 6d
-  0008: 6f 72 73 02 50 8c 18 96
-  0010: 68 c9 e4 83 72 37 bf 31
-  0018: e0 2d 7f 6b 70 00
-version: 0
-greeting words: set len 0, version-size bound 0, message-size target 1830400
-listing: 0 child(ren)
-greeting frame: 96 bytes
-  0000: d8 18 58 5c a6 67 6c 69
-  0008: 73 74 69 6e 67 a0 67 73
-  0010: 65 74 5f 6c 65 6e 00 67
-  0018: 76 65 72 73 69 6f 6e d9
-  0020: d2 56 41 e0 68 70 72 6f
-  0028: 74 6f 63 6f 6c 66 72 75
-  0030: 6d 6f 72 73 71 6d 61 78
-  0038: 5f 76 65 72 73 69 6f 6e
-  0040: 5f 62 79 74 65 73 00 73
-  0048: 74 61 72 67 65 74 5f 6d
-  0050: 65 73 73 61 67 65 5f 73
-  0058: 69 7a 65 1a 00 1b ee 00
-trailing frame: 2 bytes
-  0000: 61 2e
+role: Initiator
+control item 0 (30 bytes) / preamble /
+  55799( / self-described CBOR /
+    [
+      "rumors"
+      2
+      h'8c189668c9e4837237bf31e02d7f6b70'
+      0
+    ]
+  )
+control item 1 (96 bytes) / greeting /
+  24(<< / embedded item, 92 bytes /
+    {
+      "listing" =>
+        { / listing: 0 child(ren) /
+        }
+      "set_len" => 0
+      "version" =>
+        53846(h'e0') / version 0 /
+      "protocol" => "rumors"
+      "max_version_bytes" => 0
+      "target_message_size" => 1830400
+    }
+  >>)
+control item 2 (2 bytes) / epilogue /
+  "."

@@ -3,51 +3,55 @@ source: tests/bootstrap_snapshot.rs
 expression: capture
 ---
 direction A -> B
-preamble: 30 bytes
-  0000: d9 d9 f7 84 66 72 75 6d
-  0008: 6f 72 73 02 50 00 00 00
-  0010: 00 00 00 00 00 00 00 00
-  0018: 00 00 00 00 00 00
-version: 0
-greeting words: set len 0, version-size bound 0, message-size target 1830400
-listing: 0 child(ren)
-greeting frame: 96 bytes
-  0000: d8 18 58 5c a6 67 6c 69
-  0008: 73 74 69 6e 67 a0 67 73
-  0010: 65 74 5f 6c 65 6e 00 67
-  0018: 76 65 72 73 69 6f 6e d9
-  0020: d2 56 41 e0 68 70 72 6f
-  0028: 74 6f 63 6f 6c 66 72 75
-  0030: 6d 6f 72 73 71 6d 61 78
-  0038: 5f 76 65 72 73 69 6f 6e
-  0040: 5f 62 79 74 65 73 00 73
-  0048: 74 61 72 67 65 74 5f 6d
-  0050: 65 73 73 61 67 65 5f 73
-  0058: 69 7a 65 1a 00 1b ee 00
-trailing frame: 2 bytes
-  0000: 61 2e
+control item 0 (30 bytes) / preamble /
+  55799( / self-described CBOR /
+    [
+      "rumors"
+      2
+      h'00000000000000000000000000000000'
+      0
+    ]
+  )
+control item 1 (96 bytes) / greeting /
+  24(<< / embedded item, 92 bytes /
+    {
+      "listing" =>
+        { / listing: 0 child(ren) /
+        }
+      "set_len" => 0
+      "version" =>
+        53846(h'e0') / version 0 /
+      "protocol" => "rumors"
+      "max_version_bytes" => 0
+      "target_message_size" => 1830400
+    }
+  >>)
+control item 2 (2 bytes) / epilogue /
+  "."
 
 direction B -> A
-preamble: 30 bytes
-  0000: d9 d9 f7 84 66 72 75 6d
-  0008: 6f 72 73 02 50 00 00 00
-  0010: 00 00 00 00 00 00 00 00
-  0018: 00 00 00 00 00 00
-version: 0
-greeting words: set len 0, version-size bound 0, message-size target 1830400
-listing: 0 child(ren)
-greeting frame: 96 bytes
-  0000: d8 18 58 5c a6 67 6c 69
-  0008: 73 74 69 6e 67 a0 67 73
-  0010: 65 74 5f 6c 65 6e 00 67
-  0018: 76 65 72 73 69 6f 6e d9
-  0020: d2 56 41 e0 68 70 72 6f
-  0028: 74 6f 63 6f 6c 66 72 75
-  0030: 6d 6f 72 73 71 6d 61 78
-  0038: 5f 76 65 72 73 69 6f 6e
-  0040: 5f 62 79 74 65 73 00 73
-  0048: 74 61 72 67 65 74 5f 6d
-  0050: 65 73 73 61 67 65 5f 73
-  0058: 69 7a 65 1a 00 1b ee 00
-trailing frame: 2 bytes
-  0000: 61 2e
+control item 0 (30 bytes) / preamble /
+  55799( / self-described CBOR /
+    [
+      "rumors"
+      2
+      h'00000000000000000000000000000000'
+      0
+    ]
+  )
+control item 1 (96 bytes) / greeting /
+  24(<< / embedded item, 92 bytes /
+    {
+      "listing" =>
+        { / listing: 0 child(ren) /
+        }
+      "set_len" => 0
+      "version" =>
+        53846(h'e0') / version 0 /
+      "protocol" => "rumors"
+      "max_version_bytes" => 0
+      "target_message_size" => 1830400
+    }
+  >>)
+control item 2 (2 bytes) / epilogue /
+  "."

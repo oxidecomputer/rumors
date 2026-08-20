@@ -11,11 +11,23 @@ pub use transport::{
     wrap_link,
 };
 
-pub use crate::tree::mirror::streaming::remote::LinkCapture;
+pub use crate::tree::mirror::streaming::remote::{HookCapture, HookStream, LinkCapture};
 
-/// Render captured V2 link traffic grouped by labeled logical streams.
-pub fn render_v2_capture(a: &LinkCapture, b: &LinkCapture) -> String {
-    crate::tree::mirror::streaming::remote::render_v2_capture(a, b)
+/// Render two hook captures grouped by labeled logical streams.
+pub fn render_hook_capture(a: &HookCapture, b: &HookCapture) -> String {
+    crate::tree::mirror::streaming::remote::render_hook_capture(a, b)
+}
+
+/// Assert the concatenation of observed items reproduces `wire` exactly:
+/// the totality witness behind rendering hook items as a wire-byte pin.
+pub fn assert_items_account_for(items: &[Vec<u8>], wire: &[u8]) {
+    crate::tree::mirror::streaming::remote::assert_items_account_for(items, wire);
+}
+
+/// Parse one data stream's on-wire open label, returning
+/// `((epoch, index), label byte length)`.
+pub fn stream_label(bytes: &[u8]) -> ((u8, u8), usize) {
+    crate::tree::mirror::streaming::remote::stream_label(bytes)
 }
 
 /// A snapshot of the crate-wide census of live tree-node handles.

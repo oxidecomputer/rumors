@@ -32,9 +32,9 @@ use rand::{SeedableRng as _, rngs::SmallRng};
 use rumors::Protocol;
 use rumors::{Peer, Retire, Rumors};
 
-use crate::common::gossip_snapshot::capture_session;
 #[cfg(feature = "protocol-v1")]
 use crate::common::gossip_snapshot::capture_session_v1;
+use crate::common::gossip_snapshot::{capture_session, observed};
 use crate::common::wire::bootstrap_fork;
 #[cfg(feature = "protocol-v1")]
 use crate::common::wire::{block_on, bootstrap_fork_async_with_protocol};
@@ -58,14 +58,16 @@ fn seeded() -> Rumors<u64> {
 /// ([`Retire::Retired`]).
 fn capture_retire(absorber: Rumors<u64>, retiree: Rumors<u64>) -> String {
     capture_session(
-        move |mut link| async move {
+        move |mut link, hook| async move {
+            let absorber = observed(absorber, hook).await;
             absorber.gossip(&mut link).await.expect("absorber gossip");
         },
-        move |mut link| async move {
+        move |mut link, hook| async move {
             let retiree = retiree
                 .try_into_peer()
                 .await
-                .expect("the sole handle reclaims the Peer");
+                .expect("the sole handle reclaims the Peer")
+                .observe(hook);
             let outcome = retiree.retire(&mut link).await;
             assert!(
                 matches!(outcome, Retire::Retired),
@@ -148,16 +150,24 @@ fn mutual_retire_declines() {
     b.batch().send(3).send(4);
 
     let capture = capture_session(
-        move |mut link| async move {
-            let a = a.try_into_peer().await.expect("a's sole handle");
+        move |mut link, hook| async move {
+            let a = a
+                .try_into_peer()
+                .await
+                .expect("a's sole handle")
+                .observe(hook);
             let outcome = a.retire(&mut link).await;
             assert!(
                 matches!(outcome, Retire::Declined { .. }),
                 "mutual retirement must decline; got {outcome:?}",
             );
         },
-        move |mut link| async move {
-            let b = b.try_into_peer().await.expect("b's sole handle");
+        move |mut link, hook| async move {
+            let b = b
+                .try_into_peer()
+                .await
+                .expect("b's sole handle")
+                .observe(hook);
             let outcome = b.retire(&mut link).await;
             assert!(
                 matches!(outcome, Retire::Declined { .. }),
@@ -183,18 +193,20 @@ fn retire_into_bootstrapper() {
     retiree.batch().send(1).send(2);
 
     let capture = capture_session(
-        |mut link| async move {
+        |mut link, hook| async move {
             Peer::<u64>::bootstrap()
+                .observe(hook)
                 .join(&mut link)
                 .await
                 .expect("bootstrap handshake")
                 .expect("the retiree served the bootstrap");
         },
-        move |mut link| async move {
+        move |mut link, hook| async move {
             let retiree = retiree
                 .try_into_peer()
                 .await
-                .expect("the sole handle reclaims the Peer");
+                .expect("the sole handle reclaims the Peer")
+                .observe(hook);
             let outcome = retiree.retire(&mut link).await;
             assert!(
                 matches!(outcome, Retire::Retired),

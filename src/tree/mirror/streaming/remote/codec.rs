@@ -71,7 +71,10 @@ pub use budget::SUPPLY_FRAME_OVERHEAD;
 pub use budget::{DEFAULT_TARGET_MESSAGE_SIZE, RunBudget};
 
 #[cfg(any(test, feature = "test-internals"))]
-pub use capture::{LinkCapture, render_v2_capture};
+pub use capture::{
+    HookCapture, HookStream, LinkCapture, assert_items_account_for, render_hook_capture,
+    stream_label,
+};
 pub use decode::FrameRead;
 #[cfg(test)]
 pub use decode::{decode, decode_exact};

@@ -3,437 +3,537 @@ source: tests/gossip_snapshot.rs
 expression: "capture_gossip(a, b)"
 ---
 direction A -> B
-preamble: 30 bytes
-  0000: d9 d9 f7 84 66 72 75 6d
-  0008: 6f 72 73 02 50 8c 18 96
-  0010: 68 c9 e4 83 72 37 bf 31
-  0018: e0 2d 7f 6b 70 00
-version: (0, 16, 0)
-greeting words: set len 16, version-size bound 3, message-size target 1830400
-listing: 16 child(ren)
-  child 0x4: 4d08cfcd4cf728cc13583332b6cd0c76cfe4e2498224a962
-  child 0x1b: 1ea6c1c25041537b9a1602794a36d951f44fbdc7edb3e398
-  child 0x21: 6bdfff4b8f9e7c9a8987b5b91c63112dd13386cb1755eb52
-  child 0x4b: accae91486823c7c298ecf001e14dcb265380be95fd27e07
-  child 0x66: 404620be25055e0824849dcbf40c8e88002ef4c4b3a19832
-  child 0x6c: 8460519a71f03836e27029e150e6a45777a5b6c989cd6707
-  child 0x6f: aa7dff928791534d97c9a14867af2d4aec7dc9f35930e6ed
-  child 0x87: 55a3d6508c651d3b0e5c4d5f5415ac5136c1f1a8eeb84de2
-  child 0x93: c4c0139f3f4f4afe9715d26a43953691cdc861574ffc8196
-  child 0xa0: 7835b0a8791af76763e8248004d356e7d5c938bb893ecc9c
-  child 0xb4: 4ac23f4c5f0f4ab2b981488bbef7332ff5038ae1a500dac5
-  child 0xb7: 0c6e8d58c7dc2afc324e6323f7597f91edc316c06d70eae3
-  child 0xc4: cbd073bca9b510a182ce1abf0c260bceeaf630e1dbfc64da
-  child 0xd0: 16470168f5ac21cd9435e6c52d1bd47e79b1fed68a845781
-  child 0xf3: 7a295e6ea121ff22d3df5eeed5799451fca896836b7f18ce
-  child 0xf5: 1d9c1fa1c842dd2eac5b8f5773f06978dc1276e2f86b8ae8
-greeting frame: 546 bytes
-  0000: d8 18 59 02 1d a6 67 6c
-  0008: 69 73 74 69 6e 67 b0 04
-  0010: 58 18 4d 08 cf cd 4c f7
-  0018: 28 cc 13 58 33 32 b6 cd
-  0020: 0c 76 cf e4 e2 49 82 24
-  0028: a9 62 18 1b 58 18 1e a6
-  0030: c1 c2 50 41 53 7b 9a 16
-  0038: 02 79 4a 36 d9 51 f4 4f
-  0040: bd c7 ed b3 e3 98 18 21
-  0048: 58 18 6b df ff 4b 8f 9e
-  0050: 7c 9a 89 87 b5 b9 1c 63
-  0058: 11 2d d1 33 86 cb 17 55
-  0060: eb 52 18 4b 58 18 ac ca
-  0068: e9 14 86 82 3c 7c 29 8e
-  0070: cf 00 1e 14 dc b2 65 38
-  0078: 0b e9 5f d2 7e 07 18 66
-  0080: 58 18 40 46 20 be 25 05
-  0088: 5e 08 24 84 9d cb f4 0c
-  0090: 8e 88 00 2e f4 c4 b3 a1
-  0098: 98 32 18 6c 58 18 84 60
-  00a0: 51 9a 71 f0 38 36 e2 70
-  00a8: 29 e1 50 e6 a4 57 77 a5
-  00b0: b6 c9 89 cd 67 07 18 6f
-  00b8: 58 18 aa 7d ff 92 87 91
-  00c0: 53 4d 97 c9 a1 48 67 af
-  00c8: 2d 4a ec 7d c9 f3 59 30
-  00d0: e6 ed 18 87 58 18 55 a3
-  00d8: d6 50 8c 65 1d 3b 0e 5c
-  00e0: 4d 5f 54 15 ac 51 36 c1
-  00e8: f1 a8 ee b8 4d e2 18 93
-  00f0: 58 18 c4 c0 13 9f 3f 4f
-  00f8: 4a fe 97 15 d2 6a 43 95
-  0100: 36 91 cd c8 61 57 4f fc
-  0108: 81 96 18 a0 58 18 78 35
-  0110: b0 a8 79 1a f7 67 63 e8
-  0118: 24 80 04 d3 56 e7 d5 c9
-  0120: 38 bb 89 3e cc 9c 18 b4
-  0128: 58 18 4a c2 3f 4c 5f 0f
-  0130: 4a b2 b9 81 48 8b be f7
-  0138: 33 2f f5 03 8a e1 a5 00
-  0140: da c5 18 b7 58 18 0c 6e
-  0148: 8d 58 c7 dc 2a fc 32 4e
-  0150: 63 23 f7 59 7f 91 ed c3
-  0158: 16 c0 6d 70 ea e3 18 c4
-  0160: 58 18 cb d0 73 bc a9 b5
-  0168: 10 a1 82 ce 1a bf 0c 26
-  0170: 0b ce ea f6 30 e1 db fc
-  0178: 64 da 18 d0 58 18 16 47
-  0180: 01 68 f5 ac 21 cd 94 35
-  0188: e6 c5 2d 1b d4 7e 79 b1
-  0190: fe d6 8a 84 57 81 18 f3
-  0198: 58 18 7a 29 5e 6e a1 21
-  01a0: ff 22 d3 df 5e ee d5 79
-  01a8: 94 51 fc a8 96 83 6b 7f
-  01b0: 18 ce 18 f5 58 18 1d 9c
-  01b8: 1f a1 c8 42 dd 2e ac 5b
-  01c0: 8f 57 73 f0 69 78 dc 12
-  01c8: 76 e2 f8 6b 8a e8 67 73
-  01d0: 65 74 5f 6c 65 6e 10 67
-  01d8: 76 65 72 73 69 6f 6e d9
-  01e0: d2 56 43 42 30 41 68 70
-  01e8: 72 6f 74 6f 63 6f 6c 66
-  01f0: 72 75 6d 6f 72 73 71 6d
-  01f8: 61 78 5f 76 65 72 73 69
-  0200: 6f 6e 5f 62 79 74 65 73
-  0208: 03 73 74 61 72 67 65 74
-  0210: 5f 6d 65 73 73 61 67 65
-  0218: 5f 73 69 7a 65 1a 00 1b
-  0220: ee 00
-Responder stream 0 (height 31), epoch 0
-  frame 0: Supply(Continue)
-    supply run: 1 record(s)
-      record 0: version (0, 11, 0), message 1 byte(s)
-    0000: 82 18 66 d8 3f 4b d8 3f
-    0008: 48 d9 d2 56 43 46 42 d0
-    0010: 0a
-  frame 1: QueryEmpty(Continue)
-    0000: 81 18 22
-  frame 2: Supply(Continue)
-    supply run: 1 record(s)
-      record 0: version (0, 4, 0), message 1 byte(s)
-    0000: 82 18 66 d8 3f 4a d8 3f
-    0008: 47 d9 d2 56 42 4b 11 03
-  frame 3: QueryEmpty(Continue)
-    0000: 81 18 22
-  frame 4: Supply(Continue)
-    supply run: 1 record(s)
-      record 0: version (0, 14, 0), message 1 byte(s)
-    0000: 82 18 66 d8 3f 4b d8 3f
-    0008: 48 d9 d2 56 43 47 c3 90
-    0010: 0d
-  frame 5: QueryEmpty(Continue)
-    0000: 81 18 22
-  frame 6: QueryEmpty(Continue)
-    0000: 81 18 22
-  frame 7: Supply(Continue)
-    supply run: 1 record(s)
-      record 0: version (0, 13, 0), message 1 byte(s)
-    0000: 82 18 66 d8 3f 4b d8 3f
-    0008: 48 d9 d2 56 43 47 43 50
-    0010: 0c
-  frame 8: QueryEmpty(Continue)
-    0000: 81 18 22
-  frame 9: QueryEmpty(Continue)
-    0000: 81 18 22
-  frame 10: QueryEmpty(Continue)
-    0000: 81 18 22
-  frame 11: Supply(Continue)
-    supply run: 1 record(s)
-      record 0: version (0, 15, 0), message 1 byte(s)
-    0000: 82 18 66 d8 3f 4b d8 3f
-    0008: 48 d9 d2 56 43 42 10 f4
-    0010: 0e
-  frame 12: Supply(Continue)
-    supply run: 1 record(s)
-      record 0: version (0, 16, 0), message 1 byte(s)
-    0000: 82 18 66 d8 3f 4b d8 3f
-    0008: 48 d9 d2 56 43 42 30 41
-    0010: 0f
-  frame 13: Supply(Continue)
-    supply run: 1 record(s)
-      record 0: version (0, 12, 0), message 1 byte(s)
-    0000: 82 18 66 d8 3f 4b d8 3f
-    0008: 48 d9 d2 56 43 46 c3 10
-    0010: 0b
-  frame 14: QueryEmpty(Continue)
-    0000: 81 18 22
-  frame 15: QueryEmpty(Continue)
-    0000: 81 18 22
-  frame 16: Supply(Continue)
-    supply run: 1 record(s)
-      record 0: version (0, 9, 0), message 1 byte(s)
-    0000: 82 18 66 d8 3f 4b d8 3f
-    0008: 48 d9 d2 56 43 45 42 50
-    0010: 08
-  frame 17: Supply(Continue)
-    supply run: 1 record(s)
-      record 0: version (0, 1, 0), message 1 byte(s)
-    0000: 82 18 66 d8 3f 4a d8 3f
-    0008: 47 d9 d2 56 42 55 40 00
-  frame 18: QueryEmpty(Continue)
-    0000: 81 18 22
-  frame 19: Supply(Continue)
-    supply run: 1 record(s)
-      record 0: version (0, 2, 0), message 1 byte(s)
-    0000: 82 18 66 d8 3f 4a d8 3f
-    0008: 47 d9 d2 56 42 5c 90 01
-  frame 20: Supply(Continue)
-    supply run: 1 record(s)
-      record 0: version (0, 8, 0), message 1 byte(s)
-    0000: 82 18 66 d8 3f 4b d8 3f
-    0008: 48 d9 d2 56 43 44 c2 10
-    0010: 07
-  frame 21: Supply(Continue)
-    supply run: 1 record(s)
-      record 0: version (0, 6, 0), message 1 byte(s)
-    0000: 82 18 66 d8 3f 4a d8 3f
-    0008: 47 d9 d2 56 42 4f 19 05
-  frame 22: QueryEmpty(Continue)
-    0000: 81 18 22
-  frame 23: Supply(Continue)
-    supply run: 1 record(s)
-      record 0: version (0, 10, 0), message 1 byte(s)
-    0000: 82 18 66 d8 3f 4b d8 3f
-    0008: 48 d9 d2 56 43 45 c2 90
-    0010: 09
-  frame 24: QueryEmpty(Continue)
-    0000: 81 18 22
-  frame 25: Supply(Continue)
-    supply run: 1 record(s)
-      record 0: version (0, 3, 0), message 1 byte(s)
-    0000: 82 18 66 d8 3f 4a d8 3f
-    0008: 47 d9 d2 56 42 49 34 02
-  frame 26: QueryEmpty(Continue)
-    0000: 81 18 22
-  frame 27: QueryEmpty(Continue)
-    0000: 81 18 22
-  frame 28: Supply(Continue)
-    supply run: 1 record(s)
-      record 0: version (0, 7, 0), message 1 byte(s)
-    0000: 82 18 66 d8 3f 4b d8 3f
-    0008: 48 d9 d2 56 43 44 47 40
-    0010: 06
-  frame 29: Supply(Continue)
-    supply run: 1 record(s)
-      record 0: version (0, 5, 0), message 1 byte(s)
-    0000: 82 18 66 d8 3f 4a d8 3f
-    0008: 47 d9 d2 56 42 4d 15 04
-  frame 30: QueryEmpty(End)
-    0000: 81 18 33
-  frame 31: End(Stream)
-    0000: 81 18 99
-trailing frame: 2 bytes
-  0000: 61 2e
+role: Responder
+control item 0 (30 bytes) / preamble /
+  55799( / self-described CBOR /
+    [
+      "rumors"
+      2
+      h'8c189668c9e4837237bf31e02d7f6b70'
+      0
+    ]
+  )
+control item 1 (546 bytes) / greeting /
+  24(<< / embedded item, 541 bytes /
+    {
+      "listing" =>
+        { / listing: 16 child(ren) /
+          0x4 => h'4d08cfcd4cf728cc13583332b6cd0c76cfe4e2498224a962' / digest /
+          0x1b => h'1ea6c1c25041537b9a1602794a36d951f44fbdc7edb3e398' / digest /
+          0x21 => h'6bdfff4b8f9e7c9a8987b5b91c63112dd13386cb1755eb52' / digest /
+          0x4b => h'accae91486823c7c298ecf001e14dcb265380be95fd27e07' / digest /
+          0x66 => h'404620be25055e0824849dcbf40c8e88002ef4c4b3a19832' / digest /
+          0x6c => h'8460519a71f03836e27029e150e6a45777a5b6c989cd6707' / digest /
+          0x6f => h'aa7dff928791534d97c9a14867af2d4aec7dc9f35930e6ed' / digest /
+          0x87 => h'55a3d6508c651d3b0e5c4d5f5415ac5136c1f1a8eeb84de2' / digest /
+          0x93 => h'c4c0139f3f4f4afe9715d26a43953691cdc861574ffc8196' / digest /
+          0xa0 => h'7835b0a8791af76763e8248004d356e7d5c938bb893ecc9c' / digest /
+          0xb4 => h'4ac23f4c5f0f4ab2b981488bbef7332ff5038ae1a500dac5' / digest /
+          0xb7 => h'0c6e8d58c7dc2afc324e6323f7597f91edc316c06d70eae3' / digest /
+          0xc4 => h'cbd073bca9b510a182ce1abf0c260bceeaf630e1dbfc64da' / digest /
+          0xd0 => h'16470168f5ac21cd9435e6c52d1bd47e79b1fed68a845781' / digest /
+          0xf3 => h'7a295e6ea121ff22d3df5eeed5799451fca896836b7f18ce' / digest /
+          0xf5 => h'1d9c1fa1c842dd2eac5b8f5773f06978dc1276e2f86b8ae8' / digest /
+        }
+      "set_len" => 16
+      "version" =>
+        53846(h'423041') / version (0, 16, 0) /
+      "protocol" => "rumors"
+      "max_version_bytes" => 3
+      "target_message_size" => 1830400
+    }
+  >>)
+control item 2 (2 bytes) / epilogue /
+  "."
+Responder stream 0 (height 31), epoch 0, 316 wire bytes
+  frame 0 (17 bytes)
+    [
+      102 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 11 bytes /
+        63(<< / record, 2 item(s), 8 bytes /
+          53846(h'4642d0') / version (0, 11, 0) /
+          10
+        >>)
+      >>)
+    ]
+  frame 1 (3 bytes)
+    [
+      34 / QueryEmpty(Continue) /
+    ]
+  frame 2 (16 bytes)
+    [
+      102 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 10 bytes /
+        63(<< / record, 2 item(s), 7 bytes /
+          53846(h'4b11') / version (0, 4, 0) /
+          3
+        >>)
+      >>)
+    ]
+  frame 3 (3 bytes)
+    [
+      34 / QueryEmpty(Continue) /
+    ]
+  frame 4 (17 bytes)
+    [
+      102 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 11 bytes /
+        63(<< / record, 2 item(s), 8 bytes /
+          53846(h'47c390') / version (0, 14, 0) /
+          13
+        >>)
+      >>)
+    ]
+  frame 5 (3 bytes)
+    [
+      34 / QueryEmpty(Continue) /
+    ]
+  frame 6 (3 bytes)
+    [
+      34 / QueryEmpty(Continue) /
+    ]
+  frame 7 (17 bytes)
+    [
+      102 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 11 bytes /
+        63(<< / record, 2 item(s), 8 bytes /
+          53846(h'474350') / version (0, 13, 0) /
+          12
+        >>)
+      >>)
+    ]
+  frame 8 (3 bytes)
+    [
+      34 / QueryEmpty(Continue) /
+    ]
+  frame 9 (3 bytes)
+    [
+      34 / QueryEmpty(Continue) /
+    ]
+  frame 10 (3 bytes)
+    [
+      34 / QueryEmpty(Continue) /
+    ]
+  frame 11 (17 bytes)
+    [
+      102 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 11 bytes /
+        63(<< / record, 2 item(s), 8 bytes /
+          53846(h'4210f4') / version (0, 15, 0) /
+          14
+        >>)
+      >>)
+    ]
+  frame 12 (17 bytes)
+    [
+      102 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 11 bytes /
+        63(<< / record, 2 item(s), 8 bytes /
+          53846(h'423041') / version (0, 16, 0) /
+          15
+        >>)
+      >>)
+    ]
+  frame 13 (17 bytes)
+    [
+      102 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 11 bytes /
+        63(<< / record, 2 item(s), 8 bytes /
+          53846(h'46c310') / version (0, 12, 0) /
+          11
+        >>)
+      >>)
+    ]
+  frame 14 (3 bytes)
+    [
+      34 / QueryEmpty(Continue) /
+    ]
+  frame 15 (3 bytes)
+    [
+      34 / QueryEmpty(Continue) /
+    ]
+  frame 16 (17 bytes)
+    [
+      102 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 11 bytes /
+        63(<< / record, 2 item(s), 8 bytes /
+          53846(h'454250') / version (0, 9, 0) /
+          8
+        >>)
+      >>)
+    ]
+  frame 17 (16 bytes)
+    [
+      102 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 10 bytes /
+        63(<< / record, 2 item(s), 7 bytes /
+          53846(h'5540') / version (0, 1, 0) /
+          0
+        >>)
+      >>)
+    ]
+  frame 18 (3 bytes)
+    [
+      34 / QueryEmpty(Continue) /
+    ]
+  frame 19 (16 bytes)
+    [
+      102 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 10 bytes /
+        63(<< / record, 2 item(s), 7 bytes /
+          53846(h'5c90') / version (0, 2, 0) /
+          1
+        >>)
+      >>)
+    ]
+  frame 20 (17 bytes)
+    [
+      102 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 11 bytes /
+        63(<< / record, 2 item(s), 8 bytes /
+          53846(h'44c210') / version (0, 8, 0) /
+          7
+        >>)
+      >>)
+    ]
+  frame 21 (16 bytes)
+    [
+      102 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 10 bytes /
+        63(<< / record, 2 item(s), 7 bytes /
+          53846(h'4f19') / version (0, 6, 0) /
+          5
+        >>)
+      >>)
+    ]
+  frame 22 (3 bytes)
+    [
+      34 / QueryEmpty(Continue) /
+    ]
+  frame 23 (17 bytes)
+    [
+      102 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 11 bytes /
+        63(<< / record, 2 item(s), 8 bytes /
+          53846(h'45c290') / version (0, 10, 0) /
+          9
+        >>)
+      >>)
+    ]
+  frame 24 (3 bytes)
+    [
+      34 / QueryEmpty(Continue) /
+    ]
+  frame 25 (16 bytes)
+    [
+      102 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 10 bytes /
+        63(<< / record, 2 item(s), 7 bytes /
+          53846(h'4934') / version (0, 3, 0) /
+          2
+        >>)
+      >>)
+    ]
+  frame 26 (3 bytes)
+    [
+      34 / QueryEmpty(Continue) /
+    ]
+  frame 27 (3 bytes)
+    [
+      34 / QueryEmpty(Continue) /
+    ]
+  frame 28 (17 bytes)
+    [
+      102 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 11 bytes /
+        63(<< / record, 2 item(s), 8 bytes /
+          53846(h'444740') / version (0, 7, 0) /
+          6
+        >>)
+      >>)
+    ]
+  frame 29 (16 bytes)
+    [
+      102 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 10 bytes /
+        63(<< / record, 2 item(s), 7 bytes /
+          53846(h'4d15') / version (0, 5, 0) /
+          4
+        >>)
+      >>)
+    ]
+  frame 30 (3 bytes)
+    [
+      51 / QueryEmpty(End) /
+    ]
+  frame 31 (3 bytes)
+    [
+      153 / End(Stream) /
+    ]
 
 direction B -> A
-preamble: 30 bytes
-  0000: d9 d9 f7 84 66 72 75 6d
-  0008: 6f 72 73 02 50 8c 18 96
-  0010: 68 c9 e4 83 72 37 bf 31
-  0018: e0 2d 7f 6b 70 00
-version: (0, 0, 16)
-greeting words: set len 16, version-size bound 2, message-size target 1830400
-listing: 15 child(ren)
-  child 0x1a: f1f3aa8a784d1361fc809d57df14a1955f8956c55e120e19
-  child 0x1e: b13b7c8a2f30ffe9911f9507721dd41f2718d2d6d0fd1da0
-  child 0x36: a93c14a59c62f37321d21557b0e821de471a7e3d079c6fce
-  child 0x47: 6bbe84feb97e48e1ae522ccd13793b6574c2777efb6dee5c
-  child 0x5b: 9c4eb9d5fe911b7d5e4ed9f0c5cf1bc192e715c7efec964e
-  child 0x5d: 13d7f7d066b80413cbbf47191b8f0279bc51ed7b0ce2aacc
-  child 0x5e: 1858235ee7f18e370085cc932b286588358a914bbada3414
-  child 0x74: d97d914facb39def2423ff7905152aae5f43205fc66e09b7
-  child 0x83: 55c53f50187c26e8c66b15499ff80b250e2e4137d7fd0509
-  child 0x9b: 128101b9c92b93bfb6ab5ae172b728f8dd550ac4e8d154eb
-  child 0xc0: ff0b7fe81fb5ee50e91030be1e97d38df4d74655739d1d9c
-  child 0xc6: 23d3a3698c06decd9cc6888d1d692ad5976827ae3cc38e81
-  child 0xe9: a02232f72cb56d04bb218f4a9b8a698f95f5cfd6b4e6f227
-  child 0xf2: 42bb8c7ce00cc0681c05edde50af1bd47d5d94d0a136c882
-  child 0xf8: 4ef63107bdc439cfb254ecc2cc1cee9bf68aec015a8fee8f
-greeting frame: 518 bytes
-  0000: d8 18 59 02 01 a6 67 6c
-  0008: 69 73 74 69 6e 67 af 18
-  0010: 1a 58 18 f1 f3 aa 8a 78
-  0018: 4d 13 61 fc 80 9d 57 df
-  0020: 14 a1 95 5f 89 56 c5 5e
-  0028: 12 0e 19 18 1e 58 18 b1
-  0030: 3b 7c 8a 2f 30 ff e9 91
-  0038: 1f 95 07 72 1d d4 1f 27
-  0040: 18 d2 d6 d0 fd 1d a0 18
-  0048: 36 58 18 a9 3c 14 a5 9c
-  0050: 62 f3 73 21 d2 15 57 b0
-  0058: e8 21 de 47 1a 7e 3d 07
-  0060: 9c 6f ce 18 47 58 18 6b
-  0068: be 84 fe b9 7e 48 e1 ae
-  0070: 52 2c cd 13 79 3b 65 74
-  0078: c2 77 7e fb 6d ee 5c 18
-  0080: 5b 58 18 9c 4e b9 d5 fe
-  0088: 91 1b 7d 5e 4e d9 f0 c5
-  0090: cf 1b c1 92 e7 15 c7 ef
-  0098: ec 96 4e 18 5d 58 18 13
-  00a0: d7 f7 d0 66 b8 04 13 cb
-  00a8: bf 47 19 1b 8f 02 79 bc
-  00b0: 51 ed 7b 0c e2 aa cc 18
-  00b8: 5e 58 18 18 58 23 5e e7
-  00c0: f1 8e 37 00 85 cc 93 2b
-  00c8: 28 65 88 35 8a 91 4b ba
-  00d0: da 34 14 18 74 58 18 d9
-  00d8: 7d 91 4f ac b3 9d ef 24
-  00e0: 23 ff 79 05 15 2a ae 5f
-  00e8: 43 20 5f c6 6e 09 b7 18
-  00f0: 83 58 18 55 c5 3f 50 18
-  00f8: 7c 26 e8 c6 6b 15 49 9f
-  0100: f8 0b 25 0e 2e 41 37 d7
-  0108: fd 05 09 18 9b 58 18 12
-  0110: 81 01 b9 c9 2b 93 bf b6
-  0118: ab 5a e1 72 b7 28 f8 dd
-  0120: 55 0a c4 e8 d1 54 eb 18
-  0128: c0 58 18 ff 0b 7f e8 1f
-  0130: b5 ee 50 e9 10 30 be 1e
-  0138: 97 d3 8d f4 d7 46 55 73
-  0140: 9d 1d 9c 18 c6 58 18 23
-  0148: d3 a3 69 8c 06 de cd 9c
-  0150: c6 88 8d 1d 69 2a d5 97
-  0158: 68 27 ae 3c c3 8e 81 18
-  0160: e9 58 18 a0 22 32 f7 2c
-  0168: b5 6d 04 bb 21 8f 4a 9b
-  0170: 8a 69 8f 95 f5 cf d6 b4
-  0178: e6 f2 27 18 f2 58 18 42
-  0180: bb 8c 7c e0 0c c0 68 1c
-  0188: 05 ed de 50 af 1b d4 7d
-  0190: 5d 94 d0 a1 36 c8 82 18
-  0198: f8 58 18 4e f6 31 07 bd
-  01a0: c4 39 cf b2 54 ec c2 cc
-  01a8: 1c ee 9b f6 8a ec 01 5a
-  01b0: 8f ee 8f 67 73 65 74 5f
-  01b8: 6c 65 6e 10 67 76 65 72
-  01c0: 73 69 6f 6e d9 d2 56 42
-  01c8: 70 43 68 70 72 6f 74 6f
-  01d0: 63 6f 6c 66 72 75 6d 6f
-  01d8: 72 73 71 6d 61 78 5f 76
-  01e0: 65 72 73 69 6f 6e 5f 62
-  01e8: 79 74 65 73 02 73 74 61
-  01f0: 72 67 65 74 5f 6d 65 73
-  01f8: 73 61 67 65 5f 73 69 7a
-  0200: 65 1a 00 1b ee 00
-Initiator stream 0 (height 31), epoch 0
-  frame 0: Supply(Continue)
-    supply run: 1 record(s)
-      record 0: version (0, 0, 3), message 1 byte(s)
-    0000: 82 18 66 d8 3f 4a d8 3f
-    0008: 47 d9 d2 56 42 73 c0 12
-  frame 1: Supply(Continue)
-    supply run: 1 record(s)
-      record 0: version (0, 0, 10), message 2 byte(s)
-    0000: 82 18 66 d8 3f 4b d8 3f
-    0008: 48 d9 d2 56 42 70 ac 18
-    0010: 19
-  frame 2: Supply(Continue)
-    supply run: 1 record(s)
-      record 0: version (0, 0, 2), message 1 byte(s)
-    0000: 82 18 66 d8 3f 4a d8 3f
-    0008: 47 d9 d2 56 42 72 c0 11
-  frame 3: Supply(Continue)
-    supply run: 1 record(s)
-      record 0: version (0, 0, 12), message 2 byte(s)
-    0000: 82 18 66 d8 3f 4b d8 3f
-    0008: 48 d9 d2 56 42 70 cc 18
-    0010: 1b
-  frame 4: Supply(Continue)
-    supply run: 1 record(s)
-      record 0: version (0, 0, 15), message 2 byte(s)
-    0000: 82 18 66 d8 3f 4b d8 3f
-    0008: 48 d9 d2 56 42 70 fc 18
-    0010: 1e
-  frame 5: Supply(Continue)
-    supply run: 2 record(s)
-      record 0: version (0, 0, 7), message 1 byte(s)
-      record 1: version (0, 0, 4), message 1 byte(s)
-    0000: 82 18 66 d8 3f 54 d8 3f
-    0008: 47 d9 d2 56 42 71 f0 16
-    0010: d8 3f 47 d9 d2 56 42 71
-    0018: 30 13
-  frame 6: Supply(Continue)
-    supply run: 1 record(s)
-      record 0: version (0, 0, 8), message 1 byte(s)
-    0000: 82 18 66 d8 3f 4a d8 3f
-    0008: 47 d9 d2 56 42 70 8c 17
-  frame 7: Supply(Continue)
-    supply run: 1 record(s)
-      record 0: version (0, 0, 9), message 2 byte(s)
-    0000: 82 18 66 d8 3f 4b d8 3f
-    0008: 48 d9 d2 56 42 70 9c 18
-    0010: 18
-  frame 8: Supply(Continue)
-    supply run: 1 record(s)
-      record 0: version (0, 0, 6), message 1 byte(s)
-    0000: 82 18 66 d8 3f 4a d8 3f
-    0008: 47 d9 d2 56 42 71 b0 15
-  frame 9: Supply(Continue)
-    supply run: 1 record(s)
-      record 0: version (0, 0, 5), message 1 byte(s)
-    0000: 82 18 66 d8 3f 4a d8 3f
-    0008: 47 d9 d2 56 42 71 70 14
-  frame 10: Supply(Continue)
-    supply run: 1 record(s)
-      record 0: version (0, 0, 13), message 2 byte(s)
-    0000: 82 18 66 d8 3f 4b d8 3f
-    0008: 48 d9 d2 56 42 70 dc 18
-    0010: 1c
-  frame 11: Supply(Continue)
-    supply run: 1 record(s)
-      record 0: version (0, 0, 11), message 2 byte(s)
-    0000: 82 18 66 d8 3f 4b d8 3f
-    0008: 48 d9 d2 56 42 70 bc 18
-    0010: 1a
-  frame 12: Supply(Continue)
-    supply run: 1 record(s)
-      record 0: version (0, 0, 14), message 2 byte(s)
-    0000: 82 18 66 d8 3f 4b d8 3f
-    0008: 48 d9 d2 56 42 70 ec 18
-    0010: 1d
-  frame 13: Supply(Continue)
-    supply run: 1 record(s)
-      record 0: version (0, 0, 1), message 1 byte(s)
-    0000: 82 18 66 d8 3f 49 d8 3f
-    0008: 46 d9 d2 56 41 77 10
-  frame 14: Supply(End)
-    supply run: 1 record(s)
-      record 0: version (0, 0, 16), message 2 byte(s)
-    0000: 82 18 77 d8 3f 4b d8 3f
-    0008: 48 d9 d2 56 42 70 43 18
-    0010: 1f
-  frame 15: End(Stream)
-    0000: 81 18 99
-Initiator stream 1 (height 30), epoch 0
-  frame 0: End(Reply)
-    0000: 81 18 89
-  frame 1: End(Reply)
-    0000: 81 18 89
-  frame 2: End(Reply)
-    0000: 81 18 89
-  frame 3: End(Reply)
-    0000: 81 18 89
-  frame 4: End(Reply)
-    0000: 81 18 89
-  frame 5: End(Reply)
-    0000: 81 18 89
-  frame 6: End(Reply)
-    0000: 81 18 89
-  frame 7: End(Reply)
-    0000: 81 18 89
-  frame 8: End(Reply)
-    0000: 81 18 89
-  frame 9: End(Reply)
-    0000: 81 18 89
-  frame 10: End(Reply)
-    0000: 81 18 89
-  frame 11: End(Reply)
-    0000: 81 18 89
-  frame 12: End(Reply)
-    0000: 81 18 89
-  frame 13: End(Reply)
-    0000: 81 18 89
-  frame 14: End(Reply)
-    0000: 81 18 89
-  frame 15: End(Stream)
-    0000: 81 18 9a
-trailing frame: 2 bytes
-  0000: 61 2e
+role: Initiator
+control item 0 (30 bytes) / preamble /
+  55799( / self-described CBOR /
+    [
+      "rumors"
+      2
+      h'8c189668c9e4837237bf31e02d7f6b70'
+      0
+    ]
+  )
+control item 1 (518 bytes) / greeting /
+  24(<< / embedded item, 513 bytes /
+    {
+      "listing" =>
+        { / listing: 15 child(ren) /
+          0x1a => h'f1f3aa8a784d1361fc809d57df14a1955f8956c55e120e19' / digest /
+          0x1e => h'b13b7c8a2f30ffe9911f9507721dd41f2718d2d6d0fd1da0' / digest /
+          0x36 => h'a93c14a59c62f37321d21557b0e821de471a7e3d079c6fce' / digest /
+          0x47 => h'6bbe84feb97e48e1ae522ccd13793b6574c2777efb6dee5c' / digest /
+          0x5b => h'9c4eb9d5fe911b7d5e4ed9f0c5cf1bc192e715c7efec964e' / digest /
+          0x5d => h'13d7f7d066b80413cbbf47191b8f0279bc51ed7b0ce2aacc' / digest /
+          0x5e => h'1858235ee7f18e370085cc932b286588358a914bbada3414' / digest /
+          0x74 => h'd97d914facb39def2423ff7905152aae5f43205fc66e09b7' / digest /
+          0x83 => h'55c53f50187c26e8c66b15499ff80b250e2e4137d7fd0509' / digest /
+          0x9b => h'128101b9c92b93bfb6ab5ae172b728f8dd550ac4e8d154eb' / digest /
+          0xc0 => h'ff0b7fe81fb5ee50e91030be1e97d38df4d74655739d1d9c' / digest /
+          0xc6 => h'23d3a3698c06decd9cc6888d1d692ad5976827ae3cc38e81' / digest /
+          0xe9 => h'a02232f72cb56d04bb218f4a9b8a698f95f5cfd6b4e6f227' / digest /
+          0xf2 => h'42bb8c7ce00cc0681c05edde50af1bd47d5d94d0a136c882' / digest /
+          0xf8 => h'4ef63107bdc439cfb254ecc2cc1cee9bf68aec015a8fee8f' / digest /
+        }
+      "set_len" => 16
+      "version" =>
+        53846(h'7043') / version (0, 0, 16) /
+      "protocol" => "rumors"
+      "max_version_bytes" => 2
+      "target_message_size" => 1830400
+    }
+  >>)
+control item 2 (2 bytes) / epilogue /
+  "."
+Initiator stream 0 (height 31), epoch 0, 262 wire bytes
+  frame 0 (16 bytes)
+    [
+      102 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 10 bytes /
+        63(<< / record, 2 item(s), 7 bytes /
+          53846(h'73c0') / version (0, 0, 3) /
+          18
+        >>)
+      >>)
+    ]
+  frame 1 (17 bytes)
+    [
+      102 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 11 bytes /
+        63(<< / record, 2 item(s), 8 bytes /
+          53846(h'70ac') / version (0, 0, 10) /
+          25
+        >>)
+      >>)
+    ]
+  frame 2 (16 bytes)
+    [
+      102 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 10 bytes /
+        63(<< / record, 2 item(s), 7 bytes /
+          53846(h'72c0') / version (0, 0, 2) /
+          17
+        >>)
+      >>)
+    ]
+  frame 3 (17 bytes)
+    [
+      102 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 11 bytes /
+        63(<< / record, 2 item(s), 8 bytes /
+          53846(h'70cc') / version (0, 0, 12) /
+          27
+        >>)
+      >>)
+    ]
+  frame 4 (17 bytes)
+    [
+      102 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 11 bytes /
+        63(<< / record, 2 item(s), 8 bytes /
+          53846(h'70fc') / version (0, 0, 15) /
+          30
+        >>)
+      >>)
+    ]
+  frame 5 (26 bytes)
+    [
+      102 / Supply(Continue) /
+      63(<< / supply run, 2 record(s), 20 bytes /
+        63(<< / record, 2 item(s), 7 bytes /
+          53846(h'71f0') / version (0, 0, 7) /
+          22
+        >>)
+        63(<< / record, 2 item(s), 7 bytes /
+          53846(h'7130') / version (0, 0, 4) /
+          19
+        >>)
+      >>)
+    ]
+  frame 6 (16 bytes)
+    [
+      102 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 10 bytes /
+        63(<< / record, 2 item(s), 7 bytes /
+          53846(h'708c') / version (0, 0, 8) /
+          23
+        >>)
+      >>)
+    ]
+  frame 7 (17 bytes)
+    [
+      102 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 11 bytes /
+        63(<< / record, 2 item(s), 8 bytes /
+          53846(h'709c') / version (0, 0, 9) /
+          24
+        >>)
+      >>)
+    ]
+  frame 8 (16 bytes)
+    [
+      102 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 10 bytes /
+        63(<< / record, 2 item(s), 7 bytes /
+          53846(h'71b0') / version (0, 0, 6) /
+          21
+        >>)
+      >>)
+    ]
+  frame 9 (16 bytes)
+    [
+      102 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 10 bytes /
+        63(<< / record, 2 item(s), 7 bytes /
+          53846(h'7170') / version (0, 0, 5) /
+          20
+        >>)
+      >>)
+    ]
+  frame 10 (17 bytes)
+    [
+      102 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 11 bytes /
+        63(<< / record, 2 item(s), 8 bytes /
+          53846(h'70dc') / version (0, 0, 13) /
+          28
+        >>)
+      >>)
+    ]
+  frame 11 (17 bytes)
+    [
+      102 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 11 bytes /
+        63(<< / record, 2 item(s), 8 bytes /
+          53846(h'70bc') / version (0, 0, 11) /
+          26
+        >>)
+      >>)
+    ]
+  frame 12 (17 bytes)
+    [
+      102 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 11 bytes /
+        63(<< / record, 2 item(s), 8 bytes /
+          53846(h'70ec') / version (0, 0, 14) /
+          29
+        >>)
+      >>)
+    ]
+  frame 13 (15 bytes)
+    [
+      102 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 9 bytes /
+        63(<< / record, 2 item(s), 6 bytes /
+          53846(h'77') / version (0, 0, 1) /
+          16
+        >>)
+      >>)
+    ]
+  frame 14 (17 bytes)
+    [
+      119 / Supply(End) /
+      63(<< / supply run, 1 record(s), 11 bytes /
+        63(<< / record, 2 item(s), 8 bytes /
+          53846(h'7043') / version (0, 0, 16) /
+          31
+        >>)
+      >>)
+    ]
+  frame 15 (3 bytes)
+    [
+      153 / End(Stream) /
+    ]
+Initiator stream 1 (height 30), epoch 0, 50 wire bytes
+  frame 0 (3 bytes)
+    [
+      137 / End(Reply) /
+    ]
+  frame 1 (3 bytes)
+    [
+      137 / End(Reply) /
+    ]
+  frame 2 (3 bytes)
+    [
+      137 / End(Reply) /
+    ]
+  frame 3 (3 bytes)
+    [
+      137 / End(Reply) /
+    ]
+  frame 4 (3 bytes)
+    [
+      137 / End(Reply) /
+    ]
+  frame 5 (3 bytes)
+    [
+      137 / End(Reply) /
+    ]
+  frame 6 (3 bytes)
+    [
+      137 / End(Reply) /
+    ]
+  frame 7 (3 bytes)
+    [
+      137 / End(Reply) /
+    ]
+  frame 8 (3 bytes)
+    [
+      137 / End(Reply) /
+    ]
+  frame 9 (3 bytes)
+    [
+      137 / End(Reply) /
+    ]
+  frame 10 (3 bytes)
+    [
+      137 / End(Reply) /
+    ]
+  frame 11 (3 bytes)
+    [
+      137 / End(Reply) /
+    ]
+  frame 12 (3 bytes)
+    [
+      137 / End(Reply) /
+    ]
+  frame 13 (3 bytes)
+    [
+      137 / End(Reply) /
+    ]
+  frame 14 (3 bytes)
+    [
+      137 / End(Reply) /
+    ]
+  frame 15 (3 bytes)
+    [
+      154 / End(Stream) /
+    ]
