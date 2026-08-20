@@ -278,3 +278,32 @@ proptest! {
         }
     }
 }
+
+/// A transport failure inside the hand-off keeps its own I/O kind.
+///
+/// Only an unexpected end-of-stream folds into
+/// [`Error::HandOffTruncated`]; every other kind passes through as
+/// [`Error::Io`], the transport's own diagnosis.
+#[test]
+fn non_eof_read_error_passes_through_as_io() {
+    struct Failing;
+    impl tokio::io::AsyncRead for Failing {
+        fn poll_read(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+            _: &mut tokio::io::ReadBuf<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::task::Poll::Ready(Err(std::io::Error::new(
+                std::io::ErrorKind::ConnectionReset,
+                "transport reset",
+            )))
+        }
+    }
+    let result = pollster::block_on(async {
+        receive(Protocol::V2, &mut Failing, &SessionHandle::default()).await
+    });
+    assert!(
+        matches!(&result, Err(Error::Io(io)) if io.kind() == std::io::ErrorKind::ConnectionReset),
+        "a non-EOF transport failure keeps its kind, got {result:?}",
+    );
+}

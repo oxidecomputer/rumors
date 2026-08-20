@@ -57,3 +57,6 @@ pub async fn next_or_cancelled<T>(next: impl Future<Output = Option<T>>) -> T {
         None => cancelled().await,
     }
 }
+
+#[cfg(test)]
+mod tests;

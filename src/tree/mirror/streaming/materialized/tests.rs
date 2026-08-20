@@ -39,14 +39,16 @@ fn ticked(index: usize) -> Version {
 
 /// Drive [`absorb`](super::absorb) against one scripted closing-leg reply.
 ///
-/// A single pending leaf request, answered by a single leaf supply carrying
-/// `leaf_version`, from a counterparty whose greeting declared `declared`
-/// and whose set-length ledger is `ledger`.
+/// A single pending leaf request (its leaf radix zero), answered by a
+/// single leaf supply naming `supplied_radix` and carrying `leaf_version`,
+/// from a counterparty whose greeting declared `declared` and whose
+/// set-length ledger is `ledger`.
 ///
 /// Returns the loop's result and what, if anything, it passed up to the
 /// assembly above it.
 #[allow(clippy::type_complexity)]
 fn absorb_scripted(
+    supplied_radix: u8,
     declared: Version,
     ledger: SupplyLedger,
     leaf_version: Version,
@@ -69,7 +71,10 @@ fn absorb_scripted(
 
     let leaf = typed::Node::leaf(leaf_version, Message::new(()));
     let requests = stream::iter(vec![erased::Reply {
-        replies: vec![erased::Reaction::Supply(0, <Local as Backend>::erase(leaf))],
+        replies: vec![erased::Reaction::Supply(
+            supplied_radix,
+            <Local as Backend>::erase(leaf),
+        )],
     }]);
 
     let result = pollster::block_on(absorb::<Local>(
@@ -94,6 +99,7 @@ fn absorb_scripted(
 fn terminal_absorb_accepts_a_contained_supply() {
     let declared = ticked(0);
     let (result, returned) = absorb_scripted(
+        0,
         declared.clone(),
         SupplyLedger::new(u64::MAX),
         declared.clone(),
@@ -120,7 +126,7 @@ fn terminal_absorb_rejects_a_dominating_supply() {
     let declared = ticked(0);
     let mut escaped = declared.clone();
     escaped.tick(&nth_party(0));
-    let (result, returned) = absorb_scripted(declared, SupplyLedger::new(u64::MAX), escaped);
+    let (result, returned) = absorb_scripted(0, declared, SupplyLedger::new(u64::MAX), escaped);
     assert!(
         matches!(result, Err(Error::Violation(Violation::UncontainedSupply))),
         "a dominating supply is rejected: {result:?}",
@@ -138,7 +144,7 @@ fn terminal_absorb_rejects_a_dominating_supply() {
 fn terminal_absorb_rejects_an_incomparable_supply() {
     let declared = ticked(0);
     let escaped = ticked(31);
-    let (result, returned) = absorb_scripted(declared, SupplyLedger::new(u64::MAX), escaped);
+    let (result, returned) = absorb_scripted(0, declared, SupplyLedger::new(u64::MAX), escaped);
     assert!(
         matches!(result, Err(Error::Violation(Violation::UncontainedSupply))),
         "an incomparable supply is rejected: {result:?}",
@@ -157,10 +163,28 @@ fn terminal_absorb_rejects_an_incomparable_supply() {
 #[test]
 fn terminal_absorb_rejects_an_overdrawn_supply() {
     let declared = ticked(0);
-    let (result, returned) = absorb_scripted(declared.clone(), SupplyLedger::new(0), declared);
+    let (result, returned) = absorb_scripted(0, declared.clone(), SupplyLedger::new(0), declared);
     assert!(
         matches!(result, Err(Error::Violation(Violation::OverdrawnSupply))),
         "a supply past the declared set length is rejected: {result:?}",
+    );
+    assert!(returned.is_none(), "nothing is passed up past a rejection");
+}
+
+/// A terminal leaf supply naming any radix other than the requested one
+/// fails the closing leg with `InvalidSupply`, and nothing is passed up.
+///
+/// The pairing binds each reply to the one leaf its request named; a
+/// supply for a different radix is structurally well-formed but answers
+/// a question nobody asked.
+#[test]
+fn terminal_absorb_rejects_a_mismatched_radix() {
+    let declared = ticked(0);
+    let (result, returned) =
+        absorb_scripted(1, declared.clone(), SupplyLedger::new(u64::MAX), declared);
+    assert!(
+        matches!(result, Err(Error::Violation(Violation::InvalidSupply))),
+        "a mismatched radix is rejected: {result:?}",
     );
     assert!(returned.is_none(), "nothing is passed up past a rejection");
 }

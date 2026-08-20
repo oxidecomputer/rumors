@@ -85,9 +85,10 @@ const HASH_LEN: usize = 32;
 /// The payload item's tag header: tag 24, "encoded CBOR data item".
 const EMBEDDED_CBOR: [u8; 2] = [0xd8, 0x18];
 
-/// CBOR major types, pre-shifted into a header byte's high bits.
-const MAJOR_UNSIGNED: u8 = 0 << 5;
-const MAJOR_BYTES: u8 = 2 << 5;
+/// CBOR major types, pre-shifted into a header byte's high bits:
+/// major 0 (unsigned int) and major 2 (byte string).
+const MAJOR_UNSIGNED: u8 = 0x00;
+const MAJOR_BYTES: u8 = 0x40;
 
 /// Which part of the frame's fixed shape failed to parse.
 ///

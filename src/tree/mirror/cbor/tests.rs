@@ -103,3 +103,49 @@ fn async_heads_match_the_slice_reader() {
         .expect("an empty stream is a clean close");
     assert!(none.is_none());
 }
+
+/// The ingress paths share one head grammar over *every* initial byte,
+/// the malformed ones included.
+///
+/// With argument bytes padded to the widest width (so no path can
+/// truncate), the slice reader, the sync reader, and the async reader
+/// return the same verdict — the same head, or the same defect. In
+/// particular the streamed paths' argument pre-scan must classify
+/// reserved and indefinite initial bytes exactly as the slice grammar
+/// does.
+#[test]
+fn ingress_paths_agree_on_every_initial_byte() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("runtime builds");
+    for initial in 0u8..=255 {
+        let mut bytes = vec![initial];
+        bytes.extend_from_slice(&[0u8; 8]);
+
+        let mut slice = bytes.as_slice();
+        let by_slice = read_head(&mut slice);
+
+        let mut sync_read = bytes.as_slice();
+        let by_sync = read_head_io(&mut sync_read);
+        let by_async = runtime.block_on(async {
+            let mut read = bytes.as_slice();
+            read_head_async(&mut read).await
+        });
+
+        for (path, streamed) in [("sync", by_sync), ("async", by_async)] {
+            match (&by_slice, streamed) {
+                (Ok(head), Ok(Some(streamed))) => assert_eq!(*head, streamed),
+                (Err(expected), Err(HeadReadError::Malformed(streamed))) => {
+                    assert_eq!(
+                        *expected, streamed,
+                        "defect disagreement at initial byte {initial:#04x} on the {path} path"
+                    );
+                }
+                (slice, streamed) => panic!(
+                    "initial byte {initial:#04x}: the slice path says {slice:?}, \
+                     the {path} path says {streamed:?}"
+                ),
+            }
+        }
+    }
+}

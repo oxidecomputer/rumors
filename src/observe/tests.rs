@@ -103,3 +103,13 @@ async fn capture_read_retains_delivered_bytes() {
     capture.read_to_end(&mut rest).await.unwrap();
     assert_eq!(capture.bytes(), b"one item");
 }
+
+/// `Attachment`'s debug view reports the one bit it holds — whether a
+/// handler is attached — without touching the handler itself.
+#[test]
+fn attachment_debug_reports_attachment() {
+    let mut attachment = Attachment::default();
+    assert_eq!(format!("{attachment:?}"), "Attachment { attached: false }");
+    attachment.attach(Arc::new(Counting::default()));
+    assert_eq!(format!("{attachment:?}"), "Attachment { attached: true }");
+}

@@ -28,6 +28,8 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 mod bootstrap;
 mod gossip;
+#[cfg(test)]
+mod tests;
 
 pub use bootstrap::{BookmarkedBootstrap, Bootstrap, Joined};
 #[cfg(feature = "protocol-v1")]

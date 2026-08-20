@@ -322,3 +322,6 @@ impl<R: AsyncRead + Unpin> AsyncRead for CountedRead<R> {
         poll
     }
 }
+
+#[cfg(test)]
+mod tests;

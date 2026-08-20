@@ -150,9 +150,7 @@ pub trait SessionObserver: Send + Sync {
     /// role is not part of [`SessionInfo`] because it does not exist
     /// yet when the session begins; a consumer that needs it before
     /// data frames arrive records it here. The default does nothing.
-    fn elected(&self, role: Role) {
-        let _ = role;
-    }
+    fn elected(&self, _role: Role) {}
 
     /// Begin observing one directed stream, or return `None` to skip
     /// it.

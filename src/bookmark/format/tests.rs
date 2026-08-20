@@ -445,3 +445,30 @@ fn indefinite_length_payload_map_is_not_spelling_judged() {
         decode(&frame(&[0xbf, 0xff])).expect("the payload's spelling is not ingress-judged");
     assert!(record.is_empty());
 }
+
+/// An unknown version needing a four- or eight-byte header is rejected
+/// with the version reported by value.
+///
+/// The version item round-trips exactly through the writer's and the
+/// reader's wide head arms, never through a wider or narrower spelling.
+#[test]
+fn wide_versions_are_rejected_by_value() {
+    for wide in [0x1_0000, 0xffff_ffff, 0x1_0000_0000, u64::MAX] {
+        let framed = frame_as(wide, b"payload");
+        let result = unframe(&framed);
+        assert!(
+            matches!(result, Err(FormatError::VersionMismatch { found }) if found == wide),
+            "version {wide:#x} must be rejected by value, got {result:?}",
+        );
+    }
+}
+
+/// A payload wide enough to need a four-byte length header round-trips:
+/// the byte-string head's wide arm is exercised on both sides of the
+/// frame.
+#[test]
+fn wide_payload_round_trips() {
+    let payload: Vec<u8> = (0..=0x1_0000u32).map(|i| i as u8).collect();
+    let framed = frame(&payload);
+    assert_eq!(unframe(&framed).unwrap(), payload.as_slice());
+}

@@ -504,6 +504,51 @@ fn a_driver_on_a_poisoned_link_fails_fast() {
     );
 }
 
+/// A driver dropped while idling with a partially received preamble
+/// poisons the link.
+///
+/// The remote's initiation was partially consumed out of the control
+/// stream, so a next session would misread its remainder. (A driver
+/// dropped at a truly empty idle boundary leaves the link reusable —
+/// `a_clean_end_leaves_the_connection_reusable` — so the poison here
+/// prices exactly the partial consumption.)
+#[tokio::test(flavor = "current_thread")]
+async fn dropping_mid_preamble_idle_poisons_the_link() {
+    let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+    let (mut a_link, b) = rumors::link::memory_with_capacity(LINK_BUF);
+    // Keep the counterparty's halves alive: its write half toward A
+    // carries four preamble bytes and then idles, never closing.
+    let b = b.into_parts();
+    let mut b_control_write = b.control_write;
+
+    {
+        let mut a_sessions = a.gossip_when(stream::pending::<()>(), &mut a_link);
+        b_control_write
+            .write_all(b"RUMO")
+            .await
+            .expect("partial write");
+        // Drive the idle driver long enough to consume the four bytes
+        // into its staging buffer; the preamble never completes, so its
+        // next() must still be pending when the deadline cuts it off.
+        assert!(
+            timeout(Duration::from_millis(100), a_sessions.next())
+                .await
+                .is_err(),
+            "a partial preamble must not complete a session item",
+        );
+    } // The driver drops here, holding staged preamble bytes.
+
+    let mut retry = a.gossip_when(stream::pending::<()>(), &mut a_link);
+    let item = timeout(DEADLINE, retry.next())
+        .await
+        .expect("the poison check never surfaced")
+        .expect("a poisoned link yields a terminal item");
+    assert!(
+        matches!(item, Err(Error::LinkPoisoned)),
+        "reuse after a mid-preamble drop must fail fast, got {item:?}",
+    );
+}
+
 /// Polling is cancel-safe, as documented: a consumer that creates and
 /// drops a fresh `next()` future on every poll — never holding one across
 /// an await — still drives sessions to completion with nothing lost.

@@ -204,4 +204,54 @@ exclude_re = [
     # Performance genre: the settled value is independent of the arming
     # tree's shape, so the shape-tuning sum routes only work.
     "integral\\.rs.*: replace \\+ with \\* in Integrator::settle_armings",
+
+    # --- rumors::tree::mirror::cbor ---
+
+    # Proven equivalent, every write_head site: `major` arrives pre-shifted
+    # into bits 5 through 7 (the function's debug_assert holds the unshifted
+    # value below 8), and every right operand is below 32 (`value as u8` in
+    # the immediate arm is at most 23; the other arms' literals are 24
+    # through 27), so the operands are bit-disjoint and `|` equals `^` for
+    # all inputs. The `&` legs face the suite: a masked head byte breaks the
+    # wire's round-trips.
+    "cbor\\.rs.*: replace \\| with \\^ in write_head",
+
+    # --- rumors::bookmark::format ---
+
+    # Proven equivalent, every push_head site: the same disjointness as
+    # write_head above (`major` is one of the pre-shifted MAJOR_* constants,
+    # occupying bits 5 through 7; every right operand is below 32). The `^`
+    # legs only; the `&` legs face the suite through the wide-head
+    # round-trip and wide-version tests.
+    "format\\.rs.*: replace \\| with \\^ in push_head",
+
+    # --- rumors::tree::mirror::handshake ---
+
+    # Proven equivalent, line-pinned (a const item, so the name carries no
+    # function anchor): PREAMBLE_MAX is a hand-rolled const max, and `>`
+    # versus `>=` differ only at a tie, where both arms return the same
+    # value — for any operands, not merely the current constants. Stable
+    # 1.97 has no const `usize::max` to delegate the comparison to.
+    "handshake\\.rs:88:24: replace > with >=",
+
+    # Proven equivalent on all admitted inputs, line-pinned, both legs: the
+    # defensive width guard before the network split is unreachable —
+    # canonical shortest-form heads pin the version and network items to one
+    # byte each, so a decode that reaches the guard always holds exactly 17
+    # of the fixed item's 30 bytes — and each replacement (`==`, `<=`) fires
+    # only at input.len() == NETWORK_LEN, a state no admitted input reaches.
+    # The guard stays a graceful error rather than an assert: the
+    # defensive-variant exemption in handshake/tests.rs records that design,
+    # and `PreambleDefect::NetworkTruncated` is public API. The inverted leg
+    # (`>`) fires on every input and faces the suite.
+    "handshake\\.rs:257:24: replace < with (==|<=) in Preamble::decode_v2",
+
+    # --- rumors::peer ---
+
+    # Performance genre: warm_caches is a doc(hidden) calibration aid that
+    # forces the tree's lazy structural memos ahead of a timed operation.
+    # Deleting the delegation moves only when the memos compute (the first
+    # subsequent read instead of the call), value-identical on every path;
+    # pricing that timing would pin the laziness policy itself.
+    "peer\\.rs.*: replace Peer<T, B>::warm_caches with \\(\\)",
 ]

@@ -56,6 +56,26 @@
     "prescan\\.rs:337:26: replace > with >= in PreScan<'a, 'm>::record": {
       "listed": 1,
       "suppressed": 1
+    },
+    "cbor\\.rs.*: replace \\| with \\^ in write_head": {
+      "listed": 5,
+      "suppressed": 5
+    },
+    "format\\.rs.*: replace \\| with \\^ in push_head": {
+      "listed": 5,
+      "suppressed": 5
+    },
+    "handshake\\.rs:88:24: replace > with >=": {
+      "listed": 1,
+      "suppressed": 1
+    },
+    "handshake\\.rs:257:24: replace < with (==|<=) in Preamble::decode_v2": {
+      "listed": 2,
+      "suppressed": 2
+    },
+    "peer\\.rs.*: replace Peer<T, B>::warm_caches with \\(\\)": {
+      "listed": 1,
+      "suppressed": 1
     }
   }
 }
