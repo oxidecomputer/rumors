@@ -558,7 +558,7 @@ async fn run_activity(handle: Rumors<u64>, script: Vec<Activity>) -> Vec<(Versio
 /// path (`send_if_modified` racing `borrow_and_update`) outside
 /// single-threaded tests.
 async fn run_observers(handle: Rumors<u64>, done: Arc<AtomicBool>) {
-    use futures::FutureExt;
+    use futures::{FutureExt, StreamExt};
 
     let mut plain = handle.unordered_messages();
     let mut causal = handle.causal_messages();
@@ -572,15 +572,15 @@ async fn run_observers(handle: Rumors<u64>, done: Arc<AtomicBool>) {
         // races nothing.
         let finished = done.load(Ordering::Acquire);
 
-        while let Some(Some((version, _))) = plain.borrow_next().now_or_never() {
+        while let Some(Some((version, _))) = plain.next().now_or_never() {
             assert!(
-                plain_seen.insert(version_key(version)),
+                plain_seen.insert(version_key(&version)),
                 "Messages delivered version {version:?} twice"
             );
         }
-        while let Some(Some((version, _))) = causal.borrow_next().now_or_never() {
+        while let Some(Some((version, _))) = causal.next().now_or_never() {
             assert!(
-                causal_seen.insert(version_key(version)),
+                causal_seen.insert(version_key(&version)),
                 "CausalMessages delivered version {version:?} twice"
             );
             // `Version` is a partial order: `!(version < earlier)` also

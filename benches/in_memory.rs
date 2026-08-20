@@ -41,7 +41,7 @@
 use std::hint::black_box;
 
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use futures::FutureExt;
+use futures::{FutureExt, StreamExt};
 use rumors::{CausalMessages, Peer, Rumors, UnorderedMessages, Version, causally};
 
 // The shared grid module exposes a superset of helpers; each bench binary uses
@@ -76,7 +76,7 @@ fn build(n: usize) -> (Rumors<()>, Vec<Version>) {
 /// many messages were yielded.
 fn drain(observer: &mut UnorderedMessages<()>) -> usize {
     let mut count = 0usize;
-    while let Some(Some(item)) = observer.borrow_next().now_or_never() {
+    while let Some(Some(item)) = observer.next().now_or_never() {
         black_box(item);
         count += 1;
     }
@@ -259,7 +259,7 @@ fn bench_observer_delta(c: &mut Criterion) {
 /// many messages were yielded: [`drain`]'s twin for the causal face.
 fn drain_causal(observer: &mut CausalMessages<()>) -> usize {
     let mut count = 0usize;
-    while let Some(Some(item)) = observer.borrow_next().now_or_never() {
+    while let Some(Some(item)) = observer.next().now_or_never() {
         black_box(item);
         count += 1;
     }

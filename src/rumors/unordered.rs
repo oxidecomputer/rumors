@@ -1,4 +1,4 @@
-use crate::tree::{Leaf, RangeOwned};
+use crate::tree::RangeOwned;
 use crate::{Version, causally};
 use futures::Stream;
 use std::pin::Pin;
@@ -16,12 +16,11 @@ use tokio::sync::watch;
 /// and no further change is possible, it yields whatever remains and ends
 /// with `None`.
 ///
-/// There are two ways to use it:
+/// Each message arrives as an owned `(Version, Arc<T>)` — both handles are
+/// cheap reference bumps into shared storage — through either face:
 ///
-/// - [`borrow_next`](Self::borrow_next) lends each message as
-///   `(&Version, &Arc<T>)`, the borrows living until the next call.
-/// - The [`Stream`] impl (for `T: 'static`) yields owned
-///   `(Version, Arc<T>)`.
+/// - the [`Stream`] impl, awaiting quietly while the set is unchanged;
+/// - [`try_next`](Self::try_next), one non-blocking step at a time.
 ///
 /// Order is unspecified and does *not* follow the causal order: a message may
 /// be yielded before another that causally precedes it; use
@@ -34,17 +33,13 @@ use tokio::sync::watch;
 pub struct UnorderedMessages<T> {
     /// The watch channel, or the in-flight wait for it to change.
     ///
-    /// The wait future owns the receiver and hands it back: the `Stream`
-    /// face cannot hold a borrowing `changed()` future across polls
-    /// (recreating one per poll would drop its waker registration and lose
-    /// the wakeup), so the wait is materialized; `borrow_next` enters it
-    /// only to finish what a `Stream` poll started.
+    /// The wait future owns the receiver and hands it back: a `Stream`
+    /// cannot hold a borrowing `changed()` future across polls (recreating
+    /// one per poll would drop its waker registration and lose the
+    /// wakeup), so the wait is materialized.
     channel: Option<Channel<T>>,
     checkpoint: Version,
     pass: Option<Pass<T>>,
-    /// The most recently yielded leaf, kept alive so its version and value
-    /// can be lent to the caller until the next call.
-    current: Option<Leaf<T>>,
 }
 
 /// The outcome of [`UnorderedMessages::try_next`] or [`CausalMessages::try_next`].
@@ -53,10 +48,10 @@ pub struct UnorderedMessages<T> {
 ///
 /// [`CausalMessages::try_next`]: super::CausalMessages::try_next
 #[derive(Debug)]
-pub enum TryNext<'a, T> {
-    /// A message was ready, lent until the next call (as
-    /// [`borrow_next`](UnorderedMessages::borrow_next) lends it).
-    Message((&'a Version, &'a Arc<T>)),
+pub enum TryNext<T> {
+    /// A message was ready: the same owned `(Version, Arc<T>)` pair the
+    /// [`Stream`] face yields.
+    Message((Version, Arc<T>)),
     /// No message is ready yet, but handles are still live: ask again later.
     Quiet,
     /// Every handle is gone and no further message is possible.
@@ -69,7 +64,7 @@ type WaitForChange<T> =
     Pin<Box<dyn Future<Output = (bool, watch::Receiver<crate::Inner<T>>)> + Send>>;
 
 /// An observer's hold on the watch channel: either the receiver itself, or
-/// the materialized owned wait the `Stream` face left in flight (see the
+/// the materialized owned wait a quiet poll left in flight (see the
 /// [`UnorderedMessages::channel`] field docs for why the wait must be owned).
 pub(super) enum Channel<T> {
     /// The channel is in hand.
@@ -91,7 +86,6 @@ impl<T> UnorderedMessages<T> {
             channel: Some(Channel::Ready(inner.subscribe())),
             checkpoint: since,
             pass: None,
-            current: None,
         }
     }
 
@@ -111,46 +105,6 @@ impl<T> UnorderedMessages<T> {
                 walk: inner.tree.range_owned(causally::since(checkpoint.clone())),
                 ceiling: inner.tree.latest().clone(),
             });
-        }
-    }
-
-    /// Advance to the next message and lend it until the following call.
-    pub(crate) async fn borrow_next_inner(&mut self) -> Option<(&Version, &Arc<T>)>
-    where
-        T: Send + Sync,
-    {
-        loop {
-            match self.channel.as_mut().expect("channel state present") {
-                // Finish a wait the `Stream` face left in flight.
-                Channel::Waiting(wait) => {
-                    let (closed, rx) = wait.as_mut().await;
-                    self.channel = Some(Channel::Ready(rx));
-                    if closed {
-                        return None;
-                    }
-                }
-                Channel::Ready(rx) => {
-                    Self::open_pass(&mut self.pass, rx, &self.checkpoint);
-
-                    // Lend the next leaf out of the walk, parking it in
-                    // `current` so the borrows survive the return.
-                    let pass = self.pass.as_mut().expect("opened above");
-                    if let Some((_, leaf)) = pass.walk.next() {
-                        let leaf = self.current.insert(leaf);
-                        return Some((leaf.version(), leaf.value()));
-                    }
-
-                    // The pass drained: absorb its ceiling as completed,
-                    // then await the next change; `Err` means every sender
-                    // is gone and the drain above already saw the final
-                    // state.
-                    let Pass { ceiling, .. } = self.pass.take().expect("opened above");
-                    self.checkpoint |= &ceiling;
-                    if rx.changed().await.is_err() {
-                        return None;
-                    }
-                }
-            }
         }
     }
 
@@ -174,7 +128,7 @@ impl<T> UnorderedMessages<T> {
     /// # Examples
     ///
     /// ```
-    /// use futures::FutureExt;
+    /// use futures::{FutureExt, StreamExt};
     /// use rumors::{Peer, Version};
     ///
     /// # tokio::runtime::Builder::new_current_thread()
@@ -185,7 +139,7 @@ impl<T> UnorderedMessages<T> {
     /// rumors.send("one".to_string());
     ///
     /// let mut observer = rumors.unordered_messages();
-    /// let (_version, m) = observer.borrow_next().await.expect("one message");
+    /// let (_version, m) = observer.next().await.expect("one message");
     /// assert_eq!(m.as_str(), "one");
     ///
     /// // Mid-pass, the checkpoint has not moved: resuming here would
@@ -194,14 +148,14 @@ impl<T> UnorderedMessages<T> {
     ///
     /// // One more step finds nothing ready, completing the pass and
     /// // absorbing its frontier into the checkpoint.
-    /// assert!(observer.borrow_next().now_or_never().is_none());
+    /// assert!(observer.next().now_or_never().is_none());
     /// let checkpoint = observer.checkpoint().clone();
     ///
     /// // A resume from it re-observes nothing from the completed pass and
     /// // everything not yet delivered.
     /// rumors.send("two".to_string());
     /// let mut resumed = rumors.unordered_messages_since(checkpoint);
-    /// let (_version, m) = resumed.borrow_next().await.expect("only the new message");
+    /// let (_version, m) = resumed.next().await.expect("only the new message");
     /// assert_eq!(m.as_str(), "two");
     /// # });
     /// ```
@@ -210,27 +164,17 @@ impl<T> UnorderedMessages<T> {
     }
 }
 
-impl<T> UnorderedMessages<T> {
-    /// Advance to the next message, lending its version and value until the
-    /// following call. Awaits quietly while the set is unchanged; resolves
-    /// [`None`] once no further change is possible.
-    pub async fn borrow_next(&mut self) -> Option<(&Version, &Arc<T>)>
-    where
-        T: Send + Sync,
-    {
-        self.borrow_next_inner().await
-    }
+impl<T: Send + Sync + 'static> UnorderedMessages<T> {
     /// Take one non-blocking step: a message if one is ready, [`Quiet`] (ask
     /// again later) if not, [`Ended`] if no further message is possible.
     ///
+    /// One [`Stream`] poll with a no-op waker, rendered as the trichotomy.
+    ///
     /// [`Quiet`]: TryNext::Quiet
     /// [`Ended`]: TryNext::Ended
-    pub fn try_next(&mut self) -> TryNext<'_, T>
-    where
-        T: Send + Sync,
-    {
-        use futures::FutureExt;
-        match self.borrow_next_inner().now_or_never() {
+    pub fn try_next(&mut self) -> TryNext<T> {
+        use futures::{FutureExt, StreamExt};
+        match self.next().now_or_never() {
             None => TryNext::Quiet,
             Some(None) => TryNext::Ended,
             Some(Some(message)) => TryNext::Message(message),
@@ -238,8 +182,9 @@ impl<T> UnorderedMessages<T> {
     }
 }
 
-/// The owned-item face: `(Version, Arc<T>)` per item, cloned out of
-/// the same engine [`borrow_next`](UnorderedMessages::borrow_next) lends from.
+/// Yields owned `(Version, Arc<T>)` pairs: cheap handles into the shared
+/// storage (the version's buffer and the message's allocation are shared,
+/// not copied).
 ///
 /// `T: 'static` because the quiet-period wait is materialized as an owned
 /// future.

@@ -286,8 +286,8 @@ impl<'a, T, P: Polarity> DoubleEndedIterator for Range<'a, T, P> {
 /// borrowing walk (see [`Range`]); forward-only, since its consumers are
 /// subscription drains.
 /// Yields each passing leaf as an owned [`Leaf`] handle alongside its
-/// reconstructed 32-byte path, which is what lets a caller
-/// lend `&Version` / `&Arc<T>` out of a leaf it keeps.
+/// reconstructed 32-byte path; the version and value read out of the
+/// handle as shared, clone-cheap references into the tree's storage.
 pub struct RangeOwned<T, P: Polarity> {
     /// The not-yet-visited root, consumed by the first advance.
     start: Option<Node<T>>,

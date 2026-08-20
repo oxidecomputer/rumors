@@ -20,6 +20,11 @@ use super::unordered::{Channel, TryNext};
 /// order, which may differ between [`gossip`](crate::Rumors::gossip)ing
 /// replicas of the same [`Rumors`](crate::Rumors).
 ///
+/// Each message arrives as an owned `(Version, Arc<T>)` — both handles are
+/// cheap reference bumps into shared storage — through the [`Stream`] impl
+/// or [`try_next`](Self::try_next), exactly as for
+/// [`UnorderedMessages`](super::UnorderedMessages).
+///
 /// Unlike [`UnorderedMessages`](super::UnorderedMessages), this costs an
 /// extra amortized factor, logarithmic in the number of messages the set
 /// holds, in memory and in the time to retrieve each message, and both
@@ -56,9 +61,6 @@ pub struct CausalMessages<T> {
     /// opens only once this empties), whose range start was `checkpoint`
     /// and whose ceiling is `ingested`.
     staged: BTreeMap<(Rank, Vec<u8>), Leaf<T>>,
-    /// The most recently delivered leaf, kept alive so its version and
-    /// value can be lent to the caller until the next call.
-    current: Option<Leaf<T>>,
 }
 
 impl<T> CausalMessages<T> {
@@ -68,7 +70,6 @@ impl<T> CausalMessages<T> {
             ingested: since.clone(),
             checkpoint: since,
             staged: BTreeMap::new(),
-            current: None,
         }
     }
 
@@ -102,66 +103,6 @@ impl<T> CausalMessages<T> {
         *ingested |= &ceiling;
     }
 
-    /// Pop the causally least staged message, parking it in `current` so
-    /// its borrows survive the return.
-    ///
-    /// Never moves the resume point, even when this empties the backlog:
-    /// the popped message is still unhandled in the caller's hands, so the
-    /// catch-up is deferred to the next call, exactly as
-    /// [`UnorderedMessages`](super::UnorderedMessages) defers a drained
-    /// pass's ceiling.
-    fn pop(&mut self) -> Option<(&Version, &Arc<T>)> {
-        let (_, leaf) = self.staged.pop_first()?;
-        let leaf = self.current.insert(leaf);
-        Some((leaf.version(), leaf.value()))
-    }
-
-    /// Advance to the next message in causal order and lend it.
-    pub(crate) async fn borrow_next_inner(&mut self) -> Option<(&Version, &Arc<T>)>
-    where
-        T: Send + Sync,
-    {
-        loop {
-            // Deliver the staged backlog before consulting the channel:
-            // everything staged became deliverable when its pass finished
-            // ingesting. (Polonius limitation: returning `self.pop()` here
-            // would hold the borrow across the loop, so flag-and-break.)
-            if !self.staged.is_empty() {
-                break;
-            }
-            match self.channel.as_mut().expect("channel state present") {
-                // Finish a wait the `Stream` face left in flight.
-                Channel::Waiting(wait) => {
-                    let (closed, rx) = wait.as_mut().await;
-                    self.channel = Some(Channel::Ready(rx));
-                    if closed {
-                        return None;
-                    }
-                }
-                Channel::Ready(rx) => {
-                    // The backlog is empty here (the loop head breaks
-                    // otherwise), so the previous pass is fully delivered
-                    // and its last message is back out of the caller's
-                    // hands: the deferred catch-up runs now, before the
-                    // next pass opens against the caught-up boundary.
-                    self.checkpoint = self.ingested.clone();
-                    Self::ingest(&mut self.staged, &mut self.ingested, rx);
-                    if self.staged.is_empty() {
-                        // Nothing new: the resume point covers the pass's
-                        // content-free ceiling advance too; await the next
-                        // change. `Err` means every sender is gone and the
-                        // ingest above saw the final state.
-                        self.checkpoint = self.ingested.clone();
-                        if rx.changed().await.is_err() {
-                            return None;
-                        }
-                    }
-                }
-            }
-        }
-        self.pop()
-    }
-
     /// The sound resume point: the causal frontier *behind* any internally
     /// staged backlog, suitable for persisting across processes or handing to
     /// another replica of the same network.
@@ -184,29 +125,17 @@ impl<T> CausalMessages<T> {
     }
 }
 
-impl<T> CausalMessages<T> {
-    /// Advance to the next message in causal order, lending its version and
-    /// value until the following call.
-    ///
-    /// Awaits quietly while the set is unchanged; resolves [`None`] once no
-    /// further change is possible and the backlog has drained.
-    pub async fn borrow_next(&mut self) -> Option<(&Version, &Arc<T>)>
-    where
-        T: Send + Sync,
-    {
-        self.borrow_next_inner().await
-    }
+impl<T: Send + Sync + 'static> CausalMessages<T> {
     /// Take one non-blocking step: a message if one is ready, [`Quiet`] (ask
     /// again later) if not, [`Ended`] if no further message is possible.
     ///
+    /// One [`Stream`] poll with a no-op waker, rendered as the trichotomy.
+    ///
     /// [`Quiet`]: TryNext::Quiet
     /// [`Ended`]: TryNext::Ended
-    pub fn try_next(&mut self) -> TryNext<'_, T>
-    where
-        T: Send + Sync,
-    {
-        use futures::FutureExt;
-        match self.borrow_next_inner().now_or_never() {
+    pub fn try_next(&mut self) -> TryNext<T> {
+        use futures::{FutureExt, StreamExt};
+        match self.next().now_or_never() {
             None => TryNext::Quiet,
             Some(None) => TryNext::Ended,
             Some(Some(message)) => TryNext::Message(message),
@@ -214,9 +143,8 @@ impl<T> CausalMessages<T> {
     }
 }
 
-/// The owned-item face: `(Version, Arc<T>)` per item, popped from the
-/// same staged backlog [`borrow_next`](CausalMessages::borrow_next) lends
-/// from.
+/// Yields owned `(Version, Arc<T>)` pairs popped from the staged backlog
+/// in causal order: cheap handles into the shared storage.
 ///
 /// `T: 'static` because the quiet-period wait is materialized as an
 /// owned future, exactly as in [`UnorderedMessages`](super::UnorderedMessages).
@@ -226,10 +154,11 @@ impl<T: Send + Sync + 'static> Stream for CausalMessages<T> {
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
         loop {
-            // As in `pop`, the resume point stays put even when this pop
-            // empties the backlog: the yielded message is unhandled until
-            // the stream is polled again, so the catch-up defers to the
-            // next poll's ingest.
+            // The resume point stays put even when this pop empties the
+            // backlog: the yielded message is unhandled until the stream
+            // is polled again, so the catch-up defers to the next poll's
+            // ingest, exactly as UnorderedMessages defers a drained pass's
+            // ceiling.
             if let Some((_, leaf)) = this.staged.pop_first() {
                 return Poll::Ready(Some((leaf.version().clone(), leaf.value().clone())));
             }
