@@ -171,7 +171,7 @@ where
             for value in values {
                 batch.send(value)?;
             }
-            Ok::<(), rumors::PayloadDepthError>(())
+            Ok::<(), rumors::EncodeError>(())
         })
         .expect("flat test payloads are within any depth limit");
 }

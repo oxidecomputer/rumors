@@ -477,7 +477,7 @@ fn send_random(rumors: &Rumors<u64>, count: usize, rng: &mut SmallRng) {
             for _ in 0..count {
                 batch.send(rng.next_u64())?;
             }
-            Ok::<(), rumors::PayloadDepthError>(())
+            Ok::<(), rumors::EncodeError>(())
         })
         .expect("flat test payloads are within any depth limit");
 }
@@ -488,7 +488,7 @@ fn redact_all(rumors: &Rumors<u64>, versions: &[Version]) {
             for version in versions {
                 batch.redact(version);
             }
-            Ok::<(), rumors::PayloadDepthError>(())
+            Ok::<(), rumors::EncodeError>(())
         })
         .expect("flat test payloads are within any depth limit");
 }
@@ -564,7 +564,7 @@ fn transfer_pair() -> (Rumors<u64>, Rumors<u64>) {
                 for version in &losers {
                     batch.redact(version);
                 }
-                Ok::<(), rumors::PayloadDepthError>(())
+                Ok::<(), rumors::EncodeError>(())
             })
             .expect("flat test payloads are within any depth limit");
     };
@@ -578,7 +578,7 @@ fn transfer_pair() -> (Rumors<u64>, Rumors<u64>) {
             for value in 0..64u64 {
                 batch.send(value)?;
             }
-            Ok::<(), rumors::PayloadDepthError>(())
+            Ok::<(), rumors::EncodeError>(())
         })
         .expect("flat test payloads are within any depth limit");
     }
@@ -607,7 +607,7 @@ fn transfer_pair() -> (Rumors<u64>, Rumors<u64>) {
                 for value in 10_000..10_016u64 {
                     batch.send(value)?;
                 }
-                Ok::<(), rumors::PayloadDepthError>(())
+                Ok::<(), rumors::EncodeError>(())
             })
             .expect("flat test payloads are within any depth limit");
     }

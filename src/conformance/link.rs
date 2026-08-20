@@ -1047,7 +1047,7 @@ pub async fn check_sessions<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab>(
         for payload in 0..SESSION_PAYLOADS {
             batch.send(payload)?;
         }
-        Ok::<(), crate::message::PayloadDepthError>(())
+        Ok::<(), crate::message::EncodeError>(())
     })
     .expect("flat payloads are within any depth limit");
     newcomer
@@ -1055,7 +1055,7 @@ pub async fn check_sessions<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab>(
             for payload in SESSION_PAYLOADS..2 * SESSION_PAYLOADS {
                 batch.send(payload)?;
             }
-            Ok::<(), crate::message::PayloadDepthError>(())
+            Ok::<(), crate::message::EncodeError>(())
         })
         .expect("flat payloads are within any depth limit");
 

@@ -71,7 +71,7 @@ fn send_random(rumors: &Rumors<u64>, n: usize, rng: &mut SmallRng) {
             for _ in 0..n {
                 batch.send(rng.next_u64())?;
             }
-            Ok::<(), rumors::PayloadDepthError>(())
+            Ok::<(), rumors::EncodeError>(())
         })
         .expect("flat test payloads are within any depth limit");
 }
@@ -195,7 +195,7 @@ fn growth_during_a_session_only_serializes() {
                         for _ in 0..32 {
                             batch.send(rng.next_u64())?;
                         }
-                        Ok::<(), rumors::PayloadDepthError>(())
+                        Ok::<(), rumors::EncodeError>(())
                     })
                     .expect("flat test payloads are within any depth limit");
                 tokio::task::yield_now().await;

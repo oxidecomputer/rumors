@@ -37,7 +37,7 @@ fn message_minted_after_bootstrap_survives_gossip() {
                 for v in 0..16u64 {
                     batch.send(v)?;
                 }
-                Ok::<(), rumors::PayloadDepthError>(())
+                Ok::<(), rumors::EncodeError>(())
             })
             .expect("flat test payloads are within any depth limit");
         }

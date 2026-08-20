@@ -8,7 +8,7 @@ pub use unordered::{TryNext, UnorderedMessages};
 
 use crate::bookmark::{Bookmark, BookmarkError, NoBookmark};
 use crate::link::{Acceptor, Connector, Link};
-use crate::message::PayloadDepthError;
+use crate::message::EncodeError;
 use crate::{Batch, Error, Gossiped, Network, Peer, Snapshot, Version};
 use futures::Stream;
 use std::sync::Arc;
@@ -134,11 +134,14 @@ impl<T, B: BookmarkError> Rumors<T, B> {
 
     /// Send a message, committing it immediately.
     ///
-    /// The message is serialized and admitted here, at the call: a
-    /// payload whose encoding nests deeper than the peer's
-    /// [`payload_depth_limit`](crate::Peer::payload_depth_limit) is the
-    /// typed error, and nothing commits. To apply several changes in one
-    /// commit, use [`batch`](Self::batch).
+    /// The message is serialized and admitted here, at the call:
+    /// admission runs the exact decode every receiver's wire ingress
+    /// runs, so a payload a receiver would reject — one nesting deeper
+    /// than the peer's
+    /// [`payload_depth_limit`](crate::Peer::payload_depth_limit), or one
+    /// whose type does not survive its own serde round-trip — is the
+    /// typed [`EncodeError`] instead, and nothing commits. To apply
+    /// several changes in one commit, use [`batch`](Self::batch).
     ///
     /// `send` does not return the message's [`Version`]. Versions come back
     /// through observation: the observers and [`Snapshot`] attach every
@@ -160,7 +163,7 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     /// # Panics
     ///
     /// If `message` fails to serialize (see [`Batch::send`]).
-    pub fn send(&self, message: T) -> Result<(), PayloadDepthError>
+    pub fn send(&self, message: T) -> Result<(), EncodeError>
     where
         T: Send + Sync + 'static,
     {
@@ -218,7 +221,7 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     /// commit, one tree traversal, and at most one observer wakeup. Any
     /// other exit commits nothing, earlier-queued actions included: a
     /// returned `Err` (your own, or a `?`-propagated
-    /// [`PayloadDepthError`] from a depth-rejected send) and a panic's
+    /// [`EncodeError`] from a rejected send) and a panic's
     /// unwind alike cancel the whole batch. Returning `Err` is how a
     /// caller abandons a batch deliberately.
     ///
@@ -238,17 +241,17 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     /// # Examples
     ///
     /// ```
-    /// use rumors::{PayloadDepthError, Peer};
+    /// use rumors::{EncodeError, Peer};
     ///
     /// let rumors = Peer::<String>::seed().into_rumors();
     /// rumors.batch(|batch| {
     ///     batch.send("a".to_string())?;
     ///     batch.send("b".to_string())?;
-    ///     Ok::<(), PayloadDepthError>(())
+    ///     Ok::<(), EncodeError>(())
     /// })?;
     /// // Both landed, in one commit.
     /// assert_eq!(rumors.snapshot().len(), 2);
-    /// # Ok::<(), PayloadDepthError>(())
+    /// # Ok::<(), EncodeError>(())
     /// ```
     ///
     /// The scope handle cannot be stashed outside the closure:

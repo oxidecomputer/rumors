@@ -92,7 +92,7 @@ fn controller_converges_through_retargeting() {
             for _ in 0..100 {
                 batch.send(random_message(&mut rng, TEST_MESSAGE_SIZE))?;
             }
-            Ok::<(), rumors::PayloadDepthError>(())
+            Ok::<(), rumors::EncodeError>(())
         })
         .expect("flat test payloads are within any depth limit");
     }

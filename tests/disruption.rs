@@ -709,7 +709,7 @@ async fn run_proc_plan(plan: ProcPlan) {
             for &v in &plan.seed_messages {
                 batch.send(v)?;
             }
-            Ok::<(), rumors::PayloadDepthError>(())
+            Ok::<(), rumors::EncodeError>(())
         })
         .expect("flat test payloads are within any depth limit");
     }

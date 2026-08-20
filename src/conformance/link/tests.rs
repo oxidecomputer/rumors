@@ -1051,7 +1051,7 @@ fn starved_pool_degrades_latency_not_liveness() {
                 for payload in 0..2048u64 {
                     batch.send(payload)?;
                 }
-                Ok::<(), crate::message::PayloadDepthError>(())
+                Ok::<(), crate::message::EncodeError>(())
             })
             .expect("flat test payloads are within any depth limit");
         }
@@ -1061,7 +1061,7 @@ fn starved_pool_degrades_latency_not_liveness() {
                     for payload in 2048..4096u64 {
                         batch.send(payload)?;
                     }
-                    Ok::<(), crate::message::PayloadDepthError>(())
+                    Ok::<(), crate::message::EncodeError>(())
                 })
                 .expect("flat test payloads are within any depth limit");
         }

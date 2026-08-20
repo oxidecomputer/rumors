@@ -296,7 +296,7 @@ fn send_all(rumors: &Rumors<u8>, messages: Vec<u8>) {
             for message in messages {
                 batch.send(message)?;
             }
-            Ok::<(), rumors::PayloadDepthError>(())
+            Ok::<(), rumors::EncodeError>(())
         })
         .expect("flat test payloads are within any depth limit");
 }
@@ -307,7 +307,7 @@ fn redact_all(rumors: &Rumors<u8>, versions: &[Version]) {
             for version in versions {
                 batch.redact(version);
             }
-            Ok::<(), rumors::PayloadDepthError>(())
+            Ok::<(), rumors::EncodeError>(())
         })
         .expect("flat test payloads are within any depth limit");
 }

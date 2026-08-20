@@ -148,8 +148,8 @@
 //!     // The universe's first peer creates it; every later peer bootstraps in.
 //!     let alice = Peer::<String>::seed().into_rumors();
 //!
-//!     // A send commits right here; only an over-deep payload can err,
-//!     // and a flat string is within any depth limit.
+//!     // A send commits right here; it errs only on a payload its own
+//!     // decode rejects, and a flat string decodes within any limit.
 //!     alice.send("the meeting is at noon".to_string()).expect("flat payload");
 //!
 //!     // A session runs over a `Link`: a control byte stream plus a supply
@@ -248,12 +248,13 @@
 //! the version of your application-level message type, even if it starts
 //! out only having one variant, `V1`.
 //!
-//! Payload nesting depth is bounded: a payload's CBOR encoding may nest
-//! at most [`Peer::payload_depth_limit`] scopes (256 by default, ample
-//! for ordinary message types), enforced symmetrically at send and at
-//! wire ingress and held to exact equality across a fleet at every
-//! handshake, so an admitted payload is transferable everywhere. The
-//! knob's docs carry the full contract.
+//! Payload nesting depth is bounded: decoding a payload as your type `T`
+//! may recurse at most [`Peer::payload_depth_limit`] steps (256 by
+//! default, ample for ordinary message types). Admission at send runs
+//! the exact decode every receiver's wire ingress runs, and the limit is
+//! held to exact equality across a fleet at every handshake, so an
+//! admitted payload is transferable everywhere. The knob's docs carry
+//! the full contract.
 //!
 //! # Cargo features
 //!
@@ -322,7 +323,7 @@ pub use bookmark::{
 };
 pub use error::{Error, MirrorError};
 pub use link::{Acceptor, Connector, Link};
-pub use message::PayloadDepthError;
+pub use message::EncodeError;
 pub use network::Network;
 pub(crate) use peer::Inner;
 pub use peer::{

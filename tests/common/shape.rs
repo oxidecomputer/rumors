@@ -30,7 +30,7 @@ pub fn send_pool(rumors: &Rumors<u64>, from: u64, count: u64) {
             for value in from..from + count {
                 batch.send(value)?;
             }
-            Ok::<(), rumors::PayloadDepthError>(())
+            Ok::<(), rumors::EncodeError>(())
         })
         .expect("flat test payloads are within any depth limit");
 }
@@ -63,7 +63,7 @@ pub fn keep_only(rumors: &Rumors<u64>, from: u64, count: u64, keep: &[u64]) {
             for version in &losers {
                 batch.redact(version);
             }
-            Ok::<(), rumors::PayloadDepthError>(())
+            Ok::<(), rumors::EncodeError>(())
         })
         .expect("flat test payloads are within any depth limit");
 }

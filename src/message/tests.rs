@@ -198,40 +198,12 @@ fn rehydration_honors_the_explicit_limit() {
     assert_eq!(m.as_slice(), deep.as_slice());
 }
 
-/// One wrapper scope for the depth differential's generated spines.
+/// One wrapper scope for the boundary tests' constructed spines.
 #[derive(Debug, Clone, Copy)]
 enum Wrap {
     Array,
     Map,
     Tag(u64),
-}
-
-/// Arrays, maps, and tags mixed, with tag numbers straddling the
-/// decoder's big-integer special case (tags 2 and 3) and ordinary tags.
-fn wrap_kind() -> impl Strategy<Value = Wrap> {
-    prop_oneof![
-        Just(Wrap::Array),
-        Just(Wrap::Map),
-        (0u64..=4).prop_map(Wrap::Tag),
-        Just(Wrap::Tag(24)),
-    ]
-}
-
-/// A leaf the decoder consumes without opening a scope — scalars of every
-/// major type — plus the tag-2-over-bytes big-integer form, whose byte
-/// lengths straddle the decoder's 16-byte scalar cutoff.
-fn depth_leaf() -> impl Strategy<Value = ciborium::Value> {
-    use ciborium::Value;
-    prop_oneof![
-        any::<i64>().prop_map(|n| Value::Integer(n.into())),
-        any::<f64>().prop_map(Value::Float),
-        any::<bool>().prop_map(Value::Bool),
-        Just(Value::Null),
-        "[a-z]{0,8}".prop_map(Value::Text),
-        proptest::collection::vec(any::<u8>(), 0..8).prop_map(Value::Bytes),
-        proptest::collection::vec(any::<u8>(), 0..=20)
-            .prop_map(|b| Value::Tag(2, Box::new(Value::Bytes(b)))),
-    ]
 }
 
 /// Wrap `leaf` in the given scopes, outermost first.
@@ -248,54 +220,13 @@ fn wrapped(kinds: &[Wrap], leaf: ciborium::Value) -> ciborium::Value {
     value
 }
 
-proptest! {
-    /// The send-side depth scanner and the decoder's recursion limit
-    /// agree on accept/reject for values nested to depths around the
-    /// limit (limit − 1 through limit + 1 wrapper scopes).
-    ///
-    /// Arrays, maps, and tags mixed over scalar leaves: the committed
-    /// instrument that keeps the symmetric bound true against either
-    /// side drifting.
-    #[test]
-    fn depth_scanner_agrees_with_the_decoder(
-        (limit, kinds) in (2u64..=16).prop_flat_map(|limit| {
-            let lo = (limit - 1) as usize;
-            (
-                Just(limit),
-                proptest::collection::vec(wrap_kind(), lo..=lo + 2),
-            )
-        }),
-        leaf in depth_leaf(),
-    ) {
-        let value = wrapped(&kinds, leaf);
-        let bytes = cbor_vec(&value);
-        let limit = super::PayloadDepthLimit::new(limit);
-        let scanner = super::depth_within(&bytes, limit).is_ok();
-        let decoder = match ciborium::de::from_reader_with_recursion_limit::<ciborium::Value, _>(
-            bytes.as_slice(),
-            limit.recursion_limit(),
-        ) {
-            Ok(_) => true,
-            Err(ciborium::de::Error::RecursionLimitExceeded) => false,
-            Err(e) => {
-                return Err(TestCaseError::fail(format!(
-                    "the decoder failed outside the depth domain: {e}"
-                )));
-            }
-        };
-        prop_assert_eq!(
-            scanner,
-            decoder,
-            "scanner and decoder disagree at {:?} over {:?}",
-            limit,
-            kinds
-        );
-    }
-}
-
-/// The admission boundary is exact and typed: a value at the configured
-/// limit constructs, one scope past it is `PayloadDepthError` carrying
-/// the configured limit, and the decoder draws the same line.
+/// The admission boundary is exact and typed.
+///
+/// A value whose decode needs exactly the configured limit constructs,
+/// one more recursion step is `EncodeError::Depth` carrying the
+/// configured limit, and wire-style rehydration draws the same line —
+/// admission and ingress are the same decode, so the two verdicts
+/// cannot differ.
 #[test]
 fn try_new_admits_exactly_the_limit() {
     let limit = super::PayloadDepthLimit::new(8);
@@ -305,15 +236,91 @@ fn try_new_admits_exactly_the_limit() {
 
     let over = ciborium::Value::Array(vec![at]);
     let error = Message::try_new(over.clone(), limit).unwrap_err();
-    assert_eq!(error.limit, limit);
+    assert!(
+        matches!(error, super::EncodeError::Depth { limit: l } if l == limit),
+        "one step past the limit is the typed depth case: {error:?}"
+    );
 
-    // The decoder agrees on both sides of the line.
+    // Rehydration rejects the same bytes admission rejects.
     assert!(
         Message::from_slice::<ciborium::Value>(&cbor_vec(&over), limit).is_err(),
-        "the decoder rejects what the scanner rejects"
+        "the decoder rejects what admission rejects"
     );
     let raised = super::PayloadDepthLimit::new(9);
-    Message::try_new(over, raised).expect("one more scope of limit admits it");
+    Message::try_new(over, raised).expect("one more step of limit admits it");
+}
+
+/// A recursive enum whose spine is `serde`'s newtype-variant shape.
+///
+/// Each `N` wrapper is one map scope on the wire, and decoding it as
+/// `E` prices the innermost unit variant one further recursion step —
+/// the type-dependent accounting only the type's own decode can price.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+enum E {
+    A,
+    N(Box<E>),
+}
+
+/// `E::A` under `wrappers` layers of `E::N`.
+fn nested_enum(wrappers: u64) -> E {
+    (0..wrappers).fold(E::A, |e, _| E::N(Box::new(e)))
+}
+
+/// The admission boundary is exact for an enum payload.
+///
+/// The enum's decode recursion is type-dependent (the innermost unit
+/// variant costs a step no structural count of the bytes would find):
+/// the deepest value whose decode fits the limit is admitted, one more
+/// wrapper is `EncodeError::Depth` — at the author, never at a
+/// receiver.
+#[test]
+fn try_new_prices_an_enums_own_decode() {
+    let limit = super::PayloadDepthLimit::new(8);
+    // 7 map scopes + the unit-variant step = 8: exactly the limit.
+    let at = nested_enum(limit.get() - 1);
+    let m = Message::try_new(at, limit).expect("a decode at exactly the limit is admitted");
+    assert_eq!(
+        &*Message::from_slice::<E>(m.as_slice(), limit)
+            .expect("the admitted encoding decodes at an equally-configured receiver")
+            .arc::<E>(),
+        &nested_enum(limit.get() - 1),
+    );
+
+    // 8 map scopes + the unit-variant step = 9: one past the limit.
+    let error = Message::try_new(nested_enum(limit.get()), limit).unwrap_err();
+    assert!(
+        matches!(error, super::EncodeError::Depth { limit: l } if l == limit),
+        "a decode needing limit + 1 is the typed depth case: {error:?}"
+    );
+}
+
+/// A payload type violating the round-trip obligation: it serializes as
+/// an integer but deserializes expecting text.
+#[derive(Debug)]
+struct Lopsided;
+
+impl Serialize for Lopsided {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_u64(0)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Lopsided {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        String::deserialize(deserializer).map(|_| Lopsided)
+    }
+}
+
+/// A payload type whose `Deserialize` rejects its own `Serialize` output
+/// is the typed `EncodeError::Roundtrip` at the author — the value would
+/// have failed at every receiver, and admission is that decode.
+#[test]
+fn a_type_that_cannot_read_its_own_output_fails_admission() {
+    let error = Message::try_new(Lopsided, super::PayloadDepthLimit::default()).unwrap_err();
+    assert!(
+        matches!(error, super::EncodeError::Roundtrip(_)),
+        "the round-trip violation is its own typed case: {error:?}"
+    );
 }
 
 /// The minted codec's serializing half applies the carried limit and
@@ -329,7 +336,10 @@ fn codec_serializes_through_the_carried_limit() {
 
     let deep = wrapped(&[Wrap::Map; 5], ciborium::Value::Bool(true));
     let error = codec.message(Arc::new(deep)).unwrap_err();
-    assert_eq!(error.limit, limit);
+    assert!(
+        matches!(error, super::EncodeError::Depth { limit: l } if l == limit),
+        "the codec surfaces the carried limit: {error:?}"
+    );
 
     let shallow = wrapped(&[Wrap::Tag(24); 4], ciborium::Value::Null);
     let stored: Arc<ciborium::Value> = Arc::new(shallow.clone());

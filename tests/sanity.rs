@@ -49,7 +49,7 @@ proptest! {
                     for v in &alice_values {
                         batch.send(*v)?;
                     }
-                    Ok::<(), rumors::PayloadDepthError>(())
+                    Ok::<(), rumors::EncodeError>(())
                 })
                 .expect("flat test payloads are within any depth limit");
         }
@@ -61,7 +61,7 @@ proptest! {
                     for v in &bob_values {
                         batch.send(*v)?;
                     }
-                    Ok::<(), rumors::PayloadDepthError>(())
+                    Ok::<(), rumors::EncodeError>(())
                 })
                 .expect("flat test payloads are within any depth limit");
         }

@@ -60,7 +60,7 @@ pub fn send_units(rumors: &Rumors<()>, n: usize) {
             for _ in 0..n {
                 batch.send(())?;
             }
-            Ok::<(), rumors::PayloadDepthError>(())
+            Ok::<(), rumors::EncodeError>(())
         })
         .expect("flat test payloads are within any depth limit");
 }
@@ -174,7 +174,7 @@ pub fn build(cell: Cell) -> (Rumors<()>, Rumors<()>) {
             for version in &shared[..redacted] {
                 batch.redact(version);
             }
-            Ok::<(), rumors::PayloadDepthError>(())
+            Ok::<(), rumors::EncodeError>(())
         })
         .expect("flat test payloads are within any depth limit");
         right
@@ -182,7 +182,7 @@ pub fn build(cell: Cell) -> (Rumors<()>, Rumors<()>) {
                 for version in &shared[redacted..2 * redacted] {
                     batch.redact(version);
                 }
-                Ok::<(), rumors::PayloadDepthError>(())
+                Ok::<(), rumors::EncodeError>(())
             })
             .expect("flat test payloads are within any depth limit");
     }

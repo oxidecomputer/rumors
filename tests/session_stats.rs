@@ -266,7 +266,7 @@ fn byte_counters_match_the_transport_tally() {
                 for i in 0u8..20 {
                     batch.send(vec![i; 64])?;
                 }
-                Ok::<(), rumors::PayloadDepthError>(())
+                Ok::<(), rumors::EncodeError>(())
             })
             .expect("flat test payloads are within any depth limit");
         }
@@ -275,7 +275,7 @@ fn byte_counters_match_the_transport_tally() {
                 for i in 0u8..20 {
                     batch.send(vec![0xa0 | (i & 0x0f); 96])?;
                 }
-                Ok::<(), rumors::PayloadDepthError>(())
+                Ok::<(), rumors::EncodeError>(())
             })
             .expect("flat test payloads are within any depth limit");
         }
@@ -353,7 +353,7 @@ proptest! {
                         for send in &a_sends {
                             batch.send(*send)?;
                         }
-                        Ok::<(), rumors::PayloadDepthError>(())
+                        Ok::<(), rumors::EncodeError>(())
                     })
                     .expect("flat test payloads are within any depth limit");
             }
@@ -363,7 +363,7 @@ proptest! {
                         for send in &b_sends {
                             batch.send(*send)?;
                         }
-                        Ok::<(), rumors::PayloadDepthError>(())
+                        Ok::<(), rumors::EncodeError>(())
                     })
                     .expect("flat test payloads are within any depth limit");
             }

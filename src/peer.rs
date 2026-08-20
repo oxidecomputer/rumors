@@ -12,7 +12,7 @@ use tokio::sync::{Mutex, watch};
 use crate::bookmark::{BookmarkError, Bookmarked, NoBookmark};
 use crate::link::{Acceptor, Connector, Link};
 pub use crate::message::{DEFAULT_PAYLOAD_DEPTH_LIMIT, PayloadDepthLimit};
-use crate::message::{PayloadCodec, PayloadDepthError};
+use crate::message::{EncodeError, PayloadCodec};
 use crate::observe::{Attachment, Observer};
 use crate::tree::Tree;
 pub use crate::tree::mirror::streaming::remote::DEFAULT_TARGET_MESSAGE_SIZE;
@@ -578,44 +578,55 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// Bound the nesting depth of the message payloads this peer sends
     /// and accepts.
     ///
-    /// A payload value's CBOR encoding may nest at most `limit` scopes of
-    /// containers and tags. What counts as one scope is the CBOR
-    /// decoder's own recursion accounting — arrays, maps, and tags each
-    /// open one — and the bound's symmetry is pinned by a committed
-    /// differential test holding the send-side scan and the decoder to
-    /// the same verdict at the limit and beside it. The default,
-    /// [`DEFAULT_PAYLOAD_DEPTH_LIMIT`], is 256 scopes: exactly the bound
+    /// A payload value is accepted only if decoding its CBOR encoding as
+    /// the peer's payload type recurses at most `limit` steps. What
+    /// consumes one step is the decode engine's own accounting for that
+    /// type — arrays, maps, and tags each do, and so can type-driven
+    /// wrappers such as an enum's variant scope — so the bound is
+    /// engine-defined, not a structural count of the bytes. The default,
+    /// [`DEFAULT_PAYLOAD_DEPTH_LIMIT`], is 256 steps: exactly the bound
     /// the decoder applies by default, so a fleet at the default sees no
     /// acceptance change on existing content.
     ///
     /// Three points enforce the one bound:
     ///
     /// - **Send** ([`Rumors::send`](crate::Rumors::send),
-    ///   [`Batch::send`](crate::Batch::send)): an over-deep value is
-    ///   rejected at its author, at the moment of choice, with a typed
-    ///   [`PayloadDepthError`].
+    ///   [`Batch::send`](crate::Batch::send)): admission runs the exact
+    ///   decode every receiver's wire ingress runs — same payload type,
+    ///   same limit, same engine — so an over-deep value is rejected at
+    ///   its author, at the moment of choice, with a typed
+    ///   [`EncodeError`].
     /// - **Handshake**: the greeting carries each side's configured
     ///   limit, and a session proceeds only if the two are exactly equal;
     ///   a mismatch in either direction aborts both sides with
     ///   [`Error::PayloadDepthMismatch`](crate::Error::PayloadDepthMismatch)
     ///   before anything else — the converged-session short-circuit
     ///   included — so a mixed configuration is caught at every pairing.
-    /// - **Wire ingress**: a record whose payload nests past this peer's
-    ///   limit fails its session with a typed decode error, so even a
-    ///   nonconforming implementation cannot plant over-deep content.
+    /// - **Wire ingress**: every payload decode runs under this same
+    ///   limit, so over-deep *content* supplied by a nonconforming
+    ///   implementation fails its session with a typed decode error.
+    ///   The bound governs the decode's recursion, not the bytes' shape:
+    ///   deep byte patterns the engine consumes without recursing (a tag
+    ///   chain in a scalar position, say) decode fine and are harmless.
     ///
     /// Together those establish the invariant this setting exists for:
     /// between conforming peers, no session can fail on payload depth at
-    /// all. Over-deep values are rejected at their author, and mismatched
-    /// fleets are rejected at the handshake. The limit is a property of
-    /// the *shared set* — every replica must be able to hold and forward
-    /// all content — which is why the handshake demands equality rather
-    /// than negotiating: a peer whose session bound dropped below its own
-    /// configured limit could already hold messages deeper than the
-    /// negotiated bound, which it would then not be allowed to gossip.
-    /// Changing the limit is therefore a fleet-coordinated configuration
-    /// event, like changing the selected [`Protocol`], never a per-peer
-    /// tuning parameter.
+    /// all — true by construction within a decode-engine version, because
+    /// admission and ingress are one computation, not two accountings
+    /// held in agreement. Over-deep values are rejected at their author,
+    /// and mismatched fleets are rejected at the handshake. (A fleet
+    /// mixing builds whose CBOR engine versions account recursion
+    /// differently could still diverge; upgrading the engine is a
+    /// fleet-coordination event in the same register as changing this
+    /// limit.) The limit is a property of the *shared set* — every
+    /// replica must be able to hold and forward all content — which is
+    /// why the handshake demands equality rather than negotiating: a
+    /// peer whose session bound dropped below its own configured limit
+    /// could already hold messages deeper than the negotiated bound,
+    /// which it would then not be allowed to gossip. Changing the limit
+    /// is therefore a fleet-coordinated configuration event, like
+    /// changing the selected [`Protocol`], never a per-peer tuning
+    /// parameter.
     ///
     /// The frozen `Protocol::V1` greeting cannot carry the parameter, so
     /// V1 sessions enforce only at decode, and a mixed-limit V1 fleet can
@@ -641,7 +652,7 @@ impl<T, B: BookmarkError> Peer<T, B> {
         Rumors::new(self)
     }
 
-    pub(crate) fn send(&self, message: T) -> Result<(), PayloadDepthError>
+    pub(crate) fn send(&self, message: T) -> Result<(), EncodeError>
     where
         T: Send + Sync + 'static,
     {

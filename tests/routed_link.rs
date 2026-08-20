@@ -240,7 +240,7 @@ async fn pooled_mutual_sessions_converge() {
                 for payload in 0..48u64 {
                     batch.send(payload)?;
                 }
-                Ok::<(), rumors::PayloadDepthError>(())
+                Ok::<(), rumors::EncodeError>(())
             })
             .expect("flat test payloads are within any depth limit");
         }
@@ -250,7 +250,7 @@ async fn pooled_mutual_sessions_converge() {
                     for payload in 48..96u64 {
                         batch.send(payload)?;
                     }
-                    Ok::<(), rumors::PayloadDepthError>(())
+                    Ok::<(), rumors::EncodeError>(())
                 })
                 .expect("flat test payloads are within any depth limit");
         }

@@ -527,7 +527,7 @@ fn deep_trie_divergence() {
                 for v in 0..DEEP_TRIE_PER_SIDE {
                     batch.send(v)?;
                 }
-                Ok::<(), rumors::PayloadDepthError>(())
+                Ok::<(), rumors::EncodeError>(())
             })
             .expect("flat test payloads are within any depth limit");
         }
@@ -536,7 +536,7 @@ fn deep_trie_divergence() {
                 for v in DEEP_TRIE_PER_SIDE..2 * DEEP_TRIE_PER_SIDE {
                     batch.send(v)?;
                 }
-                Ok::<(), rumors::PayloadDepthError>(())
+                Ok::<(), rumors::EncodeError>(())
             })
             .expect("flat test payloads are within any depth limit");
         }

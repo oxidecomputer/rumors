@@ -689,7 +689,7 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
             for &v in &plan.seed_messages {
                 batch.send(v)?;
             }
-            Ok::<(), rumors::PayloadDepthError>(())
+            Ok::<(), rumors::EncodeError>(())
         })
         .expect("flat test payloads are within any depth limit");
     }

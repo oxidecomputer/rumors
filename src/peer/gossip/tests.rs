@@ -167,7 +167,7 @@ fn redacted_history_root(events: u64) -> tree::Root {
                 for v in 0..events {
                     batch.send(v)?;
                 }
-                Ok::<(), crate::message::PayloadDepthError>(())
+                Ok::<(), crate::message::EncodeError>(())
             })
             .expect("flat test payloads are within any depth limit");
     }
@@ -182,7 +182,7 @@ fn redacted_history_root(events: u64) -> tree::Root {
                 for version in &versions {
                     batch.redact(version);
                 }
-                Ok::<(), crate::message::PayloadDepthError>(())
+                Ok::<(), crate::message::EncodeError>(())
             })
             .expect("flat test payloads are within any depth limit");
     }
@@ -284,7 +284,7 @@ fn provider_with(values: &[u64]) -> Peer<u64> {
                 for &v in values {
                     batch.send(v)?;
                 }
-                Ok::<(), crate::message::PayloadDepthError>(())
+                Ok::<(), crate::message::EncodeError>(())
             })
             .expect("flat test payloads are within any depth limit");
     }

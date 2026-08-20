@@ -26,7 +26,7 @@ fn batch_send(rumors: &Rumors<u64>, values: impl IntoIterator<Item = u64>) {
             for value in values {
                 batch.send(value)?;
             }
-            Ok::<(), rumors::PayloadDepthError>(())
+            Ok::<(), rumors::EncodeError>(())
         })
         .expect("flat test payloads are within any depth limit");
 }

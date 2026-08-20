@@ -431,7 +431,7 @@ fn main() -> io::Result<()> {
             for _ in 0..args.seed_messages {
                 batch.send(random_message(&mut rng, args.message_size))?;
             }
-            Ok::<(), rumors::PayloadDepthError>(())
+            Ok::<(), rumors::EncodeError>(())
         })
         .expect("flat test payloads are within any depth limit");
     }

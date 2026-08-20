@@ -33,7 +33,7 @@ fn with_messages(k: Peer<u64>, vals: &[u64]) -> Peer<u64> {
         for &v in vals {
             batch.send(v)?;
         }
-        Ok::<(), crate::message::PayloadDepthError>(())
+        Ok::<(), crate::message::EncodeError>(())
     })
     .expect("flat test payloads are within any depth limit");
     k

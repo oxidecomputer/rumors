@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use tokio::sync::watch;
 
-use crate::message::{PayloadCodec, PayloadDepthError};
+use crate::message::{EncodeError, PayloadCodec};
 use crate::tree::Action;
 use crate::tree::typed::Path;
 use crate::{Inner, Version};
@@ -43,11 +43,14 @@ impl<'a, T: Send + Sync> Batch<'a, T> {
 
     /// Queues a message for this batch's commit.
     ///
-    /// Serialization and depth admission run here, not at commit: the
-    /// message is serialized through the peer's codec immediately, and a
-    /// payload whose encoding nests deeper than the peer's
-    /// [`payload_depth_limit`](crate::Peer::payload_depth_limit) is the
-    /// typed error, surfacing at the offending call. Propagating the
+    /// Serialization and admission run here, not at commit: the message
+    /// is serialized through the peer's codec immediately, and a payload
+    /// a receiver would reject — one nesting deeper than the peer's
+    /// [`payload_depth_limit`](crate::Peer::payload_depth_limit), or one
+    /// whose type does not survive its own serde round-trip — is the
+    /// typed [`EncodeError`], surfacing at the offending call
+    /// ([`Rumors::send`](crate::Rumors::send) states the admission
+    /// contract). Propagating the
     /// error out of the closure cancels the whole batch
     /// ([`Rumors::batch`](crate::Rumors::batch)'s commit-on-`Ok`
     /// contract); handling it locally keeps the batch alive with the
@@ -59,7 +62,7 @@ impl<'a, T: Send + Sync> Batch<'a, T> {
     /// obligation, so a payload type whose `Serialize` implementation
     /// reports an error is a bug in the payload type, exactly as
     /// [`Rumors::send`](crate::Rumors::send) treats it.
-    pub fn send(&mut self, message: T) -> Result<(), PayloadDepthError>
+    pub fn send(&mut self, message: T) -> Result<(), EncodeError>
     where
         T: 'static,
     {

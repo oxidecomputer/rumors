@@ -78,7 +78,7 @@ fn send_random(rumors: &Rumors<u64>, n: usize, rng: &mut SmallRng) {
             for _ in 0..n {
                 batch.send(rng.next_u64())?;
             }
-            Ok::<(), rumors::PayloadDepthError>(())
+            Ok::<(), rumors::EncodeError>(())
         })
         .expect("flat test payloads are within any depth limit");
 }
@@ -253,7 +253,7 @@ fn wide_concurrent_frontiers_stay_inside_the_exchanged_bound() {
                 for _ in 0..=ticks {
                     batch.send(rng.next_u64())?;
                 }
-                Ok::<(), rumors::PayloadDepthError>(())
+                Ok::<(), rumors::EncodeError>(())
             })
             .expect("flat test payloads are within any depth limit");
     }

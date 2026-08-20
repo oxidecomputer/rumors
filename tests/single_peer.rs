@@ -23,7 +23,7 @@ fn batch_send(peer: &Rumors<u64>, values: &[u64]) -> Vec<Version> {
         for v in values {
             batch.send(*v)?;
         }
-        Ok::<(), rumors::PayloadDepthError>(())
+        Ok::<(), rumors::EncodeError>(())
     })
     .expect("flat test payloads are within any depth limit");
     peer.snapshot()
@@ -200,7 +200,7 @@ fn a_panicked_batch_commits_nothing() {
                 value: 2,
                 fail: true,
             })?;
-            Ok::<(), rumors::PayloadDepthError>(())
+            Ok::<(), rumors::EncodeError>(())
         })
     }));
     assert!(unwound.is_err(), "the second send must panic");
@@ -234,7 +234,7 @@ fn a_batch_commits_iff_the_closure_returns_ok() {
             // Nothing queued is visible while the closure runs: the batch
             // publishes only at its commit.
             assert_eq!(rumors.snapshot().len(), 1, "queueing publishes nothing");
-            Ok::<(), rumors::PayloadDepthError>(())
+            Ok::<(), rumors::EncodeError>(())
         })
         .expect("flat payloads are within any depth limit");
 
@@ -263,10 +263,13 @@ fn a_depth_error_cancels_the_whole_batch() {
         .batch(|batch| {
             batch.send(Value::Bool(true))?;
             batch.send(deep.clone())?;
-            Ok::<(), rumors::PayloadDepthError>(())
+            Ok::<(), rumors::EncodeError>(())
         })
         .expect_err("the second send exceeds the limit");
-    assert_eq!(error.limit, limit);
+    assert!(
+        matches!(error, rumors::EncodeError::Depth { limit: l } if l == limit),
+        "the rejection is the typed depth case naming the limit: {error:?}"
+    );
     assert_eq!(
         rumors.snapshot().len(),
         0,
@@ -312,7 +315,7 @@ fn nested_batches_commit_inner_before_outer() {
                 mid.contains(&2) && mid.contains(&3) && !mid.contains(&1),
                 "inner commits land before the outer batch: {mid:?}"
             );
-            Ok::<(), rumors::PayloadDepthError>(())
+            Ok::<(), rumors::EncodeError>(())
         })
         .expect("flat payloads are within any depth limit");
     assert_eq!(rumors.snapshot().len(), 3, "the outer batch lands last");

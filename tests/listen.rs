@@ -84,7 +84,7 @@ fn genesis_replay_observes_the_live_set_once() {
                 for v in 0..8u64 {
                     batch.send(v)?;
                 }
-                Ok::<(), rumors::PayloadDepthError>(())
+                Ok::<(), rumors::EncodeError>(())
             })
             .expect("flat test payloads are within any depth limit");
     }
@@ -641,7 +641,7 @@ proptest! {
                     for v in &phase_one {
                         batch.send(*v)?;
                     }
-                    Ok::<(), rumors::PayloadDepthError>(())
+                    Ok::<(), rumors::EncodeError>(())
                 })
                 .expect("flat test payloads are within any depth limit");
         }
@@ -671,7 +671,7 @@ proptest! {
                     for v in &phase_two {
                         batch.send(*v)?;
                     }
-                    Ok::<(), rumors::PayloadDepthError>(())
+                    Ok::<(), rumors::EncodeError>(())
                 })
                 .expect("flat test payloads are within any depth limit");
         }
