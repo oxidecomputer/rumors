@@ -11,6 +11,7 @@ use tokio::sync::{Mutex, watch};
 
 use crate::bookmark::{BookmarkError, Bookmarked, NoBookmark};
 use crate::link::{Acceptor, Connector, Link};
+use crate::message::{Message, PayloadDeserializer};
 use crate::tree::Tree;
 pub use crate::tree::mirror::streaming::remote::DEFAULT_TARGET_MESSAGE_SIZE;
 use crate::tree::mirror::streaming::remote::RunBudget;
@@ -157,6 +158,10 @@ pub struct Peer<T, B: BookmarkError = NoBookmark> {
     /// Separate from `inner` because persisting is `async` and the record is
     /// `!Clone`; see [`Bookmarked`].
     pub(crate) bookmark: Arc<Mutex<Bookmarked<B>>>,
+    /// The payload deserializer minted at construction: the typed ingress
+    /// every gossip session's supplied leaf records decode through (see
+    /// [`Message::deserializer`](crate::message::Message::deserializer)).
+    pub(crate) deserializer: PayloadDeserializer,
 }
 
 /// The replica's shared mutable state, behind the `watch` channel every
@@ -184,11 +189,16 @@ impl<T, B: BookmarkError> std::fmt::Debug for Peer<T, B> {
     }
 }
 
-impl<T> Peer<T, NoBookmark> {
+impl<T: DeserializeOwned + Send + Sync + 'static> Peer<T, NoBookmark> {
     /// Create the distinguished seed rumor set: the single root from which
     /// every other participant must [`bootstrap`](Peer::bootstrap).
     ///
     /// Call this exactly once per universe of cooperating peers.
+    ///
+    /// The payload type's [`DeserializeOwned`] lives here, at
+    /// construction: the peer mints its payload deserializer once, and
+    /// every gossip session decodes through it, so the gossip entry
+    /// points themselves carry no serde bounds.
     pub fn seed() -> Self {
         Self::seed_rng(&mut OsRng)
     }
@@ -207,6 +217,7 @@ impl<T> Peer<T, NoBookmark> {
                 tree: Tree::new(),
             }),
             bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
+            deserializer: Message::deserializer::<T>(),
         }
     }
 }
@@ -275,7 +286,7 @@ impl<T, B: Bookmark> Peer<T, B> {
     /// promises](crate::link::Link#what-a-session-promises).
     pub async fn retire<CR, CW, C, A>(self, link: &mut Link<CR, CW, C, A>) -> Retire<T, B>
     where
-        T: DeserializeOwned + Serialize + Send + Sync + 'static,
+        T: Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,
@@ -544,7 +555,7 @@ impl<T, B: BookmarkError> Peer<T, B> {
 
     pub(crate) fn send(&self, message: T) -> Batch<'_, T>
     where
-        T: Serialize + Send + Sync,
+        T: Serialize + Send + Sync + 'static,
     {
         let mut batch = self.batch();
         batch.send(message);

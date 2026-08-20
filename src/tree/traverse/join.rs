@@ -54,16 +54,13 @@ use height::{Height, Root, S, Z};
 /// drops live at distinct version-addressed paths and each is monotone at its
 /// path, so they cannot cancel: an untouched flag really means the merged
 /// tree is `a`, content-identical, equal root hash.
-pub fn join<T>(
-    a: Option<Node<T, Root>>,
-    b: Option<Node<T, Root>>,
+pub fn join(
+    a: Option<Node<Root>>,
+    b: Option<Node<Root>>,
     a_version: &Version,
     b_version: &Version,
     changed: &mut bool,
-) -> Option<Node<T, Root>>
-where
-    T: Send + Sync,
-{
+) -> Option<Node<Root>> {
     // Test-only unwind source for the panic-atomicity pin: the merge walk
     // is the unwind-source region of `Tree::join`'s commit section (deletion
     // honoring and the duplicate-subtree drops run `T` destructors), and its
@@ -82,31 +79,26 @@ where
 /// on any gain from `b` or any deletion-honoring drop from `a`, left
 /// alone when the result is content-identical to `a`.
 pub trait Join: Unknown {
-    fn join<T>(
-        a: Option<Node<T, Self>>,
-        b: Option<Node<T, Self>>,
+    fn join(
+        a: Option<Node<Self>>,
+        b: Option<Node<Self>>,
         a_version: &Version,
         b_version: &Version,
         changed: &mut bool,
-    ) -> Option<Node<T, Self>>
-    where
-        T: Send + Sync;
+    ) -> Option<Node<Self>>;
 }
 
 impl<H: Join> Join for S<H>
 where
     S<H>: Height + Unknown,
 {
-    fn join<T>(
-        a: Option<Node<T, S<H>>>,
-        b: Option<Node<T, S<H>>>,
+    fn join(
+        a: Option<Node<S<H>>>,
+        b: Option<Node<S<H>>>,
         a_version: &Version,
         b_version: &Version,
         changed: &mut bool,
-    ) -> Option<Node<T, S<H>>>
-    where
-        T: Send + Sync,
-    {
+    ) -> Option<Node<S<H>>> {
         // Test-only unwind source, continued: every branch-level merge step
         // burns one fuse step, so a fuse armed past the entry unwinds only
         // after earlier steps completed real merge work.
@@ -207,16 +199,13 @@ where
 }
 
 impl Join for Z {
-    fn join<T>(
-        a: Option<Node<T, Z>>,
-        b: Option<Node<T, Z>>,
+    fn join(
+        a: Option<Node<Z>>,
+        b: Option<Node<Z>>,
         a_version: &Version,
         b_version: &Version,
         changed: &mut bool,
-    ) -> Option<Node<T, Z>>
-    where
-        T: Send + Sync,
-    {
+    ) -> Option<Node<Z>> {
         match (a, b) {
             (None, None) => None,
             // The leaf-level base of the asymmetric arms' change detection:

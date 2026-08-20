@@ -84,7 +84,7 @@ proptest! {
         bootstrapped.send(u64::MAX);
         wire_gossip(&provider, &bootstrapped);
         prop_assert!(
-            provider.snapshot().iter().any(|(_, m)| **m == u64::MAX),
+            provider.snapshot().iter().any(|(_, m)| *m == u64::MAX),
             "the newcomer's origination must survive gossip into the provider",
         );
     }
@@ -114,7 +114,7 @@ proptest! {
         bootstrapped.send("newcomer's own".to_string());
         wire_gossip(&provider, &bootstrapped);
         prop_assert!(
-            provider.snapshot().iter().any(|(_, m)| **m == "newcomer's own"),
+            provider.snapshot().iter().any(|(_, m)| *m == "newcomer's own"),
             "the newcomer's origination must survive gossip into the provider",
         );
     }
@@ -192,7 +192,7 @@ fn zero_budget_bootstrap_converges() {
     bootstrapped.send(u64::MAX);
     wire_gossip(&provider, &bootstrapped);
     assert!(
-        provider.snapshot().iter().any(|(_, m)| **m == u64::MAX),
+        provider.snapshot().iter().any(|(_, m)| *m == u64::MAX),
         "the newcomer's origination must survive its zero-budget gossip",
     );
 }

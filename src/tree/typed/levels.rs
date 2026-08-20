@@ -12,7 +12,7 @@ mod level;
 pub use level::Level;
 
 /// Create a new [`Levels`] from the root of a tree.
-pub fn levels<T>(root: Option<Node<T, Root>>) -> Top<T> {
+pub fn levels(root: Option<Node<Root>>) -> Top {
     Top {
         root: Level::from_iter(root.map(|root| (Prefix::new(), root))),
     }
@@ -20,33 +20,20 @@ pub fn levels<T>(root: Option<Node<T, Root>>) -> Top<T> {
 
 /// A multi-zipper into a tree.
 pub trait Levels: Default + Clone + sealed::Sealed {
-    /// The message type of the underlying nodes.
-    ///
-    /// `Send + Sync` is required because the traversal futures
-    /// ([`Unknown::unknown`](crate::tree::traverse::unknown::Unknown::unknown),
-    /// [`Act::act`](crate::tree::traverse::act::Act::act)) are declared as
-    /// `-> impl Future + Send` so that the recursive `Box::pin` inside each
-    /// inductive case can coerce to `Pin<Box<dyn Future + Send>>`. That
-    /// coercion discharges the inner state machine's auto-trait check at each
-    /// recursion site, terminating what would otherwise be a height-deep walk
-    /// through every level's captured state; the captured node values
-    /// (containing messages) must therefore be `Send + Sync`.
-    type Message: Send + Sync;
-
     /// The height of the bottom-most level.
     type Height: Height;
 
     /// Collapse a [`Levels`] back to a node by folding all the levels together.
-    fn collapse(self) -> Option<Node<Self::Message, Root>>;
+    fn collapse(self) -> Option<Node<Root>>;
 
     /// Get an immutable reference to the bottom-most level.
-    fn level(&self) -> &Level<Self::Message, Self::Height>;
+    fn level(&self) -> &Level<Self::Height>;
 
     /// Get a mutable reference to the bottom-most level.
-    fn level_mut(&mut self) -> &mut Level<Self::Message, Self::Height>;
+    fn level_mut(&mut self) -> &mut Level<Self::Height>;
 
     /// Tack a new level onto the bottom of this [`Levels`], decreasing its height by one.
-    fn down<H>(self, below: Level<Self::Message, H>) -> Below<H, Self>
+    fn down<H>(self, below: Level<H>) -> Below<H, Self>
     where
         S<H>: Height,
         H: Height,
@@ -61,42 +48,23 @@ pub trait Levels: Default + Clone + sealed::Sealed {
 
 /// The one-level zipper: just the root level. Every descent starts here,
 /// and every [`collapse`](Levels::collapse) folds back to here.
-pub struct Top<T> {
-    root: Level<T, Root>,
+#[derive(Clone, Default)]
+pub struct Top {
+    root: Level<Root>,
 }
 
-impl<T> Clone for Top<T> {
-    fn clone(&self) -> Self {
-        Self {
-            root: self.root.clone(),
-        }
-    }
-}
-
-impl<T> Default for Top<T> {
-    fn default() -> Self {
-        Self {
-            root: Default::default(),
-        }
-    }
-}
-
-impl<T> Levels for Top<T>
-where
-    T: Send + Sync,
-{
-    type Message = T;
+impl Levels for Top {
     type Height = Root;
 
-    fn collapse(mut self) -> Option<Node<T, Root>> {
+    fn collapse(mut self) -> Option<Node<Root>> {
         self.root.remove(&Prefix::new())
     }
 
-    fn level(&self) -> &Level<T, Self::Height> {
+    fn level(&self) -> &Level<Self::Height> {
         &self.root
     }
 
-    fn level_mut(&mut self) -> &mut Level<T, Self::Height> {
+    fn level_mut(&mut self) -> &mut Level<Self::Height> {
         &mut self.root
     }
 }
@@ -111,7 +79,7 @@ where
     A: Levels<Height = S<H>>,
     H: Height,
 {
-    here: Level<A::Message, H>,
+    here: Level<H>,
     above: A,
 }
 
@@ -147,10 +115,9 @@ where
     S<H>: Height,
     H: Height,
 {
-    type Message = A::Message;
     type Height = <A::Height as Pred>::Pred;
 
-    fn collapse(mut self) -> Option<Node<A::Message, Root>> {
+    fn collapse(mut self) -> Option<Node<Root>> {
         // Pop each child's prefix to get its radix and parent prefix. `Level`
         // iteration is sorted, so siblings are adjacent.
         let siblings = self.here.into_iter().map(|(prefix, node)| {
@@ -201,11 +168,11 @@ where
         self.above.collapse()
     }
 
-    fn level(&self) -> &Level<A::Message, Self::Height> {
+    fn level(&self) -> &Level<Self::Height> {
         &self.here
     }
 
-    fn level_mut(&mut self) -> &mut Level<A::Message, Self::Height> {
+    fn level_mut(&mut self) -> &mut Level<Self::Height> {
         &mut self.here
     }
 }
@@ -214,7 +181,7 @@ mod sealed {
     use super::{Below, Height, Levels, Pred, S, Top};
 
     pub trait Sealed {}
-    impl<T> Sealed for Top<T> {}
+    impl Sealed for Top {}
     impl<A: Levels<Height = S<H>> + Sealed, H: Height> Sealed for Below<H, A> where A::Height: Pred {}
 }
 

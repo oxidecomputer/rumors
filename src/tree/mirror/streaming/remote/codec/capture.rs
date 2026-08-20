@@ -324,7 +324,7 @@ fn query_lines(children: &[u8]) -> Vec<String> {
 /// whose record framing or version encoding does not decode renders the
 /// failure explicitly.
 fn supply_lines(run: Vec<u8>) -> Vec<String> {
-    let run = match LeafRun::<()>::from_encoded(run) {
+    let run = match LeafRun::from_encoded(run) {
         Ok(run) => run,
         Err(err) => {
             return vec![format!(

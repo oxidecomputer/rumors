@@ -23,8 +23,8 @@ use crate::tree::{
 };
 
 /// Whether the session stalls at a selected capacity for the fan return queue.
-fn underbuffered_mirror_stalls(a: Root<()>, b: Root<()>, capacity: usize) -> bool {
-    let (a, b): (StreamingRoot<Local, ()>, StreamingRoot<Local, ()>) = (a.into(), b.into());
+fn underbuffered_mirror_stalls(a: Root, b: Root, capacity: usize) -> bool {
+    let (a, b): (StreamingRoot<Local>, StreamingRoot<Local>) = (a.into(), b.into());
     let client = Handshaking::start(Local, a).window(WindowConfig::FLOOR);
     let server = Handshaking::start(Local, b).window(WindowConfig::FLOOR);
     with_kind_capacity(QueueKind::AssemblyLevelReturns, capacity, || {
@@ -36,7 +36,7 @@ fn underbuffered_mirror_stalls(a: Root<()>, b: Root<()>, capacity: usize) -> boo
 }
 
 /// Check one structural stress case under endpoint and poll-order variations.
-fn assert_capacity_case(name: &'static str, pair: (Root<()>, Root<()>)) {
+fn assert_capacity_case(name: &'static str, pair: (Root, Root)) {
     let (a, b) = pair;
     let expected = alternating_mirror(a.clone(), b.clone());
     let schedules = [
@@ -196,12 +196,12 @@ fn capacity_stress_witness_requires_inter_level_fan() {
 
 /// Whether one shape stalls at a return capacity under explicit poll schedules.
 fn shape_stalls(
-    pair: &(Root<()>, Root<()>),
+    pair: &(Root, Root),
     capacity: usize,
     channel_schedule: Vec<u8>,
     backend_schedule: Vec<u8>,
 ) -> bool {
-    let (a, b): (StreamingRoot<Local, ()>, StreamingRoot<Local, ()>) =
+    let (a, b): (StreamingRoot<Local>, StreamingRoot<Local>) =
         (pair.0.clone().into(), pair.1.clone().into());
     let client = Handshaking::start(Local, a).window(WindowConfig::FLOOR);
     let server = Handshaking::start(Local, b).window(WindowConfig::FLOOR);
@@ -235,7 +235,7 @@ fn probe_schedules() -> [(Vec<u8>, Vec<u8>); 5] {
 }
 
 /// Whether a shape stalls under any probe schedule at the given capacity.
-fn stalls_under_any_schedule(pair: &(Root<()>, Root<()>), capacity: usize) -> bool {
+fn stalls_under_any_schedule(pair: &(Root, Root), capacity: usize) -> bool {
     probe_schedules()
         .into_iter()
         .any(|(chan, back)| shape_stalls(pair, capacity, chan, back))

@@ -1,4 +1,4 @@
-use std::cmp::Ordering;
+use std::any::Any;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::io;
@@ -6,48 +6,57 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 
-use serde::Deserialize;
-use serde::Deserializer;
 use serde::Serialize;
 use serde::Serializer;
 use serde::de::DeserializeOwned;
-/// A message of type `T` paired with its cached serialization.
+/// A stored message: a type-erased payload paired with its cached
+/// serialization.
 ///
-/// The cache avoids repeated roundtrips through serialization: a `Message<T>`
-/// always carries the exact CBOR bytes its `T` was encoded to or decoded
-/// from. Cloning is cheap, because the serialized bytes are shared and the
-/// message is enclosed in an `Arc<T>`.
+/// The payload is held as `Arc<dyn Any + Send + Sync>` — the caller's own
+/// `Arc<T>` allocation, unsized in place — so the tree and the gossip
+/// sessions handle messages without being generic over the payload type:
+/// they compile once, and only the thin typed facades at the crate's API
+/// boundary name `T`. Construction goes through the typed constructors
+/// ([`new`](Self::new), [`from_slice`](Self::from_slice), ...); reads at
+/// the typed boundary go through the checked downcast
+/// ([`arc`](Self::arc)).
+///
+/// The cache avoids repeated roundtrips through serialization: a `Message`
+/// always carries the exact CBOR bytes its payload was encoded to or
+/// decoded from, and every identity-blind consumer — the wire encoders,
+/// size accounting — reads the cached bytes, never the payload. Cloning is
+/// cheap: both fields are shared handles.
 ///
 /// The payload encoding is CBOR (via [`ciborium`]): self-describing, so
 /// field and variant *names* are the wire contract — a decoder pairs fields
 /// by name, tolerating reordering — and no canonical encoding is required
-/// of `T`, because payload bytes carry no identity (a leaf's identity is
-/// its version).
+/// of the payload type, because payload bytes carry no identity (a leaf's
+/// identity is its version).
 ///
 /// # Panics
 ///
-/// Every value of `T` must serialize: methods that serialize (`new`,
-/// `from_arc`, `From<T>`) panic if `T`'s [`serde::Serialize`]
-/// implementation reports an error. Encoding runs into an in-memory
-/// buffer and CBOR imposes no format-driven failures (any map key, any
-/// nesting), so the only trigger is the implementation itself declining a
-/// value — which this crate treats as a bug in `T`, exactly as `Ord`'s
-/// totality is trusted. Types whose `Serialize` is data-dependently
-/// fallible (for example `std::path::PathBuf`, which errors on non-UTF-8
-/// paths) violate that obligation and must not be used as message types.
-pub struct Message<T> {
-    message: Arc<T>,
+/// Every payload value must serialize: methods that serialize
+/// ([`new`](Self::new), [`from_arc`](Self::from_arc)) panic if the
+/// payload's [`serde::Serialize`] implementation reports an error.
+/// Encoding runs into an in-memory buffer and CBOR imposes no
+/// format-driven failures (any map key, any nesting), so the only trigger
+/// is the implementation itself declining a value — which this crate
+/// treats as a bug in the payload type, exactly as `Ord`'s totality is
+/// trusted. Types whose `Serialize` is data-dependently fallible (for
+/// example `std::path::PathBuf`, which errors on non-UTF-8 paths) violate
+/// that obligation and must not be used as message types.
+///
+/// The typed read panics on a payload type mismatch; see
+/// [`arc`](Self::arc).
+#[derive(Clone)]
+pub struct Message {
+    message: Arc<dyn Any + Send + Sync>,
     serialized: Bytes,
 }
 
-impl<T> Clone for Message<T> {
-    fn clone(&self) -> Self {
-        Self {
-            message: self.message.clone(),
-            serialized: self.serialized.clone(),
-        }
-    }
-}
+/// Deserializes one exact CBOR payload encoding into a type-erased payload
+/// value; see [`Message::deserializer`].
+pub(crate) type PayloadDeserializer = fn(&[u8]) -> io::Result<Arc<dyn Any + Send + Sync>>;
 
 /// Map a ciborium deserialization failure into `io::Error`, keeping the
 /// truncation/corruption split callers classify by: a reader's own error
@@ -73,16 +82,16 @@ fn to_vec<T: Serialize>(value: &T) -> Vec<u8> {
     buf
 }
 
-impl<T> Message<T> {
+impl Message {
     /// Creates a `Message` pairing the given object with its cached
     /// serialization.
     ///
     /// # Panics
     ///
     /// If the message cannot be serialized (see [`Message`]).
-    pub fn new(message: T) -> Self
+    pub fn new<T>(message: T) -> Self
     where
-        T: Serialize,
+        T: Serialize + Send + Sync + 'static,
     {
         Message {
             serialized: Bytes::from(to_vec(&message)),
@@ -91,14 +100,14 @@ impl<T> Message<T> {
     }
 
     /// Creates a `Message` pairing the given serialized bytes with the
-    /// object derived by deserializing them.
+    /// object derived by deserializing them as a `T`.
     ///
     /// The bytes must be exactly one CBOR value: trailing bytes are
     /// rejected as invalid data, so the cache is always the value's exact
     /// encoding.
-    pub fn from_slice(bytes: &[u8]) -> io::Result<Self>
+    pub fn from_slice<T>(bytes: &[u8]) -> io::Result<Self>
     where
-        T: DeserializeOwned,
+        T: DeserializeOwned + Send + Sync + 'static,
     {
         let mut input = bytes;
         let message: T = ciborium::de::from_reader(&mut input).map_err(de_error)?;
@@ -114,28 +123,56 @@ impl<T> Message<T> {
         })
     }
 
-    /// Pairs an already-decoded object with the exact bytes it was decoded
-    /// from.
+    /// Decodes wire payload bytes into a `Message` through a
+    /// [`PayloadDeserializer`]: the one deserialization every gossip
+    /// ingress performs, with the deserializer carrying the payload type
+    /// the peer was constructed with.
     ///
-    /// The caller certifies the pairing: `serialized` must be exactly the
-    /// CBOR encoding `message` was parsed out of (the wire codec's record
-    /// parser upholds this — it hands over precisely the bytes its parse
-    /// consumed).
-    pub(crate) fn from_decoded(message: T, serialized: Bytes) -> Self {
-        Message {
-            message: Arc::new(message),
-            serialized,
+    /// The deserializer validates the bytes are exactly one CBOR value of
+    /// its type ([`from_slice`](Self::from_slice)'s contract), so the
+    /// cache is always the payload's exact encoding and a malformed
+    /// payload fails here, at the wire boundary.
+    pub(crate) fn from_wire(bytes: Bytes, deserializer: PayloadDeserializer) -> io::Result<Self> {
+        Ok(Message {
+            message: deserializer(&bytes)?,
+            serialized: bytes,
+        })
+    }
+
+    /// The deserializer for payloads of type `T`: what a
+    /// [`Peer`](crate::Peer) mints at construction and threads to every
+    /// session's wire ingress ([`from_wire`](Self::from_wire)).
+    ///
+    /// A plain function pointer, so everything that carries it stays
+    /// non-generic: the payload type's only residue in a running session.
+    pub(crate) fn deserializer<T>() -> PayloadDeserializer
+    where
+        T: DeserializeOwned + Send + Sync + 'static,
+    {
+        fn deserialize<T: DeserializeOwned + Send + Sync + 'static>(
+            bytes: &[u8],
+        ) -> io::Result<Arc<dyn Any + Send + Sync>> {
+            let mut input = bytes;
+            let message: T = ciborium::de::from_reader(&mut input).map_err(de_error)?;
+            if !input.is_empty() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("{} trailing bytes after the message payload", input.len()),
+                ));
+            }
+            Ok(Arc::new(message))
         }
+        deserialize::<T>
     }
 
     /// Creates a `Message` from already-shared serialized bytes, without
     /// copying.
     ///
-    /// The bytes are deserialized to produce the paired object, under
-    /// [`from_slice`](Self::from_slice)'s exactly-one-value contract.
-    pub fn from_bytes(bytes: Bytes) -> io::Result<Self>
+    /// The bytes are deserialized as a `T` to produce the paired object,
+    /// under [`from_slice`](Self::from_slice)'s exactly-one-value contract.
+    pub fn from_bytes<T>(bytes: Bytes) -> io::Result<Self>
     where
-        T: DeserializeOwned,
+        T: DeserializeOwned + Send + Sync + 'static,
     {
         let mut input = bytes.as_ref();
         let message: T = ciborium::de::from_reader(&mut input).map_err(de_error)?;
@@ -151,14 +188,15 @@ impl<T> Message<T> {
         })
     }
 
-    /// Creates a `Message` from an existing [`Arc`], without copying.
+    /// Creates a `Message` from an existing [`Arc`], without copying: the
+    /// same allocation, unsized in place.
     ///
     /// # Panics
     ///
     /// If the message cannot be serialized (see [`Message`]).
-    pub fn from_arc(arc: Arc<T>) -> Self
+    pub fn from_arc<T>(arc: Arc<T>) -> Self
     where
-        T: Serialize,
+        T: Serialize + Send + Sync + 'static,
     {
         Message {
             serialized: Bytes::from(to_vec(&*arc)),
@@ -166,20 +204,38 @@ impl<T> Message<T> {
         }
     }
 
-    /// Returns a reference to the object represented by this message.
-    pub fn message(&self) -> &T {
-        &self.message
+    /// Reads one `Message` off a byte stream, consuming exactly its bytes.
+    ///
+    /// The shape is one CBOR byte string wrapping the payload's own CBOR
+    /// encoding (the same shape [`Serialize`] writes), decoded through
+    /// the peer's payload deserializer. Trailing data after the byte
+    /// string survives for the next field: the property the wire codec's
+    /// mid-stream decodes rest on. Gated to the alternating protocol's
+    /// codec, its only production consumer.
+    #[cfg(any(test, feature = "protocol-v1"))]
+    pub(crate) fn from_reader<R>(reader: R, deserializer: PayloadDeserializer) -> io::Result<Self>
+    where
+        R: io::Read,
+    {
+        let bytes: Vec<u8> = ciborium::de::from_reader(reader).map_err(de_error)?;
+        Self::from_wire(Bytes::from(bytes), deserializer)
     }
 
-    /// Returns a reference to the shared [`Arc`] holding this message's
-    /// object, without cloning it.
+    /// Clones out an owned handle to the payload: a reference bump on the
+    /// same shared allocation.
     ///
-    /// Used by enumeration paths (e.g. [`Tree::iter`]) that hand out
-    /// borrowed `&Arc<T>` exactly as the public observers do.
+    /// # Panics
     ///
-    /// [`Tree::iter`]: crate::tree::Tree::iter
-    pub fn as_arc(&self) -> &Arc<T> {
-        &self.message
+    /// If the payload is not a `T`. A mismatch is always a crate bug,
+    /// never an input: every message reachable from a typed facade was
+    /// constructed with that facade's payload type — local sends through
+    /// the same `Peer`'s type, wire ingress through its typed decode —
+    /// so no gossip input can place a differently-typed payload here.
+    pub fn arc<T: Send + Sync + 'static>(&self) -> Arc<T> {
+        self.message
+            .clone()
+            .downcast::<T>()
+            .unwrap_or_else(|_| panic!("a message's payload type matches its tree's"))
     }
 
     /// Returns the serialized bytes corresponding to this message.
@@ -191,108 +247,46 @@ impl<T> Message<T> {
     pub fn bytes(&self) -> &Bytes {
         &self.serialized
     }
-
-    /// Consumes the message and returns the inner object, dropping the cached
-    /// serialization.
-    pub fn into_inner(self) -> Arc<T> {
-        self.message
-    }
-
-    /// Consumes the message and returns the inner object, dropping the cached
-    /// serialization and cloning the inner object if necessary.
-    pub fn clone_into_inner(self) -> T
-    where
-        T: Clone,
-    {
-        Arc::unwrap_or_clone(self.message)
-    }
-
-    /// Consumes the message and returns the inner object along with the
-    /// shared serialized bytes.
-    pub fn into_parts(self) -> (Arc<T>, Bytes)
-    where
-        T: Clone,
-    {
-        (self.message, self.serialized)
-    }
 }
 
-impl<T: Serialize> From<T> for Message<T> {
-    /// Creates a `Message` pairing the given object with its cached
-    /// serialization.
-    ///
-    /// # Panics
-    ///
-    /// If the message cannot be serialized (see [`Message`]).
-    fn from(message: T) -> Self {
-        Self::new(message)
-    }
-}
-
-impl<T> AsRef<T> for Message<T> {
-    fn as_ref(&self) -> &T {
-        &self.message
-    }
-}
-
-impl<T> AsRef<Arc<T>> for Message<T> {
-    fn as_ref(&self) -> &Arc<T> {
-        &self.message
-    }
-}
-
-// Manual trait implementations that treat `Message<T>` as a transparent wrapper
-// around `T`, ignoring the cached serialized bytes. Two messages holding equal
-// `T` values compare equal even if their cached bytes differ (e.g. produced by
-// different serializer versions).
-
-impl<T: fmt::Debug> fmt::Debug for Message<T> {
+/// Shows the cached serialization, not the payload: the payload's type is
+/// erased here, so its own `Debug` is out of reach.
+impl fmt::Debug for Message {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.message.fmt(f)
+        f.debug_struct("Message")
+            .field("serialized", &hex::encode(&self.serialized))
+            .finish_non_exhaustive()
     }
 }
 
-impl<T: PartialEq> PartialEq for Message<T> {
+// Equality, and the `Hash` that must agree with it, compare the cached
+// serialization: with the payload's type erased, its bytes are the whole
+// observable content. Two messages built from the same value by the same
+// constructor always carry equal bytes.
+
+impl PartialEq for Message {
     fn eq(&self, other: &Self) -> bool {
-        self.message == other.message
+        self.serialized == other.serialized
     }
 }
 
-impl<T: Eq> Eq for Message<T> {}
+impl Eq for Message {}
 
-impl<T: PartialOrd> PartialOrd for Message<T> {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.message.partial_cmp(&other.message)
-    }
-}
-
-impl<T: Ord> Ord for Message<T> {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.message.cmp(&other.message)
-    }
-}
-
-impl<T: Hash> Hash for Message<T> {
+impl Hash for Message {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.message.hash(state);
+        self.serialized.hash(state);
     }
 }
 
-// The serde form lets `Message<T>` nest inside larger CBOR values without
-// re-encoding: one byte string wrapping the cached CBOR payload. The
-// wrapper is what makes a nested message self-delimiting wherever the
-// container does not delimit it.
-
-impl<T> Serialize for Message<T> {
+/// One CBOR byte string wrapping the cached CBOR payload, so a message
+/// nests inside larger CBOR values without re-encoding.
+///
+/// The wrapper is what makes a nested message self-delimiting wherever
+/// the container does not delimit it; [`from_reader`](Message::from_reader)
+/// is the typed decoder of the same shape.
+impl Serialize for Message {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_bytes(&self.serialized)
-    }
-}
-
-impl<'de, T: DeserializeOwned> Deserialize<'de> for Message<T> {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let bytes = <Vec<u8>>::deserialize(deserializer)?;
-        Message::from_slice(&bytes).map_err(serde::de::Error::custom)
     }
 }
 

@@ -16,6 +16,9 @@
 //!   binding.
 //! - [`window`]: how one byte budget becomes per-height channel capacities.
 //! - [`message`]: the wire vocabulary, the greeting included.
+//! - [`erased`]: the height-erased seam both implementors run on — the
+//!   wire vocabulary's erased twin, its typed exits, and the dispatch
+//!   back into the height-typed backend surface.
 //! - [`convert`]: the leaf conversion boundary between backends.
 //! - [`driver`], [`channel`], [`tasks`]: plumbing — phase scheduling and
 //!   error routing, named bounded edges, task completion.
@@ -45,6 +48,7 @@ mod backend;
 mod channel;
 pub(crate) mod convert;
 mod driver;
+mod erased;
 pub mod materialized;
 mod message;
 mod protocol;
@@ -55,7 +59,7 @@ mod tasks;
 mod testing;
 pub(crate) mod window;
 
-pub use backend::{Backend, Leaf, Local, Node, Root};
+pub use backend::{Backend, ErasedNode, Leaf, Local, Node, Root};
 // The stream vocabulary the backend conformance suite decorates with;
 // crate-visible alongside the suite itself.
 #[cfg(test)]
@@ -72,18 +76,17 @@ use crate::{Version, tree::typed::height::Z};
 use driver::{mirror_connected, try_join_mapped};
 use protocol::*;
 
-type ClientConnected<C, B, T> = <<C as Connect<B, T>>::Next as CompleteConnect<B, T>>::Next;
-type ServerConnected<S, B, T> = <S as Accept<B, T>>::Next;
+type ClientConnected<C, B> = <<C as Connect<B>>::Next as CompleteConnect<B>>::Next;
+type ServerConnected<S, B> = <S as Accept<B>>::Next;
 
-pub(crate) struct Handshaken<C, S, B, T>
+pub(crate) struct Handshaken<C, S, B>
 where
-    T: Send + Sync + 'static,
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    C: Client<B, T>,
-    S: Server<B, T>,
+    B: Backend<Node<Z>: Leaf>,
+    C: Client<B>,
+    S: Server<B>,
 {
-    client: ClientConnected<C, B, T>,
-    server: ServerConnected<S, B, T>,
+    client: ClientConnected<C, B>,
+    server: ServerConnected<S, B>,
     our_version: Version,
     /// Our advertised live message count: our half of the role election's
     /// primary key ([`message::initiates`]).
@@ -91,12 +94,11 @@ where
     peer: message::Greeting,
 }
 
-impl<C, S, B, T> Handshaken<C, S, B, T>
+impl<C, S, B> Handshaken<C, S, B>
 where
-    T: Send + Sync + 'static,
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    C: Client<B, T>,
-    S: Server<B, T>,
+    B: Backend<Node<Z>: Leaf>,
+    C: Client<B>,
+    S: Server<B>,
 {
     pub(crate) fn peer(&self) -> &message::Greeting {
         let Handshaken { peer, .. } = self;
@@ -140,29 +142,27 @@ where
 /// vocabulary crossing between them. Equal handshake versions resolve both
 /// connected states without opening the descent.
 #[cfg(test)]
-pub(crate) async fn mirror<C, S, B, T>(
+pub(crate) async fn mirror<C, S, B>(
     client: C,
     server: S,
 ) -> Result<(C::Output, S::Output), Error<C::Error, S::Error>>
 where
-    T: Send + Sync + 'static,
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    C: Client<B, T>,
-    S: Server<B, T>,
+    B: Backend<Node<Z>: Leaf>,
+    C: Client<B>,
+    S: Server<B>,
 {
     handshake(client, server).await?.reconcile().await
 }
 
 /// Exchange versions and return both connected protocol states.
-pub(crate) async fn handshake<C, S, B, T>(
+pub(crate) async fn handshake<C, S, B>(
     client: C,
     server: S,
-) -> Result<Handshaken<C, S, B, T>, Error<C::Error, S::Error>>
+) -> Result<Handshaken<C, S, B>, Error<C::Error, S::Error>>
 where
-    T: Send + Sync + 'static,
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    C: Client<B, T>,
-    S: Server<B, T>,
+    B: Backend<Node<Z>: Leaf>,
+    C: Client<B>,
+    S: Server<B>,
 {
     let (our_handshake, client) = client.connect().await.map_err(Error::Client)?;
     let our_version = our_handshake.version.clone();
@@ -183,7 +183,7 @@ where
 }
 
 /// Elect the initiator from the exchanged greetings and reconcile or complete.
-pub(crate) async fn descend<L, R, B, T>(
+pub(crate) async fn descend<L, R, B>(
     local: L,
     remote: R,
     local_version: Version,
@@ -192,10 +192,9 @@ pub(crate) async fn descend<L, R, B, T>(
     remote_len: u64,
 ) -> Result<(L::Output, R::Output), Error<L::Error, R::Error>>
 where
-    T: Send + Sync + 'static,
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    L: Peer<B, T>,
-    R: Peer<B, T>,
+    B: Backend<Node<Z>: Leaf>,
+    L: Peer<B>,
+    R: Peer<B>,
 {
     if local_version == remote_version {
         return try_join_mapped(

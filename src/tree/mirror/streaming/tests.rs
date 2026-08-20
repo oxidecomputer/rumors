@@ -62,27 +62,23 @@ fn terminal_errors_preempt_parked_peers() {
 
 /// Reconcile `a` and `b` through the streaming local backend, returning both
 /// sides' reconciled roots in argument order, with no convergence assertion.
-fn streaming_mirror_sides(a: Root<()>, b: Root<()>) -> (Root<()>, Root<()>) {
+fn streaming_mirror_sides(a: Root, b: Root) -> (Root, Root) {
     streaming_mirror_sides_with_schedule(a, b, Vec::new())
 }
 
 /// Reconcile under an explicit, shrinkable channel-poll schedule.
-fn streaming_mirror_sides_with_schedule(
-    a: Root<()>,
-    b: Root<()>,
-    schedule: Vec<u8>,
-) -> (Root<()>, Root<()>) {
+fn streaming_mirror_sides_with_schedule(a: Root, b: Root, schedule: Vec<u8>) -> (Root, Root) {
     streaming_mirror_sides_with_schedules(a, b, schedule, Vec::new())
 }
 
 /// Reconcile under independent channel and Local-backend poll schedules.
 fn streaming_mirror_sides_with_schedules(
-    a: Root<()>,
-    b: Root<()>,
+    a: Root,
+    b: Root,
     channel_schedule: Vec<u8>,
     backend_schedule: Vec<u8>,
-) -> (Root<()>, Root<()>) {
-    let (a, b): (StreamingRoot<Local, ()>, StreamingRoot<Local, ()>) = (a.into(), b.into());
+) -> (Root, Root) {
+    let (a, b): (StreamingRoot<Local>, StreamingRoot<Local>) = (a.into(), b.into());
     let client = Handshaking::start(Local, a.clone()).window(WindowConfig::FLOOR);
     let server = Handshaking::start(Local, b.clone()).window(WindowConfig::FLOOR);
     let (result, trace) = with_trace(|| {
@@ -107,11 +103,8 @@ fn streaming_mirror_sides_with_schedules(
 /// The skeleton-bridge harness ([`skeleton`]): generic over the payload type
 /// so payload-perturbation twins (same paths, different contents) can run
 /// through the identical machinery.
-fn transcribed_mirror_sides<T: Send + Sync + 'static>(
-    a: Root<T>,
-    b: Root<T>,
-) -> (Root<T>, Root<T>, Trace, Transcript) {
-    let (a, b): (StreamingRoot<Local, T>, StreamingRoot<Local, T>) = (a.into(), b.into());
+fn transcribed_mirror_sides(a: Root, b: Root) -> (Root, Root, Trace, Transcript) {
+    let (a, b): (StreamingRoot<Local>, StreamingRoot<Local>) = (a.into(), b.into());
     let client = Handshaking::start(Local, a).window(WindowConfig::FLOOR);
     let server = Handshaking::start(Local, b).window(WindowConfig::FLOOR);
     let ((result, trace), transcript) =
@@ -125,14 +118,14 @@ fn transcribed_mirror_sides<T: Send + Sync + 'static>(
 
 /// Reconcile `a` and `b` through the streaming local backend, asserting the
 /// two sides converge to the same root, and return it.
-fn streaming_mirror(a: Root<()>, b: Root<()>) -> Root<()> {
+fn streaming_mirror(a: Root, b: Root) -> Root {
     let (ours, theirs) = streaming_mirror_sides(a, b);
     assert_eq!(ours, theirs, "streaming endpoints should converge");
     ours
 }
 
 /// Reconcile under an explicit channel-poll schedule, asserting convergence.
-fn scheduled_streaming_mirror(a: Root<()>, b: Root<()>, schedule: Vec<u8>) -> Root<()> {
+fn scheduled_streaming_mirror(a: Root, b: Root, schedule: Vec<u8>) -> Root {
     let (ours, theirs) = streaming_mirror_sides_with_schedule(a, b, schedule);
     assert_eq!(
         ours, theirs,
@@ -143,11 +136,11 @@ fn scheduled_streaming_mirror(a: Root<()>, b: Root<()>, schedule: Vec<u8>) -> Ro
 
 /// Reconcile under independent channel and Local-backend poll schedules.
 fn fully_scheduled_streaming_mirror(
-    a: Root<()>,
-    b: Root<()>,
+    a: Root,
+    b: Root,
     channel_schedule: Vec<u8>,
     backend_schedule: Vec<u8>,
-) -> Root<()> {
+) -> Root {
     let (ours, theirs) =
         streaming_mirror_sides_with_schedules(a, b, channel_schedule, backend_schedule);
     assert_eq!(
@@ -161,7 +154,7 @@ fn fully_scheduled_streaming_mirror(
 /// behavioral oracle the streaming protocol must reproduce exactly —
 /// returning both sides' roots in argument order, with no convergence
 /// assertion.
-fn alternating_mirror_sides(a: Root<()>, b: Root<()>) -> (Root<()>, Root<()>) {
+fn alternating_mirror_sides(a: Root, b: Root) -> (Root, Root) {
     pollster::block_on(async {
         let local_a = alternating::local::Exchange::start(a);
         let local_b = alternating::local::Exchange::start(b);
@@ -173,7 +166,7 @@ fn alternating_mirror_sides(a: Root<()>, b: Root<()>) -> (Root<()>, Root<()>) {
 
 /// Reconcile `a` and `b` through the alternating oracle, asserting the two
 /// sides converge to the same root, and return it.
-fn alternating_mirror(a: Root<()>, b: Root<()>) -> Root<()> {
+fn alternating_mirror(a: Root, b: Root) -> Root {
     let (ours, theirs) = alternating_mirror_sides(a, b);
     assert_eq!(ours, theirs, "oracle endpoints should converge");
     ours
@@ -184,7 +177,7 @@ fn alternating_mirror(a: Root<()>, b: Root<()>) -> Root<()> {
 /// The union covers shared-history divergence (including redactions and
 /// matched subtrees), independent party histories (including empty bootstrap
 /// shapes), and the equal-version short circuit.
-fn arb_oracle_pair() -> impl Strategy<Value = (Root<()>, Root<()>)> {
+fn arb_oracle_pair() -> impl Strategy<Value = (Root, Root)> {
     prop_oneof![
         4 => arb_divergent_pair(),
         2 => (arb_tree_root(0, 0..=8), arb_tree_root(1, 0..=8)),
@@ -251,7 +244,7 @@ fn uncontained_supply_is_rejected_by_streaming() {
     use crate::tree::mirror::streaming::materialized::{Error, Violation};
 
     let (receiver, poisoned, _, _) = uncontained_supply_pair();
-    let (receiver, poisoned): (StreamingRoot<Local, ()>, StreamingRoot<Local, ()>) =
+    let (receiver, poisoned): (StreamingRoot<Local>, StreamingRoot<Local>) =
         (receiver.into(), poisoned.into());
     let client = Handshaking::start(Local, receiver).window(WindowConfig::FLOOR);
     let server = Handshaking::start(Local, poisoned).window(WindowConfig::FLOOR);

@@ -21,7 +21,7 @@ use crate::tree::mirror::{
     },
 };
 
-fn failing_root(root: crate::tree::Root<()>) -> StreamingRoot<Failing<Local>, ()> {
+fn failing_root(root: crate::tree::Root) -> StreamingRoot<Failing<Local>> {
     StreamingRoot {
         ceiling: root.ceiling,
         root: root.root.map(FailingNode::new),
@@ -162,7 +162,7 @@ proptest! {
                 }
             }
             (None, Ok((ours, theirs))) => {
-                let (ours, theirs): (crate::tree::Root<()>, crate::tree::Root<()>) =
+                let (ours, theirs): (crate::tree::Root, crate::tree::Root) =
                     (ours.into(), theirs.into());
                 let (base_client, base_server) =
                     streaming_mirror_sides(client_root.clone(), server_root.clone());

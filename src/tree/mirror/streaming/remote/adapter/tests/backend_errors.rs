@@ -1,13 +1,14 @@
 //! Source-error propagation across every backend operation reachable by the adapter.
 
+use crate::message::Message;
 use std::convert::Infallible;
 
 use futures::{StreamExt, stream};
 
 use crate::tree::{
     mirror::streaming::{
-        Failing, FailingNode, Failure, Local, Operation,
-        message::{Reaction, Reply},
+        Backend, Failing, FailingNode, Failure, Local, Operation,
+        erased::{Reaction, Reply},
     },
     typed::{
         self, Prefix,
@@ -26,11 +27,11 @@ use crate::tree::mirror::streaming::{
 
 /// Construct the same one-leaf subtree at any concrete reply height.
 trait BackendHeight: Convert {
-    fn node(leaf: &LeafCase) -> typed::Node<u64, Self>;
+    fn node(leaf: &LeafCase) -> typed::Node<Self>;
 }
 
 impl BackendHeight for Z {
-    fn node(leaf: &LeafCase) -> typed::Node<u64, Self> {
+    fn node(leaf: &LeafCase) -> typed::Node<Self> {
         typed::Node::leaf(leaf.version.clone(), leaf.message.clone())
     }
 }
@@ -40,7 +41,7 @@ where
     H: BackendHeight,
     S<H>: Convert,
 {
-    fn node(leaf: &LeafCase) -> typed::Node<u64, Self> {
+    fn node(leaf: &LeafCase) -> typed::Node<Self> {
         let path: [u8; 32] = leaf.path().into();
         typed::Node::beneath(H::node(leaf), path[31 - H::HEIGHT])
     }
@@ -68,7 +69,7 @@ where
 
         for fail_after in 0..Self::HEIGHT {
             let backend = Failing::after(Local, fail_after);
-            let supply = FailingNode::new(Self::node(leaf));
+            let supply = <Failing<Local> as Backend>::erase(FailingNode::new(Self::node(leaf)));
             let replies = if supply_radix < u8::MAX {
                 vec![
                     Reaction::Supply(supply_radix, supply),
@@ -83,7 +84,7 @@ where
             let mut encoded = encode_reply(
                 backend.clone(),
                 RunBudget::default(),
-                Scope::new(parent, &listing),
+                Scope::new(parent.erase(), &listing),
                 Reply { replies },
             );
             let (yielded, error, ended) = runtime.block_on(async {
@@ -129,12 +130,13 @@ where
                 sentinel.clone(),
             ]);
             let error = runtime
-                .block_on(decode_reply::<Failing<Local>, u64, H, _>(
+                .block_on(decode_reply::<Failing<Local>, _>(
                     backend.clone(),
                     u64::MAX,
                     unbounded(),
-                    Scope::new(parent, &[]),
+                    Scope::new(parent.erase(), &[]),
                     &mut frames,
+                    Message::deserializer::<u64>(),
                 ))
                 .err()
                 .expect("the injected decoding failure was not reached");

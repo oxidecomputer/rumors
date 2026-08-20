@@ -15,7 +15,7 @@ use crate::common::wire::{assert_control_drained, block_on};
 
 /// A peer seeded deterministically, so two seeds with distinct stream ids get
 /// distinct (but reproducible) networks.
-fn seeded<T>(stream: u64) -> Peer<T> {
+fn seeded<T: serde::de::DeserializeOwned + Send + Sync + 'static>(stream: u64) -> Peer<T> {
     Peer::seed_rng(&mut SmallRng::seed_from_u64(stream)).sync_window_floor()
 }
 

@@ -28,32 +28,28 @@ use crate::tree::{
 pub trait Convert: Height {
     /// Disassemble a stream of `backend`'s nodes at this height into the
     /// prefix-ordered stream of every leaf beneath them.
-    fn explode<B, T>(backend: B, stream: BoxNodeStream<B, T, Self>) -> BoxNodeStream<B, T, Z>
+    fn explode<B>(backend: B, stream: BoxNodeStream<B, Self>) -> BoxNodeStream<B, Z>
     where
-        B: Backend<T, Node<Z>: Leaf<T>>,
-        T: Send + Sync + 'static;
+        B: Backend<Node<Z>: Leaf>;
 
     /// Assemble a prefix-ordered leaf stream into the stream of `backend`'s
     /// nodes at this height.
-    fn assemble<B, T>(backend: B, leaves: BoxNodeStream<B, T, Z>) -> BoxNodeStream<B, T, Self>
+    fn assemble<B>(backend: B, leaves: BoxNodeStream<B, Z>) -> BoxNodeStream<B, Self>
     where
-        B: Backend<T, Node<Z>: Leaf<T>>,
-        T: Send + Sync + 'static;
+        B: Backend<Node<Z>: Leaf>;
 }
 
 impl Convert for Z {
-    fn explode<B, T>(_backend: B, stream: BoxNodeStream<B, T, Z>) -> BoxNodeStream<B, T, Z>
+    fn explode<B>(_backend: B, stream: BoxNodeStream<B, Z>) -> BoxNodeStream<B, Z>
     where
-        B: Backend<T, Node<Z>: Leaf<T>>,
-        T: Send + Sync + 'static,
+        B: Backend<Node<Z>: Leaf>,
     {
         stream
     }
 
-    fn assemble<B, T>(_backend: B, leaves: BoxNodeStream<B, T, Z>) -> BoxNodeStream<B, T, Z>
+    fn assemble<B>(_backend: B, leaves: BoxNodeStream<B, Z>) -> BoxNodeStream<B, Z>
     where
-        B: Backend<T, Node<Z>: Leaf<T>>,
-        T: Send + Sync + 'static,
+        B: Backend<Node<Z>: Leaf>,
     {
         leaves
     }
@@ -64,13 +60,12 @@ where
     H: Convert,
     S<H>: Height,
 {
-    fn explode<B, T>(backend: B, stream: BoxNodeStream<B, T, S<H>>) -> BoxNodeStream<B, T, Z>
+    fn explode<B>(backend: B, stream: BoxNodeStream<B, S<H>>) -> BoxNodeStream<B, Z>
     where
-        B: Backend<T, Node<Z>: Leaf<T>>,
-        T: Send + Sync + 'static,
+        B: Backend<Node<Z>: Leaf>,
     {
         let exploded = backend.clone();
-        let below: BoxNodeStream<B, T, H> = Box::pin(try_stream! {
+        let below: BoxNodeStream<B, H> = Box::pin(try_stream! {
             for await item in stream {
                 let (prefix, node) = item?;
                 for await child in exploded.clone().children::<H>(prefix, node) {
@@ -81,10 +76,9 @@ where
         H::explode(backend, below)
     }
 
-    fn assemble<B, T>(backend: B, leaves: BoxNodeStream<B, T, Z>) -> BoxNodeStream<B, T, S<H>>
+    fn assemble<B>(backend: B, leaves: BoxNodeStream<B, Z>) -> BoxNodeStream<B, S<H>>
     where
-        B: Backend<T, Node<Z>: Leaf<T>>,
-        T: Send + Sync + 'static,
+        B: Backend<Node<Z>: Leaf>,
     {
         let below = H::assemble(backend.clone(), leaves);
         let folded = fold_parents(backend, below);
@@ -101,24 +95,19 @@ where
 /// Reassemble an ascending child stream into its parent level, one complete
 /// radix group at a time: a group flushes when the prefix changes or the
 /// input ends.
-fn fold_parents<B, T, H>(
-    backend: B,
-    children: impl NodeStream<B, T, H>,
-) -> impl NodeStream<B, T, S<H>>
+fn fold_parents<B, H>(backend: B, children: impl NodeStream<B, H>) -> impl NodeStream<B, S<H>>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
     H: Height,
     S<H>: Height,
 {
     /// Flush a completed group, if any, into its parent.
-    async fn flush<B, T, H>(
+    async fn flush<B, H>(
         backend: &B,
         finished: Option<(Prefix<S<H>>, Vec<(u8, Option<B::Node<H>>)>)>,
     ) -> Result<Option<(Prefix<S<H>>, B::Node<S<H>>)>, B::Error>
     where
-        B: Backend<T, Node<Z>: Leaf<T>>,
-        T: Send + Sync + 'static,
+        B: Backend<Node<Z>: Leaf>,
         H: Height,
         S<H>: Height,
     {

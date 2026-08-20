@@ -100,7 +100,7 @@ fn honored_redaction_counts_as_shed() {
         let version = a
             .snapshot()
             .iter()
-            .find(|(_, value)| ***value == 10)
+            .find(|(_, value)| **value == 10)
             .map(|(version, _)| version.clone())
             .expect("the sent message is live");
         a.redact(&version);

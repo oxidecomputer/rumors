@@ -53,7 +53,7 @@ pub fn arb_string_actions() -> impl Strategy<Value = Vec<LocalAction<String>>> {
 /// # Panics
 ///
 /// Panics unless exactly one leaf qualifies.
-pub fn minted_version<T: Send + Sync>(snapshot: &Snapshot<T>, pre: &Version) -> Version {
+pub fn minted_version<T: Send + Sync + 'static>(snapshot: &Snapshot<T>, pre: &Version) -> Version {
     let mut fresh = snapshot.range(causally::since(pre)).map(|(v, _)| v);
     let version = fresh.next().expect("a send mints exactly one live leaf");
     assert!(

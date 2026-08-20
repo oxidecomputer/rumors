@@ -20,8 +20,6 @@ use crate::{Version, message::Message};
 use super::{local, mirror, remote};
 use crate::tree::mirror::handshake::{self, Intent};
 
-use serde::Serialize;
-use serde::de::DeserializeOwned;
 // clippy's `missing_const_for_thread_local` misreads `thread_local!`'s
 // fallback-TLS lowering (illumos among the gate's targets) and denies
 // initializers that already sit in `const` blocks; the allow keeps
@@ -78,14 +76,7 @@ const DUPLEX_BUF: usize = 8 * 1024;
 /// Drive the mirror protocol through the high-level [`super::mirror`]
 /// driver under the chosen [`Scenario`], and return the reconciled tree
 /// (which must be equal on both sides if the protocol converged).
-fn mirror_via<T>(
-    a: crate::tree::Root<T>,
-    b: crate::tree::Root<T>,
-    scenario: Scenario,
-) -> crate::tree::Root<T>
-where
-    T: PartialEq + std::fmt::Debug + Serialize + DeserializeOwned + Send + Sync,
-{
+fn mirror_via(a: crate::tree::Root, b: crate::tree::Root, scenario: Scenario) -> crate::tree::Root {
     block_on(async move {
         match scenario {
             Scenario::LocalLocal => {
@@ -110,11 +101,19 @@ where
                 let (b_r, b_w) = tokio::io::split(b_side);
 
                 let local_a = local::Exchange::start(a);
-                let remote_b = remote::Exchange::start(FrameRead::new(a_r), FrameWrite::new(a_w));
+                let remote_b = remote::Exchange::start(
+                    FrameRead::new(a_r),
+                    FrameWrite::new(a_w),
+                    Message::deserializer::<()>(),
+                );
                 let client = mirror(local_a, remote_b);
 
                 let local_b = local::Exchange::start(b);
-                let remote_a = remote::Exchange::start(FrameRead::new(b_r), FrameWrite::new(b_w));
+                let remote_a = remote::Exchange::start(
+                    FrameRead::new(b_r),
+                    FrameWrite::new(b_w),
+                    Message::deserializer::<()>(),
+                );
                 let server = mirror(local_b, remote_a);
 
                 // Both sides poll on the same current-thread task; no
@@ -233,7 +232,7 @@ proptest! {
         let make_actions = |party_index: usize, forgets: &[bool]| -> Vec<_> {
             let p = nth_party(party_index);
             let mut version = Version::new();
-            let mut actions: Vec<(Path, Version, Action<()>)> = Vec::new();
+            let mut actions: Vec<(Path, Version, Action)> = Vec::new();
             let mut paths: Vec<Path> = Vec::new();
             for _ in forgets {
                 version.tick(&p);
@@ -257,11 +256,11 @@ proptest! {
         // The wrapper version must be a causal upper bound on every action
         // we apply — `Tree::react` maintains the same invariant by `|=`-ing
         // each action's version into the tree's version vector.
-        let wrap = |actions: &[(Path, Version, Action<()>)]| crate::tree::Root {
+        let wrap = |actions: &[(Path, Version, Action)]| crate::tree::Root {
             ceiling: actions
                 .iter()
                 .fold(Version::default(), |acc, (_, v, _)| acc | v.clone()),
-            root: act(None, actions.to_vec(), |_| ()),
+            root: act(None, actions.to_vec(), &mut |_| ()),
         };
 
         let tree_a = wrap(&actions_a);
@@ -317,11 +316,19 @@ fn uncontained_supply_is_rejected() {
             let (b_r, b_w) = tokio::io::split(b_side);
 
             let local_receiver = local::Exchange::start(receiver);
-            let remote_b = remote::Exchange::start(FrameRead::new(a_r), FrameWrite::new(a_w));
+            let remote_b = remote::Exchange::start(
+                FrameRead::new(a_r),
+                FrameWrite::new(a_w),
+                Message::deserializer::<()>(),
+            );
             let receiver_side = mirror(local_receiver, remote_b);
 
             let local_poisoned = local::Exchange::start(poisoned);
-            let remote_a = remote::Exchange::start(FrameRead::new(b_r), FrameWrite::new(b_w));
+            let remote_a = remote::Exchange::start(
+                FrameRead::new(b_r),
+                FrameWrite::new(b_w),
+                Message::deserializer::<()>(),
+            );
             let poisoned_side = mirror(local_poisoned, remote_a);
 
             let (receiver_result, poisoned_result) = tokio::join!(receiver_side, poisoned_side);

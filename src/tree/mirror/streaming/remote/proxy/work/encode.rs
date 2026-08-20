@@ -3,8 +3,13 @@
 //! Questions are retained until every frame of their containing reply has
 //! flushed. Publishing them any earlier could block the encoder before the
 //! reply end reaches the remote peer which must answer them.
+//!
+//! Every encoder here consumes the erased vocabulary — its typed request
+//! stream is erased and boxed by the proxy state that spawns it — so each
+//! encoder body instantiates once per backend; the stage's height arrives
+//! as the runtime label the progress trace records.
 
-use std::pin::{Pin, pin};
+use std::pin::Pin;
 
 use futures::{Stream, StreamExt};
 
@@ -13,9 +18,7 @@ use crate::tree::{
     mirror::streaming::{
         Backend, Leaf,
         channel::{Receiver, Sender},
-        convert::Convert,
-        message::Reply,
-        protocol::Requests,
+        erased::Reply,
         remote::{
             adapter::{self, Encoded, Scope, encode_reply, opening_parts},
             codec::RunBudget,
@@ -25,28 +28,30 @@ use crate::tree::{
     },
     typed::{
         Hash,
-        height::{Height, S, UnderRoot, UnderUnderRoot, Z},
+        height::{Height, UnderRoot, Z},
     },
 };
 
 use super::progress::Progress;
 
+/// A local reply stream already erased and boxed at the proxy boundary.
+pub type Replies<E> = Pin<Box<dyn Stream<Item = Reply<E>> + Send>>;
+
 /// Encode local leaf replies, optionally publishing the leaf questions they ask.
-pub async fn terminal<B, T, C>(
+pub async fn terminal<B, C>(
     backend: B,
     budget: RunBudget,
-    requests: impl Requests<B, T, Z>,
-    mut scopes: Receiver<Scope<Z>>,
-    mut outgoing: StreamSender<C, T>,
-    questions: Option<Sender<Scope<Z>>>,
+    requests: Replies<B::Erased>,
+    mut scopes: Receiver<Scope>,
+    mut outgoing: StreamSender<C>,
+    questions: Option<Sender<Scope>>,
     progress: Progress,
 ) -> Result<(), Error<B::Error>>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
     C: Connector,
 {
-    let mut requests = pin!(requests);
+    let mut requests = requests;
     // Scope-first pairing: dequeuing the scope before awaiting the local
     // reply frees its channel slot one reply earlier, so a K-slot edge
     // admits K truly in-flight scopes (the walk's stage loops make the
@@ -55,9 +60,9 @@ where
         let request = requests.next().await.ok_or(Error::UnansweredRemoteQuery)?;
         let mut encoded = adapter::encode_leaf_reply(backend.clone(), budget, scope, request);
         let batch = write_reply(&mut outgoing, &mut encoded).await?;
-        progress.wire_reply::<Z>(batch.len());
+        progress.wire_reply(Z::HEIGHT, batch.len());
         if let Some(questions) = &questions {
-            publish::<_, Z>(questions, batch, progress).await;
+            publish(questions, batch, progress, Z::HEIGHT).await;
         } else if !batch.is_empty() {
             return Err(Error::TerminalQuery);
         }
@@ -66,30 +71,33 @@ where
 }
 
 /// Encode non-leaf replies and publish each complete question batch.
-pub async fn replies<B, T, C, H>(
+///
+/// `question_height` is the derived questions' height, one under the
+/// replies this encoder renders.
+// The argument list is the stage's dataflow, one edge per argument;
+// bundling edges into a struct would only rename the arity.
+#[allow(clippy::too_many_arguments)]
+pub async fn replies<B, C>(
     backend: B,
     budget: RunBudget,
-    requests: impl Requests<B, T, S<H>>,
-    mut scopes: Receiver<Scope<S<H>>>,
-    mut outgoing: StreamSender<C, T>,
-    questions: Sender<Scope<H>>,
+    requests: Replies<B::Erased>,
+    mut scopes: Receiver<Scope>,
+    mut outgoing: StreamSender<C>,
+    questions: Sender<Scope>,
     progress: Progress,
+    question_height: usize,
 ) -> Result<(), Error<B::Error>>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
     C: Connector,
-    H: Height,
-    S<H>: Convert,
-    S<S<H>>: Height,
 {
-    let mut requests = pin!(requests);
+    let mut requests = requests;
     while let Some(scope) = scopes.recv().await {
         let request = requests.next().await.ok_or(Error::UnansweredRemoteQuery)?;
         let mut encoded = encode_reply(backend.clone(), budget, scope, request);
         let batch = write_reply(&mut outgoing, &mut encoded).await?;
-        progress.wire_reply::<H>(batch.len());
-        publish::<_, H>(&questions, batch, progress).await;
+        progress.wire_reply(question_height, batch.len());
+        publish(&questions, batch, progress, question_height).await;
     }
     finish(requests, outgoing).await
 }
@@ -114,26 +122,25 @@ where
 /// pruned away" from an empty reply rather than wait on a stream that
 /// never opens, and a session without initiator exclusives keeps today's
 /// streamless opening.
-pub async fn opening<B, T, C>(
+pub async fn opening<B, C>(
     backend: B,
     budget: RunBudget,
-    requests: impl Requests<B, T, UnderRoot>,
-    questions: Sender<Scope<UnderRoot>>,
-    mut outgoing: StreamSender<C, T>,
+    requests: Replies<B::Erased>,
+    questions: Sender<Scope>,
+    mut outgoing: StreamSender<C>,
     peer_listing: Vec<(u8, Hash)>,
     progress: Progress,
 ) -> Result<(), Error<B::Error>>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
     C: Connector,
 {
-    let mut requests = pin!(requests);
+    let mut requests = requests;
     let request = requests.next().await.ok_or(Error::MissingOpening)?;
     let (listing, supplies) = opening_parts(request).map_err(Error::OpeningEncode)?;
     let question = Scope::opening(&listing);
-    progress.wire_reply::<UnderRoot>(1);
-    progress.local_question::<UnderRoot>();
+    progress.wire_reply(UnderRoot::HEIGHT, 1);
+    progress.local_question(UnderRoot::HEIGHT);
     send_or_cancel(&questions, question).await;
 
     let early = {
@@ -150,7 +157,7 @@ where
             Scope::opening(&[]),
             Reply { replies: supplies },
         );
-        let batch: Vec<Scope<UnderUnderRoot>> = write_reply(&mut outgoing, &mut encoded).await?;
+        let batch: Vec<Scope> = write_reply(&mut outgoing, &mut encoded).await?;
         debug_assert!(batch.is_empty(), "opening supplies ask no question");
     } else {
         debug_assert!(
@@ -166,9 +173,9 @@ where
 }
 
 /// Flush every frame in one reply and retain its acknowledged questions.
-async fn write_reply<T, C, Q, E>(
-    outgoing: &mut StreamSender<C, T>,
-    encoded: &mut (impl futures::Stream<Item = Result<Encoded<T, Q>, adapter::EncodeError<E>>> + Unpin),
+async fn write_reply<C, Q, E>(
+    outgoing: &mut StreamSender<C>,
+    encoded: &mut (impl futures::Stream<Item = Result<Encoded<Q>, adapter::EncodeError<E>>> + Unpin),
 ) -> Result<Vec<Q>, Error<E>>
 where
     C: Connector,
@@ -183,17 +190,17 @@ where
 }
 
 /// Publish one complete reply's questions in their wire order.
-async fn publish<Q, H: Height>(questions: &Sender<Q>, batch: Vec<Q>, progress: Progress) {
+async fn publish(questions: &Sender<Scope>, batch: Vec<Scope>, progress: Progress, height: usize) {
     for question in batch {
-        progress.local_question::<H>();
+        progress.local_question(height);
         send_or_cancel(questions, question).await;
     }
 }
 
 /// Reject unclaimed local replies, then close the outgoing logical stream.
-async fn finish<T, C, R, E>(
-    mut requests: Pin<&mut R>,
-    outgoing: StreamSender<C, T>,
+async fn finish<C, R, E>(
+    mut requests: Pin<Box<R>>,
+    outgoing: StreamSender<C>,
 ) -> Result<(), Error<E>>
 where
     C: Connector,
@@ -207,9 +214,9 @@ where
 }
 
 /// Flush one adapter frame and release its optional question afterward.
-async fn write_encoded<T, C, Q, E>(
-    outgoing: &mut StreamSender<C, T>,
-    encoded: Encoded<T, Q>,
+async fn write_encoded<C, Q, E>(
+    outgoing: &mut StreamSender<C>,
+    encoded: Encoded<Q>,
 ) -> Result<Option<Q>, Error<E>>
 where
     C: Connector,

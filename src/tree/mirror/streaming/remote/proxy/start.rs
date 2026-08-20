@@ -1,7 +1,7 @@
 //! The wire participant's protocol handshake states.
 
+use crate::message::PayloadDeserializer;
 use std::io;
-use std::marker::PhantomData;
 
 use tokio::io::{AsyncRead, AsyncWrite};
 
@@ -35,17 +35,15 @@ use crate::{
     },
 };
 
-use serde::de::DeserializeOwned;
 /// A wire-bound protocol participant ready for the version handshake.
 ///
 /// Consumes a [`Link`] carrier for one session: the control halves host the
 /// causal-version handshake (and are the session's output), the connector
 /// and acceptor supply the descent's data streams, and the carrier's epoch
 /// labels every stream this session opens.
-pub struct Handshaking<B, T, R, W, C, A, V = Start>
+pub struct Handshaking<B, R, W, C, A, V = Start>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
 {
     backend: B,
     link: Link<R, W, C, A>,
@@ -57,23 +55,28 @@ where
     /// The session's stats recorder: every stream this session binds
     /// counts its codec bytes through it.
     stats: Recorder,
-    marker: PhantomData<fn() -> T>,
+    /// The peer's payload deserializer: the typed ingress every supplied
+    /// leaf record decodes through (see
+    /// [`Message::deserializer`](crate::message::Message::deserializer)).
+    deserializer: PayloadDeserializer,
 }
 
-impl<B, T, R, W, C, A> Handshaking<B, T, R, W, C, A>
+impl<B, R, W, C, A> Handshaking<B, R, W, C, A>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
 {
     /// Bind one session's link carrier before exchanging causal versions.
-    pub fn start(backend: B, link: Link<R, W, C, A>) -> Self {
+    ///
+    /// `deserializer` is the peer's payload deserializer: every leaf
+    /// record this session decodes builds its payload through it.
+    pub fn start(backend: B, link: Link<R, W, C, A>, deserializer: PayloadDeserializer) -> Self {
         Self {
             backend,
             link,
             versions: Start,
             window: WindowConfig::default(),
             stats: Recorder::default(),
-            marker: PhantomData,
+            deserializer,
         }
     }
 
@@ -103,10 +106,9 @@ pub struct Connecting {
     remote: Greeting,
 }
 
-impl<B, T, R, W, C, A, V> protocol::Protocol for Handshaking<B, T, R, W, C, A, V>
+impl<B, R, W, C, A, V> protocol::Protocol for Handshaking<B, R, W, C, A, V>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
     R: Send,
     W: Send,
     C: Send,
@@ -118,16 +120,15 @@ where
     type Output = (R, W);
 }
 
-impl<B, T, R, W, C, A> Connect<B, T> for Handshaking<B, T, R, W, C, A>
+impl<B, R, W, C, A> Connect<B> for Handshaking<B, R, W, C, A>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: DeserializeOwned + Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
     C: Connector,
     A: Acceptor,
 {
-    type Next = Handshaking<B, T, R, W, C, A, Connecting>;
+    type Next = Handshaking<B, R, W, C, A, Connecting>;
 
     /// Receive the remote greeting before asking the local server to answer it.
     async fn connect(mut self) -> Result<(Greeting, Self::Next), Self::Error> {
@@ -139,22 +140,21 @@ where
             versions: Connecting { remote },
             window: self.window,
             stats: self.stats,
-            marker: PhantomData,
+            deserializer: self.deserializer,
         };
         Ok((greeting, next))
     }
 }
 
-impl<B, T, R, W, C, A> CompleteConnect<B, T> for Handshaking<B, T, R, W, C, A, Connecting>
+impl<B, R, W, C, A> CompleteConnect<B> for Handshaking<B, R, W, C, A, Connecting>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: DeserializeOwned + Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
     C: Connector,
     A: Acceptor,
 {
-    type Next = Connected<B, T, R, W, C, A>;
+    type Next = Connected<B, R, W, C, A>;
 
     /// Send the local server's greeting, then open only if versions differ.
     async fn complete_connect(mut self, theirs: Greeting) -> Result<Self::Next, Self::Error> {
@@ -175,20 +175,20 @@ where
             self.versions.remote,
             self.link,
             self.stats,
+            self.deserializer,
         ))
     }
 }
 
-impl<B, T, R, W, C, A> Accept<B, T> for Handshaking<B, T, R, W, C, A>
+impl<B, R, W, C, A> Accept<B> for Handshaking<B, R, W, C, A>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: DeserializeOwned + Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
     C: Connector,
     A: Acceptor,
 {
-    type Next = Connected<B, T, R, W, C, A>;
+    type Next = Connected<B, R, W, C, A>;
 
     /// Exchange greetings concurrently, then open only if versions differ.
     async fn accept(mut self, request: Greeting) -> Result<(Greeting, Self::Next), Self::Error> {
@@ -212,6 +212,7 @@ where
             remote,
             self.link,
             self.stats,
+            self.deserializer,
         );
         Ok((greeting, next))
     }
@@ -312,7 +313,9 @@ where
 ///
 /// On equality both carried listings are dropped unused — the documented
 /// price of carrying them unconditionally.
-fn connected<B, T, R, W, C, A>(
+#[allow(clippy::too_many_arguments)] // The argument list is the handshake's
+// dataflow into the elected session, one premise per argument.
+fn connected<B, R, W, C, A>(
     backend: B,
     window: Window,
     budget: RunBudget,
@@ -320,10 +323,10 @@ fn connected<B, T, R, W, C, A>(
     remote: Greeting,
     link: Link<R, W, C, A>,
     stats: Recorder,
-) -> Connected<B, T, R, W, C, A>
+    deserializer: PayloadDeserializer,
+) -> Connected<B, R, W, C, A>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: DeserializeOwned + Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
     C: Connector,
     A: Acceptor,
 {
@@ -352,6 +355,7 @@ where
         remote.listing,
         link,
         stats,
+        deserializer,
     )
 }
 
@@ -365,7 +369,7 @@ where
 /// version the remote supplies; `peer_set_len` is its declared set
 /// length, which the session charges per supplied record at ingress.
 #[allow(clippy::too_many_arguments)]
-fn open<B, T, R, W, C, A>(
+fn open<B, R, W, C, A>(
     backend: B,
     window: Window,
     budget: RunBudget,
@@ -375,10 +379,10 @@ fn open<B, T, R, W, C, A>(
     peer_listing: Vec<(u8, Hash)>,
     link: Link<R, W, C, A>,
     stats: Recorder,
-) -> Connected<B, T, R, W, C, A>
+    deserializer: PayloadDeserializer,
+) -> Connected<B, R, W, C, A>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: DeserializeOwned + Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
     C: Connector,
     A: Acceptor,
 {
@@ -408,6 +412,7 @@ where
             accept,
             errors,
         },
+        deserializer,
     );
     Connected::new(remote, epoch, connector, claims, route, budget, stats, work)
 }

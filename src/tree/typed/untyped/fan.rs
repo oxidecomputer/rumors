@@ -19,7 +19,6 @@
 //! inside the container would buy nothing that the walk following every
 //! clone does not already pay for.
 
-use std::fmt::Debug;
 use std::mem;
 
 use smallvec::SmallVec;
@@ -31,7 +30,7 @@ mod tests;
 
 /// Entries a [`Fan`] holds inline before spilling to the heap.
 ///
-/// An entry is 16 bytes (`(u8, Node<T>)`, padded to the handle's
+/// An entry is 16 bytes (`(u8, Node)`, padded to the handle's
 /// alignment), so the fan occupies `8 + max(16 × FAN_INLINE, 16)` bytes
 /// inline — 40 at 2. Two entries cover the modal materialized branch (path
 /// compression guarantees at least two children, and interior branches
@@ -51,12 +50,12 @@ const FAN_INLINE: usize = 2;
 /// mutator preserves it, so consumers read ascending radix order
 /// structurally — the hash preimage and the wire encoding need no re-sort
 /// and no caller discipline.
-pub struct Fan<T> {
+pub struct Fan {
     /// Invariant: strictly ascending by radix, no duplicates.
-    entries: SmallVec<[(u8, Node<T>); FAN_INLINE]>,
+    entries: SmallVec<[(u8, Node); FAN_INLINE]>,
 }
 
-impl<T> Default for Fan<T> {
+impl Default for Fan {
     fn default() -> Self {
         Self {
             entries: SmallVec::new(),
@@ -64,7 +63,7 @@ impl<T> Default for Fan<T> {
     }
 }
 
-impl<T> Clone for Fan<T> {
+impl Clone for Fan {
     fn clone(&self) -> Self {
         Self {
             entries: self.entries.clone(),
@@ -72,13 +71,13 @@ impl<T> Clone for Fan<T> {
     }
 }
 
-impl<T: Debug> Debug for Fan<T> {
+impl std::fmt::Debug for Fan {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_map().entries(self.iter()).finish()
     }
 }
 
-impl<T> Fan<T> {
+impl Fan {
     /// The empty fan.
     pub fn new() -> Self {
         Self::default()
@@ -89,7 +88,7 @@ impl<T> Fan<T> {
     /// The single-entry shape is transient — it exists between exploding a
     /// path-compressed node and the `branch` constructor collapsing it back
     /// — and fits inline, so building it never allocates.
-    pub fn unit(radix: u8, child: Node<T>) -> Self {
+    pub fn unit(radix: u8, child: Node) -> Self {
         let mut entries = SmallVec::new();
         entries.push((radix, child));
         Self { entries }
@@ -113,12 +112,12 @@ impl<T> Fan<T> {
     }
 
     /// The child at `radix`, if any.
-    pub fn get(&self, radix: u8) -> Option<&Node<T>> {
+    pub fn get(&self, radix: u8) -> Option<&Node> {
         self.search(radix).ok().map(|at| &self.entries[at].1)
     }
 
     /// Insert `child` at `radix`, returning any child it displaced.
-    pub fn insert(&mut self, radix: u8, child: Node<T>) -> Option<Node<T>> {
+    pub fn insert(&mut self, radix: u8, child: Node) -> Option<Node> {
         match self.search(radix) {
             Ok(at) => Some(mem::replace(&mut self.entries[at].1, child)),
             Err(at) => {
@@ -129,7 +128,7 @@ impl<T> Fan<T> {
     }
 
     /// Remove and return the child at `radix`, if any.
-    pub fn remove(&mut self, radix: u8) -> Option<Node<T>> {
+    pub fn remove(&mut self, radix: u8) -> Option<Node> {
         self.search(radix).ok().map(|at| self.entries.remove(at).1)
     }
 
@@ -138,7 +137,7 @@ impl<T> Fan<T> {
     /// The resume point of a suspended ascending walk: one binary search,
     /// so the entries between the cursor and the answer are never
     /// enumerated and no sibling handle is materialized.
-    pub fn successor(&self, radix: u8) -> Option<(u8, &Node<T>)> {
+    pub fn successor(&self, radix: u8) -> Option<(u8, &Node)> {
         let at = self
             .entries
             .partition_point(|(present, _)| *present < radix);
@@ -152,7 +151,7 @@ impl<T> Fan<T> {
     /// this O(1) append is their build path; an out-of-order push trips a
     /// debug assertion (in release it would silently break the invariant
     /// the binary searches rely on).
-    pub fn push(&mut self, radix: u8, child: Node<T>) {
+    pub fn push(&mut self, radix: u8, child: Node) {
         debug_assert!(
             self.entries.last().is_none_or(|(last, _)| *last < radix),
             "Fan::push given a radix not greater than the current last",
@@ -164,14 +163,14 @@ impl<T> Fan<T> {
     ///
     /// Double-ended, and the length reported by `size_hint` is exact at
     /// every step: preimage assembly sizes its buffer from it.
-    pub fn iter(&self) -> Iter<'_, T> {
+    pub fn iter(&self) -> Iter<'_> {
         Iter {
             inner: self.entries.iter(),
         }
     }
 
     /// Iterate the children alone, in ascending radix order.
-    pub fn values(&self) -> impl DoubleEndedIterator<Item = &Node<T>> + ExactSizeIterator {
+    pub fn values(&self) -> impl DoubleEndedIterator<Item = &Node> + ExactSizeIterator {
         self.entries.iter().map(|(_, child)| child)
     }
 }
@@ -182,12 +181,12 @@ impl<T> Fan<T> {
 /// [`insert`](Fan::insert). Every reassembly in the crate feeds pairs
 /// already strictly ascending and duplicate-free, which this recognizes in
 /// one pass; anything else pays one stable sort.
-impl<T> FromIterator<(u8, Node<T>)> for Fan<T> {
-    fn from_iter<I: IntoIterator<Item = (u8, Node<T>)>>(iter: I) -> Self {
-        let mut entries: SmallVec<[(u8, Node<T>); FAN_INLINE]> = iter.into_iter().collect();
+impl FromIterator<(u8, Node)> for Fan {
+    fn from_iter<I: IntoIterator<Item = (u8, Node)>>(iter: I) -> Self {
+        let mut entries: SmallVec<[(u8, Node); FAN_INLINE]> = iter.into_iter().collect();
         if !entries.windows(2).all(|pair| pair[0].0 < pair[1].0) {
             entries.sort_by_key(|(radix, _)| *radix);
-            let mut deduped: SmallVec<[(u8, Node<T>); FAN_INLINE]> =
+            let mut deduped: SmallVec<[(u8, Node); FAN_INLINE]> =
                 SmallVec::with_capacity(entries.len());
             for (radix, child) in entries {
                 match deduped.last_mut() {
@@ -202,12 +201,12 @@ impl<T> FromIterator<(u8, Node<T>)> for Fan<T> {
 }
 
 /// The borrowing walk over a fan, ascending by radix; see [`Fan::iter`].
-pub struct Iter<'a, T> {
-    inner: std::slice::Iter<'a, (u8, Node<T>)>,
+pub struct Iter<'a> {
+    inner: std::slice::Iter<'a, (u8, Node)>,
 }
 
-impl<'a, T> Iterator for Iter<'a, T> {
-    type Item = (u8, &'a Node<T>);
+impl<'a> Iterator for Iter<'a> {
+    type Item = (u8, &'a Node);
 
     fn next(&mut self) -> Option<Self::Item> {
         self.inner.next().map(|(radix, child)| (*radix, child))
@@ -218,21 +217,21 @@ impl<'a, T> Iterator for Iter<'a, T> {
     }
 }
 
-impl<T> DoubleEndedIterator for Iter<'_, T> {
+impl DoubleEndedIterator for Iter<'_> {
     fn next_back(&mut self) -> Option<Self::Item> {
         self.inner.next_back().map(|(radix, child)| (*radix, child))
     }
 }
 
-impl<T> ExactSizeIterator for Iter<'_, T> {}
+impl ExactSizeIterator for Iter<'_> {}
 
 /// The consuming walk over a fan, ascending by radix.
-pub struct IntoIter<T> {
-    inner: smallvec::IntoIter<[(u8, Node<T>); FAN_INLINE]>,
+pub struct IntoIter {
+    inner: smallvec::IntoIter<[(u8, Node); FAN_INLINE]>,
 }
 
-impl<T> Iterator for IntoIter<T> {
-    type Item = (u8, Node<T>);
+impl Iterator for IntoIter {
+    type Item = (u8, Node);
 
     fn next(&mut self) -> Option<Self::Item> {
         self.inner.next()
@@ -243,17 +242,17 @@ impl<T> Iterator for IntoIter<T> {
     }
 }
 
-impl<T> DoubleEndedIterator for IntoIter<T> {
+impl DoubleEndedIterator for IntoIter {
     fn next_back(&mut self) -> Option<Self::Item> {
         self.inner.next_back()
     }
 }
 
-impl<T> ExactSizeIterator for IntoIter<T> {}
+impl ExactSizeIterator for IntoIter {}
 
-impl<T> IntoIterator for Fan<T> {
-    type Item = (u8, Node<T>);
-    type IntoIter = IntoIter<T>;
+impl IntoIterator for Fan {
+    type Item = (u8, Node);
+    type IntoIter = IntoIter;
 
     /// Consume the fan in ascending radix order.
     fn into_iter(self) -> Self::IntoIter {

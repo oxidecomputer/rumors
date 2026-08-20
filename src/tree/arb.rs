@@ -59,7 +59,7 @@ pub fn arb_version() -> BoxedStrategy<Version> {
 pub fn arb_root_node(
     party: usize,
     leaves: impl Into<proptest::collection::SizeRange>,
-) -> BoxedStrategy<Option<Node<(), Root>>> {
+) -> BoxedStrategy<Option<Node<Root>>> {
     vec(any::<()>(), leaves)
         .prop_map(move |draws| {
             // Tick this tree's party once per leaf, so the leaves carry a
@@ -79,7 +79,7 @@ pub fn arb_root_node(
                     (path, version.clone(), Action::Insert(message))
                 })
                 .collect();
-            act(None, actions, |_| ())
+            act(None, actions, &mut |_| ())
         })
         .boxed()
 }
@@ -92,7 +92,7 @@ pub fn arb_root_node(
 pub fn arb_tree_root(
     party: usize,
     leaves: impl Into<proptest::collection::SizeRange>,
-) -> BoxedStrategy<crate::tree::Root<()>> {
+) -> BoxedStrategy<crate::tree::Root> {
     (arb_root_node(party, leaves), 0u64..8)
         .prop_map(move |(node, extra_ticks)| {
             // The wrapper version must be a causal upper bound on every version
@@ -129,7 +129,7 @@ pub fn arb_tree_root(
 /// while the other still holds them (which the merge must drop by version
 /// dominance, the entire deletion mechanism). With zero shared inserts the two
 /// sides are fully disjoint, so this one generator also covers that case.
-pub fn arb_divergent_pair() -> BoxedStrategy<(crate::tree::Root<()>, crate::tree::Root<()>)> {
+pub fn arb_divergent_pair() -> BoxedStrategy<(crate::tree::Root, crate::tree::Root)> {
     use crate::tree::{Action, Tree};
 
     (
@@ -147,7 +147,7 @@ pub fn arb_divergent_pair() -> BoxedStrategy<(crate::tree::Root<()>, crate::tree
             // Common base; at this point the tree holds exactly the shared
             // inserts, so its live keys are the shared keys each side may
             // redact.
-            let mut base = Tree::new();
+            let mut base = Tree::<()>::new();
             base.act(
                 &p_s,
                 (0..n_shared).map(|_| Action::Insert(Message::new(()))),
@@ -190,7 +190,7 @@ pub fn arb_divergent_pair() -> BoxedStrategy<(crate::tree::Root<()>, crate::tree
 /// is instead the deterministic [`early_first_child_dispute_pair`] fixture,
 /// which performs that search once; this strategy provides breadth around
 /// it.
-pub fn arb_wide_divergent_pair() -> BoxedStrategy<(crate::tree::Root<()>, crate::tree::Root<()>)> {
+pub fn arb_wide_divergent_pair() -> BoxedStrategy<(crate::tree::Root, crate::tree::Root)> {
     use crate::tree::{Action, Tree};
 
     (
@@ -205,7 +205,7 @@ pub fn arb_wide_divergent_pair() -> BoxedStrategy<(crate::tree::Root<()>, crate:
             let p_a = nth_party(1);
             let p_b = nth_party(2);
 
-            let mut base = Tree::new();
+            let mut base = Tree::<()>::new();
             base.act(
                 &p_s,
                 (0..n_shared).map(|_| Action::Insert(Message::new(()))),
@@ -241,7 +241,7 @@ pub fn arb_wide_divergent_pair() -> BoxedStrategy<(crate::tree::Root<()>, crate:
 /// widths draw zero too, so subset, identical, and ceiling-only merges —
 /// a changed flag's `false` arm — are sampled at depth alongside the
 /// gains.
-pub fn arb_deep_divergent_pair() -> BoxedStrategy<(crate::tree::Root<()>, crate::tree::Root<()>)> {
+pub fn arb_deep_divergent_pair() -> BoxedStrategy<(crate::tree::Root, crate::tree::Root)> {
     (0usize..32, 0u8..5, 0u8..5)
         .prop_map(|(depth, a_width, b_width)| {
             let path_at = |branch: u8| {
@@ -259,7 +259,7 @@ pub fn arb_deep_divergent_pair() -> BoxedStrategy<(crate::tree::Root<()>, crate:
                     shared_version.clone(),
                     Action::Insert(Message::new(())),
                 )],
-                |_| (),
+                &mut |_| (),
             );
 
             // One side: `width` sibling leaves diverging at `depth`, all on
@@ -280,7 +280,7 @@ pub fn arb_deep_divergent_pair() -> BoxedStrategy<(crate::tree::Root<()>, crate:
                 let node = if leaves.is_empty() {
                     base.clone()
                 } else {
-                    act(base.clone(), leaves, |_| ())
+                    act(base.clone(), leaves, &mut |_| ())
                 };
                 root_with_ceiling(node, shared_version.clone() | version)
             };
@@ -303,7 +303,7 @@ pub fn arb_deep_divergent_pair() -> BoxedStrategy<(crate::tree::Root<()>, crate:
 /// counts vary per attempt, each attempt's honestly-built pair is checked
 /// against the geometry, and the first satisfying pair wins. Hashing is
 /// deterministic, so the search — and therefore the fixture — is too.
-pub fn early_first_child_dispute_pair() -> (crate::tree::Root<()>, crate::tree::Root<()>) {
+pub fn early_first_child_dispute_pair() -> (crate::tree::Root, crate::tree::Root) {
     use crate::tree::{Action, Tree};
 
     /// Leaves per side: enough on the left for wide roots with collisions,
@@ -385,7 +385,7 @@ pub fn early_first_child_dispute_pair() -> (crate::tree::Root<()>, crate::tree::
         };
         if left_under.min(right_under) >= 1 && left_under.max(right_under) >= 2 && provisions >= 6 {
             let build = |party: &Party, base: Version, live: usize| {
-                let mut tree = Tree::new();
+                let mut tree = Tree::<()>::new();
                 tree.root.ceiling = base;
                 tree.act(party, (0..live).map(|_| Action::Insert(Message::new(()))));
                 tree
@@ -424,7 +424,7 @@ pub fn early_first_child_dispute_pair() -> (crate::tree::Root<()>, crate::tree::
 /// receiver adopts, or the receiver's own later redact ticks — ever
 /// contains it. Returns the two roots plus the escaped leaf's
 /// version-derived path and its version.
-pub fn uncontained_supply_pair() -> (crate::tree::Root<()>, crate::tree::Root<()>, Path, Version) {
+pub fn uncontained_supply_pair() -> (crate::tree::Root, crate::tree::Root, Path, Version) {
     /// How far the escaped version outruns both declared ceilings, per
     /// party: an upper bound on the honest ticks a test performs after
     /// the pair is built.
@@ -470,7 +470,7 @@ pub fn uncontained_supply_pair() -> (crate::tree::Root<()>, crate::tree::Root<()
                 receiver_version.clone(),
                 Action::Insert(receiver_message),
             )],
-            |_| (),
+            &mut |_| (),
         ),
         receiver_version.clone(),
     );
@@ -493,7 +493,7 @@ pub fn uncontained_supply_pair() -> (crate::tree::Root<()>, crate::tree::Root<()
         act(
             None,
             vec![(path, escaped.clone(), Action::Insert(message))],
-            |_| (),
+            &mut |_| (),
         ),
         declared,
     );
@@ -514,7 +514,7 @@ fn leaf_sibling_path(last: u8) -> Path {
 
 /// Wrap an optional root node in a [`tree::Root`](crate::tree::Root) with the
 /// given ceiling.
-fn root_with_ceiling<T>(node: Option<Node<T, Root>>, ceiling: Version) -> crate::tree::Root<T> {
+fn root_with_ceiling(node: Option<Node<Root>>, ceiling: Version) -> crate::tree::Root {
     crate::tree::Root {
         ceiling,
         root: node,
@@ -531,11 +531,11 @@ fn root_with_ceiling<T>(node: Option<Node<T, Root>>, ceiling: Version) -> crate:
 /// honest ticks a test may perform afterward without containing the
 /// escape. Returns the root plus the escaped leaf's version-derived path
 /// and its version.
-pub fn poisoned_root<T: Send + Sync>(
+pub fn poisoned_root(
     party: &Party,
     base: &Version,
-    message: Message<T>,
-) -> (crate::tree::Root<T>, Path, Version) {
+    message: Message,
+) -> (crate::tree::Root, Path, Version) {
     /// How far the escaped version outruns `base`: an upper bound on the
     /// honest ticks a test performs after the root is planted.
     const ESCAPE_MARGIN: usize = 64;
@@ -549,7 +549,7 @@ pub fn poisoned_root<T: Send + Sync>(
         act(
             None,
             vec![(path, escaped.clone(), Action::Insert(message))],
-            |_| (),
+            &mut |_| (),
         ),
         Version::new(),
     );
@@ -564,11 +564,7 @@ pub fn poisoned_root<T: Send + Sync>(
 /// down to `S<Z>` holds exactly one child on each side and disputes at every
 /// height: the difference survives to the closing rounds, where each side
 /// must provide its own extra and absorb the other's.
-pub fn leaf_parent_dispute_pair() -> (
-    crate::tree::Root<()>,
-    crate::tree::Root<()>,
-    crate::tree::Root<()>,
-) {
+pub fn leaf_parent_dispute_pair() -> (crate::tree::Root, crate::tree::Root, crate::tree::Root) {
     // The shared leaf: one tick on party 0, literally the same node in both
     // trees (each side is built on top of `base`).
     let mut shared_version = Version::new();
@@ -580,7 +576,7 @@ pub fn leaf_parent_dispute_pair() -> (
             shared_version.clone(),
             Action::Insert(Message::new(())),
         )],
-        |_| (),
+        &mut |_| (),
     );
 
     // Each side's extra rides its own disjoint party, so both extras are
@@ -594,7 +590,7 @@ pub fn leaf_parent_dispute_pair() -> (
             a_version.clone(),
             Action::Insert(Message::new(())),
         )],
-        |_| (),
+        &mut |_| (),
     );
 
     let mut b_version = Version::new();
@@ -604,9 +600,9 @@ pub fn leaf_parent_dispute_pair() -> (
         b_version.clone(),
         Action::Insert(Message::new(())),
     );
-    let b_node = act(base, vec![b_extra.clone()], |_| ());
+    let b_node = act(base, vec![b_extra.clone()], &mut |_| ());
 
-    let union = act(a_node.clone(), vec![b_extra], |_| ());
+    let union = act(a_node.clone(), vec![b_extra], &mut |_| ());
 
     let a_ceiling = shared_version.clone() | a_version;
     let b_ceiling = shared_version | b_version;
@@ -626,11 +622,7 @@ pub fn leaf_parent_dispute_pair() -> (
 /// `b` lacks the leaf, so reconciliation must delete it from `a` too — with
 /// no tombstone to say so, only the version bounds. The surviving tree is
 /// `b`'s: the concurrent insert alone.
-pub fn leaf_parent_redaction_pair() -> (
-    crate::tree::Root<()>,
-    crate::tree::Root<()>,
-    crate::tree::Root<()>,
-) {
+pub fn leaf_parent_redaction_pair() -> (crate::tree::Root, crate::tree::Root, crate::tree::Root) {
     // a's only leaf, on party 0.
     let mut a_version = Version::new();
     a_version.tick(&nth_party(0));
@@ -641,7 +633,7 @@ pub fn leaf_parent_redaction_pair() -> (
             a_version.clone(),
             Action::Insert(Message::new(())),
         )],
-        |_| (),
+        &mut |_| (),
     );
 
     // b: built on a's history, inserts a concurrent sibling, then forgets
@@ -657,16 +649,16 @@ pub fn leaf_parent_redaction_pair() -> (
     let mut forget_version = b_version.clone();
     forget_version.tick(&nth_party(1));
     let b_node = act(
-        act(a_node.clone(), vec![b_insert.clone()], |_| ()),
+        act(a_node.clone(), vec![b_insert.clone()], &mut |_| ()),
         vec![(
             leaf_sibling_path(0x00),
             forget_version.clone(),
             Action::Forget,
         )],
-        |_| (),
+        &mut |_| (),
     );
 
-    let survivor = act(None, vec![b_insert], |_| ());
+    let survivor = act(None, vec![b_insert], &mut |_| ());
 
     let b_ceiling = a_version.clone() | forget_version;
     let expected = root_with_ceiling(survivor, a_version.clone() | b_ceiling.clone());

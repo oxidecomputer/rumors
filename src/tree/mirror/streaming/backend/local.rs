@@ -13,7 +13,7 @@ use crate::{
     tree::{
         self,
         mirror::streaming::{
-            Backend, Leaf, Node, Root,
+            Backend, ErasedNode, Leaf, Node, Root,
             backend::{BoxNodeStream, NodeStream},
             convert::Convert,
         },
@@ -31,7 +31,7 @@ mod tests;
 #[cfg(test)]
 pub use adversarial::with_schedule;
 
-impl<T: Send + Sync + 'static, H: Height> Node<T> for typed::Node<T, H> {
+impl<H: Height> Node for typed::Node<H> {
     type Backend = Local;
     type Height = H;
 
@@ -56,14 +56,30 @@ impl<T: Send + Sync + 'static, H: Height> Node<T> for typed::Node<T, H> {
     }
 }
 
-impl<T: Send + Sync + 'static> Leaf<T> for typed::Node<T, Z> {
-    fn message(&self) -> &Message<T> {
+// The typed node is `repr(transparent)` over the untyped node, so the
+// erased observations are the same field reads the typed ones are.
+impl ErasedNode for typed::untyped::Node {
+    fn span(&self) -> Span<'_> {
+        self.span()
+    }
+
+    fn hash(&self) -> typed::Hash {
+        self.hash()
+    }
+
+    fn len(&self) -> usize {
+        self.len()
+    }
+}
+
+impl Leaf for typed::Node<Z> {
+    fn message(&self) -> &Message {
         self.message()
     }
 
     // Custody is free: the handle owns the payload and the tree it will
     // join is resident regardless, so construction completes immediately.
-    async fn leaf(version: Version, message: Message<T>) -> Result<Self, Infallible> {
+    async fn leaf(version: Version, message: Message) -> Result<Self, Infallible> {
         Ok(Self::leaf(version, message))
     }
 }
@@ -85,28 +101,34 @@ impl Local {
     /// height-typed veneer is `repr(transparent)` over that handle, so
     /// every height costs the same.
     pub(crate) fn node_bytes(_children: usize, _version_bound: usize) -> usize {
-        std::mem::size_of::<typed::Node<(), Z>>()
+        std::mem::size_of::<typed::Node<Z>>()
     }
 }
 
 /// The handle really is pointer-sized: the window's per-reference price
 /// rests on it.
-const _: () =
-    assert!(std::mem::size_of::<typed::Node<(), Z>>() == std::mem::size_of::<*const ()>());
+const _: () = assert!(std::mem::size_of::<typed::Node<Z>>() == std::mem::size_of::<*const ()>());
 
-impl<T: Send + Sync + 'static> Backend<T> for Local {
-    type Node<H: Height> = typed::Node<T, H>;
+impl Backend for Local {
+    type Node<H: Height> = typed::Node<H>;
+    // One representation for every height already: the typed node is a
+    // phantom tag over this, so both conversions are field moves.
+    type Erased = typed::untyped::Node;
     type Error = Infallible;
+
+    fn erase<H: Height>(node: Self::Node<H>) -> Self::Erased {
+        node.into_untyped()
+    }
+
+    fn assume<H: Height>(erased: Self::Erased) -> Self::Node<H> {
+        typed::Node::from_untyped(erased)
+    }
 
     fn node_bytes(children: usize, version_bound: usize) -> usize {
         Local::node_bytes(children, version_bound)
     }
 
-    fn children<H>(
-        self,
-        prefix: Prefix<S<H>>,
-        parent: Self::Node<S<H>>,
-    ) -> impl NodeStream<Self, T, H>
+    fn children<H>(self, prefix: Prefix<S<H>>, parent: Self::Node<S<H>>) -> impl NodeStream<Self, H>
     where
         H: Height,
         S<H>: Height,
@@ -155,7 +177,7 @@ impl<T: Send + Sync + 'static> Backend<T> for Local {
         self,
         prefix: Prefix<H>,
         node: Self::Node<H>,
-    ) -> impl NodeStream<Self, T, Z> {
+    ) -> impl NodeStream<Self, Z> {
         // The default level-by-level explosion pays an allocation per
         // *virtual* level — ruinous for path-compressed spines. In-memory
         // nodes walk their own leaves directly, skipping compressed spans.
@@ -168,8 +190,8 @@ impl<T: Send + Sync + 'static> Backend<T> for Local {
 
     fn assemble<'a, H: Convert>(
         self,
-        leaves: BoxNodeStream<'a, Self, T, Z>,
-    ) -> impl NodeStream<Self, T, H> + 'a {
+        leaves: BoxNodeStream<'a, Self, Z>,
+    ) -> impl NodeStream<Self, H> + 'a {
         // The bulk counterpart of `leaves`: buffer each maximal
         // same-prefix run and build its subtree in one pass, rather than
         // folding it up one virtual level at a time. The buffered run is
@@ -179,7 +201,7 @@ impl<T: Send + Sync + 'static> Backend<T> for Local {
         let assembled = try_stream! {
             let mut leaves = pin!(leaves);
             let mut current: Option<Prefix<H>> = None;
-            let mut run: Vec<(Prefix<Z>, typed::Node<T, Z>)> = Vec::new();
+            let mut run: Vec<(Prefix<Z>, typed::Node<Z>)> = Vec::new();
             while let Some(item) = leaves.next().await {
                 let (prefix, leaf) = item?;
                 let target = Prefix::<H>::containing(&Path::from(prefix));
@@ -207,15 +229,15 @@ impl<T: Send + Sync + 'static> Backend<T> for Local {
 // `tree::Root` is exactly the `Local` instance of the session's generic
 // `Root`: the same (ceiling, optional root node) pair, concretely typed.
 
-impl<T: Send + Sync + 'static> From<tree::Root<T>> for Root<Local, T> {
-    fn from(root: tree::Root<T>) -> Self {
+impl From<tree::Root> for Root<Local> {
+    fn from(root: tree::Root) -> Self {
         let tree::Root { ceiling, root } = root;
         Root { ceiling, root }
     }
 }
 
-impl<T: Send + Sync + 'static> From<Root<Local, T>> for tree::Root<T> {
-    fn from(root: Root<Local, T>) -> Self {
+impl From<Root<Local>> for tree::Root {
+    fn from(root: Root<Local>) -> Self {
         let Root { ceiling, root } = root;
         tree::Root { ceiling, root }
     }

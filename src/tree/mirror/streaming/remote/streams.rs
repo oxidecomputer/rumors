@@ -35,7 +35,6 @@
 //! observes the route (the same publish-then-park discipline the response
 //! streams use).
 
-use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -54,7 +53,6 @@ use super::codec::{
     DecodeError, EncodeError, End, Frame, FrameRead, FrameWrite, Origin, RunBudget, Speaker, Stream,
 };
 
-use serde::de::DeserializeOwned;
 /// Bytes of the label a sender writes before its first frame.
 ///
 /// The canonical definition of the wire label's width: the capture
@@ -74,13 +72,13 @@ const STREAM_COUNT: usize = Stream::COUNT as usize;
 /// Stream end is a lifecycle event owned by [`StreamSender::finish`]; a
 /// producer cannot smuggle one into the middle of its replies.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ReplyFrame<T>(Frame<T>);
+pub struct ReplyFrame(Frame);
 
-impl<T> TryFrom<Frame<T>> for ReplyFrame<T> {
+impl TryFrom<Frame> for ReplyFrame {
     type Error = ReplyFrameError;
 
     /// Check that a general wire frame belongs to a protocol reply.
-    fn try_from(frame: Frame<T>) -> Result<Self, Self::Error> {
+    fn try_from(frame: Frame) -> Result<Self, Self::Error> {
         if matches!(frame, Frame::End(End::Stream)) {
             Err(ReplyFrameError::StreamEnd)
         } else {
@@ -89,9 +87,9 @@ impl<T> TryFrom<Frame<T>> for ReplyFrame<T> {
     }
 }
 
-impl<T> From<ReplyFrame<T>> for Frame<T> {
+impl From<ReplyFrame> for Frame {
     /// Recover the general wire frame for transport encoding.
-    fn from(frame: ReplyFrame<T>) -> Self {
+    fn from(frame: ReplyFrame) -> Self {
         frame.0
     }
 }
@@ -110,7 +108,7 @@ pub enum ReplyFrameError {
 /// label, and flushes the frame behind it; a sender that never carries a
 /// frame never opens a stream. [`finish`](Self::finish) closes an opened
 /// stream with an explicit end control and skips silently otherwise.
-pub struct StreamSender<C: Connector, T> {
+pub struct StreamSender<C: Connector> {
     connector: C,
     epoch: u8,
     /// The local role whose direction this stream carries.
@@ -121,7 +119,6 @@ pub struct StreamSender<C: Connector, T> {
     /// label excluded (it is written before the counted wrapper wraps).
     stats: Recorder,
     state: SendState<C::Tx>,
-    marker: PhantomData<fn(T)>,
 }
 
 enum SendState<Tx> {
@@ -129,7 +126,7 @@ enum SendState<Tx> {
     Open(FrameWrite<CountedWrite<Tx>>, Done<Tx>),
 }
 
-impl<C: Connector, T> StreamSender<C, T> {
+impl<C: Connector> StreamSender<C> {
     /// Bind one outgoing logical stream to a link's stream supply.
     pub fn new(connector: C, epoch: u8, speaker: Speaker, stream: Stream, stats: Recorder) -> Self {
         Self {
@@ -139,7 +136,6 @@ impl<C: Connector, T> StreamSender<C, T> {
             stream,
             stats,
             state: SendState::Unopened,
-            marker: PhantomData,
         }
     }
 
@@ -155,7 +151,7 @@ impl<C: Connector, T> StreamSender<C, T> {
     /// session-wide severance misattributed to the supply rather than to
     /// the cancellation. Retain the future until it resolves, or treat the
     /// session as severed after cancelling it.
-    pub async fn frame(&mut self, frame: ReplyFrame<T>) -> Result<(), SendError> {
+    pub async fn frame(&mut self, frame: ReplyFrame) -> Result<(), SendError> {
         self.write(frame.into()).await
     }
 
@@ -182,7 +178,7 @@ impl<C: Connector, T> StreamSender<C, T> {
     }
 
     /// Write one frame through the open transport stream, opening it first.
-    async fn write(&mut self, frame: Frame<T>) -> Result<(), SendError> {
+    async fn write(&mut self, frame: Frame) -> Result<(), SendError> {
         let stream = self.stream;
         let write = match &mut self.state {
             SendState::Open(write, _) => write,
@@ -285,13 +281,13 @@ pub enum StreamError {
 /// yields `None` — when the peer's explicit end control arrives, and it
 /// consumes that control rather than exposing it. On any failure it reports
 /// through the session error route and parks.
-pub struct StreamReceiver<Rx, T> {
+pub struct StreamReceiver<Rx> {
     /// The claim and identity, consumed to build `frames` on first poll.
     start: Option<ReceiverStart<Rx>>,
     /// `Some` exactly once the stream has been claimed: the first poll
     /// builds it, and [`finish`](Self::finish) reads its absence as "this
     /// level was never needed".
-    frames: Option<BoxStream<'static, Frame<T>>>,
+    frames: Option<BoxStream<'static, Frame>>,
 }
 
 struct ReceiverStart<Rx> {
@@ -310,10 +306,9 @@ struct ReceiverStart<Rx> {
     stats: Recorder,
 }
 
-impl<Rx, T> StreamReceiver<Rx, T>
+impl<Rx> StreamReceiver<Rx>
 where
     Rx: tokio::io::AsyncRead + Unpin + Send + 'static,
-    T: DeserializeOwned + Send + Sync + 'static,
 {
     /// Bind one incoming logical stream to its claim slot.
     pub fn new(
@@ -354,7 +349,7 @@ where
     }
 
     /// Build the claimed frame stream on first use.
-    fn frames(&mut self) -> &mut BoxStream<'static, Frame<T>> {
+    fn frames(&mut self) -> &mut BoxStream<'static, Frame> {
         let start = &mut self.start;
         self.frames.get_or_insert_with(|| {
             let ReceiverStart {
@@ -381,12 +376,11 @@ pub enum ReceiverFinish {
     ExtraReply,
 }
 
-impl<Rx, T> futures::Stream for StreamReceiver<Rx, T>
+impl<Rx> futures::Stream for StreamReceiver<Rx>
 where
     Rx: tokio::io::AsyncRead + Unpin + Send + 'static,
-    T: DeserializeOwned + Send + Sync + 'static,
 {
-    type Item = Frame<T>;
+    type Item = Frame;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         self.get_mut().frames().as_mut().poll_next(cx)
@@ -397,17 +391,16 @@ where
 ///
 /// Every failure path publishes to the session error route and parks: the
 /// consumer never observes a truncated stream as a clean end.
-fn read_frames<Rx, T>(
+fn read_frames<Rx>(
     claim: oneshot::Receiver<(Rx, Done<Rx>)>,
     speaker: Speaker,
     stream: Stream,
     budget: RunBudget,
     route: ErrorRoute,
     stats: Recorder,
-) -> impl futures::Stream<Item = Frame<T>> + Send
+) -> impl futures::Stream<Item = Frame> + Send
 where
     Rx: tokio::io::AsyncRead + Unpin + Send + 'static,
-    T: DeserializeOwned + Send + Sync + 'static,
 {
     stream! {
         let Ok((rx, done)) = claim.await else {
@@ -428,7 +421,7 @@ where
         };
         let mut read = FrameRead::new(speaker, budget, CountedRead::new(rx, stats));
         loop {
-            let frame = match read.frame::<T>().await {
+            let frame = match read.frame().await {
                 Ok(Some((framed, frame))) if framed == stream => frame,
                 Ok(Some((framed, _))) => {
                     route.report(StreamError::Mislabeled {

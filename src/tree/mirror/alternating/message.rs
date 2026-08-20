@@ -12,7 +12,7 @@
 //!   no length prefix.
 //! - [`typed::Prefix<H>`](crate::tree::typed::Prefix): exactly `32 −
 //!   H::HEIGHT` raw bytes, no length prefix (the type pins the byte count).
-//! - [`Version`] and [`Message<T>`](crate::message::Message): one CBOR
+//! - [`Version`] and [`Message`](crate::message::Message): one CBOR
 //!   value each — a byte string wrapping the version's canonical encoding,
 //!   and a byte string wrapping the message's cached CBOR payload —
 //!   self-delimiting by CBOR's own length headers.
@@ -21,7 +21,7 @@
 //!   frame whose entries are not strictly ascending order (which also
 //!   rejects duplicates).
 //!
-//! ## Typed [`Node<T, H>`](crate::tree::typed::Node)
+//! ## Typed [`Node<H>`](crate::tree::typed::Node)
 //!
 //! Encoded in its in-memory layout. The typed node's wire impl is a thin
 //! delegate over the untyped node's `serialize_to`, which is the canonical
@@ -32,7 +32,7 @@
 //!     prefix_len: u8                  // path-compressed prefix byte count
 //!     [u8; prefix_len]                // head bytes, shallowest first
 //!     body                            // dispatched on `children`:
-//!         Children::Leaf:   version: Version, message: Message<T>
+//!         Children::Leaf:   version: Version, message: Message
 //!         Children::Branch: count_minus_two: u8, [(radix: u8, NodeWire); count]
 //! ```
 //!
@@ -52,7 +52,7 @@
 //!
 //! ## The three channels
 //!
-//! - **`providing`**: `Vec<(Prefix<_>, Node<T, _>)>` — the subtrees being
+//! - **`providing`**: `Vec<(Prefix<_>, Node<_>)>` — the subtrees being
 //!   provided, each paired with the prefix it lands at, in ascending prefix
 //!   order. Each node carries its full structure on the wire (path-compression
 //!   bytes, branch radices, child counts); the receiver inserts it directly at
@@ -72,22 +72,57 @@
 //! the wire: the protocol's height schedule names the type each side expects
 //! next.
 
+use crate::message::PayloadDeserializer;
 use crate::tree::wire::{self, Decode, Encode};
+
+/// Wire decode for the payload-bearing protocol messages: parses each
+/// `providing` channel's leaf payloads through the peer's deserializer
+/// (see [`read_providing`]); the payload-free messages stay on the plain
+/// [`Decode`].
+pub trait DecodeWith: Sized {
+    fn read_wire_with<R: std::io::Read>(
+        reader: &mut R,
+        deserializer: PayloadDeserializer,
+    ) -> std::io::Result<Self>;
+}
 
 use crate::Version;
 use crate::tree::typed::{
     Hash, Node, Prefix,
     height::{Height, Root, S, UnderRoot, Z},
+    node::DecodeNode,
 };
 
-use serde::de::DeserializeOwned;
 #[cfg(test)]
 mod tests;
 
 /// The `providing` channel's payload at height `H`: the subtrees being provided,
 /// each paired with the prefix it lands at, in ascending prefix order. The
 /// receiver inserts each node directly at its named prefix.
-pub type Providing<T, H> = Vec<(Prefix<H>, Node<T, H>)>;
+pub type Providing<H> = Vec<(Prefix<H>, Node<H>)>;
+
+/// Decode one `providing` channel: a `u32` count, then `(prefix, node)`
+/// pairs, the nodes' leaf payloads parsed through the peer's
+/// deserializer (the protocol's typed ingress; see [`DecodeNode`]).
+fn read_providing<H, R>(
+    reader: &mut R,
+    deserializer: PayloadDeserializer,
+) -> std::io::Result<Providing<H>>
+where
+    H: DecodeNode,
+    R: std::io::Read,
+{
+    let count = u32::read_wire(reader)? as usize;
+    // Grow as elements arrive rather than trusting the declared count for
+    // the allocation (the same discipline as the framing reader).
+    let mut items = Vec::new();
+    for _ in 0..count {
+        let prefix = Prefix::<H>::read_wire(reader)?;
+        let node = H::read_node(reader, deserializer)?;
+        items.push((prefix, node));
+    }
+    Ok(items)
+}
 
 /// The opening message of every session, exchanged by the `connect`/`accept`
 /// steps. It carries the sender's causal [`Version`].
@@ -174,7 +209,7 @@ impl Decode for Opening {
 /// The steady-state message: carries all three channels (see the
 /// asymmetry-matrix table in the [`super::local`] module docs).
 #[derive(Clone)]
-pub struct Exchange<T, H>
+pub struct Exchange<H>
 where
     S<H>: Height,
     H: Height,
@@ -193,7 +228,7 @@ where
     /// On the wire each subtree travels as a whole `(prefix, node)` pair in
     /// ascending prefix order; the receiver inserts it directly at the named
     /// prefix. Strictly ascending by prefix; duplicates are rejected.
-    pub providing: Providing<T, S<H>>,
+    pub providing: Providing<S<H>>,
     /// Prefixes the counterparty listed in the previous round's `uncertain`
     /// that we lack entirely. We ask them to send the subtrees so we can insert
     /// them into our zipper. Strictly ascending; duplicates are rejected.
@@ -207,7 +242,7 @@ where
     pub uncertain: Vec<(Prefix<H>, Hash)>,
 }
 
-impl<T, H> Encode for Exchange<T, H>
+impl<H> Encode for Exchange<H>
 where
     S<H>: Height,
     H: Height,
@@ -219,20 +254,16 @@ where
     }
 }
 
-// `Node<T, S<H>>: Decode` reduces inductively to `Node<T, H>: Decode`
-// and bottoms at `Z`, so with `H` left generic the proof obligation
-// doesn't terminate during inference. We thread `Node<T, S<H>>: Decode`
-// through as an explicit bound so the caller — who knows `H` concretely —
-// discharges it.
-impl<T, H> Decode for Exchange<T, H>
+impl<H> DecodeWith for Exchange<H>
 where
-    T: DeserializeOwned,
-    S<H>: Height,
+    S<H>: DecodeNode,
     H: Height,
-    Node<T, S<H>>: Decode,
 {
-    fn read_wire<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
-        let providing: Providing<T, S<H>> = Decode::read_wire(reader)?;
+    fn read_wire_with<R: std::io::Read>(
+        reader: &mut R,
+        deserializer: PayloadDeserializer,
+    ) -> std::io::Result<Self> {
+        let providing: Providing<S<H>> = read_providing(reader, deserializer)?;
         verify_pairs_canonical(&providing, "Exchange.providing")?;
         let requested: Vec<Prefix<S<H>>> = Decode::read_wire(reader)?;
         verify_keys_canonical(&requested, "Exchange.requested")?;
@@ -246,7 +277,7 @@ where
     }
 }
 
-impl<T> From<Opening> for Exchange<T, UnderRoot> {
+impl From<Opening> for Exchange<UnderRoot> {
     fn from(Opening { uncertain }: Opening) -> Self {
         Exchange {
             uncertain,
@@ -255,7 +286,7 @@ impl<T> From<Opening> for Exchange<T, UnderRoot> {
     }
 }
 
-impl<T, H> Default for Exchange<T, H>
+impl<H> Default for Exchange<H>
 where
     S<H>: Height,
     H: Height,
@@ -286,12 +317,12 @@ where
 /// [`complete_initiator`](super::protocol::CompleteInitiator::complete_initiator)
 /// consume `Closing` directly, without a runtime check against an
 /// out-of-spec responder.
-#[derive(Clone)]
-pub struct Closing<T> {
+#[derive(Clone, Default)]
+pub struct Closing {
     /// Leaves only the responder holds that the initiator has not deleted:
     /// answers to the initiator's final `requested`, plus leaves the
     /// initiator's `uncertain` listing proved it lacks.
-    pub providing: Providing<T, Z>,
+    pub providing: Providing<Z>,
     /// Leaves the initiator listed under disputed parents that the responder
     /// lacks entirely.
     ///
@@ -301,19 +332,19 @@ pub struct Closing<T> {
     pub requested: Vec<Prefix<Z>>,
 }
 
-impl<T> Encode for Closing<T> {
+impl Encode for Closing {
     fn write_wire<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
         self.providing.write_wire(writer)?;
         self.requested.write_wire(writer)
     }
 }
 
-impl<T> Decode for Closing<T>
-where
-    T: DeserializeOwned,
-{
-    fn read_wire<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
-        let providing: Providing<T, Z> = Decode::read_wire(reader)?;
+impl DecodeWith for Closing {
+    fn read_wire_with<R: std::io::Read>(
+        reader: &mut R,
+        deserializer: PayloadDeserializer,
+    ) -> std::io::Result<Self> {
+        let providing: Providing<Z> = read_providing(reader, deserializer)?;
         verify_pairs_canonical(&providing, "Closing.providing")?;
         let requested: Vec<Prefix<Z>> = Decode::read_wire(reader)?;
         verify_keys_canonical(&requested, "Closing.requested")?;
@@ -321,15 +352,6 @@ where
             providing,
             requested,
         })
-    }
-}
-
-impl<T> Default for Closing<T> {
-    fn default() -> Self {
-        Self {
-            providing: Default::default(),
-            requested: Default::default(),
-        }
     }
 }
 
@@ -343,33 +365,25 @@ impl<T> Default for Closing<T> {
 ///
 /// No `requested` (the responder never replies after this) and no `uncertain`
 /// (vacuous at leaf height, same reasoning as [`Closing`]).
-#[derive(Clone)]
-pub struct Complete<T> {
-    pub providing: Providing<T, Z>,
+#[derive(Clone, Default)]
+pub struct Complete {
+    pub providing: Providing<Z>,
 }
 
-impl<T> Encode for Complete<T> {
+impl Encode for Complete {
     fn write_wire<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
         self.providing.write_wire(writer)
     }
 }
 
-impl<T> Decode for Complete<T>
-where
-    T: DeserializeOwned,
-{
-    fn read_wire<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
-        let providing: Providing<T, Z> = Decode::read_wire(reader)?;
+impl DecodeWith for Complete {
+    fn read_wire_with<R: std::io::Read>(
+        reader: &mut R,
+        deserializer: PayloadDeserializer,
+    ) -> std::io::Result<Self> {
+        let providing: Providing<Z> = read_providing(reader, deserializer)?;
         verify_pairs_canonical(&providing, "Complete.providing")?;
         Ok(Self { providing })
-    }
-}
-
-impl<T> Default for Complete<T> {
-    fn default() -> Self {
-        Self {
-            providing: Default::default(),
-        }
     }
 }
 

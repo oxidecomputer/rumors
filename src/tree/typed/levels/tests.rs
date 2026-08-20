@@ -17,20 +17,18 @@ trait Descend: Height {
     fn descend_and_collapse<L>(
         levels: L,
         decisions: &mut impl Iterator<Item = bool>,
-    ) -> Option<Node<L::Message, Root>>
+    ) -> Option<Node<Root>>
     where
-        L: Levels<Height = Self>,
-        L::Message: Clone + Send + Sync;
+        L: Levels<Height = Self>;
 }
 
 impl Descend for Z {
     fn descend_and_collapse<L>(
         levels: L,
         _decisions: &mut impl Iterator<Item = bool>,
-    ) -> Option<Node<L::Message, Root>>
+    ) -> Option<Node<Root>>
     where
         L: Levels<Height = Self>,
-        L::Message: Clone + Send + Sync,
     {
         levels.collapse()
     }
@@ -44,15 +42,14 @@ where
     fn descend_and_collapse<L>(
         mut levels: L,
         decisions: &mut impl Iterator<Item = bool>,
-    ) -> Option<Node<L::Message, Root>>
+    ) -> Option<Node<Root>>
     where
         L: Levels<Height = Self>,
-        L::Message: Clone + Send + Sync,
     {
         let current = std::mem::take(levels.level_mut());
 
         let mut stay = Level::default();
-        let mut below: Level<L::Message, H> = Level::default();
+        let mut below: Level<H> = Level::default();
 
         // `current` iterates in ascending prefix order, and each node's children
         // ascend by radix, so both partitions are built strictly ascending —

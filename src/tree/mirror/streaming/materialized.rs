@@ -105,16 +105,17 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use crate::tree::{
     mirror::contained,
     mirror::streaming::{
-        Backend, Leaf, Node, Root,
-        materialized::{unknown::Unknown, work::Work},
-        message::{Greeting, Reaction, Reply},
+        Backend, ErasedNode, Leaf, Root,
+        erased::{self, Reaction, Reply},
+        materialized::work::Work,
+        message::Greeting,
         protocol::{self, BoxResponses, Requests},
         remote::DEFAULT_TARGET_MESSAGE_SIZE,
         stats::Recorder,
         window::WindowConfig,
     },
     typed::{
-        Hash, Prefix,
+        ErasedPrefix, Hash, Prefix,
         height::{self, Height, S, UnderRoot, UnderUnderRoot, Z},
     },
 };
@@ -252,38 +253,35 @@ impl SupplyLedger {
 /// queue between consecutive same-side stages, and the in-process twin of
 /// the wire's expected scopes.
 ///
-/// `H` is the children's height; the scope sits at `S<H>`, so
-/// `Query<_, _, H>` pairs with [`Reply<_, _, H>`](Reply).
+/// `E` is the backend's erased node representation
+/// ([`Backend::Erased`]); the prefix names the queried scope, and its
+/// byte length is the scope's height witness (see
+/// [`erased`]). A query pairs with the reply at its
+/// children's height, one level below the prefix.
 ///
 /// If we issued a request for a node, `ours` is empty and we expect the
 /// reply to consist entirely of supplied nodes.
-pub struct Query<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, H: Height>
-where
-    S<H>: Height,
-{
+pub struct Query<E> {
     /// The prefix at which the resolved node will sit.
-    pub prefix: Prefix<S<H>>,
+    pub prefix: ErasedPrefix,
     /// Our children of the node (empty if we don't have it at all).
-    pub ours: Vec<(u8, B::Node<H>)>,
+    pub ours: Vec<(u8, E)>,
 }
 
 /// One scope's resolution: its children in radix order, each resolved
 /// locally or pending on the stages beneath.
-pub struct Resolution<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, H: Height>
-where
-    S<H>: Height,
-{
+pub struct Resolution<E> {
     /// The prefix at which the resolved node will sit.
-    prefix: Prefix<S<H>>,
+    pub(crate) prefix: ErasedPrefix,
     /// The possibly-resolved children of the node.
-    resolved: Vec<(u8, Resolve<B, T, H>)>,
+    pub(crate) resolved: Vec<(u8, Resolve<E>)>,
 }
 
 /// One child's slot in a [`Resolution`].
-pub enum Resolve<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, H: Height> {
+pub enum Resolve<E> {
     /// Resolved at the current level: kept, absorbed, or pruned (`None` = gone;
     /// flows into `Backend::parent` as its deletion vocabulary).
-    Ready(Option<B::Node<H>>),
+    Ready(Option<E>),
     /// Resolved elsewhere: filled by the level stream's next item.
     Pending,
 }
@@ -301,10 +299,10 @@ pub enum Resolve<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, H: H
 /// [`responder`](protocol::Responder::responder). The session's outgoing
 /// messages carry `backend`'s own node types, which are the ones its
 /// counterparty reads.
-pub struct Handshaking<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, V> {
+pub struct Handshaking<B: Backend<Node<Z>: Leaf>, V> {
     backend: B,
     versions: V,
-    root: Root<B, T>,
+    root: Root<B>,
     /// The session's window choice, resolved against the exchanged set
     /// sizes; see [`window`](super::window).
     window: WindowConfig,
@@ -328,16 +326,19 @@ pub struct Start {
 /// Carries the root fan the greeting's listing was derived from, so the
 /// descent reuses it instead of asking the backend for the root's children a
 /// second time (the memory model's one-query-per-prefix rule).
-pub struct Connecting<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> {
+pub struct Connecting<B: Backend<Node<Z>: Leaf>> {
     our_version: Version,
-    fan: Vec<(u8, B::Node<UnderRoot>)>,
+    /// The root fan, already erased: everything downstream of the
+    /// greeting — the descent's workers included — speaks the erased
+    /// representation.
+    fan: Vec<(u8, B::Erased)>,
 }
 
 /// The version state of a stage that has exchanged greetings with its peer
 /// and can proceed with reconciliation.
 ///
 /// Like [`Connecting`], retains the greeting-time root fan for the descent.
-pub struct Connected<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> {
+pub struct Connected<B: Backend<Node<Z>: Leaf>> {
     our_version: Version,
     their_version: Version,
     /// The peer's live message count, from its greeting.
@@ -349,12 +350,13 @@ pub struct Connected<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> 
     /// initiator merges its own fan against to ship its exclusive root
     /// children as the opening's early supplies.
     their_listing: Vec<(u8, Hash)>,
-    fan: Vec<(u8, B::Node<UnderRoot>)>,
+    /// The root fan, erased at greeting time ([`Connecting`]).
+    fan: Vec<(u8, B::Erased)>,
 }
 
-/// A mirror stage inside the descent, consuming [`Reply<B, T, H>`](Reply)
+/// A mirror stage inside the descent, consuming [`Reply<B, H>`](Reply)
 /// against a [`Query`] queue at the same height.
-pub struct Descending<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, H: Height>
+pub struct Descending<B: Backend<Node<Z>: Leaf>, H: Height>
 where
     S<H>: Height,
 {
@@ -364,13 +366,18 @@ where
     /// absorbed supply ([`SupplyLedger`]).
     ledger: SupplyLedger,
     /// The questions we asked, awaiting their replies in order.
-    queries: Receiver<Query<B, T, H>>,
+    ///
+    /// The payloads are erased ([`Backend::Erased`]); the typestate's
+    /// `H` is what pins this queue to the walk stage that consumes it at
+    /// the right height, and every payload's prefix carries the runtime
+    /// witness.
+    queries: Receiver<Query<B::Erased>>,
     /// One resolved scope per query, in query order, to the stage above.
-    returns: Sender<Option<B::Node<S<H>>>>,
+    returns: Sender<Option<B::Erased>>,
     /// An elected initiator's opening hand-off: the early-supplied root
     /// radices' survivors, consumed by the first descending stage to answer
     /// the responder's empty queries about them (`None` below it).
-    early_survivors: Option<oneshot::Receiver<Vec<(u8, Option<B::Node<H>>)>>>,
+    early_survivors: Option<oneshot::Receiver<Vec<(u8, Option<B::Erased>)>>>,
     /// An elected responder's opening hand-off (`None` below the first
     /// descending stage).
     ///
@@ -378,12 +385,18 @@ where
     /// their own children, consumed by the first descending stage to
     /// resolve its own root-level requests.
     #[allow(clippy::type_complexity)]
-    early_supplies: Option<oneshot::Receiver<Vec<(u8, Vec<(u8, B::Node<H>)>)>>>,
+    early_supplies: Option<oneshot::Receiver<Vec<(u8, Vec<(u8, B::Erased)>)>>>,
     /// The reassembly work accumulated so far; the terminals drive it to
     /// completion.
-    work: Work<B, T>,
+    work: Work<B>,
     /// Resolves to this side's reconciled root once the top return arrives.
-    finish: BoxFuture<'static, Result<Root<B, T>, Error<B::Error>>>,
+    finish: BoxFuture<'static, Result<Root<B>, Error<B::Error>>>,
+    /// The stage's height, phantom.
+    ///
+    /// The payloads above are erased; this tag is what the schedule's
+    /// typestates keep proving about them (`PhantomData<fn() -> H>` for
+    /// the auto-trait shortcut; see [`typed::Node`](crate::tree::typed::Node)).
+    height: std::marker::PhantomData<fn() -> H>,
 }
 
 /// The initiator's terminal state: the pending leaf requests, and the
@@ -392,7 +405,7 @@ where
 /// This is not a [`Descending`] stage: its returns are the requested leaves
 /// themselves (height `Z`), not an assembled scope one height up, because
 /// nothing exists below a leaf to assemble from.
-pub struct Completing<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> {
+pub struct Completing<B: Backend<Node<Z>: Leaf>> {
     /// The peer's declared greeting version: the containment bound every
     /// supplied leaf is checked against
     /// ([`Violation::UncontainedSupply`]).
@@ -403,17 +416,17 @@ pub struct Completing<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>
     /// Where each requested leaf will sit, one per request, in order.
     queries: Receiver<Prefix<Z>>,
     /// The requested leaves' resolutions, in request order.
-    returns: Sender<Option<B::Node<Z>>>,
+    returns: Sender<Option<B::Erased>>,
     /// The accumulated work to drive the pipeline.
-    work: Work<B, T>,
+    work: Work<B>,
     /// The future result of the pipeline.
-    finish: BoxFuture<'static, Result<Root<B, T>, Error<B::Error>>>,
+    finish: BoxFuture<'static, Result<Root<B>, Error<B::Error>>>,
 }
 
-impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> Handshaking<B, T, Start> {
+impl<B: Backend<Node<Z>: Leaf>> Handshaking<B, Start> {
     /// Construct the session in its opening phase, at the default window
     /// and message-size target.
-    pub fn start(backend: B, root: Root<B, T>) -> Self {
+    pub fn start(backend: B, root: Root<B>) -> Self {
         Self {
             backend,
             versions: Start {
@@ -451,11 +464,9 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> Handshaking<B, T
     }
 }
 
-impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, V: Send> protocol::Protocol
-    for Handshaking<B, T, V>
-{
+impl<B: Backend<Node<Z>: Leaf>, V: Send> protocol::Protocol for Handshaking<B, V> {
     type Height = height::Root;
-    type Output = Root<B, T>;
+    type Output = Root<B>;
     type Error = Error<B::Error>;
 }
 
@@ -466,12 +477,14 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, V: Send> protoco
 /// (see [`Greeting`] for the trade). The fan itself is retained through
 /// [`Connecting`]/[`Connected`] so the descent never re-asks the backend for
 /// the root's children.
-pub(crate) async fn greeting_fan<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>(
+pub(crate) async fn greeting_fan<B: Backend<Node<Z>: Leaf>>(
     backend: &B,
     root: Option<B::Node<height::Root>>,
-) -> Result<Vec<(u8, B::Node<UnderRoot>)>, B::Error> {
+) -> Result<Vec<(u8, B::Erased)>, B::Error> {
     match root {
-        Some(node) => children_of(backend, Prefix::new(), node).await,
+        Some(node) => {
+            erased::ops::children_of(backend, Prefix::new().erase(), B::erase(node)).await
+        }
         None => Ok(Vec::new()),
     }
 }
@@ -484,18 +497,14 @@ pub(crate) async fn greeting_fan<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync
 /// proxy pairs the two positionally, so they must be byte-identical;
 /// routing both through this one function makes drift structurally
 /// impossible rather than a coincidence of two matching code bodies.
-pub(crate) fn fan_listing<N: Node<T>, T: Send + Sync + 'static>(
-    fan: &[(u8, N)],
-) -> Vec<(u8, Hash)> {
+pub(crate) fn fan_listing<E: ErasedNode>(fan: &[(u8, E)]) -> Vec<(u8, Hash)> {
     fan.iter()
         .map(|(radix, node)| (*radix, node.hash()))
         .collect()
 }
 
-impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Connect<B, T>
-    for Handshaking<B, T, Start>
-{
-    type Next = Handshaking<B, T, Connecting<B, T>>;
+impl<B: Backend<Node<Z>: Leaf>> protocol::Connect<B> for Handshaking<B, Start> {
+    type Next = Handshaking<B, Connecting<B>>;
 
     async fn connect(self) -> Result<(Greeting, Self::Next), Self::Error> {
         let Start { our_version } = self.versions;
@@ -524,10 +533,8 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Connec
     }
 }
 
-impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::CompleteConnect<B, T>
-    for Handshaking<B, T, Connecting<B, T>>
-{
-    type Next = Handshaking<B, T, Connected<B, T>>;
+impl<B: Backend<Node<Z>: Leaf>> protocol::CompleteConnect<B> for Handshaking<B, Connecting<B>> {
+    type Next = Handshaking<B, Connected<B>>;
 
     async fn complete_connect(self, theirs: Greeting) -> Result<Self::Next, Self::Error> {
         Ok(Handshaking {
@@ -548,10 +555,8 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Comple
     }
 }
 
-impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Accept<B, T>
-    for Handshaking<B, T, Start>
-{
-    type Next = Handshaking<B, T, Connected<B, T>>;
+impl<B: Backend<Node<Z>: Leaf>> protocol::Accept<B> for Handshaking<B, Start> {
+    type Next = Handshaking<B, Connected<B>>;
 
     async fn accept(self, request: Greeting) -> Result<(Greeting, Self::Next), Self::Error> {
         let Start { our_version } = self.versions;
@@ -587,20 +592,16 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Accept
     }
 }
 
-impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::CompleteEqual<B, T>
-    for Handshaking<B, T, Connected<B, T>>
-{
-    async fn complete_equal(self) -> Result<Root<B, T>, Self::Error> {
+impl<B: Backend<Node<Z>: Leaf>> protocol::CompleteEqual<B> for Handshaking<B, Connected<B>> {
+    async fn complete_equal(self) -> Result<Root<B>, Self::Error> {
         Ok(self.root)
     }
 }
 
-impl<B: Backend<T, Node<Z>: Leaf<T>> + Sync, T: Send + Sync + 'static> protocol::Initiator<B, T>
-    for Handshaking<B, T, Connected<B, T>>
-{
-    type Next = Descending<B, T, UnderRoot>;
+impl<B: Backend<Node<Z>: Leaf> + Sync> protocol::Initiator<B> for Handshaking<B, Connected<B>> {
+    type Next = Descending<B, UnderRoot>;
 
-    fn initiator(self) -> (BoxResponses<B, T, UnderRoot, Self::Error>, Self::Next) {
+    fn initiator(self) -> (BoxResponses<B, UnderRoot, Self::Error>, Self::Next) {
         let Connected {
             our_version,
             their_version,
@@ -635,20 +636,19 @@ impl<B: Backend<T, Node<Z>: Leaf<T>> + Sync, T: Send + Sync + 'static> protocol:
                 early_supplies: None,
                 work,
                 finish,
+                height: std::marker::PhantomData,
             },
         )
     }
 }
 
-impl<B: Backend<T, Node<Z>: Leaf<T>> + Sync, T: Send + Sync + 'static> protocol::Responder<B, T>
-    for Handshaking<B, T, Connected<B, T>>
-{
-    type Next = Descending<B, T, UnderUnderRoot>;
+impl<B: Backend<Node<Z>: Leaf> + Sync> protocol::Responder<B> for Handshaking<B, Connected<B>> {
+    type Next = Descending<B, UnderUnderRoot>;
 
     fn responder(
         self,
-        requests: impl Requests<B, T, UnderRoot>,
-    ) -> (BoxResponses<B, T, UnderRoot, Self::Error>, Self::Next) {
+        requests: impl Requests<B, UnderRoot>,
+    ) -> (BoxResponses<B, UnderRoot, Self::Error>, Self::Next) {
         let Connected {
             our_version,
             their_version,
@@ -688,37 +688,36 @@ impl<B: Backend<T, Node<Z>: Leaf<T>> + Sync, T: Send + Sync + 'static> protocol:
                 early_supplies: Some(early),
                 work,
                 finish,
+                height: std::marker::PhantomData,
             },
         )
     }
 }
 
-impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, H: Height> protocol::Protocol
-    for Descending<B, T, H>
+impl<B: Backend<Node<Z>: Leaf>, H: Height> protocol::Protocol for Descending<B, H>
 where
     S<H>: Height,
 {
     type Height = H;
-    type Output = Root<B, T>;
+    type Output = Root<B>;
     type Error = Error<B::Error>;
 }
 
-impl<B, T, H> protocol::Reply<B, T> for Descending<B, T, S<S<H>>>
+impl<B, H> protocol::Reply<B> for Descending<B, S<S<H>>>
 where
-    B: Backend<T, Node<Z>: Leaf<T>> + Sync,
-    T: Send + Sync + 'static,
-    H: Unknown,
-    S<H>: Unknown,
-    S<S<H>>: Unknown,
+    B: Backend<Node<Z>: Leaf> + Sync,
+    H: Height,
+    S<H>: Height,
+    S<S<H>>: Height,
     S<S<S<H>>>: Height,
 {
-    type Next = Descending<B, T, H>;
+    type Next = Descending<B, H>;
 
     fn reply(
         mut self,
-        requests: impl Requests<B, T, S<S<H>>>,
-    ) -> (BoxResponses<B, T, S<H>, Self::Error>, Self::Next) {
-        let (responses, queries, upper, lower) = self.work.internal_level(
+        requests: impl Requests<B, S<S<H>>>,
+    ) -> (BoxResponses<B, S<H>, Self::Error>, Self::Next) {
+        let (responses, queries, upper, lower) = self.work.internal_level::<H>(
             self.their_version.clone(),
             self.ledger.clone(),
             self.early_survivors.take(),
@@ -726,8 +725,8 @@ where
             requests,
             self.queries,
         );
-        let returns = self.work.assemble(self.returns, upper);
-        let returns = self.work.assemble(returns, lower);
+        let returns = self.work.assemble(<S<S<H>>>::HEIGHT, self.returns, upper);
+        let returns = self.work.assemble(<S<H>>::HEIGHT, returns, lower);
 
         (
             responses,
@@ -740,22 +739,22 @@ where
                 early_supplies: None,
                 work: self.work,
                 finish: self.finish,
+                height: std::marker::PhantomData,
             },
         )
     }
 }
 
-impl<B, T> protocol::Reply<B, T> for Descending<B, T, S<Z>>
+impl<B> protocol::Reply<B> for Descending<B, S<Z>>
 where
-    B: Backend<T, Node<Z>: Leaf<T>> + Sync,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf> + Sync,
 {
-    type Next = Completing<B, T>;
+    type Next = Completing<B>;
 
     fn reply(
         mut self,
-        requests: impl Requests<B, T, S<Z>>,
-    ) -> (BoxResponses<B, T, Z, Self::Error>, Self::Next) {
+        requests: impl Requests<B, S<Z>>,
+    ) -> (BoxResponses<B, Z, Self::Error>, Self::Next) {
         debug_assert!(
             self.early_survivors.is_none() && self.early_supplies.is_none(),
             "the opening hand-off is consumed by the first descending stage"
@@ -766,8 +765,8 @@ where
             requests,
             self.queries,
         );
-        let returns = self.work.assemble(self.returns, upper);
-        let returns = self.work.assemble(returns, lower);
+        let returns = self.work.assemble(<S<Z>>::HEIGHT, self.returns, upper);
+        let returns = self.work.assemble(Z::HEIGHT, returns, lower);
 
         (
             responses,
@@ -783,17 +782,16 @@ where
     }
 }
 
-impl<B, T> protocol::CompleteResponder<B, T> for Descending<B, T, Z>
+impl<B> protocol::CompleteResponder<B> for Descending<B, Z>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
 {
     fn complete_responder(
         mut self,
-        requests: impl Requests<B, T, Z>,
+        requests: impl Requests<B, Z>,
     ) -> (
-        BoxResponses<B, T, Z, Self::Error>,
-        impl Future<Output = Result<Root<B, T>, Self::Error>> + Send,
+        BoxResponses<B, Z, Self::Error>,
+        impl Future<Output = Result<Root<B>, Self::Error>> + Send,
     ) {
         let (responses, resolutions) =
             self.work
@@ -803,28 +801,25 @@ where
     }
 }
 
-impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> protocol::Protocol
-    for Completing<B, T>
-{
+impl<B: Backend<Node<Z>: Leaf>> protocol::Protocol for Completing<B> {
     type Height = Z;
-    type Output = Root<B, T>;
+    type Output = Root<B>;
     type Error = Error<B::Error>;
 }
 
-impl<B, T> protocol::CompleteInitiator<B, T> for Completing<B, T>
+impl<B> protocol::CompleteInitiator<B> for Completing<B>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
 {
     async fn complete_initiator(
         self,
-        requests: impl Requests<B, T, Z>,
-    ) -> Result<Root<B, T>, Self::Error> {
+        requests: impl Requests<B, Z>,
+    ) -> Result<Root<B>, Self::Error> {
         let stats = self.work.stats();
-        let mut absorb = pin!(absorb(
+        let mut absorb = pin!(absorb::<B>(
             self.their_version,
             self.ledger,
-            requests,
+            requests.map(erased::erase_reply::<B, Z>),
             self.queries,
             self.returns,
             stats,
@@ -855,17 +850,16 @@ where
 /// Each absorbed leaf is content this replica just learned, credited as
 /// [`messages_gained`](crate::SessionStats::messages_gained) exactly like
 /// the resolver's supply arm.
-async fn absorb<B, T>(
+async fn absorb<B>(
     their_version: Version,
     ledger: SupplyLedger,
-    requests: impl Requests<B, T, Z>,
+    requests: impl futures::Stream<Item = Reply<B::Erased>> + Send,
     mut queries: Receiver<Prefix<Z>>,
-    returns: Sender<Option<B::Node<Z>>>,
+    returns: Sender<Option<B::Erased>>,
     stats: Recorder,
 ) -> Result<(), Error<B::Error>>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
 {
     let mut requests = pin!(requests);
     while let Some(prefix) = queries.recv().await {

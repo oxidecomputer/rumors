@@ -293,5 +293,6 @@ RECORD
     kind: Record::Message(io=UnexpectedEof)
     source[0]: Io(UnexpectedEof)
   record/trailing
-    display: 1 trailing bytes follow the supplied Version and Message
-    kind: Record::TrailingBytes(count=1)
+    display: supplied Message could not be decoded
+    kind: Record::Message(io=InvalidData)
+    source[0]: Io(InvalidData)

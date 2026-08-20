@@ -5,16 +5,19 @@
 //! protocol operation concurrently drives the stored pumps, its own terminal
 //! work, the session's accept driver, and the incoming-stream error route.
 
-use std::pin::pin;
+use crate::message::PayloadDeserializer;
+use std::pin::{Pin, pin};
 
-use futures::{StreamExt, future::BoxFuture};
+use futures::{Stream, StreamExt, future::BoxFuture};
 
 use crate::link::Acceptor;
 use crate::tree::{
     mirror::streaming::{
         Backend, Leaf,
+        channel::{QueueKind, QueueRole, Sender},
+        erased,
         materialized::SupplyLedger,
-        protocol::{BoxResponses, Responses},
+        protocol::BoxResponses,
         remote::{
             adapter::{DecodeError, EncodeError},
             codec::{Origin, RunBudget, Speaker},
@@ -32,17 +35,15 @@ use crate::tree::{
 
 use self::progress::Progress;
 
-use serde::de::DeserializeOwned;
 mod encode;
 pub(super) mod progress;
 mod pump;
 mod queues;
 
 /// Deferred reply pumps and the physical session which drives them.
-pub struct Work<B, T, R, W, A>
+pub struct Work<B, R, W, A>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
     A: Acceptor,
 {
     backend: B,
@@ -57,6 +58,11 @@ where
     /// supply allowance: every leaf record this session decodes charges
     /// it before the payload takes backend custody.
     peer_supplies: SupplyLedger,
+    /// The peer's payload deserializer: the typed ingress every supplied
+    /// leaf record decodes through (see [`Message::deserializer`]).
+    ///
+    /// [`Message::deserializer`]: crate::message::Message::deserializer
+    deserializer: PayloadDeserializer,
     /// The remote greeting's root-fan listing, consumed by whichever role
     /// the election assigns.
     ///
@@ -86,13 +92,14 @@ where
     pub errors: FirstStreamError,
 }
 
-impl<B, T, R, W, A> Work<B, T, R, W, A>
+impl<B, R, W, A> Work<B, R, W, A>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: DeserializeOwned + Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
     A: Acceptor,
 {
     /// Begin accumulating work around an elected physical session.
+    #[allow(clippy::too_many_arguments)] // The argument list is the session's
+    // greeting-derived configuration, one premise per argument.
     pub fn new(
         backend: B,
         window: Window,
@@ -101,6 +108,7 @@ where
         peer_set_len: u64,
         peer_listing: Vec<(u8, Hash)>,
         physical: Physical<R, W, A>,
+        deserializer: PayloadDeserializer,
     ) -> Self {
         Self {
             backend,
@@ -112,6 +120,7 @@ where
             physical,
             tasks: Vec::new(),
             progress: Progress::new(),
+            deserializer,
         }
     }
 
@@ -125,34 +134,26 @@ where
         self.tasks.push(Box::pin(task));
     }
 
-    /// Add a task which actively drives a response stream.
-    ///
-    /// One buffered response is sufficient: whenever the task blocks, that
-    /// response is already available to advance the counterparty and release
-    /// the slot. Buffering a fan would retain whole protocol messages without
-    /// breaking any additional dependency.
+    /// Add a task which actively drives a response stream, and return the
+    /// stream's typed exit: the one point where the proxy's decoded erased
+    /// replies re-tag at their stage's height.
     fn respond<H>(
         &mut self,
-        messages: impl Responses<B, T, H, Error<B::Error>>,
-    ) -> BoxResponses<B, T, H, Error<B::Error>>
+        messages: impl Stream<Item = Result<erased::Reply<B::Erased>, Error<B::Error>>> + Send + 'static,
+    ) -> BoxResponses<B, H, Error<B::Error>>
     where
         H: Height,
     {
-        let (send, receive) = self::queues::responses::<_, H>();
-        self.spawn(async move {
-            let mut messages = pin!(messages);
-            while let Some(message) = messages.next().await {
-                let failed = message.is_err();
-                send_or_cancel(&send, message).await;
-                park_after_published_error(failed).await;
-            }
-            Ok(())
-        });
-        #[cfg(test)]
-        let responses = Box::pin(receive);
-        #[cfg(not(test))]
-        let responses = Box::pin(tokio_stream::wrappers::ReceiverStream::new(receive));
-        responses
+        // One buffered response is sufficient: whenever the pump blocks,
+        // that response is already available to advance the counterparty
+        // and release the slot. Buffering a fan would retain whole
+        // protocol messages without breaking any additional dependency.
+        let (send, responses) = erased::reply_channel::<B, H, Error<B::Error>>(
+            QueueRole::new(QueueKind::ProxyResponses, H::HEIGHT),
+            1,
+        );
+        self.spawn(pump(Box::pin(messages), send));
+        Box::pin(responses)
     }
 
     /// Drive all accumulated pumps, the terminal operation, and the session's
@@ -265,6 +266,19 @@ where
             },
         }
     }
+}
+
+/// Drive one decoded response stream into its outgoing relay edge.
+async fn pump<E: Send, Err: Send + 'static>(
+    mut messages: Pin<Box<dyn Stream<Item = Result<erased::Reply<E>, Error<Err>>> + Send>>,
+    send: Sender<Result<erased::Reply<E>, Error<Err>>>,
+) -> Result<(), Error<Err>> {
+    while let Some(message) = messages.next().await {
+        let failed = message.is_err();
+        send_or_cancel(&send, message).await;
+        park_after_published_error(failed).await;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

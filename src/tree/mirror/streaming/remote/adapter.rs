@@ -4,13 +4,13 @@
 //! levels. In memory, one [`Reply`](super::super::message::Reply) contains
 //! backend node handles and omits its prefix because the receiver already knows
 //! which earlier question it answers. On the wire, a supplied node is flattened
-//! into runs of backend-neutral `(Version, Message<T>)` leaf records which
+//! into runs of backend-neutral `(Version, Message)` leaf records which
 //! still carry neither prefix nor radix. This module is the lossless boundary
 //! between them:
 //!
 //! ```text
-//! Reply<B, T, H> -- encode + explode --> Frame<T> leaves
-//! Reply<B, T, H> <-- decode + assemble -- Frame<T> leaves
+//! Reply<B, H> -- encode + explode --> Frame leaves
+//! Reply<B, H> <-- decode + assemble -- Frame leaves
 //! ```
 //!
 //! # Recovering omitted scope

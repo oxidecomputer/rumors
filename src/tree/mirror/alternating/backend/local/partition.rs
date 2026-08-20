@@ -25,7 +25,7 @@ use super::{Connected, Exchange, message, protocol};
 
 /// The output of [`Exchange::partition_uncertain`], one field per outgoing
 /// channel in the asymmetry matrix.
-struct Partition<T, H>
+struct Partition<H>
 where
     S<H>: Height,
     H: Height,
@@ -33,26 +33,26 @@ where
     /// Left-case subtrees (we have them, the counterparty does not). The caller
     /// will combine these with `answer_requested`'s output to form the final
     /// outgoing `providing`.
-    providing: Level<T, S<H>>,
+    providing: Level<S<H>>,
     /// Right-case prefixes (the counterparty has them, we do not): the outgoing
     /// `requested`. Built in strictly ascending order (see
     /// [`Exchange::partition_uncertain`]).
     requested: Vec<Prefix<S<H>>>,
     /// `Both`-case children whose hashes agreed, plus Left-case children we
     /// kept locally. Become the new level immediately above the bottom.
-    matched: Level<T, S<H>>,
+    matched: Level<S<H>>,
     /// `Both`-case grandchildren of children whose hashes disagreed. Become the
     /// new bottom of the zipper, and next round's outgoing `uncertain`.
-    exploded: Level<T, H>,
+    exploded: Level<H>,
 }
 
 /// The output of [`Exchange::partition_leaf_uncertain`]: the leaf-height
 /// [`Partition`], with the dispute cell gone (a leaf never recurses) and the
 /// matched-and-kept leaves named `kept`.
-struct LeafPartition<T> {
+struct LeafPartition {
     /// Leaves only we hold that the counterparty has not deleted: joins the
     /// outgoing `providing`.
-    providing: Level<T, Z>,
+    providing: Level<Z>,
     /// Leaves only the counterparty holds: the outgoing `requested`. Built in
     /// strictly ascending order.
     requested: Vec<Prefix<Z>>,
@@ -61,13 +61,12 @@ struct LeafPartition<T> {
     ///
     /// Becomes the zipper's new bottom, where the counterparty's answers to
     /// `requested` join it before `collapse` reassembles the union parents.
-    kept: Level<T, Z>,
+    kept: Level<Z>,
 }
 
 impl<L> Exchange<Connected, L>
 where
     L: Levels,
-    L::Message: Send + Sync,
 {
     /// Insert nodes the counterparty has just sent us (because we requested
     /// them last round, or because they unilaterally knew we lacked them) into
@@ -85,10 +84,9 @@ where
     /// subtree: O(nodes received). Rejection leaves the zipper untouched.
     pub(super) fn absorb_providing<H>(
         &mut self,
-        providing: message::Providing<L::Message, H>,
+        providing: message::Providing<H>,
     ) -> Result<(), Violation>
     where
-        L::Message: Send + Sync,
         L: Levels<Height = H>,
         H: Height,
     {
@@ -139,7 +137,7 @@ where
     fn answer_requested_surviving<H>(
         &mut self,
         requested: Vec<Prefix<H>>,
-        mut provide: impl FnMut(Prefix<H>, &tree::typed::Node<L::Message, H>),
+        mut provide: impl FnMut(Prefix<H>, &tree::typed::Node<H>),
     ) where
         L: Levels<Height = H>,
         H: Height + Unknown,
@@ -181,10 +179,7 @@ where
     /// that any subtrees they have deleted disappear locally too.
     ///
     /// Returns the outgoing `providing` map, one height below the frontier.
-    pub(super) fn answer_requested<H>(
-        &mut self,
-        requested: Vec<Prefix<S<H>>>,
-    ) -> Level<L::Message, H>
+    pub(super) fn answer_requested<H>(&mut self, requested: Vec<Prefix<S<H>>>) -> Level<H>
     where
         L: Levels<Height = S<H>>,
         S<H>: Unknown,
@@ -215,10 +210,7 @@ where
     /// constructed by Both-case matches in the previous round and therefore
     /// agree on every parent. The debug-assertions guard against a
     /// steady-state caller silently triggering either branch.
-    fn partition_uncertain<H>(
-        &mut self,
-        uncertain: Vec<(Prefix<S<H>>, Hash)>,
-    ) -> Partition<L::Message, H>
+    fn partition_uncertain<H>(&mut self, uncertain: Vec<(Prefix<S<H>>, Hash)>) -> Partition<H>
     where
         L: Levels<Height = S<S<H>>>,
         S<S<H>>: Height,
@@ -370,10 +362,7 @@ where
     /// the counterparty's version is one they deleted, so it is dropped
     /// locally instead of provided — deletion honored on both sides in one
     /// arm.
-    pub(super) fn answer_requested_leaves(
-        &mut self,
-        requested: Vec<Prefix<Z>>,
-    ) -> Level<L::Message, Z>
+    pub(super) fn answer_requested_leaves(&mut self, requested: Vec<Prefix<Z>>) -> Level<Z>
     where
         L: Levels<Height = Z>,
     {
@@ -394,10 +383,7 @@ where
     /// Each disputed parent leaves the frontier; its reconciled leaves land
     /// in the returned `kept` level, which the caller pushes down the zipper
     /// so `collapse` reassembles the union parent.
-    fn partition_leaf_uncertain(
-        &mut self,
-        uncertain: Vec<(Prefix<Z>, Hash)>,
-    ) -> LeafPartition<L::Message>
+    fn partition_leaf_uncertain(&mut self, uncertain: Vec<(Prefix<Z>, Hash)>) -> LeafPartition
     where
         L: Levels<Height = S<Z>>,
     {
@@ -503,13 +489,9 @@ where
     #[allow(clippy::type_complexity)]
     pub(super) fn close(
         mut self,
-        request: message::Exchange<L::Message, Z>,
+        request: message::Exchange<Z>,
     ) -> Result<
-        protocol::Step<
-            message::Closing<L::Message>,
-            Exchange<Connected, Below<Z, L>>,
-            tree::Root<L::Message>,
-        >,
+        protocol::Step<message::Closing, Exchange<Connected, Below<Z, L>>, tree::Root>,
         Violation,
     >
     where
@@ -589,16 +571,12 @@ where
         mut self,
         request: Request,
     ) -> Result<
-        protocol::Step<
-            Response,
-            Exchange<Connected, Below<H, Below<S<H>, L>>>,
-            tree::Root<L::Message>,
-        >,
+        protocol::Step<Response, Exchange<Connected, Below<H, Below<S<H>, L>>>, tree::Root>,
         Violation,
     >
     where
-        Request: Into<message::Exchange<L::Message, S<H>>>,
-        Response: From<message::Exchange<L::Message, H>>,
+        Request: Into<message::Exchange<S<H>>>,
+        Response: From<message::Exchange<H>>,
         L: Levels<Height = S<S<H>>>,
         S<S<H>>: Height,
         S<H>: Height,

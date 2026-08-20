@@ -1,5 +1,6 @@
 //! Laws which hold uniformly across the adapter's type-level height ladder.
 
+use crate::message::Message;
 use std::convert::Infallible;
 
 use futures::{StreamExt, TryStreamExt, stream};
@@ -9,13 +10,17 @@ use crate::tree::{
     mirror::streaming::{
         Backend, Local,
         convert::Convert,
-        message::{Reaction, Reply},
+        erased::{Reaction, Reply},
     },
     typed::{
         self, Hash, Prefix,
         height::{Height, S, Z},
     },
 };
+
+/// The in-memory backend's erased node representations, per payload.
+type ErasedUnit = <Local as Backend>::Erased;
+type ErasedU64 = <Local as Backend>::Erased;
 
 use super::{
     super::{DecodeError, Scope, decode_leaf_reply, decode_reply, encode_leaf_reply, encode_reply},
@@ -54,7 +59,7 @@ impl PositionalCase {
 
 /// Exercise an adapter law at one concrete type-level reply height.
 trait AdapterHeight: Convert {
-    fn node(leaf: &LeafCase) -> typed::Node<u64, Self>;
+    fn node(leaf: &LeafCase) -> typed::Node<Self>;
 
     fn supplied_leaf_is_lossless(
         leaf: &LeafCase,
@@ -91,7 +96,7 @@ trait AdapterHeight: Convert {
 }
 
 impl AdapterHeight for Z {
-    fn node(leaf: &LeafCase) -> typed::Node<u64, Self> {
+    fn node(leaf: &LeafCase) -> typed::Node<Self> {
         typed::Node::leaf(leaf.version.clone(), leaf.message.clone())
     }
 
@@ -100,7 +105,7 @@ impl AdapterHeight for Z {
         runtime: &tokio::runtime::Runtime,
     ) -> TestCaseResult {
         let (parent, radix) = Prefix::<Z>::containing(&leaf.path()).pop();
-        let scope = Scope::new(parent, &[]);
+        let scope = Scope::new(parent.erase(), &[]);
         let frame = supplied_frame(leaf, Flow::End);
         let mut frames = stream::iter([frame.clone()]);
         let decoded = runtime
@@ -110,6 +115,7 @@ impl AdapterHeight for Z {
                 unbounded(),
                 scope.clone(),
                 &mut frames,
+                Message::deserializer::<u64>(),
             ))
             .expect("an in-scope leaf decodes");
 
@@ -132,8 +138,8 @@ impl AdapterHeight for Z {
         runtime: &tokio::runtime::Runtime,
     ) -> TestCaseResult {
         let parent = Prefix::<S<Z>>::containing(&leaf.path());
-        let scope = Scope::new(parent, &listing(radixes));
-        let reply = Reply::<Local, (), Z> {
+        let scope = Scope::new(parent.erase(), &listing(radixes));
+        let reply = Reply::<ErasedUnit> {
             replies: radixes.iter().map(|_| Reaction::Match).collect(),
         };
         let encoded = runtime.block_on(async {
@@ -159,6 +165,7 @@ impl AdapterHeight for Z {
                 unbounded(),
                 scope,
                 &mut frames,
+                Message::deserializer::<u64>(),
             ))
             .expect("canonical matches decode");
         prop_assert!(decoded.questions.is_empty(), "height 0");
@@ -173,10 +180,10 @@ impl AdapterHeight for Z {
         runtime: &tokio::runtime::Runtime,
     ) -> TestCaseResult {
         let parent = Prefix::<S<Z>>::containing(&leaf.path());
-        let scope = Scope::new(parent, &case.listing());
+        let scope = Scope::new(parent.erase(), &case.listing());
         let mut leaf_case = case.clone();
         leaf_case.nested.clear();
-        let reply = Reply::<Local, (), Z> {
+        let reply = Reply::<ErasedUnit> {
             replies: (0..leaf_case.radixes.len())
                 .map(|position| {
                     if leaf_case.is_query(position) {
@@ -193,7 +200,7 @@ impl AdapterHeight for Z {
             .iter()
             .enumerate()
             .filter(|(position, _)| leaf_case.is_query(*position))
-            .map(|(_, &radix)| Scope::leaf(parent.push(radix)))
+            .map(|(_, &radix)| Scope::leaf(parent.push(radix).erase()))
             .collect::<Vec<_>>();
         let expected_publications = if leaf_case.radixes.is_empty() {
             vec![None]
@@ -205,7 +212,7 @@ impl AdapterHeight for Z {
                 .map(|(position, &radix)| {
                     leaf_case
                         .is_query(position)
-                        .then(|| Scope::leaf(parent.push(radix)))
+                        .then(|| Scope::leaf(parent.push(radix).erase()))
                 })
                 .collect::<Vec<_>>()
         };
@@ -236,6 +243,7 @@ impl AdapterHeight for Z {
                 unbounded(),
                 scope,
                 &mut frames,
+                Message::deserializer::<u64>(),
             ))
             .expect("canonical leaf reactions decode");
         prop_assert_eq!(&decoded.questions, &expected_questions, "height 0");
@@ -249,11 +257,12 @@ impl AdapterHeight for Z {
     ) -> TestCaseResult {
         let (parent, supply_radix) = Prefix::<Z>::containing(&leaf.path()).pop();
         let (case, supply_at) = case.with_supply(supply_radix);
-        let scope = Scope::new(parent, &case.listing());
+        let scope = Scope::new(parent.erase(), &case.listing());
         let reply = mixed_reply(&case, &[], supply_at, supply_radix, Self::node(leaf));
         let expected_frames = expected_mixed_frames(&case, &[], supply_at, leaf);
-        let expected_publications =
-            mixed_publications(&case, supply_at, |radix| Scope::leaf(parent.push(radix)));
+        let expected_publications = mixed_publications(&case, supply_at, |radix| {
+            Scope::leaf(parent.push(radix).erase())
+        });
         let expected_questions = expected_publications
             .iter()
             .filter_map(Clone::clone)
@@ -286,10 +295,11 @@ impl AdapterHeight for Z {
                 unbounded(),
                 scope,
                 &mut frames,
+                Message::deserializer::<u64>(),
             ))
             .expect("canonical mixed leaf reactions decode");
         prop_assert_eq!(&decoded.questions, &expected_questions, "height 0");
-        assert_mixed_reply(
+        assert_mixed_reply::<Z>(
             &decoded.reply,
             &case,
             &[],
@@ -313,8 +323,9 @@ impl AdapterHeight for Z {
                 Local,
                 u64::MAX,
                 unbounded(),
-                Scope::new(parent, &[]),
+                Scope::new(parent.erase(), &[]),
                 &mut frames,
+                Message::deserializer::<u64>(),
             ))
             .err()
             .expect("duplicate leaves are not strictly ascending");
@@ -333,8 +344,9 @@ impl AdapterHeight for Z {
                 Local,
                 u64::MAX,
                 unbounded(),
-                Scope::new(foreign, &[]),
+                Scope::new(foreign.erase(), &[]),
                 &mut frames,
+                Message::deserializer::<u64>(),
             ))
             .err()
             .expect("a leaf outside the retained scope must fail");
@@ -348,7 +360,7 @@ where
     S<H>: Convert,
     S<S<H>>: Height,
 {
-    fn node(leaf: &LeafCase) -> typed::Node<u64, Self> {
+    fn node(leaf: &LeafCase) -> typed::Node<Self> {
         let path: [u8; 32] = leaf.path().into();
         typed::Node::beneath(H::node(leaf), path[31 - H::HEIGHT])
     }
@@ -358,16 +370,17 @@ where
         runtime: &tokio::runtime::Runtime,
     ) -> TestCaseResult {
         let (parent, radix) = Prefix::<S<H>>::containing(&leaf.path()).pop();
-        let scope = Scope::new(parent, &[]);
+        let scope = Scope::new(parent.erase(), &[]);
         let frame = supplied_frame(leaf, Flow::End);
         let mut frames = stream::iter([frame.clone()]);
         let decoded = runtime
-            .block_on(decode_reply::<Local, u64, H, _>(
+            .block_on(decode_reply::<Local, _>(
                 Local,
                 u64::MAX,
                 unbounded(),
                 scope.clone(),
                 &mut frames,
+                Message::deserializer::<u64>(),
             ))
             .expect("an in-scope leaf decodes");
 
@@ -390,8 +403,8 @@ where
         runtime: &tokio::runtime::Runtime,
     ) -> TestCaseResult {
         let parent = Prefix::<S<S<H>>>::containing(&leaf.path());
-        let scope = Scope::new(parent, &listing(radixes));
-        let reply = Reply::<Local, (), Self> {
+        let scope = Scope::new(parent.erase(), &listing(radixes));
+        let reply = Reply::<ErasedUnit> {
             replies: radixes.iter().map(|_| Reaction::Match).collect(),
         };
         let encoded = runtime.block_on(async {
@@ -411,12 +424,13 @@ where
                 .chain([sentinel.clone()]),
         );
         let decoded = runtime
-            .block_on(decode_reply::<Local, (), H, _>(
+            .block_on(decode_reply::<Local, _>(
                 Local,
                 u64::MAX,
                 unbounded(),
                 scope,
                 &mut frames,
+                Message::deserializer::<u64>(),
             ))
             .expect("canonical matches decode");
         prop_assert!(decoded.questions.is_empty(), "height {}", Self::HEIGHT);
@@ -436,8 +450,8 @@ where
         runtime: &tokio::runtime::Runtime,
     ) -> TestCaseResult {
         let parent = Prefix::<S<S<H>>>::containing(&leaf.path());
-        let scope = Scope::new(parent, &case.listing());
-        let reply = Reply::<Local, (), Self> {
+        let scope = Scope::new(parent.erase(), &case.listing());
+        let reply = Reply::<ErasedUnit> {
             replies: (0..case.radixes.len())
                 .map(|position| {
                     if case.is_query(position) {
@@ -453,8 +467,8 @@ where
             .iter()
             .enumerate()
             .filter(|(position, _)| case.is_query(*position))
-            .map(|(_, &radix)| Scope::new(parent.push(radix), &case.nested))
-            .collect::<Vec<Scope<H>>>();
+            .map(|(_, &radix)| Scope::new(parent.push(radix).erase(), &case.nested))
+            .collect::<Vec<Scope>>();
         let expected_frames = expected_positional_frames(case);
         let expected_publications = if case.radixes.is_empty() {
             vec![None]
@@ -464,7 +478,7 @@ where
                 .enumerate()
                 .map(|(position, &radix)| {
                     case.is_query(position)
-                        .then(|| Scope::new(parent.push(radix), &case.nested))
+                        .then(|| Scope::new(parent.push(radix).erase(), &case.nested))
                 })
                 .collect::<Vec<_>>()
         };
@@ -494,12 +508,13 @@ where
 
         let mut frames = stream::iter(actual_frames);
         let decoded = runtime
-            .block_on(decode_reply::<Local, (), H, _>(
+            .block_on(decode_reply::<Local, _>(
                 Local,
                 u64::MAX,
                 unbounded(),
                 scope,
                 &mut frames,
+                Message::deserializer::<u64>(),
             ))
             .expect("canonical positional reactions decode");
         prop_assert_eq!(
@@ -518,7 +533,7 @@ where
     ) -> TestCaseResult {
         let (parent, supply_radix) = Prefix::<Self>::containing(&leaf.path()).pop();
         let (case, supply_at) = case.with_supply(supply_radix);
-        let scope = Scope::new(parent, &case.listing());
+        let scope = Scope::new(parent.erase(), &case.listing());
         let reply = mixed_reply(
             &case,
             &case.nested,
@@ -528,7 +543,7 @@ where
         );
         let expected_frames = expected_mixed_frames(&case, &case.nested, supply_at, leaf);
         let expected_publications = mixed_publications(&case, supply_at, |radix| {
-            Scope::new(parent.push(radix), &case.nested)
+            Scope::new(parent.push(radix).erase(), &case.nested)
         });
         let expected_questions = expected_publications
             .iter()
@@ -561,12 +576,13 @@ where
         let sentinel = Frame::End(End::Reply);
         let mut frames = stream::iter(actual_frames.into_iter().chain([sentinel.clone()]));
         let decoded = runtime
-            .block_on(decode_reply::<Local, u64, H, _>(
+            .block_on(decode_reply::<Local, _>(
                 Local,
                 u64::MAX,
                 unbounded(),
                 scope,
                 &mut frames,
+                Message::deserializer::<u64>(),
             ))
             .expect("canonical mixed reactions decode");
         prop_assert_eq!(
@@ -575,7 +591,7 @@ where
             "height {}",
             Self::HEIGHT
         );
-        assert_mixed_reply(
+        assert_mixed_reply::<Self>(
             &decoded.reply,
             &case,
             &case.nested,
@@ -600,12 +616,13 @@ where
         let parent = Prefix::<Self>::containing(&leaf.path()).pop().0;
         let mut frames = stream::iter(duplicate_frames(leaf));
         let error = runtime
-            .block_on(decode_reply::<Local, u64, H, _>(
+            .block_on(decode_reply::<Local, _>(
                 Local,
                 u64::MAX,
                 unbounded(),
-                Scope::new(parent, &[]),
+                Scope::new(parent.erase(), &[]),
                 &mut frames,
+                Message::deserializer::<u64>(),
             ))
             .err()
             .expect("duplicate leaves are not strictly ascending");
@@ -626,12 +643,13 @@ where
         let foreign = foreign_parent::<Self>(leaf, actual);
         let mut frames = stream::iter([supplied_frame(leaf, Flow::End)]);
         let error = runtime
-            .block_on(decode_reply::<Local, u64, H, _>(
+            .block_on(decode_reply::<Local, _>(
                 Local,
                 u64::MAX,
                 unbounded(),
-                Scope::new(foreign, &[]),
+                Scope::new(foreign.erase(), &[]),
                 &mut frames,
+                Message::deserializer::<u64>(),
             ))
             .err()
             .expect("a leaf outside the retained scope must fail");
@@ -639,14 +657,14 @@ where
     }
 }
 
-fn supplied_frame(leaf: &LeafCase, flow: Flow) -> Frame<u64> {
+fn supplied_frame(leaf: &LeafCase, flow: Flow) -> Frame {
     Frame::Reaction(
         WireReaction::Supply(leaf_run(&[(&leaf.version, &leaf.message)])),
         flow,
     )
 }
 
-fn duplicate_frames(leaf: &LeafCase) -> [Frame<u64>; 2] {
+fn duplicate_frames(leaf: &LeafCase) -> [Frame; 2] {
     [
         supplied_frame(leaf, Flow::Continue),
         supplied_frame(leaf, Flow::End),
@@ -662,9 +680,9 @@ fn mixed_reply<H: Height>(
     query_listing: &[(u8, Hash)],
     supply_at: usize,
     supply_radix: u8,
-    supply: typed::Node<u64, H>,
-) -> Reply<Local, u64, H> {
-    let mut supply = Some(supply);
+    supply: typed::Node<H>,
+) -> Reply<ErasedU64> {
+    let mut supply = Some(<Local as Backend>::erase(supply));
     let mut replies = Vec::with_capacity(case.radixes.len() + 1);
     for position in 0..=case.radixes.len() {
         if position == supply_at {
@@ -689,7 +707,7 @@ fn expected_mixed_frames(
     query_listing: &[(u8, Hash)],
     supply_at: usize,
     leaf: &LeafCase,
-) -> Vec<Frame<u64>> {
+) -> Vec<Frame> {
     let mut reactions = Vec::with_capacity(case.radixes.len() + 1);
     for position in 0..=case.radixes.len() {
         if position == supply_at {
@@ -742,7 +760,7 @@ fn mixed_publications<Q>(
 }
 
 fn assert_mixed_reply<H: Convert>(
-    reply: &Reply<Local, u64, H>,
+    reply: &Reply<ErasedU64>,
     case: &PositionalCase,
     query_listing: &[(u8, Hash)],
     supply_at: usize,
@@ -787,7 +805,7 @@ where
 }
 
 fn assert_decoded_supply<H: Convert>(
-    reply: &Reply<Local, u64, H>,
+    reply: &Reply<ErasedU64>,
     expected_radix: u8,
     expected_leaf: &LeafCase,
     runtime: &tokio::runtime::Runtime,
@@ -806,7 +824,7 @@ where
 }
 
 fn assert_node_leaf<H: Convert>(
-    node: &typed::Node<u64, H>,
+    node: &ErasedU64,
     expected_leaf: &LeafCase,
     runtime: &tokio::runtime::Runtime,
 ) -> TestCaseResult
@@ -815,8 +833,7 @@ where
 {
     let prefix = Prefix::<H>::containing(&expected_leaf.path());
     let leaves = runtime.block_on(async {
-        Local
-            .leaves(prefix, node.clone())
+        <Local as Backend>::leaves(Local, prefix, <Local as Backend>::assume::<H>(node.clone()))
             .try_collect::<Vec<_>>()
             .await
             .expect("the local backend is infallible")
@@ -836,7 +853,7 @@ where
 }
 
 fn assert_match_encoding<Q>(
-    encoded: &[(Frame<()>, Option<Q>)],
+    encoded: &[(Frame, Option<Q>)],
     count: usize,
     height: usize,
 ) -> TestCaseResult {
@@ -866,11 +883,7 @@ fn assert_match_encoding<Q>(
     Ok(())
 }
 
-fn assert_matches<H: Height>(
-    reply: &Reply<Local, (), H>,
-    count: usize,
-    height: usize,
-) -> TestCaseResult {
+fn assert_matches(reply: &Reply<ErasedUnit>, count: usize, height: usize) -> TestCaseResult {
     prop_assert_eq!(reply.replies.len(), count, "height {}", height);
     prop_assert!(
         reply
@@ -882,7 +895,7 @@ fn assert_matches<H: Height>(
     Ok(())
 }
 
-fn expected_positional_frames(case: &PositionalCase) -> Vec<Frame<()>> {
+fn expected_positional_frames(case: &PositionalCase) -> Vec<Frame> {
     if case.radixes.is_empty() {
         return vec![Frame::End(End::Reply)];
     }
@@ -903,8 +916,8 @@ fn expected_positional_frames(case: &PositionalCase) -> Vec<Frame<()>> {
         .collect()
 }
 
-fn assert_positional_reply<H: Height>(
-    reply: &Reply<Local, (), H>,
+fn assert_positional_reply(
+    reply: &Reply<ErasedUnit>,
     case: &PositionalCase,
     height: usize,
 ) -> TestCaseResult {

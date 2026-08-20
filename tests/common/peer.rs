@@ -67,7 +67,7 @@ impl<T: Clone + Serialize + DeserializeOwned + Send + Sync + 'static> Peer<T> {
         let mut new = 0;
         for (version, message) in snapshot.range(causally::since(&self.checkpoint)) {
             self.observations
-                .push((version.clone(), (**message).clone()));
+                .push((version.clone(), (*message).clone()));
             new += 1;
         }
         self.checkpoint |= snapshot.latest();

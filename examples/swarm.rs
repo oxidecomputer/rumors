@@ -134,7 +134,7 @@ use std::time::{Duration, Instant};
 
 use arc_swap::ArcSwap;
 use clap::Parser;
-use futures::FutureExt;
+use futures::{FutureExt, StreamExt};
 use rand::rngs::SmallRng;
 use rand::{Rng, RngCore, SeedableRng};
 use ratatui::Terminal;
@@ -618,7 +618,7 @@ fn run_party(
 /// its version into the pool. Each message is yielded exactly once across
 /// the party's lifetime, so the pool never holds duplicates.
 fn drain_versions(observer: &mut UnorderedMessages<Payload>, pool: &mut Vec<Version>) {
-    while let Some(Some((version, _))) = observer.borrow_next().now_or_never() {
+    while let Some(Some((version, _))) = observer.next().now_or_never() {
         pool.push(version.clone());
     }
 }

@@ -78,18 +78,13 @@ fn try_into_peer_future_is_send() {
     drop(fut);
 }
 
-/// Both observer faces — `borrow_next`'s future and the `Stream`'s item
-/// future — are `Send`, for spawned and `select!`-driven consumers.
+/// The observer's item future is `Send`, for spawned and
+/// `select!`-driven consumers.
 #[test]
 fn observer_futures_are_send() {
     let alice = Peer::<String>::seed().sync_window_floor().into_rumors();
     let mut messages = alice.unordered_messages();
-    {
-        let fut = messages.borrow_next();
-        require_send(&fut);
-        drop(fut);
-    }
-    // The `Stream` face's item future must be `Send` too, for
+    // The `Stream` face's item future must be `Send`, for
     // `tokio::spawn`d `select!` consumers.
     let fut = messages.next();
     require_send(&fut);

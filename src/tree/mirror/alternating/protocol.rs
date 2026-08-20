@@ -88,12 +88,9 @@ pub trait Stage: Send {
 /// Open the connect phase on the client side: emit our [`message::Handshake`]
 /// greeting. Always continues (the `Done` slot is [`Infallible`]): a side
 /// cannot know it has converged before hearing the peer's version.
-pub trait Connect<T>: Stage<Height = Root> + Sized
-where
-    T: Send + Sync,
-{
+pub trait Connect: Stage<Height = Root> + Sized {
     /// The state that absorbs the peer's version ([`CompleteConnect`]).
-    type Next: CompleteConnect<T> + Stage<Output = Self::Output, Height = Root, Error = Self::Error>;
+    type Next: CompleteConnect + Stage<Output = Self::Output, Height = Root, Error = Self::Error>;
 
     fn connect(
         self,
@@ -106,13 +103,10 @@ where
 /// descent; `Continue` hands over a state ready to play either role
 /// (`Next` is both [`Initiator`] and [`Responder`]; the byte tiebreak picks
 /// which, see [`descend`](super::descend)).
-pub trait CompleteConnect<T>: Stage<Height = Root> + Sized
-where
-    T: Send + Sync,
-{
+pub trait CompleteConnect: Stage<Height = Root> + Sized {
     /// The connected state, able to play either descent role.
-    type Next: Initiator<T>
-        + Responder<T>
+    type Next: Initiator
+        + Responder
         + Stage<Output = Self::Output, Height = Root, Error = Self::Error>;
 
     fn complete_connect(
@@ -126,13 +120,10 @@ where
 ///
 /// `Done` mirrors [`CompleteConnect`]'s convergence case; the two sides always
 /// agree on it (both compare the same pair of versions).
-pub trait Accept<T>: Stage<Height = Root> + Sized
-where
-    T: Send + Sync,
-{
+pub trait Accept: Stage<Height = Root> + Sized {
     /// The connected state, able to play either descent role.
-    type Next: Initiator<T>
-        + Responder<T>
+    type Next: Initiator
+        + Responder
         + Stage<Output = Self::Output, Height = Root, Error = Self::Error>;
 
     fn accept(
@@ -147,12 +138,9 @@ where
 ///
 /// The trait is implemented by the state type that the constructor produces;
 /// `Self::Next == Self` for any straightforward implementation.
-pub trait Initiator<T>: Stage<Height = Root> + Sized
-where
-    T: Send + Sync,
-{
+pub trait Initiator: Stage<Height = Root> + Sized {
     /// The state that consumes the responder's [`message::Opening`].
-    type Next: OpenInitiator<T> + Stage<Output = Self::Output, Height = Root, Error = Self::Error>;
+    type Next: OpenInitiator + Stage<Output = Self::Output, Height = Root, Error = Self::Error>;
 
     /// Begin the protocol as the initiator.
     ///
@@ -170,12 +158,9 @@ where
 }
 
 /// Continue the protocol as the responder.
-pub trait Responder<T>: Stage<Height = Root> + Sized
-where
-    T: Send + Sync,
-{
+pub trait Responder: Stage<Height = Root> + Sized {
     /// The first steady-state [`Exchange`] from the responder's side.
-    type Next: Exchange<T> + Stage<Output = Self::Output, Height = UnderRoot, Error = Self::Error>;
+    type Next: Exchange + Stage<Output = Self::Output, Height = UnderRoot, Error = Self::Error>;
 
     /// Begin the protocol as the responder, processing the initiator's
     /// [`message::Initiate`].
@@ -197,13 +182,9 @@ where
 /// Distinct from [`Exchange`] because the opening carries only `uncertain`,
 /// and the responder may list children of the initiator's absent root, a
 /// case the steady-state [`Exchange`] is allowed to debug-assert against.
-pub trait OpenInitiator<T>: Stage<Height = Root> + Sized
-where
-    T: Send + Sync,
-{
+pub trait OpenInitiator: Stage<Height = Root> + Sized {
     /// The first steady-state [`Exchange`] from the initiator's side.
-    type Next: Exchange<T>
-        + Stage<Output = Self::Output, Height = UnderUnderRoot, Error = Self::Error>;
+    type Next: Exchange + Stage<Output = Self::Output, Height = UnderUnderRoot, Error = Self::Error>;
 
     /// Process the initiator's first round, applied to the responder's
     /// [`message::Opening`].
@@ -220,7 +201,7 @@ where
         request: message::Opening,
     ) -> impl Future<
         Output = Result<
-            Step<message::Exchange<T, UnderUnderRoot>, Self::Next, Self::Output>,
+            Step<message::Exchange<UnderUnderRoot>, Self::Next, Self::Output>,
             Self::Error,
         >,
     > + Send;
@@ -232,9 +213,8 @@ where
 /// message's is `Self::Height − 1`); both are recovered from `Stage::Height`
 /// via `Pred` projections, so each implementing type's exchange height is
 /// determined by its `Stage::Height` alone.
-pub trait Exchange<T>: Stage + Sized
+pub trait Exchange: Stage + Sized
 where
-    T: Send + Sync,
     Self::Height: Pred,
     <Self::Height as Pred>::Pred: Pred,
     S<<Self::Height as Pred>::Pred>: Height,
@@ -242,7 +222,7 @@ where
 {
     /// Whichever of [`Exchange`], [`CloseResponder`], or [`CompleteInitiator`]
     /// is appropriate at the outgoing message's height. See [`AfterExchange`].
-    type Next: AfterExchange<T, <<Self::Height as Pred>::Pred as Pred>::Pred>
+    type Next: AfterExchange<<<Self::Height as Pred>::Pred as Pred>::Pred>
         + Stage<
             Output = Self::Output,
             Height = <<Self::Height as Pred>::Pred as Pred>::Pred,
@@ -259,11 +239,11 @@ where
     #[allow(clippy::type_complexity)]
     fn exchange(
         self,
-        request: message::Exchange<T, <Self::Height as Pred>::Pred>,
+        request: message::Exchange<<Self::Height as Pred>::Pred>,
     ) -> impl Future<
         Output = Result<
             Step<
-                message::Exchange<T, <<Self::Height as Pred>::Pred as Pred>::Pred>,
+                message::Exchange<<<Self::Height as Pred>::Pred as Pred>::Pred>,
                 Self::Next,
                 Self::Output,
             >,
@@ -281,12 +261,9 @@ where
 /// two leaves at one path are the same leaf — so the reply carries only
 /// `providing` and `requested`, which is exactly what [`message::Closing`]
 /// encodes.
-pub trait CloseResponder<T>: Stage<Height = S<Z>> + Sized
-where
-    T: Send + Sync,
-{
+pub trait CloseResponder: Stage<Height = S<Z>> + Sized {
     /// The terminal responder state.
-    type Next: CompleteResponder<T> + Stage<Output = Self::Output, Height = Z, Error = Self::Error>;
+    type Next: CompleteResponder + Stage<Output = Self::Output, Height = Z, Error = Self::Error>;
 
     /// The responder's closing round, descending the zipper from `S<Z>` to
     /// `Z` and emitting [`message::Closing`].
@@ -297,18 +274,13 @@ where
     #[allow(clippy::type_complexity)]
     fn close_responder(
         self,
-        request: message::Exchange<T, Z>,
-    ) -> impl Future<
-        Output = Result<Step<message::Closing<T>, Self::Next, Self::Output>, Self::Error>,
-    > + Send;
+        request: message::Exchange<Z>,
+    ) -> impl Future<Output = Result<Step<message::Closing, Self::Next, Self::Output>, Self::Error>> + Send;
 }
 
 /// The initiator's terminal round; absorbs the responder's
 /// [`message::Closing`] and answers it with [`message::Complete`].
-pub trait CompleteInitiator<T>: Stage<Height = Z> + Sized
-where
-    T: Send + Sync,
-{
+pub trait CompleteInitiator: Stage<Height = Z> + Sized {
     /// The initiator's final round.
     ///
     /// Absorbs the responder's last batch of `providing`, answers its final
@@ -322,18 +294,14 @@ where
     #[allow(clippy::type_complexity)]
     fn complete_initiator(
         self,
-        request: message::Closing<T>,
-    ) -> impl Future<
-        Output = Result<Step<message::Complete<T>, Infallible, Self::Output>, Self::Error>,
-    > + Send;
+        request: message::Closing,
+    ) -> impl Future<Output = Result<Step<message::Complete, Infallible, Self::Output>, Self::Error>>
+    + Send;
 }
 
 /// The responder's terminal round; absorbs the initiator's
 /// [`message::Complete`].
-pub trait CompleteResponder<T>: Stage<Height = Z> + Sized
-where
-    T: Send + Sync,
-{
+pub trait CompleteResponder: Stage<Height = Z> + Sized {
     /// The responder's final round.
     ///
     /// Absorbs the initiator's last batch of `providing` (from
@@ -343,7 +311,7 @@ where
     #[allow(clippy::type_complexity)]
     fn complete_responder(
         self,
-        request: message::Complete<T>,
+        request: message::Complete,
     ) -> impl Future<Output = Result<Step<(), Infallible, Self::Output>, Self::Error>> + Send;
 }
 
@@ -361,42 +329,25 @@ where
 /// Heights `Z` and `S<Z>` are handled via the blanket impls below, keyed off
 /// the appropriate terminal trait. `S<S<Z>>` needs its own blanket only
 /// because it does not unify with the `S<S<S<H>>>` pattern.
-pub trait AfterExchange<T, H>: Sized
+pub trait AfterExchange<H>: Sized
 where
-    T: Send + Sync,
     H: Height,
 {
 }
 
-impl<T, X> AfterExchange<T, Z> for X
-where
-    T: Send + Sync,
-    X: CompleteInitiator<T>,
-{
-}
+impl<X> AfterExchange<Z> for X where X: CompleteInitiator {}
 
-impl<T, X> AfterExchange<T, S<Z>> for X
-where
-    T: Send + Sync,
-    X: CloseResponder<T>,
-{
-}
+impl<X> AfterExchange<S<Z>> for X where X: CloseResponder {}
 
-impl<T, X> AfterExchange<T, S<S<Z>>> for X
-where
-    T: Send + Sync,
-    X: Exchange<T> + Stage<Height = S<S<Z>>>,
-{
-}
+impl<X> AfterExchange<S<S<Z>>> for X where X: Exchange + Stage<Height = S<S<Z>>> {}
 
-impl<T, H, X> AfterExchange<T, S<S<S<H>>>> for X
+impl<H, X> AfterExchange<S<S<S<H>>>> for X
 where
-    T: Send + Sync,
     H: Height,
     S<H>: Height,
     S<S<H>>: Height,
     S<S<S<H>>>: Height,
-    X: Exchange<T> + Stage<Height = S<S<S<H>>>>,
+    X: Exchange + Stage<Height = S<S<S<H>>>>,
 {
 }
 
@@ -405,7 +356,7 @@ where
 /// position.
 ///
 /// The macro emits the chains tt-munched ahead of time: the
-/// initiator side wraps `$init_terminal` in N `Exchange<T, Next: …>`
+/// initiator side wraps `$init_terminal` in N `Exchange<Next: …>`
 /// layers (where N is the count of `_` tokens in `init: […]`), and the
 /// responder side does the same for `$resp_terminal`.
 ///
@@ -422,12 +373,12 @@ macro_rules! define_peer {
         define_peer!(@step
             init: [$($init_count)*],
             resp: [$($resp_count)*],
-            init_chain: (CompleteInitiator<T>),
-            resp_chain: (CloseResponder<T>),
+            init_chain: ( CompleteInitiator),
+            resp_chain: ( CloseResponder),
         );
     };
 
-    // Wrap one `Exchange<T, Next: …>` around the init-chain accumulator
+    // Wrap one `Exchange<Next: …>` around the init-chain accumulator
     // until the init-side counter is exhausted.
     (@step
         init: [_ $($init_rest:tt)*],
@@ -438,7 +389,7 @@ macro_rules! define_peer {
         define_peer!(@step
             init: [$($init_rest)*],
             resp: [$($resp_count)*],
-            init_chain: (Exchange<T, Next: $($init_chain)*>),
+            init_chain: (Exchange<Next: $($init_chain)*>),
             resp_chain: ($($resp_chain)*),
         );
     };
@@ -454,7 +405,7 @@ macro_rules! define_peer {
             init: [],
             resp: [$($resp_rest)*],
             init_chain: ($($init_chain)*),
-            resp_chain: (Exchange<T, Next: $($resp_chain)*>),
+            resp_chain: (Exchange<Next: $($resp_chain)*>),
         );
     };
 
@@ -475,53 +426,47 @@ macro_rules! define_peer {
         ///
         /// Both `local::Exchange` and `remote::Exchange` pick this up for
         /// free via the blanket impl below; downstream call sites take a
-        /// single `Peer<T>` bound on each argument and the chain bounds
+        /// single `Peer` bound on each argument and the chain bounds
         /// propagate.
-        pub trait Peer<T>:
-            Initiator<T, Next: OpenInitiator<T, Next: $($init_chain)*>> + Responder<T, Next: $($resp_chain)*>
+        pub trait Peer:
+            Initiator<Next: OpenInitiator<Next: $($init_chain)*>> + Responder<Next: $($resp_chain)*>
         where
-            T: Send + Sync,
         {
         }
 
-        impl<X, T> Peer<T> for X
+        impl<X> Peer for X
         where
-            T: Send + Sync,
-            X: Initiator<T, Next: OpenInitiator<T, Next: $($init_chain)*>> + Responder<T, Next: $($resp_chain)*>
+            X: Initiator<Next: OpenInitiator<Next: $($init_chain)*>> + Responder<Next: $($resp_chain)*>
         {
         }
 
         /// A [`Peer`] entered through the server side of the connect phase:
         /// [`Accept`] first, then either descent role. The whole-session
         /// bound the wire-facing driver takes for the remote party.
-        pub trait Server<T>:
-            Accept<T, Next: Initiator<T, Next: OpenInitiator<T, Next: $($init_chain)*>> + Responder<T, Next: $($resp_chain)*>>
+        pub trait Server:
+            Accept<Next: Initiator<Next: OpenInitiator<Next: $($init_chain)*>> + Responder<Next: $($resp_chain)*>>
         where
-            T: Send + Sync,
         {
         }
 
-        impl<X, T> Server<T> for X
+        impl<X> Server for X
         where
-            T: Send + Sync,
-            X: Accept<T, Next: Initiator<T, Next: OpenInitiator<T, Next: $($init_chain)*>> + Responder<T, Next: $($resp_chain)*>>
+            X: Accept<Next: Initiator<Next: OpenInitiator<Next: $($init_chain)*>> + Responder<Next: $($resp_chain)*>>
         {
         }
 
         /// A [`Peer`] entered through the client side of the connect phase:
         /// [`Connect`] then [`CompleteConnect`], then either descent role.
         /// The whole-session bound the drivers take for the local party.
-        pub trait Client<T>:
-            Connect<T, Next: CompleteConnect<T, Next: Initiator<T, Next: OpenInitiator<T, Next: $($init_chain)*>> + Responder<T, Next: $($resp_chain)*>>>
+        pub trait Client:
+            Connect<Next: CompleteConnect<Next: Initiator<Next: OpenInitiator<Next: $($init_chain)*>> + Responder<Next: $($resp_chain)*>>>
         where
-            T: Send + Sync,
         {
         }
 
-        impl<X, T> Client<T> for X
+        impl<X> Client for X
         where
-            T: Send + Sync,
-            X: Connect<T, Next: CompleteConnect<T, Next: Initiator<T, Next: OpenInitiator<T, Next: $($init_chain)*>> + Responder<T, Next: $($resp_chain)*>>>
+            X: Connect<Next: CompleteConnect<Next: Initiator<Next: OpenInitiator<Next: $($init_chain)*>> + Responder<Next: $($resp_chain)*>>>
         {
         }
 

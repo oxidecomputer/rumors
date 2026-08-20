@@ -20,16 +20,13 @@ use crate::{
     tree::{
         mirror::streaming::{
             Backend, Local,
-            message::Reaction,
+            erased::Reaction,
             remote::codec::{
                 DEFAULT_TARGET_MESSAGE_SIZE, Flow, Frame, LeafRun, Reaction as WireReaction,
                 RunBudget, SUPPLY_FRAME_OVERHEAD,
             },
         },
-        typed::{
-            Prefix,
-            height::{UnderRoot, UnderUnderRoot},
-        },
+        typed::{Prefix, height::UnderRoot},
     },
 };
 
@@ -86,7 +83,7 @@ fn separated_leaves() -> [LeafCase; 2] {
 }
 
 /// One single-record supply frame per leaf: the least-batched wire form.
-fn unbatched_frames(leaves: &[LeafCase]) -> Vec<Frame<u64>> {
+fn unbatched_frames(leaves: &[LeafCase]) -> Vec<Frame> {
     let count = leaves.len();
     leaves
         .iter()
@@ -107,16 +104,17 @@ fn unbatched_frames(leaves: &[LeafCase]) -> Vec<Frame<u64>> {
 
 /// Decode `frames` as one reply to the opening scope, then re-encode it
 /// under `budget`, returning the emitted wire frames.
-fn recode(frames: Vec<Frame<u64>>, budget: RunBudget) -> Vec<Frame<u64>> {
+fn recode(frames: Vec<Frame>, budget: RunBudget) -> Vec<Frame> {
     let runtime = runtime();
     runtime.block_on(async {
         let mut input = stream::iter(frames);
-        let decoded = decode_reply::<Local, u64, UnderUnderRoot, _>(
+        let decoded = decode_reply::<Local, _>(
             Local,
             u64::MAX,
             unbounded(),
-            Scope::<UnderRoot>::opening(&[]),
+            Scope::opening(&[]),
             &mut input,
+            Message::deserializer::<u64>(),
         )
         .await
         .expect("ascending in-scope leaves assemble");
@@ -129,7 +127,7 @@ fn recode(frames: Vec<Frame<u64>>, budget: RunBudget) -> Vec<Frame<u64>> {
 }
 
 /// Split every emitted frame into its supply run, requiring supplies only.
-fn runs_of(frames: &[Frame<u64>]) -> Vec<&LeafRun<u64>> {
+fn runs_of(frames: &[Frame]) -> Vec<&LeafRun> {
     frames
         .iter()
         .map(|frame| match frame {
@@ -140,10 +138,10 @@ fn runs_of(frames: &[Frame<u64>]) -> Vec<&LeafRun<u64>> {
 }
 
 /// The decoded records of `runs`, flattened in wire order.
-fn records_of(runs: &[&LeafRun<u64>]) -> Vec<(Version, Message<u64>)> {
+fn records_of(runs: &[&LeafRun]) -> Vec<(Version, Message)> {
     runs.iter()
         .flat_map(|run| {
-            run.records()
+            run.records(Message::deserializer::<u64>())
                 .collect::<Result<Vec<_>, _>>()
                 .expect("an encoder-produced run holds canonical records")
         })
@@ -193,7 +191,7 @@ proptest! {
             // would have pushed its frame past the budget.
             if position + 1 < runs.len() {
                 let (version, message) = runs[position + 1]
-                    .records()
+                    .records(Message::deserializer::<u64>())
                     .next()
                     .expect("a nonempty run yields a first record")
                     .expect("an encoder-produced run holds canonical records");
@@ -267,12 +265,13 @@ fn a_batched_run_round_trips_the_reply() {
     let runtime = runtime();
     let reply = runtime.block_on(async {
         let mut input = stream::iter(frames);
-        decode_reply::<Local, u64, UnderUnderRoot, _>(
+        decode_reply::<Local, _>(
             Local,
             u64::MAX,
             unbounded(),
-            Scope::<UnderRoot>::opening(&[]),
+            Scope::opening(&[]),
             &mut input,
+            Message::deserializer::<u64>(),
         )
         .await
         .expect("the batched frame decodes")
@@ -283,11 +282,14 @@ fn a_batched_run_round_trips_the_reply() {
     };
     let prefix = Prefix::<UnderRoot>::containing(&leaves[0].path());
     let rebuilt = runtime.block_on(async {
-        Local
-            .leaves(prefix, node.clone())
-            .try_collect::<Vec<_>>()
-            .await
-            .expect("the local backend is infallible")
+        <Local as Backend>::leaves(
+            Local,
+            prefix,
+            <Local as Backend>::assume::<UnderRoot>(node.clone()),
+        )
+        .try_collect::<Vec<_>>()
+        .await
+        .expect("the local backend is infallible")
     });
     assert_eq!(rebuilt.len(), leaves.len());
 }

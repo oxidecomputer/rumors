@@ -5,28 +5,25 @@ use crate::{
     tree::{
         mirror::contained,
         mirror::streaming::{
-            Backend, Leaf, Node,
+            Backend, ErasedNode, Leaf,
+            erased::Reaction,
             materialized::{Error, Query, Resolution, Resolve, SupplyLedger, Violation, violation},
-            message::Reaction,
             stats::Recorder,
         },
-        typed::{
-            Hash, Prefix,
-            height::{Height, S, Z},
-        },
+        typed::{ErasedPrefix, Hash, height::Z},
     },
 };
 
 /// One query's reaction loop: pairs the held children against the reply's
 /// reactions in order, accumulating the scope's [`Resolution`] and reporting
 /// each counterparty fault as its exact [`Violation`].
-pub struct Resolver<'v, B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, H: Height>
+pub struct Resolver<'v, B>
 where
-    S<H>: Height,
+    B: Backend<Node<Z>: Leaf>,
 {
-    prefix: Prefix<S<H>>,
-    fan: Peekable<std::vec::IntoIter<(u8, B::Node<H>)>>,
-    resolved: Vec<(u8, Resolve<B, T, H>)>,
+    prefix: ErasedPrefix,
+    fan: Peekable<std::vec::IntoIter<(u8, B::Erased)>>,
+    resolved: Vec<(u8, Resolve<B::Erased>)>,
     /// The peer's declared greeting version: every supplied subtree's
     /// ceiling must be contained in it
     /// ([`Violation::UncontainedSupply`]).
@@ -41,15 +38,12 @@ where
     stats: Recorder,
 }
 
-impl<'v, B, T, H> Resolver<'v, B, T, H>
+impl<'v, B> Resolver<'v, B>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
-    H: Height,
-    S<H>: Height,
+    B: Backend<Node<Z>: Leaf>,
 {
     pub fn new(
-        Query { prefix, ours }: Query<B, T, H>,
+        Query { prefix, ours }: Query<B::Erased>,
         their_version: &'v Version,
         ledger: &'v SupplyLedger,
         stats: Recorder,
@@ -64,10 +58,11 @@ where
         }
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn react(
         &mut self,
-        reaction: Reaction<B, T, H>,
-    ) -> Result<Option<(Prefix<S<H>>, u8, B::Node<H>, Vec<(u8, Hash)>)>, Error<B::Error>> {
+        reaction: Reaction<B::Erased>,
+    ) -> Result<Option<(ErasedPrefix, u8, B::Erased, Vec<(u8, Hash)>)>, Error<B::Error>> {
         match reaction {
             Reaction::Match => {
                 let Some((radix, node)) = self.fan.next() else {
@@ -113,7 +108,7 @@ where
         Ok(None)
     }
 
-    pub fn ready(&mut self, radix: u8, node: Option<B::Node<H>>) {
+    pub fn ready(&mut self, radix: u8, node: Option<B::Erased>) {
         self.resolved.push((radix, Resolve::Ready(node)));
     }
 
@@ -121,7 +116,7 @@ where
         self.resolved.push((radix, Resolve::Pending));
     }
 
-    pub fn finish(mut self) -> Result<Resolution<B, T, H>, Error<B::Error>> {
+    pub fn finish(mut self) -> Result<Resolution<B::Erased>, Error<B::Error>> {
         if self.fan.next().is_some() {
             violation(Violation::UnfinishedReply)
         } else {

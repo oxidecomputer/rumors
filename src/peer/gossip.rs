@@ -8,7 +8,7 @@
 use std::pin::Pin;
 use std::sync::Arc;
 
-use before::Party;
+use before::{Party, Ticks};
 use futures::{Stream, future::BoxFuture};
 use futures_util::StreamExt;
 use tokio::{
@@ -20,6 +20,7 @@ use crate::link::{
     Acceptor, Connector, Link, SessionState,
     erased::{DynAcceptor, DynConnector},
 };
+use crate::message::{Message, PayloadDeserializer};
 #[cfg(any(test, feature = "protocol-v1"))]
 use crate::tree::mirror::{
     alternating::{self, local as alternating_local, remote as alternating_remote},
@@ -33,15 +34,16 @@ use crate::{
         handshake::{self, Intent},
         party,
         streaming::{
-            self, Local, materialized, remote as streaming_remote,
+            self, Local, materialized,
+            remote::{self as streaming_remote, RunBudget},
             stats::{Recorder, SessionStats},
+            window::WindowConfig,
         },
     },
 };
 
 use super::{Inner, Peer, bootstrap::Bootstrap};
 
-use serde::Serialize;
 use serde::de::DeserializeOwned;
 /// Magic bytes that open every `rumors` gossip session's preamble frame.
 pub const PROTOCOL_MAGIC: [u8; 6] = *b"RUMORS";
@@ -66,7 +68,9 @@ const EPILOGUE_MARKER: u8 = b'.';
 /// instantiation would otherwise re-instantiate both towers — and, because
 /// generic code monomorphizes in the crate that supplies the concrete types,
 /// it would do so once per downstream binary per instantiation. Erasing here
-/// caps that at one instantiation per payload type. The price is one vtable
+/// — with the protocol bodies behind the non-generic [`Reconciliation`] and
+/// bootstrap drivers — caps that at one instantiation, compiled once into
+/// this crate. The price is one vtable
 /// call per stream open/accept and per `poll_read`/`poll_write` beneath the
 /// framing layers, which buffer whole frames on both sides.
 type DynRead<'a> = &'a mut (dyn AsyncRead + Unpin + Send + 'a);
@@ -211,7 +215,7 @@ impl<T> Peer<T, NoBookmark> {
         link: &'a mut Link<CR, CW, C, A>,
     ) -> BoxFuture<'a, Result<Option<Self>, Error>>
     where
-        T: DeserializeOwned + Serialize + Send + Sync + 'static,
+        T: DeserializeOwned + Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,
@@ -238,10 +242,14 @@ impl<T> Peer<T, NoBookmark> {
         link: DynLinkParts<'a>,
     ) -> BoxFuture<'a, Result<Option<Self>, Error>>
     where
-        T: DeserializeOwned + Serialize + Send + Sync + 'static,
+        T: DeserializeOwned + Send + Sync + 'static,
     {
         Box::pin(async move {
             let (read, write, connector, acceptor, epoch) = link;
+            // The peer-to-be's payload deserializer, minted before it
+            // exists: the bootstrap session's ingress decodes through it,
+            // and the constructed peer inherits it.
+            let deserializer = Message::deserializer::<T>();
             // Magic/version/network/intent preamble first, before either protocol
             // is allowed to trust peer-declared frame lengths.
             let mut staged = handshake::Staged::new();
@@ -264,72 +272,20 @@ impl<T> Peer<T, NoBookmark> {
             // Reconcile from an empty tree using the selected wire protocol. Both
             // branches return the same lifecycle boundary: a materialized root and
             // the raw control halves positioned at the trailing party frame.
-            // `BoxFuture` is the compile-time boundary: `Box::pin` alone would
-            // allocate the state while still exposing its enormous concrete type.
-            #[allow(clippy::type_complexity)]
-            let reconcile: BoxFuture<
-                '_,
-                Result<Option<(tree::Root<T>, DynRead<'a>, DynWrite<'a>)>, Error>,
-            > = match config.protocol {
-                Protocol::V2 => Box::pin(async move {
-                    let local_root: streaming::Root<Local, T> = tree::Root::default().into();
-                    // The window choice is passed for uniformity with gossip,
-                    // but no choice can widen this session: disputes require
-                    // joint occupancy and this side's replica is empty, so
-                    // every derived capacity floors at one slot regardless.
-                    // The message-size target is the operative knob: the
-                    // greeting advertises it, and the provider's supply runs
-                    // are built at the exchanged minimum.
-                    let local = materialized::Handshaking::start(Local, local_root)
-                        .window(config.window)
-                        .target_message_size(config.run_budget.bytes() as u64);
-                    let carrier = Link::for_session(read, write, connector, acceptor, epoch);
-                    let proxy =
-                        streaming_remote::Handshaking::start(Local, carrier).window(config.window);
-                    let handshaken = streaming::handshake(local, proxy)
-                        .await
-                        .map_err(streaming_error)?;
-                    // A counterparty that is itself bootstrapping has nothing
-                    // to hand us, but the session still ends with the
-                    // epilogue. Both trees are empty, so the versions are
-                    // equal and `reconcile` resolves to the untouched control
-                    // halves without opening a data stream; the marker
-                    // exchange then certifies the mutual bail to both sides.
-                    // The equal-version resolution is itself guarded: a
-                    // fellow claimant must be as newborn as we are.
-                    let both_bootstrapping = remote.network.is_bootstrap();
-                    if both_bootstrapping {
-                        bootstrap_claimant_is_newborn(&handshaken.peer().version)?;
-                    }
-                    let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
-                    let (root, (mut read, mut write)) = descent.await.map_err(streaming_error)?;
-                    if both_bootstrapping {
-                        epilogue(&mut read, &mut write).await?;
-                        return Ok(None);
-                    }
-                    Ok(Some((root.into(), read, write)))
-                }),
+            // The protocol bodies are the non-generic [`bootstrap_v2`] and
+            // [`bootstrap_v1`], which return their futures boxed; see
+            // [`Reconciliation::v2`] for the boxing and inlining discipline.
+            let both_bootstrapping = remote.network.is_bootstrap();
+            let reconcile = match config.protocol {
+                Protocol::V2 => bootstrap_v2(
+                    (read, write, connector, acceptor, epoch),
+                    deserializer,
+                    config.window,
+                    config.run_budget,
+                    both_bootstrapping,
+                ),
                 #[cfg(any(test, feature = "protocol-v1"))]
-                Protocol::V1 => Box::pin(async move {
-                    let local = alternating_local::Exchange::start(tree::Root::default());
-                    let proxy = alternating_remote::Exchange::start(
-                        FrameRead::new(read),
-                        FrameWrite::new(write),
-                    );
-                    let handshaken = alternating::handshake(local, proxy)
-                        .await
-                        .map_err(alternating_error)?;
-                    // The frozen V1 wire has no epilogue: a mutual bootstrap
-                    // bails right here, exactly as V1 always has — once the
-                    // fellow claimant proves as newborn as we are.
-                    if remote.network.is_bootstrap() {
-                        bootstrap_claimant_is_newborn(&handshaken.peer().version)?;
-                        return Ok(None);
-                    }
-                    let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
-                    let (root, (read, write)) = descent.await.map_err(alternating_error)?;
-                    Ok(Some((root, read.into_inner(), write.into_inner())))
-                }),
+                Protocol::V1 => bootstrap_v1(read, write, deserializer, both_bootstrapping),
             };
             let Some((root, mut read, mut write)) = reconcile.await? else {
                 return Ok(None);
@@ -351,9 +307,10 @@ impl<T> Peer<T, NoBookmark> {
                 run_budget: config.run_budget,
                 inner: watch::Sender::new(Inner {
                     party: Some(party),
-                    tree: Tree { root },
+                    tree: Tree::from_root(root),
                 }),
                 bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
+                deserializer,
             };
             Ok(Some(peer))
         })
@@ -370,6 +327,7 @@ impl<T> Peer<T, NoBookmark> {
             window,
             run_budget,
             inner,
+            deserializer,
             ..
         } = self;
         let peer = Peer {
@@ -379,6 +337,7 @@ impl<T> Peer<T, NoBookmark> {
             run_budget,
             inner,
             bookmark: Arc::new(Mutex::new(Bookmarked::new(bookmark))),
+            deserializer,
         };
 
         // A pristine seed has no identity worth recording yet; persisting it
@@ -407,6 +366,7 @@ impl<T> Peer<T, NoBookmark> {
                     run_budget: peer.run_budget,
                     inner: peer.inner,
                     bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
+                    deserializer: peer.deserializer,
                 },
                 error,
             }),
@@ -437,7 +397,7 @@ impl<T, B: Persist> Peer<T, B> {
         link: &mut Link<CR, CW, C, A>,
     ) -> Retire<T, B>
     where
-        T: DeserializeOwned + Serialize + Send + Sync + 'static,
+        T: Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,
@@ -476,7 +436,7 @@ impl<T, B: Persist> Peer<T, B> {
         link: &mut Link<CR, CW, C, A>,
     ) -> Result<Gossiped, Error<B>>
     where
-        T: DeserializeOwned + Serialize + Send + Sync + 'static,
+        T: Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,
@@ -606,9 +566,10 @@ impl<T, B: Persist> Peer<T, B> {
     ///
     /// [`gossip_when`]: crate::Rumors::gossip_when
     ///
-    /// Takes the link pre-erased ([`DynLinkParts`]): every generic caller funnels
-    /// through here, so the protocol towers this drives instantiate once per
-    /// payload type, not once per link instantiation.
+    /// Takes the link pre-erased ([`DynLinkParts`]): every generic caller
+    /// funnels through here, and the reconciliation itself runs behind the
+    /// non-generic [`Reconciliation`], so the protocol towers it drives
+    /// codegen exactly once, in this crate.
     async fn gossip_inner<'a>(
         &self,
         intent: Intent,
@@ -616,9 +577,10 @@ impl<T, B: Persist> Peer<T, B> {
         link: DynLinkParts<'a>,
     ) -> (Intent, Result<(Version, SessionStats), Error<B>>)
     where
-        T: DeserializeOwned + Serialize + Send + Sync + 'static,
+        T: Send + Sync + 'static,
     {
         let (read, write, connector, acceptor, epoch) = link;
+        let deserializer = self.deserializer;
         // The session's stats recorder: under V2, both protocol
         // participants below share it (the walk counts disputes, gains,
         // sheds, and the window grant; the proxy's codec seam counts
@@ -732,65 +694,26 @@ impl<T, B: Persist> Peer<T, B> {
         // Reconcile using this peer's selected protocol. Both branches meet at
         // the lifecycle boundary the surrounding transaction needs: a local
         // root plus raw transport halves positioned after reconciliation.
-        // The explicit `BoxFuture` coercion prevents either concrete protocol
-        // state machine from becoming part of this outer session future.
-        let network = self.network;
-        let window = self.window;
-        let run_budget = self.run_budget;
-        let session_stats = stats.clone();
-        #[allow(clippy::type_complexity)]
-        let reconcile: BoxFuture<
-            '_,
-            Result<(tree::Root<T>, DynRead<'a>, DynWrite<'a>), Error>,
-        > = match self.protocol {
-            Protocol::V2 => Box::pin(async move {
-                let local = materialized::Handshaking::start(Local, prior_tree.root.into())
-                    .window(window)
-                    .target_message_size(run_budget.bytes() as u64)
-                    .stats(session_stats.clone());
-                let carrier = Link::for_session(read, write, connector, acceptor, epoch);
-                let proxy = streaming_remote::Handshaking::start(Local, carrier)
-                    .window(window)
-                    .stats(session_stats);
-                let handshaken = streaming::handshake(local, proxy)
-                    .await
-                    .map_err(streaming_error)?;
-                if peer_bootstrapping {
-                    bootstrap_claimant_is_newborn(&handshaken.peer().version)?;
-                } else if remote.network != network {
-                    return Err(Error::NetworkMismatch {
-                        remote_network: remote.network,
-                        remote_min_events: handshaken.peer().version.min_ticks(),
-                        local_min_events,
-                    });
-                }
-                let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
-                let (root, (read, write)) = descent.await.map_err(streaming_error)?;
-                Ok((root.into(), read, write))
-            }),
+        // The protocol bodies live behind the non-generic [`Reconciliation`],
+        // whose methods return their futures boxed: neither concrete
+        // protocol state machine becomes part of this outer session future,
+        // or of the consumer crate that instantiates it.
+        let reconciliation = Reconciliation {
+            root: prior_tree.root,
+            link: (read, write, connector, acceptor, epoch),
+            deserializer,
+            window: self.window,
+            run_budget: self.run_budget,
+            stats: stats.clone(),
+            peer_bootstrapping,
+            remote_network: remote.network,
+            network: self.network,
+            local_min_events,
+        };
+        let reconcile = match self.protocol {
+            Protocol::V2 => reconciliation.v2(),
             #[cfg(any(test, feature = "protocol-v1"))]
-            Protocol::V1 => Box::pin(async move {
-                let local = alternating_local::Exchange::start(prior_tree.root);
-                let proxy = alternating_remote::Exchange::start(
-                    FrameRead::new(read),
-                    FrameWrite::new(write),
-                );
-                let handshaken = alternating::handshake(local, proxy)
-                    .await
-                    .map_err(alternating_error)?;
-                if peer_bootstrapping {
-                    bootstrap_claimant_is_newborn(&handshaken.peer().version)?;
-                } else if remote.network != network {
-                    return Err(Error::NetworkMismatch {
-                        remote_network: remote.network,
-                        remote_min_events: handshaken.peer().version.min_ticks(),
-                        local_min_events,
-                    });
-                }
-                let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
-                let (root, (read, write)) = descent.await.map_err(alternating_error)?;
-                Ok((root, read.into_inner(), write.into_inner()))
-            }),
+            Protocol::V1 => reconciliation.v1(),
         };
         let (root, read, write) = match reconcile.await {
             Ok(reconciled) => reconciled,
@@ -861,7 +784,7 @@ impl<T, B: Persist> Peer<T, B> {
         // The reconciled tree's frontier is the converged version: what both
         // replicas hold the instant this commits, *before* the join below
         // mixes in any commits that ran concurrently with the session.
-        let merged = Tree { root };
+        let merged = Tree::from_root(root);
         let converged = merged.latest().clone();
         let mut party_overlap = false;
         self.inner.send_if_modified(|inner| {
@@ -964,7 +887,7 @@ impl<T, B: Bookmark> Peer<T, B> {
         link: &'a mut Link<CR, CW, C, A>,
     ) -> impl Stream<Item = Result<Gossiped, Error<B>>> + Unpin + 'a
     where
-        T: DeserializeOwned + Serialize + Send + Sync + 'static,
+        T: Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,
@@ -1107,6 +1030,237 @@ impl<T, B: Bookmark> Peer<T, B> {
             },
         ))
     }
+}
+
+/// One gossip reconciliation's inputs, fully erased.
+///
+/// [`Peer::gossip_inner`] assembles this and immediately consumes it through
+/// [`v2`](Self::v2) or [`v1`](Self::v1). The struct exists so those bodies
+/// are non-generic: `gossip_inner` is generic over the payload and bookmark
+/// types, and a reconciliation written inline there would monomorphize the
+/// entire protocol tower it drives into every consumer crate, once per
+/// instantiation. Behind this boundary the towers codegen exactly once, into
+/// this crate's own object code.
+struct Reconciliation<'a> {
+    /// The local replica's root, snapshotted inside the session transaction's
+    /// critical section: exactly what the local participant reconciles from.
+    root: tree::Root,
+    /// The session's erased link.
+    link: DynLinkParts<'a>,
+    /// The peer's payload deserializer, applied at wire ingress.
+    deserializer: PayloadDeserializer,
+    /// The window policy the V2 session negotiates under.
+    window: WindowConfig,
+    /// The V2 supply-run sizing budget; its byte target rides the greeting.
+    run_budget: RunBudget,
+    /// The session's stats recorder, shared by both V2 participants.
+    stats: Recorder,
+    /// Whether the remote's preamble declared it a bootstrap claimant.
+    peer_bootstrapping: bool,
+    /// The network the remote's preamble declared.
+    remote_network: Network,
+    /// The local network, which a non-bootstrapping remote must match.
+    network: Network,
+    /// The local greeting frontier's event floor, for the mismatch report.
+    local_min_events: Ticks,
+}
+
+impl<'a> Reconciliation<'a> {
+    /// Drive one V2 (streaming) reconciliation to the lifecycle boundary the
+    /// session transaction resumes from: the reconciled local root plus the
+    /// raw control halves, positioned after the descent.
+    ///
+    /// Returns the future boxed: an `async fn` body is codegen'd into
+    /// whichever crate polls it, so a bare future here would hand the whole
+    /// protocol state machine right back to every consumer. The `dyn`
+    /// coercion pins it — vtable, poll, and everything the body awaits — in
+    /// this crate's own object code. `inline(never)` guards the same
+    /// boundary in optimized builds: the shell is small enough for rustc's
+    /// automatic cross-crate MIR inlining, which would move the coercion —
+    /// and the tower behind it — back into the consumer.
+    #[inline(never)]
+    fn v2(self) -> BoxFuture<'a, Result<(tree::Root, DynRead<'a>, DynWrite<'a>), Error>> {
+        Box::pin(async move {
+            let Self {
+                root,
+                link,
+                deserializer,
+                window,
+                run_budget,
+                stats,
+                peer_bootstrapping,
+                remote_network,
+                network,
+                local_min_events,
+            } = self;
+            let (read, write, connector, acceptor, epoch) = link;
+            let local = materialized::Handshaking::<_, _>::start(Local, root.into())
+                .window(window)
+                .target_message_size(run_budget.bytes() as u64)
+                .stats(stats.clone());
+            let carrier = Link::for_session(read, write, connector, acceptor, epoch);
+            let proxy = streaming_remote::Handshaking::start(Local, carrier, deserializer)
+                .window(window)
+                .stats(stats);
+            let handshaken = streaming::handshake(local, proxy)
+                .await
+                .map_err(streaming_error)?;
+            if peer_bootstrapping {
+                bootstrap_claimant_is_newborn(&handshaken.peer().version)?;
+            } else if remote_network != network {
+                return Err(Error::NetworkMismatch {
+                    remote_network,
+                    remote_min_events: handshaken.peer().version.min_ticks(),
+                    local_min_events,
+                });
+            }
+            let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
+            let (root, (read, write)) = descent.await.map_err(streaming_error)?;
+            Ok((root.into(), read, write))
+        })
+    }
+
+    /// Drive one V1 (alternating) reconciliation to the same lifecycle
+    /// boundary as [`v2`](Self::v2), boxed and `inline(never)` for the same
+    /// reasons.
+    ///
+    /// The frozen V1 wire has no window, budget, or stats vocabulary, and
+    /// its proxy runs on the control halves alone, so those inputs are
+    /// dropped unread.
+    #[cfg(any(test, feature = "protocol-v1"))]
+    #[inline(never)]
+    fn v1(self) -> BoxFuture<'a, Result<(tree::Root, DynRead<'a>, DynWrite<'a>), Error>> {
+        Box::pin(async move {
+            let Self {
+                root,
+                link,
+                deserializer,
+                peer_bootstrapping,
+                remote_network,
+                network,
+                local_min_events,
+                ..
+            } = self;
+            let (read, write, ..) = link;
+            let local = alternating_local::Exchange::start(root);
+            let proxy = alternating_remote::Exchange::start(
+                FrameRead::new(read),
+                FrameWrite::new(write),
+                deserializer,
+            );
+            let handshaken = alternating::handshake(local, proxy)
+                .await
+                .map_err(alternating_error)?;
+            if peer_bootstrapping {
+                bootstrap_claimant_is_newborn(&handshaken.peer().version)?;
+            } else if remote_network != network {
+                return Err(Error::NetworkMismatch {
+                    remote_network,
+                    remote_min_events: handshaken.peer().version.min_ticks(),
+                    local_min_events,
+                });
+            }
+            let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
+            let (root, (read, write)) = descent.await.map_err(alternating_error)?;
+            Ok((root, read.into_inner(), write.into_inner()))
+        })
+    }
+}
+
+/// Drive one V2 bootstrap reconciliation from an empty local replica.
+///
+/// Free and non-generic for the same reason [`Reconciliation`] is: the
+/// generic [`Peer::bootstrap_erased`] shell funnels through here, so the
+/// protocol tower codegens once, in this crate.
+///
+/// `Ok(None)` is the mutual-bootstrap bail: the counterparty is itself
+/// bootstrapping, so there is no donation to receive, and the epilogue has
+/// already been exchanged. `Ok(Some(..))` hands back the reconciled root and
+/// the control halves positioned at the trailing party frame.
+///
+/// Boxed and `inline(never)` for [`Reconciliation::v2`]'s reasons: the `dyn`
+/// coercion is what pins the protocol state machine in this crate.
+#[inline(never)]
+#[allow(clippy::type_complexity)]
+fn bootstrap_v2<'a>(
+    link: DynLinkParts<'a>,
+    deserializer: PayloadDeserializer,
+    window: WindowConfig,
+    run_budget: RunBudget,
+    both_bootstrapping: bool,
+) -> BoxFuture<'a, Result<Option<(tree::Root, DynRead<'a>, DynWrite<'a>)>, Error>> {
+    Box::pin(async move {
+        let (read, write, connector, acceptor, epoch) = link;
+        let local_root: streaming::Root<Local> = tree::Root::default().into();
+        // The window choice is passed for uniformity with gossip, but no
+        // choice can widen this session: disputes require joint occupancy
+        // and this side's replica is empty, so every derived capacity floors
+        // at one slot regardless. The message-size target is the operative
+        // knob: the greeting advertises it, and the provider's supply runs
+        // are built at the exchanged minimum.
+        let local = materialized::Handshaking::start(Local, local_root)
+            .window(window)
+            .target_message_size(run_budget.bytes() as u64);
+        let carrier = Link::for_session(read, write, connector, acceptor, epoch);
+        let proxy =
+            streaming_remote::Handshaking::start(Local, carrier, deserializer).window(window);
+        let handshaken = streaming::handshake(local, proxy)
+            .await
+            .map_err(streaming_error)?;
+        // A counterparty that is itself bootstrapping has nothing to hand
+        // us, but the session still ends with the epilogue. Both trees are
+        // empty, so the versions are equal and `reconcile` resolves to the
+        // untouched control halves without opening a data stream; the marker
+        // exchange then certifies the mutual bail to both sides. The
+        // equal-version resolution is itself guarded: a fellow claimant must
+        // be as newborn as we are.
+        if both_bootstrapping {
+            bootstrap_claimant_is_newborn(&handshaken.peer().version)?;
+        }
+        let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
+        let (root, (mut read, mut write)) = descent.await.map_err(streaming_error)?;
+        if both_bootstrapping {
+            epilogue(&mut read, &mut write).await?;
+            return Ok(None);
+        }
+        Ok(Some((root.into(), read, write)))
+    })
+}
+
+/// Drive one V1 bootstrap reconciliation from an empty local replica; see
+/// [`bootstrap_v2`] for the lifecycle boundary and the boxing and inlining
+/// discipline.
+///
+/// The frozen V1 wire has no epilogue: a mutual bootstrap (`Ok(None)`)
+/// bails right after the handshake, exactly as V1 always has — once the
+/// fellow claimant proves as newborn as we are.
+#[cfg(any(test, feature = "protocol-v1"))]
+#[inline(never)]
+#[allow(clippy::type_complexity)]
+fn bootstrap_v1<'a>(
+    read: DynRead<'a>,
+    write: DynWrite<'a>,
+    deserializer: PayloadDeserializer,
+    both_bootstrapping: bool,
+) -> BoxFuture<'a, Result<Option<(tree::Root, DynRead<'a>, DynWrite<'a>)>, Error>> {
+    Box::pin(async move {
+        let local = alternating_local::Exchange::start(tree::Root::default());
+        let proxy = alternating_remote::Exchange::start(
+            FrameRead::new(read),
+            FrameWrite::new(write),
+            deserializer,
+        );
+        let handshaken = alternating::handshake(local, proxy)
+            .await
+            .map_err(alternating_error)?;
+        if both_bootstrapping {
+            bootstrap_claimant_is_newborn(&handshaken.peer().version)?;
+            return Ok(None);
+        }
+        let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
+        let (root, (read, write)) = descent.await.map_err(alternating_error)?;
+        Ok(Some((root, read.into_inner(), write.into_inner())))
+    })
 }
 
 /// Erase a caller's link into one session's [`DynLinkParts`], opening the

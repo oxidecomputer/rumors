@@ -27,10 +27,7 @@ use crate::{
             remote::codec::{Flow, Frame, LeafRun, Reaction as WireReaction},
             window::FAN,
         },
-        typed::{
-            Path, Prefix,
-            height::{UnderRoot, UnderUnderRoot},
-        },
+        typed::{Path, Prefix},
     },
 };
 
@@ -42,8 +39,8 @@ const PER_FRAME: usize = 16;
 
 /// `count` unique `u64` leaves, in ascending path order (the wire order
 /// the decoder validates).
-fn leaves(count: u64) -> Vec<(Version, Message<u64>)> {
-    let mut leaves: Vec<(Version, Message<u64>)> = (0..count)
+fn leaves(count: u64) -> Vec<(Version, Message)> {
+    let mut leaves: Vec<(Version, Message)> = (0..count)
         .map(|index| {
             let version = Version::try_from(index + 1).expect("small linear versions are valid");
             (version, Message::new(index))
@@ -54,8 +51,8 @@ fn leaves(count: u64) -> Vec<(Version, Message<u64>)> {
 }
 
 /// Chunk leaves into supply frames of [`PER_FRAME`] records each.
-fn frames(leaves: &[(Version, Message<u64>)]) -> Vec<Frame<u64>> {
-    let chunks: Vec<&[(Version, Message<u64>)]> = leaves.chunks(PER_FRAME).collect();
+fn frames(leaves: &[(Version, Message)]) -> Vec<Frame> {
+    let chunks: Vec<&[(Version, Message)]> = leaves.chunks(PER_FRAME).collect();
     let count = chunks.len();
     chunks
         .into_iter()
@@ -78,16 +75,17 @@ fn frames(leaves: &[(Version, Message<u64>)]) -> Vec<Frame<u64>> {
 
 /// Decode one pure-supply reply from `input` over the instant in-memory
 /// backend, reporting the probe's peak resident record count.
-fn peak_occupancy(mut input: impl Stream<Item = Frame<u64>> + Unpin) -> usize {
+fn peak_occupancy(mut input: impl Stream<Item = Frame> + Unpin) -> usize {
     let runtime = super::runtime();
     fan_probe::reset();
     runtime.block_on(async {
-        decode_reply::<Local, u64, UnderUnderRoot, _>(
+        decode_reply::<Local, _>(
             Local,
             u64::MAX,
             unbounded(),
-            Scope::<UnderRoot>::opening(&[]),
+            Scope::opening(&[]),
             &mut input,
+            Message::deserializer::<u64>(),
         )
         .await
         .expect("ascending in-scope leaves assemble");
@@ -134,12 +132,13 @@ fn eager_early_supplies_ride_the_same_ceiling() {
     let runtime = super::runtime();
     fan_probe::reset();
     runtime.block_on(async {
-        let assembled: Vec<_> = early_supplies::<Local, u64, UnderRoot, _>(
+        let assembled: Vec<_> = early_supplies::<Local, _>(
             Local,
             u64::MAX,
             unbounded(),
-            Prefix::new(),
+            Prefix::new().erase(),
             stream::iter(frames(&leaves)),
+            Message::deserializer::<u64>(),
         )
         .try_collect()
         .await

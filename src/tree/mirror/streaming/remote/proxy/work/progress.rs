@@ -1,7 +1,5 @@
 //! Ordering trace for the proxy's progress-critical publications.
 
-use crate::tree::typed::height::Height;
-
 /// One endpoint-local progress identity.
 #[derive(Clone, Copy)]
 pub struct Progress {
@@ -18,38 +16,39 @@ impl Progress {
         }
     }
 
-    /// Record one complete outgoing wire reply and its question count.
-    pub fn wire_reply<H: Height>(self, _questions: usize) {
+    /// Record one complete outgoing wire reply and its question count,
+    /// at the reply's height.
+    pub fn wire_reply(self, _height: usize, _questions: usize) {
         #[cfg(test)]
         trace::record(
             self.work,
             trace::Kind::WireReply {
                 questions: _questions,
             },
-            H::HEIGHT,
+            _height,
         );
     }
 
     /// Record one question published after its wire reply.
-    pub fn local_question<H: Height>(self) {
+    pub fn local_question(self, _height: usize) {
         #[cfg(test)]
-        trace::record(self.work, trace::Kind::LocalQuestion, H::HEIGHT);
+        trace::record(self.work, trace::Kind::LocalQuestion, _height);
     }
 
     /// Record one decoded reply and its dependent-scope count.
-    pub fn decoded_reply<H: Height>(self, _scopes: usize) {
+    pub fn decoded_reply(self, _height: usize, _scopes: usize) {
         #[cfg(test)]
         trace::record(
             self.work,
             trace::Kind::DecodedReply { scopes: _scopes },
-            H::HEIGHT,
+            _height,
         );
     }
 
     /// Record one dependent scope published after its decoded reply.
-    pub fn next_scope<H: Height>(self) {
+    pub fn next_scope(self, _height: usize) {
         #[cfg(test)]
-        trace::record(self.work, trace::Kind::NextScope, H::HEIGHT);
+        trace::record(self.work, trace::Kind::NextScope, _height);
     }
 }
 

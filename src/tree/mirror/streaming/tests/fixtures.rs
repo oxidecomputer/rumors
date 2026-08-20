@@ -32,14 +32,14 @@ pub(super) fn path_at(prefix: &[u8]) -> Path {
 /// they change versions or contents (hence every hash on the path) without
 /// touching the path structure the reconciliation keys on.
 pub(super) fn grown<T>(
-    node: Option<TreeNode<T, height::Root>>,
+    node: Option<TreeNode<height::Root>>,
     party: usize,
     stride: usize,
     value: &T,
     paths: &[Path],
-) -> Option<TreeNode<T, height::Root>>
+) -> Option<TreeNode<height::Root>>
 where
-    T: Serialize + Clone + Send + Sync,
+    T: Serialize + Clone + Send + Sync + 'static,
 {
     assert!(stride > 0, "each leaf needs a fresh version");
     let party = nth_party(party);
@@ -55,11 +55,11 @@ where
             Action::Insert(Message::new(value.clone())),
         ));
     }
-    act(node, actions, |_| ())
+    act(node, actions, &mut |_| ())
 }
 
 /// Wrap a node as a [`Root`] whose ceiling is the node's own.
-pub(super) fn rooted<T>(node: Option<TreeNode<T, height::Root>>) -> Root<T> {
+pub(super) fn rooted(node: Option<TreeNode<height::Root>>) -> Root {
     Root {
         ceiling: node
             .as_ref()
@@ -80,7 +80,7 @@ pub(super) fn rooted<T>(node: Option<TreeNode<T, height::Root>>) -> Root<T> {
 /// semantically inert here: deletion-pruning compares leaf versions against
 /// the PEER's ceiling, and every fixture keeps each side's supplies on
 /// chains the other side's ceiling never covers.
-pub(super) fn rooted_at<T>(node: Option<TreeNode<T, height::Root>>, ceiling: Version) -> Root<T> {
+pub(super) fn rooted_at(node: Option<TreeNode<height::Root>>, ceiling: Version) -> Root {
     Root {
         ceiling,
         root: node,
@@ -88,7 +88,7 @@ pub(super) fn rooted_at<T>(node: Option<TreeNode<T, height::Root>>, ceiling: Ver
 }
 
 /// The ceiling a node would advertise on its own.
-pub(super) fn ceiling_of<T>(node: &Option<TreeNode<T, height::Root>>) -> Version {
+pub(super) fn ceiling_of(node: &Option<TreeNode<height::Root>>) -> Version {
     node.as_ref()
         .map(TreeNode::ceiling)
         .cloned()
@@ -236,9 +236,9 @@ impl Divergence {
     /// role election's keys — set size first, version bytes on ties — are
     /// identical across the two sessions and the local tree plays one role
     /// in both.
-    pub fn trees<T>(&self, value: &T) -> (Root<T>, Root<T>, Root<T>)
+    pub fn trees<T>(&self, value: &T) -> (Root, Root, Root)
     where
-        T: Serialize + Clone + Send + Sync,
+        T: Serialize + Clone + Send + Sync + 'static,
     {
         let as_paths =
             |bytes: Vec<[u8; 32]>| -> Vec<Path> { bytes.into_iter().map(Path::from).collect() };
@@ -325,7 +325,7 @@ pub(super) fn arb_divergence() -> impl Strategy<Value = Divergence> {
 /// both sides with different content, every root child disputes but nothing
 /// disputes below it: the session's descent is empty, and the whole diff
 /// resolves in the first descending stage.
-pub(super) fn one_sided_pair(spec: &[(u8, u8, u8)]) -> (Root<()>, Root<()>) {
+pub(super) fn one_sided_pair(spec: &[(u8, u8, u8)]) -> (Root, Root) {
     let path = |b0: u8, b1: u8| {
         let mut bytes = [0u8; 32];
         bytes[0] = b0;
@@ -349,7 +349,7 @@ pub(super) fn one_sided_pair(spec: &[(u8, u8, u8)]) -> (Root<()>, Root<()>) {
             ));
         }
     }
-    let a_node = act(None, shared, |_| ());
+    let a_node = act(None, shared, &mut |_| ());
 
     // b's extras: a separate chain on a disjoint party, so they are causally
     // concurrent with a's version and survive deletion-pruning when provided.
@@ -367,9 +367,9 @@ pub(super) fn one_sided_pair(spec: &[(u8, u8, u8)]) -> (Root<()>, Root<()>) {
             ));
         }
     }
-    let b_node = act(a_node.clone(), extras, |_| ());
+    let b_node = act(a_node.clone(), extras, &mut |_| ());
 
-    let root = |node: Option<TreeNode<(), height::Root>>| Root {
+    let root = |node: Option<TreeNode<height::Root>>| Root {
         ceiling: node
             .as_ref()
             .map(TreeNode::ceiling)
@@ -411,7 +411,7 @@ pub(super) fn divergent_cells_pair(
     cells: &[Vec<u8>],
     shared: usize,
     order: LeafOrder,
-) -> (Root<()>, Root<()>) {
+) -> (Root, Root) {
     assert!(cells.iter().all(|cell| cell.len() < 32));
     let (shared_slots, a_slot, b_slot) = order.slots(shared);
     let path = |cell: &[u8], slot: u8| {
@@ -438,7 +438,7 @@ pub(super) fn divergent_cells_pair(
             ));
         }
     }
-    let base_node = act(None, base, |_| ());
+    let base_node = act(None, base, &mut |_| ());
 
     // Each side's extras ride their own party's chain, concurrent with the
     // shared chain and with each other, so both survive deletion-pruning
@@ -457,10 +457,10 @@ pub(super) fn divergent_cells_pair(
         }
         actions
     };
-    let a_node = act(base_node.clone(), extras(2, a_slot), |_| ());
-    let b_node = act(base_node, extras(1, b_slot), |_| ());
+    let a_node = act(base_node.clone(), extras(2, a_slot), &mut |_| ());
+    let b_node = act(base_node, extras(1, b_slot), &mut |_| ());
 
-    let root = |node: Option<TreeNode<(), height::Root>>| Root {
+    let root = |node: Option<TreeNode<height::Root>>| Root {
         ceiling: node
             .as_ref()
             .map(TreeNode::ceiling)
@@ -472,11 +472,7 @@ pub(super) fn divergent_cells_pair(
 }
 
 /// Build a cartesian pyramid whose disputes descend every controlled level.
-pub(super) fn pyramid_pair(
-    widths: &[usize],
-    shared: usize,
-    order: LeafOrder,
-) -> (Root<()>, Root<()>) {
+pub(super) fn pyramid_pair(widths: &[usize], shared: usize, order: LeafOrder) -> (Root, Root) {
     assert!(widths.iter().all(|&width| (1..=256).contains(&width)));
     let mut cells: Vec<Vec<u8>> = vec![Vec::new()];
     for &width in widths {
@@ -495,7 +491,7 @@ pub(super) fn pyramid_pair(
 }
 
 /// Build a linear-size comb with a dispute branching from every trie level.
-pub(super) fn full_depth_comb_pair(shared: usize, order: LeafOrder) -> (Root<()>, Root<()>) {
+pub(super) fn full_depth_comb_pair(shared: usize, order: LeafOrder) -> (Root, Root) {
     let mut cells = vec![vec![0; 31]];
     for depth in 0..31 {
         let mut cell = vec![0; 31];

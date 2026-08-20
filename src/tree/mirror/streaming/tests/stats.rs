@@ -39,11 +39,8 @@ use super::fixtures::LeafOrder;
 /// No wire is involved, so the byte counters stay zero here; this
 /// harness pins the walk's counters (disputes, gains, sheds) and the
 /// window grant.
-fn mirror_with_stats<T: Send + Sync + 'static>(
-    a: Root<T>,
-    b: Root<T>,
-) -> (Root<T>, Root<T>, SessionStats, SessionStats) {
-    let (a, b): (StreamingRoot<Local, T>, StreamingRoot<Local, T>) = (a.into(), b.into());
+fn mirror_with_stats(a: Root, b: Root) -> (Root, Root, SessionStats, SessionStats) {
+    let (a, b): (StreamingRoot<Local>, StreamingRoot<Local>) = (a.into(), b.into());
     let a_recorder = Recorder::default();
     let b_recorder = Recorder::default();
     let client = Handshaking::start(Local, a)
@@ -64,17 +61,16 @@ fn mirror_with_stats<T: Send + Sync + 'static>(
 }
 
 /// The live-leaf count of a tree root, for conservation checks.
-fn live(root: &Root<()>) -> u64 {
-    let root: StreamingRoot<Local, ()> = root.clone().into();
+fn live(root: &Root) -> u64 {
+    let root: StreamingRoot<Local> = root.clone().into();
     root.len()
 }
 
 /// Whether `a` wins the initiator election against `b`, mirroring the
 /// session's role election (the smaller exchanged set initiates,
 /// canonical version bytes break ties).
-fn a_initiates(a: &Root<()>, b: &Root<()>) -> bool {
-    let (a, b): (StreamingRoot<Local, ()>, StreamingRoot<Local, ()>) =
-        (a.clone().into(), b.clone().into());
+fn a_initiates(a: &Root, b: &Root) -> bool {
+    let (a, b): (StreamingRoot<Local>, StreamingRoot<Local>) = (a.clone().into(), b.clone().into());
     initiates(a.len(), &a.ceiling, b.len(), &b.ceiling)
 }
 

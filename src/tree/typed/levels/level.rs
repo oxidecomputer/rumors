@@ -1,5 +1,5 @@
 //! A single zipper level: a flat, strictly-ascending association of
-//! [`Prefix<H>`] to [`Node<T, H>`].
+//! [`Prefix<H>`] to [`Node<H>`].
 //!
 //! The mirror protocol builds a fresh level (often two) on each side every
 //! round and discards it once the zipper descends. Those levels are small
@@ -13,12 +13,12 @@ use crate::tree::typed::{Node, Prefix, height::Height};
 
 /// A zipper level: `(prefix, node)` pairs kept in a flat `Vec`, strictly
 /// ascending by prefix, with no duplicate prefixes.
-pub struct Level<T, H: Height> {
+pub struct Level<H: Height> {
     /// Invariant: strictly ascending by prefix, no duplicates.
-    entries: Vec<(Prefix<H>, Node<T, H>)>,
+    entries: Vec<(Prefix<H>, Node<H>)>,
 }
 
-impl<T, H: Height> Default for Level<T, H> {
+impl<H: Height> Default for Level<H> {
     fn default() -> Self {
         Self {
             entries: Vec::new(),
@@ -26,7 +26,7 @@ impl<T, H: Height> Default for Level<T, H> {
     }
 }
 
-impl<T, H: Height> Clone for Level<T, H> {
+impl<H: Height> Clone for Level<H> {
     fn clone(&self) -> Self {
         Self {
             entries: self.entries.clone(),
@@ -34,7 +34,7 @@ impl<T, H: Height> Clone for Level<T, H> {
     }
 }
 
-impl<T, H: Height> Level<T, H> {
+impl<H: Height> Level<H> {
     /// Whether the level holds no entries.
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
@@ -46,7 +46,7 @@ impl<T, H: Height> Level<T, H> {
     /// Debug builds assert the invariant. Pairs with [`Level::extend`] to
     /// absorb a sorted batch in one O(n+m) merge rather than m binary-search
     /// inserts.
-    pub fn from_sorted(entries: Vec<(Prefix<H>, Node<T, H>)>) -> Self {
+    pub fn from_sorted(entries: Vec<(Prefix<H>, Node<H>)>) -> Self {
         debug_assert!(
             entries.windows(2).all(|w| w[0].0 < w[1].0),
             "Level::from_sorted given non-ascending or duplicated entries",
@@ -56,7 +56,7 @@ impl<T, H: Height> Level<T, H> {
 
     /// Iterate the level in ascending prefix order, mirroring
     /// `BTreeMap::iter`'s `(&key, &value)` shape.
-    pub fn iter(&self) -> impl Iterator<Item = (&Prefix<H>, &Node<T, H>)> + '_ {
+    pub fn iter(&self) -> impl Iterator<Item = (&Prefix<H>, &Node<H>)> + '_ {
         self.entries.iter().map(|(prefix, node)| (prefix, node))
     }
 
@@ -67,7 +67,7 @@ impl<T, H: Height> Level<T, H> {
     /// this O(1) append is the common build path; an out-of-order push trips a
     /// debug assertion (in release it would silently break the invariant the
     /// binary searches rely on).
-    pub fn push(&mut self, prefix: Prefix<H>, node: Node<T, H>) {
+    pub fn push(&mut self, prefix: Prefix<H>, node: Node<H>) {
         debug_assert!(
             self.entries.last().is_none_or(|(last, _)| *last < prefix),
             "Level::push given a prefix not greater than the current last",
@@ -76,7 +76,7 @@ impl<T, H: Height> Level<T, H> {
     }
 
     /// Remove and return the node at `prefix`, if present.
-    pub fn remove(&mut self, prefix: &Prefix<H>) -> Option<Node<T, H>> {
+    pub fn remove(&mut self, prefix: &Prefix<H>) -> Option<Node<H>> {
         match self.entries.binary_search_by(|(p, _)| p.cmp(prefix)) {
             Ok(i) => Some(self.entries.remove(i).1),
             Err(_) => None,
@@ -123,15 +123,15 @@ impl<T, H: Height> Level<T, H> {
     }
 }
 
-impl<T, H: Height> FromIterator<(Prefix<H>, Node<T, H>)> for Level<T, H> {
+impl<H: Height> FromIterator<(Prefix<H>, Node<H>)> for Level<H> {
     /// Collect `(prefix, node)` pairs into a level.
     ///
     /// Callers feed pairs already in ascending prefix order (a node's children,
     /// sorted by radix), so this sorts only to defend the invariant and
     /// `debug_assert`s the input was canonical (strictly ascending, no
     /// duplicates).
-    fn from_iter<I: IntoIterator<Item = (Prefix<H>, Node<T, H>)>>(iter: I) -> Self {
-        let mut entries: Vec<(Prefix<H>, Node<T, H>)> = iter.into_iter().collect();
+    fn from_iter<I: IntoIterator<Item = (Prefix<H>, Node<H>)>>(iter: I) -> Self {
+        let mut entries: Vec<(Prefix<H>, Node<H>)> = iter.into_iter().collect();
         entries.sort_by_key(|(a, _)| *a);
         debug_assert!(
             entries.windows(2).all(|w| w[0].0 != w[1].0),
@@ -141,9 +141,9 @@ impl<T, H: Height> FromIterator<(Prefix<H>, Node<T, H>)> for Level<T, H> {
     }
 }
 
-impl<T, H: Height> IntoIterator for Level<T, H> {
-    type Item = (Prefix<H>, Node<T, H>);
-    type IntoIter = std::vec::IntoIter<(Prefix<H>, Node<T, H>)>;
+impl<H: Height> IntoIterator for Level<H> {
+    type Item = (Prefix<H>, Node<H>);
+    type IntoIter = std::vec::IntoIter<(Prefix<H>, Node<H>)>;
 
     /// Consume the level in ascending prefix order.
     fn into_iter(self) -> Self::IntoIter {

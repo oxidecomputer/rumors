@@ -40,7 +40,7 @@ use serde::de::DeserializeOwned;
 /// deterministic and these captures stay reproducible.
 ///
 /// Mirrors `gossip_snapshot::seeded`.
-fn seeded<T>() -> Rumors<T> {
+fn seeded<T: serde::de::DeserializeOwned + Send + Sync + 'static>() -> Rumors<T> {
     Peer::seed_rng(&mut SmallRng::seed_from_u64(0))
         .sync_window_floor()
         .into_rumors()

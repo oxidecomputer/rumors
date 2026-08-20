@@ -15,7 +15,7 @@ mod common;
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use futures::FutureExt;
+use futures::{FutureExt, StreamExt};
 use proptest::collection::vec;
 use proptest::prelude::*;
 use rand::SeedableRng;
@@ -37,12 +37,12 @@ enum Step {
     Ended,
 }
 
-/// Poll `borrow_next` exactly once without an executor.
+/// Poll the observer exactly once without an executor.
 fn step(obs: &mut UnorderedMessages<u64>) -> Step {
-    match obs.borrow_next().now_or_never() {
+    match obs.next().now_or_never() {
         None => Step::Quiet,
         Some(None) => Step::Ended,
-        Some(Some((v, m))) => Step::Item((v.clone(), **m)),
+        Some(Some((v, m))) => Step::Item((v, *m)),
     }
 }
 
@@ -66,7 +66,7 @@ fn live_map(rumors: &Rumors<u64>) -> BTreeMap<Vec<u8>, u64> {
     rumors
         .snapshot()
         .iter()
-        .map(|(v, m)| (v.as_bytes().to_vec(), **m))
+        .map(|(v, m)| (v.as_bytes().to_vec(), *m))
         .collect()
 }
 
@@ -339,11 +339,11 @@ fn lent_borrows_do_not_block_senders() {
     rumors.batch().send(1).send(2);
 
     let mut obs = rumors.unordered_messages();
-    let lent = block_on(obs.borrow_next()).expect("first item of the pass");
-    let lent_value = *lent.1.clone();
+    let lent = block_on(obs.next()).expect("first item of the pass");
+    let lent_value = *lent.1;
 
-    // With the borrow conceptually outstanding (the observer is mid-pass),
-    // a send must not deadlock.
+    // With the yielded item outstanding (the observer is mid-pass), a
+    // send must not deadlock.
     rumors.send(3);
 
     let (rest, _) = drain(&mut obs);
@@ -405,9 +405,10 @@ fn checkpoint_is_portable_across_replicas() {
     assert_eq!(items[0].1, 2, "A-observed messages are skipped at B");
 }
 
-/// The observer's non-blocking step lends exactly as
-/// `borrow_next` does, and distinguishes a *quiet* observer (nothing new,
-/// actors live — where `borrow_next` would block) from an *ended* one.
+/// The observer's non-blocking step yields the same owned items as the
+/// `Stream` face, and distinguishes a *quiet* observer (nothing new,
+/// actors live — where an awaited `next` would block) from an *ended*
+/// one.
 #[test]
 fn try_next_distinguishes_quiet_from_ended() {
     use rumors::TryNext;
@@ -418,7 +419,7 @@ fn try_next_distinguishes_quiet_from_ended() {
     let mut obs = rumors.unordered_messages();
     let mut seen = BTreeSet::new();
     while let TryNext::Message((_, m)) = obs.try_next() {
-        seen.insert(**m);
+        seen.insert(*m);
     }
     assert_eq!(seen, BTreeSet::from([1, 2]), "the pending pass drains");
     assert!(
@@ -430,7 +431,7 @@ fn try_next_distinguishes_quiet_from_ended() {
     let TryNext::Message((_, m)) = obs.try_next() else {
         panic!("the new send is immediately available");
     };
-    assert_eq!(**m, 3);
+    assert_eq!(*m, 3);
 
     drop(rumors);
     assert!(matches!(obs.try_next(), TryNext::Ended));
@@ -440,12 +441,10 @@ fn try_next_distinguishes_quiet_from_ended() {
     );
 }
 
-/// The owned-item face: the `Stream` impl yields the same messages as
-/// `borrow_next`, owned, and terminates with `None` once the set closes.
+/// The `Stream` impl yields every message, owned, and terminates with
+/// `None` once the set closes.
 #[test]
 fn stream_face_matches_and_terminates() {
-    use futures::StreamExt;
-
     let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
     rumors.batch().send(1).send(2);
     let expected = live_map(&rumors);
@@ -492,7 +491,7 @@ fn folding_delivered_versions_can_lose_a_message() {
             rumors.send(later_value);
             let snapshot = rumors.snapshot();
             let first_yielded = snapshot.iter().next().expect("two live messages");
-            let later_first = **first_yielded.1 == later_value;
+            let later_first = *first_yielded.1 == later_value;
             drop(snapshot);
             later_first.then_some(rumors)
         })

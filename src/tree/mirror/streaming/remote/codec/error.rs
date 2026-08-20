@@ -106,8 +106,6 @@ pub enum DecodeLeafError {
     Version(#[source] std::io::Error),
     #[error("supplied Message could not be decoded")]
     Message(#[source] std::io::Error),
-    #[error("{count} trailing bytes follow the supplied Version and Message")]
-    TrailingBytes { count: usize },
 }
 
 /// Why an incoming frame could not be decoded.

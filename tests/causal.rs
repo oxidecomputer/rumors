@@ -15,7 +15,7 @@ mod common;
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use futures::FutureExt;
+use futures::{FutureExt, StreamExt};
 use proptest::collection::vec;
 use proptest::prelude::*;
 use rumors::{CausalMessages, Peer, Rumors, Version};
@@ -35,12 +35,12 @@ enum Step {
     Ended,
 }
 
-/// Poll `borrow_next` exactly once without an executor.
+/// Poll the observer exactly once without an executor.
 fn step(obs: &mut CausalMessages<u64>) -> Step {
-    match obs.borrow_next().now_or_never() {
+    match obs.next().now_or_never() {
         None => Step::Quiet,
         Some(None) => Step::Ended,
-        Some(Some((v, m))) => Step::Item((v.clone(), **m)),
+        Some(Some((v, m))) => Step::Item((v, *m)),
     }
 }
 
@@ -82,7 +82,7 @@ fn live_map(rumors: &Rumors<u64>) -> BTreeMap<Vec<u8>, u64> {
     rumors
         .snapshot()
         .iter()
-        .map(|(v, m)| (v.as_bytes().to_vec(), **m))
+        .map(|(v, m)| (v.as_bytes().to_vec(), *m))
         .collect()
 }
 
@@ -92,9 +92,7 @@ fn drain_unordered(obs: &mut rumors::UnorderedMessages<u64>) -> Vec<(Version, u6
     let mut items = Vec::new();
     loop {
         match obs.try_next() {
-            rumors::TryNext::Message((version, message)) => {
-                items.push((version.clone(), **message))
-            }
+            rumors::TryNext::Message((version, message)) => items.push((version, *message)),
             rumors::TryNext::Quiet | rumors::TryNext::Ended => return items,
         }
     }
@@ -328,12 +326,10 @@ fn observer_drains_the_final_state_causally_then_ends() {
     assert_eq!(step(&mut obs), Step::Ended, "ended is terminal");
 }
 
-/// The owned-item face delivers the same causal order as `borrow_next` and
-/// terminates with `None` once the set closes.
+/// The `Stream` face delivers in causal order and terminates with `None`
+/// once the set closes.
 #[test]
 fn stream_face_is_causal_and_terminates() {
-    use futures::StreamExt;
-
     let known = Peer::<u64>::seed().sync_window_floor().into_rumors();
     for v in 0..6u64 {
         known.send(v);
@@ -576,7 +572,7 @@ proptest! {
         for _ in 0..taken {
             match unordered.try_next() {
                 rumors::TryNext::Message((version, message)) => {
-                    unordered_delivered.push((version.clone(), **message));
+                    unordered_delivered.push((version, *message));
                 }
                 other => panic!("the pass has more items, got {other:?}"),
             }
@@ -660,7 +656,7 @@ fn final_pop_checkpoint_still_replays_the_last_message() {
     // message, persist the checkpoint, crash, resume — replays the message.
     let mut unordered = known.unordered_messages();
     assert!(
-        unordered.borrow_next().now_or_never().flatten().is_some(),
+        unordered.next().now_or_never().flatten().is_some(),
         "a populated set delivers an item"
     );
     let persisted = unordered.checkpoint().clone();

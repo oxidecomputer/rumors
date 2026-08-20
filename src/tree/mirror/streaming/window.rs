@@ -16,7 +16,7 @@
 //! capacities** using what the two replicas exchange in their greetings —
 //! exact set sizes and version-size bounds — priced through the storage
 //! backend's own cost function
-//! ([`Backend::node_bytes`](super::Backend::node_bytes)). Channels stay
+//! ([`Backend::node_bytes`]). Channels stay
 //! plain bounded queues; the [link](crate::link) remains the only
 //! backpressure boundary with runtime semantics.
 //!
@@ -120,7 +120,7 @@
 //!   its own producer — the premise the session's whole liveness argument
 //!   already rests on.
 
-use super::{Local, materialized::Resolve};
+use super::{Backend, Local, materialized::Resolve};
 use crate::link::STREAM_COUNT;
 use crate::tree::typed::{self, Prefix, height::Z};
 
@@ -151,8 +151,8 @@ const KEY_DEPTH: usize = 32;
 /// pointer-class node handles; a backend whose `Node` demands a wider
 /// layout pads the real slots beyond this constant and owes that padding
 /// to its own `node_bytes` price.
-const REFERENCE_SLOT_BYTES: usize = std::mem::size_of::<(u8, typed::Node<(), Z>)>()
-    + std::mem::size_of::<(u8, Resolve<Local, (), Z>)>()
+const REFERENCE_SLOT_BYTES: usize = std::mem::size_of::<(u8, typed::Node<Z>)>()
+    + std::mem::size_of::<(u8, Resolve<<Local as Backend>::Erased>)>()
     + std::mem::size_of::<(u8, typed::Hash)>();
 
 /// Fixed in-memory bytes per buffered scope beyond its per-child slots:
@@ -172,8 +172,8 @@ const LEAF_REQUEST_BYTES: usize = 40;
 /// whose `Node<Z>` demands wider alignment pads the real slot beyond
 /// `node_bytes + FAN_SLOT_BYTES` and owes that padding to its own
 /// `node_bytes` price.
-const FAN_SLOT_BYTES: usize = std::mem::size_of::<(Prefix<Z>, typed::Node<(), Z>)>()
-    - std::mem::size_of::<typed::Node<(), Z>>();
+const FAN_SLOT_BYTES: usize =
+    std::mem::size_of::<(Prefix<Z>, typed::Node<Z>)>() - std::mem::size_of::<typed::Node<Z>>();
 
 /// Worst-case bytes the decode fans of one session keep resident, under
 /// the in-memory backend's pricing.
@@ -189,7 +189,7 @@ const FAN_SLOT_BYTES: usize = std::mem::size_of::<(Prefix<Z>, typed::Node<(), Z>
 /// docs quote.
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) const SUPPLY_DECODE_ENVELOPE_BYTES: usize =
-    STREAM_COUNT * (FAN + 1) * (std::mem::size_of::<typed::Node<(), Z>>() + FAN_SLOT_BYTES);
+    STREAM_COUNT * (FAN + 1) * (std::mem::size_of::<typed::Node<Z>>() + FAN_SLOT_BYTES);
 
 /// The specification link's bandwidth-delay product, in bytes: 12.5 MB,
 /// where the two spec links coincide.
@@ -328,7 +328,7 @@ impl Window {
     /// materialized, so the pair sum there is a priced envelope, pinned
     /// against reality by the census suite's reconciled-bound
     /// measurements. `node_bytes` must be an upper bound and monotone in
-    /// both arguments ([`Backend::node_bytes`](super::Backend::node_bytes)),
+    /// both arguments ([`Backend::node_bytes`]),
     /// so evaluating it at quantiles keeps the whole charge an upper
     /// bound; monotonicity is spot-checked here in debug builds.
     pub(crate) fn from_budget(

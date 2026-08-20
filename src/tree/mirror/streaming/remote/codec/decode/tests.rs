@@ -36,7 +36,7 @@ fn supply(stream: Stream, flow: Flow, body: &[u8]) -> Vec<u8> {
 
 /// One length-prefixed leaf record as it appears inside a run body: the
 /// version as one CBOR value, then the payload's CBOR bytes bare.
-fn record(version: &Version, message: &Message<u64>) -> Vec<u8> {
+fn record(version: &Version, message: &Message) -> Vec<u8> {
     let mut body = Vec::new();
     ciborium::ser::into_writer(version, &mut body).unwrap();
     body.extend_from_slice(message.as_slice());
@@ -68,7 +68,7 @@ fn invalid_signals_are_rejected() {
             let DecodeSignalError::Reserved(reserved) = invalid else {
                 panic!("unexpected signal error")
             };
-            let error = decode_exact::<u64>(speaker, RunBudget::default(), &[byte]).unwrap_err();
+            let error = decode_exact(speaker, RunBudget::default(), &[byte]).unwrap_err();
             assert_eq!(error.origin, Origin::stream(speaker, reserved.stream()));
             let DecodeErrorKind::InvalidSignal(DecodeSignalError::Reserved(source)) = error.kind
             else {
@@ -115,7 +115,7 @@ fn truncated_bodies_are_rejected() {
             ),
         ];
         for (encoded, missing, origin) in cases {
-            let error = decode_exact::<u64>(speaker, RunBudget::default(), &encoded).unwrap_err();
+            let error = decode_exact(speaker, RunBudget::default(), &encoded).unwrap_err();
             assert_eq!(error.origin, origin);
             let DecodeErrorKind::Truncated {
                 missing: actual,
@@ -149,7 +149,7 @@ proptest! {
 
         let expected = LeafRun::from_encoded(body).unwrap();
         prop_assert_eq!(
-            decode_exact::<u64>(speaker, RunBudget::default(), &encoded).unwrap(),
+            decode_exact(speaker, RunBudget::default(), &encoded).unwrap(),
             (stream, Frame::Reaction(Reaction::Supply(expected), flow))
         );
     }
@@ -164,7 +164,7 @@ fn malformed_run_structure_is_typed() {
 
     let stream = stream(8);
     for speaker in SPEAKERS {
-        let empty = decode_exact::<u64>(
+        let empty = decode_exact(
             speaker,
             RunBudget::default(),
             &supply(stream, Flow::Continue, &[]),
@@ -176,7 +176,7 @@ fn malformed_run_structure_is_typed() {
             DecodeErrorKind::InvalidRun(LeafRunError::Empty)
         ));
 
-        let short_header = decode_exact::<u64>(
+        let short_header = decode_exact(
             speaker,
             RunBudget::default(),
             &supply(stream, Flow::Continue, &[0, 0]),
@@ -190,7 +190,7 @@ fn malformed_run_structure_is_typed() {
 
         let mut overrun = 2_u32.to_be_bytes().to_vec();
         overrun.push(0);
-        let short_record = decode_exact::<u64>(
+        let short_record = decode_exact(
             speaker,
             RunBudget::default(),
             &supply(stream, Flow::Continue, &overrun),
@@ -219,13 +219,17 @@ fn a_zero_length_record_is_structurally_valid() {
     let encoded = supply(stream, Flow::End, &[0, 0, 0, 0]);
     for speaker in SPEAKERS {
         let (decoded_stream, frame) =
-            decode_exact::<u64>(speaker, RunBudget::default(), &encoded).unwrap();
+            decode_exact(speaker, RunBudget::default(), &encoded).unwrap();
         assert_eq!(decoded_stream, stream);
         let Frame::Reaction(Reaction::Supply(run), Flow::End) = frame else {
             panic!("a structurally valid run decodes as a supply reaction");
         };
         assert_eq!(run.record_count(), 1);
-        let error = run.records().next().unwrap().unwrap_err();
+        let error = run
+            .records(Message::deserializer::<u64>())
+            .next()
+            .unwrap()
+            .unwrap_err();
         let DecodeLeafError::Version(source) = error else {
             panic!("unexpected record error");
         };
@@ -239,8 +243,12 @@ fn a_zero_length_record_is_structurally_valid() {
 fn supplied_record_errors_are_typed() {
     let mut truncated_version = (TRUNCATED_VERSION.len() as u32).to_be_bytes().to_vec();
     truncated_version.extend_from_slice(TRUNCATED_VERSION);
-    let run = LeafRun::<u64>::from_encoded(truncated_version).unwrap();
-    let error = run.records().next().unwrap().unwrap_err();
+    let run = LeafRun::from_encoded(truncated_version).unwrap();
+    let error = run
+        .records(Message::deserializer::<u64>())
+        .next()
+        .unwrap()
+        .unwrap_err();
     let DecodeLeafError::Version(source) = error else {
         panic!("unexpected record error");
     };
@@ -250,20 +258,34 @@ fn supplied_record_errors_are_typed() {
     ciborium::ser::into_writer(&Version::new(), &mut version).unwrap();
     let mut missing_message = (version.len() as u32).to_be_bytes().to_vec();
     missing_message.extend_from_slice(&version);
-    let run = LeafRun::<u64>::from_encoded(missing_message).unwrap();
-    let error = run.records().next().unwrap().unwrap_err();
+    let run = LeafRun::from_encoded(missing_message).unwrap();
+    let error = run
+        .records(Message::deserializer::<u64>())
+        .next()
+        .unwrap()
+        .unwrap_err();
     let DecodeLeafError::Message(source) = error else {
         panic!("unexpected record error");
     };
     assert_eq!(source.kind(), std::io::ErrorKind::UnexpectedEof);
 
+    // Bytes past the canonical pair make the payload malformed: the
+    // payload runs to the record's end, so the deserializer's
+    // exactly-one-value check is what rejects the excess.
     ciborium::ser::into_writer(&0_u64, &mut version).unwrap();
     version.push(u8::MIN);
     let mut trailing = (version.len() as u32).to_be_bytes().to_vec();
     trailing.extend_from_slice(&version);
-    let run = LeafRun::<u64>::from_encoded(trailing).unwrap();
-    let error = run.records().next().unwrap().unwrap_err();
-    assert!(matches!(error, DecodeLeafError::TrailingBytes { count: 1 }));
+    let run = LeafRun::from_encoded(trailing).unwrap();
+    let error = run
+        .records(Message::deserializer::<u64>())
+        .next()
+        .unwrap()
+        .unwrap_err();
+    let DecodeLeafError::Message(source) = error else {
+        panic!("unexpected record error");
+    };
+    assert_eq!(source.kind(), std::io::ErrorKind::InvalidData);
 }
 
 proptest! {
@@ -288,7 +310,7 @@ proptest! {
             encoded.push(*radix);
             encoded.extend_from_slice(hash.as_bytes());
         }
-        let error = decode_exact::<u64>(speaker, RunBudget::default(), &encoded).unwrap_err();
+        let error = decode_exact(speaker, RunBudget::default(), &encoded).unwrap_err();
         prop_assert_eq!(error.origin, Origin::stream(speaker, stream));
         let correct = matches!(
             error.kind,
@@ -309,7 +331,7 @@ fn exact_decode_rejects_trailing_frame() {
     let second = signal(stream, Signal::End(End::Reply));
     let encoded = [first, second];
     for speaker in SPEAKERS {
-        let error = decode_exact::<u64>(speaker, RunBudget::default(), &encoded).unwrap_err();
+        let error = decode_exact(speaker, RunBudget::default(), &encoded).unwrap_err();
         assert_eq!(error.origin, Origin::stream(speaker, stream));
         assert!(matches!(
             error.kind,
@@ -319,7 +341,7 @@ fn exact_decode_rejects_trailing_frame() {
         ));
 
         let mut rest = encoded.as_slice();
-        let frame = decode::<u64>(speaker, RunBudget::default(), &mut rest).unwrap();
+        let frame = decode(speaker, RunBudget::default(), &mut rest).unwrap();
         assert_eq!(
             frame,
             (stream, Frame::Reaction(Reaction::Match, Flow::Continue))
@@ -335,7 +357,7 @@ fn async_eof_distinguishes_close_from_truncation() {
     let stream = stream(4);
     for speaker in SPEAKERS {
         let mut closed = FrameRead::new(speaker, RunBudget::default(), &[][..]);
-        assert_eq!(pollster::block_on(closed.frame::<u64>()).unwrap(), None);
+        assert_eq!(pollster::block_on(closed.frame()).unwrap(), None);
 
         let cases = [
             (
@@ -361,7 +383,7 @@ fn async_eof_distinguishes_close_from_truncation() {
         ];
         for (encoded, missing) in cases {
             let mut reader = FrameRead::new(speaker, RunBudget::default(), encoded.as_slice());
-            let error = pollster::block_on(reader.frame::<u64>()).unwrap_err();
+            let error = pollster::block_on(reader.frame()).unwrap_err();
             assert_eq!(error.origin, Origin::stream(speaker, stream));
             assert!(matches!(
                 error.kind,
@@ -404,14 +426,14 @@ fn async_invalid_signal_does_not_consume_a_body() {
         let bytes = [invalid, valid];
         let mut reader = FrameRead::new(speaker, RunBudget::default(), bytes.as_slice());
 
-        let error = pollster::block_on(reader.frame::<u64>()).unwrap_err();
+        let error = pollster::block_on(reader.frame()).unwrap_err();
         assert_eq!(error.origin, Origin::stream(speaker, stream));
         assert!(matches!(
             error.kind,
             DecodeErrorKind::InvalidSignal(DecodeSignalError::Placement(_))
         ));
         assert_eq!(
-            pollster::block_on(reader.frame::<u64>()).unwrap(),
+            pollster::block_on(reader.frame()).unwrap(),
             Some((stream, valid_frame)),
         );
     }
@@ -429,7 +451,7 @@ impl std::io::Read for FailingReader {
 #[test]
 fn reader_errors_are_contextual() {
     for speaker in SPEAKERS {
-        let error = decode::<()>(speaker, RunBudget::default(), &mut FailingReader).unwrap_err();
+        let error = decode(speaker, RunBudget::default(), &mut FailingReader).unwrap_err();
         assert_eq!(error.origin, Origin::direction(speaker));
         assert!(matches!(
             error.kind,
@@ -459,7 +481,7 @@ fn supply_truncation_at_chunk_boundaries_is_typed() {
             encoded.extend_from_slice(&u32::try_from(declared).unwrap().to_be_bytes());
             encoded.extend(vec![0xA5; delivered]);
             let mut reader = FrameRead::new(speaker, RunBudget::default(), encoded.as_slice());
-            let error = pollster::block_on(reader.frame::<u64>()).unwrap_err();
+            let error = pollster::block_on(reader.frame()).unwrap_err();
             assert_eq!(error.origin, Origin::stream(speaker, stream));
             assert!(
                 matches!(
@@ -498,12 +520,12 @@ fn decode_both(
     speaker: Speaker,
     budget: RunBudget,
     bytes: &[u8],
-) -> Result<WireFrame<u64>, DecodeError> {
+) -> Result<WireFrame, DecodeError> {
     let mut reader = FrameRead::new(speaker, budget, bytes);
-    let from_async = pollster::block_on(reader.frame::<u64>())
+    let from_async = pollster::block_on(reader.frame())
         .map(|frame| frame.expect("a nonempty byte stream is not a clean close"));
     let mut rest = bytes;
-    let from_sync = decode::<u64>(speaker, budget, &mut rest);
+    let from_sync = decode(speaker, budget, &mut rest);
     match (from_async, from_sync) {
         (Ok(a), Ok(s)) => {
             assert_eq!(a, s, "the two decoders accept different frames");

@@ -53,7 +53,7 @@ fn query_count_covers_every_fan_and_flow() {
             })
             .collect::<Vec<_>>();
         for flow in FLOWS {
-            let frame: WireFrame<u64> = (
+            let frame: WireFrame = (
                 stream,
                 Frame::Reaction(Reaction::Query(children.clone()), flow),
             );
@@ -79,7 +79,7 @@ fn query_count_covers_every_fan_and_flow() {
 #[test]
 fn one_byte_frames_are_exhaustive() {
     let stream = stream(4);
-    let cases: Vec<(WireFrame<u64>, u8)> = vec![
+    let cases: Vec<(WireFrame, u8)> = vec![
         (
             (stream, Frame::Reaction(Reaction::Match, Flow::Continue)),
             signal(stream, Signal::Match(Flow::Continue)),
@@ -157,7 +157,7 @@ impl std::io::Write for FailingWriter {
 #[test]
 fn writer_errors_are_contextual() {
     let stream = stream(12);
-    let frame: WireFrame<()> = (stream, Frame::End(End::Reply));
+    let frame: WireFrame = (stream, Frame::End(End::Reply));
     for speaker in SPEAKERS {
         let error = encode(speaker, &frame, &mut FailingWriter).unwrap_err();
         assert_eq!(error.origin, Origin::stream(speaker, stream));
@@ -207,7 +207,7 @@ impl AsyncWrite for FailingAsyncWriter {
 #[test]
 fn async_writer_errors_are_contextual() {
     let stream = stream(12);
-    let frame: WireFrame<()> = (stream, Frame::End(End::Reply));
+    let frame: WireFrame = (stream, Frame::End(End::Reply));
     for speaker in SPEAKERS {
         let mut writer = FrameWrite::new(speaker, FailingAsyncWriter(AsyncFailure::Write));
         let error = pollster::block_on(writer.frame(&frame)).unwrap_err();

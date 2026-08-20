@@ -31,24 +31,24 @@ use crate::tree::{
 use super::harness::{self, GreetingRewrite};
 
 /// The observable root hash of a reconciled `tree::Root`.
-fn hash_of(root: &crate::tree::Root<()>) -> [u8; MERKLE_HASH_LEN] {
-    Tree { root: root.clone() }.hash()
+fn hash_of(root: &crate::tree::Root) -> [u8; MERKLE_HASH_LEN] {
+    Tree::<()>::from_root(root.clone()).hash()
 }
 
 /// The expected reconciled union, computed by the in-memory join oracle.
-fn union_hash(a: &crate::tree::Root<()>, b: &crate::tree::Root<()>) -> [u8; MERKLE_HASH_LEN] {
-    let mut union = Tree { root: a.clone() };
-    union.join(Tree { root: b.clone() });
+fn union_hash(a: &crate::tree::Root, b: &crate::tree::Root) -> [u8; MERKLE_HASH_LEN] {
+    let mut union = Tree::<()>::from_root(a.clone());
+    union.join(Tree::from_root(b.clone()));
     union.hash()
 }
 
 /// A divergent pair whose live set sizes differ strictly: one message
 /// against four, on distinct parties, so the smaller side wins the
 /// initiator election under honest declarations.
-fn uneven_pair() -> (crate::tree::Root<()>, crate::tree::Root<()>) {
-    let mut small = Tree::new();
+fn uneven_pair() -> (crate::tree::Root, crate::tree::Root) {
+    let mut small = Tree::<()>::new();
     small.act(&nth_party(1), [Action::Insert(Message::new(()))]);
-    let mut large = Tree::new();
+    let mut large = Tree::<()>::new();
     large.act(
         &nth_party(0),
         (0..4).map(|_| Action::Insert(Message::new(()))),
@@ -68,10 +68,10 @@ const BULK_MESSAGES: usize = FAN + 1;
 /// exclusive root children — at least one of which spans multiple leaves
 /// — reach it as whole supplied subtrees, so the traffic toward the small
 /// side includes a genuinely batched multi-record run.
-fn batched_uneven_pair() -> (crate::tree::Root<()>, crate::tree::Root<()>) {
-    let mut small = Tree::new();
+fn batched_uneven_pair() -> (crate::tree::Root, crate::tree::Root) {
+    let mut small = Tree::<()>::new();
     small.act(&nth_party(1), [Action::Insert(Message::new(()))]);
-    let mut large = Tree::new();
+    let mut large = Tree::<()>::new();
     large.act(
         &nth_party(0),
         (0..BULK_MESSAGES).map(|_| Action::Insert(Message::new(()))),
@@ -272,13 +272,13 @@ fn understated_set_len_fails_the_session() {
 /// A divergent pair of four messages against eight, on distinct parties:
 /// the four-message side wins the initiator election, and its whole
 /// exclusive content rides the opening-supply stream as one reply.
-fn opening_bulk_pair() -> (crate::tree::Root<()>, crate::tree::Root<()>) {
-    let mut small = Tree::new();
+fn opening_bulk_pair() -> (crate::tree::Root, crate::tree::Root) {
+    let mut small = Tree::<()>::new();
     small.act(
         &nth_party(1),
         (0..4).map(|_| Action::Insert(Message::new(()))),
     );
-    let mut large = Tree::new();
+    let mut large = Tree::<()>::new();
     large.act(
         &nth_party(0),
         (0..8).map(|_| Action::Insert(Message::new(()))),

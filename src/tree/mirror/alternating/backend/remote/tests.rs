@@ -11,11 +11,12 @@
 //! `alternating/message/tests.rs`; the exact wire bytes in
 //! `alternating/wire_snapshot.rs`.
 
+use crate::message::Message;
 use proptest::collection::vec;
 use proptest::prelude::*;
 
 use super::super::super::message;
-use super::{FrameRead, recv_msg};
+use super::{FrameRead, recv_msg, recv_msg_with};
 use crate::tree::arb::nth_party;
 use crate::tree::mirror::framing::LENGTH_HEADER_LEN;
 use crate::tree::typed::height::UnderRoot;
@@ -35,6 +36,15 @@ fn recv<M: wire::Decode>(bytes: &[u8]) -> Result<M, Error> {
     pollster::block_on(async {
         let mut reader = FrameRead::new(bytes);
         recv_msg::<M, _>(&mut reader).await
+    })
+}
+
+/// [`recv`] for the payload-bearing messages, through the production
+/// deserializer-parameterized ingress with a unit-payload deserializer.
+fn recv_with<M: message::DecodeWith>(bytes: &[u8]) -> Result<M, Error> {
+    pollster::block_on(async {
+        let mut reader = FrameRead::new(bytes);
+        recv_msg_with::<M, _>(&mut reader, Message::deserializer::<()>()).await
     })
 }
 
@@ -177,15 +187,15 @@ proptest! {
             Ok(()) | Err(Error::Io(_)),
         ));
         prop_assert!(matches!(
-            recv::<message::Exchange<u64, UnderRoot>>(&framed).map(|_| ()),
+            recv_with::<message::Exchange<UnderRoot>>(&framed).map(|_| ()),
             Ok(()) | Err(Error::Io(_)),
         ));
         prop_assert!(matches!(
-            recv::<message::Closing<u64>>(&framed).map(|_| ()),
+            recv_with::<message::Closing>(&framed).map(|_| ()),
             Ok(()) | Err(Error::Io(_)),
         ));
         prop_assert!(matches!(
-            recv::<message::Complete<u64>>(&framed).map(|_| ()),
+            recv_with::<message::Complete>(&framed).map(|_| ()),
             Ok(()) | Err(Error::Io(_)),
         ));
     }

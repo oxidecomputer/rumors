@@ -43,15 +43,49 @@ pub use local::Local;
 pub(super) use local::with_schedule as with_local_schedule;
 
 /// A backend value is a cheap cloneable *handle* to its storage.
-pub trait Backend<T: Send + Sync + 'static>: Clone + Send + Sync + 'static
+pub trait Backend: Clone + Send + Sync + 'static
 where
-    Self::Node<Z>: Leaf<T>,
+    Self::Node<Z>: Leaf,
 {
-    /// The type of nodes carrying messages of type `T`, indexed by height `H`.
-    type Node<H: Height>: Node<T, Height = H, Backend = Self> + Clone + Send + 'static;
+    /// The type of nodes, indexed by height `H`; leaf payloads are
+    /// erased in storage and decode as `T` at the wire boundary.
+    type Node<H: Height>: Node<Height = H, Backend = Self> + Clone + Send + 'static;
+
+    /// One runtime representation shared by every height's
+    /// [`Node<H>`](Self::Node).
+    ///
+    /// The height parameter on [`Node`](Self::Node) is a compile-time tag
+    /// over runtime data that already knows its place in the tree, so a
+    /// backend can forget the tag ([`erase`](Self::erase)) and restore it
+    /// ([`assume`](Self::assume)) without changing the value. The
+    /// session's internal plumbing — its channels, pumps, and walk workers
+    /// — carries this one type where a height-typed payload would
+    /// instantiate the whole machinery once per height.
+    ///
+    /// A backend whose nodes share one representation across heights (as
+    /// [`Local`]'s do) uses that representation directly; a backend with
+    /// genuinely distinct per-height representations supplies a sum of
+    /// them.
+    type Erased: ErasedNode + Clone + Send + 'static;
 
     /// The type of errors returned by this backend.
     type Error: Send + 'static;
+
+    /// Forget a node's height tag.
+    fn erase<H: Height>(node: Self::Node<H>) -> Self::Erased;
+
+    /// Re-tag an erased node at height `H`.
+    ///
+    /// `H` must be the height the node was erased at:
+    /// `assume::<H>(erase::<H>(node)) == node` is the whole contract, and
+    /// a cross-height re-tag is a programmer error whose behavior is
+    /// unspecified. The pairing discipline lives inside the session's
+    /// erased plumbing, witnessed by the prefixes that travel alongside
+    /// every node: an erased prefix's byte length is its height, and
+    /// re-tagging one debug-asserts that length. Peer input cannot reach
+    /// a mispairing — every wire node decodes through height-typed
+    /// readers before it is ever erased.
+    fn assume<H: Height>(erased: Self::Erased) -> Self::Node<H>;
 
     /// Bytes one node value with `children` child entries keeps resident
     /// beyond the replica's own storage, its version bounds (ceiling and
@@ -116,7 +150,7 @@ where
         self,
         prefix: Prefix<S<H>>,
         parent: Self::Node<S<H>>,
-    ) -> impl NodeStream<Self, T, H>
+    ) -> impl NodeStream<Self, H>
     where
         H: Height,
         S<H>: Height;
@@ -135,7 +169,7 @@ where
         self,
         prefix: Prefix<H>,
         node: Self::Node<H>,
-    ) -> impl NodeStream<Self, T, Z> {
+    ) -> impl NodeStream<Self, Z> {
         H::explode(
             self,
             Box::pin(stream::once(async move { Ok((prefix, node)) })),
@@ -163,16 +197,16 @@ where
     /// session can meet it.
     fn assemble<'a, H: Convert>(
         self,
-        leaves: BoxNodeStream<'a, Self, T, Z>,
-    ) -> impl NodeStream<Self, T, H> + 'a {
+        leaves: BoxNodeStream<'a, Self, Z>,
+    ) -> impl NodeStream<Self, H> + 'a {
         H::assemble(self, leaves)
     }
 }
 
 /// The inspection operations of a backend's individual node type.
-pub trait Node<T: Send + Sync + 'static> {
+pub trait Node {
     /// The backend to which this node belongs.
-    type Backend: Backend<T, Node<Z>: Leaf<T>, Node<Self::Height> = Self>;
+    type Backend: Backend<Node<Z>: Leaf, Node<Self::Height> = Self>;
 
     /// The height of the node above the leaf level.
     type Height: Height;
@@ -250,11 +284,30 @@ pub trait Node<T: Send + Sync + 'static> {
     fn version_bytes(&self) -> usize;
 }
 
+/// The observations a session reads off an erased node: [`Node`]'s
+/// height-independent surface.
+///
+/// Every read here answers exactly as it would on the typed node the value
+/// was erased from — none of [`Node`]'s observations ever depended on the
+/// height tag, so forgetting it loses nothing. Height-*dependent*
+/// operations (exploding to children, reading a leaf's message) stay on
+/// the typed surface, reached by re-tagging ([`Backend::assume`]).
+pub trait ErasedNode {
+    /// The node's version bounds as one causal span ([`Node::span`]).
+    fn span(&self) -> Span<'_>;
+
+    /// The merkle hash of this node ([`Node::hash`]).
+    fn hash(&self) -> Hash;
+
+    /// The number of live leaves under this node, exact ([`Node::len`]).
+    fn len(&self) -> usize;
+}
+
 /// What crosses between backends at the conversion boundary, and the one node
 /// shape every backend must represent faithfully.
-pub trait Leaf<T: Send + Sync + 'static>: Node<T> {
+pub trait Leaf: Node {
     /// The message stored at this leaf node.
-    fn message(&self) -> &Message<T>;
+    fn message(&self) -> &Message;
 
     /// Construct a leaf node from one decoded wire record, taking custody
     /// of its payload.
@@ -286,34 +339,32 @@ pub trait Leaf<T: Send + Sync + 'static>: Node<T> {
     /// (the reclaimable-garbage case).
     fn leaf(
         version: Version,
-        message: Message<T>,
-    ) -> impl Future<Output = Result<Self, <Self::Backend as Backend<T>>::Error>> + Send
+        message: Message,
+    ) -> impl Future<Output = Result<Self, <Self::Backend as Backend>::Error>> + Send
     where
         Self: Sized;
 }
 
 /// Type synonym for a fallible [`Stream`] of prefix-keyed nodes represented by
 /// a given backend.
-pub trait NodeStream<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, H: Height>:
+pub trait NodeStream<B: Backend<Node<Z>: Leaf>, H: Height>:
     Stream<Item = Result<(Prefix<H>, B::Node<H>), B::Error>> + Send
 {
 }
-impl<N, B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, H: Height> NodeStream<B, T, H>
-    for N
-where
-    N: Stream<Item = Result<(Prefix<H>, B::Node<H>), B::Error>> + Send,
+impl<N, B: Backend<Node<Z>: Leaf>, H: Height> NodeStream<B, H> for N where
+    N: Stream<Item = Result<(Prefix<H>, B::Node<H>), B::Error>> + Send
 {
 }
 
 /// A [`NodeStream`] erased to one level of type depth.
-pub(crate) type BoxNodeStream<'a, B, T, H> = Pin<Box<dyn NodeStream<B, T, H> + 'a>>;
+pub(crate) type BoxNodeStream<'a, B, H> = Pin<Box<dyn NodeStream<B, H> + 'a>>;
 
 /// A backend's whole tree at rest: what a mirror session consumes and produces.
 ///
 /// This is the backend-generic form of [`tree::Root`](crate::tree::Root); the
 /// `Local` backend converts between the two with [`From`].
 #[derive(Debug)]
-pub struct Root<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> {
+pub struct Root<B: Backend<Node<Z>: Leaf>> {
     /// The maximum version this tree has incorporated.
     pub ceiling: Version,
     /// The root node, or nothing when the tree is empty.
@@ -322,7 +373,7 @@ pub struct Root<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> {
 
 // Manual because the derive would demand `T: Clone`; nodes are cloneable
 // handles regardless of the message type they carry.
-impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> Clone for Root<B, T> {
+impl<B: Backend<Node<Z>: Leaf>> Clone for Root<B> {
     fn clone(&self) -> Self {
         Root {
             ceiling: self.ceiling.clone(),
@@ -331,7 +382,7 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> Clone for Root<B
     }
 }
 
-impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> Root<B, T> {
+impl<B: Backend<Node<Z>: Leaf>> Root<B> {
     /// The tree's live message count: the root node's [`len`](Node::len)
     /// aggregate, or zero when empty. What the session greeting carries
     /// as the exact set size.

@@ -1,4 +1,3 @@
-use std::fmt::Debug;
 use std::mem;
 use std::sync::{Arc, OnceLock};
 
@@ -19,11 +18,11 @@ pub use iter::{Iter, Leaf, Range, RangeOwned};
 /// The single representation beneath the height-typed veneer (see
 /// [`typed`](super)); cloning is an `Arc` bump, and mutation is
 /// copy-on-write.
-pub struct Node<T> {
-    inner: Arc<NodeInner<T>>,
+pub struct Node {
+    inner: Arc<NodeInner>,
 }
 
-impl<T> Clone for Node<T> {
+impl Clone for Node {
     fn clone(&self) -> Self {
         Self::from_inner(self.inner.clone())
     }
@@ -31,7 +30,7 @@ impl<T> Clone for Node<T> {
 
 /// Handles are counted, so a dropped one must check out; see [`census`].
 #[cfg(any(test, feature = "test-internals"))]
-impl<T> Drop for Node<T> {
+impl Drop for Node {
     fn drop(&mut self) {
         census::dropped();
     }
@@ -76,7 +75,7 @@ pub(crate) mod census {
     }
 }
 
-struct NodeInner<T> {
+struct NodeInner {
     /// Compressed path above this node's own branching level, stored with the
     /// deepest byte at index 0 and the shallowest byte at the last index. An
     /// empty prefix means the node is not path-compressed above its level.
@@ -98,10 +97,10 @@ struct NodeInner<T> {
     /// *or* `children` invalidates it and must reset this cell.
     hash: OnceLock<Hash>,
     /// The children of this node: either a leaf, or a branch point.
-    children: Children<T>,
+    children: Children,
 }
 
-impl<T> Clone for NodeInner<T> {
+impl Clone for NodeInner {
     fn clone(&self) -> Self {
         Self {
             prefix: self.prefix.clone(),
@@ -111,7 +110,7 @@ impl<T> Clone for NodeInner<T> {
     }
 }
 
-impl<T: Debug> Debug for Node<T> {
+impl std::fmt::Debug for Node {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Node")
             .field("prefix", &hex::encode(&self.inner.prefix))
@@ -122,13 +121,13 @@ impl<T: Debug> Debug for Node<T> {
 
 /// The children of a node.
 #[derive(Debug)]
-enum Children<T> {
+enum Children {
     /// A direct leaf, at the true bottom of the tree.
     Leaf {
         /// The version of this leaf.
         version: Version,
         /// The payload of this leaf.
-        message: Message<T>,
+        message: Message,
     },
     /// A materialized branch point, with the invariant that there are always >=
     /// 2 branches (or else they should be path-compressed away).
@@ -158,11 +157,11 @@ enum Children<T> {
         /// prefix does.
         version_bytes: OnceLock<usize>,
         /// The children of this branch.
-        children: Fan<T>,
+        children: Fan,
     },
 }
 
-impl<T> Clone for Children<T> {
+impl Clone for Children {
     fn clone(&self) -> Self {
         match self {
             Self::Leaf { version, message } => Self::Leaf {
@@ -187,13 +186,13 @@ impl<T> Clone for Children<T> {
     }
 }
 
-impl<T> Node<T> {
+impl Node {
     /// Wrap built node state as a handle.
     ///
     /// Every handle in the crate passes through here or [`Clone`] — the
     /// funnel that makes the test-only [`census`] an exact residency
     /// count.
-    fn from_inner(inner: Arc<NodeInner<T>>) -> Self {
+    fn from_inner(inner: Arc<NodeInner>) -> Self {
         #[cfg(any(test, feature = "test-internals"))]
         census::created();
         Node { inner }
@@ -201,7 +200,7 @@ impl<T> Node<T> {
 
     /// Construct a new branch node from a list of children with distinct
     /// indices (inverse to [`Node::into_children`]).
-    pub fn branch(children: Fan<T>) -> Option<Self> {
+    pub fn branch(children: Fan) -> Option<Self> {
         match children.len() {
             0 => None,
             1 => {
@@ -227,7 +226,7 @@ impl<T> Node<T> {
     /// [`Node::branch`]).
     ///
     /// If `self` is a leaf node, returns `Err(self)`.
-    pub fn into_children(mut self) -> Result<Fan<T>, Node<T>> {
+    pub fn into_children(mut self) -> Result<Fan, Node> {
         if !self.inner.prefix.is_empty() {
             // Path-compressed: pop the top (shallowest) byte and rewrap self
             // under it. Popping shortens the prefix, so the observable hash
@@ -341,7 +340,7 @@ impl<T> Node<T> {
     }
 
     /// Construct a new leaf node.
-    pub fn leaf(version: Version, value: Message<T>) -> Self {
+    pub fn leaf(version: Version, value: Message) -> Self {
         Node::from_inner(Arc::new(NodeInner {
             prefix: Vec::new(),
             hash: OnceLock::new(),
@@ -353,7 +352,7 @@ impl<T> Node<T> {
     }
 
     /// Get a reference to the leaf at this node, if it is a leaf.
-    pub fn as_leaf(&self) -> Option<&Message<T>> {
+    pub fn as_leaf(&self) -> Option<&Message> {
         match &self.inner.children {
             Children::Leaf { message, .. } => Some(message),
             _ => None,
@@ -363,7 +362,7 @@ impl<T> Node<T> {
     /// Look up the leaf at `path` beneath this node: a single root-to-leaf
     /// descent costing `O(depth)`, never a scan. `None` when no live leaf
     /// sits at that path.
-    pub fn get(&self, mut path: &[u8]) -> Option<(&Version, &Message<T>)> {
+    pub fn get(&self, mut path: &[u8]) -> Option<(&Version, &Message)> {
         let mut node = self;
         loop {
             // Consume the compressed prefix, shallowest byte first (it is
@@ -584,7 +583,7 @@ impl<T> Node<T> {
     /// the subtree contains, so the prefix plays no part; and neither
     /// fold is ever empty, because a branch always has >= 2 children by
     /// the path-compression invariant.
-    fn bounds<'a>(bounds: &'a OnceLock<Span<'static>>, children: &Fan<T>) -> &'a Span<'static> {
+    fn bounds<'a>(bounds: &'a OnceLock<Span<'static>>, children: &Fan) -> &'a Span<'static> {
         bounds.get_or_init(|| {
             if children.values().all(Node::is_leaf) {
                 let mut versions = children.values().map(|child| match &child.inner.children {
@@ -715,7 +714,7 @@ impl<T> Node<T> {
     /// Pushing onto the prefix raises the observable hash by one virtual
     /// level, so the memoized hash is invalidated and recomputed lazily on the
     /// next read.
-    pub fn beneath(mut self, index: u8) -> Node<T> {
+    pub fn beneath(mut self, index: u8) -> Node {
         let inner = Arc::make_mut(&mut self.inner);
         inner.prefix.push(index);
         inner.hash = OnceLock::new();
@@ -738,9 +737,9 @@ impl<T> Node<T> {
     }
 }
 
-impl<T> Eq for Node<T> {}
+impl Eq for Node {}
 
-impl<T> PartialEq for Node<T> {
+impl PartialEq for Node {
     fn eq(&self, other: &Self) -> bool {
         // Shared backing settles equality with no hashing (and even cold): the
         // common case for forked/cloned trees and the subtrees they share.

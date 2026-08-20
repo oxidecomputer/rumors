@@ -43,7 +43,7 @@ const TREE_LEAF_BUDGET: usize = 16;
 /// child gets at least 1 and the shares sum to the parent's budget). This
 /// guarantees all leaves sit at a common depth, and no more than `budget`
 /// leaves are generated. `budget` must be at least 1.
-fn arb_tree(depth: usize, budget: usize) -> BoxedStrategy<Node<()>> {
+fn arb_tree(depth: usize, budget: usize) -> BoxedStrategy<Node> {
     if depth == 0 {
         // The leaf payload is not examined at this abstraction layer, so we
         // stuff in a fixed empty value rather than generating one; only the
@@ -79,7 +79,7 @@ fn arb_tree(depth: usize, budget: usize) -> BoxedStrategy<Node<()>> {
                 (Just(indices), subtrees)
             })
             .prop_map(|(indices, subtrees)| {
-                let children: Fan<()> = indices.into_iter().zip(subtrees).collect();
+                let children: Fan = indices.into_iter().zip(subtrees).collect();
                 Node::branch(children).expect("branch input has >= 1 child")
             })
             .boxed()
@@ -94,7 +94,7 @@ fn arb_tree(depth: usize, budget: usize) -> BoxedStrategy<Node<()>> {
 /// yields them. The version is the leaf's own version as recorded by
 /// `Node::leaf`, and is preserved across path compression because
 /// `into_children` never mutates `version` — only `prefix`.
-fn enumerate_leaves(node: Node<()>, path: Vec<u8>) -> Vec<(Vec<u8>, Version, Message<()>)> {
+fn enumerate_leaves(node: Node, path: Vec<u8>) -> Vec<(Vec<u8>, Version, Message)> {
     match node.into_children() {
         Ok(children) => children
             .into_iter()
@@ -125,9 +125,9 @@ fn enumerate_leaves(node: Node<()>, path: Vec<u8>) -> Vec<(Vec<u8>, Version, Mes
 /// leaves pass their original version back into `Node::leaf`, and branch
 /// versions are recomputed by `Node::branch` from the same per-child
 /// versions we started with.
-fn rebuild_with<F>(node: Node<()>, f: &F) -> Node<()>
+fn rebuild_with<F>(node: Node, f: &F) -> Node
 where
-    F: Fn(&Message<()>) -> Message<()>,
+    F: Fn(&Message) -> Message,
 {
     let version = node.ceiling().clone();
     match node.into_children() {
@@ -138,7 +138,7 @@ where
             Node::leaf(version, f(leaf))
         }
         Ok(children) => {
-            let rebuilt: Fan<()> = children
+            let rebuilt: Fan = children
                 .into_iter()
                 .map(|(k, v)| (k, rebuild_with(v, f)))
                 .collect();
@@ -155,7 +155,7 @@ where
 /// one-child case is handled by `beneath`-collapse instead.
 #[test]
 fn empty_branch_is_none() {
-    let empty: Fan<()> = Fan::new();
+    let empty: Fan = Fan::new();
     assert!(Node::branch(empty).is_none());
 }
 
@@ -285,7 +285,7 @@ proptest! {
     fn bounds_are_the_leaf_fold_at_every_node(
         tree in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree(d, TREE_LEAF_BUDGET)),
     ) {
-        fn check(node: &Node<()>) -> Result<Vec<Version>, TestCaseError> {
+        fn check(node: &Node) -> Result<Vec<Version>, TestCaseError> {
             let floor = node.floor().clone();
             let ceiling = node.ceiling().clone();
             let leaves = match node.clone().into_children() {
@@ -497,7 +497,7 @@ proptest! {
 /// `BRANCH_TAG ‖ len ‖ prefix ‖ count(u16 BE) ‖ (radix ‖ hash)*` for a
 /// branch — with every child hash computed by the same reference
 /// recursively, never by [`Node::hash`].
-fn reference_hash(mut node: Node<()>) -> super::Hash {
+fn reference_hash(mut node: Node) -> super::Hash {
     const LEAF_TAG: u8 = 0;
     const BRANCH_TAG: u8 = 1;
     let mut prefix: Vec<u8> = Vec::new();
@@ -549,8 +549,8 @@ fn full_depth_paths() -> impl Strategy<Value = BTreeSet<[u8; 32]>> {
 /// Leaf versions are all genesis: the hash convention never commits a
 /// version, so varying them adds nothing to the hash properties checked
 /// against this reference.
-fn canonical_at(depth: usize, paths: &[[u8; 32]]) -> Node<()> {
-    let mut entries: Vec<([u8; 32], Option<Node<()>>)> = paths
+fn canonical_at(depth: usize, paths: &[[u8; 32]]) -> Node {
+    let mut entries: Vec<([u8; 32], Option<Node>)> = paths
         .iter()
         .map(|path| (*path, Some(Node::leaf(Version::new(), Message::new(())))))
         .collect();
@@ -560,11 +560,7 @@ fn canonical_at(depth: usize, paths: &[[u8; 32]]) -> Node<()> {
 /// Recursively explode `node` (observed from `depth`, holding exactly the
 /// leaves at `paths`) one virtual level at a time, checking at every
 /// position that its hash matches the canonical from-scratch construction.
-fn check_virtual_levels(
-    node: Node<()>,
-    depth: usize,
-    paths: &[[u8; 32]],
-) -> Result<(), TestCaseError> {
+fn check_virtual_levels(node: Node, depth: usize, paths: &[[u8; 32]]) -> Result<(), TestCaseError> {
     prop_assert_eq!(node.hash(), canonical_at(depth, paths).hash());
     match node.into_children() {
         // A bare leaf: the walk consumed the entire 32-byte path.
@@ -658,9 +654,9 @@ mod memo_fold_cost {
     /// One full-fanout branch of leaves carrying `versions`, radix `i`
     /// holding `versions[i]`, plus the same children for the reference
     /// fold to walk (a fan clone bumps each child's `Arc`).
-    fn wide_branch(versions: Vec<Version>) -> (Node<()>, Fan<()>) {
+    fn wide_branch(versions: Vec<Version>) -> (Node, Fan) {
         assert_eq!(versions.len(), FANOUT, "one version per radix");
-        let children: Fan<()> = versions
+        let children: Fan = versions
             .into_iter()
             .enumerate()
             .map(|(radix, version)| {
@@ -693,7 +689,7 @@ mod memo_fold_cost {
     /// floors (seeded from the first child, the meet's own seed rule),
     /// with the composed `(limb ops, scan bits, digit touches)`
     /// reading.
-    fn sequential_bounds(children: &Fan<()>) -> (Version, Version, u64, u64, u64) {
+    fn sequential_bounds(children: &Fan) -> (Version, Version, u64, u64, u64) {
         let ((join, meet), limb, scan, touch) = metered(|| {
             let mut join = Version::new();
             for child in children.values() {
@@ -836,9 +832,9 @@ mod memo_fold_cost {
     fn interior_bounds_memo_undercuts_sequential_folds() {
         let (packed, _) = Shape::StaggerPopulation.population(FANOUT, 16);
         let mut versions = packed.iter().map(|packed| packed.version());
-        let children: Fan<()> = (0..FANOUT / 2)
+        let children: Fan = (0..FANOUT / 2)
             .map(|radix| {
-                let pair: Fan<()> = [0u8, 1u8]
+                let pair: Fan = [0u8, 1u8]
                     .into_iter()
                     .map(|slot| {
                         let version = versions.next().expect("one version per slot");
@@ -891,7 +887,7 @@ mod memo_fold_cost {
 #[test]
 #[cfg(target_pointer_width = "64")]
 fn node_inner_stays_within_budget() {
-    assert!(std::mem::size_of::<Fan<()>>() <= 40);
-    assert!(std::mem::size_of::<super::Children<()>>() <= 160);
-    assert!(std::mem::size_of::<super::NodeInner<()>>() <= 208);
+    assert!(std::mem::size_of::<Fan>() <= 40);
+    assert!(std::mem::size_of::<super::Children>() <= 160);
+    assert!(std::mem::size_of::<super::NodeInner>() <= 208);
 }

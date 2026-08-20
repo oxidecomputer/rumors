@@ -18,8 +18,8 @@ macro_rules! define_peer {
         define_peer!(@step
             init: [$($init_count)*],
             resp: [$($resp_count)*],
-            init_chain: (Reply<I, T, Next: CompleteInitiator<I, T>>),
-            resp_chain: (Reply<I, T, Next: CompleteResponder<I, T>>),
+            init_chain: (Reply<I, Next: CompleteInitiator<I>>),
+            resp_chain: (Reply<I, Next: CompleteResponder<I>>),
         );
     };
 
@@ -32,7 +32,7 @@ macro_rules! define_peer {
         define_peer!(@step
             init: [$($init_rest)*],
             resp: [$($resp_count)*],
-            init_chain: (Reply<I, T, Next: $($init_chain)*>),
+            init_chain: (Reply<I, Next: $($init_chain)*>),
             resp_chain: ($($resp_chain)*),
         );
     };
@@ -47,7 +47,7 @@ macro_rules! define_peer {
             init: [],
             resp: [$($resp_rest)*],
             init_chain: ($($init_chain)*),
-            resp_chain: (Reply<I, T, Next: $($resp_chain)*>),
+            resp_chain: (Reply<I, Next: $($resp_chain)*>),
         );
     };
 
@@ -57,55 +57,49 @@ macro_rules! define_peer {
         init_chain: ($($init_chain:tt)*),
         resp_chain: ($($resp_chain:tt)*) $(,)?
     ) => {
-        pub trait Peer<I, T>:
-            CompleteEqual<I, T>
-            + Initiator<I, T, Next: $($init_chain)*>
-            + Responder<I, T, Next: $($resp_chain)*>
+        pub trait Peer<I>:
+            CompleteEqual<I>
+            + Initiator<I, Next: $($init_chain)*>
+            + Responder<I, Next: $($resp_chain)*>
         where
-            I: Backend<T, Node<Z>: Leaf<T>>,
-            T: Send + Sync + 'static,
+            I: Backend<Node<Z>: Leaf>,
+                    {
+        }
+
+        impl<X, I> Peer<I> for X
+        where
+            I: Backend<Node<Z>: Leaf>,
+                        X: CompleteEqual<I>
+                + Initiator<I, Next: $($init_chain)*>
+                + Responder<I, Next: $($resp_chain)*>,
         {
         }
 
-        impl<X, I, T> Peer<I, T> for X
+        pub trait Server<I>:
+            Accept<I, Next: Initiator<I, Next: $($init_chain)*> + Responder<I, Next: $($resp_chain)*>>
         where
-            I: Backend<T, Node<Z>: Leaf<T>>,
-            T: Send + Sync + 'static,
-            X: CompleteEqual<I, T>
-                + Initiator<I, T, Next: $($init_chain)*>
-                + Responder<I, T, Next: $($resp_chain)*>,
+            I: Backend<Node<Z>: Leaf>,
+                    {
+        }
+
+        impl<X, I> Server<I> for X
+        where
+            I: Backend<Node<Z>: Leaf>,
+                        X: Accept<I, Next: Initiator<I, Next: $($init_chain)*> + Responder<I, Next: $($resp_chain)*>>,
         {
         }
 
-        pub trait Server<I, T>:
-            Accept<I, T, Next: Initiator<I, T, Next: $($init_chain)*> + Responder<I, T, Next: $($resp_chain)*>>
+        pub trait Client<I>:
+            Connect<I, Next: CompleteConnect<I, Next: Initiator<I, Next: $($init_chain)*> + Responder<I, Next: $($resp_chain)*>>>
         where
-            I: Backend<T, Node<Z>: Leaf<T>>,
-            T: Send + Sync + 'static,
-        {
+            I: Backend<Node<Z>: Leaf>,
+                    {
         }
 
-        impl<X, I, T> Server<I, T> for X
+        impl<X, I> Client<I> for X
         where
-            I: Backend<T, Node<Z>: Leaf<T>>,
-            T: Send + Sync + 'static,
-            X: Accept<I, T, Next: Initiator<I, T, Next: $($init_chain)*> + Responder<I, T, Next: $($resp_chain)*>>,
-        {
-        }
-
-        pub trait Client<I, T>:
-            Connect<I, T, Next: CompleteConnect<I, T, Next: Initiator<I, T, Next: $($init_chain)*> + Responder<I, T, Next: $($resp_chain)*>>>
-        where
-            I: Backend<T, Node<Z>: Leaf<T>>,
-            T: Send + Sync + 'static,
-        {
-        }
-
-        impl<X, I, T> Client<I, T> for X
-        where
-            I: Backend<T, Node<Z>: Leaf<T>>,
-            T: Send + Sync + 'static,
-            X: Connect<I, T, Next: CompleteConnect<I, T, Next: Initiator<I, T, Next: $($init_chain)*> + Responder<I, T, Next: $($resp_chain)*>>>,
+            I: Backend<Node<Z>: Leaf>,
+                        X: Connect<I, Next: CompleteConnect<I, Next: Initiator<I, Next: $($init_chain)*> + Responder<I, Next: $($resp_chain)*>>>,
         {
         }
     };

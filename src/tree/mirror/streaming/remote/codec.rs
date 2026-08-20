@@ -19,7 +19,7 @@
 //! An empty query is wholly represented by its signal. A nonempty query carries
 //! `count - 1` in one byte, covering 1 through 256. A supply body is a
 //! [`LeafRun`] behind an exact `u32` body length: one or more
-//! backend-neutral `(Version, Message<T>)` leaf records, each behind its own
+//! backend-neutral `(Version, Message)` leaf records, each behind its own
 //! exact `u32` record length. The codec validates the run's record framing
 //! once its whole body arrives but leaves the records encoded; the adapter
 //! decodes them one at a time, constructs its backend-specific leaves, and
@@ -100,7 +100,7 @@ pub(crate) async fn decode_frame_discarded(
     budget: RunBudget,
 ) -> Result<(), DecodeError> {
     let mut read = FrameRead::new(Speaker::Initiator, budget, read);
-    read.frame::<u64>().await.map(|_| ())
+    read.frame().await.map(|_| ())
 }
 
 #[cfg(test)]

@@ -11,7 +11,7 @@ use crate::{
     message::Message,
     tree::{
         arb::nth_party,
-        mirror::streaming::{Local, materialized::unknown::unknown},
+        mirror::streaming::{Backend, Local, materialized::unknown::unknown},
         traverse::{Action, act, unknown::Unknown},
         typed::{self, Path, Prefix, height::Root},
     },
@@ -26,8 +26,8 @@ use crate::{
 /// Splitting leaves across two parties guarantees cross-party concurrency, so
 /// the "floor concurrent, keep whole subtree" fast path is exercised alongside
 /// the drop path.
-fn tree_and_known(flags_a: &[bool], flags_b: &[bool]) -> (Option<typed::node::Root<()>>, Version) {
-    let mut actions: Vec<(Path, Version, Action<()>)> = Vec::new();
+fn tree_and_known(flags_a: &[bool], flags_b: &[bool]) -> (Option<typed::node::Root>, Version) {
+    let mut actions: Vec<(Path, Version, Action)> = Vec::new();
     let mut known = Version::new();
 
     for (party_index, flags) in [(0, flags_a), (1, flags_b)] {
@@ -44,24 +44,22 @@ fn tree_and_known(flags_a: &[bool], flags_b: &[bool]) -> (Option<typed::node::Ro
         }
     }
 
-    (act(None, actions, |_| ()), known)
+    (act(None, actions, &mut |_| ()), known)
 }
 
 /// Prune an optional root through the single-node streaming filter, driving
 /// the future to completion with a trivial executor.
-fn stream_prune(
-    root: Option<typed::node::Root<()>>,
-    known: &Version,
-) -> Option<typed::node::Root<()>> {
+fn stream_prune(root: Option<typed::node::Root>, known: &Version) -> Option<typed::node::Root> {
     root.and_then(|node| {
-        pollster::block_on(unknown::<Local, (), Root>(
+        pollster::block_on(unknown::<Local>(
             &Local,
             known,
-            Prefix::new(),
-            node,
+            Prefix::new().erase(),
+            <Local as Backend>::erase(node),
             &Recorder::default(),
         ))
         .unwrap_or_else(|e| match e {})
+        .map(<Local as Backend>::assume::<Root>)
     })
 }
 

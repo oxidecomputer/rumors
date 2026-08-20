@@ -28,15 +28,12 @@ use crate::{
     tree::{
         Action, Tree,
         mirror::streaming::{
-            Local,
-            message::{Reaction, Reply},
+            Backend, Local,
+            erased::{Reaction, Reply},
             remote::codec::{self, RunBudget, Speaker, Stream},
             window::FAN,
         },
-        typed::{
-            self, Hash,
-            height::{UnderRoot, UnderUnderRoot},
-        },
+        typed::{self, Hash, height::UnderRoot},
     },
 };
 
@@ -70,13 +67,13 @@ fn parked_supply_reply_holds_handles_not_subtrees() {
     // `replies.len()` pointers plus the skeleton — the subtree's bytes live
     // in backend custody behind the handle.
     assert_eq!(
-        mem::size_of::<typed::Node<u64, UnderRoot>>(),
+        mem::size_of::<typed::Node<UnderRoot>>(),
         mem::size_of::<usize>(),
         "a parked supply must be a shared handle, not an owned subtree",
     );
 
     let party = before::Party::seed();
-    let mut tree = Tree::new();
+    let mut tree = Tree::<()>::new();
     tree.act(&party, (0..LEAVES).map(|v| Action::Insert(Message::new(v))));
     let root = tree
         .root
@@ -86,8 +83,7 @@ fn parked_supply_reply_holds_handles_not_subtrees() {
 
     // The real root fan: version-addressed leaves scatter across first
     // bytes, so the fan is wide and its children are multi-leaf.
-    let children: Vec<(u8, typed::Node<u64, UnderRoot>)> =
-        root.into_children().into_iter().collect();
+    let children: Vec<(u8, typed::Node<UnderRoot>)> = root.into_children().into_iter().collect();
     let expected: Vec<(u8, Hash, usize)> = children
         .iter()
         .map(|(radix, node)| (*radix, node.hash(), node.len()))
@@ -106,14 +102,14 @@ fn parked_supply_reply_holds_handles_not_subtrees() {
         "the fan partitions every committed leaf",
     );
 
-    let reply = Reply::<Local, u64, UnderRoot> {
+    let reply = Reply {
         replies: children
             .into_iter()
-            .map(|(radix, node)| Reaction::Supply(radix, node))
+            .map(|(radix, node)| Reaction::Supply(radix, <Local as Backend>::erase(node)))
             .collect(),
     };
     let runtime = runtime();
-    let scope = Scope::<UnderRoot>::opening(&[]);
+    let scope = Scope::opening(&[]);
     let frames = runtime.block_on(async {
         encode_reply(Local, RunBudget::default(), scope.clone(), reply)
             .map_ok(|encoded| encoded.into_parts().0)
@@ -124,12 +120,13 @@ fn parked_supply_reply_holds_handles_not_subtrees() {
 
     let mut frames = stream::iter(frames);
     let decoded = runtime
-        .block_on(decode_reply::<Local, u64, UnderUnderRoot, _>(
+        .block_on(decode_reply::<Local, _>(
             Local,
             u64::MAX,
             unbounded(),
             scope,
             &mut frames,
+            Message::deserializer::<u64>(),
         ))
         .expect("a canonical supplied fan decodes");
 
@@ -166,12 +163,12 @@ fn maximally_disputed_reply_parks_bounded_skeleton() {
     let listing: Vec<(u8, Hash)> = (0..FAN)
         .map(|radix| (radix as u8, hash(radix as u8)))
         .collect();
-    let reply = Reply::<Local, u64, UnderRoot> {
+    let reply = Reply::<<Local as Backend>::Erased> {
         replies: (0..FAN).map(|_| Reaction::Query(listing.clone())).collect(),
     };
 
     let runtime = runtime();
-    let scope = Scope::<UnderRoot>::opening(&listing);
+    let scope = Scope::opening(&listing);
     let frames = runtime.block_on(async {
         encode_reply(Local, RunBudget::default(), scope.clone(), reply)
             .map_ok(|encoded| encoded.into_parts().0)
@@ -211,12 +208,13 @@ fn maximally_disputed_reply_parks_bounded_skeleton() {
 
     let mut frames = stream::iter(frames);
     let decoded = runtime
-        .block_on(decode_reply::<Local, u64, UnderUnderRoot, _>(
+        .block_on(decode_reply::<Local, _>(
             Local,
             u64::MAX,
             unbounded(),
-            Scope::<UnderRoot>::opening(&listing),
+            Scope::opening(&listing),
             &mut frames,
+            Message::deserializer::<u64>(),
         ))
         .expect("a canonical maximally disputed reply decodes");
 

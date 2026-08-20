@@ -17,7 +17,6 @@ use crate::tree::{
     typed::Hash,
 };
 
-use serde::de::DeserializeOwned;
 /// Async frame reader over one speaker's transport direction.
 ///
 /// EOF before a signal is a clean direction close and returns `None`. Once a
@@ -63,9 +62,7 @@ impl<R: AsyncRead + Unpin> FrameRead<R> {
     /// as a signal. Either retain the in-flight future across polls until
     /// it resolves, or read nothing further from this direction after a
     /// cancellation.
-    pub async fn frame<T: DeserializeOwned>(
-        &mut self,
-    ) -> Result<Option<WireFrame<T>>, DecodeError> {
+    pub async fn frame(&mut self) -> Result<Option<WireFrame>, DecodeError> {
         let Some((stream, signal)) = read_signal(self.speaker, &mut self.read).await? else {
             return Ok(None);
         };
@@ -108,10 +105,7 @@ impl<'a, R: AsyncRead + Unpin> AsyncFrameDecoder<'a, R> {
         Self { read, budget }
     }
 
-    async fn body<T: DeserializeOwned>(
-        &mut self,
-        signal: Signal,
-    ) -> Result<Frame<T>, DecodeErrorKind> {
+    async fn body(&mut self, signal: Signal) -> Result<Frame, DecodeErrorKind> {
         let frame = match signal {
             Signal::Match(flow) => Frame::Reaction(Reaction::Match, flow),
             Signal::QueryEmpty(flow) => Frame::Reaction(Reaction::Query(Vec::new()), flow),
@@ -130,7 +124,7 @@ impl<'a, R: AsyncRead + Unpin> AsyncFrameDecoder<'a, R> {
         parse_query(&listing)
     }
 
-    async fn supply<T>(&mut self) -> Result<LeafRun<T>, DecodeErrorKind> {
+    async fn supply(&mut self) -> Result<LeafRun, DecodeErrorKind> {
         let mut header = [0; LENGTH_HEADER_LEN];
         self.read_exact(&mut header, FramePart::SupplyLength)
             .await?;

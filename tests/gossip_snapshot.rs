@@ -35,7 +35,7 @@ use crate::common::wire::{block_on, bootstrap_fork, bootstrap_fork_async};
 /// A peer seeded from a fixed RNG, so the [`rumors::Network`] id carried in
 /// the preamble is deterministic and these byte-level captures stay
 /// reproducible across runs.
-fn seeded<T>() -> Rumors<T> {
+fn seeded<T: serde::de::DeserializeOwned + Send + Sync + 'static>() -> Rumors<T> {
     Peer::seed_rng(&mut SmallRng::seed_from_u64(0))
         .sync_window_floor()
         .into_rumors()
@@ -48,7 +48,7 @@ fn version_for(rumors: &Rumors<u64>, value: u64) -> Version {
     rumors
         .snapshot()
         .iter()
-        .find_map(|(v, m)| (**m == value).then_some(v.clone()))
+        .find_map(|(v, m)| (*m == value).then_some(v.clone()))
         .unwrap_or_else(|| panic!("no live message holds {value}"))
 }
 
@@ -349,19 +349,19 @@ fn early_supplies_honor_redactions() {
         "one pruned Supply run: the survivor, not the full subtree"
     );
     assert!(
-        !a.snapshot().iter().any(|(_, m)| **m == 1),
+        !a.snapshot().iter().any(|(_, m)| *m == 1),
         "the redaction is contagious: the initiator drops the message"
     );
     assert!(
-        !b.snapshot().iter().any(|(_, m)| **m == 1),
+        !b.snapshot().iter().any(|(_, m)| *m == 1),
         "the redacted message must not resurrect at the responder"
     );
     assert!(
-        a.snapshot().iter().any(|(_, m)| **m == sibling),
+        a.snapshot().iter().any(|(_, m)| *m == sibling),
         "the survivor converges to the initiator"
     );
     assert!(
-        b.snapshot().iter().any(|(_, m)| **m == sibling),
+        b.snapshot().iter().any(|(_, m)| *m == sibling),
         "the survivor converges to the responder"
     );
     insta::assert_snapshot!(capture);

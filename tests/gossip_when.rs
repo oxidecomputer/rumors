@@ -273,7 +273,7 @@ async fn changes_propagate_transitively_through_a_chain() {
         loop {
             c_changes.next().await.expect("set still open");
             let snapshot = c.snapshot();
-            if snapshot.iter().any(|(_, m)| **m == 42) {
+            if snapshot.iter().any(|(_, m)| *m == 42) {
                 return;
             }
         }
@@ -682,8 +682,8 @@ proptest! {
             // Atomicity: whatever happened, each side holds its own send,
             // nothing beyond the union, and never a torn intermediate.
             let (a_snapshot, b_snapshot) = (a.snapshot(), b.snapshot());
-            assert!(a_snapshot.iter().any(|(_, m)| **m == 1));
-            assert!(b_snapshot.iter().any(|(_, m)| **m == 2));
+            assert!(a_snapshot.iter().any(|(_, m)| *m == 1));
+            assert!(b_snapshot.iter().any(|(_, m)| *m == 2));
             assert!(a_snapshot.len() <= 2);
             assert!(b_snapshot.len() <= 2);
 

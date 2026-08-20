@@ -31,36 +31,30 @@ pub trait Protocol: Send {
 }
 
 /// Trait synonym: non-erroring message streams, the shape of incoming streams.
-pub trait Requests<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, H: Height>:
-    Stream<Item = message::Reply<B, T, H>> + Send + 'static
+pub trait Requests<B: Backend<Node<Z>: Leaf>, H: Height>:
+    Stream<Item = message::Reply<B, H>> + Send + 'static
 {
 }
-impl<X, B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, H: Height> Requests<B, T, H>
-    for X
-where
-    X: Stream<Item = message::Reply<B, T, H>> + Send + 'static,
+impl<X, B: Backend<Node<Z>: Leaf>, H: Height> Requests<B, H> for X where
+    X: Stream<Item = message::Reply<B, H>> + Send + 'static
 {
 }
 
 /// Trait synonym: fallible message streams, the shape of outgoing streams.
-pub trait Responses<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, H: Height, E>:
-    Stream<Item = Result<message::Reply<B, T, H>, E>> + Send + 'static
+pub trait Responses<B: Backend<Node<Z>: Leaf>, H: Height, E>:
+    Stream<Item = Result<message::Reply<B, H>, E>> + Send + 'static
 {
 }
-impl<X, B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, H: Height, E>
-    Responses<B, T, H, E> for X
-where
-    X: Stream<Item = Result<message::Reply<B, T, H>, E>> + Send + 'static,
+impl<X, B: Backend<Node<Z>: Leaf>, H: Height, E> Responses<B, H, E> for X where
+    X: Stream<Item = Result<message::Reply<B, H>, E>> + Send + 'static
 {
 }
 
 /// A boxed [`Responses`] stream.
-pub type BoxResponses<B, T, H, E> = Pin<Box<dyn Responses<B, T, H, E>>>;
+pub type BoxResponses<B, H, E> = Pin<Box<dyn Responses<B, H, E>>>;
 
-pub trait Connect<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
-    Protocol<Height = Root> + Sized
-{
-    type Next: CompleteConnect<B, T>
+pub trait Connect<B: Backend<Node<Z>: Leaf>>: Protocol<Height = Root> + Sized {
+    type Next: CompleteConnect<B>
         + Protocol<Height = Root, Output = Self::Output, Error = Self::Error>;
 
     fn connect(
@@ -68,12 +62,10 @@ pub trait Connect<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
     ) -> impl Future<Output = Result<(message::Greeting, Self::Next), Self::Error>> + Send;
 }
 
-pub trait Accept<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
-    Protocol<Height = Root> + Sized
-{
-    type Next: CompleteEqual<B, T>
-        + Initiator<B, T>
-        + Responder<B, T>
+pub trait Accept<B: Backend<Node<Z>: Leaf>>: Protocol<Height = Root> + Sized {
+    type Next: CompleteEqual<B>
+        + Initiator<B>
+        + Responder<B>
         + Protocol<Height = Root, Output = Self::Output, Error = Self::Error>;
 
     fn accept(
@@ -82,12 +74,10 @@ pub trait Accept<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
     ) -> impl Future<Output = Result<(message::Greeting, Self::Next), Self::Error>> + Send;
 }
 
-pub trait CompleteConnect<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
-    Protocol<Height = Root> + Sized
-{
-    type Next: CompleteEqual<B, T>
-        + Initiator<B, T>
-        + Responder<B, T>
+pub trait CompleteConnect<B: Backend<Node<Z>: Leaf>>: Protocol<Height = Root> + Sized {
+    type Next: CompleteEqual<B>
+        + Initiator<B>
+        + Responder<B>
         + Protocol<Height = Root, Output = Self::Output, Error = Self::Error>;
 
     fn complete_connect(
@@ -102,9 +92,7 @@ pub trait CompleteConnect<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'sta
 /// must still be converted into its normal output. A materialized state returns
 /// the root it already holds; a remote proxy returns its transport halves so
 /// the caller can continue with trailing session frames.
-pub trait CompleteEqual<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
-    Protocol<Height = Root> + Sized
-{
+pub trait CompleteEqual<B: Backend<Node<Z>: Leaf>>: Protocol<Height = Root> + Sized {
     fn complete_equal(self) -> impl Future<Output = Result<Self::Output, Self::Error>> + Send;
 }
 
@@ -119,9 +107,7 @@ pub trait CompleteEqual<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'stati
 /// wire that makes this stage free: the remote proxy replays the greeting's
 /// listing instead of spending a hop on a standalone opening frame, and only
 /// the in-process message below actually flows.
-pub trait Initiator<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
-    Protocol<Height = Root> + Sized
-{
+pub trait Initiator<B: Backend<Node<Z>: Leaf>>: Protocol<Height = Root> + Sized {
     type Next: Protocol<Height = UnderRoot, Output = Self::Output, Error = Self::Error>;
 
     fn initiator(
@@ -129,14 +115,12 @@ pub trait Initiator<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
     ) -> (
         // IMPORTANT: This must be boxed because otherwise `rustc` explodes on
         // an exponentially-sized type!
-        BoxResponses<B, T, UnderRoot, Self::Error>,
+        BoxResponses<B, UnderRoot, Self::Error>,
         Self::Next,
     );
 }
 
-pub trait Responder<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
-    Protocol<Height = Root> + Sized
-{
+pub trait Responder<B: Backend<Node<Z>: Leaf>>: Protocol<Height = Root> + Sized {
     // Like [`Initiator::Next`], this is left un-bounded by [`Reply`]: both
     // openings hand off to the descent, but only [`Peer`] spells the chain out.
     // Naming `Reply` here instead would make it a bound `Accept::Next` and
@@ -146,11 +130,11 @@ pub trait Responder<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
 
     fn responder(
         self,
-        requests: impl Requests<B, T, UnderRoot>,
+        requests: impl Requests<B, UnderRoot>,
     ) -> (
         // IMPORTANT: This must be boxed because otherwise `rustc` explodes on
         // an exponentially-sized type!
-        BoxResponses<B, T, UnderRoot, Self::Error>,
+        BoxResponses<B, UnderRoot, Self::Error>,
         Self::Next,
     );
 }
@@ -176,9 +160,7 @@ where
     type Next = H;
 }
 
-pub trait Reply<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
-    Protocol<Height: ReplyHeight> + Sized
-{
+pub trait Reply<B: Backend<Node<Z>: Leaf>>: Protocol<Height: ReplyHeight> + Sized {
     type Next: Protocol<
             Height = <Self::Height as ReplyHeight>::Next,
             Output = Self::Output,
@@ -187,11 +169,11 @@ pub trait Reply<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
 
     fn reply(
         self,
-        requests: impl Requests<B, T, Self::Height>,
+        requests: impl Requests<B, Self::Height>,
     ) -> (
         // IMPORTANT: This must be boxed because otherwise `rustc` explodes on
         // an exponentially-sized type!
-        BoxResponses<B, T, <Self::Height as ReplyHeight>::Output, Self::Error>,
+        BoxResponses<B, <Self::Height as ReplyHeight>::Output, Self::Error>,
         Self::Next,
     );
 }
@@ -201,25 +183,21 @@ pub trait Reply<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
 ///
 /// Each requested leaf is answered pruned against the initiator's version,
 /// so a leaf the initiator deleted drops here instead of shipping.
-pub trait CompleteResponder<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
-    Protocol<Height = Z> + Sized
-{
+pub trait CompleteResponder<B: Backend<Node<Z>: Leaf>>: Protocol<Height = Z> + Sized {
     fn complete_responder(
         self,
-        requests: impl Requests<B, T, Z>,
+        requests: impl Requests<B, Z>,
     ) -> (
-        BoxResponses<B, T, Z, Self::Error>,
+        BoxResponses<B, Z, Self::Error>,
         impl Future<Output = Result<Self::Output, Self::Error>> + Send,
     );
 }
 
 /// The initiator's terminal: absorb the responder's final leaf replies and
 /// resolve to the reconciled root.
-pub trait CompleteInitiator<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static>:
-    Protocol<Height = Z> + Sized
-{
+pub trait CompleteInitiator<B: Backend<Node<Z>: Leaf>>: Protocol<Height = Z> + Sized {
     fn complete_initiator(
         self,
-        requests: impl Requests<B, T, Z>,
+        requests: impl Requests<B, Z>,
     ) -> impl Future<Output = Result<Self::Output, Self::Error>> + Send;
 }

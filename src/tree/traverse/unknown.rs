@@ -23,19 +23,14 @@ pub trait Unknown: Height {
     /// Filters this subtree down to the nodes a counterparty at `known` is
     /// missing, honoring deletions: a node causally `<=` `known` is already
     /// known there (or was deleted there) and drops out.
-    fn unknown<T>(node: Option<Node<T, Self>>, known: &Version) -> Option<Node<T, Self>>
-    where
-        T: Send + Sync;
+    fn unknown(node: Option<Node<Self>>, known: &Version) -> Option<Node<Self>>;
 }
 
 impl<H: Unknown> Unknown for S<H>
 where
     S<H>: Height,
 {
-    fn unknown<T>(node: Option<Node<T, Self>>, known: &Version) -> Option<Node<T, Self>>
-    where
-        T: Send + Sync,
-    {
+    fn unknown(node: Option<Node<Self>>, known: &Version) -> Option<Node<Self>> {
         // If the node doesn't exist, we can't return information about it
         let node = node?;
 
@@ -80,10 +75,7 @@ where
 }
 
 impl Unknown for Z {
-    fn unknown<T>(node: Option<Node<T, Self>>, known: &Version) -> Option<Node<T, Self>>
-    where
-        T: Send + Sync,
-    {
+    fn unknown(node: Option<Node<Self>>, known: &Version) -> Option<Node<Self>> {
         // If the node doesn't exist, we can't return information about it
         let node = node?;
 

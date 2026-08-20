@@ -87,7 +87,7 @@ fn wedge_generator_matches_the_lean_literal() {
 /// smaller-set-initiates election; because the ballast is the *responder's*
 /// exclusive content, it ships as whole root-level supplies and never enters
 /// the dispute skeleton.
-fn wedge_trees() -> (Root<()>, Root<()>) {
+fn wedge_trees() -> (Root, Root) {
     let shared = grown(None, 0, 1, &(), &[path_at(&[0u8; 32])]);
 
     let mut wall_paths = Vec::new();

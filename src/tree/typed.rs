@@ -5,7 +5,7 @@
 //! traversals want the height in the type, so each inductive step
 //! monomorphizes separately and the recursion provably bottoms out at
 //! [`Z`](height::Z) instead of trusting a runtime depth counter. This
-//! module is the adapter: [`Node<T, H>`](Node) pairs an untyped node with
+//! module is the adapter: [`Node<H>`](Node) pairs an untyped node with
 //! a phantom [`Height`](height::Height), and the typed surface
 //! ([`Path`], [`Children`]) keeps every descent and reassembly height-correct
 //! at compile time. The selectable alternating protocol also retains its typed
@@ -32,5 +32,6 @@ pub use hash::Hash;
 pub use levels::{Level, Levels};
 pub use node::{Children, Node};
 pub use path::Path;
+pub(crate) use prefix::ErasedPrefix;
 pub use prefix::Prefix;
 pub use untyped::{Iter, Leaf, RangeOwned};

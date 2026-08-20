@@ -83,7 +83,7 @@ where
 {
     snapshot
         .iter()
-        .map(|(v, m)| (version_key(v), (**m).clone()))
+        .map(|(v, m)| (version_key(v), (*m).clone()))
         .collect()
 }
 

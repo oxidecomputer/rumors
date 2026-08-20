@@ -23,7 +23,7 @@ use crate::tree::{
 /// first data frame is its first *reply*.) The divergent
 /// branching dispute also guarantees nonempty queries in both directions,
 /// which the unordered-query mutation needs to find.
-fn deep_pair() -> (crate::tree::Root<()>, crate::tree::Root<()>) {
+fn deep_pair() -> (crate::tree::Root, crate::tree::Root) {
     early_first_child_dispute_pair()
 }
 
@@ -42,8 +42,8 @@ fn reserved_signal(error: &RemoteError<std::convert::Infallible>) -> Option<u8> 
 /// Borrow the remote error detected opposite the corrupt writer.
 fn receiving_error<'a>(
     corrupt_left: bool,
-    left: &'a Result<crate::tree::Root<()>, harness::LeftError>,
-    right: &'a Result<crate::tree::Root<()>, harness::RightError>,
+    left: &'a Result<crate::tree::Root, harness::LeftError>,
+    right: &'a Result<crate::tree::Root, harness::RightError>,
 ) -> &'a RemoteError<std::convert::Infallible> {
     if corrupt_left {
         match right {

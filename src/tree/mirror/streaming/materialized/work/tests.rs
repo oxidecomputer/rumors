@@ -33,8 +33,17 @@ use crate::{
     },
 };
 
+/// The in-memory backend's erased node representation, which resolutions
+/// and level returns carry.
+type Erased = <Local as Backend>::Erased;
+
+/// Erase one typed leaf the way the walk's payloads carry it.
+fn erased(node: typed::Node<Z>) -> Erased {
+    <Local as Backend>::erase(node)
+}
+
 /// A distinct leaf per call: the versions differ so hashes do.
-fn leaf(version: &mut Version) -> typed::Node<(), Z> {
+fn leaf(version: &mut Version) -> typed::Node<Z> {
     version.tick(&nth_party(0));
     typed::Node::leaf(version.clone(), Message::new(()))
 }
@@ -56,18 +65,19 @@ fn parent_prefix(parent: u8) -> Prefix<S<Z>> {
 /// Build the expected parent of a radix group directly through the backend.
 fn parent_of(
     prefix: Prefix<S<Z>>,
-    children: Vec<(u8, Option<typed::Node<(), Z>>)>,
-) -> Option<typed::Node<(), S<Z>>> {
-    pollster::block_on(Local.parent(prefix, children)).unwrap_or_else(|e| match e {})
+    children: Vec<(u8, Option<typed::Node<Z>>)>,
+) -> Option<typed::Node<S<Z>>> {
+    pollster::block_on(<Local as Backend>::parent(Local, prefix, children))
+        .unwrap_or_else(|e| match e {})
 }
 
-type Item = Result<Resolution<Local, (), Z>, Error<Infallible>>;
-type Level = Result<Option<typed::Node<(), Z>>, Error<Infallible>>;
+type Item = Result<Resolution<Erased>, Error<Infallible>>;
+type Level = Result<Option<Erased>, Error<Infallible>>;
 
 /// A work error cancels parked peers and retains its original error identity.
 #[test]
 fn work_failure_preempts_parked_tasks() {
-    let mut work: Work<Failing<Local>, ()> = Work::new(
+    let mut work: Work<Failing<Local>> = Work::new(
         Failing::after(Local, usize::MAX),
         Window::FLOOR,
         Recorder::default(),
@@ -96,9 +106,10 @@ fn work_failure_preempts_parked_tasks() {
 fn assembled(
     resolutions: Vec<Item>,
     level: Vec<Level>,
-) -> Vec<Result<Option<typed::Node<(), S<Z>>>, Error<Infallible>>> {
+) -> Vec<Result<Option<Erased>, Error<Infallible>>> {
     pollster::block_on(
-        assemble(Local, stream::iter(resolutions), stream::iter(level)).collect::<Vec<_>>(),
+        assemble::<Local>(Local, stream::iter(resolutions), stream::iter(level))
+            .collect::<Vec<_>>(),
     )
 }
 
@@ -110,16 +121,16 @@ fn fills_pendings_in_order() {
     let (a, b, c) = (leaf(&mut version), leaf(&mut version), leaf(&mut version));
 
     let resolution = Resolution {
-        prefix: parent_prefix(3),
+        prefix: parent_prefix(3).erase(),
         resolved: vec![
             (1, Resolve::Pending),
-            (2, Resolve::Ready(Some(b.clone()))),
+            (2, Resolve::Ready(Some(erased(b.clone())))),
             (5, Resolve::Pending),
         ],
     };
     let output = assembled(
         vec![Ok(resolution)],
-        vec![Ok(Some(a.clone())), Ok(Some(c.clone()))],
+        vec![Ok(Some(erased(a.clone()))), Ok(Some(erased(c.clone())))],
     );
 
     let expected = parent_of(
@@ -143,9 +154,9 @@ fn ready_none_is_deletion() {
     let a = leaf(&mut version);
 
     let resolution = Resolution {
-        prefix: parent_prefix(3),
+        prefix: parent_prefix(3).erase(),
         resolved: vec![
-            (1, Resolve::Ready(Some(a.clone()))),
+            (1, Resolve::Ready(Some(erased(a.clone())))),
             (2, Resolve::Ready(None)),
         ],
     };
@@ -166,7 +177,7 @@ fn ready_none_is_deletion() {
 #[test]
 fn empty_resolution_assembles_to_none() {
     let resolution = Resolution {
-        prefix: parent_prefix(3),
+        prefix: parent_prefix(3).erase(),
         resolved: vec![],
     };
     let output = assembled(vec![Ok(resolution)], vec![]);
@@ -178,7 +189,7 @@ fn empty_resolution_assembles_to_none() {
 #[test]
 fn all_deleted_resolution_assembles_to_none() {
     let resolution = Resolution {
-        prefix: parent_prefix(3),
+        prefix: parent_prefix(3).erase(),
         resolved: vec![(1, Resolve::Ready(None)), (2, Resolve::Ready(None))],
     };
     let output = assembled(vec![Ok(resolution)], vec![]);
@@ -192,31 +203,34 @@ fn chains_two_instances() {
     let mut version = Version::new();
     let (a, b) = (leaf(&mut version), leaf(&mut version));
 
-    let lower: Vec<Result<Resolution<Local, (), Z>, Error<Infallible>>> = vec![Ok(Resolution {
-        prefix: parent_prefix(3),
+    let lower: Vec<Item> = vec![Ok(Resolution {
+        prefix: parent_prefix(3).erase(),
         resolved: vec![
-            (1, Resolve::Ready(Some(a.clone()))),
-            (7, Resolve::Ready(Some(b.clone()))),
+            (1, Resolve::Ready(Some(erased(a.clone())))),
+            (7, Resolve::Ready(Some(erased(b.clone())))),
         ],
     })];
-    let upper: Vec<Result<Resolution<Local, (), S<Z>>, Error<Infallible>>> = vec![Ok(Resolution {
-        prefix: parent_prefix(3).pop().0,
+    let upper: Vec<Item> = vec![Ok(Resolution {
+        prefix: parent_prefix(3).pop().0.erase(),
         resolved: vec![(3, Resolve::Pending)],
     })];
 
-    let chained = assemble(
+    let chained = assemble::<Local>(
         Local,
         stream::iter(upper),
-        assemble(Local, stream::iter(lower), stream::empty()),
+        assemble::<Local>(Local, stream::iter(lower), stream::empty()),
     );
     let output =
         pollster::block_on(chained.try_collect::<Vec<_>>()).expect("no errors were fed in");
 
     let inner = parent_of(parent_prefix(3), vec![(1, Some(a)), (7, Some(b))])
         .expect("a non-empty all-real group constructs its parent");
-    let expected =
-        pollster::block_on(Local.parent(parent_prefix(3).pop().0, vec![(3, Some(inner))]))
-            .unwrap_or_else(|e| match e {});
+    let expected = pollster::block_on(<Local as Backend>::parent(
+        Local,
+        parent_prefix(3).pop().0,
+        vec![(3, Some(inner))],
+    ))
+    .unwrap_or_else(|e| match e {});
     assert_eq!(
         output
             .into_iter()
@@ -242,7 +256,7 @@ fn resolution_error_passes_through() {
 #[test]
 fn level_error_passes_through() {
     let resolution = Resolution {
-        prefix: parent_prefix(3),
+        prefix: parent_prefix(3).erase(),
         resolved: vec![(1, Resolve::Pending)],
     };
     let output = assembled(

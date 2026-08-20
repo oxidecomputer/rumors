@@ -15,7 +15,7 @@ use crate::{
     Version,
     message::Message,
     tree::{
-        mirror::streaming::{Backend, Leaf, Node, backend::NodeStream},
+        mirror::streaming::{Backend, ErasedNode, Leaf, Node, backend::NodeStream},
         typed::{
             Hash, Path, Prefix,
             height::{Height, S, Z},
@@ -136,10 +136,9 @@ impl<N> FailingNode<N> {
     }
 }
 
-impl<T, N> Node<T> for FailingNode<N>
+impl<N> Node for FailingNode<N>
 where
-    T: Send + Sync + 'static,
-    N: Node<T> + Clone + Send + 'static,
+    N: Node + Clone + Send + 'static,
 {
     type Backend = Failing<N::Backend>;
     type Height = N::Height;
@@ -161,12 +160,25 @@ where
     }
 }
 
-impl<T, N> Leaf<T> for FailingNode<N>
+impl<E: ErasedNode> ErasedNode for FailingNode<E> {
+    fn span(&self) -> Span<'_> {
+        self.0.span()
+    }
+
+    fn hash(&self) -> Hash {
+        self.0.hash()
+    }
+
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+
+impl<N> Leaf for FailingNode<N>
 where
-    T: Send + Sync + 'static,
-    N: Leaf<T> + Clone + Send + 'static,
+    N: Leaf + Clone + Send + 'static,
 {
-    fn message(&self) -> &Message<T> {
+    fn message(&self) -> &Message {
         self.0.message()
     }
 
@@ -174,8 +186,8 @@ where
     // traversal operations, not construction.
     async fn leaf(
         version: Version,
-        message: Message<T>,
-    ) -> Result<Self, Failure<<N::Backend as Backend<T>>::Error>> {
+        message: Message,
+    ) -> Result<Self, Failure<<N::Backend as Backend>::Error>> {
         N::leaf(version, message)
             .await
             .map(Self)
@@ -183,13 +195,24 @@ where
     }
 }
 
-impl<B, T> Backend<T> for Failing<B>
+impl<B> Backend for Failing<B>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
 {
     type Node<H: Height> = FailingNode<B::Node<H>>;
+    // Erasure passes through the wrapper: fault injection targets the
+    // traversal operations, and re-tagging is not one.
+    type Erased = FailingNode<B::Erased>;
     type Error = Failure<B::Error>;
+
+    fn erase<H: Height>(node: Self::Node<H>) -> Self::Erased {
+        FailingNode(B::erase(node.0))
+    }
+
+    fn assume<H: Height>(erased: Self::Erased) -> Self::Node<H> {
+        FailingNode(B::assume(erased.0))
+    }
+
     // The wrapper adds no resident state: a failing node is the inner
     // backend's node plus fault bookkeeping shared behind it.
     fn node_bytes(children: usize, version_bound: usize) -> usize {
@@ -219,11 +242,7 @@ where
             .map_err(Failure::Inner)
     }
 
-    fn children<H>(
-        self,
-        prefix: Prefix<S<H>>,
-        parent: Self::Node<S<H>>,
-    ) -> impl NodeStream<Self, T, H>
+    fn children<H>(self, prefix: Prefix<S<H>>, parent: Self::Node<S<H>>) -> impl NodeStream<Self, H>
     where
         H: Height,
         S<H>: Height,
@@ -257,11 +276,7 @@ mod tests {
         let outer = Failing::after(inner.clone(), 1);
         let prefix = Prefix::<S<Z>>::containing(&Path::from([0; 32]));
 
-        let first = pollster::block_on(Backend::<()>::parent::<Z>(
-            outer.clone(),
-            prefix,
-            Vec::new(),
-        ));
+        let first = pollster::block_on(Backend::parent::<Z>(outer.clone(), prefix, Vec::new()));
         assert!(matches!(
             first,
             Err(Failure::Inner(Failure::Injected(Operation::Parent {
@@ -269,11 +284,7 @@ mod tests {
             })))
         ));
 
-        let second = pollster::block_on(Backend::<()>::parent::<Z>(
-            outer.clone(),
-            prefix,
-            Vec::new(),
-        ));
+        let second = pollster::block_on(Backend::parent::<Z>(outer.clone(), prefix, Vec::new()));
         assert!(matches!(
             second,
             Err(Failure::Injected(Operation::Parent { height: 1 }))

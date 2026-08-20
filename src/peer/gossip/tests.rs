@@ -30,6 +30,7 @@
 //! [`gossip_inner`]: super::Peer::gossip_inner
 //! [`Network::BOOTSTRAP`]: Network
 
+use crate::message::Message;
 use before::Party;
 use futures::future::BoxFuture;
 use tokio::io::{duplex, split};
@@ -143,7 +144,7 @@ fn bytes_after_the_marker_stay_untouched() {
 /// the ceiling and leaves no tombstone, so committing and then redacting
 /// `events` messages leaves an empty root carrying a genuine `events`-tick
 /// version.
-fn redacted_history_root(events: u64) -> tree::Root<u64> {
+fn redacted_history_root(events: u64) -> tree::Root {
     let donor = Peer::<u64>::seed();
     {
         let mut batch = donor.batch();
@@ -180,7 +181,7 @@ fn redacted_history_root(events: u64) -> tree::Root<u64> {
 /// tree if the counterparty serves the session to completion.
 async fn claim_bootstrap_v2(
     link: &mut MemoryLink,
-    root: tree::Root<u64>,
+    root: tree::Root,
 ) -> Result<(Party, Tree<u64>), Error> {
     let (read, write, connector, acceptor, epoch) = erase(link)?;
     let mut staged = handshake::Staged::new();
@@ -194,10 +195,11 @@ async fn claim_bootstrap_v2(
     )
     .await
     .map_err(Error::from)?;
-    let local_root: streaming::Root<Local, u64> = root.into();
+    let local_root: streaming::Root<Local> = root.into();
     let local = materialized::Handshaking::start(Local, local_root);
     let carrier = Link::for_session(read, write, connector, acceptor, epoch);
-    let proxy = streaming_remote::Handshaking::start(Local, carrier);
+    let proxy =
+        streaming_remote::Handshaking::start(Local, carrier, Message::deserializer::<u64>());
     let handshaken = streaming::handshake(local, proxy)
         .await
         .map_err(streaming_error)?;
@@ -205,7 +207,7 @@ async fn claim_bootstrap_v2(
     let (root, (mut read, mut write)) = descent.await.map_err(streaming_error)?;
     let party = party::receive(&mut read).await?;
     epilogue(&mut read, &mut write).await?;
-    Ok((party, Tree { root: root.into() }))
+    Ok((party, Tree::from_root(root.into())))
 }
 
 /// Drive one V1 session as a bootstrap claimant whose greeting version comes
@@ -215,7 +217,7 @@ async fn claim_bootstrap_v2(
 /// no epilogue.
 async fn claim_bootstrap_v1(
     link: &mut MemoryLink,
-    root: tree::Root<u64>,
+    root: tree::Root,
 ) -> Result<(Party, Tree<u64>), Error> {
     let (read, write, _connector, _acceptor, _epoch) = erase(link)?;
     let mut staged = handshake::Staged::new();
@@ -230,7 +232,11 @@ async fn claim_bootstrap_v1(
     .await
     .map_err(Error::from)?;
     let local = alternating_local::Exchange::start(root);
-    let proxy = alternating_remote::Exchange::start(FrameRead::new(read), FrameWrite::new(write));
+    let proxy = alternating_remote::Exchange::start(
+        FrameRead::new(read),
+        FrameWrite::new(write),
+        Message::deserializer::<u64>(),
+    );
     let handshaken = alternating::handshake(local, proxy)
         .await
         .map_err(alternating_error)?;
@@ -238,7 +244,7 @@ async fn claim_bootstrap_v1(
     let (root, (read, _write)) = descent.await.map_err(alternating_error)?;
     let mut read = read.into_inner();
     let party = party::receive(&mut read).await?;
-    Ok((party, Tree { root }))
+    Ok((party, Tree::from_root(root)))
 }
 
 /// A provider holding `values`, plus its pre-session root hash.
@@ -282,9 +288,7 @@ fn v2_bootstrap_claimant_declaring_history_is_rejected() {
     let provider = provider_with(&[1, 2, 3]);
     let hash_before = provider.snapshot().hash();
     let party_before = party_of(&provider);
-    let claimant_tree = Tree {
-        root: redacted_history_root(8),
-    };
+    let claimant_tree = Tree::<()>::from_root(redacted_history_root(8));
     let claimed_min_events = claimant_tree.latest().min_ticks();
     assert!(
         provider.snapshot().latest() < claimant_tree.latest(),
@@ -347,9 +351,7 @@ fn v1_bootstrap_claimant_declaring_history_is_rejected() {
     let provider = provider_with(&[1, 2, 3]).protocol(Protocol::V1);
     let hash_before = provider.snapshot().hash();
     let party_before = party_of(&provider);
-    let claimant_tree = Tree {
-        root: redacted_history_root(8),
-    };
+    let claimant_tree = Tree::<()>::from_root(redacted_history_root(8));
     let claimed_min_events = claimant_tree.latest().min_ticks();
 
     let provider_ref = &provider;

@@ -149,15 +149,14 @@ macro_rules! mirror {
 }
 
 /// Drive the complete reconciliation schedule between two connected peers.
-pub(super) async fn mirror_connected<B, I, R, T>(
+pub(super) async fn mirror_connected<B, I, R>(
     i: I,
     r: R,
 ) -> Result<(I::Output, R::Output), Error<I::Error, R::Error>>
 where
-    T: Send + Sync + 'static,
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    I: Peer<B, T>,
-    R: Peer<B, T>,
+    B: Backend<Node<Z>: Leaf>,
+    I: Peer<B>,
+    R: Peer<B>,
 {
     mirror! {
         i.initiator;
@@ -177,13 +176,12 @@ where
 /// On error the stream parks rather than ending, because EOF means successful
 /// phase completion to its consumer. [`race_session`] observes the routed
 /// error and cancels the parked schedule.
-fn divert<B, T, H, E, D>(
-    messages: impl Responses<B, T, H, E>,
+fn divert<B, H, E, D>(
+    messages: impl Responses<B, H, E>,
     route: ErrorRoute<E, D>,
-) -> impl Requests<B, T, H>
+) -> impl Requests<B, H>
 where
-    T: Send + Sync + 'static,
-    B: Backend<T, Node<Z>: Leaf<T>>,
+    B: Backend<Node<Z>: Leaf>,
     H: Height,
     E: Send + 'static,
     D: Send + 'static,

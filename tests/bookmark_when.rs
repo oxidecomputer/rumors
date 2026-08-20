@@ -505,7 +505,7 @@ fn incorporating_remote_content_writes_nothing() {
         "incorporating remote content must drive no bookmark I/O",
     );
     assert!(
-        probe.subject.snapshot().iter().any(|(_, m)| **m == 2),
+        probe.subject.snapshot().iter().any(|(_, m)| *m == 2),
         "the remote content was nonetheless incorporated",
     );
 }

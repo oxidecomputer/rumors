@@ -8,7 +8,7 @@
 //! Container shapes (counts, radix records, fixed-width prefixes and
 //! hashes) are protocol framing, written and validated by hand exactly
 //! like the streaming codec's signal and length headers. The two atoms a
-//! frame cannot delimit itself — a [`Version`] and a [`Message<T>`] — ride
+//! frame cannot delimit itself — a [`Version`] and a [`Message`] — ride
 //! as single CBOR values, self-delimiting by CBOR's own length headers:
 //! the version as a byte string wrapping its canonical encoding (the
 //! `before` serde form), the message as a byte string wrapping its cached
@@ -21,7 +21,6 @@ use crate::Version;
 use crate::message::Message;
 use crate::tree::typed::Hash;
 
-use serde::de::DeserializeOwned;
 /// Encode `self` onto a byte stream.
 ///
 /// The method is `write_wire`, not `encode_to`: `before`'s types carry
@@ -207,16 +206,12 @@ impl Decode for Version {
     }
 }
 
-/// One CBOR value: a byte string wrapping the cached CBOR payload.
-impl<T> Encode for Message<T> {
+/// One CBOR value: a byte string wrapping the cached CBOR payload. The
+/// decode direction is typed ([`Message::from_reader`]): the payload's
+/// type is erased in storage, so decoding names it explicitly.
+impl Encode for Message {
     fn write_wire<W: Write>(&self, writer: &mut W) -> std::io::Result<()> {
         ciborium::ser::into_writer(self, writer).map_err(ser_error)
-    }
-}
-
-impl<T: DeserializeOwned> Decode for Message<T> {
-    fn read_wire<R: Read>(reader: &mut R) -> std::io::Result<Self> {
-        ciborium::de::from_reader(reader).map_err(de_error)
     }
 }
 
@@ -225,8 +220,9 @@ mod tests {
     use super::*;
     use crate::message::Message;
     use crate::tree::arb::nth_party;
+    use crate::tree::typed::Node;
     use crate::tree::typed::height::Z;
-    use crate::tree::typed::{Node, Prefix};
+    use crate::tree::typed::node::DecodeNode;
 
     /// Every wire atom round-trips through `to_vec`/`from_slice`, alone
     /// and composed: the version and message as CBOR values, the node's
@@ -247,23 +243,18 @@ mod tests {
 
         let m = Message::new(());
         let enc = to_vec(&m).unwrap();
-        let back: Message<()> = from_slice(&enc).unwrap();
+        let back =
+            Message::from_reader(&mut enc.as_slice(), Message::deserializer::<()>()).unwrap();
         assert_eq!(back.as_slice(), m.as_slice());
 
-        let leaf: Node<(), Z> = Node::leaf(version.clone(), Message::new(()));
+        let leaf: Node<Z> = Node::leaf(version.clone(), Message::new(()));
         let enc = to_vec(&leaf).unwrap();
-        let back: Node<(), Z> = from_slice(&enc).unwrap();
+        let mut input = enc.as_slice();
+        let back = Z::read_node(&mut input, Message::deserializer::<()>()).unwrap();
+        assert!(
+            input.is_empty(),
+            "the node decode consumes exactly its bytes"
+        );
         assert_eq!(back.hash(), leaf.hash());
-
-        let pair: Vec<(Prefix<Z>, Node<(), Z>)> = vec![(
-            Prefix::from(<[u8; 32]>::from(crate::tree::typed::Path::for_leaf(
-                &version,
-            ))),
-            leaf.clone(),
-        )];
-        let enc = to_vec(&pair).unwrap();
-        let back: Vec<(Prefix<Z>, Node<(), Z>)> = from_slice(&enc).unwrap();
-        assert_eq!(back.len(), 1);
-        assert_eq!(back[0].1.hash(), leaf.hash());
     }
 }

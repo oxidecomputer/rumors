@@ -296,9 +296,9 @@ fn leaf_requests_are_erased_from_the_view() {
     /// Run the two sessions and assert the leafReqs-only difference is
     /// invisible to the local view.
     fn check(
-        local: crate::tree::Root<()>,
-        remote_0: crate::tree::Root<()>,
-        remote_1: crate::tree::Root<()>,
+        local: crate::tree::Root,
+        remote_0: crate::tree::Root,
+        remote_1: crate::tree::Root,
         local_paths: &BTreeSet<[u8; 32]>,
         p: Party,
     ) {

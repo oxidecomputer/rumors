@@ -144,9 +144,9 @@ pub(crate) fn initiates(
 }
 
 /// The sole stream message.
-pub struct Reply<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, H: Height> {
+pub struct Reply<B: Backend<Node<Z>: Leaf>, H: Height> {
     /// The reactions to a single previous query.
-    pub replies: Vec<Reaction<B, T, H>>,
+    pub replies: Vec<Reaction<B, H>>,
 }
 
 /// Reactions are positionally keyed against the corresponding
@@ -155,7 +155,7 @@ pub struct Reply<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, H: H
 /// The exception is [`Reaction::Supply`], which indicates its radix because
 /// it represents information that the counterparty could not have known to
 /// ask about.
-pub enum Reaction<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, H: Height> {
+pub enum Reaction<B: Backend<Node<Z>: Leaf>, H: Height> {
     /// Having inferred that the counterparty lacks this node through its
     /// absence in the counterparty's listing of hashes, we provide it, at
     /// this radix.

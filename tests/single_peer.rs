@@ -138,7 +138,7 @@ proptest! {
             batch_send(&peer, values);
             let mut out = BTreeMap::new();
             for (_, v) in peer.snapshot().iter() {
-                *out.entry(**v).or_insert(0) += 1;
+                *out.entry(*v).or_insert(0) += 1;
             }
             out
         };
@@ -161,6 +161,17 @@ impl Serialize for Explosive {
             return Err(serde::ser::Error::custom("detonated"));
         }
         self.value.serialize(serializer)
+    }
+}
+
+// Peer construction mints the payload deserializer up front, so even this
+// send-only payload type states how its wire form reads back.
+impl<'de> serde::Deserialize<'de> for Explosive {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Ok(Explosive {
+            value: u64::deserialize(deserializer)?,
+            fail: false,
+        })
     }
 }
 
