@@ -1,9 +1,9 @@
 # Item-type erasure at the leaf boundary (part II sketch)
 
-Status: sketch, not implemented — the "phase 2" the height-erasure work
-names. Written after height erasure landed; numbers marked *measured*
-come from `cargo llvm-lines --test pairwise` (debug, default features)
-on the height-erased tree.
+Status: accepted (option B, with the rulings below); implementation in
+progress on the `height-erasure` branch. Numbers marked *measured* come
+from `cargo llvm-lines --test pairwise` (debug, default features) on
+the height-erased tree.
 
 ## The problem, precisely
 
@@ -131,16 +131,38 @@ security-relevant: payload validation stays exactly where it is
   the "what does the next consumer pay" meter.
 - The `gossip_fixed_bidir_insertions/5000` bench as the runtime pin.
 
-## Open questions for review
+## Rulings (owner-resolved)
 
-1. Witness minting site: at `Peer<T>` construction (one witness for the
-   peer's lifetime, threaded through sessions), or per gossip call?
-   Construction seems right — it is also where `DeserializeOwned`
-   naturally lives.
-2. Facade shape: seal the session core behind non-generic functions in
-   the rlib (taking `&mut dyn` link objects — the transport is already
-   dyn-erased), or keep generic entry points that immediately erase?
-3. Does the tree erase in the same stroke (it must for the full win —
-   `untyped::Node<T>`'s only `T` is the stored `Message`), or does a
-   first landing keep a typed tree and erase at the session boundary
-   (option A) to de-risk?
+1. **Witness minting**: at `Peer<T>` construction — one witness per
+   peer lifetime, stored alongside the erased tree in the shared inner
+   state and threaded to every session. `DeserializeOwned` lives at
+   construction; the gossip entry points carry no serde bounds.
+2. **Sealing**: non-generic core functions in the rlib, with the
+   public API unchanged — byte-for-byte the same signatures. If the
+   non-generic sealing turns structurally hairy, back it out and fall
+   back to generic shells that erase immediately: legibility outranks
+   structural purity here.
+3. **Scope**: one stroke — tree and session erase together, staged as
+   gate-clean commits (the part I pattern); no transient
+   typed-tree/erased-session seam.
+4. **Branch**: continues on `height-erasure`, stacking on part I.
+
+## Implementation plan (staged, each commit gate-clean)
+
+1. **The erased `Message`**: the crate-internal `Message<T>` becomes
+   non-generic — `{ message: Arc<dyn Any + Send + Sync>, serialized:
+   Bytes }` — with typed constructors at the insert boundary and
+   checked typed accessors (downcast) at the read boundary. Measure.
+2. **The erased tree**: `untyped::Node<T>` and the typed veneer drop
+   `T` (the stored `Message` was its only occurrence); iterators and
+   walks yield erased leaves; `Rumors`/`Snapshot`/observer facades
+   downcast at the door. The V1 oracle and the wire codecs sweep along.
+   Measure.
+3. **The erased session**: `Backend<T>` drops `T`; the codec's record
+   decode keeps the wire bytes and builds payloads through the witness;
+   sessions receive the witness from the peer. Measure.
+4. **Sealing**: the session core's entry points go non-generic over
+   the erased tree, witness, and dyn-erased link (public API
+   unchanged). The new meter lands here: IR lines of a minimal
+   downstream binary (one `gossip` call) — the "what the next consumer
+   pays" number. Measure; bench pin at the end.
