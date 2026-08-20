@@ -323,10 +323,11 @@ at 24 B, 18.0%, measured by `tools/digestshare` over the reflection
 renders); against the pre-conversion corpus's 5,273 B that is an 87%
 growth, a denominator that overweights the once-per-session surfaces
 by design, and the per-message figures above are the hot-path claim.
-(Of that corpus figure, the greeting's `payload_depth_limit` entry
-accounts for 23 B per greeting — the corpus stood at 8,887 wire B just
-before that entry landed; the earlier corpus rows this paragraph once
-quoted had drifted with the corpus itself and are re-measured here.)
+(The greeting's `payload_depth_limit` entry accounts for 23 B per
+greeting of that figure: the corpus measured 8,887 wire B without it.
+The remaining growth over the figures previously quoted here predates
+that entry; the corpus had moved under the quoted numbers, and both are
+re-measured here.)
 What does not change: session semantics, the
 deadlock-freedom argument (framing-independent; the hook adds
 observation, never a protocol dependency), and every validation
@@ -416,4 +417,6 @@ the codec and the hook.
   negotiating down is unsound, since a peer may already hold messages
   deeper than a negotiated bound. A deliberate pre-release wire
   format change, with its snapshot corpus re-accepted in the
-  implementing commit.
+  implementing commit; the full design (symmetric enforcement, the
+  minted codec, the closure-scoped batch) lives in
+  `design/payload-depth-limit.md`.

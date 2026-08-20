@@ -172,7 +172,7 @@ where
         send::<B::Error, _>(&theirs, &mut self.link.control_write, &self.observe).await?;
         // Payload depth limits must be equal — checked after both
         // greetings are in hand and before the equal-versions resolution,
-        // so mixed configurations surface even on converged sessions.
+        // so a mixed configuration is caught even on a converged session.
         payload_depth_limits_match::<B::Error>(&self.codec, &self.versions.remote)?;
         let window = self.window.resolve(
             theirs.set_len,
@@ -219,7 +219,7 @@ where
         let (_, remote) = futures_util::future::try_join(send, receive).await?;
         // Payload depth limits must be equal — checked after both
         // greetings are in hand and before the equal-versions resolution,
-        // so mixed configurations surface even on converged sessions.
+        // so a mixed configuration is caught even on a converged session.
         payload_depth_limits_match::<B::Error>(&self.codec, &remote)?;
         let greeting = remote.clone();
         let window = self.window.resolve(

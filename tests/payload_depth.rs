@@ -22,8 +22,8 @@ fn nested(depth: u64) -> Value {
 }
 
 /// A payload at exactly the default depth limit is admitted at send and
-/// round-trips peer-to-peer over an in-memory link: the boundary is
-/// usable end to end, not merely admitted locally.
+/// round-trips peer-to-peer over an in-memory link: the boundary holds
+/// end to end.
 #[test]
 fn a_payload_at_the_default_depth_round_trips() {
     let at_limit = nested(DEFAULT_PAYLOAD_DEPTH_LIMIT.get());
@@ -146,7 +146,7 @@ impl rumors::observe::SessionObserver for ShapeSession {
 ///
 /// The pair is *converged* (freshly forked, no divergence), so the pin
 /// also proves the check precedes the equal-versions short-circuit:
-/// mixed configurations surface even on no-op sessions.
+/// a mixed configuration is caught even on a no-op session.
 #[test]
 fn mismatched_limits_abort_both_sides_at_the_handshake() {
     use rumors::Error;

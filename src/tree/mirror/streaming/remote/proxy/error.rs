@@ -33,8 +33,8 @@ pub enum Error<E> {
     /// The limit is a property of the shared set, so it must be equal
     /// fleet-wide; both sides detect the mismatch symmetrically, after
     /// the greetings and before anything else — the equal-versions
-    /// resolution included — so mixed configurations surface even on
-    /// converged sessions.
+    /// resolution included — so a mixed configuration is caught even on
+    /// a converged session.
     #[error("peer's payload depth limit ({remote}) differs from ours ({local})")]
     PayloadDepthMismatch {
         /// This side's configured limit.

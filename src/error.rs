@@ -107,7 +107,7 @@ pub enum Error<B: BookmarkError = NoBookmark> {
     /// must select the same [`Peer::payload_depth_limit`](crate::Peer::payload_depth_limit).
     /// Both sides detect the mismatch symmetrically, after the greetings
     /// are exchanged and before anything else (the converged-session
-    /// short-circuit included), so mixed configurations surface
+    /// short-circuit included), so a mixed configuration is caught
     /// deterministically at every pairing rather than mid-session on
     /// particular content. Fix the configuration — align the limit
     /// fleet-wide — and reconnect.

@@ -217,15 +217,15 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     /// concurrent gossip sessions see all of it land at once, as one
     /// commit, one tree traversal, and at most one observer wakeup. Any
     /// other exit commits nothing, earlier-queued actions included: a
-    /// returned `Err` — your own, or a `?`-propagated
-    /// [`PayloadDepthError`] from a depth-rejected send — and a panic's
-    /// unwind alike cancel the batch whole. Returning `Err` is the
-    /// deliberate abort affordance: a batch is all-or-nothing.
+    /// returned `Err` (your own, or a `?`-propagated
+    /// [`PayloadDepthError`] from a depth-rejected send) and a panic's
+    /// unwind alike cancel the whole batch. Returning `Err` is how a
+    /// caller abandons a batch deliberately.
     ///
     /// The closure is synchronous, so batch state cannot be held across
     /// an `.await` point (a synchronous closure body cannot await), and
-    /// the scope handle cannot leave the closure (the examples below pin
-    /// both escape routes as compile errors). Async cancellation
+    /// the scope handle cannot leave the closure (the examples below
+    /// show both escape routes failing to compile). Async cancellation
     /// therefore cannot observe a half-built batch: a cancellation lands
     /// between polls, and the whole closure runs inside one poll.
     ///

@@ -51,7 +51,7 @@ impl<'a, T: Send + Sync> Batch<'a, T> {
     /// error out of the closure cancels the whole batch
     /// ([`Rumors::batch`](crate::Rumors::batch)'s commit-on-`Ok`
     /// contract); handling it locally keeps the batch alive with the
-    /// offending message simply not queued.
+    /// offending message not queued.
     ///
     /// # Panics
     ///
@@ -83,10 +83,10 @@ impl<'a, T: Send + Sync> Batch<'a, T> {
     /// closure returned `Ok`
     /// ([`Rumors::batch`](crate::Rumors::batch) owns that decision).
     pub(crate) fn commit(self) {
-        if self.actions.is_empty() {
-            return;
-        }
         let Batch { inner, actions, .. } = self;
+        // An empty action list needs no special case: `Tree::act`
+        // documents an empty batch as a complete no-op, and its false
+        // changed flag suppresses the wakeup.
         inner.send_if_modified(|inner| {
             // The party is present on every reachable handle: `retire`
             // consumes the `Peer`, and the `Peer`/`Rumors` XOR keeps a

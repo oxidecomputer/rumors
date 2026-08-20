@@ -223,9 +223,8 @@ impl PayloadCodec {
 /// accounting — arrays, maps, and tags each open a scope; the decoder's
 /// big-integer form (tag 2 or 3 wrapping a byte string of at most 16
 /// bytes) opens none — and the differential proptest beside this function
-/// is the committed instrument that keeps the two sides agreeing at the
-/// limit and on either side of it, rather than a prose transcription of
-/// either side's rules.
+/// holds the two sides to the same verdict at the limit and on either
+/// side of it, so the agreement is tested rather than transcribed.
 ///
 /// # Panics
 ///
@@ -411,7 +410,7 @@ impl Message {
     /// This is the constructor behind [`Rumors::send`](crate::Rumors::send)
     /// and [`Batch::send`](crate::Batch::send) (via the peer's minted
     /// codec), judging the same bound wire ingress judges at decode, so an
-    /// over-deep value is rejected at its author, at the moment of choice.
+    /// over-deep value is rejected at its author.
     ///
     /// The failure classes split here: a [`Serialize`] implementation
     /// failure keeps [`Message`]'s documented panic contract

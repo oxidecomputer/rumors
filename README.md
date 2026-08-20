@@ -247,10 +247,17 @@ Your message type `T` needs `serde::Serialize` and
 CBOR ([RFC 8949](https://www.rfc-editor.org/rfc/rfc8949)). Because
 CBOR carries field and variant *names*, reordering `struct` fields
 or `enum` variants does not break compatibility with prior versions
-of your type `T`; however, *renaming breaks compabitility*. It is worth
+of your type `T`; however, *renaming breaks compatibility*. It is worth
 designing around this from the get-go: consider an outer `enum` indicating
 the version of your application-level message type, even if it starts
 out only having one variant, `V1`.
+
+Payload nesting depth is bounded: a payload's CBOR encoding may nest
+at most `Peer::payload_depth_limit` scopes (256 by default, ample
+for ordinary message types), enforced symmetrically at send and at
+wire ingress and held to exact equality across a fleet at every
+handshake, so an admitted payload is transferable everywhere. The
+knob's docs carry the full contract.
 
 ## Cargo features
 
