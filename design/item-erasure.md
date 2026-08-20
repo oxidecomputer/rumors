@@ -250,3 +250,13 @@ security-relevant: payload validation stays exactly where it is
    on the same machine under the same background load; a shared-host
    run, so a coarse regression check rather than a precise
    measurement, and it shows no movement to explain).
+   *Wall-clock corroboration*, measured across the whole branch (main
+   vs fully erased, back-to-back on one machine, kache replaced by a
+   pass-through `RUSTC_WRAPPER` in every phase so the numbers are pure
+   rustc): the warm-except-`rumors` gate — dependencies built, the
+   `rumors` package `cargo clean -p`'d, the developer's
+   edit-and-gate cost — runs 249 s on main and 140 s fully erased
+   (−44%); the from-scratch build-and-gate runs 370 s vs 239 s
+   (−35%). Since a fully warm gate runs ~130 s (the tests and checks
+   themselves), the `rumors` codegen share of the inner loop fell
+   from ~120 s to ~10 s.
