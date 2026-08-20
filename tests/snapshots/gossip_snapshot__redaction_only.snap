@@ -22,7 +22,7 @@ control item 1 (132 bytes) / greeting /
         }
       "set_len" => 1
       "version" =>
-        53846(h'4950') / version (2, 1, 0) /
+        53846(h'4950') / causal version, event tree: (2, 1, 0) /
       "max_version_bytes" => 1
       "payload_depth_limit" => 256
       "target_message_size" => 1830400
@@ -52,7 +52,7 @@ control item 1 (159 bytes) / greeting /
         }
       "set_len" => 2
       "version" =>
-        53846(h'b8') / version 2 /
+        53846(h'b8') / causal version, event tree: 2 /
       "max_version_bytes" => 1
       "payload_depth_limit" => 256
       "target_message_size" => 1830400

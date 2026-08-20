@@ -564,8 +564,12 @@ fn render_tag(
         }
         (crate::tags::VERSION_TAG, Node::Bytes(bytes)) => {
             let meaning = match Version::decode(&bytes[..]) {
-                Ok(version) => format!("version {version}"),
-                Err(e) => format!("version undecodable: {e}"),
+                // The rendering is the version's whole ITC event tree in
+                // paper notation, never a scalar: a flat tree renders as
+                // its single uniform height (e.g. `3`), a forked one as
+                // the nested `(n, e1, e2)` form.
+                Ok(version) => format!("causal version, event tree: {version}"),
+                Err(e) => format!("causal version undecodable: {e}"),
             };
             writeln!(
                 out,

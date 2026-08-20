@@ -407,19 +407,92 @@ fn file_is_rumors_blind_cbor() {
     }
 }
 
-/// The encoded empty record pins byte-for-byte: the self-described frame
-/// over the embedded CBOR encoding of an empty map.
+/// Render a bookmark frame for the byte pins: exact hex, then annotation.
 ///
-/// A change here is a deliberate on-disk format change, like the wire-format
-/// snapshots.
+/// The frame's exact hex rides the first line — the pin itself, which an
+/// annotation change leaves byte-identical — followed by a decoded,
+/// annotated reading of the same bytes in the wire captures' idiom.
+///
+/// The integrity digest is sliced from the frame's own bytes, never
+/// recomputed, so the annotation reads what the pin holds; `unframe` has
+/// already verified it against the payload.
+fn annotated(frame: &[u8]) -> String {
+    use crate::tree::mirror::cbor::{TAG_EMBEDDED_ITEM, TAG_SELF_DESCRIBED};
+    use std::fmt::Write;
+    let record = decode(frame).expect("the pinned frame decodes");
+    let payload = unframe(frame).expect("the pinned frame unframes");
+    // Fixed offsets: the version head is a single byte for any version
+    // below 24, and everything before the digest is a pinned spelling.
+    const { assert!(BOOKMARK_FORMAT_VERSION < 24, "the version head is one byte") };
+    let hash_at = SELF_DESCRIBED.len() + 1 + 1 + INTEGRITY_HEAD.len();
+    let integrity = &frame[hash_at..hash_at + HASH_LEN];
+    let mut out = format!("{}\n\n", hex::encode(frame));
+    writeln!(out, "{TAG_SELF_DESCRIBED}( / self-described CBOR /").unwrap();
+    writeln!(out, "  [").unwrap();
+    writeln!(
+        out,
+        "    {BOOKMARK_FORMAT_VERSION} / bookmark format version /"
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "    h'{}' / integrity: BLAKE3 of the embedded record /",
+        hex::encode(integrity)
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "    {TAG_EMBEDDED_ITEM}(<< / embedded record, {} byte(s) /",
+        payload.len()
+    )
+    .unwrap();
+    writeln!(out, "      {{ / {} network(s) /", record.len()).unwrap();
+    for (network, clocks) in &record {
+        writeln!(
+            out,
+            "        h'{}' / network / =>",
+            hex::encode(network.to_bytes())
+        )
+        .unwrap();
+        writeln!(out, "          [ / {} clock(s) /", clocks.len()).unwrap();
+        for clock in clocks {
+            writeln!(
+                out,
+                "            {}(h'{}') / clock /",
+                crate::tags::CLOCK_TAG,
+                hex::encode(clock.encode())
+            )
+            .unwrap();
+        }
+        writeln!(out, "          ]").unwrap();
+    }
+    writeln!(out, "      }}").unwrap();
+    writeln!(out, "    >>)").unwrap();
+    writeln!(out, "  ]").unwrap();
+    write!(out, ")").unwrap();
+    out
+}
+
+/// The encoded empty record pins byte-for-byte.
+///
+/// The snapshot's first line is the frame's exact hex — the
+/// self-described frame over the embedded CBOR encoding of an empty
+/// map — followed by [`annotated`]'s decoded reading of the same bytes.
+///
+/// A change to the hex line is a deliberate on-disk format change, like
+/// the wire-format snapshots; an annotation-only change must preserve it
+/// byte-identically.
 #[test]
 fn pins_the_empty_frame() {
-    insta::assert_snapshot!("frame_empty", hex::encode(encode(&BTreeMap::new())));
+    insta::assert_snapshot!("frame_empty", annotated(&encode(&BTreeMap::new())));
 }
 
 /// The encoded non-trivial record pins byte-for-byte, so format drift cannot
 /// hide in a populated payload (multiple clocks under a network id) the way it
 /// could in an empty one.
+///
+/// The snapshot's first line is the frame's exact hex (the pin); the rest
+/// is [`annotated`]'s decoded reading of the same bytes.
 ///
 /// The pinned bytes are fixture-derived: a re-accept whose only cause is a
 /// deliberate [`sample_record`] change — the format attested unchanged by the
@@ -430,7 +503,7 @@ fn pins_the_empty_frame() {
 /// snapshot roster in `AGENTS.md`).
 #[test]
 fn pins_a_non_trivial_frame() {
-    insta::assert_snapshot!("frame_non_trivial", hex::encode(encode(&sample_record())));
+    insta::assert_snapshot!("frame_non_trivial", annotated(&encode(&sample_record())));
 }
 
 /// Pins the stated ingress boundary: the embedded payload's spelling is

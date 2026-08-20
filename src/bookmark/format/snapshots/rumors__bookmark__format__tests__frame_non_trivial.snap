@@ -1,5 +1,22 @@
 ---
 source: src/bookmark/format/tests.rs
-expression: "hex::encode(encode(&sample_record()))"
+expression: annotated(&encode(&sample_record()))
 ---
 d9d9f783045820516ff347a0f0cf7b370e5e36fb03272cf932360e39c3bbd7506f6eeeb72af793d8185829a1505a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a83d9d25744a22aa580d9d25744482aa580d9d2574292e0
+
+55799( / self-described CBOR /
+  [
+    4 / bookmark format version /
+    h'516ff347a0f0cf7b370e5e36fb03272cf932360e39c3bbd7506f6eeeb72af793' / integrity: BLAKE3 of the embedded record /
+    24(<< / embedded record, 41 byte(s) /
+      { / 1 network(s) /
+        h'5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a' / network / =>
+          [ / 3 clock(s) /
+            53847(h'a22aa580') / clock /
+            53847(h'482aa580') / clock /
+            53847(h'92e0') / clock /
+          ]
+      }
+    >>)
+  ]
+)

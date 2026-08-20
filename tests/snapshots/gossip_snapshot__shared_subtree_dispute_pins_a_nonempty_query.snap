@@ -22,7 +22,7 @@ control item 1 (136 bytes) / greeting /
         }
       "set_len" => 3
       "version" =>
-        53846(h'40020fd000fff4') / version (126, 4095, 0) /
+        53846(h'40020fd000fff4') / causal version, event tree: (126, 4095, 0) /
       "max_version_bytes" => 4
       "payload_depth_limit" => 256
       "target_message_size" => 1830400
@@ -50,7 +50,7 @@ Responder stream 1 (height 29), epoch 0, 24 wire bytes
       120 / Supply(End) /
       63(<< / supply run, 1 record(s), 13 bytes /
         63(<< / record, 2 item(s), 10 bytes /
-          53846(h'405940cd') / version (126, 51, 0) /
+          53846(h'405940cd') / causal version, event tree: (126, 51, 0) /
           150
         >>)
       >>)
@@ -80,7 +80,7 @@ control item 1 (131 bytes) / greeting /
         }
       "set_len" => 2
       "version" =>
-        53846(h'81fe') / version 126 /
+        53846(h'81fe') / causal version, event tree: 126 /
       "max_version_bytes" => 2
       "payload_depth_limit" => 256
       "target_message_size" => 1830400
