@@ -79,7 +79,7 @@ use crate::{
 /// keeps alive per session reference. It is the ground truth the
 /// [`node_bytes`](Backend::node_bytes) contract is checked against, so
 /// it must not consult the cost function it validates.
-pub(crate) trait Measure<T: Send + Sync + 'static>: Backend<T, Node<Z>: Leaf<T>> {
+pub(crate) trait Measure: Backend<Node<Z>: Leaf> {
     /// The actual resident bytes of one node value, measured.
     fn measure<H: Height>(node: &Self::Node<H>) -> usize;
 }
@@ -196,11 +196,10 @@ impl<N> Drop for ChargedNode<N> {
     }
 }
 
-impl<T, N> Node<T> for ChargedNode<N>
+impl<N> Node for ChargedNode<N>
 where
-    T: Send + Sync + 'static,
-    N: Node<T> + Clone + Send + 'static,
-    N::Backend: Measure<T>,
+    N: Node + Clone + Send + 'static,
+    N::Backend: Measure,
 {
     type Backend = Charged<N::Backend>;
     type Height = N::Height;
@@ -236,11 +235,10 @@ impl<E: ErasedNode> ErasedNode for ChargedNode<E> {
     }
 }
 
-impl<T, N> Leaf<T> for ChargedNode<N>
+impl<N> Leaf for ChargedNode<N>
 where
-    T: Send + Sync + 'static,
-    N: Leaf<T> + Clone + Send + 'static,
-    N::Backend: Measure<T>,
+    N: Leaf + Clone + Send + 'static,
+    N::Backend: Measure,
 {
     fn message(&self) -> &Message {
         self.inner().message()
@@ -249,15 +247,15 @@ where
     async fn leaf(
         version: Version,
         message: Message,
-    ) -> Result<Self, <N::Backend as Backend<T>>::Error> {
+    ) -> Result<Self, <N::Backend as Backend>::Error> {
         let node = N::leaf(version, message).await?;
-        let measured = <N::Backend as Measure<T>>::measure::<N::Height>(&node);
+        let measured = <N::Backend as Measure>::measure::<N::Height>(&node);
         // The pointwise contract at the leaf seam: after construction has
         // had its chance to persist the payload, the cost function at
         // `children = 0` and the node's own bounds must cover what the
         // handle keeps resident — this is the price the session budget
         // charges every decode-fan slot.
-        let priced = <N::Backend as Backend<T>>::node_bytes(0, bound_bytes::<T, _>(&node));
+        let priced = <N::Backend as Backend>::node_bytes(0, bound_bytes(&node));
         if measured > priced {
             ledger::violation(format!(
                 "underpriced leaf: measured {measured} B, node_bytes priced {priced} B",
@@ -268,19 +266,17 @@ where
 }
 
 /// The two encoded version bounds a node keeps resident, in bytes.
-fn bound_bytes<T, N>(node: &N) -> usize
+fn bound_bytes<N>(node: &N) -> usize
 where
-    T: Send + Sync + 'static,
-    N: Node<T>,
+    N: Node,
 {
     let bounds = node.span();
     bounds.hi().as_bytes().len() + bounds.lo().as_bytes().len()
 }
 
-impl<B, T> Backend<T> for Charged<B>
+impl<B> Backend for Charged<B>
 where
-    B: Measure<T> + Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Measure + Backend<Node<Z>: Leaf>,
 {
     type Node<H: Height> = ChargedNode<B::Node<H>>;
     type Erased = ChargedNode<B::Erased>;
@@ -331,7 +327,7 @@ where
             let measured = B::measure(&node);
             // The pointwise contract: the cost function evaluated at this
             // node's own fan and bounds must cover its measured bytes.
-            let priced = B::node_bytes(fan, bound_bytes::<T, _>(&node));
+            let priced = B::node_bytes(fan, bound_bytes(&node));
             if measured > priced {
                 ledger::violation(format!(
                     "underpriced node: fan {fan} measured {measured} B, \
@@ -364,11 +360,7 @@ where
         }))
     }
 
-    fn children<H>(
-        self,
-        prefix: Prefix<S<H>>,
-        parent: Self::Node<S<H>>,
-    ) -> impl NodeStream<Self, T, H>
+    fn children<H>(self, prefix: Prefix<S<H>>, parent: Self::Node<S<H>>) -> impl NodeStream<Self, H>
     where
         H: Height,
         S<H>: Height,
@@ -388,7 +380,7 @@ where
         self,
         prefix: Prefix<H>,
         node: Self::Node<H>,
-    ) -> impl NodeStream<Self, T, Z> {
+    ) -> impl NodeStream<Self, Z> {
         // Delegate to the wrapped backend's own override: the bulk walk
         // is the path the wire encoder runs, so its yields must land on
         // the census and answer the walked node's aggregates.
@@ -406,7 +398,7 @@ where
                     // The pointwise contract at the walk: a walked leaf
                     // is a fan slot the session budget prices at
                     // `children = 0`.
-                    let priced = B::node_bytes(0, bound_bytes::<T, _>(&leaf));
+                    let priced = B::node_bytes(0, bound_bytes(&leaf));
                     if measured > priced {
                         ledger::violation(format!(
                             "underpriced walked leaf: measured {measured} B, \
@@ -437,15 +429,15 @@ where
 
     fn assemble<'a, H: Convert>(
         self,
-        leaves: BoxNodeStream<'a, Self, T, Z>,
-    ) -> impl NodeStream<Self, T, H> + 'a {
+        leaves: BoxNodeStream<'a, Self, Z>,
+    ) -> impl NodeStream<Self, H> + 'a {
         // Delegate to the wrapped backend's own override: bulk assembly
         // is the path the wire decoder runs. The wrapper records each
         // maximal same-prefix run as it feeds the inner stream, then
         // holds every assembled node to account for its run.
         let runs: Arc<Mutex<BTreeMap<Prefix<H>, Run>>> = Arc::default();
         let recorded = Arc::clone(&runs);
-        let supplied: BoxNodeStream<'a, B, T, Z> = Box::pin(leaves.map(move |item| {
+        let supplied: BoxNodeStream<'a, B, Z> = Box::pin(leaves.map(move |item| {
             item.map(|(prefix, leaf)| {
                 let mut runs = recorded
                     .lock()
@@ -475,7 +467,7 @@ where
                             "unsupplied assembly: a node yielded at {prefix:?} \
                              without a leaf run",
                         )),
-                        Some(run) => check_assembled::<B, T, H>(&node, measured, &run),
+                        Some(run) => check_assembled::<B, H>(&node, measured, &run),
                     }
                     (prefix, ChargedNode::wrap(node, measured))
                 });
@@ -510,10 +502,9 @@ struct Run {
 }
 
 /// Hold one bulk-assembled node to its run's account.
-fn check_assembled<B, T, H>(node: &B::Node<H>, measured: usize, run: &Run)
+fn check_assembled<B, H>(node: &B::Node<H>, measured: usize, run: &Run)
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
     H: Height,
 {
     // The len aggregate is exact: a run's node answers its leaf count.
@@ -545,7 +536,7 @@ where
     // the radix (`FAN`) or the run's leaf count, and the contract
     // requires `node_bytes` monotone in fan, so a measurement above
     // this price is above the price at the node's own fan too.
-    let priced = B::node_bytes(run.leaves.min(FAN), bound_bytes::<T, _>(node));
+    let priced = B::node_bytes(run.leaves.min(FAN), bound_bytes(node));
     if measured > priced {
         ledger::violation(format!(
             "bulk-assembled node over-holds: measured {measured} B, \
@@ -592,7 +583,7 @@ fn sweep_bounds() -> Vec<usize> {
 /// bounds, and every adjacent bound pair at each swept fan.
 fn node_bytes_monotone<B>()
 where
-    B: Measure<u64> + Clone,
+    B: Measure + Clone,
     B::Error: std::fmt::Debug,
 {
     let bounds = sweep_bounds();
@@ -654,7 +645,7 @@ const DIVERGENT: usize = 1_024;
 /// - the session failed to converge the corpora.
 pub(crate) async fn check<B>(backend: B, budget_bytes: usize)
 where
-    B: Measure<u64> + Clone,
+    B: Measure + Clone,
     B::Error: std::fmt::Debug,
 {
     node_bytes_monotone::<B>();
@@ -681,7 +672,7 @@ where
 /// measured bytes above the resting corpora.
 async fn run<B>(backend: B, window: WindowConfig) -> usize
 where
-    B: Measure<u64> + Clone,
+    B: Measure + Clone,
     B::Error: std::fmt::Debug,
 {
     let charged = Charged::new(backend);
@@ -735,9 +726,9 @@ where
 }
 
 /// Drain one corpus's bulk leaf walk so the walk seam's checks run.
-async fn walk<B>(charged: &Charged<B>, corpus: &Root<Charged<B>, u64>)
+async fn walk<B>(charged: &Charged<B>, corpus: &Root<Charged<B>>)
 where
-    B: Measure<u64> + Clone,
+    B: Measure + Clone,
     B::Error: std::fmt::Debug,
 {
     let Some(root) = corpus.root.clone() else {
@@ -756,16 +747,16 @@ where
 async fn corpus<B>(
     charged: &Charged<B>,
     messages: impl Iterator<Item = &(Version, u64)>,
-) -> Root<Charged<B>, u64>
+) -> Root<Charged<B>>
 where
-    B: Measure<u64> + Clone,
+    B: Measure + Clone,
     B::Error: std::fmt::Debug,
 {
     let mut leaves: Vec<(Prefix<Z>, ChargedNode<B::Node<Z>>)> = Vec::new();
     for (version, payload) in messages {
         let message = Message::new(*payload);
         let path = Path::for_leaf(version);
-        let leaf = <ChargedNode<B::Node<Z>> as Leaf<u64>>::leaf(version.clone(), message)
+        let leaf = <ChargedNode<B::Node<Z>> as Leaf>::leaf(version.clone(), message)
             .await
             .expect("corpus leaves construct at rest");
         leaves.push((Prefix::from(path), leaf));

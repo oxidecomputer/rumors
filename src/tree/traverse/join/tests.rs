@@ -16,7 +16,7 @@ fn mirror_merge(a: Root, b: Root) -> Root {
     pollster::block_on(async {
         let l = local::Exchange::start(a);
         let r = local::Exchange::start(b);
-        match mirror::<_, _, ()>(l, r).await {
+        match mirror(l, r).await {
             Ok((merged, _)) => merged,
             Err(e) => panic!("honest oracle endpoints speak no violations: {e}"),
         }

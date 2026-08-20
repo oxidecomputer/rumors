@@ -164,6 +164,17 @@ impl Serialize for Explosive {
     }
 }
 
+// Peer construction mints the payload deserializer up front, so even this
+// send-only payload type states how its wire form reads back.
+impl<'de> serde::Deserialize<'de> for Explosive {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Ok(Explosive {
+            value: u64::deserialize(deserializer)?,
+            fail: false,
+        })
+    }
+}
+
 /// A batch interrupted by a panic between its sends commits nothing.
 ///
 /// [`Batch`](rumors::Batch) documents that a batch dropped by a panic's

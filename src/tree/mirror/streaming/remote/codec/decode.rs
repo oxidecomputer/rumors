@@ -26,26 +26,23 @@ use super::{
     signal::{Signal, Speaker, Stream, WireSignal},
 };
 
-#[cfg(test)]
-use serde::de::DeserializeOwned;
-
 /// Decode one frame from `read`, leaving subsequent bytes untouched.
 #[cfg(test)]
-pub fn decode<T: DeserializeOwned>(
+pub fn decode(
     speaker: Speaker,
     budget: RunBudget,
     read: &mut impl Read,
-) -> Result<WireFrame<T>, DecodeError> {
+) -> Result<WireFrame, DecodeError> {
     FrameDecoder::new(speaker, budget, read).decode()
 }
 
 /// Decode exactly one frame from a slice, rejecting bytes after it.
 #[cfg(test)]
-pub fn decode_exact<T: DeserializeOwned>(
+pub fn decode_exact(
     speaker: Speaker,
     budget: RunBudget,
     input: &[u8],
-) -> Result<WireFrame<T>, DecodeError> {
+) -> Result<WireFrame, DecodeError> {
     let mut rest = input;
     let (stream, frame) = decode(speaker, budget, &mut rest)?;
     if rest.is_empty() {
@@ -78,7 +75,7 @@ impl<'a, R: Read> FrameDecoder<'a, R> {
         }
     }
 
-    fn decode<T: DeserializeOwned>(mut self) -> Result<WireFrame<T>, DecodeError> {
+    fn decode(mut self) -> Result<WireFrame, DecodeError> {
         let (stream, signal) = self.signal()?;
         let frame = self
             .body(signal)
@@ -93,7 +90,7 @@ impl<'a, R: Read> FrameDecoder<'a, R> {
         decode_signal(self.speaker, byte)
     }
 
-    fn body<T: DeserializeOwned>(&mut self, signal: Signal) -> Result<Frame<T>, DecodeErrorKind> {
+    fn body(&mut self, signal: Signal) -> Result<Frame, DecodeErrorKind> {
         let frame = match signal {
             Signal::Match(flow) => Frame::Reaction(Reaction::Match, flow),
             Signal::QueryEmpty(flow) => Frame::Reaction(Reaction::Query(Vec::new()), flow),
@@ -113,7 +110,7 @@ impl<'a, R: Read> FrameDecoder<'a, R> {
         parse_query(&listing)
     }
 
-    fn supply<T>(&mut self) -> Result<LeafRun<T>, DecodeErrorKind> {
+    fn supply(&mut self) -> Result<LeafRun, DecodeErrorKind> {
         let mut header = [0; LENGTH_HEADER_LEN];
         self.read_exact(&mut header, FramePart::SupplyLength)?;
         let len = u32::from_be_bytes(header) as usize;

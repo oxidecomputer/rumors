@@ -43,13 +43,13 @@ pub use local::Local;
 pub(super) use local::with_schedule as with_local_schedule;
 
 /// A backend value is a cheap cloneable *handle* to its storage.
-pub trait Backend<T: Send + Sync + 'static>: Clone + Send + Sync + 'static
+pub trait Backend: Clone + Send + Sync + 'static
 where
-    Self::Node<Z>: Leaf<T>,
+    Self::Node<Z>: Leaf,
 {
     /// The type of nodes, indexed by height `H`; leaf payloads are
     /// erased in storage and decode as `T` at the wire boundary.
-    type Node<H: Height>: Node<T, Height = H, Backend = Self> + Clone + Send + 'static;
+    type Node<H: Height>: Node<Height = H, Backend = Self> + Clone + Send + 'static;
 
     /// One runtime representation shared by every height's
     /// [`Node<H>`](Self::Node).
@@ -150,7 +150,7 @@ where
         self,
         prefix: Prefix<S<H>>,
         parent: Self::Node<S<H>>,
-    ) -> impl NodeStream<Self, T, H>
+    ) -> impl NodeStream<Self, H>
     where
         H: Height,
         S<H>: Height;
@@ -169,7 +169,7 @@ where
         self,
         prefix: Prefix<H>,
         node: Self::Node<H>,
-    ) -> impl NodeStream<Self, T, Z> {
+    ) -> impl NodeStream<Self, Z> {
         H::explode(
             self,
             Box::pin(stream::once(async move { Ok((prefix, node)) })),
@@ -197,16 +197,16 @@ where
     /// session can meet it.
     fn assemble<'a, H: Convert>(
         self,
-        leaves: BoxNodeStream<'a, Self, T, Z>,
-    ) -> impl NodeStream<Self, T, H> + 'a {
+        leaves: BoxNodeStream<'a, Self, Z>,
+    ) -> impl NodeStream<Self, H> + 'a {
         H::assemble(self, leaves)
     }
 }
 
 /// The inspection operations of a backend's individual node type.
-pub trait Node<T: Send + Sync + 'static> {
+pub trait Node {
     /// The backend to which this node belongs.
-    type Backend: Backend<T, Node<Z>: Leaf<T>, Node<Self::Height> = Self>;
+    type Backend: Backend<Node<Z>: Leaf, Node<Self::Height> = Self>;
 
     /// The height of the node above the leaf level.
     type Height: Height;
@@ -305,7 +305,7 @@ pub trait ErasedNode {
 
 /// What crosses between backends at the conversion boundary, and the one node
 /// shape every backend must represent faithfully.
-pub trait Leaf<T: Send + Sync + 'static>: Node<T> {
+pub trait Leaf: Node {
     /// The message stored at this leaf node.
     fn message(&self) -> &Message;
 
@@ -340,33 +340,31 @@ pub trait Leaf<T: Send + Sync + 'static>: Node<T> {
     fn leaf(
         version: Version,
         message: Message,
-    ) -> impl Future<Output = Result<Self, <Self::Backend as Backend<T>>::Error>> + Send
+    ) -> impl Future<Output = Result<Self, <Self::Backend as Backend>::Error>> + Send
     where
         Self: Sized;
 }
 
 /// Type synonym for a fallible [`Stream`] of prefix-keyed nodes represented by
 /// a given backend.
-pub trait NodeStream<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, H: Height>:
+pub trait NodeStream<B: Backend<Node<Z>: Leaf>, H: Height>:
     Stream<Item = Result<(Prefix<H>, B::Node<H>), B::Error>> + Send
 {
 }
-impl<N, B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static, H: Height> NodeStream<B, T, H>
-    for N
-where
-    N: Stream<Item = Result<(Prefix<H>, B::Node<H>), B::Error>> + Send,
+impl<N, B: Backend<Node<Z>: Leaf>, H: Height> NodeStream<B, H> for N where
+    N: Stream<Item = Result<(Prefix<H>, B::Node<H>), B::Error>> + Send
 {
 }
 
 /// A [`NodeStream`] erased to one level of type depth.
-pub(crate) type BoxNodeStream<'a, B, T, H> = Pin<Box<dyn NodeStream<B, T, H> + 'a>>;
+pub(crate) type BoxNodeStream<'a, B, H> = Pin<Box<dyn NodeStream<B, H> + 'a>>;
 
 /// A backend's whole tree at rest: what a mirror session consumes and produces.
 ///
 /// This is the backend-generic form of [`tree::Root`](crate::tree::Root); the
 /// `Local` backend converts between the two with [`From`].
 #[derive(Debug)]
-pub struct Root<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> {
+pub struct Root<B: Backend<Node<Z>: Leaf>> {
     /// The maximum version this tree has incorporated.
     pub ceiling: Version,
     /// The root node, or nothing when the tree is empty.
@@ -375,7 +373,7 @@ pub struct Root<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> {
 
 // Manual because the derive would demand `T: Clone`; nodes are cloneable
 // handles regardless of the message type they carry.
-impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> Clone for Root<B, T> {
+impl<B: Backend<Node<Z>: Leaf>> Clone for Root<B> {
     fn clone(&self) -> Self {
         Root {
             ceiling: self.ceiling.clone(),
@@ -384,7 +382,7 @@ impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> Clone for Root<B
     }
 }
 
-impl<B: Backend<T, Node<Z>: Leaf<T>>, T: Send + Sync + 'static> Root<B, T> {
+impl<B: Backend<Node<Z>: Leaf>> Root<B> {
     /// The tree's live message count: the root node's [`len`](Node::len)
     /// aggregate, or zero when empty. What the session greeting carries
     /// as the exact set size.

@@ -487,11 +487,11 @@ where
     /// [`Step::Done`](protocol::Step::Done) when nothing was requested:
     /// the counterparty's [`message::Complete`] would carry nothing.
     #[allow(clippy::type_complexity)]
-    pub(super) fn close<T>(
+    pub(super) fn close(
         mut self,
-        request: message::Exchange<T, Z>,
+        request: message::Exchange<Z>,
     ) -> Result<
-        protocol::Step<message::Closing<T>, Exchange<Connected, Below<Z, L>>, tree::Root>,
+        protocol::Step<message::Closing, Exchange<Connected, Below<Z, L>>, tree::Root>,
         Violation,
     >
     where
@@ -501,7 +501,6 @@ where
             providing,
             requested,
             uncertain,
-            payload: _,
         } = request;
 
         self.absorb_providing(providing)?;
@@ -521,7 +520,6 @@ where
         let response = message::Closing {
             providing: providing.into_iter().collect(),
             requested: partition.requested,
-            payload: std::marker::PhantomData,
         };
 
         // The counterparty may only answer the leaves we just requested.
@@ -569,7 +567,7 @@ where
     /// [`close_responder`](protocol::CloseResponder::close_responder); they
     /// differ only in how they assemble the outgoing message.
     #[allow(clippy::type_complexity)]
-    pub(super) fn reply<Request, Response, H, T>(
+    pub(super) fn reply<Request, Response, H>(
         mut self,
         request: Request,
     ) -> Result<
@@ -577,8 +575,8 @@ where
         Violation,
     >
     where
-        Request: Into<message::Exchange<T, S<H>>>,
-        Response: From<message::Exchange<T, H>>,
+        Request: Into<message::Exchange<S<H>>>,
+        Response: From<message::Exchange<H>>,
         L: Levels<Height = S<S<H>>>,
         S<S<H>>: Height,
         S<H>: Height,
@@ -588,7 +586,6 @@ where
             providing,
             requested,
             uncertain,
-            payload: _,
         } = request.into();
 
         // Phase 1: absorb the counterparty's `providing` into our frontier.
@@ -633,7 +630,6 @@ where
             providing: providing.into_iter().collect(),
             requested: partition.requested,
             uncertain,
-            payload: std::marker::PhantomData,
         };
 
         // Record which parents the counterparty may `provide` against in its

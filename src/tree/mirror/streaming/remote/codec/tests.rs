@@ -67,7 +67,7 @@ const MAX_ARBITRARY_SUFFIX_LEN: usize = 32;
 const MAX_ARBITRARY_RUN_RECORDS: usize = 4;
 
 /// Build a supply run from decoded leaf records.
-fn leaf_run<T: Serialize + Clone + Send + Sync + 'static>(records: &[(Version, T)]) -> LeafRun<T> {
+fn leaf_run<T: Serialize + Clone + Send + Sync + 'static>(records: &[(Version, T)]) -> LeafRun {
     let mut run = LeafRun::new();
     for (version, value) in records {
         run.push(version, &Message::new(value.clone()))
@@ -93,7 +93,7 @@ fn arb_flow() -> impl Strategy<Value = Flow> {
     prop_oneof![Just(Flow::Continue), Just(Flow::End)]
 }
 
-fn arb_frame() -> impl Strategy<Value = WireFrame<u64>> {
+fn arb_frame() -> impl Strategy<Value = WireFrame> {
     prop_oneof![
         (arb_stream(), arb_flow())
             .prop_map(|(stream, flow)| (stream, Frame::Reaction(Reaction::Match, flow))),
@@ -135,7 +135,7 @@ proptest! {
         encoded.extend_from_slice(&suffix);
 
         let mut rest = encoded.as_slice();
-        let decoded = decode::<u64>(speaker, RunBudget::default(), &mut rest).unwrap();
+        let decoded = decode(speaker, RunBudget::default(), &mut rest).unwrap();
         prop_assert_eq!(&decoded, &frame);
         prop_assert_eq!(rest, suffix.as_slice());
 
@@ -166,9 +166,9 @@ proptest! {
         prop_assert_eq!(&written.bytes, &canonical);
 
         let mut reader = FrameRead::new(speaker, RunBudget::default(), written.bytes.as_slice());
-        let decoded = pollster::block_on(reader.frame::<u64>()).unwrap();
+        let decoded = pollster::block_on(reader.frame()).unwrap();
         prop_assert_eq!(decoded, Some(frame));
-        prop_assert_eq!(pollster::block_on(reader.frame::<u64>()).unwrap(), None);
+        prop_assert_eq!(pollster::block_on(reader.frame()).unwrap(), None);
     }
 }
 
@@ -233,9 +233,9 @@ async fn async_duplex_preserves_adjacent_frame_boundaries() {
         };
         let receiving = async {
             let mut reader = FrameRead::new(speaker, RunBudget::default(), receive);
-            assert_eq!(reader.frame::<u64>().await.unwrap(), Some(first));
-            assert_eq!(reader.frame::<u64>().await.unwrap(), Some(second));
-            assert_eq!(reader.frame::<u64>().await.unwrap(), None);
+            assert_eq!(reader.frame().await.unwrap(), Some(first));
+            assert_eq!(reader.frame().await.unwrap(), Some(second));
+            assert_eq!(reader.frame().await.unwrap(), None);
         };
         futures::join!(sending, receiving);
     }
@@ -258,7 +258,7 @@ fn canonical_frame_atlas_snapshot() {
                         encode(speaker, &(stream, frame.clone()), &mut encoded).unwrap();
                         assert_eq!(encoded.first(), Some(&wire.to_byte()));
                         assert_eq!(
-                            decode_exact::<()>(speaker, RunBudget::default(), &encoded).unwrap(),
+                            decode_exact(speaker, RunBudget::default(), &encoded).unwrap(),
                             (stream, frame)
                         );
                         write!(atlas, "    {signal:?}: accepted len {} hex ", encoded.len())
@@ -267,9 +267,8 @@ fn canonical_frame_atlas_snapshot() {
                         atlas.push('\n');
                     }
                     Err(invalid) => {
-                        let error =
-                            decode_exact::<()>(speaker, RunBudget::default(), &[invalid.byte()])
-                                .unwrap_err();
+                        let error = decode_exact(speaker, RunBudget::default(), &[invalid.byte()])
+                            .unwrap_err();
                         assert_eq!(error.origin, Origin::stream(speaker, stream));
                         assert!(matches!(
                             error.kind,
@@ -297,7 +296,7 @@ fn write_hex(out: &mut impl Write, bytes: &[u8]) {
     }
 }
 
-fn representative_frame(signal: Signal) -> Frame<()> {
+fn representative_frame(signal: Signal) -> Frame {
     match signal {
         Signal::Match(flow) => Frame::Reaction(Reaction::Match, flow),
         Signal::QueryEmpty(flow) => Frame::Reaction(Reaction::Query(Vec::new()), flow),
@@ -442,7 +441,7 @@ fn enumerate_queries(
     }
 }
 
-fn check_both(frame: WireFrame<()>, accepted: &mut [usize; 2], buckets: &mut [CorpusBucket]) {
+fn check_both(frame: WireFrame, accepted: &mut [usize; 2], buckets: &mut [CorpusBucket]) {
     let signal = frame_signal(&frame.1);
     let signal_index = SIGNALS
         .iter()
@@ -459,7 +458,7 @@ fn check_both(frame: WireFrame<()>, accepted: &mut [usize; 2], buckets: &mut [Co
                 encode(speaker, &frame, &mut encoded).unwrap();
                 accepted[direction] += 1;
                 assert_eq!(
-                    decode_exact::<()>(speaker, RunBudget::default(), &encoded).unwrap(),
+                    decode_exact(speaker, RunBudget::default(), &encoded).unwrap(),
                     frame
                 );
                 bucket.accept(&encoded);
@@ -469,7 +468,7 @@ fn check_both(frame: WireFrame<()>, accepted: &mut [usize; 2], buckets: &mut [Co
     }
 }
 
-fn frame_signal<T>(frame: &Frame<T>) -> Signal {
+fn frame_signal(frame: &Frame) -> Signal {
     match frame {
         Frame::Reaction(Reaction::Match, flow) => Signal::Match(*flow),
         Frame::Reaction(Reaction::Query(children), flow) if children.is_empty() => {
@@ -499,7 +498,7 @@ fn generic_io_preserves_frame_boundaries() {
 
     let mut reader = Cursor::new(writer.into_inner());
     assert_eq!(
-        decode::<()>(Speaker::Initiator, RunBudget::default(), &mut reader).unwrap(),
+        decode(Speaker::Initiator, RunBudget::default(), &mut reader).unwrap(),
         frame
     );
     assert_eq!(reader.position(), frame_len);

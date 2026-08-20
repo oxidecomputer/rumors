@@ -31,7 +31,7 @@ mod tests;
 #[cfg(test)]
 pub use adversarial::with_schedule;
 
-impl<T: Send + Sync + 'static, H: Height> Node<T> for typed::Node<H> {
+impl<H: Height> Node for typed::Node<H> {
     type Backend = Local;
     type Height = H;
 
@@ -72,7 +72,7 @@ impl ErasedNode for typed::untyped::Node {
     }
 }
 
-impl<T: Send + Sync + 'static> Leaf<T> for typed::Node<Z> {
+impl Leaf for typed::Node<Z> {
     fn message(&self) -> &Message {
         self.message()
     }
@@ -109,7 +109,7 @@ impl Local {
 /// rests on it.
 const _: () = assert!(std::mem::size_of::<typed::Node<Z>>() == std::mem::size_of::<*const ()>());
 
-impl<T: Send + Sync + 'static> Backend<T> for Local {
+impl Backend for Local {
     type Node<H: Height> = typed::Node<H>;
     // One representation for every height already: the typed node is a
     // phantom tag over this, so both conversions are field moves.
@@ -128,11 +128,7 @@ impl<T: Send + Sync + 'static> Backend<T> for Local {
         Local::node_bytes(children, version_bound)
     }
 
-    fn children<H>(
-        self,
-        prefix: Prefix<S<H>>,
-        parent: Self::Node<S<H>>,
-    ) -> impl NodeStream<Self, T, H>
+    fn children<H>(self, prefix: Prefix<S<H>>, parent: Self::Node<S<H>>) -> impl NodeStream<Self, H>
     where
         H: Height,
         S<H>: Height,
@@ -181,7 +177,7 @@ impl<T: Send + Sync + 'static> Backend<T> for Local {
         self,
         prefix: Prefix<H>,
         node: Self::Node<H>,
-    ) -> impl NodeStream<Self, T, Z> {
+    ) -> impl NodeStream<Self, Z> {
         // The default level-by-level explosion pays an allocation per
         // *virtual* level — ruinous for path-compressed spines. In-memory
         // nodes walk their own leaves directly, skipping compressed spans.
@@ -194,8 +190,8 @@ impl<T: Send + Sync + 'static> Backend<T> for Local {
 
     fn assemble<'a, H: Convert>(
         self,
-        leaves: BoxNodeStream<'a, Self, T, Z>,
-    ) -> impl NodeStream<Self, T, H> + 'a {
+        leaves: BoxNodeStream<'a, Self, Z>,
+    ) -> impl NodeStream<Self, H> + 'a {
         // The bulk counterpart of `leaves`: buffer each maximal
         // same-prefix run and build its subtree in one pass, rather than
         // folding it up one virtual level at a time. The buffered run is
@@ -233,15 +229,15 @@ impl<T: Send + Sync + 'static> Backend<T> for Local {
 // `tree::Root` is exactly the `Local` instance of the session's generic
 // `Root`: the same (ceiling, optional root node) pair, concretely typed.
 
-impl<T: Send + Sync + 'static> From<tree::Root> for Root<Local, T> {
+impl From<tree::Root> for Root<Local> {
     fn from(root: tree::Root) -> Self {
         let tree::Root { ceiling, root } = root;
         Root { ceiling, root }
     }
 }
 
-impl<T: Send + Sync + 'static> From<Root<Local, T>> for tree::Root {
-    fn from(root: Root<Local, T>) -> Self {
+impl From<Root<Local>> for tree::Root {
+    fn from(root: Root<Local>) -> Self {
         let Root { ceiling, root } = root;
         tree::Root { ceiling, root }
     }

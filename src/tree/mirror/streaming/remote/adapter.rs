@@ -9,8 +9,8 @@
 //! between them:
 //!
 //! ```text
-//! Reply<B, T, H> -- encode + explode --> Frame<T> leaves
-//! Reply<B, T, H> <-- decode + assemble -- Frame<T> leaves
+//! Reply<B, H> -- encode + explode --> Frame leaves
+//! Reply<B, H> <-- decode + assemble -- Frame leaves
 //! ```
 //!
 //! # Recovering omitted scope

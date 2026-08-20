@@ -152,7 +152,7 @@ const KEY_DEPTH: usize = 32;
 /// layout pads the real slots beyond this constant and owes that padding
 /// to its own `node_bytes` price.
 const REFERENCE_SLOT_BYTES: usize = std::mem::size_of::<(u8, typed::Node<Z>)>()
-    + std::mem::size_of::<(u8, Resolve<<Local as Backend<()>>::Erased>)>()
+    + std::mem::size_of::<(u8, Resolve<<Local as Backend>::Erased>)>()
     + std::mem::size_of::<(u8, typed::Hash)>();
 
 /// Fixed in-memory bytes per buffered scope beyond its per-child slots:

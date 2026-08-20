@@ -243,13 +243,14 @@ mod tests {
 
         let m = Message::new(());
         let enc = to_vec(&m).unwrap();
-        let back = Message::from_reader::<(), _>(&mut enc.as_slice()).unwrap();
+        let back =
+            Message::from_reader(&mut enc.as_slice(), Message::deserializer::<()>()).unwrap();
         assert_eq!(back.as_slice(), m.as_slice());
 
         let leaf: Node<Z> = Node::leaf(version.clone(), Message::new(()));
         let enc = to_vec(&leaf).unwrap();
         let mut input = enc.as_slice();
-        let back = Z::read_node::<(), _>(&mut input).unwrap();
+        let back = Z::read_node(&mut input, Message::deserializer::<()>()).unwrap();
         assert!(
             input.is_empty(),
             "the node decode consumes exactly its bytes"

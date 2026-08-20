@@ -26,9 +26,9 @@ use super::{
 
 /// Append `wire`'s canonical representation to `out`.
 #[cfg(test)]
-pub fn encode<T, W: Write>(
+pub fn encode<W: Write>(
     speaker: Speaker,
-    wire: &WireFrame<T>,
+    wire: &WireFrame,
     out: &mut W,
 ) -> Result<(), EncodeError> {
     let (stream, frame) = wire;
@@ -43,12 +43,12 @@ pub fn encode<T, W: Write>(
 /// run record framing are guaranteed by its callers and checked only when
 /// bytes enter from the wire. Construction performs only the
 /// representational checks needed before any byte can be emitted.
-struct FrameEncoding<'a, T> {
+struct FrameEncoding<'a> {
     signal: [u8; WireSignal::ENCODED_LEN],
-    body: BodyEncoding<'a, T>,
+    body: BodyEncoding<'a>,
 }
 
-enum BodyEncoding<'a, T> {
+enum BodyEncoding<'a> {
     Empty,
     Query {
         count: [u8; 1],
@@ -56,12 +56,12 @@ enum BodyEncoding<'a, T> {
     },
     Supply {
         header: [u8; LENGTH_HEADER_LEN],
-        run: &'a LeafRun<T>,
+        run: &'a LeafRun,
     },
 }
 
-impl<'a, T> FrameEncoding<'a, T> {
-    fn new(stream: Stream, frame: &'a Frame<T>) -> Result<Self, EncodeErrorKind> {
+impl<'a> FrameEncoding<'a> {
+    fn new(stream: Stream, frame: &'a Frame) -> Result<Self, EncodeErrorKind> {
         let (signal, body) = match frame {
             Frame::Reaction(Reaction::Match, flow) => (Signal::Match(*flow), BodyEncoding::Empty),
             Frame::Reaction(Reaction::Query(children), flow) if children.is_empty() => {

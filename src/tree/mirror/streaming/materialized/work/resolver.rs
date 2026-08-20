@@ -17,10 +17,9 @@ use crate::{
 /// One query's reaction loop: pairs the held children against the reply's
 /// reactions in order, accumulating the scope's [`Resolution`] and reporting
 /// each counterparty fault as its exact [`Violation`].
-pub struct Resolver<'v, B, T>
+pub struct Resolver<'v, B>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
 {
     prefix: ErasedPrefix,
     fan: Peekable<std::vec::IntoIter<(u8, B::Erased)>>,
@@ -39,10 +38,9 @@ where
     stats: Recorder,
 }
 
-impl<'v, B, T> Resolver<'v, B, T>
+impl<'v, B> Resolver<'v, B>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
 {
     pub fn new(
         Query { prefix, ours }: Query<B::Erased>,

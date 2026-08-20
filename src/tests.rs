@@ -95,6 +95,7 @@ fn overlapping_retiree_party_is_rejected() {
     // region (not a disjoint fork), with an empty tree so its version equals the
     // survivor's and the survivor takes the absorb branch.
     let forged = Peer::<u64> {
+        deserializer: crate::message::Message::deserializer::<u64>(),
         network: survivor.network,
         protocol: survivor.protocol,
         window: survivor.window,
@@ -265,8 +266,8 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for Fuse<W> {
 fn greeting_frame_len(retiree: &Peer<u64>) -> usize {
     use crate::tree::mirror::streaming::{self, Local, materialized};
 
-    let root: streaming::Root<Local, u64> = retiree.inner.borrow().tree.clone().root.into();
-    let fan = pollster::block_on(materialized::greeting_fan::<_, u64>(&Local, root.root))
+    let root: streaming::Root<Local> = retiree.inner.borrow().tree.clone().root.into();
+    let fan = pollster::block_on(materialized::greeting_fan(&Local, root.root))
         .unwrap_or_else(|never| match never {});
     // The listing frame is raw radix-hash records: one byte plus a Merkle
     // hash per child, the frame length carrying the count.

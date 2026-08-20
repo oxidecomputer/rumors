@@ -1,5 +1,6 @@
 use std::future;
 
+use crate::message::Message;
 use futures::StreamExt;
 use tokio::io::DuplexStream;
 use tokio::sync::oneshot;
@@ -25,7 +26,7 @@ use crate::tree::mirror::streaming::{
 /// A parked session's `Work` executor over a fresh in-memory link, wired
 /// the way the session wires it, with everything the tests must keep alive.
 struct ParkedSession {
-    work: Work<Failing<Local>, (), DuplexStream, DuplexStream, MemoryAcceptor>,
+    work: Work<Failing<Local>, DuplexStream, DuplexStream, MemoryAcceptor>,
     /// The claim table the protocol owns in production. Keeping it alive
     /// ensures no stream-layer closure can accidentally win the error race.
     claims: Claims<DuplexStream>,
@@ -62,6 +63,7 @@ fn parked_session() -> ParkedSession {
             accept,
             errors,
         },
+        Message::deserializer::<u64>(),
     );
     ParkedSession {
         work,
@@ -235,7 +237,7 @@ fn queued_supply_closed_outranks_a_selected_consequence_at_stream_granularity() 
     let (claim_send, claim_receive) =
         oneshot::channel::<(DuplexStream, crate::link::Done<DuplexStream>)>();
     drop(claim_send);
-    let mut receiver: StreamReceiver<DuplexStream, ()> = StreamReceiver::new(
+    let mut receiver: StreamReceiver<DuplexStream> = StreamReceiver::new(
         claim_receive,
         Speaker::Initiator,
         Stream::new(3).expect("stream index 3 exists"),
@@ -301,7 +303,7 @@ fn published_stream_error_preempts_a_parked_protocol() {
     let (claim_send, claim_receive) =
         oneshot::channel::<(DuplexStream, crate::link::Done<DuplexStream>)>();
     drop(claim_send);
-    let mut receiver: StreamReceiver<DuplexStream, ()> = StreamReceiver::new(
+    let mut receiver: StreamReceiver<DuplexStream> = StreamReceiver::new(
         claim_receive,
         Speaker::Initiator,
         Stream::new(0).expect("stream index 0 exists"),

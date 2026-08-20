@@ -29,7 +29,7 @@ use crate::{
 /// confirmation, not a dispute, and a one-sided join is a request being
 /// served.
 #[allow(clippy::type_complexity)]
-pub(super) async fn internal<B, T>(
+pub(super) async fn internal<B>(
     backend: &B,
     their_version: &Version,
     prefix: ErasedPrefix,
@@ -45,8 +45,7 @@ pub(super) async fn internal<B, T>(
     B::Error,
 >
 where
-    B: Backend<T, Node<Z>: Leaf<T>> + Sync,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf> + Sync,
 {
     let mut reactions = Vec::new();
     let mut asked = Vec::new();

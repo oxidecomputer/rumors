@@ -44,7 +44,7 @@ fn leaves_at(paths: impl IntoIterator<Item = [u8; 32]>) -> LeafRun {
         .collect()
 }
 
-fn boxed(run: LeafRun) -> BoxNodeStream<'static, Local, (), Z> {
+fn boxed(run: LeafRun) -> BoxNodeStream<'static, Local, Z> {
     Box::pin(stream::iter(run.into_iter().map(Ok::<_, Infallible>)))
 }
 
@@ -63,7 +63,7 @@ fn assemble_local<H: Convert>(run: LeafRun) -> Vec<(Prefix<H>, typed::Node<H>)> 
 /// Explode through the level-by-level default, bypassing Local's override.
 fn leaves_default<H: Convert>(prefix: Prefix<H>, node: typed::Node<H>) -> LeafRun {
     pollster::block_on(
-        H::explode::<_, ()>(
+        H::explode::<_>(
             Local,
             Box::pin(stream::once(async move { Ok((prefix, node)) })),
         )
@@ -74,7 +74,7 @@ fn leaves_default<H: Convert>(prefix: Prefix<H>, node: typed::Node<H>) -> LeafRu
 
 /// Walk leaves through the backend seam, which Local overrides directly.
 fn leaves_local<H: Convert>(prefix: Prefix<H>, node: typed::Node<H>) -> LeafRun {
-    pollster::block_on(<Local as Backend<()>>::leaves(Local, prefix, node).try_collect())
+    pollster::block_on(<Local as Backend>::leaves(Local, prefix, node).try_collect())
         .unwrap_or_else(|error| match error {})
 }
 

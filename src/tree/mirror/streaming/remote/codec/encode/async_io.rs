@@ -43,7 +43,7 @@ impl<W: AsyncWrite + Unpin> FrameWrite<W> {
     /// reader. Either retain the in-flight future across polls until it
     /// resolves, or write nothing further on this direction after a
     /// cancellation.
-    pub async fn frame<T>(&mut self, wire: &WireFrame<T>) -> Result<(), EncodeError> {
+    pub async fn frame(&mut self, wire: &WireFrame) -> Result<(), EncodeError> {
         let (stream, frame) = wire;
         let result = async {
             let encoding = FrameEncoding::new(*stream, frame)?;
@@ -55,9 +55,9 @@ impl<W: AsyncWrite + Unpin> FrameWrite<W> {
     }
 }
 
-async fn write_encoding<T>(
+async fn write_encoding(
     out: &mut (impl AsyncWrite + Unpin),
-    encoding: &FrameEncoding<'_, T>,
+    encoding: &FrameEncoding<'_>,
 ) -> Result<(), EncodeErrorKind> {
     write(out, FramePart::Signal, &encoding.signal).await?;
     match &encoding.body {

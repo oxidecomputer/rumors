@@ -118,15 +118,14 @@ proptest! {
         );
         let requested = canonical_keys(requested);
         let uncertain = canonical_pairs(uncertain);
-        let m: message::Exchange<(), message::UnderRoot> = message::Exchange {
+        let m: message::Exchange<message::UnderRoot> = message::Exchange {
             providing: providing.clone(),
             requested: requested.clone(),
             uncertain: uncertain.clone(),
-            payload: std::marker::PhantomData,
         };
         let bytes = wire::to_vec(&m).unwrap();
         let decoded =
-            wire::from_slice::<message::Exchange<(), message::UnderRoot>>(&bytes).unwrap();
+            from_slice_with::<message::Exchange<message::UnderRoot>>(&bytes).unwrap();
         prop_assert_eq!(decoded.providing, providing);
         prop_assert_eq!(decoded.requested, requested);
         prop_assert_eq!(decoded.uncertain, uncertain);
@@ -141,13 +140,12 @@ proptest! {
     ) {
         let providing = canonical_providing(providing_entries);
         let requested = canonical_keys(requested);
-        let m: message::Closing<()> = message::Closing {
+        let m: message::Closing = message::Closing {
             providing: providing.clone(),
             requested: requested.clone(),
-            payload: std::marker::PhantomData,
         };
         let bytes = wire::to_vec(&m).unwrap();
-        let decoded = wire::from_slice::<message::Closing<()>>(&bytes).unwrap();
+        let decoded = from_slice_with::<message::Closing>(&bytes).unwrap();
         prop_assert_eq!(decoded.providing, providing);
         prop_assert_eq!(decoded.requested, requested);
     }
@@ -159,9 +157,9 @@ proptest! {
         providing_entries in vec((arb_prefix::<Z>(), arb_leaf()), 0..=4),
     ) {
         let providing = canonical_providing(providing_entries);
-        let m: message::Complete<()> = message::Complete { providing: providing.clone(), payload: std::marker::PhantomData };
+        let m: message::Complete = message::Complete { providing: providing.clone() };
         let bytes = wire::to_vec(&m).unwrap();
-        let decoded = wire::from_slice::<message::Complete<()>>(&bytes).unwrap();
+        let decoded = from_slice_with::<message::Complete>(&bytes).unwrap();
         prop_assert_eq!(decoded.providing, providing);
     }
 
@@ -180,17 +178,31 @@ proptest! {
         let mut permuted = canonical.clone();
         permuted.rotate_left(rotate % canonical.len());
         prop_assume!(permuted != canonical);
-        let m = message::Complete::<()> { providing: permuted, payload: std::marker::PhantomData };
+        let m = message::Complete { providing: permuted };
         let bytes = wire::to_vec(&m).unwrap();
-        prop_assert!(wire::from_slice::<message::Complete<()>>(&bytes).is_err());
+        prop_assert!(from_slice_with::<message::Complete>(&bytes).is_err());
     }
+}
+
+/// Decode one payload-bearing message from an exact slice through the
+/// unit-payload deserializer, rejecting trailing bytes.
+fn from_slice_with<M: message::DecodeWith>(bytes: &[u8]) -> std::io::Result<M> {
+    let mut input = bytes;
+    let m = M::read_wire_with(&mut input, Message::deserializer::<()>())?;
+    if !input.is_empty() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("{} trailing bytes after the decoded message", input.len()),
+        ));
+    }
+    Ok(m)
 }
 
 /// Decode one erased node at height `H` from an exact slice, rejecting
 /// trailing bytes: the test-side door to [`DecodeNode`], with unit payloads.
 fn node_from_slice<H: DecodeNode>(bytes: &[u8]) -> std::io::Result<Node<H>> {
     let mut input = bytes;
-    let node = H::read_node::<(), _>(&mut input)?;
+    let node = H::read_node(&mut input, Message::deserializer::<()>())?;
     if !input.is_empty() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
@@ -214,27 +226,25 @@ fn one_version() -> Version {
 fn providing_rejects_duplicate_prefix() {
     let prefix = prefix_from_bytes::<Z>(&[7u8; 32]);
     let leaf = Node::leaf(one_version(), Message::new(()));
-    let m = message::Complete::<()> {
+    let m = message::Complete {
         providing: vec![(prefix, leaf.clone()), (prefix, leaf)],
-        payload: std::marker::PhantomData,
     };
     let bytes = wire::to_vec(&m).unwrap();
-    assert!(wire::from_slice::<message::Complete<()>>(&bytes).is_err());
+    assert!(from_slice_with::<message::Complete>(&bytes).is_err());
 }
 
 /// A `requested` frame whose prefixes descend is rejected.
 #[test]
 fn requested_rejects_descending_order() {
-    let m = message::Closing::<()> {
+    let m = message::Closing {
         providing: Vec::new(),
         requested: vec![
             prefix_from_bytes::<Z>(&[2u8; 32]),
             prefix_from_bytes::<Z>(&[1u8; 32]),
         ],
-        payload: std::marker::PhantomData,
     };
     let bytes = wire::to_vec(&m).unwrap();
-    assert!(wire::from_slice::<message::Closing<()>>(&bytes).is_err());
+    assert!(from_slice_with::<message::Closing>(&bytes).is_err());
 }
 
 /// An `uncertain` frame with a duplicate prefix is rejected.

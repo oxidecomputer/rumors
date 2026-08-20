@@ -17,10 +17,9 @@ use crate::tree::{
     typed::height::Z,
 };
 
-impl<B, T> Work<B, T>
+impl<B> Work<B>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
 {
     /// Assemble one level upward and return its lower-level sender.
     ///
@@ -36,7 +35,7 @@ where
         returns: Sender<Option<B::Erased>>,
         resolutions: impl Stream<Item = Result<Resolution<B::Erased>, Error<B::Error>>> + Send + 'static,
     ) -> Sender<Option<B::Erased>> {
-        let (level, level_rx) = assembly_level_returns::<B, T>(height);
+        let (level, level_rx) = assembly_level_returns::<B>(height);
         self.return_into(
             returns,
             assemble(self.backend.clone(), resolutions, level_rx),
@@ -62,14 +61,13 @@ where
 /// Pairing is positional: resolutions arrive in query order and `level`
 /// carries one item per `Pending` in that same order. An empty resolution
 /// reaches [`Backend::parent`] with an empty group and resolves to `None`.
-pub(super) fn assemble<B, T>(
+pub(super) fn assemble<B>(
     backend: B,
     resolutions: impl Stream<Item = Result<Resolution<B::Erased>, Error<B::Error>>> + Send,
     level: impl Stream<Item = Result<Option<B::Erased>, Error<B::Error>>> + Send,
 ) -> impl Stream<Item = Result<Option<B::Erased>, Error<B::Error>>> + Send
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
 {
     try_stream! {
         let mut level = pin!(level.fuse());

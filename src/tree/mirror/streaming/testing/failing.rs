@@ -136,10 +136,9 @@ impl<N> FailingNode<N> {
     }
 }
 
-impl<T, N> Node<T> for FailingNode<N>
+impl<N> Node for FailingNode<N>
 where
-    T: Send + Sync + 'static,
-    N: Node<T> + Clone + Send + 'static,
+    N: Node + Clone + Send + 'static,
 {
     type Backend = Failing<N::Backend>;
     type Height = N::Height;
@@ -175,10 +174,9 @@ impl<E: ErasedNode> ErasedNode for FailingNode<E> {
     }
 }
 
-impl<T, N> Leaf<T> for FailingNode<N>
+impl<N> Leaf for FailingNode<N>
 where
-    T: Send + Sync + 'static,
-    N: Leaf<T> + Clone + Send + 'static,
+    N: Leaf + Clone + Send + 'static,
 {
     fn message(&self) -> &Message {
         self.0.message()
@@ -189,7 +187,7 @@ where
     async fn leaf(
         version: Version,
         message: Message,
-    ) -> Result<Self, Failure<<N::Backend as Backend<T>>::Error>> {
+    ) -> Result<Self, Failure<<N::Backend as Backend>::Error>> {
         N::leaf(version, message)
             .await
             .map(Self)
@@ -197,10 +195,9 @@ where
     }
 }
 
-impl<B, T> Backend<T> for Failing<B>
+impl<B> Backend for Failing<B>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
 {
     type Node<H: Height> = FailingNode<B::Node<H>>;
     // Erasure passes through the wrapper: fault injection targets the
@@ -245,11 +242,7 @@ where
             .map_err(Failure::Inner)
     }
 
-    fn children<H>(
-        self,
-        prefix: Prefix<S<H>>,
-        parent: Self::Node<S<H>>,
-    ) -> impl NodeStream<Self, T, H>
+    fn children<H>(self, prefix: Prefix<S<H>>, parent: Self::Node<S<H>>) -> impl NodeStream<Self, H>
     where
         H: Height,
         S<H>: Height,
@@ -283,11 +276,7 @@ mod tests {
         let outer = Failing::after(inner.clone(), 1);
         let prefix = Prefix::<S<Z>>::containing(&Path::from([0; 32]));
 
-        let first = pollster::block_on(Backend::<()>::parent::<Z>(
-            outer.clone(),
-            prefix,
-            Vec::new(),
-        ));
+        let first = pollster::block_on(Backend::parent::<Z>(outer.clone(), prefix, Vec::new()));
         assert!(matches!(
             first,
             Err(Failure::Inner(Failure::Injected(Operation::Parent {
@@ -295,11 +284,7 @@ mod tests {
             })))
         ));
 
-        let second = pollster::block_on(Backend::<()>::parent::<Z>(
-            outer.clone(),
-            prefix,
-            Vec::new(),
-        ));
+        let second = pollster::block_on(Backend::parent::<Z>(outer.clone(), prefix, Vec::new()));
         assert!(matches!(
             second,
             Err(Failure::Injected(Operation::Parent { height: 1 }))

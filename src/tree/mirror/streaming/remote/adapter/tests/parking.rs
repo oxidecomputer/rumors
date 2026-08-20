@@ -105,7 +105,7 @@ fn parked_supply_reply_holds_handles_not_subtrees() {
     let reply = Reply {
         replies: children
             .into_iter()
-            .map(|(radix, node)| Reaction::Supply(radix, <Local as Backend<u64>>::erase(node)))
+            .map(|(radix, node)| Reaction::Supply(radix, <Local as Backend>::erase(node)))
             .collect(),
     };
     let runtime = runtime();
@@ -120,12 +120,13 @@ fn parked_supply_reply_holds_handles_not_subtrees() {
 
     let mut frames = stream::iter(frames);
     let decoded = runtime
-        .block_on(decode_reply::<Local, u64, _>(
+        .block_on(decode_reply::<Local, _>(
             Local,
             u64::MAX,
             unbounded(),
             scope,
             &mut frames,
+            Message::deserializer::<u64>(),
         ))
         .expect("a canonical supplied fan decodes");
 
@@ -162,7 +163,7 @@ fn maximally_disputed_reply_parks_bounded_skeleton() {
     let listing: Vec<(u8, Hash)> = (0..FAN)
         .map(|radix| (radix as u8, hash(radix as u8)))
         .collect();
-    let reply = Reply::<<Local as Backend<u64>>::Erased> {
+    let reply = Reply::<<Local as Backend>::Erased> {
         replies: (0..FAN).map(|_| Reaction::Query(listing.clone())).collect(),
     };
 
@@ -207,12 +208,13 @@ fn maximally_disputed_reply_parks_bounded_skeleton() {
 
     let mut frames = stream::iter(frames);
     let decoded = runtime
-        .block_on(decode_reply::<Local, u64, _>(
+        .block_on(decode_reply::<Local, _>(
             Local,
             u64::MAX,
             unbounded(),
             Scope::opening(&listing),
             &mut frames,
+            Message::deserializer::<u64>(),
         ))
         .expect("a canonical maximally disputed reply decodes");
 

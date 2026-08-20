@@ -21,7 +21,7 @@ use crate::tree::mirror::{
     },
 };
 
-fn failing_root(root: crate::tree::Root) -> StreamingRoot<Failing<Local>, ()> {
+fn failing_root(root: crate::tree::Root) -> StreamingRoot<Failing<Local>> {
     StreamingRoot {
         ceiling: root.ceiling,
         root: root.root.map(FailingNode::new),

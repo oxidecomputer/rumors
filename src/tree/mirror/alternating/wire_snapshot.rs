@@ -262,7 +262,7 @@ fn message_opening_one_entry() {
 /// An `Exchange` with all three sets empty: the in-band termination shape.
 #[test]
 fn message_exchange_empty() {
-    let m: message::Exchange<(), UnderRoot> = message::Exchange::default();
+    let m: message::Exchange<UnderRoot> = message::Exchange::default();
     insta::assert_snapshot!(snap(&m));
 }
 
@@ -292,11 +292,10 @@ fn message_exchange_populated() {
         Hash([3u8; MERKLE_HASH_LEN]),
     )];
 
-    let m: message::Exchange<(), UnderRoot> = message::Exchange {
+    let m: message::Exchange<UnderRoot> = message::Exchange {
         providing,
         requested,
         uncertain,
-        payload: std::marker::PhantomData,
     };
     insta::assert_snapshot!(snap(&m));
 }
@@ -304,7 +303,7 @@ fn message_exchange_populated() {
 /// An empty `Closing`: the responder's closing round with nothing left.
 #[test]
 fn message_closing_empty() {
-    let m: message::Closing<()> = message::Closing::default();
+    let m: message::Closing = message::Closing::default();
     insta::assert_snapshot!(snap(&m));
 }
 
@@ -313,10 +312,9 @@ fn message_closing_empty() {
 fn message_closing_populated() {
     let providing = vec![(prefix_from_bytes::<Z>(&[0u8; 32]), leaf("a", 1))];
     let requested = vec![prefix_from_bytes::<Z>(&[0xffu8; 32])];
-    let m: message::Closing<()> = message::Closing {
+    let m: message::Closing = message::Closing {
         providing,
         requested,
-        payload: std::marker::PhantomData,
     };
     insta::assert_snapshot!(snap(&m));
 }
@@ -324,7 +322,7 @@ fn message_closing_populated() {
 /// An empty `Complete`: the initiator's sign-off with nothing owed.
 #[test]
 fn message_complete_empty() {
-    let m: message::Complete<()> = message::Complete::default();
+    let m: message::Complete = message::Complete::default();
     insta::assert_snapshot!(snap(&m));
 }
 
@@ -332,9 +330,6 @@ fn message_complete_empty() {
 #[test]
 fn message_complete_populated() {
     let providing = vec![(prefix_from_bytes::<Z>(&[0u8; 32]), leaf("a", 1))];
-    let m: message::Complete<()> = message::Complete {
-        providing,
-        payload: std::marker::PhantomData,
-    };
+    let m: message::Complete = message::Complete { providing };
     insta::assert_snapshot!(snap(&m));
 }

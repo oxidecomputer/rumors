@@ -28,7 +28,7 @@ use crate::{
 
 /// The in-memory backend's erased node representation, which the walk's
 /// query queues carry.
-type Erased = <Local as Backend<()>>::Erased;
+type Erased = <Local as Backend>::Erased;
 /// One deliberately malformed counterparty script and the exact violation it
 /// must surface.
 #[derive(Clone, Copy, Debug)]
@@ -102,7 +102,7 @@ fn violation_script<H>(
     injection: Injection,
     parent: u8,
     radixes: &BTreeSet<u8>,
-) -> (Option<Query<Erased>>, Vec<Reply<Local, (), H>>, Version)
+) -> (Option<Query<Erased>>, Vec<Reply<Local, H>>, Version)
 where
     H: TestHeight,
     S<H>: Height,
@@ -122,7 +122,7 @@ where
         prefix: prefix.erase(),
         ours: ours
             .iter()
-            .map(|(radix, node)| (*radix, <Local as Backend<()>>::erase(node.clone())))
+            .map(|(radix, node)| (*radix, <Local as Backend>::erase(node.clone())))
             .collect(),
     };
 
@@ -206,7 +206,7 @@ where
     H: Height,
     S<H>: Height,
 {
-    let (queries, queries_rx) = internal_child_queries::<Local, ()>(H::HEIGHT, 1);
+    let (queries, queries_rx) = internal_child_queries::<Local>(H::HEIGHT, 1);
     if let Some(query) = query {
         pollster::block_on(queries.send(query)).expect("the walk is live");
     }
@@ -216,8 +216,8 @@ where
 
 /// Drive a walk's response pump until it surfaces the injected violation.
 fn reported_violation<H: Height>(
-    work: Work<Local, ()>,
-    mut responses: BoxResponses<Local, (), H, Error<Infallible>>,
+    work: Work<Local>,
+    mut responses: BoxResponses<Local, H, Error<Infallible>>,
 ) -> Violation {
     let response = pollster::block_on(async move {
         let drive = work.execute(Box::pin(std::future::pending::<

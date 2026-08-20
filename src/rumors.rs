@@ -18,7 +18,6 @@ use tokio::{
 };
 
 use serde::Serialize;
-use serde::de::DeserializeOwned;
 /// A handle for [`send`](Rumors::send)ing and [`redact`](Rumors::redact)ing
 /// messages, and [`gossip`](Rumors::gossip)ing the result with peers.
 ///
@@ -70,6 +69,7 @@ impl<T, B: BookmarkError> Clone for Rumors<T, B> {
                 run_budget: self.peer.run_budget,
                 inner: self.peer.inner.clone(),
                 bookmark: Arc::clone(&self.peer.bookmark),
+                deserializer: self.peer.deserializer,
             },
             extant: self.extant.clone(),
         }
@@ -393,7 +393,7 @@ impl<T, B: Bookmark> Rumors<T, B> {
         link: &mut Link<CR, CW, C, A>,
     ) -> Result<Gossiped, Error<B>>
     where
-        T: DeserializeOwned + Serialize + Send + Sync + 'static,
+        T: Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,
@@ -509,7 +509,7 @@ impl<T, B: Bookmark> Rumors<T, B> {
         link: &'a mut Link<CR, CW, C, A>,
     ) -> impl Stream<Item = Result<Gossiped, Error<B>>> + Unpin + 'a
     where
-        T: DeserializeOwned + Serialize + Send + Sync + 'static,
+        T: Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,

@@ -35,11 +35,11 @@ use crate::{
 
 /// The in-memory backend's erased node representation, which resolutions
 /// and level returns carry.
-type Erased = <Local as Backend<()>>::Erased;
+type Erased = <Local as Backend>::Erased;
 
 /// Erase one typed leaf the way the walk's payloads carry it.
 fn erased(node: typed::Node<Z>) -> Erased {
-    <Local as Backend<()>>::erase(node)
+    <Local as Backend>::erase(node)
 }
 
 /// A distinct leaf per call: the versions differ so hashes do.
@@ -67,7 +67,7 @@ fn parent_of(
     prefix: Prefix<S<Z>>,
     children: Vec<(u8, Option<typed::Node<Z>>)>,
 ) -> Option<typed::Node<S<Z>>> {
-    pollster::block_on(<Local as Backend<()>>::parent(Local, prefix, children))
+    pollster::block_on(<Local as Backend>::parent(Local, prefix, children))
         .unwrap_or_else(|e| match e {})
 }
 
@@ -77,7 +77,7 @@ type Level = Result<Option<Erased>, Error<Infallible>>;
 /// A work error cancels parked peers and retains its original error identity.
 #[test]
 fn work_failure_preempts_parked_tasks() {
-    let mut work: Work<Failing<Local>, ()> = Work::new(
+    let mut work: Work<Failing<Local>> = Work::new(
         Failing::after(Local, usize::MAX),
         Window::FLOOR,
         Recorder::default(),
@@ -108,7 +108,7 @@ fn assembled(
     level: Vec<Level>,
 ) -> Vec<Result<Option<Erased>, Error<Infallible>>> {
     pollster::block_on(
-        assemble::<Local, ()>(Local, stream::iter(resolutions), stream::iter(level))
+        assemble::<Local>(Local, stream::iter(resolutions), stream::iter(level))
             .collect::<Vec<_>>(),
     )
 }
@@ -215,17 +215,17 @@ fn chains_two_instances() {
         resolved: vec![(3, Resolve::Pending)],
     })];
 
-    let chained = assemble::<Local, ()>(
+    let chained = assemble::<Local>(
         Local,
         stream::iter(upper),
-        assemble::<Local, ()>(Local, stream::iter(lower), stream::empty()),
+        assemble::<Local>(Local, stream::iter(lower), stream::empty()),
     );
     let output =
         pollster::block_on(chained.try_collect::<Vec<_>>()).expect("no errors were fed in");
 
     let inner = parent_of(parent_prefix(3), vec![(1, Some(a)), (7, Some(b))])
         .expect("a non-empty all-real group constructs its parent");
-    let expected = pollster::block_on(<Local as Backend<()>>::parent(
+    let expected = pollster::block_on(<Local as Backend>::parent(
         Local,
         parent_prefix(3).pop().0,
         vec![(3, Some(inner))],

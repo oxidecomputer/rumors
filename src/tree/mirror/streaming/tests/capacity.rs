@@ -24,7 +24,7 @@ use crate::tree::{
 
 /// Whether the session stalls at a selected capacity for the fan return queue.
 fn underbuffered_mirror_stalls(a: Root, b: Root, capacity: usize) -> bool {
-    let (a, b): (StreamingRoot<Local, ()>, StreamingRoot<Local, ()>) = (a.into(), b.into());
+    let (a, b): (StreamingRoot<Local>, StreamingRoot<Local>) = (a.into(), b.into());
     let client = Handshaking::start(Local, a).window(WindowConfig::FLOOR);
     let server = Handshaking::start(Local, b).window(WindowConfig::FLOOR);
     with_kind_capacity(QueueKind::AssemblyLevelReturns, capacity, || {
@@ -201,7 +201,7 @@ fn shape_stalls(
     channel_schedule: Vec<u8>,
     backend_schedule: Vec<u8>,
 ) -> bool {
-    let (a, b): (StreamingRoot<Local, ()>, StreamingRoot<Local, ()>) =
+    let (a, b): (StreamingRoot<Local>, StreamingRoot<Local>) =
         (pair.0.clone().into(), pair.1.clone().into());
     let client = Handshaking::start(Local, a).window(WindowConfig::FLOOR);
     let server = Handshaking::start(Local, b).window(WindowConfig::FLOOR);

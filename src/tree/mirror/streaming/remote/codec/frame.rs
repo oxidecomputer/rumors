@@ -1,10 +1,8 @@
 //! Semantic wire frames after signal decoding.
 
-use std::marker::PhantomData;
-
 use crate::{
     Version,
-    message::Message,
+    message::{Message, PayloadDeserializer},
     tree::{
         mirror::framing::{LENGTH_HEADER_LEN, LengthOverflow, length_header},
         typed::{Hash, hash::MERKLE_HASH_LEN},
@@ -14,7 +12,6 @@ use crate::{
 use super::error::{DecodeLeafError, QueryOrderError};
 use super::signal::{End, Flow, Stream};
 
-use serde::de::DeserializeOwned;
 /// The count byte stores one less than the nonempty query's actual fan.
 pub const QUERY_COUNT_BIAS: usize = 1;
 
@@ -32,23 +29,23 @@ const ADJACENT_CHILD_COUNT: usize = 2;
 
 /// The body of one complete reaction frame.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Reaction<T> {
+pub enum Reaction {
     Match,
     Query(Vec<(u8, Hash)>),
-    Supply(LeafRun<T>),
+    Supply(LeafRun),
 }
 
 /// A protocol reaction frame or a boundary-only frame.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Frame<T> {
+pub enum Frame {
     /// A reaction and whether another follows in its reply.
-    Reaction(Reaction<T>, Flow),
+    Reaction(Reaction, Flow),
     /// An empty reply or a transport-level stream-end control.
     End(End),
 }
 
 /// A frame paired with the logical stream named by its signal byte.
-pub type WireFrame<T> = (Stream, Frame<T>);
+pub type WireFrame = (Stream, Frame);
 
 /// One supply frame's run of leaf records, held in encoded form.
 ///
@@ -72,35 +69,33 @@ pub type WireFrame<T> = (Stream, Frame<T>);
 ///
 /// [`push`]: Self::push
 /// [`records`]: Self::records
-pub struct LeafRun<T> {
+pub struct LeafRun {
     bytes: Vec<u8>,
-    marker: PhantomData<fn() -> T>,
 }
 
-impl<T> Default for LeafRun<T> {
+impl Default for LeafRun {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<T> Clone for LeafRun<T> {
+impl Clone for LeafRun {
     fn clone(&self) -> Self {
         Self {
             bytes: self.bytes.clone(),
-            marker: PhantomData,
         }
     }
 }
 
-impl<T> PartialEq for LeafRun<T> {
+impl PartialEq for LeafRun {
     fn eq(&self, other: &Self) -> bool {
         self.bytes == other.bytes
     }
 }
 
-impl<T> Eq for LeafRun<T> {}
+impl Eq for LeafRun {}
 
-impl<T> std::fmt::Debug for LeafRun<T> {
+impl std::fmt::Debug for LeafRun {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("LeafRun")
             .field("records", &self.record_count())
@@ -109,14 +104,11 @@ impl<T> std::fmt::Debug for LeafRun<T> {
     }
 }
 
-impl<T> LeafRun<T> {
+impl LeafRun {
     /// Start an empty run; at least one record must be pushed before it may
     /// become a frame.
     pub fn new() -> Self {
-        Self {
-            bytes: Vec::new(),
-            marker: PhantomData,
-        }
+        Self { bytes: Vec::new() }
     }
 
     /// Whether no record has been pushed yet.
@@ -194,10 +186,7 @@ impl<T> LeafRun<T> {
             }
             rest = &body[len..];
         }
-        Ok(Self {
-            bytes,
-            marker: PhantomData,
-        })
+        Ok(Self { bytes })
     }
 
     /// The number of records in this run.
@@ -206,11 +195,12 @@ impl<T> LeafRun<T> {
     }
 
     /// Iterate the run's records, decoding each into its canonical pair.
-    pub fn records(&self) -> impl Iterator<Item = Result<(Version, Message), DecodeLeafError>>
-    where
-        T: DeserializeOwned + Send + Sync + 'static,
-    {
-        self.record_slices().map(parse_record::<T>)
+    pub fn records(
+        &self,
+        deserializer: PayloadDeserializer,
+    ) -> impl Iterator<Item = Result<(Version, Message), DecodeLeafError>> {
+        self.record_slices()
+            .map(move |record| parse_record(record, deserializer))
     }
 
     /// Split the validated run back into its exact record slices.
@@ -263,8 +253,9 @@ fn record_header(header: &[u8]) -> usize {
 }
 
 /// Decode one exact record body into its canonical pair.
-fn parse_record<T: DeserializeOwned + Send + Sync + 'static>(
+fn parse_record(
     record: &[u8],
+    deserializer: PayloadDeserializer,
 ) -> Result<(Version, Message), DecodeLeafError> {
     // Both fields are self-delimiting CBOR values, so the exact record
     // body parses without retrying, and whatever the payload's parse does
@@ -278,13 +269,12 @@ fn parse_record<T: DeserializeOwned + Send + Sync + 'static>(
     let mut input = record;
     let version: Version =
         ciborium::de::from_reader(&mut input).map_err(|e| DecodeLeafError::Version(de_error(e)))?;
-    let payload = input;
-    let message: T =
-        ciborium::de::from_reader(&mut input).map_err(|e| DecodeLeafError::Message(de_error(e)))?;
-    if !input.is_empty() {
-        return Err(DecodeLeafError::TrailingBytes { count: input.len() });
-    }
-    let message = Message::from_decoded(message, bytes::Bytes::copy_from_slice(payload));
+    // The deserializer owns the payload parse, including the
+    // exactly-one-value check the record framing otherwise cannot make
+    // (the payload runs to the record's end), so trailing bytes surface
+    // as its InvalidData.
+    let message = Message::from_wire(bytes::Bytes::copy_from_slice(input), deserializer)
+        .map_err(DecodeLeafError::Message)?;
     Ok((version, message))
 }
 

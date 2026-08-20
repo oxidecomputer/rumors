@@ -1,5 +1,6 @@
 //! Laws which hold uniformly across the adapter's type-level height ladder.
 
+use crate::message::Message;
 use std::convert::Infallible;
 
 use futures::{StreamExt, TryStreamExt, stream};
@@ -18,8 +19,8 @@ use crate::tree::{
 };
 
 /// The in-memory backend's erased node representations, per payload.
-type ErasedUnit = <Local as Backend<()>>::Erased;
-type ErasedU64 = <Local as Backend<u64>>::Erased;
+type ErasedUnit = <Local as Backend>::Erased;
+type ErasedU64 = <Local as Backend>::Erased;
 
 use super::{
     super::{DecodeError, Scope, decode_leaf_reply, decode_reply, encode_leaf_reply, encode_reply},
@@ -114,6 +115,7 @@ impl AdapterHeight for Z {
                 unbounded(),
                 scope.clone(),
                 &mut frames,
+                Message::deserializer::<u64>(),
             ))
             .expect("an in-scope leaf decodes");
 
@@ -163,6 +165,7 @@ impl AdapterHeight for Z {
                 unbounded(),
                 scope,
                 &mut frames,
+                Message::deserializer::<u64>(),
             ))
             .expect("canonical matches decode");
         prop_assert!(decoded.questions.is_empty(), "height 0");
@@ -240,6 +243,7 @@ impl AdapterHeight for Z {
                 unbounded(),
                 scope,
                 &mut frames,
+                Message::deserializer::<u64>(),
             ))
             .expect("canonical leaf reactions decode");
         prop_assert_eq!(&decoded.questions, &expected_questions, "height 0");
@@ -291,6 +295,7 @@ impl AdapterHeight for Z {
                 unbounded(),
                 scope,
                 &mut frames,
+                Message::deserializer::<u64>(),
             ))
             .expect("canonical mixed leaf reactions decode");
         prop_assert_eq!(&decoded.questions, &expected_questions, "height 0");
@@ -320,6 +325,7 @@ impl AdapterHeight for Z {
                 unbounded(),
                 Scope::new(parent.erase(), &[]),
                 &mut frames,
+                Message::deserializer::<u64>(),
             ))
             .err()
             .expect("duplicate leaves are not strictly ascending");
@@ -340,6 +346,7 @@ impl AdapterHeight for Z {
                 unbounded(),
                 Scope::new(foreign.erase(), &[]),
                 &mut frames,
+                Message::deserializer::<u64>(),
             ))
             .err()
             .expect("a leaf outside the retained scope must fail");
@@ -367,12 +374,13 @@ where
         let frame = supplied_frame(leaf, Flow::End);
         let mut frames = stream::iter([frame.clone()]);
         let decoded = runtime
-            .block_on(decode_reply::<Local, u64, _>(
+            .block_on(decode_reply::<Local, _>(
                 Local,
                 u64::MAX,
                 unbounded(),
                 scope.clone(),
                 &mut frames,
+                Message::deserializer::<u64>(),
             ))
             .expect("an in-scope leaf decodes");
 
@@ -416,12 +424,13 @@ where
                 .chain([sentinel.clone()]),
         );
         let decoded = runtime
-            .block_on(decode_reply::<Local, (), _>(
+            .block_on(decode_reply::<Local, _>(
                 Local,
                 u64::MAX,
                 unbounded(),
                 scope,
                 &mut frames,
+                Message::deserializer::<u64>(),
             ))
             .expect("canonical matches decode");
         prop_assert!(decoded.questions.is_empty(), "height {}", Self::HEIGHT);
@@ -499,12 +508,13 @@ where
 
         let mut frames = stream::iter(actual_frames);
         let decoded = runtime
-            .block_on(decode_reply::<Local, (), _>(
+            .block_on(decode_reply::<Local, _>(
                 Local,
                 u64::MAX,
                 unbounded(),
                 scope,
                 &mut frames,
+                Message::deserializer::<u64>(),
             ))
             .expect("canonical positional reactions decode");
         prop_assert_eq!(
@@ -566,12 +576,13 @@ where
         let sentinel = Frame::End(End::Reply);
         let mut frames = stream::iter(actual_frames.into_iter().chain([sentinel.clone()]));
         let decoded = runtime
-            .block_on(decode_reply::<Local, u64, _>(
+            .block_on(decode_reply::<Local, _>(
                 Local,
                 u64::MAX,
                 unbounded(),
                 scope,
                 &mut frames,
+                Message::deserializer::<u64>(),
             ))
             .expect("canonical mixed reactions decode");
         prop_assert_eq!(
@@ -605,12 +616,13 @@ where
         let parent = Prefix::<Self>::containing(&leaf.path()).pop().0;
         let mut frames = stream::iter(duplicate_frames(leaf));
         let error = runtime
-            .block_on(decode_reply::<Local, u64, _>(
+            .block_on(decode_reply::<Local, _>(
                 Local,
                 u64::MAX,
                 unbounded(),
                 Scope::new(parent.erase(), &[]),
                 &mut frames,
+                Message::deserializer::<u64>(),
             ))
             .err()
             .expect("duplicate leaves are not strictly ascending");
@@ -631,12 +643,13 @@ where
         let foreign = foreign_parent::<Self>(leaf, actual);
         let mut frames = stream::iter([supplied_frame(leaf, Flow::End)]);
         let error = runtime
-            .block_on(decode_reply::<Local, u64, _>(
+            .block_on(decode_reply::<Local, _>(
                 Local,
                 u64::MAX,
                 unbounded(),
                 Scope::new(foreign.erase(), &[]),
                 &mut frames,
+                Message::deserializer::<u64>(),
             ))
             .err()
             .expect("a leaf outside the retained scope must fail");
@@ -644,14 +657,14 @@ where
     }
 }
 
-fn supplied_frame(leaf: &LeafCase, flow: Flow) -> Frame<u64> {
+fn supplied_frame(leaf: &LeafCase, flow: Flow) -> Frame {
     Frame::Reaction(
         WireReaction::Supply(leaf_run(&[(&leaf.version, &leaf.message)])),
         flow,
     )
 }
 
-fn duplicate_frames(leaf: &LeafCase) -> [Frame<u64>; 2] {
+fn duplicate_frames(leaf: &LeafCase) -> [Frame; 2] {
     [
         supplied_frame(leaf, Flow::Continue),
         supplied_frame(leaf, Flow::End),
@@ -669,7 +682,7 @@ fn mixed_reply<H: Height>(
     supply_radix: u8,
     supply: typed::Node<H>,
 ) -> Reply<ErasedU64> {
-    let mut supply = Some(<Local as Backend<u64>>::erase(supply));
+    let mut supply = Some(<Local as Backend>::erase(supply));
     let mut replies = Vec::with_capacity(case.radixes.len() + 1);
     for position in 0..=case.radixes.len() {
         if position == supply_at {
@@ -694,7 +707,7 @@ fn expected_mixed_frames(
     query_listing: &[(u8, Hash)],
     supply_at: usize,
     leaf: &LeafCase,
-) -> Vec<Frame<u64>> {
+) -> Vec<Frame> {
     let mut reactions = Vec::with_capacity(case.radixes.len() + 1);
     for position in 0..=case.radixes.len() {
         if position == supply_at {
@@ -820,14 +833,10 @@ where
 {
     let prefix = Prefix::<H>::containing(&expected_leaf.path());
     let leaves = runtime.block_on(async {
-        <Local as Backend<u64>>::leaves(
-            Local,
-            prefix,
-            <Local as Backend<u64>>::assume::<H>(node.clone()),
-        )
-        .try_collect::<Vec<_>>()
-        .await
-        .expect("the local backend is infallible")
+        <Local as Backend>::leaves(Local, prefix, <Local as Backend>::assume::<H>(node.clone()))
+            .try_collect::<Vec<_>>()
+            .await
+            .expect("the local backend is infallible")
     });
     prop_assert_eq!(leaves.len(), 1, "height {}", H::HEIGHT);
     let (actual_prefix, actual_leaf) = &leaves[0];
@@ -844,7 +853,7 @@ where
 }
 
 fn assert_match_encoding<Q>(
-    encoded: &[(Frame<()>, Option<Q>)],
+    encoded: &[(Frame, Option<Q>)],
     count: usize,
     height: usize,
 ) -> TestCaseResult {
@@ -886,7 +895,7 @@ fn assert_matches(reply: &Reply<ErasedUnit>, count: usize, height: usize) -> Tes
     Ok(())
 }
 
-fn expected_positional_frames(case: &PositionalCase) -> Vec<Frame<()>> {
+fn expected_positional_frames(case: &PositionalCase) -> Vec<Frame> {
     if case.radixes.is_empty() {
         return vec![Frame::End(End::Reply)];
     }

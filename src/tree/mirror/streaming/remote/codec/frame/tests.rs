@@ -59,11 +59,11 @@ fn record_len_matches_an_actual_push() {
         }
         checked_regimes.insert(super::cbor_bytes_header_len(version.as_bytes().len()));
         for message in [Message::new(0u64), Message::new(u64::MAX)] {
-            let mut run = LeafRun::<u64>::new();
+            let mut run = LeafRun::new();
             run.push(&version, &message).expect("test records fit");
             assert_eq!(
                 run.encoded_len(),
-                LeafRun::<u64>::record_len(&version, &message),
+                LeafRun::record_len(&version, &message),
                 "record_len must price exactly one pushed record",
             );
             // The version atom `push` writes is byte-identical to the

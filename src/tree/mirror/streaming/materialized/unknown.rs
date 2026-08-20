@@ -74,7 +74,7 @@ fn knowledge(node: &impl ErasedNode, known: &Version) -> Dominance {
 /// [`messages_shed`](crate::SessionStats::messages_shed): one per dropped
 /// leaf, a whole subtree's exact leaf count when the cached version bounds
 /// prune it without descending.
-pub(super) fn unknown<'a, B, T>(
+pub(super) fn unknown<'a, B>(
     backend: &'a B,
     known: &'a Version,
     prefix: ErasedPrefix,
@@ -82,8 +82,7 @@ pub(super) fn unknown<'a, B, T>(
     stats: &'a Recorder,
 ) -> BoxFuture<'a, Result<Option<B::Erased>, B::Error>>
 where
-    B: Backend<T, Node<Z>: Leaf<T>> + Sync,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf> + Sync,
 {
     async move {
         if prefix.height() == 0 {
@@ -130,7 +129,7 @@ where
 /// Reporting the children lets an answerer emit them as `Supply` reactions
 /// without re-querying the prefix it just explored (the one-query-per-prefix
 /// invariant; see [`super`]).
-pub(super) async fn unknown_providing<B, T>(
+pub(super) async fn unknown_providing<B>(
     backend: &B,
     known: &Version,
     prefix: ErasedPrefix,
@@ -138,8 +137,7 @@ pub(super) async fn unknown_providing<B, T>(
     stats: &Recorder,
 ) -> Result<(Option<B::Erased>, Vec<(u8, B::Erased)>), B::Error>
 where
-    B: Backend<T, Node<Z>: Leaf<T>> + Sync,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf> + Sync,
 {
     match knowledge(&node, known) {
         // Wholly unknown: the whole subtree travels.

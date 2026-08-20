@@ -82,7 +82,7 @@ fn mirror_via(a: crate::tree::Root, b: crate::tree::Root, scenario: Scenario) ->
             Scenario::LocalLocal => {
                 let local_a = local::Exchange::start(a);
                 let local_b = local::Exchange::start(b);
-                match mirror::<_, _, ()>(local_a, local_b).await {
+                match mirror(local_a, local_b).await {
                     Err(e) => panic!("honest endpoints speak no violations: {e}"),
                     Ok((ours, theirs)) => {
                         assert_eq!(ours, theirs, "local-local endpoints should converge");
@@ -101,16 +101,18 @@ fn mirror_via(a: crate::tree::Root, b: crate::tree::Root, scenario: Scenario) ->
                 let (b_r, b_w) = tokio::io::split(b_side);
 
                 let local_a = local::Exchange::start(a);
-                let remote_b = remote::Exchange::<(), _, _, _, _>::start(
+                let remote_b = remote::Exchange::start(
                     FrameRead::new(a_r),
                     FrameWrite::new(a_w),
+                    Message::deserializer::<()>(),
                 );
                 let client = mirror(local_a, remote_b);
 
                 let local_b = local::Exchange::start(b);
-                let remote_a = remote::Exchange::<(), _, _, _, _>::start(
+                let remote_a = remote::Exchange::start(
                     FrameRead::new(b_r),
                     FrameWrite::new(b_w),
+                    Message::deserializer::<()>(),
                 );
                 let server = mirror(local_b, remote_a);
 
@@ -294,7 +296,7 @@ fn uncontained_supply_is_rejected() {
     // violation.
     {
         let (receiver, poisoned, _, _) = uncontained_supply_pair();
-        let result = block_on(mirror::<_, _, ()>(
+        let result = block_on(mirror(
             local::Exchange::start(receiver),
             local::Exchange::start(poisoned),
         ));
@@ -314,16 +316,18 @@ fn uncontained_supply_is_rejected() {
             let (b_r, b_w) = tokio::io::split(b_side);
 
             let local_receiver = local::Exchange::start(receiver);
-            let remote_b = remote::Exchange::<(), _, _, _, _>::start(
+            let remote_b = remote::Exchange::start(
                 FrameRead::new(a_r),
                 FrameWrite::new(a_w),
+                Message::deserializer::<()>(),
             );
             let receiver_side = mirror(local_receiver, remote_b);
 
             let local_poisoned = local::Exchange::start(poisoned);
-            let remote_a = remote::Exchange::<(), _, _, _, _>::start(
+            let remote_a = remote::Exchange::start(
                 FrameRead::new(b_r),
                 FrameWrite::new(b_w),
+                Message::deserializer::<()>(),
             );
             let poisoned_side = mirror(local_poisoned, remote_a);
 

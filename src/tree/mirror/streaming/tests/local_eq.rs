@@ -110,8 +110,8 @@ proptest! {
         );
 
         let local_paths = spec.local_path_set();
-        let (_, _, trace_0, _) = transcribed_mirror_sides::<()>(local.clone(), remote_0);
-        let (_, _, trace_1, _) = transcribed_mirror_sides::<()>(local, remote_1);
+        let (_, _, trace_0, _) = transcribed_mirror_sides(local.clone(), remote_0);
+        let (_, _, trace_1, _) = transcribed_mirror_sides(local, remote_1);
         let decoded_0 = decode(&trace_0);
         let decoded_1 = decode(&trace_1);
 
@@ -223,8 +223,8 @@ fn free_insertions_are_invisible_to_the_local_view() {
         let remote_0 = rooted_at(remote_plus(shallow), join.clone());
         let remote_1 = rooted_at(remote_plus(deep), join);
 
-        let (_, _, trace_0, _) = transcribed_mirror_sides::<()>(local.clone(), remote_0);
-        let (_, _, trace_1, _) = transcribed_mirror_sides::<()>(local, remote_1);
+        let (_, _, trace_0, _) = transcribed_mirror_sides(local.clone(), remote_0);
+        let (_, _, trace_1, _) = transcribed_mirror_sides(local, remote_1);
         let decoded_0 = decode(&trace_0);
         let decoded_1 = decode(&trace_1);
 
@@ -302,8 +302,8 @@ fn leaf_requests_are_erased_from_the_view() {
         local_paths: &BTreeSet<[u8; 32]>,
         p: Party,
     ) {
-        let (_, _, trace_0, _) = transcribed_mirror_sides::<()>(local.clone(), remote_0);
-        let (_, _, trace_1, _) = transcribed_mirror_sides::<()>(local, remote_1);
+        let (_, _, trace_0, _) = transcribed_mirror_sides(local.clone(), remote_0);
+        let (_, _, trace_1, _) = transcribed_mirror_sides(local, remote_1);
         let decoded_0 = decode(&trace_0);
         let decoded_1 = decode(&trace_1);
         assert_view_sound(&decoded_0, p, local_paths);

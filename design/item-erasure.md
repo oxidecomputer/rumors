@@ -81,9 +81,9 @@ struct Message /* erased */ {
 ```
 
 with the typed boundary reading by checked downcast (a `TypeId`
-compare; a failed downcast is a *caught* mispairing — stronger
-witnessing than the height seam's debug-only prefix asserts). The one
-per-`T` residue beyond the facade is a deserialize witness
+compare; a failed downcast is a *caught* mispairing — a stronger
+tripwire than the height seam's debug-only prefix asserts). The one
+per-`T` residue beyond the facade is a payload deserializer
 (`fn(&[u8]) -> Result<Arc<dyn Any + Send + Sync>, _>`) threaded from
 peer construction to the wire-decode boundary, which keeps malformed
 payloads failing at ingress as `DecodeError::Record` exactly as today.
@@ -134,10 +134,10 @@ security-relevant: payload validation stays exactly where it is
 
 ## Rulings (owner-resolved)
 
-1. **Witness minting**: at `Peer<T>` construction — one witness per
-   peer lifetime, stored alongside the erased tree in the shared inner
-   state and threaded to every session. `DeserializeOwned` lives at
-   construction; the gossip entry points carry no serde bounds.
+1. **Deserializer minting**: at `Peer<T>` construction — one payload
+   deserializer per peer lifetime, stored on the peer and threaded to
+   every session. `DeserializeOwned` lives at construction; the gossip
+   entry points carry no serde bounds.
 2. **Sealing**: non-generic core functions in the rlib, with the
    public API unchanged — byte-for-byte the same signatures. If the
    non-generic sealing turns structurally hairy, back it out and fall
@@ -196,10 +196,30 @@ security-relevant: payload validation stays exactly where it is
    streaming session, still generic over `(B, T)` — stage 3's scope,
    and where the trade's verdict lands.
 3. **The erased session**: `Backend<T>` drops `T`; the codec's record
-   decode keeps the wire bytes and builds payloads through the witness;
-   sessions receive the witness from the peer. Measure.
+   decode keeps the wire bytes and builds payloads through the
+   deserializer (a plain `fn` pointer — `PayloadDeserializer`, minted
+   by `Message::deserializer::<T>()` at peer construction); sessions
+   receive it at their handshake entry. The V1 oracle joins the same
+   regime (`DecodeNode::read_node` and the payload-bearing messages'
+   `DecodeWith` take the deserializer), which dissolves the phantom
+   decode-context fields stage 2 introduced, and the gossip entry
+   points drop their serde bounds entirely — `DeserializeOwned` lives
+   at `seed`/`bootstrap`, `Serialize` at `send`. One taxonomy
+   consequence, deliberately re-accepted in the error atlas: a record's
+   trailing payload bytes now classify as a malformed payload
+   (`DecodeLeafError::Message(InvalidData)`), because the payload runs
+   to the record's end and the deserializer owns the
+   exactly-one-value check; the record-level `TrailingBytes` variant
+   became unreachable and is gone. Measure.
+   *Measured*: the lib grows ~102k → 354,431 / 12,716 — the session
+   now compiles once, into the rlib — but `pairwise` sits flat at
+   719,377 / 30,252, because `Peer::<T>`'s session-driving methods
+   are still generic funnels: `gossip_inner::<u64>` monomorphizes in
+   the consumer crate and drags the whole (now `T`-free, still
+   `B`-generic) session tower with it. The cut lands with stage 4's
+   sealing of those entry points.
 4. **Sealing**: the session core's entry points go non-generic over
-   the erased tree, witness, and dyn-erased link (public API
+   the erased tree, deserializer, and dyn-erased link (public API
    unchanged). The new meter lands here: IR lines of a minimal
    downstream binary (one `gossip` call) — the "what the next consumer
    pays" number. Measure; bench pin at the end.

@@ -20,6 +20,7 @@ use crate::link::{
     Acceptor, Connector, Link, SessionState,
     erased::{DynAcceptor, DynConnector},
 };
+use crate::message::Message;
 #[cfg(any(test, feature = "protocol-v1"))]
 use crate::tree::mirror::{
     alternating::{self, local as alternating_local, remote as alternating_remote},
@@ -41,7 +42,6 @@ use crate::{
 
 use super::{Inner, Peer, bootstrap::Bootstrap};
 
-use serde::Serialize;
 use serde::de::DeserializeOwned;
 /// Magic bytes that open every `rumors` gossip session's preamble frame.
 pub const PROTOCOL_MAGIC: [u8; 6] = *b"RUMORS";
@@ -211,7 +211,7 @@ impl<T> Peer<T, NoBookmark> {
         link: &'a mut Link<CR, CW, C, A>,
     ) -> BoxFuture<'a, Result<Option<Self>, Error>>
     where
-        T: DeserializeOwned + Serialize + Send + Sync + 'static,
+        T: DeserializeOwned + Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,
@@ -238,10 +238,14 @@ impl<T> Peer<T, NoBookmark> {
         link: DynLinkParts<'a>,
     ) -> BoxFuture<'a, Result<Option<Self>, Error>>
     where
-        T: DeserializeOwned + Serialize + Send + Sync + 'static,
+        T: DeserializeOwned + Send + Sync + 'static,
     {
         Box::pin(async move {
             let (read, write, connector, acceptor, epoch) = link;
+            // The peer-to-be's payload deserializer, minted before it
+            // exists: the bootstrap session's ingress decodes through it,
+            // and the constructed peer inherits it.
+            let deserializer = Message::deserializer::<T>();
             // Magic/version/network/intent preamble first, before either protocol
             // is allowed to trust peer-declared frame lengths.
             let mut staged = handshake::Staged::new();
@@ -272,7 +276,7 @@ impl<T> Peer<T, NoBookmark> {
                 Result<Option<(tree::Root, DynRead<'a>, DynWrite<'a>)>, Error>,
             > = match config.protocol {
                 Protocol::V2 => Box::pin(async move {
-                    let local_root: streaming::Root<Local, T> = tree::Root::default().into();
+                    let local_root: streaming::Root<Local> = tree::Root::default().into();
                     // The window choice is passed for uniformity with gossip,
                     // but no choice can widen this session: disputes require
                     // joint occupancy and this side's replica is empty, so
@@ -284,8 +288,8 @@ impl<T> Peer<T, NoBookmark> {
                         .window(config.window)
                         .target_message_size(config.run_budget.bytes() as u64);
                     let carrier = Link::for_session(read, write, connector, acceptor, epoch);
-                    let proxy =
-                        streaming_remote::Handshaking::start(Local, carrier).window(config.window);
+                    let proxy = streaming_remote::Handshaking::start(Local, carrier, deserializer)
+                        .window(config.window);
                     let handshaken = streaming::handshake(local, proxy)
                         .await
                         .map_err(streaming_error)?;
@@ -312,9 +316,10 @@ impl<T> Peer<T, NoBookmark> {
                 #[cfg(any(test, feature = "protocol-v1"))]
                 Protocol::V1 => Box::pin(async move {
                     let local = alternating_local::Exchange::start(tree::Root::default());
-                    let proxy = alternating_remote::Exchange::<T, _, _, _, _>::start(
+                    let proxy = alternating_remote::Exchange::start(
                         FrameRead::new(read),
                         FrameWrite::new(write),
+                        deserializer,
                     );
                     let handshaken = alternating::handshake(local, proxy)
                         .await
@@ -354,6 +359,7 @@ impl<T> Peer<T, NoBookmark> {
                     tree: Tree::from_root(root),
                 }),
                 bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
+                deserializer,
             };
             Ok(Some(peer))
         })
@@ -370,6 +376,7 @@ impl<T> Peer<T, NoBookmark> {
             window,
             run_budget,
             inner,
+            deserializer,
             ..
         } = self;
         let peer = Peer {
@@ -379,6 +386,7 @@ impl<T> Peer<T, NoBookmark> {
             run_budget,
             inner,
             bookmark: Arc::new(Mutex::new(Bookmarked::new(bookmark))),
+            deserializer,
         };
 
         // A pristine seed has no identity worth recording yet; persisting it
@@ -407,6 +415,7 @@ impl<T> Peer<T, NoBookmark> {
                     run_budget: peer.run_budget,
                     inner: peer.inner,
                     bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
+                    deserializer: peer.deserializer,
                 },
                 error,
             }),
@@ -437,7 +446,7 @@ impl<T, B: Persist> Peer<T, B> {
         link: &mut Link<CR, CW, C, A>,
     ) -> Retire<T, B>
     where
-        T: DeserializeOwned + Serialize + Send + Sync + 'static,
+        T: Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,
@@ -476,7 +485,7 @@ impl<T, B: Persist> Peer<T, B> {
         link: &mut Link<CR, CW, C, A>,
     ) -> Result<Gossiped, Error<B>>
     where
-        T: DeserializeOwned + Serialize + Send + Sync + 'static,
+        T: Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,
@@ -616,9 +625,10 @@ impl<T, B: Persist> Peer<T, B> {
         link: DynLinkParts<'a>,
     ) -> (Intent, Result<(Version, SessionStats), Error<B>>)
     where
-        T: DeserializeOwned + Serialize + Send + Sync + 'static,
+        T: Send + Sync + 'static,
     {
         let (read, write, connector, acceptor, epoch) = link;
+        let deserializer = self.deserializer;
         // The session's stats recorder: under V2, both protocol
         // participants below share it (the walk counts disputes, gains,
         // sheds, and the window grant; the proxy's codec seam counts
@@ -744,13 +754,12 @@ impl<T, B: Persist> Peer<T, B> {
             Result<(tree::Root, DynRead<'a>, DynWrite<'a>), Error>,
         > = match self.protocol {
             Protocol::V2 => Box::pin(async move {
-                let local =
-                    materialized::Handshaking::<_, T, _>::start(Local, prior_tree.root.into())
-                        .window(window)
-                        .target_message_size(run_budget.bytes() as u64)
-                        .stats(session_stats.clone());
+                let local = materialized::Handshaking::<_, _>::start(Local, prior_tree.root.into())
+                    .window(window)
+                    .target_message_size(run_budget.bytes() as u64)
+                    .stats(session_stats.clone());
                 let carrier = Link::for_session(read, write, connector, acceptor, epoch);
-                let proxy = streaming_remote::Handshaking::start(Local, carrier)
+                let proxy = streaming_remote::Handshaking::start(Local, carrier, deserializer)
                     .window(window)
                     .stats(session_stats);
                 let handshaken = streaming::handshake(local, proxy)
@@ -772,9 +781,10 @@ impl<T, B: Persist> Peer<T, B> {
             #[cfg(any(test, feature = "protocol-v1"))]
             Protocol::V1 => Box::pin(async move {
                 let local = alternating_local::Exchange::start(prior_tree.root);
-                let proxy = alternating_remote::Exchange::<T, _, _, _, _>::start(
+                let proxy = alternating_remote::Exchange::start(
                     FrameRead::new(read),
                     FrameWrite::new(write),
+                    deserializer,
                 );
                 let handshaken = alternating::handshake(local, proxy)
                     .await
@@ -965,7 +975,7 @@ impl<T, B: Bookmark> Peer<T, B> {
         link: &'a mut Link<CR, CW, C, A>,
     ) -> impl Stream<Item = Result<Gossiped, Error<B>>> + Unpin + 'a
     where
-        T: DeserializeOwned + Serialize + Send + Sync + 'static,
+        T: Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,

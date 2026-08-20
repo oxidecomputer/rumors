@@ -43,16 +43,15 @@ use crate::tree::{
 /// A blocked producer has already made one reply available to the counterparty,
 /// and consuming that reply is sufficient to release the producer. More slots
 /// retain whole messages without breaking another dependency.
-pub(super) fn outgoing_responses<B, T, H>() -> (
+pub(super) fn outgoing_responses<B, H>() -> (
     Sender<Result<Reply<B::Erased>, Error<B::Error>>>,
-    ReplyResultStream<B, T, H, Error<B::Error>>,
+    ReplyResultStream<B, H, Error<B::Error>>,
 )
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
     H: Height,
 {
-    erased::reply_channel::<B, T, H, Error<B::Error>>(
+    erased::reply_channel::<B, H, Error<B::Error>>(
         QueueRole::new(QueueKind::OutgoingResponses, H::HEIGHT),
         1,
     )
@@ -82,15 +81,14 @@ where
 /// stall a session (`underbuffered_mirror_stalls` in the capacity tests
 /// demonstrates it), which is why the session window deliberately never
 /// reaches this constructor.
-pub(super) fn assembly_level_returns<B, T>(
+pub(super) fn assembly_level_returns<B>(
     height: usize,
 ) -> (
     Sender<Option<B::Erased>>,
     OkReceiverStream<Option<B::Erased>, Error<B::Error>>,
 )
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
 {
     ok_channel(QueueRole::new(QueueKind::AssemblyLevelReturns, height), FAN)
 }
@@ -99,10 +97,9 @@ where
 ///
 /// The opening emits exactly one query for the root scope, so a second slot
 /// can never be occupied.
-pub(super) fn initiator_root_query<B, T>() -> (Sender<Query<B::Erased>>, Receiver<Query<B::Erased>>)
+pub(super) fn initiator_root_query<B>() -> (Sender<Query<B::Erased>>, Receiver<Query<B::Erased>>)
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
 {
     channel(
         QueueRole::new(QueueKind::InitiatorRootQuery, UnderRoot::HEIGHT),
@@ -114,11 +111,9 @@ where
 ///
 /// Reconciliation produces exactly one root node and the terminal future
 /// consumes it directly.
-pub(super) fn initiator_root_return<B, T>()
--> (Sender<Option<B::Erased>>, Receiver<Option<B::Erased>>)
+pub(super) fn initiator_root_return<B>() -> (Sender<Option<B::Erased>>, Receiver<Option<B::Erased>>)
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
 {
     channel(
         QueueRole::new(QueueKind::InitiatorRootReturn, Root::HEIGHT),
@@ -133,12 +128,11 @@ where
 /// stage can hold a pipeline of disputed children in flight; each buffered
 /// [`Query`] may own a fan of node handles, which is priced by the window's
 /// node budget.
-pub(super) fn responder_child_queries<B, T>(
+pub(super) fn responder_child_queries<B>(
     capacity: usize,
 ) -> (Sender<Query<B::Erased>>, Receiver<Query<B::Erased>>)
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
 {
     channel(
         QueueRole::new(QueueKind::ResponderChildQueries, UnderUnderRoot::HEIGHT),
@@ -150,13 +144,12 @@ where
 ///
 /// The responder processes exactly one opening request and therefore
 /// publishes exactly one resolution for the root scope.
-pub(super) fn responder_root_resolution<B, T>() -> (
+pub(super) fn responder_root_resolution<B>() -> (
     Sender<Resolution<B::Erased>>,
     OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
 )
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
 {
     ok_channel(
         QueueRole::new(QueueKind::ResponderRootResolution, UnderRoot::HEIGHT),
@@ -169,13 +162,12 @@ where
 /// The root resolution is visible before its child queries are sent, so its
 /// assembler can consume each return as it arrives. No later return is needed
 /// to unlock the consumer of the buffered one.
-pub(super) fn responder_root_returns<B, T>() -> (
+pub(super) fn responder_root_returns<B>() -> (
     Sender<Option<B::Erased>>,
     OkReceiverStream<Option<B::Erased>, Error<B::Error>>,
 )
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
 {
     ok_channel(
         QueueRole::new(QueueKind::ResponderRootReturns, UnderRoot::HEIGHT),
@@ -192,13 +184,12 @@ where
 /// liveness floor. This queue is the in-flight question window itself: its
 /// occupancy is the number of disputed scopes awaiting wire replies at this
 /// height, so its capacity is what lets sibling scopes' round trips overlap.
-pub(super) fn internal_child_queries<B, T>(
+pub(super) fn internal_child_queries<B>(
     height: usize,
     capacity: usize,
 ) -> (Sender<Query<B::Erased>>, Receiver<Query<B::Erased>>)
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
 {
     channel(
         QueueRole::new(QueueKind::InternalChildQueries, height),
@@ -215,7 +206,7 @@ where
 /// `Pending` slots has been launched, so one slot is the liveness floor. But a
 /// resolution is consumed only as its subtree completes, so a one-slot edge
 /// stalls the walk two scopes in; the window lets it run ahead.
-pub(super) fn internal_parent_resolutions<B, T>(
+pub(super) fn internal_parent_resolutions<B>(
     height: usize,
     capacity: usize,
 ) -> (
@@ -223,8 +214,7 @@ pub(super) fn internal_parent_resolutions<B, T>(
     OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
 )
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
 {
     ok_channel(
         QueueRole::new(QueueKind::InternalParentResolutions, height),
@@ -240,7 +230,7 @@ where
 /// Each resolution is published before its corresponding child queries, so one
 /// slot is the liveness floor; the window lets the walk publish a pipeline of
 /// them while earlier subtrees are still reconciling.
-pub(super) fn internal_child_resolutions<B, T>(
+pub(super) fn internal_child_resolutions<B>(
     height: usize,
     capacity: usize,
 ) -> (
@@ -248,8 +238,7 @@ pub(super) fn internal_child_resolutions<B, T>(
     OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
 )
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
 {
     ok_channel(
         QueueRole::new(QueueKind::InternalChildResolutions, height),
@@ -272,15 +261,14 @@ pub(super) fn leaf_requests(capacity: usize) -> (Sender<Prefix<Z>>, Receiver<Pre
 /// All terminal work for a parent resolution has been launched before it is
 /// sent — the one-slot liveness floor; the window lets the walk run ahead while
 /// buffered resolutions wait on their leaf exchanges.
-pub(super) fn leaf_parent_resolutions<B, T>(
+pub(super) fn leaf_parent_resolutions<B>(
     capacity: usize,
 ) -> (
     Sender<Resolution<B::Erased>>,
     OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
 )
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
 {
     ok_channel(
         QueueRole::new(QueueKind::LeafParentResolutions, <S<Z>>::HEIGHT),
@@ -294,15 +282,14 @@ where
 /// Each resolution is published before its leaf requests — the one-slot
 /// liveness floor; the window keeps the walk publishing while earlier leaf
 /// scopes await their supplies.
-pub(super) fn leaf_child_resolutions<B, T>(
+pub(super) fn leaf_child_resolutions<B>(
     capacity: usize,
 ) -> (
     Sender<Resolution<B::Erased>>,
     OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
 )
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
 {
     ok_channel(
         QueueRole::new(QueueKind::LeafChildResolutions, Z::HEIGHT),
@@ -321,13 +308,12 @@ where
 /// scopes the memory model already charges, so no knob applies. (Contrast
 /// [`assembly_level_returns`], where one fan is a correctness floor rather
 /// than an amortization.)
-pub(super) fn terminal_leaf_resolutions<B, T>() -> (
+pub(super) fn terminal_leaf_resolutions<B>() -> (
     Sender<Resolution<B::Erased>>,
     OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
 )
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
 {
     ok_channel(
         QueueRole::new(QueueKind::TerminalLeafResolutions, Z::HEIGHT),

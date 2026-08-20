@@ -164,14 +164,13 @@ macro_rules! x {
 
 // The inner mirror protocol, between an initiator and a responder (who may or
 // may not correspond with the original client/server distinction).
-async fn mirror_connected<I, R, T>(
+async fn mirror_connected<I, R>(
     i: I,
     r: R,
 ) -> Result<(I::Output, R::Output), Error<I::Error, R::Error>>
 where
-    T: Send + Sync,
-    I: Peer<T>,
-    R: Peer<T>,
+    I: Peer,
+    R: Peer,
 {
     x! { let x = i.initiator() }
     x! { i.open_initiator <=x== r.responder }
@@ -190,19 +189,18 @@ where
 
 /// The client's exchange after the connect phase: the [`Peer`] it has descended
 /// to once `connect` then `complete_connect` have run.
-pub(crate) type ClientConnected<C, T> = <<C as Connect<T>>::Next as CompleteConnect<T>>::Next;
+pub(crate) type ClientConnected<C> = <<C as Connect>::Next as CompleteConnect>::Next;
 
 /// The server's exchange after the connect phase: the [`Peer`] it has descended
 /// to once `accept` has run.
-pub(crate) type ServerConnected<S, T> = <S as Accept<T>>::Next;
+pub(crate) type ServerConnected<S> = <S as Accept>::Next;
 
 /// The result of the connect phase ([`handshake`]): the causal versions have
 /// been exchanged and either agree or are ready for descent.
-pub(crate) enum Handshaken<C, S, T>
+pub(crate) enum Handshaken<C, S>
 where
-    T: Send + Sync,
-    C: Client<T>,
-    S: Server<T>,
+    C: Client,
+    S: Server,
 {
     /// The two versions were equal: already converged, no descent. Carries the
     /// client's reconciled root and the server's output (the remote side's
@@ -215,18 +213,17 @@ where
     /// The versions differ: the connected exchanges are ready for [`descend`].
     /// Carries both versions for the descent's role tiebreak.
     Diverged {
-        local: ClientConnected<C, T>,
-        remote: ServerConnected<S, T>,
+        local: ClientConnected<C>,
+        remote: ServerConnected<S>,
         our_version: Version,
         peer: Handshake,
     },
 }
 
-impl<C, S, T> Handshaken<C, S, T>
+impl<C, S> Handshaken<C, S>
 where
-    T: Send + Sync,
-    C: Client<T>,
-    S: Server<T>,
+    C: Client,
+    S: Server,
 {
     /// The peer's causal-version greeting.
     pub(crate) fn peer(&self) -> &Handshake {
@@ -275,14 +272,13 @@ where
 /// version.
 ///
 /// Stops there, handing the equal/divergent outcome to [`Handshaken`].
-pub(crate) async fn handshake<C, S, T>(
+pub(crate) async fn handshake<C, S>(
     c: C,
     s: S,
-) -> Result<Handshaken<C, S, T>, Error<C::Error, S::Error>>
+) -> Result<Handshaken<C, S>, Error<C::Error, S::Error>>
 where
-    T: Send + Sync,
-    C: Client<T>,
-    S: Server<T>,
+    C: Client,
+    S: Server,
 {
     // The client emits its handshake. `connect` is statically `Continue` (its
     // `Done` carries `Infallible`), so this `let` is irrefutable.
@@ -338,16 +334,15 @@ where
 /// Run the steady-state descent between two connected [`Peer`]s, choosing the
 /// initiator by the canonical-byte tiebreak on the two (necessarily distinct)
 /// versions, and returning the outputs in `(local, remote)` order.
-pub(crate) async fn descend<I, R, T>(
+pub(crate) async fn descend<I, R>(
     local: I,
     remote: R,
     local_version: Version,
     remote_version: Version,
 ) -> Result<(I::Output, R::Output), Error<I::Error, R::Error>>
 where
-    T: Send + Sync,
-    I: Peer<T>,
-    R: Peer<T>,
+    I: Peer,
+    R: Peer,
 {
     // Their causal order is only partial (they may be concurrent), so to pick
     // an initiator we compare canonical bytes lexicographically: an arbitrary
@@ -376,14 +371,13 @@ where
 /// on the peer's [`Handshake`] in between; this whole-session shortcut serves
 /// only the in-process protocol tests.
 #[cfg(test)]
-pub async fn mirror<'a, C, S, T>(
+pub async fn mirror<'a, C, S>(
     c: C,
     s: S,
 ) -> Result<(C::Output, S::Output), Error<C::Error, S::Error>>
 where
-    T: Send + Sync + 'a,
-    C: Client<T> + 'a,
-    S: Server<T> + 'a,
+    C: Client + 'a,
+    S: Server + 'a,
 {
     // Box the future so that callers don't need to handle its big future type.
     Box::pin(async move {

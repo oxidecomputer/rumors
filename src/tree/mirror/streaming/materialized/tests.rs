@@ -62,20 +62,17 @@ fn absorb_scripted(
     pollster::block_on(queries.send(Prefix::containing(&path))).expect("the loop is live");
     drop(queries);
 
-    let (returns, mut returns_rx) = channel::<Option<<Local as Backend<()>>::Erased>>(
+    let (returns, mut returns_rx) = channel::<Option<<Local as Backend>::Erased>>(
         QueueRole::new(QueueKind::TerminalLeafResolutions, Z::HEIGHT),
         1,
     );
 
     let leaf = typed::Node::leaf(leaf_version, Message::new(()));
     let requests = stream::iter(vec![erased::Reply {
-        replies: vec![erased::Reaction::Supply(
-            0,
-            <Local as Backend<()>>::erase(leaf),
-        )],
+        replies: vec![erased::Reaction::Supply(0, <Local as Backend>::erase(leaf))],
     }]);
 
-    let result = pollster::block_on(absorb::<Local, ()>(
+    let result = pollster::block_on(absorb::<Local>(
         declared,
         ledger,
         requests,
@@ -84,7 +81,7 @@ fn absorb_scripted(
         Recorder::default(),
     ));
     let returned = pollster::block_on(async move { returns_rx.recv().await })
-        .map(|leaf| leaf.map(<Local as Backend<()>>::assume::<Z>));
+        .map(|leaf| leaf.map(<Local as Backend>::assume::<Z>));
     (result, returned)
 }
 

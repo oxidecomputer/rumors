@@ -111,7 +111,7 @@ impl Drop for Dishonest {
     }
 }
 
-impl<T: Send + Sync + 'static> Measure<T> for Local {
+impl Measure for Local {
     fn measure<H: Height>(node: &Self::Node<H>) -> usize {
         // A `Local` node is an `Arc` handle into the session-resident
         // tree: its shallow size is everything it keeps resident.
@@ -206,9 +206,8 @@ impl<N> MaterializedNode<N> {
     }
 }
 
-impl<T, H> Node<T> for MaterializedNode<typed::Node<H>>
+impl<H> Node for MaterializedNode<typed::Node<H>>
 where
-    T: Send + Sync + 'static,
     H: Height,
 {
     type Backend = Materializing;
@@ -242,10 +241,7 @@ where
     }
 }
 
-impl<T> Leaf<T> for MaterializedNode<typed::Node<Z>>
-where
-    T: Send + Sync + 'static,
-{
+impl Leaf for MaterializedNode<typed::Node<Z>> {
     fn message(&self) -> &Message {
         self.inner.message()
     }
@@ -282,10 +278,7 @@ impl<E: ErasedNode> ErasedNode for MaterializedNode<E> {
     }
 }
 
-impl<T> Backend<T> for Materializing
-where
-    T: Send + Sync + 'static,
-{
+impl Backend for Materializing {
     type Node<H: Height> = MaterializedNode<typed::Node<H>>;
     type Erased = MaterializedNode<typed::untyped::Node>;
     type Error = Infallible;
@@ -337,24 +330,20 @@ where
             .into_iter()
             .map(|(radix, child)| (radix, child.map(|child| child.inner)))
             .collect();
-        let parent = <Local as Backend<T>>::parent(Local, prefix, children).await?;
+        let parent = <Local as Backend>::parent(Local, prefix, children).await?;
         Ok(parent.map(|node| {
             let row = ROW_HEADER + ROW_ENTRY * fan + bounds_of(&node);
             MaterializedNode::wrap(node, row)
         }))
     }
 
-    fn children<H>(
-        self,
-        prefix: Prefix<S<H>>,
-        parent: Self::Node<S<H>>,
-    ) -> impl NodeStream<Self, T, H>
+    fn children<H>(self, prefix: Prefix<S<H>>, parent: Self::Node<S<H>>) -> impl NodeStream<Self, H>
     where
         H: Height,
         S<H>: Height,
     {
         stream! {
-            let mut children = pin!(<Local as Backend<T>>::children(Local, prefix, parent.inner));
+            let mut children = pin!(<Local as Backend>::children(Local, prefix, parent.inner));
             while let Some(child) = children.next().await {
                 yield child.map(|(prefix, node)| {
                     // A lazily loaded row: header and bounds, its child
@@ -370,12 +359,12 @@ where
         self,
         prefix: Prefix<H>,
         node: Self::Node<H>,
-    ) -> impl NodeStream<Self, T, Z> {
+    ) -> impl NodeStream<Self, Z> {
         // The reference bulk walk: the default explosion behind knobs
         // that drop leaves ([`WALK_SKIPS`]) and inflate the yielded rows
         // ([`WALK_SLACK`]) — honest at rest, the negative controls'
         // subject when set.
-        H::explode::<Self, T>(
+        H::explode::<Self>(
             self,
             Box::pin(futures_stream::once(async move { Ok((prefix, node)) })),
         )
@@ -390,13 +379,13 @@ where
 
     fn assemble<'a, H: Convert>(
         self,
-        leaves: BoxNodeStream<'a, Self, T, Z>,
-    ) -> impl NodeStream<Self, T, H> + 'a {
+        leaves: BoxNodeStream<'a, Self, Z>,
+    ) -> impl NodeStream<Self, H> + 'a {
         // The reference bulk assembly: the default fold behind knobs
         // that drop supplied leaves ([`ASSEMBLE_SKIPS`]) and inflate the
         // assembled rows ([`ASSEMBLE_SLACK`]) — honest at rest, the
         // negative controls' subject when set.
-        let supplied: BoxNodeStream<'a, Self, T, Z> = Box::pin(leaves.skip(ASSEMBLE_SKIPS.get()));
+        let supplied: BoxNodeStream<'a, Self, Z> = Box::pin(leaves.skip(ASSEMBLE_SKIPS.get()));
         H::assemble(self, supplied).map(|item| {
             item.map(|(prefix, mut node)| {
                 node.row.resize(node.row.len() + ASSEMBLE_SLACK.get(), 0);
@@ -406,10 +395,7 @@ where
     }
 }
 
-impl<T> Measure<T> for Materializing
-where
-    T: Send + Sync + 'static,
-{
+impl Measure for Materializing {
     fn measure<H: Height>(node: &Self::Node<H>) -> usize {
         std::mem::size_of_val(node) + node.row.len()
     }
@@ -539,7 +525,7 @@ fn dipping_node_bytes_fails_the_monotonicity_sweep() {
 fn leaf_underpricing_fails_at_construction() {
     let _dishonest = PRICED_HEADER.set(0);
     let leaf = pollster::block_on(
-        <super::ChargedNode<MaterializedNode<typed::Node<Z>>> as Leaf<u64>>::leaf(
+        <super::ChargedNode<MaterializedNode<typed::Node<Z>>> as Leaf>::leaf(
             Version::new(),
             Message::new(7),
         ),
@@ -566,7 +552,7 @@ fn ledger_settles_over_clone_and_drop() {
         ledger::reset_peak();
         ledger::peak()
     };
-    let leaf = pollster::block_on(<super::ChargedNode<typed::Node<Z>> as Leaf<u64>>::leaf(
+    let leaf = pollster::block_on(<super::ChargedNode<typed::Node<Z>> as Leaf>::leaf(
         Version::new(),
         Message::new(7),
     ))

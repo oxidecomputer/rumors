@@ -51,7 +51,7 @@ fn leaves(count: u64) -> Vec<(Version, Message)> {
 }
 
 /// Chunk leaves into supply frames of [`PER_FRAME`] records each.
-fn frames(leaves: &[(Version, Message)]) -> Vec<Frame<u64>> {
+fn frames(leaves: &[(Version, Message)]) -> Vec<Frame> {
     let chunks: Vec<&[(Version, Message)]> = leaves.chunks(PER_FRAME).collect();
     let count = chunks.len();
     chunks
@@ -75,16 +75,17 @@ fn frames(leaves: &[(Version, Message)]) -> Vec<Frame<u64>> {
 
 /// Decode one pure-supply reply from `input` over the instant in-memory
 /// backend, reporting the probe's peak resident record count.
-fn peak_occupancy(mut input: impl Stream<Item = Frame<u64>> + Unpin) -> usize {
+fn peak_occupancy(mut input: impl Stream<Item = Frame> + Unpin) -> usize {
     let runtime = super::runtime();
     fan_probe::reset();
     runtime.block_on(async {
-        decode_reply::<Local, u64, _>(
+        decode_reply::<Local, _>(
             Local,
             u64::MAX,
             unbounded(),
             Scope::opening(&[]),
             &mut input,
+            Message::deserializer::<u64>(),
         )
         .await
         .expect("ascending in-scope leaves assemble");
@@ -131,12 +132,13 @@ fn eager_early_supplies_ride_the_same_ceiling() {
     let runtime = super::runtime();
     fan_probe::reset();
     runtime.block_on(async {
-        let assembled: Vec<_> = early_supplies::<Local, u64, _>(
+        let assembled: Vec<_> = early_supplies::<Local, _>(
             Local,
             u64::MAX,
             unbounded(),
             Prefix::new().erase(),
             stream::iter(frames(&leaves)),
+            Message::deserializer::<u64>(),
         )
         .try_collect()
         .await

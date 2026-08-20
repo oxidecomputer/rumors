@@ -54,6 +54,10 @@ pub struct Message {
     serialized: Bytes,
 }
 
+/// Deserializes one exact CBOR payload encoding into a type-erased payload
+/// value; see [`Message::deserializer`].
+pub(crate) type PayloadDeserializer = fn(&[u8]) -> io::Result<Arc<dyn Any + Send + Sync>>;
+
 /// Map a ciborium deserialization failure into `io::Error`, keeping the
 /// truncation/corruption split callers classify by: a reader's own error
 /// passes through, everything else is invalid data.
@@ -119,21 +123,46 @@ impl Message {
         })
     }
 
-    /// Pairs an already-decoded object with the exact bytes it was decoded
-    /// from.
+    /// Decodes wire payload bytes into a `Message` through a
+    /// [`PayloadDeserializer`]: the one deserialization every gossip
+    /// ingress performs, with the deserializer carrying the payload type
+    /// the peer was constructed with.
     ///
-    /// The caller certifies the pairing: `serialized` must be exactly the
-    /// CBOR encoding `message` was parsed out of (the wire codec's record
-    /// parser upholds this — it hands over precisely the bytes its parse
-    /// consumed).
-    pub(crate) fn from_decoded<T>(message: T, serialized: Bytes) -> Self
+    /// The deserializer validates the bytes are exactly one CBOR value of
+    /// its type ([`from_slice`](Self::from_slice)'s contract), so the
+    /// cache is always the payload's exact encoding and a malformed
+    /// payload fails here, at the wire boundary.
+    pub(crate) fn from_wire(bytes: Bytes, deserializer: PayloadDeserializer) -> io::Result<Self> {
+        Ok(Message {
+            message: deserializer(&bytes)?,
+            serialized: bytes,
+        })
+    }
+
+    /// The deserializer for payloads of type `T`: what a
+    /// [`Peer`](crate::Peer) mints at construction and threads to every
+    /// session's wire ingress ([`from_wire`](Self::from_wire)).
+    ///
+    /// A plain function pointer, so everything that carries it stays
+    /// non-generic: the payload type's only residue in a running session.
+    pub(crate) fn deserializer<T>() -> PayloadDeserializer
     where
-        T: Send + Sync + 'static,
+        T: DeserializeOwned + Send + Sync + 'static,
     {
-        Message {
-            message: Arc::new(message),
-            serialized,
+        fn deserialize<T: DeserializeOwned + Send + Sync + 'static>(
+            bytes: &[u8],
+        ) -> io::Result<Arc<dyn Any + Send + Sync>> {
+            let mut input = bytes;
+            let message: T = ciborium::de::from_reader(&mut input).map_err(de_error)?;
+            if !input.is_empty() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("{} trailing bytes after the message payload", input.len()),
+                ));
+            }
+            Ok(Arc::new(message))
         }
+        deserialize::<T>
     }
 
     /// Creates a `Message` from already-shared serialized bytes, without
@@ -178,21 +207,18 @@ impl Message {
     /// Reads one `Message` off a byte stream, consuming exactly its bytes.
     ///
     /// The shape is one CBOR byte string wrapping the payload's own CBOR
-    /// encoding (the same shape [`Serialize`] writes), decoded as a `T`
-    /// under [`from_slice`](Self::from_slice)'s exactly-one-value
-    /// contract.
-    ///
-    /// Trailing data after the byte string survives for the next field:
-    /// the property the wire codec's mid-stream decodes rest on. Gated to
-    /// the alternating protocol's codec, its only production consumer.
+    /// encoding (the same shape [`Serialize`] writes), decoded through
+    /// the peer's payload deserializer. Trailing data after the byte
+    /// string survives for the next field: the property the wire codec's
+    /// mid-stream decodes rest on. Gated to the alternating protocol's
+    /// codec, its only production consumer.
     #[cfg(any(test, feature = "protocol-v1"))]
-    pub(crate) fn from_reader<T, R>(reader: R) -> io::Result<Self>
+    pub(crate) fn from_reader<R>(reader: R, deserializer: PayloadDeserializer) -> io::Result<Self>
     where
-        T: DeserializeOwned + Send + Sync + 'static,
         R: io::Read,
     {
         let bytes: Vec<u8> = ciborium::de::from_reader(reader).map_err(de_error)?;
-        Self::from_slice::<T>(&bytes)
+        Self::from_wire(Bytes::from(bytes), deserializer)
     }
 
     /// Borrows the payload as its concrete type.

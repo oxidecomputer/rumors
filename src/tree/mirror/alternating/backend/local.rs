@@ -196,10 +196,7 @@ where
     type Error = Violation;
 }
 
-impl<T> protocol::Connect<T> for Exchange<Start, Top>
-where
-    T: Send + Sync,
-{
+impl protocol::Connect for Exchange<Start, Top> {
     type Next = Exchange<Connecting, Top>;
 
     async fn connect(
@@ -225,10 +222,7 @@ where
     }
 }
 
-impl<T> protocol::CompleteConnect<T> for Exchange<Connecting, Top>
-where
-    T: Send + Sync,
-{
+impl protocol::CompleteConnect for Exchange<Connecting, Top> {
     type Next = Exchange<Connected, Top>;
 
     async fn complete_connect(
@@ -262,10 +256,7 @@ where
     }
 }
 
-impl<T> protocol::Accept<T> for Exchange<Start, Top>
-where
-    T: Send + Sync,
-{
+impl protocol::Accept for Exchange<Start, Top> {
     type Next = Exchange<Connected, Top>;
 
     async fn accept(
@@ -307,10 +298,7 @@ where
     }
 }
 
-impl<T> protocol::Initiator<T> for Exchange<Connected, Top>
-where
-    T: Send + Sync,
-{
+impl protocol::Initiator for Exchange<Connected, Top> {
     type Next = Exchange<Connected, Top>;
 
     async fn initiator(
@@ -329,10 +317,7 @@ where
     }
 }
 
-impl<T> protocol::Responder<T> for Exchange<Connected, Top>
-where
-    T: Send + Sync,
-{
+impl protocol::Responder for Exchange<Connected, Top> {
     type Next = Exchange<Connected, Below<UnderRoot, Top>>;
 
     async fn responder(
@@ -382,9 +367,8 @@ where
     }
 }
 
-impl<T, L> protocol::OpenInitiator<T> for Exchange<Connected, L>
+impl<L> protocol::OpenInitiator for Exchange<Connected, L>
 where
-    T: Send + Sync,
     L: Levels<Height = Root> + Send,
 {
     type Next = Exchange<Connected, Below<UnderUnderRoot, Below<UnderRoot, L>>>;
@@ -393,16 +377,15 @@ where
         self,
         request: message::Opening,
     ) -> Result<
-        protocol::Step<message::Exchange<T, UnderUnderRoot>, Self::Next, Self::Output>,
+        protocol::Step<message::Exchange<UnderUnderRoot>, Self::Next, Self::Output>,
         Self::Error,
     > {
         self.reply(request)
     }
 }
 
-impl<T, H, L> protocol::Exchange<T> for Exchange<Connected, L>
+impl<H, L> protocol::Exchange for Exchange<Connected, L>
 where
-    T: Send + Sync,
     L: Levels<Height = S<S<H>>> + Send,
     S<S<H>>: Height,
     S<H>: Height,
@@ -410,49 +393,45 @@ where
     // Assumed at impl-validation time so we don't have to case-analyze `H`
     // here: at use sites `H` is concrete and one of the three blanket impls
     // discharges it.
-    Exchange<Connected, Below<H, Below<S<H>, L>>>: protocol::AfterExchange<T, H>,
+    Exchange<Connected, Below<H, Below<S<H>, L>>>: protocol::AfterExchange<H>,
 {
     type Next = Exchange<Connected, Below<H, Below<S<H>, L>>>;
 
     async fn exchange(
         self,
-        request: message::Exchange<T, S<H>>,
-    ) -> Result<protocol::Step<message::Exchange<T, H>, Self::Next, Self::Output>, Self::Error>
-    {
+        request: message::Exchange<S<H>>,
+    ) -> Result<protocol::Step<message::Exchange<H>, Self::Next, Self::Output>, Self::Error> {
         self.reply(request)
     }
 }
 
-impl<T, L> protocol::CloseResponder<T> for Exchange<Connected, L>
+impl<L> protocol::CloseResponder for Exchange<Connected, L>
 where
-    T: Send + Sync,
     L: Levels<Height = S<Z>> + Send,
 {
     type Next = Exchange<Connected, Below<Z, L>>;
 
     async fn close_responder(
         self,
-        request: message::Exchange<T, Z>,
-    ) -> Result<protocol::Step<message::Closing<T>, Self::Next, Self::Output>, Self::Error> {
+        request: message::Exchange<Z>,
+    ) -> Result<protocol::Step<message::Closing, Self::Next, Self::Output>, Self::Error> {
         self.close(request)
     }
 }
 
-impl<T, L> protocol::CompleteInitiator<T> for Exchange<Connected, L>
+impl<L> protocol::CompleteInitiator for Exchange<Connected, L>
 where
-    T: Send + Sync,
     L: Levels<Height = Z> + Send,
 {
     async fn complete_initiator(
         mut self,
-        request: message::Closing<T>,
-    ) -> Result<protocol::Step<message::Complete<T>, Infallible, Self::Output>, Violation> {
+        request: message::Closing,
+    ) -> Result<protocol::Step<message::Complete, Infallible, Self::Output>, Violation> {
         self.absorb_providing(request.providing)?;
         let providing = self.answer_requested_leaves(request.requested);
         Ok(protocol::Step::Done {
             msg: message::Complete {
                 providing: providing.into_iter().collect(),
-                payload: std::marker::PhantomData,
             },
             output: tree::Root {
                 ceiling: self.versions.our_version | self.versions.their_version,
@@ -462,14 +441,13 @@ where
     }
 }
 
-impl<T, L> protocol::CompleteResponder<T> for Exchange<Connected, L>
+impl<L> protocol::CompleteResponder for Exchange<Connected, L>
 where
-    T: Send + Sync,
     L: Levels<Height = Z> + Send,
 {
     async fn complete_responder(
         mut self,
-        request: message::Complete<T>,
+        request: message::Complete,
     ) -> Result<protocol::Step<(), Infallible, Self::Output>, Violation> {
         self.absorb_providing(request.providing)?;
         Ok(protocol::Step::Done {

@@ -73,10 +73,9 @@ pub(crate) enum Reaction<E> {
 
 /// Erase one typed reply where a schedule-typed request stream enters a
 /// walk worker.
-pub(crate) fn erase_reply<B, T, H>(reply: message::Reply<B, T, H>) -> Reply<B::Erased>
+pub(crate) fn erase_reply<B, H>(reply: message::Reply<B, H>) -> Reply<B::Erased>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
     H: Height,
 {
     Reply {
@@ -93,10 +92,9 @@ where
 }
 
 /// Re-tag one erased reply at the typed exit of [`reply_channel`].
-fn assume_reply<B, T, H>(reply: Reply<B::Erased>) -> message::Reply<B, T, H>
+fn assume_reply<B, H>(reply: Reply<B::Erased>) -> message::Reply<B, H>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
     H: Height,
 {
     message::Reply {
@@ -115,24 +113,22 @@ where
 /// The typed exit of [`reply_channel`]: the erased receiver as a stream
 /// of schedule-typed replies. `Err` is the session's error type, passed
 /// through untouched.
-pub(crate) struct ReplyResultStream<B, T, H, Err>
+pub(crate) struct ReplyResultStream<B, H, Err>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
     H: Height,
 {
     inner: ReceiverStreamOf<Result<Reply<B::Erased>, Err>>,
-    assume: fn(Result<Reply<B::Erased>, Err>) -> Result<message::Reply<B, T, H>, Err>,
+    assume: fn(Result<Reply<B::Erased>, Err>) -> Result<message::Reply<B, H>, Err>,
 }
 
-impl<B, T, H, Err> Stream for ReplyResultStream<B, T, H, Err>
+impl<B, H, Err> Stream for ReplyResultStream<B, H, Err>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
     H: Height,
     Err: Send,
 {
-    type Item = Result<message::Reply<B, T, H>, Err>;
+    type Item = Result<message::Reply<B, H>, Err>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
@@ -169,16 +165,15 @@ fn receiver_stream<E: Send>(receiver: Receiver<E>) -> ReceiverStreamOf<E> {
 /// in, typed out — and therefore the outgoing half of the walk's typed
 /// boundary. Its height parameter fixes the exit's re-tag; the erased
 /// sender needs none.
-pub(crate) fn reply_channel<B, T, H, Err>(
+pub(crate) fn reply_channel<B, H, Err>(
     role: QueueRole,
     capacity: usize,
 ) -> (
     Sender<Result<Reply<B::Erased>, Err>>,
-    ReplyResultStream<B, T, H, Err>,
+    ReplyResultStream<B, H, Err>,
 )
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
     H: Height,
     Err: Send,
 {
@@ -187,7 +182,7 @@ where
         sender,
         ReplyResultStream {
             inner: receiver_stream(receiver),
-            assume: |item| item.map(assume_reply::<B, T, H>),
+            assume: |item| item.map(assume_reply::<B, H>),
         },
     )
 }
@@ -248,18 +243,17 @@ pub(crate) mod ops {
     /// `prefix` is the node's own prefix; its length names the height the
     /// node is re-tagged at, so a walk cannot explode a node at any level
     /// other than the one its coordinate claims.
-    pub(crate) async fn children_of<B, T>(
+    pub(crate) async fn children_of<B>(
         backend: &B,
         prefix: ErasedPrefix,
         node: B::Erased,
     ) -> Result<Vec<(u8, B::Erased)>, B::Error>
     where
-        B: Backend<T, Node<Z>: Leaf<T>>,
-        T: Send + Sync + 'static,
+        B: Backend<Node<Z>: Leaf>,
     {
         at_parent_height!(prefix.height(), H => {
             let children =
-                children_of_typed::<B, T, <H as Pred>::Pred>(
+                children_of_typed::<B, <H as Pred>::Pred>(
                     backend,
                     prefix.assume::<H>(),
                     B::assume::<H>(node),
@@ -277,14 +271,13 @@ pub(crate) mod ops {
     ///
     /// `prefix` is the parent's own prefix, carrying the same
     /// length-is-height witness as [`children_of`].
-    pub(crate) async fn parent<B, T>(
+    pub(crate) async fn parent<B>(
         backend: B,
         prefix: ErasedPrefix,
         children: Vec<(u8, Option<B::Erased>)>,
     ) -> Result<Option<B::Erased>, B::Error>
     where
-        B: Backend<T, Node<Z>: Leaf<T>>,
-        T: Send + Sync + 'static,
+        B: Backend<Node<Z>: Leaf>,
     {
         at_parent_height!(prefix.height(), H => {
             let children = children
@@ -303,14 +296,13 @@ pub(crate) mod ops {
     ///
     /// The yielded leaves stay typed: `Z` is a single height, so nothing
     /// about a leaf ever needed erasing.
-    pub(crate) fn leaves<B, T>(
+    pub(crate) fn leaves<B>(
         backend: B,
         prefix: ErasedPrefix,
         node: B::Erased,
-    ) -> BoxNodeStream<'static, B, T, Z>
+    ) -> BoxNodeStream<'static, B, Z>
     where
-        B: Backend<T, Node<Z>: Leaf<T>>,
-        T: Send + Sync + 'static,
+        B: Backend<Node<Z>: Leaf>,
     {
         at_height!(prefix.height(), H => {
             Box::pin(backend.leaves::<H>(prefix.assume::<H>(), B::assume::<H>(node)))
@@ -324,14 +316,13 @@ pub(crate) mod ops {
     /// The one dispatch keyed by an explicit height rather than a prefix:
     /// its input is a whole leaf stream, and the target height is the
     /// consuming scope's — whose prefix length the caller derives it from.
-    pub(crate) fn assemble<B, T>(
+    pub(crate) fn assemble<B>(
         backend: B,
         height: usize,
-        leaves: BoxNodeStream<'static, B, T, Z>,
+        leaves: BoxNodeStream<'static, B, Z>,
     ) -> Pin<Box<dyn Stream<Item = Result<(ErasedPrefix, B::Erased), B::Error>> + Send>>
     where
-        B: Backend<T, Node<Z>: Leaf<T>>,
-        T: Send + Sync + 'static,
+        B: Backend<Node<Z>: Leaf>,
     {
         at_height!(height, H => {
             Box::pin(

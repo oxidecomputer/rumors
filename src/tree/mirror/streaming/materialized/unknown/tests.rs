@@ -51,15 +51,15 @@ fn tree_and_known(flags_a: &[bool], flags_b: &[bool]) -> (Option<typed::node::Ro
 /// the future to completion with a trivial executor.
 fn stream_prune(root: Option<typed::node::Root>, known: &Version) -> Option<typed::node::Root> {
     root.and_then(|node| {
-        pollster::block_on(unknown::<Local, ()>(
+        pollster::block_on(unknown::<Local>(
             &Local,
             known,
             Prefix::new().erase(),
-            <Local as Backend<()>>::erase(node),
+            <Local as Backend>::erase(node),
             &Recorder::default(),
         ))
         .unwrap_or_else(|e| match e {})
-        .map(<Local as Backend<()>>::assume::<Root>)
+        .map(<Local as Backend>::assume::<Root>)
     })
 }
 

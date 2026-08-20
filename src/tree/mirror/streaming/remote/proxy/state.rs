@@ -26,12 +26,10 @@ use crate::tree::{
     typed::height::{Height, Root, S, UnderRoot, UnderUnderRoot, Z},
 };
 
-use serde::de::DeserializeOwned;
 /// Session endpoints and backend shared by every state in one proxy chain.
-struct Session<B, T, R, W, C, A>
+struct Session<B, R, W, C, A>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
     A: Acceptor,
 {
     remote: Speaker,
@@ -46,18 +44,17 @@ where
     /// The session's stats recorder, handed to every stream this session
     /// binds so the codec seam's byte counts accumulate in one place.
     stats: Recorder,
-    work: Work<B, T, R, W, A>,
+    work: Work<B, R, W, A>,
 }
 
-impl<B, T, R, W, C, A> Session<B, T, R, W, C, A>
+impl<B, R, W, C, A> Session<B, R, W, C, A>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: DeserializeOwned + Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
     C: Connector,
     A: Acceptor,
 {
     /// Bind the incoming logical stream spoken by the remote at `height`.
-    fn incoming<H: Height>(&mut self) -> StreamReceiver<A::Rx, T> {
+    fn incoming<H: Height>(&mut self) -> StreamReceiver<A::Rx> {
         let stream = stream_at::<H>(self.remote);
         StreamReceiver::new(
             self.claims.take(stream),
@@ -70,7 +67,7 @@ where
     }
 
     /// Bind the outgoing logical stream spoken locally at `height`.
-    fn outgoing<H: Height>(&mut self) -> StreamSender<C, T> {
+    fn outgoing<H: Height>(&mut self) -> StreamSender<C> {
         let local = self.remote.other();
         StreamSender::new(
             self.connector.clone(),
@@ -88,30 +85,27 @@ fn stream_at<H: Height>(speaker: Speaker) -> Stream {
 }
 
 /// A proxy after the version exchange but before its elected role is known.
-pub struct Connected<B, T, R, W, C, A>
+pub struct Connected<B, R, W, C, A>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
     A: Acceptor,
 {
-    state: ConnectedState<B, T, R, W, C, A>,
+    state: ConnectedState<B, R, W, C, A>,
 }
 
 /// Equal versions need no data streams; divergent versions own a session.
-enum ConnectedState<B, T, R, W, C, A>
+enum ConnectedState<B, R, W, C, A>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
     A: Acceptor,
 {
     Equal(R, W),
-    Diverged(Box<Session<B, T, R, W, C, A>>),
+    Diverged(Box<Session<B, R, W, C, A>>),
 }
 
-impl<B, T, R, W, C, A> Connected<B, T, R, W, C, A>
+impl<B, R, W, C, A> Connected<B, R, W, C, A>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: DeserializeOwned + Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
     C: Connector,
     A: Acceptor,
 {
@@ -125,7 +119,7 @@ where
         route: ErrorRoute,
         budget: RunBudget,
         stats: Recorder,
-        work: Work<B, T, R, W, A>,
+        work: Work<B, R, W, A>,
     ) -> Self {
         Self {
             state: ConnectedState::Diverged(Box::new(Session {
@@ -149,7 +143,7 @@ where
     }
 
     /// Extract the session guaranteed by the driver's divergent-version path.
-    fn diverged(self) -> Session<B, T, R, W, C, A> {
+    fn diverged(self) -> Session<B, R, W, C, A> {
         match self.state {
             ConnectedState::Diverged(session) => *session,
             ConnectedState::Equal(..) => unreachable!("descent opened for equal versions"),
@@ -157,10 +151,9 @@ where
     }
 }
 
-impl<B, T, R, W, C, A> protocol::Protocol for Connected<B, T, R, W, C, A>
+impl<B, R, W, C, A> protocol::Protocol for Connected<B, R, W, C, A>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
     R: Send,
     W: Send,
     C: Send,
@@ -172,15 +165,14 @@ where
 }
 
 /// A proxy inside the descent with scopes for the next local reply stream.
-pub struct Descending<B, T, H, R, W, C, A>
+pub struct Descending<B, H, R, W, C, A>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
     H: Height,
     S<H>: Height,
     A: Acceptor,
 {
-    session: Session<B, T, R, W, C, A>,
+    session: Session<B, R, W, C, A>,
     /// The next local reply's scopes, erased: the typestate's `H` is what
     /// pins this queue to the stage that consumes it at the right height,
     /// and every scope's parent prefix carries the runtime witness.
@@ -190,27 +182,25 @@ where
     ///
     /// The receiver claims its transport stream on first read, so a
     /// session without early supplies never touches it.
-    early: Option<StreamReceiver<A::Rx, T>>,
+    early: Option<StreamReceiver<A::Rx>>,
     /// The stage's height, phantom (`fn() -> H` for the auto-trait
     /// shortcut; see [`typed::Node`](crate::tree::typed::Node)).
     height: PhantomData<fn() -> H>,
 }
 
 /// The initiator proxy's leaf terminal and accumulated transport work.
-pub struct Completing<B, T, R, W, C, A>
+pub struct Completing<B, R, W, C, A>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
     A: Acceptor,
 {
-    session: Session<B, T, R, W, C, A>,
+    session: Session<B, R, W, C, A>,
     scopes: Receiver<Scope>,
 }
 
-impl<B, T, H, R, W, C, A> protocol::Protocol for Descending<B, T, H, R, W, C, A>
+impl<B, H, R, W, C, A> protocol::Protocol for Descending<B, H, R, W, C, A>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
     R: Send,
     W: Send,
     C: Send,
@@ -223,10 +213,9 @@ where
     type Output = (R, W);
 }
 
-impl<B, T, R, W, C, A> protocol::Protocol for Completing<B, T, R, W, C, A>
+impl<B, R, W, C, A> protocol::Protocol for Completing<B, R, W, C, A>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
     R: Send,
     W: Send,
     C: Send,
@@ -237,10 +226,9 @@ where
     type Output = (R, W);
 }
 
-impl<B, T, R, W, C, A> protocol::CompleteEqual<B, T> for Connected<B, T, R, W, C, A>
+impl<B, R, W, C, A> protocol::CompleteEqual<B> for Connected<B, R, W, C, A>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: DeserializeOwned + Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
     R: Send,
     W: Send,
     C: Connector,
@@ -255,16 +243,15 @@ where
     }
 }
 
-impl<B, T, R, W, C, A> protocol::Initiator<B, T> for Connected<B, T, R, W, C, A>
+impl<B, R, W, C, A> protocol::Initiator<B> for Connected<B, R, W, C, A>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: DeserializeOwned + Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
     R: Send,
     W: Send,
     C: Connector,
     A: Acceptor,
 {
-    type Next = Descending<B, T, UnderRoot, R, W, C, A>;
+    type Next = Descending<B, UnderRoot, R, W, C, A>;
 
     /// Replay the remote initiator's opening question from its greeting.
     ///
@@ -273,7 +260,7 @@ where
     /// stream carries the remote's early supplies instead: its receiver is
     /// bound now and handed to the next stage, which reads (and thereby
     /// claims) it only when a root-level request needs an opening supply.
-    fn initiator(self) -> (BoxResponses<B, T, UnderRoot, Self::Error>, Self::Next) {
+    fn initiator(self) -> (BoxResponses<B, UnderRoot, Self::Error>, Self::Next) {
         let mut session = self.diverged();
         debug_assert_eq!(session.remote, Speaker::Initiator);
         let early = session.incoming::<UnderRoot>();
@@ -288,16 +275,15 @@ where
     }
 }
 
-impl<B, T, R, W, C, A> protocol::Responder<B, T> for Connected<B, T, R, W, C, A>
+impl<B, R, W, C, A> protocol::Responder<B> for Connected<B, R, W, C, A>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: DeserializeOwned + Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
     R: Send,
     W: Send,
     C: Connector,
     A: Acceptor,
 {
-    type Next = Descending<B, T, UnderUnderRoot, R, W, C, A>;
+    type Next = Descending<B, UnderUnderRoot, R, W, C, A>;
 
     /// Proxy the opening: consume the local question, write the early
     /// supplies, decode the remote's top-level reply.
@@ -310,8 +296,8 @@ where
     /// root children.
     fn responder(
         self,
-        requests: impl Requests<B, T, UnderRoot>,
-    ) -> (BoxResponses<B, T, UnderRoot, Self::Error>, Self::Next) {
+        requests: impl Requests<B, UnderRoot>,
+    ) -> (BoxResponses<B, UnderRoot, Self::Error>, Self::Next) {
         let mut session = self.diverged();
         debug_assert_eq!(session.remote, Speaker::Responder);
         let incoming = session.incoming::<UnderRoot>();
@@ -327,10 +313,9 @@ where
     }
 }
 
-impl<B, T, H, R, W, C, A> protocol::Reply<B, T> for Descending<B, T, S<S<H>>, R, W, C, A>
+impl<B, H, R, W, C, A> protocol::Reply<B> for Descending<B, S<S<H>>, R, W, C, A>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: DeserializeOwned + Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
     R: Send,
     W: Send,
     C: Connector,
@@ -340,13 +325,13 @@ where
     S<S<H>>: Height,
     S<S<S<H>>>: Height,
 {
-    type Next = Descending<B, T, H, R, W, C, A>;
+    type Next = Descending<B, H, R, W, C, A>;
 
     /// Proxy one ordinary two-height descent transition.
     fn reply(
         mut self,
-        requests: impl Requests<B, T, S<S<H>>>,
-    ) -> (BoxResponses<B, T, S<H>, Self::Error>, Self::Next) {
+        requests: impl Requests<B, S<S<H>>>,
+    ) -> (BoxResponses<B, S<H>, Self::Error>, Self::Next) {
         let incoming = self.session.incoming::<S<H>>();
         let outgoing = self.session.outgoing::<S<S<H>>>();
         let early = self.early.take();
@@ -364,22 +349,21 @@ where
     }
 }
 
-impl<B, T, R, W, C, A> protocol::Reply<B, T> for Descending<B, T, S<Z>, R, W, C, A>
+impl<B, R, W, C, A> protocol::Reply<B> for Descending<B, S<Z>, R, W, C, A>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: DeserializeOwned + Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
     R: Send,
     W: Send,
     C: Connector,
     A: Acceptor,
 {
-    type Next = Completing<B, T, R, W, C, A>;
+    type Next = Completing<B, R, W, C, A>;
 
     /// Proxy the leaf-parent transition into the role-specific terminal.
     fn reply(
         mut self,
-        requests: impl Requests<B, T, S<Z>>,
-    ) -> (BoxResponses<B, T, Z, Self::Error>, Self::Next) {
+        requests: impl Requests<B, S<Z>>,
+    ) -> (BoxResponses<B, Z, Self::Error>, Self::Next) {
         debug_assert!(
             self.early.is_none(),
             "the opening-supply stream is consumed by the first descending stage"
@@ -398,10 +382,9 @@ where
     }
 }
 
-impl<B, T, R, W, C, A> protocol::CompleteInitiator<B, T> for Completing<B, T, R, W, C, A>
+impl<B, R, W, C, A> protocol::CompleteInitiator<B> for Completing<B, R, W, C, A>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: DeserializeOwned + Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
     R: Send,
     W: Send,
     C: Connector,
@@ -410,7 +393,7 @@ where
     /// Encode the local responder's final leaf answers and close its stream.
     async fn complete_initiator(
         mut self,
-        requests: impl Requests<B, T, Z>,
+        requests: impl Requests<B, Z>,
     ) -> Result<(R, W), Self::Error> {
         debug_assert_eq!(self.session.remote, Speaker::Initiator);
         let outgoing = self.session.outgoing::<Z>();
@@ -421,10 +404,9 @@ where
     }
 }
 
-impl<B, T, R, W, C, A> protocol::CompleteResponder<B, T> for Descending<B, T, Z, R, W, C, A>
+impl<B, R, W, C, A> protocol::CompleteResponder<B> for Descending<B, Z, R, W, C, A>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: DeserializeOwned + Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
     R: Send,
     W: Send,
     C: Connector,
@@ -433,9 +415,9 @@ where
     /// Proxy the final bidirectional leaf exchange to clean completion.
     fn complete_responder(
         mut self,
-        requests: impl Requests<B, T, Z>,
+        requests: impl Requests<B, Z>,
     ) -> (
-        BoxResponses<B, T, Z, Self::Error>,
+        BoxResponses<B, Z, Self::Error>,
         impl Future<Output = Result<(R, W), Self::Error>> + Send,
     ) {
         debug_assert_eq!(self.session.remote, Speaker::Responder);

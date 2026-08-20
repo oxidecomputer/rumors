@@ -43,7 +43,7 @@ fn parent_prefix(parent: u8) -> Prefix<S<Z>> {
 /// Build the expected parent of a radix group directly through the backend,
 /// bypassing the fold under test.
 fn parent_of(prefix: Prefix<S<Z>>, children: Vec<(u8, typed::Node<Z>)>) -> typed::Node<S<Z>> {
-    pollster::block_on(<Local as Backend<()>>::parent(
+    pollster::block_on(<Local as Backend>::parent(
         Local,
         prefix,
         children
@@ -58,7 +58,7 @@ fn parent_of(prefix: Prefix<S<Z>>, children: Vec<(u8, typed::Node<Z>)>) -> typed
 /// Drive the fold of an in-memory child stream to completion.
 fn fold(children: Vec<(Prefix<Z>, typed::Node<Z>)>) -> Vec<(Prefix<S<Z>>, Hash)> {
     pollster::block_on(
-        fold_parents::<Local, (), Z>(
+        fold_parents::<Local, Z>(
             Local,
             stream::iter(children.into_iter().map(Ok::<_, Infallible>)),
         )

@@ -15,14 +15,13 @@ use crate::tree::{
 use super::channel::{QueueRole, Receiver, Sender, channel};
 
 /// Collect one node's children, addressed by radix.
-pub async fn children_of<B, T, H>(
+pub async fn children_of<B, H>(
     backend: &B,
     prefix: Prefix<S<H>>,
     node: B::Node<S<H>>,
 ) -> Result<Vec<(u8, B::Node<H>)>, B::Error>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
     H: Height,
     S<H>: Height,
 {

@@ -1,5 +1,6 @@
 //! Reusable two-proxy session harness for transport-adversity properties.
 
+use crate::message::Message;
 use std::{
     convert::Infallible,
     io,
@@ -490,10 +491,12 @@ where
     RC: Connector,
     RA: Acceptor,
 {
-    let left = Handshaking::start(Local, Root::<Local, ()>::from(left)).window(window);
-    let right = Handshaking::start(Local, Root::<Local, ()>::from(right)).window(window);
-    let remote_right = RemoteHandshaking::start(Local, left_link).window(window);
-    let remote_left = RemoteHandshaking::start(Local, right_link).window(window);
+    let left = Handshaking::start(Local, Root::<Local>::from(left)).window(window);
+    let right = Handshaking::start(Local, Root::<Local>::from(right)).window(window);
+    let remote_right =
+        RemoteHandshaking::start(Local, left_link, Message::deserializer::<()>()).window(window);
+    let remote_left =
+        RemoteHandshaking::start(Local, right_link, Message::deserializer::<()>()).window(window);
     let (left, right) = join!(
         Box::pin(mirror(left, remote_right)),
         Box::pin(mirror(remote_left, right)),

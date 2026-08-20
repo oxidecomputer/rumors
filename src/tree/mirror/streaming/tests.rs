@@ -78,7 +78,7 @@ fn streaming_mirror_sides_with_schedules(
     channel_schedule: Vec<u8>,
     backend_schedule: Vec<u8>,
 ) -> (Root, Root) {
-    let (a, b): (StreamingRoot<Local, ()>, StreamingRoot<Local, ()>) = (a.into(), b.into());
+    let (a, b): (StreamingRoot<Local>, StreamingRoot<Local>) = (a.into(), b.into());
     let client = Handshaking::start(Local, a.clone()).window(WindowConfig::FLOOR);
     let server = Handshaking::start(Local, b.clone()).window(WindowConfig::FLOOR);
     let (result, trace) = with_trace(|| {
@@ -103,11 +103,8 @@ fn streaming_mirror_sides_with_schedules(
 /// The skeleton-bridge harness ([`skeleton`]): generic over the payload type
 /// so payload-perturbation twins (same paths, different contents) can run
 /// through the identical machinery.
-fn transcribed_mirror_sides<T: Send + Sync + 'static>(
-    a: Root,
-    b: Root,
-) -> (Root, Root, Trace, Transcript) {
-    let (a, b): (StreamingRoot<Local, T>, StreamingRoot<Local, T>) = (a.into(), b.into());
+fn transcribed_mirror_sides(a: Root, b: Root) -> (Root, Root, Trace, Transcript) {
+    let (a, b): (StreamingRoot<Local>, StreamingRoot<Local>) = (a.into(), b.into());
     let client = Handshaking::start(Local, a).window(WindowConfig::FLOOR);
     let server = Handshaking::start(Local, b).window(WindowConfig::FLOOR);
     let ((result, trace), transcript) =
@@ -161,7 +158,7 @@ fn alternating_mirror_sides(a: Root, b: Root) -> (Root, Root) {
     pollster::block_on(async {
         let local_a = alternating::local::Exchange::start(a);
         let local_b = alternating::local::Exchange::start(b);
-        alternating::mirror::<_, _, ()>(local_a, local_b)
+        alternating::mirror(local_a, local_b)
             .await
             .expect("two honest oracle endpoints speak no violations")
     })
@@ -247,7 +244,7 @@ fn uncontained_supply_is_rejected_by_streaming() {
     use crate::tree::mirror::streaming::materialized::{Error, Violation};
 
     let (receiver, poisoned, _, _) = uncontained_supply_pair();
-    let (receiver, poisoned): (StreamingRoot<Local, ()>, StreamingRoot<Local, ()>) =
+    let (receiver, poisoned): (StreamingRoot<Local>, StreamingRoot<Local>) =
         (receiver.into(), poisoned.into());
     let client = Handshaking::start(Local, receiver).window(WindowConfig::FLOOR);
     let server = Handshaking::start(Local, poisoned).window(WindowConfig::FLOOR);

@@ -18,16 +18,16 @@ use super::{
 };
 
 /// A wire frame and the lower question it makes publishable once written.
-pub struct Encoded<T, Q> {
-    frame: Frame<T>,
+pub struct Encoded<Q> {
+    frame: Frame,
     question: Option<Q>,
 }
 
-impl<T, Q> Encoded<T, Q> {
+impl<Q> Encoded<Q> {
     /// Write this frame and release its question only after a successful write.
     pub async fn write_with<E, W, F>(self, write: W) -> Result<Option<Q>, E>
     where
-        W: FnOnce(Frame<T>) -> F,
+        W: FnOnce(Frame) -> F,
         F: Future<Output = Result<(), E>>,
     {
         let Self { frame, question } = self;
@@ -36,14 +36,13 @@ impl<T, Q> Encoded<T, Q> {
     }
 
     #[cfg(test)]
-    pub fn into_parts(self) -> (Frame<T>, Option<Q>) {
+    pub fn into_parts(self) -> (Frame, Option<Q>) {
         (self.frame, self.question)
     }
 }
 
 /// A fallible stream containing the wire frames of one protocol reply.
-pub type Frames<T, E, Q> =
-    Pin<Box<dyn Stream<Item = Result<Encoded<T, Q>, EncodeError<E>>> + Send>>;
+pub type Frames<E, Q> = Pin<Box<dyn Stream<Item = Result<Encoded<Q>, EncodeError<E>>> + Send>>;
 
 /// Validate the initiator's distinguished opening reply and split it into
 /// its question's listing and its early whole-subtree supplies.
@@ -78,15 +77,14 @@ pub fn opening_parts<E>(
 }
 
 /// Encode one non-leaf reply and derive the lower questions it asks.
-pub fn encode_reply<B, T>(
+pub fn encode_reply<B>(
     backend: B,
     budget: RunBudget,
     scope: Scope,
     reply: Reply<B::Erased>,
-) -> Frames<T, B::Error, Scope>
+) -> Frames<B::Error, Scope>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
 {
     render(
         backend,
@@ -110,15 +108,14 @@ where
 }
 
 /// Encode one leaf-height reply, where only an empty request for the leaf is valid.
-pub fn encode_leaf_reply<B, T>(
+pub fn encode_leaf_reply<B>(
     backend: B,
     budget: RunBudget,
     scope: Scope,
     reply: Reply<B::Erased>,
-) -> Frames<T, B::Error, Scope>
+) -> Frames<B::Error, Scope>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
 {
     render(
         backend,
@@ -144,16 +141,15 @@ where
     )
 }
 
-fn render<B, T, D>(
+fn render<B, D>(
     backend: B,
     budget: RunBudget,
     mut scope: Scope,
     reply: Reply<B::Erased>,
     mut derive: D,
-) -> Frames<T, B::Error, Scope>
+) -> Frames<B::Error, Scope>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
     D: FnMut(&mut Scope, &ProtocolReaction<B::Erased>) -> Result<Option<Scope>, ScopeError>
         + Send
         + 'static,
@@ -210,7 +206,7 @@ where
                         let message = leaf.message();
                         if !run.is_empty()
                             && !budget
-                                .admits(run.encoded_len(), LeafRun::<T>::record_len(version, message))
+                                .admits(run.encoded_len(), LeafRun::record_len(version, message))
                         {
                             let full = mem::take(&mut run);
                             if let Some((ready, question)) =

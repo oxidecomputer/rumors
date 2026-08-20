@@ -55,7 +55,6 @@ const WITNESS_MARKERS: &[&str] = &[
     // DecodeLeafError (describe_leaf_kind).
     "kind: Record::Version(io=",
     "kind: Record::Message(io=",
-    "kind: Record::TrailingBytes(count=",
     // FramePart: every frame component must fail somewhere. These ride the
     // encode Write witnesses; FramePart has no exhaustive match here, so a
     // new component's marker must be added by hand alongside its witnesses.
@@ -82,7 +81,7 @@ const INTERIOR_STREAM: u8 = 8;
 const FIRST_RESERVED_SIGNAL: u8 = WireSignal::BYTE_COUNT;
 
 /// Build a supply run holding one leaf record.
-fn one_record_run<T: Serialize + Send + Sync + 'static>(version: Version, value: T) -> LeafRun<T> {
+fn one_record_run<T: Serialize + Send + Sync + 'static>(version: Version, value: T) -> LeafRun {
     let mut run = LeafRun::new();
     run.push(&version, &Message::new(value))
         .expect("an atlas record fits the run framing");
@@ -127,14 +126,14 @@ fn build_atlas() -> String {
 fn encode_errors(atlas: &mut String) {
     writeln!(atlas, "ENCODE").unwrap();
     let stream = Stream::new(INTERIOR_STREAM).unwrap();
-    let query: WireFrame<u8> = (
+    let query: WireFrame = (
         stream,
         Frame::Reaction(
             Reaction::Query(vec![(1, Hash::default()), (2, Hash::default())]),
             Flow::Continue,
         ),
     );
-    let supply: WireFrame<u8> = (
+    let supply: WireFrame = (
         stream,
         Frame::Reaction(
             Reaction::Supply(one_record_run(Version::new(), 7)),
@@ -167,7 +166,7 @@ fn decode_errors(atlas: &mut String) {
         Speaker::Initiator,
         (
             stream,
-            Frame::<u8>::Reaction(
+            Frame::Reaction(
                 Reaction::Query(vec![(1, Hash::default()), (2, Hash::default())]),
                 Flow::Continue,
             ),
@@ -185,14 +184,11 @@ fn decode_errors(atlas: &mut String) {
     );
     let matched = encoded(
         Speaker::Initiator,
-        (
-            stream,
-            Frame::<u8>::Reaction(Reaction::Match, Flow::Continue),
-        ),
+        (stream, Frame::Reaction(Reaction::Match, Flow::Continue)),
     );
 
     for speaker in [Speaker::Initiator, Speaker::Responder] {
-        let error = decode::<u8>(
+        let error = decode(
             speaker,
             RunBudget::default(),
             &mut FailAfterReader::new(matched.clone(), 0),
@@ -201,7 +197,7 @@ fn decode_errors(atlas: &mut String) {
         record_decode(atlas, &format!("{speaker:?}/read/signal"), &error);
 
         for (label, offset) in [("query-count", 1), ("query-children", 2)] {
-            let error = decode::<u8>(
+            let error = decode(
                 speaker,
                 RunBudget::default(),
                 &mut FailAfterReader::new(query.clone(), offset),
@@ -210,7 +206,7 @@ fn decode_errors(atlas: &mut String) {
             record_decode(atlas, &format!("{speaker:?}/read/{label}"), &error);
         }
         for (label, offset) in [("supply-length", 1), ("supply-run", 5)] {
-            let error = decode::<u8>(
+            let error = decode(
                 speaker,
                 RunBudget::default(),
                 &mut FailAfterReader::new(supply.clone(), offset),
@@ -226,21 +222,21 @@ fn decode_errors(atlas: &mut String) {
             ("supply-length", &supply[..1]),
             ("supply-run", &supply[..5]),
         ] {
-            let error = decode_exact::<u8>(speaker, RunBudget::default(), bytes).unwrap_err();
+            let error = decode_exact(speaker, RunBudget::default(), bytes).unwrap_err();
             record_decode(atlas, &format!("{speaker:?}/truncated/{label}"), &error);
         }
 
-        let error = decode_exact::<u8>(speaker, RunBudget::default(), &[FIRST_RESERVED_SIGNAL])
-            .unwrap_err();
+        let error =
+            decode_exact(speaker, RunBudget::default(), &[FIRST_RESERVED_SIGNAL]).unwrap_err();
         record_decode(atlas, &format!("{speaker:?}/reserved-signal"), &error);
 
         let mut unordered = query.clone();
         unordered[2] = 2;
         unordered[2 + QUERY_CHILD_LEN] = 1;
-        let error = decode_exact::<u8>(speaker, RunBudget::default(), &unordered).unwrap_err();
+        let error = decode_exact(speaker, RunBudget::default(), &unordered).unwrap_err();
         record_decode(atlas, &format!("{speaker:?}/query-out-of-order"), &error);
 
-        let error = decode_exact::<u64>(
+        let error = decode_exact(
             speaker,
             RunBudget::default(),
             &raw_supply(stream, Flow::Continue, &[]),
@@ -248,7 +244,7 @@ fn decode_errors(atlas: &mut String) {
         .unwrap_err();
         record_decode(atlas, &format!("{speaker:?}/run/empty"), &error);
 
-        let error = decode_exact::<u64>(
+        let error = decode_exact(
             speaker,
             RunBudget::default(),
             &raw_supply(stream, Flow::Continue, &[0, 0]),
@@ -258,7 +254,7 @@ fn decode_errors(atlas: &mut String) {
 
         let mut overrun = 2_u32.to_be_bytes().to_vec();
         overrun.push(0);
-        let error = decode_exact::<u64>(
+        let error = decode_exact(
             speaker,
             RunBudget::default(),
             &raw_supply(stream, Flow::Continue, &overrun),
@@ -281,20 +277,19 @@ fn decode_errors(atlas: &mut String) {
             &mut batched,
         )
         .unwrap();
-        let error = decode_exact::<u8>(speaker, RunBudget::from_bytes(0), &batched).unwrap_err();
+        let error = decode_exact(speaker, RunBudget::from_bytes(0), &batched).unwrap_err();
         record_decode(atlas, &format!("{speaker:?}/run/overbatched"), &error);
 
         let mut trailing = matched.clone();
         trailing.push(0);
-        let error = decode_exact::<u8>(speaker, RunBudget::default(), &trailing).unwrap_err();
+        let error = decode_exact(speaker, RunBudget::default(), &trailing).unwrap_err();
         record_decode(atlas, &format!("{speaker:?}/frame/trailing"), &error);
     }
 
     for (label, speaker, stream, frame) in placement_witnesses() {
         let signal = frame_signal(&frame);
         let invalid = WireSignal::new(speaker, stream, signal).unwrap_err();
-        let error =
-            decode_exact::<u8>(speaker, RunBudget::default(), &[invalid.byte()]).unwrap_err();
+        let error = decode_exact(speaker, RunBudget::default(), &[invalid.byte()]).unwrap_err();
         record_decode(atlas, &format!("{label}/decode"), &error);
     }
 }
@@ -309,20 +304,21 @@ fn record_errors(atlas: &mut String) {
 
     // A zero-length record is structurally valid; its empty body fails
     // at the version decoder.
-    let run = LeafRun::<u64>::from_encoded(framed_record(&[])).unwrap();
+    let run = LeafRun::from_encoded(framed_record(&[])).unwrap();
     record_leaf(atlas, "record/version", &next_record_error(&run));
 
     // A record ending after its version fails at the message decoder.
     let mut version = Vec::new();
     ciborium::ser::into_writer(&Version::new(), &mut version).unwrap();
-    let run = LeafRun::<u64>::from_encoded(framed_record(&version)).unwrap();
+    let run = LeafRun::from_encoded(framed_record(&version)).unwrap();
     record_leaf(atlas, "record/message", &next_record_error(&run));
 
-    // Bytes past the canonical pair are trailing.
+    // Bytes past the canonical pair are a malformed payload: the payload
+    // runs to the record's end, so the deserializer rejects the excess.
     let mut padded = version.clone();
     ciborium::ser::into_writer(&0_u64, &mut padded).unwrap();
     padded.push(u8::MIN);
-    let run = LeafRun::<u64>::from_encoded(framed_record(&padded)).unwrap();
+    let run = LeafRun::from_encoded(framed_record(&padded)).unwrap();
     record_leaf(atlas, "record/trailing", &next_record_error(&run));
 }
 
@@ -334,8 +330,8 @@ fn framed_record(record: &[u8]) -> Vec<u8> {
 }
 
 /// The first record's decode failure from a structurally valid run.
-fn next_record_error(run: &LeafRun<u64>) -> DecodeLeafError {
-    run.records()
+fn next_record_error(run: &LeafRun) -> DecodeLeafError {
+    run.records(Message::deserializer::<u64>())
         .next()
         .expect("the run holds one record")
         .unwrap_err()
@@ -361,13 +357,10 @@ fn describe_leaf_kind(out: &mut String, kind: &DecodeLeafError) {
         DecodeLeafError::Message(source) => {
             write!(out, "Record::Message(io={:?})", source.kind()).unwrap()
         }
-        DecodeLeafError::TrailingBytes { count } => {
-            write!(out, "Record::TrailingBytes(count={count})").unwrap()
-        }
     }
 }
 
-fn placement_witnesses() -> [(&'static str, Speaker, Stream, Frame<u8>); 3] {
+fn placement_witnesses() -> [(&'static str, Speaker, Stream, Frame); 3] {
     [
         (
             "placement/opening-supplies",
@@ -390,7 +383,7 @@ fn placement_witnesses() -> [(&'static str, Speaker, Stream, Frame<u8>); 3] {
     ]
 }
 
-fn encoded<T>(speaker: Speaker, frame: WireFrame<T>) -> Vec<u8> {
+fn encoded(speaker: Speaker, frame: WireFrame) -> Vec<u8> {
     let mut bytes = Vec::new();
     encode(speaker, &frame, &mut bytes).unwrap();
     bytes
@@ -406,7 +399,7 @@ fn raw_supply(stream: Stream, flow: Flow, body: &[u8]) -> Vec<u8> {
     encoded
 }
 
-fn frame_signal<T>(frame: &Frame<T>) -> Signal {
+fn frame_signal(frame: &Frame) -> Signal {
     match frame {
         Frame::Reaction(Reaction::Match, flow) => Signal::Match(*flow),
         Frame::Reaction(Reaction::Query(children), flow) if children.is_empty() => {

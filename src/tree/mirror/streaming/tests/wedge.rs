@@ -132,7 +132,7 @@ fn session_realizes_the_wedge_shape() {
          if tree construction changes"
     );
 
-    let (ours, theirs, trace, _) = transcribed_mirror_sides::<()>(wall, chain);
+    let (ours, theirs, trace, _) = transcribed_mirror_sides(wall, chain);
     assert_eq!(ours, theirs, "sanity: the session converges");
 
     let decoded = decode(&trace);

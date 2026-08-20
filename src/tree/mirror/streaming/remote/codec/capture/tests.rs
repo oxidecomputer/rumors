@@ -38,7 +38,7 @@ fn supply_decode_names_the_field_that_moved() {
     high.tick(&party);
 
     let render = |version: &Version| {
-        let mut run = LeafRun::<u64>::new();
+        let mut run = LeafRun::new();
         run.push(version, &Message::new(7_u64))
             .expect("one small record fits any run");
         supply_lines(run.as_bytes().to_vec())

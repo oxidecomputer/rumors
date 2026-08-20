@@ -1,3 +1,4 @@
+use crate::message::PayloadDeserializer;
 use std::pin::pin;
 use std::task::Poll;
 
@@ -23,7 +24,6 @@ use super::{
     scope::Scope,
 };
 
-use serde::de::DeserializeOwned;
 /// One reconstructed reply and any questions it asks next.
 pub struct Decoded<E, Q> {
     pub reply: Reply<E>,
@@ -65,17 +65,17 @@ pub fn opening_reply<E>(listing: Vec<(u8, Hash)>) -> (Reply<E>, Scope) {
 /// [`DecodeError::OversizedVersion`] session violation. `ledger` is the
 /// session's declared-`set_len` allowance, charged per record before the
 /// payload takes custody ([`DecodeError::OverdrawnSupply`]).
-pub fn early_supplies<B, T, F>(
+pub fn early_supplies<B, F>(
     backend: B,
     version_bytes: u64,
     ledger: SupplyLedger,
     parent: ErasedPrefix,
     frames: F,
+    deserializer: PayloadDeserializer,
 ) -> impl Stream<Item = Result<(u8, B::Erased), DecodeError<B::Error>>> + Send
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: DeserializeOwned + Send + Sync + 'static,
-    F: Stream<Item = Frame<T>> + Unpin + Send + 'static,
+    B: Backend<Node<Z>: Leaf>,
+    F: Stream<Item = Frame> + Unpin + Send + 'static,
 {
     try_stream! {
         // The same reader/assembler split as `decode`, driven jointly so
@@ -84,18 +84,19 @@ where
         let leaves = ReceiverStream::new(rx);
         #[cfg(test)]
         let leaves = leaves.inspect(|_| fan_probe::on_recv());
-        let leaves: BoxNodeStream<'static, B, T, Z> = Box::pin(leaves);
+        let leaves: BoxNodeStream<'static, B, Z> = Box::pin(leaves);
         let mut assembled = pin!(ops::assemble(
             backend.clone(),
             parent.height() - 1,
             leaves
         ));
-        let mut read = pin!(read_early::<B, T, _>(
+        let mut read = pin!(read_early::<B, _>(
             version_bytes,
             &ledger,
             parent,
             frames,
-            tx
+            tx,
+            deserializer,
         ));
         let mut read_result: Option<Result<(), DecodeError<B::Error>>> = None;
         loop {
@@ -132,17 +133,17 @@ where
 
 /// Read the opening-supply reply's frames — supplies only, one reply,
 /// nothing after it — streaming its leaves to assembly.
-async fn read_early<B, T, F>(
+async fn read_early<B, F>(
     version_bytes: u64,
     ledger: &SupplyLedger,
     parent: ErasedPrefix,
     mut frames: F,
     leaves: mpsc::Sender<Result<(Prefix<Z>, B::Node<Z>), B::Error>>,
+    deserializer: PayloadDeserializer,
 ) -> Result<(), DecodeError<B::Error>>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: DeserializeOwned + Send + Sync + 'static,
-    F: Stream<Item = Frame<T>> + Unpin,
+    B: Backend<Node<Z>: Leaf>,
+    F: Stream<Item = Frame> + Unpin,
 {
     let mut supplies = SupplyRuns::new(version_bytes);
     let mut any = false;
@@ -153,7 +154,7 @@ where
         let flow = match frame {
             Frame::Reaction(WireReaction::Supply(records), flow) => {
                 any = true;
-                for record in records.records() {
+                for record in records.records(deserializer) {
                     let (version, message) = record.map_err(DecodeError::Record)?;
                     let (leaf_prefix, _) = supplies.observe::<B::Error>(parent, &version)?;
                     // The set-length half of the greeting's priced
@@ -164,7 +165,7 @@ where
                     ledger
                         .charge(1)
                         .map_err(|declared| DecodeError::OverdrawnSupply { declared })?;
-                    let leaf = <B::Node<Z> as Leaf<T>>::leaf(version, message)
+                    let leaf = <B::Node<Z> as Leaf>::leaf(version, message)
                         .await
                         .map_err(DecodeError::Backend)?;
                     #[cfg(test)]
@@ -199,17 +200,17 @@ where
 }
 
 /// Decode one non-leaf reply and derive the lower questions it asks.
-pub async fn decode_reply<B, T, F>(
+pub async fn decode_reply<B, F>(
     backend: B,
     version_bytes: u64,
     ledger: SupplyLedger,
     scope: Scope,
     frames: &mut F,
+    deserializer: PayloadDeserializer,
 ) -> Result<Decoded<B::Erased, Vec<Scope>>, DecodeError<B::Error>>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: DeserializeOwned + Send + Sync + 'static,
-    F: Stream<Item = Frame<T>> + Unpin,
+    B: Backend<Node<Z>: Leaf>,
+    F: Stream<Item = Frame> + Unpin,
 {
     decode(
         backend,
@@ -221,22 +222,23 @@ where
             let (_, prefix) = scope.next().ok_or(ScopeError::UnpositionedQuery)?;
             Ok(Scope::new(prefix, listing))
         },
+        deserializer,
     )
     .await
 }
 
 /// Decode one leaf-height reply, where only an empty request for the leaf is valid.
-pub async fn decode_leaf_reply<B, T, F>(
+pub async fn decode_leaf_reply<B, F>(
     backend: B,
     version_bytes: u64,
     ledger: SupplyLedger,
     scope: Scope,
     frames: &mut F,
+    deserializer: PayloadDeserializer,
 ) -> Result<Decoded<B::Erased, Vec<Scope>>, DecodeError<B::Error>>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: DeserializeOwned + Send + Sync + 'static,
-    F: Stream<Item = Frame<T>> + Unpin,
+    B: Backend<Node<Z>: Leaf>,
+    F: Stream<Item = Frame> + Unpin,
 {
     decode(
         backend,
@@ -251,22 +253,23 @@ where
             let (_, prefix) = scope.next().ok_or(ScopeError::UnpositionedQuery)?;
             Ok(Scope::leaf(prefix))
         },
+        deserializer,
     )
     .await
 }
 
-async fn decode<B, T, F, Q, N>(
+async fn decode<B, F, Q, N>(
     backend: B,
     version_bytes: u64,
     ledger: SupplyLedger,
     scope: Scope,
     frames: &mut F,
     question: Q,
+    deserializer: PayloadDeserializer,
 ) -> Result<Decoded<B::Erased, Vec<N>>, DecodeError<B::Error>>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: DeserializeOwned + Send + Sync + 'static,
-    F: Stream<Item = Frame<T>> + Unpin,
+    B: Backend<Node<Z>: Leaf>,
+    F: Stream<Item = Frame> + Unpin,
     Q: FnMut(&mut Scope, &[(u8, Hash)]) -> Result<N, ScopeError>,
 {
     // The reply's supplied runs group into nodes one level under the
@@ -283,8 +286,16 @@ where
     // reader's hand per reply stream, at `node_bytes(0, version_bound)`
     // plus the slot itself (the window's supply-decode envelope).
     let (tx, rx) = mpsc::channel::<Result<(Prefix<Z>, B::Node<Z>), B::Error>>(FAN);
-    let read = read_reply::<B, T, _, _, _>(version_bytes, &ledger, scope, frames, question, tx);
-    let assemble = assemble_supplies::<B, T>(backend, children_height, rx);
+    let read = read_reply::<B, _, _, _>(
+        version_bytes,
+        &ledger,
+        scope,
+        frames,
+        question,
+        tx,
+        deserializer,
+    );
+    let assemble = assemble_supplies::<B>(backend, children_height, rx);
     let (read, assembled) = futures::future::join(read, assemble).await;
     let Some(ReadReply {
         skeleton,
@@ -300,18 +311,18 @@ where
 }
 
 /// Read and validate exactly one reply while streaming its leaves to assembly.
-async fn read_reply<B, T, F, Q, N>(
+async fn read_reply<B, F, Q, N>(
     version_bytes: u64,
     ledger: &SupplyLedger,
     mut scope: Scope,
     frames: &mut F,
     mut question: Q,
     leaves: mpsc::Sender<Result<(Prefix<Z>, B::Node<Z>), B::Error>>,
+    deserializer: PayloadDeserializer,
 ) -> Result<Option<ReadReply<N>>, DecodeError<B::Error>>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: DeserializeOwned + Send + Sync + 'static,
-    F: Stream<Item = Frame<T>> + Unpin,
+    B: Backend<Node<Z>: Leaf>,
+    F: Stream<Item = Frame> + Unpin,
     Q: FnMut(&mut Scope, &[(u8, Hash)]) -> Result<N, ScopeError>,
 {
     let mut read = ReadReply::new(version_bytes);
@@ -353,7 +364,7 @@ where
                 // Records leave the run one at a time and flow straight into
                 // assembly: the whole-run bound is its encoded bytes, never a
                 // decoded vector of leaves.
-                for record in records.records() {
+                for record in records.records(deserializer) {
                     let (version, message) = record.map_err(DecodeError::Record)?;
                     let (leaf_prefix, run) = read
                         .supplies
@@ -369,7 +380,7 @@ where
                     ledger
                         .charge(1)
                         .map_err(|declared| DecodeError::OverdrawnSupply { declared })?;
-                    let leaf = <B::Node<Z> as Leaf<T>>::leaf(version, message)
+                    let leaf = <B::Node<Z> as Leaf>::leaf(version, message)
                         .await
                         .map_err(DecodeError::Backend)?;
                     #[cfg(test)]
@@ -390,19 +401,18 @@ where
 
 /// Fold the reply's one-slot leaf stream into complete nodes at the
 /// scope's children height.
-async fn assemble_supplies<B, T>(
+async fn assemble_supplies<B>(
     backend: B,
     height: usize,
     leaves: mpsc::Receiver<Result<(Prefix<Z>, B::Node<Z>), B::Error>>,
 ) -> Result<Vec<(ErasedPrefix, B::Erased)>, DecodeError<B::Error>>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
 {
     let leaves = ReceiverStream::new(leaves);
     #[cfg(test)]
     let leaves = leaves.inspect(|_| fan_probe::on_recv());
-    let leaves: BoxNodeStream<'static, B, T, Z> = Box::pin(leaves);
+    let leaves: BoxNodeStream<'static, B, Z> = Box::pin(leaves);
     let mut assembled = pin!(ops::assemble(backend, height, leaves));
     let mut nodes = Vec::new();
     while let Some(item) = assembled.next().await {

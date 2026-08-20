@@ -39,7 +39,7 @@ fn unbounded() -> SupplyLedger {
 }
 
 /// Build a supply run from borrowed leaf records, in the given order.
-fn leaf_run<T>(records: &[(&Version, &Message)]) -> LeafRun<T> {
+fn leaf_run(records: &[(&Version, &Message)]) -> LeafRun {
     let mut run = LeafRun::new();
     for (version, message) in records {
         run.push(version, message)

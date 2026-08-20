@@ -100,7 +100,7 @@ pub(crate) async fn decode_frame_discarded(
     budget: RunBudget,
 ) -> Result<(), DecodeError> {
     let mut read = FrameRead::new(Speaker::Initiator, budget, read);
-    read.frame::<u64>().await.map(|_| ())
+    read.frame().await.map(|_| ())
 }
 
 #[cfg(test)]

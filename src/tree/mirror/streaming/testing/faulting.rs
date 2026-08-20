@@ -134,7 +134,7 @@ trait FaultHeight: height::Height + Sized {
 }
 
 /// A backend whose test node handles can wrap the canonical local fixture.
-trait FaultBackend: Backend<(), Node<Z>: Leaf<()>> {
+trait FaultBackend: Backend<Node<Z>: Leaf> {
     fn node<H: FaultHeight>() -> Self::Node<H>;
 
     /// A node whose version no fixture's declared ceiling contains.
@@ -181,11 +181,11 @@ where
 fn malformed_responses<B, H, R>(
     responses: R,
     violation: Violation,
-) -> BoxResponses<B, (), H, MaterializedError<B::Error>>
+) -> BoxResponses<B, H, MaterializedError<B::Error>>
 where
     B: FaultBackend,
     H: FaultHeight,
-    R: Responses<B, (), H, MaterializedError<B::Error>>,
+    R: Responses<B, H, MaterializedError<B::Error>>,
 {
     Box::pin(async_stream::stream! {
         let mut responses = Box::pin(responses);
@@ -250,14 +250,11 @@ fn fault_phase<B, H, R, N>(
     next: N,
     remaining: usize,
     fault: Option<Fault>,
-) -> (
-    BoxResponses<B, (), H, MaterializedError<B::Error>>,
-    Faulting<N>,
-)
+) -> (BoxResponses<B, H, MaterializedError<B::Error>>, Faulting<N>)
 where
     B: FaultBackend,
     H: FaultHeight,
-    R: Responses<B, (), H, MaterializedError<B::Error>>,
+    R: Responses<B, H, MaterializedError<B::Error>>,
 {
     if let (0, Some(Fault::Reply(violation))) = (remaining, fault) {
         (
@@ -281,10 +278,10 @@ where
     type Output = P::Output;
 }
 
-impl<B, P> Connect<B, ()> for Faulting<P>
+impl<B, P> Connect<B> for Faulting<P>
 where
     B: FaultBackend,
-    P: Connect<B, ()> + protocol::Protocol<Error = MaterializedError<B::Error>>,
+    P: Connect<B> + protocol::Protocol<Error = MaterializedError<B::Error>>,
 {
     type Next = Faulting<P::Next>;
 
@@ -302,10 +299,10 @@ where
     }
 }
 
-impl<B, P> CompleteConnect<B, ()> for Faulting<P>
+impl<B, P> CompleteConnect<B> for Faulting<P>
 where
     B: FaultBackend,
-    P: CompleteConnect<B, ()> + protocol::Protocol<Error = MaterializedError<B::Error>>,
+    P: CompleteConnect<B> + protocol::Protocol<Error = MaterializedError<B::Error>>,
 {
     type Next = Faulting<P::Next>;
 
@@ -320,10 +317,10 @@ where
     }
 }
 
-impl<B, P> protocol::Accept<B, ()> for Faulting<P>
+impl<B, P> protocol::Accept<B> for Faulting<P>
 where
     B: FaultBackend,
-    P: protocol::Accept<B, ()> + protocol::Protocol<Error = MaterializedError<B::Error>>,
+    P: protocol::Accept<B> + protocol::Protocol<Error = MaterializedError<B::Error>>,
 {
     type Next = Faulting<P::Next>;
 
@@ -344,66 +341,58 @@ where
     }
 }
 
-impl<B, P> CompleteEqual<B, ()> for Faulting<P>
+impl<B, P> CompleteEqual<B> for Faulting<P>
 where
     B: FaultBackend,
-    P: CompleteEqual<B, ()> + protocol::Protocol<Error = MaterializedError<B::Error>>,
+    P: CompleteEqual<B> + protocol::Protocol<Error = MaterializedError<B::Error>>,
 {
     async fn complete_equal(self) -> Result<Self::Output, Self::Error> {
         self.inner.complete_equal().await
     }
 }
 
-impl<B, P> Initiator<B, ()> for Faulting<P>
+impl<B, P> Initiator<B> for Faulting<P>
 where
     B: FaultBackend,
-    P: Initiator<B, ()> + protocol::Protocol<Error = MaterializedError<B::Error>>,
+    P: Initiator<B> + protocol::Protocol<Error = MaterializedError<B::Error>>,
 {
     type Next = Faulting<P::Next>;
 
-    fn initiator(
-        self,
-    ) -> (
-        BoxResponses<B, (), height::UnderRoot, Self::Error>,
-        Self::Next,
-    ) {
+    fn initiator(self) -> (BoxResponses<B, height::UnderRoot, Self::Error>, Self::Next) {
         let (responses, next) = self.inner.initiator();
         fault_phase(responses, next, self.remaining, self.fault)
     }
 }
 
-impl<B, P> Responder<B, ()> for Faulting<P>
+impl<B, P> Responder<B> for Faulting<P>
 where
     B: FaultBackend,
-    P: Responder<B, ()> + protocol::Protocol<Error = MaterializedError<B::Error>>,
+    P: Responder<B> + protocol::Protocol<Error = MaterializedError<B::Error>>,
 {
     type Next = Faulting<P::Next>;
 
     fn responder(
         self,
-        requests: impl Requests<B, (), height::UnderRoot>,
-    ) -> (
-        BoxResponses<B, (), height::UnderRoot, Self::Error>,
-        Self::Next,
-    ) {
+        requests: impl Requests<B, height::UnderRoot>,
+    ) -> (BoxResponses<B, height::UnderRoot, Self::Error>, Self::Next) {
         let (responses, next) = self.inner.responder(requests);
         fault_phase(responses, next, self.remaining, self.fault)
     }
 }
 
-impl<B, P> Reply<B, ()> for Faulting<P>
+impl<B, P> Reply<B> for Faulting<P>
 where
     B: FaultBackend,
-    P: Reply<B, ()> + protocol::Protocol<Error = MaterializedError<B::Error>>,
+    P: Reply<B> + protocol::Protocol<Error = MaterializedError<B::Error>>,
     <P::Height as protocol::ReplyHeight>::Output: FaultHeight,
 {
     type Next = Faulting<P::Next>;
 
     fn reply(
         self,
-        requests: impl Requests<B, (), Self::Height>,
+        requests: impl Requests<B, Self::Height>,
     ) -> (
-        BoxResponses<B, (), <Self::Height as protocol::ReplyHeight>::Output, Self::Error>,
+        BoxResponses<B, <Self::Height as protocol::ReplyHeight>::Output, Self::Error>,
         Self::Next,
     ) {
         let (responses, next) = self.inner.reply(requests);
@@ -411,16 +400,16 @@ where
     }
 }
 
-impl<B, P> CompleteResponder<B, ()> for Faulting<P>
+impl<B, P> CompleteResponder<B> for Faulting<P>
 where
     B: FaultBackend,
-    P: CompleteResponder<B, ()> + protocol::Protocol<Error = MaterializedError<B::Error>>,
+    P: CompleteResponder<B> + protocol::Protocol<Error = MaterializedError<B::Error>>,
 {
     fn complete_responder(
         self,
-        requests: impl Requests<B, (), height::Z>,
+        requests: impl Requests<B, height::Z>,
     ) -> (
-        BoxResponses<B, (), height::Z, Self::Error>,
+        BoxResponses<B, height::Z, Self::Error>,
         impl Future<Output = Result<Self::Output, Self::Error>> + Send,
     ) {
         let (responses, output) = self.inner.complete_responder(requests);
@@ -433,14 +422,14 @@ where
     }
 }
 
-impl<B, P> CompleteInitiator<B, ()> for Faulting<P>
+impl<B, P> CompleteInitiator<B> for Faulting<P>
 where
     B: FaultBackend,
-    P: CompleteInitiator<B, ()> + protocol::Protocol<Error = MaterializedError<B::Error>>,
+    P: CompleteInitiator<B> + protocol::Protocol<Error = MaterializedError<B::Error>>,
 {
     async fn complete_initiator(
         self,
-        requests: impl Requests<B, (), height::Z>,
+        requests: impl Requests<B, height::Z>,
     ) -> Result<Self::Output, Self::Error> {
         self.inner.complete_initiator(requests).await
     }

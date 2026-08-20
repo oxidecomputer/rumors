@@ -18,9 +18,6 @@ use super::{
 /// Session epoch shared by the violation tests; its value is arbitrary.
 const EPOCH: u8 = 0;
 
-/// A payload-free frame type for stream-layer tests.
-type Unit = ();
-
 /// The label is exactly two bytes: the session epoch then the stream index.
 #[test]
 fn label_is_epoch_then_stream() {
@@ -35,7 +32,7 @@ fn label_is_epoch_then_stream() {
 fn unopened_sender_finishes_without_connecting() {
     let (a, mut b) = memory();
     run_to_quiescence(async {
-        let sender: StreamSender<_, Unit> = StreamSender::new(
+        let sender: StreamSender<_> = StreamSender::new(
             a.connector.clone(),
             0,
             Speaker::Initiator,
@@ -62,7 +59,7 @@ fn frames_flow_sender_to_claimed_receiver() {
     let stream = Stream::new(2).expect("stream 2 exists");
     run_to_quiescence(async {
         let send = async {
-            let mut sender: StreamSender<_, Unit> = StreamSender::new(
+            let mut sender: StreamSender<_> = StreamSender::new(
                 a.connector.clone(),
                 9,
                 Speaker::Initiator,
@@ -83,7 +80,7 @@ fn frames_flow_sender_to_claimed_receiver() {
             let (route, _errors) = error_route();
             let driver =
                 AcceptDriver::new(&mut b.acceptor, 9, Speaker::Initiator, slots, route.clone());
-            let mut receiver: StreamReceiver<_, Unit> = StreamReceiver::new(
+            let mut receiver: StreamReceiver<_> = StreamReceiver::new(
                 claims.take(stream),
                 Speaker::Initiator,
                 stream,
@@ -118,7 +115,7 @@ fn unpolled_receiver_finishes_vacuously() {
     let (slots, mut claims) = claims::<tokio::io::DuplexStream>();
     let stream = Stream::new(0).expect("stream 0 exists");
     let (route, _errors) = error_route();
-    let mut receiver: StreamReceiver<_, Unit> = StreamReceiver::new(
+    let mut receiver: StreamReceiver<_> = StreamReceiver::new(
         claims.take(stream),
         Speaker::Responder,
         stream,
@@ -139,7 +136,7 @@ fn accept_driver_rejects_wrong_epoch() {
     let (a, mut b) = memory();
     run_to_quiescence(async {
         let send = async {
-            let mut sender: StreamSender<_, Unit> = StreamSender::new(
+            let mut sender: StreamSender<_> = StreamSender::new(
                 a.connector.clone(),
                 4,
                 Speaker::Initiator,
@@ -183,7 +180,7 @@ fn accept_driver_rejects_unclaimed_delivery() {
     let stream = Stream::new(6).expect("stream 6 exists");
     run_to_quiescence(async {
         let send = async {
-            let mut sender: StreamSender<_, Unit> = StreamSender::new(
+            let mut sender: StreamSender<_> = StreamSender::new(
                 a.connector.clone(),
                 0,
                 Speaker::Initiator,
@@ -243,12 +240,12 @@ async fn raw_labeled(
 async fn first_reported_error(
     acceptor: &mut crate::link::MemoryAcceptor,
     stream: Stream,
-    leading: &[Frame<Unit>],
+    leading: &[Frame],
 ) -> (StreamError, FirstStreamError) {
     let (slots, mut claims) = claims();
     let (route, mut errors) = error_route();
     let driver = AcceptDriver::new(acceptor, EPOCH, Speaker::Initiator, slots, route.clone());
-    let mut receiver: StreamReceiver<_, Unit> = StreamReceiver::new(
+    let mut receiver: StreamReceiver<_> = StreamReceiver::new(
         claims.take(stream),
         Speaker::Initiator,
         stream,
@@ -299,7 +296,7 @@ fn mislabeled_frame_is_reported_not_yielded() {
             // stream, the frame's signal byte another.
             let mut write = raw_labeled(&a.connector, labeled).await;
             write
-                .frame(&(framed, Frame::<Unit>::End(End::Reply)))
+                .frame(&(framed, Frame::End(End::Reply)))
                 .await
                 .expect("the miswired frame writes");
         };
@@ -329,7 +326,7 @@ fn truncated_stream_is_reported_not_ended() {
     let stream = Stream::new(4).expect("stream 4 exists");
     let error = run_to_quiescence(async {
         let send = async {
-            let mut sender: StreamSender<_, Unit> = StreamSender::new(
+            let mut sender: StreamSender<_> = StreamSender::new(
                 a.connector.clone(),
                 EPOCH,
                 Speaker::Initiator,
@@ -491,7 +488,7 @@ fn supply_failure_after_delivery_lets_the_session_finish() {
     let stream = Stream::new(7).expect("stream 7 exists");
     run_to_quiescence(async {
         let send = async {
-            let mut sender: StreamSender<_, Unit> = StreamSender::new(
+            let mut sender: StreamSender<_> = StreamSender::new(
                 a.connector.clone(),
                 EPOCH,
                 Speaker::Initiator,
@@ -520,7 +517,7 @@ fn supply_failure_after_delivery_lets_the_session_finish() {
                 slots,
                 route.clone(),
             );
-            let mut receiver: StreamReceiver<_, Unit> = StreamReceiver::new(
+            let mut receiver: StreamReceiver<_> = StreamReceiver::new(
                 claims.take(stream),
                 Speaker::Initiator,
                 stream,
@@ -552,12 +549,12 @@ fn supply_failure_after_delivery_lets_the_session_finish() {
 }
 
 /// Wrap a frame the type-level exclusion admits.
-fn reply_frame(frame: Frame<Unit>) -> ReplyFrame<Unit> {
+fn reply_frame(frame: Frame) -> ReplyFrame {
     ReplyFrame::try_from(frame).expect("not a stream-end control")
 }
 
 /// Stream-end control is excluded from reply frames at the type level.
 #[test]
 fn stream_end_is_not_a_reply_frame() {
-    assert!(ReplyFrame::<Unit>::try_from(Frame::End(End::Stream)).is_err());
+    assert!(ReplyFrame::try_from(Frame::End(End::Stream)).is_err());
 }

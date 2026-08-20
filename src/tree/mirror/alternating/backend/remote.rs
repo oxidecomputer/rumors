@@ -1,7 +1,7 @@
 //! Wire-bound counterpart to [`super::local`].
 //!
 //! Where `local::Exchange` realizes the protocol trait family by traversing an
-//! in-memory zipper, `remote::Exchange<T, R, W, H>` realizes it as a proxy of
+//! in-memory zipper, `remote::Exchange<R, W, H>` realizes it as a proxy of
 //! the *counterparty*: each protocol method serializes its incoming request
 //! into the writer and deserializes the counterparty's response from the
 //! reader. The struct carries only a paired `(reader, writer)` plus a phantom
@@ -50,6 +50,7 @@ use std::marker::PhantomData;
 
 use tokio::io::{AsyncRead, AsyncWrite};
 
+use crate::message::PayloadDeserializer;
 use crate::tree::wire;
 
 use crate::Error;
@@ -64,8 +65,6 @@ use super::super::{
     protocol::{self, Step},
 };
 
-use serde::Serialize;
-use serde::de::DeserializeOwned;
 /// The version state for an [`Exchange`] which has just been initialized but
 /// has not yet connected.
 pub struct Start;
@@ -79,38 +78,53 @@ pub struct Connected;
 /// Holds the underlying reader/writer (each wrapped for exact-read framing) and
 /// a phantom tag pinning the height; the counterparty's actual zipper lives on
 /// the far side of the wire.
-pub struct Exchange<T, R, W, V, H: Height> {
+pub struct Exchange<R, W, V, H: Height> {
     reader: FrameRead<R>,
     writer: FrameWrite<W>,
-    #[allow(clippy::type_complexity)]
-    _phantom: PhantomData<fn() -> (T, V, H)>,
+    /// The peer's payload deserializer: every `providing` channel this
+    /// proxy decodes builds its leaf payloads through it.
+    deserializer: PayloadDeserializer,
+    _phantom: PhantomData<fn() -> (V, H)>,
 }
 
-impl<T, R, W> Exchange<T, R, W, Start, Root> {
+impl<R, W> Exchange<R, W, Start, Root> {
     /// Begin an [`Exchange`] on transport halves wrapped after the shared raw
     /// preamble has completed.
-    pub fn start(reader: FrameRead<R>, writer: FrameWrite<W>) -> Self {
+    ///
+    /// `deserializer` is the peer's payload deserializer, the typed
+    /// ingress for every leaf this session decodes.
+    pub fn start(
+        reader: FrameRead<R>,
+        writer: FrameWrite<W>,
+        deserializer: PayloadDeserializer,
+    ) -> Self {
         Self {
             reader,
             writer,
+            deserializer,
             _phantom: PhantomData,
         }
     }
 }
 
-impl<T, R, W, H: Height> Exchange<T, R, W, Connected, H> {
+impl<R, W, H: Height> Exchange<R, W, Connected, H> {
     /// Construct a [`Connected`]-state [`Exchange`] from already-framed
     /// reader/writer halves, threading them through from a predecessor stage.
-    fn connected(reader: FrameRead<R>, writer: FrameWrite<W>) -> Self {
+    fn connected(
+        reader: FrameRead<R>,
+        writer: FrameWrite<W>,
+        deserializer: PayloadDeserializer,
+    ) -> Self {
         Self {
             reader,
             writer,
+            deserializer,
             _phantom: PhantomData,
         }
     }
 }
 
-impl<T, R: Send, W: Send, V, H: Height> protocol::Stage for Exchange<T, R, W, V, H> {
+impl<R: Send, W: Send, V, H: Height> protocol::Stage for Exchange<R, W, V, H> {
     type Height = H;
     /// The reconciled tree lives on the local side; the proxy yields its
     /// framed reader/writer halves back to the caller, which stays the
@@ -164,17 +178,49 @@ where
     wire::from_slice(&frame).map_err(Error::Io)
 }
 
+/// [`recv_msg`] for the payload-bearing messages: the frame decodes
+/// through [`message::DecodeWith`], its leaf payloads through the peer's
+/// deserializer.
+pub(super) async fn recv_msg_with<M, R>(
+    reader: &mut FrameRead<R>,
+    deserializer: PayloadDeserializer,
+) -> Result<M, Error>
+where
+    R: AsyncRead + Unpin + Send,
+    M: message::DecodeWith,
+{
+    let frame = reader
+        .frame()
+        .await
+        .map_err(|e| match e.kind() {
+            std::io::ErrorKind::UnexpectedEof => std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "peer closed before sending expected message",
+            ),
+            _ => e,
+        })
+        .map_err(Error::Io)?;
+    let mut slice = frame.as_slice();
+    let msg = M::read_wire_with(&mut slice, deserializer).map_err(Error::Io)?;
+    if !slice.is_empty() {
+        return Err(Error::Io(wire::invalid(format!(
+            "{} trailing bytes after the decoded message",
+            slice.len()
+        ))));
+    }
+    Ok(msg)
+}
+
 // One protocol-trait impl block per trait, each at the specific height it
 // pertains to. Together with the [`protocol::AfterExchange`] blanket impls,
 // they discharge every transition in the protocol's height schedule.
 
-impl<T, R, W> protocol::Accept<T> for Exchange<T, R, W, Start, Root>
+impl<R, W> protocol::Accept for Exchange<R, W, Start, Root>
 where
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
-    T: Serialize + DeserializeOwned + Send + Sync + 'static,
 {
-    type Next = Exchange<T, R, W, Connected, Root>;
+    type Next = Exchange<R, W, Connected, Root>;
 
     async fn accept(
         mut self,
@@ -203,19 +249,18 @@ where
 
         Ok(protocol::Step::Continue {
             msg: peer,
-            next: Exchange::connected(self.reader, self.writer),
+            next: Exchange::connected(self.reader, self.writer, self.deserializer),
         })
     }
 }
 
-impl<T, R, W> protocol::Initiator<T> for Exchange<T, R, W, Connected, Root>
+impl<R, W> protocol::Initiator for Exchange<R, W, Connected, Root>
 where
-    T: DeserializeOwned + Send + Sync + 'static,
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
     UnderRoot: DecodeNode,
 {
-    type Next = Exchange<T, R, W, Connected, Root>;
+    type Next = Exchange<R, W, Connected, Root>;
 
     async fn initiator(mut self) -> Result<Step<message::Initiate, Self::Next, Infallible>, Error> {
         // No write: the real initiator (on the far side of the wire) has
@@ -225,19 +270,18 @@ where
         // is `Infallible`, so `Done` is uninhabitable here.
         Ok(Step::Continue {
             msg,
-            next: Exchange::connected(self.reader, self.writer),
+            next: Exchange::connected(self.reader, self.writer, self.deserializer),
         })
     }
 }
 
-impl<T, R, W> protocol::Responder<T> for Exchange<T, R, W, Connected, Root>
+impl<R, W> protocol::Responder for Exchange<R, W, Connected, Root>
 where
-    T: DeserializeOwned + Send + Sync + 'static,
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
     UnderRoot: DecodeNode,
 {
-    type Next = Exchange<T, R, W, Connected, UnderRoot>;
+    type Next = Exchange<R, W, Connected, UnderRoot>;
 
     async fn responder(
         mut self,
@@ -253,30 +297,30 @@ where
         let response: message::Opening = recv_msg(&mut self.reader).await?;
         Ok(Step::Continue {
             msg: response,
-            next: Exchange::connected(self.reader, self.writer),
+            next: Exchange::connected(self.reader, self.writer, self.deserializer),
         })
     }
 }
 
-impl<T, R, W> protocol::OpenInitiator<T> for Exchange<T, R, W, Connected, Root>
+impl<R, W> protocol::OpenInitiator for Exchange<R, W, Connected, Root>
 where
-    T: DeserializeOwned + Send + Sync + 'static,
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
     UnderRoot: DecodeNode,
 {
-    type Next = Exchange<T, R, W, Connected, UnderUnderRoot>;
+    type Next = Exchange<R, W, Connected, UnderUnderRoot>;
 
     async fn open_initiator(
         mut self,
         request: message::Opening,
-    ) -> Result<Step<message::Exchange<T, UnderUnderRoot>, Self::Next, Self::Output>, Error> {
+    ) -> Result<Step<message::Exchange<UnderUnderRoot>, Self::Next, Self::Output>, Error> {
         send_msg(&mut self.writer, &request).await?;
 
         // We always await a response: even an empty `Opening` can prompt the
         // counterparty to send back a non-trivial `providing` (the "we have,
         // they lack" Left case when we are the empty side).
-        let response: message::Exchange<T, UnderUnderRoot> = recv_msg(&mut self.reader).await?;
+        let response: message::Exchange<UnderUnderRoot> =
+            recv_msg_with(&mut self.reader, self.deserializer).await?;
 
         if response.requested.is_empty() && response.uncertain.is_empty() {
             Ok(Step::Done {
@@ -286,15 +330,14 @@ where
         } else {
             Ok(Step::Continue {
                 msg: response,
-                next: Exchange::connected(self.reader, self.writer),
+                next: Exchange::connected(self.reader, self.writer, self.deserializer),
             })
         }
     }
 }
 
-impl<T, R, W, H> protocol::Exchange<T> for Exchange<T, R, W, Connected, S<S<H>>>
+impl<R, W, H> protocol::Exchange for Exchange<R, W, Connected, S<S<H>>>
 where
-    T: DeserializeOwned + Send + Sync + 'static,
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
     H: Height,
@@ -304,14 +347,14 @@ where
     // Assumed at impl-validation time so we don't have to case-analyze `H`
     // here: at use sites `H` is concrete and one of the three blanket impls
     // in `super::protocol` discharges it.
-    Exchange<T, R, W, Connected, H>: protocol::AfterExchange<T, H>,
+    Exchange<R, W, Connected, H>: protocol::AfterExchange<H>,
 {
-    type Next = Exchange<T, R, W, Connected, H>;
+    type Next = Exchange<R, W, Connected, H>;
 
     async fn exchange(
         mut self,
-        request: message::Exchange<T, S<H>>,
-    ) -> Result<Step<message::Exchange<T, H>, Self::Next, Self::Output>, Error> {
+        request: message::Exchange<S<H>>,
+    ) -> Result<Step<message::Exchange<H>, Self::Next, Self::Output>, Error> {
         // If the message we just sent will cause the other party to be done,
         // they won't ever respond, so don't await their response.
         let counterparty_finished = request.requested.is_empty() && request.uncertain.is_empty();
@@ -325,7 +368,8 @@ where
             });
         }
 
-        let response: message::Exchange<T, H> = recv_msg(&mut self.reader).await?;
+        let response: message::Exchange<H> =
+            recv_msg_with(&mut self.reader, self.deserializer).await?;
 
         if response.requested.is_empty() && response.uncertain.is_empty() {
             Ok(Step::Done {
@@ -335,24 +379,23 @@ where
         } else {
             Ok(Step::Continue {
                 msg: response,
-                next: Exchange::connected(self.reader, self.writer),
+                next: Exchange::connected(self.reader, self.writer, self.deserializer),
             })
         }
     }
 }
 
-impl<T, R, W> protocol::CloseResponder<T> for Exchange<T, R, W, Connected, S<Z>>
+impl<R, W> protocol::CloseResponder for Exchange<R, W, Connected, S<Z>>
 where
-    T: DeserializeOwned + Send + Sync + 'static,
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
 {
-    type Next = Exchange<T, R, W, Connected, Z>;
+    type Next = Exchange<R, W, Connected, Z>;
 
     async fn close_responder(
         mut self,
-        request: message::Exchange<T, Z>,
-    ) -> Result<Step<message::Closing<T>, Self::Next, Self::Output>, Error> {
+        request: message::Exchange<Z>,
+    ) -> Result<Step<message::Closing, Self::Next, Self::Output>, Error> {
         // If the message we just sent will cause the other party to be done,
         // they won't ever respond, so don't await their response.
         let counterparty_finished = request.requested.is_empty() && request.uncertain.is_empty();
@@ -366,7 +409,7 @@ where
             });
         }
 
-        let response: message::Closing<T> = recv_msg(&mut self.reader).await?;
+        let response: message::Closing = recv_msg_with(&mut self.reader, self.deserializer).await?;
 
         if response.requested.is_empty() {
             Ok(Step::Done {
@@ -376,22 +419,21 @@ where
         } else {
             Ok(Step::Continue {
                 msg: response,
-                next: Exchange::connected(self.reader, self.writer),
+                next: Exchange::connected(self.reader, self.writer, self.deserializer),
             })
         }
     }
 }
 
-impl<T, R, W> protocol::CompleteInitiator<T> for Exchange<T, R, W, Connected, Z>
+impl<R, W> protocol::CompleteInitiator for Exchange<R, W, Connected, Z>
 where
-    T: DeserializeOwned + Send + Sync + 'static,
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
 {
     async fn complete_initiator(
         mut self,
-        request: message::Closing<T>,
-    ) -> Result<Step<message::Complete<T>, Infallible, Self::Output>, Error> {
+        request: message::Closing,
+    ) -> Result<Step<message::Complete, Infallible, Self::Output>, Error> {
         // If the message we just sent will cause the other party to be done,
         // they won't ever respond, so don't await their response.
         let counterparty_finished = request.requested.is_empty();
@@ -405,7 +447,8 @@ where
             });
         }
 
-        let response: message::Complete<T> = recv_msg(&mut self.reader).await?;
+        let response: message::Complete =
+            recv_msg_with(&mut self.reader, self.deserializer).await?;
 
         // `CompleteInitiator` is statically `Done`: the `Next` slot is
         // `Infallible`, so `Continue` is uninhabitable here.
@@ -416,15 +459,14 @@ where
     }
 }
 
-impl<T, R, W> protocol::CompleteResponder<T> for Exchange<T, R, W, Connected, Z>
+impl<R, W> protocol::CompleteResponder for Exchange<R, W, Connected, Z>
 where
-    T: Send + Sync,
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
 {
     async fn complete_responder(
         mut self,
-        request: message::Complete<T>,
+        request: message::Complete,
     ) -> Result<Step<(), Infallible, Self::Output>, Error> {
         // Final write; the real responder absorbs this and is done.
         send_msg(&mut self.writer, &request).await?;

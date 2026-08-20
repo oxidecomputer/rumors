@@ -38,18 +38,17 @@ use super::progress::Progress;
 pub type Replies<E> = Pin<Box<dyn Stream<Item = Reply<E>> + Send>>;
 
 /// Encode local leaf replies, optionally publishing the leaf questions they ask.
-pub async fn terminal<B, T, C>(
+pub async fn terminal<B, C>(
     backend: B,
     budget: RunBudget,
     requests: Replies<B::Erased>,
     mut scopes: Receiver<Scope>,
-    mut outgoing: StreamSender<C, T>,
+    mut outgoing: StreamSender<C>,
     questions: Option<Sender<Scope>>,
     progress: Progress,
 ) -> Result<(), Error<B::Error>>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
     C: Connector,
 {
     let mut requests = requests;
@@ -78,19 +77,18 @@ where
 // The argument list is the stage's dataflow, one edge per argument;
 // bundling edges into a struct would only rename the arity.
 #[allow(clippy::too_many_arguments)]
-pub async fn replies<B, T, C>(
+pub async fn replies<B, C>(
     backend: B,
     budget: RunBudget,
     requests: Replies<B::Erased>,
     mut scopes: Receiver<Scope>,
-    mut outgoing: StreamSender<C, T>,
+    mut outgoing: StreamSender<C>,
     questions: Sender<Scope>,
     progress: Progress,
     question_height: usize,
 ) -> Result<(), Error<B::Error>>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
     C: Connector,
 {
     let mut requests = requests;
@@ -124,18 +122,17 @@ where
 /// pruned away" from an empty reply rather than wait on a stream that
 /// never opens, and a session without initiator exclusives keeps today's
 /// streamless opening.
-pub async fn opening<B, T, C>(
+pub async fn opening<B, C>(
     backend: B,
     budget: RunBudget,
     requests: Replies<B::Erased>,
     questions: Sender<Scope>,
-    mut outgoing: StreamSender<C, T>,
+    mut outgoing: StreamSender<C>,
     peer_listing: Vec<(u8, Hash)>,
     progress: Progress,
 ) -> Result<(), Error<B::Error>>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
     C: Connector,
 {
     let mut requests = requests;
@@ -176,9 +173,9 @@ where
 }
 
 /// Flush every frame in one reply and retain its acknowledged questions.
-async fn write_reply<T, C, Q, E>(
-    outgoing: &mut StreamSender<C, T>,
-    encoded: &mut (impl futures::Stream<Item = Result<Encoded<T, Q>, adapter::EncodeError<E>>> + Unpin),
+async fn write_reply<C, Q, E>(
+    outgoing: &mut StreamSender<C>,
+    encoded: &mut (impl futures::Stream<Item = Result<Encoded<Q>, adapter::EncodeError<E>>> + Unpin),
 ) -> Result<Vec<Q>, Error<E>>
 where
     C: Connector,
@@ -201,9 +198,9 @@ async fn publish(questions: &Sender<Scope>, batch: Vec<Scope>, progress: Progres
 }
 
 /// Reject unclaimed local replies, then close the outgoing logical stream.
-async fn finish<T, C, R, E>(
+async fn finish<C, R, E>(
     mut requests: Pin<Box<R>>,
-    outgoing: StreamSender<C, T>,
+    outgoing: StreamSender<C>,
 ) -> Result<(), Error<E>>
 where
     C: Connector,
@@ -217,9 +214,9 @@ where
 }
 
 /// Flush one adapter frame and release its optional question afterward.
-async fn write_encoded<T, C, Q, E>(
-    outgoing: &mut StreamSender<C, T>,
-    encoded: Encoded<T, Q>,
+async fn write_encoded<C, Q, E>(
+    outgoing: &mut StreamSender<C>,
+    encoded: Encoded<Q>,
 ) -> Result<Option<Q>, Error<E>>
 where
     C: Connector,

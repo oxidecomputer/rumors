@@ -105,7 +105,7 @@ proptest! {
     fn serde_roundtrip(p in payload()) {
         let m = Message::new(p);
         let bytes = cbor_vec(&m);
-        let back = Message::from_reader::<Payload, _>(bytes.as_slice()).unwrap();
+        let back = Message::from_reader(bytes.as_slice(), Message::deserializer::<Payload>()).unwrap();
         prop_assert_eq!(&m, &back);
         prop_assert_eq!(m.bytes(), back.bytes());
     }
@@ -121,7 +121,7 @@ proptest! {
         combined.extend_from_slice(&trailer);
 
         let mut slice: &[u8] = &combined;
-        let back = Message::from_reader::<Payload, _>(&mut slice).unwrap();
+        let back = Message::from_reader(&mut slice, Message::deserializer::<Payload>()).unwrap();
         prop_assert_eq!(back.bytes(), m.bytes());
         prop_assert_eq!(slice, trailer.as_slice());
         prop_assert_eq!(combined.len() - slice.len(), expected.len());

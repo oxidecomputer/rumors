@@ -1,5 +1,6 @@
 //! Source-error propagation across every backend operation reachable by the adapter.
 
+use crate::message::Message;
 use std::convert::Infallible;
 
 use futures::{StreamExt, stream};
@@ -68,8 +69,7 @@ where
 
         for fail_after in 0..Self::HEIGHT {
             let backend = Failing::after(Local, fail_after);
-            let supply =
-                <Failing<Local> as Backend<u64>>::erase(FailingNode::new(Self::node(leaf)));
+            let supply = <Failing<Local> as Backend>::erase(FailingNode::new(Self::node(leaf)));
             let replies = if supply_radix < u8::MAX {
                 vec![
                     Reaction::Supply(supply_radix, supply),
@@ -81,7 +81,7 @@ where
                     Reaction::Supply(supply_radix, supply),
                 ]
             };
-            let mut encoded = encode_reply::<_, u64>(
+            let mut encoded = encode_reply(
                 backend.clone(),
                 RunBudget::default(),
                 Scope::new(parent.erase(), &listing),
@@ -130,12 +130,13 @@ where
                 sentinel.clone(),
             ]);
             let error = runtime
-                .block_on(decode_reply::<Failing<Local>, u64, _>(
+                .block_on(decode_reply::<Failing<Local>, _>(
                     backend.clone(),
                     u64::MAX,
                     unbounded(),
                     Scope::new(parent.erase(), &[]),
                     &mut frames,
+                    Message::deserializer::<u64>(),
                 ))
                 .err()
                 .expect("the injected decoding failure was not reached");

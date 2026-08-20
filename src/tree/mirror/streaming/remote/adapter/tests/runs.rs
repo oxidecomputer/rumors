@@ -83,7 +83,7 @@ fn separated_leaves() -> [LeafCase; 2] {
 }
 
 /// One single-record supply frame per leaf: the least-batched wire form.
-fn unbatched_frames(leaves: &[LeafCase]) -> Vec<Frame<u64>> {
+fn unbatched_frames(leaves: &[LeafCase]) -> Vec<Frame> {
     let count = leaves.len();
     leaves
         .iter()
@@ -104,16 +104,17 @@ fn unbatched_frames(leaves: &[LeafCase]) -> Vec<Frame<u64>> {
 
 /// Decode `frames` as one reply to the opening scope, then re-encode it
 /// under `budget`, returning the emitted wire frames.
-fn recode(frames: Vec<Frame<u64>>, budget: RunBudget) -> Vec<Frame<u64>> {
+fn recode(frames: Vec<Frame>, budget: RunBudget) -> Vec<Frame> {
     let runtime = runtime();
     runtime.block_on(async {
         let mut input = stream::iter(frames);
-        let decoded = decode_reply::<Local, u64, _>(
+        let decoded = decode_reply::<Local, _>(
             Local,
             u64::MAX,
             unbounded(),
             Scope::opening(&[]),
             &mut input,
+            Message::deserializer::<u64>(),
         )
         .await
         .expect("ascending in-scope leaves assemble");
@@ -126,7 +127,7 @@ fn recode(frames: Vec<Frame<u64>>, budget: RunBudget) -> Vec<Frame<u64>> {
 }
 
 /// Split every emitted frame into its supply run, requiring supplies only.
-fn runs_of(frames: &[Frame<u64>]) -> Vec<&LeafRun<u64>> {
+fn runs_of(frames: &[Frame]) -> Vec<&LeafRun> {
     frames
         .iter()
         .map(|frame| match frame {
@@ -137,10 +138,10 @@ fn runs_of(frames: &[Frame<u64>]) -> Vec<&LeafRun<u64>> {
 }
 
 /// The decoded records of `runs`, flattened in wire order.
-fn records_of(runs: &[&LeafRun<u64>]) -> Vec<(Version, Message)> {
+fn records_of(runs: &[&LeafRun]) -> Vec<(Version, Message)> {
     runs.iter()
         .flat_map(|run| {
-            run.records()
+            run.records(Message::deserializer::<u64>())
                 .collect::<Result<Vec<_>, _>>()
                 .expect("an encoder-produced run holds canonical records")
         })
@@ -190,14 +191,14 @@ proptest! {
             // would have pushed its frame past the budget.
             if position + 1 < runs.len() {
                 let (version, message) = runs[position + 1]
-                    .records()
+                    .records(Message::deserializer::<u64>())
                     .next()
                     .expect("a nonempty run yields a first record")
                     .expect("an encoder-produced run holds canonical records");
                 prop_assert!(
                     SUPPLY_FRAME_OVERHEAD
                         + run.encoded_len()
-                        + LeafRun::<u64>::record_len(&version, &message)
+                        + LeafRun::record_len(&version, &message)
                         > budget,
                     "run {position} flushed although the next record fit"
                 );
@@ -264,12 +265,13 @@ fn a_batched_run_round_trips_the_reply() {
     let runtime = runtime();
     let reply = runtime.block_on(async {
         let mut input = stream::iter(frames);
-        decode_reply::<Local, u64, _>(
+        decode_reply::<Local, _>(
             Local,
             u64::MAX,
             unbounded(),
             Scope::opening(&[]),
             &mut input,
+            Message::deserializer::<u64>(),
         )
         .await
         .expect("the batched frame decodes")
@@ -280,10 +282,10 @@ fn a_batched_run_round_trips_the_reply() {
     };
     let prefix = Prefix::<UnderRoot>::containing(&leaves[0].path());
     let rebuilt = runtime.block_on(async {
-        <Local as Backend<u64>>::leaves(
+        <Local as Backend>::leaves(
             Local,
             prefix,
-            <Local as Backend<u64>>::assume::<UnderRoot>(node.clone()),
+            <Local as Backend>::assume::<UnderRoot>(node.clone()),
         )
         .try_collect::<Vec<_>>()
         .await

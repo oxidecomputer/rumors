@@ -44,10 +44,9 @@ use crate::tree::{
 /// rather than once per concrete schedule stream.
 type Replies<E> = BoxStream<'static, Reply<E>>;
 
-impl<B, T> Work<B, T>
+impl<B> Work<B>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
 {
     /// Process the initiator level.
     ///
@@ -73,17 +72,17 @@ where
         fan: Vec<(u8, B::Erased)>,
         their_listing: Vec<(u8, Hash)>,
     ) -> (
-        BoxResponses<B, T, UnderRoot, Error<B::Error>>,
+        BoxResponses<B, UnderRoot, Error<B::Error>>,
         Receiver<Query<B::Erased>>,
         Sender<Option<B::Erased>>,
         oneshot::Receiver<Vec<(u8, Option<B::Erased>)>>,
-        BoxFuture<'static, Result<Root<B, T>, Error<B::Error>>>,
+        BoxFuture<'static, Result<Root<B>, Error<B::Error>>>,
     )
     where
         B: Sync,
     {
-        let (queries, queries_rx) = initiator_root_query::<B, T>();
-        let (returns, mut returns_rx) = initiator_root_return::<B, T>();
+        let (queries, queries_rx) = initiator_root_query::<B>();
+        let (returns, mut returns_rx) = initiator_root_return::<B>();
         let (early_tx, early_rx) = oneshot::channel();
         let backend = self.backend();
         let stats = self.stats.clone();
@@ -179,24 +178,24 @@ where
         ledger: SupplyLedger,
         ceiling: Version,
         fan: Vec<(u8, B::Erased)>,
-        requests: impl Requests<B, T, UnderRoot>,
+        requests: impl Requests<B, UnderRoot>,
     ) -> (
-        BoxResponses<B, T, UnderRoot, Error<B::Error>>,
+        BoxResponses<B, UnderRoot, Error<B::Error>>,
         Receiver<Query<B::Erased>>,
         Sender<Option<B::Erased>>,
         oneshot::Receiver<Vec<(u8, Vec<(u8, B::Erased)>)>>,
-        BoxFuture<'static, Result<Root<B, T>, Error<B::Error>>>,
+        BoxFuture<'static, Result<Root<B>, Error<B::Error>>>,
     )
     where
         B: Sync,
     {
         let requests: Replies<B::Erased> =
-            Box::pin(requests.map(erased::erase_reply::<B, T, UnderRoot>));
+            Box::pin(requests.map(erased::erase_reply::<B, UnderRoot>));
         let backend = self.backend();
         let stats = self.stats.clone();
         let (asked, asked_rx) =
-            responder_child_queries::<B, T>(self.window.capacity(UnderUnderRoot::HEIGHT));
-        let (resolution, resolution_rx) = responder_root_resolution::<B, T>();
+            responder_child_queries::<B>(self.window.capacity(UnderUnderRoot::HEIGHT));
+        let (resolution, resolution_rx) = responder_root_resolution::<B>();
         let (early_tx, early_rx) = oneshot::channel();
         let assembling = backend.clone();
         #[cfg(test)]
@@ -248,7 +247,7 @@ where
             );
         };
 
-        let (returns, returns_rx) = responder_root_returns::<B, T>();
+        let (returns, returns_rx) = responder_root_returns::<B>();
         let assembled = assemble(assembling, resolution_rx, returns_rx);
         let finish = Box::pin(async move {
             let mut assembled = pin!(assembled);
@@ -301,10 +300,10 @@ where
         ledger: SupplyLedger,
         early_survivors: Option<oneshot::Receiver<Vec<(u8, Option<B::Erased>)>>>,
         early_supplies: Option<oneshot::Receiver<Vec<(u8, Vec<(u8, B::Erased)>)>>>,
-        requests: impl Requests<B, T, S<S<H>>>,
+        requests: impl Requests<B, S<S<H>>>,
         queries: Receiver<Query<B::Erased>>,
     ) -> (
-        BoxResponses<B, T, S<H>, Error<B::Error>>,
+        BoxResponses<B, S<H>, Error<B::Error>>,
         Receiver<Query<B::Erased>>,
         OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
         OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
@@ -316,7 +315,7 @@ where
         S<S<H>>: Height,
     {
         let requests: Replies<B::Erased> =
-            Box::pin(requests.map(erased::erase_reply::<B, T, S<S<H>>>));
+            Box::pin(requests.map(erased::erase_reply::<B, S<S<H>>>));
         let (responses, asked_rx, upper_rx, lower_rx) = self.internal_walk(
             their_version,
             ledger,
@@ -350,7 +349,7 @@ where
         mut queries: Receiver<Query<B::Erased>>,
         asked_height: usize,
     ) -> (
-        impl Stream<Item = Result<Reply<B::Erased>, Error<B::Error>>> + Send + 'static + use<B, T>,
+        impl Stream<Item = Result<Reply<B::Erased>, Error<B::Error>>> + Send + 'static + use<B>,
         Receiver<Query<B::Erased>>,
         OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
         OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
@@ -361,12 +360,12 @@ where
         let backend = self.backend();
         let stats = self.stats.clone();
         let (asked, asked_rx) =
-            internal_child_queries::<B, T>(asked_height, self.window.capacity(asked_height));
-        let (upper, upper_rx) = internal_parent_resolutions::<B, T>(
+            internal_child_queries::<B>(asked_height, self.window.capacity(asked_height));
+        let (upper, upper_rx) = internal_parent_resolutions::<B>(
             asked_height + 2,
             self.window.capacity(asked_height + 2),
         );
-        let (lower, lower_rx) = internal_child_resolutions::<B, T>(
+        let (lower, lower_rx) = internal_child_resolutions::<B>(
             asked_height + 1,
             self.window.capacity(asked_height + 1),
         );
@@ -428,7 +427,7 @@ where
                 }
 
                 let mut resolver =
-                    Resolver::<B, T>::new(query, &their_version, &ledger, stats.clone());
+                    Resolver::<B>::new(query, &their_version, &ledger, stats.clone());
                 for reaction in replies {
                     let Some((prefix, radix, node, listing)) = resolver.react(reaction)? else {
                         continue;
@@ -519,10 +518,10 @@ where
         &mut self,
         their_version: Version,
         ledger: SupplyLedger,
-        requests: impl Requests<B, T, S<Z>>,
+        requests: impl Requests<B, S<Z>>,
         queries: Receiver<Query<B::Erased>>,
     ) -> (
-        BoxResponses<B, T, Z, Error<B::Error>>,
+        BoxResponses<B, Z, Error<B::Error>>,
         Receiver<Prefix<Z>>,
         OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
         OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
@@ -530,8 +529,7 @@ where
     where
         B: Sync,
     {
-        let requests: Replies<B::Erased> =
-            Box::pin(requests.map(erased::erase_reply::<B, T, S<Z>>));
+        let requests: Replies<B::Erased> = Box::pin(requests.map(erased::erase_reply::<B, S<Z>>));
         let (responses, asked_rx, upper_rx, lower_rx) =
             self.leaf_parent_walk(their_version, ledger, requests, queries);
         (self.respond::<Z>(responses), asked_rx, upper_rx, lower_rx)
@@ -546,7 +544,7 @@ where
         requests: Replies<B::Erased>,
         mut queries: Receiver<Query<B::Erased>>,
     ) -> (
-        impl Stream<Item = Result<Reply<B::Erased>, Error<B::Error>>> + Send + 'static + use<B, T>,
+        impl Stream<Item = Result<Reply<B::Erased>, Error<B::Error>>> + Send + 'static + use<B>,
         Receiver<Prefix<Z>>,
         OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
         OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
@@ -557,9 +555,8 @@ where
         let backend = self.backend();
         let stats = self.stats.clone();
         let (asked, asked_rx) = leaf_requests(self.window.capacity(Z::HEIGHT));
-        let (upper, upper_rx) =
-            leaf_parent_resolutions::<B, T>(self.window.capacity(<S<Z>>::HEIGHT));
-        let (lower, lower_rx) = leaf_child_resolutions::<B, T>(self.window.capacity(Z::HEIGHT));
+        let (upper, upper_rx) = leaf_parent_resolutions::<B>(self.window.capacity(<S<Z>>::HEIGHT));
+        let (lower, lower_rx) = leaf_child_resolutions::<B>(self.window.capacity(Z::HEIGHT));
         #[cfg(test)]
         let trace_id = self.trace_id;
 
@@ -571,7 +568,7 @@ where
                 };
 
                 let mut resolver =
-                    Resolver::<B, T>::new(query, &their_version, &ledger, stats.clone());
+                    Resolver::<B>::new(query, &their_version, &ledger, stats.clone());
                 for reaction in replies {
                     let Some((prefix, radix, node, listing)) = resolver.react(reaction)? else {
                         continue;
@@ -632,13 +629,13 @@ where
         &mut self,
         their_version: Version,
         ledger: SupplyLedger,
-        requests: impl Requests<B, T, Z>,
+        requests: impl Requests<B, Z>,
         queries: Receiver<Query<B::Erased>>,
     ) -> (
-        BoxResponses<B, T, Z, Error<B::Error>>,
+        BoxResponses<B, Z, Error<B::Error>>,
         OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
     ) {
-        let requests: Replies<B::Erased> = Box::pin(requests.map(erased::erase_reply::<B, T, Z>));
+        let requests: Replies<B::Erased> = Box::pin(requests.map(erased::erase_reply::<B, Z>));
         let (responses, upper_rx) = self.leaf_walk(their_version, ledger, requests, queries);
         (self.respond::<Z>(responses), upper_rx)
     }
@@ -652,10 +649,10 @@ where
         requests: Replies<B::Erased>,
         mut queries: Receiver<Query<B::Erased>>,
     ) -> (
-        impl Stream<Item = Result<Reply<B::Erased>, Error<B::Error>>> + Send + 'static + use<B, T>,
+        impl Stream<Item = Result<Reply<B::Erased>, Error<B::Error>>> + Send + 'static + use<B>,
         OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
     ) {
-        let (upper, upper_rx) = terminal_leaf_resolutions::<B, T>();
+        let (upper, upper_rx) = terminal_leaf_resolutions::<B>();
         let stats = self.stats.clone();
         #[cfg(test)]
         let trace_id = self.trace_id;
@@ -668,7 +665,7 @@ where
                 };
 
                 let mut resolver =
-                    Resolver::<B, T>::new(query, &their_version, &ledger, stats.clone());
+                    Resolver::<B>::new(query, &their_version, &ledger, stats.clone());
                 for reaction in replies {
                     let Some((prefix, radix, node, listing)) = resolver.react(reaction)? else {
                         continue;

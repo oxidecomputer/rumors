@@ -40,10 +40,9 @@ use crate::tree::{
 use self::queues::outgoing_responses;
 
 /// Backend and independently runnable tasks retained across protocol phases.
-pub struct Work<B, T>
+pub struct Work<B>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
 {
     backend: B,
     /// Per-edge capacity for the recursive query and resolution queues.
@@ -56,10 +55,9 @@ where
     trace_id: usize,
 }
 
-impl<B, T> Work<B, T>
+impl<B> Work<B>
 where
-    B: Backend<T, Node<Z>: Leaf<T>>,
-    T: Send + Sync + 'static,
+    B: Backend<Node<Z>: Leaf>,
 {
     /// Construct a new work context with the session's pipeline window and
     /// stats recorder.
@@ -90,8 +88,8 @@ where
     fn respond<H: Height>(
         &mut self,
         messages: impl Stream<Item = Result<erased::Reply<B::Erased>, Error<B::Error>>> + Send + 'static,
-    ) -> BoxResponses<B, T, H, Error<B::Error>> {
-        let (send, responses) = outgoing_responses::<B, T, H>();
+    ) -> BoxResponses<B, H, Error<B::Error>> {
+        let (send, responses) = outgoing_responses::<B, H>();
         self.tasks.push(Box::pin(pump(
             Box::pin(messages),
             send,
