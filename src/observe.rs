@@ -98,8 +98,8 @@
 //! the control stream (preamble, greeting, any identity hand-off, and
 //! the epilogue marker — each its own item) and every data stream
 //! (each reconciliation frame an item, the stream-end control frames
-//! included; the two-byte stream-open label is stream *addressing*,
-//! not an item, and is not delivered). Only complete items are
+//! included; the stream-open label (two leading unsigned-int items) is
+//! stream *addressing*, not an item, and is not delivered). Only complete items are
 //! observed: a session that dies mid-frame does not deliver the
 //! fragment, and a session aborted by a protocol violation may have
 //! observed fewer items than crossed the wire. `Protocol::V1` sessions
@@ -129,8 +129,9 @@ pub trait Observer: Send + Sync {
     /// Begin observing one session, or return `None` to skip it.
     ///
     /// Called once per session, before the session's first byte
-    /// crosses the wire. `session` identifies it; the returned
-    /// handler's lifetime is the session's.
+    /// crosses the wire — for sessions of an observable dialect; see
+    /// the module docs' `Protocol::V1` exclusion. `session` identifies
+    /// it; the returned handler's lifetime is the session's.
     fn session(&self, session: &SessionInfo) -> Option<Box<dyn SessionObserver>>;
 }
 
@@ -203,6 +204,7 @@ pub struct SessionInfo {
 /// [`Gossip`](Self::Gossip) session, and learns what the remote wants
 /// from the remote's preamble — which its control-stream handler sees
 /// as bytes.
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionKind {
     /// This side is joining the universe ([`Bootstrap::join`](crate::Bootstrap::join)).

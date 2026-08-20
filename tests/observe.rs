@@ -30,6 +30,7 @@ use rumors::observe::{
     Direction, Observer, Role, SessionInfo, SessionKind, SessionObserver, StreamId, StreamInfo,
     StreamObserver,
 };
+use rumors::testing::stream_label;
 use rumors::{Peer, Retire, Rumors};
 
 use crate::common::gossip_snapshot::{CapturedLink, capture_sides};
@@ -168,7 +169,7 @@ fn assert_one_item(bytes: &[u8]) {
 ///
 /// Control items concatenate to the control blob, each sent data
 /// stream's items concatenate to its transport blob behind the
-/// two-byte open label, and every invocation is one CBOR item.
+/// stream-open label, and every invocation is one CBOR item.
 fn assert_mirrors(side: &str, session: &SessionRecord, capture: &CapturedLink) {
     assert_eq!(
         session.control(Direction::Sent),
@@ -182,18 +183,14 @@ fn assert_mirrors(side: &str, session: &SessionRecord, capture: &CapturedLink) {
         "{side}: one sent data handler per opened transport stream"
     );
     for blob in &capture.streams {
-        assert!(
-            blob.len() >= 2,
-            "{side}: an opened stream carries its label"
-        );
-        let index = blob[1];
+        let ((_, index), label_len) = stream_label(blob);
         let (_, _, bytes) = sent
             .iter()
             .find(|(sent_index, ..)| *sent_index == index)
             .unwrap_or_else(|| panic!("{side}: no sent handler for data stream {index}"));
         assert_eq!(
             bytes,
-            &blob[2..],
+            &blob[label_len..],
             "{side}: data stream {index}'s items must concatenate to its capture"
         );
     }
@@ -217,13 +214,13 @@ fn assert_received_mirrors_remote(
     );
     let received = local.data(Direction::Received);
     for blob in &remote_capture.streams {
-        let index = blob[1];
+        let ((_, index), label_len) = stream_label(blob);
         let Some((_, _, bytes)) = received.iter().find(|(i, ..)| *i == index) else {
             panic!("{side}: no received handler for the peer's data stream {index}");
         };
         assert_eq!(
             bytes,
-            &blob[2..],
+            &blob[label_len..],
             "{side}: received data stream {index} must equal the peer's sent bytes"
         );
     }
