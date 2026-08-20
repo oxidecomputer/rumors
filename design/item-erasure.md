@@ -96,12 +96,10 @@ payloads failing at ingress as `DecodeError::Record` exactly as today.
   is nothing.
 - No public API movement: `Message` is crate-internal (nothing
   re-exports it; verified against the public rustdoc surface), and the
-  public observers already speak `(Version, Arc<T>)`. The one
-  mechanical seam is the observers' lending contract —
-  `borrow_next() -> (&Version, &Arc<T>)` lends from a retained
-  most-recent-leaf slot, so that slot becomes the downcast point: one
-  `Arc::downcast::<T>()` (a refcount bump plus the `TypeId` check) per
-  yielded message, a cost the owned `(Version, Arc<T>)` item already
+  public observers speak owned `(Version, Arc<T>)` on every face (the
+  former lending forms dissolved when `Version` went CoW), so the
+  typed boundary is one `Arc::downcast::<T>()` — a refcount bump plus
+  the `TypeId` check — folded into the clone each yielded item already
   pays. `T: Serialize` migrates to the insert boundary and
   `DeserializeOwned` to witness minting; the public bounds stay
   equivalent.
