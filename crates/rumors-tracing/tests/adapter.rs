@@ -290,3 +290,131 @@ fn adapter_bridges_real_sessions() {
         );
     }
 }
+
+/// Concurrent sessions through clones of one observed handle number
+/// cleanly: the two session spans carry the ordinals {0, 1} as a set,
+/// and each session's message ordinals are dense from 0.
+///
+/// The ordinals are held as a set because order between concurrent
+/// sessions is unspecified.
+/// Two counterparties gossip with the observed peer inside one
+/// `tokio::join!` on a current-thread runtime, so the sessions
+/// interleave at await points — the re-entrancy of the adapter's
+/// `session` and the sharing of its counters is the property under
+/// test, not thread parallelism.
+#[test]
+fn concurrent_sessions_number_cleanly() {
+    let capture = Capture::default();
+
+    tracing::subscriber::with_default(capture.clone(), || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .expect("current-thread runtime");
+        runtime.block_on(async {
+            let alice = Peer::<String>::seed().into_rumors();
+            alice.send("from the seed".to_string());
+
+            // Bootstrap both counterparties unobserved, and attach the
+            // adapter to bob only after his join: the two concurrent
+            // gossip sessions are then the first sessions the adapter
+            // sees.
+            let (mut near, mut far) = rumors::link::memory();
+            let (served, joined) = tokio::join!(
+                alice.gossip(&mut far),
+                Peer::<String>::bootstrap().join(&mut near),
+            );
+            served.expect("provider session");
+            let bob = joined
+                .expect("bootstrap session")
+                .expect("alice is established, not herself bootstrapping")
+                .observe(Arc::new(TracingObserver::new()))
+                .into_rumors();
+
+            let (mut near, mut far) = rumors::link::memory();
+            let (served, joined) = tokio::join!(
+                alice.gossip(&mut far),
+                Peer::<String>::bootstrap().join(&mut near),
+            );
+            served.expect("provider session");
+            let carol = joined
+                .expect("bootstrap session")
+                .expect("alice is established, not herself bootstrapping")
+                .into_rumors();
+
+            // Diverge all three replicas so both sessions elect roles
+            // and move data-stream frames.
+            alice.send("from alice".to_string());
+            bob.send("from bob".to_string());
+            carol.send("from carol".to_string());
+
+            // Both of bob's sessions run inside one join, through the
+            // one shared observer, over separate links.
+            let bob_too = bob.clone();
+            let (mut near_a, mut far_a) = rumors::link::memory();
+            let (mut near_c, mut far_c) = rumors::link::memory();
+            let (a, b1, b2, c) = tokio::join!(
+                alice.gossip(&mut far_a),
+                bob.gossip(&mut near_a),
+                bob_too.gossip(&mut near_c),
+                carol.gossip(&mut far_c),
+            );
+            a.expect("alice's session");
+            b1.expect("bob's session with alice");
+            b2.expect("bob's session with carol");
+            c.expect("carol's session");
+        });
+    });
+
+    let state = capture.0.lock().unwrap();
+
+    // Exactly the two concurrent gossip sessions were observed, and
+    // their ordinals are {0, 1} as a set: each session numbered once,
+    // no collision and no gap, whichever entered first.
+    let sessions: Vec<(&u64, &SpanRecord)> = state
+        .spans
+        .iter()
+        .filter(|(_, s)| s.name == "session")
+        .collect();
+    assert_eq!(sessions.len(), 2, "two concurrent sessions: {sessions:?}");
+    let mut ordinals: Vec<&str> = sessions
+        .iter()
+        .map(|(_, s)| s.fields["ordinal"].as_str())
+        .collect();
+    ordinals.sort_unstable();
+    assert_eq!(
+        ordinals,
+        ["0", "1"],
+        "session ordinals are the set {{0, 1}}"
+    );
+    for (_, session) in &sessions {
+        assert!(session.fields["kind"].contains("Gossip"));
+    }
+
+    // Each session's message ordinals are dense from 0: the sessions
+    // share the adapter but not their message counters.
+    let message_events: Vec<&EventRecord> = state
+        .events
+        .iter()
+        .filter(|e| message_text(e) == Some("message"))
+        .collect();
+    for (session_id, _) in &sessions {
+        let mut ordinals: Vec<u64> = message_events
+            .iter()
+            .filter(|e| {
+                let stream = e.parent.expect("message events sit in stream spans");
+                state.spans[&stream].parent == Some(**session_id)
+            })
+            .map(|e| e.fields["ordinal"].parse().expect("ordinal is a number"))
+            .collect();
+        assert!(
+            !ordinals.is_empty(),
+            "session {session_id} moved wire items"
+        );
+        ordinals.sort_unstable();
+        let expected: Vec<u64> = (0..ordinals.len() as u64).collect();
+        assert_eq!(
+            ordinals, expected,
+            "session {session_id} ordinals are dense"
+        );
+    }
+}
