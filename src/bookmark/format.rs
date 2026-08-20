@@ -37,9 +37,11 @@
 //! different concern from this one's local, non-adversarial corruption check.
 //!
 //! The frame is deterministic-encoding CBOR: shortest-form headers
-//! everywhere, one spelling per value, and the decoder rejects any other
-//! spelling — so equal records produce equal files, and the byte-for-byte
-//! format pins stay meaningful.
+//! everywhere, one spelling per value. The frame's own heads admit only
+//! their canonical spelling; the embedded payload is decoded by a general
+//! CBOR reader, so its one-spelling property is the encoder's (equal
+//! records produce equal files, and the byte-for-byte format pins stay
+//! meaningful), not an ingress check.
 //!
 //! The framing ([`frame`]/[`unframe`]) is kept separate from the record codec
 //! ([`encode`]/[`decode`]) so the byte framing can be property-tested over

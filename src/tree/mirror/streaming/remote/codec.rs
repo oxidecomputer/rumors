@@ -2,12 +2,17 @@
 //!
 //! Every frame is one CBOR array item, so a directed stream's frames form
 //! an RFC 8742 CBOR sequence a generic tool can walk: `[signal]` for a
-//! body-free frame, `[signal, body]` otherwise. The wire is
-//! deterministic-encoding CBOR as a stated contract — shortest-form heads
-//! everywhere, definite lengths only, one spelling per value
-//! ([`cbor`](crate::tree::mirror::cbor)) — and decoding rejects any other
-//! spelling, which is what keeps the byte-pinning snapshot discipline
-//! meaningful.
+//! body-free frame, `[signal, body]` otherwise. The wire is *emitted* as
+//! deterministic-encoding CBOR — shortest-form heads everywhere, definite
+//! lengths only, one spelling per value
+//! ([`cbor`](crate::tree::mirror::cbor)) — which is what keeps the
+//! byte-pinning snapshot discipline meaningful. Ingress validates
+//! structure and definite lengths everywhere; every head the codec
+//! hand-parses (frame heads, signals, listings, run and record framing)
+//! additionally rejects non-shortest spellings, while a record's version
+//! atom and application payload are decoded by a general CBOR reader that
+//! does not re-judge spelling — the atom's *content* canonicality is
+//! enforced by its own strict decoder.
 //!
 //! The signal is an unsigned int carrying the dense `(frame state,
 //! stream)` code. There are ten frame states — four reaction forms, each

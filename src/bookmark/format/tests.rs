@@ -335,3 +335,16 @@ fn pins_the_empty_frame() {
 fn pins_a_non_trivial_frame() {
     insta::assert_snapshot!("frame_non_trivial", hex::encode(encode(&sample_record())));
 }
+
+/// Pins the stated ingress boundary: the embedded payload's spelling is
+/// not ingress-judged — the hash binds bytes, the frame binds shape.
+///
+/// A payload spelled as an indefinite-length map (a spelling this codec
+/// never writes) decodes to the empty record. Flipping this to rejection
+/// is a deliberate contract change, not drift.
+#[test]
+fn indefinite_length_payload_map_is_not_spelling_judged() {
+    let record =
+        decode(&frame(&[0xbf, 0xff])).expect("the payload's spelling is not ingress-judged");
+    assert!(record.is_empty());
+}

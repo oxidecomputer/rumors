@@ -440,6 +440,39 @@ fn supplied_record_errors_are_typed() {
     assert_eq!(source.kind(), std::io::ErrorKind::InvalidData);
 }
 
+/// Pins the stated ingress boundary: the version atom's CBOR head is not
+/// spelling-judged (the atom's content is, by `Version::decode`).
+///
+/// A record whose version byte string wears a widened two-byte-length
+/// head still decodes. Flipping this to rejection is a deliberate
+/// contract change, not drift.
+#[test]
+fn widened_version_atom_head_is_not_spelling_judged() {
+    // The canonical atom bytes: ciborium serializes a version as a byte
+    // string whose one-byte head's low bits carry the length; strip that
+    // head to get the content alone.
+    let mut atom = Vec::new();
+    ciborium::ser::into_writer(&Version::new(), &mut atom).unwrap();
+    let content_bytes = &atom[1..];
+
+    let mut content = Vec::new();
+    cbor::write_head(&mut content, MAJOR_TAG, crate::tags::VERSION_TAG);
+    // The same byte string, its length spelled in the widened two-byte
+    // form (major 2, additional info 25) instead of the shortest head.
+    content.push(0x59);
+    content.extend_from_slice(&u16::try_from(content_bytes.len()).unwrap().to_be_bytes());
+    content.extend_from_slice(content_bytes);
+    content.extend_from_slice(Message::new(0u64).as_slice());
+
+    let run = LeafRun::from_encoded(raw_record(&content)).unwrap();
+    let (version, _message) = run
+        .records(Message::deserializer::<u64>())
+        .next()
+        .unwrap()
+        .expect("a widened version-atom head decodes: spelling is not re-judged here");
+    assert_eq!(version, Version::new());
+}
+
 proptest! {
     /// Every adjacent non-ascending pair reports its values and origin.
     #[test]
