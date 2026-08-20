@@ -514,10 +514,10 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// are identical to an unobserved one's. Like
     /// [`protocol`](Self::protocol), the choice follows the peer
     /// through [`into_rumors`](Self::into_rumors), cloning and
-    /// reunion, bookmarking, and retirement; every
-    /// [`Rumors`](crate::Rumors) clone shares the one handler. To
-    /// observe a joining peer's own bootstrap session, attach on the
-    /// builder instead ([`Bootstrap::observe`](crate::Bootstrap::observe)).
+    /// reunion, bookmarking, and retirement; every [`Rumors`] clone
+    /// shares the one handler. To observe a joining peer's own
+    /// bootstrap session, attach on the builder instead
+    /// ([`Bootstrap::observe`]).
     #[must_use]
     pub fn observe(mut self, observer: Arc<dyn Observer>) -> Self {
         self.observe.attach(observer);

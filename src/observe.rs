@@ -186,8 +186,10 @@ pub struct SessionInfo {
     /// The wire dialect the session speaks.
     pub protocol: Protocol,
     /// The zero-based count of sessions this peer had entered before
-    /// this one: unique per peer identity (shared by every
-    /// [`Rumors`](crate::Rumors) clone), monotone in session-entry
+    /// this one.
+    ///
+    /// Unique per peer identity (shared by every
+    /// [`Rumors`](crate::Rumors) clone) and monotone in session-entry
     /// order. Sessions entered concurrently through different clones
     /// take distinct ordinals in an unspecified relative order.
     pub ordinal: u64,

@@ -164,10 +164,11 @@ fn assert_one_item(bytes: &[u8]) {
     );
 }
 
-/// Assert one side's hook view mirrors its transport capture: control
-/// items concatenate to the control blob, each sent data stream's items
-/// concatenate to its transport blob behind the two-byte open label,
-/// and every invocation is one CBOR item.
+/// Assert one side's hook view mirrors its transport capture.
+///
+/// Control items concatenate to the control blob, each sent data
+/// stream's items concatenate to its transport blob behind the
+/// two-byte open label, and every invocation is one CBOR item.
 fn assert_mirrors(side: &str, session: &SessionRecord, capture: &CapturedLink) {
     assert_eq!(
         session.control(Direction::Sent),
@@ -310,12 +311,14 @@ proptest! {
     })]
 
     /// For arbitrary gossip sessions, the hook's view mirrors the wire
-    /// exactly: per directed stream (control and data, both
-    /// directions), concatenating the observed invocations reproduces
-    /// the transport capture byte for byte; every invocation is
-    /// exactly one CBOR item; session identity carries the right kind,
-    /// protocol, and ordinal; and the two sides' role elections are
-    /// complementary and agree with every data stream's speaker.
+    /// exactly, per directed stream, in both directions.
+    ///
+    /// Concatenating the observed invocations reproduces the transport
+    /// capture byte for byte (control and data streams alike); every
+    /// invocation is exactly one CBOR item; session identity carries
+    /// the right kind, protocol, and ordinal; and the two sides' role
+    /// elections are complementary and agree with every data stream's
+    /// speaker.
     #[test]
     fn hook_mirrors_the_wire_exactly(
         (shared, only_a, only_b) in corpora(),
@@ -407,11 +410,12 @@ proptest! {
     }
 }
 
-/// A bootstrap pairing is observed end to end: the newcomer's session
-/// carries the `Bootstrap` kind at ordinal zero, the provider observes
-/// an ordinary gossip serve, both sides' hook views mirror their
-/// transport captures (the party hand-off and epilogue included), and
-/// every invocation is one CBOR item.
+/// A bootstrap pairing is observed end to end.
+///
+/// The newcomer's session carries the `Bootstrap` kind at ordinal
+/// zero, the provider observes an ordinary gossip serve, both sides'
+/// hook views mirror their transport captures (the party hand-off and
+/// epilogue included), and every invocation is one CBOR item.
 #[test]
 fn bootstrap_sessions_are_observed() {
     let rec_provider = Arc::new(Recording::default());
@@ -447,11 +451,12 @@ fn bootstrap_sessions_are_observed() {
     assert_received_mirrors_remote("newcomer", &newcomer_session, &provider_capture);
 }
 
-/// A retire pairing is observed end to end: the retiree's session
-/// carries the `Retire` kind, the absorber observes an ordinary
-/// gossip, both hook views mirror their transport captures (the
-/// retiree's party hand-off included), and every invocation is one
-/// CBOR item.
+/// A retire pairing is observed end to end.
+///
+/// The retiree's session carries the `Retire` kind, the absorber
+/// observes an ordinary gossip, both hook views mirror their
+/// transport captures (the retiree's party hand-off included), and
+/// every invocation is one CBOR item.
 #[test]
 fn retire_sessions_are_observed() {
     let rec_absorber = Arc::new(Recording::default());
