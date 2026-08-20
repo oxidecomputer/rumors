@@ -534,7 +534,7 @@ async fn run_activity(handle: Rumors<u64>, script: Vec<Activity>) -> Vec<(Versio
     for op in script {
         match op {
             Activity::Send(value) => {
-                handle.send(value);
+                handle.send(value).unwrap();
             }
             Activity::Redact(index) => {
                 let live: Vec<(Version, u64)> = handle
@@ -685,10 +685,13 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
         .apply(Peer::<u64>::seed())
         .into_rumors();
     {
-        let mut batch = seed.batch();
-        for &v in &plan.seed_messages {
-            batch.send(v);
-        }
+        seed.batch(|batch| {
+            for &v in &plan.seed_messages {
+                batch.send(v)?;
+            }
+            Ok::<(), rumors::PayloadDepthError>(())
+        })
+        .expect("flat test payloads are within any depth limit");
     }
     let mut fleet: Vec<Rumors<u64>> = vec![seed];
     for i in 1..plan.n_peers {

@@ -45,6 +45,7 @@ use crate::{
 
 use super::{Inner, Peer, bootstrap::Bootstrap};
 
+use serde::Serialize;
 use serde::de::DeserializeOwned;
 /// Magic bytes that open a V1 gossip session's preamble frame.
 ///
@@ -225,7 +226,7 @@ impl<T> Peer<T, NoBookmark> {
         link: &'a mut Link<CR, CW, C, A>,
     ) -> BoxFuture<'a, Result<Option<Self>, Error>>
     where
-        T: DeserializeOwned + Send + Sync + 'static,
+        T: Serialize + DeserializeOwned + Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,
@@ -252,7 +253,7 @@ impl<T> Peer<T, NoBookmark> {
         link: DynLinkParts<'a>,
     ) -> BoxFuture<'a, Result<Option<Self>, Error>>
     where
-        T: DeserializeOwned + Send + Sync + 'static,
+        T: Serialize + DeserializeOwned + Send + Sync + 'static,
     {
         Box::pin(async move {
             let (read, write, connector, acceptor, epoch) = link;

@@ -55,10 +55,14 @@ pub const REDACTED: &[usize] = &[0, 1, 10, 100, 1_000, 10_000, 100_000];
 /// CBOR null byte, so fixtures measure tree / clock / hashing work, not
 /// payload serialization.
 pub fn send_units(rumors: &Rumors<()>, n: usize) {
-    let mut batch = rumors.batch();
-    for _ in 0..n {
-        batch.send(());
-    }
+    rumors
+        .batch(|batch| {
+            for _ in 0..n {
+                batch.send(())?;
+            }
+            Ok::<(), rumors::PayloadDepthError>(())
+        })
+        .expect("flat test payloads are within any depth limit");
 }
 
 /// Criterion samples for a fixture of the given build magnitude. The largest
@@ -166,15 +170,21 @@ pub fn build(cell: Cell) -> (Rumors<()>, Rumors<()>) {
         // prefix, so the other must honor `redacted` deletions it never made.
         // `cells` guarantees `common >= 2 * redacted`, so the slices don't
         // overlap and are in bounds.
-        let mut batch = left.batch();
-        for version in &shared[..redacted] {
-            batch.redact(version);
-        }
-        drop(batch);
-        let mut batch = right.batch();
-        for version in &shared[redacted..2 * redacted] {
-            batch.redact(version);
-        }
+        left.batch(|batch| {
+            for version in &shared[..redacted] {
+                batch.redact(version);
+            }
+            Ok::<(), rumors::PayloadDepthError>(())
+        })
+        .expect("flat test payloads are within any depth limit");
+        right
+            .batch(|batch| {
+                for version in &shared[redacted..2 * redacted] {
+                    batch.redact(version);
+                }
+                Ok::<(), rumors::PayloadDepthError>(())
+            })
+            .expect("flat test payloads are within any depth limit");
     }
 
     (left, right)

@@ -13,20 +13,19 @@ use proptest::collection::vec;
 use proptest::prelude::*;
 use rumors::{Peer, Rumors, Version, causally};
 
-use crate::common::wire::block_on;
-
 use serde::Serialize;
 use serde::Serializer;
 /// Commit `values` to `peer` as one batch, returning the [`Version`]s it
 /// minted (recovered as the live leaves above the pre-commit frontier).
 fn batch_send(peer: &Rumors<u64>, values: &[u64]) -> Vec<Version> {
     let pre = peer.snapshot().latest().clone();
-    {
-        let mut batch = peer.batch();
+    peer.batch(|batch| {
         for v in values {
-            batch.send(*v);
+            batch.send(*v)?;
         }
-    }
+        Ok::<(), rumors::PayloadDepthError>(())
+    })
+    .expect("flat test payloads are within any depth limit");
     peer.snapshot()
         .range(causally::since(&pre))
         .map(|(v, _)| v.clone())
@@ -175,80 +174,146 @@ impl<'de> serde::Deserialize<'de> for Explosive {
     }
 }
 
-/// A batch interrupted by a panic between its sends commits nothing.
+/// A batch whose closure panics commits nothing, earlier-queued sends
+/// included.
 ///
-/// [`Batch`](rumors::Batch) documents that a batch dropped by a panic's
-/// unwind commits nothing: the caller never finished building it, so
-/// nothing it holds may publish.
+/// [`Rumors::batch`](rumors::Rumors::batch) commits iff the closure
+/// returns `Ok`; a panic's unwind exits the closure without returning, so
+/// the commit call never runs and nothing publishes — structurally, with
+/// no unwind detection anywhere.
 ///
 /// `Batch::send` panics when a value fails to serialize (its documented
-/// panic), and the unwind drops the half-built batch. `Batch`'s `Drop`
-/// consults `std::thread::panicking()` and commits nothing during an
-/// unwind, so the prefix queued before the panic never publishes; this
-/// test pins that guard.
+/// panic contract), which is this test's panic source: the first send is
+/// queued, the second detonates.
 #[test]
 fn a_panicked_batch_commits_nothing() {
     let rumors: Rumors<Explosive> = Peer::seed().sync_window_floor().into_rumors();
     let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let mut batch = rumors.batch();
-        batch.send(Explosive {
-            value: 1,
-            fail: false,
-        });
-        // The documented serialization panic fires here, after the first
-        // send is queued; the unwind drops the half-built batch.
-        batch.send(Explosive {
-            value: 2,
-            fail: true,
-        });
+        rumors.batch(|batch| {
+            batch.send(Explosive {
+                value: 1,
+                fail: false,
+            })?;
+            // The documented serialization panic fires here, after the
+            // first send is queued; the unwind exits the closure.
+            batch.send(Explosive {
+                value: 2,
+                fail: true,
+            })?;
+            Ok::<(), rumors::PayloadDepthError>(())
+        })
     }));
     assert!(unwound.is_err(), "the second send must panic");
     assert_eq!(
         rumors.snapshot().len(),
         0,
-        "a batch interrupted by a panic must commit nothing: an unwound \
-         batch aborts"
+        "a batch whose closure panicked must commit nothing"
     );
 }
 
-/// Pins the drop semantics [`Batch`](rumors::Batch) documents for async
-/// cancellation: a batch dropped mid-await commits its queued prefix.
-///
-/// Dropping the future holding a batch across an await runs no unwind, so
-/// the drop is indistinguishable from an ordinary end-of-statement commit
-/// and publishes the prefix queued before the cancellation point. This is
-/// the documented hazard behind the rule that a batch must not be held
-/// across an `.await` in a cancellable task: a batch is a performance
-/// optimization, and all-or-nothing delivery bundles into one
-/// application-level message instead.
+/// A batch commits nothing until — and everything once — the closure
+/// returns `Ok`: mid-closure the set is untouched (queueing publishes
+/// nothing), and the `Ok` return lands sends and redactions together,
+/// all-or-nothing.
 #[test]
-fn a_cancelled_batch_commits_its_prefix() {
+fn a_batch_commits_iff_the_closure_returns_ok() {
     let rumors: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
-    // The select needs no runtime facilities, so the closed-future driver
-    // suffices: the whole select completes on its first poll.
-    block_on(async {
-        let work = async {
-            let mut batch = rumors.batch();
-            batch.send(1);
-            // The cancellation point: parked mid-build, holding the batch.
-            std::future::pending::<()>().await;
-            batch.send(2);
-        };
-        // A biased select polls `work` first (queuing the prefix, then
-        // parking) and completes on the ready branch, dropping `work` (and
-        // the batch it holds) mid-await.
-        tokio::select! {
-            biased;
-            _ = work => unreachable!("the parked future never completes"),
-            _ = std::future::ready(()) => {}
-        }
-    });
+    rumors.send(7).unwrap();
+    let doomed = rumors
+        .snapshot()
+        .iter()
+        .map(|(v, _)| v.clone())
+        .next()
+        .expect("the pre-batch send is live");
 
-    // The documented behavior, exactly: the prefix committed as a batch
-    // of one; the send queued after the cancellation point never ran.
+    rumors
+        .batch(|batch| {
+            batch.send(1)?;
+            batch.send(2)?;
+            batch.redact(&doomed);
+            // Nothing queued is visible while the closure runs: the batch
+            // publishes only at its commit.
+            assert_eq!(rumors.snapshot().len(), 1, "queueing publishes nothing");
+            Ok::<(), rumors::PayloadDepthError>(())
+        })
+        .expect("flat payloads are within any depth limit");
+
+    let live: Vec<u64> = rumors.snapshot().iter().map(|(_, m)| *m).collect();
+    assert_eq!(live.len(), 2, "the sends landed and the redaction took");
+    assert!(live.contains(&1) && live.contains(&2));
+}
+
+/// A depth-rejected send, `?`-propagated out of the closure, cancels
+/// the whole batch: earlier-queued actions included — the
+/// cancel-on-error pin.
+///
+/// The typed error carries the configured limit, and the tree is
+/// untouched.
+#[test]
+fn a_depth_error_cancels_the_whole_batch() {
+    use ciborium::Value;
+    let limit = rumors::PayloadDepthLimit::new(4);
+    let rumors: Rumors<Value> = Peer::seed()
+        .payload_depth_limit(limit)
+        .sync_window_floor()
+        .into_rumors();
+    let deep = (0..5).fold(Value::Integer(0.into()), |v, _| Value::Array(vec![v]));
+
+    let error = rumors
+        .batch(|batch| {
+            batch.send(Value::Bool(true))?;
+            batch.send(deep.clone())?;
+            Ok::<(), rumors::PayloadDepthError>(())
+        })
+        .expect_err("the second send exceeds the limit");
+    assert_eq!(error.limit, limit);
     assert_eq!(
         rumors.snapshot().len(),
-        1,
-        "cancellation drop-commits the prefix queued before the await"
+        0,
+        "a cancelled batch commits nothing, earlier-queued sends included"
     );
+}
+
+/// A user `Err` return cancels the batch — the deliberate abort
+/// affordance — and comes back verbatim.
+#[test]
+fn a_user_error_cancels_the_batch() {
+    let rumors: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+    let error = rumors
+        .batch(|batch| {
+            batch.send(1).unwrap();
+            batch.send(2).unwrap();
+            Err::<(), &str>("changed my mind")
+        })
+        .expect_err("the closure aborts deliberately");
+    assert_eq!(error, "changed my mind");
+    assert_eq!(
+        rumors.snapshot().len(),
+        0,
+        "an aborted batch commits nothing"
+    );
+}
+
+/// Batches nest: the closure may use the same handle, and the nested
+/// operations commit first, the outer batch after, as separate commits
+/// (inner-before-outer).
+#[test]
+fn nested_batches_commit_inner_before_outer() {
+    let rumors: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+    rumors
+        .batch(|batch| {
+            batch.send(1)?;
+            // Re-entrant single send and nested batch, both on the same
+            // handle: each commits immediately, before the outer batch.
+            rumors.send(2)?;
+            rumors.batch(|inner| inner.send(3))?;
+            let mid: Vec<u64> = rumors.snapshot().iter().map(|(_, m)| *m).collect();
+            assert!(
+                mid.contains(&2) && mid.contains(&3) && !mid.contains(&1),
+                "inner commits land before the outer batch: {mid:?}"
+            );
+            Ok::<(), rumors::PayloadDepthError>(())
+        })
+        .expect("flat payloads are within any depth limit");
+    assert_eq!(rumors.snapshot().len(), 3, "the outer batch lands last");
 }

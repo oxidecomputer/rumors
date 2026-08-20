@@ -11,8 +11,8 @@ use tokio::sync::{Mutex, watch};
 
 use crate::bookmark::{BookmarkError, Bookmarked, NoBookmark};
 use crate::link::{Acceptor, Connector, Link};
-use crate::message::PayloadCodec;
 pub use crate::message::{DEFAULT_PAYLOAD_DEPTH_LIMIT, PayloadDepthLimit};
+use crate::message::{PayloadCodec, PayloadDepthError};
 use crate::observe::{Attachment, Observer};
 use crate::tree::Tree;
 pub use crate::tree::mirror::streaming::remote::DEFAULT_TARGET_MESSAGE_SIZE;
@@ -197,16 +197,17 @@ impl<T, B: BookmarkError> std::fmt::Debug for Peer<T, B> {
     }
 }
 
-impl<T: DeserializeOwned + Send + Sync + 'static> Peer<T, NoBookmark> {
+impl<T: Serialize + DeserializeOwned + Send + Sync + 'static> Peer<T, NoBookmark> {
     /// Create the distinguished seed rumor set: the single root from which
     /// every other participant must [`bootstrap`](Peer::bootstrap).
     ///
     /// Call this exactly once per universe of cooperating peers.
     ///
-    /// The payload type's [`DeserializeOwned`] lives here, at
-    /// construction: the peer mints its payload codec once, and every
-    /// gossip session decodes through it, so the gossip entry points
-    /// themselves carry no serde bounds.
+    /// The payload type's serde obligations — [`Serialize`] and
+    /// [`DeserializeOwned`] both — live here, at construction: the peer
+    /// mints its payload codec once, every send serializes through it,
+    /// and every gossip session decodes through it, so neither the send
+    /// paths nor the gossip entry points carry serde bounds of their own.
     pub fn seed() -> Self {
         Self::seed_rng(&mut OsRng)
     }
@@ -611,29 +612,34 @@ impl<T, B: BookmarkError> Peer<T, B> {
         Rumors::new(self)
     }
 
-    pub(crate) fn send(&self, message: T) -> Batch<'_, T>
+    pub(crate) fn send(&self, message: T) -> Result<(), PayloadDepthError>
     where
-        T: Serialize + Send + Sync + 'static,
+        T: Send + Sync + 'static,
     {
-        let mut batch = self.batch();
-        batch.send(message);
-        batch
+        let mut batch = Batch::new(&self.inner, self.codec);
+        batch.send(message)?;
+        batch.commit();
+        Ok(())
     }
 
-    pub(crate) fn redact(&self, version: &Version) -> Batch<'_, T>
+    pub(crate) fn redact(&self, version: &Version)
     where
         T: Send + Sync,
     {
-        let mut batch = self.batch();
+        let mut batch = Batch::new(&self.inner, self.codec);
         batch.redact(version);
-        batch
+        batch.commit();
     }
 
-    pub(crate) fn batch(&self) -> Batch<'_, T>
+    pub(crate) fn batch<R, E, F>(&self, f: F) -> Result<R, E>
     where
         T: Send + Sync,
+        F: for<'s> FnOnce(&'s mut Batch<'_, T>) -> Result<R, E>,
     {
-        Batch::new(&self.inner)
+        let mut batch = Batch::new(&self.inner, self.codec);
+        let result = f(&mut batch)?;
+        batch.commit();
+        Ok(result)
     }
 
     pub(crate) fn snapshot(&self) -> Snapshot<T> {

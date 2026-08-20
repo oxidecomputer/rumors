@@ -21,7 +21,7 @@ use proptest::prelude::*;
 use rumors::{CausalMessages, Peer, Rumors, Version};
 
 use crate::common::action::minted_version;
-use crate::common::wire::{bootstrap_fork, wire_gossip};
+use crate::common::wire::{batch_send, bootstrap_fork, wire_gossip};
 
 /// One observer step, with the borrowed faces cloned out.
 #[derive(Debug, PartialEq)]
@@ -105,7 +105,7 @@ fn drain_unordered(obs: &mut rumors::UnorderedMessages<u64>) -> Vec<(Version, u6
 fn single_party_backlog_replays_in_send_order() {
     let known = Peer::<u64>::seed().sync_window_floor().into_rumors();
     for v in 0..8u64 {
-        known.send(v); // one batch per send: strictly increasing versions
+        known.send(v).unwrap(); // one commit per send: strictly increasing versions
     }
 
     let mut obs = known.causal_messages();
@@ -128,10 +128,10 @@ fn converged_backlog_has_no_inversions() {
     let b = bootstrap_fork(&a);
 
     for v in 0..4u64 {
-        a.send(v);
+        a.send(v).unwrap();
     }
     for v in 10..14u64 {
-        b.send(v);
+        b.send(v).unwrap();
     }
     wire_gossip(&a, &b);
 
@@ -161,11 +161,11 @@ fn delivery_order_is_replica_independent() {
     let a = Peer::<u64>::seed().sync_window_floor().into_rumors();
     let b = bootstrap_fork(&a);
 
-    a.batch().send(1).send(2);
-    b.batch().send(3).send(4);
+    batch_send(&a, [1, 2]);
+    batch_send(&b, [3, 4]);
     wire_gossip(&a, &b);
-    a.send(5);
-    b.send(6);
+    a.send(5).unwrap();
+    b.send(6).unwrap();
     wire_gossip(&a, &b);
     assert_eq!(
         a.snapshot().hash(),
@@ -195,15 +195,15 @@ fn live_passes_preserve_causal_order_cumulatively() {
     let mut obs = a.causal_messages();
     let mut delivered = Vec::new();
 
-    a.send(1);
+    a.send(1).unwrap();
     delivered.extend(drain(&mut obs).0);
 
-    b.batch().send(2).send(3);
+    batch_send(&b, [2, 3]);
     wire_gossip(&a, &b);
     delivered.extend(drain(&mut obs).0);
 
-    a.send(4);
-    b.send(5);
+    a.send(4).unwrap();
+    b.send(5).unwrap();
     wire_gossip(&a, &b);
     delivered.extend(drain(&mut obs).0);
 
@@ -224,9 +224,9 @@ fn live_passes_preserve_causal_order_cumulatively() {
 fn checkpoint_lags_until_the_backlog_drains() {
     let known = Peer::<u64>::seed().sync_window_floor().into_rumors();
     let genesis = known.snapshot().latest().clone();
-    known.send(1);
-    known.send(2);
-    known.send(3);
+    known.send(1).unwrap();
+    known.send(2).unwrap();
+    known.send(3).unwrap();
 
     let mut obs = known.causal_messages();
     let Step::Item(first) = step(&mut obs) else {
@@ -264,10 +264,10 @@ fn checkpoint_lags_until_the_backlog_drains() {
 fn staged_then_redacted_is_still_delivered() {
     let known = Peer::<u64>::seed().sync_window_floor().into_rumors();
     let pre = known.snapshot().latest().clone();
-    known.send(1);
+    known.send(1).unwrap();
     let version_1 = minted_version(&known.snapshot(), &pre);
     let pre = known.snapshot().latest().clone();
-    known.send(2);
+    known.send(2).unwrap();
     let version_2 = minted_version(&known.snapshot(), &pre);
 
     // First step ingests the whole pass (both messages) and delivers the
@@ -294,7 +294,7 @@ fn staged_then_redacted_is_still_delivered() {
 
     // Redacted wholly before any ingest: never delivered.
     let pre = known.snapshot().latest().clone();
-    known.send(3);
+    known.send(3).unwrap();
     known.redact(&minted_version(&known.snapshot(), &pre));
     let (items, _) = drain(&mut obs);
     assert!(items.is_empty(), "pre-ingest redactions never fire");
@@ -306,7 +306,7 @@ fn staged_then_redacted_is_still_delivered() {
 #[test]
 fn observer_drains_the_final_state_causally_then_ends() {
     let known = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    known.batch().send(1).send(2).send(3);
+    batch_send(&known, [1, 2, 3]);
     let expected = live_map(&known);
 
     let mut obs = known.causal_messages();
@@ -332,7 +332,7 @@ fn observer_drains_the_final_state_causally_then_ends() {
 fn stream_face_is_causal_and_terminates() {
     let known = Peer::<u64>::seed().sync_window_floor().into_rumors();
     for v in 0..6u64 {
-        known.send(v);
+        known.send(v).unwrap();
     }
 
     let mut obs = known.causal_messages();
@@ -406,11 +406,11 @@ proptest! {
             match op {
                 Op::SendA(v) => {
                     let pre = a.snapshot().latest().clone();
-                    a.send(*v);
+                    a.send(*v).unwrap();
                     minted.push(minted_version(&a.snapshot(), &pre));
                 }
                 Op::SendB(v) => {
-                    b.send(*v);
+                    b.send(*v).unwrap();
                 }
                 Op::Redact(idx) => {
                     if !minted.is_empty() {
@@ -466,7 +466,7 @@ proptest! {
     ) {
         let known = Peer::<u64>::seed().sync_window_floor().into_rumors();
         for v in &phase_one {
-            known.send(*v); // separate batches: a strict causal chain
+            known.send(*v).unwrap(); // separate commits: a strict causal chain
         }
 
         let mut obs = known.causal_messages();
@@ -486,7 +486,7 @@ proptest! {
         drop(obs);
 
         for v in &phase_two {
-            known.send(*v);
+            known.send(*v).unwrap();
         }
 
         let mut resumed = known.causal_messages_since(checkpoint);
@@ -543,10 +543,10 @@ proptest! {
         let known = Peer::<u64>::seed().sync_window_floor().into_rumors();
         let partner = bootstrap_fork(&known);
         for v in &local {
-            known.send(*v);
+            known.send(*v).unwrap();
         }
         for v in &remote {
-            partner.send(*v); // concurrent with `local`: a real partial order
+            partner.send(*v).unwrap(); // concurrent with `local`: a real partial order
         }
         wire_gossip(&known, &partner);
         let final_live = live_map(&known);
@@ -650,7 +650,7 @@ proptest! {
 #[test]
 fn final_pop_checkpoint_still_replays_the_last_message() {
     let known = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    known.send(7);
+    known.send(7).unwrap();
 
     // The unordered observer under the probe's protocol — deliver the only
     // message, persist the checkpoint, crash, resume — replays the message.

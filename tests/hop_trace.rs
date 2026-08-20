@@ -472,17 +472,25 @@ fn diverged_redactions() -> (Rumors<u64>, Rumors<u64>) {
 }
 
 fn send_random(rumors: &Rumors<u64>, count: usize, rng: &mut SmallRng) {
-    let mut batch = rumors.batch();
-    for _ in 0..count {
-        batch.send(rng.next_u64());
-    }
+    rumors
+        .batch(|batch| {
+            for _ in 0..count {
+                batch.send(rng.next_u64())?;
+            }
+            Ok::<(), rumors::PayloadDepthError>(())
+        })
+        .expect("flat test payloads are within any depth limit");
 }
 
 fn redact_all(rumors: &Rumors<u64>, versions: &[Version]) {
-    let mut batch = rumors.batch();
-    for version in versions {
-        batch.redact(version);
-    }
+    rumors
+        .batch(|batch| {
+            for version in versions {
+                batch.redact(version);
+            }
+            Ok::<(), rumors::PayloadDepthError>(())
+        })
+        .expect("flat test payloads are within any depth limit");
 }
 
 fn bootstrap_fork(parent: &Rumors<u64>) -> Rumors<u64> {
@@ -551,10 +559,14 @@ fn transfer_pair() -> (Rumors<u64>, Rumors<u64>) {
             .filter(|(_, m)| !keep.contains(m))
             .map(|(v, _)| v.clone())
             .collect();
-        let mut batch = rumors.batch();
-        for version in &losers {
-            batch.redact(version);
-        }
+        rumors
+            .batch(|batch| {
+                for version in &losers {
+                    batch.redact(version);
+                }
+                Ok::<(), rumors::PayloadDepthError>(())
+            })
+            .expect("flat test payloads are within any depth limit");
     };
 
     let left = Peer::seed_rng(&mut SmallRng::seed_from_u64(0))
@@ -562,10 +574,13 @@ fn transfer_pair() -> (Rumors<u64>, Rumors<u64>) {
         .into_rumors();
     let right = bootstrap_fork(&left);
     {
-        let mut batch = left.batch();
-        for value in 0..64u64 {
-            batch.send(value);
-        }
+        left.batch(|batch| {
+            for value in 0..64u64 {
+                batch.send(value)?;
+            }
+            Ok::<(), rumors::PayloadDepthError>(())
+        })
+        .expect("flat test payloads are within any depth limit");
     }
     let mut pool: Vec<(u64, u8)> = left
         .snapshot()
@@ -587,10 +602,14 @@ fn transfer_pair() -> (Rumors<u64>, Rumors<u64>) {
         .find_map(|&(value, radix)| (value == first).then_some(radix))
         .expect("the kept pair is in the pool");
     {
-        let mut batch = right.batch();
-        for value in 10_000..10_016u64 {
-            batch.send(value);
-        }
+        right
+            .batch(|batch| {
+                for value in 10_000..10_016u64 {
+                    batch.send(value)?;
+                }
+                Ok::<(), rumors::PayloadDepthError>(())
+            })
+            .expect("flat test payloads are within any depth limit");
     }
     let ballast: Vec<u64> = right
         .snapshot()

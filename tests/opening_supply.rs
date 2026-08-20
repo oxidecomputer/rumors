@@ -21,7 +21,8 @@ use crate::common::shape::{ballast_avoiding, keep_only, path_radix, pool, send_p
 use crate::common::wire::{block_on, bootstrap_fork_async};
 
 /// A peer seeded from a fixed RNG so the capture is deterministic.
-fn seeded<T: serde::de::DeserializeOwned + Send + Sync + 'static>() -> Rumors<T> {
+fn seeded<T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static>() -> Rumors<T>
+{
     Peer::seed_rng(&mut SmallRng::seed_from_u64(0)).into_rumors()
 }
 
@@ -75,7 +76,7 @@ fn divergent_root_child_has_one_question_owner() {
     // outside that radix, making it the larger set.
     let (a, b) = block_on(async {
         let a: Rumors<u64> = seeded();
-        a.send(1);
+        a.send(1).unwrap();
         let b = bootstrap_fork_async(&a).await;
         (a, b)
     });

@@ -162,10 +162,14 @@ fn bytes_after_the_marker_stay_untouched() {
 fn redacted_history_root(events: u64) -> tree::Root {
     let donor = Peer::<u64>::seed();
     {
-        let mut batch = donor.batch();
-        for v in 0..events {
-            batch.send(v);
-        }
+        donor
+            .batch(|batch| {
+                for v in 0..events {
+                    batch.send(v)?;
+                }
+                Ok::<(), crate::message::PayloadDepthError>(())
+            })
+            .expect("flat test payloads are within any depth limit");
     }
     let versions: Vec<_> = donor
         .snapshot()
@@ -173,10 +177,14 @@ fn redacted_history_root(events: u64) -> tree::Root {
         .map(|(version, _)| version.clone())
         .collect();
     {
-        let mut batch = donor.batch();
-        for version in &versions {
-            batch.redact(version);
-        }
+        donor
+            .batch(|batch| {
+                for version in &versions {
+                    batch.redact(version);
+                }
+                Ok::<(), crate::message::PayloadDepthError>(())
+            })
+            .expect("flat test payloads are within any depth limit");
     }
     let snapshot = donor.snapshot();
     assert!(snapshot.is_empty(), "every message was redacted");
@@ -271,10 +279,14 @@ async fn claim_bootstrap_v1(
 fn provider_with(values: &[u64]) -> Peer<u64> {
     let provider = Peer::<u64>::seed();
     {
-        let mut batch = provider.batch();
-        for &v in values {
-            batch.send(v);
-        }
+        provider
+            .batch(|batch| {
+                for &v in values {
+                    batch.send(v)?;
+                }
+                Ok::<(), crate::message::PayloadDepthError>(())
+            })
+            .expect("flat test payloads are within any depth limit");
     }
     provider
 }

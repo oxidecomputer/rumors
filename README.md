@@ -152,8 +152,9 @@ async fn main() -> Result<(), rumors::Error> {
     // The universe's first peer creates it; every later peer bootstraps in.
     let alice = Peer::<String>::seed().into_rumors();
 
-    // A bare `send` statement commits when its `Batch` drops, right here.
-    alice.send("the meeting is at noon".to_string());
+    // A send commits right here; only an over-deep payload can err,
+    // and a flat string is within any depth limit.
+    alice.send("the meeting is at noon".to_string()).expect("flat payload");
 
     // A session runs over a `Link`: a control byte stream plus a supply
     // of independent data streams (see the `link` module); here, the

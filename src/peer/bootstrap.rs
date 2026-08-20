@@ -18,6 +18,7 @@ use crate::{Error, Peer, Protocol};
 
 use super::gossip::Unbookmarked;
 
+use serde::Serialize;
 use serde::de::DeserializeOwned;
 /// Configuration for joining an existing universe: the builder behind
 /// [`Peer::bootstrap`].
@@ -263,7 +264,7 @@ impl<T> Bootstrap<T> {
         link: &mut Link<CR, CW, C, A>,
     ) -> Result<Option<Peer<T>>, Error>
     where
-        T: DeserializeOwned + Send + Sync + 'static,
+        T: Serialize + DeserializeOwned + Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,
@@ -357,7 +358,7 @@ impl<T, B: Bookmark> BookmarkedBootstrap<T, B> {
     /// in every outcome that never used it.
     pub async fn join<CR, CW, C, A>(self, link: &mut Link<CR, CW, C, A>) -> Joined<T, B>
     where
-        T: DeserializeOwned + Send + Sync + 'static,
+        T: Serialize + DeserializeOwned + Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,

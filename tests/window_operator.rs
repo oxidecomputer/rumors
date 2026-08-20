@@ -82,10 +82,14 @@ fn diverged(budget: usize) -> (Rumors<u64>, Rumors<u64>) {
 
 /// Commit `n` random payloads as one batch.
 fn send_random(rumors: &Rumors<u64>, n: usize, rng: &mut SmallRng) {
-    let mut batch = rumors.batch();
-    for _ in 0..n {
-        batch.send(rng.next_u64());
-    }
+    rumors
+        .batch(|batch| {
+            for _ in 0..n {
+                batch.send(rng.next_u64())?;
+            }
+            Ok::<(), rumors::PayloadDepthError>(())
+        })
+        .expect("flat test payloads are within any depth limit");
 }
 
 /// Serialized wire hops of one session at `budget` over the tight pipe.

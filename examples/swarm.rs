@@ -427,10 +427,13 @@ fn main() -> io::Result<()> {
     let seed: Rumors<Payload> = Peer::seed().into_rumors();
     {
         let mut rng = SmallRng::from_entropy();
-        let mut batch = seed.batch();
-        for _ in 0..args.seed_messages {
-            batch.send(random_message(&mut rng, args.message_size));
-        }
+        seed.batch(|batch| {
+            for _ in 0..args.seed_messages {
+                batch.send(random_message(&mut rng, args.message_size))?;
+            }
+            Ok::<(), rumors::PayloadDepthError>(())
+        })
+        .expect("flat test payloads are within any depth limit");
     }
     // Every party starts as a disjoint fork of the seed: same observations,
     // its own party region. The seed party itself only serves the initial
@@ -836,7 +839,9 @@ fn steady_state_op(
     }
     // The add arm — or a pool with no live message left in it. The minted
     // version reaches the pool through the observer's next drain.
-    rumors.send(random_message(rng, message_size));
+    rumors
+        .send(random_message(rng, message_size))
+        .expect("flat payload");
 }
 
 /// Draw an exponential inter-arrival time with the current mean, so successive

@@ -197,3 +197,146 @@ fn rehydration_honors_the_explicit_limit() {
         .expect("a raised limit must rehydrate the deep message");
     assert_eq!(m.as_slice(), deep.as_slice());
 }
+
+/// One wrapper scope for the depth differential's generated spines.
+#[derive(Debug, Clone, Copy)]
+enum Wrap {
+    Array,
+    Map,
+    Tag(u64),
+}
+
+/// Arrays, maps, and tags mixed, with tag numbers straddling the
+/// decoder's big-integer special case (tags 2 and 3) and ordinary tags.
+fn wrap_kind() -> impl Strategy<Value = Wrap> {
+    prop_oneof![
+        Just(Wrap::Array),
+        Just(Wrap::Map),
+        (0u64..=4).prop_map(Wrap::Tag),
+        Just(Wrap::Tag(24)),
+    ]
+}
+
+/// A leaf the decoder consumes without opening a scope — scalars of every
+/// major type — plus the tag-2-over-bytes big-integer form, whose byte
+/// lengths straddle the decoder's 16-byte scalar cutoff.
+fn depth_leaf() -> impl Strategy<Value = ciborium::Value> {
+    use ciborium::Value;
+    prop_oneof![
+        any::<i64>().prop_map(|n| Value::Integer(n.into())),
+        any::<f64>().prop_map(Value::Float),
+        any::<bool>().prop_map(Value::Bool),
+        Just(Value::Null),
+        "[a-z]{0,8}".prop_map(Value::Text),
+        proptest::collection::vec(any::<u8>(), 0..8).prop_map(Value::Bytes),
+        proptest::collection::vec(any::<u8>(), 0..=20)
+            .prop_map(|b| Value::Tag(2, Box::new(Value::Bytes(b)))),
+    ]
+}
+
+/// Wrap `leaf` in the given scopes, outermost first.
+fn wrapped(kinds: &[Wrap], leaf: ciborium::Value) -> ciborium::Value {
+    use ciborium::Value;
+    let mut value = leaf;
+    for kind in kinds.iter().rev() {
+        value = match kind {
+            Wrap::Array => Value::Array(vec![value]),
+            Wrap::Map => Value::Map(vec![(Value::Integer(0.into()), value)]),
+            Wrap::Tag(tag) => Value::Tag(*tag, Box::new(value)),
+        };
+    }
+    value
+}
+
+proptest! {
+    /// The send-side depth scanner and the decoder's recursion limit
+    /// agree on accept/reject for values nested to depths around the
+    /// limit (limit − 1 through limit + 1 wrapper scopes).
+    ///
+    /// Arrays, maps, and tags mixed over scalar leaves: the committed
+    /// instrument that keeps the symmetric bound true against either
+    /// side drifting.
+    #[test]
+    fn depth_scanner_agrees_with_the_decoder(
+        (limit, kinds) in (2u64..=16).prop_flat_map(|limit| {
+            let lo = (limit - 1) as usize;
+            (
+                Just(limit),
+                proptest::collection::vec(wrap_kind(), lo..=lo + 2),
+            )
+        }),
+        leaf in depth_leaf(),
+    ) {
+        let value = wrapped(&kinds, leaf);
+        let bytes = cbor_vec(&value);
+        let limit = super::PayloadDepthLimit::new(limit);
+        let scanner = super::depth_within(&bytes, limit).is_ok();
+        let decoder = match ciborium::de::from_reader_with_recursion_limit::<ciborium::Value, _>(
+            bytes.as_slice(),
+            limit.recursion_limit(),
+        ) {
+            Ok(_) => true,
+            Err(ciborium::de::Error::RecursionLimitExceeded) => false,
+            Err(e) => {
+                return Err(TestCaseError::fail(format!(
+                    "the decoder failed outside the depth domain: {e}"
+                )));
+            }
+        };
+        prop_assert_eq!(
+            scanner,
+            decoder,
+            "scanner and decoder disagree at {:?} over {:?}",
+            limit,
+            kinds
+        );
+    }
+}
+
+/// The admission boundary is exact and typed: a value at the configured
+/// limit constructs, one scope past it is `PayloadDepthError` carrying
+/// the configured limit, and the decoder draws the same line.
+#[test]
+fn try_new_admits_exactly_the_limit() {
+    let limit = super::PayloadDepthLimit::new(8);
+    let at = wrapped(&[Wrap::Array; 8], ciborium::Value::Integer(0.into()));
+    let m = Message::try_new(at.clone(), limit).expect("at the limit is admitted");
+    assert_eq!(m.bytes(), cbor_vec(&at).as_slice());
+
+    let over = ciborium::Value::Array(vec![at]);
+    let error = Message::try_new(over.clone(), limit).unwrap_err();
+    assert_eq!(error.limit, limit);
+
+    // The decoder agrees on both sides of the line.
+    assert!(
+        Message::from_slice::<ciborium::Value>(&cbor_vec(&over), limit).is_err(),
+        "the decoder rejects what the scanner rejects"
+    );
+    let raised = super::PayloadDepthLimit::new(9);
+    Message::try_new(over, raised).expect("one more scope of limit admits it");
+}
+
+/// The minted codec's serializing half applies the carried limit and
+/// reuses the caller's allocation.
+///
+/// The codec is `Message::try_new` with the peer's configured limit
+/// riding along.
+#[test]
+fn codec_serializes_through_the_carried_limit() {
+    use std::sync::Arc;
+    let limit = super::PayloadDepthLimit::new(4);
+    let codec = super::PayloadCodec::mint::<ciborium::Value>(limit);
+
+    let deep = wrapped(&[Wrap::Map; 5], ciborium::Value::Bool(true));
+    let error = codec.message(Arc::new(deep)).unwrap_err();
+    assert_eq!(error.limit, limit);
+
+    let shallow = wrapped(&[Wrap::Tag(24); 4], ciborium::Value::Null);
+    let stored: Arc<ciborium::Value> = Arc::new(shallow.clone());
+    let m = codec.message(stored.clone()).expect("within the limit");
+    assert_eq!(m.bytes(), cbor_vec(&shallow).as_slice());
+    assert!(
+        std::sync::Arc::ptr_eq(&stored, &m.arc::<ciborium::Value>()),
+        "the codec stores the caller's own allocation"
+    );
+}

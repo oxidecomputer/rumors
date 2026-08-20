@@ -33,17 +33,20 @@ fn message_minted_after_bootstrap_survives_gossip() {
         let f = Peer::<u64>::seed().sync_window_floor().into_rumors();
         // F ticks well past genesis before serving anyone.
         {
-            let mut batch = f.batch();
-            for v in 0..16u64 {
-                batch.send(v);
-            }
+            f.batch(|batch| {
+                for v in 0..16u64 {
+                    batch.send(v)?;
+                }
+                Ok::<(), rumors::PayloadDepthError>(())
+            })
+            .expect("flat test payloads are within any depth limit");
         }
 
         // B bootstraps from F and mints a brand-new message: its version
         // must come out above (or concurrent to) everything F published
         // before the fork, never dominated.
         let b = bootstrap_fork_async(&f).await;
-        b.send(100);
+        b.send(100).unwrap();
 
         // Sync the two: a dominated version would read as "already
         // forgotten" and evict the fresh message from both sides.

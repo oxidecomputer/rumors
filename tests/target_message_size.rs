@@ -39,8 +39,8 @@ fn diverged_pair(left_target: usize, right_target: usize) -> (Rumors<u64>, Rumor
 
         let mut rng = SmallRng::seed_from_u64(0x5eed_0f1e_a55e_d000);
         for _ in 0..DIVERGENT_PER_SIDE {
-            left.send(rng.next_u64());
-            right.send(rng.next_u64());
+            left.send(rng.next_u64()).unwrap();
+            right.send(rng.next_u64()).unwrap();
         }
         (left, right)
     })
@@ -96,10 +96,10 @@ fn seeded_diverged_pair(
 
         let mut rng = SmallRng::seed_from_u64(0x5eed_0f1e_a55e_d000);
         for _ in 0..left_messages {
-            left.send(rng.next_u64());
+            left.send(rng.next_u64()).unwrap();
         }
         for _ in 0..right_messages {
-            right.send(rng.next_u64());
+            right.send(rng.next_u64()).unwrap();
         }
         (left, right)
     })
@@ -274,7 +274,7 @@ fn seeded_provider() -> Rumors<u64> {
         .into_rumors();
     let mut rng = SmallRng::seed_from_u64(0x5eed_0f1e_a55e_d000);
     for _ in 0..DIVERGENT_PER_SIDE {
-        provider.send(rng.next_u64());
+        provider.send(rng.next_u64()).unwrap();
     }
     provider
 }

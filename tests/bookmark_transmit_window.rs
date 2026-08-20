@@ -225,7 +225,7 @@ async fn transmit_during_persist() -> Scene {
         .await
         .expect("a pristine seed attaches its bookmark without touching storage")
         .into_rumors();
-    a.send(M0);
+    a.send(M0).unwrap();
 
     // Each serve records A's frontier, then slices the donated fork out of
     // the record — clearing the update-suppression token with no new own
@@ -254,7 +254,7 @@ async fn transmit_during_persist() -> Scene {
         })
     };
     bm_a.entered().await;
-    a.send(M1);
+    a.send(M1).unwrap();
     bm_a.release();
     let (out_a, out_b) = tokio::join!(ga, gb);
     out_a.unwrap().expect("gated gossip side a");
@@ -332,14 +332,14 @@ fn cancelled_persist_never_suppresses_the_next_update() {
             .await
             .expect("a pristine seed attaches its bookmark without touching storage")
             .into_rumors();
-        a.send(M0);
+        a.send(M0).unwrap();
         let b = boot_from(&a, GatedBookmark::new(DurableStore::default())).await;
         let _c = boot_from(&a, GatedBookmark::new(DurableStore::default())).await;
 
         // M1 advances the frontier, so the next update stages a token for
         // M1's version and parks in the durable write; dropping the session
         // futures there cancels the persist mid-flight.
-        a.send(M1);
+        a.send(M1).unwrap();
         bm_a.arm();
         let (side_a, side_b) = rumors::link::memory_with_capacity(LINK_BUF);
         let ga = {
@@ -440,7 +440,7 @@ fn restart_after_transmit_never_destroys_durable_messages() {
         // coordinate is the recycle this test exists to catch; several ticks
         // give a colliding placement every chance to occur.
         for i in 0..8 {
-            a2.send(100 + i);
+            a2.send(100 + i).unwrap();
         }
 
         // Heal to a fixed point over clean wires.
@@ -507,7 +507,7 @@ fn donation_persist_failure_aborts_before_the_wire() {
             .await
             .expect("a pristine seed attaches its bookmark without touching storage")
             .into_rumors();
-        a.send(M0);
+        a.send(M0).unwrap();
         let b = boot_from(&a, GatedBookmark::new(DurableStore::default())).await;
 
         let party_before = a
@@ -588,7 +588,7 @@ fn repeated_donation_aborts_normalize() {
             .await
             .expect("a pristine seed attaches its bookmark without touching storage")
             .into_rumors();
-        a.send(M0);
+        a.send(M0).unwrap();
         let b = boot_from(&a, GatedBookmark::new(DurableStore::default())).await;
         let party_before = a
             .dangerously_alias_party()

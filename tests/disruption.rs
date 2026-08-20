@@ -390,7 +390,7 @@ async fn envelope_session_bytes() -> usize {
     // ticks in its version bounds without leaving shared live content
     // that would blunt the divergence.
     for (i, peer) in fleet.iter().enumerate() {
-        peer.send(2_000_000 + i as u64);
+        peer.send(2_000_000 + i as u64).unwrap();
         let marker = {
             let snapshot = peer.snapshot();
             let (marker, _) = snapshot
@@ -705,10 +705,13 @@ async fn run_proc_plan(plan: ProcPlan) {
     // so inbound sessions can overlap arbitrarily.
     let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
     {
-        let mut batch = seed.batch();
-        for &v in &plan.seed_messages {
-            batch.send(v);
-        }
+        seed.batch(|batch| {
+            for &v in &plan.seed_messages {
+                batch.send(v)?;
+            }
+            Ok::<(), rumors::PayloadDepthError>(())
+        })
+        .expect("flat test payloads are within any depth limit");
     }
     let mut casts: Vec<Rumors<u64>> = vec![seed];
     for _ in 1..plan.n_parent_peers {
@@ -947,7 +950,7 @@ async fn child_main(addr: String) -> i32 {
         let handle = cast.clone();
         tokio::spawn(async move {
             for s in 0..n_sends {
-                handle.send(child_value(index, s));
+                handle.send(child_value(index, s)).unwrap();
                 tokio::task::yield_now().await;
             }
         })

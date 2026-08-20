@@ -23,7 +23,9 @@ use rand::rngs::SmallRng;
 use rumors::{Peer, Retire, Rumors, UnorderedMessages, Version, causally};
 
 use crate::common::action::minted_version;
-use crate::common::wire::{assert_control_drained, block_on, bootstrap_fork, wire_gossip};
+use crate::common::wire::{
+    assert_control_drained, batch_send, block_on, bootstrap_fork, wire_gossip,
+};
 
 /// One observer step, with the borrowed faces cloned out.
 #[derive(Debug, PartialEq)]
@@ -77,10 +79,14 @@ fn live_map(rumors: &Rumors<u64>) -> BTreeMap<Vec<u8>, u64> {
 fn genesis_replay_observes_the_live_set_once() {
     let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
     {
-        let mut batch = rumors.batch();
-        for v in 0..8u64 {
-            batch.send(v);
-        }
+        rumors
+            .batch(|batch| {
+                for v in 0..8u64 {
+                    batch.send(v)?;
+                }
+                Ok::<(), rumors::PayloadDepthError>(())
+            })
+            .expect("flat test payloads are within any depth limit");
     }
 
     let mut obs = rumors.unordered_messages();
@@ -114,9 +120,9 @@ fn genesis_replay_observes_the_live_set_once() {
 #[test]
 fn checkpoint_start_observes_only_what_it_does_not_contain() {
     let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    rumors.batch().send(1).send(2).send(3);
+    batch_send(&rumors, [1, 2, 3]);
     let v_mid = rumors.snapshot().latest().clone();
-    rumors.batch().send(4).send(5).send(6);
+    batch_send(&rumors, [4, 5, 6]);
 
     let mut obs = rumors.unordered_messages_since(v_mid.clone());
     let (items, _) = drain(&mut obs);
@@ -151,13 +157,13 @@ fn live_sends_and_gossip_learned_messages_are_observed() {
     assert!(initial.is_empty(), "nothing to observe yet");
 
     // A local send through a sibling clone.
-    sibling.send(10);
+    sibling.send(10).unwrap();
     let (items, _) = drain(&mut obs);
     assert_eq!(items.len(), 1, "the sibling's send is observed");
     assert_eq!(items[0].1, 10);
 
     // A message learned through gossip.
-    b.send(20);
+    b.send(20).unwrap();
     wire_gossip(&a, &b);
     let (items, _) = drain(&mut obs);
     assert_eq!(items.len(), 1, "the gossip-learned message is observed");
@@ -176,7 +182,7 @@ fn redactions_are_honored_silently() {
 
     // Redacted before subscription: never fires.
     let pre = rumors.snapshot().latest().clone();
-    rumors.send(1);
+    rumors.send(1).unwrap();
     let version_1 = minted_version(&rumors.snapshot(), &pre);
     rumors.redact(&version_1);
     let mut obs = rumors.unordered_messages();
@@ -185,7 +191,7 @@ fn redactions_are_honored_silently() {
 
     // Observed, then redacted: nothing further fires.
     let pre = rumors.snapshot().latest().clone();
-    rumors.send(2);
+    rumors.send(2).unwrap();
     let version_2 = minted_version(&rumors.snapshot(), &pre);
     let (items, _) = drain(&mut obs);
     assert_eq!(items.len(), 1, "the live message fires once");
@@ -195,7 +201,7 @@ fn redactions_are_honored_silently() {
 
     // Inserted and redacted wholly between passes: never delivered.
     let pre = rumors.snapshot().latest().clone();
-    rumors.send(3);
+    rumors.send(3).unwrap();
     let version_3 = minted_version(&rumors.snapshot(), &pre);
     rumors.redact(&version_3);
     let (items, _) = drain(&mut obs);
@@ -205,11 +211,11 @@ fn redactions_are_honored_silently() {
     );
 
     // A from-now observer does not see pre-subscription content.
-    rumors.send(4);
+    rumors.send(4).unwrap();
     let mut from_now = rumors.unordered_messages_since(rumors.snapshot().latest().clone());
     let (items, _) = drain(&mut from_now);
     assert!(items.is_empty(), "a from-now observer starts quiet");
-    rumors.send(5);
+    rumors.send(5).unwrap();
     let (items, _) = drain(&mut from_now);
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].1, 5, "only post-subscription content fires");
@@ -220,7 +226,7 @@ fn redactions_are_honored_silently() {
 #[test]
 fn observer_drains_the_final_state_then_ends() {
     let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    rumors.batch().send(1).send(2);
+    batch_send(&rumors, [1, 2]);
     let expected = live_map(&rumors);
 
     let mut obs = rumors.unordered_messages();
@@ -248,7 +254,7 @@ fn observer_drains_the_final_state_then_ends() {
 fn retire_ends_the_observer() {
     let survivor = Peer::<u64>::seed().sync_window_floor().into_rumors();
     let retiree = bootstrap_fork(&survivor);
-    retiree.send(7);
+    retiree.send(7).unwrap();
 
     let mut obs = retiree.unordered_messages();
 
@@ -281,7 +287,7 @@ fn retire_ends_the_observer() {
 #[test]
 fn observer_stays_quiet_while_actors_live() {
     let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    rumors.send(1);
+    rumors.send(1).unwrap();
 
     let mut obs = rumors.unordered_messages();
     let (_, ended) = drain(&mut obs);
@@ -319,7 +325,7 @@ fn observer_does_not_block_reunite_and_survives_it() {
     // The round-trip neither ended the observer nor closed the set: a send
     // through a fresh handle is still observed.
     let rumors = peer.into_rumors();
-    rumors.send(42);
+    rumors.send(42).unwrap();
     let (items, ended) = drain(&mut obs);
     assert!(!ended, "the reclaimed Peer keeps the set open");
     assert_eq!(
@@ -336,7 +342,7 @@ fn observer_does_not_block_reunite_and_survives_it() {
 #[test]
 fn lent_borrows_do_not_block_senders() {
     let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    rumors.batch().send(1).send(2);
+    batch_send(&rumors, [1, 2]);
 
     let mut obs = rumors.unordered_messages();
     let lent = block_on(obs.next()).expect("first item of the pass");
@@ -344,7 +350,7 @@ fn lent_borrows_do_not_block_senders() {
 
     // With the yielded item outstanding (the observer is mid-pass), a
     // send must not deadlock.
-    rumors.send(3);
+    rumors.send(3).unwrap();
 
     let (rest, _) = drain(&mut obs);
     assert!(
@@ -363,7 +369,7 @@ fn lent_borrows_do_not_block_senders() {
 #[test]
 fn checkpoint_round_trips_on_an_unchanged_set() {
     let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    rumors.batch().send(1).send(2).send(3);
+    batch_send(&rumors, [1, 2, 3]);
 
     let mut obs = rumors.unordered_messages();
     let (items, _) = drain(&mut obs);
@@ -388,8 +394,8 @@ fn checkpoint_is_portable_across_replicas() {
     let a = Peer::<u64>::seed().sync_window_floor().into_rumors();
     let b = bootstrap_fork(&a);
 
-    a.send(1);
-    b.send(2);
+    a.send(1).unwrap();
+    b.send(2).unwrap();
 
     // Observe everything A has, completing the pass to earn the checkpoint.
     let mut obs_a = a.unordered_messages();
@@ -414,7 +420,7 @@ fn try_next_distinguishes_quiet_from_ended() {
     use rumors::TryNext;
 
     let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    rumors.batch().send(1).send(2);
+    batch_send(&rumors, [1, 2]);
 
     let mut obs = rumors.unordered_messages();
     let mut seen = BTreeSet::new();
@@ -427,7 +433,7 @@ fn try_next_distinguishes_quiet_from_ended() {
         "with a handle live, a drained observer is quiet, not ended"
     );
 
-    rumors.send(3);
+    rumors.send(3).unwrap();
     let TryNext::Message((_, m)) = obs.try_next() else {
         panic!("the new send is immediately available");
     };
@@ -446,7 +452,7 @@ fn try_next_distinguishes_quiet_from_ended() {
 #[test]
 fn stream_face_matches_and_terminates() {
     let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    rumors.batch().send(1).send(2);
+    batch_send(&rumors, [1, 2]);
     let expected = live_map(&rumors);
 
     let mut obs = rumors.unordered_messages();
@@ -487,8 +493,8 @@ fn folding_delivered_versions_can_lose_a_message() {
             let rumors = Peer::<u64>::seed_rng(&mut SmallRng::seed_from_u64(seed))
                 .sync_window_floor()
                 .into_rumors();
-            rumors.send(0);
-            rumors.send(later_value);
+            rumors.send(0).unwrap();
+            rumors.send(later_value).unwrap();
             let snapshot = rumors.snapshot();
             let first_yielded = snapshot.iter().next().expect("two live messages");
             let later_first = *first_yielded.1 == later_value;
@@ -573,7 +579,7 @@ proptest! {
                 Op::Send(v) => {
                     let handle = if i % 2 == 0 { &rumors } else { &sibling };
                     let pre = handle.snapshot().latest().clone();
-                    handle.send(*v);
+                    handle.send(*v).unwrap();
                     minted.push(minted_version(&handle.snapshot(), &pre));
                 }
                 Op::Redact(idx) => {
@@ -630,10 +636,14 @@ proptest! {
     ) {
         let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
         {
-            let mut batch = rumors.batch();
-            for v in &phase_one {
-                batch.send(*v);
-            }
+            rumors
+                .batch(|batch| {
+                    for v in &phase_one {
+                        batch.send(*v)?;
+                    }
+                    Ok::<(), rumors::PayloadDepthError>(())
+                })
+                .expect("flat test payloads are within any depth limit");
         }
 
         // Deliver a prefix of the first pass — or, when `complete_pass`,
@@ -656,10 +666,14 @@ proptest! {
 
         // More traffic after the stop.
         {
-            let mut batch = rumors.batch();
-            for v in &phase_two {
-                batch.send(*v);
-            }
+            rumors
+                .batch(|batch| {
+                    for v in &phase_two {
+                        batch.send(*v)?;
+                    }
+                    Ok::<(), rumors::PayloadDepthError>(())
+                })
+                .expect("flat test payloads are within any depth limit");
         }
 
         // Resume from the persisted checkpoint and drain to the end.

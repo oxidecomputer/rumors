@@ -44,18 +44,26 @@ proptest! {
         let seed = rumors::Peer::<u64>::seed().sync_window_floor().into_rumors();
         let alice = bootstrap_fork(&seed);
         {
-            let mut batch = alice.batch();
-            for v in &alice_values {
-                batch.send(*v);
-            }
+            alice
+                .batch(|batch| {
+                    for v in &alice_values {
+                        batch.send(*v)?;
+                    }
+                    Ok::<(), rumors::PayloadDepthError>(())
+                })
+                .expect("flat test payloads are within any depth limit");
         }
 
         let bob = bootstrap_fork(&seed);
         {
-            let mut batch = bob.batch();
-            for v in &bob_values {
-                batch.send(*v);
-            }
+            bob
+                .batch(|batch| {
+                    for v in &bob_values {
+                        batch.send(*v)?;
+                    }
+                    Ok::<(), rumors::PayloadDepthError>(())
+                })
+                .expect("flat test payloads are within any depth limit");
         }
 
         // Recombine a disjoint copy of alice with a carrier of bob's content.

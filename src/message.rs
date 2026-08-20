@@ -108,6 +108,25 @@ impl fmt::Display for PayloadDepthLimit {
     }
 }
 
+/// A payload value's CBOR encoding nests deeper than the peer's
+/// configured [`PayloadDepthLimit`].
+///
+/// Raised at message creation, so the author of an over-deep value
+/// learns at the moment of choice, before anything is stored or
+/// gossiped. Depth is data-driven (a payload's shape can carry end-user
+/// data), so it is a typed error, never a panic.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("message payload nests deeper than the configured payload depth limit ({limit})")]
+pub struct PayloadDepthError {
+    /// The configured limit the payload's encoding exceeded.
+    pub limit: PayloadDepthLimit,
+}
+
+/// Serializes one type-erased payload value into a depth-checked
+/// [`Message`]; the serializing half of a [`PayloadCodec`].
+pub(crate) type PayloadSerializer =
+    fn(Arc<dyn Any + Send + Sync>, PayloadDepthLimit) -> Result<Message, PayloadDepthError>;
+
 /// Deserializes one exact CBOR payload encoding into a type-erased payload
 /// value, bounding its nesting at the given depth limit; the deserializing
 /// half of a [`PayloadCodec`].
@@ -125,20 +144,54 @@ pub(crate) type PayloadDeserializer =
 /// every ingress parse in the peer's orbit goes through this one value.
 #[derive(Clone, Copy)]
 pub(crate) struct PayloadCodec {
+    serialize: PayloadSerializer,
     deserialize: PayloadDeserializer,
     limit: PayloadDepthLimit,
 }
 
 impl PayloadCodec {
     /// Mint the codec for payloads of type `T` at the given depth limit.
+    ///
+    /// Both of `T`'s serde obligations land here, at the mint: a peer
+    /// demands `Serialize` at construction even if it never sends,
+    /// symmetric with demanding `DeserializeOwned` even if it never
+    /// receives (forwarding needs neither bound, since gossip re-supplies
+    /// cached bytes).
     pub(crate) fn mint<T>(limit: PayloadDepthLimit) -> Self
     where
-        T: DeserializeOwned + Send + Sync + 'static,
+        T: Serialize + DeserializeOwned + Send + Sync + 'static,
     {
+        fn serialize_payload<T: Serialize + Send + Sync + 'static>(
+            payload: Arc<dyn Any + Send + Sync>,
+            limit: PayloadDepthLimit,
+        ) -> Result<Message, PayloadDepthError> {
+            let payload: Arc<T> = payload
+                .downcast()
+                .unwrap_or_else(|_| panic!("a codec serializes exactly its minted payload type"));
+            Message::try_from_arc(payload, limit)
+        }
         PayloadCodec {
+            serialize: serialize_payload::<T>,
             deserialize: Message::deserializer::<T>(),
             limit,
         }
+    }
+
+    /// Serialize one payload value of the minted type into a
+    /// depth-checked [`Message`] at the carried limit
+    /// ([`Message::try_new`]'s contract).
+    ///
+    /// # Panics
+    ///
+    /// If the value is not the codec's minted payload type: a crate bug,
+    /// never an input — every caller hands in the `T` its own typed
+    /// signature names. A `Serialize` failure keeps [`Message`]'s
+    /// documented panic contract.
+    pub(crate) fn message(
+        &self,
+        payload: Arc<dyn Any + Send + Sync>,
+    ) -> Result<Message, PayloadDepthError> {
+        (self.serialize)(payload, self.limit)
     }
 
     /// Replace the carried depth limit, keeping the minted pointer.
@@ -151,6 +204,127 @@ impl PayloadCodec {
     /// value, bounded at the carried depth limit.
     pub(crate) fn decode(&self, bytes: &[u8]) -> io::Result<Arc<dyn Any + Send + Sync>> {
         (self.deserialize)(bytes, self.limit)
+    }
+}
+
+/// Judge one serialized payload's nesting depth against `limit`: the
+/// send-side half of the symmetric depth bound.
+///
+/// An O(n) iterative walk over the encoding using the wire's head grammar
+/// ([`cbor::read_head`](crate::tree::mirror::cbor::read_head)) with an
+/// explicit stack of remaining-child counts, so input-controlled depth
+/// never recurses. The accounting mirrors the decoder's own recursion
+/// accounting — arrays, maps, and tags each open a scope; the decoder's
+/// big-integer form (tag 2 or 3 wrapping a byte string of at most 16
+/// bytes) opens none — and the differential proptest beside this function
+/// is the committed instrument that keeps the two sides agreeing at the
+/// limit and on either side of it, rather than a prose transcription of
+/// either side's rules.
+///
+/// # Panics
+///
+/// If `bytes` is not one complete CBOR value in this crate's canonical
+/// encoding. Every caller scans this crate's own serializer output, so a
+/// malformed input here is a crate bug, never data.
+fn depth_within(bytes: &[u8], limit: PayloadDepthLimit) -> Result<(), PayloadDepthError> {
+    use crate::tree::mirror::cbor::{
+        self, MAJOR_ARRAY, MAJOR_BSTR, MAJOR_MAP, MAJOR_TAG, MAJOR_TEXT,
+    };
+    /// The decoder's big-integer tags (RFC 8949 §3.4.3), consumed without
+    /// a scope when they wrap a byte string of at most 16 bytes.
+    const BIGNUM_TAGS: [u64; 2] = [2, 3];
+    const BIGNUM_MAX_BYTES: u64 = 16;
+    /// Major type 7's additional-information values carrying float
+    /// payloads in the head's argument width (RFC 8949 §3.3), where the
+    /// integer shortest-form rule does not apply.
+    const FLOAT_INFO: std::ops::RangeInclusive<u8> = 25..=27;
+
+    fn malformed() -> ! {
+        panic!("a payload depth scan walks this crate's own canonical encoding")
+    }
+    /// Take `len` bytes of scalar payload off the front of `input`.
+    fn skip(input: &mut &[u8], len: usize) {
+        *input = input.get(len..).unwrap_or_else(|| malformed());
+    }
+
+    let mut input = bytes;
+    // Remaining direct children per open scope; the stack's height is the
+    // current nesting depth.
+    let mut stack: Vec<u64> = Vec::new();
+    loop {
+        // One item. `opened` is `Some(n)` when the item opened a scope
+        // expecting `n` children, `None` when it is scalar and complete.
+        let initial = *input.first().unwrap_or_else(|| malformed());
+        let opened = if initial >> 5 == 7 && FLOAT_INFO.contains(&(initial & 0x1f)) {
+            // A float: its payload rides the head's argument bytes.
+            skip(&mut input, 1 + (1usize << ((initial & 0x1f) - 24)));
+            None
+        } else {
+            let head = cbor::read_head(&mut input).unwrap_or_else(|_| malformed());
+            match head.major {
+                MAJOR_BSTR | MAJOR_TEXT => {
+                    let len = usize::try_from(head.value).unwrap_or_else(|_| malformed());
+                    skip(&mut input, len);
+                    None
+                }
+                MAJOR_ARRAY => Some(head.value),
+                MAJOR_MAP => Some(head.value.checked_mul(2).unwrap_or_else(|| malformed())),
+                MAJOR_TAG => {
+                    // The big-integer exception: peek at the tag's
+                    // content, and consume a short byte string as one
+                    // scalar, exactly as the decoder does.
+                    let mut peek = input;
+                    if BIGNUM_TAGS.contains(&head.value)
+                        && let Ok(next) = cbor::read_head(&mut peek)
+                        && next.major == MAJOR_BSTR
+                        && next.value <= BIGNUM_MAX_BYTES
+                    {
+                        input = peek;
+                        skip(&mut input, next.value as usize);
+                        None
+                    } else {
+                        Some(1)
+                    }
+                }
+                // Unsigned and negative integers, and major 7's simple
+                // values: scalars, complete at their head.
+                _ => None,
+            }
+        };
+        if let Some(children) = opened {
+            // Entering the scope is what the decoder prices, empty or not.
+            if stack.len() as u64 >= limit.get() {
+                return Err(PayloadDepthError { limit });
+            }
+            if children > 0 {
+                stack.push(children);
+                continue;
+            }
+            // An empty container closes immediately: settle it below like
+            // any other completed item.
+        }
+        // The item completed: settle it against the enclosing scopes.
+        loop {
+            match stack.last_mut() {
+                None => {
+                    // The top-level value is complete.
+                    if !input.is_empty() {
+                        malformed();
+                    }
+                    return Ok(());
+                }
+                Some(remaining) => {
+                    *remaining -= 1;
+                    if *remaining == 0 {
+                        // The now-closed scope is itself a completed item
+                        // one level up: keep settling.
+                        stack.pop();
+                        continue;
+                    }
+                    break;
+                }
+            }
+        }
     }
 }
 
@@ -202,7 +376,15 @@ fn decode_exact<T: DeserializeOwned>(bytes: &[u8], limit: PayloadDepthLimit) -> 
 
 impl Message {
     /// Creates a `Message` pairing the given object with its cached
-    /// serialization.
+    /// serialization, with no depth admission.
+    ///
+    /// No unlimited constructor can reach a peer's set: insertion happens
+    /// only through [`Rumors::send`](crate::Rumors::send) and
+    /// [`Batch::send`](crate::Batch::send), which mint depth-checked
+    /// messages through the peer's codec ([`try_new`](Self::try_new)),
+    /// and through wire ingress, which judges the same bound at decode.
+    /// `new` and [`from_arc`](Self::from_arc) construct free-standing
+    /// messages (trees built outside any peer, fixtures, size probes).
     ///
     /// # Panics
     ///
@@ -215,6 +397,45 @@ impl Message {
             serialized: Bytes::from(to_vec(&message)),
             message: Arc::new(message),
         }
+    }
+
+    /// Creates a depth-checked `Message`: serializes `message` and admits
+    /// it only if its encoding nests within `limit`.
+    ///
+    /// This is the constructor behind [`Rumors::send`](crate::Rumors::send)
+    /// and [`Batch::send`](crate::Batch::send) (via the peer's minted
+    /// codec), judging the same bound wire ingress judges at decode, so an
+    /// over-deep value is rejected at its author, at the moment of choice.
+    ///
+    /// The failure classes split here: a [`Serialize`] implementation
+    /// failure keeps [`Message`]'s documented panic contract
+    /// (serializability is the caller's obligation — programmer error,
+    /// unchanged), while a depth violation is the typed error, because a
+    /// payload's shape can carry end-user data. The error carries the
+    /// configured limit; it does not report the value's true depth (the
+    /// scan bails as soon as the limit is exceeded).
+    pub fn try_new<T>(message: T, limit: PayloadDepthLimit) -> Result<Self, PayloadDepthError>
+    where
+        T: Serialize + Send + Sync + 'static,
+    {
+        Self::try_from_arc(Arc::new(message), limit)
+    }
+
+    /// [`try_new`](Self::try_new) from an existing [`Arc`], without
+    /// copying: the same allocation, unsized in place.
+    pub(crate) fn try_from_arc<T>(
+        arc: Arc<T>,
+        limit: PayloadDepthLimit,
+    ) -> Result<Self, PayloadDepthError>
+    where
+        T: Serialize + Send + Sync + 'static,
+    {
+        let serialized = to_vec(&*arc);
+        depth_within(&serialized, limit)?;
+        Ok(Message {
+            serialized: Bytes::from(serialized),
+            message: arc,
+        })
     }
 
     /// Creates a `Message` pairing the given serialized bytes with the
@@ -300,6 +521,9 @@ impl Message {
 
     /// Creates a `Message` from an existing [`Arc`], without copying: the
     /// same allocation, unsized in place.
+    ///
+    /// Like [`new`](Self::new), no depth admission: `new`'s docs state
+    /// why the unlimited constructors cannot reach a peer's set.
     ///
     /// # Panics
     ///

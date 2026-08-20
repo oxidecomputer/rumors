@@ -79,7 +79,7 @@ impl<T: Clone + Serialize + DeserializeOwned + Send + Sync + 'static> Peer<T> {
         // Catch the log up first, so the send's drain isolates exactly the
         // one new observation and its version.
         self.drain();
-        self.local.send(value);
+        self.local.send(value).unwrap();
         let pre = self.observations.len();
         let drained = self.drain();
         assert_eq!(drained, 1, "a send mints exactly one new observation");

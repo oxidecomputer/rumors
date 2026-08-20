@@ -91,11 +91,11 @@ async fn season(rumors: &Rumors<u64>, protocol: Protocol, payload_base: u64) {
     for originator in 0..ORIGINATORS {
         let fork = bootstrap_fork_async_with_protocol(rumors, protocol).await;
         for _ in 0..(originator + 1) * MESSAGES_PER_ORIGINATOR {
-            fork.send(payload);
+            fork.send(payload).unwrap();
             payload += 1;
         }
         // The seed ticks between forks too, so regions interleave.
-        rumors.send(payload);
+        rumors.send(payload).unwrap();
         payload += 1;
         gossip_over(rumors, &fork, FIXTURE_CAPACITY).await;
         originators.push(fork);
@@ -105,7 +105,7 @@ async fn season(rumors: &Rumors<u64>, protocol: Protocol, payload_base: u64) {
     // convergence rounds could not have lifted into the tree's base.
     for (index, fork) in originators.iter().enumerate() {
         for _ in 0..=index {
-            fork.send(payload);
+            fork.send(payload).unwrap();
             payload += 1;
         }
     }
@@ -115,7 +115,7 @@ async fn season(rumors: &Rumors<u64>, protocol: Protocol, payload_base: u64) {
     // One bootstrap→retire cycle: the retiree's region rejoins the seed's,
     // exercising the id-space shape a recycled identity leaves behind.
     let cycled = bootstrap_fork_async_with_protocol(rumors, protocol).await;
-    cycled.send(payload);
+    cycled.send(payload).unwrap();
     let cycled = cycled
         .try_into_peer()
         .await
@@ -160,7 +160,7 @@ async fn seasoned_pair(protocol: Protocol) -> (Rumors<u64>, Rumors<u64>) {
     // The fork originates a little of its own before converging, so the
     // pair's shared version includes events from b's region too.
     for payload in 0..MESSAGES_PER_ORIGINATOR {
-        b.send(10_000 + payload);
+        b.send(10_000 + payload).unwrap();
     }
     gossip_over(&a, &b, FIXTURE_CAPACITY).await;
     assert_eq!(a.snapshot().hash(), b.snapshot().hash());
@@ -187,8 +187,8 @@ async fn divergent(protocol: Protocol) {
     let (a, b) = seasoned_pair(protocol).await;
     let converged_len = a.snapshot().len();
     for v in 0..DIVERGENT_MESSAGES {
-        a.send(100_000 + v);
-        b.send(200_000 + v);
+        a.send(100_000 + v).unwrap();
+        b.send(200_000 + v).unwrap();
     }
     gossip_over(&a, &b, MIN_CAPACITY).await;
     assert_eq!(a.snapshot().hash(), b.snapshot().hash());
@@ -211,10 +211,10 @@ async fn bulk_initiator(protocol: Protocol) {
     let (a, b) = seasoned_pair(protocol).await;
     let converged_len = a.snapshot().len();
     for v in 0..DIVERGENT_MESSAGES {
-        a.send(300_000 + v);
+        a.send(300_000 + v).unwrap();
     }
     for v in 0..=DIVERGENT_MESSAGES {
-        b.send(400_000 + v);
+        b.send(400_000 + v).unwrap();
     }
     assert!(
         a.snapshot().len() < b.snapshot().len(),
@@ -275,7 +275,7 @@ async fn retire(protocol: Protocol) {
     let (a, b) = seasoned_pair(protocol).await;
     let converged_len = b.snapshot().len();
     for v in 0..DIVERGENT_MESSAGES {
-        a.send(300_000 + v);
+        a.send(300_000 + v).unwrap();
     }
     let retiree = a.try_into_peer().await.expect("a is the sole handle");
     let (mut r_link, mut p_link) = rumors::link::memory_with_capacity(MIN_CAPACITY);

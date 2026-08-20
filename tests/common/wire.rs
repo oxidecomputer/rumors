@@ -157,22 +157,31 @@ where
     (a_report, b_report)
 }
 
+/// Commit `values` to `rumors` as one batch. Suites send flat test
+/// payloads, which no depth limit rejects, so the depth-admission
+/// `Result` resolves here rather than at every call site.
+#[track_caller]
+pub fn batch_send<T, I>(rumors: &Rumors<T>, values: I)
+where
+    T: Send + Sync + 'static,
+    I: IntoIterator<Item = T>,
+{
+    rumors
+        .batch(|batch| {
+            for value in values {
+                batch.send(value)?;
+            }
+            Ok::<(), rumors::PayloadDepthError>(())
+        })
+        .expect("flat test payloads are within any depth limit");
+}
+
 /// Give each side `values_per_side` values the other lacks: `a` draws
 /// from one range, `b` from a disjoint one, so the pair ends fully
 /// divergent (every leaf disputed in their next session).
 pub fn diverge(a: &Rumors<u64>, b: &Rumors<u64>, values_per_side: u64) {
-    {
-        let mut batch = a.batch();
-        for v in 0..values_per_side {
-            batch.send(v);
-        }
-    }
-    {
-        let mut batch = b.batch();
-        for v in 0..values_per_side {
-            batch.send(1_000_000 + v);
-        }
-    }
+    batch_send(a, 0..values_per_side);
+    batch_send(b, (0..values_per_side).map(|v| 1_000_000 + v));
 }
 
 /// Two party-disjoint forks of one fresh universe, fully divergent by

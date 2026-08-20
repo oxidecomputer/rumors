@@ -8,6 +8,7 @@ pub use unordered::{TryNext, UnorderedMessages};
 
 use crate::bookmark::{Bookmark, BookmarkError, NoBookmark};
 use crate::link::{Acceptor, Connector, Link};
+use crate::message::PayloadDepthError;
 use crate::{Batch, Error, Gossiped, Network, Peer, Snapshot, Version};
 use futures::Stream;
 use std::sync::Arc;
@@ -17,7 +18,6 @@ use tokio::{
     sync::watch,
 };
 
-use serde::Serialize;
 /// A handle for [`send`](Rumors::send)ing and [`redact`](Rumors::redact)ing
 /// messages, and [`gossip`](Rumors::gossip)ing the result with peers.
 ///
@@ -132,52 +132,49 @@ impl<T, B: BookmarkError> Rumors<T, B> {
         }
     }
 
-    /// Send a message.
+    /// Send a message, committing it immediately.
     ///
-    /// Returns a [`Batch`] that commits when dropped: a bare
-    /// `rumors.send(message);` commits at the end of the statement, and
-    /// chaining further [`send`](Batch::send)s and [`redact`](Batch::redact)s
-    /// accumulates them into one commit. A batch dropped by async
-    /// cancellation commits its queued prefix, so never hold one across an
-    /// `.await` in a cancellable task ([`Batch`] states the drop semantics).
+    /// The message is serialized and admitted here, at the call: a
+    /// payload whose encoding nests deeper than the peer's
+    /// [`payload_depth_limit`](crate::Peer::payload_depth_limit) is the
+    /// typed error, and nothing commits. To apply several changes in one
+    /// commit, use [`batch`](Self::batch).
     ///
     /// `send` does not return the message's [`Version`]. Versions come back
     /// through observation: the observers and [`Snapshot`] attach every
     /// message to the version its send minted, unique across the universe's
     /// whole history, so even byte-identical re-sends are distinct messages
     /// under distinct versions. [`redact`](Self::redact) states the intended
-    /// observe-then-redact pattern and why the write path returns nothing.
+    /// observe-then-redact pattern and why the write path returns no
+    /// version.
     ///
     /// # Observe-then-send is domination
     ///
-    /// Every message this replica observed before a batch commits is in
-    /// the causal past of that batch's sends, which is the supersession
+    /// Every message this replica observed before a commit is in the
+    /// causal past of that commit's sends, which is the supersession
     /// contract last-write-wins patterns lean on. The boundary: sends from
     /// different threads or different batches carry **no** guaranteed
     /// causal relationship to one another unless the application
-    /// synchronizes them itself (building a batch holds no lock, so
-    /// concurrent synchronization can land before the batch commits).
+    /// synchronizes them itself.
     ///
     /// # Panics
     ///
     /// If `message` fails to serialize (see [`Batch::send`]).
-    pub fn send(&self, message: T) -> Batch<'_, T>
+    pub fn send(&self, message: T) -> Result<(), PayloadDepthError>
     where
-        T: Serialize + Send + Sync + 'static,
+        T: Send + Sync + 'static,
     {
         self.peer.send(message)
     }
 
-    /// Redact a message: remove the live message stamped with `version` from
-    /// the set, here and, through gossip, everywhere. Redacting a version not
-    /// currently held is a no-op.
+    /// Redact a message: remove the live message stamped with `version`
+    /// from the set, here and, through gossip, everywhere, committing
+    /// immediately.
     ///
-    /// Returns a [`Batch`] that commits when dropped: a bare
-    /// `rumors.redact(&version);` commits at the end of the statement, and chaining
-    /// further [`send`](Batch::send)s and [`redact`](Batch::redact)s
-    /// accumulates them into one commit. A batch dropped by async
-    /// cancellation commits its queued prefix, so never hold one across an
-    /// `.await` in a cancellable task ([`Batch`] states the drop semantics).
+    /// Redacting a version not currently held is a no-op, and redaction
+    /// is infallible: no payload is created, so no depth admission
+    /// applies. To bundle redactions and sends into one commit, use
+    /// [`batch`](Self::batch).
     ///
     /// # Deletion is honored
     ///
@@ -205,41 +202,78 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     /// anyway: a batch inserts all its messages at once, so sends are not
     /// 1:1 with insertions and a message's version is not knowable until
     /// insertion.
-    pub fn redact(&self, version: &Version) -> Batch<'_, T>
+    pub fn redact(&self, version: &Version)
     where
         T: Send + Sync,
     {
         self.peer.redact(version)
     }
 
-    /// Start an empty [`Batch`], for applying several changes in one
-    /// commit: observers and concurrent gossip sessions see all of them
-    /// land at once, in at most one observer wakeup.
+    /// Apply several changes in one all-or-nothing commit.
     ///
-    /// A batch is a performance optimization, not an atomicity guarantee:
-    /// it coalesces its actions into one tree traversal and one commit,
-    /// but, outside of a panic, whatever the batch holds when it drops is
-    /// committed automatically. Do not rely on batch atomicity for
-    /// correctness, *especially* in the presence of async cancellation.
+    /// Runs `f` with a [`Batch`] scope handle for queueing
+    /// [`send`](Batch::send)s and [`redact`](Batch::redact)s, then
+    /// commits everything queued **iff `f` returns `Ok`**: observers and
+    /// concurrent gossip sessions see all of it land at once, as one
+    /// commit, one tree traversal, and at most one observer wakeup. Any
+    /// other exit commits nothing, earlier-queued actions included: a
+    /// returned `Err` — your own, or a `?`-propagated
+    /// [`PayloadDepthError`] from a depth-rejected send — and a panic's
+    /// unwind alike cancel the batch whole. Returning `Err` is the
+    /// deliberate abort affordance: a batch is all-or-nothing.
+    ///
+    /// The closure is synchronous, so batch state cannot be held across
+    /// an `.await` point (a synchronous closure body cannot await), and
+    /// the scope handle cannot leave the closure (the examples below pin
+    /// both escape routes as compile errors). Async cancellation
+    /// therefore cannot observe a half-built batch: a cancellation lands
+    /// between polls, and the whole closure runs inside one poll.
+    ///
+    /// The closure may itself use the same `Rumors` handle — a
+    /// [`send`](Self::send), or a nested `batch` — because building a
+    /// batch holds no lock and the outer commit runs only after the
+    /// closure returns: nested operations commit first, the outer batch
+    /// after, as separate commits (inner-before-outer).
     ///
     /// # Examples
     ///
     /// ```
-    /// use rumors::Peer;
+    /// use rumors::{PayloadDepthError, Peer};
     ///
     /// let rumors = Peer::<String>::seed().into_rumors();
-    /// rumors
-    ///     .batch()
-    ///     .send("a".to_string())
-    ///     .send("b".to_string());
-    /// // The batch committed, as one commit, when the statement ended.
+    /// rumors.batch(|batch| {
+    ///     batch.send("a".to_string())?;
+    ///     batch.send("b".to_string())?;
+    ///     Ok::<(), PayloadDepthError>(())
+    /// })?;
+    /// // Both landed, in one commit.
     /// assert_eq!(rumors.snapshot().len(), 2);
+    /// # Ok::<(), PayloadDepthError>(())
     /// ```
-    pub fn batch(&self) -> Batch<'_, T>
+    ///
+    /// The scope handle cannot be stashed outside the closure:
+    ///
+    /// ```compile_fail
+    /// let rumors = rumors::Peer::<String>::seed().into_rumors();
+    /// let mut stash = None;
+    /// let _ = rumors.batch::<_, (), _>(|batch| {
+    ///     stash = Some(batch);
+    ///     Ok(())
+    /// });
+    /// ```
+    ///
+    /// ...and cannot be returned out of it:
+    ///
+    /// ```compile_fail
+    /// let rumors = rumors::Peer::<String>::seed().into_rumors();
+    /// let escaped = rumors.batch::<_, (), _>(|batch| Ok(batch));
+    /// ```
+    pub fn batch<R, E, F>(&self, f: F) -> Result<R, E>
     where
         T: Send + Sync,
+        F: for<'s> FnOnce(&'s mut Batch<'_, T>) -> Result<R, E>,
     {
-        self.peer.batch()
+        self.peer.batch(f)
     }
 
     /// The identifier shared by every peer that descends from the same
@@ -488,7 +522,7 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// // A long-lived link between them, one driver per end.
     /// let (mut alice_side, mut bob_side) = rumors::link::memory();
     ///
-    /// alice.send("psst".to_string());
+    /// alice.send("psst".to_string()).expect("flat payload");
     ///
     /// let mut alice_drive = alice.gossip_when(alice.changes(), &mut alice_side);
     /// let mut bob_drive = bob.gossip_when(bob.changes(), &mut bob_side);

@@ -68,7 +68,7 @@ where
     B: Serialize + DeserializeOwned + Clone + Send + Sync + 'static,
 {
     let sender = Peer::<A>::seed().into_rumors();
-    sender.send(payload);
+    sender.send(payload).unwrap();
 
     let (mut near, mut far) = rumors::link::memory();
     let serve = sender.clone();
@@ -153,7 +153,7 @@ async fn unknown_fields_are_skipped() {
 #[tokio::test]
 async fn undecodable_payload_fails_bootstrap_cleanly() {
     let sender = Peer::<String>::seed().into_rumors();
-    sender.send("not a number".to_string());
+    sender.send("not a number".to_string()).unwrap();
 
     let (mut near, mut far) = rumors::link::memory();
     let serve = sender.clone();
@@ -178,7 +178,7 @@ async fn undecodable_payload_fails_bootstrap_cleanly() {
 #[tokio::test]
 async fn out_of_range_payload_fails_gossip_cleanly() {
     let sender = Peer::<u64>::seed().into_rumors();
-    sender.send(7u64);
+    sender.send(7u64).unwrap();
 
     let (mut near, mut far) = rumors::link::memory();
     let serve = sender.clone();
@@ -197,7 +197,7 @@ async fn out_of_range_payload_fails_gossip_cleanly() {
     // A value only `u64` can hold: the next session must fail at the
     // receiver's ingress. The sender's half fails too (its counterparty
     // aborted), but only ever as an error.
-    sender.send(u64::MAX);
+    sender.send(u64::MAX).unwrap();
     let (mut near, mut far) = rumors::link::memory();
     let serve = sender.clone();
     let server = tokio::spawn(async move { serve.gossip(&mut far).await });

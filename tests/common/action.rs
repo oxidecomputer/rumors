@@ -73,7 +73,7 @@ where
         match a {
             LocalAction::Insert(v) => {
                 let pre = local.snapshot().latest().clone();
-                local.send(v.clone());
+                local.send(v.clone()).unwrap();
                 versions.push(minted_version(&local.snapshot(), &pre));
             }
             LocalAction::Redact(idx) => {

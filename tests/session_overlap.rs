@@ -29,7 +29,7 @@ use rumors::{Rumors, Version};
 fn converged_trio(n: u64) -> (Rumors<u64>, Rumors<u64>, Rumors<u64>) {
     let a = rumors::Peer::seed().into_rumors();
     for v in 0..n {
-        a.send(v);
+        a.send(v).unwrap();
     }
     let b = bootstrap_fork(&a);
     let c = bootstrap_fork(&a);

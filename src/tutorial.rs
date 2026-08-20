@@ -94,7 +94,7 @@
 //! async fn main() -> Result<(), rumors::Error> {
 //!     let alice = Peer::<String>::seed().into_rumors();
 //!
-//!     alice.send("the meeting is at noon".to_string());
+//!     alice.send("the meeting is at noon".to_string()).expect("flat payload");
 //!
 //!     for (_version, message) in alice.snapshot().iter() {
 //!         println!("alice holds: {message}");
@@ -107,9 +107,11 @@
 //! alice holds: the meeting is at noon
 //! ```
 //!
-//! A bare `send` statement commits right there, as the statement ends;
-//! chaining several changes into one commit is
-//! [`Batch`](crate::Batch)'s job. Notice that the snapshot yields a
+//! A `send` commits right there, at the call, and is fallible only in
+//! one way: a payload nested deeper than the peer's
+//! [`payload_depth_limit`](crate::Peer::payload_depth_limit) is rejected
+//! typed, and a flat string can never be. Applying several changes as
+//! one commit is [`batch`](crate::Rumors::batch)'s job. Notice that the snapshot yields a
 //! [`Version`](crate::Version) alongside each message — the message's
 //! identity, which we ignore for now; it returns in step 6.
 //!
@@ -130,7 +132,7 @@
 //! #[tokio::main]
 //! async fn main() -> Result<(), rumors::Error> {
 //!     let alice = Peer::<String>::seed().into_rumors();
-//!     alice.send("the meeting is at noon".to_string());
+//!     alice.send("the meeting is at noon".to_string()).expect("flat payload");
 //!
 //!     // Alice serves one gossip session on her end of the link...
 //!     let (mut near, mut far) = rumors::link::memory();
@@ -181,7 +183,7 @@
 //! #[tokio::main]
 //! async fn main() -> Result<(), rumors::Error> {
 //!     let alice = Peer::<String>::seed().into_rumors();
-//!     alice.send("the meeting is at noon".to_string());
+//!     alice.send("the meeting is at noon".to_string()).expect("flat payload");
 //!
 //!     let (mut near, mut far) = rumors::link::memory();
 //!     let serve = alice.clone();
@@ -196,7 +198,7 @@
 //!     // A second, long-lived link between them, one driver per end.
 //!     let (mut alice_side, mut bob_side) = rumors::link::memory();
 //!
-//!     alice.send("bring the slides".to_string());
+//!     alice.send("bring the slides".to_string()).expect("flat payload");
 //!
 //!     let mut alice_drive = alice.gossip_when(alice.changes(), &mut alice_side);
 //!     let mut bob_drive = bob.gossip_when(bob.changes(), &mut bob_side);
@@ -240,7 +242,7 @@
 //! #[tokio::main]
 //! async fn main() -> Result<(), rumors::Error> {
 //!     let alice = Peer::<String>::seed().into_rumors();
-//!     alice.send("the meeting is at noon".to_string());
+//!     alice.send("the meeting is at noon".to_string()).expect("flat payload");
 //!
 //!     let (mut near, mut far) = rumors::link::memory();
 //!     let serve = alice.clone();
@@ -254,7 +256,7 @@
 //!
 //!     let (mut alice_side, mut bob_side) = rumors::link::memory();
 //!
-//!     alice.send("bring the slides".to_string());
+//!     alice.send("bring the slides".to_string()).expect("flat payload");
 //!
 //!     let mut alice_drive = alice.gossip_when(alice.changes(), &mut alice_side);
 //!     let mut bob_drive = bob.gossip_when(bob.changes(), &mut bob_side);

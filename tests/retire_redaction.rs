@@ -21,7 +21,7 @@ fn retire_carries_last_minute_redactions() {
     let b = bootstrap_fork(&a);
 
     // B originates an entry and A learns it through ordinary gossip.
-    b.send("presence: b".to_string());
+    b.send("presence: b".to_string()).unwrap();
     let version = b
         .snapshot()
         .iter()

@@ -30,12 +30,13 @@ use crate::common::shape::{
 };
 #[cfg(feature = "protocol-v1")]
 use crate::common::wire::bootstrap_fork_async_with_protocol;
-use crate::common::wire::{block_on, bootstrap_fork, bootstrap_fork_async};
+use crate::common::wire::{batch_send, block_on, bootstrap_fork, bootstrap_fork_async};
 
 /// A peer seeded from a fixed RNG, so the [`rumors::Network`] id carried in
 /// the preamble is deterministic and these byte-level captures stay
 /// reproducible across runs.
-fn seeded<T: serde::de::DeserializeOwned + Send + Sync + 'static>() -> Rumors<T> {
+fn seeded<T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static>() -> Rumors<T>
+{
     Peer::seed_rng(&mut SmallRng::seed_from_u64(0))
         .sync_window_floor()
         .into_rumors()
@@ -80,7 +81,7 @@ fn one_sided_transfer() {
         // it is an empty peer in the same universe.
         let b = bootstrap_fork_async(&a).await;
 
-        a.batch().send(1).send(2);
+        batch_send(&a, [1, 2]);
         (a, b)
     });
     insta::assert_snapshot!(capture_gossip(a, b));
@@ -342,7 +343,7 @@ fn early_supplies_honor_redactions() {
     // it the larger set.
     let (a, b) = block_on(async {
         let a: Rumors<u64> = seeded();
-        a.send(1);
+        a.send(1).unwrap();
         let b = bootstrap_fork_async(&a).await;
         b.redact(&version_for(&b, 1));
         (a, b)
@@ -418,7 +419,7 @@ fn v1_one_sided_transfer() {
             .protocol(Protocol::V1)
             .into_rumors();
         let b = bootstrap_fork_async_with_protocol(&a, Protocol::V1).await;
-        a.batch().send(1).send(2);
+        batch_send(&a, [1, 2]);
         (a, b)
     });
     insta::assert_snapshot!(capture_gossip_v1(a, b));
@@ -444,15 +445,15 @@ fn fork_insert_redact() {
         let a: Rumors<u64> = seeded();
 
         // (1) Two distinct common messages.
-        a.batch().send(1).send(2);
+        batch_send(&a, [1, 2]);
 
         // (2) Fork: B is a genuine disjoint fork sharing A's observations
         // (both hold 1 and 2, under the same versions).
         let b = bootstrap_fork_async(&a).await;
 
         // (3) Each fork inserts one distinct message.
-        a.send(3);
-        b.send(4);
+        a.send(3).unwrap();
+        b.send(4).unwrap();
 
         // (4) Each fork redacts a different one of the two common messages.
         a.redact(&version_for(&a, 1));
@@ -474,7 +475,7 @@ fn fork_insert_redact() {
 fn converged_forks_noop() {
     let (a, b) = block_on(async {
         let a: Rumors<u64> = seeded();
-        a.batch().send(1).send(2);
+        batch_send(&a, [1, 2]);
         let b = bootstrap_fork_async(&a).await;
         (a, b)
     });
@@ -492,7 +493,7 @@ fn converged_forks_noop() {
 fn redaction_only() {
     let (a, b) = block_on(async {
         let a: Rumors<u64> = seeded();
-        a.batch().send(1).send(2);
+        batch_send(&a, [1, 2]);
         let b = bootstrap_fork_async(&a).await;
         a.redact(&version_for(&a, 1));
         (a, b)
@@ -522,16 +523,22 @@ fn deep_trie_divergence() {
         let a: Rumors<u64> = seeded();
         let b = bootstrap_fork_async(&a).await;
         {
-            let mut batch = a.batch();
-            for v in 0..DEEP_TRIE_PER_SIDE {
-                batch.send(v);
-            }
+            a.batch(|batch| {
+                for v in 0..DEEP_TRIE_PER_SIDE {
+                    batch.send(v)?;
+                }
+                Ok::<(), rumors::PayloadDepthError>(())
+            })
+            .expect("flat test payloads are within any depth limit");
         }
         {
-            let mut batch = b.batch();
-            for v in DEEP_TRIE_PER_SIDE..2 * DEEP_TRIE_PER_SIDE {
-                batch.send(v);
-            }
+            b.batch(|batch| {
+                for v in DEEP_TRIE_PER_SIDE..2 * DEEP_TRIE_PER_SIDE {
+                    batch.send(v)?;
+                }
+                Ok::<(), rumors::PayloadDepthError>(())
+            })
+            .expect("flat test payloads are within any depth limit");
         }
         (a, b)
     });
@@ -643,8 +650,8 @@ fn string_payload() {
     let (a, b) = block_on(async {
         let a: Rumors<String> = seeded();
         let b = bootstrap_fork_async(&a).await;
-        a.send("hello".to_string());
-        b.send("world".to_string());
+        a.send("hello".to_string()).unwrap();
+        b.send("world".to_string()).unwrap();
         (a, b)
     });
     insta::assert_snapshot!(capture_gossip(a, b));
@@ -664,11 +671,11 @@ fn string_payload() {
 fn same_live_content_divergent_versions() {
     let (a, b) = block_on(async {
         let a: Rumors<u64> = seeded();
-        a.send(1);
+        a.send(1).unwrap();
         let b = bootstrap_fork_async(&a).await;
 
         // A diverges in version but not in live content: insert 2, then drop it.
-        a.send(2);
+        a.send(2).unwrap();
         a.redact(&version_for(&a, 2));
         (a, b)
     });
@@ -688,7 +695,7 @@ fn same_live_content_divergent_versions() {
 fn both_redact_the_same_message() {
     let (a, b) = block_on(async {
         let a: Rumors<u64> = seeded();
-        a.batch().send(1).send(2);
+        batch_send(&a, [1, 2]);
         let b = bootstrap_fork_async(&a).await;
         let v1 = version_for(&a, 1);
         a.redact(&v1);

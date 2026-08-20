@@ -96,7 +96,7 @@ fn loaded(parent: Option<&Rumors<Vec<u8>>>, payloads: &[Vec<u8>]) -> Rumors<Vec<
         None => Peer::seed().sync_window_floor().into_rumors(),
     };
     for payload in payloads {
-        peer.send(payload.clone());
+        peer.send(payload.clone()).unwrap();
     }
     peer
 }
@@ -130,7 +130,7 @@ proptest! {
         let a = loaded(None, &shared);
         let b = loaded(Some(&a), &only_b);
         for payload in &only_a {
-            a.send(payload.clone());
+            a.send(payload.clone()).unwrap();
         }
         let (a_capture, b_capture) = capture_sides(
             {
@@ -184,7 +184,7 @@ proptest! {
         let absorber = loaded(None, &shared);
         let retiree = loaded(Some(&absorber), &only_retiree);
         for payload in &only_absorber {
-            absorber.send(payload.clone());
+            absorber.send(payload.clone()).unwrap();
         }
         let retiree = block_on(retiree.try_into_peer())
             .expect("the retiree handle is unique");

@@ -1043,18 +1043,21 @@ pub async fn check_sessions<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab>(
         .into_rumors();
 
     // Divergence wide and deep enough to exercise many streams per side.
-    {
-        let mut batch = seed.batch();
+    seed.batch(|batch| {
         for payload in 0..SESSION_PAYLOADS {
-            batch.send(payload);
+            batch.send(payload)?;
         }
-    }
-    {
-        let mut batch = newcomer.batch();
-        for payload in SESSION_PAYLOADS..2 * SESSION_PAYLOADS {
-            batch.send(payload);
-        }
-    }
+        Ok::<(), crate::message::PayloadDepthError>(())
+    })
+    .expect("flat payloads are within any depth limit");
+    newcomer
+        .batch(|batch| {
+            for payload in SESSION_PAYLOADS..2 * SESSION_PAYLOADS {
+                batch.send(payload)?;
+            }
+            Ok::<(), crate::message::PayloadDepthError>(())
+        })
+        .expect("flat payloads are within any depth limit");
 
     // Session two: reconcile the divergence; session three: converge as a
     // no-op. Serialized on the same links, so the epoch counting and

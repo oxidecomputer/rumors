@@ -11,11 +11,13 @@ use rand::SeedableRng;
 use rand::rngs::SmallRng;
 use rumors::{Error, Peer};
 
-use crate::common::wire::{assert_control_drained, block_on};
+use crate::common::wire::{assert_control_drained, batch_send, block_on};
 
 /// A peer seeded deterministically, so two seeds with distinct stream ids get
 /// distinct (but reproducible) networks.
-fn seeded<T: serde::de::DeserializeOwned + Send + Sync + 'static>(stream: u64) -> Peer<T> {
+fn seeded<T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static>(
+    stream: u64,
+) -> Peer<T> {
     Peer::seed_rng(&mut SmallRng::seed_from_u64(stream)).sync_window_floor()
 }
 
@@ -79,7 +81,7 @@ fn gossip_rejects_foreign_network() {
 #[test]
 fn bootstrap_adopts_provider_network() {
     let provider = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    provider.batch().send(1).send(2).send(3);
+    batch_send(&provider, [1, 2, 3]);
     let provider_network = provider.network();
 
     let bootstrapped = block_on(async move {

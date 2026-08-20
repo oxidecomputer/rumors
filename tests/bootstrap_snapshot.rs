@@ -23,6 +23,8 @@
 
 mod common;
 
+use crate::common::wire::batch_send;
+
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
 #[cfg(feature = "protocol-v1")]
@@ -40,7 +42,8 @@ use serde::de::DeserializeOwned;
 /// deterministic and these captures stay reproducible.
 ///
 /// Mirrors `gossip_snapshot::seeded`.
-fn seeded<T: serde::de::DeserializeOwned + Send + Sync + 'static>() -> Rumors<T> {
+fn seeded<T: serde::Serialize + serde::de::DeserializeOwned + Send + Sync + 'static>() -> Rumors<T>
+{
     Peer::seed_rng(&mut SmallRng::seed_from_u64(0))
         .sync_window_floor()
         .into_rumors()
@@ -87,7 +90,7 @@ fn empty_provider() {
 #[test]
 fn populated_provider() {
     let provider: Rumors<u64> = seeded();
-    provider.batch().send(1).send(2).send(3);
+    batch_send(&provider, [1, 2, 3]);
     insta::assert_snapshot!(capture_bootstrap(provider));
 }
 
@@ -100,7 +103,7 @@ fn v1_populated_provider() {
         .sync_window_floor()
         .protocol(Protocol::V1)
         .into_rumors();
-    provider.batch().send(1).send(2).send(3);
+    batch_send(&provider, [1, 2, 3]);
     let capture = capture_session_v1(
         move |mut link| async move {
             provider
@@ -129,10 +132,7 @@ fn v1_populated_provider() {
 #[test]
 fn string_payload() {
     let provider: Rumors<String> = seeded();
-    provider
-        .batch()
-        .send("hello".to_string())
-        .send("world".to_string());
+    batch_send(&provider, ["hello".to_string(), "world".to_string()]);
     insta::assert_snapshot!(capture_bootstrap(provider));
 }
 

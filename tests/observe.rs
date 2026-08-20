@@ -264,7 +264,7 @@ fn seeded(observer: Option<&Arc<Recording>>, payloads: &[Vec<u8>]) -> Rumors<Vec
     }
     let peer = peer.into_rumors();
     for payload in payloads {
-        peer.send(payload.clone());
+        peer.send(payload.clone()).unwrap();
     }
     peer
 }
@@ -324,10 +324,10 @@ proptest! {
         let a = seeded(Some(&rec_a), &shared);
         let b = forked(Some(&rec_b), &a);
         for payload in &only_a {
-            a.send(payload.clone());
+            a.send(payload.clone()).unwrap();
         }
         for payload in &only_b {
-            b.send(payload.clone());
+            b.send(payload.clone()).unwrap();
         }
         let (a_capture, b_capture) = capture_sides(
             {
@@ -375,10 +375,10 @@ proptest! {
             let a = seeded(observed.then_some(&rec_a), &shared);
             let b = forked(observed.then_some(&rec_b), &a);
             for payload in &only_a {
-                a.send(payload.clone());
+                a.send(payload.clone()).unwrap();
             }
             for payload in &only_b {
-                b.send(payload.clone());
+                b.send(payload.clone()).unwrap();
             }
             capture_sides(
                 {
@@ -455,7 +455,7 @@ fn retire_sessions_are_observed() {
     let rec_retiree = Arc::new(Recording::default());
     let absorber = seeded(Some(&rec_absorber), &[b"kept".to_vec()]);
     let retiree = forked(Some(&rec_retiree), &absorber);
-    retiree.send(b"handed off".to_vec());
+    retiree.send(b"handed off".to_vec()).unwrap();
     let retiree = block_on(retiree.try_into_peer()).expect("the retiree handle is unique");
     let (absorber_capture, retiree_capture) = capture_sides(
         {

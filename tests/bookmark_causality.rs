@@ -388,7 +388,7 @@ impl World {
             return;
         };
         let network = rumors.network();
-        rumors.send(id); // commits when the returned Batch drops, at the `;`
+        rumors.send(id).unwrap(); // one commit per send
         // Read back the leaf's version. Under the current-thread schedule no
         // other task runs between the commit and here, so the lookup is
         // race-free and the just-sent unique id is present exactly once.

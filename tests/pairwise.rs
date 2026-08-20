@@ -191,7 +191,7 @@ proptest! {
         let bob = dup(&seed);
 
         let pre_a = alice.snapshot().latest().clone();
-        alice.send(a_value);
+        alice.send(a_value).unwrap();
         let snap_a = alice.snapshot();
         let (va, _) = snap_a
             .range(causally::since(&pre_a))
@@ -199,7 +199,7 @@ proptest! {
             .expect("alice's insert mints a live leaf");
 
         let pre_b = bob.snapshot().latest().clone();
-        bob.send(b_value);
+        bob.send(b_value).unwrap();
         let snap_b = bob.snapshot();
         let (vb, _) = snap_b
             .range(causally::since(&pre_b))

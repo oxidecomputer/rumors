@@ -29,11 +29,13 @@ const PREAMBLE_LEN: usize = crate::tree::mirror::handshake::V2_PREAMBLE_LEN;
 
 /// Insert each of `vals` into `k` as one committed batch.
 fn with_messages(k: Peer<u64>, vals: &[u64]) -> Peer<u64> {
-    let mut batch = k.batch();
-    for &v in vals {
-        batch.send(v);
-    }
-    drop(batch);
+    k.batch(|batch| {
+        for &v in vals {
+            batch.send(v)?;
+        }
+        Ok::<(), crate::message::PayloadDepthError>(())
+    })
+    .expect("flat test payloads are within any depth limit");
     k
 }
 
@@ -648,9 +650,8 @@ fn root_hash_read_meter_is_live() {
 fn batch_commit_root_hash_reads() {
     let peer = with_messages(Peer::<u64>::seed(), &[1, 2]);
     let before = crate::tree::meter::root_hash_reads();
-    let mut batch = peer.batch();
-    batch.send(3);
-    drop(batch);
+    peer.batch(|batch| batch.send(3))
+        .expect("a flat payload is within any depth limit");
     assert_eq!(
         crate::tree::meter::root_hash_reads() - before,
         0,
