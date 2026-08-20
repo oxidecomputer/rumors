@@ -251,6 +251,9 @@ impl Preamble {
             .ok()
             .filter(|head| head.major == MAJOR_BSTR && head.value == NETWORK_LEN as u64)
             .ok_or(malformed(PreambleDefect::Network))?;
+        // Defensive: a validated version and network head leave 17 of the
+        // fixed item's 30 bytes here, so the 16 network bytes always fit;
+        // the bound keeps `split_at` in range under any layout drift.
         if input.len() < NETWORK_LEN {
             return Err(malformed(PreambleDefect::NetworkTruncated));
         }
@@ -261,12 +264,16 @@ impl Preamble {
             .ok()
             .filter(|head| head.major == MAJOR_UINT)
             .ok_or(malformed(PreambleDefect::Intent))?;
+        // Defensive: the one-byte intent item consumes the fixed item's
+        // last byte, so nothing can trail; the check guards any caller
+        // handing the decoder non-fixed input.
         if !input.is_empty() {
             return Err(malformed(PreambleDefect::TrailingBytes));
         }
-        let intent = u8::try_from(intent.value)
-            .map_err(|_| Error::IntentInvalid { byte: u8::MAX })
-            .and_then(Intent::from_byte)?;
+        let intent = Intent::from_byte(u8::try_from(intent.value).expect(
+            "the 30-byte preamble leaves exactly one byte for the intent item, \
+             whose one-byte head's value is at most 23",
+        ))?;
         Self::admit(network, intent)
     }
 
@@ -331,6 +338,12 @@ pub enum PreambleDefect {
     Network,
 
     /// The network byte string's bytes end inside the preamble item.
+    ///
+    /// Defensively reachable only: in the fixed 30-byte V2 preamble, a
+    /// validated version and network head always leave 17 bytes — the
+    /// 16 network bytes and the one-byte intent — so this variant
+    /// guards the decoder's width arithmetic against layout drift, not
+    /// any input the current dialect admits.
     #[error("the network bytes end inside the preamble item")]
     NetworkTruncated,
 
@@ -339,6 +352,12 @@ pub enum PreambleDefect {
     Intent,
 
     /// Bytes trail the preamble's single item.
+    ///
+    /// Defensively reachable only: in the fixed 30-byte V2 preamble
+    /// with a validated version and network head, the one-byte intent
+    /// item consumes the last byte, so this variant guards the
+    /// decoder's width arithmetic against layout drift, not any input
+    /// the current dialect admits.
     #[error("bytes trail the preamble item")]
     TrailingBytes,
 }

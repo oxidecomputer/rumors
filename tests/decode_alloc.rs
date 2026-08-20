@@ -11,7 +11,7 @@
 use std::alloc::System;
 use std::sync::Mutex;
 
-use rumors::error::{CodecDecodeErrorKind, FramePart};
+use rumors::error::{CodecDecodeErrorKind, FramePart, HeadError, LeafRunError};
 use stats_alloc::{INSTRUMENTED_SYSTEM, Region, Stats, StatsAlloc};
 
 #[global_allocator]
@@ -308,4 +308,23 @@ fn supply_full_delivery_costs_at_most_payload_plus_chunk() {
          the honest band is [{HONEST_ODD_LEN}, {byte_ceiling}]",
         change.bytes_allocated
     );
+}
+
+/// The head-grammar defect carried by [`LeafRunError::Head`] is public
+/// vocabulary: a caller outside the crate can write the type
+/// `rumors::error::HeadError` and match the variant a non-shortest-form
+/// head classifies as.
+#[test]
+fn leaf_run_head_defect_is_publicly_matchable() {
+    let error = LeafRunError::Head {
+        remaining: 1,
+        source: HeadError::NotShortest,
+    };
+    assert!(matches!(
+        error,
+        LeafRunError::Head {
+            source: HeadError::NotShortest,
+            ..
+        }
+    ));
 }

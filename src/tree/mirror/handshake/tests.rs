@@ -353,3 +353,75 @@ fn bootstrap_intent_matrix_is_exhaustive() {
         Err(Error::BootstrapRetireConflict)
     ));
 }
+
+// Defensive-variant exemption: `PreambleDefect::NetworkTruncated` and
+// `PreambleDefect::TrailingBytes` deliberately have no construction tests.
+// In the fixed 30-byte V2 preamble, a validated version and network head
+// always leave exactly 17 bytes -- the 16 network bytes and the one-byte
+// intent -- so neither arm is reachable from any input the dialect admits;
+// both guard the decoder's width arithmetic. Every reachable defect
+// (`Version`, `Network`, `Intent`) has a construction: `Intent` in
+// `intent_byte_space_is_exhaustive`, the other two below.
+
+/// A version item that is not an unsigned int is the typed version
+/// defect: a negative-int head in the version item's place fails the
+/// major-type filter, and the defect names the version field.
+#[test]
+fn version_item_wrong_major_is_the_version_defect() {
+    let mut wrong = staged(Network::from_bytes([1; 16]), 0);
+    // 0x38: a two-byte negative-int head; its argument byte (the network
+    // head behind it) parses, so the head is well-formed but the wrong
+    // major type.
+    wrong.buf[V2_PREFIX.len()] = 0x38;
+    let result = wrong.validate();
+    assert!(
+        matches!(
+            result,
+            Err(Error::Malformed {
+                defect: PreambleDefect::Version,
+            }),
+        ),
+        "expected the version defect, got {result:?}",
+    );
+}
+
+/// A widened spelling of the correct version value is the typed version
+/// defect.
+///
+/// The wire admits one spelling per value, so `0x18 0x02` (a two-byte
+/// head for 2) is rejected as non-canonical before its value is compared
+/// against the dialect.
+#[test]
+fn widened_version_spelling_is_the_version_defect() {
+    let mut wrong = staged(Network::from_bytes([1; 16]), 0);
+    wrong.buf[V2_PREFIX.len()..V2_PREFIX.len() + 2].copy_from_slice(&[0x18, 0x02]);
+    let result = wrong.validate();
+    assert!(
+        matches!(
+            result,
+            Err(Error::Malformed {
+                defect: PreambleDefect::Version,
+            }),
+        ),
+        "expected the version defect, got {result:?}",
+    );
+}
+
+/// A network item that is not a 16-byte byte string is the typed network
+/// defect: a byte-string head declaring 17 bytes fails the length filter,
+/// and the defect names the network field.
+#[test]
+fn network_item_wrong_length_is_the_network_defect() {
+    let mut wrong = staged(Network::from_bytes([1; 16]), 0);
+    wrong.buf[V2_PREFIX.len() + 1] = 0x51;
+    let result = wrong.validate();
+    assert!(
+        matches!(
+            result,
+            Err(Error::Malformed {
+                defect: PreambleDefect::Network,
+            }),
+        ),
+        "expected the network defect, got {result:?}",
+    );
+}

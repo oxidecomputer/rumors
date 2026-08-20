@@ -70,6 +70,7 @@ mod signal;
 pub use budget::SUPPLY_FRAME_OVERHEAD;
 pub use budget::{DEFAULT_TARGET_MESSAGE_SIZE, RunBudget};
 
+pub use crate::tree::mirror::cbor::HeadError;
 #[cfg(any(test, feature = "test-internals"))]
 pub use capture::{
     HookCapture, HookStream, LinkCapture, assert_items_account_for, render_hook_capture,
