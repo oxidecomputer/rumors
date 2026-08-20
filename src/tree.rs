@@ -385,6 +385,9 @@ impl<T> Tree<T> {
     /// an earlier insert in the same batch overrides that insert (last
     /// action on a path wins).
     ///
+    /// An empty batch is a complete no-op: nothing ticks, the tree is
+    /// unchanged, and the returned flag is `false`.
+    ///
     /// A batch is applied to the tree in a single traversal, which is more
     /// efficient than applying its actions one at a time: in theory an
     /// O(log n) speedup over one-by-one insertion, in practice about 2-3x
@@ -428,8 +431,7 @@ impl<T> Tree<T> {
         // version strictly greater than any prior insert at this party. The
         // strict tick on forgets is required by the mirror protocol's
         // deletion-honoring inference, which cannot distinguish "forgot it"
-        // from "never had it" when versions are equal. An empty batch is a
-        // complete no-op.
+        // from "never had it" when versions are equal.
         // The running version, advanced in place per action; each action
         // clones the post-tick value as the committed version that keys
         // its leaf. The reactions flow into `react` lazily; the whole

@@ -61,7 +61,17 @@ blake3 = "1.8"
 static_assertions = "1.1"
 itertools = "0.14"
 serde = { version = "1", features = ["derive"] }
-ciborium = "0.2"
+# Pinned exactly: depth admission and wire ingress run the same compiled
+# deserializer, so decode-recursion accounting is symmetric within a binary,
+# and across a mixed-version fleet it holds only if every build shares one
+# accounting — which this exact pin provides, since ciborium documents no
+# accounting contract. Bumping is a deliberate, fleet-coordinated event: run
+# a two-build accept/reject verdict differential over a seeded corpus at the
+# old and candidate versions; identical verdicts make a pure bump; differing
+# verdicts ship with a greeting accounting stamp so mixed fleets fail fast at
+# the handshake; and a verdict-strictening bump additionally requires
+# re-validating stored payloads before gossiping.
+ciborium = "=0.2.2"
 seq-macro = "0.3"
 smallvec = { version = "1.15", features = ["union"] }
 tinyvec = { version = "1.11", features = ["alloc"] }

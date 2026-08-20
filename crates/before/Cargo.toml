@@ -40,7 +40,9 @@ criterion = "0.5"
 rand = "0.8"
 rand_chacha = "0.3"
 postcard = { version = "1", default-features = false, features = ["use-std"] }
-ciborium = "0.2"
+# Pinned exactly, in lockstep with the workspace root manifest's ciborium
+# pin; that pin's comment carries the rationale and the bump procedure.
+ciborium = "=0.2.2"
 stacker = "0.1"
 peak_alloc = "0.3"
 insta = "1"
