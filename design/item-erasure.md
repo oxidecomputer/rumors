@@ -223,3 +223,30 @@ security-relevant: payload validation stays exactly where it is
    unchanged). The new meter lands here: IR lines of a minimal
    downstream binary (one `gossip` call) — the "what the next consumer
    pays" number. Measure; bench pin at the end.
+   *Measured*: `pairwise` falls 719,377 → 207,278 lines (30,252 →
+   8,299 copies) — −71% in this stage, −80% across part II — and the
+   lib grows 354,431 → 867,372: the towers' once-paid residence, the
+   +513k there mirroring the −512k every consumer stops re-buying.
+   What remains in a consumer of `rumors`'s code is ~11k lines of
+   thin generic shells (the largest single item: `gossip_inner`'s
+   bookkeeping at ~1.5k). The headline meter, a minimal
+   one-`gossip`-call binary: 3,401,418 lines (102,771 copies) against
+   pre-erasure `rumors`, 1,095,377 (34,116) against the height-erased
+   tree, 34,699 (1,161) fully erased — −96.8% for part II alone,
+   −99.0% across both erasures. The sealing mechanism is subtler than
+   "extract non-generic functions", which alone moved *nothing*: an
+   `async fn` body is a closure item codegen'd into whichever crate
+   polls the future, so a bare non-generic `async fn` hands the state
+   machine right back to its caller's crate. What seals is returning
+   the future boxed — the `dyn` coercion inside this crate pins the
+   vtable, the poll function, and everything the body awaits into this
+   crate's object code — plus `#[inline(never)]` on the small shells,
+   without which optimized builds' automatic cross-crate MIR inlining
+   would move the coercion (and the tower behind it) back into the
+   consumer.
+   *Runtime pin*: `gossip_fixed_bidir_insertions/V2/5000` at 15.67 ms
+   against the height-erased tree vs 15.62 ms fully erased —
+   identical within the confidence intervals (both sides back-to-back
+   on the same machine under the same background load; a shared-host
+   run, so a coarse regression check rather than a precise
+   measurement, and it shows no movement to explain).
