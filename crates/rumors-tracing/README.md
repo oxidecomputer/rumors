@@ -55,8 +55,10 @@ protocol vocabulary (`SessionKind`,
 
 - **One `session` span per observed session** (level `INFO`):
   fields `kind` (`Gossip`, `Bootstrap`, `Retire`), `protocol`, and
-  `ordinal` (the peer's session counter, so concurrent sessions
-  stay distinguishable).
+  `ordinal` — the adapter's own count of the sessions it has
+  observed, so concurrent sessions stay distinguishable. (The hook
+  deliberately carries no session number; numbering is the
+  observer's concern, and this adapter counts internally.)
 - **One `role elected` event** (level `INFO`, inside the session
   span) when the session's role election is decided, with the
   elected `role`. Sessions whose greetings carry equal versions
