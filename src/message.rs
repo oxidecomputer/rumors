@@ -37,15 +37,10 @@ use serde::de::DeserializeOwned;
 ///
 /// Every payload value must serialize: methods that serialize
 /// ([`new`](Self::new), [`from_arc`](Self::from_arc)) panic if the
-/// payload's [`serde::Serialize`] implementation reports an error.
-/// Encoding runs into an in-memory buffer and CBOR imposes no
-/// format-driven failures (any map key, any nesting), so the only trigger
-/// is the implementation itself declining a value — which this crate
-/// treats as a bug in the payload type, exactly as `Ord`'s totality is
-/// trusted. The public statement of this obligation (with the
-/// `std::path::PathBuf`-class warning about data-dependently fallible
-/// `Serialize` implementations) lives in the crate docs' "choosing a
-/// payload type" section, the payload contract of record.
+/// payload's [`serde::Serialize`] implementation reports an error —
+/// always a bug in the payload type, since CBOR itself imposes no
+/// format-driven failures. The crate docs' "choosing a payload type"
+/// section is the contract of record for this obligation.
 ///
 /// The typed read panics on a payload type mismatch; see
 /// [`arc`](Self::arc).
@@ -57,24 +52,22 @@ pub struct Message {
 
 /// The default payload nesting-depth limit: 256 decode recursion steps.
 ///
-/// This is exactly the decode bound the CBOR decoder ([`ciborium`]'s
-/// `from_reader`) applies by default, so a fleet upgrading together sees
-/// no acceptance change on existing content; the only new rejections land
-/// on the author of an over-deep value at send time. Wire interop across
-/// releases is governed by the greeting's format, not by this constant.
+/// Exactly the CBOR decoder's own default recursion bound, so a fleet
+/// upgrading together sees no acceptance change on existing content.
+/// Wire interop across releases is governed by the greeting's format,
+/// not by this constant.
 pub const DEFAULT_PAYLOAD_DEPTH_LIMIT: PayloadDepthLimit = PayloadDepthLimit(256);
 
 /// A peer's payload nesting-depth limit, counted in the CBOR decode
 /// engine's recursion steps.
 ///
 /// Selected by [`Peer::payload_depth_limit`](crate::Peer::payload_depth_limit)
-/// (whose docs carry the full contract) and defaulting to
-/// [`DEFAULT_PAYLOAD_DEPTH_LIMIT`]. What consumes one step is the
-/// engine's own accounting for the payload type being decoded — arrays,
-/// maps, and tags do, and so can type-driven wrappers such as an enum's
-/// variant scope — so the accounting is engine-defined, not a structural
-/// property of the bytes. That is why admission at send runs the decode
-/// itself rather than counting anything.
+/// (whose docs carry the full contract); defaults to
+/// [`DEFAULT_PAYLOAD_DEPTH_LIMIT`]. A step is the engine's own
+/// accounting (arrays, maps, tags, and type-driven wrappers such as an
+/// enum's variant scope), not a structural property of the bytes —
+/// which is why admission at send runs the decode itself rather than
+/// counting anything.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PayloadDepthLimit(u64);
 
@@ -115,13 +108,11 @@ impl fmt::Display for PayloadDepthLimit {
 /// A message payload failed admission at its author: the send is refused
 /// before anything is stored or gossiped.
 ///
-/// Admission runs the exact decode every receiver's wire ingress runs —
-/// the peer's minted deserializer, over the just-serialized bytes — so a
-/// payload this error rejects is one a receiver would have failed to
-/// decode, surfaced at the moment of choice instead. Every variant is
-/// data- or type-driven, so each is a typed error, never a panic; a
-/// [`serde::Serialize`] implementation failure keeps the panic contract
-/// documented at [`Rumors::send`](crate::Rumors::send).
+/// Admission runs the exact decode every receiver's wire ingress runs,
+/// so a payload this error rejects is one a receiver would have failed
+/// to decode — surfaced at the author instead. A [`serde::Serialize`]
+/// failure is never this error: it keeps the panic contract documented
+/// at [`Rumors::send`](crate::Rumors::send).
 #[derive(Debug, thiserror::Error)]
 pub enum EncodeError {
     /// The payload value's CBOR encoding nests deeper than the peer's
@@ -132,25 +123,17 @@ pub enum EncodeError {
         limit: PayloadDepthLimit,
     },
     /// The payload type's [`serde::Deserialize`] implementation rejected
-    /// the bytes its own [`serde::Serialize`] implementation produced.
-    ///
-    /// Every payload type must round-trip through its own serde
-    /// implementations: a type that serializes what it cannot
-    /// deserialize would otherwise be admitted at its author and then
-    /// fail at every receiver. Admission surfaces the violation here, at
-    /// the author, carrying the underlying decode error.
+    /// the bytes its own [`serde::Serialize`] implementation produced:
+    /// admitted, such a value would fail at every receiver instead.
     #[error("message payload does not survive its own serde round-trip: {0}")]
     Roundtrip(#[source] io::Error),
-    /// The payload value's encoding decodes to a different value.
+    /// The payload value's encoding decodes to a different value (by
+    /// the payload type's own `Eq`): the serde pairing is lossy for
+    /// this value.
     ///
-    /// The value decoded from the just-serialized bytes compares unequal
-    /// (by the payload type's own `Eq`) to the value being sent: the
-    /// type's serde pairing is lossy for this value — for example, a
-    /// nested `Option` field holding `Some(None)`, which serializes to
-    /// CBOR null and decodes as `None`. Admission rejects it at the
-    /// author, so no implementation can pollute the set with a value
-    /// replicas would read differently than it was meant. This check is
-    /// send-side only: ingress holds no original to compare against.
+    /// The canonical example is a nested `Option` holding `Some(None)`,
+    /// which decodes as `None`. The check is send-side only: ingress
+    /// holds no original to compare against.
     #[error("message payload's encoding decodes to a different value")]
     Unfaithful,
 }
@@ -360,34 +343,19 @@ impl Message {
         }
     }
 
-    /// Creates an admission-checked `Message`.
+    /// Creates an admission-checked `Message`: the constructor behind
+    /// [`Rumors::send`](crate::Rumors::send) and
+    /// [`Batch::send`](crate::Batch::send).
     ///
-    /// Serializes `message` and admits it only if the peer-minted
-    /// deserializer — the exact decode every receiver's wire ingress
-    /// runs for `T` — reads the encoding back within `limit`, and only
-    /// if the decoded value equals the value sent (by `T`'s own `Eq`).
-    ///
-    /// This is the constructor behind [`Rumors::send`](crate::Rumors::send)
-    /// and [`Batch::send`](crate::Batch::send) (via the peer's minted
-    /// codec). Because admission is the receiving computation itself,
-    /// there is no second accounting to drift: a payload admitted here
-    /// decodes at every receiver holding the same limit and running the
-    /// same decode engine — to the value that was sent, never a lossy
-    /// reading of it — and a payload a receiver would reject or misread
-    /// fails here instead, at its author, at the moment of choice. The
-    /// equality check is send-side only: ingress holds no original to
-    /// compare against.
-    ///
-    /// The failure classes split here: a [`Serialize`] implementation
-    /// failure keeps [`Message`]'s documented panic contract
-    /// (serializability is the caller's obligation — programmer error,
-    /// unchanged), while the typed [`EncodeError`] covers what the
-    /// value's data or the type's serde pairing can cause — a decode
-    /// nesting past the limit ([`EncodeError::Depth`], carrying the
-    /// configured limit), a `Deserialize` implementation rejecting its
-    /// own `Serialize` output ([`EncodeError::Roundtrip`]), or an
-    /// encoding that decodes to a different value
-    /// ([`EncodeError::Unfaithful`]).
+    /// Serializes `message` and admits it only if the exact decode
+    /// every receiver's wire ingress runs for `T` reads the encoding
+    /// back within `limit`, to a value equal (by `T`'s own `Eq`) to the
+    /// one sent. Because admission is the receiving computation itself,
+    /// there is no second accounting to drift: a payload a receiver
+    /// would reject or misread fails here instead, at its author, as
+    /// the typed [`EncodeError`] (its variants name the causes). A
+    /// [`Serialize`] failure keeps [`Message`]'s documented panic
+    /// contract.
     pub fn try_new<T>(message: T, limit: PayloadDepthLimit) -> Result<Self, EncodeError>
     where
         T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,

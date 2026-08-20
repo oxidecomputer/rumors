@@ -136,14 +136,10 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     ///
     /// The message is serialized and admitted here, at the call:
     /// admission runs the exact decode every receiver's wire ingress
-    /// runs and requires the decoded value to equal the value sent, so
-    /// a payload a receiver would reject or misread — one nesting
-    /// deeper than the peer's
-    /// [`payload_depth_limit`](crate::Peer::payload_depth_limit), one
-    /// whose type does not survive its own serde round-trip, or one
-    /// whose encoding decodes to a different value — is the typed
-    /// [`EncodeError`] instead, and nothing commits. To apply several
-    /// changes in one commit, use [`batch`](Self::batch).
+    /// runs, so a payload a receiver would reject or misread is the
+    /// typed [`EncodeError`] instead (its variants name the causes),
+    /// and nothing commits. To apply several changes in one commit,
+    /// use [`batch`](Self::batch).
     ///
     /// `send` does not return the message's [`Version`]. Versions come back
     /// through observation: the observers and [`Snapshot`] attach every
@@ -219,28 +215,19 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     /// Apply several changes in one all-or-nothing commit.
     ///
     /// Runs `f` with a [`Batch`] scope handle for queueing
-    /// [`send`](Batch::send)s and [`redact`](Batch::redact)s, then
-    /// commits everything queued **iff `f` returns `Ok`**: observers and
-    /// concurrent gossip sessions see all of it land at once, as one
-    /// commit, one tree traversal, and at most one observer wakeup. Any
-    /// other exit commits nothing, earlier-queued actions included: a
-    /// returned `Err` (your own, or a `?`-propagated
-    /// [`EncodeError`] from a rejected send) and a panic's
-    /// unwind alike cancel the whole batch. Returning `Err` is how a
-    /// caller abandons a batch deliberately.
+    /// [`send`](Batch::send)s and [`redact`](Batch::redact)s, and
+    /// commits everything queued **iff `f` returns `Ok`**: observers
+    /// and concurrent gossip sessions see it all land as one commit,
+    /// one tree traversal, and at most one observer wakeup. Any other
+    /// exit — a returned `Err` (how a caller abandons a batch) or a
+    /// panic — commits nothing.
     ///
-    /// The closure is synchronous, so batch state cannot be held across
-    /// an `.await` point (a synchronous closure body cannot await), and
-    /// the scope handle cannot leave the closure (the examples below
-    /// show both escape routes failing to compile). Async cancellation
-    /// therefore cannot observe a half-built batch: a cancellation lands
-    /// between polls, and the whole closure runs inside one poll.
-    ///
-    /// The closure may itself use the same `Rumors` handle — a
-    /// [`send`](Self::send), or a nested `batch` — because building a
-    /// batch holds no lock and the outer commit runs only after the
-    /// closure returns: nested operations commit first, the outer batch
-    /// after, as separate commits (inner-before-outer).
+    /// The closure is synchronous and the scope handle cannot leave it
+    /// (the examples below show both escape routes failing to compile),
+    /// so async cancellation cannot observe a half-built batch. The
+    /// closure may use the same `Rumors` handle — a
+    /// [`send`](Self::send), or a nested `batch` — and such nested
+    /// operations commit first, as their own separate commits.
     ///
     /// # Examples
     ///
@@ -529,7 +516,7 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// // A long-lived link between them, one driver per end.
     /// let (mut alice_side, mut bob_side) = rumors::link::memory();
     ///
-    /// alice.send("psst".to_string()).expect("flat payload");
+    /// alice.send("psst".to_string())?;
     ///
     /// let mut alice_drive = alice.gossip_when(alice.changes(), &mut alice_side);
     /// let mut bob_drive = bob.gossip_when(bob.changes(), &mut bob_side);
@@ -540,9 +527,9 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// pushed.expect("driver running")?;
     /// served.expect("driver running")?;
     /// assert_eq!(bob.snapshot().len(), 1);
-    /// # Ok::<(), rumors::Error>(())
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// # })?;
-    /// # Ok::<(), rumors::Error>(())
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[must_use = "the driver does nothing until the returned stream is polled"]
     pub fn gossip_when<'a, CR, CW, C, A, S>(
