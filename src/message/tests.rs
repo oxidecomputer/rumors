@@ -137,6 +137,16 @@ proptest! {
         prop_assert_eq!(hash_of(&a), hash_of(&b));
     }
 
+    /// Messages built from distinct payloads are unequal: equality reads
+    /// the cached serialization's content, never a constant verdict.
+    #[test]
+    fn distinct_payloads_are_unequal(p in payload(), q in payload()) {
+        prop_assume!(p != q);
+        let a = Message::new(p);
+        let b = Message::new(q);
+        prop_assert_ne!(&a, &b);
+    }
+
     /// `arc` hands out the same shared allocation `new` stored, not a
     /// copy: unsizing erased the type, never the identity.
     #[test]
@@ -145,6 +155,36 @@ proptest! {
         let m = Message::from_arc(stored.clone());
         prop_assert!(std::sync::Arc::ptr_eq(&stored, &m.arc::<Payload>()));
     }
+}
+
+/// Two messages with distinct content hash differently: `Hash` reads the
+/// cached serialization rather than ignoring it. A fixed pair witnessing
+/// content sensitivity, not a no-collision claim.
+#[test]
+fn hash_reads_the_content() {
+    let a = Message::new(0u64);
+    let b = Message::new(1u64);
+    assert_ne!(hash_of(&a), hash_of(&b));
+}
+
+/// `Debug` shows the cached serialization as hex: the payload's type is
+/// erased there, so the bytes are the whole observable content.
+#[test]
+fn debug_shows_the_cached_serialization() {
+    let m = Message::new(7u64);
+    let rendered = format!("{m:?}");
+    assert!(rendered.starts_with("Message"), "got {rendered}");
+    assert!(
+        rendered.contains(&hex::encode(m.bytes())),
+        "the serialized bytes must render: {rendered}"
+    );
+}
+
+/// The depth limit displays its step count in words: the number rides
+/// into admission errors verbatim.
+#[test]
+fn depth_limit_displays_its_steps() {
+    assert_eq!(PayloadDepthLimit::new(3).to_string(), "3 steps");
 }
 
 /// A typed read with the wrong payload type panics: the mispairing is a

@@ -2,7 +2,8 @@ use proptest::prelude::*;
 use tokio::io::{duplex, split};
 
 use super::{
-    Error, Intent, Preamble, PreambleDefect, Staged, V2_PREAMBLE_LEN, V2_PREFIX, preamble,
+    Error, Intent, LEGACY_PREAMBLE_LEN, MAGIC_LEN, Preamble, PreambleDefect, Staged,
+    V2_PREAMBLE_LEN, V2_PREFIX, preamble,
 };
 use crate::observe::SessionHandle;
 use crate::{Network, Protocol};
@@ -423,5 +424,53 @@ fn network_item_wrong_length_is_the_network_defect() {
             }),
         ),
         "expected the network defect, got {result:?}",
+    );
+}
+
+/// The legacy decoder's dialect detection is exact: a V2 opening is only
+/// the pinned prefix followed by an *immediate* version item.
+///
+/// Immediate means an information value below 24. Garbage that fails the
+/// prefix — a small twelfth byte included — and a prefix followed by an
+/// extended version head are magic mismatches, never version mismatches.
+#[test]
+fn legacy_dialect_detection_is_exact() {
+    // All zeros: neither magic nor prefix — and the byte in the version
+    // item's place, 0, is below 24, so a detection keyed on that byte
+    // alone would misfire.
+    let zeros = [0u8; LEGACY_PREAMBLE_LEN];
+    let result = Preamble::decode(&zeros, Protocol::V1);
+    assert!(
+        matches!(&result, Err(Error::MagicMismatch { remote_magic }) if *remote_magic == [0; MAGIC_LEN]),
+        "all-zero bytes are a magic mismatch, got {result:?}",
+    );
+
+    // The V2 prefix followed by an extended (two-byte) version head: the
+    // detection admits only immediate version items, so this stays a
+    // magic mismatch rather than misreading the head byte as a version.
+    let mut extended = [0u8; LEGACY_PREAMBLE_LEN];
+    extended[..V2_PREFIX.len()].copy_from_slice(&V2_PREFIX);
+    extended[V2_PREFIX.len()] = 24;
+    let result = Preamble::decode(&extended, Protocol::V1);
+    assert!(
+        matches!(result, Err(Error::MagicMismatch { .. })),
+        "an extended version head is not dialect detection, got {result:?}",
+    );
+
+    // The mirror case the module docs promise: the prefix and an
+    // immediate version item diagnose a V2 peer, naming its version.
+    let mut v2 = [0u8; LEGACY_PREAMBLE_LEN];
+    v2[..V2_PREFIX.len()].copy_from_slice(&V2_PREFIX);
+    v2[V2_PREFIX.len()] = Protocol::V2 as u8;
+    let result = Preamble::decode(&v2, Protocol::V1);
+    assert!(
+        matches!(
+            result,
+            Err(Error::VersionMismatch {
+                local_protocol: Protocol::V1,
+                remote_version,
+            }) if remote_version == Protocol::V2 as u64,
+        ),
+        "a V2 opening is the version-mismatch diagnosis, got {result:?}",
     );
 }

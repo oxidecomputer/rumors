@@ -36,9 +36,9 @@ pub(crate) const LENGTH_HEADER_LEN: usize = std::mem::size_of::<u32>();
 /// Payload buffers grow only as bytes arrive, so a frame's memory cost
 /// tracks what the peer actually delivered: a corrupt or garbage length
 /// header costs at most this many reserved bytes ahead of receipt, never
-/// the declared length up front. One socket-buffer-scale granule balances
-/// reservation events against ahead-of-receipt overshoot.
-pub(crate) const PAYLOAD_CHUNK_LEN: usize = 64 * 1024;
+/// the declared length up front. One socket-buffer-scale granule (64 KiB)
+/// balances reservation events against ahead-of-receipt overshoot.
+pub(crate) const PAYLOAD_CHUNK_LEN: usize = 0x1_0000;
 
 /// Truncation cut offsets exercising every payload chunk boundary within
 /// `total`: one byte short of, exactly on, and one byte past each
