@@ -51,6 +51,14 @@ fn defect(result: Result<Party, Error>) -> HandOffDefect {
     }
 }
 
+// Defensive-variant exemption: `HandOffDefect::UnaddressableLength`
+// deliberately has no construction test. The byte-string head declares its
+// length as a u64, and on a 64-bit host `usize::try_from` cannot fail, so
+// the arm guards the width arithmetic and is unreachable from any input
+// here. Only a 32-bit target (e.g. wasm32) can present a declarable length
+// past `usize::MAX`, and this suite has no 32-bit test host. Every other
+// defect variant has a construction below.
+
 /// A donated party survives its wire trip intact.
 ///
 /// [`send`] and [`receive`] are each other's inverses: the received party

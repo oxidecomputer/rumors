@@ -34,6 +34,13 @@
 //! pending `.snap.new` (unaccepted insta output) fails loudly, and so
 //! does any other stray file.
 //!
+//! The containment rule is a substring match, and that carries the
+//! pairing design's accepted residual: a renamed test's orphan stays
+//! green when a same-named `fn`, string, or comment survives in the
+//! resolved source, and a live function whose snapshot assertion was
+//! deleted also passes — the sweep pairs names with sources, not
+//! assertions with snapshots.
+//!
 //! Provenance of the transcribed rules: insta 1.x snapshot-path
 //! resolution (module path plus source-file directory). Re-verify the
 //! transcription when the workspace's insta dependency moves to a

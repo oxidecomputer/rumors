@@ -201,6 +201,14 @@ fn greeting_listing_order_is_enforced() {
     ));
 }
 
+// Defensive-variant exemption: the two unaddressable-length shapes —
+// `Shape("greeting declares an unaddressable length")` in the greeting
+// reader and `Shape("greeting version outsizes memory")` in the map
+// parser — deliberately have no construction tests. Each guards a
+// u64-to-usize length conversion that cannot fail on a 64-bit host; only
+// a 32-bit target (e.g. wasm32) can present a declarable length past
+// `usize::MAX`, and this suite has no 32-bit test host.
+
 /// Find the `skip`-th occurrence of `needle` in `haystack`.
 fn find(haystack: &[u8], needle: &[u8], skip: usize) -> Option<usize> {
     haystack
