@@ -224,6 +224,92 @@ fn non_canonical_version_spelling_is_rejected() {
     ));
 }
 
+/// The encoded length of the format-version item in a frame this codec
+/// writes: the offset arithmetic below computes it rather than
+/// hardcoding it, so a version bump cannot silently skew the flips.
+fn version_item_len() -> usize {
+    let mut version_item = Vec::new();
+    push_head(&mut version_item, MAJOR_UNSIGNED, BOOKMARK_FORMAT_VERSION);
+    version_item.len()
+}
+
+/// Corrupting the integrity item's header is rejected as the typed
+/// [`FrameDefect::Integrity`] shape defect, distinct from a hash
+/// mismatch: the header bytes are part of the frame's fixed spelling.
+#[test]
+fn corrupt_integrity_head_is_an_integrity_defect() {
+    let mut framed = frame(b"payload");
+    let integrity_at = SELF_DESCRIBED.len() + 1 + version_item_len();
+    assert_eq!(
+        framed[integrity_at], INTEGRITY_HEAD[0],
+        "the computed offset lands on the integrity head"
+    );
+    framed[integrity_at] ^= 0xff;
+    assert!(matches!(
+        unframe(&framed),
+        Err(FormatError::NotABookmark {
+            defect: FrameDefect::Integrity
+        }),
+    ));
+}
+
+/// Corrupting the payload item's tag byte is rejected as the typed
+/// [`FrameDefect::PayloadTag`] shape defect: the embedded-CBOR tag is
+/// part of the frame's fixed spelling, checked before the hash.
+#[test]
+fn corrupt_payload_tag_is_a_payload_tag_defect() {
+    let mut framed = frame(b"payload");
+    let payload_tag_at =
+        SELF_DESCRIBED.len() + 1 + version_item_len() + INTEGRITY_HEAD.len() + HASH_LEN;
+    assert_eq!(
+        framed[payload_tag_at], EMBEDDED_CBOR[0],
+        "the computed offset lands on the payload tag"
+    );
+    framed[payload_tag_at] ^= 0xff;
+    assert!(matches!(
+        unframe(&framed),
+        Err(FormatError::NotABookmark {
+            defect: FrameDefect::PayloadTag
+        }),
+    ));
+}
+
+/// A non-shortest-form spelling of the payload byte-string length is
+/// rejected as the typed [`FrameDefect::PayloadByteString`] defect.
+///
+/// The value matches; only the spelling is wrong: the frame is
+/// deterministic-encoding CBOR, and a wide header is a spelling this
+/// codec never writes.
+#[test]
+fn non_canonical_payload_spelling_is_rejected() {
+    // Rebuild a frame exactly as `frame_as` would, but spell the 7-byte
+    // payload's byte-string head as the widened two-byte form 0x58 0x07,
+    // hashing over that spelling so only the spelling check can reject
+    // it.
+    let payload = b"payload";
+    let mut covered = Vec::new();
+    push_head(&mut covered, MAJOR_UNSIGNED, BOOKMARK_FORMAT_VERSION);
+    let version_item_len = covered.len();
+    covered.extend_from_slice(&EMBEDDED_CBOR);
+    covered.extend_from_slice(&[MAJOR_BYTES | 24, u8::try_from(payload.len()).unwrap()]);
+    covered.extend_from_slice(payload);
+    let hash = blake3::hash(&covered);
+
+    let mut framed = SELF_DESCRIBED.to_vec();
+    framed.push(FRAME_ARRAY);
+    framed.extend_from_slice(&covered[..version_item_len]);
+    framed.extend_from_slice(&INTEGRITY_HEAD);
+    framed.extend_from_slice(hash.as_bytes());
+    framed.extend_from_slice(&covered[version_item_len..]);
+
+    assert!(matches!(
+        unframe(&framed),
+        Err(FormatError::NotABookmark {
+            defect: FrameDefect::PayloadByteString
+        }),
+    ));
+}
+
 /// A frame whose payload no longer matches its stored hash is rejected as
 /// corrupt.
 #[test]

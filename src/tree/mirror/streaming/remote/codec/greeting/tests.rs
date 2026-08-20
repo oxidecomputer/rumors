@@ -144,6 +144,39 @@ fn undecodable_version_atom_is_a_typed_version_defect() {
     ));
 }
 
+/// A widened spelling of a greeting value head is rejected as the
+/// codec's own shortest-form violation.
+///
+/// The greeting is deterministic-encoding CBOR, so a head wider than
+/// its value requires is a spelling the encoder never writes, even
+/// though the value it carries is the right one.
+#[test]
+fn widened_value_spelling_is_rejected() {
+    // Build the malformed map directly: copy the canonical map bytes
+    // and re-spell the one-byte `set_len` value as the widened
+    // two-byte `0x18 <v>` form. Operating on the bare map (the layer
+    // `parse_greeting` consumes) needs no fix-up of an embedding
+    // byte-string head.
+    let greeting = sample(Vec::new());
+    let map = greeting_map(&greeting);
+    let at = find(&map, b"set_len", 0).expect("the key is present");
+    // The value head follows the key's text bytes.
+    let value_at = at + b"set_len".len();
+    assert_eq!(
+        map[value_at],
+        u8::try_from(greeting.set_len).expect("the fixture's set_len is small"),
+        "the fixture's set_len spells as one canonical head byte"
+    );
+    let mut widened = Vec::with_capacity(map.len() + 1);
+    widened.extend_from_slice(&map[..value_at]);
+    widened.extend_from_slice(&[0x18, map[value_at]]);
+    widened.extend_from_slice(&map[value_at + 1..]);
+    assert!(matches!(
+        parse_greeting(&widened),
+        Err(GreetingError::Head(HeadError::NotShortest))
+    ));
+}
+
 /// A greeting listing violating strictly ascending radix order is
 /// rejected as the codec's own order violation, the same class a wire
 /// query reports.
