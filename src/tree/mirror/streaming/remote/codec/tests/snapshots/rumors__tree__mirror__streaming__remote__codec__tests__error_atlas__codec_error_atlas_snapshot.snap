@@ -172,10 +172,10 @@ DECODE
     kind: InvalidRun::TruncatedRecord(len=2, remaining=1)
     source[0]: a leaf record of 2 bytes overruns the 1 bytes left in its run
   Initiator/run/overbatched
-    display: Initiator stream 8: supply frame occupies 28 wire bytes, batching records past the 0-byte run budget
+    display: Initiator stream 8: supply frame charges 28 wire bytes, batching records past the 0-byte run budget
     origin: Initiator stream 8
     kind: OverbatchedRun(declared=28, budget=0)
-    source[0]: supply frame occupies 28 wire bytes, batching records past the 0-byte run budget
+    source[0]: supply frame charges 28 wire bytes, batching records past the 0-byte run budget
   Initiator/frame/trailing
     display: Initiator stream 8: 1 trailing bytes follow the frame
     origin: Initiator stream 8
@@ -289,10 +289,10 @@ DECODE
     kind: InvalidRun::TruncatedRecord(len=2, remaining=1)
     source[0]: a leaf record of 2 bytes overruns the 1 bytes left in its run
   Responder/run/overbatched
-    display: Responder stream 8: supply frame occupies 28 wire bytes, batching records past the 0-byte run budget
+    display: Responder stream 8: supply frame charges 28 wire bytes, batching records past the 0-byte run budget
     origin: Responder stream 8
     kind: OverbatchedRun(declared=28, budget=0)
-    source[0]: supply frame occupies 28 wire bytes, batching records past the 0-byte run budget
+    source[0]: supply frame charges 28 wire bytes, batching records past the 0-byte run budget
   Responder/frame/trailing
     display: Responder stream 8: 1 trailing bytes follow the frame
     origin: Responder stream 8

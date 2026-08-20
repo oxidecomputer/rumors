@@ -144,9 +144,16 @@ pub enum DecodeErrorKind {
     #[error(transparent)]
     InvalidRun(#[from] LeafRunError),
     #[error(
-        "supply frame occupies {declared} wire bytes, batching records past the {budget}-byte run budget"
+        "supply frame charges {declared} wire bytes, batching records past the {budget}-byte run budget"
     )]
-    OverbatchedRun { declared: usize, budget: usize },
+    OverbatchedRun {
+        /// The frame's charged wire size — its run body plus the
+        /// `SUPPLY_FRAME_OVERHEAD` envelope at its widest — which may
+        /// exceed the actual frame by the envelope's head slack (at
+        /// most 4 bytes).
+        declared: usize,
+        budget: usize,
+    },
     #[error("{count} trailing bytes follow the frame")]
     TrailingBytes { count: usize },
 }

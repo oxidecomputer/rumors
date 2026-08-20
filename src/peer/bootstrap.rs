@@ -165,10 +165,10 @@ impl<T> Bootstrap<T> {
     ///
     /// The join is the one session that runs before the peer exists,
     /// so observing it means selecting the handler here; the joined
-    /// peer then keeps the handler exactly as
-    /// [`Peer::observe`] would attach it, its session ordinals
-    /// counting from the join (session `0`). The observation contract
-    /// is the [`observe`](crate::observe) module's.
+    /// peer then keeps the handler exactly as [`Peer::observe`] would
+    /// attach it; an observer that numbers sessions will count the join
+    /// as the first session it sees. The observation contract is the
+    /// [`observe`](crate::observe) module's.
     pub fn observe(mut self, observer: Arc<dyn Observer>) -> Self {
         self.observe.attach(observer);
         self

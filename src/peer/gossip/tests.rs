@@ -128,8 +128,8 @@ fn close_before_the_marker_is_a_typed_eof() {
     assert_eq!(error.kind(), std::io::ErrorKind::UnexpectedEof);
 }
 
-/// Reading the marker consumes exactly one byte, leaving later bytes
-/// untouched.
+/// Reading the marker consumes exactly the marker's bytes, leaving later
+/// bytes untouched.
 ///
 /// A next session's preamble may already sit behind the marker on a reused
 /// link; the epilogue must not slurp it. After a clean exchange the

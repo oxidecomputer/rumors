@@ -148,7 +148,7 @@ pub(crate) fn parse_greeting(bytes: &[u8]) -> Result<Greeting, GreetingError> {
                     issue => GreetingError::Listing(issue),
                 })?);
             }
-            "set_len" => set_len = Some(uint(&mut input, "set_len")?),
+            "set_len" => set_len = Some(uint(&mut input, "set_len is not an unsigned int")?),
             "version" => {
                 let head = cbor::read_head(&mut input).map_err(GreetingError::Head)?;
                 if head.major != MAJOR_TAG || head.value != crate::tags::VERSION_TAG {
@@ -189,10 +189,16 @@ pub(crate) fn parse_greeting(bytes: &[u8]) -> Result<Greeting, GreetingError> {
                 }
             }
             "max_version_bytes" => {
-                max_version_bytes = Some(uint(&mut input, "max_version_bytes")?);
+                max_version_bytes = Some(uint(
+                    &mut input,
+                    "max_version_bytes is not an unsigned int",
+                )?);
             }
             "target_message_size" => {
-                target_message_size = Some(uint(&mut input, "target_message_size")?);
+                target_message_size = Some(uint(
+                    &mut input,
+                    "target_message_size is not an unsigned int",
+                )?);
             }
             _ => unreachable!("the key roster is exhaustive"),
         }
@@ -209,13 +215,12 @@ pub(crate) fn parse_greeting(bytes: &[u8]) -> Result<Greeting, GreetingError> {
     })
 }
 
-/// Read one unsigned-int value.
-fn uint(input: &mut &[u8], _key: &'static str) -> Result<u64, GreetingError> {
+/// Read one unsigned-int value, returning `detail` as the shape
+/// diagnostic when the item is not an unsigned int.
+fn uint(input: &mut &[u8], detail: &'static str) -> Result<u64, GreetingError> {
     let head = cbor::read_head(input).map_err(GreetingError::Head)?;
     if head.major != MAJOR_UINT {
-        return Err(GreetingError::Shape(
-            "greeting size entry is not an unsigned int",
-        ));
+        return Err(GreetingError::Shape(detail));
     }
     Ok(head.value)
 }
