@@ -101,9 +101,7 @@ fn overlapping_retiree_party_is_rejected() {
         run_budget: survivor.run_budget,
         inner: watch::Sender::new(Inner {
             party: Some(party_of(&survivor)),
-            tree: Tree {
-                root: Root::default(),
-            },
+            tree: Tree::from_root(Root::default()),
         }),
         bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
     };
@@ -268,7 +266,7 @@ fn greeting_frame_len(retiree: &Peer<u64>) -> usize {
     use crate::tree::mirror::streaming::{self, Local, materialized};
 
     let root: streaming::Root<Local, u64> = retiree.inner.borrow().tree.clone().root.into();
-    let fan = pollster::block_on(materialized::greeting_fan(&Local, root.root))
+    let fan = pollster::block_on(materialized::greeting_fan::<_, u64>(&Local, root.root))
         .unwrap_or_else(|never| match never {});
     // The listing frame is raw radix-hash records: one byte plus a Merkle
     // hash per child, the frame length carrying the count.
@@ -564,7 +562,7 @@ fn uncontained_supply_fails_gossip_and_poisons_the_link() {
     let (escaped_root, _, escaped) =
         crate::tree::arb::poisoned_root(&party_of(&poisoned), &base, Message::new(0u64));
     poisoned.inner.send_modify(|inner| {
-        inner.tree.join(Tree { root: escaped_root });
+        inner.tree.join(Tree::from_root(escaped_root));
     });
     assert!(
         !crate::tree::mirror::contained(&escaped, poisoned.inner.borrow().tree.latest()),

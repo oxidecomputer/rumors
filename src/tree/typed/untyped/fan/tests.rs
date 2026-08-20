@@ -14,7 +14,7 @@ use super::Fan;
 /// Each call yields a distinct `Arc`, so `Node::ptr_eq` distinguishes any
 /// two children a test creates: the differential comparisons below check
 /// *which* handle a fan holds, not merely that one is present.
-fn child() -> Node<()> {
+fn child() -> Node {
     Node::leaf(Version::new(), Message::new(()))
 }
 
@@ -43,7 +43,7 @@ fn arb_ops() -> impl Strategy<Value = Vec<Op>> {
 /// and per-child identity), the values-only walk both ways, point lookups
 /// across the whole alphabet, and the successor probe against the oracle's
 /// range query.
-fn equivalent(fan: &Fan<()>, oracle: &BTreeMap<u8, Node<()>>) -> Result<(), TestCaseError> {
+fn equivalent(fan: &Fan, oracle: &BTreeMap<u8, Node>) -> Result<(), TestCaseError> {
     prop_assert_eq!(fan.len(), oracle.len());
     prop_assert_eq!(fan.is_empty(), oracle.is_empty());
 
@@ -166,7 +166,7 @@ proptest! {
         radixes in proptest::collection::btree_set(any::<u8>(), 0..16),
         splits in (0usize..=16, 0usize..=16),
     ) {
-        let fan: Fan<()> = radixes.iter().map(|radix| (*radix, child())).collect();
+        let fan: Fan = radixes.iter().map(|radix| (*radix, child())).collect();
         let n = fan.len();
         let (j, k) = splits;
         let (j, k) = (j.min(n), k.min(n - j.min(n)));
@@ -197,10 +197,10 @@ proptest! {
     /// fan: later pairs displace earlier ones at the same radix.
     #[test]
     fn collect_agrees_with_sequential_insert(radixes in vec(any::<u8>(), 0..32)) {
-        let pairs: Vec<(u8, Node<()>)> =
+        let pairs: Vec<(u8, Node)> =
             radixes.into_iter().map(|radix| (radix, child())).collect();
 
-        let collected: Fan<()> = pairs.iter().map(|(radix, node)| (*radix, node.clone())).collect();
+        let collected: Fan = pairs.iter().map(|(radix, node)| (*radix, node.clone())).collect();
         let mut sequential = Fan::new();
         for (radix, node) in pairs {
             sequential.insert(radix, node);
@@ -220,8 +220,8 @@ proptest! {
     /// handles the fan held, in order.
     #[test]
     fn into_iter_collect_round_trips(radixes in proptest::collection::btree_set(any::<u8>(), 0..16)) {
-        let fan: Fan<()> = radixes.iter().map(|radix| (*radix, child())).collect();
-        let round_tripped: Fan<()> = fan.clone().into_iter().collect();
+        let fan: Fan = radixes.iter().map(|radix| (*radix, child())).collect();
+        let round_tripped: Fan = fan.clone().into_iter().collect();
 
         prop_assert_eq!(round_tripped.len(), fan.len());
         for ((radix, child), (expected_radix, expected)) in
@@ -237,14 +237,14 @@ proptest! {
     /// agree wherever both apply.
     #[test]
     fn push_agrees_with_collect(radixes in proptest::collection::btree_set(any::<u8>(), 0..16)) {
-        let pairs: Vec<(u8, Node<()>)> =
+        let pairs: Vec<(u8, Node)> =
             radixes.iter().map(|radix| (*radix, child())).collect();
 
         let mut pushed = Fan::new();
         for (radix, node) in &pairs {
             pushed.push(*radix, node.clone());
         }
-        let collected: Fan<()> = pairs.into_iter().collect();
+        let collected: Fan = pairs.into_iter().collect();
 
         prop_assert_eq!(pushed.len(), collected.len());
         for ((radix, child), (expected_radix, expected)) in
@@ -270,7 +270,7 @@ fn unit_holds_exactly_one_child() {
 
 /// The fan occupies 40 bytes on 64-bit targets.
 ///
-/// An entry is 16 bytes (`(u8, Node<T>)` padded to the 8-byte handle
+/// An entry is 16 bytes (`(u8, Node)` padded to the 8-byte handle
 /// alignment), so the inline form is 8 bytes of capacity plus
 /// `16 × FAN_INLINE` of storage — the packed overlay of inline and spilled
 /// forms that `smallvec`'s `union` feature provides (without it a
@@ -280,5 +280,5 @@ fn unit_holds_exactly_one_child() {
 #[cfg(target_pointer_width = "64")]
 #[test]
 fn fan_is_forty_bytes() {
-    assert_eq!(std::mem::size_of::<Fan<()>>(), 40);
+    assert_eq!(std::mem::size_of::<Fan>(), 40);
 }

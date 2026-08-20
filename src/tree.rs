@@ -60,6 +60,7 @@
 //! filter — so every convergence property can be tested in-memory and
 //! trusted on the wire.
 
+use std::marker::PhantomData;
 use std::sync::Arc;
 
 pub(crate) mod traverse;
@@ -92,7 +93,13 @@ pub use typed::{Leaf, RangeOwned};
 /// which conforming peers cannot do.
 #[derive(Debug, Eq)]
 pub struct Tree<T> {
-    pub(crate) root: Root<T>,
+    pub(crate) root: Root,
+    /// The payload type this tree's typed faces read leaves at.
+    ///
+    /// Storage is erased ([`Message`] holds `dyn Any`); the facade's `T`
+    /// names the type its faces downcast to (as `fn() -> T`, so
+    /// auto-traits never descend into `T`).
+    payload: PhantomData<fn() -> T>,
 }
 
 /// A tree's root pair: the node structure (absent when empty) and the
@@ -101,31 +108,22 @@ pub struct Tree<T> {
 /// The ceiling outlives the nodes — it advances on effectual redactions and
 /// survives a tree emptying out — which is exactly what deletion honoring
 /// compares against.
-#[derive(Debug, Eq)]
-pub struct Root<T> {
+#[derive(Clone, Debug, Eq)]
+pub struct Root {
     ceiling: Version,
-    root: Option<typed::node::Root<T>>,
+    root: Option<typed::node::Root>,
 }
 
-impl<T> From<Root<T>> for Option<typed::node::Root<T>> {
-    fn from(value: Root<T>) -> Self {
+impl From<Root> for Option<typed::node::Root> {
+    fn from(value: Root) -> Self {
         value.root
-    }
-}
-
-impl<T> Clone for Root<T> {
-    fn clone(&self) -> Self {
-        Self {
-            ceiling: self.ceiling.clone(),
-            root: self.root.clone(),
-        }
     }
 }
 
 /// The empty root: the empty [`Version`] over no nodes. The state a mirror
 /// exchange starts from when the local side holds nothing yet: a
 /// bootstrapping peer mirrors the provider's tree into it.
-impl<T> Default for Root<T> {
+impl Default for Root {
     fn default() -> Self {
         Root {
             ceiling: Version::new(),
@@ -134,7 +132,7 @@ impl<T> Default for Root<T> {
     }
 }
 
-impl<T> PartialEq for Root<T> {
+impl PartialEq for Root {
     fn eq(&self, other: &Self) -> bool {
         self.ceiling == other.ceiling && self.root == other.root
     }
@@ -144,6 +142,7 @@ impl<T> Clone for Tree<T> {
     fn clone(&self) -> Self {
         Self {
             root: self.root.clone(),
+            payload: PhantomData,
         }
     }
 }
@@ -178,7 +177,7 @@ pub enum Action {
 ///
 /// An [`ExactSizeIterator`] (the live-message count is known up front) and a
 /// [`DoubleEndedIterator`].
-pub struct Iter<'a, T>(typed::Iter<'a, T>);
+pub struct Iter<'a, T>(typed::Iter<'a>, PhantomData<fn() -> T>);
 
 impl<'a, T: Send + Sync + 'static> Iterator for Iter<'a, T> {
     type Item = (&'a Version, Arc<T>);
@@ -209,11 +208,15 @@ impl<T> Tree<T> {
     /// plain [`clone`](Clone); any party split happens on the owning
     /// [`Peer`](crate::Peer).
     pub fn new() -> Self {
+        Self::from_root(Root::default())
+    }
+
+    /// Wrap an already-built root pair as a typed tree facade: the caller
+    /// asserts the payload type its leaves were constructed with.
+    pub(crate) fn from_root(root: Root) -> Self {
         Tree {
-            root: Root {
-                ceiling: Version::new(),
-                root: None,
-            },
+            root,
+            payload: PhantomData,
         }
     }
 
@@ -325,6 +328,7 @@ impl<T> Tree<T> {
                 .as_ref()
                 .map(typed::node::Root::iter)
                 .unwrap_or_else(typed::Iter::empty),
+            PhantomData,
         )
     }
 
@@ -339,7 +343,7 @@ impl<T> Tree<T> {
     pub fn range_owned<'q, P: causally::Polarity>(
         &self,
         query: impl Into<causally::Query<'q, P>>,
-    ) -> RangeOwned<T, P> {
+    ) -> RangeOwned<P> {
         typed::node::Root::range_owned(self.root.root.as_ref(), query.into().into_owned())
     }
 
@@ -521,7 +525,7 @@ impl<T> Tree<T> {
         // internal unwind via the injected fuse.
         let mut changed = false;
         let mut new_ceiling = self.root.ceiling.clone();
-        let new_root = traverse::act(self.root.root.clone(), actions, |v: &Version| {
+        let new_root = traverse::act(self.root.root.clone(), actions, &mut |v: &Version| {
             new_ceiling |= v;
             changed = true;
         });

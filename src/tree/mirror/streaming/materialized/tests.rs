@@ -52,7 +52,7 @@ fn absorb_scripted(
     leaf_version: Version,
 ) -> (
     Result<(), Error<Infallible>>,
-    Option<Option<typed::Node<(), Z>>>,
+    Option<Option<typed::Node<Z>>>,
 ) {
     // The request whose answer the script supplies: the leaf radix is the
     // path's last byte, zero here.

@@ -73,11 +73,11 @@ fn arb_injection() -> impl Strategy<Value = Injection> {
 
 /// Build a node at any traversal height from one path-compressed leaf.
 trait TestHeight: Height + Sized {
-    fn node(version: &mut Version) -> typed::Node<(), Self>;
+    fn node(version: &mut Version) -> typed::Node<Self>;
 }
 
 impl TestHeight for Z {
-    fn node(version: &mut Version) -> typed::Node<(), Self> {
+    fn node(version: &mut Version) -> typed::Node<Self> {
         leaf(version)
     }
 }
@@ -86,7 +86,7 @@ impl<H: TestHeight> TestHeight for S<H>
 where
     S<H>: Height,
 {
-    fn node(version: &mut Version) -> typed::Node<(), Self> {
+    fn node(version: &mut Version) -> typed::Node<Self> {
         typed::Node::beneath(H::node(version), 0)
     }
 }

@@ -52,7 +52,7 @@ proptest! {
     fn announced_skeleton_reconstructs_the_session(spec in arb_divergence()) {
         let run = |value: u64| {
             let (local, remote, _) = spec.trees(&value);
-            transcribed_mirror_sides(local, remote)
+            transcribed_mirror_sides::<()>(local, remote)
         };
 
         let (ours, theirs, trace, transcript) = run(0);

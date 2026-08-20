@@ -26,11 +26,11 @@ use crate::tree::mirror::streaming::{
 
 /// Construct the same one-leaf subtree at any concrete reply height.
 trait BackendHeight: Convert {
-    fn node(leaf: &LeafCase) -> typed::Node<u64, Self>;
+    fn node(leaf: &LeafCase) -> typed::Node<Self>;
 }
 
 impl BackendHeight for Z {
-    fn node(leaf: &LeafCase) -> typed::Node<u64, Self> {
+    fn node(leaf: &LeafCase) -> typed::Node<Self> {
         typed::Node::leaf(leaf.version.clone(), leaf.message.clone())
     }
 }
@@ -40,7 +40,7 @@ where
     H: BackendHeight,
     S<H>: Convert,
 {
-    fn node(leaf: &LeafCase) -> typed::Node<u64, Self> {
+    fn node(leaf: &LeafCase) -> typed::Node<Self> {
         let path: [u8; 32] = leaf.path().into();
         typed::Node::beneath(H::node(leaf), path[31 - H::HEIGHT])
     }
@@ -81,7 +81,7 @@ where
                     Reaction::Supply(supply_radix, supply),
                 ]
             };
-            let mut encoded = encode_reply(
+            let mut encoded = encode_reply::<_, u64>(
                 backend.clone(),
                 RunBudget::default(),
                 Scope::new(parent.erase(), &listing),

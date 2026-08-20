@@ -53,7 +53,7 @@ fn prefix_from_bytes<H: Height>(bytes: &[u8]) -> Prefix<H> {
     wire::from_slice(bytes).expect("known-valid prefix bytes")
 }
 
-fn leaf(party: &str, version: u64) -> Node<(), Z> {
+fn leaf(party: &str, version: u64) -> Node<Z> {
     Node::leaf(ticked(party, version), Message::new(()))
 }
 
@@ -118,7 +118,7 @@ fn prefix_z_full_32_bytes() {
     insta::assert_snapshot!(snap(&prefix_from_bytes::<Z>(&bytes)));
 }
 
-// ---------- Node<T, Z>: leaf ----------
+// ---------- Node<Z>: leaf ----------
 
 /// A bare leaf node: version then message payload.
 #[test]
@@ -129,17 +129,17 @@ fn node_z_leaf() {
 /// A leaf at the empty `Version`: the degenerate-timestamp encoding.
 #[test]
 fn node_z_leaf_empty_version() {
-    let l: Node<(), Z> = Node::leaf(Version::default(), Message::new(()));
+    let l: Node<Z> = Node::leaf(Version::default(), Message::new(()));
     insta::assert_snapshot!(snap(&l));
 }
 
-// ---------- Node<T, S<Z>> ----------
+// ---------- Node<S<Z>> ----------
 
 /// A path-compressed single child: the compressed prefix byte rides the
 /// node, not a materialized intermediate level.
 #[test]
 fn node_s_z_singleton_path_compressed_leaf() {
-    let n: Node<(), S<Z>> = Node::beneath(leaf("a", 1), 0xab);
+    let n: Node<S<Z>> = Node::beneath(leaf("a", 1), 0xab);
     insta::assert_snapshot!(snap(&n));
 }
 
@@ -147,29 +147,29 @@ fn node_s_z_singleton_path_compressed_leaf() {
 /// ascending-radix order.
 #[test]
 fn node_s_z_two_child_branch() {
-    let children: Children<(), Z> = [(0x00, leaf("a", 1)), (0xff, leaf("a", 2))]
+    let children: Children<Z> = [(0x00, leaf("a", 1)), (0xff, leaf("a", 2))]
         .into_iter()
         .collect();
-    let n = Node::<(), S<Z>>::branch(children).unwrap();
+    let n = Node::<S<Z>>::branch(children).unwrap();
     insta::assert_snapshot!(snap(&n));
 }
 
 /// The saturated 256-child branch: the maximum fan-out boundary.
 #[test]
 fn node_s_z_full_256_child_branch() {
-    let children: Children<(), Z> = (0u16..=255)
+    let children: Children<Z> = (0u16..=255)
         .map(|i| (i as u8, leaf("a", i as u64 + 1)))
         .collect();
-    let n = Node::<(), S<Z>>::branch(children).unwrap();
+    let n = Node::<S<Z>>::branch(children).unwrap();
     insta::assert_snapshot!(snap(&n));
 }
 
-// ---------- Node<T, Root> ----------
+// ---------- Node<Root> ----------
 
 /// The empty tree (`None` root): the smallest possible encoding.
 #[test]
 fn node_root_none() {
-    let n: Option<Node<(), Root>> = None;
+    let n: Option<Node<Root>> = None;
     insta::assert_snapshot!(snap(&n));
 }
 
@@ -181,7 +181,7 @@ fn node_root_single_leaf_full_compression() {
     seq_macro::seq!(I in 0..32 {
         let n = Node::beneath(n, I);
     });
-    let n: Node<(), Root> = n;
+    let n: Node<Root> = n;
     insta::assert_snapshot!(snap(&n));
 }
 
@@ -206,8 +206,8 @@ fn node_root_two_leaves_branched_at_root() {
             });
             n
         };
-        let children: Children<(), _> = [(0x01, n0), (0x02, n1)].into_iter().collect();
-        Node::<(), Root>::branch(children).unwrap()
+        let children: Children<_> = [(0x01, n0), (0x02, n1)].into_iter().collect();
+        Node::<Root>::branch(children).unwrap()
     };
     insta::assert_snapshot!(snap(&n));
 }
@@ -270,12 +270,12 @@ fn message_exchange_empty() {
 /// `requested`, and `uncertain` — the full steady-state round shape.
 #[test]
 fn message_exchange_populated() {
-    let leaf_z: Node<(), Z> = leaf("a", 1);
-    let inner: Node<(), S<Z>> = Node::beneath(leaf_z, 0xab);
-    let other_children: Children<(), S<Z>> =
+    let leaf_z: Node<Z> = leaf("a", 1);
+    let inner: Node<S<Z>> = Node::beneath(leaf_z, 0xab);
+    let other_children: Children<S<Z>> =
         [(0x01, inner.clone()), (0x02, inner)].into_iter().collect();
-    let s_s_z = Node::<(), S<S<Z>>>::branch(other_children).unwrap();
-    let n_root: Node<(), Root> = {
+    let s_s_z = Node::<S<S<Z>>>::branch(other_children).unwrap();
+    let n_root: Node<Root> = {
         let n = s_s_z;
         seq_macro::seq!(I in 0..30 {
             let n = Node::beneath(n, I);
@@ -296,6 +296,7 @@ fn message_exchange_populated() {
         providing,
         requested,
         uncertain,
+        payload: std::marker::PhantomData,
     };
     insta::assert_snapshot!(snap(&m));
 }
@@ -315,6 +316,7 @@ fn message_closing_populated() {
     let m: message::Closing<()> = message::Closing {
         providing,
         requested,
+        payload: std::marker::PhantomData,
     };
     insta::assert_snapshot!(snap(&m));
 }
@@ -330,6 +332,9 @@ fn message_complete_empty() {
 #[test]
 fn message_complete_populated() {
     let providing = vec![(prefix_from_bytes::<Z>(&[0u8; 32]), leaf("a", 1))];
-    let m: message::Complete<()> = message::Complete { providing };
+    let m: message::Complete<()> = message::Complete {
+        providing,
+        payload: std::marker::PhantomData,
+    };
     insta::assert_snapshot!(snap(&m));
 }

@@ -25,14 +25,11 @@ use super::harness::{LeftError, RightError};
 /// Drive the two-proxy topology, returning each endpoint's result instead
 /// of asserting success.
 async fn reconcile_results(
-    a: TreeRoot<()>,
-    b: TreeRoot<()>,
-) -> (
-    Result<TreeRoot<()>, LeftError>,
-    Result<TreeRoot<()>, RightError>,
-) {
-    let a = Handshaking::start(Local, Root::from(a)).window(WindowConfig::FLOOR);
-    let b = Handshaking::start(Local, Root::from(b)).window(WindowConfig::FLOOR);
+    a: TreeRoot,
+    b: TreeRoot,
+) -> (Result<TreeRoot, LeftError>, Result<TreeRoot, RightError>) {
+    let a = Handshaking::start(Local, Root::<Local, ()>::from(a)).window(WindowConfig::FLOOR);
+    let b = Handshaking::start(Local, Root::<Local, ()>::from(b)).window(WindowConfig::FLOOR);
 
     let (a_link, b_link) = memory_with_capacity(TRANSPORT_CAPACITY);
     let remote_b = RemoteHandshaking::start(Local, a_link).window(WindowConfig::FLOOR);

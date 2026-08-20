@@ -67,13 +67,13 @@ fn parked_supply_reply_holds_handles_not_subtrees() {
     // `replies.len()` pointers plus the skeleton — the subtree's bytes live
     // in backend custody behind the handle.
     assert_eq!(
-        mem::size_of::<typed::Node<u64, UnderRoot>>(),
+        mem::size_of::<typed::Node<UnderRoot>>(),
         mem::size_of::<usize>(),
         "a parked supply must be a shared handle, not an owned subtree",
     );
 
     let party = before::Party::seed();
-    let mut tree = Tree::new();
+    let mut tree = Tree::<()>::new();
     tree.act(&party, (0..LEAVES).map(|v| Action::Insert(Message::new(v))));
     let root = tree
         .root
@@ -83,8 +83,7 @@ fn parked_supply_reply_holds_handles_not_subtrees() {
 
     // The real root fan: version-addressed leaves scatter across first
     // bytes, so the fan is wide and its children are multi-leaf.
-    let children: Vec<(u8, typed::Node<u64, UnderRoot>)> =
-        root.into_children().into_iter().collect();
+    let children: Vec<(u8, typed::Node<UnderRoot>)> = root.into_children().into_iter().collect();
     let expected: Vec<(u8, Hash, usize)> = children
         .iter()
         .map(|(radix, node)| (*radix, node.hash(), node.len()))

@@ -27,7 +27,7 @@ use crate::{
 
 use super::Local;
 
-type LeafRun = Vec<(Prefix<Z>, typed::Node<(), Z>)>;
+type LeafRun = Vec<(Prefix<Z>, typed::Node<Z>)>;
 
 /// One distinct-version leaf per path, in the (ascending) order given.
 fn leaves_at(paths: impl IntoIterator<Item = [u8; 32]>) -> LeafRun {
@@ -49,21 +49,21 @@ fn boxed(run: LeafRun) -> BoxNodeStream<'static, Local, (), Z> {
 }
 
 /// Assemble through the level-by-level default, bypassing Local's override.
-fn assemble_default<H: Convert>(run: LeafRun) -> Vec<(Prefix<H>, typed::Node<(), H>)> {
+fn assemble_default<H: Convert>(run: LeafRun) -> Vec<(Prefix<H>, typed::Node<H>)> {
     pollster::block_on(H::assemble(Local, boxed(run)).try_collect())
         .unwrap_or_else(|error| match error {})
 }
 
 /// Assemble through the backend seam, which Local overrides in bulk.
-fn assemble_local<H: Convert>(run: LeafRun) -> Vec<(Prefix<H>, typed::Node<(), H>)> {
+fn assemble_local<H: Convert>(run: LeafRun) -> Vec<(Prefix<H>, typed::Node<H>)> {
     pollster::block_on(Local.assemble::<H>(boxed(run)).try_collect())
         .unwrap_or_else(|error| match error {})
 }
 
 /// Explode through the level-by-level default, bypassing Local's override.
-fn leaves_default<H: Convert>(prefix: Prefix<H>, node: typed::Node<(), H>) -> LeafRun {
+fn leaves_default<H: Convert>(prefix: Prefix<H>, node: typed::Node<H>) -> LeafRun {
     pollster::block_on(
-        H::explode(
+        H::explode::<_, ()>(
             Local,
             Box::pin(stream::once(async move { Ok((prefix, node)) })),
         )
@@ -73,8 +73,8 @@ fn leaves_default<H: Convert>(prefix: Prefix<H>, node: typed::Node<(), H>) -> Le
 }
 
 /// Walk leaves through the backend seam, which Local overrides directly.
-fn leaves_local<H: Convert>(prefix: Prefix<H>, node: typed::Node<(), H>) -> LeafRun {
-    pollster::block_on(Local.leaves(prefix, node).try_collect())
+fn leaves_local<H: Convert>(prefix: Prefix<H>, node: typed::Node<H>) -> LeafRun {
+    pollster::block_on(<Local as Backend<()>>::leaves(Local, prefix, node).try_collect())
         .unwrap_or_else(|error| match error {})
 }
 

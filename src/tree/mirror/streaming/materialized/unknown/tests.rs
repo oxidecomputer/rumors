@@ -26,7 +26,7 @@ use crate::{
 /// Splitting leaves across two parties guarantees cross-party concurrency, so
 /// the "floor concurrent, keep whole subtree" fast path is exercised alongside
 /// the drop path.
-fn tree_and_known(flags_a: &[bool], flags_b: &[bool]) -> (Option<typed::node::Root<()>>, Version) {
+fn tree_and_known(flags_a: &[bool], flags_b: &[bool]) -> (Option<typed::node::Root>, Version) {
     let mut actions: Vec<(Path, Version, Action)> = Vec::new();
     let mut known = Version::new();
 
@@ -44,15 +44,12 @@ fn tree_and_known(flags_a: &[bool], flags_b: &[bool]) -> (Option<typed::node::Ro
         }
     }
 
-    (act(None, actions, |_| ()), known)
+    (act(None, actions, &mut |_| ()), known)
 }
 
 /// Prune an optional root through the single-node streaming filter, driving
 /// the future to completion with a trivial executor.
-fn stream_prune(
-    root: Option<typed::node::Root<()>>,
-    known: &Version,
-) -> Option<typed::node::Root<()>> {
+fn stream_prune(root: Option<typed::node::Root>, known: &Version) -> Option<typed::node::Root> {
     root.and_then(|node| {
         pollster::block_on(unknown::<Local, ()>(
             &Local,

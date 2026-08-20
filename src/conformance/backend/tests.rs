@@ -206,7 +206,7 @@ impl<N> MaterializedNode<N> {
     }
 }
 
-impl<T, H> Node<T> for MaterializedNode<typed::Node<T, H>>
+impl<T, H> Node<T> for MaterializedNode<typed::Node<H>>
 where
     T: Send + Sync + 'static,
     H: Height,
@@ -242,7 +242,7 @@ where
     }
 }
 
-impl<T> Leaf<T> for MaterializedNode<typed::Node<T, Z>>
+impl<T> Leaf<T> for MaterializedNode<typed::Node<Z>>
 where
     T: Send + Sync + 'static,
 {
@@ -262,7 +262,7 @@ where
 }
 
 /// The two encoded bounds of a freshly built node, in bytes.
-fn bounds_of<T: Send + Sync + 'static, H: Height>(node: &typed::Node<T, H>) -> usize {
+fn bounds_of<H: Height>(node: &typed::Node<H>) -> usize {
     node.ceiling().as_bytes().len() + node.floor().as_bytes().len()
 }
 
@@ -286,8 +286,8 @@ impl<T> Backend<T> for Materializing
 where
     T: Send + Sync + 'static,
 {
-    type Node<H: Height> = MaterializedNode<typed::Node<T, H>>;
-    type Erased = MaterializedNode<typed::untyped::Node<T>>;
+    type Node<H: Height> = MaterializedNode<typed::Node<H>>;
+    type Erased = MaterializedNode<typed::untyped::Node>;
     type Error = Infallible;
 
     // Erasure re-tags the store's handle; the resident row rides along
@@ -310,7 +310,7 @@ where
     }
 
     fn node_bytes(children: usize, version_bound: usize) -> usize {
-        let priced = std::mem::size_of::<MaterializedNode<typed::Node<T, Z>>>()
+        let priced = std::mem::size_of::<MaterializedNode<typed::Node<Z>>>()
             + PRICED_HEADER.get()
             + ROW_ENTRY * children
             + version_bound;
@@ -337,7 +337,7 @@ where
             .into_iter()
             .map(|(radix, child)| (radix, child.map(|child| child.inner)))
             .collect();
-        let parent = Local.parent(prefix, children).await?;
+        let parent = <Local as Backend<T>>::parent(Local, prefix, children).await?;
         Ok(parent.map(|node| {
             let row = ROW_HEADER + ROW_ENTRY * fan + bounds_of(&node);
             MaterializedNode::wrap(node, row)
@@ -354,7 +354,7 @@ where
         S<H>: Height,
     {
         stream! {
-            let mut children = pin!(Local.children(prefix, parent.inner));
+            let mut children = pin!(<Local as Backend<T>>::children(Local, prefix, parent.inner));
             while let Some(child) = children.next().await {
                 yield child.map(|(prefix, node)| {
                     // A lazily loaded row: header and bounds, its child
@@ -375,7 +375,7 @@ where
         // that drop leaves ([`WALK_SKIPS`]) and inflate the yielded rows
         // ([`WALK_SLACK`]) — honest at rest, the negative controls'
         // subject when set.
-        H::explode(
+        H::explode::<Self, T>(
             self,
             Box::pin(futures_stream::once(async move { Ok((prefix, node)) })),
         )
@@ -539,7 +539,7 @@ fn dipping_node_bytes_fails_the_monotonicity_sweep() {
 fn leaf_underpricing_fails_at_construction() {
     let _dishonest = PRICED_HEADER.set(0);
     let leaf = pollster::block_on(
-        <super::ChargedNode<MaterializedNode<typed::Node<u64, Z>>> as Leaf<u64>>::leaf(
+        <super::ChargedNode<MaterializedNode<typed::Node<Z>>> as Leaf<u64>>::leaf(
             Version::new(),
             Message::new(7),
         ),
@@ -566,14 +566,12 @@ fn ledger_settles_over_clone_and_drop() {
         ledger::reset_peak();
         ledger::peak()
     };
-    let leaf = pollster::block_on(
-        <super::ChargedNode<typed::Node<u64, Z>> as Leaf<u64>>::leaf(
-            Version::new(),
-            Message::new(7),
-        ),
-    )
+    let leaf = pollster::block_on(<super::ChargedNode<typed::Node<Z>> as Leaf<u64>>::leaf(
+        Version::new(),
+        Message::new(7),
+    ))
     .expect("a local leaf constructs infallibly");
-    let handle = std::mem::size_of::<typed::Node<u64, Z>>();
+    let handle = std::mem::size_of::<typed::Node<Z>>();
     let clone = leaf.clone();
     assert_eq!(
         ledger::peak(),
@@ -583,7 +581,7 @@ fn ledger_settles_over_clone_and_drop() {
     drop(leaf);
     drop(clone);
 
-    let node: typed::Node<i32, crate::tree::typed::height::Z> =
+    let node: typed::Node<crate::tree::typed::height::Z> =
         typed::Node::leaf(Version::new(), Message::new(7));
     let charged = Charged::<Local>::new(Local);
     let _ = &charged;

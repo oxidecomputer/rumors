@@ -55,8 +55,8 @@ use crate::tree::wire;
 use crate::Error;
 use crate::tree::mirror::framing::{FrameRead, FrameWrite};
 use crate::tree::typed::{
-    Node,
     height::{Height, Root, S, UnderRoot, UnderUnderRoot, Z},
+    node::DecodeNode,
 };
 
 use super::super::{
@@ -213,7 +213,7 @@ where
     T: DeserializeOwned + Send + Sync + 'static,
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
-    Node<T, UnderRoot>: wire::Decode,
+    UnderRoot: DecodeNode,
 {
     type Next = Exchange<T, R, W, Connected, Root>;
 
@@ -235,7 +235,7 @@ where
     T: DeserializeOwned + Send + Sync + 'static,
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
-    Node<T, UnderRoot>: wire::Decode,
+    UnderRoot: DecodeNode,
 {
     type Next = Exchange<T, R, W, Connected, UnderRoot>;
 
@@ -263,7 +263,7 @@ where
     T: DeserializeOwned + Send + Sync + 'static,
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
-    Node<T, UnderRoot>: wire::Decode,
+    UnderRoot: DecodeNode,
 {
     type Next = Exchange<T, R, W, Connected, UnderUnderRoot>;
 
@@ -300,7 +300,7 @@ where
     H: Height,
     S<H>: Height,
     S<S<H>>: Height,
-    Node<T, S<H>>: wire::Decode,
+    S<H>: DecodeNode,
     // Assumed at impl-validation time so we don't have to case-analyze `H`
     // here: at use sites `H` is concrete and one of the three blanket impls
     // in `super::protocol` discharges it.

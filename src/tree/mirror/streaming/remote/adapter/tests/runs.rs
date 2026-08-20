@@ -280,14 +280,14 @@ fn a_batched_run_round_trips_the_reply() {
     };
     let prefix = Prefix::<UnderRoot>::containing(&leaves[0].path());
     let rebuilt = runtime.block_on(async {
-        Local
-            .leaves(
-                prefix,
-                <Local as Backend<u64>>::assume::<UnderRoot>(node.clone()),
-            )
-            .try_collect::<Vec<_>>()
-            .await
-            .expect("the local backend is infallible")
+        <Local as Backend<u64>>::leaves(
+            Local,
+            prefix,
+            <Local as Backend<u64>>::assume::<UnderRoot>(node.clone()),
+        )
+        .try_collect::<Vec<_>>()
+        .await
+        .expect("the local backend is infallible")
     });
     assert_eq!(rebuilt.len(), leaves.len());
 }

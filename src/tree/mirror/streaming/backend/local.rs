@@ -31,7 +31,7 @@ mod tests;
 #[cfg(test)]
 pub use adversarial::with_schedule;
 
-impl<T: Send + Sync + 'static, H: Height> Node<T> for typed::Node<T, H> {
+impl<T: Send + Sync + 'static, H: Height> Node<T> for typed::Node<H> {
     type Backend = Local;
     type Height = H;
 
@@ -58,7 +58,7 @@ impl<T: Send + Sync + 'static, H: Height> Node<T> for typed::Node<T, H> {
 
 // The typed node is `repr(transparent)` over the untyped node, so the
 // erased observations are the same field reads the typed ones are.
-impl<T: Send + Sync + 'static> ErasedNode for typed::untyped::Node<T> {
+impl ErasedNode for typed::untyped::Node {
     fn span(&self) -> Span<'_> {
         self.span()
     }
@@ -72,7 +72,7 @@ impl<T: Send + Sync + 'static> ErasedNode for typed::untyped::Node<T> {
     }
 }
 
-impl<T: Send + Sync + 'static> Leaf<T> for typed::Node<T, Z> {
+impl<T: Send + Sync + 'static> Leaf<T> for typed::Node<Z> {
     fn message(&self) -> &Message {
         self.message()
     }
@@ -101,20 +101,19 @@ impl Local {
     /// height-typed veneer is `repr(transparent)` over that handle, so
     /// every height costs the same.
     pub(crate) fn node_bytes(_children: usize, _version_bound: usize) -> usize {
-        std::mem::size_of::<typed::Node<(), Z>>()
+        std::mem::size_of::<typed::Node<Z>>()
     }
 }
 
 /// The handle really is pointer-sized: the window's per-reference price
 /// rests on it.
-const _: () =
-    assert!(std::mem::size_of::<typed::Node<(), Z>>() == std::mem::size_of::<*const ()>());
+const _: () = assert!(std::mem::size_of::<typed::Node<Z>>() == std::mem::size_of::<*const ()>());
 
 impl<T: Send + Sync + 'static> Backend<T> for Local {
-    type Node<H: Height> = typed::Node<T, H>;
+    type Node<H: Height> = typed::Node<H>;
     // One representation for every height already: the typed node is a
     // phantom tag over this, so both conversions are field moves.
-    type Erased = typed::untyped::Node<T>;
+    type Erased = typed::untyped::Node;
     type Error = Infallible;
 
     fn erase<H: Height>(node: Self::Node<H>) -> Self::Erased {
@@ -206,7 +205,7 @@ impl<T: Send + Sync + 'static> Backend<T> for Local {
         let assembled = try_stream! {
             let mut leaves = pin!(leaves);
             let mut current: Option<Prefix<H>> = None;
-            let mut run: Vec<(Prefix<Z>, typed::Node<T, Z>)> = Vec::new();
+            let mut run: Vec<(Prefix<Z>, typed::Node<Z>)> = Vec::new();
             while let Some(item) = leaves.next().await {
                 let (prefix, leaf) = item?;
                 let target = Prefix::<H>::containing(&Path::from(prefix));
@@ -234,14 +233,14 @@ impl<T: Send + Sync + 'static> Backend<T> for Local {
 // `tree::Root` is exactly the `Local` instance of the session's generic
 // `Root`: the same (ceiling, optional root node) pair, concretely typed.
 
-impl<T: Send + Sync + 'static> From<tree::Root<T>> for Root<Local, T> {
-    fn from(root: tree::Root<T>) -> Self {
+impl<T: Send + Sync + 'static> From<tree::Root> for Root<Local, T> {
+    fn from(root: tree::Root) -> Self {
         let tree::Root { ceiling, root } = root;
         Root { ceiling, root }
     }
 }
 
-impl<T: Send + Sync + 'static> From<Root<Local, T>> for tree::Root<T> {
+impl<T: Send + Sync + 'static> From<Root<Local, T>> for tree::Root {
     fn from(root: Root<Local, T>) -> Self {
         let Root { ceiling, root } = root;
         tree::Root { ceiling, root }

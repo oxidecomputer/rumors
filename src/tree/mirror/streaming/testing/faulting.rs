@@ -125,10 +125,10 @@ fn escaped_version() -> Version {
 /// Construct a valid supplied node at any reply height.
 trait FaultHeight: height::Height + Sized {
     /// A node whose single leaf carries `version`.
-    fn node_at(version: Version) -> typed::Node<(), Self>;
+    fn node_at(version: Version) -> typed::Node<Self>;
 
     /// A node at the canonical contained version.
-    fn node() -> typed::Node<(), Self> {
+    fn node() -> typed::Node<Self> {
         Self::node_at(contained_version())
     }
 }
@@ -162,7 +162,7 @@ impl<B: FaultBackend> FaultBackend for Failing<B> {
 }
 
 impl FaultHeight for height::Z {
-    fn node_at(version: Version) -> typed::Node<(), Self> {
+    fn node_at(version: Version) -> typed::Node<Self> {
         typed::Node::leaf(version, Message::new(()))
     }
 }
@@ -171,7 +171,7 @@ impl<H: FaultHeight> FaultHeight for height::S<H>
 where
     height::S<H>: height::Height,
 {
-    fn node_at(version: Version) -> typed::Node<(), Self> {
+    fn node_at(version: Version) -> typed::Node<Self> {
         typed::Node::beneath(H::node_at(version), 0)
     }
 }

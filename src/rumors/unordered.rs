@@ -39,7 +39,7 @@ pub struct UnorderedMessages<T> {
     /// wakeup), so the wait is materialized.
     channel: Option<Channel<T>>,
     checkpoint: Version,
-    pass: Option<Pass<T>>,
+    pass: Option<Pass>,
 }
 
 /// The outcome of [`UnorderedMessages::try_next`] or [`CausalMessages::try_next`].
@@ -75,8 +75,8 @@ pub(super) enum Channel<T> {
 
 /// One in-progress pass: the frozen walk over its snapshot, and the
 /// snapshot's ceiling to absorb into the checkpoint when the walk drains.
-struct Pass<T> {
-    walk: RangeOwned<T, causally::Down>,
+struct Pass {
+    walk: RangeOwned<causally::Down>,
     ceiling: Version,
 }
 
@@ -93,7 +93,7 @@ impl<T> UnorderedMessages<T> {
     /// watch read guard lives only long enough to freeze the walk (a root
     /// handle clone) and capture the ceiling.
     fn open_pass(
-        pass: &mut Option<Pass<T>>,
+        pass: &mut Option<Pass>,
         rx: &mut watch::Receiver<crate::Inner<T>>,
         checkpoint: &Version,
     ) where
@@ -209,7 +209,7 @@ impl<T: Send + Sync + 'static> Stream for UnorderedMessages<T> {
 
                     let pass = this.pass.as_mut().expect("opened above");
                     if let Some((_, leaf)) = pass.walk.next() {
-                        return Poll::Ready(Some((leaf.version().clone(), leaf.value())));
+                        return Poll::Ready(Some((leaf.version().clone(), leaf.value::<T>())));
                     }
 
                     // The pass drained: absorb its ceiling, then enter the

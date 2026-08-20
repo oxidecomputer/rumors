@@ -21,7 +21,7 @@
 //!   frame whose entries are not strictly ascending order (which also
 //!   rejects duplicates).
 //!
-//! ## Typed [`Node<T, H>`](crate::tree::typed::Node)
+//! ## Typed [`Node<H>`](crate::tree::typed::Node)
 //!
 //! Encoded in its in-memory layout. The typed node's wire impl is a thin
 //! delegate over the untyped node's `serialize_to`, which is the canonical
@@ -52,7 +52,7 @@
 //!
 //! ## The three channels
 //!
-//! - **`providing`**: `Vec<(Prefix<_>, Node<T, _>)>` — the subtrees being
+//! - **`providing`**: `Vec<(Prefix<_>, Node<_>)>` — the subtrees being
 //!   provided, each paired with the prefix it lands at, in ascending prefix
 //!   order. Each node carries its full structure on the wire (path-compression
 //!   bytes, branch radices, child counts); the receiver inserts it directly at
@@ -78,16 +78,39 @@ use crate::Version;
 use crate::tree::typed::{
     Hash, Node, Prefix,
     height::{Height, Root, S, UnderRoot, Z},
+    node::DecodeNode,
 };
 
 use serde::de::DeserializeOwned;
+use std::marker::PhantomData;
 #[cfg(test)]
 mod tests;
 
 /// The `providing` channel's payload at height `H`: the subtrees being provided,
 /// each paired with the prefix it lands at, in ascending prefix order. The
 /// receiver inserts each node directly at its named prefix.
-pub type Providing<T, H> = Vec<(Prefix<H>, Node<T, H>)>;
+pub type Providing<H> = Vec<(Prefix<H>, Node<H>)>;
+
+/// Decode one `providing` channel: a `u32` count, then `(prefix, node)`
+/// pairs, the nodes' leaf payloads parsed as `T` (the protocol's typed
+/// ingress; see [`DecodeNode`]).
+fn read_providing<T, H, R>(reader: &mut R) -> std::io::Result<Providing<H>>
+where
+    T: DeserializeOwned + Send + Sync + 'static,
+    H: DecodeNode,
+    R: std::io::Read,
+{
+    let count = u32::read_wire(reader)? as usize;
+    // Grow as elements arrive rather than trusting the declared count for
+    // the allocation (the same discipline as the framing reader).
+    let mut items = Vec::new();
+    for _ in 0..count {
+        let prefix = Prefix::<H>::read_wire(reader)?;
+        let node = H::read_node::<T, R>(reader)?;
+        items.push((prefix, node));
+    }
+    Ok(items)
+}
 
 /// The opening message of every session, exchanged by the `connect`/`accept`
 /// steps. It carries the sender's causal [`Version`].
@@ -193,7 +216,7 @@ where
     /// On the wire each subtree travels as a whole `(prefix, node)` pair in
     /// ascending prefix order; the receiver inserts it directly at the named
     /// prefix. Strictly ascending by prefix; duplicates are rejected.
-    pub providing: Providing<T, S<H>>,
+    pub providing: Providing<S<H>>,
     /// Prefixes the counterparty listed in the previous round's `uncertain`
     /// that we lack entirely. We ask them to send the subtrees so we can insert
     /// them into our zipper. Strictly ascending; duplicates are rejected.
@@ -205,6 +228,10 @@ where
     /// [`super::local`] module docs) on the receiving side. Strictly ascending
     /// by prefix.
     pub uncertain: Vec<(Prefix<H>, Hash)>,
+    /// The payload type this message's leaves decode as: the nodes are
+    /// erased in memory, so the type rides the message as decode context
+    /// only (`fn() -> T` keeps auto-traits off the payload type).
+    pub payload: PhantomData<fn() -> T>,
 }
 
 impl<T, H> Encode for Exchange<T, H>
@@ -219,20 +246,14 @@ where
     }
 }
 
-// `Node<T, S<H>>: Decode` reduces inductively to `Node<T, H>: Decode`
-// and bottoms at `Z`, so with `H` left generic the proof obligation
-// doesn't terminate during inference. We thread `Node<T, S<H>>: Decode`
-// through as an explicit bound so the caller — who knows `H` concretely —
-// discharges it.
 impl<T, H> Decode for Exchange<T, H>
 where
     T: DeserializeOwned + Send + Sync + 'static,
-    S<H>: Height,
+    S<H>: DecodeNode,
     H: Height,
-    Node<T, S<H>>: Decode,
 {
     fn read_wire<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
-        let providing: Providing<T, S<H>> = Decode::read_wire(reader)?;
+        let providing: Providing<S<H>> = read_providing::<T, S<H>, R>(reader)?;
         verify_pairs_canonical(&providing, "Exchange.providing")?;
         let requested: Vec<Prefix<S<H>>> = Decode::read_wire(reader)?;
         verify_keys_canonical(&requested, "Exchange.requested")?;
@@ -242,6 +263,7 @@ where
             providing,
             requested,
             uncertain,
+            payload: PhantomData,
         })
     }
 }
@@ -265,6 +287,7 @@ where
             providing: Default::default(),
             requested: Default::default(),
             uncertain: Default::default(),
+            payload: PhantomData,
         }
     }
 }
@@ -291,7 +314,7 @@ pub struct Closing<T> {
     /// Leaves only the responder holds that the initiator has not deleted:
     /// answers to the initiator's final `requested`, plus leaves the
     /// initiator's `uncertain` listing proved it lacks.
-    pub providing: Providing<T, Z>,
+    pub providing: Providing<Z>,
     /// Leaves the initiator listed under disputed parents that the responder
     /// lacks entirely.
     ///
@@ -299,6 +322,8 @@ pub struct Closing<T> {
     /// leaf at or before the responder's version was deleted there, and
     /// drops on both sides instead of shipping.
     pub requested: Vec<Prefix<Z>>,
+    /// The leaves' payload type, as decode context (see [`Exchange::payload`]).
+    pub payload: PhantomData<fn() -> T>,
 }
 
 impl<T> Encode for Closing<T> {
@@ -313,13 +338,14 @@ where
     T: DeserializeOwned + Send + Sync + 'static,
 {
     fn read_wire<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
-        let providing: Providing<T, Z> = Decode::read_wire(reader)?;
+        let providing: Providing<Z> = read_providing::<T, Z, R>(reader)?;
         verify_pairs_canonical(&providing, "Closing.providing")?;
         let requested: Vec<Prefix<Z>> = Decode::read_wire(reader)?;
         verify_keys_canonical(&requested, "Closing.requested")?;
         Ok(Self {
             providing,
             requested,
+            payload: PhantomData,
         })
     }
 }
@@ -329,6 +355,7 @@ impl<T> Default for Closing<T> {
         Self {
             providing: Default::default(),
             requested: Default::default(),
+            payload: PhantomData,
         }
     }
 }
@@ -345,7 +372,9 @@ impl<T> Default for Closing<T> {
 /// (vacuous at leaf height, same reasoning as [`Closing`]).
 #[derive(Clone)]
 pub struct Complete<T> {
-    pub providing: Providing<T, Z>,
+    pub providing: Providing<Z>,
+    /// The leaves' payload type, as decode context (see [`Exchange::payload`]).
+    pub payload: PhantomData<fn() -> T>,
 }
 
 impl<T> Encode for Complete<T> {
@@ -359,9 +388,12 @@ where
     T: DeserializeOwned + Send + Sync + 'static,
 {
     fn read_wire<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
-        let providing: Providing<T, Z> = Decode::read_wire(reader)?;
+        let providing: Providing<Z> = read_providing::<T, Z, R>(reader)?;
         verify_pairs_canonical(&providing, "Complete.providing")?;
-        Ok(Self { providing })
+        Ok(Self {
+            providing,
+            payload: PhantomData,
+        })
     }
 }
 
@@ -369,6 +401,7 @@ impl<T> Default for Complete<T> {
     fn default() -> Self {
         Self {
             providing: Default::default(),
+            payload: PhantomData,
         }
     }
 }

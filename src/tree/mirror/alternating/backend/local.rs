@@ -167,14 +167,11 @@ pub struct Exchange<V, L> {
     expected_parents: std::collections::BTreeSet<Box<[u8]>>,
 }
 
-impl<T> Exchange<Start, Top<T>>
-where
-    T: Send + Sync,
-{
+impl Exchange<Start, Top> {
     /// Open a local exchange over `node`, ready for the connect phase: the
     /// zipper at the top, the handshake version captured from the root's
     /// ceiling.
-    pub fn start(node: tree::Root<T>) -> Self {
+    pub fn start(node: tree::Root) -> Self {
         Self {
             versions: Start {
                 our_version: node.ceiling.clone(),
@@ -191,20 +188,19 @@ where
 impl<V: Send, L> protocol::Stage for Exchange<V, L>
 where
     L: Levels + Send,
-    L::Message: Send,
 {
     type Height = L::Height;
-    type Output = tree::Root<L::Message>;
+    type Output = tree::Root;
     /// Absorbing peer content can diagnose a semantic violation
     /// ([`Exchange::absorb_providing`]); nothing else here fails.
     type Error = Violation;
 }
 
-impl<T> protocol::Connect<T> for Exchange<Start, Top<T>>
+impl<T> protocol::Connect<T> for Exchange<Start, Top>
 where
     T: Send + Sync,
 {
-    type Next = Exchange<Connecting, Top<T>>;
+    type Next = Exchange<Connecting, Top>;
 
     async fn connect(
         self,
@@ -229,11 +225,11 @@ where
     }
 }
 
-impl<T> protocol::CompleteConnect<T> for Exchange<Connecting, Top<T>>
+impl<T> protocol::CompleteConnect<T> for Exchange<Connecting, Top>
 where
     T: Send + Sync,
 {
-    type Next = Exchange<Connected, Top<T>>;
+    type Next = Exchange<Connected, Top>;
 
     async fn complete_connect(
         self,
@@ -266,11 +262,11 @@ where
     }
 }
 
-impl<T> protocol::Accept<T> for Exchange<Start, Top<T>>
+impl<T> protocol::Accept<T> for Exchange<Start, Top>
 where
     T: Send + Sync,
 {
-    type Next = Exchange<Connected, Top<T>>;
+    type Next = Exchange<Connected, Top>;
 
     async fn accept(
         self,
@@ -311,11 +307,11 @@ where
     }
 }
 
-impl<T> protocol::Initiator<T> for Exchange<Connected, Top<T>>
+impl<T> protocol::Initiator<T> for Exchange<Connected, Top>
 where
     T: Send + Sync,
 {
-    type Next = Exchange<Connected, Top<T>>;
+    type Next = Exchange<Connected, Top>;
 
     async fn initiator(
         self,
@@ -333,11 +329,11 @@ where
     }
 }
 
-impl<T> protocol::Responder<T> for Exchange<Connected, Top<T>>
+impl<T> protocol::Responder<T> for Exchange<Connected, Top>
 where
     T: Send + Sync,
 {
-    type Next = Exchange<Connected, Below<UnderRoot, Top<T>>>;
+    type Next = Exchange<Connected, Below<UnderRoot, Top>>;
 
     async fn responder(
         mut self,
@@ -389,7 +385,7 @@ where
 impl<T, L> protocol::OpenInitiator<T> for Exchange<Connected, L>
 where
     T: Send + Sync,
-    L: Levels<Message = T, Height = Root> + Send,
+    L: Levels<Height = Root> + Send,
 {
     type Next = Exchange<Connected, Below<UnderUnderRoot, Below<UnderRoot, L>>>;
 
@@ -407,7 +403,7 @@ where
 impl<T, H, L> protocol::Exchange<T> for Exchange<Connected, L>
 where
     T: Send + Sync,
-    L: Levels<Message = T, Height = S<S<H>>> + Send,
+    L: Levels<Height = S<S<H>>> + Send,
     S<S<H>>: Height,
     S<H>: Height,
     H: Height + Unknown,
@@ -430,7 +426,7 @@ where
 impl<T, L> protocol::CloseResponder<T> for Exchange<Connected, L>
 where
     T: Send + Sync,
-    L: Levels<Message = T, Height = S<Z>> + Send,
+    L: Levels<Height = S<Z>> + Send,
 {
     type Next = Exchange<Connected, Below<Z, L>>;
 
@@ -445,7 +441,7 @@ where
 impl<T, L> protocol::CompleteInitiator<T> for Exchange<Connected, L>
 where
     T: Send + Sync,
-    L: Levels<Message = T, Height = Z> + Send,
+    L: Levels<Height = Z> + Send,
 {
     async fn complete_initiator(
         mut self,
@@ -456,6 +452,7 @@ where
         Ok(protocol::Step::Done {
             msg: message::Complete {
                 providing: providing.into_iter().collect(),
+                payload: std::marker::PhantomData,
             },
             output: tree::Root {
                 ceiling: self.versions.our_version | self.versions.their_version,
@@ -468,7 +465,7 @@ where
 impl<T, L> protocol::CompleteResponder<T> for Exchange<Connected, L>
 where
     T: Send + Sync,
-    L: Levels<Message = T, Height = Z> + Send,
+    L: Levels<Height = Z> + Send,
 {
     async fn complete_responder(
         mut self,

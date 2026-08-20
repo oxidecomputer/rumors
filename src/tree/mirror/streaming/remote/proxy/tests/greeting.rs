@@ -18,16 +18,16 @@ use crate::tree::{
 use super::harness;
 
 /// The observable root hash of a reconciled `tree::Root`.
-fn hash_of(root: &crate::tree::Root<()>) -> [u8; MERKLE_HASH_LEN] {
-    Tree { root: root.clone() }.hash()
+fn hash_of(root: &crate::tree::Root) -> [u8; MERKLE_HASH_LEN] {
+    Tree::<()>::from_root(root.clone()).hash()
 }
 
 /// Reconcile through the two-proxy wire harness, requiring both sides to
 /// succeed, and return `(left, right)` reconciled roots.
 fn wire_reconcile(
-    left: crate::tree::Root<()>,
-    right: crate::tree::Root<()>,
-) -> (crate::tree::Root<()>, crate::tree::Root<()>) {
+    left: crate::tree::Root,
+    right: crate::tree::Root,
+) -> (crate::tree::Root, crate::tree::Root) {
     let outcome = run_to_quiescence(harness::reconcile(
         left,
         right,
@@ -44,9 +44,9 @@ fn wire_reconcile(
 
 /// The deep divergent pair's expected union, computed by the in-memory join
 /// oracle.
-fn union_hash(a: &crate::tree::Root<()>, b: &crate::tree::Root<()>) -> [u8; MERKLE_HASH_LEN] {
-    let mut union = Tree { root: a.clone() };
-    union.join(Tree { root: b.clone() });
+fn union_hash(a: &crate::tree::Root, b: &crate::tree::Root) -> [u8; MERKLE_HASH_LEN] {
+    let mut union = Tree::<()>::from_root(a.clone());
+    union.join(Tree::from_root(b.clone()));
     union.hash()
 }
 
@@ -82,15 +82,15 @@ fn carried_listing_converges_with_right_initiator() {
 /// will elect initiator (the smaller live set; ties fall back to the greater
 /// causal version in canonical bytes).
 fn order_by_election(
-    a: crate::tree::Root<()>,
-    b: crate::tree::Root<()>,
-) -> (crate::tree::Root<()>, crate::tree::Root<()>) {
+    a: crate::tree::Root,
+    b: crate::tree::Root,
+) -> (crate::tree::Root, crate::tree::Root) {
     assert_ne!(
         a.ceiling.as_bytes(),
         b.ceiling.as_bytes(),
         "a divergent fixture must elect deterministically"
     );
-    let len = |root: &crate::tree::Root<()>| {
+    let len = |root: &crate::tree::Root| {
         root.root
             .as_ref()
             .map(|node| node.len() as u64)
@@ -114,7 +114,7 @@ fn order_by_election(
 #[test]
 fn empty_carried_listing_asks_for_everything() {
     // The populated responder: one message on party 0.
-    let mut populated = Tree::new();
+    let mut populated = Tree::<()>::new();
     populated.act(&nth_party(0), [Action::Insert(Message::new(()))]);
 
     // The emptied initiator: insert-then-forget on party 1 ticks its version
@@ -150,7 +150,7 @@ fn empty_carried_listing_asks_for_everything() {
 #[test]
 fn converged_session_carries_listings_unused() {
     let build = || {
-        let mut tree = Tree::new();
+        let mut tree = Tree::<()>::new();
         tree.act(&nth_party(0), [Action::Insert(Message::new(()))]);
         tree
     };
@@ -187,7 +187,7 @@ fn converged_session_carries_listings_unused() {
 #[test]
 fn mixed_empty_and_populated_converges() {
     let empty = Tree::<()>::new();
-    let mut populated = Tree::new();
+    let mut populated = Tree::<()>::new();
     populated.act(
         &nth_party(0),
         (0..4).map(|_| Action::Insert(Message::new(()))),
@@ -238,7 +238,7 @@ fn overlapping_sessions_lose_innocent_leaf_after_honored_redaction() {
     // redaction empties its root radix — and sweeping the redacted leaf
     // puts shared runs on both sides of every divergence point.
     let p = nth_party(0);
-    let mut t0 = Tree::new();
+    let mut t0 = Tree::<()>::new();
     t0.act(&p, (0..25).map(|_| Action::Insert(Message::new(()))));
     let leaves: Vec<_> = t0
         .iter()
@@ -254,9 +254,7 @@ fn overlapping_sessions_lose_innocent_leaf_after_honored_redaction() {
         // S1's counterparty: converged at T0, then redacted the leaf at
         // `k` (a local act rebuilds its own fans afresh; the sharing that
         // matters is created by our install below, not here).
-        let mut twin = Tree {
-            root: t0.root.clone(),
-        };
+        let mut twin = Tree::<()>::from_root(t0.root.clone());
         twin.act(&nth_party(1), [Action::Forget(*k)]);
 
         // S1's session and install: reconcile T0 against the redacting
@@ -264,19 +262,13 @@ fn overlapping_sessions_lose_innocent_leaf_after_honored_redaction() {
         // Deletion honoring drops radix `r_h`: the live tree's root fan is
         // now a clone-derived sibling of M0 missing one radix.
         let (s1_reconciled, _) = wire_reconcile(t0.root.clone(), twin.root.clone());
-        let mut live = Tree {
-            root: t0.root.clone(),
-        };
-        live.join(Tree {
-            root: s1_reconciled,
-        });
+        let mut live = Tree::<()>::from_root(t0.root.clone());
+        live.join(Tree::from_root(s1_reconciled));
         let expected = live.hash();
 
         // S2's install, after S1's: joining our own causal past must be an
         // identity on the tree.
-        live.join(Tree {
-            root: s2_reconciled.clone(),
-        });
+        live.join(Tree::from_root(s2_reconciled.clone()));
 
         if live.hash() != expected {
             let missing: Vec<_> = leaves

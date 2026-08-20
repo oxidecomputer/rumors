@@ -16,9 +16,9 @@ use crate::{Version, causally, message::Message};
 use super::{Children, Node};
 
 /// One pending subtree in a walk's frontier.
-struct Frame<'a, T> {
+struct Frame<'a> {
     /// The subtree not yet entered.
-    node: &'a Node<T>,
+    node: &'a Node,
     /// Whether an ancestor was already promoted: every leaf beneath `node`
     /// is known to satisfy the walk's range, so its descent skips the
     /// version comparisons.
@@ -50,14 +50,14 @@ struct Frame<'a, T> {
 /// its verdict degenerates to membership and prune-or-promote is
 /// exhaustive: the walk never compares versions leaf-by-leaf.
 ///
-struct Walk<'a, T, P: Polarity> {
+struct Walk<'a, P: Polarity> {
     /// Pending [`Frame`]s, held in ascending key order front-to-back.
     ///
     /// Forward steps consume the front, backward steps the back; a branch is
     /// expanded in place into its children (preserving the ordering), so the
     /// frontier always describes exactly the not-yet-yielded leaves. Empty
     /// once exhausted.
-    frames: VecDeque<Frame<'a, T>>,
+    frames: VecDeque<Frame<'a>>,
     /// Leaves not yet visited — the leaf count still reachable from the
     /// frontier.
     ///
@@ -73,8 +73,8 @@ struct Walk<'a, T, P: Polarity> {
     query: Query<'a, P>,
 }
 
-impl<'a, T, P: Polarity> Walk<'a, T, P> {
-    fn new(node: Option<&'a Node<T>>, query: Query<'a, P>) -> Self {
+impl<'a, P: Polarity> Walk<'a, P> {
+    fn new(node: Option<&'a Node>, query: Query<'a, P>) -> Self {
         match node {
             None => Self {
                 frames: VecDeque::new(),
@@ -173,15 +173,15 @@ impl<'a, T, P: Polarity> Walk<'a, T, P> {
 /// and `Tree::join` lean on the ascending forward order for their own
 /// deterministic callback delivery.)
 ///
-/// `Iter` is `Send + Sync` whenever `T: Send + Sync`: it holds only
-/// `&Node<T>` references.
-pub struct Iter<'a, T> {
-    walk: Walk<'a, T, causally::Neutral>,
+/// `Iter` is `Send + Sync`: it holds only `&Node` references, and the
+/// stored payloads are `Send + Sync` by [`Message`]'s construction bound.
+pub struct Iter<'a> {
+    walk: Walk<'a, causally::Neutral>,
 }
 
-impl<'a, T> Iter<'a, T> {
+impl<'a> Iter<'a> {
     /// Iterate the subtree rooted at `node`.
-    pub(crate) fn root(node: &'a Node<T>) -> Self {
+    pub(crate) fn root(node: &'a Node) -> Self {
         Self {
             walk: Walk::new(Some(node), causally::all()),
         }
@@ -195,7 +195,7 @@ impl<'a, T> Iter<'a, T> {
     }
 }
 
-impl<'a, T> Iterator for Iter<'a, T> {
+impl<'a> Iterator for Iter<'a> {
     type Item = (&'a Version, &'a Message);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -210,13 +210,13 @@ impl<'a, T> Iterator for Iter<'a, T> {
     }
 }
 
-impl<'a, T> DoubleEndedIterator for Iter<'a, T> {
+impl<'a> DoubleEndedIterator for Iter<'a> {
     fn next_back(&mut self) -> Option<Self::Item> {
         self.walk.step(true)
     }
 }
 
-impl<'a, T> ExactSizeIterator for Iter<'a, T> {}
+impl<'a> ExactSizeIterator for Iter<'a> {}
 
 /// The leaf walk filtered to a causal [`Query`].
 ///
@@ -233,21 +233,21 @@ impl<'a, T> ExactSizeIterator for Iter<'a, T> {}
 /// [`ExactSizeIterator`]: how many leaves pass is unknown until they are
 /// visited, so [`size_hint`](Iterator::size_hint) reports only an upper
 /// bound.
-pub struct Range<'a, T, P: Polarity> {
-    walk: Walk<'a, T, P>,
+pub struct Range<'a, P: Polarity> {
+    walk: Walk<'a, P>,
 }
 
-impl<'a, T, P: Polarity> Range<'a, T, P> {
+impl<'a, P: Polarity> Range<'a, P> {
     /// Iterate the leaves of the (possibly absent) height-32 root `node`
     /// whose versions the causal `query` admits.
-    pub(crate) fn root(node: Option<&'a Node<T>>, query: Query<'a, P>) -> Self {
+    pub(crate) fn root(node: Option<&'a Node>, query: Query<'a, P>) -> Self {
         Self {
             walk: Walk::new(node, query),
         }
     }
 }
 
-impl<'a, T, P: Polarity> Iterator for Range<'a, T, P> {
+impl<'a, P: Polarity> Iterator for Range<'a, P> {
     type Item = (&'a Version, &'a Message);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -261,7 +261,7 @@ impl<'a, T, P: Polarity> Iterator for Range<'a, T, P> {
     }
 }
 
-impl<'a, T, P: Polarity> DoubleEndedIterator for Range<'a, T, P> {
+impl<'a, P: Polarity> DoubleEndedIterator for Range<'a, P> {
     fn next_back(&mut self) -> Option<Self::Item> {
         self.walk.step(true)
     }
@@ -288,13 +288,13 @@ impl<'a, T, P: Polarity> DoubleEndedIterator for Range<'a, T, P> {
 /// Yields each passing leaf as an owned [`Leaf`] handle alongside its
 /// reconstructed 32-byte path; the version and value read out of the
 /// handle as shared, clone-cheap references into the tree's storage.
-pub struct RangeOwned<T, P: Polarity> {
+pub struct RangeOwned<P: Polarity> {
     /// The not-yet-visited root, consumed by the first advance.
-    start: Option<Node<T>>,
+    start: Option<Node>,
     /// The descent spine: index 0 is the root's level, the last entry is the
     /// level currently being walked. Always branch nodes (leaves are yielded,
     /// never pushed).
-    spine: Vec<Level<T>>,
+    spine: Vec<Level>,
     /// The path bytes accumulated along the spine, extended and rolled back
     /// as the walk descends and ascends; a leaf is yielded exactly when it
     /// reaches 32 bytes.
@@ -305,9 +305,9 @@ pub struct RangeOwned<T, P: Polarity> {
 }
 
 /// One level of a [`RangeOwned`] walk's descent spine.
-struct Level<T> {
+struct Level {
     /// The branch node this level walks.
-    node: Node<T>,
+    node: Node,
     /// The smallest child radix not yet visited; `256` means exhausted.
     next: u16,
     /// Whether an ancestor (or this level itself) was promoted: every leaf
@@ -321,20 +321,21 @@ struct Level<T> {
 
 /// A live leaf popped out of a [`RangeOwned`] walk: an owned handle on the leaf
 /// node, lending its version and value to whoever holds it.
-pub struct Leaf<T>(Node<T>);
+pub struct Leaf(Node);
 
-impl<T> Leaf<T> {
+impl Leaf {
     /// The causal [`Version`] at which this message was observed.
     pub fn version(&self) -> &Version {
         self.0.ceiling()
     }
 
-    /// The message's value: an owned handle, one reference bump on the
-    /// shared allocation.
-    pub fn value(&self) -> std::sync::Arc<T>
-    where
-        T: Send + Sync + 'static,
-    {
+    /// The message's value as its concrete payload type: an owned handle,
+    /// one reference bump on the shared allocation.
+    ///
+    /// # Panics
+    ///
+    /// If the payload is not a `T` (see [`Message::message`]).
+    pub fn value<T: Send + Sync + 'static>(&self) -> std::sync::Arc<T> {
         self.0
             .as_leaf()
             .expect("a Leaf wraps a leaf node, by construction")
@@ -348,7 +349,7 @@ impl<T> Leaf<T> {
     /// (its hash commits an empty suffix, not the stored spine). The stored handle
     /// is reused when it is already bare; otherwise a fresh prefix-free
     /// leaf is built around the same message handle.
-    pub(crate) fn into_node(self) -> Node<T> {
+    pub(crate) fn into_node(self) -> Node {
         if self.0.inner.prefix.is_empty() {
             return self.0;
         }
@@ -361,10 +362,10 @@ impl<T> Leaf<T> {
     }
 }
 
-impl<T, P: Polarity> RangeOwned<T, P> {
+impl<P: Polarity> RangeOwned<P> {
     /// Walk the leaves of the (possibly absent) height-32 root `node`
     /// whose versions the causal `query` admits.
-    pub(crate) fn root(node: Option<Node<T>>, query: Query<'static, P>) -> Self {
+    pub(crate) fn root(node: Option<Node>, query: Query<'static, P>) -> Self {
         Self::within(node, &[], query)
     }
 
@@ -375,7 +376,7 @@ impl<T, P: Polarity> RangeOwned<T, P> {
     /// each leaf still reconstructs a full 32-byte
     /// 32-byte path. `path.len()` plus the height of
     /// `node` must therefore be 32.
-    pub(crate) fn within(node: Option<Node<T>>, path: &[u8], query: Query<'static, P>) -> Self {
+    pub(crate) fn within(node: Option<Node>, path: &[u8], query: Query<'static, P>) -> Self {
         let mut buf = ArrayVec::new();
         buf.extend_from_slice(path);
         Self {
@@ -391,7 +392,7 @@ impl<T, P: Polarity> RangeOwned<T, P> {
 
     /// Advance to the next passing leaf. The same classification as the
     /// borrowing walk, with the leaf handed out by value.
-    pub(crate) fn next(&mut self) -> Option<([u8; 32], Leaf<T>)> {
+    pub(crate) fn next(&mut self) -> Option<([u8; 32], Leaf)> {
         loop {
             // Obtain the next unvisited node — the initial root, or the next
             // child at the deepest spine level, ascending past exhausted

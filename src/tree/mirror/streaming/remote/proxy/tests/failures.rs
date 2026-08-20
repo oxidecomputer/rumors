@@ -53,13 +53,13 @@ fn injected<E>(error: &RemoteError<E>) -> Option<InjectedIo> {
 }
 
 /// A deterministic pair whose proxy backends perform real conversion work.
-fn stacked_pair() -> (crate::tree::Root<()>, crate::tree::Root<()>) {
-    let mut left = Tree::new();
+fn stacked_pair() -> (crate::tree::Root, crate::tree::Root) {
+    let mut left = Tree::<()>::new();
     left.act(
         &nth_party(0),
         (0..8).map(|_| Action::Insert(Message::new(()))),
     );
-    let mut right = Tree::new();
+    let mut right = Tree::<()>::new();
     right.act(
         &nth_party(1),
         (0..8).map(|_| Action::Insert(Message::new(()))),

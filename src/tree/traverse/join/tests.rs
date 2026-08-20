@@ -12,11 +12,11 @@ use crate::tree::{Root, Tree};
 
 /// Drives the local-local mirror directly: the oracle that `Tree::join`
 /// must match.
-fn mirror_merge(a: Root<()>, b: Root<()>) -> Root<()> {
+fn mirror_merge(a: Root, b: Root) -> Root {
     pollster::block_on(async {
         let l = local::Exchange::start(a);
         let r = local::Exchange::start(b);
-        match mirror(l, r).await {
+        match mirror::<_, _, ()>(l, r).await {
             Ok((merged, _)) => merged,
             Err(e) => panic!("honest oracle endpoints speak no violations: {e}"),
         }
@@ -24,9 +24,9 @@ fn mirror_merge(a: Root<()>, b: Root<()>) -> Root<()> {
 }
 
 /// Merges via `Tree::join`.
-fn join_tree(a: Root<()>, b: Root<()>) -> Root<()> {
-    let mut a = Tree { root: a };
-    a.join(Tree { root: b });
+fn join_tree(a: Root, b: Root) -> Root {
+    let mut a = Tree::<()>::from_root(a);
+    a.join(Tree::from_root(b));
     a.root
 }
 

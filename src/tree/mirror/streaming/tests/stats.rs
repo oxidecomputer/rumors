@@ -40,9 +40,9 @@ use super::fixtures::LeafOrder;
 /// harness pins the walk's counters (disputes, gains, sheds) and the
 /// window grant.
 fn mirror_with_stats<T: Send + Sync + 'static>(
-    a: Root<T>,
-    b: Root<T>,
-) -> (Root<T>, Root<T>, SessionStats, SessionStats) {
+    a: Root,
+    b: Root,
+) -> (Root, Root, SessionStats, SessionStats) {
     let (a, b): (StreamingRoot<Local, T>, StreamingRoot<Local, T>) = (a.into(), b.into());
     let a_recorder = Recorder::default();
     let b_recorder = Recorder::default();
@@ -64,7 +64,7 @@ fn mirror_with_stats<T: Send + Sync + 'static>(
 }
 
 /// The live-leaf count of a tree root, for conservation checks.
-fn live(root: &Root<()>) -> u64 {
+fn live(root: &Root) -> u64 {
     let root: StreamingRoot<Local, ()> = root.clone().into();
     root.len()
 }
@@ -72,7 +72,7 @@ fn live(root: &Root<()>) -> u64 {
 /// Whether `a` wins the initiator election against `b`, mirroring the
 /// session's role election (the smaller exchanged set initiates,
 /// canonical version bytes break ties).
-fn a_initiates(a: &Root<()>, b: &Root<()>) -> bool {
+fn a_initiates(a: &Root, b: &Root) -> bool {
     let (a, b): (StreamingRoot<Local, ()>, StreamingRoot<Local, ()>) =
         (a.clone().into(), b.clone().into());
     initiates(a.len(), &a.ceiling, b.len(), &b.ceiling)
@@ -139,7 +139,7 @@ fn arb_cells() -> impl Strategy<Value = Vec<Vec<u8>>> {
 fn equal_trees_report_zero_stats() {
     let node = grown(None, 0, 1, &(), &[path_at(&[0x11]), path_at(&[0x22])]);
     let (a, b) = (rooted(node.clone()), rooted(node));
-    let (ours, theirs, a_stats, b_stats) = mirror_with_stats(a, b);
+    let (ours, theirs, a_stats, b_stats) = mirror_with_stats::<()>(a, b);
     assert_eq!(ours, theirs, "equal endpoints stay equal");
     assert_eq!(a_stats, SessionStats::default());
     assert_eq!(b_stats, SessionStats::default());
@@ -160,7 +160,7 @@ fn pyramid_disputes_match_the_prefix_closure() {
     let b_before = live(&b);
     let a_leads = a_initiates(&a, &b);
 
-    let (ours, theirs, a_stats, b_stats) = mirror_with_stats(a, b);
+    let (ours, theirs, a_stats, b_stats) = mirror_with_stats::<()>(a, b);
     assert_eq!(ours, theirs, "endpoints converge");
 
     let by_depth = expected_disputes_by_depth(&cells);
@@ -202,7 +202,7 @@ fn pyramid_disputes_match_the_prefix_closure() {
 #[test]
 fn honored_redaction_counts_as_shed() {
     let (a, b, expected) = leaf_parent_redaction_pair();
-    let (ours, theirs, a_stats, b_stats) = mirror_with_stats(a, b);
+    let (ours, theirs, a_stats, b_stats) = mirror_with_stats::<()>(a, b);
     assert_eq!(ours, expected, "the redacted leaf survives nowhere");
     assert_eq!(theirs, expected);
 
@@ -239,7 +239,7 @@ proptest! {
         let equal = a_before == 0 && b_before == 0;
         let a_leads = !equal && a_initiates(&a, &b);
 
-        let (ours, theirs, a_stats, b_stats) = mirror_with_stats(a, b);
+        let (ours, theirs, a_stats, b_stats) = mirror_with_stats::<()>(a, b);
         prop_assert_eq!(&ours, &theirs);
 
         let by_depth = expected_disputes_by_depth(&cells);

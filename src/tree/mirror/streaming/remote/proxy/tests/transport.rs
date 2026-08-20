@@ -24,12 +24,12 @@ fn plan(read_chunk: usize, write_chunk: usize, delays: Vec<u8>, hold_until_flush
 /// protocol.
 #[test]
 fn flush_only_one_byte_transport_reconciles() {
-    let mut left = Tree::new();
+    let mut left = Tree::<()>::new();
     left.act(
         &nth_party(0),
         (0..8).map(|_| Action::Insert(Message::new(()))),
     );
-    let mut right = Tree::new();
+    let mut right = Tree::<()>::new();
     right.act(
         &nth_party(1),
         (0..8).map(|_| Action::Insert(Message::new(()))),

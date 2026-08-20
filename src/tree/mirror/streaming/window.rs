@@ -151,7 +151,7 @@ const KEY_DEPTH: usize = 32;
 /// pointer-class node handles; a backend whose `Node` demands a wider
 /// layout pads the real slots beyond this constant and owes that padding
 /// to its own `node_bytes` price.
-const REFERENCE_SLOT_BYTES: usize = std::mem::size_of::<(u8, typed::Node<(), Z>)>()
+const REFERENCE_SLOT_BYTES: usize = std::mem::size_of::<(u8, typed::Node<Z>)>()
     + std::mem::size_of::<(u8, Resolve<<Local as Backend<()>>::Erased>)>()
     + std::mem::size_of::<(u8, typed::Hash)>();
 
@@ -172,8 +172,8 @@ const LEAF_REQUEST_BYTES: usize = 40;
 /// whose `Node<Z>` demands wider alignment pads the real slot beyond
 /// `node_bytes + FAN_SLOT_BYTES` and owes that padding to its own
 /// `node_bytes` price.
-const FAN_SLOT_BYTES: usize = std::mem::size_of::<(Prefix<Z>, typed::Node<(), Z>)>()
-    - std::mem::size_of::<typed::Node<(), Z>>();
+const FAN_SLOT_BYTES: usize =
+    std::mem::size_of::<(Prefix<Z>, typed::Node<Z>)>() - std::mem::size_of::<typed::Node<Z>>();
 
 /// Worst-case bytes the decode fans of one session keep resident, under
 /// the in-memory backend's pricing.
@@ -189,7 +189,7 @@ const FAN_SLOT_BYTES: usize = std::mem::size_of::<(Prefix<Z>, typed::Node<(), Z>
 /// docs quote.
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) const SUPPLY_DECODE_ENVELOPE_BYTES: usize =
-    STREAM_COUNT * (FAN + 1) * (std::mem::size_of::<typed::Node<(), Z>>() + FAN_SLOT_BYTES);
+    STREAM_COUNT * (FAN + 1) * (std::mem::size_of::<typed::Node<Z>>() + FAN_SLOT_BYTES);
 
 /// The specification link's bandwidth-delay product, in bytes: 12.5 MB,
 /// where the two spec links coincide.

@@ -47,7 +47,8 @@ pub trait Backend<T: Send + Sync + 'static>: Clone + Send + Sync + 'static
 where
     Self::Node<Z>: Leaf<T>,
 {
-    /// The type of nodes carrying messages of type `T`, indexed by height `H`.
+    /// The type of nodes, indexed by height `H`; leaf payloads are
+    /// erased in storage and decode as `T` at the wire boundary.
     type Node<H: Height>: Node<T, Height = H, Backend = Self> + Clone + Send + 'static;
 
     /// One runtime representation shared by every height's

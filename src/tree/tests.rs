@@ -310,7 +310,7 @@ proptest! {
         prop_assert_eq!(joined.hash(), direct.hash());
 
         // The canonical bulk construction over the sorted live leaf set.
-        let mut entries: Vec<([u8; 32], Option<untyped::Node<Bytes>>)> = direct
+        let mut entries: Vec<([u8; 32], Option<untyped::Node>)> = direct
             .iter()
             .map(|(version, value)| {
                 (
@@ -881,8 +881,8 @@ proptest! {
         end_sel in any::<prop::sample::Index>(),
         form in 0usize..12,
     ) {
-        let tree = Tree { root: a };
-        let other = Tree { root: b };
+        let tree = Tree::from_root(a);
+        let other = Tree::<()>::from_root(b);
 
         // Bound candidates spanning the partial order's relationships to the
         // walked tree: its own leaf versions and ceiling (dominated/equal),
@@ -922,7 +922,7 @@ proptest! {
             let mut frozen = tree.range_owned(query);
             let mut thawed = Vec::new();
             while let Some((_, leaf)) = frozen.next() {
-                thawed.push((leaf.version().clone(), leaf.value().clone()));
+                thawed.push((leaf.version().clone(), leaf.value::<()>()));
             }
             prop_assert_eq!(&thawed, &naive, "the frozen walk must equal the naive filter");
             Ok(())
@@ -962,7 +962,7 @@ proptest! {
         root in crate::tree::arb::arb_tree_root(0, 0..24),
         flip in any::<prop::sample::Index>(),
     ) {
-        let tree = Tree { root };
+        let tree = Tree::<()>::from_root(root);
 
         let forward: Vec<_> = tree.iter().map(owned).collect();
         prop_assert_eq!(tree.iter().len(), forward.len());
@@ -1174,9 +1174,9 @@ proptest! {
     fn join_changed_flag_tracks_the_root_hash(
         (a, b) in crate::tree::arb::arb_divergent_pair(),
     ) {
-        let mut tree = Tree { root: a };
+        let mut tree = Tree::<()>::from_root(a);
         let before = tree.hash();
-        let changed = tree.join(Tree { root: b });
+        let changed = tree.join(Tree::from_root(b));
         prop_assert_eq!(changed, tree.hash() != before);
     }
 
@@ -1192,9 +1192,9 @@ proptest! {
     fn join_changed_flag_tracks_the_root_hash_at_depth(
         (a, b) in crate::tree::arb::arb_deep_divergent_pair(),
     ) {
-        let mut tree = Tree { root: a };
+        let mut tree = Tree::<()>::from_root(a);
         let before = tree.hash();
-        let changed = tree.join(Tree { root: b });
+        let changed = tree.join(Tree::from_root(b));
         prop_assert_eq!(changed, tree.hash() != before);
     }
 }
@@ -1211,18 +1211,18 @@ fn deep_divergent_join_changed_flag_is_exact() {
     // Gain in both directions.
     let (a, b, expected) = crate::tree::arb::leaf_parent_dispute_pair();
     for (receiver, counter) in [(a.clone(), b.clone()), (b, a.clone())] {
-        let mut tree = Tree { root: receiver };
+        let mut tree = Tree::<()>::from_root(receiver);
         let before = tree.hash();
-        let changed = tree.join(Tree { root: counter });
+        let changed = tree.join(Tree::from_root(counter));
         assert_eq!(changed, tree.hash() != before, "deep gain is biconditional");
         assert!(changed, "a deep gain must report changed");
     }
 
     // The deep no-op: the receiver already holds everything the
     // counterparty has, so the full-depth divergent descent nets nothing.
-    let mut tree = Tree { root: expected };
+    let mut tree = Tree::<()>::from_root(expected);
     let before = tree.hash();
-    let changed = tree.join(Tree { root: a });
+    let changed = tree.join(Tree::from_root(a));
     assert_eq!(
         changed,
         tree.hash() != before,
@@ -1232,9 +1232,9 @@ fn deep_divergent_join_changed_flag_is_exact() {
 
     // Deletion honoring at depth.
     let (a, b, _survivor) = crate::tree::arb::leaf_parent_redaction_pair();
-    let mut tree = Tree { root: a };
+    let mut tree = Tree::<()>::from_root(a);
     let before = tree.hash();
-    let changed = tree.join(Tree { root: b });
+    let changed = tree.join(Tree::from_root(b));
     assert_eq!(
         changed,
         tree.hash() != before,
@@ -1303,9 +1303,9 @@ fn act_changed_flag_is_conservative_only_in_a_poisoned_store() {
     let (receiver, poisoned, key, escaped) = super::arb::uncontained_supply_pair();
     let receiver_party = super::arb::nth_party(0);
 
-    let mut tree = Tree { root: receiver };
+    let mut tree = Tree::<()>::from_root(receiver);
     assert!(
-        tree.join(Tree { root: poisoned }),
+        tree.join(Tree::from_root(poisoned)),
         "planting the escaped leaf is a real change",
     );
 
@@ -1344,8 +1344,8 @@ fn escaped_version_defeats_redaction_in_a_poisoned_store() {
 
     // Plant the escaped leaf by in-memory join: `Tree::join` is a local
     // merge, not wire ingestion, so no session tripwire guards it.
-    let mut tree = Tree { root: receiver };
-    tree.join(Tree { root: poisoned });
+    let mut tree = Tree::from_root(receiver);
+    tree.join(Tree::from_root(poisoned));
     assert!(
         tree.get(&escaped).is_some(),
         "the join plants the escaped leaf"

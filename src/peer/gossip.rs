@@ -269,7 +269,7 @@ impl<T> Peer<T, NoBookmark> {
             #[allow(clippy::type_complexity)]
             let reconcile: BoxFuture<
                 '_,
-                Result<Option<(tree::Root<T>, DynRead<'a>, DynWrite<'a>)>, Error>,
+                Result<Option<(tree::Root, DynRead<'a>, DynWrite<'a>)>, Error>,
             > = match config.protocol {
                 Protocol::V2 => Box::pin(async move {
                     let local_root: streaming::Root<Local, T> = tree::Root::default().into();
@@ -312,7 +312,7 @@ impl<T> Peer<T, NoBookmark> {
                 #[cfg(any(test, feature = "protocol-v1"))]
                 Protocol::V1 => Box::pin(async move {
                     let local = alternating_local::Exchange::start(tree::Root::default());
-                    let proxy = alternating_remote::Exchange::start(
+                    let proxy = alternating_remote::Exchange::<T, _, _, _, _>::start(
                         FrameRead::new(read),
                         FrameWrite::new(write),
                     );
@@ -351,7 +351,7 @@ impl<T> Peer<T, NoBookmark> {
                 run_budget: config.run_budget,
                 inner: watch::Sender::new(Inner {
                     party: Some(party),
-                    tree: Tree { root },
+                    tree: Tree::from_root(root),
                 }),
                 bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
             };
@@ -741,13 +741,14 @@ impl<T, B: Persist> Peer<T, B> {
         #[allow(clippy::type_complexity)]
         let reconcile: BoxFuture<
             '_,
-            Result<(tree::Root<T>, DynRead<'a>, DynWrite<'a>), Error>,
+            Result<(tree::Root, DynRead<'a>, DynWrite<'a>), Error>,
         > = match self.protocol {
             Protocol::V2 => Box::pin(async move {
-                let local = materialized::Handshaking::start(Local, prior_tree.root.into())
-                    .window(window)
-                    .target_message_size(run_budget.bytes() as u64)
-                    .stats(session_stats.clone());
+                let local =
+                    materialized::Handshaking::<_, T, _>::start(Local, prior_tree.root.into())
+                        .window(window)
+                        .target_message_size(run_budget.bytes() as u64)
+                        .stats(session_stats.clone());
                 let carrier = Link::for_session(read, write, connector, acceptor, epoch);
                 let proxy = streaming_remote::Handshaking::start(Local, carrier)
                     .window(window)
@@ -771,7 +772,7 @@ impl<T, B: Persist> Peer<T, B> {
             #[cfg(any(test, feature = "protocol-v1"))]
             Protocol::V1 => Box::pin(async move {
                 let local = alternating_local::Exchange::start(prior_tree.root);
-                let proxy = alternating_remote::Exchange::start(
+                let proxy = alternating_remote::Exchange::<T, _, _, _, _>::start(
                     FrameRead::new(read),
                     FrameWrite::new(write),
                 );
@@ -861,7 +862,7 @@ impl<T, B: Persist> Peer<T, B> {
         // The reconciled tree's frontier is the converged version: what both
         // replicas hold the instant this commits, *before* the join below
         // mixes in any commits that ran concurrently with the session.
-        let merged = Tree { root };
+        let merged = Tree::from_root(root);
         let converged = merged.latest().clone();
         let mut party_overlap = false;
         self.inner.send_if_modified(|inner| {

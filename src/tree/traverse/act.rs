@@ -21,8 +21,11 @@ pub enum Action {
 /// existed observes nothing, which is what lets the caller join versions only
 /// for actions that changed the tree.
 ///
-/// `actions` is consumed lazily: the only materialization is the radix sort
-/// at each branch level, so callers can feed a `map` chain straight in.
+/// `actions` arrives materialized, and the walk's signature is deliberately
+/// monomorphic — a concrete `Vec` and a `&mut dyn FnMut` observer — so the
+/// entire per-height apply tower compiles once, into this crate: a generic
+/// entry would re-instantiate all of it (radix grouping included) in every
+/// downstream crate that applies a batch.
 ///
 /// # Panics
 ///
@@ -33,16 +36,11 @@ pub enum Action {
 /// party linearity keeps regions disjoint), and no wire-derived leaf
 /// passes through this walk — so the panic marks a bug in this crate,
 /// never an environmental failure.
-pub fn act<T, F, I>(
-    node: Option<Node<T, Root>>,
-    actions: I,
-    mut on_action: F,
-) -> Option<Node<T, Root>>
-where
-    T: Send + Sync,
-    F: FnMut(&Version),
-    I: IntoIterator<Item = (Path, Version, Action)>,
-{
+pub fn act(
+    node: Option<Node<Root>>,
+    actions: Vec<(Path, Version, Action)>,
+    on_action: &mut dyn FnMut(&Version),
+) -> Option<Node<Root>> {
     // Test-only unwind source for the panic-atomicity pins: this walk is
     // the unwind-source region of `Tree::react`'s commit section, and its entry
     // burns the first fuse step (each branch-level step below burns one
@@ -50,7 +48,7 @@ where
     #[cfg(test)]
     crate::tree::panic_injection::fire_if_armed();
 
-    Act::act(node, actions, &mut on_action)
+    Act::act(node, actions, &mut |v| on_action(v))
 }
 
 /// The inductive step of the batch-apply, implemented per [`Height`]: the
@@ -61,13 +59,8 @@ where
 /// (synchronous) call one height down (always instantiated at `I = Vec<…>`,
 /// the per-radix group the branch level collects).
 pub trait Act: Height {
-    fn act<T, F, I>(
-        node: Option<Node<T, Self>>,
-        actions: I,
-        on_action: &mut F,
-    ) -> Option<Node<T, Self>>
+    fn act<F, I>(node: Option<Node<Self>>, actions: I, on_action: &mut F) -> Option<Node<Self>>
     where
-        T: Send + Sync,
         F: FnMut(&Version),
         I: IntoIterator<Item = (Path<Self>, Version, Action)>;
 }
@@ -76,13 +69,8 @@ impl<H: Act> Act for S<H>
 where
     S<H>: Height,
 {
-    fn act<T, F, I>(
-        node: Option<Node<T, S<H>>>,
-        actions: I,
-        on_action: &mut F,
-    ) -> Option<Node<T, S<H>>>
+    fn act<F, I>(node: Option<Node<S<H>>>, actions: I, on_action: &mut F) -> Option<Node<S<H>>>
     where
-        T: Send + Sync,
         F: FnMut(&Version),
         I: IntoIterator<Item = (Path<Self>, Version, Action)>,
     {
@@ -112,15 +100,10 @@ where
         // map exploded from the node
         let mut updated: Vec<_> = Vec::new();
         for (radix, group) in &by_radix {
-            // This collect is load-bearing: it type-erases the group before
-            // the recursion. `Act` is instantiated once per `Height` level,
-            // so a lazy iterator here would weave this level's iterator type
-            // (closures capturing `I` and all) into the next level's `I`; the
-            // type compounds across all 32 levels and monomorphization
-            // explodes at codegen — tens of GiB of rustc memory in every
-            // downstream crate that links this one. `Vec` resets `I` to the
-            // same flat type at every level. It also lets the short-circuit
-            // below inspect the actions without consuming them.
+            // Materialize the group: the recursion takes each level's
+            // actions as a concrete `Vec` (the monomorphic signature the
+            // once-compiled tower rests on), and the short-circuit below
+            // inspects the actions without consuming them.
             let actions: Vec<_> = group
                 .map(|(_, path, version, action)| (path, version, action))
                 .collect();
@@ -148,13 +131,8 @@ where
 }
 
 impl Act for Z {
-    fn act<T, F, I>(
-        mut node: Option<Node<T, Self>>,
-        actions: I,
-        on_action: &mut F,
-    ) -> Option<Node<T, Z>>
+    fn act<F, I>(mut node: Option<Node<Self>>, actions: I, on_action: &mut F) -> Option<Node<Z>>
     where
-        T: Send + Sync,
         F: FnMut(&Version),
         I: IntoIterator<Item = (Path<Self>, Version, Action)>,
     {

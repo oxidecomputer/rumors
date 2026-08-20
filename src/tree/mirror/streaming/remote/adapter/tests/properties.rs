@@ -58,7 +58,7 @@ impl PositionalCase {
 
 /// Exercise an adapter law at one concrete type-level reply height.
 trait AdapterHeight: Convert {
-    fn node(leaf: &LeafCase) -> typed::Node<u64, Self>;
+    fn node(leaf: &LeafCase) -> typed::Node<Self>;
 
     fn supplied_leaf_is_lossless(
         leaf: &LeafCase,
@@ -95,7 +95,7 @@ trait AdapterHeight: Convert {
 }
 
 impl AdapterHeight for Z {
-    fn node(leaf: &LeafCase) -> typed::Node<u64, Self> {
+    fn node(leaf: &LeafCase) -> typed::Node<Self> {
         typed::Node::leaf(leaf.version.clone(), leaf.message.clone())
     }
 
@@ -353,7 +353,7 @@ where
     S<H>: Convert,
     S<S<H>>: Height,
 {
-    fn node(leaf: &LeafCase) -> typed::Node<u64, Self> {
+    fn node(leaf: &LeafCase) -> typed::Node<Self> {
         let path: [u8; 32] = leaf.path().into();
         typed::Node::beneath(H::node(leaf), path[31 - H::HEIGHT])
     }
@@ -667,7 +667,7 @@ fn mixed_reply<H: Height>(
     query_listing: &[(u8, Hash)],
     supply_at: usize,
     supply_radix: u8,
-    supply: typed::Node<u64, H>,
+    supply: typed::Node<H>,
 ) -> Reply<ErasedU64> {
     let mut supply = Some(<Local as Backend<u64>>::erase(supply));
     let mut replies = Vec::with_capacity(case.radixes.len() + 1);
@@ -820,11 +820,14 @@ where
 {
     let prefix = Prefix::<H>::containing(&expected_leaf.path());
     let leaves = runtime.block_on(async {
-        Local
-            .leaves(prefix, <Local as Backend<u64>>::assume::<H>(node.clone()))
-            .try_collect::<Vec<_>>()
-            .await
-            .expect("the local backend is infallible")
+        <Local as Backend<u64>>::leaves(
+            Local,
+            prefix,
+            <Local as Backend<u64>>::assume::<H>(node.clone()),
+        )
+        .try_collect::<Vec<_>>()
+        .await
+        .expect("the local backend is infallible")
     });
     prop_assert_eq!(leaves.len(), 1, "height {}", H::HEIGHT);
     let (actual_prefix, actual_leaf) = &leaves[0];

@@ -220,8 +220,9 @@ mod tests {
     use super::*;
     use crate::message::Message;
     use crate::tree::arb::nth_party;
+    use crate::tree::typed::Node;
     use crate::tree::typed::height::Z;
-    use crate::tree::typed::{Node, Prefix};
+    use crate::tree::typed::node::DecodeNode;
 
     /// Every wire atom round-trips through `to_vec`/`from_slice`, alone
     /// and composed: the version and message as CBOR values, the node's
@@ -245,20 +246,14 @@ mod tests {
         let back = Message::from_reader::<(), _>(&mut enc.as_slice()).unwrap();
         assert_eq!(back.as_slice(), m.as_slice());
 
-        let leaf: Node<(), Z> = Node::leaf(version.clone(), Message::new(()));
+        let leaf: Node<Z> = Node::leaf(version.clone(), Message::new(()));
         let enc = to_vec(&leaf).unwrap();
-        let back: Node<(), Z> = from_slice(&enc).unwrap();
+        let mut input = enc.as_slice();
+        let back = Z::read_node::<(), _>(&mut input).unwrap();
+        assert!(
+            input.is_empty(),
+            "the node decode consumes exactly its bytes"
+        );
         assert_eq!(back.hash(), leaf.hash());
-
-        let pair: Vec<(Prefix<Z>, Node<(), Z>)> = vec![(
-            Prefix::from(<[u8; 32]>::from(crate::tree::typed::Path::for_leaf(
-                &version,
-            ))),
-            leaf.clone(),
-        )];
-        let enc = to_vec(&pair).unwrap();
-        let back: Vec<(Prefix<Z>, Node<(), Z>)> = from_slice(&enc).unwrap();
-        assert_eq!(back.len(), 1);
-        assert_eq!(back[0].1.hash(), leaf.hash());
     }
 }

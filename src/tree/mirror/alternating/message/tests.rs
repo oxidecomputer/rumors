@@ -18,7 +18,7 @@ use crate::Version;
 use crate::message::Message;
 use crate::tree::arb::{arb_root_node, arb_version, nth_party};
 use crate::tree::typed::height::{Height, Root, S, Z};
-use crate::tree::typed::{Hash, Node, Prefix, hash::MERKLE_HASH_LEN};
+use crate::tree::typed::{Hash, Node, Prefix, hash::MERKLE_HASH_LEN, node::DecodeNode};
 use crate::tree::wire;
 
 use super as message;
@@ -39,7 +39,7 @@ fn arb_hash() -> BoxedStrategy<Hash> {
     any::<[u8; MERKLE_HASH_LEN]>().prop_map(Hash).boxed()
 }
 
-fn arb_leaf() -> BoxedStrategy<Node<(), Z>> {
+fn arb_leaf() -> BoxedStrategy<Node<Z>> {
     arb_version()
         .prop_map(|version| Node::leaf(version, Message::new(())))
         .boxed()
@@ -47,9 +47,7 @@ fn arb_leaf() -> BoxedStrategy<Node<(), Z>> {
 
 /// Sort and deduplicate `(prefix, node)` entries into the canonical ascending
 /// `Vec` the `providing` channel expects.
-fn canonical_providing<H: Height>(
-    entries: Vec<(Prefix<H>, Node<(), H>)>,
-) -> Vec<(Prefix<H>, Node<(), H>)> {
+fn canonical_providing<H: Height>(entries: Vec<(Prefix<H>, Node<H>)>) -> Vec<(Prefix<H>, Node<H>)> {
     entries
         .into_iter()
         .collect::<BTreeMap<_, _>>()
@@ -124,6 +122,7 @@ proptest! {
             providing: providing.clone(),
             requested: requested.clone(),
             uncertain: uncertain.clone(),
+            payload: std::marker::PhantomData,
         };
         let bytes = wire::to_vec(&m).unwrap();
         let decoded =
@@ -145,6 +144,7 @@ proptest! {
         let m: message::Closing<()> = message::Closing {
             providing: providing.clone(),
             requested: requested.clone(),
+            payload: std::marker::PhantomData,
         };
         let bytes = wire::to_vec(&m).unwrap();
         let decoded = wire::from_slice::<message::Closing<()>>(&bytes).unwrap();
@@ -159,7 +159,7 @@ proptest! {
         providing_entries in vec((arb_prefix::<Z>(), arb_leaf()), 0..=4),
     ) {
         let providing = canonical_providing(providing_entries);
-        let m: message::Complete<()> = message::Complete { providing: providing.clone() };
+        let m: message::Complete<()> = message::Complete { providing: providing.clone(), payload: std::marker::PhantomData };
         let bytes = wire::to_vec(&m).unwrap();
         let decoded = wire::from_slice::<message::Complete<()>>(&bytes).unwrap();
         prop_assert_eq!(decoded.providing, providing);
@@ -180,10 +180,24 @@ proptest! {
         let mut permuted = canonical.clone();
         permuted.rotate_left(rotate % canonical.len());
         prop_assume!(permuted != canonical);
-        let m = message::Complete::<()> { providing: permuted };
+        let m = message::Complete::<()> { providing: permuted, payload: std::marker::PhantomData };
         let bytes = wire::to_vec(&m).unwrap();
         prop_assert!(wire::from_slice::<message::Complete<()>>(&bytes).is_err());
     }
+}
+
+/// Decode one erased node at height `H` from an exact slice, rejecting
+/// trailing bytes: the test-side door to [`DecodeNode`], with unit payloads.
+fn node_from_slice<H: DecodeNode>(bytes: &[u8]) -> std::io::Result<Node<H>> {
+    let mut input = bytes;
+    let node = H::read_node::<(), _>(&mut input)?;
+    if !input.is_empty() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("{} trailing bytes after the decoded node", input.len()),
+        ));
+    }
+    Ok(node)
 }
 
 /// A single version, ticked once on a fixed party — enough to place one leaf.
@@ -202,6 +216,7 @@ fn providing_rejects_duplicate_prefix() {
     let leaf = Node::leaf(one_version(), Message::new(()));
     let m = message::Complete::<()> {
         providing: vec![(prefix, leaf.clone()), (prefix, leaf)],
+        payload: std::marker::PhantomData,
     };
     let bytes = wire::to_vec(&m).unwrap();
     assert!(wire::from_slice::<message::Complete<()>>(&bytes).is_err());
@@ -216,6 +231,7 @@ fn requested_rejects_descending_order() {
             prefix_from_bytes::<Z>(&[2u8; 32]),
             prefix_from_bytes::<Z>(&[1u8; 32]),
         ],
+        payload: std::marker::PhantomData,
     };
     let bytes = wire::to_vec(&m).unwrap();
     assert!(wire::from_slice::<message::Closing<()>>(&bytes).is_err());
@@ -248,7 +264,7 @@ fn uncertain_rejects_duplicate_prefix() {
 /// past the leaf floor.
 #[test]
 fn node_prefix_exceeding_height_is_rejected() {
-    let error = wire::from_slice::<Node<(), S<Z>>>(&[2]).unwrap_err();
+    let error = node_from_slice::<S<Z>>(&[2]).unwrap_err();
     assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
 }
 
@@ -260,7 +276,7 @@ fn node_prefix_exceeding_height_is_rejected() {
 /// cannot all be placed.
 #[test]
 fn node_child_count_overflow_is_rejected() {
-    let error = wire::from_slice::<Node<(), S<Z>>>(&[0, 255]).unwrap_err();
+    let error = node_from_slice::<S<Z>>(&[0, 255]).unwrap_err();
     assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
 }
 
@@ -271,7 +287,7 @@ fn node_child_count_overflow_is_rejected() {
 /// (`InvalidData`) rather than let one branch have two encodings.
 #[test]
 fn node_descending_radices_are_rejected() {
-    let leaf = wire::to_vec(&Node::<(), Z>::leaf(one_version(), Message::new(()))).unwrap();
+    let leaf = wire::to_vec(&Node::<Z>::leaf(one_version(), Message::new(()))).unwrap();
     // prefix_len 0, count_minus_two 0 (two children), radix 5, its leaf,
     // then a second radix that does not ascend.
     let mut bytes = vec![0, 0, 5];
@@ -279,6 +295,6 @@ fn node_descending_radices_are_rejected() {
     bytes.push(5);
     bytes.extend_from_slice(&leaf);
 
-    let error = wire::from_slice::<Node<(), S<Z>>>(&bytes).unwrap_err();
+    let error = node_from_slice::<S<Z>>(&bytes).unwrap_err();
     assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
 }

@@ -26,7 +26,7 @@ use crate::tree::{
 };
 
 /// One erased opening node over the unit payload.
-fn erased(node: typed::Node<(), UnderRoot>) -> <Local as Backend<()>>::Erased {
+fn erased(node: typed::Node<UnderRoot>) -> <Local as Backend<()>>::Erased {
     <Local as Backend<()>>::erase(node)
 }
 
@@ -36,11 +36,11 @@ use super::{
 };
 
 trait OpeningNode: Height {
-    fn node() -> typed::Node<(), Self>;
+    fn node() -> typed::Node<Self>;
 }
 
 impl OpeningNode for Z {
-    fn node() -> typed::Node<(), Self> {
+    fn node() -> typed::Node<Self> {
         typed::Node::leaf(Version::new(), Message::new(()))
     }
 }
@@ -49,7 +49,7 @@ impl<H: OpeningNode> OpeningNode for S<H>
 where
     S<H>: Height,
 {
-    fn node() -> typed::Node<(), Self> {
+    fn node() -> typed::Node<Self> {
         typed::Node::beneath(H::node(), 0)
     }
 }

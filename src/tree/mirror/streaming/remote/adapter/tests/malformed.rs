@@ -115,7 +115,7 @@ fn an_unpositioned_match_is_rejected_in_both_directions() {
         replies: vec![Reaction::Match, Reaction::Match],
     };
     let encode_error = runtime().block_on(async {
-        encode_reply(
+        encode_reply::<_, u64>(
             Local,
             RunBudget::default(),
             Scope::new(parent.erase(), &[(1, hash(1))]),
@@ -165,7 +165,7 @@ fn an_unpositioned_query_is_rejected_in_both_directions() {
         replies: vec![Reaction::Query(listing)],
     };
     let encode_error = runtime().block_on(async {
-        encode_reply(
+        encode_reply::<_, u64>(
             Local,
             RunBudget::default(),
             Scope::new(parent.erase(), &[]),
@@ -209,7 +209,7 @@ fn leaf_query_matrix_is_exhaustive() {
             } else {
                 None
             };
-            let expected_frame =
+            let expected_frame: Frame<u64> =
                 Frame::Reaction(WireReaction::Query(query_listing.clone()), Flow::End);
 
             let reply = Reply::<<Local as Backend<()>>::Erased> {
@@ -354,17 +354,17 @@ fn a_multi_leaf_run_is_one_supplied_subtree() {
             panic!("one leaf run must become one supplied node")
         };
         let supplied_prefix = Prefix::<UnderRoot>::containing(&leaves[0].2);
-        let rebuilt = Local
-            .leaves(
-                supplied_prefix,
-                <Local as Backend<u64>>::assume::<UnderRoot>(node.clone()),
-            )
-            .try_collect::<Vec<_>>()
-            .await
-            .expect("the local backend is infallible");
+        let rebuilt = <Local as Backend<u64>>::leaves(
+            Local,
+            supplied_prefix,
+            <Local as Backend<u64>>::assume::<UnderRoot>(node.clone()),
+        )
+        .try_collect::<Vec<_>>()
+        .await
+        .expect("the local backend is infallible");
         assert_eq!(rebuilt.len(), 2);
 
-        encode_reply(Local, RunBudget::default(), scope, decoded.reply)
+        encode_reply::<_, u64>(Local, RunBudget::default(), scope, decoded.reply)
             .map_ok(|encoded| encoded.into_parts().0)
             .try_collect::<Vec<_>>()
             .await

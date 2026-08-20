@@ -60,7 +60,7 @@ pub struct CausalMessages<T> {
     /// deterministic. Always the residue of a *single* ingest (a new pass
     /// opens only once this empties), whose range start was `checkpoint`
     /// and whose ceiling is `ingested`.
-    staged: BTreeMap<(Rank, Vec<u8>), Leaf<T>>,
+    staged: BTreeMap<(Rank, Vec<u8>), Leaf>,
 }
 
 impl<T> CausalMessages<T> {
@@ -83,7 +83,7 @@ impl<T> CausalMessages<T> {
     /// complete. The watch read guard lives only long enough to freeze the
     /// walk and capture the ceiling; the walk itself runs unlocked.
     fn ingest(
-        staged: &mut BTreeMap<(Rank, Vec<u8>), Leaf<T>>,
+        staged: &mut BTreeMap<(Rank, Vec<u8>), Leaf>,
         ingested: &mut Version,
         rx: &mut watch::Receiver<crate::Inner<T>>,
     ) where
@@ -160,7 +160,7 @@ impl<T: Send + Sync + 'static> Stream for CausalMessages<T> {
             // ingest, exactly as UnorderedMessages defers a drained pass's
             // ceiling.
             if let Some((_, leaf)) = this.staged.pop_first() {
-                return Poll::Ready(Some((leaf.version().clone(), leaf.value())));
+                return Poll::Ready(Some((leaf.version().clone(), leaf.value::<T>())));
             }
             match this.channel.as_mut().expect("channel state present") {
                 Channel::Waiting(wait) => match wait.as_mut().poll(cx) {

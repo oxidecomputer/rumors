@@ -53,9 +53,9 @@ pub type RightError = MirrorError<RemoteError<Infallible>, MaterializedError<Inf
 /// Both endpoint results and their physical-I/O observations.
 pub struct Outcome {
     /// The first materialized tree, or its session failure.
-    pub left: Result<TreeRoot<()>, LeftError>,
+    pub left: Result<TreeRoot, LeftError>,
     /// The second materialized tree, or its session failure.
-    pub right: Result<TreeRoot<()>, RightError>,
+    pub right: Result<TreeRoot, RightError>,
     /// I/O performed by the first proxy endpoint.
     pub left_io: IoReportHandle,
     /// I/O performed by the second proxy endpoint.
@@ -344,8 +344,8 @@ impl<R: AsyncRead + Unpin> AsyncRead for RewriteRead<R> {
 
 /// Reconcile one pair through two proxies over independently wrapped links.
 pub async fn reconcile(
-    left: TreeRoot<()>,
-    right: TreeRoot<()>,
+    left: TreeRoot,
+    right: TreeRoot,
     capacity: usize,
     left_plan: IoPlan,
     right_plan: IoPlan,
@@ -369,14 +369,11 @@ pub async fn reconcile(
 /// Runs under the default budget-derived window so the rewritten
 /// declarations flow into the live window solve, not a fixed test floor.
 pub async fn reconcile_rewritten_greetings(
-    left: TreeRoot<()>,
-    right: TreeRoot<()>,
+    left: TreeRoot,
+    right: TreeRoot,
     left_hears: Option<GreetingRewrite>,
     right_hears: Option<GreetingRewrite>,
-) -> (
-    Result<TreeRoot<()>, LeftError>,
-    Result<TreeRoot<()>, RightError>,
-) {
+) -> (Result<TreeRoot, LeftError>, Result<TreeRoot, RightError>) {
     let (left_link, right_link) = memory_with_capacity(TRANSPORT_CAPACITY);
     drive(
         left,
@@ -418,8 +415,8 @@ fn rewritten(
 /// initiates is a function of live counts and canonical version bytes,
 /// both of which move whenever the wire coding or a fixture's content
 /// addresses do.
-pub fn left_initiates(left: &TreeRoot<()>, right: &TreeRoot<()>) -> bool {
-    let len = |root: &TreeRoot<()>| {
+pub fn left_initiates(left: &TreeRoot, right: &TreeRoot) -> bool {
+    let len = |root: &TreeRoot| {
         root.root
             .as_ref()
             .map(|node| node.len() as u64)
@@ -435,14 +432,11 @@ pub fn left_initiates(left: &TreeRoot<()>, right: &TreeRoot<()>) -> bool {
 
 /// Reconcile while mutating at most one data-stream frame on each side.
 pub async fn reconcile_scripted(
-    left: TreeRoot<()>,
-    right: TreeRoot<()>,
+    left: TreeRoot,
+    right: TreeRoot,
     left_script: Option<Script>,
     right_script: Option<Script>,
-) -> (
-    Result<TreeRoot<()>, LeftError>,
-    Result<TreeRoot<()>, RightError>,
-) {
+) -> (Result<TreeRoot, LeftError>, Result<TreeRoot, RightError>) {
     let (left_link, right_link) = memory_with_capacity(TRANSPORT_CAPACITY);
     drive(
         left,
@@ -480,15 +474,12 @@ fn scripted(
 
 /// Drive the shared two-mirror topology over already-wrapped links.
 async fn drive<LR, LW, LC, LA, RR, RW, RC, RA>(
-    left: TreeRoot<()>,
-    right: TreeRoot<()>,
+    left: TreeRoot,
+    right: TreeRoot,
     left_link: Link<LR, LW, LC, LA>,
     right_link: Link<RR, RW, RC, RA>,
     window: WindowConfig,
-) -> (
-    Result<TreeRoot<()>, LeftError>,
-    Result<TreeRoot<()>, RightError>,
-)
+) -> (Result<TreeRoot, LeftError>, Result<TreeRoot, RightError>)
 where
     LR: AsyncRead + Unpin + Send,
     LW: AsyncWrite + Unpin + Send,
@@ -499,8 +490,8 @@ where
     RC: Connector,
     RA: Acceptor,
 {
-    let left = Handshaking::start(Local, Root::from(left)).window(window);
-    let right = Handshaking::start(Local, Root::from(right)).window(window);
+    let left = Handshaking::start(Local, Root::<Local, ()>::from(left)).window(window);
+    let right = Handshaking::start(Local, Root::<Local, ()>::from(right)).window(window);
     let remote_right = RemoteHandshaking::start(Local, left_link).window(window);
     let remote_left = RemoteHandshaking::start(Local, right_link).window(window);
     let (left, right) = join!(

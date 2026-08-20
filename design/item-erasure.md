@@ -179,6 +179,22 @@ security-relevant: payload validation stays exactly where it is
    walks yield erased leaves; `Rumors`/`Snapshot`/observer facades
    downcast at the door. The V1 oracle and the wire codecs sweep along.
    Measure.
+   *Measured*: `pairwise` at 719,899 lines / 30,285 copies, from
+   1,039,827 / 41,186 — −30.8% per consumer binary — after two moves:
+   the tree layers going non-generic (the `join`/`unknown` towers then
+   codegen once in the rlib: present in the lib's own measurement,
+   absent from the binary's), and the batch-apply entry going
+   *monomorphic* (`Vec` in, `&mut dyn FnMut` observer), because a
+   generic entry re-instantiated the whole per-height apply tower —
+   radix grouping included, ~155k lines — in every consumer despite
+   the payload erasure. The lib's own codegen grows 32,262 → ~102k:
+   the once-paid residence of what consumers stopped re-buying.
+   Measurement lens, corrected en route: `cargo llvm-lines` counts
+   only the named target's crate, so the per-binary number IS the
+   marginal cost, and substring attribution overcounts (session
+   workers' signatures mention tree type names). The residue is the
+   streaming session, still generic over `(B, T)` — stage 3's scope,
+   and where the trade's verdict lands.
 3. **The erased session**: `Backend<T>` drops `T`; the codec's record
    decode keeps the wire bytes and builds payloads through the witness;
    sessions receive the witness from the peer. Measure.

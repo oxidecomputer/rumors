@@ -38,12 +38,12 @@ use crate::{
 type Erased = <Local as Backend<()>>::Erased;
 
 /// Erase one typed leaf the way the walk's payloads carry it.
-fn erased(node: typed::Node<(), Z>) -> Erased {
+fn erased(node: typed::Node<Z>) -> Erased {
     <Local as Backend<()>>::erase(node)
 }
 
 /// A distinct leaf per call: the versions differ so hashes do.
-fn leaf(version: &mut Version) -> typed::Node<(), Z> {
+fn leaf(version: &mut Version) -> typed::Node<Z> {
     version.tick(&nth_party(0));
     typed::Node::leaf(version.clone(), Message::new(()))
 }
@@ -65,9 +65,10 @@ fn parent_prefix(parent: u8) -> Prefix<S<Z>> {
 /// Build the expected parent of a radix group directly through the backend.
 fn parent_of(
     prefix: Prefix<S<Z>>,
-    children: Vec<(u8, Option<typed::Node<(), Z>>)>,
-) -> Option<typed::Node<(), S<Z>>> {
-    pollster::block_on(Local.parent(prefix, children)).unwrap_or_else(|e| match e {})
+    children: Vec<(u8, Option<typed::Node<Z>>)>,
+) -> Option<typed::Node<S<Z>>> {
+    pollster::block_on(<Local as Backend<()>>::parent(Local, prefix, children))
+        .unwrap_or_else(|e| match e {})
 }
 
 type Item = Result<Resolution<Erased>, Error<Infallible>>;
@@ -224,9 +225,12 @@ fn chains_two_instances() {
 
     let inner = parent_of(parent_prefix(3), vec![(1, Some(a)), (7, Some(b))])
         .expect("a non-empty all-real group constructs its parent");
-    let expected =
-        pollster::block_on(Local.parent(parent_prefix(3).pop().0, vec![(3, Some(inner))]))
-            .unwrap_or_else(|e| match e {});
+    let expected = pollster::block_on(<Local as Backend<()>>::parent(
+        Local,
+        parent_prefix(3).pop().0,
+        vec![(3, Some(inner))],
+    ))
+    .unwrap_or_else(|e| match e {});
     assert_eq!(
         output
             .into_iter()

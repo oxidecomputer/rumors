@@ -32,19 +32,14 @@ use super::Unknown;
 /// suite additionally asserts the pruned trees match.
 trait TwoPass: Height {
     /// The two-check spelling of [`Unknown::unknown`] at this height.
-    fn unknown<T>(node: Option<Node<T, Self>>, known: &Version) -> Option<Node<T, Self>>
-    where
-        T: Send + Sync;
+    fn unknown(node: Option<Node<Self>>, known: &Version) -> Option<Node<Self>>;
 }
 
 impl<H: TwoPass> TwoPass for S<H>
 where
     S<H>: Height,
 {
-    fn unknown<T>(node: Option<Node<T, Self>>, known: &Version) -> Option<Node<T, Self>>
-    where
-        T: Send + Sync,
-    {
+    fn unknown(node: Option<Node<Self>>, known: &Version) -> Option<Node<Self>> {
         let node = node?;
         // Check one: a floor the known version does not contain
         // (concurrent with or above `known`) is a wholly unknown subtree.
@@ -70,10 +65,7 @@ where
 }
 
 impl TwoPass for Z {
-    fn unknown<T>(node: Option<Node<T, Self>>, known: &Version) -> Option<Node<T, Self>>
-    where
-        T: Send + Sync,
-    {
+    fn unknown(node: Option<Node<Self>>, known: &Version) -> Option<Node<Self>> {
         let node = node?;
         if causally::before(known).contains(node.ceiling()) {
             return None;
@@ -93,7 +85,7 @@ impl TwoPass for Z {
 fn wide_divergence(
     known_leaves: usize,
     divergent_leaves: usize,
-) -> (Option<typed::node::Root<()>>, Version) {
+) -> (Option<typed::node::Root>, Version) {
     let mut actions: Vec<(Path, Version, Action)> = Vec::new();
     let mut known = Version::new();
 
@@ -111,7 +103,7 @@ fn wide_divergence(
         }
     }
 
-    (act(None, actions, |_| ()), known)
+    (act(None, actions, &mut |_| ()), known)
 }
 
 /// `body`'s result with its scanned-bits reading, on a fresh counter.
