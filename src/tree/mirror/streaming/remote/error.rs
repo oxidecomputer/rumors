@@ -5,7 +5,9 @@
 //! re-exported here so a caller can match a failure down to its precise cause
 //! without depending on the private implementation modules.
 
-pub use super::adapter::{DecodeError, EncodeError, OpeningError, ScopeError};
+pub use super::adapter::{
+    DecodeError as ReplyDecodeError, EncodeError as ReplyEncodeError, OpeningError, ScopeError,
+};
 pub use super::codec::{
     DecodeError as CodecDecodeError, DecodeErrorKind as CodecDecodeErrorKind, DecodeLeafError,
     DecodeSignalError, EncodeError as CodecEncodeError, EncodeErrorKind as CodecEncodeErrorKind,

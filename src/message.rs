@@ -161,10 +161,10 @@ pub enum EncodeError {
 /// The depth case stays typed end to end so send-side admission can
 /// surface it as [`EncodeError::Depth`] without string matching; wire
 /// ingress folds both cases back into the `io::Error` its surface
-/// speaks ([`Message::from_wire`]). The name mirrors [`EncodeError`],
-/// its send-side counterpart.
+/// speaks ([`Message::from_wire`]). The decode-side counterpart of
+/// [`EncodeError`].
 #[derive(Debug)]
-pub(crate) enum DecodeError {
+pub(crate) enum PayloadDecodeError {
     /// The payload's decode recursed past the given limit (the decode
     /// engine's recursion-limit error, preserved as a variant).
     Depth(PayloadDepthLimit),
@@ -173,16 +173,16 @@ pub(crate) enum DecodeError {
     Io(io::Error),
 }
 
-impl DecodeError {
+impl PayloadDecodeError {
     /// Fold into `io::Error`, the wire-ingress surface: the depth case
     /// becomes invalid data naming the exceeded limit.
     fn into_io(self) -> io::Error {
         match self {
-            DecodeError::Depth(limit) => io::Error::new(
+            PayloadDecodeError::Depth(limit) => io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!("message payload nests deeper than the payload depth limit ({limit})"),
             ),
-            DecodeError::Io(error) => error,
+            PayloadDecodeError::Io(error) => error,
         }
     }
 }
@@ -196,7 +196,7 @@ pub(crate) type PayloadSerializer =
 /// value, bounding the decode's recursion at the given depth limit; the
 /// deserializing half of a [`PayloadCodec`].
 pub(crate) type PayloadDeserializer =
-    fn(&[u8], PayloadDepthLimit) -> Result<Arc<dyn Any + Send + Sync>, DecodeError>;
+    fn(&[u8], PayloadDepthLimit) -> Result<Arc<dyn Any + Send + Sync>, PayloadDecodeError>;
 
 /// A peer's payload codec: the typed payload boundary minted once at
 /// [`Peer`](crate::Peer) construction and carried by every session.
@@ -274,7 +274,10 @@ impl PayloadCodec {
 
     /// Decode one exact CBOR payload encoding into a type-erased payload
     /// value, bounded at the carried depth limit.
-    pub(crate) fn decode(&self, bytes: &[u8]) -> Result<Arc<dyn Any + Send + Sync>, DecodeError> {
+    pub(crate) fn decode(
+        &self,
+        bytes: &[u8],
+    ) -> Result<Arc<dyn Any + Send + Sync>, PayloadDecodeError> {
         (self.deserialize)(bytes, self.limit)
     }
 }
@@ -314,16 +317,16 @@ fn to_vec<T: Serialize>(value: &T) -> Vec<u8> {
 fn decode_exact<T: DeserializeOwned>(
     bytes: &[u8],
     limit: PayloadDepthLimit,
-) -> Result<T, DecodeError> {
+) -> Result<T, PayloadDecodeError> {
     let mut input = bytes;
     let message: T =
         ciborium::de::from_reader_with_recursion_limit(&mut input, limit.recursion_limit())
             .map_err(|error| match error {
-                ciborium::de::Error::RecursionLimitExceeded => DecodeError::Depth(limit),
-                error => DecodeError::Io(de_error(error)),
+                ciborium::de::Error::RecursionLimitExceeded => PayloadDecodeError::Depth(limit),
+                error => PayloadDecodeError::Io(de_error(error)),
             })?;
     if !input.is_empty() {
-        return Err(DecodeError::Io(io::Error::new(
+        return Err(PayloadDecodeError::Io(io::Error::new(
             io::ErrorKind::InvalidData,
             format!("{} trailing bytes after the message payload", input.len()),
         )));
@@ -408,8 +411,8 @@ impl Message {
         // limit.
         let decoded = match Self::deserializer::<T>()(&serialized, limit) {
             Ok(decoded) => decoded,
-            Err(DecodeError::Depth(limit)) => return Err(EncodeError::Depth { limit }),
-            Err(DecodeError::Io(source)) => return Err(EncodeError::Roundtrip(source)),
+            Err(PayloadDecodeError::Depth(limit)) => return Err(EncodeError::Depth { limit }),
+            Err(PayloadDecodeError::Io(source)) => return Err(EncodeError::Roundtrip(source)),
         };
         // Faithfulness: what a receiver reads must be the value that was
         // sent, judged by the payload type's own equality.
@@ -441,7 +444,7 @@ impl Message {
     where
         T: DeserializeOwned + Send + Sync + 'static,
     {
-        let message: T = decode_exact(bytes, limit).map_err(DecodeError::into_io)?;
+        let message: T = decode_exact(bytes, limit).map_err(PayloadDecodeError::into_io)?;
         Ok(Message {
             message: Arc::new(message),
             serialized: Bytes::copy_from_slice(bytes),
@@ -461,7 +464,7 @@ impl Message {
     /// fails here, at the wire boundary, as invalid data.
     pub(crate) fn from_wire(bytes: Bytes, codec: PayloadCodec) -> io::Result<Self> {
         Ok(Message {
-            message: codec.decode(&bytes).map_err(DecodeError::into_io)?,
+            message: codec.decode(&bytes).map_err(PayloadDecodeError::into_io)?,
             serialized: bytes,
         })
     }
@@ -484,7 +487,7 @@ impl Message {
         fn deserialize<T: DeserializeOwned + Send + Sync + 'static>(
             bytes: &[u8],
             limit: PayloadDepthLimit,
-        ) -> Result<Arc<dyn Any + Send + Sync>, DecodeError> {
+        ) -> Result<Arc<dyn Any + Send + Sync>, PayloadDecodeError> {
             let message: T = decode_exact(bytes, limit)?;
             Ok(Arc::new(message))
         }
@@ -502,7 +505,8 @@ impl Message {
     where
         T: DeserializeOwned + Send + Sync + 'static,
     {
-        let message: T = decode_exact(bytes.as_ref(), limit).map_err(DecodeError::into_io)?;
+        let message: T =
+            decode_exact(bytes.as_ref(), limit).map_err(PayloadDecodeError::into_io)?;
         Ok(Message {
             message: Arc::new(message),
             serialized: bytes,

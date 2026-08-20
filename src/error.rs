@@ -1,8 +1,9 @@
 //! Public failures from transport sessions and durable identity handling.
 //!
-//! You handle [`Error`]; everything else on this page is the diagnostic
-//! taxonomy reachable through [`Error::Mirror`], for matching and bug
-//! reports. Every session `Err` poisons its link (discard it and
+//! You handle [`Error`], and a send can return the local admission
+//! error [`EncodeError`] (also at the crate root); everything else on
+//! this page is the diagnostic taxonomy reachable through
+//! [`Error::Mirror`], for matching and bug reports. Every session `Err` poisons its link (discard it and
 //! reconnect, [`Error::LinkPoisoned`]), so the table below states what
 //! each variant means *beyond* that:
 //!
@@ -34,6 +35,7 @@ use crate::{
     tree::mirror::{self, handshake},
 };
 
+pub use crate::message::EncodeError;
 pub use crate::tree::mirror::handshake::PreambleDefect;
 pub use crate::tree::mirror::party::HandOffDefect;
 pub use crate::tree::mirror::streaming::materialized::{
@@ -41,10 +43,10 @@ pub use crate::tree::mirror::streaming::materialized::{
 };
 pub use crate::tree::mirror::streaming::remote::{
     AcceptError, CodecDecodeError, CodecDecodeErrorKind, CodecEncodeError, CodecEncodeErrorKind,
-    DecodeError, DecodeLeafError, DecodeSignalError, EncodeError, FramePart, GreetingError,
-    HeadError, InvalidSignalPlacement, InvalidWireSignal, LeafRunError, LengthOverflow,
-    ListingIssue, OpeningError, Origin, QueryOrderError, RemoteError, ReplyFrameError, ScopeError,
-    SendError, Speaker, Stream, StreamClass, StreamError,
+    DecodeLeafError, DecodeSignalError, FramePart, GreetingError, HeadError,
+    InvalidSignalPlacement, InvalidWireSignal, LeafRunError, LengthOverflow, ListingIssue,
+    OpeningError, Origin, QueryOrderError, RemoteError, ReplyDecodeError, ReplyEncodeError,
+    ReplyFrameError, ScopeError, SendError, Speaker, Stream, StreamClass, StreamError,
 };
 
 /// The concrete production mirror failure, retaining its detecting side.

@@ -91,7 +91,7 @@ pub struct Greeting {
     /// supplies is one its tree materializes, so it must encode within
     /// this bound, and a session that receives one over it fails with a
     /// typed violation
-    /// ([`DecodeError::OversizedVersion`](crate::tree::mirror::streaming::remote::DecodeError::OversizedVersion)).
+    /// ([`ReplyDecodeError::OversizedVersion`](crate::tree::mirror::streaming::remote::ReplyDecodeError::OversizedVersion)).
     pub max_version_bytes: u64,
     /// The sender's supply-run byte target
     /// ([`Peer::target_message_size`](crate::Peer::target_message_size)).

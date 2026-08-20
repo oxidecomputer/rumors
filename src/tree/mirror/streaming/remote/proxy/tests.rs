@@ -304,11 +304,11 @@ async fn reconcile_with_stacked_failures(
 
 /// Extract the injected backend operation from a proxy conversion failure.
 fn injected_operation(error: &ProxyFailure) -> Option<Operation> {
-    use crate::tree::mirror::streaming::remote::{DecodeError, EncodeError};
+    use crate::tree::mirror::streaming::remote::{ReplyDecodeError, ReplyEncodeError};
 
     match error {
-        RemoteError::Encode(EncodeError::Backend(Failure::Injected(operation)))
-        | RemoteError::Decode(DecodeError::Backend(Failure::Injected(operation))) => {
+        RemoteError::Encode(ReplyEncodeError::Backend(Failure::Injected(operation)))
+        | RemoteError::Decode(ReplyDecodeError::Backend(Failure::Injected(operation))) => {
             Some(*operation)
         }
         _ => None,

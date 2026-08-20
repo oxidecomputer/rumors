@@ -19,7 +19,7 @@ use crate::tree::{
         Error as MirrorError,
         streaming::{
             remote::{
-                CodecDecodeError, CodecDecodeErrorKind, DecodeError, Error as RemoteError,
+                CodecDecodeError, CodecDecodeErrorKind, Error as RemoteError, ReplyDecodeError,
                 StreamError,
             },
             window::FAN,
@@ -198,7 +198,7 @@ fn understated_version_bytes_fail_the_session() {
         };
         assert!(matches!(
             receiver_error,
-            RemoteError::Decode(DecodeError::OversizedVersion { declared: 0, .. })
+            RemoteError::Decode(ReplyDecodeError::OversizedVersion { declared: 0, .. })
         ));
         assert!(left.is_err());
         assert!(right.is_err());
@@ -262,7 +262,7 @@ fn understated_set_len_fails_the_session() {
         assert!(
             matches!(
                 receiver_error,
-                RemoteError::Decode(DecodeError::OverdrawnSupply { declared: 0 })
+                RemoteError::Decode(ReplyDecodeError::OverdrawnSupply { declared: 0 })
             ),
             "mistyped set_len violation: {receiver_error:?}",
         );
@@ -334,7 +334,7 @@ fn set_len_overrun_within_one_reply_fails_at_ingress() {
         assert!(
             matches!(
                 receiver_error,
-                RemoteError::Decode(DecodeError::OverdrawnSupply { declared: 1 })
+                RemoteError::Decode(ReplyDecodeError::OverdrawnSupply { declared: 1 })
             ),
             "mistyped within-one-reply set_len violation: {receiver_error:?}",
         );
