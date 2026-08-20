@@ -7,12 +7,12 @@
 //! lengths only, one spelling per value
 //! ([`cbor`](crate::tree::mirror::cbor)) — which is what keeps the
 //! byte-pinning snapshot discipline meaningful. Ingress validates
-//! structure and definite lengths everywhere; every head the codec
-//! hand-parses (frame heads, signals, listings, run and record framing)
-//! additionally rejects non-shortest spellings, while a record's version
-//! atom and application payload are decoded by a general CBOR reader that
-//! does not re-judge spelling — the atom's *content* canonicality is
-//! enforced by its own strict decoder.
+//! structure everywhere; every head the codec hand-parses additionally
+//! rejects indefinite lengths and non-shortest spellings, while the two
+//! positions a general CBOR reader decodes — a record's version atom
+//! (its byte-string head) and the application payload — judge neither
+//! spelling rule; the atom's *content* canonicality is enforced by its
+//! own strict decoder.
 //!
 //! The signal is an unsigned int carrying the dense `(frame state,
 //! stream)` code. There are ten frame states — four reaction forms, each

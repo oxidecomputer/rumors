@@ -473,6 +473,69 @@ fn widened_version_atom_head_is_not_spelling_judged() {
     assert_eq!(version, Version::new());
 }
 
+/// Pins the stated ingress boundary: the version atom's CBOR head is not
+/// spelling-judged, indefinite lengths included.
+///
+/// A record whose version byte string is spelled indefinite-length (one
+/// definite segment of the canonical content, then the break) still
+/// decodes. Flipping this to rejection is a deliberate contract change,
+/// not drift.
+#[test]
+fn indefinite_version_atom_head_is_not_spelling_judged() {
+    // The canonical atom bytes: ciborium serializes a version as a byte
+    // string whose one-byte head's low bits carry the length; strip that
+    // head to get the content alone.
+    let mut atom = Vec::new();
+    ciborium::ser::into_writer(&Version::new(), &mut atom).unwrap();
+    let content_bytes = &atom[1..];
+
+    let mut content = Vec::new();
+    cbor::write_head(&mut content, MAJOR_TAG, crate::tags::VERSION_TAG);
+    // The same bytes as an indefinite-length byte string: the start
+    // marker (major 2, additional info 31), one definite segment holding
+    // the canonical content, and the break.
+    content.push(0x5f);
+    cbor::write_head(&mut content, MAJOR_BSTR, content_bytes.len() as u64);
+    content.extend_from_slice(content_bytes);
+    content.push(0xff);
+    content.extend_from_slice(Message::new(0u64).as_slice());
+
+    let run = LeafRun::from_encoded(raw_record(&content)).unwrap();
+    let (version, _message) = run
+        .records(Message::deserializer::<u64>())
+        .next()
+        .unwrap()
+        .expect("an indefinite version-atom head decodes: spelling is not re-judged here");
+    assert_eq!(version, Version::new());
+}
+
+/// Pins the stated ingress boundary: the application payload is decoded
+/// by a general CBOR reader that does not judge spelling.
+///
+/// A record whose payload is the indefinite-length empty map (a spelling
+/// the emitter never writes) still decodes. Flipping this to rejection
+/// is a deliberate contract change, not drift.
+#[test]
+fn indefinite_payload_spelling_is_not_spelling_judged() {
+    let mut content = Vec::new();
+    cbor::write_head(&mut content, MAJOR_TAG, crate::tags::VERSION_TAG);
+    ciborium::ser::into_writer(&Version::new(), &mut content).unwrap();
+    // The indefinite-length empty map: start marker, then the break.
+    content.extend_from_slice(&[0xbf, 0xff]);
+
+    let run = LeafRun::from_encoded(raw_record(&content)).unwrap();
+    let (version, message) = run
+        .records(Message::deserializer::<ciborium::Value>())
+        .next()
+        .unwrap()
+        .expect("an indefinite-length payload decodes: spelling is not judged here");
+    assert_eq!(version, Version::new());
+    assert_eq!(
+        *message.arc::<ciborium::Value>(),
+        ciborium::Value::Map(Vec::new())
+    );
+}
+
 proptest! {
     /// Every adjacent non-ascending pair reports its values and origin.
     #[test]
