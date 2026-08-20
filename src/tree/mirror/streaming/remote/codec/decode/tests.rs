@@ -793,9 +793,9 @@ fn reader_errors_are_contextual() {
 /// The seeded offsets are one byte short of, exactly on, and one byte
 /// past each payload chunk boundary, plus the zero-byte, one-byte, and
 /// one-short-of-total cuts. The chunked body read preserves the typed
-/// truncation contract at every seam, and the zero- and one-byte cuts
-/// land inside the first record's heads, which the budget check reads
-/// out of the body ahead of the rest.
+/// truncation contract at every seam, the zero- and one-byte cuts
+/// exercising the earliest possible ones — where a record's leading
+/// heads would sit.
 #[test]
 fn supply_truncation_at_chunk_boundaries_is_typed() {
     use crate::tree::mirror::framing::{PAYLOAD_CHUNK_LEN, chunk_boundary_cuts};
