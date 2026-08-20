@@ -1,4 +1,15 @@
-//! Stable witnesses for every codec error reachable without resource exhaustion.
+//! Stable witnesses for every frame-stream codec error reachable without
+//! resource exhaustion.
+//!
+//! The scope is the frame stream's own taxonomies — the encode, decode,
+//! and record-iteration errors the `describe_*` matches below inventory.
+//! The codec's handshake-layer surface is witnessed where it lives:
+//! `GreetingError` in greeting/tests.rs, beside the greeting reader; and
+//! `ListingIssue`, which the frame decoder collapses into this taxonomy
+//! (witnessed here as `QueryOutOfOrder` and `Malformed(part=QueryChildren)`),
+//! carries its typed surface through the greeting, witnessed in the same
+//! suite. Both hold exemption entries below so a witness landing here is
+//! flagged for promotion.
 //!
 //! Coverage is enforced from both ends: every `describe_*` match below is
 //! wildcard-free, so a new error variant fails compilation until it is
@@ -60,9 +71,12 @@ const WITNESS_MARKERS: &[&str] = &[
     // DecodeLeafError (describe_leaf_kind).
     "kind: Record::Version(io=",
     "kind: Record::Message(io=",
-    // FramePart: every frame component must fail somewhere. These ride the
-    // encode Write witnesses; FramePart has no exhaustive match here, so a
-    // new component's marker must be added by hand alongside its witnesses.
+    // FramePart: every frame component must fail somewhere, whichever
+    // side witnesses it — the encode Write witnesses carry most parts,
+    // while Signal renders only from decode-side witnesses (the encoder
+    // never fails at the signal separately from the frame head). FramePart
+    // has no exhaustive match here, so a new component's marker must be
+    // added by hand alongside its witnesses.
     "part=FrameHead",
     "part=Signal",
     "part=QueryChildren",
@@ -70,14 +84,30 @@ const WITNESS_MARKERS: &[&str] = &[
     "part=SupplyRun",
 ];
 
-/// Variants deliberately absent from the atlas, each with the reason it is
-/// unreachable without resource exhaustion.
-const EXEMPT_MARKERS: &[(&str, &str)] = &[(
-    "kind: SupplyTooLarge(",
-    "requires a run body past the wire's run byte cap: a >4 GiB in-memory \
-     run is resource exhaustion by construction; the cap itself is pinned at \
-     its exact boundary in frame/tests.rs",
-)];
+/// Variants deliberately absent from the atlas, each with the reason —
+/// unreachable without resource exhaustion, or witnessed in another
+/// layer's own suite.
+const EXEMPT_MARKERS: &[(&str, &str)] = &[
+    (
+        "kind: SupplyTooLarge(",
+        "requires a run body past the wire's run byte cap: a >4 GiB in-memory \
+         run is resource exhaustion by construction; the cap itself is pinned \
+         at its exact boundary in frame/tests.rs",
+    ),
+    (
+        "kind: Greeting",
+        "GreetingError is the handshake layer's surface, not a frame-stream \
+         error: its variants are witnessed in greeting/tests.rs, beside the \
+         greeting reader",
+    ),
+    (
+        "kind: Listing",
+        "ListingIssue never surfaces from the frame decoders: they collapse \
+         it into QueryOutOfOrder and Malformed(part=QueryChildren), both \
+         witnessed here; its typed surface is the greeting's \
+         (GreetingError::Listing), witnessed in greeting/tests.rs",
+    ),
+];
 
 /// Interior stream used where both speakers admit every signal state.
 const INTERIOR_STREAM: u8 = 8;
@@ -93,7 +123,9 @@ fn one_record_run<T: Serialize + Send + Sync + 'static>(version: Version, value:
     run
 }
 
-/// Every feasible typed failure pins its origin, fields, and source chain.
+/// Every feasible typed failure pins its fields and source chain, and its
+/// origin where one exists (the record-level witnesses carry none;
+/// `record_errors` says why).
 #[test]
 fn codec_error_atlas_snapshot() {
     insta::assert_snapshot!(build_atlas());
@@ -108,7 +140,8 @@ fn atlas_covers_every_error_variant() {
         assert!(
             atlas.contains(marker),
             "no atlas witness renders {marker:?}: add a witness for the \
-             variant or an explicit exemption in EXEMPT_MARKERS",
+             variant, or move its marker out of WITNESS_MARKERS into a \
+             reasoned EXEMPT_MARKERS entry",
         );
     }
     for (marker, reason) in EXEMPT_MARKERS {
@@ -281,6 +314,25 @@ fn decode_errors(atlas: &mut String) {
         );
         let error = decode_exact(speaker, RunBudget::default(), &unordered).unwrap_err();
         record_decode(atlas, &format!("{speaker:?}/query-out-of-order"), &error);
+
+        // A listing whose first key is a well-formed head of the wrong
+        // kind (a byte string where a radix belongs) reaches the listing
+        // gate and collapses into this taxonomy as
+        // Malformed(part=QueryChildren).
+        let listing_signal = WireSignal::new(speaker, stream, Signal::Query(Flow::Continue))
+            .unwrap()
+            .to_byte();
+        let mut defective_listing = Vec::new();
+        cbor::write_head(&mut defective_listing, cbor::MAJOR_ARRAY, 2);
+        cbor::write_head(
+            &mut defective_listing,
+            cbor::MAJOR_UINT,
+            u64::from(listing_signal),
+        );
+        cbor::write_head(&mut defective_listing, cbor::MAJOR_MAP, 1);
+        cbor::write_head(&mut defective_listing, MAJOR_BSTR, 0);
+        let error = decode_exact(speaker, RunBudget::default(), &defective_listing).unwrap_err();
+        record_decode(atlas, &format!("{speaker:?}/query/listing-key"), &error);
 
         let error = decode_exact(
             speaker,

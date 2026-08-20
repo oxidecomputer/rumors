@@ -150,6 +150,11 @@ DECODE
     origin: Initiator stream 8
     kind: QueryOutOfOrder(previous=2, radix=1)
     source[0]: query child radix 1 does not follow 2 in ascending order
+  Initiator/query/listing-key
+    display: Initiator stream 8: frame's query child listing is malformed: listing key is not a radix
+    origin: Initiator stream 8
+    kind: Malformed(part=QueryChildren, listing key is not a radix)
+    source[0]: frame's query child listing is malformed: listing key is not a radix
   Initiator/run/empty
     display: Initiator stream 8: a supply run carries no leaf records
     origin: Initiator stream 8
@@ -267,6 +272,11 @@ DECODE
     origin: Responder stream 8
     kind: QueryOutOfOrder(previous=2, radix=1)
     source[0]: query child radix 1 does not follow 2 in ascending order
+  Responder/query/listing-key
+    display: Responder stream 8: frame's query child listing is malformed: listing key is not a radix
+    origin: Responder stream 8
+    kind: Malformed(part=QueryChildren, listing key is not a radix)
+    source[0]: frame's query child listing is malformed: listing key is not a radix
   Responder/run/empty
     display: Responder stream 8: a supply run carries no leaf records
     origin: Responder stream 8
