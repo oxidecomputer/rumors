@@ -30,7 +30,7 @@ fn staged(network: Network, intent: u8) -> Staged {
 fn prefix_matches_the_writers() {
     use crate::tree::mirror::cbor::{self, MAJOR_ARRAY, MAJOR_TEXT};
     let mut prefix = Vec::new();
-    cbor::write_tag(&mut prefix, 55799);
+    cbor::write_tag(&mut prefix, cbor::TAG_SELF_DESCRIBED);
     cbor::write_head(&mut prefix, MAJOR_ARRAY, 4);
     cbor::write_head(&mut prefix, MAJOR_TEXT, "rumors".len() as u64);
     prefix.extend_from_slice(b"rumors");

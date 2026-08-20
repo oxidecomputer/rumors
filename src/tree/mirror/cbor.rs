@@ -44,6 +44,13 @@ pub(crate) const TAG_EMBEDDED_ITEM: u64 = 24;
 
 /// Tag number for self-described CBOR (RFC 8949 §3.4.6): CBOR's own
 /// magic, opening the V2 preamble and the stored bookmark.
+///
+/// The production writers pin the tag's rendered bytes inside their prefix
+/// literals (the V2 preamble's prefix, the bookmark's opening bytes), each
+/// held to this constant by a committed pin test; the constant itself is
+/// consumed only by the test-gated capture renderer, so it carries the
+/// same gate.
+#[cfg(any(test, feature = "test-internals"))]
 pub(crate) const TAG_SELF_DESCRIBED: u64 = 55799;
 
 /// Bytes the shortest-form head for `value` occupies, any major type.

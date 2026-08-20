@@ -155,6 +155,17 @@ fn foreign_magic_is_rejected() {
     ));
 }
 
+/// The bookmark's opening literal is the self-described tag's one
+/// canonical spelling: the shared constant is the authority, and the
+/// pinned bytes cannot drift from the head writer's rendering of it.
+#[test]
+fn opening_literal_is_the_self_described_tag() {
+    use crate::tree::mirror::cbor;
+    let mut rendered = Vec::new();
+    cbor::write_tag(&mut rendered, cbor::TAG_SELF_DESCRIBED);
+    assert_eq!(rendered, SELF_DESCRIBED);
+}
+
 /// A frame declaring an unknown format version is rejected on the version
 /// alone — its hash is valid, so the rejection is
 /// [`FormatError::VersionMismatch`], never decoded under this build's

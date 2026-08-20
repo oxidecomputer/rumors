@@ -141,12 +141,18 @@ clippy:
 # features with warnings not denied, so without this leg that surface never
 # meets -D warnings anywhere). Each package is linted alone so workspace
 # feature unification cannot re-light the gated features.
+#
+# The bare-lib rumors line lints the shipped configuration on its own: an
+# invocation that also builds test targets compiles the lib with
+# cfg(test)-gated modules alive, so an item dead only in the default-feature
+# lib — the artifact users actually build — never surfaces there.
 
 # Lint the default-feature library and test builds, warnings denied.
 clippy-default:
     cargo clippy -p suanpan --lib --tests -- -D warnings
     cargo clippy -p before --lib --tests -- -D warnings
     cargo clippy -p rumors --lib --tests -- -D warnings
+    cargo clippy -p rumors --lib -- -D warnings
 
 # Format the whole workspace.
 fmt:
