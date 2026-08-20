@@ -12,6 +12,14 @@
 //! The evolution rules the crate documents ride the same mechanism and are
 //! pinned beside it: unknown fields are skipped, and missing fields error
 //! unless the field carries `#[serde(default)]`.
+//!
+//! The complement is pinned here too: payload bytes that do *not* decode
+//! as the receiving type fail the session cleanly — a decode error at the
+//! receiver's wire ingress, never a panic, moving nothing into its set.
+//! Ingress decodes every payload through the receiving peer's own
+//! deserializer, so no wire input can reach the typed-read downcast with
+//! a foreign payload; these tests are the committed demonstration of that
+//! claim.
 
 use serde::{Deserialize, Serialize};
 
@@ -137,6 +145,72 @@ async fn unknown_fields_are_skipped() {
     };
     let narrow: Narrow = exchanged(wide).await;
     assert_eq!(narrow, Narrow { id: 42 });
+}
+
+/// A payload that does not decode as the receiving type fails the session
+/// cleanly: bootstrapping a `Peer<u64>` from a `String`-payload donor
+/// returns an error — never a panic, and never a misconstructed peer.
+#[tokio::test]
+async fn undecodable_payload_fails_bootstrap_cleanly() {
+    let sender = Peer::<String>::seed().into_rumors();
+    sender.send("not a number".to_string());
+
+    let (mut near, mut far) = rumors::link::memory();
+    let serve = sender.clone();
+    let server = tokio::spawn(async move { serve.gossip(&mut far).await });
+
+    let joined = Peer::<u64>::bootstrap().join(&mut near).await;
+    assert!(joined.is_err(), "a String payload must not decode as u64");
+
+    // Drop the failed side's link so the donor sees the transport close
+    // (a peer that errored out of a session hangs up); its session then
+    // fails too — but only ever as an error, never a panic.
+    drop(near);
+    let _ = server.await.expect("the serving task must not panic");
+}
+
+/// An established cross-typed pair degrades cleanly at the first
+/// undecodable value: the receiving session fails as an error, never a
+/// panic, moving nothing into the receiver's set.
+///
+/// `u64` payloads that fit `u32` interoperate (the bootstrap here rides
+/// one); the first value that does not fit is the one that must fail.
+#[tokio::test]
+async fn out_of_range_payload_fails_gossip_cleanly() {
+    let sender = Peer::<u64>::seed().into_rumors();
+    sender.send(7u64);
+
+    let (mut near, mut far) = rumors::link::memory();
+    let serve = sender.clone();
+    let server = tokio::spawn(async move { serve.gossip(&mut far).await });
+    let receiver = Peer::<u32>::bootstrap()
+        .join(&mut near)
+        .await
+        .expect("in-range values decode across the pair")
+        .expect("the sender is established")
+        .into_rumors();
+    server
+        .await
+        .expect("the serving task must not panic")
+        .expect("the in-range session succeeds");
+
+    // A value only `u64` can hold: the next session must fail at the
+    // receiver's ingress. The sender's half fails too (its counterparty
+    // aborted), but only ever as an error.
+    sender.send(u64::MAX);
+    let (mut near, mut far) = rumors::link::memory();
+    let serve = sender.clone();
+    let server = tokio::spawn(async move { serve.gossip(&mut far).await });
+    let gossiped = receiver.gossip(&mut near).await;
+    assert!(gossiped.is_err(), "u64::MAX must not decode as u32");
+    // Hang up the failed side so the sender's half sees the transport
+    // close rather than blocking on an unread stream.
+    drop(near);
+    let _ = server.await.expect("the serving task must not panic");
+
+    let snapshot = receiver.snapshot();
+    let values: Vec<u32> = snapshot.iter().map(|(_, m)| *m).collect();
+    assert_eq!(values, vec![7u32], "a failed session moves nothing");
 }
 
 /// A missing field errors without `#[serde(default)]` and fills with it:

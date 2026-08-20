@@ -41,13 +41,12 @@ fn cbor_vec<T: Serialize>(value: &T) -> Vec<u8> {
 
 proptest! {
     /// After construction via `new`, the cached serialized bytes are exactly
-    /// the value's CBOR encoding, and the typed reads recover the value.
+    /// the value's CBOR encoding, and the typed read recovers the value.
     #[test]
     fn new_caches_cbor_serialization(p in payload()) {
         let m = Message::new(p.clone());
         let direct = cbor_vec(&p);
         prop_assert_eq!(m.bytes(), direct.as_slice());
-        prop_assert_eq!(m.message::<Payload>(), &p);
         prop_assert_eq!(&*m.arc::<Payload>(), &p);
     }
 
@@ -57,7 +56,7 @@ proptest! {
     fn from_slice_roundtrips(p in payload()) {
         let bytes = cbor_vec(&p);
         let m = Message::from_slice::<Payload>(&bytes).unwrap();
-        prop_assert_eq!(m.message::<Payload>(), &p);
+        prop_assert_eq!(&*m.arc::<Payload>(), &p);
         prop_assert_eq!(m.bytes(), bytes.as_slice());
     }
 
@@ -153,5 +152,5 @@ proptest! {
 #[should_panic(expected = "payload type matches")]
 fn mismatched_downcast_panics() {
     let m = Message::new(0u64);
-    let _ = m.message::<String>();
+    let _ = m.arc::<String>();
 }

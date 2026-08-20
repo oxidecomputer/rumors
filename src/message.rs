@@ -18,8 +18,8 @@ use serde::de::DeserializeOwned;
 /// they compile once, and only the thin typed facades at the crate's API
 /// boundary name `T`. Construction goes through the typed constructors
 /// ([`new`](Self::new), [`from_slice`](Self::from_slice), ...); reads at
-/// the typed boundary go through the checked downcasts
-/// ([`message`](Self::message), [`arc`](Self::arc)).
+/// the typed boundary go through the checked downcast
+/// ([`arc`](Self::arc)).
 ///
 /// The cache avoids repeated roundtrips through serialization: a `Message`
 /// always carries the exact CBOR bytes its payload was encoded to or
@@ -46,8 +46,8 @@ use serde::de::DeserializeOwned;
 /// example `std::path::PathBuf`, which errors on non-UTF-8 paths) violate
 /// that obligation and must not be used as message types.
 ///
-/// The typed reads panic on a payload type mismatch; see
-/// [`message`](Self::message).
+/// The typed read panics on a payload type mismatch; see
+/// [`arc`](Self::arc).
 #[derive(Clone)]
 pub struct Message {
     message: Arc<dyn Any + Send + Sync>,
@@ -221,7 +221,8 @@ impl Message {
         Self::from_wire(Bytes::from(bytes), deserializer)
     }
 
-    /// Borrows the payload as its concrete type.
+    /// Clones out an owned handle to the payload: a reference bump on the
+    /// same shared allocation.
     ///
     /// # Panics
     ///
@@ -230,18 +231,6 @@ impl Message {
     /// constructed with that facade's payload type — local sends through
     /// the same `Peer`'s type, wire ingress through its typed decode —
     /// so no gossip input can place a differently-typed payload here.
-    pub fn message<T: 'static>(&self) -> &T {
-        self.message
-            .downcast_ref::<T>()
-            .expect("a message's payload type matches its tree's")
-    }
-
-    /// Clones out an owned handle to the payload: a reference bump on the
-    /// same shared allocation.
-    ///
-    /// # Panics
-    ///
-    /// If the payload is not a `T` (see [`message`](Self::message)).
     pub fn arc<T: Send + Sync + 'static>(&self) -> Arc<T> {
         self.message
             .clone()

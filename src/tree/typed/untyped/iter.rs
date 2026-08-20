@@ -334,7 +334,7 @@ impl Leaf {
     ///
     /// # Panics
     ///
-    /// If the payload is not a `T` (see [`Message::message`]).
+    /// If the payload is not a `T` (see [`Message::arc`]).
     pub fn value<T: Send + Sync + 'static>(&self) -> std::sync::Arc<T> {
         self.0
             .as_leaf()
