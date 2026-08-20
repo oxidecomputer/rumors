@@ -22,10 +22,12 @@
 //! byte streams cannot render identically. Wherever the walk cannot
 //! vouch for that inversion — non-canonical heads, invalid UTF-8,
 //! embedded content that does not fill its byte string, or nesting past
-//! the renderer's depth bound — the subtree falls back to an explicit
-//! failure line above its exact bytes as hex, which is injective
-//! trivially. Byte counts on item and stream headers come from the
-//! transport capture, so totals stay exact.
+//! the renderer's depth bound (one budget spanning the whole walk:
+//! structural descent and embedded-byte-string unfolds draw it down
+//! together) — the subtree falls back to an explicit failure line above
+//! its exact bytes as hex, which is injective trivially. Byte counts on
+//! item and stream headers come from the transport capture, so totals
+//! stay exact.
 //!
 //! # Where the bytes come from
 //!
@@ -269,7 +271,7 @@ fn render_frame(speaker: Speaker, stream: Stream, item: &[u8], out: &mut String)
     while !rest.is_empty() {
         let remaining = rest;
         match parse_node(&mut rest, 0) {
-            Ok(node) => render_node(&node, naming, "      ", out),
+            Ok(node) => render_node(&node, naming, "      ", 0, out),
             Err(reason) => {
                 fallback(remaining, &reason, "      ", out);
                 rest = &[];
@@ -283,7 +285,7 @@ fn render_frame(speaker: Speaker, stream: Stream, item: &[u8], out: &mut String)
 fn render_item(item: &[u8], indent: &str, out: &mut String) {
     let mut rest = item;
     match parse_node(&mut rest, 0) {
-        Ok(node) if rest.is_empty() => render_node(&node, Naming::Plain, indent, out),
+        Ok(node) if rest.is_empty() => render_node(&node, Naming::Plain, indent, 0, out),
         Ok(_) => panic!("captured control item carries trailing bytes"),
         Err(reason) => panic!("captured control item is not canonical CBOR: {reason}"),
     }
@@ -324,6 +326,11 @@ enum Node {
 
 /// Nesting past this bound falls back to exact hex: the walk never
 /// recurses on unbounded input-controlled depth.
+///
+/// One budget spans the whole walk — an embedded byte string's content
+/// re-parses at the depth already consumed above it, never at a fresh
+/// zero — so structural descent and embedded unfolds are bounded
+/// together.
 const MAX_DEPTH: usize = 64;
 
 /// Parse one canonical item off the front of `input`.
@@ -429,9 +436,21 @@ fn take<'a>(input: &mut &'a [u8], len: u64) -> Result<&'a [u8], String> {
 }
 
 /// Render one node at `indent`, one line per scalar or bracket.
-fn render_node(node: &Node, naming: Naming, indent: &str, out: &mut String) {
+///
+/// `depth` is the walk's one nesting budget, shared with
+/// [`parse_node`]: it counts structural levels descended since the
+/// walk's entry point, and an embedded byte string's content re-parses
+/// at the depth already consumed above it, so structural descent and
+/// embedded unfolds are bounded by [`MAX_DEPTH`] together. Invariant
+/// every `render_*` call site preserves: the `depth` passed is no
+/// greater than the depth its node was parsed at — so a node in hand
+/// always fits the remaining budget, and only [`parse_node`] need
+/// check the bound.
+fn render_node(node: &Node, naming: Naming, indent: &str, depth: usize, out: &mut String) {
     match node {
-        Node::Map(entries) if naming == Naming::Listing => render_listing(entries, indent, out),
+        Node::Map(entries) if naming == Naming::Listing => {
+            render_listing(entries, indent, depth, out);
+        }
         Node::Map(entries) => {
             writeln!(out, "{indent}{{").unwrap();
             for (key, value) in entries {
@@ -447,7 +466,7 @@ fn render_node(node: &Node, naming: Naming, indent: &str, out: &mut String) {
                     None => {
                         writeln!(out, "{indent}  {key} =>").unwrap();
                         let deeper = format!("{indent}    ");
-                        render_node(value, value_naming, &deeper, out);
+                        render_node(value, value_naming, &deeper, depth + 1, out);
                     }
                 }
             }
@@ -457,11 +476,11 @@ fn render_node(node: &Node, naming: Naming, indent: &str, out: &mut String) {
             writeln!(out, "{indent}[").unwrap();
             let deeper = format!("{indent}  ");
             for item in items {
-                render_node(item, Naming::Plain, &deeper, out);
+                render_node(item, Naming::Plain, &deeper, depth + 1, out);
             }
             writeln!(out, "{indent}]").unwrap();
         }
-        Node::Tag(number, content) => render_tag(*number, content, naming, indent, out),
+        Node::Tag(number, content) => render_tag(*number, content, naming, indent, depth + 1, out),
         scalar_node => {
             let text = scalar(scalar_node).expect("non-container nodes render inline");
             writeln!(out, "{indent}{text}").unwrap();
@@ -472,7 +491,7 @@ fn render_node(node: &Node, naming: Naming, indent: &str, out: &mut String) {
 /// Render a `{radix => digest}` listing map: hex radix keys, digest
 /// annotations, and an explicit order verdict when the wire's
 /// strictly-ascending canonical form is violated.
-fn render_listing(entries: &[(Node, Node)], indent: &str, out: &mut String) {
+fn render_listing(entries: &[(Node, Node)], indent: &str, depth: usize, out: &mut String) {
     let ascending = entries
         .windows(2)
         .all(|pair| match (&pair[0].0, &pair[1].0) {
@@ -510,7 +529,7 @@ fn render_listing(entries: &[(Node, Node)], indent: &str, out: &mut String) {
                 None => {
                     writeln!(out, "{indent}  {key} =>").unwrap();
                     let deeper = format!("{indent}    ");
-                    render_node(other, Naming::Plain, &deeper, out);
+                    render_node(other, Naming::Plain, &deeper, depth + 1, out);
                 }
             },
         }
@@ -520,7 +539,17 @@ fn render_listing(entries: &[(Node, Node)], indent: &str, out: &mut String) {
 
 /// Render one tagged node, unfolding embedded byte strings and
 /// annotating the tags the protocol names.
-fn render_tag(number: u64, content: &Node, naming: Naming, indent: &str, out: &mut String) {
+///
+/// `depth` is the tag's *content* depth — the caller already counted
+/// the tag's own structural level — and passes through unchanged.
+fn render_tag(
+    number: u64,
+    content: &Node,
+    naming: Naming,
+    indent: &str,
+    depth: usize,
+    out: &mut String,
+) {
     match (number, content) {
         (TAG_CBOR_SEQUENCE, Node::Bytes(bytes)) => {
             let (name, inner) = match naming {
@@ -528,10 +557,10 @@ fn render_tag(number: u64, content: &Node, naming: Naming, indent: &str, out: &m
                 Naming::Record => ("record", Naming::Plain),
                 _ => ("embedded sequence", Naming::Plain),
             };
-            render_embedded_as(number, name, inner, bytes, indent, out);
+            render_embedded_as(number, name, inner, bytes, indent, depth, out);
         }
         (TAG_EMBEDDED_ITEM, Node::Bytes(bytes)) => {
-            render_embedded(number, "embedded item", bytes, indent, out);
+            render_embedded(number, "embedded item", bytes, indent, depth, out);
         }
         (crate::tags::VERSION_TAG, Node::Bytes(bytes)) => {
             let meaning = match Version::decode(&bytes[..]) {
@@ -554,7 +583,7 @@ fn render_tag(number: u64, content: &Node, naming: Naming, indent: &str, out: &m
         (cbor::TAG_SELF_DESCRIBED, _) => {
             writeln!(out, "{indent}{number}( / self-described CBOR /").unwrap();
             let deeper = format!("{indent}  ");
-            render_node(content, naming, &deeper, out);
+            render_node(content, naming, &deeper, depth, out);
             writeln!(out, "{indent})").unwrap();
         }
         (_, scalar_content) if scalar(scalar_content).is_some() => {
@@ -564,7 +593,7 @@ fn render_tag(number: u64, content: &Node, naming: Naming, indent: &str, out: &m
         _ => {
             writeln!(out, "{indent}{number}(").unwrap();
             let deeper = format!("{indent}  ");
-            render_node(content, naming, &deeper, out);
+            render_node(content, naming, &deeper, depth, out);
             writeln!(out, "{indent})").unwrap();
         }
     }
@@ -572,26 +601,39 @@ fn render_tag(number: u64, content: &Node, naming: Naming, indent: &str, out: &m
 
 /// Unfold one embedded byte string (tag 24 or 63) as its parsed
 /// item sequence, falling back to exact hex when the content is not
-/// wholly canonical CBOR.
-fn render_embedded(number: u64, name: &str, bytes: &[u8], indent: &str, out: &mut String) {
-    render_embedded_as(number, name, Naming::Plain, bytes, indent, out);
+/// wholly canonical CBOR or when the walk's depth budget is spent.
+fn render_embedded(
+    number: u64,
+    name: &str,
+    bytes: &[u8],
+    indent: &str,
+    depth: usize,
+    out: &mut String,
+) {
+    render_embedded_as(number, name, Naming::Plain, bytes, indent, depth, out);
 }
 
 /// [`render_embedded`], with the naming context the unfolded items
 /// render under (a supply run's items are records).
+///
+/// The content re-parses at `depth` — the budget already consumed
+/// above this byte string — so a chain of embedded byte strings draws
+/// down the same [`MAX_DEPTH`] bound as structural nesting, and spends
+/// it here as the too-deep fallback.
 fn render_embedded_as(
     number: u64,
     name: &str,
     inner: Naming,
     bytes: &[u8],
     indent: &str,
+    depth: usize,
     out: &mut String,
 ) {
     let mut items = Vec::new();
     let mut rest = bytes;
     let mut failure = None;
     while !rest.is_empty() {
-        match parse_node(&mut rest, 0) {
+        match parse_node(&mut rest, depth) {
             Ok(node) => items.push(node),
             Err(reason) => {
                 failure = Some(reason);
@@ -629,7 +671,7 @@ fn render_embedded_as(
     .unwrap();
     let deeper = format!("{indent}  ");
     for item in &items {
-        render_node(item, inner, &deeper, out);
+        render_node(item, inner, &deeper, depth, out);
     }
     writeln!(out, "{indent}>>)").unwrap();
 }

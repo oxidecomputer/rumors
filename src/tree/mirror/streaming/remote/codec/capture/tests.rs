@@ -14,7 +14,9 @@ use crate::message::Message;
 use crate::tree::typed::Hash;
 use crate::tree::typed::hash::MERKLE_HASH_LEN;
 
-use super::super::frame::{LeafRun, write_listing};
+use super::super::encode::encode;
+use super::super::frame::{Frame, LeafRun, Reaction, write_listing};
+use super::super::signal::Flow;
 
 /// Render one embedded run (the supply body's tag-63 content) to lines.
 fn run_lines(run: &LeafRun) -> Vec<String> {
@@ -24,6 +26,7 @@ fn run_lines(run: &LeafRun) -> Vec<String> {
         "embedded sequence",
         run.as_bytes(),
         "",
+        0,
         &mut out,
     );
     out.lines().map(str::to_string).collect()
@@ -72,6 +75,7 @@ fn undecodable_embedded_content_falls_back_explicitly_to_hex() {
         "embedded sequence",
         &garbage,
         "",
+        0,
         &mut out,
     );
     assert!(
@@ -92,7 +96,7 @@ fn embedded_item_with_two_items_falls_back() {
     cbor::write_head(&mut bytes, MAJOR_UINT, 1);
     cbor::write_head(&mut bytes, MAJOR_UINT, 2);
     let mut out = String::new();
-    render_embedded(TAG_EMBEDDED_ITEM, "embedded item", &bytes, "", &mut out);
+    render_embedded(TAG_EMBEDDED_ITEM, "embedded item", &bytes, "", 0, &mut out);
     assert!(out.contains("holds 2 items"), "{out}");
     assert!(out.contains("!! not rendered as CBOR"), "{out}");
 }
@@ -112,7 +116,7 @@ fn listing_renders_children_with_digest_annotations() {
     let mut input = bytes.as_slice();
     let node = parse_node(&mut input, 0).expect("the codec writes canonical listings");
     let mut out = String::new();
-    render_node(&node, Naming::Listing, "", &mut out);
+    render_node(&node, Naming::Listing, "", 0, &mut out);
     assert!(out.contains("/ listing: 2 child(ren) /"), "{out}");
     assert!(
         out.contains(&format!(
@@ -146,7 +150,7 @@ fn descending_listing_renders_an_order_verdict() {
     let mut input = bytes.as_slice();
     let node = parse_node(&mut input, 0).expect("heads are canonical; order is not");
     let mut out = String::new();
-    render_node(&node, Naming::Listing, "", &mut out);
+    render_node(&node, Naming::Listing, "", 0, &mut out);
     assert!(out.contains("NON-CANONICAL ORDER"), "{out}");
     assert!(out.contains("0xf =>"), "first entry renders: {out}");
     assert!(out.contains("0x0 =>"), "second entry renders: {out}");
@@ -163,7 +167,7 @@ fn garbage_version_atom_annotates_undecodable() {
     let mut input = bytes.as_slice();
     let node = parse_node(&mut input, 0).expect("the wrapper is canonical");
     let mut out = String::new();
-    render_node(&node, Naming::Plain, "", &mut out);
+    render_node(&node, Naming::Plain, "", 0, &mut out);
     assert!(out.contains("version undecodable"), "{out}");
     assert!(out.contains("h'ffffff'"), "the atom bytes stand: {out}");
 }
@@ -239,4 +243,83 @@ fn nesting_past_the_depth_bound_falls_back() {
     let mut input = bytes.as_slice();
     let error = parse_node(&mut input, 0).expect_err("too deep to vouch for");
     assert!(error.contains("deeper than"), "{error}");
+}
+
+/// Build a chain of `levels` nested embedded byte strings — each level
+/// one tag-24 item wrapping the next level's encoding as a byte
+/// string — bottoming out at a single `0x00` uint.
+///
+/// Written outside-in: encoded lengths follow the recurrence
+/// `len[0] = 1` (the innermost uint) and
+/// `len[i + 1] = tag head (2 bytes) + byte-string head + len[i]`, so
+/// every head is computed before any byte is emitted and the build is
+/// linear in the output size.
+fn embedded_chain(levels: usize) -> Vec<u8> {
+    let mut lens = vec![1_usize];
+    for _ in 0..levels {
+        let inner = *lens.last().expect("the list starts nonempty");
+        lens.push(2 + cbor::head_len(inner as u64) + inner);
+    }
+    let mut bytes = Vec::with_capacity(lens[levels]);
+    for &len in lens[..levels].iter().rev() {
+        cbor::write_tag(&mut bytes, TAG_EMBEDDED_ITEM);
+        cbor::write_head(&mut bytes, MAJOR_BSTR, len as u64);
+    }
+    cbor::write_head(&mut bytes, MAJOR_UINT, 0);
+    bytes
+}
+
+/// The rendered output carries the depth fallback: the explicit
+/// too-deep failure line, with the convicted bytes standing as hex on
+/// the line below it.
+fn assert_depth_fallback(out: &str) {
+    assert!(
+        out.contains(&format!("nested deeper than {MAX_DEPTH}")),
+        "the depth fallback is explicit: {out}"
+    );
+    let fallback_hex = out
+        .lines()
+        .skip_while(|line| !line.contains("nested deeper than"))
+        .nth(1)
+        .unwrap_or_default();
+    assert!(
+        fallback_hex.trim_start().starts_with("h'"),
+        "the exact bytes stand under the failure line: {fallback_hex:?}"
+    );
+}
+
+/// A chain of embedded byte strings nested far past the depth bound
+/// renders to the explicit depth fallback instead of overflowing the
+/// stack.
+///
+/// The walk's one depth budget spans embedded-byte-string re-parses,
+/// so no input-controlled nesting recurses without bound.
+#[test]
+fn deep_embedded_chain_falls_back_instead_of_recursing() {
+    let bytes = embedded_chain(10 * MAX_DEPTH);
+    let mut out = String::new();
+    render_item(&bytes, "", &mut out);
+    assert_depth_fallback(&out);
+}
+
+/// The same nesting arriving as a supply record's payload — the
+/// harness-reachable path, a captured frame rendered whole — hits the
+/// same depth fallback.
+///
+/// An application payload of legal CBOR can nest arbitrarily, and the
+/// frame walk must return, never overflow.
+#[test]
+fn deep_payload_through_the_frame_path_falls_back() {
+    let payload = Message::from_slice::<ciborium::Value>(&embedded_chain(10 * MAX_DEPTH))
+        .expect("the chain is exactly one CBOR item");
+    let mut run = LeafRun::new();
+    run.push(&Version::new(), &payload)
+        .expect("one record fits a fresh run");
+    let stream = Stream::new(0).expect("stream 0 names a stream");
+    let frame = (stream, Frame::Reaction(Reaction::Supply(run), Flow::End));
+    let mut bytes = Vec::new();
+    encode(Speaker::Initiator, &frame, &mut bytes).expect("a supply frame encodes");
+    let mut out = String::new();
+    render_frame(Speaker::Initiator, stream, &bytes, &mut out);
+    assert_depth_fallback(&out);
 }
