@@ -92,6 +92,29 @@ fn malformed_embeddings_fall_back_to_bytes() {
     assert_eq!(item(&encoded(&garbage)), "63(h'ff')");
 }
 
+/// Tag-24 embedded CBOR nested one level past the unfold budget stops
+/// unfolding at the boundary: the innermost embedded byte string
+/// renders as raw hex (`h'…'`), not as its decoded contents.
+///
+/// Every level the budget covers unfolds as `<<…>>`. This pins that
+/// the budget spans embedded-CBOR boundaries — each re-parse draws
+/// down the one shared budget rather than starting a fresh one.
+#[test]
+fn unfold_budget_spans_embedded_boundaries() {
+    // One more tag-24 level than the budget can unfold.
+    let mut value = Value::Integer(7.into());
+    for _ in 0..=UNFOLD_BUDGET {
+        value = Value::Tag(24, Box::new(Value::Bytes(encoded(&value))));
+    }
+    // The innermost tag's byte string (the encoding of 7) stays raw;
+    // every level above it unfolds.
+    let mut expected = "24(h'07')".to_string();
+    for _ in 0..UNFOLD_BUDGET {
+        expected = format!("24(<<{expected}>>)");
+    }
+    assert_eq!(item(&encoded(&value)), expected);
+}
+
 /// Unknown tags render by number with their content unfolded: the
 /// renderer stays total over foreign vocabulary.
 #[test]
