@@ -4,7 +4,7 @@ use super::{
     DEFAULT_SYNC_MEMORY_BUDGET, DESIGN_RECORD_BYTES, DISPUTE_OVERHEAD_BYTES, FAN, FAN_SLOT_BYTES,
     KEY_DEPTH, LEAF_REQUEST_BYTES, REFERENCE_SLOT_BYTES, SCOPE_ENVELOPE_BYTES, SCOPE_FIXED_BYTES,
     SPEC_BDP_BYTES, SUPPLY_DECODE_ENVELOPE_BYTES, Window, WindowConfig, children_quantile,
-    jointly_occupied, occupied, stage_population,
+    jointly_occupied, occupied, small_mean_quantile, stage_population,
 };
 use crate::link::STREAM_COUNT;
 
@@ -408,6 +408,116 @@ proptest! {
             prop_assert!(
                 step <= 2 * offset + (b as u64) / 4 + 32,
                 "height {height}: {b} vs {a} across {boundary}±{offset}",
+            );
+        }
+    }
+}
+
+/// The k-slot charge, recomputed exactly as `from_budget` prices it
+/// under the in-memory pricing (the same recomputation the envelope
+/// tests pin their constants with).
+fn charge_at_width(n: u128, k: u128) -> u128 {
+    let mut total = (STREAM_COUNT as u128)
+        * (FAN as u128 + 1)
+        * (local_node_bytes(0, 0) as u128 + FAN_SLOT_BYTES as u128);
+    for depth in 1..=KEY_DEPTH {
+        let held = usize::try_from(children_quantile(n, depth)).unwrap_or(usize::MAX);
+        let reference = (local_node_bytes(held, 0) + REFERENCE_SLOT_BYTES) as u128;
+        total += stage_population(n, n * n, depth).min(k)
+            * (children_quantile(n, depth - 1) * reference + SCOPE_FIXED_BYTES as u128);
+    }
+    total + stage_population(n, n * n, KEY_DEPTH).min(k) * LEAF_REQUEST_BYTES as u128
+}
+
+/// Grant a knife-edge budget of exactly the k-slot charge and check the
+/// solve returns exactly k slots at every stage whose population exceeds
+/// k, returning how many stages the check bound.
+fn assert_knife_edge(n_msgs: u64, k: u128) -> usize {
+    let n = u128::from(n_msgs);
+    let window = Window::from_budget(
+        n_msgs,
+        n_msgs,
+        0,
+        0,
+        usize::try_from(charge_at_width(n, k)).expect("the knife-edge charge fits usize"),
+        local_node_bytes,
+    );
+    let mut bound_stages = 0;
+    for depth in 1..=KEY_DEPTH {
+        if stage_population(n, n * n, depth) > k {
+            bound_stages += 1;
+            assert_eq!(
+                window.capacity(KEY_DEPTH - depth) as u128,
+                k,
+                "a stage with population past the knife edge gets exactly k slots (depth {depth})",
+            );
+        }
+    }
+    bound_stages
+}
+
+proptest! {
+    /// For any corpus and any width its populations exceed, the solve is
+    /// exact at a knife-edge budget: a budget of exactly the k-slot
+    /// charge yields exactly k slots at every stage whose population
+    /// exceeds k.
+    ///
+    /// The charge arithmetic has no slack — a constant mis-charge as
+    /// small as one uncharged slot's bytes moves the solved window off
+    /// the knife edge — so this pins each term at its exact weight,
+    /// across the whole (corpus, width) family.
+    #[test]
+    fn knife_edge_budgets_solve_exactly(
+        n_msgs in prop_oneof![2u64..=1_000, 1_001u64..=10_000_000],
+        k in 1u128..=64,
+    ) {
+        prop_assume!((1..=KEY_DEPTH).any(|depth| {
+            let n = u128::from(n_msgs);
+            stage_population(n, n * n, depth) > k
+        }));
+        assert_knife_edge(n_msgs, k);
+    }
+}
+
+/// The knife-edge family's committed witness corner: one fixed corpus
+/// and width, checked deterministically on every run.
+#[test]
+fn knife_edge_budget_solves_exactly() {
+    assert!(
+        assert_knife_edge(1_000_000, 5) > 0,
+        "the corpus must bind at least one stage, or the knife edge pins nothing",
+    );
+}
+
+proptest! {
+    /// The zero-quantile shortcut fires only inside its premise: a
+    /// nonzero mean it calls zero must satisfy `num × 2^(t+2) < 256^j`
+    /// exactly, the inequality the tail bound's proof rests on.
+    ///
+    /// The generator biases `j` around the exponent boundary, where
+    /// soundness is decided: one admitted boundary case turns a
+    /// non-negligible mean into a zero envelope term.
+    #[test]
+    fn zero_quantile_shortcut_is_exact(
+        num in 1u128..=u128::from(u64::MAX),
+        t in 34u128..=100,
+        jitter in -2i32..=2,
+    ) {
+        let num_bits = u128::from(128 - num.leading_zeros());
+        let boundary = (num_bits + t + 1).div_ceil(8);
+        let j = usize::try_from(boundary.saturating_add_signed(i128::from(jitter)).max(1))
+            .expect("the boundary depth is small");
+        prop_assume!((1..=KEY_DEPTH).contains(&j));
+        if small_mean_quantile(num, j, t) == Some(0) {
+            let exponent = 8 * j as u128;
+            let premise = exponent > t + 2 && {
+                let shift = exponent - t - 2;
+                shift >= 128 || num < (1u128 << shift)
+            };
+            prop_assert!(
+                premise,
+                "the zero-quantile shortcut fired outside its premise: \
+                 num = {num:#x}, j = {j}, t = {t}",
             );
         }
     }

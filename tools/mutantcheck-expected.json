@@ -76,6 +76,10 @@
     "peer\\.rs.*: replace Peer<T, B>::warm_caches with \\(\\)": {
       "listed": 1,
       "suppressed": 1
+    },
+    "window\\.rs:442:63: replace \\* with / in Window::from_budget": {
+      "listed": 1,
+      "suppressed": 1
     }
   }
 }

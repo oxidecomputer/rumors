@@ -246,6 +246,18 @@ exclude_re = [
     # (`>`) fires on every input and faces the suite.
     "handshake\\.rs:257:24: replace < with (==|<=) in Preamble::decode_v2",
 
+    # --- rumors::tree::mirror::streaming::window ---
+
+    # Proven equivalent, line-pinned, the division leg only: the
+    # leaf-request edge's population (`population[KEY_DEPTH]`) is zero
+    # for every representable corpus (the site's own quantile bound:
+    # nonzero needs pair at least 2^190, against at most 2^128 for a
+    # product of two u64 corpora), so the term is zero under either
+    # operator, and the divisor is a nonzero constant. The `+` leg
+    # overcharges every width by one uncharged slot's bytes and faces
+    # the suite: the knife-edge budget family reads the shifted solve.
+    "window\\.rs:442:63: replace \\* with / in Window::from_budget",
+
     # --- rumors::peer ---
 
     # Performance genre: warm_caches is a doc(hidden) calibration aid that

@@ -446,29 +446,51 @@ fn indefinite_length_payload_map_is_not_spelling_judged() {
     assert!(record.is_empty());
 }
 
-/// An unknown version needing a four- or eight-byte header is rejected
-/// with the version reported by value.
-///
-/// The version item round-trips exactly through the writer's and the
-/// reader's wide head arms, never through a wider or narrower spelling.
-#[test]
-fn wide_versions_are_rejected_by_value() {
-    for wide in [0x1_0000, 0xffff_ffff, 0x1_0000_0000, u64::MAX] {
-        let framed = frame_as(wide, b"payload");
+proptest! {
+    /// Framing round-trips across every head-width class the length
+    /// argument can occupy: the byte-string head's arm is chosen by the
+    /// payload's length, and each arm is its own writer/reader pair.
+    ///
+    /// (The eight-byte length arm is unreachable by payload — that would
+    /// take a four-gibibyte vector — so the version family below is what
+    /// exercises it.)
+    #[test]
+    fn framing_round_trips_across_head_widths(
+        len in prop_oneof![
+            0usize..=23,
+            24usize..=0xff,
+            0x100usize..=0xffff,
+            0x1_0000usize..=0x1_0400,
+        ],
+        fill: u8,
+    ) {
+        let payload = vec![fill; len];
+        let framed = frame(&payload);
+        prop_assert_eq!(unframe(&framed).unwrap(), payload.as_slice());
+    }
+
+    /// Every version other than the current one is rejected with the
+    /// version reported by value, whatever head width the version item
+    /// occupies.
+    ///
+    /// Earlier, later, and wide versions share one rejection, and the
+    /// value survives the round trip through every head arm.
+    #[test]
+    fn foreign_versions_are_rejected_by_value(
+        version in prop_oneof![
+            0u64..=23,
+            24u64..=0xff,
+            0x100u64..=0xffff,
+            0x1_0000u64..=0xffff_ffff,
+            0x1_0000_0000u64..=u64::MAX,
+        ],
+    ) {
+        prop_assume!(version != BOOKMARK_FORMAT_VERSION);
+        let framed = frame_as(version, b"payload");
         let result = unframe(&framed);
-        assert!(
-            matches!(result, Err(FormatError::VersionMismatch { found }) if found == wide),
-            "version {wide:#x} must be rejected by value, got {result:?}",
+        prop_assert!(
+            matches!(result, Err(FormatError::VersionMismatch { found }) if found == version),
+            "version {version:#x} must be rejected by value, got {result:?}",
         );
     }
-}
-
-/// A payload wide enough to need a four-byte length header round-trips:
-/// the byte-string head's wide arm is exercised on both sides of the
-/// frame.
-#[test]
-fn wide_payload_round_trips() {
-    let payload: Vec<u8> = (0..=0x1_0000u32).map(|i| i as u8).collect();
-    let framed = frame(&payload);
-    assert_eq!(unframe(&framed).unwrap(), payload.as_slice());
 }
