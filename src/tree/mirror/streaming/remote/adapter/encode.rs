@@ -210,7 +210,7 @@ where
                         let message = leaf.message();
                         if !run.is_empty()
                             && !budget
-                                .admits(run.encoded_len(), LeafRun::record_len(version, message))
+                                .admits(run.encoded_len(), LeafRun::<T>::record_len(version, message))
                         {
                             let full = mem::take(&mut run);
                             if let Some((ready, question)) =

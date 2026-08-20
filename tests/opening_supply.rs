@@ -75,7 +75,7 @@ fn divergent_root_child_has_one_question_owner() {
     let radix = path_radix(
         &a.snapshot()
             .iter()
-            .find_map(|(v, m)| (**m == 1).then_some(v.clone()))
+            .find_map(|(v, m)| (*m == 1).then_some(v.clone()))
             .expect("message 1 is live"),
     );
     send_pool(&a, 2, RADIX_POOL);

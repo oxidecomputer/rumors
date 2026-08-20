@@ -39,7 +39,7 @@ pub(super) fn grown<T>(
     paths: &[Path],
 ) -> Option<TreeNode<T, height::Root>>
 where
-    T: Serialize + Clone + Send + Sync,
+    T: Serialize + Clone + Send + Sync + 'static,
 {
     assert!(stride > 0, "each leaf needs a fresh version");
     let party = nth_party(party);
@@ -238,7 +238,7 @@ impl Divergence {
     /// in both.
     pub fn trees<T>(&self, value: &T) -> (Root<T>, Root<T>, Root<T>)
     where
-        T: Serialize + Clone + Send + Sync,
+        T: Serialize + Clone + Send + Sync + 'static,
     {
         let as_paths =
             |bytes: Vec<[u8; 32]>| -> Vec<Path> { bytes.into_iter().map(Path::from).collect() };

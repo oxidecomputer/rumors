@@ -118,7 +118,7 @@ proptest! {
         records in proptest::collection::vec((arb_version(), any::<u64>()), 1..=4),
     ) {
         let stream = stream(index);
-        let mut run = super::LeafRun::new();
+        let mut run = super::LeafRun::<u64>::new();
         let mut body = Vec::new();
         for (version, value) in &records {
             let message = Message::new(*value);

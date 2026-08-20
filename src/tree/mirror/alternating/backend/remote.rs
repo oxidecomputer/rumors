@@ -172,7 +172,7 @@ impl<T, R, W> protocol::Accept<T> for Exchange<T, R, W, Start, Root>
 where
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
-    T: Serialize + DeserializeOwned + Send + Sync,
+    T: Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     type Next = Exchange<T, R, W, Connected, Root>;
 
@@ -210,7 +210,7 @@ where
 
 impl<T, R, W> protocol::Initiator<T> for Exchange<T, R, W, Connected, Root>
 where
-    T: DeserializeOwned + Send + Sync,
+    T: DeserializeOwned + Send + Sync + 'static,
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
     Node<T, UnderRoot>: wire::Decode,
@@ -232,7 +232,7 @@ where
 
 impl<T, R, W> protocol::Responder<T> for Exchange<T, R, W, Connected, Root>
 where
-    T: DeserializeOwned + Send + Sync,
+    T: DeserializeOwned + Send + Sync + 'static,
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
     Node<T, UnderRoot>: wire::Decode,
@@ -260,7 +260,7 @@ where
 
 impl<T, R, W> protocol::OpenInitiator<T> for Exchange<T, R, W, Connected, Root>
 where
-    T: DeserializeOwned + Send + Sync,
+    T: DeserializeOwned + Send + Sync + 'static,
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
     Node<T, UnderRoot>: wire::Decode,
@@ -294,7 +294,7 @@ where
 
 impl<T, R, W, H> protocol::Exchange<T> for Exchange<T, R, W, Connected, S<S<H>>>
 where
-    T: DeserializeOwned + Send + Sync,
+    T: DeserializeOwned + Send + Sync + 'static,
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
     H: Height,
@@ -343,7 +343,7 @@ where
 
 impl<T, R, W> protocol::CloseResponder<T> for Exchange<T, R, W, Connected, S<Z>>
 where
-    T: DeserializeOwned + Send + Sync,
+    T: DeserializeOwned + Send + Sync + 'static,
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
 {
@@ -384,7 +384,7 @@ where
 
 impl<T, R, W> protocol::CompleteInitiator<T> for Exchange<T, R, W, Connected, Z>
 where
-    T: DeserializeOwned + Send + Sync,
+    T: DeserializeOwned + Send + Sync + 'static,
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
 {

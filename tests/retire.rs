@@ -172,7 +172,7 @@ fn divergent_retiree_reconciles_then_retires() {
         matches!(outcome, Retire::Retired),
         "the in-session gossip round brings the peer to dominance, got {outcome:?}"
     );
-    let mut live: Vec<u64> = b.snapshot().iter().map(|(_, m)| **m).collect();
+    let mut live: Vec<u64> = b.snapshot().iter().map(|(_, m)| *m).collect();
     live.sort_unstable();
     assert_eq!(
         live,
@@ -194,7 +194,7 @@ fn retiree_redaction_propagates_through_retire() {
     let version_of_1 = seed
         .snapshot()
         .iter()
-        .find_map(|(v, m)| (**m == 1).then_some(v.clone()))
+        .find_map(|(v, m)| (*m == 1).then_some(v.clone()))
         .expect("version recorded for 1");
 
     let a = bootstrap_fork(&seed);
@@ -207,7 +207,7 @@ fn retiree_redaction_propagates_through_retire() {
         matches!(outcome, Retire::Retired),
         "the reconciled peer absorbs the retiree, got {outcome:?}"
     );
-    let mut live: Vec<u64> = b.snapshot().iter().map(|(_, m)| **m).collect();
+    let mut live: Vec<u64> = b.snapshot().iter().map(|(_, m)| *m).collect();
     live.sort_unstable();
     assert_eq!(
         live,
@@ -288,7 +288,7 @@ fn retire_into_bootstrapper_hands_off_the_identity() {
     successor.send(99);
     wire_gossip(&successor, &seed);
     assert!(
-        seed.snapshot().iter().any(|(_, m)| **m == 99),
+        seed.snapshot().iter().any(|(_, m)| *m == 99),
         "the successor's origination survives gossip"
     );
 }

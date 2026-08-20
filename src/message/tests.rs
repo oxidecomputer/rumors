@@ -41,13 +41,14 @@ fn cbor_vec<T: Serialize>(value: &T) -> Vec<u8> {
 
 proptest! {
     /// After construction via `new`, the cached serialized bytes are exactly
-    /// the value's CBOR encoding.
+    /// the value's CBOR encoding, and the typed reads recover the value.
     #[test]
     fn new_caches_cbor_serialization(p in payload()) {
         let m = Message::new(p.clone());
         let direct = cbor_vec(&p);
         prop_assert_eq!(m.bytes(), direct.as_slice());
-        prop_assert_eq!(m.message(), &p);
+        prop_assert_eq!(m.message::<Payload>(), &p);
+        prop_assert_eq!(&*m.arc::<Payload>(), &p);
     }
 
     /// `from_slice` reconstructs the inner value and stores exactly the input
@@ -55,8 +56,8 @@ proptest! {
     #[test]
     fn from_slice_roundtrips(p in payload()) {
         let bytes = cbor_vec(&p);
-        let m = Message::<Payload>::from_slice(&bytes).unwrap();
-        prop_assert_eq!(m.message(), &p);
+        let m = Message::from_slice::<Payload>(&bytes).unwrap();
+        prop_assert_eq!(m.message::<Payload>(), &p);
         prop_assert_eq!(m.bytes(), bytes.as_slice());
     }
 
@@ -65,8 +66,8 @@ proptest! {
     #[test]
     fn from_bytes_matches_from_slice(p in payload()) {
         let bytes = cbor_vec(&p);
-        let a = Message::<Payload>::from_slice(&bytes).unwrap();
-        let b = Message::<Payload>::from_bytes(Bytes::from(bytes.clone())).unwrap();
+        let a = Message::from_slice::<Payload>(&bytes).unwrap();
+        let b = Message::from_bytes::<Payload>(Bytes::from(bytes.clone())).unwrap();
         prop_assert_eq!(&a, &b);
         prop_assert_eq!(a.bytes(), b.bytes());
     }
@@ -77,13 +78,13 @@ proptest! {
     fn trailing_bytes_are_rejected(p in payload(), trailer in proptest::collection::vec(any::<u8>(), 1..8)) {
         let mut bytes = cbor_vec(&p);
         bytes.extend_from_slice(&trailer);
-        prop_assert!(Message::<Payload>::from_slice(&bytes).is_err());
-        prop_assert!(Message::<Payload>::from_bytes(Bytes::from(bytes)).is_err());
+        prop_assert!(Message::from_slice::<Payload>(&bytes).is_err());
+        prop_assert!(Message::from_bytes::<Payload>(Bytes::from(bytes)).is_err());
     }
 
-    /// The serde form of a `Message<T>` is one CBOR byte string wrapping
-    /// the cached payload bytes — never a re-encoding of `T` — so nesting
-    /// a message in a larger CBOR value costs one length header.
+    /// The serde form of a `Message` is one CBOR byte string wrapping
+    /// the cached payload bytes — never a re-encoding of the payload — so
+    /// nesting a message in a larger CBOR value costs one length header.
     #[test]
     fn serde_form_wraps_cached_bytes(p in payload()) {
         struct Bstr<'a>(&'a [u8]);
@@ -98,30 +99,15 @@ proptest! {
         prop_assert_eq!(wrapped, direct);
     }
 
-    /// A `Message<T>` roundtrips through its serde form: deserializing a
+    /// A `Message` roundtrips through its serde form: `from_reader` on a
     /// serialized message yields an equal message with equal cached bytes.
     #[test]
     fn serde_roundtrip(p in payload()) {
         let m = Message::new(p);
         let bytes = cbor_vec(&m);
-        let back: Message<Payload> = ciborium::de::from_reader(bytes.as_slice()).unwrap();
+        let back = Message::from_reader::<Payload, _>(bytes.as_slice()).unwrap();
         prop_assert_eq!(&m, &back);
         prop_assert_eq!(m.bytes(), back.bytes());
-    }
-
-    /// `Message<T>` nests correctly inside other CBOR containers: a
-    /// `Vec<Message<T>>` roundtrips and preserves each element's cached
-    /// bytes.
-    #[test]
-    fn nested_in_vec_roundtrips(ps in proptest::collection::vec(payload(), 0..8)) {
-        let msgs: Vec<Message<Payload>> =
-            ps.into_iter().map(Message::new).collect();
-        let bytes = cbor_vec(&msgs);
-        let back: Vec<Message<Payload>> = ciborium::de::from_reader(bytes.as_slice()).unwrap();
-        prop_assert_eq!(&msgs, &back);
-        for (a, b) in msgs.iter().zip(back.iter()) {
-            prop_assert_eq!(a.bytes(), b.bytes());
-        }
     }
 
     /// Reading a message off a stream consumes exactly the message's own
@@ -135,13 +121,13 @@ proptest! {
         combined.extend_from_slice(&trailer);
 
         let mut slice: &[u8] = &combined;
-        let back: Message<Payload> = ciborium::de::from_reader(&mut slice).unwrap();
+        let back = Message::from_reader::<Payload, _>(&mut slice).unwrap();
         prop_assert_eq!(back.bytes(), m.bytes());
         prop_assert_eq!(slice, trailer.as_slice());
         prop_assert_eq!(combined.len() - slice.len(), expected.len());
     }
 
-    /// Equal `Message<T>` values hash identically, so `Hash` agrees with
+    /// Equal `Message`s hash identically, so `Hash` agrees with
     /// `PartialEq` as required by the standard library contract.
     #[test]
     fn eq_implies_hash_eq(p in payload()) {
@@ -151,14 +137,21 @@ proptest! {
         prop_assert_eq!(hash_of(&a), hash_of(&b));
     }
 
-    /// `into_parts` returns exactly the inner value and cached bytes, matching
-    /// what `message()` and `bytes()` would have returned.
+    /// `arc` hands out the same shared allocation `new` stored, not a
+    /// copy: unsizing erased the type, never the identity.
     #[test]
-    fn into_parts_matches_accessors(p in payload()) {
-        let m = Message::new(p.clone());
-        let expected_bytes = m.bytes().to_vec();
-        let (inner, bytes) = m.into_parts();
-        prop_assert_eq!(&*inner, &p);
-        prop_assert_eq!(bytes.as_ref(), expected_bytes.as_slice());
+    fn arc_shares_the_stored_allocation(p in payload()) {
+        let stored = std::sync::Arc::new(p);
+        let m = Message::from_arc(stored.clone());
+        prop_assert!(std::sync::Arc::ptr_eq(&stored, &m.arc::<Payload>()));
     }
+}
+
+/// A typed read with the wrong payload type panics: the mispairing is a
+/// crate bug, and the downcast is the tripwire that catches it.
+#[test]
+#[should_panic(expected = "payload type matches")]
+fn mismatched_downcast_panics() {
+    let m = Message::new(0u64);
+    let _ = m.message::<String>();
 }

@@ -82,7 +82,7 @@ const INTERIOR_STREAM: u8 = 8;
 const FIRST_RESERVED_SIGNAL: u8 = WireSignal::BYTE_COUNT;
 
 /// Build a supply run holding one leaf record.
-fn one_record_run<T: Serialize>(version: Version, value: T) -> LeafRun<T> {
+fn one_record_run<T: Serialize + Send + Sync + 'static>(version: Version, value: T) -> LeafRun<T> {
     let mut run = LeafRun::new();
     run.push(&version, &Message::new(value))
         .expect("an atlas record fits the run framing");

@@ -137,7 +137,7 @@ fn runs_of(frames: &[Frame<u64>]) -> Vec<&LeafRun<u64>> {
 }
 
 /// The decoded records of `runs`, flattened in wire order.
-fn records_of(runs: &[&LeafRun<u64>]) -> Vec<(Version, Message<u64>)> {
+fn records_of(runs: &[&LeafRun<u64>]) -> Vec<(Version, Message)> {
     runs.iter()
         .flat_map(|run| {
             run.records()
@@ -197,7 +197,7 @@ proptest! {
                 prop_assert!(
                     SUPPLY_FRAME_OVERHEAD
                         + run.encoded_len()
-                        + LeafRun::record_len(&version, &message)
+                        + LeafRun::<u64>::record_len(&version, &message)
                         > budget,
                     "run {position} flushed although the next record fit"
                 );

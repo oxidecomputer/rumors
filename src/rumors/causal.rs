@@ -160,7 +160,7 @@ impl<T: Send + Sync + 'static> Stream for CausalMessages<T> {
             // ingest, exactly as UnorderedMessages defers a drained pass's
             // ceiling.
             if let Some((_, leaf)) = this.staged.pop_first() {
-                return Poll::Ready(Some((leaf.version().clone(), leaf.value().clone())));
+                return Poll::Ready(Some((leaf.version().clone(), leaf.value())));
             }
             match this.channel.as_mut().expect("channel state present") {
                 Channel::Waiting(wait) => match wait.as_mut().poll(cx) {

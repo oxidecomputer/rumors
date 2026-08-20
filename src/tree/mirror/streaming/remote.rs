@@ -33,7 +33,7 @@
 //! Supplied leaves ship in *runs*: one exact-length-delimited body carrying
 //! one or more leaf records, each itself exact-length-delimited — a CBOR
 //! byte string wrapping the [`Version`](crate::Version)'s canonical bytes,
-//! then the [`Message<T>`](crate::message::Message)'s CBOR payload. The
+//! then the [`Message`](crate::message::Message)'s CBOR payload. The
 //! encoder chunks a supplied subtree's leaves into runs by a byte budget
 //! ([`RunBudget`]); once a run's whole body arrives, the frame codec
 //! validates its record framing and the incoming adapter decodes each

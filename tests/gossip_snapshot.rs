@@ -48,7 +48,7 @@ fn version_for(rumors: &Rumors<u64>, value: u64) -> Version {
     rumors
         .snapshot()
         .iter()
-        .find_map(|(v, m)| (**m == value).then_some(v.clone()))
+        .find_map(|(v, m)| (*m == value).then_some(v.clone()))
         .unwrap_or_else(|| panic!("no live message holds {value}"))
 }
 
@@ -349,19 +349,19 @@ fn early_supplies_honor_redactions() {
         "one pruned Supply run: the survivor, not the full subtree"
     );
     assert!(
-        !a.snapshot().iter().any(|(_, m)| **m == 1),
+        !a.snapshot().iter().any(|(_, m)| *m == 1),
         "the redaction is contagious: the initiator drops the message"
     );
     assert!(
-        !b.snapshot().iter().any(|(_, m)| **m == 1),
+        !b.snapshot().iter().any(|(_, m)| *m == 1),
         "the redacted message must not resurrect at the responder"
     );
     assert!(
-        a.snapshot().iter().any(|(_, m)| **m == sibling),
+        a.snapshot().iter().any(|(_, m)| *m == sibling),
         "the survivor converges to the initiator"
     );
     assert!(
-        b.snapshot().iter().any(|(_, m)| **m == sibling),
+        b.snapshot().iter().any(|(_, m)| *m == sibling),
         "the survivor converges to the responder"
     );
     insta::assert_snapshot!(capture);

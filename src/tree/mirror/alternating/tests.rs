@@ -84,7 +84,7 @@ fn mirror_via<T>(
     scenario: Scenario,
 ) -> crate::tree::Root<T>
 where
-    T: PartialEq + std::fmt::Debug + Serialize + DeserializeOwned + Send + Sync,
+    T: PartialEq + std::fmt::Debug + Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     block_on(async move {
         match scenario {
@@ -233,7 +233,7 @@ proptest! {
         let make_actions = |party_index: usize, forgets: &[bool]| -> Vec<_> {
             let p = nth_party(party_index);
             let mut version = Version::new();
-            let mut actions: Vec<(Path, Version, Action<()>)> = Vec::new();
+            let mut actions: Vec<(Path, Version, Action)> = Vec::new();
             let mut paths: Vec<Path> = Vec::new();
             for _ in forgets {
                 version.tick(&p);
@@ -257,7 +257,7 @@ proptest! {
         // The wrapper version must be a causal upper bound on every action
         // we apply — `Tree::react` maintains the same invariant by `|=`-ing
         // each action's version into the tree's version vector.
-        let wrap = |actions: &[(Path, Version, Action<()>)]| crate::tree::Root {
+        let wrap = |actions: &[(Path, Version, Action)]| crate::tree::Root::<()> {
             ceiling: actions
                 .iter()
                 .fold(Version::default(), |acc, (_, v, _)| acc | v.clone()),

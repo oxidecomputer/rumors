@@ -180,7 +180,7 @@ where
     T: Send + Sync + 'static,
     N: Leaf<T> + Clone + Send + 'static,
 {
-    fn message(&self) -> &Message<T> {
+    fn message(&self) -> &Message {
         self.0.message()
     }
 
@@ -188,7 +188,7 @@ where
     // traversal operations, not construction.
     async fn leaf(
         version: Version,
-        message: Message<T>,
+        message: Message,
     ) -> Result<Self, Failure<<N::Backend as Backend<T>>::Error>> {
         N::leaf(version, message)
             .await

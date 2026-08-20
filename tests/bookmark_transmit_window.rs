@@ -193,7 +193,7 @@ fn leaf_version(rumors: &Rumors<Msg, GatedBookmark>, payload: Msg) -> Option<Ver
     rumors
         .snapshot()
         .iter()
-        .find(|(_, value)| ***value == payload)
+        .find(|(_, value)| **value == payload)
         .map(|(version, _)| version.clone())
 }
 

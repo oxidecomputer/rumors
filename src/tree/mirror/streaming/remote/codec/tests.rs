@@ -67,7 +67,7 @@ const MAX_ARBITRARY_SUFFIX_LEN: usize = 32;
 const MAX_ARBITRARY_RUN_RECORDS: usize = 4;
 
 /// Build a supply run from decoded leaf records.
-fn leaf_run<T: Serialize + Clone>(records: &[(Version, T)]) -> LeafRun<T> {
+fn leaf_run<T: Serialize + Clone + Send + Sync + 'static>(records: &[(Version, T)]) -> LeafRun<T> {
     let mut run = LeafRun::new();
     for (version, value) in records {
         run.push(version, &Message::new(value.clone()))

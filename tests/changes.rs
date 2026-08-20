@@ -46,7 +46,7 @@ async fn one_tick_per_observed_commit() {
     let version = rumors
         .snapshot()
         .iter()
-        .find_map(|(v, m)| (**m == 1).then_some(v.clone()))
+        .find_map(|(v, m)| (*m == 1).then_some(v.clone()))
         .expect("message 1 is live");
     rumors.redact(&version);
     assert_eq!(changes.next().now_or_never(), Some(Some(())));

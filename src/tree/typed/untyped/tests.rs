@@ -94,7 +94,7 @@ fn arb_tree(depth: usize, budget: usize) -> BoxedStrategy<Node<()>> {
 /// yields them. The version is the leaf's own version as recorded by
 /// `Node::leaf`, and is preserved across path compression because
 /// `into_children` never mutates `version` — only `prefix`.
-fn enumerate_leaves(node: Node<()>, path: Vec<u8>) -> Vec<(Vec<u8>, Version, Message<()>)> {
+fn enumerate_leaves(node: Node<()>, path: Vec<u8>) -> Vec<(Vec<u8>, Version, Message)> {
     match node.into_children() {
         Ok(children) => children
             .into_iter()
@@ -127,7 +127,7 @@ fn enumerate_leaves(node: Node<()>, path: Vec<u8>) -> Vec<(Vec<u8>, Version, Mes
 /// versions we started with.
 fn rebuild_with<F>(node: Node<()>, f: &F) -> Node<()>
 where
-    F: Fn(&Message<()>) -> Message<()>,
+    F: Fn(&Message) -> Message,
 {
     let version = node.ceiling().clone();
     match node.into_children() {
@@ -593,7 +593,7 @@ fn check_virtual_levels(
 #[test]
 fn node_hash_preimage_is_in_path_order() {
     const LEAF_TAG: u8 = 0;
-    let leaf = Node::leaf(Version::new(), Message::new(()));
+    let leaf = Node::<()>::leaf(Version::new(), Message::new(()));
     let wrapped = leaf.beneath(0xAA).beneath(0xBB);
     assert_eq!(wrapped.hash(), super::Hash::of(&[LEAF_TAG, 2, 0xBB, 0xAA]));
 }

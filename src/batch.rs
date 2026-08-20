@@ -44,7 +44,7 @@ use serde::Serialize;
 /// synchronizes them itself.
 pub struct Batch<'a, T: Send + Sync> {
     inner: &'a watch::Sender<Inner<T>>,
-    actions: Vec<Action<T>>,
+    actions: Vec<Action>,
 }
 
 impl<'a, T: Send + Sync> Batch<'a, T> {
@@ -63,9 +63,9 @@ impl<'a, T: Send + Sync> Batch<'a, T> {
     /// commit: the failure surfaces at the offending call.
     pub fn send(&mut self, message: T) -> &mut Self
     where
-        T: Serialize,
+        T: Serialize + 'static,
     {
-        self.actions.push(Action::Insert(Message::from(message)));
+        self.actions.push(Action::Insert(Message::new(message)));
         self
     }
 

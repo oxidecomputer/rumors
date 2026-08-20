@@ -529,7 +529,7 @@ async fn run_activity(handle: Rumors<u64>, script: Vec<Activity>) -> Vec<(Versio
                 let live: Vec<(Version, u64)> = handle
                     .snapshot()
                     .iter()
-                    .map(|(v, m)| (v.clone(), **m))
+                    .map(|(v, m)| (v.clone(), *m))
                     .collect();
                 if !live.is_empty() {
                     let (version, value) = live[index % live.len()].clone();

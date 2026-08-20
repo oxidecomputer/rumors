@@ -27,7 +27,7 @@ use crate::{
 /// the "floor concurrent, keep whole subtree" fast path is exercised alongside
 /// the drop path.
 fn tree_and_known(flags_a: &[bool], flags_b: &[bool]) -> (Option<typed::node::Root<()>>, Version) {
-    let mut actions: Vec<(Path, Version, Action<()>)> = Vec::new();
+    let mut actions: Vec<(Path, Version, Action)> = Vec::new();
     let mut known = Version::new();
 
     for (party_index, flags) in [(0, flags_a), (1, flags_b)] {

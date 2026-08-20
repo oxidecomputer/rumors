@@ -36,7 +36,7 @@ fn supply(stream: Stream, flow: Flow, body: &[u8]) -> Vec<u8> {
 
 /// One length-prefixed leaf record as it appears inside a run body: the
 /// version as one CBOR value, then the payload's CBOR bytes bare.
-fn record(version: &Version, message: &Message<u64>) -> Vec<u8> {
+fn record(version: &Version, message: &Message) -> Vec<u8> {
     let mut body = Vec::new();
     ciborium::ser::into_writer(version, &mut body).unwrap();
     body.extend_from_slice(message.as_slice());

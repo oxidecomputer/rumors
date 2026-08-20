@@ -66,7 +66,7 @@ fn live_map(rumors: &Rumors<u64>) -> BTreeMap<Vec<u8>, u64> {
     rumors
         .snapshot()
         .iter()
-        .map(|(v, m)| (v.as_bytes().to_vec(), **m))
+        .map(|(v, m)| (v.as_bytes().to_vec(), *m))
         .collect()
 }
 
@@ -491,7 +491,7 @@ fn folding_delivered_versions_can_lose_a_message() {
             rumors.send(later_value);
             let snapshot = rumors.snapshot();
             let first_yielded = snapshot.iter().next().expect("two live messages");
-            let later_first = **first_yielded.1 == later_value;
+            let later_first = *first_yielded.1 == later_value;
             drop(snapshot);
             later_first.then_some(rumors)
         })

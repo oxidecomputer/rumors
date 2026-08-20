@@ -7,9 +7,9 @@ use height::{Height, Root, S, Z};
 
 /// An action to perform at a particular [`Path`].
 #[derive(Debug, Clone)]
-pub enum Action<T> {
+pub enum Action {
     /// Insert a value tagged by a version at a party.
-    Insert(Message<T>),
+    Insert(Message),
     /// Delete a value at this path.
     Forget,
 }
@@ -41,7 +41,7 @@ pub fn act<T, F, I>(
 where
     T: Send + Sync,
     F: FnMut(&Version),
-    I: IntoIterator<Item = (Path, Version, Action<T>)>,
+    I: IntoIterator<Item = (Path, Version, Action)>,
 {
     // Test-only unwind source for the panic-atomicity pins: this walk is
     // the unwind-source region of `Tree::react`'s commit section, and its entry
@@ -69,7 +69,7 @@ pub trait Act: Height {
     where
         T: Send + Sync,
         F: FnMut(&Version),
-        I: IntoIterator<Item = (Path<Self>, Version, Action<T>)>;
+        I: IntoIterator<Item = (Path<Self>, Version, Action)>;
 }
 
 impl<H: Act> Act for S<H>
@@ -84,7 +84,7 @@ where
     where
         T: Send + Sync,
         F: FnMut(&Version),
-        I: IntoIterator<Item = (Path<Self>, Version, Action<T>)>,
+        I: IntoIterator<Item = (Path<Self>, Version, Action)>,
     {
         // Test-only unwind source, continued: every branch-level apply step
         // burns one fuse step, so a fuse armed past the entry unwinds only
@@ -156,7 +156,7 @@ impl Act for Z {
     where
         T: Send + Sync,
         F: FnMut(&Version),
-        I: IntoIterator<Item = (Path<Self>, Version, Action<T>)>,
+        I: IntoIterator<Item = (Path<Self>, Version, Action)>,
     {
         let existed_before = node.is_some();
         let mut greatest_version = Version::default();

@@ -209,7 +209,7 @@ impl<T: Send + Sync + 'static> Stream for UnorderedMessages<T> {
 
                     let pass = this.pass.as_mut().expect("opened above");
                     if let Some((_, leaf)) = pass.walk.next() {
-                        return Poll::Ready(Some((leaf.version().clone(), leaf.value().clone())));
+                        return Poll::Ready(Some((leaf.version().clone(), leaf.value())));
                     }
 
                     // The pass drained: absorb its ceiling, then enter the

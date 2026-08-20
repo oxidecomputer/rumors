@@ -395,7 +395,7 @@ impl World {
         let snapshot = rumors.snapshot();
         let mut version = None;
         for (leaf_version, value) in snapshot.iter() {
-            if **value == id {
+            if *value == id {
                 version = Some(leaf_version.clone());
                 break;
             }
@@ -872,7 +872,7 @@ impl World {
             let snapshot = rumors.snapshot();
             for (leaf_version, value) in snapshot.iter() {
                 live_leaves += 1;
-                let seq = **value;
+                let seq = *value;
                 assert!(
                     self.emissions.contains_exact(network, seq, leaf_version),
                     "live message #{seq} at version {leaf_version:?} in network {network:?} \

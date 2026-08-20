@@ -7,6 +7,7 @@ use tinyvec::ArrayVec;
 use before::{Dominance, Span};
 
 use crate::{Version, message::Message, tree::typed::Hash};
+use std::marker::PhantomData;
 
 pub mod fan;
 mod iter;
@@ -77,6 +78,13 @@ pub(crate) mod census {
 }
 
 struct NodeInner<T> {
+    /// The payload type the containing tree's facade reads its leaves at.
+    ///
+    /// Stored messages are type-erased ([`Message`] holds `dyn Any`), so
+    /// nothing structural consumes `T` here: the marker keeps the veneer's
+    /// parameter anchored (as `fn() -> T`, so auto-traits never descend
+    /// into `T`) until the typed boundary downcasts at the crate's API.
+    marker: PhantomData<fn() -> T>,
     /// Compressed path above this node's own branching level, stored with the
     /// deepest byte at index 0 and the shallowest byte at the last index. An
     /// empty prefix means the node is not path-compressed above its level.
@@ -104,6 +112,7 @@ struct NodeInner<T> {
 impl<T> Clone for NodeInner<T> {
     fn clone(&self) -> Self {
         Self {
+            marker: PhantomData,
             prefix: self.prefix.clone(),
             hash: self.hash.clone(),
             children: self.children.clone(),
@@ -128,7 +137,7 @@ enum Children<T> {
         /// The version of this leaf.
         version: Version,
         /// The payload of this leaf.
-        message: Message<T>,
+        message: Message,
     },
     /// A materialized branch point, with the invariant that there are always >=
     /// 2 branches (or else they should be path-compressed away).
@@ -211,6 +220,7 @@ impl<T> Node<T> {
                 Some(node.beneath(index))
             }
             _ => Some(Node::from_inner(Arc::new(NodeInner {
+                marker: PhantomData,
                 prefix: Vec::new(),
                 hash: OnceLock::new(),
                 children: Children::Branch {
@@ -329,6 +339,7 @@ impl<T> Node<T> {
         debug_assert!(children.len() >= 2, "a branch point separates >= 2 runs");
 
         Node::from_inner(Arc::new(NodeInner {
+            marker: PhantomData,
             prefix: first[depth..branch_at].iter().rev().copied().collect(),
             hash: OnceLock::new(),
             children: Children::Branch {
@@ -341,8 +352,9 @@ impl<T> Node<T> {
     }
 
     /// Construct a new leaf node.
-    pub fn leaf(version: Version, value: Message<T>) -> Self {
+    pub fn leaf(version: Version, value: Message) -> Self {
         Node::from_inner(Arc::new(NodeInner {
+            marker: PhantomData,
             prefix: Vec::new(),
             hash: OnceLock::new(),
             children: Children::Leaf {
@@ -353,7 +365,7 @@ impl<T> Node<T> {
     }
 
     /// Get a reference to the leaf at this node, if it is a leaf.
-    pub fn as_leaf(&self) -> Option<&Message<T>> {
+    pub fn as_leaf(&self) -> Option<&Message> {
         match &self.inner.children {
             Children::Leaf { message, .. } => Some(message),
             _ => None,
@@ -363,7 +375,7 @@ impl<T> Node<T> {
     /// Look up the leaf at `path` beneath this node: a single root-to-leaf
     /// descent costing `O(depth)`, never a scan. `None` when no live leaf
     /// sits at that path.
-    pub fn get(&self, mut path: &[u8]) -> Option<(&Version, &Message<T>)> {
+    pub fn get(&self, mut path: &[u8]) -> Option<(&Version, &Message)> {
         let mut node = self;
         loop {
             // Consume the compressed prefix, shallowest byte first (it is

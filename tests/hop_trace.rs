@@ -570,7 +570,7 @@ fn transfer_pair() -> (Rumors<u64>, Rumors<u64>) {
     let mut pool: Vec<(u64, u8)> = left
         .snapshot()
         .iter()
-        .map(|(v, m)| (**m, path_radix(v)))
+        .map(|(v, m)| (*m, path_radix(v)))
         .collect();
     pool.sort_unstable();
     let (first, second) = pool
@@ -597,7 +597,7 @@ fn transfer_pair() -> (Rumors<u64>, Rumors<u64>) {
         .iter()
         .filter(|(v, _)| path_radix(v) != radix)
         .take(3)
-        .map(|(_, m)| **m)
+        .map(|(_, m)| *m)
         .collect();
     assert_eq!(ballast.len(), 3, "the ballast pool cannot fill its quota");
     keep_only(&right, &ballast);

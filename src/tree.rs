@@ -81,7 +81,7 @@ pub mod mirror;
 pub use typed::{Leaf, RangeOwned};
 
 /// A sparse Merkle radix trie with transparent path compression, whose
-/// leaves store versioned [`Message<T>`]s.
+/// leaves store versioned [`Message`]s.
 ///
 /// The tree has a branching factor of 256 and a depth of 32, so a leaf's
 /// 32-byte path is the full-width hash of its version (see
@@ -162,26 +162,29 @@ impl<T> Default for Tree<T> {
 
 /// An action to perform on the tree, locally.
 #[derive(Clone, Debug)]
-pub enum Action<T> {
+pub enum Action {
     /// Insert some value, tagged at the current version by your own party.
-    Insert(Message<T>),
+    Insert(Message),
     /// Forget the leaf at a version-derived path.
     Forget(typed::Path),
 }
 
-/// The iterator of [`Snapshot::iter`](crate::Snapshot::iter):
-/// a lazy depth-first walk over every live message as
-/// `(&Version, &Arc<T>)`, in unspecified order.
+/// The iterator of [`Snapshot::iter`](crate::Snapshot::iter): a lazy
+/// depth-first walk over every live message as `(&Version, Arc<T>)`, in
+/// unspecified order.
+///
+/// The version is borrowed from the tree; the payload is an owned handle
+/// into the shared storage.
 ///
 /// An [`ExactSizeIterator`] (the live-message count is known up front) and a
 /// [`DoubleEndedIterator`].
 pub struct Iter<'a, T>(typed::Iter<'a, T>);
 
-impl<'a, T> Iterator for Iter<'a, T> {
-    type Item = (&'a Version, &'a Arc<T>);
+impl<'a, T: Send + Sync + 'static> Iterator for Iter<'a, T> {
+    type Item = (&'a Version, Arc<T>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.0.next().map(|(v, m)| (v, m.as_arc()))
+        self.0.next().map(|(v, m)| (v, m.arc::<T>()))
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -189,13 +192,13 @@ impl<'a, T> Iterator for Iter<'a, T> {
     }
 }
 
-impl<'a, T> DoubleEndedIterator for Iter<'a, T> {
+impl<'a, T: Send + Sync + 'static> DoubleEndedIterator for Iter<'a, T> {
     fn next_back(&mut self) -> Option<Self::Item> {
-        self.0.next_back().map(|(v, m)| (v, m.as_arc()))
+        self.0.next_back().map(|(v, m)| (v, m.arc::<T>()))
     }
 }
 
-impl<'a, T> ExactSizeIterator for Iter<'a, T> {}
+impl<'a, T: Send + Sync + 'static> ExactSizeIterator for Iter<'a, T> {}
 
 impl<T> Tree<T> {
     /// Creates a new, empty tree carrying the empty [`Version`].
@@ -277,13 +280,19 @@ impl<T> Tree<T> {
 
     /// Looks up the live message stamped with `version`, by its
     /// version-derived path.
-    pub fn get(&self, version: &Version) -> Option<(&Version, &Arc<T>)> {
+    ///
+    /// The stored version is not echoed back: a leaf's path derives from
+    /// its version, so the hit's version is the queried one.
+    pub fn get(&self, version: &Version) -> Option<Arc<T>>
+    where
+        T: Send + Sync + 'static,
+    {
         let path = <[u8; 32]>::from(typed::Path::for_leaf(version));
         self.root
             .root
             .as_ref()?
             .get(&path)
-            .map(|(version, message)| (version, message.as_arc()))
+            .map(|(_, message)| message.arc::<T>())
     }
 
     /// Forces every lazily-memoized structural value — the observable hash
@@ -305,10 +314,10 @@ impl<T> Tree<T> {
     }
 
     /// Lazily iterates every live leaf currently in the tree as
-    /// `(&Version, &Arc<T>)`, in unspecified order.
+    /// `(&Version, Arc<T>)`, in unspecified order.
     pub fn iter(&self) -> Iter<'_, T>
     where
-        T: Send + Sync,
+        T: Send + Sync + 'static,
     {
         Iter(
             self.root
@@ -347,15 +356,15 @@ impl<T> Tree<T> {
     pub fn range<'q, P: causally::Polarity>(
         &'q self,
         query: impl Into<causally::Query<'q, P>>,
-    ) -> impl DoubleEndedIterator<Item = (&'q Version, &'q Arc<T>)> + Send + Sync
+    ) -> impl DoubleEndedIterator<Item = (&'q Version, Arc<T>)> + Send + Sync
     where
-        T: Send + Sync,
+        T: Send + Sync + 'static,
     {
         typed::node::Root::range(self.root.root.as_ref(), query.into())
-            // The shared walk yields the full `&Message<T>`; the public
-            // contract hands out only the `&Arc<T>` value, a cheap projection
-            // of it.
-            .map(|(v, m)| (v, m.as_arc()))
+            // The shared walk yields the full `&Message`; the public
+            // contract hands out the owned payload handle, one reference
+            // bump on the shared allocation.
+            .map(|(v, m)| (v, m.arc::<T>()))
     }
 
     /// Applies the specified actions as a batch to the tree, advancing its
@@ -407,7 +416,7 @@ impl<T> Tree<T> {
     pub fn act<I>(&mut self, party: &before::Party, actions: I) -> bool
     where
         T: Send + Sync,
-        I: IntoIterator<Item = Action<T>>,
+        I: IntoIterator<Item = Action>,
     {
         // Track the running version across the batch, ticking the owning party
         // once per action so that (a) content-identical messages occupy
@@ -466,7 +475,7 @@ impl<T> Tree<T> {
     fn react<M, I>(&mut self, reactions: I) -> bool
     where
         T: Send + Sync,
-        M: Into<Option<Message<T>>>,
+        M: Into<Option<Message>>,
         I: IntoIterator<Item = (typed::Path, Version, M)>,
     {
         // Materialize the caller's action stream before the commit section

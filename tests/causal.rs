@@ -82,7 +82,7 @@ fn live_map(rumors: &Rumors<u64>) -> BTreeMap<Vec<u8>, u64> {
     rumors
         .snapshot()
         .iter()
-        .map(|(v, m)| (v.as_bytes().to_vec(), **m))
+        .map(|(v, m)| (v.as_bytes().to_vec(), *m))
         .collect()
 }
 

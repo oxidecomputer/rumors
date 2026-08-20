@@ -246,11 +246,11 @@ impl<T> Leaf<T> for MaterializedNode<typed::Node<T, Z>>
 where
     T: Send + Sync + 'static,
 {
-    fn message(&self) -> &Message<T> {
+    fn message(&self) -> &Message {
         self.inner.message()
     }
 
-    async fn leaf(version: Version, message: Message<T>) -> Result<Self, Infallible> {
+    async fn leaf(version: Version, message: Message) -> Result<Self, Infallible> {
         // Eager persistence at the conversion boundary: the payload is
         // written to the store here, so the resident row keeps only the
         // header and bounds — the thin-handle shape the leaf seam prices
@@ -583,7 +583,8 @@ fn ledger_settles_over_clone_and_drop() {
     drop(leaf);
     drop(clone);
 
-    let node = typed::Node::leaf(Version::new(), Message::new(7));
+    let node: typed::Node<i32, crate::tree::typed::height::Z> =
+        typed::Node::leaf(Version::new(), Message::new(7));
     let charged = Charged::<Local>::new(Local);
     let _ = &charged;
     let wrapped = super::ChargedNode::wrap(node, 100);

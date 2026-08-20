@@ -52,7 +52,7 @@ pub type WireFrame<T> = (Stream, Frame<T>);
 
 /// One supply frame's run of leaf records, held in encoded form.
 ///
-/// A run is a delimited sequence of one or more `(Version, Message<T>)`
+/// A run is a delimited sequence of one or more `(Version, Message)`
 /// records: each record is a [`LENGTH_HEADER_LEN`]-byte big-endian length
 /// followed by one CBOR value (a byte string wrapping the version's
 /// canonical encoding) and then the message's CBOR payload, back to back —
@@ -142,7 +142,7 @@ impl<T> LeafRun<T> {
     /// `record_len_matches_an_actual_push`. Saturating: a sum past
     /// `usize::MAX` cannot occur for in-memory slices, and an over-large
     /// record is rejected by [`push`](Self::push) regardless.
-    pub fn record_len(version: &Version, message: &Message<T>) -> usize {
+    pub fn record_len(version: &Version, message: &Message) -> usize {
         let version = version.as_bytes().len();
         LENGTH_HEADER_LEN
             .saturating_add(cbor_bytes_header_len(version))
@@ -157,7 +157,7 @@ impl<T> LeafRun<T> {
     /// Rejects a record no run can carry — one whose combined encoding plus
     /// its own record header exceeds the `u32` run-body limit — leaving the
     /// run untouched.
-    pub fn push(&mut self, version: &Version, message: &Message<T>) -> Result<(), LengthOverflow> {
+    pub fn push(&mut self, version: &Version, message: &Message) -> Result<(), LengthOverflow> {
         let version = version.as_bytes();
         let message = message.as_slice();
         let len = cbor_bytes_header_len(version.len())
@@ -206,11 +206,11 @@ impl<T> LeafRun<T> {
     }
 
     /// Iterate the run's records, decoding each into its canonical pair.
-    pub fn records(&self) -> impl Iterator<Item = Result<(Version, Message<T>), DecodeLeafError>>
+    pub fn records(&self) -> impl Iterator<Item = Result<(Version, Message), DecodeLeafError>>
     where
-        T: DeserializeOwned,
+        T: DeserializeOwned + Send + Sync + 'static,
     {
-        self.record_slices().map(parse_record)
+        self.record_slices().map(parse_record::<T>)
     }
 
     /// Split the validated run back into its exact record slices.
@@ -263,9 +263,9 @@ fn record_header(header: &[u8]) -> usize {
 }
 
 /// Decode one exact record body into its canonical pair.
-fn parse_record<T: DeserializeOwned>(
+fn parse_record<T: DeserializeOwned + Send + Sync + 'static>(
     record: &[u8],
-) -> Result<(Version, Message<T>), DecodeLeafError> {
+) -> Result<(Version, Message), DecodeLeafError> {
     // Both fields are self-delimiting CBOR values, so the exact record
     // body parses without retrying, and whatever the payload's parse does
     // not consume is trailing.

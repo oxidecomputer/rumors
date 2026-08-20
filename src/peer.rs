@@ -544,7 +544,7 @@ impl<T, B: BookmarkError> Peer<T, B> {
 
     pub(crate) fn send(&self, message: T) -> Batch<'_, T>
     where
-        T: Serialize + Send + Sync,
+        T: Serialize + Send + Sync + 'static,
     {
         let mut batch = self.batch();
         batch.send(message);

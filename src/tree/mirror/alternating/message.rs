@@ -12,7 +12,7 @@
 //!   no length prefix.
 //! - [`typed::Prefix<H>`](crate::tree::typed::Prefix): exactly `32 −
 //!   H::HEIGHT` raw bytes, no length prefix (the type pins the byte count).
-//! - [`Version`] and [`Message<T>`](crate::message::Message): one CBOR
+//! - [`Version`] and [`Message`](crate::message::Message): one CBOR
 //!   value each — a byte string wrapping the version's canonical encoding,
 //!   and a byte string wrapping the message's cached CBOR payload —
 //!   self-delimiting by CBOR's own length headers.
@@ -32,7 +32,7 @@
 //!     prefix_len: u8                  // path-compressed prefix byte count
 //!     [u8; prefix_len]                // head bytes, shallowest first
 //!     body                            // dispatched on `children`:
-//!         Children::Leaf:   version: Version, message: Message<T>
+//!         Children::Leaf:   version: Version, message: Message
 //!         Children::Branch: count_minus_two: u8, [(radix: u8, NodeWire); count]
 //! ```
 //!
@@ -226,7 +226,7 @@ where
 // discharges it.
 impl<T, H> Decode for Exchange<T, H>
 where
-    T: DeserializeOwned,
+    T: DeserializeOwned + Send + Sync + 'static,
     S<H>: Height,
     H: Height,
     Node<T, S<H>>: Decode,
@@ -310,7 +310,7 @@ impl<T> Encode for Closing<T> {
 
 impl<T> Decode for Closing<T>
 where
-    T: DeserializeOwned,
+    T: DeserializeOwned + Send + Sync + 'static,
 {
     fn read_wire<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
         let providing: Providing<T, Z> = Decode::read_wire(reader)?;
@@ -356,7 +356,7 @@ impl<T> Encode for Complete<T> {
 
 impl<T> Decode for Complete<T>
 where
-    T: DeserializeOwned,
+    T: DeserializeOwned + Send + Sync + 'static,
 {
     fn read_wire<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
         let providing: Providing<T, Z> = Decode::read_wire(reader)?;

@@ -138,7 +138,7 @@ proptest! {
             batch_send(&peer, values);
             let mut out = BTreeMap::new();
             for (_, v) in peer.snapshot().iter() {
-                *out.entry(**v).or_insert(0) += 1;
+                *out.entry(*v).or_insert(0) += 1;
             }
             out
         };

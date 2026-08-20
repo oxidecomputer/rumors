@@ -363,7 +363,7 @@ where
 
 impl<T> Node<T, Z> {
     /// Construct a new leaf node from a versioned message.
-    pub fn leaf(version: Version, message: Message<T>) -> Self {
+    pub fn leaf(version: Version, message: Message) -> Self {
         Self {
             height: PhantomData,
             inner: untyped::Node::leaf(version, message),
@@ -371,7 +371,7 @@ impl<T> Node<T, Z> {
     }
 
     /// Get a reference to the message at this leaf node.
-    pub fn message(&self) -> &Message<T> {
+    pub fn message(&self) -> &Message {
         self.inner
             .as_leaf()
             .expect("typed leaf failed to be a leaf")
@@ -389,12 +389,12 @@ impl<T> Node<T, height::Root> {
 
     /// Look up the live leaf whose full 32-byte path is `path`, by a single
     /// `O(depth)` descent.
-    pub fn get(&self, path: &[u8]) -> Option<(&Version, &Message<T>)> {
+    pub fn get(&self, path: &[u8]) -> Option<(&Version, &Message)> {
         self.inner.get(path)
     }
 
     /// Lazily iterate every live leaf in this root subtree as
-    /// `([u8; 32], &Version, &Message<T>)`.
+    /// `([u8; 32], &Version, &Message)`.
     ///
     /// Delegates to the height-agnostic untyped walk; because this is a
     /// height-32 root, every yielded path is a full 32-byte array.
@@ -484,7 +484,7 @@ where
 #[cfg(any(test, feature = "protocol-v1"))]
 impl<T> wire::Decode for Node<T, Z>
 where
-    T: DeserializeOwned,
+    T: DeserializeOwned + Send + Sync + 'static,
 {
     fn read_wire<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
         let prefix_len = u8::read_wire(reader)?;
@@ -492,7 +492,7 @@ where
             return Err(wire::invalid("leaf height cannot carry a prefix"));
         }
         let version = Version::read_wire(reader)?;
-        let message = Message::<T>::read_wire(reader)?;
+        let message = Message::from_reader::<T, _>(reader)?;
         Ok(Node::leaf(version, message))
     }
 }
@@ -500,7 +500,7 @@ where
 #[cfg(any(test, feature = "protocol-v1"))]
 impl<T, H> wire::Decode for Node<T, S<H>>
 where
-    T: DeserializeOwned,
+    T: DeserializeOwned + Send + Sync + 'static,
     H: Height,
     S<H>: Height,
     Node<T, H>: wire::Decode,

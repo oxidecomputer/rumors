@@ -94,15 +94,16 @@ payloads failing at ingress as `DecodeError::Record` exactly as today.
 - Costs: a fat pointer per `Message` handle and a `TypeId` compare per
   typed read; the `gossip_fixed` bench pin guards the claim that this
   is nothing.
-- No public API movement: `Message` is crate-internal (nothing
-  re-exports it; verified against the public rustdoc surface), and the
-  public observers speak owned `(Version, Arc<T>)` on every face (the
-  former lending forms dissolved when `Version` went CoW), so the
-  typed boundary is one `Arc::downcast::<T>()` — a refcount bump plus
-  the `TypeId` check — folded into the clone each yielded item already
-  pays. `T: Serialize` migrates to the insert boundary and
-  `DeserializeOwned` to witness minting; the public bounds stay
-  equivalent.
+- Public API movement, owner-ruled (see the rulings): `Message` itself
+  is crate-internal (nothing re-exports it; verified against the
+  public rustdoc surface), but two of the crate's faces move. The
+  observers already speak owned `(Version, Arc<T>)`, and the
+  `Snapshot` faces join them: a coerced `Arc<dyn Any>` is a fat
+  pointer sharing the `T` allocation, with no `Arc<T>` object anywhere
+  to lend, so the former `&Arc<T>`-lending faces become owned — each
+  yielded item one `Arc::downcast::<T>()`, a refcount bump plus the
+  `TypeId` check, exactly what a keeper paid before. And `Any` demands
+  `T: 'static`, which the insert paths previously did not.
 
 A decode-on-read variant (store the bytes only, decode at the typed
 boundary) loses to this on every axis: it saves the fat pointer but
@@ -146,6 +147,21 @@ security-relevant: payload validation stays exactly where it is
    gate-clean commits (the part I pattern); no transient
    typed-tree/erased-session seam.
 4. **Branch**: continues on `height-erasure`, stacking on part I.
+5. **Holder shape and the payload faces**: the single coerced
+   `Arc<dyn Any + Send + Sync>` (the same allocation, unsized in
+   place), with the `Snapshot` faces going owned: `iter`/`range` yield
+   `(&Version, Arc<T>)` and `get` returns `Option<Arc<T>>` — `get` no
+   longer echoes a version at all, because a leaf's path derives from
+   its version, so the hit's version is always the queried one. The
+   alternative (an extra box holding a concrete `Arc<T>`, to keep
+   lending `&Arc<T>`) was rejected: it charges the gossip path a
+   malloc per message at insert and wire ingress to subsidize
+   look-only application scans, and the box is pure plumbing whose
+   only justification is preserving a signature.
+6. **`T: 'static` at the insert paths**: added. Safe type erasure is
+   `TypeId`-based and `Any` requires `'static`; gossip already
+   demanded it, and the local-only borrowed-payload usage that
+   previously compiled (verified by probe) was unintended surface.
 
 ## Implementation plan (staged, each commit gate-clean)
 
@@ -153,6 +169,11 @@ security-relevant: payload validation stays exactly where it is
    non-generic — `{ message: Arc<dyn Any + Send + Sync>, serialized:
    Bytes }` — with typed constructors at the insert boundary and
    checked typed accessors (downcast) at the read boundary. Measure.
+   *Measured*: `pairwise` at 1,039,827 lines / 41,186 copies — flat
+   against the 1,039,534 / 41,172 baseline, as this stage predicts:
+   the payload type leaves storage, but every instantiation still
+   exists because the tree and session stay generic over the now-
+   phantom `T`. The dedup is stage 2's and 3's to collect.
 2. **The erased tree**: `untyped::Node<T>` and the typed veneer drop
    `T` (the stored `Message` was its only occurrence); iterators and
    walks yield erased leaves; `Rumors`/`Snapshot`/observer facades

@@ -242,13 +242,13 @@ where
     N: Leaf<T> + Clone + Send + 'static,
     N::Backend: Measure<T>,
 {
-    fn message(&self) -> &Message<T> {
+    fn message(&self) -> &Message {
         self.inner().message()
     }
 
     async fn leaf(
         version: Version,
-        message: Message<T>,
+        message: Message,
     ) -> Result<Self, <N::Backend as Backend<T>>::Error> {
         let node = N::leaf(version, message).await?;
         let measured = <N::Backend as Measure<T>>::measure::<N::Height>(&node);

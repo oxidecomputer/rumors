@@ -534,7 +534,7 @@ fn root_with_ceiling<T>(node: Option<Node<T, Root>>, ceiling: Version) -> crate:
 pub fn poisoned_root<T: Send + Sync>(
     party: &Party,
     base: &Version,
-    message: Message<T>,
+    message: Message,
 ) -> (crate::tree::Root<T>, Path, Version) {
     /// How far the escaped version outruns `base`: an upper bound on the
     /// honest ticks a test performs after the root is planted.

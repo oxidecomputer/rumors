@@ -39,7 +39,7 @@ pub fn pool(rumors: &Rumors<u64>, from: u64, count: u64) -> Vec<(u64, Version)> 
         .snapshot()
         .iter()
         .filter(|(_, m)| (from..from + count).contains(m))
-        .map(|(v, m)| (**m, v.clone()))
+        .map(|(v, m)| (*m, v.clone()))
         .collect();
     pool.sort_by_key(|(value, _)| *value);
     pool

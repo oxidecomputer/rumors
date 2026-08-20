@@ -311,8 +311,8 @@ fn decode_scope_error(error: DecodeError<Infallible>) -> ScopeError {
     }
 }
 
-fn under_root_pair() -> [(Version, Message<u64>, Path); 2] {
-    let mut by_radix: BTreeMap<u8, Vec<(Version, Message<u64>, Path)>> = BTreeMap::new();
+fn under_root_pair() -> [(Version, Message, Path); 2] {
+    let mut by_radix: BTreeMap<u8, Vec<(Version, Message, Path)>> = BTreeMap::new();
     for value in 0..u64::MAX {
         let leaf = LeafCase::new(value, value as u8 % 4);
         let path = leaf.path();
@@ -433,7 +433,7 @@ fn leaf_scope_is_enforced_within_one_run() {
         .find(|candidate| Prefix::<Z>::containing(&candidate.path()).pop().0 != parent)
         .expect("content paths do not all share one leaf parent");
     let frames = vec![Frame::Reaction(
-        WireReaction::Supply(leaf_run(&[
+        WireReaction::Supply(leaf_run::<u64>(&[
             (&inside.version, &inside.message),
             (&outside.version, &outside.message),
         ])),
@@ -508,7 +508,7 @@ fn a_version_over_the_declared_bound_is_rejected() {
     let declared = leaf.version.as_bytes().len() as u64;
     let frames = || {
         vec![Frame::Reaction(
-            WireReaction::Supply(leaf_run(&[(&leaf.version, &leaf.message)])),
+            WireReaction::Supply(leaf_run::<u64>(&[(&leaf.version, &leaf.message)])),
             Flow::End,
         )]
     };

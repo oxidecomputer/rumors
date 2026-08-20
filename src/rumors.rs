@@ -162,7 +162,7 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     /// If `message` fails to serialize (see [`Batch::send`]).
     pub fn send(&self, message: T) -> Batch<'_, T>
     where
-        T: Serialize + Send + Sync,
+        T: Serialize + Send + Sync + 'static,
     {
         self.peer.send(message)
     }

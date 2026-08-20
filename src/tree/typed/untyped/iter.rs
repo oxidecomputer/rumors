@@ -100,7 +100,7 @@ impl<'a, T, P: Polarity> Walk<'a, T, P> {
     /// ordered so the frontier stays ascending front-to-back; the two ends
     /// therefore never yield the same leaf and meet cleanly when the frontier
     /// empties.
-    fn step(&mut self, back: bool) -> Option<(&'a Version, &'a Message<T>)> {
+    fn step(&mut self, back: bool) -> Option<(&'a Version, &'a Message)> {
         'frontier: while let Some(Frame { node, passes }) = if back {
             self.frames.pop_back()
         } else {
@@ -159,8 +159,8 @@ impl<'a, T, P: Polarity> Walk<'a, T, P> {
 /// For the same walk filtered to a causal range, see [`Range`].
 ///
 /// The [`Message`] is the richest leaf payload (it carries the cached
-/// serialization alongside the `Arc<T>`); callers that only want the value
-/// project it cheaply with [`Message::as_arc`].
+/// serialization alongside the shared payload handle); callers that only
+/// want the value project it with [`Message::arc`].
 ///
 /// [`next`](Iterator::next) yields leaves in ascending order of their
 /// version-derived paths; the iterator is also a [`DoubleEndedIterator`],
@@ -196,7 +196,7 @@ impl<'a, T> Iter<'a, T> {
 }
 
 impl<'a, T> Iterator for Iter<'a, T> {
-    type Item = (&'a Version, &'a Message<T>);
+    type Item = (&'a Version, &'a Message);
 
     fn next(&mut self) -> Option<Self::Item> {
         self.walk.step(false)
@@ -248,7 +248,7 @@ impl<'a, T, P: Polarity> Range<'a, T, P> {
 }
 
 impl<'a, T, P: Polarity> Iterator for Range<'a, T, P> {
-    type Item = (&'a Version, &'a Message<T>);
+    type Item = (&'a Version, &'a Message);
 
     fn next(&mut self) -> Option<Self::Item> {
         self.walk.step(false)
@@ -329,12 +329,16 @@ impl<T> Leaf<T> {
         self.0.ceiling()
     }
 
-    /// The message's value.
-    pub fn value(&self) -> &std::sync::Arc<T> {
+    /// The message's value: an owned handle, one reference bump on the
+    /// shared allocation.
+    pub fn value(&self) -> std::sync::Arc<T>
+    where
+        T: Send + Sync + 'static,
+    {
         self.0
             .as_leaf()
             .expect("a Leaf wraps a leaf node, by construction")
-            .as_arc()
+            .arc::<T>()
     }
 
     /// Unwrap into a bare height-zero leaf node.

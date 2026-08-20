@@ -306,7 +306,7 @@ pub trait ErasedNode {
 /// shape every backend must represent faithfully.
 pub trait Leaf<T: Send + Sync + 'static>: Node<T> {
     /// The message stored at this leaf node.
-    fn message(&self) -> &Message<T>;
+    fn message(&self) -> &Message;
 
     /// Construct a leaf node from one decoded wire record, taking custody
     /// of its payload.
@@ -338,7 +338,7 @@ pub trait Leaf<T: Send + Sync + 'static>: Node<T> {
     /// (the reclaimable-garbage case).
     fn leaf(
         version: Version,
-        message: Message<T>,
+        message: Message,
     ) -> impl Future<Output = Result<Self, <Self::Backend as Backend<T>>::Error>> + Send
     where
         Self: Sized;

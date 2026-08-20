@@ -63,7 +63,7 @@ fn record_len_matches_an_actual_push() {
             run.push(&version, &message).expect("test records fit");
             assert_eq!(
                 run.encoded_len(),
-                LeafRun::record_len(&version, &message),
+                LeafRun::<u64>::record_len(&version, &message),
                 "record_len must price exactly one pushed record",
             );
             // The version atom `push` writes is byte-identical to the

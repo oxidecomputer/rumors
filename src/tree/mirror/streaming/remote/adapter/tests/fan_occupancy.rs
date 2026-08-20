@@ -39,8 +39,8 @@ const PER_FRAME: usize = 16;
 
 /// `count` unique `u64` leaves, in ascending path order (the wire order
 /// the decoder validates).
-fn leaves(count: u64) -> Vec<(Version, Message<u64>)> {
-    let mut leaves: Vec<(Version, Message<u64>)> = (0..count)
+fn leaves(count: u64) -> Vec<(Version, Message)> {
+    let mut leaves: Vec<(Version, Message)> = (0..count)
         .map(|index| {
             let version = Version::try_from(index + 1).expect("small linear versions are valid");
             (version, Message::new(index))
@@ -51,8 +51,8 @@ fn leaves(count: u64) -> Vec<(Version, Message<u64>)> {
 }
 
 /// Chunk leaves into supply frames of [`PER_FRAME`] records each.
-fn frames(leaves: &[(Version, Message<u64>)]) -> Vec<Frame<u64>> {
-    let chunks: Vec<&[(Version, Message<u64>)]> = leaves.chunks(PER_FRAME).collect();
+fn frames(leaves: &[(Version, Message)]) -> Vec<Frame<u64>> {
+    let chunks: Vec<&[(Version, Message)]> = leaves.chunks(PER_FRAME).collect();
     let count = chunks.len();
     chunks
         .into_iter()

@@ -75,7 +75,7 @@ where
 
     let snapshot = receiver.snapshot();
     let (_, message) = snapshot.iter().next().expect("one live message");
-    (**message).clone()
+    (*message).clone()
 }
 
 /// Struct fields decode by name: a payload encoded with one field order

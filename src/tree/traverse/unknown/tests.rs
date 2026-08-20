@@ -94,7 +94,7 @@ fn wide_divergence(
     known_leaves: usize,
     divergent_leaves: usize,
 ) -> (Option<typed::node::Root<()>>, Version) {
-    let mut actions: Vec<(Path, Version, Action<()>)> = Vec::new();
+    let mut actions: Vec<(Path, Version, Action)> = Vec::new();
     let mut known = Version::new();
 
     for (party_index, count, flagged) in [(0, known_leaves, true), (1, divergent_leaves, false)] {

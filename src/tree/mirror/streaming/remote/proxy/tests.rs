@@ -290,9 +290,9 @@ async fn divergent_leaves_converge() {
 /// live under deterministic closed-world polling.
 #[test]
 fn symmetric_accept_handshakes_are_live() {
-    let mut a = Tree::new();
+    let mut a = Tree::<()>::new();
     a.act(&nth_party(0), [Action::Insert(Message::new(()))]);
-    let mut b = Tree::new();
+    let mut b = Tree::<()>::new();
     b.act(&nth_party(1), [Action::Insert(Message::new(()))]);
 
     let (a, b) = run_to_quiescence(reconcile_symmetric_accepts(a.root, b.root, 1))
@@ -306,9 +306,9 @@ fn symmetric_accept_handshakes_are_live() {
 fn symmetric_accepts_with_distinct_payloads_are_live() {
     let mut a_party = before::Party::seed();
     let b_party = a_party.fork();
-    let mut a = Tree::new();
+    let mut a = Tree::<u64>::new();
     a.act(&a_party, [Action::Insert(Message::new(1_u64))]);
-    let mut b = Tree::new();
+    let mut b = Tree::<u64>::new();
     b.act(&b_party, [Action::Insert(Message::new(2_u64))]);
 
     let (a, b) = run_to_quiescence(reconcile_after_preamble(a.root, b.root))

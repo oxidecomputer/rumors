@@ -73,13 +73,13 @@ impl<T: Send + Sync + 'static> ErasedNode for typed::untyped::Node<T> {
 }
 
 impl<T: Send + Sync + 'static> Leaf<T> for typed::Node<T, Z> {
-    fn message(&self) -> &Message<T> {
+    fn message(&self) -> &Message {
         self.message()
     }
 
     // Custody is free: the handle owns the payload and the tree it will
     // join is resident regardless, so construction completes immediately.
-    async fn leaf(version: Version, message: Message<T>) -> Result<Self, Infallible> {
+    async fn leaf(version: Version, message: Message) -> Result<Self, Infallible> {
         Ok(Self::leaf(version, message))
     }
 }
