@@ -50,11 +50,11 @@ use serde::de::DeserializeOwned;
 /// Magic bytes that open a V1 gossip session's preamble frame.
 ///
 /// A [`Protocol::V2`] session opens with the self-described CBOR tag
-/// instead, and carries its protocol magic as the greeting map's
-/// `"protocol"` entry; this raw marker belongs to the V1 wire dialect
-/// alone, so it is exposed only with the `protocol-v1` feature. (A V2
-/// endpoint still recognizes these bytes internally, to diagnose a
-/// legacy peer as the version mismatch it is.)
+/// instead, and carries its protocol magic in the preamble's opening
+/// array; this raw marker belongs to the V1 wire dialect alone, so it
+/// is exposed only with the `protocol-v1` feature. (A V2 endpoint
+/// still recognizes these bytes internally, to diagnose a legacy peer
+/// as the version mismatch it is.)
 #[cfg(feature = "protocol-v1")]
 pub const PROTOCOL_MAGIC: [u8; 6] = crate::tree::mirror::handshake::LEGACY_MAGIC;
 

@@ -16,10 +16,6 @@
 //! - `"set_len"`: the sender's declared set size.
 //! - `"version"`: the sender's causal version — the version-atom tag
 //!   wrapping a byte string of the version's canonical encoding.
-//! - `"protocol"`: the text `"rumors"` — the protocol magic. The
-//!   preamble's self-described CBOR tag announces only "this is CBOR";
-//!   this entry is what marks the session as a rumors stream to a
-//!   reader holding nothing but the bytes.
 //! - `"max_version_bytes"`: the sender's version-size bound.
 //! - `"payload_depth_limit"`: the sender's payload nesting-depth limit,
 //!   which the counterparty's must equal for the session to proceed.
@@ -38,18 +34,14 @@ use super::frame::{ListingIssue, parse_listing_map, write_listing};
 
 /// The greeting map's keys, in the deterministic (bytewise lexicographic)
 /// order the wire requires.
-const KEYS: [&str; 7] = [
+const KEYS: [&str; 6] = [
     "listing",
     "set_len",
     "version",
-    "protocol",
     "max_version_bytes",
     "payload_depth_limit",
     "target_message_size",
 ];
-
-/// The protocol magic carried by the greeting's `"protocol"` entry.
-const PROTOCOL_NAME: &str = "rumors";
 
 /// Render one greeting as its complete control-stream item:
 /// tag 24 wrapping a byte string of the greeting map.
@@ -79,10 +71,6 @@ fn greeting_map(greeting: &Greeting) -> Vec<u8> {
                 cbor::write_tag(&mut map, crate::tags::VERSION_TAG);
                 cbor::write_head(&mut map, MAJOR_BSTR, version.len() as u64);
                 map.extend_from_slice(version);
-            }
-            "protocol" => {
-                cbor::write_head(&mut map, MAJOR_TEXT, PROTOCOL_NAME.len() as u64);
-                map.extend_from_slice(PROTOCOL_NAME.as_bytes());
             }
             "max_version_bytes" => {
                 cbor::write_head(&mut map, MAJOR_UINT, greeting.max_version_bytes);
@@ -188,21 +176,6 @@ pub(crate) fn parse_greeting(bytes: &[u8]) -> Result<Greeting, GreetingError> {
                 };
                 input = rest;
                 version = Some(Version::decode(atom).map_err(GreetingError::Version)?);
-            }
-            "protocol" => {
-                let head = cbor::read_head(&mut input).map_err(GreetingError::Head)?;
-                if head.major != MAJOR_TEXT || head.value != PROTOCOL_NAME.len() as u64 {
-                    return Err(GreetingError::Shape("greeting protocol magic is absent"));
-                }
-                let Some((name, rest)) = split(input, PROTOCOL_NAME.len()) else {
-                    return Err(GreetingError::Shape("greeting protocol magic is truncated"));
-                };
-                input = rest;
-                if name != PROTOCOL_NAME.as_bytes() {
-                    return Err(GreetingError::Shape(
-                        "greeting protocol magic is not \"rumors\"",
-                    ));
-                }
             }
             "max_version_bytes" => {
                 max_version_bytes = Some(uint(

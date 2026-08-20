@@ -50,8 +50,8 @@ fn greetings_round_trip() {
 }
 
 /// The greeting's map admits exactly one spelling: a missing or
-/// out-of-order key, a wrong protocol magic, or trailing bytes are each
-/// rejected — one spelling per greeting is the deterministic contract.
+/// out-of-order key, or trailing bytes, are each rejected — one
+/// spelling per greeting is the deterministic contract.
 #[test]
 fn greeting_key_roster_is_exact() {
     let greeting = sample(Vec::new());
@@ -60,15 +60,6 @@ fn greeting_key_roster_is_exact() {
     cbor::read_head(&mut input).expect("tag head");
     cbor::read_head(&mut input).expect("bstr head");
     let map = input.to_vec();
-
-    // Renaming the protocol magic's value breaks the greeting.
-    let mut wrong_magic = map.clone();
-    let at = find(&wrong_magic, b"rumors", 0).expect("the magic value is present");
-    wrong_magic[at] = b'x';
-    assert!(matches!(
-        parse_greeting(&wrong_magic),
-        Err(GreetingError::Shape(_))
-    ));
 
     // Renaming a key breaks the roster.
     let mut wrong_key = map.clone();
