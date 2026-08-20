@@ -1,9 +1,9 @@
 # Item-type erasure at the leaf boundary (part II sketch)
 
-Status: accepted (option B, with the rulings below); implementation in
-progress on the `height-erasure` branch. Numbers marked *measured* come
-from `cargo llvm-lines --test pairwise` (debug, default features) on
-the height-erased tree.
+Status: accepted (option B, with the rulings below); implemented on the
+`height-erasure` branch, all four stages measured, awaiting the owner's
+merge ruling. Numbers marked *measured* come from `cargo llvm-lines
+--test pairwise` (debug, default features) on the height-erased tree.
 
 ## The problem, precisely
 
