@@ -100,9 +100,11 @@ byte of the file. The raw magic string has no analogue in a
 self-described CBOR file and the v4 format (and public API) carries
 none.
 
-`FormatError`'s taxonomy survives re-denominated with typed carriers:
-`BadMagic` holds a `FrameDefect` naming the "not self-described CBOR /
-wrong shape" failure, decode failures carry a typed `RecordDefect`,
+`FormatError`'s taxonomy is meaning-named with typed carriers (ruled
+2026-08-19: variants say what they diagnose, not what stage tripped):
+`NotABookmark` holds a `FrameDefect` naming the "not self-described
+CBOR / wrong shape" failure, `Record` carries a typed `RecordDefect`
+for a payload that is not the record this codec writes,
 `VersionMismatch` and `HashMismatch` are unchanged in meaning, and
 truncation is rejected at every strict prefix. This is a
 format-version bump under the bookmark's own convention.

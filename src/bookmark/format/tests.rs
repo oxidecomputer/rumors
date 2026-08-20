@@ -102,7 +102,7 @@ proptest! {
         framed.push(extra);
         let rejected = matches!(
             unframe(&framed),
-            Err(FormatError::BadMagic { defect: FrameDefect::TrailingBytes }),
+            Err(FormatError::NotABookmark { defect: FrameDefect::TrailingBytes }),
         );
         prop_assert!(rejected);
     }
@@ -132,7 +132,7 @@ fn empty_record_round_trips() {
     assert!(decoded.is_empty());
 }
 
-/// Foreign leading bytes are rejected as [`FormatError::BadMagic`], not
+/// Foreign leading bytes are rejected as [`FormatError::NotABookmark`], not
 /// misread — including a file that opens with plain ASCII where the
 /// self-described tag belongs.
 #[test]
@@ -141,7 +141,7 @@ fn foreign_magic_is_rejected() {
     framed[0] ^= 0xff;
     assert!(matches!(
         unframe(&framed),
-        Err(FormatError::BadMagic {
+        Err(FormatError::NotABookmark {
             defect: FrameDefect::SelfDescribedTag
         })
     ));
@@ -149,7 +149,7 @@ fn foreign_magic_is_rejected() {
     let ascii = b"RUMORSBOOKMARKISH TEXT, NOT CBOR";
     assert!(matches!(
         unframe(ascii),
-        Err(FormatError::BadMagic {
+        Err(FormatError::NotABookmark {
             defect: FrameDefect::SelfDescribedTag
         })
     ));
@@ -207,7 +207,7 @@ fn non_canonical_version_spelling_is_rejected() {
 
     assert!(matches!(
         unframe(&framed),
-        Err(FormatError::BadMagic {
+        Err(FormatError::NotABookmark {
             defect: FrameDefect::FormatVersion
         }),
     ));
@@ -235,7 +235,7 @@ fn short_input_is_truncated() {
 
 /// An intact frame whose payload item holds an untagged clock is a
 /// [`RecordDefect`], not corruption: the hash passed, so the defect class is
-/// [`FormatError::Decode`].
+/// [`FormatError::Record`].
 #[test]
 fn untagged_clock_is_a_record_defect() {
     let clock = Clock::seed();
@@ -248,7 +248,7 @@ fn untagged_clock_is_a_record_defect() {
     ciborium::ser::into_writer(&map, &mut payload).unwrap();
     assert!(matches!(
         decode(&frame(&payload)),
-        Err(FormatError::Decode(RecordDefect::ClockUntagged)),
+        Err(FormatError::Record(RecordDefect::ClockUntagged)),
     ));
 }
 

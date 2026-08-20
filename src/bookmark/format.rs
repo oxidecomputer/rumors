@@ -89,7 +89,7 @@ const MAJOR_BYTES: u8 = 2 << 5;
 
 /// Which part of the frame's fixed shape failed to parse.
 ///
-/// Carried by [`FormatError::BadMagic`]: the bytes are present but are not a
+/// Carried by [`FormatError::NotABookmark`]: the bytes are present but are not a
 /// bookmark frame at the named position.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
@@ -125,7 +125,7 @@ pub enum FrameDefect {
 
 /// Why an intact frame's payload is not the record this codec writes.
 ///
-/// Carried by [`FormatError::Decode`]. The frame passed its integrity check,
+/// Carried by [`FormatError::Record`]. The frame passed its integrity check,
 /// so every variant is a logic error — the bytes are the ones that were
 /// written — never corruption.
 #[derive(Debug, thiserror::Error)]
@@ -201,7 +201,7 @@ pub enum FormatError {
     /// The bytes are not a self-described CBOR bookmark frame: this is not a
     /// bookmark.
     #[error("not a rumors bookmark: {defect}")]
-    BadMagic {
+    NotABookmark {
         /// Which part of the frame shape failed.
         #[source]
         defect: FrameDefect,
@@ -228,8 +228,8 @@ pub enum FormatError {
     /// The frame was well-formed and intact, but its payload is not the
     /// record this codec writes — a logic error, since a matching hash means
     /// the bytes are the ones that were written.
-    #[error("decoding the bookmark payload failed: {0}")]
-    Decode(#[source] RecordDefect),
+    #[error("the bookmark payload is not a record this codec writes: {0}")]
+    Record(#[source] RecordDefect),
 }
 
 /// Append the shortest-form CBOR header for `arg` under `major` (pre-shifted).
@@ -295,7 +295,7 @@ pub(crate) fn frame(payload: &[u8]) -> Vec<u8> {
 /// A strict, position-tracking reader over a candidate frame.
 ///
 /// Running out of bytes is [`FormatError::Truncated`]; bytes that differ from
-/// the demanded spelling are [`FormatError::BadMagic`] with the caller's
+/// the demanded spelling are [`FormatError::NotABookmark`] with the caller's
 /// defect. Together the two carry the totality of the shape check: every byte
 /// of the frame is either compared against a fixed spelling, parsed as a
 /// shortest-form header, hashed, or payload.
@@ -322,7 +322,7 @@ impl<'a> Reader<'a> {
     /// Demand the exact bytes `spelling` next, else the named `defect`.
     fn expect(&mut self, spelling: &[u8], defect: FrameDefect) -> Result<(), FormatError> {
         if self.take(spelling.len())? != spelling {
-            return Err(FormatError::BadMagic { defect });
+            return Err(FormatError::NotABookmark { defect });
         }
         Ok(())
     }
@@ -332,7 +332,7 @@ impl<'a> Reader<'a> {
     fn head(&mut self, major: u8, defect: FrameDefect) -> Result<u64, FormatError> {
         let initial = self.take(1)?[0];
         if initial & 0xe0 != major {
-            return Err(FormatError::BadMagic { defect });
+            return Err(FormatError::NotABookmark { defect });
         }
         let (arg, floor) = match initial & 0x1f {
             small @ 0..=23 => return Ok(u64::from(small)),
@@ -349,12 +349,12 @@ impl<'a> Reader<'a> {
                 u64::from_be_bytes(self.take(8)?.try_into().expect("eight")),
                 0x1_0000_0000,
             ),
-            _ => return Err(FormatError::BadMagic { defect }),
+            _ => return Err(FormatError::NotABookmark { defect }),
         };
         // The frame is deterministic-encoding CBOR: a header wider than its
         // argument needs is a spelling this codec never writes.
         if arg < floor {
-            return Err(FormatError::BadMagic { defect });
+            return Err(FormatError::NotABookmark { defect });
         }
         Ok(arg)
     }
@@ -368,7 +368,7 @@ impl<'a> Reader<'a> {
 ///
 /// # Errors
 ///
-/// [`FormatError::Truncated`], [`BadMagic`](FormatError::BadMagic),
+/// [`FormatError::Truncated`], [`NotABookmark`](FormatError::NotABookmark),
 /// [`VersionMismatch`](FormatError::VersionMismatch), or
 /// [`HashMismatch`](FormatError::HashMismatch) — each pinpointing how the
 /// bytes failed to be a frame this build can trust.
@@ -395,7 +395,7 @@ pub(crate) fn unframe(bytes: &[u8]) -> Result<&[u8], FormatError> {
     }
     let payload = reader.take(declared as usize).expect("length checked");
     if reader.at != bytes.len() {
-        return Err(FormatError::BadMagic {
+        return Err(FormatError::NotABookmark {
             defect: FrameDefect::TrailingBytes,
         });
     }
@@ -450,12 +450,12 @@ pub(crate) fn encode(record: &BTreeMap<Network, Vec<Clock>>) -> Vec<u8> {
 ///
 /// # Errors
 ///
-/// Any [`unframe`] error, or [`FormatError::Decode`] if a frame that passed
+/// Any [`unframe`] error, or [`FormatError::Record`] if a frame that passed
 /// its integrity check nonetheless held an undecodable payload (a logic
 /// error, not corruption).
 pub(crate) fn decode(bytes: &[u8]) -> Result<BTreeMap<Network, Vec<Clock>>, FormatError> {
     let payload = unframe(bytes)?;
-    walk(payload).map_err(FormatError::Decode)
+    walk(payload).map_err(FormatError::Record)
 }
 
 /// Walk an unframed payload into the record it spells.

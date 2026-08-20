@@ -227,11 +227,11 @@ impl Preamble {
             });
         }
         let mut input = &bytes[V2_PREFIX.len()..];
-        let malformed = |detail| Error::Malformed { detail };
+        let malformed = |defect| Error::Malformed { defect };
         let version = cbor::read_head(&mut input)
             .ok()
             .filter(|head| head.major == MAJOR_UINT)
-            .ok_or(malformed("preamble version is not an unsigned int"))?;
+            .ok_or(malformed(PreambleDefect::Version))?;
         if version.value != protocol as u64 {
             return Err(Error::VersionMismatch {
                 local_protocol: protocol,
@@ -241,9 +241,9 @@ impl Preamble {
         cbor::read_head(&mut input)
             .ok()
             .filter(|head| head.major == MAJOR_BSTR && head.value == NETWORK_LEN as u64)
-            .ok_or(malformed("preamble network is not a 16-byte string"))?;
+            .ok_or(malformed(PreambleDefect::Network))?;
         if input.len() < NETWORK_LEN {
-            return Err(malformed("preamble network is truncated"));
+            return Err(malformed(PreambleDefect::NetworkTruncated));
         }
         let (network, rest) = input.split_at(NETWORK_LEN);
         input = rest;
@@ -251,9 +251,9 @@ impl Preamble {
         let intent = cbor::read_head(&mut input)
             .ok()
             .filter(|head| head.major == MAJOR_UINT)
-            .ok_or(malformed("preamble intent is not an unsigned int"))?;
+            .ok_or(malformed(PreambleDefect::Intent))?;
         if !input.is_empty() {
-            return Err(malformed("preamble carries trailing bytes"));
+            return Err(malformed(PreambleDefect::TrailingBytes));
         }
         let intent = u8::try_from(intent.value)
             .map_err(|_| Error::IntentInvalid { byte: u8::MAX })
@@ -285,15 +285,53 @@ pub(crate) enum Error {
         local_protocol: Protocol,
         remote_version: u64,
     },
-    /// The preamble opened correctly but a field was not canonical.
-    #[error("peer preamble is malformed: {detail}")]
-    Malformed { detail: &'static str },
+    /// The preamble opened correctly but a field of it is not spelled
+    /// the way the dialect demands.
+    #[error("peer preamble is malformed: {defect}")]
+    Malformed { defect: PreambleDefect },
+    /// The peer closed the stream inside its preamble.
+    #[error("peer closed after sending {received} of its {expected} preamble bytes")]
+    Truncated { received: usize, expected: usize },
     /// The peer's intent has no defined meaning.
     #[error("peer sent an invalid intent ({byte:#04x})")]
     IntentInvalid { byte: u8 },
     /// A peer cannot simultaneously receive and donate an identity.
     #[error("peer claimed to bootstrap and retire in the same session")]
     BootstrapRetireConflict,
+}
+
+/// Which field of a correctly-opened preamble failed to parse.
+///
+/// Carried by
+/// [`Error::PreambleMalformed`](crate::Error::PreambleMalformed): the
+/// peer opened as a rumors stream of the selected dialect, but one
+/// field is not spelled the way the wire demands. The preamble is
+/// deterministic-encoding CBOR — one spelling per field — so every
+/// defect here is a counterparty bug, never an alternate encoding.
+/// Reachable only for [`Protocol::V2`]: the legacy frame's fields are
+/// fixed-width raw bytes with no spelling to get wrong.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum PreambleDefect {
+    /// The version item is not a shortest-form unsigned int.
+    #[error("the version item is not an unsigned int")]
+    Version,
+
+    /// The network item is not a 16-byte byte string.
+    #[error("the network item is not a 16-byte byte string")]
+    Network,
+
+    /// The network byte string's bytes end inside the preamble item.
+    #[error("the network bytes end inside the preamble item")]
+    NetworkTruncated,
+
+    /// The intent item is not a shortest-form unsigned int.
+    #[error("the intent item is not an unsigned int")]
+    Intent,
+
+    /// Bytes trail the preamble's single item.
+    #[error("bytes trail the preamble item")]
+    TrailingBytes,
 }
 
 /// A cancel-safe, partially received fixed preamble.
@@ -352,10 +390,10 @@ impl Staged {
                             });
                         }
                     }
-                    return Err(Error::Io(std::io::Error::new(
-                        std::io::ErrorKind::UnexpectedEof,
-                        "peer closed mid-preamble",
-                    )));
+                    return Err(Error::Truncated {
+                        received: self.filled,
+                        expected: self.want,
+                    });
                 }
                 read => self.filled += read,
             }
@@ -401,10 +439,12 @@ where
     let read = async {
         match staged.fill(reader).await? {
             Fill::Filled => Ok(()),
-            Fill::Closed => Err(Error::Io(std::io::Error::new(
-                std::io::ErrorKind::UnexpectedEof,
-                "peer closed before sending its preamble",
-            ))),
+            // The peer hung up without sending a byte: a zero-length
+            // truncation, distinct from a transport failure.
+            Fill::Closed => Err(Error::Truncated {
+                received: 0,
+                expected: staged.want,
+            }),
         }
     };
     futures_util::future::try_join(write, read).await?;

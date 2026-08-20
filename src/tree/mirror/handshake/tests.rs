@@ -1,7 +1,9 @@
 use proptest::prelude::*;
 use tokio::io::{duplex, split};
 
-use super::{Error, Intent, Preamble, Staged, V2_PREAMBLE_LEN, V2_PREFIX, preamble};
+use super::{
+    Error, Intent, Preamble, PreambleDefect, Staged, V2_PREAMBLE_LEN, V2_PREFIX, preamble,
+};
 use crate::observe::SessionHandle;
 use crate::{Network, Protocol};
 
@@ -110,23 +112,28 @@ fn intent_byte_space_is_exhaustive() {
             (2..=0x17, Err(Error::IntentInvalid { byte: rejected })) => {
                 assert_eq!(rejected, byte);
             }
-            (0x18.., Err(Error::Malformed { .. })) => {}
+            (
+                0x18..,
+                Err(Error::Malformed {
+                    defect: PreambleDefect::Intent,
+                }),
+            ) => {}
             (_, other) => panic!("invalid intent {byte} produced the wrong result: {other:?}"),
         }
     }
 }
 
 /// A peer that closes the connection at any point inside the preamble
-/// surfaces a typed error, never a hang and never a partial decode.
+/// surfaces a typed truncation, never a hang and never a partial decode.
 ///
 /// Every strict prefix of the fixed item is a structurally distinct
-/// truncation, so the whole prefix space is swept in both dialects: zero
-/// bytes is the clean-goodbye close, every longer prefix a mid-preamble
-/// cut resolving to [`Error::Io`] with `UnexpectedEof` — except a V2
-/// endpoint cut exactly where a whole legacy preamble ends, which is
-/// diagnosed as the version mismatch it is.
+/// truncation, so the whole prefix space is swept in both dialects, each
+/// cut resolving to [`Error::Truncated`] carrying the exact byte counts
+/// of the cut (a V2 endpoint cut where a whole legacy preamble ends with
+/// a skewed version is instead the version mismatch it is — the separate
+/// legacy-peer test).
 #[test]
-fn every_truncation_boundary_is_a_typed_eof() {
+fn every_truncation_boundary_is_typed() {
     for protocol in [Protocol::V1, Protocol::V2] {
         let network = Network::from_bytes([1; 16]);
         let full = Preamble {
@@ -149,12 +156,17 @@ fn every_truncation_boundary_is_a_typed_eof() {
                 &SessionHandle::default(),
             ));
             match result {
-                Err(Error::Io(error)) => assert_eq!(
-                    error.kind(),
-                    std::io::ErrorKind::UnexpectedEof,
-                    "cut after {cut} bytes must be an unexpected EOF",
-                ),
-                other => panic!("cut after {cut} bytes must be a typed I/O error, got {other:?}"),
+                Err(Error::Truncated { received, expected }) => {
+                    assert_eq!(received, cut, "the truncation reports the cut point");
+                    assert_eq!(
+                        expected,
+                        full.len(),
+                        "the truncation reports the dialect's full width"
+                    );
+                }
+                other => {
+                    panic!("cut after {cut} bytes must be a typed truncation, got {other:?}")
+                }
             }
         }
     }

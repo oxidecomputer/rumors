@@ -15,6 +15,8 @@
 //! | [`Error::PartyOverlap`] | unchanged | nothing was absorbed: the retiring peer's identity overlaps ours |
 //! | [`Error::Epilogue`] | **committed** (a bootstrapping side instead applies nothing) | none locally: what was certainly lost is the peer's confirmation (a donor's identity may be lost with it: see the variant) |
 //! | [`Error::LinkPoisoned`] | unchanged | handle the first non-poisoned error; repeats mean the reconnect is not producing a fresh link |
+//! | [`Error::PreambleMalformed`] | unchanged | counterparty bug: report it (the defect names the field) |
+//! | [`Error::PreambleTruncated`] | unchanged | the peer or transport hung up mid-handshake: retry over a fresh link |
 //! | [`Error::IntentInvalid`] | unchanged | counterparty bug: report it |
 //! | [`Error::BootstrapRetireConflict`] | unchanged | counterparty bug: report it |
 //! | [`Error::BootstrapHistoryConflict`] | unchanged | counterparty bug: report it |
@@ -29,6 +31,7 @@ use crate::{
     tree::mirror::{self, handshake},
 };
 
+pub use crate::tree::mirror::handshake::PreambleDefect;
 pub use crate::tree::mirror::streaming::materialized::{
     Error as MaterializedError, Violation as MaterializedViolation,
 };
@@ -148,6 +151,32 @@ pub enum Error<B: BookmarkError = NoBookmark> {
     )]
     LinkPoisoned,
 
+    /// The peer opened as a rumors stream of the selected dialect, but a
+    /// field of its preamble is not spelled the way the wire demands.
+    ///
+    /// The preamble is deterministic-encoding CBOR — one spelling per
+    /// field — so this is always a counterparty bug, never an alternate
+    /// encoding; the defect names the offending field.
+    #[error("peer preamble is malformed: {defect}")]
+    PreambleMalformed {
+        /// Which preamble field failed, and how.
+        defect: PreambleDefect,
+    },
+
+    /// The peer closed the stream partway through its preamble.
+    ///
+    /// Distinct from [`Io`](Self::Io): the transport delivered a clean
+    /// close, not a failure — the counterparty (or something between)
+    /// hung up mid-handshake. Retry over a fresh link; persistent
+    /// zero-byte truncations from a live peer are a counterparty bug.
+    #[error("peer closed after sending {received} of its {expected} preamble bytes")]
+    PreambleTruncated {
+        /// Preamble bytes received before the close.
+        received: usize,
+        /// The selected dialect's full preamble width.
+        expected: usize,
+    },
+
     /// The peer's intent byte had no defined meaning.
     #[error("peer sent an invalid intent byte ({byte:#04x})")]
     IntentInvalid { byte: u8 },
@@ -223,10 +252,10 @@ impl From<handshake::Error> for Error<NoBookmark> {
                 local_protocol,
                 remote_version,
             },
-            handshake::Error::Malformed { detail } => Error::Io(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                format!("peer preamble is malformed: {detail}"),
-            )),
+            handshake::Error::Malformed { defect } => Error::PreambleMalformed { defect },
+            handshake::Error::Truncated { received, expected } => {
+                Error::PreambleTruncated { received, expected }
+            }
             handshake::Error::IntentInvalid { byte } => Error::IntentInvalid { byte },
             handshake::Error::BootstrapRetireConflict => Error::BootstrapRetireConflict,
         }
@@ -262,6 +291,10 @@ impl Error<NoBookmark> {
             Error::PartyOverlap => Error::PartyOverlap,
             Error::Epilogue(error) => Error::Epilogue(error),
             Error::LinkPoisoned => Error::LinkPoisoned,
+            Error::PreambleMalformed { defect } => Error::PreambleMalformed { defect },
+            Error::PreambleTruncated { received, expected } => {
+                Error::PreambleTruncated { received, expected }
+            }
             Error::IntentInvalid { byte } => Error::IntentInvalid { byte },
             Error::BootstrapRetireConflict => Error::BootstrapRetireConflict,
             Error::BootstrapHistoryConflict { claimed_min_events } => {

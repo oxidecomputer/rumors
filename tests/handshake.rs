@@ -212,11 +212,11 @@ async fn invalid_intent_surfaces_error() {
     }
 }
 
-/// A peer that closes the connection mid-preamble surfaces as an
-/// I/O error (specifically `UnexpectedEof`), not a malformed-
-/// preamble error.
+/// A peer that closes the connection mid-preamble surfaces as
+/// [`Error::PreambleTruncated`] carrying the exact byte counts of the
+/// cut, not a bare I/O error and not a malformed-preamble error.
 #[pollster::test]
-async fn truncated_handshake_io_error() {
+async fn truncated_handshake_surfaces_typed_truncation() {
     let (mut a_link, b) = rumors::link::memory();
     let b = b.into_parts();
     let mut b_r = b.control_read;
@@ -237,14 +237,46 @@ async fn truncated_handshake_io_error() {
 
     let (alice_result, ()) = tokio::join!(alice_fut, fake_peer);
     match alice_result {
-        Err(Error::Io(e)) => {
-            assert_eq!(
-                e.kind(),
-                std::io::ErrorKind::UnexpectedEof,
-                "expected UnexpectedEof, got {e:?}",
-            );
+        Err(Error::PreambleTruncated { received, expected }) => {
+            assert_eq!(received, 6, "the six delivered bytes are counted");
+            assert_eq!(expected, PREAMBLE_LEN, "the full dialect width is named");
         }
-        other => panic!("expected Io(UnexpectedEof), got {other:?}"),
+        other => panic!("expected PreambleTruncated, got {other:?}"),
+    }
+}
+
+/// A peer whose preamble opens correctly but spells a field wrong is
+/// rejected as [`Error::PreambleMalformed`] with the defect naming the
+/// field.
+///
+/// Never accepted, and never blamed on the transport.
+#[pollster::test]
+async fn malformed_preamble_surfaces_typed_defect() {
+    let (mut a_link, b) = rumors::link::memory();
+    let b = b.into_parts();
+    let mut b_r = b.control_read;
+    let mut b_w = b.control_write;
+
+    let fake_peer = async move {
+        let mut got = [0u8; PREAMBLE_LEN];
+        b_r.read_exact(&mut got).await.expect("fake peer read");
+        // Correct opening and version, but the network item's head spells
+        // a 16-byte *text* string (0x70) where the wire demands a 16-byte
+        // byte string (0x50).
+        let mut reply = preamble(V2_OPENING, Protocol::V2 as u8, INTENT_REMAIN);
+        reply[12] = 0x70;
+        b_w.write_all(&reply).await.expect("fake peer write");
+    };
+
+    let alice: Rumors<String> = Peer::seed().sync_window_floor().into_rumors();
+    let alice_fut = alice.gossip(&mut a_link);
+
+    let (alice_result, ()) = tokio::join!(alice_fut, fake_peer);
+    match alice_result {
+        Err(Error::PreambleMalformed { defect }) => {
+            assert_eq!(defect, rumors::error::PreambleDefect::Network);
+        }
+        other => panic!("expected PreambleMalformed, got {other:?}"),
     }
 }
 

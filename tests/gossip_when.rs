@@ -848,8 +848,11 @@ async fn truncated_initiation_is_a_terminal_error() {
         .expect("error never surfaced")
         .expect("driver yielded its terminal item");
     match item {
-        Err(Error::Io(e)) => assert_eq!(e.kind(), std::io::ErrorKind::UnexpectedEof),
-        other => panic!("expected Io(UnexpectedEof), got {other:?}"),
+        Err(Error::PreambleTruncated { received, expected }) => {
+            assert_eq!(received, 4, "the four delivered bytes are counted");
+            assert_eq!(expected, 30, "the V2 dialect width is named");
+        }
+        other => panic!("expected PreambleTruncated, got {other:?}"),
     }
     assert!(
         timeout(DEADLINE, a_sessions.next())
