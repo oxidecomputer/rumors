@@ -214,8 +214,9 @@ pub(crate) const SPEC_BDP_BYTES: usize = 12_500_000;
 /// [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget) is
 /// denominated in it. (The minimal-payload cell reads two bytes under
 /// this intercept — small records batch more densely, so their share
-/// of per-frame framing is smaller — which the cells' tolerance band
-/// absorbs; the interior and design cells sit on it exactly.)
+/// of per-frame framing is smaller — pinned as the minimal cell's own
+/// residual constant in `tests/dispute_wire.rs`; the interior and
+/// design cells sit on it exactly.)
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) const DISPUTE_OVERHEAD_BYTES: usize = 43;
 

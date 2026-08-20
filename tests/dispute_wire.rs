@@ -17,9 +17,18 @@
 //! plus the payload's CBOR encoding. The constant is that cost at the
 //! design point's [`DESIGN_ENCODED_PAYLOAD_BYTES`]-byte record; leaner
 //! records cost proportionally less wire per message. Three cells pin
-//! the line — the intercept, an interior point, and the design point —
+//! the law — the minimal end, an interior point, and the design point —
 //! so a change to the per-record framing or the record body moves at
-//! least one loudly, and the linearity claim is itself gated.
+//! least one loudly. The law is affine over the interior and design
+//! points; the minimal cell sits a stated, pinned residual of
+//! [`MINIMAL_CELL_RESIDUAL`] bytes below that line, so linearity and
+//! the residual are both gated claims. Every pin is exact: the corpus
+//! is seeded, the link is in-memory, and the tally is deterministic,
+//! so each cell's quotient is one fixed integer, and a format change
+//! that moves the mean per-message cost by a byte or more moves its
+//! cell off the pin. (The per-message division truncates only the
+//! session-fixed greeting and epilogue, which the negative control
+//! holds below one byte per message.)
 //!
 //! Payload corpora are [`bytes::Bytes`], which serde carries as a CBOR
 //! byte string: a fixed-length payload has one deterministic encoded
@@ -95,10 +104,15 @@ const DESIGN_ENCODED_PAYLOAD_BYTES: usize = CBOR_BSTR_HEADER_BYTES + DESIGN_PAYL
 /// deterministic for the minimal cell's corpus).
 const U64_ENCODED_BYTES: usize = 9;
 
-/// Slack on each pinned per-message figure, in bytes. The counts are
-/// deterministic, so the slack only absorbs integer-division adjacency;
-/// any per-record format change of a byte or more trips a pin.
-const TOLERANCE_BYTES: usize = 2;
+/// The minimal cell reads this many bytes *under* the intercept: small
+/// records batch more densely, so their share of per-frame framing is
+/// smaller.
+///
+/// The mechanism is stated at `DISPUTE_OVERHEAD_BYTES` in
+/// `src/tree/mirror/streaming/window.rs`. A measured value moving off
+/// `intercept + payload - MINIMAL_CELL_RESIDUAL` is a real framing
+/// change, in either direction.
+const MINIMAL_CELL_RESIDUAL: usize = 2;
 
 /// An `AsyncWrite` that tallies every byte accepted by the inner writer.
 struct CountingWrite<W> {
@@ -245,12 +259,12 @@ where
 ///
 /// The invariant: total session wire bytes over a known mutual
 /// divergence of [`DESIGN_PAYLOAD_LEN`]-byte payloads, divided by the
-/// messages that crossed, brackets the constant within
-/// [`TOLERANCE_BYTES`] — so the constant that denominates the default
-/// budget and both operator equations is tied to the wire format by
-/// deterministic byte counts. The corpus is seeded and the link is
-/// in-memory: the figure is exact across runs and machines, and any
-/// per-record change to the format moves it out of the band.
+/// messages that crossed, equals the constant exactly — so the
+/// constant that denominates the default budget and both operator
+/// equations is tied to the wire format by deterministic byte counts.
+/// The corpus is seeded and the link is in-memory: the figure is exact
+/// across runs and machines, and any per-record change to the format
+/// moves it off the pin.
 #[test]
 fn dispute_wire_bytes_is_the_design_record_cost() {
     let mut mint = |rng: &mut SmallRng| {
@@ -264,8 +278,8 @@ fn dispute_wire_bytes_is_the_design_record_cost() {
         "design-record cell: implied {implied} B/message at {DESIGN_ENCODED_PAYLOAD_BYTES} B \
          encoded payload (constant {constant})",
     );
-    assert!(
-        constant.abs_diff(implied) <= TOLERANCE_BYTES,
+    assert_eq!(
+        implied, constant,
         "DISPUTE_WIRE_BYTES ({constant}) must equal the measured {implied} B per disputed \
          message at the design record size: re-derive the constant (and the default \
          budget and operator ratio built on it) against the current wire format",
@@ -277,20 +291,24 @@ fn dispute_wire_bytes_is_the_design_record_cost() {
 /// minimal-payload end of the line.
 ///
 /// The invariant: a `u64` corpus ([`U64_ENCODED_BYTES`]-byte encoded
-/// payloads) implies the calibrated intercept + that width per disputed
-/// message. Together with the design-record cell this pins both
-/// parameters of the affine cost `overhead + encoded_payload`, so
-/// framing drift cannot hide inside the design cell's payload term. It
-/// is also the honest floor: minimal-payload sessions cost several
-/// times less wire per disputed message than the design constant, and
-/// correspondingly need more scopes in flight to fill the same link.
+/// payloads) implies the calibrated intercept + that width minus
+/// [`MINIMAL_CELL_RESIDUAL`] per disputed message, exactly. Together
+/// with the design-record cell this pins both parameters of the affine
+/// cost `overhead + encoded_payload`, so framing drift cannot hide
+/// inside the design cell's payload term —
+/// and pinning the residual as its own constant means a regression
+/// confined to small records moves this cell loudly instead of hiding
+/// in slack. It is also the honest floor: minimal-payload sessions cost
+/// several times less wire per disputed message than the design
+/// constant, and correspondingly need more scopes in flight to fill the
+/// same link.
 #[test]
 fn minimal_records_pin_the_fixed_overhead() {
     let implied = implied_bytes_per_message::<u64>(|rng| rng.next_u64());
-    let expected = fixed_overhead_bytes() + U64_ENCODED_BYTES;
+    let expected = fixed_overhead_bytes() + U64_ENCODED_BYTES - MINIMAL_CELL_RESIDUAL;
     eprintln!("minimal-record cell: implied {implied} B/message (expected {expected})");
-    assert!(
-        expected.abs_diff(implied) <= TOLERANCE_BYTES,
+    assert_eq!(
+        implied, expected,
         "the fixed per-message overhead moved: measured {implied} B at \
          {U64_ENCODED_BYTES} B encoded payloads against the pinned {expected} B",
     );
@@ -302,10 +320,10 @@ fn minimal_records_pin_the_fixed_overhead() {
 ///
 /// The invariant: a corpus of [`MID_PAYLOAD_LEN`]-byte payloads (64 B
 /// encoded) implies the calibrated intercept + 64 bytes per disputed
-/// message, within [`TOLERANCE_BYTES`]. With the minimal and design
-/// cells this makes the linearity claim itself a committed, gated
-/// assertion — three collinear points — rather than a calibration-time
-/// observation.
+/// message, exactly. With the design cell this makes the affine law
+/// over the interior a committed, gated assertion rather than a
+/// calibration-time observation; the minimal cell pins its own stated
+/// [`MINIMAL_CELL_RESIDUAL`]-byte offset below the same line.
 #[test]
 fn mid_size_records_ride_the_affine_law() {
     let mut mint = |rng: &mut SmallRng| {
@@ -316,8 +334,9 @@ fn mid_size_records_ride_the_affine_law() {
     let implied = implied_bytes_per_message::<Bytes>(&mut mint);
     let expected = fixed_overhead_bytes() + CBOR_BSTR_HEADER_BYTES + MID_PAYLOAD_LEN;
     eprintln!("mid-record cell: implied {implied} B/message (expected {expected})");
-    assert!(
-        expected.abs_diff(implied) <= TOLERANCE_BYTES,
+    assert_eq!(
+        implied,
+        expected,
         "the affine cost law broke in the interior: measured {implied} B at \
          {} B encoded payloads against the pinned {expected} B",
         CBOR_BSTR_HEADER_BYTES + MID_PAYLOAD_LEN,
@@ -330,8 +349,10 @@ fn mid_size_records_ride_the_affine_law() {
 /// A converged pair's session is greeting-and-epilogue only; if the
 /// counter read zero there, the calibration cells could pass vacuously
 /// with a dead instrument. The control also pins the fixed session
-/// overhead to kilobytes, which is what makes it negligible against the
-/// per-message division at [`DIVERGENT`] scale.
+/// overhead below one byte per message at [`DIVERGENT`] scale, which is
+/// what keeps the per-message division's truncation from ever shifting
+/// a calibration cell's quotient: the cells may pin their figures
+/// exactly because the only sub-message remainder is bounded here.
 #[test]
 fn counting_link_sees_a_converged_sessions_greeting() {
     let (left, right) = diverged::<u64>(|rng| rng.next_u64());
@@ -339,13 +360,15 @@ fn counting_link_sees_a_converged_sessions_greeting() {
     // disputes nothing.
     common::wire::wire_gossip(&left, &right);
     let total = session_wire_bytes(&left, &right);
+    eprintln!("converged-session control: {total} B fixed overhead");
     assert!(
         total > 0,
         "a converged session still exchanges greetings: a zero count is a dead instrument",
     );
     assert!(
-        total < 64 * 1024,
-        "a converged session's fixed overhead stays in kilobytes ({total} bytes measured): \
-         it must stay negligible against the per-message division at calibration scale",
+        total < 2 * DIVERGENT,
+        "a converged session's fixed overhead ({total} bytes measured) must stay below one \
+         byte per message at calibration scale, so the calibration cells' truncated \
+         per-message quotients stay exact",
     );
 }
