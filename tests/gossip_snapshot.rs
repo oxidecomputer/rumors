@@ -77,7 +77,7 @@ fn empty_pair_converges_immediately() {
 fn one_sided_transfer() {
     let (a, b) = block_on(async {
         let a: Rumors<u64> = seeded();
-        // B is a genuine disjoint fork of A, minted while A is still empty, so
+        // B is a genuine disjoint fork of A, created while A is still empty, so
         // it is an empty peer in the same universe.
         let b = bootstrap_fork_async(&a).await;
 
@@ -94,8 +94,8 @@ const COLLIDING_POOL: u64 = 1024;
 /// Stage the batched-run universe: a populated peer holding exactly two
 /// leaves whose paths share their first two bytes, against an empty fork.
 ///
-/// Paths are version-derived, so the shape is staged by minting a pool of
-/// sends, searching the minted versions for the first two-byte agreement,
+/// Paths are version-derived, so the shape is staged by committing a pool of
+/// sends, searching the created versions for the first two-byte agreement,
 /// and redacting the rest — deterministic under the seeded universe (see
 /// `common::shape`). The shared leading byte places both leaves inside one
 /// supplied root child (the two-byte agreement is stronger than that
@@ -258,7 +258,7 @@ const BALLAST_POOL: (u64, u64) = (10_000, 16);
 fn bulk_initiator_ships_opening_supplies() {
     // Stage: the initiator holds exactly two leaves sharing a root radix
     // and splitting one level down (pool-search-and-redact; the shape is a
-    // function of the minted versions, see `common::shape`); the responder
+    // function of the created versions, see `common::shape`); the responder
     // holds three ballast leaves outside that radix, making it the larger
     // set so the subtree holder initiates.
     let (a, b) = block_on(async {

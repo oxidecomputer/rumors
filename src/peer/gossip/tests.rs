@@ -225,7 +225,7 @@ async fn claim_bootstrap_v2(
     let proxy = streaming_remote::Handshaking::start(
         Local,
         carrier,
-        PayloadCodec::mint::<u64>(PayloadDepthLimit::default()),
+        PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
     );
     let handshaken = streaming::handshake(local, proxy)
         .await
@@ -263,7 +263,7 @@ async fn claim_bootstrap_v1(
     let proxy = alternating_remote::Exchange::start(
         FrameRead::new(read),
         FrameWrite::new(write),
-        PayloadCodec::mint::<u64>(PayloadDepthLimit::default()),
+        PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
     );
     let handshaken = alternating::handshake(local, proxy)
         .await

@@ -21,7 +21,7 @@
 //!   directory's own path below `src/`, continues with the module
 //!   file's name, and ends with the snapshot name. This transcription
 //!   assumes the tree's file-per-module layout (`mod foo;` with a
-//!   sibling `foo.rs`; no snapshot-minting inline modules); a snapshot
+//!   sibling `foo.rs`; no snapshot-producing inline modules); a snapshot
 //!   from an inline module fails here, and extending the rule is then
 //!   a reviewed decision, not a silent skip.
 //!

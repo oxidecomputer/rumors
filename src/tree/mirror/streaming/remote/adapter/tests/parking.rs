@@ -127,7 +127,7 @@ fn parked_supply_reply_holds_handles_not_subtrees() {
             unbounded(),
             scope,
             &mut frames,
-            PayloadCodec::mint::<u64>(PayloadDepthLimit::default()),
+            PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
         ))
         .expect("a canonical supplied fan decodes");
 
@@ -215,7 +215,7 @@ fn maximally_disputed_reply_parks_bounded_skeleton() {
             unbounded(),
             Scope::opening(&listing),
             &mut frames,
-            PayloadCodec::mint::<u64>(PayloadDepthLimit::default()),
+            PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
         ))
         .expect("a canonical maximally disputed reply decodes");
 

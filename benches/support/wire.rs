@@ -1,6 +1,6 @@
 //! Runtime-free asynchronous wire harness shared by reconciliation benchmarks.
 //!
-//! Benchmarks measure what ships: peers minted here run at the default
+//! Benchmarks measure what ships: peers created here run at the default
 //! pipeline window, which is the production budget in every build shape.
 
 use rumors::link::MemoryLink;
@@ -36,7 +36,7 @@ impl Wire {
     }
 }
 
-/// Mint one disjoint replica by serving a bootstrap over an ephemeral link.
+/// Create one disjoint replica by serving a bootstrap over an ephemeral link.
 pub fn bootstrap_fork<T>(parent: &Rumors<T>, protocol: Protocol) -> Rumors<T>
 where
     T: serde::Serialize + serde::de::DeserializeOwned + Eq + Send + Sync + 'static,

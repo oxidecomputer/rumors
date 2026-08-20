@@ -92,7 +92,7 @@ fn overlapped_install_never_loses_innocent_messages() {
         polls
     };
 
-    // The versions minted by `converged_trio` are deterministic (the
+    // The versions created by `converged_trio` are deterministic (the
     // seed party and its tick sequence are fixed), so versions read from
     // one instance name the same messages in every other.
     let versions: Vec<Version> = {

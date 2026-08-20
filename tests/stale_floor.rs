@@ -3,7 +3,7 @@
 //! The hazard: any snapshot that shares its originator's live *party*
 //! while serving a *tree* frozen at snapshot time would hand a
 //! bootstrapping newcomer a fork of the live party paired with a stale
-//! version floor — and the newcomer's first mints, causally dominated by
+//! version floor — and the newcomer's first sends, causally dominated by
 //! versions the originator had already published, would be
 //! indistinguishable from redacted messages and silently destroyed by the
 //! next gossip round.
@@ -16,7 +16,7 @@
 //! share one synchronized state rather than freezing one.)
 //!
 //! This test pins the sound invariant positively, in the shape the hazard
-//! would break: messages minted by a newcomer bootstrapped from a peer that
+//! would break: messages sent by a newcomer bootstrapped from a peer that
 //! ticked heavily beforehand must survive reconciliation in both directions.
 
 mod common;
@@ -24,11 +24,11 @@ mod common;
 use common::wire::{block_on, bootstrap_fork_async, wire_gossip_async};
 use rumors::Peer;
 
-/// A message minted by a freshly-bootstrapped peer survives gossip, no
+/// A message sent by a freshly-bootstrapped peer survives gossip, no
 /// matter how far the provider had ticked before serving the bootstrap:
 /// the served floor and the forked party region are paired atomically.
 #[test]
-fn message_minted_after_bootstrap_survives_gossip() {
+fn message_sent_after_bootstrap_survives_gossip() {
     block_on(async {
         let f = Peer::<u64>::seed().sync_window_floor().into_rumors();
         // F ticks well past genesis before serving anyone.
@@ -42,7 +42,7 @@ fn message_minted_after_bootstrap_survives_gossip() {
             .expect("flat test payloads are within any depth limit");
         }
 
-        // B bootstraps from F and mints a brand-new message: its version
+        // B bootstraps from F and sends a brand-new message: its version
         // must come out above (or concurrent to) everything F published
         // before the fork, never dominated.
         let b = bootstrap_fork_async(&f).await;

@@ -598,13 +598,13 @@ where
     let remote_right = RemoteHandshaking::start(
         Local,
         left_link,
-        PayloadCodec::mint::<()>(PayloadDepthLimit::default()),
+        PayloadCodec::new::<()>(PayloadDepthLimit::default()),
     )
     .window(window);
     let remote_left = RemoteHandshaking::start(
         Local,
         right_link,
-        PayloadCodec::mint::<()>(PayloadDepthLimit::default()),
+        PayloadCodec::new::<()>(PayloadDepthLimit::default()),
     )
     .window(window);
     let (left, right) = join!(

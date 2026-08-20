@@ -41,7 +41,7 @@ impl<T: Clone + Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<
     /// starts at the wrapped set's current frontier: content already present
     /// is never logged, only what arrives afterwards.
     ///
-    /// The caller must mint `local` by bootstrapping from the shared
+    /// The caller must create `local` by bootstrapping from the shared
     /// universe seed (directly, or via another peer), never by an
     /// independent [`rumors::Peer::seed`]: only then are all peers pairwise
     /// disjoint, the precondition for [`gossip_step`] to succeed.
@@ -74,7 +74,7 @@ impl<T: Clone + Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<
         new
     }
 
-    /// Insert a single value, returning the [`Version`] minted for it.
+    /// Insert a single value, returning the [`Version`] created for it.
     pub fn insert_one(&mut self, value: T) -> Version {
         // Catch the log up first, so the send's drain isolates exactly the
         // one new observation and its version.
@@ -82,7 +82,7 @@ impl<T: Clone + Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<
         self.local.send(value).unwrap();
         let pre = self.observations.len();
         let drained = self.drain();
-        assert_eq!(drained, 1, "a send mints exactly one new observation");
+        assert_eq!(drained, 1, "a send creates exactly one new observation");
         self.observations[pre].0.clone()
     }
 

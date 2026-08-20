@@ -34,7 +34,7 @@ impl<W> FrameWrite<W> {
         }
     }
 
-    /// Deliver every flushed frame to `observe`, when one is minted.
+    /// Deliver every flushed frame to `observe`, when one is attached.
     pub fn observed(mut self, observe: Option<Box<dyn StreamObserver>>) -> Self {
         self.observe = observe;
         self

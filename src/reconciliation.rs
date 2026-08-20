@@ -13,11 +13,11 @@
 //! [`Version`](crate::Version) stamped on it at send time. Nothing else
 //! enters the address; it rests on the invariant the protocol already
 //! requires everywhere — no two sends ever share a version (a replica's
-//! version advances on every send, and disjoint parties can never mint the
+//! version advances on every send, and disjoint parties can never produce the
 //! same one). Two consequences are deliberate.
 //!
 //! - **Every send is a distinct message.** Sending byte-identical content
-//!   twice mints two versions, hence two leaves; redacting one never
+//!   twice creates two versions, hence two leaves; redacting one never
 //!   touches the other, and re-sending redacted content is a new message,
 //!   neither resurrected nor suppressed by the redaction that came before
 //!   it.
@@ -29,7 +29,7 @@
 //!   [Twenty-four-byte digests](#twenty-four-byte-digests).
 //!
 //! Version reuse — the only way two messages could claim one address —
-//! cannot arise: every send mints a fresh version (a tick strictly above
+//! cannot arise: every send creates a fresh version (a tick strictly above
 //! everything the replica has ever held), and the linearity of parties
 //! keeps replicas' versions disjoint. Producing a reused version at all
 //! requires violating the linearity invariant the crate docs' safety
@@ -166,7 +166,7 @@
 //! content therefore contributes zero bits to any compared quantity — the
 //! offline content-grinding route to a collision is structurally gone, not
 //! merely priced. What could still contribute bits is influence over which
-//! versions get minted (an actor steering gossip schedules steers the
+//! versions get created (an actor steering gossip schedules steers the
 //! version set); against any such actor, the 24-byte width keeps the
 //! offline birthday floor at 2⁹⁶ evaluations, an unconditional bound that
 //! rests on no premise about capabilities. Hostile *peers* remain

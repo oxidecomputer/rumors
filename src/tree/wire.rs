@@ -245,7 +245,7 @@ mod tests {
         let enc = to_vec(&m).unwrap();
         let back = Message::from_reader(
             &mut enc.as_slice(),
-            PayloadCodec::mint::<()>(PayloadDepthLimit::default()),
+            PayloadCodec::new::<()>(PayloadDepthLimit::default()),
         )
         .unwrap();
         assert_eq!(back.as_slice(), m.as_slice());
@@ -255,7 +255,7 @@ mod tests {
         let mut input = enc.as_slice();
         let back = Z::read_node(
             &mut input,
-            PayloadCodec::mint::<()>(PayloadDepthLimit::default()),
+            PayloadCodec::new::<()>(PayloadDepthLimit::default()),
         )
         .unwrap();
         assert!(

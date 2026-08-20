@@ -105,7 +105,7 @@ proptest! {
     fn serde_roundtrip(p in payload()) {
         let m = Message::new(p);
         let bytes = cbor_vec(&m);
-        let back = Message::from_reader(bytes.as_slice(), PayloadCodec::mint::<Payload>(PayloadDepthLimit::default())).unwrap();
+        let back = Message::from_reader(bytes.as_slice(), PayloadCodec::new::<Payload>(PayloadDepthLimit::default())).unwrap();
         prop_assert_eq!(&m, &back);
         prop_assert_eq!(m.bytes(), back.bytes());
     }
@@ -121,7 +121,7 @@ proptest! {
         combined.extend_from_slice(&trailer);
 
         let mut slice: &[u8] = &combined;
-        let back = Message::from_reader(&mut slice, PayloadCodec::mint::<Payload>(PayloadDepthLimit::default())).unwrap();
+        let back = Message::from_reader(&mut slice, PayloadCodec::new::<Payload>(PayloadDepthLimit::default())).unwrap();
         prop_assert_eq!(back.bytes(), m.bytes());
         prop_assert_eq!(slice, trailer.as_slice());
         prop_assert_eq!(combined.len() - slice.len(), expected.len());
@@ -311,7 +311,7 @@ fn a_type_that_cannot_read_its_own_output_fails_admission() {
     );
 }
 
-/// The minted codec's serializing half applies the carried limit and
+/// The constructed codec's serializing half applies the carried limit and
 /// reuses the caller's allocation.
 ///
 /// The codec is `Message::try_new` with the peer's configured limit
@@ -321,7 +321,7 @@ fn a_type_that_cannot_read_its_own_output_fails_admission() {
 fn codec_serializes_through_the_carried_limit() {
     use std::sync::Arc;
     let limit = super::PayloadDepthLimit::new(4);
-    let codec = super::PayloadCodec::mint::<E>(limit);
+    let codec = super::PayloadCodec::new::<E>(limit);
 
     // 4 map scopes + the unit-variant step: one past the limit.
     let deep = nested_enum(4);

@@ -109,7 +109,7 @@ proptest! {
         prop_assert_eq!(peer.observations.len(), obs_before);
     }
 
-    /// Redacting a message minted on a different peer that this peer
+    /// Redacting a message created on a different peer that this peer
     /// has never observed has no effect on live content and is not
     /// observed.
     ///

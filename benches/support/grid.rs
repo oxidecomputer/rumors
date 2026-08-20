@@ -142,7 +142,7 @@ pub fn cells() -> impl Iterator<Item = Cell> {
 
 /// Build the two peers for one grid cell.
 ///
-/// `left` is a fresh [`Peer::seed`]; `right` is a genuine disjoint peer minted
+/// `left` is a fresh [`Peer::seed`]; `right` is a genuine disjoint peer created
 /// from it via [`bootstrap_fork`], so their parties are disjoint (the
 /// precondition for `gossip`). The shared prefix is inserted before the
 /// split; the `differing` messages and `redacted` deletions are applied

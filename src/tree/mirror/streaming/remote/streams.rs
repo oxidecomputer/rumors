@@ -121,7 +121,7 @@ pub struct StreamSender<C: Connector> {
     /// count as [`bytes_sent`](crate::SessionStats::bytes_sent), the
     /// label excluded (it is written before the counted wrapper wraps).
     stats: Recorder,
-    /// The session's observation handle: the stream mints its own
+    /// The session's observation handle: the stream creates its own
     /// observer from it when it opens, so a sender that never carries
     /// a frame observes nothing.
     observe: SessionHandle,
@@ -324,7 +324,7 @@ struct ReceiverStart<Rx> {
     /// the label excluded (the accept driver consumed it before
     /// delivery).
     stats: Recorder,
-    /// The session's observation handle: the stream mints its own
+    /// The session's observation handle: the stream creates its own
     /// observer from it when its claim resolves, so a stream that is
     /// never claimed observes nothing.
     observe: SessionHandle,

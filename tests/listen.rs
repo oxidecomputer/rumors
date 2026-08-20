@@ -22,7 +22,7 @@ use rand::SeedableRng;
 use rand::rngs::SmallRng;
 use rumors::{Peer, Retire, Rumors, UnorderedMessages, Version, causally};
 
-use crate::common::action::minted_version;
+use crate::common::action::created_version;
 use crate::common::wire::{
     assert_control_drained, batch_send, block_on, bootstrap_fork, wire_gossip,
 };
@@ -183,7 +183,7 @@ fn redactions_are_honored_silently() {
     // Redacted before subscription: never fires.
     let pre = rumors.snapshot().latest().clone();
     rumors.send(1).unwrap();
-    let version_1 = minted_version(&rumors.snapshot(), &pre);
+    let version_1 = created_version(&rumors.snapshot(), &pre);
     rumors.redact(&version_1);
     let mut obs = rumors.unordered_messages();
     let (items, _) = drain(&mut obs);
@@ -192,7 +192,7 @@ fn redactions_are_honored_silently() {
     // Observed, then redacted: nothing further fires.
     let pre = rumors.snapshot().latest().clone();
     rumors.send(2).unwrap();
-    let version_2 = minted_version(&rumors.snapshot(), &pre);
+    let version_2 = created_version(&rumors.snapshot(), &pre);
     let (items, _) = drain(&mut obs);
     assert_eq!(items.len(), 1, "the live message fires once");
     rumors.redact(&version_2);
@@ -202,7 +202,7 @@ fn redactions_are_honored_silently() {
     // Inserted and redacted wholly between passes: never delivered.
     let pre = rumors.snapshot().latest().clone();
     rumors.send(3).unwrap();
-    let version_3 = minted_version(&rumors.snapshot(), &pre);
+    let version_3 = created_version(&rumors.snapshot(), &pre);
     rumors.redact(&version_3);
     let (items, _) = drain(&mut obs);
     assert!(
@@ -483,10 +483,10 @@ fn stream_face_matches_and_terminates() {
 #[test]
 fn folding_delivered_versions_can_lose_a_message() {
     // Search deterministic universes for the counterexample shape: the
-    // *later*-minted of two messages is delivered first. A leaf's path is
+    // *later*-created of two messages is delivered first. A leaf's path is
     // the hash of its version, and paths vs. causal versions disagree
     // about order roughly half the time, so varying the universe seed
-    // (which varies the minted versions) finds the shape quickly.
+    // (which varies the created versions) finds the shape quickly.
     let later_value = 1u64;
     let rumors = (0u64..256)
         .find_map(|seed| {
@@ -542,7 +542,7 @@ enum Op {
     /// Send this value (through one of two sibling `Rumors` clones,
     /// alternating by op index).
     Send(u64),
-    /// Redact the `idx % minted`-th message minted so far (dropped if
+    /// Redact the `idx % sent`-th message sent so far (dropped if
     /// none).
     Redact(usize),
     /// Drain the observer to quiescence.
@@ -571,7 +571,7 @@ proptest! {
         let sibling = rumors.clone();
 
         let mut obs = rumors.unordered_messages();
-        let mut minted: Vec<Version> = Vec::new();
+        let mut sent: Vec<Version> = Vec::new();
         let mut observed: Vec<(Version, u64)> = Vec::new();
 
         for (i, op) in ops.iter().enumerate() {
@@ -580,11 +580,11 @@ proptest! {
                     let handle = if i % 2 == 0 { &rumors } else { &sibling };
                     let pre = handle.snapshot().latest().clone();
                     handle.send(*v).unwrap();
-                    minted.push(minted_version(&handle.snapshot(), &pre));
+                    sent.push(created_version(&handle.snapshot(), &pre));
                 }
                 Op::Redact(idx) => {
-                    if !minted.is_empty() {
-                        rumors.redact(&minted[idx % minted.len()]);
+                    if !sent.is_empty() {
+                        rumors.redact(&sent[idx % sent.len()]);
                     }
                 }
                 Op::Drain => {

@@ -2,7 +2,7 @@
 //! transmits.
 //!
 //! The bookmark exists so a crashed peer can reclaim its identity without
-//! reminting causal coordinates the network already holds. That safety
+//! re-issuing causal coordinates the network already holds. That safety
 //! reduces to one invariant at the transmit boundary: **at the moment a
 //! session snapshots its tree for the wire, the persisted record's own-party
 //! projection dominates the snapshot's own-party version.** An own event that
@@ -316,8 +316,8 @@ fn record_dominates_the_transmitted_frontier() {
 /// staged before the write survives such a drop as a lie: the next session
 /// sees the live `(party, version)` "current", skips the persist, and
 /// transmits own events the durable record does not cover — re-opening the
-/// remint collision through a schedule the in-flight-window fix does not
-/// touch.
+/// coordinate-reuse collision through a schedule the in-flight-window fix
+/// does not touch.
 #[test]
 fn cancelled_persist_never_suppresses_the_next_update() {
     block_on(async {
@@ -396,7 +396,7 @@ fn cancelled_persist_never_suppresses_the_next_update() {
 ///
 /// The restarted peer reclaims its identity only at a
 /// frontier that accounts for every own event it ever transmitted, so no
-/// remint collides with a coordinate a replica durably holds.
+/// re-issued coordinate collides with one a replica durably holds.
 #[test]
 fn restart_after_transmit_never_destroys_durable_messages() {
     block_on(async {
@@ -436,7 +436,7 @@ fn restart_after_transmit_never_destroys_durable_messages() {
         let a2 = boot_from(&c, GatedBookmark::new(store_a.clone())).await;
         gossip(&a2, &c).await; // the first update reclaims
 
-        // The restarted peer mints fresh events. A remint below M1's durable
+        // The restarted peer creates fresh events. A re-issue below M1's durable
         // coordinate is the recycle this test exists to catch; several ticks
         // give a colliding placement every chance to occur.
         for i in 0..8 {
@@ -477,7 +477,7 @@ fn restart_after_transmit_never_destroys_durable_messages() {
                 assert!(
                     leaf_version(peer, M1).is_some(),
                     "durable message M1 (version {version:?}) was destroyed at {label} by a \
-                     restarted peer reminting below a transmitted own-party frontier",
+                     restarted peer re-issuing coordinates below a transmitted own-party frontier",
                 );
             }
         }

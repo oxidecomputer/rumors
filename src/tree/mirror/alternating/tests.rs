@@ -106,7 +106,7 @@ fn mirror_via(a: crate::tree::Root, b: crate::tree::Root, scenario: Scenario) ->
                 let remote_b = remote::Exchange::start(
                     FrameRead::new(a_r),
                     FrameWrite::new(a_w),
-                    PayloadCodec::mint::<()>(PayloadDepthLimit::default()),
+                    PayloadCodec::new::<()>(PayloadDepthLimit::default()),
                 );
                 let client = mirror(local_a, remote_b);
 
@@ -114,7 +114,7 @@ fn mirror_via(a: crate::tree::Root, b: crate::tree::Root, scenario: Scenario) ->
                 let remote_a = remote::Exchange::start(
                     FrameRead::new(b_r),
                     FrameWrite::new(b_w),
-                    PayloadCodec::mint::<()>(PayloadDepthLimit::default()),
+                    PayloadCodec::new::<()>(PayloadDepthLimit::default()),
                 );
                 let server = mirror(local_b, remote_a);
 
@@ -321,7 +321,7 @@ fn uncontained_supply_is_rejected() {
             let remote_b = remote::Exchange::start(
                 FrameRead::new(a_r),
                 FrameWrite::new(a_w),
-                PayloadCodec::mint::<()>(PayloadDepthLimit::default()),
+                PayloadCodec::new::<()>(PayloadDepthLimit::default()),
             );
             let receiver_side = mirror(local_receiver, remote_b);
 
@@ -329,7 +329,7 @@ fn uncontained_supply_is_rejected() {
             let remote_a = remote::Exchange::start(
                 FrameRead::new(b_r),
                 FrameWrite::new(b_w),
-                PayloadCodec::mint::<()>(PayloadDepthLimit::default()),
+                PayloadCodec::new::<()>(PayloadDepthLimit::default()),
             );
             let poisoned_side = mirror(local_poisoned, remote_a);
 

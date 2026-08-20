@@ -143,7 +143,7 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     ///
     /// `send` does not return the message's [`Version`]. Versions come back
     /// through observation: the observers and [`Snapshot`] attach every
-    /// message to the version its send minted, unique across the universe's
+    /// message to the version its send created, unique across the universe's
     /// whole history, so even byte-identical re-sends are distinct messages
     /// under distinct versions. [`redact`](Self::redact) states the intended
     /// observe-then-redact pattern and why the write path returns no
@@ -187,7 +187,7 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     /// deletions from the causal frontiers the two sides exchange. A
     /// message the counterparty's version shows it must already have seen,
     /// yet it no longer holds, was deleted there, so the holder drops its
-    /// own copy instead of transmitting it. And because every send mints a
+    /// own copy instead of transmitting it. And because every send creates a
     /// fresh version, re-sending byte-identical content after a redaction
     /// is a *new* message: no resurrection, no suppression. For the same
     /// reason, two identical sends are two messages, and redacting one

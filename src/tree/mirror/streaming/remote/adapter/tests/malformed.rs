@@ -47,7 +47,7 @@ fn bare_end_cannot_follow_reactions() {
             unbounded(),
             Scope::new(parent.erase(), &[(0, hash(0))]),
             &mut frames,
-            PayloadCodec::mint::<u64>(PayloadDepthLimit::default()),
+            PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
         )
         .await
         .err()
@@ -70,7 +70,7 @@ fn stream_exhaustion_before_a_boundary_is_truncation() {
             unbounded(),
             Scope::new(parent.erase(), &[(0, hash(0))]),
             &mut frames,
-            PayloadCodec::mint::<u64>(PayloadDepthLimit::default()),
+            PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
         )
         .await
         .err()
@@ -104,7 +104,7 @@ fn an_unpositioned_match_is_rejected_in_both_directions() {
             unbounded(),
             Scope::new(parent.erase(), &[(1, hash(1))]),
             &mut frames,
-            PayloadCodec::mint::<u64>(PayloadDepthLimit::default()),
+            PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
         )
         .await
         .err()
@@ -155,7 +155,7 @@ fn an_unpositioned_query_is_rejected_in_both_directions() {
             unbounded(),
             Scope::new(parent.erase(), &[]),
             &mut frames,
-            PayloadCodec::mint::<u64>(PayloadDepthLimit::default()),
+            PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
         )
         .await
         .err()
@@ -255,7 +255,7 @@ fn leaf_query_matrix_is_exhaustive() {
                     unbounded(),
                     Scope::new(parent.erase(), &scope_listing),
                     &mut frames,
-                    PayloadCodec::mint::<u64>(PayloadDepthLimit::default()),
+                    PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
                 )
                 .await
             });
@@ -296,7 +296,7 @@ fn stream_end_is_not_a_protocol_reply() {
             unbounded(),
             Scope::new(parent.erase(), &[]),
             &mut frames,
-            PayloadCodec::mint::<u64>(PayloadDepthLimit::default()),
+            PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
         ))
         .err()
         .expect("stream control must be consumed below the adapter");
@@ -358,7 +358,7 @@ fn a_multi_leaf_run_is_one_supplied_subtree() {
             unbounded(),
             scope.clone(),
             &mut input,
-            PayloadCodec::mint::<u64>(PayloadDepthLimit::default()),
+            PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
         )
         .await
         .expect("ascending in-scope leaves assemble");
@@ -420,7 +420,7 @@ fn leaf_order_is_enforced_within_one_run() {
             unbounded(),
             Scope::opening(&[]),
             &mut input,
-            PayloadCodec::mint::<u64>(PayloadDepthLimit::default()),
+            PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
         )
         .await
         .err()
@@ -462,7 +462,7 @@ fn leaf_scope_is_enforced_within_one_run() {
             unbounded(),
             Scope::new(parent.erase(), &[]),
             &mut input,
-            PayloadCodec::mint::<u64>(PayloadDepthLimit::default()),
+            PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
         )
         .await
         .err()
@@ -501,7 +501,7 @@ fn a_zero_length_record_fails_as_a_version_decode_error() {
             unbounded(),
             Scope::opening(&[]),
             &mut input,
-            PayloadCodec::mint::<u64>(PayloadDepthLimit::default()),
+            PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
         )
         .await
         .err()
@@ -539,7 +539,7 @@ fn a_version_over_the_declared_bound_is_rejected() {
             unbounded(),
             Scope::new(parent.erase(), &[]),
             &mut input,
-            PayloadCodec::mint::<u64>(PayloadDepthLimit::default()),
+            PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
         )
         .await
         .expect("a version exactly at the declared bound is admitted");
@@ -553,7 +553,7 @@ fn a_version_over_the_declared_bound_is_rejected() {
             unbounded(),
             Scope::new(parent.erase(), &[]),
             &mut input,
-            PayloadCodec::mint::<u64>(PayloadDepthLimit::default()),
+            PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
         )
         .await
         .err()
@@ -633,7 +633,7 @@ fn a_reply_past_the_declared_set_len_fails_at_its_first_over_record() {
                 SupplyLedger::new(declared),
                 Scope::opening(&[]),
                 &mut input,
-                PayloadCodec::mint::<u64>(PayloadDepthLimit::default()),
+                PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
             )
             .await
         });
@@ -709,7 +709,7 @@ fn a_supply_run_cannot_resume_after_another_reaction() {
             unbounded(),
             Scope::opening(&[(1, hash(1))]),
             &mut input,
-            PayloadCodec::mint::<u64>(PayloadDepthLimit::default()),
+            PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
         )
         .await
         .err()

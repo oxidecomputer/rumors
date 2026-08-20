@@ -7,7 +7,7 @@ use super::*;
 
 /// A handler that counts what it is asked for and records stream
 /// identities, so the plumbing tests can see exactly which levels were
-/// minted.
+/// created.
 #[derive(Default)]
 struct Counting {
     sessions: AtomicUsize,
@@ -42,7 +42,7 @@ impl StreamObserver for Sink {
     fn message(&mut self, _: &[u8]) {}
 }
 
-/// An unattached peer's session handle is inert: nothing is minted and
+/// An unattached peer's session handle is inert: nothing is created and
 /// every invocation is a no-op, whatever the session kind.
 #[test]
 fn unattached_handles_are_inert() {
@@ -55,10 +55,10 @@ fn unattached_handles_are_inert() {
     assert!(handle.data(Role::Initiator, 0, Direction::Sent).is_none());
 }
 
-/// Beginning an observed V2 session mints the control stream's two
+/// Beginning an observed V2 session creates the control stream's two
 /// directed handlers immediately, ahead of any wire traffic.
 #[test]
-fn begin_mints_the_control_handlers() {
+fn begin_creates_the_control_handlers() {
     let observer = Arc::new(Counting::default());
     let mut attachment = Attachment::default();
     attachment.attach(observer.clone());

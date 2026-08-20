@@ -1,12 +1,12 @@
 //! The [`Bootstrap`] builder's configuration plumbing: what the builder
-//! holds, and what the minted [`Peer`] retains.
+//! holds, and what the joined [`Peer`] retains.
 //!
 //! The knobs' *behavioral* contracts are pinned end to end elsewhere —
 //! run sizing under the exchanged minimum in `tests/target_message_size.rs`,
 //! protocol persistence in `tests/bootstrap.rs`, the session bytes in
 //! `tests/bootstrap_snapshot.rs`. This suite pins the plumbing those tests
 //! rest on: every builder knob reaches the builder's state, and every
-//! stored choice reaches the minted peer unchanged.
+//! stored choice reaches the joined peer unchanged.
 
 use super::{Bootstrap, Joined};
 use crate::bookmark::NoBookmark;
@@ -29,7 +29,7 @@ fn budget_bytes(window: WindowConfig) -> usize {
     }
 }
 
-/// Serve one bootstrap from `provider` and hand back the minted peer.
+/// Serve one bootstrap from `provider` and hand back the joined peer.
 fn join_from_seed(config: Bootstrap<u64>) -> Peer<u64> {
     pollster::block_on(async {
         let provider = Peer::<u64>::seed().into_rumors();
@@ -79,13 +79,13 @@ fn knobs_store_the_selected_values() {
     assert_ne!(saturated.run_budget.bytes(), usize::MAX);
 }
 
-/// The minted peer retains every builder choice for its later sessions.
+/// The joined peer retains every builder choice for its later sessions.
 ///
 /// The configured budget and run target arrive on the [`Peer`] exactly
 /// as if selected through [`Peer::sync_memory_budget`] and
 /// [`Peer::target_message_size`].
 #[test]
-fn minted_peer_retains_the_configuration() {
+fn joined_peer_retains_the_configuration() {
     let peer = join_from_seed(
         Peer::<u64>::bootstrap()
             .sync_memory_budget(CUSTOM_BUDGET)
@@ -96,12 +96,12 @@ fn minted_peer_retains_the_configuration() {
     assert_eq!(peer.run_budget, RunBudget::from_bytes(CUSTOM_TARGET));
 }
 
-/// Negative control for [`minted_peer_retains_the_configuration`]: an
-/// unconfigured join mints a peer at the crate defaults, so the retention
+/// Negative control for [`joined_peer_retains_the_configuration`]: an
+/// unconfigured join produces a peer at the crate defaults, so the retention
 /// test above cannot pass by the defaults happening to equal the custom
 /// values.
 #[test]
-fn unconfigured_join_mints_the_defaults() {
+fn unconfigured_join_produces_the_defaults() {
     let peer = join_from_seed(Peer::<u64>::bootstrap());
     assert_eq!(peer.protocol, Protocol::default());
     assert_eq!(budget_bytes(peer.window), DEFAULT_SYNC_MEMORY_BUDGET);
@@ -132,7 +132,7 @@ fn bookmark_transition_preserves_and_accepts_knobs() {
     }
 }
 
-/// A bookmarked join drives the same session plumbing: the minted peer
+/// A bookmarked join drives the same session plumbing: the joined peer
 /// retains the session knobs exactly as an unbookmarked join's would,
 /// arriving through the [`Joined::Joined`] arm.
 #[test]
@@ -149,7 +149,7 @@ fn bookmarked_join_retains_the_configuration() {
         joined
     });
     let Joined::Joined { peer } = outcome else {
-        panic!("an established provider and infallible bookmark must mint a joined peer");
+        panic!("an established provider and infallible bookmark must produce a joined peer");
     };
     assert_eq!(budget_bytes(peer.window), CUSTOM_BUDGET);
     assert_eq!(peer.run_budget, RunBudget::from_bytes(CUSTOM_TARGET));

@@ -191,7 +191,7 @@ fn from_slice_with<M: message::DecodeWith>(bytes: &[u8]) -> std::io::Result<M> {
     let mut input = bytes;
     let m = M::read_wire_with(
         &mut input,
-        PayloadCodec::mint::<()>(PayloadDepthLimit::default()),
+        PayloadCodec::new::<()>(PayloadDepthLimit::default()),
     )?;
     if !input.is_empty() {
         return Err(std::io::Error::new(
@@ -208,7 +208,7 @@ fn node_from_slice<H: DecodeNode>(bytes: &[u8]) -> std::io::Result<Node<H>> {
     let mut input = bytes;
     let node = H::read_node(
         &mut input,
-        PayloadCodec::mint::<()>(PayloadDepthLimit::default()),
+        PayloadCodec::new::<()>(PayloadDepthLimit::default()),
     )?;
     if !input.is_empty() {
         return Err(std::io::Error::new(

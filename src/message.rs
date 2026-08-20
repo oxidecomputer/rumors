@@ -181,10 +181,10 @@ pub(crate) type PayloadSerializer =
 pub(crate) type PayloadDeserializer =
     fn(&[u8], PayloadDepthLimit) -> Result<Arc<dyn Any + Send + Sync>, PayloadDecodeError>;
 
-/// A peer's payload codec: the typed payload boundary minted once at
+/// A peer's payload codec: the typed payload boundary created once at
 /// [`Peer`](crate::Peer) construction and carried by every session.
 ///
-/// The payload type's serde obligations concentrate at the mint; the fn
+/// The payload type's serde obligations concentrate at construction; the fn
 /// pointer inside is the type's only residue afterwards, so everything
 /// that carries a codec stays non-generic. The configured
 /// [`PayloadDepthLimit`] rides beside the pointer as data (a plain fn
@@ -198,15 +198,15 @@ pub(crate) struct PayloadCodec {
 }
 
 impl PayloadCodec {
-    /// Mint the codec for payloads of type `T` at the given depth limit.
+    /// Construct the codec for payloads of type `T` at the given depth limit.
     ///
-    /// All of `T`'s payload obligations land here, at the mint: a peer
+    /// All of `T`'s payload obligations land here, at construction: a peer
     /// demands `Serialize` at construction even if it never sends,
     /// symmetric with demanding `DeserializeOwned` even if it never
     /// receives (forwarding needs neither bound, since gossip re-supplies
     /// cached bytes), and `Eq` so send-side admission can hold every
     /// encoding to decode back equal to the value sent.
-    pub(crate) fn mint<T>(limit: PayloadDepthLimit) -> Self
+    pub(crate) fn new<T>(limit: PayloadDepthLimit) -> Self
     where
         T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
     {
@@ -214,9 +214,9 @@ impl PayloadCodec {
             payload: Arc<dyn Any + Send + Sync>,
             limit: PayloadDepthLimit,
         ) -> Result<Message, EncodeError> {
-            let payload: Arc<T> = payload
-                .downcast()
-                .unwrap_or_else(|_| panic!("a codec serializes exactly its minted payload type"));
+            let payload: Arc<T> = payload.downcast().unwrap_or_else(|_| {
+                panic!("a codec serializes exactly the payload type it was built for")
+            });
             Message::try_from_arc(payload, limit)
         }
         PayloadCodec {
@@ -226,13 +226,13 @@ impl PayloadCodec {
         }
     }
 
-    /// Serialize one payload value of the minted type into an
+    /// Serialize one payload value of the codec's payload type into an
     /// admission-checked [`Message`] at the carried limit
     /// ([`Message::try_new`]'s contract).
     ///
     /// # Panics
     ///
-    /// If the value is not the codec's minted payload type: a crate bug,
+    /// If the value is not the payload type the codec was built for: a crate bug,
     /// never an input — every caller hands in the `T` its own typed
     /// signature names. A `Serialize` failure keeps [`Message`]'s
     /// documented panic contract.
@@ -249,7 +249,7 @@ impl PayloadCodec {
         self.limit
     }
 
-    /// Replace the carried depth limit, keeping the minted pointer.
+    /// Replace the carried depth limit, keeping the codec's fn pointers.
     #[must_use]
     pub(crate) fn with_limit(self, limit: PayloadDepthLimit) -> Self {
         PayloadCodec { limit, ..self }
@@ -291,7 +291,7 @@ fn to_vec<T: Serialize>(value: &T) -> Vec<u8> {
 
 /// Decode exactly one CBOR value of type `T` from `bytes`, bounding the
 /// decode's recursion at `limit`: the one payload parse behind every
-/// typed constructor and the minted deserializer.
+/// typed constructor and the codec's deserializer.
 ///
 /// Trailing bytes are rejected as invalid data, so a cache built from the
 /// input is always the value's exact encoding. A value whose decode
@@ -323,7 +323,7 @@ impl Message {
     ///
     /// No unchecked constructor can reach a peer's set: insertion happens
     /// only through [`Rumors::send`](crate::Rumors::send) and
-    /// [`Batch::send`](crate::Batch::send), which mint admission-checked
+    /// [`Batch::send`](crate::Batch::send), which create admission-checked
     /// messages through the peer's codec ([`try_new`](Self::try_new)),
     /// and through wire ingress, which runs the same decode admission
     /// runs. `new` and [`from_arc`](Self::from_arc) construct
@@ -373,7 +373,7 @@ impl Message {
         T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
     {
         let serialized = to_vec(&*arc);
-        // Admission is the receiver's computation: the minted deserializer
+        // Admission is the receiver's computation: the payload deserializer
         // — the same fn every receiver's wire ingress runs for this
         // payload type — reads the just-serialized bytes back at the same
         // limit.
@@ -438,7 +438,7 @@ impl Message {
     }
 
     /// The deserializer for payloads of type `T`: the deserializing half
-    /// of the [`PayloadCodec`] a [`Peer`](crate::Peer) mints at
+    /// of the [`PayloadCodec`] a [`Peer`](crate::Peer) builds at
     /// construction, applied at every session's wire ingress
     /// ([`from_wire`](Self::from_wire)).
     ///

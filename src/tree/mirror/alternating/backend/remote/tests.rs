@@ -46,7 +46,7 @@ fn recv_with<M: message::DecodeWith>(bytes: &[u8]) -> Result<M, Error> {
         let mut reader = FrameRead::new(bytes);
         recv_msg_with::<M, _>(
             &mut reader,
-            PayloadCodec::mint::<()>(PayloadDepthLimit::default()),
+            PayloadCodec::new::<()>(PayloadDepthLimit::default()),
         )
         .await
     })

@@ -67,7 +67,7 @@ async fn tcp_endpoint(buffers: Option<u32>) -> (Endpoint<TcpDial>, Incoming<TcpD
     (endpoint, incoming, addr)
 }
 
-/// Mint a fresh routed-link pair over TCP: two endpoints, one
+/// Create a fresh routed-link pair over TCP: two endpoints, one
 /// establishment.
 ///
 /// `dialer_first` picks which construction (the dialing or the
@@ -100,7 +100,7 @@ async fn tcp_conformance(buffers: Option<u32>, dialer_first: bool) {
     .expect("conformance suite ran past its liveness bound");
 }
 
-/// Mint a fresh routed-link pair over an in-memory network of its own.
+/// Create a fresh routed-link pair over an in-memory network of its own.
 async fn memory_pair(dialer_first: bool) -> (RoutedLink<MemoryDial>, RoutedLink<MemoryDial>) {
     let net = MemoryNet::new();
     let name_a = MemoryName::new("a");
@@ -163,7 +163,7 @@ async fn conforms_over_tcp_at_minimal_buffers_swapped() {
     tcp_conformance(Some(MINIMAL_BUFFER_REQUEST), false).await;
 }
 
-/// Mint a routed-link pair whose shared dialer pools recycled
+/// Create a routed-link pair whose shared dialer pools recycled
 /// connections, so the suite's completed streams ride recycled
 /// connections wherever a pooled one is available.
 async fn pooled_tcp_pair(

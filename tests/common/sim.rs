@@ -91,7 +91,7 @@ use crate::common::wire::wire_gossip_async;
 ///
 /// Derived from measurement, not transcribed: the envelope session —
 /// a fully-divergent pair on the generator's maximal fork lattice, each
-/// endpoint holding more unique content than an entire plan can mint,
+/// endpoint holding more unique content than an entire plan can create,
 /// every party's ticks entangled into the version bounds, at the
 /// sweep's widest window — moves fewer bytes per endpoint than this
 /// bound, and the bound stays within twice that measurement, so

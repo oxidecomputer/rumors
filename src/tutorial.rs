@@ -36,12 +36,11 @@
 //! observers are plain futures and streams. `futures` supplies the
 //! `StreamExt` adapter we will use in step 5.
 //!
-//! Replace `main.rs` with an async main that can report this crate's
-//! errors:
+//! Replace `main.rs` with an async main that can report errors:
 //!
 //! ```
 //! #[tokio::main]
-//! async fn main() -> Result<(), rumors::Error> {
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     Ok(())
 //! }
 //! ```
@@ -64,7 +63,7 @@
 //! use rumors::Peer;
 //!
 //! #[tokio::main]
-//! async fn main() -> Result<(), rumors::Error> {
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     let alice = Peer::<String>::seed().into_rumors();
 //!
 //!     println!("alice holds {} messages", alice.snapshot().len());
@@ -91,10 +90,10 @@
 //! use rumors::Peer;
 //!
 //! #[tokio::main]
-//! async fn main() -> Result<(), rumors::Error> {
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     let alice = Peer::<String>::seed().into_rumors();
 //!
-//!     alice.send("the meeting is at noon".to_string()).expect("flat payload");
+//!     alice.send("the meeting is at noon".to_string())?;
 //!
 //!     for (_version, message) in alice.snapshot().iter() {
 //!         println!("alice holds: {message}");
@@ -107,19 +106,16 @@
 //! alice holds: the meeting is at noon
 //! ```
 //!
-//! A `send` commits right there, at the call, and errs only on a
-//! payload that violates the [payload
-//! contract](crate#choosing-a-payload-type) — nested past the peer's
-//! [`payload_depth_limit`](crate::Peer::payload_depth_limit), or
-//! decoding to a different value than was sent — which a flat string
-//! never does. Applying several changes as
+//! A `send` commits right there, at the call; it errs only on a payload
+//! that violates the [payload
+//! contract](crate#choosing-a-payload-type). Applying several changes as
 //! one commit is [`batch`](crate::Rumors::batch)'s job. Notice that the snapshot yields a
 //! [`Version`](crate::Version) alongside each message — the message's
 //! identity, which we ignore for now; it returns in step 6.
 //!
 //! # Step 4: bootstrap Bob
 //!
-//! A second peer does not call `seed` — it would mint a separate universe,
+//! A second peer does not call `seed` — it would create a separate universe,
 //! forever unable to gossip with this one. Instead it
 //! [`bootstrap`](crate::Peer::bootstrap)s through any established member:
 //! one session against Alice hands Bob a full replica and a donated
@@ -132,14 +128,14 @@
 //! use rumors::Peer;
 //!
 //! #[tokio::main]
-//! async fn main() -> Result<(), rumors::Error> {
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     let alice = Peer::<String>::seed().into_rumors();
-//!     alice.send("the meeting is at noon".to_string()).expect("flat payload");
+//!     alice.send("the meeting is at noon".to_string())?;
 //!
 //!     // Alice serves one gossip session on her end of the link...
 //!     let (mut near, mut far) = rumors::link::memory();
 //!     let serve = alice.clone();
-//!     let server = tokio::spawn(async move { serve.gossip(&mut far).await.unwrap() });
+//!     let server = tokio::spawn(async move { serve.gossip(&mut far).await });
 //!
 //!     // ...and Bob joins the universe through the other end.
 //!     let bob = Peer::<String>::bootstrap()
@@ -147,7 +143,7 @@
 //!         .await?
 //!         .expect("alice is established, not herself bootstrapping")
 //!         .into_rumors();
-//!     server.await.expect("alice's serving task");
+//!     server.await??;
 //!
 //!     for (_version, message) in bob.snapshot().iter() {
 //!         println!("bob holds: {message}");
@@ -176,31 +172,31 @@
 //! each polled, even if only one end ever originates news. Reusing the
 //! bootstrap link here would be legal (a session that ends `Ok` leaves its link
 //! at a clean session boundary, ready for the next), but we moved its far end
-//! into Alice's serving task, so we mint a fresh pair for the bridge:
+//! into Alice's serving task, so we make a fresh pair for the bridge:
 //!
 //! ```
 //! use futures::StreamExt;
 //! use rumors::Peer;
 //!
 //! #[tokio::main]
-//! async fn main() -> Result<(), rumors::Error> {
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     let alice = Peer::<String>::seed().into_rumors();
-//!     alice.send("the meeting is at noon".to_string()).expect("flat payload");
+//!     alice.send("the meeting is at noon".to_string())?;
 //!
 //!     let (mut near, mut far) = rumors::link::memory();
 //!     let serve = alice.clone();
-//!     let server = tokio::spawn(async move { serve.gossip(&mut far).await.unwrap() });
+//!     let server = tokio::spawn(async move { serve.gossip(&mut far).await });
 //!     let bob = Peer::<String>::bootstrap()
 //!         .join(&mut near)
 //!         .await?
 //!         .expect("alice is established, not herself bootstrapping")
 //!         .into_rumors();
-//!     server.await.expect("alice's serving task");
+//!     server.await??;
 //!
 //!     // A second, long-lived link between them, one driver per end.
 //!     let (mut alice_side, mut bob_side) = rumors::link::memory();
 //!
-//!     alice.send("bring the slides".to_string()).expect("flat payload");
+//!     alice.send("bring the slides".to_string())?;
 //!
 //!     let mut alice_drive = alice.gossip_when(alice.changes(), &mut alice_side);
 //!     let mut bob_drive = bob.gossip_when(bob.changes(), &mut bob_side);
@@ -242,23 +238,23 @@
 //! use rumors::Peer;
 //!
 //! #[tokio::main]
-//! async fn main() -> Result<(), rumors::Error> {
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     let alice = Peer::<String>::seed().into_rumors();
-//!     alice.send("the meeting is at noon".to_string()).expect("flat payload");
+//!     alice.send("the meeting is at noon".to_string())?;
 //!
 //!     let (mut near, mut far) = rumors::link::memory();
 //!     let serve = alice.clone();
-//!     let server = tokio::spawn(async move { serve.gossip(&mut far).await.unwrap() });
+//!     let server = tokio::spawn(async move { serve.gossip(&mut far).await });
 //!     let bob = Peer::<String>::bootstrap()
 //!         .join(&mut near)
 //!         .await?
 //!         .expect("alice is established, not herself bootstrapping")
 //!         .into_rumors();
-//!     server.await.expect("alice's serving task");
+//!     server.await??;
 //!
 //!     let (mut alice_side, mut bob_side) = rumors::link::memory();
 //!
-//!     alice.send("bring the slides".to_string()).expect("flat payload");
+//!     alice.send("bring the slides".to_string())?;
 //!
 //!     let mut alice_drive = alice.gossip_when(alice.changes(), &mut alice_side);
 //!     let mut bob_drive = bob.gossip_when(bob.changes(), &mut bob_side);

@@ -99,7 +99,7 @@ fn overlapping_retiree_party_is_rejected() {
     // region (not a disjoint fork), with an empty tree so its version equals the
     // survivor's and the survivor takes the absorb branch.
     let forged = Peer::<u64> {
-        codec: PayloadCodec::mint::<u64>(PayloadDepthLimit::default()),
+        codec: PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
         network: survivor.network,
         protocol: survivor.protocol,
         window: survivor.window,
@@ -145,7 +145,7 @@ fn overlapping_retiree_party_is_rejected() {
 #[test]
 fn retiring_all_forks_reconstitutes_the_seed_party() {
     let survivor = Peer::<u64>::seed();
-    // Each child is a genuine party-disjoint fork, minted by serving a bootstrap.
+    // Each child is a genuine party-disjoint fork, created by serving a bootstrap.
     // All are empty, so they share the seed's version, are reflexively dominated,
     // and retire with no prior gossip.
     let (survivor, c1) = bootstrap_from(survivor);
@@ -163,8 +163,8 @@ fn retiring_all_forks_reconstitutes_the_seed_party() {
     );
 }
 
-/// Bootstrap mints a fresh party by forking the provider's; retiring that peer
-/// back must reclaim exactly that minted region.
+/// Bootstrap creates a fresh party by forking the provider's; retiring that
+/// peer back must reclaim exactly that forked region.
 ///
 /// Provider with real content, bootstrap (a wire fork), then retire the
 /// newcomer home: the provider's party normalizes back to [`Party::seed`],

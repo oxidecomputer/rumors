@@ -158,7 +158,7 @@ fn opening_supplies_decode_by_radix_group() {
                 unbounded(),
                 Prefix::new().erase(),
                 stream::iter(frames),
-                PayloadCodec::mint::<u64>(PayloadDepthLimit::default()),
+                PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
             )
             .try_collect(),
         )
@@ -206,7 +206,7 @@ fn opening_supplies_past_the_declared_set_len_are_rejected() {
                 SupplyLedger::new(1),
                 Prefix::new().erase(),
                 stream::iter(frames),
-                PayloadCodec::mint::<u64>(PayloadDepthLimit::default()),
+                PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
             )
             .try_collect::<Vec<_>>()
             .await
@@ -234,7 +234,7 @@ fn empty_opening_supply_reply_decodes_to_nothing() {
                 unbounded(),
                 Prefix::new().erase(),
                 stream::iter(frames),
-                PayloadCodec::mint::<u64>(PayloadDepthLimit::default()),
+                PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
             )
             .try_collect(),
         )
@@ -255,7 +255,7 @@ fn second_opening_supply_reply_is_rejected() {
                 unbounded(),
                 Prefix::new().erase(),
                 stream::iter(frames),
-                PayloadCodec::mint::<u64>(PayloadDepthLimit::default()),
+                PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
             )
             .try_collect::<Vec<_>>()
             .await
@@ -277,7 +277,7 @@ fn positional_reaction_in_opening_supplies_is_rejected() {
                 unbounded(),
                 Prefix::new().erase(),
                 stream::iter(frames),
-                PayloadCodec::mint::<u64>(PayloadDepthLimit::default()),
+                PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
             )
             .try_collect::<Vec<_>>()
             .await
