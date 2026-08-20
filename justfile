@@ -200,6 +200,17 @@ workflowlint:
     ./tools/workflowlint --self-test
     ./tools/workflowlint .github
 
+# tools/digestshare reads the committed V2 wire captures and totals digest
+# vs non-digest bytes. As a gate leg it checks the renderer-vocabulary
+# contract, not a threshold: the tool exits nonzero when the corpus's
+# byte-count headers or digest annotations stop matching its patterns (the
+# renderer's vocabulary moved out from under the meter), never on the
+# measured ratio. Build-free, so it rides the lint tier.
+
+# Check the wire-capture renderer vocabulary via the digest-share meter.
+digestshare:
+    ./tools/digestshare
+
 # tools/readme mirrors each crate's crate-level rustdoc into its README via
 # cargo-rdme, then strips the intra-doc links cargo-rdme can't resolve (the
 # public types are re-exported from private submodules, and the docs use
@@ -381,7 +392,7 @@ fuzz-build:
 gate: gate-lints gate-streams
 
 # The build-free tier, sequential: a lint failure should cost seconds.
-gate-lints: fmt-check doclint testdoc workflowlint mutants-list readme-check
+gate-lints: fmt-check doclint testdoc workflowlint digestshare mutants-list readme-check
 
 # Each stream's output is captured rather than interleaved, and a failing
 # stream's log is replayed in full at the end, so a parallel failure reads

@@ -179,6 +179,31 @@ fn signal_semantic(line: &str) -> Option<&str> {
     rest.strip_suffix(" /")
 }
 
+/// The child count of every nonempty-Query frame body in a capture.
+///
+/// A `Query(…)` signal line is followed by its frame's listing body,
+/// which opens with `{ / listing: <n> child(ren) /`. Greeting listings
+/// render the same annotation, so the scan keys on the Query signal
+/// and reads only until the next signal or column-zero header.
+fn nonempty_query_listings(capture: &str) -> Vec<usize> {
+    let mut counts = Vec::new();
+    let mut in_query = false;
+    for line in capture.lines() {
+        if let Some(semantic) = signal_semantic(line) {
+            in_query = semantic.starts_with("Query(");
+        } else if !line.starts_with(char::is_whitespace) {
+            in_query = false;
+        } else if in_query
+            && let Some(rest) = line.trim_start().strip_prefix("{ / listing: ")
+            && let Some(n) = rest.split_whitespace().next().and_then(|n| n.parse().ok())
+        {
+            counts.push(n);
+            in_query = false;
+        }
+    }
+    counts
+}
+
 /// Count the frames rendered under one stream header of a wire capture.
 ///
 /// Returns `None` when the header never appears; the header must be a
@@ -511,6 +536,100 @@ fn deep_trie_divergence() {
         (a, b)
     });
     insta::assert_snapshot!(capture_gossip(a, b));
+}
+
+/// Payload base for [`shared_subtree_dispute_pins_a_nonempty_query`]'s
+/// divergence pool: disjoint from the fixture's first pool so the
+/// second cleanup never touches the shared pair.
+const DISPUTE_POOL_BASE: u64 = 100;
+
+/// A disputed shared subtree pins the nonempty Query frame: the one
+/// wire form no other fixture provokes.
+///
+/// The other fixtures' nonempty listings ride only inside greetings,
+/// and every wire query they pin is `QueryEmpty`. Here both peers hold
+/// the same two leaves under one root radix, splitting at the second
+/// path byte, so the shared node is a genuine two-child branch on each
+/// side; the populated side then adds a third leaf under the same
+/// radix. The two sides' subtree hashes differ while neither side is
+/// absent (an absent side yields supplies) and the subtrees are not
+/// identical (identical subtrees yield matches), so answering the
+/// dispute *lists children*: a Query frame carrying a nonempty
+/// `{radix => digest}` listing. The in-test liveness floor asserts
+/// that listing before the snapshot comparison, so the fixture cannot
+/// silently degrade back to `QueryEmpty` under a future corpus change.
+#[test]
+fn shared_subtree_dispute_pins_a_nonempty_query() {
+    // Stage: two leaves sharing a root radix and splitting at the
+    // second byte (pool-search-and-redact, see `common::shape`),
+    // staged before the fork so both peers hold the branch
+    // identically.
+    let a: Rumors<u64> = seeded();
+    send_pool(&a, 0, RADIX_POOL);
+    let (first, second) = shaped_pair(&pool(&a, 0, RADIX_POOL), 1, true);
+    keep_only(&a, 0, RADIX_POOL, &[first, second]);
+    let b = bootstrap_fork(&a);
+
+    // Diverge under the shared radix: a third leaf lands there on the
+    // populated side alone.
+    let radix = path_radix(&version_for(&a, first));
+    send_pool(&a, DISPUTE_POOL_BASE, TARGETED_POOL);
+    let third = pool(&a, DISPUTE_POOL_BASE, TARGETED_POOL)
+        .into_iter()
+        .find(|(_, v)| path_radix(v) == radix)
+        .map(|(value, _)| value)
+        .expect("some pool leaf lands under the shared radix");
+    keep_only(&a, DISPUTE_POOL_BASE, TARGETED_POOL, &[third]);
+
+    // Fixture self-checks: the two-child shared branch, the
+    // divergence, and the election.
+    let paths = |rumors: &Rumors<u64>| -> Vec<[u8; 2]> {
+        rumors
+            .snapshot()
+            .iter()
+            .map(|(v, _)| {
+                let path = leaf_path(v);
+                [path[0], path[1]]
+            })
+            .collect()
+    };
+    let apaths = paths(&a);
+    assert_eq!(
+        apaths.len(),
+        3,
+        "the populated side holds the pair plus the divergent leaf"
+    );
+    assert!(
+        apaths.iter().all(|p| p[0] == radix),
+        "every leaf sits under the one shared root radix"
+    );
+    let bpaths = paths(&b);
+    assert_eq!(bpaths.len(), 2, "the fork holds exactly the shared pair");
+    assert!(
+        bpaths.iter().all(|p| p[0] == radix),
+        "the fork's leaves sit under the same shared radix"
+    );
+    assert_ne!(
+        bpaths[0][1], bpaths[1][1],
+        "the shared subtree branches at the second byte: a genuine \
+         two-child node on both sides"
+    );
+    assert!(
+        b.snapshot().len() < a.snapshot().len(),
+        "the fork advertises the smaller set and initiates"
+    );
+
+    let capture = capture_gossip(a, b);
+    // The pin's liveness floor, asserted before the snapshot
+    // comparison: at least one Query frame carries a nonempty child
+    // listing.
+    let listings = nonempty_query_listings(&capture);
+    assert!(
+        listings.iter().any(|&n| n >= 1),
+        "the dispute must pin a nonempty Query frame, not degrade to \
+         QueryEmpty; capture:\n{capture}"
+    );
+    insta::assert_snapshot!(capture);
 }
 
 /// A non-primitive, variable-length payload type.

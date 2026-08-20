@@ -1,0 +1,107 @@
+---
+source: tests/gossip_snapshot.rs
+expression: capture
+---
+direction A -> B
+role: Responder
+control item 0 (30 bytes) / preamble /
+  55799( / self-described CBOR /
+    [
+      "rumors"
+      2
+      h'8c189668c9e4837237bf31e02d7f6b70'
+      0
+    ]
+  )
+control item 1 (129 bytes) / greeting /
+  24(<< / embedded item, 125 bytes /
+    {
+      "listing" =>
+        { / listing: 1 child(ren) /
+          0x8 => h'2d16f1fdb20625b2790383817de384ce333cd74c3bd98556' / digest /
+        }
+      "set_len" => 3
+      "version" =>
+        53846(h'40020fd000fff4') / version (126, 4095, 0) /
+      "protocol" => "rumors"
+      "max_version_bytes" => 4
+      "target_message_size" => 1830400
+    }
+  >>)
+control item 2 (2 bytes) / epilogue /
+  "."
+Responder stream 0 (height 31), epoch 0, 93 wire bytes
+  frame 0 (88 bytes)
+    [
+      85 / Query(End) /
+      { / listing: 3 child(ren) /
+        0x1a => h'054676406bb280ac20d5d8d52e745151251ddb930f5b3c31' / digest /
+        0x32 => h'e8ae1a6562bdf839010d24df53f13c52909ea415ca248598' / digest /
+        0xe0 => h'62412dd8c6fbdedc725edb37c91df6fabeda30a701a00fa2' / digest /
+      }
+    ]
+  frame 1 (3 bytes)
+    [
+      153 / End(Stream) /
+    ]
+Responder stream 1 (height 29), epoch 0, 24 wire bytes
+  frame 0 (19 bytes)
+    [
+      120 / Supply(End) /
+      63(<< / supply run, 1 record(s), 13 bytes /
+        63(<< / record, 2 item(s), 10 bytes /
+          53846(h'405940cd') / version (126, 51, 0) /
+          150
+        >>)
+      >>)
+    ]
+  frame 1 (3 bytes)
+    [
+      154 / End(Stream) /
+    ]
+
+direction B -> A
+role: Initiator
+control item 0 (30 bytes) / preamble /
+  55799( / self-described CBOR /
+    [
+      "rumors"
+      2
+      h'8c189668c9e4837237bf31e02d7f6b70'
+      0
+    ]
+  )
+control item 1 (124 bytes) / greeting /
+  24(<< / embedded item, 120 bytes /
+    {
+      "listing" =>
+        { / listing: 1 child(ren) /
+          0x8 => h'8e114c641c07a2a9e59d6f179b5ebbdbfa90cf16de4caf0d' / digest /
+        }
+      "set_len" => 2
+      "version" =>
+        53846(h'81fe') / version 126 /
+      "protocol" => "rumors"
+      "max_version_bytes" => 2
+      "target_message_size" => 1830400
+    }
+  >>)
+control item 2 (2 bytes) / epilogue /
+  "."
+Initiator stream 1 (height 30), epoch 0, 12 wire bytes
+  frame 0 (2 bytes)
+    [
+      1 / Match(Continue) /
+    ]
+  frame 1 (3 bytes)
+    [
+      35 / QueryEmpty(Continue) /
+    ]
+  frame 2 (2 bytes)
+    [
+      18 / Match(End) /
+    ]
+  frame 3 (3 bytes)
+    [
+      154 / End(Stream) /
+    ]
