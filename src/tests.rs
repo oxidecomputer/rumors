@@ -5,6 +5,7 @@
 //! [`Party`] and compare it to [`Party::seed`]. Both require in-crate access,
 //! so they live here rather than in `tests/`.
 
+use crate::message::{PayloadCodec, PayloadDepthLimit};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -96,7 +97,7 @@ fn overlapping_retiree_party_is_rejected() {
     // region (not a disjoint fork), with an empty tree so its version equals the
     // survivor's and the survivor takes the absorb branch.
     let forged = Peer::<u64> {
-        deserializer: crate::message::Message::deserializer::<u64>(),
+        codec: PayloadCodec::mint::<u64>(PayloadDepthLimit::default()),
         network: survivor.network,
         protocol: survivor.protocol,
         window: survivor.window,

@@ -218,7 +218,7 @@ impl Encode for Message {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::message::Message;
+    use crate::message::{Message, PayloadCodec, PayloadDepthLimit};
     use crate::tree::arb::nth_party;
     use crate::tree::typed::Node;
     use crate::tree::typed::height::Z;
@@ -243,14 +243,21 @@ mod tests {
 
         let m = Message::new(());
         let enc = to_vec(&m).unwrap();
-        let back =
-            Message::from_reader(&mut enc.as_slice(), Message::deserializer::<()>()).unwrap();
+        let back = Message::from_reader(
+            &mut enc.as_slice(),
+            PayloadCodec::mint::<()>(PayloadDepthLimit::default()),
+        )
+        .unwrap();
         assert_eq!(back.as_slice(), m.as_slice());
 
         let leaf: Node<Z> = Node::leaf(version.clone(), Message::new(()));
         let enc = to_vec(&leaf).unwrap();
         let mut input = enc.as_slice();
-        let back = Z::read_node(&mut input, Message::deserializer::<()>()).unwrap();
+        let back = Z::read_node(
+            &mut input,
+            PayloadCodec::mint::<()>(PayloadDepthLimit::default()),
+        )
+        .unwrap();
         assert!(
             input.is_empty(),
             "the node decode consumes exactly its bytes"

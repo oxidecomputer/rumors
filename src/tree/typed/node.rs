@@ -3,7 +3,7 @@ use std::{fmt::Debug, iter::Map, marker::PhantomData};
 use before::{Dominance, Span};
 
 #[cfg(any(test, feature = "protocol-v1"))]
-use crate::message::PayloadDeserializer;
+use crate::message::PayloadCodec;
 use crate::{Version, causally, message::Message};
 
 use super::hash::Hash;
@@ -482,23 +482,20 @@ where
 /// The typed-payload decode of the node wire shape, per height.
 ///
 /// The node itself is erased; a leaf's payload decodes through the
-/// peer's deserializer (the alternating protocol's typed ingress:
+/// peer's codec (the alternating protocol's typed ingress:
 /// malformed payloads fail here, at the wire boundary), so the decoder
 /// takes that extra argument rather than implementing [`wire::Decode`] —
 /// the height trait carries the same one-step-down recursion as the
 /// batch-apply walk ([`Act`](crate::tree::traverse::act::Act)).
 pub trait DecodeNode: Height {
-    fn read_node<R>(
-        reader: &mut R,
-        deserializer: PayloadDeserializer,
-    ) -> std::io::Result<Node<Self>>
+    fn read_node<R>(reader: &mut R, codec: PayloadCodec) -> std::io::Result<Node<Self>>
     where
         R: std::io::Read;
 }
 
 #[cfg(any(test, feature = "protocol-v1"))]
 impl DecodeNode for Z {
-    fn read_node<R>(reader: &mut R, deserializer: PayloadDeserializer) -> std::io::Result<Node<Z>>
+    fn read_node<R>(reader: &mut R, codec: PayloadCodec) -> std::io::Result<Node<Z>>
     where
         R: std::io::Read,
     {
@@ -507,7 +504,7 @@ impl DecodeNode for Z {
             return Err(wire::invalid("leaf height cannot carry a prefix"));
         }
         let version = Version::read_wire(reader)?;
-        let message = Message::from_reader(reader, deserializer)?;
+        let message = Message::from_reader(reader, codec)?;
         Ok(Node::leaf(version, message))
     }
 }
@@ -518,10 +515,7 @@ where
     H: DecodeNode,
     S<H>: Height,
 {
-    fn read_node<R>(
-        reader: &mut R,
-        deserializer: PayloadDeserializer,
-    ) -> std::io::Result<Node<S<H>>>
+    fn read_node<R>(reader: &mut R, codec: PayloadCodec) -> std::io::Result<Node<S<H>>>
     where
         R: std::io::Read,
     {
@@ -545,7 +539,7 @@ where
                     return Err(wire::invalid("branch radices not strictly ascending"));
                 }
                 prev = Some(radix);
-                let child = H::read_node(reader, deserializer)?;
+                let child = H::read_node(reader, codec)?;
                 children.insert(radix, child);
             }
             Node::branch(children).ok_or_else(|| wire::invalid("branch could not be reconstructed"))
@@ -557,7 +551,7 @@ where
             // dispatch layer.
             let synthesized = [prefix_len - 1];
             let mut chained = std::io::Read::chain(synthesized.as_slice(), &mut *reader);
-            let inner = H::read_node(&mut chained, deserializer)?;
+            let inner = H::read_node(&mut chained, codec)?;
             Ok(Node::beneath(inner, head))
         }
     }

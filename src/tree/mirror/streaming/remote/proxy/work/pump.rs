@@ -24,7 +24,7 @@
 //! precedes its dependent scopes. Each edge's capacity rationale lives at
 //! its constructor in [`queues`].
 
-use crate::message::PayloadDeserializer;
+use crate::message::PayloadCodec;
 use std::pin::Pin;
 
 use async_stream::try_stream;
@@ -184,10 +184,10 @@ where
         let backend = self.backend();
         let version_bytes = self.peer_version_bytes;
         let ledger = self.peer_supplies.clone();
-        let deserializer = self.deserializer;
+        let codec = self.codec;
         try_stream! {
             let mut early =
-                Early::<B, A::Rx>::new(version_bytes, ledger.clone(), early, deserializer);
+                Early::<B, A::Rx>::new(version_bytes, ledger.clone(), early, codec);
             while let Some(scope) = questions.recv().await {
                 if early.armed() && scope.is_request() {
                     // A root-level request: its content crossed at the
@@ -201,7 +201,7 @@ where
                         ledger.clone(),
                         scope,
                         &mut incoming,
-                        deserializer,
+                        codec,
                     )
                     .await?;
                     debug_assert!(asked.is_empty(), "an empty request opens no lower scope");
@@ -230,7 +230,7 @@ where
                     ledger.clone(),
                     scope,
                     &mut incoming,
-                    deserializer,
+                    codec,
                 )
                 .await?;
                 yield_reply_scopes!(
@@ -284,7 +284,7 @@ where
         let backend = self.backend();
         let version_bytes = self.peer_version_bytes;
         let ledger = self.peer_supplies.clone();
-        let deserializer = self.deserializer;
+        let codec = self.codec;
         try_stream! {
             while let Some(scope) = questions.recv().await {
                 let Decoded { reply, questions } = decode_leaf_reply(
@@ -293,7 +293,7 @@ where
                     ledger.clone(),
                     scope,
                     &mut incoming,
-                    deserializer,
+                    codec,
                 )
                 .await?;
                 yield_reply_scopes!(
@@ -378,7 +378,7 @@ where
         let backend = self.backend();
         let version_bytes = self.peer_version_bytes;
         let ledger = self.peer_supplies.clone();
-        let deserializer = self.deserializer;
+        let codec = self.codec;
         try_stream! {
             while let Some(scope) = questions.recv().await {
                 let Decoded { reply, questions } = decode_leaf_reply(
@@ -387,7 +387,7 @@ where
                     ledger.clone(),
                     scope,
                     &mut incoming,
-                    deserializer,
+                    codec,
                 )
                 .await?;
                 if !questions.is_empty() {
@@ -425,9 +425,9 @@ where
         Option<Pin<Box<dyn Stream<Item = Result<(u8, B::Erased), DecodeError<B::Error>>> + Send>>>,
     lookahead: Option<(u8, B::Erased)>,
     exhausted: bool,
-    /// The peer's payload deserializer, handed to the opening-supply
+    /// The peer's payload codec, handed to the opening-supply
     /// stream when the cursor arms it.
-    deserializer: PayloadDeserializer,
+    codec: PayloadCodec,
 }
 
 impl<B, Rx> Early<B, Rx>
@@ -441,7 +441,7 @@ where
         version_bytes: u64,
         ledger: SupplyLedger,
         receiver: Option<StreamReceiver<Rx>>,
-        deserializer: PayloadDeserializer,
+        codec: PayloadCodec,
     ) -> Self {
         Self {
             version_bytes,
@@ -450,7 +450,7 @@ where
             supplies: None,
             lookahead: None,
             exhausted: false,
-            deserializer,
+            codec,
         }
     }
 
@@ -496,7 +496,7 @@ where
                         self.ledger.clone(),
                         root,
                         receiver,
-                        self.deserializer,
+                        self.codec,
                     )))
                 }
             };

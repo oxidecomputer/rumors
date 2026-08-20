@@ -1,6 +1,6 @@
+use crate::message::{PayloadCodec, PayloadDepthLimit};
 use std::future;
 
-use crate::message::Message;
 use futures::StreamExt;
 use tokio::io::DuplexStream;
 use tokio::sync::oneshot;
@@ -64,7 +64,7 @@ fn parked_session() -> ParkedSession {
             accept,
             errors,
         },
-        Message::deserializer::<u64>(),
+        PayloadCodec::mint::<u64>(PayloadDepthLimit::default()),
     );
     ParkedSession {
         work,

@@ -9,6 +9,7 @@
 //! decode → re-encode path the session uses, with the decode side fed
 //! deliberately unbatched input to prove batching is the encoder's choice.
 
+use crate::message::{PayloadCodec, PayloadDepthLimit};
 use std::collections::BTreeMap;
 
 use futures::{TryStreamExt, stream};
@@ -114,7 +115,7 @@ fn recode(frames: Vec<Frame>, budget: RunBudget) -> Vec<Frame> {
             unbounded(),
             Scope::opening(&[]),
             &mut input,
-            Message::deserializer::<u64>(),
+            PayloadCodec::mint::<u64>(PayloadDepthLimit::default()),
         )
         .await
         .expect("ascending in-scope leaves assemble");
@@ -141,7 +142,7 @@ fn runs_of(frames: &[Frame]) -> Vec<&LeafRun> {
 fn records_of(runs: &[&LeafRun]) -> Vec<(Version, Message)> {
     runs.iter()
         .flat_map(|run| {
-            run.records(Message::deserializer::<u64>())
+            run.records(PayloadCodec::mint::<u64>(PayloadDepthLimit::default()))
                 .collect::<Result<Vec<_>, _>>()
                 .expect("an encoder-produced run holds canonical records")
         })
@@ -191,7 +192,7 @@ proptest! {
             // would have pushed its frame past the budget.
             if position + 1 < runs.len() {
                 let (version, message) = runs[position + 1]
-                    .records(Message::deserializer::<u64>())
+                    .records(PayloadCodec::mint::<u64>(PayloadDepthLimit::default()))
                     .next()
                     .expect("a nonempty run yields a first record")
                     .expect("an encoder-produced run holds canonical records");
@@ -271,7 +272,7 @@ fn a_batched_run_round_trips_the_reply() {
             unbounded(),
             Scope::opening(&[]),
             &mut input,
-            Message::deserializer::<u64>(),
+            PayloadCodec::mint::<u64>(PayloadDepthLimit::default()),
         )
         .await
         .expect("the batched frame decodes")

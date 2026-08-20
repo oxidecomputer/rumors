@@ -5,7 +5,7 @@
 //! protocol operation concurrently drives the stored pumps, its own terminal
 //! work, the session's accept driver, and the incoming-stream error route.
 
-use crate::message::PayloadDeserializer;
+use crate::message::PayloadCodec;
 use std::pin::{Pin, pin};
 
 use futures::{Stream, StreamExt, future::BoxFuture};
@@ -58,11 +58,11 @@ where
     /// supply allowance: every leaf record this session decodes charges
     /// it before the payload takes backend custody.
     peer_supplies: SupplyLedger,
-    /// The peer's payload deserializer: the typed ingress every supplied
-    /// leaf record decodes through (see [`Message::deserializer`]).
+    /// The peer's payload codec: the typed ingress every supplied
+    /// leaf record decodes through (see [`PayloadCodec`]).
     ///
-    /// [`Message::deserializer`]: crate::message::Message::deserializer
-    deserializer: PayloadDeserializer,
+    /// [`PayloadCodec`]: crate::message::PayloadCodec
+    codec: PayloadCodec,
     /// The remote greeting's root-fan listing, consumed by whichever role
     /// the election assigns.
     ///
@@ -108,7 +108,7 @@ where
         peer_set_len: u64,
         peer_listing: Vec<(u8, Hash)>,
         physical: Physical<R, W, A>,
-        deserializer: PayloadDeserializer,
+        codec: PayloadCodec,
     ) -> Self {
         Self {
             backend,
@@ -120,7 +120,7 @@ where
             physical,
             tasks: Vec::new(),
             progress: Progress::new(),
-            deserializer,
+            codec,
         }
     }
 

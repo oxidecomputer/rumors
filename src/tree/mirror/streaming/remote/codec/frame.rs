@@ -2,7 +2,7 @@
 
 use crate::{
     Version,
-    message::{Message, PayloadDeserializer},
+    message::{Message, PayloadCodec},
     tree::{
         mirror::cbor::{
             self, HeadError, MAJOR_BSTR, MAJOR_MAP, MAJOR_TAG, MAJOR_UINT, TAG_CBOR_SEQUENCE,
@@ -235,10 +235,10 @@ impl LeafRun {
     /// Iterate the run's records, decoding each into its canonical pair.
     pub fn records(
         &self,
-        deserializer: PayloadDeserializer,
+        codec: PayloadCodec,
     ) -> impl Iterator<Item = Result<(Version, Message), DecodeLeafError>> {
         self.record_slices()
-            .map(move |record| parse_record(record, deserializer))
+            .map(move |record| parse_record(record, codec))
     }
 
     /// Split the validated run back into its exact record contents.
@@ -329,10 +329,7 @@ pub(super) fn lone_record_spans(len: usize, record_content: u64) -> bool {
 }
 
 /// Decode one exact record content into its canonical pair.
-fn parse_record(
-    record: &[u8],
-    deserializer: PayloadDeserializer,
-) -> Result<(Version, Message), DecodeLeafError> {
+fn parse_record(record: &[u8], codec: PayloadCodec) -> Result<(Version, Message), DecodeLeafError> {
     // The version atom's tag is protocol vocabulary, read here by hand;
     // the byte string behind it and the payload are self-delimiting CBOR
     // values, so the exact record content parses without retrying, and
@@ -366,11 +363,11 @@ fn parse_record(
     }
     let version: Version =
         ciborium::de::from_reader(&mut input).map_err(|e| DecodeLeafError::Version(de_error(e)))?;
-    // The deserializer owns the payload parse, including the
+    // The payload codec owns the payload parse, including the
     // exactly-one-value check the record framing otherwise cannot make
     // (the payload runs to the record's end), so trailing bytes surface
     // as its InvalidData.
-    let message = Message::from_wire(bytes::Bytes::copy_from_slice(input), deserializer)
+    let message = Message::from_wire(bytes::Bytes::copy_from_slice(input), codec)
         .map_err(DecodeLeafError::Message)?;
     Ok((version, message))
 }

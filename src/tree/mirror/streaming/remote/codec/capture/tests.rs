@@ -10,7 +10,7 @@
 
 use super::*;
 
-use crate::message::Message;
+use crate::message::{Message, PayloadDepthLimit};
 use crate::tree::typed::Hash;
 use crate::tree::typed::hash::MERKLE_HASH_LEN;
 
@@ -310,8 +310,11 @@ fn deep_embedded_chain_falls_back_instead_of_recursing() {
 /// frame walk must return, never overflow.
 #[test]
 fn deep_payload_through_the_frame_path_falls_back() {
-    let payload = Message::from_slice::<ciborium::Value>(&embedded_chain(10 * MAX_DEPTH))
-        .expect("the chain is exactly one CBOR item");
+    let payload = Message::from_slice::<ciborium::Value>(
+        &embedded_chain(10 * MAX_DEPTH),
+        PayloadDepthLimit::default(),
+    )
+    .expect("the chain is exactly one CBOR item");
     let mut run = LeafRun::new();
     run.push(&Version::new(), &payload)
         .expect("one record fits a fresh run");

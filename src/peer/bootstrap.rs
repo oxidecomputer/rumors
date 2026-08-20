@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use crate::bookmark::{Bookmark, BookmarkError};
 use crate::link::{Acceptor, Connector, Link};
+use crate::message::PayloadDepthLimit;
 use crate::observe::{Attachment, Observer};
 use crate::tree::mirror::streaming::remote::RunBudget;
 use crate::tree::mirror::streaming::window::WindowConfig;
@@ -30,8 +31,9 @@ use serde::de::DeserializeOwned;
 ///
 /// Every setting here is the new peer's own, selected one session
 /// early: [`protocol`](Self::protocol),
-/// [`sync_memory_budget`](Self::sync_memory_budget), and
-/// [`target_message_size`](Self::target_message_size) each state what they
+/// [`sync_memory_budget`](Self::sync_memory_budget),
+/// [`target_message_size`](Self::target_message_size), and
+/// [`payload_depth_limit`](Self::payload_depth_limit) each state what they
 /// change about the bootstrap session itself, and the joined peer keeps
 /// the choice exactly as if selected through the matching [`Peer`] method.
 /// [`bookmark`](Self::bookmark) additionally persists the received
@@ -58,6 +60,10 @@ pub struct Bootstrap<T> {
     pub(crate) protocol: Protocol,
     pub(crate) window: WindowConfig,
     pub(crate) run_budget: RunBudget,
+    /// The payload depth limit selected by
+    /// [`payload_depth_limit`](Self::payload_depth_limit): the join
+    /// session's ingress bound, carried into the joined peer's codec.
+    pub(crate) payload_depth_limit: PayloadDepthLimit,
     /// The wire-observation handler selected by
     /// [`observe`](Self::observe), carried into the joined peer.
     pub(crate) observe: Attachment,
@@ -75,6 +81,7 @@ impl<T> Clone for Bootstrap<T> {
             protocol: self.protocol,
             window: self.window,
             run_budget: self.run_budget,
+            payload_depth_limit: self.payload_depth_limit,
             observe: self.observe.clone(),
             marker: PhantomData,
         }
@@ -88,6 +95,7 @@ impl<T> std::fmt::Debug for Bootstrap<T> {
             .field("protocol", &self.protocol)
             .field("window", &self.window)
             .field("run_budget", &self.run_budget)
+            .field("payload_depth_limit", &self.payload_depth_limit)
             .finish()
     }
 }
@@ -100,6 +108,7 @@ impl<T> Bootstrap<T> {
             protocol: Protocol::default(),
             window: WindowConfig::default(),
             run_budget: RunBudget::default(),
+            payload_depth_limit: PayloadDepthLimit::default(),
             observe: Attachment::default(),
             marker: PhantomData,
         }
@@ -157,6 +166,19 @@ impl<T> Bootstrap<T> {
     /// setting: the alternating protocol's wire format is frozen.
     pub fn target_message_size(mut self, bytes: usize) -> Self {
         self.run_budget = RunBudget::from_bytes(bytes);
+        self
+    }
+
+    /// Bound the nesting depth of the message payloads the bootstrap
+    /// session, and every later session, accepts.
+    ///
+    /// The join session decodes the provider's supplied records before a
+    /// [`Peer`] exists, so the bound is selected here, one session early.
+    /// The default, the scope accounting, and the fleet-coordination
+    /// contract are [`Peer::payload_depth_limit`]'s; the joined peer
+    /// behaves exactly as if it had called it.
+    pub fn payload_depth_limit(mut self, limit: PayloadDepthLimit) -> Self {
+        self.payload_depth_limit = limit;
         self
     }
 
@@ -305,6 +327,13 @@ impl<T, B: Bookmark> BookmarkedBootstrap<T, B> {
     /// [`Bootstrap::target_message_size`]'s.
     pub fn target_message_size(mut self, bytes: usize) -> Self {
         self.config = self.config.target_message_size(bytes);
+        self
+    }
+
+    /// Bound payload nesting depth; the contract is
+    /// [`Bootstrap::payload_depth_limit`]'s.
+    pub fn payload_depth_limit(mut self, limit: PayloadDepthLimit) -> Self {
+        self.config = self.config.payload_depth_limit(limit);
         self
     }
 

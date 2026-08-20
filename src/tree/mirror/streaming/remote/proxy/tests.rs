@@ -1,5 +1,6 @@
 //! End-to-end sessions between materialized peers and protocol-start proxies.
 
+use crate::message::{PayloadCodec, PayloadDepthLimit};
 use serde::de::DeserializeOwned;
 use std::convert::Infallible;
 use std::sync::Arc;
@@ -57,10 +58,18 @@ async fn reconcile(a: TreeRoot, b: TreeRoot) -> (TreeRoot, TreeRoot) {
     let b = Handshaking::start(Local, Root::<Local>::from(b)).window(WindowConfig::FLOOR);
 
     let (a_link, b_link) = memory_with_capacity(TRANSPORT_CAPACITY);
-    let remote_b = RemoteHandshaking::start(Local, a_link, Message::deserializer::<()>())
-        .window(WindowConfig::FLOOR);
-    let remote_a = RemoteHandshaking::start(Local, b_link, Message::deserializer::<()>())
-        .window(WindowConfig::FLOOR);
+    let remote_b = RemoteHandshaking::start(
+        Local,
+        a_link,
+        PayloadCodec::mint::<()>(PayloadDepthLimit::default()),
+    )
+    .window(WindowConfig::FLOOR);
+    let remote_a = RemoteHandshaking::start(
+        Local,
+        b_link,
+        PayloadCodec::mint::<()>(PayloadDepthLimit::default()),
+    )
+    .window(WindowConfig::FLOOR);
 
     let (a, b) = join!(Box::pin(mirror(a, remote_b)), Box::pin(mirror(remote_a, b)));
     let (a, _control) = a.expect("endpoint A should reconcile through its proxy");
@@ -81,10 +90,18 @@ where
     let a = Handshaking::start(Local, Root::<Local>::from(a)).window(WindowConfig::FLOOR);
     let b = Handshaking::start(Local, Root::<Local>::from(b)).window(WindowConfig::FLOOR);
     let (a_link, b_link) = memory_with_capacity(transport_capacity);
-    let remote_b = RemoteHandshaking::start(Local, a_link, Message::deserializer::<T>())
-        .window(WindowConfig::FLOOR);
-    let remote_a = RemoteHandshaking::start(Local, b_link, Message::deserializer::<T>())
-        .window(WindowConfig::FLOOR);
+    let remote_b = RemoteHandshaking::start(
+        Local,
+        a_link,
+        PayloadCodec::mint::<T>(PayloadDepthLimit::default()),
+    )
+    .window(WindowConfig::FLOOR);
+    let remote_a = RemoteHandshaking::start(
+        Local,
+        b_link,
+        PayloadCodec::mint::<T>(PayloadDepthLimit::default()),
+    )
+    .window(WindowConfig::FLOOR);
 
     let (a, b) = join!(Box::pin(mirror(a, remote_b)), Box::pin(mirror(b, remote_a)),);
     let (a, _control) = a.expect("endpoint A should reconcile through its proxy");
@@ -116,10 +133,18 @@ where
     let (a_link, b_link) = memory_with_capacity(transport_capacity);
     let a_link = reorder_accepts(a_link, REORDER_BATCH, reordered.clone());
     let b_link = reorder_accepts(b_link, REORDER_BATCH, reordered);
-    let remote_b = RemoteHandshaking::start(Local, a_link, Message::deserializer::<T>())
-        .window(WindowConfig::FLOOR);
-    let remote_a = RemoteHandshaking::start(Local, b_link, Message::deserializer::<T>())
-        .window(WindowConfig::FLOOR);
+    let remote_b = RemoteHandshaking::start(
+        Local,
+        a_link,
+        PayloadCodec::mint::<T>(PayloadDepthLimit::default()),
+    )
+    .window(WindowConfig::FLOOR);
+    let remote_a = RemoteHandshaking::start(
+        Local,
+        b_link,
+        PayloadCodec::mint::<T>(PayloadDepthLimit::default()),
+    )
+    .window(WindowConfig::FLOOR);
 
     let (a, b) = join!(Box::pin(mirror(a, remote_b)), Box::pin(mirror(b, remote_a)),);
     let (a, _control) = a.expect("endpoint A should reconcile through its proxy");
@@ -163,10 +188,18 @@ where
     seen_a.expect("A preamble");
     seen_b.expect("B preamble");
 
-    let remote_b = RemoteHandshaking::start(Local, a_link, Message::deserializer::<T>())
-        .window(WindowConfig::FLOOR);
-    let remote_a = RemoteHandshaking::start(Local, b_link, Message::deserializer::<T>())
-        .window(WindowConfig::FLOOR);
+    let remote_b = RemoteHandshaking::start(
+        Local,
+        a_link,
+        PayloadCodec::mint::<T>(PayloadDepthLimit::default()),
+    )
+    .window(WindowConfig::FLOOR);
+    let remote_a = RemoteHandshaking::start(
+        Local,
+        b_link,
+        PayloadCodec::mint::<T>(PayloadDepthLimit::default()),
+    )
+    .window(WindowConfig::FLOOR);
     let (a, b) = join!(Box::pin(mirror(a, remote_b)), Box::pin(mirror(b, remote_a)),);
     let (a, _control) = a.expect("endpoint A should reconcile through its proxy");
     let (b, _control) = b.expect("endpoint B should reconcile through its proxy");
@@ -248,10 +281,18 @@ async fn reconcile_with_stacked_failures(
     } else {
         failing
     };
-    let remote_b = RemoteHandshaking::start(left_backend, a_link, Message::deserializer::<()>())
-        .window(WindowConfig::FLOOR);
-    let remote_a = RemoteHandshaking::start(right_backend, b_link, Message::deserializer::<()>())
-        .window(WindowConfig::FLOOR);
+    let remote_b = RemoteHandshaking::start(
+        left_backend,
+        a_link,
+        PayloadCodec::mint::<()>(PayloadDepthLimit::default()),
+    )
+    .window(WindowConfig::FLOOR);
+    let remote_a = RemoteHandshaking::start(
+        right_backend,
+        b_link,
+        PayloadCodec::mint::<()>(PayloadDepthLimit::default()),
+    )
+    .window(WindowConfig::FLOOR);
 
     let (left, right) = join!(Box::pin(mirror(a, remote_b)), Box::pin(mirror(remote_a, b)));
     (

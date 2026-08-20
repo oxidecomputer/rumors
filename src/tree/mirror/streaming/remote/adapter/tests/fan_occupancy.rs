@@ -15,6 +15,7 @@
 //! negative control proving the probe reports the regime rather than a
 //! constant.
 
+use crate::message::{PayloadCodec, PayloadDepthLimit};
 use futures::{Stream, StreamExt, TryStreamExt, stream};
 
 use before::Version;
@@ -85,7 +86,7 @@ fn peak_occupancy(mut input: impl Stream<Item = Frame> + Unpin) -> usize {
             unbounded(),
             Scope::opening(&[]),
             &mut input,
-            Message::deserializer::<u64>(),
+            PayloadCodec::mint::<u64>(PayloadDepthLimit::default()),
         )
         .await
         .expect("ascending in-scope leaves assemble");
@@ -138,7 +139,7 @@ fn eager_early_supplies_ride_the_same_ceiling() {
             unbounded(),
             Prefix::new().erase(),
             stream::iter(frames(&leaves)),
-            Message::deserializer::<u64>(),
+            PayloadCodec::mint::<u64>(PayloadDepthLimit::default()),
         )
         .try_collect()
         .await

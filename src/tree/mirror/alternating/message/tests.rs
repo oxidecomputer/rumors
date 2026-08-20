@@ -9,6 +9,7 @@
 //! build nodes via [`arb_root_node`] / [`arb_s_z_node`] / [`arb_leaf`]. The
 //! exact on-wire bytes are pinned by `mirror::alternating::wire_snapshot`.
 
+use crate::message::{PayloadCodec, PayloadDepthLimit};
 use std::collections::{BTreeMap, BTreeSet};
 
 use proptest::collection::vec;
@@ -185,10 +186,13 @@ proptest! {
 }
 
 /// Decode one payload-bearing message from an exact slice through the
-/// unit-payload deserializer, rejecting trailing bytes.
+/// unit-payload codec, rejecting trailing bytes.
 fn from_slice_with<M: message::DecodeWith>(bytes: &[u8]) -> std::io::Result<M> {
     let mut input = bytes;
-    let m = M::read_wire_with(&mut input, Message::deserializer::<()>())?;
+    let m = M::read_wire_with(
+        &mut input,
+        PayloadCodec::mint::<()>(PayloadDepthLimit::default()),
+    )?;
     if !input.is_empty() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
@@ -202,7 +206,10 @@ fn from_slice_with<M: message::DecodeWith>(bytes: &[u8]) -> std::io::Result<M> {
 /// trailing bytes: the test-side door to [`DecodeNode`], with unit payloads.
 fn node_from_slice<H: DecodeNode>(bytes: &[u8]) -> std::io::Result<Node<H>> {
     let mut input = bytes;
-    let node = H::read_node(&mut input, Message::deserializer::<()>())?;
+    let node = H::read_node(
+        &mut input,
+        PayloadCodec::mint::<()>(PayloadDepthLimit::default()),
+    )?;
     if !input.is_empty() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,

@@ -19,6 +19,7 @@
 //! from `FAN² × size_of::<(u8, Hash)>()`. These tests hold both shapes to
 //! that accounting.
 
+use crate::message::{PayloadCodec, PayloadDepthLimit};
 use std::mem;
 
 use futures::{TryStreamExt, stream};
@@ -126,7 +127,7 @@ fn parked_supply_reply_holds_handles_not_subtrees() {
             unbounded(),
             scope,
             &mut frames,
-            Message::deserializer::<u64>(),
+            PayloadCodec::mint::<u64>(PayloadDepthLimit::default()),
         ))
         .expect("a canonical supplied fan decodes");
 
@@ -214,7 +215,7 @@ fn maximally_disputed_reply_parks_bounded_skeleton() {
             unbounded(),
             Scope::opening(&listing),
             &mut frames,
-            Message::deserializer::<u64>(),
+            PayloadCodec::mint::<u64>(PayloadDepthLimit::default()),
         ))
         .expect("a canonical maximally disputed reply decodes");
 

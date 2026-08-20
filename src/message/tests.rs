@@ -1,3 +1,4 @@
+use crate::message::{PayloadCodec, PayloadDepthLimit};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
@@ -55,7 +56,7 @@ proptest! {
     #[test]
     fn from_slice_roundtrips(p in payload()) {
         let bytes = cbor_vec(&p);
-        let m = Message::from_slice::<Payload>(&bytes).unwrap();
+        let m = Message::from_slice::<Payload>(&bytes, PayloadDepthLimit::default()).unwrap();
         prop_assert_eq!(&*m.arc::<Payload>(), &p);
         prop_assert_eq!(m.bytes(), bytes.as_slice());
     }
@@ -65,8 +66,8 @@ proptest! {
     #[test]
     fn from_bytes_matches_from_slice(p in payload()) {
         let bytes = cbor_vec(&p);
-        let a = Message::from_slice::<Payload>(&bytes).unwrap();
-        let b = Message::from_bytes::<Payload>(Bytes::from(bytes.clone())).unwrap();
+        let a = Message::from_slice::<Payload>(&bytes, PayloadDepthLimit::default()).unwrap();
+        let b = Message::from_bytes::<Payload>(Bytes::from(bytes.clone()), PayloadDepthLimit::default()).unwrap();
         prop_assert_eq!(&a, &b);
         prop_assert_eq!(a.bytes(), b.bytes());
     }
@@ -77,8 +78,8 @@ proptest! {
     fn trailing_bytes_are_rejected(p in payload(), trailer in proptest::collection::vec(any::<u8>(), 1..8)) {
         let mut bytes = cbor_vec(&p);
         bytes.extend_from_slice(&trailer);
-        prop_assert!(Message::from_slice::<Payload>(&bytes).is_err());
-        prop_assert!(Message::from_bytes::<Payload>(Bytes::from(bytes)).is_err());
+        prop_assert!(Message::from_slice::<Payload>(&bytes, PayloadDepthLimit::default()).is_err());
+        prop_assert!(Message::from_bytes::<Payload>(Bytes::from(bytes), PayloadDepthLimit::default()).is_err());
     }
 
     /// The serde form of a `Message` is one CBOR byte string wrapping
@@ -104,7 +105,7 @@ proptest! {
     fn serde_roundtrip(p in payload()) {
         let m = Message::new(p);
         let bytes = cbor_vec(&m);
-        let back = Message::from_reader(bytes.as_slice(), Message::deserializer::<Payload>()).unwrap();
+        let back = Message::from_reader(bytes.as_slice(), PayloadCodec::mint::<Payload>(PayloadDepthLimit::default())).unwrap();
         prop_assert_eq!(&m, &back);
         prop_assert_eq!(m.bytes(), back.bytes());
     }
@@ -120,7 +121,7 @@ proptest! {
         combined.extend_from_slice(&trailer);
 
         let mut slice: &[u8] = &combined;
-        let back = Message::from_reader(&mut slice, Message::deserializer::<Payload>()).unwrap();
+        let back = Message::from_reader(&mut slice, PayloadCodec::mint::<Payload>(PayloadDepthLimit::default())).unwrap();
         prop_assert_eq!(back.bytes(), m.bytes());
         prop_assert_eq!(slice, trailer.as_slice());
         prop_assert_eq!(combined.len() - slice.len(), expected.len());
@@ -153,4 +154,46 @@ proptest! {
 fn mismatched_downcast_panics() {
     let m = Message::new(0u64);
     let _ = m.arc::<String>();
+}
+
+/// Nested-array CBOR bytes at exactly `depth` scopes: `depth` array heads
+/// around one integer, the minimal encoding whose nesting depth is chosen
+/// freely by the test.
+fn nested_arrays(depth: usize) -> Vec<u8> {
+    let mut bytes = vec![0x81; depth];
+    bytes.push(0x00);
+    bytes
+}
+
+/// The rehydration constructors take the limit explicitly, so an
+/// application on a raised fleet limit can rehydrate its own stored
+/// deep messages.
+///
+/// A payload past the default depth fails `from_slice` and `from_bytes`
+/// at the default limit (as invalid data) and succeeds at a raised one:
+/// both directions, so the parameter is proven live in each.
+#[test]
+fn rehydration_honors_the_explicit_limit() {
+    let default = PayloadDepthLimit::default();
+    let deep = nested_arrays((default.get() + 1) as usize);
+
+    let rejected = Message::from_slice::<ciborium::Value>(&deep, default);
+    assert_eq!(
+        rejected.unwrap_err().kind(),
+        std::io::ErrorKind::InvalidData,
+        "the default limit must reject a payload one scope past it"
+    );
+    let rejected = Message::from_bytes::<ciborium::Value>(Bytes::from(deep.clone()), default);
+    assert_eq!(
+        rejected.unwrap_err().kind(),
+        std::io::ErrorKind::InvalidData
+    );
+
+    let raised = PayloadDepthLimit::new(default.get() + 1);
+    let m = Message::from_slice::<ciborium::Value>(&deep, raised)
+        .expect("a raised limit must rehydrate the deep message");
+    assert_eq!(m.as_slice(), deep.as_slice());
+    let m = Message::from_bytes::<ciborium::Value>(Bytes::from(deep.clone()), raised)
+        .expect("a raised limit must rehydrate the deep message");
+    assert_eq!(m.as_slice(), deep.as_slice());
 }

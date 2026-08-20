@@ -30,7 +30,7 @@
 //! [`gossip_inner`]: super::Peer::gossip_inner
 //! [`Network::BOOTSTRAP`]: Network
 
-use crate::message::Message;
+use crate::message::{PayloadCodec, PayloadDepthLimit};
 use before::Party;
 use futures::future::BoxFuture;
 use tokio::io::{duplex, split};
@@ -214,8 +214,11 @@ async fn claim_bootstrap_v2(
     let local_root: streaming::Root<Local> = root.into();
     let local = materialized::Handshaking::start(Local, local_root);
     let carrier = Link::for_session(read, write, connector, acceptor, epoch);
-    let proxy =
-        streaming_remote::Handshaking::start(Local, carrier, Message::deserializer::<u64>());
+    let proxy = streaming_remote::Handshaking::start(
+        Local,
+        carrier,
+        PayloadCodec::mint::<u64>(PayloadDepthLimit::default()),
+    );
     let handshaken = streaming::handshake(local, proxy)
         .await
         .map_err(streaming_error)?;
@@ -252,7 +255,7 @@ async fn claim_bootstrap_v1(
     let proxy = alternating_remote::Exchange::start(
         FrameRead::new(read),
         FrameWrite::new(write),
-        Message::deserializer::<u64>(),
+        PayloadCodec::mint::<u64>(PayloadDepthLimit::default()),
     );
     let handshaken = alternating::handshake(local, proxy)
         .await

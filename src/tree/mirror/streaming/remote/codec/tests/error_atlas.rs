@@ -22,6 +22,7 @@
 //! which a deleted variant satisfies trivially — so pruning a variant must
 //! prune its `EXEMPT_MARKERS` entry by hand.
 
+use crate::message::{PayloadCodec, PayloadDepthLimit};
 use std::{
     error::Error,
     fmt::Write as _,
@@ -447,7 +448,7 @@ fn framed_record(record: &[u8]) -> Vec<u8> {
 
 /// The first record's decode failure from a structurally valid run.
 fn next_record_error(run: &LeafRun) -> DecodeLeafError {
-    run.records(Message::deserializer::<u64>())
+    run.records(PayloadCodec::mint::<u64>(PayloadDepthLimit::default()))
         .next()
         .expect("the run holds one record")
         .unwrap_err()

@@ -72,17 +72,17 @@
 //! the wire: the protocol's height schedule names the type each side expects
 //! next.
 
-use crate::message::PayloadDeserializer;
+use crate::message::PayloadCodec;
 use crate::tree::wire::{self, Decode, Encode};
 
 /// Wire decode for the payload-bearing protocol messages: parses each
-/// `providing` channel's leaf payloads through the peer's deserializer
+/// `providing` channel's leaf payloads through the peer's codec
 /// (see [`read_providing`]); the payload-free messages stay on the plain
 /// [`Decode`].
 pub trait DecodeWith: Sized {
     fn read_wire_with<R: std::io::Read>(
         reader: &mut R,
-        deserializer: PayloadDeserializer,
+        codec: PayloadCodec,
     ) -> std::io::Result<Self>;
 }
 
@@ -103,11 +103,8 @@ pub type Providing<H> = Vec<(Prefix<H>, Node<H>)>;
 
 /// Decode one `providing` channel: a `u32` count, then `(prefix, node)`
 /// pairs, the nodes' leaf payloads parsed through the peer's
-/// deserializer (the protocol's typed ingress; see [`DecodeNode`]).
-fn read_providing<H, R>(
-    reader: &mut R,
-    deserializer: PayloadDeserializer,
-) -> std::io::Result<Providing<H>>
+/// codec (the protocol's typed ingress; see [`DecodeNode`]).
+fn read_providing<H, R>(reader: &mut R, codec: PayloadCodec) -> std::io::Result<Providing<H>>
 where
     H: DecodeNode,
     R: std::io::Read,
@@ -118,7 +115,7 @@ where
     let mut items = Vec::new();
     for _ in 0..count {
         let prefix = Prefix::<H>::read_wire(reader)?;
-        let node = H::read_node(reader, deserializer)?;
+        let node = H::read_node(reader, codec)?;
         items.push((prefix, node));
     }
     Ok(items)
@@ -261,9 +258,9 @@ where
 {
     fn read_wire_with<R: std::io::Read>(
         reader: &mut R,
-        deserializer: PayloadDeserializer,
+        codec: PayloadCodec,
     ) -> std::io::Result<Self> {
-        let providing: Providing<S<H>> = read_providing(reader, deserializer)?;
+        let providing: Providing<S<H>> = read_providing(reader, codec)?;
         verify_pairs_canonical(&providing, "Exchange.providing")?;
         let requested: Vec<Prefix<S<H>>> = Decode::read_wire(reader)?;
         verify_keys_canonical(&requested, "Exchange.requested")?;
@@ -342,9 +339,9 @@ impl Encode for Closing {
 impl DecodeWith for Closing {
     fn read_wire_with<R: std::io::Read>(
         reader: &mut R,
-        deserializer: PayloadDeserializer,
+        codec: PayloadCodec,
     ) -> std::io::Result<Self> {
-        let providing: Providing<Z> = read_providing(reader, deserializer)?;
+        let providing: Providing<Z> = read_providing(reader, codec)?;
         verify_pairs_canonical(&providing, "Closing.providing")?;
         let requested: Vec<Prefix<Z>> = Decode::read_wire(reader)?;
         verify_keys_canonical(&requested, "Closing.requested")?;
@@ -379,9 +376,9 @@ impl Encode for Complete {
 impl DecodeWith for Complete {
     fn read_wire_with<R: std::io::Read>(
         reader: &mut R,
-        deserializer: PayloadDeserializer,
+        codec: PayloadCodec,
     ) -> std::io::Result<Self> {
-        let providing: Providing<Z> = read_providing(reader, deserializer)?;
+        let providing: Providing<Z> = read_providing(reader, codec)?;
         verify_pairs_canonical(&providing, "Complete.providing")?;
         Ok(Self { providing })
     }

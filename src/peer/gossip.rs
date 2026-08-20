@@ -20,7 +20,7 @@ use crate::link::{
     Acceptor, Connector, Link, SessionState,
     erased::{DynAcceptor, DynConnector},
 };
-use crate::message::{Message, PayloadDeserializer};
+use crate::message::PayloadCodec;
 use crate::observe::{SessionHandle, SessionKind};
 #[cfg(any(test, feature = "protocol-v1"))]
 use crate::tree::mirror::{
@@ -256,10 +256,10 @@ impl<T> Peer<T, NoBookmark> {
     {
         Box::pin(async move {
             let (read, write, connector, acceptor, epoch) = link;
-            // The peer-to-be's payload deserializer, minted before it
-            // exists: the bootstrap session's ingress decodes through it,
-            // and the constructed peer inherits it.
-            let deserializer = Message::deserializer::<T>();
+            // The peer-to-be's payload codec, minted before it exists:
+            // the bootstrap session's ingress decodes through it, and the
+            // constructed peer inherits it.
+            let codec = PayloadCodec::mint::<T>(config.payload_depth_limit);
             let observe = config
                 .observe
                 .begin(SessionKind::Bootstrap, config.protocol);
@@ -293,14 +293,14 @@ impl<T> Peer<T, NoBookmark> {
             let reconcile = match config.protocol {
                 Protocol::V2 => bootstrap_v2(
                     (read, write, connector, acceptor, epoch),
-                    deserializer,
+                    codec,
                     config.window,
                     config.run_budget,
                     both_bootstrapping,
                     observe.clone(),
                 ),
                 #[cfg(any(test, feature = "protocol-v1"))]
-                Protocol::V1 => bootstrap_v1(read, write, deserializer, both_bootstrapping),
+                Protocol::V1 => bootstrap_v1(read, write, codec, both_bootstrapping),
             };
             let Some((root, mut read, mut write)) = reconcile.await? else {
                 return Ok(None);
@@ -325,7 +325,7 @@ impl<T> Peer<T, NoBookmark> {
                     tree: Tree::from_root(root),
                 }),
                 bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
-                deserializer,
+                codec,
                 observe: config.observe,
             };
             Ok(Some(peer))
@@ -343,7 +343,7 @@ impl<T> Peer<T, NoBookmark> {
             window,
             run_budget,
             inner,
-            deserializer,
+            codec,
             observe,
             ..
         } = self;
@@ -354,7 +354,7 @@ impl<T> Peer<T, NoBookmark> {
             run_budget,
             inner,
             bookmark: Arc::new(Mutex::new(Bookmarked::new(bookmark))),
-            deserializer,
+            codec,
             observe,
         };
 
@@ -384,7 +384,7 @@ impl<T> Peer<T, NoBookmark> {
                     run_budget: peer.run_budget,
                     inner: peer.inner,
                     bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
-                    deserializer: peer.deserializer,
+                    codec: peer.codec,
                     observe: peer.observe,
                 },
                 error,
@@ -599,7 +599,7 @@ impl<T, B: Persist> Peer<T, B> {
         T: Send + Sync + 'static,
     {
         let (read, write, connector, acceptor, epoch) = link;
-        let deserializer = self.deserializer;
+        let codec = self.codec;
         // The session's stats recorder: under V2, both protocol
         // participants below share it (the walk counts disputes, gains,
         // sheds, and the window grant; the proxy's codec seam counts
@@ -735,7 +735,7 @@ impl<T, B: Persist> Peer<T, B> {
         let reconciliation = Reconciliation {
             root: prior_tree.root,
             link: (read, write, connector, acceptor, epoch),
-            deserializer,
+            codec,
             window: self.window,
             run_budget: self.run_budget,
             stats: stats.clone(),
@@ -1082,8 +1082,8 @@ struct Reconciliation<'a> {
     root: tree::Root,
     /// The session's erased link.
     link: DynLinkParts<'a>,
-    /// The peer's payload deserializer, applied at wire ingress.
-    deserializer: PayloadDeserializer,
+    /// The peer's payload codec, applied at wire ingress.
+    codec: PayloadCodec,
     /// The window policy the V2 session negotiates under.
     window: WindowConfig,
     /// The V2 supply-run sizing budget; its byte target rides the greeting.
@@ -1123,7 +1123,7 @@ impl<'a> Reconciliation<'a> {
             let Self {
                 root,
                 link,
-                deserializer,
+                codec,
                 window,
                 run_budget,
                 stats,
@@ -1139,7 +1139,7 @@ impl<'a> Reconciliation<'a> {
                 .target_message_size(run_budget.bytes() as u64)
                 .stats(stats.clone());
             let carrier = Link::for_session(read, write, connector, acceptor, epoch);
-            let proxy = streaming_remote::Handshaking::start(Local, carrier, deserializer)
+            let proxy = streaming_remote::Handshaking::start(Local, carrier, codec)
                 .window(window)
                 .stats(stats)
                 .observe(observe);
@@ -1175,7 +1175,7 @@ impl<'a> Reconciliation<'a> {
             let Self {
                 root,
                 link,
-                deserializer,
+                codec,
                 peer_bootstrapping,
                 remote_network,
                 network,
@@ -1187,7 +1187,7 @@ impl<'a> Reconciliation<'a> {
             let proxy = alternating_remote::Exchange::start(
                 FrameRead::new(read),
                 FrameWrite::new(write),
-                deserializer,
+                codec,
             );
             let handshaken = alternating::handshake(local, proxy)
                 .await
@@ -1225,7 +1225,7 @@ impl<'a> Reconciliation<'a> {
 #[allow(clippy::type_complexity)]
 fn bootstrap_v2<'a>(
     link: DynLinkParts<'a>,
-    deserializer: PayloadDeserializer,
+    codec: PayloadCodec,
     window: WindowConfig,
     run_budget: RunBudget,
     both_bootstrapping: bool,
@@ -1244,7 +1244,7 @@ fn bootstrap_v2<'a>(
             .window(window)
             .target_message_size(run_budget.bytes() as u64);
         let carrier = Link::for_session(read, write, connector, acceptor, epoch);
-        let proxy = streaming_remote::Handshaking::start(Local, carrier, deserializer)
+        let proxy = streaming_remote::Handshaking::start(Local, carrier, codec)
             .window(window)
             .observe(observe.clone());
         let handshaken = streaming::handshake(local, proxy)
@@ -1283,7 +1283,7 @@ fn bootstrap_v2<'a>(
 fn bootstrap_v1<'a>(
     read: DynRead<'a>,
     write: DynWrite<'a>,
-    deserializer: PayloadDeserializer,
+    codec: PayloadCodec,
     both_bootstrapping: bool,
 ) -> BoxFuture<'a, Result<Option<(tree::Root, DynRead<'a>, DynWrite<'a>)>, Error>> {
     Box::pin(async move {
@@ -1291,7 +1291,7 @@ fn bootstrap_v1<'a>(
         let proxy = alternating_remote::Exchange::start(
             FrameRead::new(read),
             FrameWrite::new(write),
-            deserializer,
+            codec,
         );
         let handshaken = alternating::handshake(local, proxy)
             .await

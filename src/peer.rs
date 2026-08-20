@@ -11,7 +11,8 @@ use tokio::sync::{Mutex, watch};
 
 use crate::bookmark::{BookmarkError, Bookmarked, NoBookmark};
 use crate::link::{Acceptor, Connector, Link};
-use crate::message::{Message, PayloadDeserializer};
+use crate::message::PayloadCodec;
+pub use crate::message::{DEFAULT_PAYLOAD_DEPTH_LIMIT, PayloadDepthLimit};
 use crate::observe::{Attachment, Observer};
 use crate::tree::Tree;
 pub use crate::tree::mirror::streaming::remote::DEFAULT_TARGET_MESSAGE_SIZE;
@@ -161,10 +162,12 @@ pub struct Peer<T, B: BookmarkError = NoBookmark> {
     /// Separate from `inner` because persisting is `async` and the record is
     /// `!Clone`; see [`Bookmarked`].
     pub(crate) bookmark: Arc<Mutex<Bookmarked<B>>>,
-    /// The payload deserializer minted at construction: the typed ingress
-    /// every gossip session's supplied leaf records decode through (see
-    /// [`Message::deserializer`](crate::message::Message::deserializer)).
-    pub(crate) deserializer: PayloadDeserializer,
+    /// The payload codec minted at construction: the typed ingress every
+    /// gossip session's supplied leaf records decode through.
+    ///
+    /// Carries the [`payload_depth_limit`](Self::payload_depth_limit)
+    /// beside the minted pointer (see [`PayloadCodec`]).
+    pub(crate) codec: PayloadCodec,
     /// The wire-observation handler selected by [`observe`](Self::observe).
     pub(crate) observe: Attachment,
 }
@@ -201,9 +204,9 @@ impl<T: DeserializeOwned + Send + Sync + 'static> Peer<T, NoBookmark> {
     /// Call this exactly once per universe of cooperating peers.
     ///
     /// The payload type's [`DeserializeOwned`] lives here, at
-    /// construction: the peer mints its payload deserializer once, and
-    /// every gossip session decodes through it, so the gossip entry
-    /// points themselves carry no serde bounds.
+    /// construction: the peer mints its payload codec once, and every
+    /// gossip session decodes through it, so the gossip entry points
+    /// themselves carry no serde bounds.
     pub fn seed() -> Self {
         Self::seed_rng(&mut OsRng)
     }
@@ -222,7 +225,7 @@ impl<T: DeserializeOwned + Send + Sync + 'static> Peer<T, NoBookmark> {
                 tree: Tree::new(),
             }),
             bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
-            deserializer: Message::deserializer::<T>(),
+            codec: PayloadCodec::mint::<T>(PayloadDepthLimit::default()),
             observe: Attachment::default(),
         }
     }
@@ -568,6 +571,32 @@ impl<T, B: BookmarkError> Peer<T, B> {
     #[must_use]
     pub fn target_message_size(mut self, bytes: usize) -> Self {
         self.run_budget = RunBudget::from_bytes(bytes);
+        self
+    }
+
+    /// Bound the nesting depth of the message payloads this peer accepts.
+    ///
+    /// A payload value's CBOR encoding may nest at most `limit` scopes of
+    /// containers and tags (arrays, maps, and tags each open a scope; the
+    /// exact accounting is the CBOR decoder's own recursion accounting).
+    /// The default, [`DEFAULT_PAYLOAD_DEPTH_LIMIT`], is 256 scopes:
+    /// exactly the bound the decoder applies by default, so a fleet at
+    /// the default sees no acceptance change on existing content.
+    ///
+    /// The limit is enforced at wire ingress: a record whose payload
+    /// nests past this peer's limit fails its session with a typed decode
+    /// error. The limit is a property of the *shared set*, not of one
+    /// session — every replica must be able to hold and forward all
+    /// content — so all peers of a fleet must select the same value.
+    /// Changing it is a fleet-coordinated configuration event, like
+    /// changing the selected [`Protocol`], never a per-peer tuning knob.
+    ///
+    /// Like [`protocol`](Self::protocol), the choice follows the peer
+    /// through [`into_rumors`](Self::into_rumors), cloning and reunion,
+    /// bookmarking, and retirement.
+    #[must_use]
+    pub fn payload_depth_limit(mut self, limit: PayloadDepthLimit) -> Self {
+        self.codec = self.codec.with_limit(limit);
         self
     }
 

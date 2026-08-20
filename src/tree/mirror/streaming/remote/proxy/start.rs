@@ -1,6 +1,6 @@
 //! The wire participant's protocol handshake states.
 
-use crate::message::PayloadDeserializer;
+use crate::message::PayloadCodec;
 
 use tokio::io::{AsyncRead, AsyncWrite};
 
@@ -50,10 +50,9 @@ where
     /// The session's stats recorder: every stream this session binds
     /// counts its codec bytes through it.
     stats: Recorder,
-    /// The peer's payload deserializer: the typed ingress every supplied
-    /// leaf record decodes through (see
-    /// [`Message::deserializer`](crate::message::Message::deserializer)).
-    deserializer: PayloadDeserializer,
+    /// The peer's payload codec: the typed ingress every supplied
+    /// leaf record decodes through (see [`PayloadCodec`]).
+    codec: PayloadCodec,
     /// The session's observation handle: every wire item this session
     /// moves is delivered through it (inert unless a handler attached).
     observe: SessionHandle,
@@ -65,16 +64,16 @@ where
 {
     /// Bind one session's link carrier before exchanging causal versions.
     ///
-    /// `deserializer` is the peer's payload deserializer: every leaf
+    /// `codec` is the peer's payload codec: every leaf
     /// record this session decodes builds its payload through it.
-    pub fn start(backend: B, link: Link<R, W, C, A>, deserializer: PayloadDeserializer) -> Self {
+    pub fn start(backend: B, link: Link<R, W, C, A>, codec: PayloadCodec) -> Self {
         Self {
             backend,
             link,
             versions: Start,
             window: WindowConfig::default(),
             stats: Recorder::default(),
-            deserializer,
+            codec,
             observe: SessionHandle::default(),
         }
     }
@@ -148,7 +147,7 @@ where
             versions: Connecting { remote },
             window: self.window,
             stats: self.stats,
-            deserializer: self.deserializer,
+            codec: self.codec,
             observe: self.observe,
         };
         Ok((greeting, next))
@@ -184,7 +183,7 @@ where
             self.versions.remote,
             self.link,
             self.stats,
-            self.deserializer,
+            self.codec,
             self.observe,
         ))
     }
@@ -222,7 +221,7 @@ where
             remote,
             self.link,
             self.stats,
-            self.deserializer,
+            self.codec,
             self.observe,
         );
         Ok((greeting, next))
@@ -307,7 +306,7 @@ fn connected<B, R, W, C, A>(
     remote: Greeting,
     link: Link<R, W, C, A>,
     stats: Recorder,
-    deserializer: PayloadDeserializer,
+    codec: PayloadCodec,
     observe: SessionHandle,
 ) -> Connected<B, R, W, C, A>
 where
@@ -346,7 +345,7 @@ where
         remote.listing,
         link,
         stats,
-        deserializer,
+        codec,
         observe,
     )
 }
@@ -371,7 +370,7 @@ fn open<B, R, W, C, A>(
     peer_listing: Vec<(u8, Hash)>,
     link: Link<R, W, C, A>,
     stats: Recorder,
-    deserializer: PayloadDeserializer,
+    codec: PayloadCodec,
     observe: SessionHandle,
 ) -> Connected<B, R, W, C, A>
 where
@@ -405,7 +404,7 @@ where
             accept,
             errors,
         },
-        deserializer,
+        codec,
     );
     Connected::new(
         remote, epoch, connector, claims, route, budget, stats, observe, work,
