@@ -474,3 +474,71 @@ fn legacy_dialect_detection_is_exact() {
         "a V2 opening is the version-mismatch diagnosis, got {result:?}",
     );
 }
+
+proptest! {
+    /// Any complete legacy preamble decodes exactly as the field-by-field
+    /// oracle predicts.
+    ///
+    /// The prediction, in diagnostic order: a wrong opening is a magic
+    /// mismatch — except the V2 mirror carve-out, the pinned prefix
+    /// followed by an *immediate* version item, which is the V2-peer
+    /// version diagnosis; then a foreign wire version, then the semantic
+    /// fields; or the valid preamble. Never a panic.
+    #[test]
+    fn arbitrary_legacy_preamble_decodes_by_the_oracle(
+        opening in 0u8..3,
+        twelfth in prop_oneof![Just(23u8), Just(24u8), any::<u8>()],
+        version in prop_oneof![Just(Protocol::V1 as u16), any::<u16>()],
+        network in any::<[u8; 16]>(),
+        intent in prop_oneof![0_u8..=3, any::<u8>()],
+    ) {
+        let mut bytes = [0u8; LEGACY_PREAMBLE_LEN];
+        bytes[..MAGIC_LEN].copy_from_slice(&super::LEGACY_MAGIC);
+        bytes[MAGIC_LEN..MAGIC_LEN + 2].copy_from_slice(&version.to_be_bytes());
+        bytes[MAGIC_LEN + 2..MAGIC_LEN + 18].copy_from_slice(&network);
+        bytes[LEGACY_PREAMBLE_LEN - 1] = intent;
+        match opening {
+            0 => {} // the legacy magic, as encoded above
+            1 => {
+                bytes[..V2_PREFIX.len()].copy_from_slice(&V2_PREFIX);
+                bytes[V2_PREFIX.len()] = twelfth;
+            }
+            _ => {
+                bytes[..MAGIC_LEN].copy_from_slice(b"SROMUR");
+                bytes[V2_PREFIX.len()] = twelfth;
+            }
+        }
+
+        let result = Preamble::decode(&bytes, Protocol::V1);
+        let as_oracle = match opening {
+            0 => {
+                if version != Protocol::V1 as u16 {
+                    matches!(
+                        &result,
+                        Err(Error::VersionMismatch { local_protocol: Protocol::V1, remote_version })
+                            if *remote_version == u64::from(version),
+                    )
+                } else if intent > 1 {
+                    matches!(&result, Err(Error::IntentInvalid { byte }) if *byte == intent)
+                } else if network == [0; 16] && intent == 1 {
+                    matches!(&result, Err(Error::BootstrapRetireConflict))
+                } else {
+                    result.is_ok()
+                }
+            }
+            1 if twelfth < 24 => matches!(
+                &result,
+                Err(Error::VersionMismatch { local_protocol: Protocol::V1, remote_version })
+                    if *remote_version == u64::from(twelfth),
+            ),
+            _ => {
+                let magic: [u8; MAGIC_LEN] = bytes[..MAGIC_LEN].try_into().expect("magic width");
+                matches!(
+                    &result,
+                    Err(Error::MagicMismatch { remote_magic }) if *remote_magic == magic,
+                )
+            }
+        };
+        prop_assert!(as_oracle, "legacy decode disagreed with the oracle: {:?}", result);
+    }
+}

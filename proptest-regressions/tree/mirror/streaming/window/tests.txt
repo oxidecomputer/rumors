@@ -6,3 +6,4 @@
 # everyone who runs the test benefits from these saved cases.
 cc 2df0635cb428bc56681b00a9016ed2dd0f334425f380e65b15e925df89b80f3e # shrinks to level = 2, offset = 1, budget = 1803550720
 cc aa0df96249945693414d3eeafbed745679a20f9504ce552bb0ca68bb1d26d5d4 # shrinks to level = 3, offset = 1, budget = 16777216
+cc 2c489d09bc7869d856fb64b59831f5f7dd29a107427ed44bc46b45721a27b084 # shrinks to num = 4611686018427387904, t = 48, jitter = 0
