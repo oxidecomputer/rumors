@@ -303,6 +303,7 @@ pub mod tutorial;
 #[cfg(test)]
 mod tests;
 
+#[cfg(feature = "protocol-v1")]
 pub use crate::peer::PROTOCOL_MAGIC;
 pub use ::before;
 pub use batch::Batch;

@@ -23,11 +23,12 @@
 //!   session the peer enters — gossip, bootstrap, and retire alike —
 //!   it is asked for a session handler.
 //! - **Session**: a [`SessionObserver`] lives exactly as long as its
-//!   session. Its [`SessionInfo`] identifies the session (kind,
-//!   protocol, and a per-peer ordinal), and it is asked for a stream
-//!   handler for each directed stream of the session as that stream
-//!   opens: the control stream's two directions at session start, and
-//!   each data stream when the protocol first speaks or reads it.
+//!   session. Its [`SessionInfo`] identifies the session (kind and
+//!   protocol; numbering sessions is the observer's own concern — see
+//!   [`SessionInfo`]), and it is asked for a stream handler for each
+//!   directed stream of the session as that stream opens: the control
+//!   stream's two directions at session start, and each data stream
+//!   when the protocol first speaks or reads it.
 //! - **Stream**: a [`StreamObserver`] receives that one directed
 //!   stream's messages, in stream order, one whole CBOR item per
 //!   [`message`](StreamObserver::message) call.
@@ -112,7 +113,6 @@
 //! contiguous buffer for the handler's `&[u8]`; the wire path itself
 //! is unchanged, byte for byte.
 
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use crate::Protocol;
@@ -178,6 +178,14 @@ pub trait StreamObserver: Send {
 }
 
 /// What identifies one observed session.
+///
+/// Deliberately carries no session number: numbering is the observer's
+/// own concern, exactly like message interleaving (see the module
+/// docs' ordering section). An [`Observer`] that wants "the peer's Nth
+/// observed session" counts inside its own
+/// [`session`](Observer::session) — the method is `&self`, so it
+/// synchronizes internally (an `AtomicU64` suffices), and the count
+/// means precisely what that observer defines it to mean.
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SessionInfo {
@@ -185,14 +193,6 @@ pub struct SessionInfo {
     pub kind: SessionKind,
     /// The wire dialect the session speaks.
     pub protocol: Protocol,
-    /// The zero-based count of sessions this peer had entered before
-    /// this one.
-    ///
-    /// Unique per peer identity (shared by every
-    /// [`Rumors`](crate::Rumors) clone) and monotone in session-entry
-    /// order. Sessions entered concurrently through different clones
-    /// take distinct ordinals in an unspecified relative order.
-    pub ordinal: u64,
 }
 
 /// The lifecycle operation that entered an observed session, on this
@@ -266,23 +266,18 @@ pub enum Role {
     Responder,
 }
 
-/// The observation state a peer carries: the attached handler, if any,
-/// and the session-ordinal counter — shared, like the replica state,
-/// by every handle to one peer identity.
+/// The observation state a peer carries: the attached handler, if any
+/// — shared, like the replica state, by every handle to one peer
+/// identity.
 #[derive(Clone, Default)]
 pub(crate) struct Attachment {
     handler: Option<Arc<dyn Observer>>,
-    /// Sessions this peer identity has entered: the next session's
-    /// ordinal. Counted whether or not a handler is attached, so the
-    /// ordinal means "the peer's Nth session" unconditionally.
-    sessions: Arc<AtomicU64>,
 }
 
 impl std::fmt::Debug for Attachment {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Attachment")
             .field("attached", &self.handler.is_some())
-            .field("sessions", &self.sessions)
             .finish()
     }
 }
@@ -293,7 +288,7 @@ impl Attachment {
         self.handler = Some(observer);
     }
 
-    /// Enter one session: take its ordinal, and mint its handle.
+    /// Enter one session: mint its handle.
     ///
     /// The handle is inert — every invocation a no-op branch — when no
     /// observer is attached, when the observer declines the session,
@@ -301,18 +296,13 @@ impl Attachment {
     /// wire is not a CBOR sequence; the module docs state the
     /// exclusion).
     pub(crate) fn begin(&self, kind: SessionKind, protocol: Protocol) -> SessionHandle {
-        let ordinal = self.sessions.fetch_add(1, Ordering::Relaxed);
         let Some(handler) = &self.handler else {
             return SessionHandle::default();
         };
         if protocol != Protocol::V2 {
             return SessionHandle::default();
         }
-        let info = SessionInfo {
-            kind,
-            protocol,
-            ordinal,
-        };
+        let info = SessionInfo { kind, protocol };
         let Some(session) = handler.session(&info) else {
             return SessionHandle::default();
         };

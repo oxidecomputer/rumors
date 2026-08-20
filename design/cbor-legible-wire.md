@@ -189,8 +189,11 @@ design rationale):
   the peer enters (gossip, and equally bootstrap and retire — a
   capture that skips session kinds is a debugger with blind spots),
   the handler is asked for a **per-session sub-handler**. The
-  sub-handler's creation carries what identifies the session — kind,
-  protocol, a per-peer ordinal — and its lifetime is the session's.
+  sub-handler's creation carries what identifies the session — kind
+  and protocol — and its lifetime is the session's. It deliberately
+  carries no session number: numbering is the observer's own concern,
+  counted inside its handler with its own synchronization, exactly
+  like message interleaving.
   The role election is deliberately *not* part of that identity: it
   does not exist yet at session start. It is delivered by a dedicated
   notification when decided (after the greetings, before any data
@@ -387,3 +390,18 @@ the codec and the hook.
   (before vs after the conversion, mirroring the fixed-corpus gossip
   bench shape) runs as a final bandwidth sanity check; deliberately
   not landed as an instrument.
+- 2026-08-19 (Finch): error taxonomies name what they diagnose. The
+  bookmark's variants are meaning-named (`NotABookmark`, `Record`),
+  and the handshake's failure cases are enumerated as typed public
+  variants — `PreambleMalformed` carrying a `PreambleDefect`,
+  `PreambleTruncated` carrying byte counts — with no collapse into
+  `io::Error`.
+- 2026-08-19 (Finch): `PROTOCOL_MAGIC` is V1 vocabulary, exposed only
+  under the `protocol-v1` feature; the V2 wire's protocol identity is
+  the preamble's `"rumors"` text item and the greeting's `protocol`
+  entry. A V2 endpoint still recognizes the legacy bytes internally,
+  to diagnose cross-dialect pairings.
+- 2026-08-19 (Finch): session numbering is consumer-side, like
+  message interleaving — the hook's session identity carries no
+  ordinal; an observer wanting "the peer's Nth session" counts inside
+  its own handler with its own synchronization.

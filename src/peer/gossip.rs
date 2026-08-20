@@ -51,8 +51,11 @@ use serde::de::DeserializeOwned;
 /// A [`Protocol::V2`] session opens with the self-described CBOR tag
 /// instead, and carries its protocol magic as the greeting map's
 /// `"protocol"` entry; this raw marker belongs to the V1 wire dialect
-/// alone.
-pub const PROTOCOL_MAGIC: [u8; 6] = *b"RUMORS";
+/// alone, so it is exposed only with the `protocol-v1` feature. (A V2
+/// endpoint still recognizes these bytes internally, to diagnose a
+/// legacy peer as the version mismatch it is.)
+#[cfg(feature = "protocol-v1")]
+pub const PROTOCOL_MAGIC: [u8; 6] = crate::tree::mirror::handshake::LEGACY_MAGIC;
 
 /// The epilogue marker each side writes on the control stream after all
 /// of its session work, under [`Protocol::V2`]: the CBOR text item `"."`.

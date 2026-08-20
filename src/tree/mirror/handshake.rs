@@ -37,8 +37,17 @@ use crate::{
     tree::mirror::cbor::{self, MAJOR_BSTR, MAJOR_UINT},
 };
 
+/// The raw magic opening a legacy (V1) preamble frame.
+///
+/// A V2 endpoint reads these bytes too — never to speak them, only to
+/// diagnose a legacy peer as a version mismatch rather than a foreign
+/// protocol — so the constant lives here unconditionally; the public
+/// `PROTOCOL_MAGIC` name is `protocol-v1` vocabulary and re-spells it
+/// behind that feature.
+pub(crate) const LEGACY_MAGIC: [u8; 6] = *b"RUMORS";
+
 /// Bytes occupied by the legacy fixed protocol marker.
-const MAGIC_LEN: usize = crate::PROTOCOL_MAGIC.len();
+const MAGIC_LEN: usize = LEGACY_MAGIC.len();
 
 /// Bytes occupied by the legacy big-endian wire-version field.
 const VERSION_LEN: usize = std::mem::size_of::<u16>();
@@ -142,7 +151,7 @@ impl Preamble {
             #[cfg(any(test, feature = "protocol-v1"))]
             Protocol::V1 => {
                 let mut bytes = [0; LEGACY_PREAMBLE_LEN];
-                bytes[..MAGIC_LEN].copy_from_slice(&crate::PROTOCOL_MAGIC);
+                bytes[..MAGIC_LEN].copy_from_slice(&LEGACY_MAGIC);
                 bytes[VERSION_AT..NETWORK_AT].copy_from_slice(&(protocol as u16).to_be_bytes());
                 bytes[NETWORK_AT..INTENT_AT].copy_from_slice(&self.network.to_bytes());
                 bytes[INTENT_AT] = self.intent.to_byte();
@@ -174,7 +183,7 @@ impl Preamble {
     #[cfg(any(test, feature = "protocol-v1"))]
     fn decode_legacy(bytes: &[u8], protocol: Protocol) -> Result<Self, Error> {
         let remote_magic = bytes[..MAGIC_LEN].try_into().expect("magic width");
-        if remote_magic != crate::PROTOCOL_MAGIC {
+        if remote_magic != LEGACY_MAGIC {
             // A V2-opening peer is a version mismatch, not a foreign
             // protocol — the mirror of the V2 decoder's legacy detection.
             if bytes[..V2_PREFIX.len()] == V2_PREFIX && bytes[V2_PREFIX.len()] < 24 {
@@ -211,7 +220,7 @@ impl Preamble {
         if bytes[..V2_PREFIX.len()] != V2_PREFIX {
             // A legacy-magic peer is a version mismatch, not a foreign
             // protocol: report what it is.
-            if bytes[..MAGIC_LEN] == crate::PROTOCOL_MAGIC {
+            if bytes[..MAGIC_LEN] == LEGACY_MAGIC {
                 let remote_version = u16::from_be_bytes(
                     bytes[VERSION_AT..NETWORK_AT]
                         .try_into()
@@ -376,7 +385,7 @@ impl Staged {
                     // that is not a dialect skew.)
                     if self.want == V2_PREAMBLE_LEN
                         && self.filled >= NETWORK_AT
-                        && self.buf[..MAGIC_LEN] == crate::PROTOCOL_MAGIC
+                        && self.buf[..MAGIC_LEN] == LEGACY_MAGIC
                     {
                         let remote_version = u64::from(u16::from_be_bytes(
                             self.buf[VERSION_AT..NETWORK_AT]

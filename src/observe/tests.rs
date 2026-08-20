@@ -55,9 +55,8 @@ fn unattached_handles_are_inert() {
     assert!(handle.data(Role::Initiator, 0, Direction::Sent).is_none());
 }
 
-/// Beginning an observed V2 session takes the peer's next ordinal and
-/// mints the control stream's two directed handlers immediately, ahead
-/// of any wire traffic.
+/// Beginning an observed V2 session mints the control stream's two
+/// directed handlers immediately, ahead of any wire traffic.
 #[test]
 fn begin_mints_the_control_handlers() {
     let observer = Arc::new(Counting::default());
@@ -73,7 +72,6 @@ fn begin_mints_the_control_handlers() {
         vec![SessionInfo {
             kind: SessionKind::Bootstrap,
             protocol: Protocol::V2,
-            ordinal: 0,
         }]
     );
     let streams = observer.streams.lock().unwrap();
@@ -90,26 +88,6 @@ fn begin_mints_the_control_handlers() {
             },
         ]
     );
-}
-
-/// The session ordinal counts every session the peer enters, including
-/// the ones the handler never observes, so it always means "the peer's
-/// Nth session".
-#[test]
-fn ordinals_count_unobserved_sessions_too() {
-    let observer = Arc::new(Counting::default());
-    let mut attachment = Attachment::default();
-
-    // Two sessions entered before any handler attached.
-    let _ = attachment.begin(SessionKind::Gossip, Protocol::V2);
-    let _ = attachment.begin(SessionKind::Gossip, Protocol::V2);
-
-    attachment.attach(observer.clone());
-    let _ = attachment.begin(SessionKind::Retire, Protocol::V2);
-    let infos = observer.infos.lock().unwrap();
-    assert_eq!(infos.len(), 1);
-    assert_eq!(infos[0].ordinal, 2);
-    assert_eq!(infos[0].kind, SessionKind::Retire);
 }
 
 /// The capture adapter retains exactly the bytes it delivered, across

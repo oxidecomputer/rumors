@@ -29,7 +29,9 @@ mod bootstrap;
 mod gossip;
 
 pub use bootstrap::{BookmarkedBootstrap, Bootstrap, Joined};
-pub use gossip::{Gossiped, Led, PROTOCOL_MAGIC, Retire, Unbookmarked};
+#[cfg(feature = "protocol-v1")]
+pub use gossip::PROTOCOL_MAGIC;
+pub use gossip::{Gossiped, Led, Retire, Unbookmarked};
 
 /// The start and end of a [`Rumors`]'s lifecycle.
 ///
@@ -163,8 +165,7 @@ pub struct Peer<T, B: BookmarkError = NoBookmark> {
     /// every gossip session's supplied leaf records decode through (see
     /// [`Message::deserializer`](crate::message::Message::deserializer)).
     pub(crate) deserializer: PayloadDeserializer,
-    /// The wire-observation handler selected by [`observe`](Self::observe),
-    /// with the session-ordinal counter it stamps sessions from.
+    /// The wire-observation handler selected by [`observe`](Self::observe).
     pub(crate) observe: Attachment,
 }
 

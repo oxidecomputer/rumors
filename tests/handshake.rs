@@ -16,7 +16,7 @@
 
 mod common;
 
-use rumors::{Error, PROTOCOL_MAGIC, Peer, Protocol, Rumors};
+use rumors::{Error, Peer, Protocol, Rumors};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::common::wire::{assert_control_drained, bootstrap_fork_async};
@@ -56,9 +56,11 @@ fn preamble(opening: [u8; 11], version: u8, intent: u8) -> [u8; PREAMBLE_LEN] {
 /// opening starts V2 ones.
 #[test]
 fn protocol_constants_match_spec() {
-    assert_eq!(PROTOCOL_MAGIC, *b"RUMORS");
     #[cfg(feature = "protocol-v1")]
-    assert_eq!(Protocol::V1 as u16, 1);
+    {
+        assert_eq!(rumors::PROTOCOL_MAGIC, *b"RUMORS");
+        assert_eq!(Protocol::V1 as u16, 1);
+    }
     assert_eq!(Protocol::V2 as u16, 2);
     assert_eq!(&V2_OPENING[..3], &[0xd9, 0xd9, 0xf7]);
 }

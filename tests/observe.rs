@@ -316,9 +316,8 @@ proptest! {
     /// Concatenating the observed invocations reproduces the transport
     /// capture byte for byte (control and data streams alike); every
     /// invocation is exactly one CBOR item; session identity carries
-    /// the right kind, protocol, and ordinal; and the two sides' role
-    /// elections are complementary and agree with every data stream's
-    /// speaker.
+    /// the right kind and protocol; and the two sides' role elections
+    /// are complementary and agree with every data stream's speaker.
     #[test]
     fn hook_mirrors_the_wire_exactly(
         (shared, only_a, only_b) in corpora(),
@@ -348,14 +347,11 @@ proptest! {
             },
         );
 
-        // The serve and the join were each side's session 0; the
-        // captured gossip is session 1 on both.
         let a_session = rec_a.last_session();
         let b_session = rec_b.last_session();
         for (session, side) in [(&a_session, "A"), (&b_session, "B")] {
             prop_assert_eq!(session.info.kind, SessionKind::Gossip, "{}", side);
             prop_assert_eq!(session.info.protocol, rumors::Protocol::V2, "{}", side);
-            prop_assert_eq!(session.info.ordinal, 1, "{}", side);
         }
         prop_assert_eq!(
             rec_b.sessions.lock().unwrap()[0].info.kind,
@@ -412,8 +408,8 @@ proptest! {
 
 /// A bootstrap pairing is observed end to end.
 ///
-/// The newcomer's session carries the `Bootstrap` kind at ordinal
-/// zero, the provider observes an ordinary gossip serve, both sides'
+/// The newcomer's session carries the `Bootstrap` kind, the provider
+/// observes an ordinary gossip serve, both sides'
 /// hook views mirror their transport captures (the party hand-off and
 /// epilogue included), and every invocation is one CBOR item.
 #[test]
@@ -444,7 +440,6 @@ fn bootstrap_sessions_are_observed() {
     let newcomer_session = rec_newcomer.last_session();
     assert_eq!(provider_session.info.kind, SessionKind::Gossip);
     assert_eq!(newcomer_session.info.kind, SessionKind::Bootstrap);
-    assert_eq!(newcomer_session.info.ordinal, 0);
     assert_mirrors("provider", &provider_session, &provider_capture);
     assert_mirrors("newcomer", &newcomer_session, &newcomer_capture);
     assert_received_mirrors_remote("provider", &provider_session, &newcomer_capture);
