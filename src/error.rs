@@ -17,6 +17,8 @@
 //! | [`Error::LinkPoisoned`] | unchanged | handle the first non-poisoned error; repeats mean the reconnect is not producing a fresh link |
 //! | [`Error::PreambleMalformed`] | unchanged | counterparty bug: report it (the defect names the field) |
 //! | [`Error::PreambleTruncated`] | unchanged | the peer or transport hung up mid-handshake: retry over a fresh link |
+//! | [`Error::HandOffMalformed`] | unchanged | counterparty bug: report it (the defect names the fault) |
+//! | [`Error::HandOffTruncated`] | unchanged | the peer or transport hung up before delivering its promised identity hand-off: retry over a fresh link |
 //! | [`Error::IntentInvalid`] | unchanged | counterparty bug: report it |
 //! | [`Error::BootstrapRetireConflict`] | unchanged | counterparty bug: report it |
 //! | [`Error::BootstrapHistoryConflict`] | unchanged | counterparty bug: report it |
@@ -32,15 +34,16 @@ use crate::{
 };
 
 pub use crate::tree::mirror::handshake::PreambleDefect;
+pub use crate::tree::mirror::party::HandOffDefect;
 pub use crate::tree::mirror::streaming::materialized::{
     Error as MaterializedError, Violation as MaterializedViolation,
 };
 pub use crate::tree::mirror::streaming::remote::{
     AcceptError, CodecDecodeError, CodecDecodeErrorKind, CodecEncodeError, CodecEncodeErrorKind,
-    DecodeError, DecodeLeafError, DecodeSignalError, EncodeError, FramePart, HeadError,
-    InvalidSignalPlacement, InvalidWireSignal, LeafRunError, LengthOverflow, OpeningError, Origin,
-    QueryOrderError, RemoteError, ReplyFrameError, ScopeError, SendError, Speaker, Stream,
-    StreamClass, StreamError,
+    DecodeError, DecodeLeafError, DecodeSignalError, EncodeError, FramePart, GreetingError,
+    HeadError, InvalidSignalPlacement, InvalidWireSignal, LeafRunError, LengthOverflow,
+    ListingIssue, OpeningError, Origin, QueryOrderError, RemoteError, ReplyFrameError, ScopeError,
+    SendError, Speaker, Stream, StreamClass, StreamError,
 };
 
 /// The concrete production mirror failure, retaining its detecting side.
@@ -177,6 +180,35 @@ pub enum Error<B: BookmarkError = NoBookmark> {
         expected: usize,
     },
 
+    /// The peer delivered its promised identity hand-off, but the item is
+    /// not spelled the way the wire demands, or its content is not one
+    /// canonical party encoding.
+    ///
+    /// The hand-off — the trailing party donation of a bootstrap or
+    /// retirement session — is deterministic-encoding CBOR wrapping a
+    /// canonical party encoding, one spelling per donation, so this is
+    /// always a counterparty bug, never an alternate encoding; the defect
+    /// names the fault. Nothing was absorbed: the local replica is
+    /// unchanged. Reachable only for [`Protocol::V2`]; the frozen V1
+    /// dialect reports hand-off failures as [`Io`](Self::Io).
+    #[error("peer identity hand-off is malformed: {defect}")]
+    HandOffMalformed {
+        /// Which part of the hand-off failed, and how.
+        defect: HandOffDefect,
+    },
+
+    /// The peer closed the stream before delivering its promised identity
+    /// hand-off whole.
+    ///
+    /// Distinct from [`Io`](Self::Io): the transport delivered a clean
+    /// close, not a failure — the counterparty (or something between)
+    /// hung up after its preamble intent promised a donation. Nothing was
+    /// absorbed: the local replica is unchanged. Retry over a fresh link.
+    /// Reachable only for [`Protocol::V2`]; the frozen V1 dialect reports
+    /// hand-off failures as [`Io`](Self::Io).
+    #[error("peer closed before delivering its promised identity hand-off")]
+    HandOffTruncated,
+
     /// The peer's intent byte had no defined meaning.
     #[error("peer sent an invalid intent byte ({byte:#04x})")]
     IntentInvalid { byte: u8 },
@@ -295,6 +327,8 @@ impl Error<NoBookmark> {
             Error::PreambleTruncated { received, expected } => {
                 Error::PreambleTruncated { received, expected }
             }
+            Error::HandOffMalformed { defect } => Error::HandOffMalformed { defect },
+            Error::HandOffTruncated => Error::HandOffTruncated,
             Error::IntentInvalid { byte } => Error::IntentInvalid { byte },
             Error::BootstrapRetireConflict => Error::BootstrapRetireConflict,
             Error::BootstrapHistoryConflict { claimed_min_events } => {

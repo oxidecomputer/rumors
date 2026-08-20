@@ -86,6 +86,64 @@ fn greeting_key_roster_is_exact() {
     ));
 }
 
+/// A listing whose content ends inside a hash is rejected as the typed
+/// listing issue.
+///
+/// The map declares its listing entries up front; content that runs out
+/// inside an entry's digest bytes must surface
+/// [`GreetingError::Listing`] with the listing's own truncation, never a
+/// panic and never a partial listing.
+#[test]
+fn truncated_listing_hash_is_a_typed_listing_issue() {
+    let greeting = sample(vec![(4, Hash([7; MERKLE_HASH_LEN]))]);
+    let item = encode_greeting(&greeting);
+    let mut input = item.as_slice();
+    cbor::read_head(&mut input).expect("tag head");
+    cbor::read_head(&mut input).expect("bstr head");
+    // Cut one byte deeper than the listing's end (the next key's one-byte
+    // text head sits just before the key text): the kept bytes stop
+    // inside the entry's digest.
+    let at = find(input, b"set_len", 0).expect("the key is present");
+    let cut = &input[..at - 2];
+    assert!(matches!(
+        parse_greeting(cut),
+        Err(GreetingError::Listing(ListingIssue::Truncated))
+    ));
+}
+
+/// A version atom whose bytes are not one canonical version encoding is
+/// rejected as the typed version defect.
+///
+/// The atom's tag and byte string parse, so the failure is the content's
+/// own: [`GreetingError::Version`] carrying the decoder's verdict.
+#[test]
+fn undecodable_version_atom_is_a_typed_version_defect() {
+    let greeting = sample(Vec::new());
+    let item = encode_greeting(&greeting);
+    let mut input = item.as_slice();
+    cbor::read_head(&mut input).expect("tag head");
+    cbor::read_head(&mut input).expect("bstr head");
+    let mut map = input.to_vec();
+
+    // Locate the version atom's content: after the "version" key text
+    // ride the version tag's head, the byte string's head, and then the
+    // encoded version itself; saturate those bytes.
+    let at = find(&map, b"version", 0).expect("the key is present");
+    let mut cursor = &map[at + b"version".len()..];
+    let before_heads = cursor.len();
+    cbor::read_head(&mut cursor).expect("the version tag's head");
+    let head = cbor::read_head(&mut cursor).expect("the version string's head");
+    let content_at = at + b"version".len() + (before_heads - cursor.len());
+    assert!(head.value > 0, "a ticked version encodes to content bytes");
+    for byte in &mut map[content_at..content_at + head.value as usize] {
+        *byte = 0xFF;
+    }
+    assert!(matches!(
+        parse_greeting(&map),
+        Err(GreetingError::Version(_))
+    ));
+}
+
 /// A greeting listing violating strictly ascending radix order is
 /// rejected as the codec's own order violation, the same class a wire
 /// query reports.

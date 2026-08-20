@@ -278,7 +278,7 @@ where
 {
     let route = |e| match e {
         greeting_codec::ReadGreetingError::Io(io) => Error::HandshakeRead(io),
-        greeting_codec::ReadGreetingError::Decode(io) => Error::HandshakeDecode(io),
+        greeting_codec::ReadGreetingError::Decode(defect) => Error::HandshakeDecode(defect),
         greeting_codec::ReadGreetingError::Listing(order) => Error::HandshakeListing(order),
     };
     if observe.attached() {

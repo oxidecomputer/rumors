@@ -18,9 +18,9 @@ pub enum Error<E> {
     /// Reading one of the peer's greeting frames failed.
     #[error("failed to read streaming handshake")]
     HandshakeRead(#[source] std::io::Error),
-    /// A greeting body was not a canonical causal version or listing.
+    /// The peer's greeting arrived but is not canonical rumors CBOR.
     #[error("failed to decode streaming handshake")]
-    HandshakeDecode(#[source] std::io::Error),
+    HandshakeDecode(#[source] codec::GreetingError),
     /// Writing and flushing the local greeting frames failed.
     #[error("failed to write streaming handshake")]
     HandshakeWrite(#[source] std::io::Error),

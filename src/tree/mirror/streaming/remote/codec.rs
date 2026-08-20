@@ -93,9 +93,10 @@ pub use error::{
 };
 #[cfg(test)]
 pub use frame::WireFrame;
-pub use frame::{Frame, LeafRun, LeafRunError, Reaction};
+pub use frame::{Frame, LeafRun, LeafRunError, ListingIssue, Reaction};
 #[cfg(test)]
 pub(crate) use frame::{parse_listing_map, write_listing};
+pub use greeting::GreetingError;
 pub use signal::{
     DecodeSignalError, End, Flow, InvalidSignalPlacement, InvalidWireSignal, Speaker, Stream,
     StreamClass,

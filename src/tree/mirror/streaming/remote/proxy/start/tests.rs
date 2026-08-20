@@ -22,9 +22,9 @@ use super::{Error, Greeting, receive};
 use crate::Version;
 use crate::observe::SessionHandle;
 use crate::tree::arb::nth_party;
-use crate::tree::mirror::cbor::{self, MAJOR_BSTR, TAG_EMBEDDED_ITEM};
+use crate::tree::mirror::cbor::{self, HeadError, MAJOR_BSTR, TAG_EMBEDDED_ITEM};
 use crate::tree::mirror::streaming::remote::codec::QueryOrderError;
-use crate::tree::mirror::streaming::remote::codec::greeting::encode_greeting;
+use crate::tree::mirror::streaming::remote::codec::greeting::{GreetingError, encode_greeting};
 use crate::tree::typed::Hash;
 
 /// Wrap raw content exactly as the greeting item does: the embedded-item
@@ -106,13 +106,19 @@ async fn over_declared_version_frame_is_a_typed_read_error() {
 /// An empty greeting item fails as a typed decode error.
 ///
 /// An item whose byte string is empty carries no map at all; it must
-/// surface [`Error::HandshakeDecode`] — the under-declared degenerate
+/// surface [`Error::HandshakeDecode`] with the head defect (the map's
+/// content ends before its opening head) — the under-declared degenerate
 /// case, distinct from the transport-level truncations above.
 #[pollster::test]
 async fn empty_version_frame_is_a_typed_decode_error() {
     let result = receive_greeting(&raw_item(&[])).await.map(|_| ());
     assert!(
-        matches!(result, Err(Error::HandshakeDecode(_))),
+        matches!(
+            result,
+            Err(Error::HandshakeDecode(GreetingError::Head(
+                HeadError::Truncated
+            ))),
+        ),
         "expected the empty item's typed rejection, got {result:?}",
     );
 }
@@ -129,7 +135,7 @@ async fn untagged_greeting_is_a_typed_decode_error() {
 
     let result = receive_greeting(&content).await.map(|_| ());
     assert!(
-        matches!(result, Err(Error::HandshakeDecode(_))),
+        matches!(result, Err(Error::HandshakeDecode(GreetingError::Shape(_))),),
         "expected the untagged item's typed rejection, got {result:?}",
     );
 }
@@ -148,7 +154,7 @@ async fn trailing_version_bytes_are_rejected() {
 
     let result = receive_greeting(&raw_item(&content)).await.map(|_| ());
     assert!(
-        matches!(result, Err(Error::HandshakeDecode(_))),
+        matches!(result, Err(Error::HandshakeDecode(GreetingError::Shape(_))),),
         "expected the trailing bytes' typed rejection, got {result:?}",
     );
 }
@@ -241,21 +247,26 @@ async fn duplicate_listing_radix_is_rejected() {
     );
 }
 
-/// A listing map whose content is truncated fails as a typed decode error.
+/// A greeting map whose content is cut short fails as a typed decode error.
 ///
-/// The greeting's map declared more listing entries than its content
-/// carries; the cut must surface [`Error::HandshakeDecode`] — a typed
-/// greeting failure, never a panic and never a partial listing.
+/// The greeting's byte string ends inside the map's final entry; the cut
+/// must surface [`Error::HandshakeDecode`] with the head defect — a typed
+/// greeting failure, never a panic and never a partially parsed greeting.
 #[pollster::test]
-async fn truncated_listing_body_is_rejected() {
+async fn truncated_map_content_is_rejected() {
     let item = greeting(vec![(0_u8, Hash::default()), (1_u8, Hash::default())]);
     let mut content = content_of(&item);
     content.truncate(content.len() - 1);
 
     let result = receive_greeting(&raw_item(&content)).await.map(|_| ());
     assert!(
-        matches!(result, Err(Error::HandshakeDecode(_))),
-        "expected the truncated listing's typed rejection, got {result:?}",
+        matches!(
+            result,
+            Err(Error::HandshakeDecode(GreetingError::Head(
+                HeadError::Truncated
+            ))),
+        ),
+        "expected the truncated map's typed rejection, got {result:?}",
     );
 }
 

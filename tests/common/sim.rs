@@ -367,12 +367,12 @@ pub fn arb_plan() -> impl Strategy<Value = Plan> {
 ///
 /// A wire cut stops the byte stream mid-frame, so a faulted read surfaces as an
 /// I/O error whose kind is `UnexpectedEof` (or a write/broken-pipe variant),
-/// or — when the cut lands inside the handshake — as the typed
-/// `PreambleTruncated`; never a complete-but-malformed frame. A decode
-/// failure (`InvalidData`, `PreambleMalformed`) is therefore a
-/// protocol/codec bug, not a fault: it is exactly how a non-canonical
-/// [`Party`] on the wire once slipped through, so reject it alongside the
-/// non-I/O variants.
+/// or — when the cut lands inside the handshake or the identity hand-off —
+/// as the typed `PreambleTruncated` or `HandOffTruncated`; never a
+/// complete-but-malformed frame. A decode failure (`InvalidData`,
+/// `PreambleMalformed`, `HandOffMalformed`) is therefore a protocol/codec
+/// bug, not a fault: it is exactly how a non-canonical [`Party`] on the
+/// wire once slipped through, so reject it alongside the non-I/O variants.
 pub fn assert_honest_error(e: &Error) {
     assert!(
         is_honest_error(e),
@@ -390,6 +390,10 @@ pub fn is_honest_error(error: &Error) -> bool {
         // that it lied. A malformed preamble stays dishonest — a cut
         // never corrupts a frame.
         Error::PreambleTruncated { .. } => true,
+        // Likewise a cut that lands inside the promised identity
+        // hand-off: the typed truncation says the stream stopped. A
+        // malformed hand-off stays dishonest, as everywhere.
+        Error::HandOffTruncated => true,
         // A cut that lands on the closing epilogue exchange is post-commit
         // but still an honest severed wire; a non-marker byte there
         // (`InvalidData`) stays dishonest, as everywhere.

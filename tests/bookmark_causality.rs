@@ -698,15 +698,16 @@ impl World {
         // the codec leak this test was written to catch. The retire session runs
         // over a *clean* wire, so the absorber can only fail honestly by an
         // injected bookmark fault (`Error::Bookmark`) or by the retiree safely
-        // aborting its own bookmark fault and closing the wire (`UnexpectedEof`).
-        // A decode failure (`InvalidData`) means a fully-received frame was
-        // malformed — a protocol/codec bug like the non-canonical party that
-        // motivated this check — so surface it loudly.
+        // aborting its own bookmark fault and closing the wire (the typed
+        // `HandOffTruncated`, or `UnexpectedEof` elsewhere in the session).
+        // A decode failure (`InvalidData`, `HandOffMalformed`) means a
+        // fully-received frame was malformed — a protocol/codec bug like the
+        // non-canonical party that motivated this check — so surface it loudly.
         if let Err(error) = &absorbed {
             let codec_bug = matches!(
                 error,
                 Error::Io(io) if io.kind() == std::io::ErrorKind::InvalidData,
-            );
+            ) || matches!(error, Error::HandOffMalformed { .. });
             assert!(
                 !codec_bug,
                 "retire absorber failed to decode on a clean wire: a protocol/codec bug, \

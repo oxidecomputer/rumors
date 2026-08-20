@@ -94,8 +94,17 @@ fn greeting_map(greeting: &Greeting) -> Vec<u8> {
 }
 
 /// A greeting that is not canonical rumors CBOR.
+///
+/// Carried by [`RemoteError::HandshakeDecode`]: the greeting item
+/// arrived, but its spelling or content violates the wire's
+/// deterministic-encoding contract. The greeting admits one spelling per
+/// value, so every variant here is a counterparty bug, never an
+/// alternate encoding.
+///
+/// [`RemoteError::HandshakeDecode`]: super::super::RemoteError::HandshakeDecode
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum GreetingError {
+#[non_exhaustive]
+pub enum GreetingError {
     /// A head was truncated, indefinite, reserved, or widened.
     #[error("greeting head is not canonical: {0}")]
     Head(HeadError),
@@ -108,9 +117,9 @@ pub(crate) enum GreetingError {
     /// The listing's keys were not in canonical strictly ascending order.
     #[error(transparent)]
     Order(QueryOrderError),
-    /// The version atom's canonical bytes did not decode.
-    #[error("greeting version does not decode")]
-    Version(#[source] std::io::Error),
+    /// The version atom's bytes are not one canonical version encoding.
+    #[error("greeting version does not decode: {0}")]
+    Version(before::error::Decode),
 }
 
 /// Parse a greeting map from the embedded byte string's exact content.
@@ -169,9 +178,7 @@ pub(crate) fn parse_greeting(bytes: &[u8]) -> Result<Greeting, GreetingError> {
                     return Err(GreetingError::Shape("greeting version is truncated"));
                 };
                 input = rest;
-                version = Some(Version::decode(atom).map_err(|e| {
-                    GreetingError::Version(std::io::Error::new(std::io::ErrorKind::InvalidData, e))
-                })?);
+                version = Some(Version::decode(atom).map_err(GreetingError::Version)?);
             }
             "protocol" => {
                 let head = cbor::read_head(&mut input).map_err(GreetingError::Head)?;
@@ -233,9 +240,9 @@ fn split(input: &[u8], len: usize) -> Option<(&[u8], &[u8])> {
 /// Read one complete greeting item from the control stream.
 ///
 /// Transport failures pass through as `Err(Ok-side io)`; a malformed or
-/// non-canonical greeting is an [`InvalidData`](std::io::ErrorKind)
-/// error, except a non-canonical listing order, surfaced typed so the
-/// handshake can report it as the codec's own violation class.
+/// non-canonical greeting is a typed [`GreetingError`], except a
+/// non-canonical listing order, surfaced separately so the handshake can
+/// report it as the codec's own violation class.
 pub(crate) async fn read_greeting<R>(read: &mut R) -> Result<Greeting, ReadGreetingError>
 where
     R: tokio::io::AsyncRead + Unpin,
@@ -251,7 +258,7 @@ where
             ))
         })?;
     if head.major != MAJOR_TAG || head.value != TAG_EMBEDDED_ITEM {
-        return Err(ReadGreetingError::Decode(invalid(
+        return Err(ReadGreetingError::Decode(GreetingError::Shape(
             "greeting does not open with the embedded-item tag",
         )));
     }
@@ -265,12 +272,12 @@ where
             ))
         })?;
     if head.major != MAJOR_BSTR {
-        return Err(ReadGreetingError::Decode(invalid(
+        return Err(ReadGreetingError::Decode(GreetingError::Shape(
             "greeting tag does not wrap a byte string",
         )));
     }
     let Ok(len) = usize::try_from(head.value) else {
-        return Err(ReadGreetingError::Decode(invalid(
+        return Err(ReadGreetingError::Decode(GreetingError::Shape(
             "greeting declares an unaddressable length",
         )));
     };
@@ -279,10 +286,7 @@ where
         .map_err(ReadGreetingError::Io)?;
     parse_greeting(&bytes).map_err(|e| match e {
         GreetingError::Order(order) => ReadGreetingError::Listing(order),
-        e => ReadGreetingError::Decode(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            e.to_string(),
-        )),
+        e => ReadGreetingError::Decode(e),
     })
 }
 
@@ -294,23 +298,18 @@ pub(crate) enum ReadGreetingError {
     Io(std::io::Error),
     /// The greeting arrived but is not canonical rumors CBOR.
     #[error(transparent)]
-    Decode(std::io::Error),
+    Decode(GreetingError),
     /// The greeting's listing violated canonical child order.
     #[error(transparent)]
     Listing(QueryOrderError),
 }
 
-fn invalid(message: &'static str) -> std::io::Error {
-    std::io::Error::new(std::io::ErrorKind::InvalidData, message)
-}
-
 fn head_read_error(e: cbor::HeadReadError) -> ReadGreetingError {
     match e {
         cbor::HeadReadError::Io(io) => ReadGreetingError::Io(io),
-        cbor::HeadReadError::Malformed(head) => ReadGreetingError::Decode(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            head.to_string(),
-        )),
+        cbor::HeadReadError::Malformed(head) => {
+            ReadGreetingError::Decode(GreetingError::Head(head))
+        }
     }
 }
 

@@ -397,27 +397,25 @@ pub enum LeafRunError {
 }
 
 /// One structural problem in a child-listing map.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ListingIssue {
+///
+/// Every child listing entering from the wire — a query frame's body or
+/// the greeting's root-fan listing — passes one structural gate, and
+/// this names how a listing failed it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum ListingIssue {
     /// A head was truncated, indefinite, reserved, or widened.
+    #[error("{0}")]
     Head(HeadError),
     /// An item had the wrong major type, value range, or count.
+    #[error("{0}")]
     Shape(&'static str),
     /// The digest bytes behind a value head were cut short.
+    #[error("listing hash bytes are truncated")]
     Truncated,
     /// Adjacent keys were not strictly ascending.
+    #[error("{0}")]
     Order(QueryOrderError),
-}
-
-impl std::fmt::Display for ListingIssue {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ListingIssue::Head(e) => write!(f, "{e}"),
-            ListingIssue::Shape(detail) => f.write_str(detail),
-            ListingIssue::Truncated => f.write_str("listing hash bytes are truncated"),
-            ListingIssue::Order(e) => write!(f, "{e}"),
-        }
-    }
 }
 
 /// Incrementally validated state of one child-listing map's entries.
