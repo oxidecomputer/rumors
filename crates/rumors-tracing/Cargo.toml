@@ -1,0 +1,15 @@
+[package]
+name = "rumors-tracing"
+version = "0.1.0"
+edition = "2024"
+description = "A tracing adapter for rumors gossip sessions: spans per session and stream, one structured event per observed wire item."
+license = "MPL-2.0"
+readme = "README.md"
+
+[dependencies]
+rumors = { path = "../.." }
+tracing = "0.1"
+ciborium = "0.2"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "macros"] }
