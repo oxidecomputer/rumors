@@ -58,7 +58,7 @@ proptest! {
     #[test]
     fn frame_carries_the_tag(payload: Vec<u8>) {
         let framed = frame(&payload);
-        let mut opening = SELF_DESCRIBED.to_vec();
+        let mut opening = SELF_DESCRIBED_HEAD.to_vec();
         opening.push(FRAME_ARRAY);
         cbor::write_head(&mut opening, MAJOR_UINT, BOOKMARK_FORMAT_VERSION);
         prop_assert!(framed.starts_with(&opening));
@@ -155,17 +155,6 @@ fn foreign_magic_is_rejected() {
     ));
 }
 
-/// The bookmark's opening literal is the self-described tag's one
-/// canonical spelling: the shared constant is the authority, and the
-/// pinned bytes cannot drift from the head writer's rendering of it.
-#[test]
-fn opening_literal_is_the_self_described_tag() {
-    use crate::tree::mirror::cbor;
-    let mut rendered = Vec::new();
-    cbor::write_tag(&mut rendered, cbor::TAG_SELF_DESCRIBED);
-    assert_eq!(rendered, SELF_DESCRIBED);
-}
-
 /// A frame declaring an unknown format version is rejected on the version
 /// alone — its hash is valid, so the rejection is
 /// [`FormatError::VersionMismatch`], never decoded under this build's
@@ -209,7 +198,7 @@ fn non_canonical_version_spelling_is_rejected() {
     covered.extend_from_slice(payload);
     let hash = blake3::hash(&covered);
 
-    let mut framed = SELF_DESCRIBED.to_vec();
+    let mut framed = SELF_DESCRIBED_HEAD.to_vec();
     framed.push(FRAME_ARRAY);
     framed.extend_from_slice(&covered[..version_item_len]);
     framed.extend_from_slice(&INTEGRITY_HEAD);
@@ -239,7 +228,7 @@ fn version_item_len() -> usize {
 #[test]
 fn corrupt_integrity_head_is_an_integrity_defect() {
     let mut framed = frame(b"payload");
-    let integrity_at = SELF_DESCRIBED.len() + 1 + version_item_len();
+    let integrity_at = SELF_DESCRIBED_HEAD.len() + 1 + version_item_len();
     assert_eq!(
         framed[integrity_at], INTEGRITY_HEAD[0],
         "the computed offset lands on the integrity head"
@@ -260,7 +249,7 @@ fn corrupt_integrity_head_is_an_integrity_defect() {
 fn corrupt_payload_tag_is_a_payload_tag_defect() {
     let mut framed = frame(b"payload");
     let payload_tag_at =
-        SELF_DESCRIBED.len() + 1 + version_item_len() + INTEGRITY_HEAD.len() + HASH_LEN;
+        SELF_DESCRIBED_HEAD.len() + 1 + version_item_len() + INTEGRITY_HEAD.len() + HASH_LEN;
     assert_eq!(
         framed[payload_tag_at], EMBEDDED_CBOR[0],
         "the computed offset lands on the payload tag"
@@ -295,7 +284,7 @@ fn non_canonical_payload_spelling_is_rejected() {
     covered.extend_from_slice(payload);
     let hash = blake3::hash(&covered);
 
-    let mut framed = SELF_DESCRIBED.to_vec();
+    let mut framed = SELF_DESCRIBED_HEAD.to_vec();
     framed.push(FRAME_ARRAY);
     framed.extend_from_slice(&covered[..version_item_len]);
     framed.extend_from_slice(&INTEGRITY_HEAD);
@@ -424,7 +413,7 @@ fn annotated(frame: &[u8]) -> String {
     // Fixed offsets: the version head is a single byte for any version
     // below 24, and everything before the digest is a pinned spelling.
     const { assert!(BOOKMARK_FORMAT_VERSION < 24, "the version head is one byte") };
-    let hash_at = SELF_DESCRIBED.len() + 1 + 1 + INTEGRITY_HEAD.len();
+    let hash_at = SELF_DESCRIBED_HEAD.len() + 1 + 1 + INTEGRITY_HEAD.len();
     let integrity = &frame[hash_at..hash_at + HASH_LEN];
     let mut out = format!("{}\n\n", hex::encode(frame));
     writeln!(out, "{TAG_SELF_DESCRIBED}( / self-described CBOR /").unwrap();

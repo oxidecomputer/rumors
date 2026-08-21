@@ -55,7 +55,7 @@ use ciborium::value::Value;
 
 use crate::Network;
 use crate::tags::CLOCK_TAG;
-use crate::tree::mirror::cbor::{self, MAJOR_BSTR, MAJOR_UINT};
+use crate::tree::mirror::cbor::{self, MAJOR_BSTR, MAJOR_UINT, SELF_DESCRIBED_HEAD};
 
 /// On-disk bookmark format version, the first item of the frame array.
 ///
@@ -66,13 +66,6 @@ use crate::tree::mirror::cbor::{self, MAJOR_BSTR, MAJOR_UINT};
 /// is rejected with [`FormatError::VersionMismatch`] rather than misread;
 /// there is no migration path.
 pub const BOOKMARK_FORMAT_VERSION: u64 = 4;
-
-/// The three opening bytes of every frame: the CBOR self-described tag 55799.
-///
-/// This is CBOR's own magic (RFC 8949 §3.4.6) — it says "CBOR", not
-/// "rumors"; what makes the file a *bookmark* is the frame shape and the
-/// format version behind it.
-const SELF_DESCRIBED: [u8; 3] = [0xd9, 0xd9, 0xf7];
 
 /// The frame array's header byte: a definite-length array of three items.
 const FRAME_ARRAY: u8 = 0x83;
@@ -94,6 +87,9 @@ const EMBEDDED_CBOR: [u8; 2] = [0xd8, 0x18];
 #[non_exhaustive]
 pub enum FrameDefect {
     /// The frame does not open with the CBOR self-described tag.
+    ///
+    /// The tag says "CBOR", not "rumors": what makes a file a *bookmark*
+    /// is the frame shape and the format version behind it.
     #[error("no self-described CBOR tag")]
     SelfDescribedTag,
 
@@ -249,8 +245,8 @@ fn frame_as(version: u64, payload: &[u8]) -> Vec<u8> {
     covered.extend_from_slice(payload);
     let hash = blake3::hash(&covered);
 
-    let mut out = Vec::with_capacity(SELF_DESCRIBED.len() + 1 + 2 + HASH_LEN + covered.len());
-    out.extend_from_slice(&SELF_DESCRIBED);
+    let mut out = Vec::with_capacity(SELF_DESCRIBED_HEAD.len() + 1 + 2 + HASH_LEN + covered.len());
+    out.extend_from_slice(&SELF_DESCRIBED_HEAD);
     out.push(FRAME_ARRAY);
     out.extend_from_slice(&covered[..version_item_len]);
     out.extend_from_slice(&INTEGRITY_HEAD);
@@ -344,7 +340,7 @@ impl<'a> Reader<'a> {
 /// bytes failed to be a frame this build can trust.
 pub(crate) fn unframe(bytes: &[u8]) -> Result<&[u8], FormatError> {
     let mut reader = Reader { bytes, at: 0 };
-    reader.expect(&SELF_DESCRIBED, FrameDefect::SelfDescribedTag)?;
+    reader.expect(&SELF_DESCRIBED_HEAD, FrameDefect::SelfDescribedTag)?;
     reader.expect(&[FRAME_ARRAY], FrameDefect::FrameArray)?;
 
     let version_start = reader.at;

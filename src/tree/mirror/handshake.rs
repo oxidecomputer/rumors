@@ -73,11 +73,13 @@ const LEGACY_PREAMBLE_LEN: usize = INTENT_AT + INTENT_LEN;
 /// The V2 preamble's fixed prefix: the self-described CBOR tag, the
 /// four-item array head, and the text item `"rumors"`.
 ///
-/// A literal so validation is one comparison; `prefix_matches_the_writers`
-/// pins it against the head writers' own rendering.
-const V2_PREFIX: [u8; 11] = [
-    0xd9, 0xd9, 0xf7, 0x84, 0x66, b'r', b'u', b'm', b'o', b'r', b's',
-];
+/// One flat constant so validation is one comparison; the tag's bytes
+/// come from the shared spelling, and `prefix_matches_the_writers` pins
+/// the whole prefix against the head writers' own rendering.
+const V2_PREFIX: [u8; 11] = {
+    let [a, b, c] = cbor::SELF_DESCRIBED_HEAD;
+    [a, b, c, 0x84, 0x66, b'r', b'u', b'm', b'o', b'r', b's']
+};
 
 /// Length of the complete V2 preamble item.
 pub(crate) const V2_PREAMBLE_LEN: usize = V2_PREFIX.len() + 1 + (1 + NETWORK_LEN) + INTENT_LEN;
