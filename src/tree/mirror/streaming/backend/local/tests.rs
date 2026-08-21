@@ -186,3 +186,31 @@ proptest! {
         prop_assert_eq!(content(&ours), expected);
     }
 }
+
+/// One typed node's observations against its own erasure: the trait
+/// surfaces must agree exactly (hash, span, live-leaf count).
+fn erasure_preserves_observations<H: typed::height::Height>(node: &typed::Node<H>) {
+    use crate::tree::mirror::streaming::{ErasedNode, Node};
+    let erased = <Local as Backend>::erase(node.clone());
+    assert_eq!(Node::hash(node), ErasedNode::hash(&erased));
+    assert_eq!(Node::span(node), ErasedNode::span(&erased));
+    assert_eq!(Node::len(node), ErasedNode::len(&erased));
+}
+
+proptest! {
+    /// The erased view answers exactly as the typed node it was erased
+    /// from — hash, span, and live-leaf count — the equivalence the
+    /// erased surface's contract states, on raw leaves and the
+    /// assembled root alike.
+    #[test]
+    fn erased_observations_match_the_typed_node(paths in paths()) {
+        let run = leaves_at(paths);
+        for (_, leaf) in &run {
+            erasure_preserves_observations(leaf);
+        }
+        let assembled = assemble_local::<height::Root>(run);
+        for (_, node) in &assembled {
+            erasure_preserves_observations(node);
+        }
+    }
+}

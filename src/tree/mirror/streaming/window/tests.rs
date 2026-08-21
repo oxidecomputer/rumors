@@ -522,3 +522,17 @@ proptest! {
         }
     }
 }
+
+proptest! {
+    /// The stage-population boundaries are total and empty: depth zero
+    /// (below every stage) and an empty corpus populate no stage, at any
+    /// depth and any pairing.
+    #[test]
+    fn boundary_stages_are_empty(
+        n in 0u128..=u128::from(u64::MAX),
+        d in 0usize..=KEY_DEPTH,
+    ) {
+        prop_assert_eq!(stage_population(n, n * n, 0), 0);
+        prop_assert_eq!(stage_population(0, 0, d), 0);
+    }
+}
