@@ -56,13 +56,21 @@ pub(crate) const TAG_EMBEDDED_ITEM: u64 = 24;
 /// Tag number for self-described CBOR (RFC 8949 §3.4.6): CBOR's own
 /// magic, opening the V2 preamble and the stored bookmark.
 ///
-/// The production writers pin the tag's rendered bytes inside their prefix
-/// literals (the V2 preamble's prefix, the bookmark's opening bytes), each
-/// held to this constant by a committed pin test; the constant itself is
-/// consumed only by the test-gated capture renderer, so it carries the
-/// same gate.
+/// The production writers and validators spell the tag through its
+/// rendered head, [`SELF_DESCRIBED_HEAD`]; the number itself is consumed
+/// only by the test-gated capture renderer and by the pin test holding
+/// the rendered spelling to it, so it carries the same gate.
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) const TAG_SELF_DESCRIBED: u64 = 55799;
+
+/// The rendered head of the self-described tag: the one canonical byte
+/// spelling of CBOR's magic, read by every frame that opens with it —
+/// the V2 preamble's prefix and the bookmark's opening bytes.
+///
+/// A literal, so the openers can compare and assemble it in const
+/// context; the module's own pin test holds it to [`write_tag`]'s
+/// rendering of the tag number.
+pub(crate) const SELF_DESCRIBED_HEAD: [u8; 3] = [0xd9, 0xd9, 0xf7];
 
 /// Bytes the shortest-form head for `value` occupies, any major type.
 pub(crate) const fn head_len(value: u64) -> usize {

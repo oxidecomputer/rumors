@@ -74,6 +74,16 @@ fn truncated_heads_are_rejected() {
     });
 }
 
+/// The rendered self-described-tag spelling is exactly what the head
+/// writer emits for the tag number: the byte constant the production
+/// frames open with cannot drift from the writers.
+#[test]
+fn self_described_head_matches_the_writer() {
+    let mut rendered = Vec::new();
+    write_tag(&mut rendered, TAG_SELF_DESCRIBED);
+    assert_eq!(rendered, SELF_DESCRIBED_HEAD);
+}
+
 /// The async head reader agrees with the slice reader on every written
 /// head — the two ingress paths cannot drift — and reports a clean
 /// end-of-stream before the first byte as `None`.
