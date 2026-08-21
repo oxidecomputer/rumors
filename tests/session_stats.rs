@@ -23,7 +23,9 @@ use rumors::link::{Connector, Done, Link, LinkParts, MemoryLink};
 use rumors::{Gossiped, Led, Peer, Rumors, SessionStats};
 use tokio::io::AsyncWrite;
 
-use crate::common::wire::{LINK_BUF, assert_control_drained, block_on, bootstrap_fork_async};
+use crate::common::wire::{
+    LINK_BUF, assert_control_drained, batch_send, block_on, bootstrap_fork_async,
+};
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -31,7 +33,7 @@ use serde::de::DeserializeOwned;
 /// returning both sides' [`Gossiped`].
 async fn gossip_pair<T>(a: &Rumors<T>, b: &Rumors<T>) -> (Gossiped, Gossiped)
 where
-    T: Serialize + DeserializeOwned + Send + Sync + 'static,
+    T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
     let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(LINK_BUF);
     let (a_out, b_out) = tokio::join!(a.gossip(&mut a_link), b.gossip(&mut b_link));
@@ -53,7 +55,7 @@ fn catchup_gains_the_providers_count_without_disputes() {
         let provider: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
         // Fork while empty: the newcomer holds an identity but no content.
         let empty = bootstrap_fork_async(&provider).await;
-        provider.batch().send(1).send(2).send(3);
+        batch_send(&provider, [1, 2, 3]);
 
         let (p, e) = gossip_pair(&provider, &empty).await;
         assert_eq!(p.led, Led::Local, "a one-shot call is this side's trigger");
@@ -79,7 +81,7 @@ fn converged_replicas_report_zero_stats() {
     block_on(async {
         let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
         let b = bootstrap_fork_async(&a).await;
-        a.batch().send(7);
+        batch_send(&a, [7]);
         let _ = gossip_pair(&a, &b).await;
 
         let (a_g, b_g) = gossip_pair(&a, &b).await;
@@ -95,7 +97,7 @@ fn converged_replicas_report_zero_stats() {
 fn honored_redaction_counts_as_shed() {
     block_on(async {
         let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
-        a.batch().send(10).send(20);
+        batch_send(&a, [10, 20]);
         let b = bootstrap_fork_async(&a).await;
         let version = a
             .snapshot()
@@ -122,8 +124,8 @@ fn floor_window_reports_one_granted_scope() {
     block_on(async {
         let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
         let b = bootstrap_fork_async(&a).await;
-        a.batch().send(1);
-        b.batch().send(2);
+        batch_send(&a, [1]);
+        batch_send(&b, [2]);
 
         let (a_g, b_g) = gossip_pair(&a, &b).await;
         assert_eq!(a_g.stats.window_granted, 1);
@@ -138,7 +140,7 @@ fn gossip_when_reports_session_stats() {
     block_on(async {
         let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
         let b = bootstrap_fork_async(&a).await;
-        a.batch().send(42);
+        batch_send(&a, [42]);
 
         let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(LINK_BUF);
         let mut a_drive = a.gossip_when(a.changes(), &mut a_link);
@@ -260,16 +262,22 @@ fn byte_counters_match_the_transport_tally() {
         let a: Rumors<Vec<u8>> = Peer::seed().sync_window_floor().into_rumors();
         let b = bootstrap_fork_async(&a).await;
         {
-            let mut batch = a.batch();
-            for i in 0u8..20 {
-                batch.send(vec![i; 64]);
-            }
+            a.batch(|batch| {
+                for i in 0u8..20 {
+                    batch.send(vec![i; 64])?;
+                }
+                Ok::<(), rumors::EncodeError>(())
+            })
+            .expect("flat test payloads are within any depth limit");
         }
         {
-            let mut batch = b.batch();
-            for i in 0u8..20 {
-                batch.send(vec![0xa0 | (i & 0x0f); 96]);
-            }
+            b.batch(|batch| {
+                for i in 0u8..20 {
+                    batch.send(vec![0xa0 | (i & 0x0f); 96])?;
+                }
+                Ok::<(), rumors::EncodeError>(())
+            })
+            .expect("flat test payloads are within any depth limit");
         }
 
         let (a_raw, b_raw) = rumors::link::memory_with_capacity(LINK_BUF);
@@ -312,8 +320,8 @@ fn v1_sessions_report_zero_stats() {
             .protocol(Protocol::V1)
             .into_rumors();
         let b = bootstrap_fork_async_with_protocol(&a, Protocol::V1).await;
-        a.batch().send(5);
-        b.batch().send(6);
+        batch_send(&a, [5]);
+        batch_send(&b, [6]);
 
         let (a_g, b_g) = gossip_pair(&a, &b).await;
         assert_eq!(a_g.stats, SessionStats::default());
@@ -340,16 +348,24 @@ proptest! {
             let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
             let b = bootstrap_fork_async(&a).await;
             {
-                let mut batch = a.batch();
-                for send in &a_sends {
-                    batch.send(*send);
-                }
+                a
+                    .batch(|batch| {
+                        for send in &a_sends {
+                            batch.send(*send)?;
+                        }
+                        Ok::<(), rumors::EncodeError>(())
+                    })
+                    .expect("flat test payloads are within any depth limit");
             }
             {
-                let mut batch = b.batch();
-                for send in &b_sends {
-                    batch.send(*send);
-                }
+                b
+                    .batch(|batch| {
+                        for send in &b_sends {
+                            batch.send(*send)?;
+                        }
+                        Ok::<(), rumors::EncodeError>(())
+                    })
+                    .expect("flat test payloads are within any depth limit");
             }
             let a_before = a.snapshot().len() as u64;
             let b_before = b.snapshot().len() as u64;

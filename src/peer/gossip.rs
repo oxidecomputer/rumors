@@ -20,7 +20,8 @@ use crate::link::{
     Acceptor, Connector, Link, SessionState,
     erased::{DynAcceptor, DynConnector},
 };
-use crate::message::{Message, PayloadDeserializer};
+use crate::message::PayloadCodec;
+use crate::observe::{SessionHandle, SessionKind};
 #[cfg(any(test, feature = "protocol-v1"))]
 use crate::tree::mirror::{
     alternating::{self, local as alternating_local, remote as alternating_remote},
@@ -44,19 +45,29 @@ use crate::{
 
 use super::{Inner, Peer, bootstrap::Bootstrap};
 
+use serde::Serialize;
 use serde::de::DeserializeOwned;
-/// Magic bytes that open every `rumors` gossip session's preamble frame.
-pub const PROTOCOL_MAGIC: [u8; 6] = *b"RUMORS";
+/// Magic bytes that open a V1 gossip session's preamble frame.
+///
+/// A [`Protocol::V2`] session opens with the self-described CBOR tag
+/// instead, and carries its protocol magic in the preamble's opening
+/// array; this raw marker belongs to the V1 wire dialect alone, so it
+/// is exposed only with the `protocol-v1` feature. (A V2 endpoint
+/// still recognizes these bytes internally, to diagnose a legacy peer
+/// as the version mismatch it is.)
+#[cfg(feature = "protocol-v1")]
+pub const PROTOCOL_MAGIC: [u8; 6] = crate::tree::mirror::handshake::LEGACY_MAGIC;
 
-/// The one epilogue marker byte each side writes on the control stream after
-/// all of its session work, under [`Protocol::V2`].
+/// The epilogue marker each side writes on the control stream after all
+/// of its session work, under [`Protocol::V2`]: the CBOR text item `"."`.
 ///
 /// Reading the peer's marker is what lets `Ok` certify that the peer
-/// completed and committed too. Deliberately distinct from
-/// [`PROTOCOL_MAGIC`]'s first byte (`b'R'`): a desynchronized peer that
-/// starts its next preamble where an epilogue belongs is diagnosed as a
-/// protocol violation, not mistaken for completion.
-const EPILOGUE_MARKER: u8 = b'.';
+/// completed and committed too. As an item, the marker keeps the control
+/// stream a pure CBOR sequence; its leading byte is deliberately distinct
+/// from the self-described tag opening a V2 preamble, so a desynchronized
+/// peer that starts its next preamble where an epilogue belongs is
+/// diagnosed as a protocol violation, not mistaken for completion.
+const EPILOGUE_MARKER: [u8; 2] = [0x61, b'.'];
 
 /// A session's control read half with its concrete transport type erased.
 ///
@@ -215,7 +226,7 @@ impl<T> Peer<T, NoBookmark> {
         link: &'a mut Link<CR, CW, C, A>,
     ) -> BoxFuture<'a, Result<Option<Self>, Error>>
     where
-        T: DeserializeOwned + Send + Sync + 'static,
+        T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,
@@ -242,17 +253,20 @@ impl<T> Peer<T, NoBookmark> {
         link: DynLinkParts<'a>,
     ) -> BoxFuture<'a, Result<Option<Self>, Error>>
     where
-        T: DeserializeOwned + Send + Sync + 'static,
+        T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
     {
         Box::pin(async move {
             let (read, write, connector, acceptor, epoch) = link;
-            // The peer-to-be's payload deserializer, minted before it
-            // exists: the bootstrap session's ingress decodes through it,
-            // and the constructed peer inherits it.
-            let deserializer = Message::deserializer::<T>();
+            // The peer-to-be's payload codec, built before it exists:
+            // the bootstrap session's ingress decodes through it, and the
+            // constructed peer inherits it.
+            let codec = PayloadCodec::new::<T>(config.payload_depth_limit);
+            let observe = config
+                .observe
+                .begin(SessionKind::Bootstrap, config.protocol);
             // Magic/version/network/intent preamble first, before either protocol
             // is allowed to trust peer-declared frame lengths.
-            let mut staged = handshake::Staged::new();
+            let mut staged = handshake::Staged::new(config.protocol);
             let remote = handshake::preamble(
                 config.protocol,
                 Network::BOOTSTRAP,
@@ -260,6 +274,7 @@ impl<T> Peer<T, NoBookmark> {
                 &mut staged,
                 read,
                 write,
+                &observe,
             )
             .await
             .map_err(Error::from)?;
@@ -279,18 +294,19 @@ impl<T> Peer<T, NoBookmark> {
             let reconcile = match config.protocol {
                 Protocol::V2 => bootstrap_v2(
                     (read, write, connector, acceptor, epoch),
-                    deserializer,
+                    codec,
                     config.window,
                     config.run_budget,
                     both_bootstrapping,
+                    observe.clone(),
                 ),
                 #[cfg(any(test, feature = "protocol-v1"))]
-                Protocol::V1 => bootstrap_v1(read, write, deserializer, both_bootstrapping),
+                Protocol::V1 => bootstrap_v1(read, write, codec, both_bootstrapping),
             };
             let Some((root, mut read, mut write)) = reconcile.await? else {
                 return Ok(None);
             };
-            let party = party::receive(&mut read).await?;
+            let party = party::receive(config.protocol, &mut read, &observe).await?;
             // Our absorption of the received identity completes with the
             // in-memory `Peer` construction below, which cannot fail: certify
             // completion now, and require the provider's certificate so `Ok`
@@ -298,7 +314,7 @@ impl<T> Peer<T, NoBookmark> {
             // frozen.) On `Err` the received fork is dropped — its region
             // leaks, benignly, like any fork lost in flight.
             if config.protocol == Protocol::V2 {
-                epilogue(&mut read, &mut write).await?;
+                epilogue(&mut read, &mut write, &observe).await?;
             }
             let peer = Self {
                 network: remote.network,
@@ -310,7 +326,8 @@ impl<T> Peer<T, NoBookmark> {
                     tree: Tree::from_root(root),
                 }),
                 bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
-                deserializer,
+                codec,
+                observe: config.observe,
             };
             Ok(Some(peer))
         })
@@ -327,7 +344,8 @@ impl<T> Peer<T, NoBookmark> {
             window,
             run_budget,
             inner,
-            deserializer,
+            codec,
+            observe,
             ..
         } = self;
         let peer = Peer {
@@ -337,7 +355,8 @@ impl<T> Peer<T, NoBookmark> {
             run_budget,
             inner,
             bookmark: Arc::new(Mutex::new(Bookmarked::new(bookmark))),
-            deserializer,
+            codec,
+            observe,
         };
 
         // A pristine seed has no identity worth recording yet; persisting it
@@ -366,7 +385,8 @@ impl<T> Peer<T, NoBookmark> {
                     run_budget: peer.run_budget,
                     inner: peer.inner,
                     bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
-                    deserializer: peer.deserializer,
+                    codec: peer.codec,
+                    observe: peer.observe,
                 },
                 error,
             }),
@@ -403,7 +423,7 @@ impl<T, B: Persist> Peer<T, B> {
         C: Connector,
         A: Acceptor,
     {
-        let mut staged = handshake::Staged::new();
+        let mut staged = handshake::Staged::new(self.protocol);
         let parts = match erase(link) {
             Ok(parts) => parts,
             // The fail-fast happened before any wire traffic: nothing of
@@ -442,7 +462,7 @@ impl<T, B: Persist> Peer<T, B> {
         C: Connector,
         A: Acceptor,
     {
-        let mut staged = handshake::Staged::new();
+        let mut staged = handshake::Staged::new(self.protocol);
         let parts = erase(link).map_err(Error::widen)?;
         let (_intent, result) = self.gossip_inner(Intent::Remain, &mut staged, parts).await;
         // Un-poison on clean completion: the session's own `Ok` under V2 is
@@ -580,22 +600,37 @@ impl<T, B: Persist> Peer<T, B> {
         T: Send + Sync + 'static,
     {
         let (read, write, connector, acceptor, epoch) = link;
-        let deserializer = self.deserializer;
+        let codec = self.codec;
         // The session's stats recorder: under V2, both protocol
         // participants below share it (the walk counts disputes, gains,
         // sheds, and the window grant; the proxy's codec seam counts
         // bytes), and its snapshot rides the `Ok`. A session that ends
         // before reconciliation, and every V1 session, reports zeros.
         let stats = Recorder::default();
+        // The session's observation handle: inert unless a handler is
+        // attached and the dialect is observable, and shared, like the
+        // recorder, by every layer that moves a wire item.
+        let kind = match intent {
+            Intent::Remain => SessionKind::Gossip,
+            Intent::Retire => SessionKind::Retire,
+        };
+        let observe = self.observe.begin(kind, self.protocol);
         // Magic/version preamble: reject a non-rumors or incompatible peer
         // before the framing trusts any peer-supplied frame length.
-        let remote =
-            match handshake::preamble(self.protocol, self.network, intent, staged, read, write)
-                .await
-            {
-                Err(error) => return (Intent::Remain, Err(Error::from(error).widen())),
-                Ok(remote) => remote,
-            };
+        let remote = match handshake::preamble(
+            self.protocol,
+            self.network,
+            intent,
+            staged,
+            read,
+            write,
+            &observe,
+        )
+        .await
+        {
+            Err(error) => return (Intent::Remain, Err(Error::from(error).widen())),
+            Ok(remote) => remote,
+        };
         let peer_bootstrapping = remote.network.is_bootstrap();
         let self_retiring = intent == Intent::Retire;
         let peer_retiring = remote.intent == Intent::Retire;
@@ -605,7 +640,7 @@ impl<T, B: Persist> Peer<T, B> {
         // epilogue markers pair up with no session body between them.
         if self_retiring && peer_retiring {
             if self.protocol == Protocol::V2
-                && let Err(e) = epilogue(read, write).await
+                && let Err(e) = epilogue(read, write, &observe).await
             {
                 return (Intent::Remain, Err(e.widen()));
             }
@@ -621,7 +656,7 @@ impl<T, B: Persist> Peer<T, B> {
         // - The persisted record's own-party projection dominates the
         //   snapshot's own-party version, so every own event this session can
         //   transmit is durably accounted for before it crosses the wire, and
-        //   a crash-and-reclaim can never remint a causal coordinate some
+        //   a crash-and-reclaim can never reuse a causal coordinate some
         //   replica already holds. A `send` committed while the record's
         //   write is in flight lands *after* the snapshot: it stays out of
         //   this session and the next session's update covers it.
@@ -701,10 +736,11 @@ impl<T, B: Persist> Peer<T, B> {
         let reconciliation = Reconciliation {
             root: prior_tree.root,
             link: (read, write, connector, acceptor, epoch),
-            deserializer,
+            codec,
             window: self.window,
             run_budget: self.run_budget,
             stats: stats.clone(),
+            observe: observe.clone(),
             peer_bootstrapping,
             remote_network: remote.network,
             network: self.network,
@@ -732,7 +768,7 @@ impl<T, B: Persist> Peer<T, B> {
             // The preamble rejects a peer that claims to both bootstrap and
             // retire, and we bailed early if we were retiring too, so no
             // party of ours is in flight here: `guarded.party` is `None`.
-            absorbed = match party::receive(read).await {
+            absorbed = match party::receive(self.protocol, read, &observe).await {
                 Err(e) => return (Intent::Remain, Err(e.widen())),
                 Ok(donated_party) => Some(donated_party),
             };
@@ -753,7 +789,7 @@ impl<T, B: Persist> Peer<T, B> {
             // the peer may hold the party even if the send errors, so it can
             // never be safely re-joined.
             let donated = guarded.party.take().expect("is_some");
-            match party::send(donated, write).await {
+            match party::send(self.protocol, donated, write, &observe).await {
                 Err(e) => {
                     // A retiring donation in limbo must be assumed received:
                     // report `Intent::Retire` alongside the error so that the
@@ -864,7 +900,7 @@ impl<T, B: Persist> Peer<T, B> {
         // crossed the wire but whose epilogue failed is post-hand-off, and
         // mapping it back to `Intent::Remain` would duplicate the identity.
         if self.protocol == Protocol::V2
-            && let Err(e) = epilogue(read, write).await
+            && let Err(e) = epilogue(read, write, &observe).await
         {
             return (outcome, Err(e.widen()));
         }
@@ -905,7 +941,7 @@ impl<T, B: Bookmark> Peer<T, B> {
             acceptor: &mut link.acceptor as DynAcceptor<'a>,
             state: &mut link.session,
             when: Box::pin(when),
-            staged: handshake::Staged::new(),
+            staged: handshake::Staged::new(self.protocol),
             converged: None,
             done: false,
         };
@@ -1010,7 +1046,7 @@ impl<T, B: Bookmark> Peer<T, B> {
                             // fresh staging buffer (this preamble is
                             // consumed), and the new suppression token.
                             drive.state.finish();
-                            drive.staged = handshake::Staged::new();
+                            drive.staged = handshake::Staged::new(drive.peer.protocol);
                             drive.converged = Some(converged.clone());
                             Some((
                                 Ok(Gossiped {
@@ -1047,14 +1083,23 @@ struct Reconciliation<'a> {
     root: tree::Root,
     /// The session's erased link.
     link: DynLinkParts<'a>,
-    /// The peer's payload deserializer, applied at wire ingress.
-    deserializer: PayloadDeserializer,
+    /// The peer's payload codec: the payload boundary in both directions.
+    ///
+    /// Supplied leaves decode through it at wire ingress, and egress
+    /// replays only bytes it previously admitted (at send, or at an
+    /// earlier session's ingress). Its depth limit rides the greeting,
+    /// where the counterparty's must match.
+    codec: PayloadCodec,
     /// The window policy the V2 session negotiates under.
     window: WindowConfig,
     /// The V2 supply-run sizing budget; its byte target rides the greeting.
     run_budget: RunBudget,
     /// The session's stats recorder, shared by both V2 participants.
     stats: Recorder,
+    /// The session's observation handle: inert unless a handler is
+    /// attached and the dialect is observable, and shared, like the
+    /// recorder, by every layer that moves a wire item.
+    observe: SessionHandle,
     /// Whether the remote's preamble declared it a bootstrap claimant.
     peer_bootstrapping: bool,
     /// The network the remote's preamble declared.
@@ -1084,10 +1129,11 @@ impl<'a> Reconciliation<'a> {
             let Self {
                 root,
                 link,
-                deserializer,
+                codec,
                 window,
                 run_budget,
                 stats,
+                observe,
                 peer_bootstrapping,
                 remote_network,
                 network,
@@ -1099,9 +1145,10 @@ impl<'a> Reconciliation<'a> {
                 .target_message_size(run_budget.bytes() as u64)
                 .stats(stats.clone());
             let carrier = Link::for_session(read, write, connector, acceptor, epoch);
-            let proxy = streaming_remote::Handshaking::start(Local, carrier, deserializer)
+            let proxy = streaming_remote::Handshaking::start(Local, carrier, codec)
                 .window(window)
-                .stats(stats);
+                .stats(stats)
+                .observe(observe);
             let handshaken = streaming::handshake(local, proxy)
                 .await
                 .map_err(streaming_error)?;
@@ -1134,7 +1181,7 @@ impl<'a> Reconciliation<'a> {
             let Self {
                 root,
                 link,
-                deserializer,
+                codec,
                 peer_bootstrapping,
                 remote_network,
                 network,
@@ -1146,7 +1193,7 @@ impl<'a> Reconciliation<'a> {
             let proxy = alternating_remote::Exchange::start(
                 FrameRead::new(read),
                 FrameWrite::new(write),
-                deserializer,
+                codec,
             );
             let handshaken = alternating::handshake(local, proxy)
                 .await
@@ -1184,10 +1231,11 @@ impl<'a> Reconciliation<'a> {
 #[allow(clippy::type_complexity)]
 fn bootstrap_v2<'a>(
     link: DynLinkParts<'a>,
-    deserializer: PayloadDeserializer,
+    codec: PayloadCodec,
     window: WindowConfig,
     run_budget: RunBudget,
     both_bootstrapping: bool,
+    observe: SessionHandle,
 ) -> BoxFuture<'a, Result<Option<(tree::Root, DynRead<'a>, DynWrite<'a>)>, Error>> {
     Box::pin(async move {
         let (read, write, connector, acceptor, epoch) = link;
@@ -1202,8 +1250,9 @@ fn bootstrap_v2<'a>(
             .window(window)
             .target_message_size(run_budget.bytes() as u64);
         let carrier = Link::for_session(read, write, connector, acceptor, epoch);
-        let proxy =
-            streaming_remote::Handshaking::start(Local, carrier, deserializer).window(window);
+        let proxy = streaming_remote::Handshaking::start(Local, carrier, codec)
+            .window(window)
+            .observe(observe.clone());
         let handshaken = streaming::handshake(local, proxy)
             .await
             .map_err(streaming_error)?;
@@ -1220,7 +1269,7 @@ fn bootstrap_v2<'a>(
         let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
         let (root, (mut read, mut write)) = descent.await.map_err(streaming_error)?;
         if both_bootstrapping {
-            epilogue(&mut read, &mut write).await?;
+            epilogue(&mut read, &mut write, &observe).await?;
             return Ok(None);
         }
         Ok(Some((root.into(), read, write)))
@@ -1240,7 +1289,7 @@ fn bootstrap_v2<'a>(
 fn bootstrap_v1<'a>(
     read: DynRead<'a>,
     write: DynWrite<'a>,
-    deserializer: PayloadDeserializer,
+    codec: PayloadCodec,
     both_bootstrapping: bool,
 ) -> BoxFuture<'a, Result<Option<(tree::Root, DynRead<'a>, DynWrite<'a>)>, Error>> {
     Box::pin(async move {
@@ -1248,7 +1297,7 @@ fn bootstrap_v1<'a>(
         let proxy = alternating_remote::Exchange::start(
             FrameRead::new(read),
             FrameWrite::new(write),
-            deserializer,
+            codec,
         );
         let handshaken = alternating::handshake(local, proxy)
             .await
@@ -1318,23 +1367,29 @@ fn bootstrap_claimant_is_newborn(claimed: &Version) -> Result<(), Error> {
 async fn epilogue(
     read: &mut (dyn AsyncRead + Unpin + Send + '_),
     write: &mut (dyn AsyncWrite + Unpin + Send + '_),
+    observe: &SessionHandle,
 ) -> Result<(), Error> {
     let send = async {
-        write.write_all(&[EPILOGUE_MARKER]).await?;
-        write.flush().await
+        write.write_all(&EPILOGUE_MARKER).await?;
+        write.flush().await?;
+        observe.control_sent(&EPILOGUE_MARKER);
+        Ok(())
     };
     let receive = async {
-        let mut marker = [0u8; 1];
+        let mut marker = [0u8; EPILOGUE_MARKER.len()];
         read.read_exact(&mut marker).await?;
-        if marker[0] != EPILOGUE_MARKER {
+        if marker != EPILOGUE_MARKER {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 format!(
-                    "peer wrote {:#04x} where the epilogue marker belongs",
-                    marker[0]
+                    "peer wrote {:#04x} {:#04x} where the epilogue marker belongs",
+                    marker[0], marker[1]
                 ),
             ));
         }
+        // The validated marker is byte-equal to the local constant, so
+        // the constant is the received item.
+        observe.control_received(&EPILOGUE_MARKER);
         Ok(())
     };
     futures_util::future::try_join(send, receive)
@@ -1442,6 +1497,17 @@ fn streaming_error(
         streaming_remote::Error<std::convert::Infallible>,
     >,
 ) -> Error {
+    // The depth-limit mismatch is a configuration diagnosis, not a
+    // reconciliation failure: surface it as its own top-level variant.
+    // Only the proxy (the server side of every production handshake)
+    // detects it; the materialized participant has no wire.
+    if let tree::mirror::Error::Server(streaming_remote::Error::PayloadDepthMismatch {
+        local,
+        remote,
+    }) = error
+    {
+        return Error::PayloadDepthMismatch { local, remote };
+    }
     Error::Mirror(error)
 }
 

@@ -1,6 +1,6 @@
 //! Source-error propagation across every backend operation reachable by the adapter.
 
-use crate::message::Message;
+use crate::message::{PayloadCodec, PayloadDepthLimit};
 use std::convert::Infallible;
 
 use futures::{StreamExt, stream};
@@ -136,7 +136,7 @@ where
                     unbounded(),
                     Scope::new(parent.erase(), &[]),
                     &mut frames,
-                    Message::deserializer::<u64>(),
+                    PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
                 ))
                 .err()
                 .expect("the injected decoding failure was not reached");

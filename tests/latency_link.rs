@@ -18,6 +18,19 @@ use std::time::Duration;
 
 use rumors::{Peer, Protocol, Rumors};
 
+/// Commit `values` to `rumors` as one batch; flat `u64` payloads are
+/// within any depth limit, so admission cannot fail here.
+fn batch_send(rumors: &Rumors<u64>, values: impl IntoIterator<Item = u64>) {
+    rumors
+        .batch(|batch| {
+            for value in values {
+                batch.send(value)?;
+            }
+            Ok::<(), rumors::EncodeError>(())
+        })
+        .expect("flat test payloads are within any depth limit");
+}
+
 /// Small per-stream window so the suite's independence probe fills it
 /// quickly: coupling hidden behind buffering must reveal itself.
 const CAPACITY: usize = 64;
@@ -50,7 +63,7 @@ const ROOMY_CAPACITY: usize = 8 * 1024 * 1024;
 /// side, so a session pays at least one request/response of wire stall.
 fn diverged_pair() -> (Rumors<u64>, Rumors<u64>) {
     let left = Peer::seed().sync_window_floor().into_rumors();
-    left.batch().send(0);
+    batch_send(&left, [0]);
 
     let right = pollster::block_on(async {
         let (mut provider, mut newcomer) = rumors::link::memory_with_capacity(ROOMY_CAPACITY);
@@ -67,16 +80,8 @@ fn diverged_pair() -> (Rumors<u64>, Rumors<u64>) {
             .into_rumors()
     });
 
-    let mut batch = left.batch();
-    (1..=64u64).for_each(|n| {
-        batch.send(n);
-    });
-    drop(batch);
-    let mut batch = right.batch();
-    (65..=128u64).for_each(|n| {
-        batch.send(n);
-    });
-    drop(batch);
+    batch_send(&left, 1..=64u64);
+    batch_send(&right, 65..=128u64);
     (left, right)
 }
 

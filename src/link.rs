@@ -73,6 +73,10 @@
 //! side, so an
 //! [`Acceptor`] may yield streams in any order and needs no routing logic.
 //!
+//! Reads are exact and item-granular; on an unbuffered transport, wrap the
+//! read half in `tokio::io::BufReader` — caller-owned buffering outlives a
+//! session and is safe across session boundaries.
+//!
 //! ## Pooled flow control
 //!
 //! Some transports do not give every stream its own private buffer.

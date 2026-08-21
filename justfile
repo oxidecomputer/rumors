@@ -141,12 +141,18 @@ clippy:
 # features with warnings not denied, so without this leg that surface never
 # meets -D warnings anywhere). Each package is linted alone so workspace
 # feature unification cannot re-light the gated features.
+#
+# The bare-lib rumors line lints the shipped configuration on its own: an
+# invocation that also builds test targets compiles the lib with
+# cfg(test)-gated modules alive, so an item dead only in the default-feature
+# lib — the artifact users actually build — never surfaces there.
 
 # Lint the default-feature library and test builds, warnings denied.
 clippy-default:
     cargo clippy -p suanpan --lib --tests -- -D warnings
     cargo clippy -p before --lib --tests -- -D warnings
     cargo clippy -p rumors --lib --tests -- -D warnings
+    cargo clippy -p rumors --lib -- -D warnings
 
 # Format the whole workspace.
 fmt:
@@ -193,6 +199,17 @@ testdoc:
 workflowlint:
     ./tools/workflowlint --self-test
     ./tools/workflowlint .github
+
+# tools/digestshare reads the committed V2 wire captures and totals digest
+# vs non-digest bytes. As a gate leg it checks the renderer-vocabulary
+# contract, not a threshold: the tool exits nonzero when the corpus's
+# byte-count headers or digest annotations stop matching its patterns (the
+# renderer's vocabulary moved out from under the meter), never on the
+# measured ratio. Build-free, so it rides the lint tier.
+
+# Check the wire-capture renderer vocabulary via the digest-share meter.
+digestshare:
+    ./tools/digestshare
 
 # tools/readme mirrors each crate's crate-level rustdoc into its README via
 # cargo-rdme, then strips the intra-doc links cargo-rdme can't resolve (the
@@ -375,7 +392,7 @@ fuzz-build:
 gate: gate-lints gate-streams
 
 # The build-free tier, sequential: a lint failure should cost seconds.
-gate-lints: fmt-check doclint testdoc workflowlint mutants-list readme-check
+gate-lints: fmt-check doclint testdoc workflowlint digestshare mutants-list readme-check
 
 # Each stream's output is captured rather than interleaved, and a failing
 # stream's log is replayed in full at the end, so a parallel failure reads
@@ -973,7 +990,7 @@ worst-cases-pin:
 # tripwire, so the judge's red path rides every sweep.
 
 # Build everything (no fuzz run): the no-rot sweep as CI runs it.
-ci: fmt-check doclint testdoc workflowlint readme-check fuelscape-claims mutants-list clippy clippy-default features wasm-check docs docs-internal test-all citecheck doctest bench-build fuzz-build fuelscape-verify viz
+ci: fmt-check doclint testdoc workflowlint digestshare readme-check fuelscape-claims mutants-list clippy clippy-default features wasm-check docs docs-internal test-all citecheck doctest bench-build fuzz-build fuelscape-verify viz
 
 # Everything: the no-rot sweep, plus the fuzz smoke, the formal tier, and the bench judge.
 all: ci (fuzz fuzz_smoke_secs) lean eventdag muxprobe bench-judge bench-judge-tripwire

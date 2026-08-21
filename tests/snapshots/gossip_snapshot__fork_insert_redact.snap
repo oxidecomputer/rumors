@@ -3,82 +3,112 @@ source: tests/gossip_snapshot.rs
 expression: "capture_gossip(a, b)"
 ---
 direction A -> B
-preamble: 25 bytes
-  0000: 52 55 4d 4f 52 53 00 02
-  0008: 8c 18 96 68 c9 e4 83 72
-  0010: 37 bf 31 e0 2d 7f 6b 70
-  0018: 00
-version: (2, 2, 0)
-greeting words: set len 2, version-size bound 2, message-size target 1638912
-version frame: 30 bytes
-  0000: 00 00 00 1a 02 00 00 00
-  0008: 00 00 00 00 02 00 00 00
-  0010: 00 00 00 00 00 02 19 00
-  0018: 00 00 00 00 4b 24
-listing: 2 child(ren)
-  child 0x64: bb28d1c9e9fa40672e21164802bc8e7a23eb03126468e82c
-  child 0x7c: f53f9477309788c6ed8834008f394a3be5f212959fac55fa
-listing frame: 54 bytes
-  0000: 00 00 00 32 64 bb 28 d1
-  0008: c9 e9 fa 40 67 2e 21 16
-  0010: 48 02 bc 8e 7a 23 eb 03
-  0018: 12 64 68 e8 2c 7c f5 3f
-  0020: 94 77 30 97 88 c6 ed 88
-  0028: 34 00 8f 39 4a 3b e5 f2
-  0030: 12 95 9f ac 55 fa
-Responder stream 0 (height 31), epoch 0
-  frame 0: Supply(Continue)
-    supply run: 1 record(s)
-      record 0: version (2, 1, 0), message 1 byte(s)
-    0000: 66 00 00 00 08 00 00 00
-    0008: 04 42 49 50 03
-  frame 1: QueryEmpty(Continue)
-    0000: 22
-  frame 2: QueryEmpty(End)
-    0000: 33
-  frame 3: End(Stream)
-    0000: 99
-trailing frame: 1 bytes
-  0000: 2e
+role: Responder
+control item 0 (30 bytes) / preamble /
+  55799( / self-described CBOR /
+    [
+      "rumors"
+      2
+      h'8c189668c9e4837237bf31e02d7f6b70'
+      0
+    ]
+  )
+control item 1 (160 bytes) / greeting /
+  24(<< / embedded item, 156 bytes /
+    {
+      "listing" =>
+        { / listing: 2 child(ren) /
+          0x64 => h'bb28d1c9e9fa40672e21164802bc8e7a23eb03126468e82c' / digest /
+          0x7c => h'f53f9477309788c6ed8834008f394a3be5f212959fac55fa' / digest /
+        }
+      "set_len" => 2
+      "version" =>
+        53846(h'4b24') / causal version, event tree: (2, 2, 0) /
+      "max_version_bytes" => 2
+      "payload_depth_limit" => 256
+      "target_message_size" => 1830400
+    }
+  >>)
+control item 2 (2 bytes) / epilogue /
+  "."
+Responder stream 0 (height 31), epoch 0, 27 wire bytes
+  frame 0 (16 bytes)
+    [
+      102 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 10 bytes /
+        63(<< / record, 2 item(s), 7 bytes /
+          53846(h'4950') / causal version, event tree: (2, 1, 0) /
+          3
+        >>)
+      >>)
+    ]
+  frame 1 (3 bytes)
+    [
+      34 / QueryEmpty(Continue) /
+    ]
+  frame 2 (3 bytes)
+    [
+      51 / QueryEmpty(End) /
+    ]
+  frame 3 (3 bytes)
+    [
+      153 / End(Stream) /
+    ]
 
 direction B -> A
-preamble: 25 bytes
-  0000: 52 55 4d 4f 52 53 00 02
-  0008: 8c 18 96 68 c9 e4 83 72
-  0010: 37 bf 31 e0 2d 7f 6b 70
-  0018: 00
-version: (2, 0, 2)
-greeting words: set len 2, version-size bound 2, message-size target 1638912
-version frame: 30 bytes
-  0000: 00 00 00 1a 02 00 00 00
-  0008: 00 00 00 00 02 00 00 00
-  0010: 00 00 00 00 00 02 19 00
-  0018: 00 00 00 00 5c b0
-listing: 2 child(ren)
-  child 0x9a: cca7fd1fe957c5267ce159c8f3fe95bc4f496f6b2fb5fa39
-  child 0xe7: c9b78024d3d0ad1a5523b4ac969d289fee0651305c416d72
-listing frame: 54 bytes
-  0000: 00 00 00 32 9a cc a7 fd
-  0008: 1f e9 57 c5 26 7c e1 59
-  0010: c8 f3 fe 95 bc 4f 49 6f
-  0018: 6b 2f b5 fa 39 e7 c9 b7
-  0020: 80 24 d3 d0 ad 1a 55 23
-  0028: b4 ac 96 9d 28 9f ee 06
-  0030: 51 30 5c 41 6d 72
-Initiator stream 0 (height 31), epoch 0
-  frame 0: Supply(End)
-    supply run: 1 record(s)
-      record 0: version (2, 0, 1), message 1 byte(s)
-    0000: 77 00 00 00 08 00 00 00
-    0008: 04 42 5d c0 04
-  frame 1: End(Stream)
-    0000: 99
-Initiator stream 1 (height 30), epoch 0
-  frame 0: End(Reply)
-    0000: 89
-  frame 1: End(Reply)
-    0000: 89
-  frame 2: End(Stream)
-    0000: 9a
-trailing frame: 1 bytes
-  0000: 2e
+role: Initiator
+control item 0 (30 bytes) / preamble /
+  55799( / self-described CBOR /
+    [
+      "rumors"
+      2
+      h'8c189668c9e4837237bf31e02d7f6b70'
+      0
+    ]
+  )
+control item 1 (160 bytes) / greeting /
+  24(<< / embedded item, 156 bytes /
+    {
+      "listing" =>
+        { / listing: 2 child(ren) /
+          0x9a => h'cca7fd1fe957c5267ce159c8f3fe95bc4f496f6b2fb5fa39' / digest /
+          0xe7 => h'c9b78024d3d0ad1a5523b4ac969d289fee0651305c416d72' / digest /
+        }
+      "set_len" => 2
+      "version" =>
+        53846(h'5cb0') / causal version, event tree: (2, 0, 2) /
+      "max_version_bytes" => 2
+      "payload_depth_limit" => 256
+      "target_message_size" => 1830400
+    }
+  >>)
+control item 2 (2 bytes) / epilogue /
+  "."
+Initiator stream 0 (height 31), epoch 0, 21 wire bytes
+  frame 0 (16 bytes)
+    [
+      119 / Supply(End) /
+      63(<< / supply run, 1 record(s), 10 bytes /
+        63(<< / record, 2 item(s), 7 bytes /
+          53846(h'5dc0') / causal version, event tree: (2, 0, 1) /
+          4
+        >>)
+      >>)
+    ]
+  frame 1 (3 bytes)
+    [
+      153 / End(Stream) /
+    ]
+Initiator stream 1 (height 30), epoch 0, 11 wire bytes
+  frame 0 (3 bytes)
+    [
+      137 / End(Reply) /
+    ]
+  frame 1 (3 bytes)
+    [
+      137 / End(Reply) /
+    ]
+  frame 2 (3 bytes)
+    [
+      154 / End(Stream) /
+    ]

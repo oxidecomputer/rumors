@@ -11,7 +11,9 @@ use tokio::sync::{Mutex, watch};
 
 use crate::bookmark::{BookmarkError, Bookmarked, NoBookmark};
 use crate::link::{Acceptor, Connector, Link};
-use crate::message::{Message, PayloadDeserializer};
+pub use crate::message::{DEFAULT_PAYLOAD_DEPTH_LIMIT, PayloadDepthLimit};
+use crate::message::{EncodeError, PayloadCodec};
+use crate::observe::{Attachment, Observer};
 use crate::tree::Tree;
 pub use crate::tree::mirror::streaming::remote::DEFAULT_TARGET_MESSAGE_SIZE;
 use crate::tree::mirror::streaming::remote::RunBudget;
@@ -28,7 +30,9 @@ mod bootstrap;
 mod gossip;
 
 pub use bootstrap::{BookmarkedBootstrap, Bootstrap, Joined};
-pub use gossip::{Gossiped, Led, PROTOCOL_MAGIC, Retire, Unbookmarked};
+#[cfg(feature = "protocol-v1")]
+pub use gossip::PROTOCOL_MAGIC;
+pub use gossip::{Gossiped, Led, Retire, Unbookmarked};
 
 /// The start and end of a [`Rumors`]'s lifecycle.
 ///
@@ -158,10 +162,14 @@ pub struct Peer<T, B: BookmarkError = NoBookmark> {
     /// Separate from `inner` because persisting is `async` and the record is
     /// `!Clone`; see [`Bookmarked`].
     pub(crate) bookmark: Arc<Mutex<Bookmarked<B>>>,
-    /// The payload deserializer minted at construction: the typed ingress
-    /// every gossip session's supplied leaf records decode through (see
-    /// [`Message::deserializer`](crate::message::Message::deserializer)).
-    pub(crate) deserializer: PayloadDeserializer,
+    /// The payload codec built at construction: the typed ingress every
+    /// gossip session's supplied leaf records decode through.
+    ///
+    /// Carries the [`payload_depth_limit`](Self::payload_depth_limit)
+    /// beside the codec's fn pointers (see [`PayloadCodec`]).
+    pub(crate) codec: PayloadCodec,
+    /// The wire-observation handler selected by [`observe`](Self::observe).
+    pub(crate) observe: Attachment,
 }
 
 /// The replica's shared mutable state, behind the `watch` channel every
@@ -189,16 +197,17 @@ impl<T, B: BookmarkError> std::fmt::Debug for Peer<T, B> {
     }
 }
 
-impl<T: DeserializeOwned + Send + Sync + 'static> Peer<T, NoBookmark> {
+impl<T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<T, NoBookmark> {
     /// Create the distinguished seed rumor set: the single root from which
     /// every other participant must [`bootstrap`](Peer::bootstrap).
     ///
     /// Call this exactly once per universe of cooperating peers.
     ///
-    /// The payload type's [`DeserializeOwned`] lives here, at
-    /// construction: the peer mints its payload deserializer once, and
-    /// every gossip session decodes through it, so the gossip entry
-    /// points themselves carry no serde bounds.
+    /// The payload type's serde obligations — [`Serialize`] and
+    /// [`DeserializeOwned`] both — live here, at construction: the peer
+    /// builds its payload codec once, every send serializes through it,
+    /// and every gossip session decodes through it, so neither the send
+    /// paths nor the gossip entry points carry serde bounds of their own.
     pub fn seed() -> Self {
         Self::seed_rng(&mut OsRng)
     }
@@ -217,7 +226,8 @@ impl<T: DeserializeOwned + Send + Sync + 'static> Peer<T, NoBookmark> {
                 tree: Tree::new(),
             }),
             bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
-            deserializer: Message::deserializer::<T>(),
+            codec: PayloadCodec::new::<T>(PayloadDepthLimit::default()),
+            observe: Attachment::default(),
         }
     }
 }
@@ -400,7 +410,7 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// pinned: each in-flight dispute (one disputed subtree, the unit
     /// the table below counts as a disputed scope) charges the budget
     /// a 5431 B envelope (recomputed exactly by test), and each disputed
-    /// message costs 35 B of wire overhead on top of its record
+    /// message costs 43 B of wire overhead on top of its record
     /// (calibrated by deterministic byte counts,
     /// `tests/dispute_wire.rs`).
     ///
@@ -408,50 +418,50 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// trade. A session's worst-case slowdown, relative to a session
     /// limited only by wire time, is about
     ///
-    /// > `slowdown ≈ max(1, BDP × 5431 / (budget × (35 + m)))`
+    /// > `slowdown ≈ max(1, BDP × 5431 / (budget × (43 + m)))`
     ///
     /// Read it as a ratio of two message counts: how many disputed
-    /// messages the wire holds, `BDP / (35 + m)`, against how many the
+    /// messages the wire holds, `BDP / (43 + m)`, against how many the
     /// budget keeps in flight, `budget / 5431`. Slowdown 1 is
     /// wire-time-optimal: bandwidth-bound stays bandwidth-bound.
     ///
     /// The estimate has a stated accuracy band. It overstates the
     /// window by roughly `F / budget`, where `F` is the corpus-fixed
     /// component of the real charge, so the slowdown it returns runs
-    /// ~2.3× low at a 10 MB budget, ~1.6× low at 16 MiB, and within a
+    /// ~2–3× low at ~10 MB budgets, ~1.4× low at ~26 MB, and within a
     /// few percent past ~300 MB. It also prices no population ceiling,
     /// so where windows reach corpus scale, the exact solve's numbers
     /// (the table below, and the pinned crossover) replace it.
     /// Measured: sessions whose serialized one-way trips are counted
-    /// exactly on a virtual clock, at 10–31 MB budgets on the design
-    /// corpus, ran 1.3–1.65× the form's figure
+    /// exactly on a virtual clock, at 8–26 MB budgets on the minimal
+    /// and design corpora, ran 1.35–1.96× the form's figure
     /// (`tests/tradeoff_probe.rs`).
     ///
     /// The ballpark answers, at the specification BDP:
     ///
     /// - **Is the default enough?** For any corpus whose mean encoded
-    ///   record size is at least 60 B, yes: the default imposes no
+    ///   record size is at least 52 B, yes: the default imposes no
     ///   window-induced serialization at all, because the in-flight
     ///   disputes' own transfer time covers the round trip. That
-    ///   60 B crossover comes from the exact solve, evaluated
+    ///   52 B crossover comes from the exact solve, evaluated
     ///   self-consistently (each record size at its own BDP-scale
     ///   corpus: the specification BDP in `m`-sized records, per side)
     ///   and pinned by `default_crossover_matches_the_solve`;
-    ///   the closed form's safe-side estimate is ~91 B.
+    ///   the closed form's safe-side estimate is ~84 B.
     /// - **What budget removes the wait entirely?** About
-    ///   `BDP × 5431 / (35 + m)` bytes. The design record (`m = 172`)
-    ///   needs ~330 MB, where the solve agrees with the form to three
+    ///   `BDP × 5431 / (43 + m)` bytes. The design record (`m = 172`)
+    ///   needs ~316 MB, where the solve agrees with the form to three
     ///   digits (this is the design point the envelope is pinned at).
-    ///   A minimal `u64`-record corpus (9 B encoded) needs ~1.5 GB by
-    ///   the form, ~1.1 GB by the solve: population caps thin the deep
+    ///   A minimal `u64`-record corpus (9 B encoded) needs ~1.3 GB by
+    ///   the form, ~0.8 GB by the solve: population caps thin the deep
     ///   charge at BDP-scale corpora, so the estimate is conservative
     ///   there.
     /// - **What does a smaller budget cost?** Smooth latency, never
     ///   memory, and only on the interleaved dispute walk (bulk supply
     ///   runs stream outside the window). `u64` records at the default
-    ///   run at ~4.3× wire time for a BDP-scale corpus, and the factor
+    ///   run at ~2.6× wire time for a BDP-scale corpus, and the factor
     ///   grows slowly with set size as the derived window narrows:
-    ///   ~13.6× at 10⁷ messages, ~25.3× at 10¹⁰ (all derived from the
+    ///   ~11.5× at 10⁷ messages, ~21.4× at 10¹⁰ (all derived from the
     ///   solve). `tests/window_operator.rs` holds the wave model
     ///   against measured sessions on a bandwidth-limited link.
     ///
@@ -463,7 +473,7 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// session of 62500-message corpora a side; larger corpora derive
     /// narrower windows. Each cell then applies the measured wave form
     /// `slowdown = max(1, BDP_messages / K)`, with
-    /// `BDP_messages = BDP / (35 + m)` evaluated at the specification
+    /// `BDP_messages = BDP / (43 + m)` evaluated at the specification
     /// BDP of 12.5 MB (the wave form is measured:
     /// `tests/window_knee.rs`, `tests/window_operator.rs`). One
     /// caution when reading it: in rows whose window reaches the
@@ -493,6 +503,29 @@ impl<T, B: BookmarkError> Peer<T, B> {
     #[must_use]
     pub fn sync_window_floor(mut self) -> Self {
         self.window = WindowConfig::FLOOR;
+        self
+    }
+
+    /// Attach a wire-observation handler to this peer's future sessions.
+    ///
+    /// For every session the peer enters — gossip, bootstrap serving,
+    /// and retirement alike — the handler is asked for a per-session
+    /// observer, which sees each directed stream's protocol messages
+    /// as raw CBOR items. The full contract (the three handler levels,
+    /// the ordering and back-pressure rules, what exactly is observed)
+    /// is the [`observe`](crate::observe) module's.
+    ///
+    /// Observation never changes the wire: an observed session's bytes
+    /// are identical to an unobserved one's. Like
+    /// [`protocol`](Self::protocol), the choice follows the peer
+    /// through [`into_rumors`](Self::into_rumors), cloning and
+    /// reunion, bookmarking, and retirement; every [`Rumors`] clone
+    /// shares the one handler. To observe a joining peer's own
+    /// bootstrap session, attach on the builder instead
+    /// ([`Bootstrap::observe`]).
+    #[must_use]
+    pub fn observe(mut self, observer: Arc<dyn Observer>) -> Self {
+        self.observe.attach(observer);
         self
     }
 
@@ -527,9 +560,9 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// the wire's maximally disputed reply (the decode side's documented
     /// per-reply memory unit), so default batching never raises the wire's
     /// established memory ceiling. Any value is safe: zero degrades to one
-    /// leaf per message, and values above the wire's framing ceiling
+    /// leaf per message, and values above the wire's run byte cap
     /// (`u32::MAX` less the frame envelope) saturate to it, so a run built
-    /// within the target always fits its length header.
+    /// within the target always fits the cap.
     ///
     /// Like [`protocol`](Self::protocol), the choice follows the peer
     /// through [`into_rumors`](Self::into_rumors), cloning and reunion,
@@ -539,6 +572,72 @@ impl<T, B: BookmarkError> Peer<T, B> {
     #[must_use]
     pub fn target_message_size(mut self, bytes: usize) -> Self {
         self.run_budget = RunBudget::from_bytes(bytes);
+        self
+    }
+
+    /// Bound the nesting depth of the message payloads this peer sends
+    /// and accepts.
+    ///
+    /// A payload value is accepted only if decoding its CBOR encoding as
+    /// the peer's payload type recurses at most `limit` steps. What
+    /// consumes one step is the decode engine's own accounting for that
+    /// type — arrays, maps, and tags each do, and so can type-driven
+    /// wrappers such as an enum's variant scope — so the bound is
+    /// engine-defined, not a structural count of the bytes. The default,
+    /// [`DEFAULT_PAYLOAD_DEPTH_LIMIT`], is 256 steps: exactly the bound
+    /// the decoder applies by default, so a fleet at the default sees no
+    /// acceptance change on existing content.
+    ///
+    /// Three points enforce the one bound:
+    ///
+    /// - **Send** ([`Rumors::send`](crate::Rumors::send),
+    ///   [`Batch::send`](crate::Batch::send)): admission runs the exact
+    ///   decode every receiver's wire ingress runs — same payload type,
+    ///   same limit, same engine — so an over-deep value is rejected at
+    ///   its author, at the moment of choice, with a typed
+    ///   [`EncodeError`].
+    /// - **Handshake**: the greeting carries each side's configured
+    ///   limit, and a session proceeds only if the two are exactly equal;
+    ///   a mismatch in either direction aborts both sides with
+    ///   [`Error::PayloadDepthMismatch`](crate::Error::PayloadDepthMismatch)
+    ///   before anything else — the converged-session short-circuit
+    ///   included — so a mixed configuration is caught at every pairing.
+    /// - **Wire ingress**: every payload decode runs under this same
+    ///   limit, so over-deep *content* supplied by a nonconforming
+    ///   implementation fails its session with a typed decode error.
+    ///   The bound governs the decode's recursion, not the bytes' shape:
+    ///   deep byte patterns the engine consumes without recursing (a tag
+    ///   chain in a scalar position, say) decode fine and are harmless.
+    ///
+    /// Together those establish the invariant this setting exists for:
+    /// between conforming peers, no session can fail on payload depth at
+    /// all — true by construction within a decode-engine version, because
+    /// admission and ingress are one computation, not two accountings
+    /// held in agreement. Over-deep values are rejected at their author,
+    /// and mismatched fleets are rejected at the handshake. (A fleet
+    /// mixing builds whose CBOR engine versions account recursion
+    /// differently could still diverge; upgrading the engine is a
+    /// fleet-coordination event in the same register as changing this
+    /// limit.) The limit is a property of the *shared set* — every
+    /// replica must be able to hold and forward all content — which is
+    /// why the handshake demands equality rather than negotiating: a
+    /// peer whose session bound dropped below its own configured limit
+    /// could already hold messages deeper than the negotiated bound,
+    /// which it would then not be allowed to gossip. Changing the limit
+    /// is therefore a fleet-coordinated configuration event, like
+    /// changing the selected [`Protocol`], never a per-peer tuning
+    /// parameter.
+    ///
+    /// The frozen `Protocol::V1` greeting cannot carry the parameter, so
+    /// V1 sessions enforce only at decode, and a mixed-limit V1 fleet can
+    /// still fail mid-session, conditional on content.
+    ///
+    /// Like [`protocol`](Self::protocol), the choice follows the peer
+    /// through [`into_rumors`](Self::into_rumors), cloning and reunion,
+    /// bookmarking, and retirement.
+    #[must_use]
+    pub fn payload_depth_limit(mut self, limit: PayloadDepthLimit) -> Self {
+        self.codec = self.codec.with_limit(limit);
         self
     }
 
@@ -553,29 +652,34 @@ impl<T, B: BookmarkError> Peer<T, B> {
         Rumors::new(self)
     }
 
-    pub(crate) fn send(&self, message: T) -> Batch<'_, T>
+    pub(crate) fn send(&self, message: T) -> Result<(), EncodeError>
     where
-        T: Serialize + Send + Sync + 'static,
+        T: Send + Sync + 'static,
     {
-        let mut batch = self.batch();
-        batch.send(message);
-        batch
+        let mut batch = Batch::new(&self.inner, self.codec);
+        batch.send(message)?;
+        batch.commit();
+        Ok(())
     }
 
-    pub(crate) fn redact(&self, version: &Version) -> Batch<'_, T>
+    pub(crate) fn redact(&self, version: &Version)
     where
         T: Send + Sync,
     {
-        let mut batch = self.batch();
+        let mut batch = Batch::new(&self.inner, self.codec);
         batch.redact(version);
-        batch
+        batch.commit();
     }
 
-    pub(crate) fn batch(&self) -> Batch<'_, T>
+    pub(crate) fn batch<R, E, F>(&self, f: F) -> Result<R, E>
     where
         T: Send + Sync,
+        F: for<'s> FnOnce(&'s mut Batch<'_, T>) -> Result<R, E>,
     {
-        Batch::new(&self.inner)
+        let mut batch = Batch::new(&self.inner, self.codec);
+        let result = f(&mut batch)?;
+        batch.commit();
+        Ok(result)
     }
 
     pub(crate) fn snapshot(&self) -> Snapshot<T> {

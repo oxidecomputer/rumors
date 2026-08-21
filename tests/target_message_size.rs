@@ -13,7 +13,7 @@ use rand::rngs::SmallRng;
 use rand::{RngCore, SeedableRng};
 use rumors::{Bootstrap, DEFAULT_TARGET_MESSAGE_SIZE, Peer, Rumors};
 
-use crate::common::gossip_snapshot::{capture_gossip, capture_session};
+use crate::common::gossip_snapshot::{capture_gossip, capture_session, observed};
 use crate::common::wire::{block_on, bootstrap_fork_async, wire_gossip_async};
 
 /// Messages each side originates after the fork: enough for multi-leaf
@@ -39,8 +39,8 @@ fn diverged_pair(left_target: usize, right_target: usize) -> (Rumors<u64>, Rumor
 
         let mut rng = SmallRng::seed_from_u64(0x5eed_0f1e_a55e_d000);
         for _ in 0..DIVERGENT_PER_SIDE {
-            left.send(rng.next_u64());
-            right.send(rng.next_u64());
+            left.send(rng.next_u64()).unwrap();
+            right.send(rng.next_u64()).unwrap();
         }
         (left, right)
     })
@@ -96,10 +96,10 @@ fn seeded_diverged_pair(
 
         let mut rng = SmallRng::seed_from_u64(0x5eed_0f1e_a55e_d000);
         for _ in 0..left_messages {
-            left.send(rng.next_u64());
+            left.send(rng.next_u64()).unwrap();
         }
         for _ in 0..right_messages {
-            right.send(rng.next_u64());
+            right.send(rng.next_u64()).unwrap();
         }
         (left, right)
     })
@@ -113,7 +113,20 @@ fn seeded_diverged_pair(
 /// frames would weaken every count-based assertion here silently; the
 /// snapshot suite (`tests/gossip_snapshot.rs`) pins the labels themselves.
 fn supply_frames(capture: &str) -> usize {
-    capture.matches(": Supply").count()
+    capture
+        .lines()
+        .filter(|line| is_supply_signal(line))
+        .count()
+}
+
+/// Whether one rendered line is a supply frame's signal line: a bare
+/// dense code followed by a `/ Supply… /` comment. The bare-digit code
+/// distinguishes signal lines from every other annotated line.
+fn is_supply_signal(line: &str) -> bool {
+    let Some((code, rest)) = line.trim_start().split_once(" / ") else {
+        return false;
+    };
+    !code.is_empty() && code.bytes().all(|b| b.is_ascii_digit()) && rest.starts_with("Supply")
 }
 
 /// Count the supply frames in each direction of a rendered wire capture:
@@ -127,7 +140,7 @@ fn directional_supply_frames(capture: &str) -> (usize, usize) {
             toward_b = true;
         } else if line.starts_with("direction B -> A") {
             toward_b = false;
-        } else if line.contains(": Supply") {
+        } else if is_supply_signal(line) {
             if toward_b {
                 a_to_b += 1;
             } else {
@@ -261,7 +274,7 @@ fn seeded_provider() -> Rumors<u64> {
         .into_rumors();
     let mut rng = SmallRng::seed_from_u64(0x5eed_0f1e_a55e_d000);
     for _ in 0..DIVERGENT_PER_SIDE {
-        provider.send(rng.next_u64());
+        provider.send(rng.next_u64()).unwrap();
     }
     provider
 }
@@ -270,14 +283,16 @@ fn seeded_provider() -> Rumors<u64> {
 /// `gossip` while a newcomer joins under `config`.
 fn capture_bootstrap(provider: Rumors<u64>, config: Bootstrap<u64>) -> String {
     capture_session(
-        move |mut link| async move {
+        move |mut link, hook| async move {
+            let provider = observed(provider, hook).await;
             provider
                 .gossip(&mut link)
                 .await
                 .expect("the provider serves the bootstrap");
         },
-        move |mut link| async move {
+        move |mut link, hook| async move {
             config
+                .observe(hook)
                 .join(&mut link)
                 .await
                 .expect("the bootstrap session completes")

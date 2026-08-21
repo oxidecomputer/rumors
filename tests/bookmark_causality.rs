@@ -52,7 +52,7 @@
 //! sequence, not watch-channel thread races; determinism makes counterexamples
 //! replay byte-for-byte, makes shrinking sound, and makes capturing each
 //! message's emitted version race-free. Message ids and emission sequence
-//! numbers are minted by the [`World`], so replay does not depend on any
+//! numbers are assigned by the [`World`], so replay does not depend on any
 //! process-global counter shared with other proptest cases.
 
 mod common;
@@ -71,7 +71,7 @@ use crate::common::sim::arb_fault;
 use crate::common::wire::tokio_block_on as block_on;
 
 /// The message payload: a simulation-unique id that is also the message's
-/// emission sequence number, so a single per-[`World`] counter mints both at
+/// emission sequence number, so a single per-[`World`] counter assigns both at
 /// once.
 type Msg = u64;
 
@@ -317,7 +317,7 @@ impl World {
     /// moves between peers by donation and reclaim. That is what makes coverage
     /// (`fold` of all live and checkpointed regions equals [`Party::seed`])
     /// meaningful: a region a recovery drops shows up as a genuine gap rather
-    /// than being re-minted by a fresh fork.
+    /// than being re-created by a fresh fork.
     fn single_network(n: usize) -> Self {
         assert!(n >= 1, "a fleet needs at least one node");
         let reliable = || Arc::new(Mutex::new(FaultFeed::new(Vec::new(), Vec::new())));
@@ -388,7 +388,7 @@ impl World {
             return;
         };
         let network = rumors.network();
-        rumors.send(id); // commits when the returned Batch drops, at the `;`
+        rumors.send(id).unwrap(); // one commit per send
         // Read back the leaf's version. Under the current-thread schedule no
         // other task runs between the commit and here, so the lookup is
         // race-free and the just-sent unique id is present exactly once.
@@ -574,7 +574,7 @@ impl World {
         // store persisted, lose the rest.
         self.secure_and_lose(who);
         let bookmark = self.nodes[who].bookmark();
-        // Drop any prior incarnation before minting the new one.
+        // Drop any prior incarnation before creating the new one.
         self.nodes[who].state = NodeState::Dormant;
 
         let booted = block_on(async {
@@ -698,15 +698,16 @@ impl World {
         // the codec leak this test was written to catch. The retire session runs
         // over a *clean* wire, so the absorber can only fail honestly by an
         // injected bookmark fault (`Error::Bookmark`) or by the retiree safely
-        // aborting its own bookmark fault and closing the wire (`UnexpectedEof`).
-        // A decode failure (`InvalidData`) means a fully-received frame was
-        // malformed — a protocol/codec bug like the non-canonical party that
-        // motivated this check — so surface it loudly.
+        // aborting its own bookmark fault and closing the wire (the typed
+        // `HandOffTruncated`, or `UnexpectedEof` elsewhere in the session).
+        // A decode failure (`InvalidData`, `HandOffMalformed`) means a
+        // fully-received frame was malformed — a protocol/codec bug like the
+        // non-canonical party that motivated this check — so surface it loudly.
         if let Err(error) = &absorbed {
             let codec_bug = matches!(
                 error,
                 Error::Io(io) if io.kind() == std::io::ErrorKind::InvalidData,
-            );
+            ) || matches!(error, Error::HandOffMalformed { .. });
             assert!(
                 !codec_bug,
                 "retire absorber failed to decode on a clean wire: a protocol/codec bug, \
@@ -1265,13 +1266,13 @@ proptest! {
 // offsets and the seed no longer replays the case it pinned. The seed
 // files stay committed; these constructions carry the counterexamples.
 
-/// Re-minted counterexample: both peers crash around a send, then the
+/// Reconstructed counterexample: both peers crash around a send, then the
 /// crashed-and-rebooted peer retires into the sender.
 ///
 /// The bookmark must not recycle a version across the crash/retire
 /// pair, and the heal must still converge.
 #[test]
-fn remint_crash_pair_then_retire() {
+fn reconstructed_crash_pair_then_retire() {
     let world = run_plan(Plan {
         n: 2,
         steps: vec![
@@ -1286,13 +1287,13 @@ fn remint_crash_pair_then_retire() {
     world.assert_healed();
 }
 
-/// Re-minted counterexample: a send, one gossip cut in both directions
+/// Reconstructed counterexample: a send, one gossip cut in both directions
 /// mid-frame, then a retirement, under bookmark read/write fail
 /// schedules on every node.
 ///
 /// Versions must survive the faulted persistence without recycling.
 #[test]
-fn remint_cut_gossip_then_retire_under_bookmark_faults() {
+fn reconstructed_cut_gossip_then_retire_under_bookmark_faults() {
     let world = run_plan(Plan {
         n: 3,
         steps: vec![

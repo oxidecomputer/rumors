@@ -4,6 +4,7 @@ use futures::{StreamExt, future::join};
 use tokio::io::AsyncWriteExt;
 
 use crate::link::{Acceptor, Connector, memory};
+use crate::observe::SessionHandle;
 use crate::testing::run_to_quiescence;
 use crate::tree::mirror::streaming::remote::codec::{
     End, Flow, Frame, FrameWrite, Origin, Reaction, RunBudget, Speaker, Stream,
@@ -38,6 +39,7 @@ fn unopened_sender_finishes_without_connecting() {
             Speaker::Initiator,
             Stream::new(1).expect("stream 1 exists"),
             Recorder::default(),
+            SessionHandle::default(),
         );
         sender.finish().await.expect("vacuous finish succeeds");
         // The peer sees no announced stream: with the connector dropped, its
@@ -65,6 +67,7 @@ fn frames_flow_sender_to_claimed_receiver() {
                 Speaker::Initiator,
                 stream,
                 Recorder::default(),
+                SessionHandle::default(),
             );
             sender
                 .frame(reply_frame(Frame::Reaction(Reaction::Match, Flow::End)))
@@ -87,6 +90,7 @@ fn frames_flow_sender_to_claimed_receiver() {
                 RunBudget::default(),
                 route,
                 Recorder::default(),
+                SessionHandle::default(),
             );
             let receive = async {
                 assert_eq!(
@@ -122,6 +126,7 @@ fn unpolled_receiver_finishes_vacuously() {
         RunBudget::default(),
         route,
         Recorder::default(),
+        SessionHandle::default(),
     );
     run_to_quiescence(async {
         assert_eq!(receiver.finish().await, ReceiverFinish::Clean);
@@ -142,6 +147,7 @@ fn accept_driver_rejects_wrong_epoch() {
                 Speaker::Initiator,
                 Stream::new(0).expect("stream 0 exists"),
                 Recorder::default(),
+                SessionHandle::default(),
             );
             sender
                 .frame(reply_frame(Frame::End(End::Reply)))
@@ -186,6 +192,7 @@ fn accept_driver_rejects_unclaimed_delivery() {
                 Speaker::Initiator,
                 stream,
                 Recorder::default(),
+                SessionHandle::default(),
             );
             sender
                 .frame(reply_frame(Frame::End(End::Reply)))
@@ -252,6 +259,7 @@ async fn first_reported_error(
         RunBudget::default(),
         route,
         Recorder::default(),
+        SessionHandle::default(),
     );
     let observe = async {
         for expected in leading {
@@ -332,6 +340,7 @@ fn truncated_stream_is_reported_not_ended() {
                 Speaker::Initiator,
                 stream,
                 Recorder::default(),
+                SessionHandle::default(),
             );
             sender
                 .frame(reply_frame(Frame::Reaction(Reaction::Match, Flow::End)))
@@ -428,9 +437,9 @@ fn accept_driver_rejects_unknown_stream_index() {
             matches!(
                 error,
                 AcceptError::UnknownStream {
-                    index: Stream::COUNT,
+                    index,
                     ..
-                }
+                } if index == u64::from(Stream::COUNT)
             ),
             "unexpected accept outcome: {error:?}",
         );
@@ -494,6 +503,7 @@ fn supply_failure_after_delivery_lets_the_session_finish() {
                 Speaker::Initiator,
                 stream,
                 Recorder::default(),
+                SessionHandle::default(),
             );
             sender
                 .frame(reply_frame(Frame::Reaction(Reaction::Match, Flow::End)))
@@ -524,6 +534,7 @@ fn supply_failure_after_delivery_lets_the_session_finish() {
                 RunBudget::default(),
                 route,
                 Recorder::default(),
+                SessionHandle::default(),
             );
             let consume = async {
                 assert_eq!(

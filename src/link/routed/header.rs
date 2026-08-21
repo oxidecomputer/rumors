@@ -84,21 +84,21 @@ const TOKEN_LEN: usize = 16;
 /// bounded by construction.
 pub const MAX_ADDR_LEN: usize = u8::MAX as usize;
 
-/// One link's routing identity: 16 random bytes minted at
+/// One link's routing identity: 16 random bytes drawn at
 /// establishment.
 ///
 /// Both routers key the link's connection queue by its token, and every
 /// data-stream dial quotes it. The width makes collision handling a
 /// non-problem; the token is routing state, never a credential (the
 /// transport below is authenticated, per the [module docs](super)).
-/// Tokens are minted by [`Endpoint::link`](super::Endpoint::link) and
+/// Tokens are created by [`Endpoint::link`](super::Endpoint::link) and
 /// observed through [`LinkInfo`](super::LinkInfo); they cannot be
 /// constructed.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Token([u8; TOKEN_LEN]);
 
 impl Token {
-    /// Mint a fresh random token.
+    /// Draw a fresh random token.
     pub(super) fn new() -> Self {
         Token(rand::random())
     }

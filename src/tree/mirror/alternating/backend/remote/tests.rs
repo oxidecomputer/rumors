@@ -11,7 +11,7 @@
 //! `alternating/message/tests.rs`; the exact wire bytes in
 //! `alternating/wire_snapshot.rs`.
 
-use crate::message::Message;
+use crate::message::{PayloadCodec, PayloadDepthLimit};
 use proptest::collection::vec;
 use proptest::prelude::*;
 
@@ -40,11 +40,15 @@ fn recv<M: wire::Decode>(bytes: &[u8]) -> Result<M, Error> {
 }
 
 /// [`recv`] for the payload-bearing messages, through the production
-/// deserializer-parameterized ingress with a unit-payload deserializer.
+/// codec-parameterized ingress with a unit-payload codec.
 fn recv_with<M: message::DecodeWith>(bytes: &[u8]) -> Result<M, Error> {
     pollster::block_on(async {
         let mut reader = FrameRead::new(bytes);
-        recv_msg_with::<M, _>(&mut reader, Message::deserializer::<()>()).await
+        recv_msg_with::<M, _>(
+            &mut reader,
+            PayloadCodec::new::<()>(PayloadDepthLimit::default()),
+        )
+        .await
     })
 }
 

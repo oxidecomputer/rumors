@@ -23,15 +23,17 @@
 
 mod common;
 
+use crate::common::wire::batch_send;
+
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
 #[cfg(feature = "protocol-v1")]
 use rumors::Protocol;
 use rumors::{Peer, Rumors};
 
-use crate::common::gossip_snapshot::capture_session;
 #[cfg(feature = "protocol-v1")]
 use crate::common::gossip_snapshot::capture_session_v1;
+use crate::common::gossip_snapshot::{capture_session, observed};
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -40,7 +42,8 @@ use serde::de::DeserializeOwned;
 /// deterministic and these captures stay reproducible.
 ///
 /// Mirrors `gossip_snapshot::seeded`.
-fn seeded<T: serde::de::DeserializeOwned + Send + Sync + 'static>() -> Rumors<T> {
+fn seeded<T: serde::Serialize + serde::de::DeserializeOwned + Eq + Send + Sync + 'static>()
+-> Rumors<T> {
     Peer::seed_rng(&mut SmallRng::seed_from_u64(0))
         .sync_window_floor()
         .into_rumors()
@@ -51,14 +54,16 @@ fn seeded<T: serde::de::DeserializeOwned + Send + Sync + 'static>() -> Rumors<T>
 /// expected to be served a successor.
 fn capture_bootstrap<T>(provider: Rumors<T>) -> String
 where
-    T: Serialize + DeserializeOwned + Send + Sync + 'static,
+    T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
     capture_session(
-        move |mut link| async move {
+        move |mut link, hook| async move {
+            let provider = observed(provider, hook).await;
             provider.gossip(&mut link).await.expect("provider gossip");
         },
-        move |mut link| async move {
+        move |mut link, hook| async move {
             Peer::<T>::bootstrap()
+                .observe(hook)
                 .join(&mut link)
                 .await
                 .expect("bootstrap handshake")
@@ -85,7 +90,7 @@ fn empty_provider() {
 #[test]
 fn populated_provider() {
     let provider: Rumors<u64> = seeded();
-    provider.batch().send(1).send(2).send(3);
+    batch_send(&provider, [1, 2, 3]);
     insta::assert_snapshot!(capture_bootstrap(provider));
 }
 
@@ -98,7 +103,7 @@ fn v1_populated_provider() {
         .sync_window_floor()
         .protocol(Protocol::V1)
         .into_rumors();
-    provider.batch().send(1).send(2).send(3);
+    batch_send(&provider, [1, 2, 3]);
     let capture = capture_session_v1(
         move |mut link| async move {
             provider
@@ -127,10 +132,7 @@ fn v1_populated_provider() {
 #[test]
 fn string_payload() {
     let provider: Rumors<String> = seeded();
-    provider
-        .batch()
-        .send("hello".to_string())
-        .send("world".to_string());
+    batch_send(&provider, ["hello".to_string(), "world".to_string()]);
     insta::assert_snapshot!(capture_bootstrap(provider));
 }
 
@@ -143,8 +145,9 @@ fn string_payload() {
 #[test]
 fn mutual_bootstrap_bails() {
     let capture = capture_session(
-        |mut link| async move {
+        |mut link, hook| async move {
             let out = Peer::<u64>::bootstrap()
+                .observe(hook)
                 .join(&mut link)
                 .await
                 .expect("handshake A");
@@ -153,8 +156,9 @@ fn mutual_bootstrap_bails() {
                 "a mutually-bootstrapping peer must bail with None"
             );
         },
-        |mut link| async move {
+        |mut link, hook| async move {
             let out = Peer::<u64>::bootstrap()
+                .observe(hook)
                 .join(&mut link)
                 .await
                 .expect("handshake B");

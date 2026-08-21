@@ -1790,7 +1790,7 @@ fn join_destructor_unwind_leaves_tree_byte_identical() {
 /// prunes the pair as equal, keeps its own side, and reports no change.
 ///
 /// The pair is planted directly through `react` at a synthetic shared
-/// path, which no public insert can mint: this pins the digest's
+/// path, which no public insert can produce: this pins the digest's
 /// suffix-only preimage behaviorally (the merge walk trusts path
 /// derivation; collision detection is ingestion's job, where both leaves
 /// are in hand).
@@ -1862,7 +1862,7 @@ fn reinserting_an_identical_leaf_is_idempotent() {
 
 /// An insert landing on a live leaf that disagrees on payload bytes under
 /// one version is version reuse: the apply walk asserts (a crate bug,
-/// never an input — every production insert carries a freshly minted
+/// never an input — every production insert carries a freshly created
 /// version).
 #[test]
 #[should_panic(expected = "version reuse")]

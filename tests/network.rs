@@ -11,11 +11,13 @@ use rand::SeedableRng;
 use rand::rngs::SmallRng;
 use rumors::{Error, Peer};
 
-use crate::common::wire::{assert_control_drained, block_on};
+use crate::common::wire::{assert_control_drained, batch_send, block_on};
 
 /// A peer seeded deterministically, so two seeds with distinct stream ids get
 /// distinct (but reproducible) networks.
-fn seeded<T: serde::de::DeserializeOwned + Send + Sync + 'static>(stream: u64) -> Peer<T> {
+fn seeded<T: serde::Serialize + serde::de::DeserializeOwned + Eq + Send + Sync + 'static>(
+    stream: u64,
+) -> Peer<T> {
     Peer::seed_rng(&mut SmallRng::seed_from_u64(stream)).sync_window_floor()
 }
 
@@ -42,7 +44,7 @@ fn rumors_preserves_network() {
     assert_eq!(parent.network(), network);
 }
 
-/// Independent [`seed`](Peer::seed)s mint distinct networks — the positive
+/// Independent [`seed`](Peer::seed)s create distinct networks — the positive
 /// signal that they share no causal history.
 #[test]
 fn independent_seeds_differ() {
@@ -79,7 +81,7 @@ fn gossip_rejects_foreign_network() {
 #[test]
 fn bootstrap_adopts_provider_network() {
     let provider = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    provider.batch().send(1).send(2).send(3);
+    batch_send(&provider, [1, 2, 3]);
     let provider_network = provider.network();
 
     let bootstrapped = block_on(async move {
@@ -89,11 +91,11 @@ fn bootstrap_adopts_provider_network() {
             Peer::<u64>::bootstrap().join(&mut b_link),
         );
         provider_out.expect("provider gossip");
-        let minted = bootstrap_out
+        let joined = bootstrap_out
             .expect("bootstrap handshake")
             .expect("provider served the bootstrap");
         assert_control_drained(a_link, b_link);
-        minted
+        joined
     });
 
     assert_eq!(

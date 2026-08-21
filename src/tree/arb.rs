@@ -13,7 +13,7 @@ use crate::{Version, message::Message};
 /// Distinct indices yield mutually *disjoint* parties, so versions ticked on
 /// different indices are causally concurrent — the test analogue of "different
 /// peers with independent histories". Because the chain is fully determined by
-/// the index, independent proptest strategies can each mint the same disjoint
+/// the index, independent proptest strategies can each derive the same disjoint
 /// parties without sharing any state, which is what lets two separately
 /// generated trees (e.g. `arb_tree_root(0, …)` and `arb_tree_root(1, …)`) end
 /// up with incomparable root versions.

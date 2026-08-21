@@ -1,3 +1,4 @@
+use crate::message::{PayloadCodec, PayloadDepthLimit};
 use std::cell::OnceCell;
 use std::future::Future;
 use std::pin::Pin;
@@ -8,6 +9,7 @@ use proptest::prelude::*;
 use tokio::runtime::Runtime;
 
 use crate::Network;
+use crate::observe::SessionHandle;
 use crate::tree::arb::{
     arb_tree_root, leaf_parent_dispute_pair, leaf_parent_redaction_pair, nth_party,
     uncontained_supply_pair,
@@ -104,7 +106,7 @@ fn mirror_via(a: crate::tree::Root, b: crate::tree::Root, scenario: Scenario) ->
                 let remote_b = remote::Exchange::start(
                     FrameRead::new(a_r),
                     FrameWrite::new(a_w),
-                    Message::deserializer::<()>(),
+                    PayloadCodec::new::<()>(PayloadDepthLimit::default()),
                 );
                 let client = mirror(local_a, remote_b);
 
@@ -112,7 +114,7 @@ fn mirror_via(a: crate::tree::Root, b: crate::tree::Root, scenario: Scenario) ->
                 let remote_a = remote::Exchange::start(
                     FrameRead::new(b_r),
                     FrameWrite::new(b_w),
-                    Message::deserializer::<()>(),
+                    PayloadCodec::new::<()>(PayloadDepthLimit::default()),
                 );
                 let server = mirror(local_b, remote_a);
 
@@ -319,7 +321,7 @@ fn uncontained_supply_is_rejected() {
             let remote_b = remote::Exchange::start(
                 FrameRead::new(a_r),
                 FrameWrite::new(a_w),
-                Message::deserializer::<()>(),
+                PayloadCodec::new::<()>(PayloadDepthLimit::default()),
             );
             let receiver_side = mirror(local_receiver, remote_b);
 
@@ -327,7 +329,7 @@ fn uncontained_supply_is_rejected() {
             let remote_a = remote::Exchange::start(
                 FrameRead::new(b_r),
                 FrameWrite::new(b_w),
-                Message::deserializer::<()>(),
+                PayloadCodec::new::<()>(PayloadDepthLimit::default()),
             );
             let poisoned_side = mirror(local_poisoned, remote_a);
 
@@ -442,12 +444,13 @@ fn handshake_flushes_over_buffering_transport() {
             let mut b_r = b_r;
             let mut a_w = HoldUntilFlush::new(a_w);
             let mut b_w = HoldUntilFlush::new(b_w);
-            let mut a_staged = handshake::Staged::new();
-            let mut b_staged = handshake::Staged::new();
+            let mut a_staged = handshake::Staged::new(crate::Protocol::V1);
+            let mut b_staged = handshake::Staged::new(crate::Protocol::V1);
 
             // The preamble carries only magic + version + network + intent, so
             // this exercises purely the flush/deadlock behavior of the framed
             // greeting exchange.
+            let observe = SessionHandle::default();
             let (ra, rb) = tokio::join!(
                 handshake::preamble(
                     crate::Protocol::V1,
@@ -455,7 +458,8 @@ fn handshake_flushes_over_buffering_transport() {
                     Intent::Remain,
                     &mut a_staged,
                     &mut a_r,
-                    &mut a_w
+                    &mut a_w,
+                    &observe
                 ),
                 handshake::preamble(
                     crate::Protocol::V1,
@@ -463,7 +467,8 @@ fn handshake_flushes_over_buffering_transport() {
                     Intent::Remain,
                     &mut b_staged,
                     &mut b_r,
-                    &mut b_w
+                    &mut b_w,
+                    &observe
                 ),
             );
             ra.is_ok() && rb.is_ok()

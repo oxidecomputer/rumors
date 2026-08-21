@@ -63,7 +63,7 @@ struct LeafCase {
 
 impl LeafCase {
     /// A deterministic test leaf: the version scalar folds `value` and
-    /// `ticks` together so distinct cases mint distinct versions — the
+    /// `ticks` together so distinct cases produce distinct versions — the
     /// axis paths derive from — while `value` also picks the payload.
     fn new(value: u64, ticks: u8) -> Self {
         Self {

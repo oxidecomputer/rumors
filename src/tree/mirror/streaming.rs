@@ -50,7 +50,7 @@ pub(crate) mod convert;
 mod driver;
 mod erased;
 pub mod materialized;
-mod message;
+pub(crate) mod message;
 mod protocol;
 pub mod remote;
 pub mod stats;

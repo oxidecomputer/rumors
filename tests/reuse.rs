@@ -46,9 +46,9 @@ const PRE_WRAP_SESSIONS: usize = 253;
 /// and the wrapped 0, 1, 2.
 const WRAP_ROUNDS: u64 = 6;
 
-/// Mint a connected, party-disjoint pair: a freshly seeded peer and a
+/// Create a connected, party-disjoint pair: a freshly seeded peer and a
 /// bootstrap fork of it. The two ends of one link they will keep reusing are
-/// minted per test.
+/// created per test.
 async fn pair() -> (Rumors<u64>, Rumors<u64>) {
     let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
     let b = bootstrap_fork_async(&a).await;
@@ -65,8 +65,8 @@ async fn barriered_sessions_reuse_the_connection() {
     let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(LINK_BUF);
 
     for round in 0..ROUNDS {
-        a.send(round);
-        b.send(round + 100);
+        a.send(round).unwrap();
+        b.send(round + 100).unwrap();
         let (a_out, b_out) = timeout(DEADLINE, async {
             tokio::join!(a.gossip(&mut a_link), b.gossip(&mut b_link))
         })
@@ -102,13 +102,13 @@ async fn eager_reinitiation_reuses_the_connection() {
 
     let drive_a = async {
         for round in 0..ROUNDS {
-            a.send(round);
+            a.send(round).unwrap();
             a.gossip(&mut a_link).await.expect("A's session");
         }
     };
     let drive_b = async {
         for round in 0..ROUNDS {
-            b.send(round + 100);
+            b.send(round + 100).unwrap();
             b.gossip(&mut b_link).await.expect("B's session");
         }
     };
@@ -168,8 +168,8 @@ async fn empty_sessions_advance_epochs_in_lockstep() {
     );
 
     // Session 2, same link, real divergence: its streams carry epoch 1.
-    a.send(1);
-    b.send(2);
+    a.send(1).unwrap();
+    b.send(2).unwrap();
     let (a_out, b_out) = timeout(DEADLINE, async {
         tokio::join!(a.gossip(&mut a_link), b.gossip(&mut b_link))
     })
@@ -206,8 +206,8 @@ async fn epoch_wrap_keeps_the_pair_in_lockstep() {
     }
 
     for round in 0..WRAP_ROUNDS {
-        a.send(round);
-        b.send(100 + round);
+        a.send(round).unwrap();
+        b.send(100 + round).unwrap();
         let (a_out, b_out) = timeout(DEADLINE, async {
             tokio::join!(a.gossip(&mut a_link), b.gossip(&mut b_link))
         })

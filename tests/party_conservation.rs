@@ -160,7 +160,7 @@ fn apply(fleet: &mut Vec<Rumors<u64>>, op: Op) {
     let n = fleet.len();
     match op {
         Op::Send { peer, value } => {
-            fleet[peer % n].send(value);
+            fleet[peer % n].send(value).unwrap();
         }
         Op::Gossip { a, off } if n >= 2 => {
             let a = a % n;
@@ -232,7 +232,7 @@ proptest! {
     /// disjoint from the provider's remainder, and joining the two
     /// reconstitutes exactly the provider's pre-session party.
     ///
-    /// No other identity moved, none was minted, none was lost.
+    /// No other identity moved, none was created, none was lost.
     #[test]
     fn bootstrap_donates_exactly_once(actions in arb_local_actions()) {
         let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
@@ -243,16 +243,16 @@ proptest! {
         let pre = alias(&provider);
         let newcomer = bootstrap_fork(&provider);
         let remainder = alias(&provider);
-        let minted = alias(&newcomer);
+        let donated = alias(&newcomer);
 
         prop_assert!(
-            remainder.is_disjoint(&minted),
+            remainder.is_disjoint(&donated),
             "the newcomer's party must be disjoint from the provider's \
-             remainder ({minted:?} vs {remainder:?})"
+             remainder ({donated:?} vs {remainder:?})"
         );
         let mut rejoined = remainder;
         rejoined
-            .join(minted)
+            .join(donated)
             .expect("disjoint parties always join");
         prop_assert!(
             rejoined == pre,
@@ -318,8 +318,8 @@ proptest! {
             // Both sides originate mid-cycle: versions advance under the
             // forked and remainder parties, which must not disturb the
             // identity algebra.
-            newcomer.send(cycle as u64);
-            p.send(u64::MAX - cycle as u64);
+            newcomer.send(cycle as u64).unwrap();
+            p.send(u64::MAX - cycle as u64).unwrap();
             retire_into(newcomer, &p);
 
             let now = alias(&p);
@@ -359,7 +359,7 @@ proptest! {
         let mut newcomers: Vec<Option<Rumors<u64>>> = (0..order.len())
             .map(|i| {
                 let newcomer = bootstrap_fork(&p);
-                newcomer.send(i as u64);
+                newcomer.send(i as u64).unwrap();
                 Some(newcomer)
             })
             .collect();

@@ -2,7 +2,7 @@
 //! transmits.
 //!
 //! The bookmark exists so a crashed peer can reclaim its identity without
-//! reminting causal coordinates the network already holds. That safety
+//! re-issuing causal coordinates the network already holds. That safety
 //! reduces to one invariant at the transmit boundary: **at the moment a
 //! session snapshots its tree for the wire, the persisted record's own-party
 //! projection dominates the snapshot's own-party version.** An own event that
@@ -225,7 +225,7 @@ async fn transmit_during_persist() -> Scene {
         .await
         .expect("a pristine seed attaches its bookmark without touching storage")
         .into_rumors();
-    a.send(M0);
+    a.send(M0).unwrap();
 
     // Each serve records A's frontier, then slices the donated fork out of
     // the record — clearing the update-suppression token with no new own
@@ -254,7 +254,7 @@ async fn transmit_during_persist() -> Scene {
         })
     };
     bm_a.entered().await;
-    a.send(M1);
+    a.send(M1).unwrap();
     bm_a.release();
     let (out_a, out_b) = tokio::join!(ga, gb);
     out_a.unwrap().expect("gated gossip side a");
@@ -316,8 +316,8 @@ fn record_dominates_the_transmitted_frontier() {
 /// staged before the write survives such a drop as a lie: the next session
 /// sees the live `(party, version)` "current", skips the persist, and
 /// transmits own events the durable record does not cover — re-opening the
-/// remint collision through a schedule the in-flight-window fix does not
-/// touch.
+/// coordinate-reuse collision through a schedule the in-flight-window fix
+/// does not touch.
 #[test]
 fn cancelled_persist_never_suppresses_the_next_update() {
     block_on(async {
@@ -332,14 +332,14 @@ fn cancelled_persist_never_suppresses_the_next_update() {
             .await
             .expect("a pristine seed attaches its bookmark without touching storage")
             .into_rumors();
-        a.send(M0);
+        a.send(M0).unwrap();
         let b = boot_from(&a, GatedBookmark::new(DurableStore::default())).await;
         let _c = boot_from(&a, GatedBookmark::new(DurableStore::default())).await;
 
         // M1 advances the frontier, so the next update stages a token for
         // M1's version and parks in the durable write; dropping the session
         // futures there cancels the persist mid-flight.
-        a.send(M1);
+        a.send(M1).unwrap();
         bm_a.arm();
         let (side_a, side_b) = rumors::link::memory_with_capacity(LINK_BUF);
         let ga = {
@@ -396,7 +396,7 @@ fn cancelled_persist_never_suppresses_the_next_update() {
 ///
 /// The restarted peer reclaims its identity only at a
 /// frontier that accounts for every own event it ever transmitted, so no
-/// remint collides with a coordinate a replica durably holds.
+/// re-issued coordinate collides with one a replica durably holds.
 #[test]
 fn restart_after_transmit_never_destroys_durable_messages() {
     block_on(async {
@@ -436,11 +436,11 @@ fn restart_after_transmit_never_destroys_durable_messages() {
         let a2 = boot_from(&c, GatedBookmark::new(store_a.clone())).await;
         gossip(&a2, &c).await; // the first update reclaims
 
-        // The restarted peer mints fresh events. A remint below M1's durable
+        // The restarted peer creates fresh events. A re-issue below M1's durable
         // coordinate is the recycle this test exists to catch; several ticks
         // give a colliding placement every chance to occur.
         for i in 0..8 {
-            a2.send(100 + i);
+            a2.send(100 + i).unwrap();
         }
 
         // Heal to a fixed point over clean wires.
@@ -477,7 +477,7 @@ fn restart_after_transmit_never_destroys_durable_messages() {
                 assert!(
                     leaf_version(peer, M1).is_some(),
                     "durable message M1 (version {version:?}) was destroyed at {label} by a \
-                     restarted peer reminting below a transmitted own-party frontier",
+                     restarted peer re-issuing coordinates below a transmitted own-party frontier",
                 );
             }
         }
@@ -507,7 +507,7 @@ fn donation_persist_failure_aborts_before_the_wire() {
             .await
             .expect("a pristine seed attaches its bookmark without touching storage")
             .into_rumors();
-        a.send(M0);
+        a.send(M0).unwrap();
         let b = boot_from(&a, GatedBookmark::new(DurableStore::default())).await;
 
         let party_before = a
@@ -588,7 +588,7 @@ fn repeated_donation_aborts_normalize() {
             .await
             .expect("a pristine seed attaches its bookmark without touching storage")
             .into_rumors();
-        a.send(M0);
+        a.send(M0).unwrap();
         let b = boot_from(&a, GatedBookmark::new(DurableStore::default())).await;
         let party_before = a
             .dangerously_alias_party()

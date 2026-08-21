@@ -29,7 +29,7 @@ use rumors::{Rumors, Version};
 fn converged_trio(n: u64) -> (Rumors<u64>, Rumors<u64>, Rumors<u64>) {
     let a = rumors::Peer::seed().into_rumors();
     for v in 0..n {
-        a.send(v);
+        a.send(v).unwrap();
     }
     let b = bootstrap_fork(&a);
     let c = bootstrap_fork(&a);
@@ -92,7 +92,7 @@ fn overlapped_install_never_loses_innocent_messages() {
         polls
     };
 
-    // The versions minted by `converged_trio` are deterministic (the
+    // The versions created by `converged_trio` are deterministic (the
     // seed party and its tick sequence are fixed), so versions read from
     // one instance name the same messages in every other.
     let versions: Vec<Version> = {

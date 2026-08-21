@@ -1,5 +1,6 @@
 //! Failures surfaced by the remote protocol participant.
 
+use crate::message::PayloadDepthLimit;
 use crate::tree::mirror::streaming::remote::{adapter, codec, streams};
 
 /// A protocol or adapter failure while proxying one remote counterparty.
@@ -18,15 +19,26 @@ pub enum Error<E> {
     /// Reading one of the peer's greeting frames failed.
     #[error("failed to read streaming handshake")]
     HandshakeRead(#[source] std::io::Error),
-    /// A greeting body was not a canonical causal version or listing.
+    /// The peer's greeting arrived but is not canonical rumors CBOR.
     #[error("failed to decode streaming handshake")]
-    HandshakeDecode(#[source] std::io::Error),
+    HandshakeDecode(#[source] codec::GreetingError),
     /// Writing and flushing the local greeting frames failed.
     #[error("failed to write streaming handshake")]
     HandshakeWrite(#[source] std::io::Error),
     /// The peer's greeting listing violated canonical ascending radix order.
     #[error("peer greeting carried a non-canonical root-fan listing")]
     HandshakeListing(#[source] codec::QueryOrderError),
+    /// The peer's configured payload depth limit differs from ours.
+    ///
+    /// Detected symmetrically, after the greetings and before anything
+    /// else, so a mixed fleet is caught even on a converged session.
+    #[error("peer's payload depth limit ({remote}) differs from ours ({local})")]
+    PayloadDepthMismatch {
+        /// This side's configured limit.
+        local: PayloadDepthLimit,
+        /// The limit the peer's greeting declared.
+        remote: PayloadDepthLimit,
+    },
     /// The locally-produced distinguished opening could not be encoded.
     #[error("local opening reply is invalid")]
     OpeningEncode(#[source] adapter::OpeningError),

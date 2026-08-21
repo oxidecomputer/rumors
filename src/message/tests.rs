@@ -1,3 +1,4 @@
+use crate::message::{PayloadCodec, PayloadDepthLimit};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
@@ -55,7 +56,7 @@ proptest! {
     #[test]
     fn from_slice_roundtrips(p in payload()) {
         let bytes = cbor_vec(&p);
-        let m = Message::from_slice::<Payload>(&bytes).unwrap();
+        let m = Message::from_slice::<Payload>(&bytes, PayloadDepthLimit::default()).unwrap();
         prop_assert_eq!(&*m.arc::<Payload>(), &p);
         prop_assert_eq!(m.bytes(), bytes.as_slice());
     }
@@ -65,8 +66,8 @@ proptest! {
     #[test]
     fn from_bytes_matches_from_slice(p in payload()) {
         let bytes = cbor_vec(&p);
-        let a = Message::from_slice::<Payload>(&bytes).unwrap();
-        let b = Message::from_bytes::<Payload>(Bytes::from(bytes.clone())).unwrap();
+        let a = Message::from_slice::<Payload>(&bytes, PayloadDepthLimit::default()).unwrap();
+        let b = Message::from_bytes::<Payload>(Bytes::from(bytes.clone()), PayloadDepthLimit::default()).unwrap();
         prop_assert_eq!(&a, &b);
         prop_assert_eq!(a.bytes(), b.bytes());
     }
@@ -77,8 +78,8 @@ proptest! {
     fn trailing_bytes_are_rejected(p in payload(), trailer in proptest::collection::vec(any::<u8>(), 1..8)) {
         let mut bytes = cbor_vec(&p);
         bytes.extend_from_slice(&trailer);
-        prop_assert!(Message::from_slice::<Payload>(&bytes).is_err());
-        prop_assert!(Message::from_bytes::<Payload>(Bytes::from(bytes)).is_err());
+        prop_assert!(Message::from_slice::<Payload>(&bytes, PayloadDepthLimit::default()).is_err());
+        prop_assert!(Message::from_bytes::<Payload>(Bytes::from(bytes), PayloadDepthLimit::default()).is_err());
     }
 
     /// The serde form of a `Message` is one CBOR byte string wrapping
@@ -104,7 +105,7 @@ proptest! {
     fn serde_roundtrip(p in payload()) {
         let m = Message::new(p);
         let bytes = cbor_vec(&m);
-        let back = Message::from_reader(bytes.as_slice(), Message::deserializer::<Payload>()).unwrap();
+        let back = Message::from_reader(bytes.as_slice(), PayloadCodec::new::<Payload>(PayloadDepthLimit::default())).unwrap();
         prop_assert_eq!(&m, &back);
         prop_assert_eq!(m.bytes(), back.bytes());
     }
@@ -120,7 +121,7 @@ proptest! {
         combined.extend_from_slice(&trailer);
 
         let mut slice: &[u8] = &combined;
-        let back = Message::from_reader(&mut slice, Message::deserializer::<Payload>()).unwrap();
+        let back = Message::from_reader(&mut slice, PayloadCodec::new::<Payload>(PayloadDepthLimit::default())).unwrap();
         prop_assert_eq!(back.bytes(), m.bytes());
         prop_assert_eq!(slice, trailer.as_slice());
         prop_assert_eq!(combined.len() - slice.len(), expected.len());
@@ -153,4 +154,190 @@ proptest! {
 fn mismatched_downcast_panics() {
     let m = Message::new(0u64);
     let _ = m.arc::<String>();
+}
+
+/// Nested-array CBOR bytes at exactly `depth` scopes: `depth` array heads
+/// around one integer, the minimal encoding whose nesting depth is chosen
+/// freely by the test.
+fn nested_arrays(depth: usize) -> Vec<u8> {
+    let mut bytes = vec![0x81; depth];
+    bytes.push(0x00);
+    bytes
+}
+
+/// The rehydration constructors take the limit explicitly, so an
+/// application on a raised fleet limit can rehydrate its own stored
+/// deep messages.
+///
+/// A payload past the default depth fails `from_slice` and `from_bytes`
+/// at the default limit (as invalid data) and succeeds at a raised one:
+/// both directions, so the parameter is proven live in each.
+#[test]
+fn rehydration_honors_the_explicit_limit() {
+    let default = PayloadDepthLimit::default();
+    let deep = nested_arrays((default.get() + 1) as usize);
+
+    let rejected = Message::from_slice::<ciborium::Value>(&deep, default);
+    assert_eq!(
+        rejected.unwrap_err().kind(),
+        std::io::ErrorKind::InvalidData,
+        "the default limit must reject a payload one scope past it"
+    );
+    let rejected = Message::from_bytes::<ciborium::Value>(Bytes::from(deep.clone()), default);
+    assert_eq!(
+        rejected.unwrap_err().kind(),
+        std::io::ErrorKind::InvalidData
+    );
+
+    let raised = PayloadDepthLimit::new(default.get() + 1);
+    let m = Message::from_slice::<ciborium::Value>(&deep, raised)
+        .expect("a raised limit must rehydrate the deep message");
+    assert_eq!(m.as_slice(), deep.as_slice());
+    let m = Message::from_bytes::<ciborium::Value>(Bytes::from(deep.clone()), raised)
+        .expect("a raised limit must rehydrate the deep message");
+    assert_eq!(m.as_slice(), deep.as_slice());
+}
+
+/// Pure CBOR array nesting from a type satisfying the payload contract:
+/// each layer serializes as a one-element array, the innermost empty.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct Arr(Vec<Arr>);
+
+/// A value of exactly `depth` nested array scopes (`depth` >= 1).
+fn nested_arr(depth: u64) -> Arr {
+    (1..depth).fold(Arr(vec![]), |a, _| Arr(vec![a]))
+}
+
+/// The admission boundary is exact and typed.
+///
+/// A value whose decode needs exactly the configured limit constructs,
+/// one more recursion step is `EncodeError::Depth` carrying the
+/// configured limit, and wire-style rehydration draws the same line —
+/// admission and ingress are the same decode, so the two verdicts
+/// cannot differ.
+#[test]
+fn try_new_admits_exactly_the_limit() {
+    let limit = super::PayloadDepthLimit::new(8);
+    let at = nested_arr(8);
+    let m = Message::try_new(at.clone(), limit).expect("at the limit is admitted");
+    assert_eq!(m.bytes(), cbor_vec(&at).as_slice());
+
+    let over = nested_arr(9);
+    let error = Message::try_new(over.clone(), limit).unwrap_err();
+    assert!(
+        matches!(error, super::EncodeError::Depth { limit: l } if l == limit),
+        "one step past the limit is the typed depth case: {error:?}"
+    );
+
+    // Rehydration rejects the same bytes admission rejects.
+    assert!(
+        Message::from_slice::<Arr>(&cbor_vec(&over), limit).is_err(),
+        "the decoder rejects what admission rejects"
+    );
+    let raised = super::PayloadDepthLimit::new(9);
+    Message::try_new(over, raised).expect("one more step of limit admits it");
+}
+
+/// A recursive enum whose spine is `serde`'s newtype-variant shape.
+///
+/// Each `N` wrapper is one map scope on the wire, and decoding it as
+/// `E` prices the innermost unit variant one further recursion step —
+/// the type-dependent accounting only the type's own decode can price.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+enum E {
+    A,
+    N(Box<E>),
+}
+
+/// `E::A` under `wrappers` layers of `E::N`.
+fn nested_enum(wrappers: u64) -> E {
+    (0..wrappers).fold(E::A, |e, _| E::N(Box::new(e)))
+}
+
+/// The admission boundary is exact for an enum payload.
+///
+/// The enum's decode recursion is type-dependent (the innermost unit
+/// variant costs a step no structural count of the bytes would find):
+/// the deepest value whose decode fits the limit is admitted, one more
+/// wrapper is `EncodeError::Depth` — at the author, never at a
+/// receiver.
+#[test]
+fn try_new_prices_an_enums_own_decode() {
+    let limit = super::PayloadDepthLimit::new(8);
+    // 7 map scopes + the unit-variant step = 8: exactly the limit.
+    let at = nested_enum(limit.get() - 1);
+    let m = Message::try_new(at, limit).expect("a decode at exactly the limit is admitted");
+    assert_eq!(
+        &*Message::from_slice::<E>(m.as_slice(), limit)
+            .expect("the admitted encoding decodes at an equally-configured receiver")
+            .arc::<E>(),
+        &nested_enum(limit.get() - 1),
+    );
+
+    // 8 map scopes + the unit-variant step = 9: one past the limit.
+    let error = Message::try_new(nested_enum(limit.get()), limit).unwrap_err();
+    assert!(
+        matches!(error, super::EncodeError::Depth { limit: l } if l == limit),
+        "a decode needing limit + 1 is the typed depth case: {error:?}"
+    );
+}
+
+/// A payload type violating the round-trip obligation: it serializes as
+/// an integer but deserializes expecting text.
+#[derive(Debug, PartialEq, Eq)]
+struct Lopsided;
+
+impl Serialize for Lopsided {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_u64(0)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Lopsided {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        String::deserialize(deserializer).map(|_| Lopsided)
+    }
+}
+
+/// A payload type whose `Deserialize` rejects its own `Serialize` output
+/// is the typed `EncodeError::Roundtrip` at the author — the value would
+/// have failed at every receiver, and admission is that decode.
+#[test]
+fn a_type_that_cannot_read_its_own_output_fails_admission() {
+    let error = Message::try_new(Lopsided, super::PayloadDepthLimit::default()).unwrap_err();
+    assert!(
+        matches!(error, super::EncodeError::Roundtrip(_)),
+        "the round-trip violation is its own typed case: {error:?}"
+    );
+}
+
+/// The constructed codec's serializing half applies the carried limit and
+/// reuses the caller's allocation.
+///
+/// The codec is `Message::try_new` with the peer's configured limit
+/// riding along; the spine here is the enum's map scopes, so the codec
+/// path is exercised on the type-dependent accounting.
+#[test]
+fn codec_serializes_through_the_carried_limit() {
+    use std::sync::Arc;
+    let limit = super::PayloadDepthLimit::new(4);
+    let codec = super::PayloadCodec::new::<E>(limit);
+
+    // 4 map scopes + the unit-variant step: one past the limit.
+    let deep = nested_enum(4);
+    let error = codec.message(Arc::new(deep)).unwrap_err();
+    assert!(
+        matches!(error, super::EncodeError::Depth { limit: l } if l == limit),
+        "the codec surfaces the carried limit: {error:?}"
+    );
+
+    // 3 map scopes + the unit-variant step: exactly the limit.
+    let shallow = nested_enum(3);
+    let stored: Arc<E> = Arc::new(shallow.clone());
+    let m = codec.message(stored.clone()).expect("within the limit");
+    assert_eq!(m.bytes(), cbor_vec(&shallow).as_slice());
+    assert!(
+        std::sync::Arc::ptr_eq(&stored, &m.arc::<E>()),
+        "the codec stores the caller's own allocation"
+    );
 }

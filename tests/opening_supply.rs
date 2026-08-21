@@ -16,12 +16,13 @@ use rand::SeedableRng;
 use rand::rngs::SmallRng;
 use rumors::{Peer, Rumors, Version};
 
-use crate::common::gossip_snapshot::capture_gossip;
+use crate::common::gossip_snapshot::capture_gossip_returning;
 use crate::common::shape::{ballast_avoiding, keep_only, path_radix, pool, send_pool};
 use crate::common::wire::{block_on, bootstrap_fork_async};
 
 /// A peer seeded from a fixed RNG so the capture is deterministic.
-fn seeded<T: serde::de::DeserializeOwned + Send + Sync + 'static>() -> Rumors<T> {
+fn seeded<T: serde::Serialize + serde::de::DeserializeOwned + Eq + Send + Sync + 'static>()
+-> Rumors<T> {
     Peer::seed_rng(&mut SmallRng::seed_from_u64(0)).into_rumors()
 }
 
@@ -39,14 +40,21 @@ const BALLAST_POOL: (u64, u64) = (10_000, 16);
 
 /// Count the frames whose semantic label starts with `label` in a rendered
 /// wire capture, across both directions.
+///
+/// A frame's semantic is the comment on its signal line
+/// (`<dense code> / <semantic> /`); the bare-digit code distinguishes
+/// signal lines from every other annotated line in the rendering.
 fn frames_labeled(capture: &str, label: &str) -> usize {
     capture
         .lines()
-        .filter_map(|line| line.trim_start().strip_prefix("frame "))
-        .filter(|frame| {
-            let (_, semantic) = frame.split_once(": ").expect("frame lines are labeled");
-            semantic.starts_with(label)
+        .filter_map(|line| {
+            let (code, rest) = line.trim_start().split_once(" / ")?;
+            if code.is_empty() || !code.bytes().all(|b| b.is_ascii_digit()) {
+                return None;
+            }
+            rest.strip_suffix(" /")
         })
+        .filter(|semantic| semantic.starts_with(label))
         .count()
 }
 
@@ -68,7 +76,7 @@ fn divergent_root_child_has_one_question_owner() {
     // outside that radix, making it the larger set.
     let (a, b) = block_on(async {
         let a: Rumors<u64> = seeded();
-        a.send(1);
+        a.send(1).unwrap();
         let b = bootstrap_fork_async(&a).await;
         (a, b)
     });
@@ -116,7 +124,7 @@ fn divergent_root_child_has_one_question_owner() {
     );
 
     let expected: usize = a.snapshot().len() + b.snapshot().len() - 1;
-    let capture = capture_gossip(a.clone(), b.clone());
+    let (capture, a, b) = capture_gossip_returning(a, b);
     assert_eq!(
         a.snapshot().len(),
         expected,

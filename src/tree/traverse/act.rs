@@ -31,7 +31,7 @@ pub enum Action {
 ///
 /// Panics if an insert lands on a live leaf disagreeing with it on
 /// version or payload: version reuse. No input reaches that state —
-/// every production insert carries a freshly minted version (a fresh
+/// every production insert carries a freshly created version (a fresh
 /// tick strictly dominates the ceiling bounding every live leaf, and
 /// party linearity keeps regions disjoint), and no wire-derived leaf
 /// passes through this walk — so the panic marks a bug in this crate,

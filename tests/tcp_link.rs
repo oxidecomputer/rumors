@@ -30,7 +30,7 @@ const SUITE_TIMEOUT: Duration = Duration::from_secs(120);
 /// the smallest per-stream capacity the platform lawfully provides.
 const MINIMAL_BUFFER_REQUEST: u32 = 1;
 
-/// Mint a fresh connected loopback pair, both ends through the TCP link
+/// Create a fresh connected loopback pair, both ends through the TCP link
 /// constructor.
 async fn tcp_pair(stream_buffers: Option<u32>) -> (tcp::TcpLink, tcp::TcpLink) {
     let listener = TcpListener::bind("127.0.0.1:0")

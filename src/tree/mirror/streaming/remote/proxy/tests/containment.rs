@@ -1,6 +1,6 @@
 //! Version-containment enforcement over the full wire stack.
 
-use crate::message::Message;
+use crate::message::{PayloadCodec, PayloadDepthLimit};
 use futures::join;
 
 use crate::link::memory_with_capacity;
@@ -33,10 +33,18 @@ async fn reconcile_results(
     let b = Handshaking::start(Local, Root::<Local>::from(b)).window(WindowConfig::FLOOR);
 
     let (a_link, b_link) = memory_with_capacity(TRANSPORT_CAPACITY);
-    let remote_b = RemoteHandshaking::start(Local, a_link, Message::deserializer::<()>())
-        .window(WindowConfig::FLOOR);
-    let remote_a = RemoteHandshaking::start(Local, b_link, Message::deserializer::<()>())
-        .window(WindowConfig::FLOOR);
+    let remote_b = RemoteHandshaking::start(
+        Local,
+        a_link,
+        PayloadCodec::new::<()>(PayloadDepthLimit::default()),
+    )
+    .window(WindowConfig::FLOOR);
+    let remote_a = RemoteHandshaking::start(
+        Local,
+        b_link,
+        PayloadCodec::new::<()>(PayloadDepthLimit::default()),
+    )
+    .window(WindowConfig::FLOOR);
 
     let (a, b) = join!(Box::pin(mirror(a, remote_b)), Box::pin(mirror(remote_a, b)));
     (

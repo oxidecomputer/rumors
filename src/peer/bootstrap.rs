@@ -6,14 +6,19 @@ use std::marker::PhantomData;
 
 use tokio::io::{AsyncRead, AsyncWrite};
 
+use std::sync::Arc;
+
 use crate::bookmark::{Bookmark, BookmarkError};
 use crate::link::{Acceptor, Connector, Link};
+use crate::message::PayloadDepthLimit;
+use crate::observe::{Attachment, Observer};
 use crate::tree::mirror::streaming::remote::RunBudget;
 use crate::tree::mirror::streaming::window::WindowConfig;
 use crate::{Error, Peer, Protocol};
 
 use super::gossip::Unbookmarked;
 
+use serde::Serialize;
 use serde::de::DeserializeOwned;
 /// Configuration for joining an existing universe: the builder behind
 /// [`Peer::bootstrap`].
@@ -27,8 +32,9 @@ use serde::de::DeserializeOwned;
 ///
 /// Every setting here is the new peer's own, selected one session
 /// early: [`protocol`](Self::protocol),
-/// [`sync_memory_budget`](Self::sync_memory_budget), and
-/// [`target_message_size`](Self::target_message_size) each state what they
+/// [`sync_memory_budget`](Self::sync_memory_budget),
+/// [`target_message_size`](Self::target_message_size), and
+/// [`payload_depth_limit`](Self::payload_depth_limit) each state what they
 /// change about the bootstrap session itself, and the joined peer keeps
 /// the choice exactly as if selected through the matching [`Peer`] method.
 /// [`bookmark`](Self::bookmark) additionally persists the received
@@ -36,9 +42,9 @@ use serde::de::DeserializeOwned;
 /// [`BookmarkedBootstrap`] state (whose `join` reports outcomes as a
 /// [`Joined`], since a persist can fail while the peer lives).
 ///
-/// The builder is `Copy`: after a mutual-bootstrap bail
-/// ([`join`](Self::join)'s `Ok(None)`) or a failed session, the same
-/// configuration retries against another provider as-is.
+/// The builder is `Clone`: after a mutual-bootstrap bail
+/// ([`join`](Self::join)'s `Ok(None)`) or a failed session, a clone of
+/// the same configuration retries against another provider as-is.
 ///
 /// # The provider's side
 ///
@@ -52,24 +58,45 @@ use serde::de::DeserializeOwned;
 /// one, never by both sides.
 #[must_use = "a `Bootstrap` does nothing until `join` runs it against a link"]
 pub struct Bootstrap<T> {
+    /// The wire protocol selected by [`protocol`](Self::protocol): spoken
+    /// by the join session, carried into the joined peer.
     pub(crate) protocol: Protocol,
+    /// The window policy selected by
+    /// [`sync_memory_budget`](Self::sync_memory_budget): the join
+    /// session's reconciliation memory bound, carried into the joined
+    /// peer.
     pub(crate) window: WindowConfig,
+    /// The supply-run sizing budget selected by
+    /// [`target_message_size`](Self::target_message_size): the join
+    /// session's byte target, carried into the joined peer.
     pub(crate) run_budget: RunBudget,
+    /// The payload depth limit selected by
+    /// [`payload_depth_limit`](Self::payload_depth_limit): the join
+    /// session's ingress bound, carried into the joined peer's codec.
+    pub(crate) payload_depth_limit: PayloadDepthLimit,
+    /// The wire-observation handler selected by
+    /// [`observe`](Self::observe), carried into the joined peer.
+    pub(crate) observe: Attachment,
     /// Covariant, `Send`/`Sync`-neutral marker for the payload type the
     /// new [`Peer`] will carry.
     marker: PhantomData<fn() -> T>,
 }
 
-// Manual, unbounded impls: the payload type is phantom (the builder holds
-// configuration only), so the `T: Clone`/`T: Copy` bounds `derive` would
-// add have nothing to constrain.
+// A manual, unbounded impl: the payload type is phantom (the builder
+// holds configuration only), so the `T: Clone` bound `derive` would add
+// has nothing to constrain.
 impl<T> Clone for Bootstrap<T> {
     fn clone(&self) -> Self {
-        *self
+        Self {
+            protocol: self.protocol,
+            window: self.window,
+            run_budget: self.run_budget,
+            payload_depth_limit: self.payload_depth_limit,
+            observe: self.observe.clone(),
+            marker: PhantomData,
+        }
     }
 }
-
-impl<T> Copy for Bootstrap<T> {}
 
 /// The configuration only; the payload type parameter carries no state.
 impl<T> std::fmt::Debug for Bootstrap<T> {
@@ -78,6 +105,7 @@ impl<T> std::fmt::Debug for Bootstrap<T> {
             .field("protocol", &self.protocol)
             .field("window", &self.window)
             .field("run_budget", &self.run_budget)
+            .field("payload_depth_limit", &self.payload_depth_limit)
             .finish()
     }
 }
@@ -90,6 +118,8 @@ impl<T> Bootstrap<T> {
             protocol: Protocol::default(),
             window: WindowConfig::default(),
             run_budget: RunBudget::default(),
+            payload_depth_limit: PayloadDepthLimit::default(),
+            observe: Attachment::default(),
             marker: PhantomData,
         }
     }
@@ -149,6 +179,33 @@ impl<T> Bootstrap<T> {
         self
     }
 
+    /// Bound the nesting depth of the message payloads the bootstrap
+    /// session, and every later session, accepts.
+    ///
+    /// The join session decodes the provider's supplied records before a
+    /// [`Peer`] exists, so the bound is selected here, one session early.
+    /// The default, the scope accounting, and the fleet-coordination
+    /// contract are [`Peer::payload_depth_limit`]'s; the joined peer
+    /// behaves exactly as if it had called it.
+    pub fn payload_depth_limit(mut self, limit: PayloadDepthLimit) -> Self {
+        self.payload_depth_limit = limit;
+        self
+    }
+
+    /// Attach a wire-observation handler, starting with the bootstrap
+    /// session itself.
+    ///
+    /// The join is the one session that runs before the peer exists,
+    /// so observing it means selecting the handler here; the joined
+    /// peer then keeps the handler exactly as [`Peer::observe`] would
+    /// attach it; an observer that numbers sessions will count the join
+    /// as the first session it sees. The observation contract is the
+    /// [`observe`](crate::observe) module's.
+    pub fn observe(mut self, observer: Arc<dyn Observer>) -> Self {
+        self.observe.attach(observer);
+        self
+    }
+
     /// Persist the received identity as part of joining: the peer comes
     /// back already [`bookmark`](Peer::bookmark)ed.
     ///
@@ -190,7 +247,7 @@ impl<T> Bootstrap<T> {
     /// `Ok(None)` means the counterparty was itself still bootstrapping,
     /// so neither side had anything to share and no identity moved. It is
     /// a clean session boundary: the link remains usable. Connect to
-    /// another peer and try again (the builder is `Copy`, so the same
+    /// another peer and try again (the builder is `Clone`, so the same
     /// configuration retries as-is).
     ///
     /// On `Ok(Some(peer))` the provider has confirmed committing its side
@@ -216,7 +273,7 @@ impl<T> Bootstrap<T> {
         link: &mut Link<CR, CW, C, A>,
     ) -> Result<Option<Peer<T>>, Error>
     where
-        T: DeserializeOwned + Send + Sync + 'static,
+        T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,
@@ -283,6 +340,20 @@ impl<T, B: Bookmark> BookmarkedBootstrap<T, B> {
         self
     }
 
+    /// Bound payload nesting depth; the contract is
+    /// [`Bootstrap::payload_depth_limit`]'s.
+    pub fn payload_depth_limit(mut self, limit: PayloadDepthLimit) -> Self {
+        self.config = self.config.payload_depth_limit(limit);
+        self
+    }
+
+    /// Attach a wire-observation handler; the contract is
+    /// [`Bootstrap::observe`]'s.
+    pub fn observe(mut self, observer: Arc<dyn Observer>) -> Self {
+        self.config = self.config.observe(observer);
+        self
+    }
+
     /// Join the provider's universe and durably record the received
     /// identity, reporting what survived as a [`Joined`].
     ///
@@ -296,7 +367,7 @@ impl<T, B: Bookmark> BookmarkedBootstrap<T, B> {
     /// in every outcome that never used it.
     pub async fn join<CR, CW, C, A>(self, link: &mut Link<CR, CW, C, A>) -> Joined<T, B>
     where
-        T: DeserializeOwned + Send + Sync + 'static,
+        T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,

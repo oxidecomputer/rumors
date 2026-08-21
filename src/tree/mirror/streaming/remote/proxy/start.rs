@@ -1,35 +1,30 @@
 //! The wire participant's protocol handshake states.
 
-use crate::message::PayloadDeserializer;
-use std::io;
+use crate::message::{PayloadCodec, PayloadDepthLimit};
 
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::{
-    Version,
     link::{Acceptor, Connector, Link},
+    observe::{CaptureRead, Role, SessionHandle},
     tree::{
-        mirror::{
-            framing,
-            streaming::{
-                Backend, Leaf,
-                message::{Greeting, initiates},
-                protocol::{self, Accept, CompleteConnect, Connect},
-                remote::{
-                    codec::{RunBudget, Speaker, validate_children},
-                    proxy::{
-                        Connected, Error,
-                        work::{Physical, Work},
-                    },
-                    streams::{AcceptDriver, claims, error_route},
+        mirror::streaming::{
+            Backend, Leaf,
+            message::{Greeting, initiates},
+            protocol::{self, Accept, CompleteConnect, Connect},
+            remote::{
+                codec::{RunBudget, Speaker, greeting as greeting_codec},
+                proxy::{
+                    Connected, Error,
+                    work::{Physical, Work},
                 },
-                stats::Recorder,
-                window::{Window, WindowConfig},
+                streams::{AcceptDriver, claims, error_route},
             },
+            stats::Recorder,
+            window::{Window, WindowConfig},
         },
         typed::{
             Hash,
-            hash::MERKLE_HASH_LEN,
             height::{Root, Z},
         },
     },
@@ -55,10 +50,12 @@ where
     /// The session's stats recorder: every stream this session binds
     /// counts its codec bytes through it.
     stats: Recorder,
-    /// The peer's payload deserializer: the typed ingress every supplied
-    /// leaf record decodes through (see
-    /// [`Message::deserializer`](crate::message::Message::deserializer)).
-    deserializer: PayloadDeserializer,
+    /// The peer's payload codec: the typed ingress every supplied
+    /// leaf record decodes through (see [`PayloadCodec`]).
+    codec: PayloadCodec,
+    /// The session's observation handle: every wire item this session
+    /// moves is delivered through it (inert unless a handler attached).
+    observe: SessionHandle,
 }
 
 impl<B, R, W, C, A> Handshaking<B, R, W, C, A>
@@ -67,16 +64,17 @@ where
 {
     /// Bind one session's link carrier before exchanging causal versions.
     ///
-    /// `deserializer` is the peer's payload deserializer: every leaf
+    /// `codec` is the peer's payload codec: every leaf
     /// record this session decodes builds its payload through it.
-    pub fn start(backend: B, link: Link<R, W, C, A>, deserializer: PayloadDeserializer) -> Self {
+    pub fn start(backend: B, link: Link<R, W, C, A>, codec: PayloadCodec) -> Self {
         Self {
             backend,
             link,
             versions: Start,
             window: WindowConfig::default(),
             stats: Recorder::default(),
-            deserializer,
+            codec,
+            observe: SessionHandle::default(),
         }
     }
 
@@ -94,6 +92,15 @@ where
     /// reads.
     pub fn stats(mut self, stats: Recorder) -> Self {
         self.stats = stats;
+        self
+    }
+
+    /// Share the session's observation handle, so the greeting exchange
+    /// and every stream this session binds deliver their wire items.
+    ///
+    /// Without this call the session runs with the inert default.
+    pub fn observe(mut self, observe: SessionHandle) -> Self {
+        self.observe = observe;
         self
     }
 }
@@ -132,7 +139,7 @@ where
 
     /// Receive the remote greeting before asking the local server to answer it.
     async fn connect(mut self) -> Result<(Greeting, Self::Next), Self::Error> {
-        let remote = receive::<B::Error, _>(&mut self.link.control_read).await?;
+        let remote = receive::<B::Error, _>(&mut self.link.control_read, &self.observe).await?;
         let greeting = remote.clone();
         let next = Handshaking {
             backend: self.backend,
@@ -140,7 +147,8 @@ where
             versions: Connecting { remote },
             window: self.window,
             stats: self.stats,
-            deserializer: self.deserializer,
+            codec: self.codec,
+            observe: self.observe,
         };
         Ok((greeting, next))
     }
@@ -157,8 +165,15 @@ where
     type Next = Connected<B, R, W, C, A>;
 
     /// Send the local server's greeting, then open only if versions differ.
-    async fn complete_connect(mut self, theirs: Greeting) -> Result<Self::Next, Self::Error> {
-        send::<B::Error, _>(&theirs, &mut self.link.control_write).await?;
+    async fn complete_connect(mut self, mut theirs: Greeting) -> Result<Self::Next, Self::Error> {
+        // The wire value of the local limit is the codec's: the one
+        // configuration every parse of this session already runs under.
+        theirs.payload_depth_limit = self.codec.limit().get();
+        send::<B::Error, _>(&theirs, &mut self.link.control_write, &self.observe).await?;
+        // Payload depth limits must be equal — checked after both
+        // greetings are in hand and before the equal-versions resolution,
+        // so a mixed configuration is caught even on a converged session.
+        payload_depth_limits_match::<B::Error>(&self.codec, &self.versions.remote)?;
         let window = self.window.resolve(
             theirs.set_len,
             self.versions.remote.set_len,
@@ -175,7 +190,8 @@ where
             self.versions.remote,
             self.link,
             self.stats,
-            self.deserializer,
+            self.codec,
+            self.observe,
         ))
     }
 }
@@ -191,10 +207,20 @@ where
     type Next = Connected<B, R, W, C, A>;
 
     /// Exchange greetings concurrently, then open only if versions differ.
-    async fn accept(mut self, request: Greeting) -> Result<(Greeting, Self::Next), Self::Error> {
-        let send = send::<B::Error, _>(&request, &mut self.link.control_write);
-        let receive = receive::<B::Error, _>(&mut self.link.control_read);
+    async fn accept(
+        mut self,
+        mut request: Greeting,
+    ) -> Result<(Greeting, Self::Next), Self::Error> {
+        // The wire value of the local limit is the codec's: the one
+        // configuration every parse of this session already runs under.
+        request.payload_depth_limit = self.codec.limit().get();
+        let send = send::<B::Error, _>(&request, &mut self.link.control_write, &self.observe);
+        let receive = receive::<B::Error, _>(&mut self.link.control_read, &self.observe);
         let (_, remote) = futures_util::future::try_join(send, receive).await?;
+        // Payload depth limits must be equal — checked after both
+        // greetings are in hand and before the equal-versions resolution,
+        // so a mixed configuration is caught even on a converged session.
+        payload_depth_limits_match::<B::Error>(&self.codec, &remote)?;
         let greeting = remote.clone();
         let window = self.window.resolve(
             request.set_len,
@@ -212,10 +238,33 @@ where
             remote,
             self.link,
             self.stats,
-            self.deserializer,
+            self.codec,
+            self.observe,
         );
         Ok((greeting, next))
     }
+}
+
+/// Require the peer's declared payload depth limit to equal ours.
+///
+/// The limit is a property of the shared set — every replica must be
+/// able to hold and forward all content — so it is exchanged for
+/// equality, never negotiated: negotiating down is unsound (a peer may
+/// already hold messages deeper than a negotiated bound, which it would
+/// then not be allowed to gossip), so any negotiation scheme merely
+/// relocates the failure to mid-session, conditional on which leaves
+/// differ. Both sides detect the mismatch symmetrically, like a network
+/// mismatch.
+fn payload_depth_limits_match<E>(codec: &PayloadCodec, remote: &Greeting) -> Result<(), Error<E>> {
+    let local = codec.limit();
+    let declared = PayloadDepthLimit::new(remote.payload_depth_limit);
+    if declared != local {
+        return Err(Error::PayloadDepthMismatch {
+            local,
+            remote: declared,
+        });
+    }
+    Ok(())
 }
 
 /// Compute the session's supply-run budget.
@@ -228,85 +277,58 @@ fn run_budget(ours: &Greeting, theirs: &Greeting) -> RunBudget {
     RunBudget::from_bytes(usize::try_from(bytes).unwrap_or(usize::MAX))
 }
 
-/// Send one greeting: the size-prefixed causal-version frame, then the
-/// root-fan listing frame.
+/// Send one greeting: a single self-delimiting control-stream item,
+/// flushed in one hop.
 ///
-/// The first frame's body is `set_len (8 B LE) ‖ max_version_bytes
-/// (8 B LE) ‖ target_message_size (8 B LE) ‖ version`. Both frames flush
-/// on the same hop; the listing frame is the wire carriage of the
-/// opening question's content (see [`Greeting`] for the always-carry
-/// trade).
-async fn send<E, W>(greeting: &Greeting, write: &mut W) -> Result<(), Error<E>>
+/// The spelling lives in
+/// [`codec::greeting`](crate::tree::mirror::streaming::remote::codec::greeting).
+/// The listing rides inside the item — the wire carriage of the opening
+/// question's content (see [`Greeting`] for the always-carry trade).
+async fn send<E, W>(
+    greeting: &Greeting,
+    write: &mut W,
+    observe: &SessionHandle,
+) -> Result<(), Error<E>>
 where
     W: AsyncWrite + Unpin,
 {
-    let mut write = framing::FrameWrite::new(write);
-    let mut first =
-        Vec::with_capacity(framing::GREETING_SIZE_WORDS_LEN + greeting.version.as_bytes().len());
-    first.extend_from_slice(&greeting.set_len.to_le_bytes());
-    first.extend_from_slice(&greeting.max_version_bytes.to_le_bytes());
-    first.extend_from_slice(&greeting.target_message_size.to_le_bytes());
-    first.extend_from_slice(greeting.version.as_bytes());
-    write.frame(&first).await.map_err(Error::HandshakeWrite)?;
-    // The listing frame is raw fixed-width records — radix byte, then the
-    // Merkle hash — with the frame length carrying the count, exactly the
-    // codec's query-listing shape.
-    let mut listing = Vec::with_capacity(greeting.listing.len() * (1 + MERKLE_HASH_LEN));
-    for (radix, hash) in &greeting.listing {
-        listing.push(*radix);
-        listing.extend_from_slice(hash.as_bytes());
-    }
-    write.frame(&listing).await.map_err(Error::HandshakeWrite)
+    use tokio::io::AsyncWriteExt as _;
+    let item = greeting_codec::encode_greeting(greeting);
+    write
+        .write_all(&item)
+        .await
+        .map_err(Error::HandshakeWrite)?;
+    write.flush().await.map_err(Error::HandshakeWrite)?;
+    observe.control_sent(&item);
+    Ok(())
 }
 
-/// Receive and canonically decode one greeting: the size-prefixed
-/// causal-version frame, then the root-fan listing frame.
+/// Receive and canonically decode one greeting item.
 ///
-/// The listing is peer-controlled, so its canonical strictly-ascending radix
-/// order is enforced here — the same rule the frame codec applies to a wire
-/// query — before any scope is built from it.
-async fn receive<E, R>(read: &mut R) -> Result<Greeting, Error<E>>
+/// The greeting is peer-controlled, so its whole spelling is enforced
+/// on ingress — deterministic heads, the exact key roster, and the
+/// listing's canonical strictly-ascending radix order, the same rule the
+/// frame codec applies to a wire query — before any scope is built
+/// from it.
+async fn receive<E, R>(read: &mut R, observe: &SessionHandle) -> Result<Greeting, Error<E>>
 where
     R: AsyncRead + Unpin,
 {
-    let mut read = framing::FrameRead::new(read);
-    let bytes = read.frame().await.map_err(Error::HandshakeRead)?;
-    let short = || {
-        Error::HandshakeDecode(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "greeting version frame is shorter than its size prefixes",
-        ))
+    let route = |e| match e {
+        greeting_codec::ReadGreetingError::Io(io) => Error::HandshakeRead(io),
+        greeting_codec::ReadGreetingError::Decode(defect) => Error::HandshakeDecode(defect),
+        greeting_codec::ReadGreetingError::Listing(order) => Error::HandshakeListing(order),
     };
-    let (set_len, max_version_bytes, target_message_size) =
-        framing::greeting_words(&bytes).ok_or_else(short)?;
-    let version = Version::decode(&bytes[framing::GREETING_SIZE_WORDS_LEN..])
-        .map_err(|e| Error::HandshakeDecode(io::Error::new(io::ErrorKind::InvalidData, e)))?;
-    let bytes = read.frame().await.map_err(Error::HandshakeRead)?;
-    // The frame length carries the record count; a remainder is a
-    // malformed listing, not a short read.
-    if !bytes.len().is_multiple_of(1 + MERKLE_HASH_LEN) {
-        return Err(Error::HandshakeDecode(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "listing frame is not a whole number of radix-hash records",
-        )));
+    if observe.attached() {
+        let mut capture = CaptureRead::new(read);
+        let greeting = greeting_codec::read_greeting(&mut capture)
+            .await
+            .map_err(route)?;
+        observe.control_received(capture.bytes());
+        Ok(greeting)
+    } else {
+        greeting_codec::read_greeting(read).await.map_err(route)
     }
-    let listing: Vec<(u8, Hash)> = bytes
-        .chunks_exact(1 + MERKLE_HASH_LEN)
-        .map(|record| {
-            let (&radix, hash) = record.split_first().expect("a record has a radix byte");
-            let mut bytes = [0u8; MERKLE_HASH_LEN];
-            bytes.copy_from_slice(hash);
-            (radix, Hash(bytes))
-        })
-        .collect();
-    validate_children(&listing).map_err(Error::HandshakeListing)?;
-    Ok(Greeting {
-        version,
-        set_len,
-        max_version_bytes,
-        target_message_size,
-        listing,
-    })
 }
 
 /// Return untouched control halves on equality, otherwise open the session.
@@ -323,7 +345,8 @@ fn connected<B, R, W, C, A>(
     remote: Greeting,
     link: Link<R, W, C, A>,
     stats: Recorder,
-    deserializer: PayloadDeserializer,
+    codec: PayloadCodec,
+    observe: SessionHandle,
 ) -> Connected<B, R, W, C, A>
 where
     B: Backend<Node<Z>: Leaf>,
@@ -345,6 +368,12 @@ where
     } else {
         Speaker::Responder
     };
+    // The election is decided exactly here; observers learn it before
+    // any data stream can open.
+    observe.elected(match local {
+        Speaker::Initiator => Role::Initiator,
+        Speaker::Responder => Role::Responder,
+    });
     open(
         backend,
         window,
@@ -355,7 +384,8 @@ where
         remote.listing,
         link,
         stats,
-        deserializer,
+        codec,
+        observe,
     )
 }
 
@@ -379,7 +409,8 @@ fn open<B, R, W, C, A>(
     peer_listing: Vec<(u8, Hash)>,
     link: Link<R, W, C, A>,
     stats: Recorder,
-    deserializer: PayloadDeserializer,
+    codec: PayloadCodec,
+    observe: SessionHandle,
 ) -> Connected<B, R, W, C, A>
 where
     B: Backend<Node<Z>: Leaf>,
@@ -412,9 +443,11 @@ where
             accept,
             errors,
         },
-        deserializer,
+        codec,
     );
-    Connected::new(remote, epoch, connector, claims, route, budget, stats, work)
+    Connected::new(
+        remote, epoch, connector, claims, route, budget, stats, observe, work,
+    )
 }
 
 #[cfg(test)]

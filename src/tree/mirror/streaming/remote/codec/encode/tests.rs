@@ -16,9 +16,10 @@ use crate::{
 
 use super::super::{
     error::Origin,
-    frame::{MAX_QUERY_CHILDREN, QUERY_CHILD_LEN, QUERY_COUNT_BIAS, QUERY_COUNT_LEN},
+    frame::{MAX_QUERY_CHILDREN, listing_len},
     signal::{End, Flow, Speaker, Stream},
 };
+use crate::tree::mirror::cbor::{MAJOR_TAG, MAJOR_UINT, TAG_CBOR_SEQUENCE};
 
 const SPEAKERS: [Speaker; 2] = [Speaker::Initiator, Speaker::Responder];
 const FLOWS: [Flow; 2] = [Flow::Continue, Flow::End];
@@ -33,6 +34,14 @@ fn signal(stream: Stream, signal: Signal) -> u8 {
         .to_byte()
 }
 
+/// The frame head of a `arity`-item frame carrying `code`.
+fn frame_head(arity: u64, code: u8) -> Vec<u8> {
+    let mut head = Vec::new();
+    cbor::write_head(&mut head, MAJOR_ARRAY, arity);
+    cbor::write_head(&mut head, MAJOR_UINT, u64::from(code));
+    head
+}
+
 fn arb_speaker() -> impl Strategy<Value = Speaker> {
     prop_oneof![Just(Speaker::Initiator), Just(Speaker::Responder)]
 }
@@ -41,7 +50,8 @@ fn arb_flow() -> impl Strategy<Value = Flow> {
     prop_oneof![Just(Flow::Continue), Just(Flow::End)]
 }
 
-/// Every query fan and flow state has one canonical count representation.
+/// Every query fan and flow state has one canonical map representation,
+/// its length priced exactly by the listing closed form.
 #[test]
 fn query_count_covers_every_fan_and_flow() {
     let stream = stream(7);
@@ -61,23 +71,24 @@ fn query_count_covers_every_fan_and_flow() {
                 let mut encoded = Vec::new();
                 encode(speaker, &frame, &mut encoded).unwrap();
                 if count == 0 {
-                    assert_eq!(encoded, [signal(stream, Signal::QueryEmpty(flow))]);
-                } else {
-                    assert_eq!(encoded[0], signal(stream, Signal::Query(flow)));
-                    assert_eq!(encoded[1], (count - QUERY_COUNT_BIAS) as u8);
                     assert_eq!(
-                        encoded.len(),
-                        WireSignal::ENCODED_LEN + QUERY_COUNT_LEN + count * QUERY_CHILD_LEN
+                        encoded,
+                        frame_head(1, signal(stream, Signal::QueryEmpty(flow)))
                     );
+                } else {
+                    let head = frame_head(2, signal(stream, Signal::Query(flow)));
+                    assert_eq!(&encoded[..head.len()], head.as_slice());
+                    assert_eq!(encoded.len(), head.len() + listing_len(&children));
                 }
             }
         }
     }
 }
 
-/// Match flow and both bare ends exhaust their one-byte representations.
+/// Match flow and both bare ends exhaust the body-free representations:
+/// each is exactly its one-item array head and signal.
 #[test]
-fn one_byte_frames_are_exhaustive() {
+fn body_free_frames_are_exhaustive() {
     let stream = stream(4);
     let cases: Vec<(WireFrame, u8)> = vec![
         (
@@ -101,15 +112,18 @@ fn one_byte_frames_are_exhaustive() {
         for (frame, expected) in &cases {
             let mut encoded = Vec::new();
             encode(speaker, frame, &mut encoded).unwrap();
-            assert_eq!(encoded, [*expected]);
+            assert_eq!(encoded, frame_head(1, *expected));
         }
     }
 }
 
 proptest! {
-    /// Supply framing is exact for an arbitrary run of backend-neutral leaf
-    /// records: one run length header, then one length-prefixed record per
-    /// leaf, in push order.
+    /// Supply framing is exact for an arbitrary run of backend-neutral
+    /// leaf records.
+    ///
+    /// The layout: the run's embedded-sequence heads, then one record item
+    /// per leaf, in push order — each record the tagged version atom and
+    /// bare payload behind its own embedded-sequence heads.
     #[test]
     fn supplied_run_is_framed_exactly(
         index in 1_u8..Stream::MAX,
@@ -123,18 +137,21 @@ proptest! {
         for (version, value) in &records {
             let message = Message::new(*value);
             run.push(version, &message).unwrap();
-            let mut record = Vec::new();
-            ciborium::ser::into_writer(version, &mut record).unwrap();
-            record.extend_from_slice(message.as_slice());
-            body.extend_from_slice(&(record.len() as u32).to_be_bytes());
-            body.extend_from_slice(&record);
+            let mut content = Vec::new();
+            cbor::write_head(&mut content, MAJOR_TAG, crate::tags::VERSION_TAG);
+            ciborium::ser::into_writer(version, &mut content).unwrap();
+            content.extend_from_slice(message.as_slice());
+            cbor::write_head(&mut body, MAJOR_TAG, TAG_CBOR_SEQUENCE);
+            cbor::write_head(&mut body, MAJOR_BSTR, content.len() as u64);
+            body.extend_from_slice(&content);
         }
         let frame = (stream, Frame::Reaction(Reaction::Supply(run), flow));
 
         let mut encoded = Vec::new();
         encode(speaker, &frame, &mut encoded).unwrap();
-        let mut expected = vec![signal(stream, Signal::Supply(flow))];
-        expected.extend_from_slice(&(body.len() as u32).to_be_bytes());
+        let mut expected = frame_head(2, signal(stream, Signal::Supply(flow)));
+        cbor::write_head(&mut expected, MAJOR_TAG, TAG_CBOR_SEQUENCE);
+        cbor::write_head(&mut expected, MAJOR_BSTR, body.len() as u64);
         expected.extend_from_slice(&body);
         prop_assert_eq!(encoded, expected);
     }
@@ -164,7 +181,7 @@ fn writer_errors_are_contextual() {
         assert!(matches!(
             error.kind,
             EncodeErrorKind::Write {
-                part: FramePart::Signal,
+                part: FramePart::FrameHead,
                 source,
             } if source.kind() == std::io::ErrorKind::Other
         ));
@@ -215,7 +232,7 @@ fn async_writer_errors_are_contextual() {
         assert!(matches!(
             error.kind,
             EncodeErrorKind::Write {
-                part: FramePart::Signal,
+                part: FramePart::FrameHead,
                 source,
             } if source.kind() == std::io::ErrorKind::Other
         ));

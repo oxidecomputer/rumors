@@ -1,4 +1,4 @@
-use crate::message::PayloadDeserializer;
+use crate::message::PayloadCodec;
 use std::pin::pin;
 use std::task::Poll;
 
@@ -71,7 +71,7 @@ pub fn early_supplies<B, F>(
     ledger: SupplyLedger,
     parent: ErasedPrefix,
     frames: F,
-    deserializer: PayloadDeserializer,
+    codec: PayloadCodec,
 ) -> impl Stream<Item = Result<(u8, B::Erased), DecodeError<B::Error>>> + Send
 where
     B: Backend<Node<Z>: Leaf>,
@@ -96,7 +96,7 @@ where
             parent,
             frames,
             tx,
-            deserializer,
+            codec,
         ));
         let mut read_result: Option<Result<(), DecodeError<B::Error>>> = None;
         loop {
@@ -139,7 +139,7 @@ async fn read_early<B, F>(
     parent: ErasedPrefix,
     mut frames: F,
     leaves: mpsc::Sender<Result<(Prefix<Z>, B::Node<Z>), B::Error>>,
-    deserializer: PayloadDeserializer,
+    codec: PayloadCodec,
 ) -> Result<(), DecodeError<B::Error>>
 where
     B: Backend<Node<Z>: Leaf>,
@@ -154,7 +154,7 @@ where
         let flow = match frame {
             Frame::Reaction(WireReaction::Supply(records), flow) => {
                 any = true;
-                for record in records.records(deserializer) {
+                for record in records.records(codec) {
                     let (version, message) = record.map_err(DecodeError::Record)?;
                     let (leaf_prefix, _) = supplies.observe::<B::Error>(parent, &version)?;
                     // The set-length half of the greeting's priced
@@ -206,7 +206,7 @@ pub async fn decode_reply<B, F>(
     ledger: SupplyLedger,
     scope: Scope,
     frames: &mut F,
-    deserializer: PayloadDeserializer,
+    codec: PayloadCodec,
 ) -> Result<Decoded<B::Erased, Vec<Scope>>, DecodeError<B::Error>>
 where
     B: Backend<Node<Z>: Leaf>,
@@ -222,7 +222,7 @@ where
             let (_, prefix) = scope.next().ok_or(ScopeError::UnpositionedQuery)?;
             Ok(Scope::new(prefix, listing))
         },
-        deserializer,
+        codec,
     )
     .await
 }
@@ -234,7 +234,7 @@ pub async fn decode_leaf_reply<B, F>(
     ledger: SupplyLedger,
     scope: Scope,
     frames: &mut F,
-    deserializer: PayloadDeserializer,
+    codec: PayloadCodec,
 ) -> Result<Decoded<B::Erased, Vec<Scope>>, DecodeError<B::Error>>
 where
     B: Backend<Node<Z>: Leaf>,
@@ -253,7 +253,7 @@ where
             let (_, prefix) = scope.next().ok_or(ScopeError::UnpositionedQuery)?;
             Ok(Scope::leaf(prefix))
         },
-        deserializer,
+        codec,
     )
     .await
 }
@@ -265,7 +265,7 @@ async fn decode<B, F, Q, N>(
     scope: Scope,
     frames: &mut F,
     question: Q,
-    deserializer: PayloadDeserializer,
+    codec: PayloadCodec,
 ) -> Result<Decoded<B::Erased, Vec<N>>, DecodeError<B::Error>>
 where
     B: Backend<Node<Z>: Leaf>,
@@ -286,15 +286,7 @@ where
     // reader's hand per reply stream, at `node_bytes(0, version_bound)`
     // plus the slot itself (the window's supply-decode envelope).
     let (tx, rx) = mpsc::channel::<Result<(Prefix<Z>, B::Node<Z>), B::Error>>(FAN);
-    let read = read_reply::<B, _, _, _>(
-        version_bytes,
-        &ledger,
-        scope,
-        frames,
-        question,
-        tx,
-        deserializer,
-    );
+    let read = read_reply::<B, _, _, _>(version_bytes, &ledger, scope, frames, question, tx, codec);
     let assemble = assemble_supplies::<B>(backend, children_height, rx);
     let (read, assembled) = futures::future::join(read, assemble).await;
     let Some(ReadReply {
@@ -318,7 +310,7 @@ async fn read_reply<B, F, Q, N>(
     frames: &mut F,
     mut question: Q,
     leaves: mpsc::Sender<Result<(Prefix<Z>, B::Node<Z>), B::Error>>,
-    deserializer: PayloadDeserializer,
+    codec: PayloadCodec,
 ) -> Result<Option<ReadReply<N>>, DecodeError<B::Error>>
 where
     B: Backend<Node<Z>: Leaf>,
@@ -364,7 +356,7 @@ where
                 // Records leave the run one at a time and flow straight into
                 // assembly: the whole-run bound is its encoded bytes, never a
                 // decoded vector of leaves.
-                for record in records.records(deserializer) {
+                for record in records.records(codec) {
                     let (version, message) = record.map_err(DecodeError::Record)?;
                     let (leaf_prefix, run) = read
                         .supplies

@@ -3,62 +3,86 @@ source: tests/bootstrap_snapshot.rs
 expression: capture_bootstrap(provider)
 ---
 direction A -> B
-preamble: 25 bytes
-  0000: 52 55 4d 4f 52 53 00 02
-  0008: 8c 18 96 68 c9 e4 83 72
-  0010: 37 bf 31 e0 2d 7f 6b 70
-  0018: 00
-version: 2
-greeting words: set len 2, version-size bound 1, message-size target 1638912
-version frame: 29 bytes
-  0000: 00 00 00 19 02 00 00 00
-  0008: 00 00 00 00 01 00 00 00
-  0010: 00 00 00 00 00 02 19 00
-  0018: 00 00 00 00 b8
-listing: 2 child(ren)
-  child 0x7c: f53f9477309788c6ed8834008f394a3be5f212959fac55fa
-  child 0x9a: cca7fd1fe957c5267ce159c8f3fe95bc4f496f6b2fb5fa39
-listing frame: 54 bytes
-  0000: 00 00 00 32 7c f5 3f 94
-  0008: 77 30 97 88 c6 ed 88 34
-  0010: 00 8f 39 4a 3b e5 f2 12
-  0018: 95 9f ac 55 fa 9a cc a7
-  0020: fd 1f e9 57 c5 26 7c e1
-  0028: 59 c8 f3 fe 95 bc 4f 49
-  0030: 6f 6b 2f b5 fa 39
-Responder stream 0 (height 31), epoch 0
-  frame 0: Supply(Continue)
-    supply run: 1 record(s)
-      record 0: version 2, message 6 byte(s)
-    0000: 66 00 00 00 0c 00 00 00
-    0008: 08 41 b8 65 77 6f 72 6c
-    0010: 64
-  frame 1: Supply(End)
-    supply run: 1 record(s)
-      record 0: version 1, message 6 byte(s)
-    0000: 77 00 00 00 0c 00 00 00
-    0008: 08 41 a8 65 68 65 6c 6c
-    0010: 6f
-  frame 2: End(Stream)
-    0000: 99
-trailing frame: 6 bytes
-  0000: 00 00 00 01 48 2e
+role: Responder
+control item 0 (30 bytes) / preamble /
+  55799( / self-described CBOR /
+    [
+      "rumors"
+      2
+      h'8c189668c9e4837237bf31e02d7f6b70'
+      0
+    ]
+  )
+control item 1 (159 bytes) / greeting /
+  24(<< / embedded item, 155 bytes /
+    {
+      "listing" =>
+        { / listing: 2 child(ren) /
+          0x7c => h'f53f9477309788c6ed8834008f394a3be5f212959fac55fa' / digest /
+          0x9a => h'cca7fd1fe957c5267ce159c8f3fe95bc4f496f6b2fb5fa39' / digest /
+        }
+      "set_len" => 2
+      "version" =>
+        53846(h'b8') / causal version, event tree: 2 /
+      "max_version_bytes" => 1
+      "payload_depth_limit" => 256
+      "target_message_size" => 1830400
+    }
+  >>)
+control item 2 (5 bytes) / party hand-off /
+  53845(h'48') / party /
+control item 3 (2 bytes) / epilogue /
+  "."
+Responder stream 0 (height 31), epoch 0, 45 wire bytes
+  frame 0 (20 bytes)
+    [
+      102 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 14 bytes /
+        63(<< / record, 2 item(s), 11 bytes /
+          53846(h'b8') / causal version, event tree: 2 /
+          "world"
+        >>)
+      >>)
+    ]
+  frame 1 (20 bytes)
+    [
+      119 / Supply(End) /
+      63(<< / supply run, 1 record(s), 14 bytes /
+        63(<< / record, 2 item(s), 11 bytes /
+          53846(h'a8') / causal version, event tree: 1 /
+          "hello"
+        >>)
+      >>)
+    ]
+  frame 2 (3 bytes)
+    [
+      153 / End(Stream) /
+    ]
 
 direction B -> A
-preamble: 25 bytes
-  0000: 52 55 4d 4f 52 53 00 02
-  0008: 00 00 00 00 00 00 00 00
-  0010: 00 00 00 00 00 00 00 00
-  0018: 00
-version: 0
-greeting words: set len 0, version-size bound 0, message-size target 1638912
-version frame: 29 bytes
-  0000: 00 00 00 19 00 00 00 00
-  0008: 00 00 00 00 00 00 00 00
-  0010: 00 00 00 00 00 02 19 00
-  0018: 00 00 00 00 e0
-listing: 0 child(ren)
-listing frame: 4 bytes
-  0000: 00 00 00 00
-trailing frame: 1 bytes
-  0000: 2e
+role: Initiator
+control item 0 (30 bytes) / preamble /
+  55799( / self-described CBOR /
+    [
+      "rumors"
+      2
+      h'00000000000000000000000000000000'
+      0
+    ]
+  )
+control item 1 (103 bytes) / greeting /
+  24(<< / embedded item, 99 bytes /
+    {
+      "listing" =>
+        { / listing: 0 child(ren) /
+        }
+      "set_len" => 0
+      "version" =>
+        53846(h'e0') / causal version, event tree: 0 /
+      "max_version_bytes" => 0
+      "payload_depth_limit" => 256
+      "target_message_size" => 1830400
+    }
+  >>)
+control item 2 (2 bytes) / epilogue /
+  "."

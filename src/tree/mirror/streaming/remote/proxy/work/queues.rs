@@ -6,7 +6,7 @@
 //! Both edges carry the erased [`Scope`] — one channel-machinery
 //! instantiation for the whole proxy — with each edge's height kept as
 //! its runtime [`QueueRole`] label. (The third proxy edge, the one-slot
-//! decoded-response relay, is minted by the response pump itself: see
+//! decoded-response relay, is created by the response pump itself: see
 //! `Work::respond`.)
 //!
 //! - [`local_questions`] is the wire-facing question window itself, sized

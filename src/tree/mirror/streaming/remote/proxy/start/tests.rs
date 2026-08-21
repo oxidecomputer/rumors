@@ -1,16 +1,16 @@
 //! Ingress validation of the control-stream greeting decoder.
 //!
-//! The greeting's frames are peer-controlled bytes arriving on the control
-//! stream — first the causal-version frame, then the root-fan listing frame,
-//! whose structural validation lives in [`receive`]: the same canonical-order
-//! rule the frame codec applies to a wire query, applied at the greeting
-//! ingress.
+//! The greeting is one peer-controlled item arriving on the control
+//! stream — the embedded-item tag wrapping a byte string of the greeting
+//! map — whose structural validation lives in [`receive`]: deterministic
+//! heads, the exact key roster, and the same canonical-order rule the
+//! frame codec applies to a wire query, applied at the greeting ingress.
 //!
 //! The scripted-fault harness wraps only data streams, so this ingress is
 //! exercised here directly: crafted control-stream bytes must surface the
 //! typed greeting errors ([`Error::HandshakeRead`] for truncation and
 //! length lies, [`Error::HandshakeListing`] for canonical-order violations,
-//! [`Error::HandshakeDecode`] for malformed bodies), never a panic, and a
+//! [`Error::HandshakeDecode`] for malformed items), never a panic, and a
 //! canonical greeting must decode intact.
 
 use std::convert::Infallible;
@@ -20,87 +20,79 @@ use proptest::prelude::*;
 
 use super::{Error, Greeting, receive};
 use crate::Version;
+use crate::observe::SessionHandle;
 use crate::tree::arb::nth_party;
+use crate::tree::mirror::cbor::{self, HeadError, MAJOR_BSTR, TAG_EMBEDDED_ITEM};
 use crate::tree::mirror::streaming::remote::codec::QueryOrderError;
+use crate::tree::mirror::streaming::remote::codec::greeting::{GreetingError, encode_greeting};
 use crate::tree::typed::Hash;
 
-/// Length-delimit one frame body exactly as [`super::send`] does.
-fn frame(body: &[u8]) -> Vec<u8> {
-    let len = u32::try_from(body.len()).expect("test frame bodies fit in u32");
-    let mut bytes = len.to_be_bytes().to_vec();
-    bytes.extend_from_slice(body);
+/// Wrap raw content exactly as the greeting item does: the embedded-item
+/// tag, then a byte string of the content.
+fn raw_item(content: &[u8]) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    cbor::write_tag(&mut bytes, TAG_EMBEDDED_ITEM);
+    cbor::write_head(&mut bytes, MAJOR_BSTR, content.len() as u64);
+    bytes.extend_from_slice(content);
     bytes
 }
 
-/// A version frame's body: the sender's set-size, version-size-bound,
-/// and message-size-target prefixes, then the version.
-fn version_body(version: &Version) -> Vec<u8> {
-    let mut body = 0_u64.to_le_bytes().to_vec();
-    body.extend_from_slice(&0_u64.to_le_bytes());
-    body.extend_from_slice(&0_u64.to_le_bytes());
-    body.extend_from_slice(version.as_bytes());
-    body
-}
-
-/// A full greeting: the identity-version frame, then `listing_body` framed.
-fn greeting(listing_body: &[u8]) -> Vec<u8> {
-    let mut bytes = frame(&version_body(&Version::new()));
-    bytes.extend_from_slice(&frame(listing_body));
-    bytes
+/// A greeting whose sizes are zero and whose listing is caller-selected;
+/// the encoder trusts its caller, so a non-canonical listing synthesizes
+/// wire violations directly.
+fn greeting(listing: Vec<(u8, Hash)>) -> Vec<u8> {
+    encode_greeting(&Greeting {
+        version: Version::new(),
+        set_len: 0,
+        max_version_bytes: 0,
+        payload_depth_limit: 0,
+        target_message_size: 0,
+        listing,
+    })
 }
 
 /// Decode crafted greeting bytes through the production ingress.
 async fn receive_greeting(bytes: &[u8]) -> Result<Greeting, Error<Infallible>> {
-    receive(&mut &bytes[..]).await
+    receive(&mut &bytes[..], &SessionHandle::default()).await
 }
 
-/// A nonempty causal version, so truncating its encoding leaves bytes to cut.
-fn ticked_version() -> Version {
-    let party = nth_party(0);
-    let mut version = Version::new();
-    version.tick(&party);
-    version
+/// The map content behind a greeting item's heads.
+fn content_of(item: &[u8]) -> Vec<u8> {
+    let mut input = item;
+    cbor::read_head(&mut input).expect("the item's tag head");
+    cbor::read_head(&mut input).expect("the item's string head");
+    input.to_vec()
 }
 
-/// Encode a root-fan listing as its wire form: raw radix-hash records,
-/// the frame length carrying the count.
-fn encode_listing(children: &[(u8, Hash)]) -> Vec<u8> {
-    let mut body = Vec::new();
-    for (radix, hash) in children {
-        body.push(*radix);
-        body.extend_from_slice(hash.as_bytes());
-    }
-    body
-}
-
-/// A greeting cut inside the version frame's length header fails as a typed
-/// read error.
+/// A greeting cut inside the item's heads fails as a typed read error.
 ///
-/// The four header bytes are the first peer-controlled bytes of the
-/// greeting; a peer that closes mid-header must surface
+/// The tag and byte-string heads are the first peer-controlled bytes of
+/// the greeting; a peer that closes mid-head must surface
 /// [`Error::HandshakeRead`] with `UnexpectedEof` — never a hang waiting on
 /// bytes that cannot arrive.
 #[pollster::test]
 async fn truncated_version_header_is_a_typed_read_error() {
-    let result = receive_greeting(&[0, 0]).await.map(|_| ());
+    let result = receive_greeting(&[0xd8]).await.map(|_| ());
     match result {
         Err(Error::HandshakeRead(error)) => {
             assert_eq!(error.kind(), std::io::ErrorKind::UnexpectedEof)
         }
-        other => panic!("expected the truncated header's typed rejection, got {other:?}"),
+        other => panic!("expected the truncated head's typed rejection, got {other:?}"),
     }
 }
 
-/// A version frame declaring more bytes than the stream carries fails as a
+/// A greeting item declaring more bytes than the stream carries fails as a
 /// typed read error.
 ///
-/// An over-declared length header makes the frame's exact read run off the
-/// end of the peer's bytes; the lie must surface [`Error::HandshakeRead`]
-/// with `UnexpectedEof`, never a partially filled frame handed to the
-/// decoder.
+/// An over-declared byte-string head makes the item's exact read run off
+/// the end of the peer's bytes; the lie must surface
+/// [`Error::HandshakeRead`] with `UnexpectedEof`, never a partially filled
+/// item handed to the decoder.
 #[pollster::test]
 async fn over_declared_version_frame_is_a_typed_read_error() {
-    let mut bytes = 8_u32.to_be_bytes().to_vec();
+    let mut bytes = Vec::new();
+    cbor::write_tag(&mut bytes, TAG_EMBEDDED_ITEM);
+    cbor::write_head(&mut bytes, MAJOR_BSTR, 8);
     bytes.extend_from_slice(&[1, 2, 3]);
 
     let result = receive_greeting(&bytes).await.map(|_| ());
@@ -108,99 +100,99 @@ async fn over_declared_version_frame_is_a_typed_read_error() {
         Err(Error::HandshakeRead(error)) => {
             assert_eq!(error.kind(), std::io::ErrorKind::UnexpectedEof)
         }
-        other => panic!("expected the over-declared frame's typed rejection, got {other:?}"),
+        other => panic!("expected the over-declared item's typed rejection, got {other:?}"),
     }
 }
 
-/// A zero-length version frame fails as a typed decode error.
+/// An empty greeting item fails as a typed decode error.
 ///
-/// A frame whose declared length is zero carries neither the set-size
-/// prefix nor a version; the empty body must surface
-/// [`Error::HandshakeDecode`] — the under-declared degenerate case,
-/// distinct from the transport-level truncations above.
+/// An item whose byte string is empty carries no map at all; it must
+/// surface [`Error::HandshakeDecode`] with the head defect (the map's
+/// content ends before its opening head) — the under-declared degenerate
+/// case, distinct from the transport-level truncations above.
 #[pollster::test]
 async fn empty_version_frame_is_a_typed_decode_error() {
-    let result = receive_greeting(&frame(&[])).await.map(|_| ());
+    let result = receive_greeting(&raw_item(&[])).await.map(|_| ());
     assert!(
-        matches!(result, Err(Error::HandshakeDecode(_))),
-        "expected the empty version body's typed rejection, got {result:?}",
+        matches!(
+            result,
+            Err(Error::HandshakeDecode(GreetingError::Head(
+                HeadError::Truncated
+            ))),
+        ),
+        "expected the empty item's typed rejection, got {result:?}",
     );
 }
 
-/// A version body truncated inside an honestly sized frame fails as a typed
-/// decode error.
+/// A control stream opening with anything but the embedded-item tag fails
+/// as a typed decode error.
 ///
-/// The frame is well-formed — its header matches its body — but the body is
-/// a strict prefix of a canonical version encoding, so the decoder runs out
-/// of bits: [`Error::HandshakeDecode`], never a panic and never a shorter
-/// version silently accepted.
+/// The tag is the greeting's identity on the wire: a bare map (however
+/// well-formed inside) is not the greeting's one spelling.
 #[pollster::test]
-async fn truncated_version_body_is_a_typed_decode_error() {
-    let mut body = version_body(&ticked_version());
-    body.truncate(body.len() - 1);
+async fn untagged_greeting_is_a_typed_decode_error() {
+    let item = greeting(Vec::new());
+    let content = content_of(&item);
 
-    let result = receive_greeting(&frame(&body)).await.map(|_| ());
+    let result = receive_greeting(&content).await.map(|_| ());
     assert!(
-        matches!(result, Err(Error::HandshakeDecode(_))),
-        "expected the truncated version body's typed rejection, got {result:?}",
+        matches!(result, Err(Error::HandshakeDecode(GreetingError::Shape(_))),),
+        "expected the untagged item's typed rejection, got {result:?}",
     );
 }
 
-/// A version frame with bytes after the version fails as a typed decode
-/// error.
+/// A greeting item with bytes after its map fails as a typed decode error.
 ///
-/// The version encoding is prefix-free and the greeting decode is
-/// canonical: the frame must contain exactly one version, so trailing bytes
-/// surface [`Error::HandshakeDecode`] rather than being silently dropped
-/// (which would let two encodings name one greeting).
+/// The greeting decode is canonical: the item must contain exactly one
+/// map, so trailing bytes surface [`Error::HandshakeDecode`] rather than
+/// being silently dropped (which would let two encodings name one
+/// greeting).
 #[pollster::test]
 async fn trailing_version_bytes_are_rejected() {
-    let mut body = version_body(&ticked_version());
-    body.push(0xFF);
+    let item = greeting(Vec::new());
+    let mut content = content_of(&item);
+    content.push(0xFF);
 
-    let result = receive_greeting(&frame(&body)).await.map(|_| ());
+    let result = receive_greeting(&raw_item(&content)).await.map(|_| ());
     assert!(
-        matches!(result, Err(Error::HandshakeDecode(_))),
+        matches!(result, Err(Error::HandshakeDecode(GreetingError::Shape(_))),),
         "expected the trailing bytes' typed rejection, got {result:?}",
     );
 }
 
-/// A greeting that ends after the version frame fails as a typed read error.
+/// A greeting whose stream ends inside the item's content fails as a
+/// typed read error.
 ///
-/// The listing frame is not optional: a peer that sends its version and
-/// closes must surface [`Error::HandshakeRead`] with `UnexpectedEof` on the
-/// missing listing, never a greeting with a defaulted listing.
+/// The byte-string head promised more content than arrived: the exact
+/// read runs off the stream's end, a transport-level truncation.
 #[pollster::test]
 async fn missing_listing_frame_is_a_typed_read_error() {
-    let bytes = frame(&version_body(&Version::new()));
+    let item = greeting(Vec::new());
+    let bytes = &item[..item.len() - 1];
 
-    let result = receive_greeting(&bytes).await.map(|_| ());
+    let result = receive_greeting(bytes).await.map(|_| ());
     match result {
         Err(Error::HandshakeRead(error)) => {
             assert_eq!(error.kind(), std::io::ErrorKind::UnexpectedEof)
         }
-        other => panic!("expected the missing listing's typed rejection, got {other:?}"),
+        other => panic!("expected the cut content's typed rejection, got {other:?}"),
     }
 }
 
 proptest! {
-    /// Arbitrary greeting bodies decode to a greeting or a typed error,
-    /// never a panic.
+    /// Arbitrary greeting item contents decode to a greeting or a typed
+    /// error, never a panic.
     ///
-    /// Both frames are honestly sized around arbitrary bodies, so the fuzz
-    /// lands on the body decoders (the version's bit codec, the listing's
-    /// record shape and order check) rather than on the allocator via a lied
-    /// length header — the header lies are pinned deterministically above.
-    /// Every outcome must be `Ok` or one of the three typed greeting
-    /// errors.
+    /// The item is honestly sized around arbitrary content, so the fuzz
+    /// lands on the map decoder (heads, key roster, version atom, listing
+    /// shape and order) rather than on the allocator via a lied length —
+    /// the head lies are pinned deterministically above. Every outcome
+    /// must be `Ok` or one of the three typed greeting errors.
     #[test]
     fn arbitrary_greeting_bodies_never_panic(
-        version_body in vec(any::<u8>(), 0..64),
-        listing_body in vec(any::<u8>(), 0..64),
+        content in vec(any::<u8>(), 0..96),
     ) {
-        let mut bytes = frame(&version_body);
-        bytes.extend_from_slice(&frame(&listing_body));
-
+        let bytes = raw_item(&content);
         let result = pollster::block_on(receive_greeting(&bytes)).map(|_| ());
         prop_assert!(matches!(
             result,
@@ -219,10 +211,9 @@ proptest! {
 /// with the exact violating pair, before any scope is built from it.
 #[pollster::test]
 async fn unordered_listing_is_rejected() {
-    let listing = vec![(2_u8, Hash::default()), (1_u8, Hash::default())];
-    let body = encode_listing(&listing);
+    let item = greeting(vec![(2_u8, Hash::default()), (1_u8, Hash::default())]);
 
-    let result = receive_greeting(&greeting(&body)).await.map(|_| ());
+    let result = receive_greeting(&item).await.map(|_| ());
     assert!(
         matches!(
             result,
@@ -242,10 +233,9 @@ async fn unordered_listing_is_rejected() {
 /// with both offending radixes reported.
 #[pollster::test]
 async fn duplicate_listing_radix_is_rejected() {
-    let listing = vec![(3_u8, Hash::default()), (3_u8, Hash::default())];
-    let body = encode_listing(&listing);
+    let item = greeting(vec![(3_u8, Hash::default()), (3_u8, Hash::default())]);
 
-    let result = receive_greeting(&greeting(&body)).await.map(|_| ());
+    let result = receive_greeting(&item).await.map(|_| ());
     assert!(
         matches!(
             result,
@@ -258,42 +248,26 @@ async fn duplicate_listing_radix_is_rejected() {
     );
 }
 
-/// A listing frame whose record body is truncated fails as a typed decode
-/// error.
+/// A greeting map whose content is cut short fails as a typed decode error.
 ///
-/// A frame declaring more listing entries than its body carries must surface
-/// [`Error::HandshakeDecode`] — a typed greeting failure, never a panic and
-/// never a partial listing.
+/// The greeting's byte string ends inside the map's final entry; the cut
+/// must surface [`Error::HandshakeDecode`] with the head defect — a typed
+/// greeting failure, never a panic and never a partially parsed greeting.
 #[pollster::test]
-async fn truncated_listing_body_is_rejected() {
-    let listing = vec![(0_u8, Hash::default()), (1_u8, Hash::default())];
-    let mut body = encode_listing(&listing);
-    body.truncate(body.len() - 1);
+async fn truncated_map_content_is_rejected() {
+    let item = greeting(vec![(0_u8, Hash::default()), (1_u8, Hash::default())]);
+    let mut content = content_of(&item);
+    content.truncate(content.len() - 1);
 
-    let result = receive_greeting(&greeting(&body)).await.map(|_| ());
+    let result = receive_greeting(&raw_item(&content)).await.map(|_| ());
     assert!(
-        matches!(result, Err(Error::HandshakeDecode(_))),
-        "expected the truncated body's typed rejection, got {result:?}",
-    );
-}
-
-/// A listing frame with bytes after the listing fails as a typed decode
-/// error.
-///
-/// The greeting decode is canonical: the frame must be a whole number of
-/// radix-hash records, so trailing garbage surfaces
-/// [`Error::HandshakeDecode`] rather than being silently ignored (which
-/// would let two encodings name one greeting).
-#[pollster::test]
-async fn trailing_listing_bytes_are_rejected() {
-    let listing: Vec<(u8, Hash)> = Vec::new();
-    let mut body = encode_listing(&listing);
-    body.push(0xFF);
-
-    let result = receive_greeting(&greeting(&body)).await.map(|_| ());
-    assert!(
-        matches!(result, Err(Error::HandshakeDecode(_))),
-        "expected the trailing bytes' typed rejection, got {result:?}",
+        matches!(
+            result,
+            Err(Error::HandshakeDecode(GreetingError::Head(
+                HeadError::Truncated
+            ))),
+        ),
+        "expected the truncated map's typed rejection, got {result:?}",
     );
 }
 
@@ -301,16 +275,27 @@ async fn trailing_listing_bytes_are_rejected() {
 ///
 /// The empty listing is a legal greeting — an empty tree's root fan — and
 /// the validation path must pass it through: the decoded handshake carries
-/// the sent version and the empty listing, exercising the success arm of the
+/// the sent fields and the empty listing, exercising the success arm of the
 /// same ingress the rejection tests pin.
 #[pollster::test]
 async fn empty_listing_greeting_decodes() {
-    let listing: Vec<(u8, Hash)> = Vec::new();
-    let body = encode_listing(&listing);
+    let mut version = Version::new();
+    version.tick(&nth_party(0));
+    let item = encode_greeting(&Greeting {
+        version: version.clone(),
+        set_len: 7,
+        max_version_bytes: 512,
+        payload_depth_limit: 256,
+        target_message_size: 1 << 16,
+        listing: Vec::new(),
+    });
 
-    let handshake = receive_greeting(&greeting(&body))
+    let handshake = receive_greeting(&item)
         .await
         .expect("a canonical empty-listing greeting decodes");
-    assert_eq!(handshake.version, Version::new());
+    assert_eq!(handshake.version, version);
+    assert_eq!(handshake.set_len, 7);
+    assert_eq!(handshake.max_version_bytes, 512);
+    assert_eq!(handshake.target_message_size, 1 << 16);
     assert!(handshake.listing.is_empty());
 }

@@ -487,7 +487,7 @@ fn incorporating_remote_content_writes_nothing() {
     let helper = block_on(serve_bootstrap(&probe.subject));
 
     // A local change, then a session: the change is checkpointed.
-    probe.subject.send(1);
+    probe.subject.send(1).unwrap();
     let before = probe.cursor();
     block_on(plain_gossip(&probe.subject, &helper));
     let (_reads, writes) = probe.counts_since(before);
@@ -495,7 +495,7 @@ fn incorporating_remote_content_writes_nothing() {
 
     // Now the *helper* changes, and the subject pulls it in over a session that
     // does no local work. Not one write may occur.
-    helper.send(2);
+    helper.send(2).unwrap();
     let before = probe.cursor();
     block_on(plain_gossip(&probe.subject, &helper));
     let (reads, writes) = probe.counts_since(before);
@@ -518,9 +518,9 @@ fn read_happens_exactly_once_across_a_long_life() {
     let helper = block_on(serve_bootstrap(&probe.subject));
 
     for round in 0..16u64 {
-        probe.subject.send(round);
+        probe.subject.send(round).unwrap();
         block_on(plain_gossip(&probe.subject, &helper));
-        helper.send(1_000 + round);
+        helper.send(1_000 + round).unwrap();
         block_on(plain_gossip(&probe.subject, &helper));
     }
 
@@ -621,7 +621,7 @@ impl World {
             Op::Send => {
                 // A send always inserts a fresh message, ticking the subject's
                 // own region: a checkpoint is always owed afterwards.
-                self.probe.subject.send(self.next_msg);
+                self.probe.subject.send(self.next_msg).unwrap();
                 self.next_msg += 1;
                 self.model.local_change();
                 None
@@ -648,7 +648,7 @@ impl World {
             Op::HelperSend(i) => {
                 if !self.helpers.is_empty() {
                     let n = self.helpers.len();
-                    self.helpers[i % n].send(1_000_000 + self.next_msg);
+                    self.helpers[i % n].send(1_000_000 + self.next_msg).unwrap();
                     self.next_msg += 1;
                 }
                 None

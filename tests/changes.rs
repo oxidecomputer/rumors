@@ -10,8 +10,8 @@ mod common;
 use futures::{FutureExt, StreamExt};
 use rumors::{Peer, Rumors};
 
-use crate::common::action::minted_version;
-use crate::common::wire::{bootstrap_fork_async, wire_gossip_async};
+use crate::common::action::created_version;
+use crate::common::wire::{batch_send, bootstrap_fork_async, wire_gossip_async};
 
 /// A fresh observer yields immediately — even on an empty set — because a
 /// new subscriber has seen nothing, so whatever the set holds is news.
@@ -33,12 +33,12 @@ async fn one_tick_per_observed_commit() {
     assert_eq!(changes.next().now_or_never(), Some(Some(())));
 
     // One send: one tick.
-    rumors.send(1);
+    rumors.send(1).unwrap();
     assert_eq!(changes.next().now_or_never(), Some(Some(())));
     assert_eq!(changes.next().now_or_never(), None);
 
     // One batch of several changes: still one commit, one tick.
-    rumors.batch().send(2).send(3);
+    batch_send(&rumors, [2, 3]);
     assert_eq!(changes.next().now_or_never(), Some(Some(())));
     assert_eq!(changes.next().now_or_never(), None);
 
@@ -61,9 +61,9 @@ async fn unpolled_commits_coalesce_to_one_tick() {
     let mut changes = rumors.changes();
     assert_eq!(changes.next().now_or_never(), Some(Some(())));
 
-    rumors.send(1);
-    rumors.send(2);
-    rumors.send(3);
+    rumors.send(1).unwrap();
+    rumors.send(2).unwrap();
+    rumors.send(3).unwrap();
     assert_eq!(changes.next().now_or_never(), Some(Some(())));
     assert_eq!(changes.next().now_or_never(), None);
 }
@@ -79,7 +79,7 @@ async fn gossip_join_ticks_the_observer() {
     assert_eq!(b_changes.next().now_or_never(), Some(Some(())));
     assert_eq!(b_changes.next().now_or_never(), None);
 
-    a.send(7);
+    a.send(7).unwrap();
     wire_gossip_async(&a, &b).await;
     assert_eq!(b_changes.next().now_or_never(), Some(Some(())));
 }
@@ -114,8 +114,8 @@ async fn gossip_frontier_only_advance_ticks_the_observer() {
     // A sends and redacts before any session runs: A's tree is empty again,
     // and the redaction's only trace is A's advanced causal frontier.
     let pre = a.snapshot().latest().clone();
-    a.send(7);
-    a.redact(&minted_version(&a.snapshot(), &pre));
+    a.send(7).unwrap();
+    a.redact(&created_version(&a.snapshot(), &pre));
 
     // B learns that frontier by gossip: verifiably an observed advance of
     // B's own causal frontier, with no content movement (both trees empty).
@@ -145,7 +145,7 @@ async fn set_closure_ends_the_stream() {
     let mut changes = rumors.changes();
     assert_eq!(changes.next().now_or_never(), Some(Some(())));
 
-    rumors.send(1);
+    rumors.send(1).unwrap();
     drop(rumors);
 
     // The final commit is still reported, then the stream ends.
@@ -173,7 +173,7 @@ fn try_tick_coalesces_quiet_and_end() {
     use rumors::TryTick;
 
     let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    rumors.batch().send(1).send(2);
+    batch_send(&rumors, [1, 2]);
 
     let mut changes = rumors.changes();
     assert!(
@@ -185,15 +185,15 @@ fn try_tick_coalesces_quiet_and_end() {
         "with a handle live, a reported signal is quiet, not ended"
     );
 
-    rumors.send(3);
-    rumors.send(4);
+    rumors.send(3).unwrap();
+    rumors.send(4).unwrap();
     assert!(
         matches!(changes.try_next(), TryTick::Tick),
         "commits between steps coalesce into one tick"
     );
     assert!(matches!(changes.try_next(), TryTick::Quiet));
 
-    rumors.send(5);
+    rumors.send(5).unwrap();
     drop(rumors);
     assert_eq!(
         changes.next().now_or_never(),

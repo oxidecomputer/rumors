@@ -1,11 +1,14 @@
-//! Exact-read length-delimited framing shared by the mirror wire protocols.
+//! Exact-read payload buffering, and the V1 wire's length-delimited
+//! framing.
 //!
-//! A framed body is a 4-byte big-endian length followed by exactly that many
-//! payload bytes. The streaming protocol uses it for its greeting (the
-//! causal-version and root-fan listing frames), variable-width supply runs
-//! and their leaf records, and the trailing identity hand-off;
-//! signal-delimited fixed bodies remain bare. The reader never consumes a byte
-//! beyond the frame requested.
+//! Two things live here. [`read_payload`] and [`resume_payload`] grow a
+//! buffer only as bytes arrive — the memory policy every variable-length
+//! body read in either protocol shares, and the one the allocator meters
+//! price. Around them, [`FrameRead`] and [`FrameWrite`] carry the V1
+//! wire's frames: a 4-byte big-endian length followed by exactly that
+//! many payload bytes. (The V2 wire's bodies are self-delimiting CBOR
+//! items; only their payload reads come through here.) The reader never
+//! consumes a byte beyond the frame requested.
 //!
 //! That guarantee makes a session boundary a stream position. A buffering
 //! reader can slurp leading bytes of traffic belonging after the current
@@ -20,9 +23,12 @@
 //! payload read outsizes the buffer and bypasses it. Caller-owned buffering
 //! is safe because it outlives a session and rides into the next one.
 
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt};
+#[cfg(any(test, feature = "protocol-v1"))]
+use tokio::io::{AsyncWrite, AsyncWriteExt};
 
 /// Bytes occupied by the big-endian `u32` payload-length header.
+#[cfg(any(test, feature = "protocol-v1", feature = "test-internals"))]
 pub(crate) const LENGTH_HEADER_LEN: usize = std::mem::size_of::<u32>();
 
 /// The initial reservation granule for framed payload buffers.
@@ -52,36 +58,6 @@ pub(crate) fn chunk_boundary_cuts(total: usize) -> Vec<usize> {
     cuts
 }
 
-/// Bytes of one negotiated size word in the greeting's version frame: a
-/// little-endian `u64`.
-pub(crate) const GREETING_WORD_LEN: usize = std::mem::size_of::<u64>();
-
-/// The greeting version frame's fixed prefix: three size words (the
-/// sender's set size, version-size bound, and message-size target) ahead
-/// of the version encoding.
-///
-/// Sender, receiver, and every fixture measuring greeting frames must
-/// agree on this width; it is defined once here so the layout can only
-/// change in one place.
-pub(crate) const GREETING_SIZE_WORDS_LEN: usize = 3 * GREETING_WORD_LEN;
-
-/// Split a greeting version frame's body into its three leading size
-/// words: the sender's set size, version-size bound, and target message
-/// size, in wire order (the version encoding follows the fixed prefix).
-///
-/// `None` when the body is shorter than the prefix. Defined beside the
-/// width constants so every reader of the layout — the handshake and the
-/// capture renderer — decodes it through one function.
-pub(crate) fn greeting_words(body: &[u8]) -> Option<(u64, u64, u64)> {
-    let word = |index: usize| {
-        let at = index * GREETING_WORD_LEN;
-        body.get(at..at + GREETING_WORD_LEN)
-            .and_then(|prefix| <[u8; GREETING_WORD_LEN]>::try_from(prefix).ok())
-            .map(u64::from_le_bytes)
-    };
-    Some((word(0)?, word(1)?, word(2)?))
-}
-
 /// A payload length which cannot be represented by the framing header.
 #[derive(Debug, thiserror::Error)]
 #[error("payload length {len} exceeds the u32 framing limit")]
@@ -93,7 +69,8 @@ pub struct LengthOverflow {
     pub source: std::num::TryFromIntError,
 }
 
-/// Encode the checked big-endian length header shared by both wire codecs.
+/// Encode the checked big-endian length header of the V1 wire codec.
+#[cfg(any(test, feature = "protocol-v1"))]
 pub(crate) fn length_header(len: usize) -> Result<[u8; LENGTH_HEADER_LEN], LengthOverflow> {
     let len = u32::try_from(len).map_err(|source| LengthOverflow { len, source })?;
     Ok(len.to_be_bytes())
@@ -144,6 +121,7 @@ pub(crate) async fn resume_payload<R: AsyncRead + Unpin>(
     Ok(payload)
 }
 
+#[cfg(any(test, feature = "protocol-v1", feature = "test-internals"))]
 /// The read half of a session's transport, yielding one exact frame at a time.
 ///
 /// Stateless beyond the reader it wraps: it buffers nothing, so dropping it
@@ -152,6 +130,7 @@ pub struct FrameRead<R> {
     read: R,
 }
 
+#[cfg(any(test, feature = "protocol-v1", feature = "test-internals"))]
 impl<R> FrameRead<R> {
     /// Wrap `read` for frame-at-a-time reading.
     pub fn new(read: R) -> Self {
@@ -168,6 +147,7 @@ impl<R> FrameRead<R> {
     }
 }
 
+#[cfg(any(test, feature = "protocol-v1", feature = "test-internals"))]
 impl<R: AsyncRead + Unpin> FrameRead<R> {
     /// Read one frame, growing the payload buffer as its bytes arrive.
     ///
@@ -195,6 +175,7 @@ impl<R: AsyncRead + Unpin> FrameRead<R> {
     }
 }
 
+#[cfg(any(test, feature = "protocol-v1"))]
 /// The write half of a session's transport, shipping one frame at a time.
 ///
 /// Every frame is flushed before [`frame`](Self::frame) returns, so dropping
@@ -203,6 +184,7 @@ pub struct FrameWrite<W> {
     write: W,
 }
 
+#[cfg(any(test, feature = "protocol-v1"))]
 impl<W> FrameWrite<W> {
     /// Wrap `write` for frame-at-a-time writing.
     pub fn new(write: W) -> Self {
@@ -219,6 +201,7 @@ impl<W> FrameWrite<W> {
     }
 }
 
+#[cfg(any(test, feature = "protocol-v1"))]
 impl<W: AsyncWrite + Unpin> FrameWrite<W> {
     /// Write `payload` as one frame — length header, then bytes — and flush.
     ///

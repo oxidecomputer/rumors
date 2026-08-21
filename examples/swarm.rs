@@ -73,7 +73,7 @@
 //! thread — the only writer of the peer directory — watches the desired count
 //! against the live one and reconciles a step at a time:
 //!
-//! - **Grow:** pick a random live party, hand it a *fork* command. It mints a
+//! - **Grow:** pick a random live party, hand it a *fork* command. It creates a
 //!   disjoint child of its own [`Rumors`] (via `bootstrap_fork`), ships the child
 //!   back to the coordinator, and keeps running; the coordinator spawns a fresh
 //!   thread for the child. The parent and child are disjoint sub-parties, so the
@@ -152,10 +152,10 @@ use rumors::link::{Connector, Done, Link, LinkParts, MemoryAcceptor, MemoryConne
 use rumors::{Peer, Retire, Rumors, UnorderedMessages, Version};
 use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadBuf};
 
-/// Mint a genuine party-disjoint peer that inherits `parent`'s content.
+/// Create a genuine party-disjoint peer that inherits `parent`'s content.
 ///
 /// Every party in the swarm — which independently `send`s, `redact`s, and
-/// `gossip`s — needs its own disjoint Interval Tree Clock region. We mint one
+/// `gossip`s — needs its own disjoint Interval Tree Clock region. We create one
 /// by serving a bootstrap from `parent` over an in-memory link: the
 /// newcomer pulls `parent`'s whole tree through the ordinary mirror descent
 /// and is handed a fresh disjoint party, forked in the same critical section
@@ -427,10 +427,13 @@ fn main() -> io::Result<()> {
     let seed: Rumors<Payload> = Peer::seed().into_rumors();
     {
         let mut rng = SmallRng::from_entropy();
-        let mut batch = seed.batch();
-        for _ in 0..args.seed_messages {
-            batch.send(random_message(&mut rng, args.message_size));
-        }
+        seed.batch(|batch| {
+            for _ in 0..args.seed_messages {
+                batch.send(random_message(&mut rng, args.message_size))?;
+            }
+            Ok::<(), rumors::EncodeError>(())
+        })
+        .expect("flat test payloads are within any depth limit");
     }
     // Every party starts as a disjoint fork of the seed: same observations,
     // its own party region. The seed party itself only serves the initial
@@ -569,7 +572,7 @@ fn run_party(
         while let Ok(cmd) = control.try_recv() {
             match cmd {
                 Command::Fork { reply } => {
-                    // Mint a genuine disjoint child that inherits our content,
+                    // Create a genuine disjoint child that inherits our content,
                     // so it can independently churn and gossip; its thread
                     // rebuilds the version pool by observer replay. We keep
                     // running unchanged.
@@ -834,9 +837,11 @@ fn steady_state_op(
             }
         }
     }
-    // The add arm — or a pool with no live message left in it. The minted
+    // The add arm — or a pool with no live message left in it. The send's
     // version reaches the pool through the observer's next drain.
-    rumors.send(random_message(rng, message_size));
+    rumors
+        .send(random_message(rng, message_size))
+        .expect("flat payload");
 }
 
 /// Draw an exponential inter-arrival time with the current mean, so successive

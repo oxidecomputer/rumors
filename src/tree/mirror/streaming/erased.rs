@@ -29,7 +29,7 @@
 //! Outside the walk, pairing a height-5 payload with a height-6 consumer
 //! is a compile error, exactly as before: the schedule's typestates and
 //! message streams remain height-typed, and this module's two boundary
-//! conversions are minted at one height parameter apiece. Inside the
+//! conversions are instantiated at one height parameter apiece. Inside the
 //! walk, height agreement is a runtime-witnessed property: every prefix
 //! re-tag debug-asserts its byte length against the claimed height, the
 //! [`ops`] dispatch derives its height from that same length (so the
@@ -158,7 +158,7 @@ fn receiver_stream<E: Send>(receiver: Receiver<E>) -> ReceiverStreamOf<E> {
     }
 }
 
-/// Mint the outgoing-response edge: an erased sender for the response
+/// Create the outgoing-response edge: an erased sender for the response
 /// pump, and the typed response stream the schedule consumes.
 ///
 /// The one edge whose two halves speak different vocabularies — erased
