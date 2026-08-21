@@ -258,6 +258,37 @@ exclude_re = [
     # the suite: the knife-edge budget family reads the shifted solve.
     "window\\.rs:442:63: replace \\* with / in Window::from_budget",
 
+    # Proven equivalent, line-pinned (the arm guard at 708 shares the
+    # operator pattern and its other legs face the suite): the
+    # fallthrough mean's branch boundary moves only between expressions
+    # equal at the boundary — `n / pow256(0)` is `n` — and every other
+    # reroute only loosens `mean_hi` upward, invisible past the clamp:
+    # the Bernstein fallthrough at `t >= 34` is at least
+    # `1 + isqrt(68) + 34 = 43`, above the structural fan of 16 that
+    # `children_quantile` (the sole consumer) mins against, so no
+    # fallthrough mean movement reaches any solve.
+    "window\\.rs:714:24: replace > with (>=|<|==) in leaves_quantile",
+
+    # Proven equivalent, line-pinned: the widened guard consults the
+    # sub-unit quantile at the root too, where it answers `None` for
+    # every nonzero corpus (denominator bits are 1, never five past the
+    # numerator's) and `Some(0)` only for an empty corpus, whose every
+    # population is zero — the changed internal quantile multiplies
+    # nothing and the solve floors identically. The guard's other legs
+    # (`<`, `==`) sever the sub-unit route entirely and face the suite.
+    "window\\.rs:708:10: replace > with >= in leaves_quantile",
+
+    # Proven equivalent, line-pinned, both legs (the listing depths one
+    # line up share the operator pattern and face the suite): the
+    # occupied side of the closing min can bind only through its corpus
+    # term. `listed` is at most 16 * 256^(d-2) — jointly_occupied mins
+    # against pow256(d-2) and children_quantile against the structural
+    # fan — strictly below the 256^(d-1) slot cap and below every deeper
+    # cap the replacements substitute (`d + 1`; `d / 1` is `d`), so the
+    # pow256 side never binds beneath `listed`, and `min(., n)` is
+    # depth-independent.
+    "window\\.rs:759:19: replace - with (\\+|/) in stage_population",
+
     # --- rumors::peer ---
 
     # Performance genre: warm_caches is a doc(hidden) calibration aid that

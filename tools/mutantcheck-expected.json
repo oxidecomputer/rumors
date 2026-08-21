@@ -80,6 +80,18 @@
     "window\\.rs:442:63: replace \\* with / in Window::from_budget": {
       "listed": 1,
       "suppressed": 1
+    },
+    "window\\.rs:714:24: replace > with (>=|<|==) in leaves_quantile": {
+      "listed": 3,
+      "suppressed": 3
+    },
+    "window\\.rs:708:10: replace > with >= in leaves_quantile": {
+      "listed": 1,
+      "suppressed": 1
+    },
+    "window\\.rs:759:19: replace - with (\\+|/) in stage_population": {
+      "listed": 2,
+      "suppressed": 2
     }
   }
 }
