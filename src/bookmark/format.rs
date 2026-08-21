@@ -55,6 +55,7 @@ use ciborium::value::Value;
 
 use crate::Network;
 use crate::tags::CLOCK_TAG;
+use crate::tree::mirror::cbor::{self, MAJOR_BSTR, MAJOR_UINT};
 
 /// On-disk bookmark format version, the first item of the frame array.
 ///
@@ -84,10 +85,6 @@ const HASH_LEN: usize = 32;
 
 /// The payload item's tag header: tag 24, "encoded CBOR data item".
 const EMBEDDED_CBOR: [u8; 2] = [0xd8, 0x18];
-
-/// CBOR major types, pre-shifted into a header byte's high bits.
-const MAJOR_UNSIGNED: u8 = 0 << 5;
-const MAJOR_BYTES: u8 = 2 << 5;
 
 /// Which part of the frame's fixed shape failed to parse.
 ///
@@ -234,29 +231,6 @@ pub enum FormatError {
     Record(#[source] RecordDefect),
 }
 
-/// Append the shortest-form CBOR header for `arg` under `major` (pre-shifted).
-fn push_head(out: &mut Vec<u8>, major: u8, arg: u64) {
-    match arg {
-        0..=23 => out.push(major | arg as u8),
-        24..=0xff => {
-            out.push(major | 24);
-            out.push(arg as u8);
-        }
-        0x100..=0xffff => {
-            out.push(major | 25);
-            out.extend_from_slice(&(arg as u16).to_be_bytes());
-        }
-        0x1_0000..=0xffff_ffff => {
-            out.push(major | 26);
-            out.extend_from_slice(&(arg as u32).to_be_bytes());
-        }
-        _ => {
-            out.push(major | 27);
-            out.extend_from_slice(&arg.to_be_bytes());
-        }
-    }
-}
-
 /// Wrap `payload` in a bookmark frame declaring `version`.
 ///
 /// Split from [`frame`] so the tests can build otherwise-valid frames
@@ -268,10 +242,10 @@ fn frame_as(version: u64, payload: &[u8]) -> Vec<u8> {
     // the encoded payload item (tag 24, byte-string header, payload bytes) —
     // built first, exactly as it will appear in the frame.
     let mut covered = Vec::with_capacity(9 + 2 + 9 + payload.len());
-    push_head(&mut covered, MAJOR_UNSIGNED, version);
+    cbor::write_head(&mut covered, MAJOR_UINT, version);
     let version_item_len = covered.len();
     covered.extend_from_slice(&EMBEDDED_CBOR);
-    push_head(&mut covered, MAJOR_BYTES, payload.len() as u64);
+    cbor::write_head(&mut covered, MAJOR_BSTR, payload.len() as u64);
     covered.extend_from_slice(payload);
     let hash = blake3::hash(&covered);
 
@@ -329,36 +303,30 @@ impl<'a> Reader<'a> {
         Ok(())
     }
 
-    /// Parse a shortest-form unsigned-int header of the expected `major`
-    /// (pre-shifted), returning its argument, else the named `defect`.
+    /// Parse a shortest-form header of the expected `major`, returning its
+    /// argument, else the named `defect`.
+    ///
+    /// The head grammar itself — argument widths, shortest-form
+    /// enforcement, indefinite and reserved rejection — is
+    /// [`cbor::read_head`]'s, the crate's one canonical implementation.
+    /// This adapter keeps only the frame's own concerns: the major gate
+    /// first (a header of the wrong major is the caller's defect, whatever
+    /// follows it), then truncation as the exact-position
+    /// [`FormatError::Truncated`] and every grammar violation as
+    /// [`FormatError::NotABookmark`] with the caller's defect.
     fn head(&mut self, major: u8, defect: FrameDefect) -> Result<u64, FormatError> {
-        let initial = self.take(1)?[0];
-        if initial & 0xe0 != major {
+        let len = self.bytes.len();
+        let mut input = &self.bytes[self.at..];
+        let initial = *input.first().ok_or(FormatError::Truncated { len })?;
+        if initial >> 5 != major {
             return Err(FormatError::NotABookmark { defect });
         }
-        let (arg, floor) = match initial & 0x1f {
-            small @ 0..=23 => return Ok(u64::from(small)),
-            24 => (u64::from(self.take(1)?[0]), 24),
-            25 => (
-                u64::from(u16::from_be_bytes(self.take(2)?.try_into().expect("two"))),
-                0x100,
-            ),
-            26 => (
-                u64::from(u32::from_be_bytes(self.take(4)?.try_into().expect("four"))),
-                0x1_0000,
-            ),
-            27 => (
-                u64::from_be_bytes(self.take(8)?.try_into().expect("eight")),
-                0x1_0000_0000,
-            ),
-            _ => return Err(FormatError::NotABookmark { defect }),
-        };
-        // The frame is deterministic-encoding CBOR: a header wider than its
-        // argument needs is a spelling this codec never writes.
-        if arg < floor {
-            return Err(FormatError::NotABookmark { defect });
-        }
-        Ok(arg)
+        let head = cbor::read_head(&mut input).map_err(|error| match error {
+            cbor::HeadError::Truncated => FormatError::Truncated { len },
+            _ => FormatError::NotABookmark { defect },
+        })?;
+        self.at = len - input.len();
+        Ok(head.value)
     }
 }
 
@@ -380,7 +348,7 @@ pub(crate) fn unframe(bytes: &[u8]) -> Result<&[u8], FormatError> {
     reader.expect(&[FRAME_ARRAY], FrameDefect::FrameArray)?;
 
     let version_start = reader.at;
-    let version = reader.head(MAJOR_UNSIGNED, FrameDefect::FormatVersion)?;
+    let version = reader.head(MAJOR_UINT, FrameDefect::FormatVersion)?;
     let version_end = reader.at;
     if version != BOOKMARK_FORMAT_VERSION {
         return Err(FormatError::VersionMismatch { found: version });
@@ -391,7 +359,7 @@ pub(crate) fn unframe(bytes: &[u8]) -> Result<&[u8], FormatError> {
 
     let payload_start = reader.at;
     reader.expect(&EMBEDDED_CBOR, FrameDefect::PayloadTag)?;
-    let declared = reader.head(MAJOR_BYTES, FrameDefect::PayloadByteString)?;
+    let declared = reader.head(MAJOR_BSTR, FrameDefect::PayloadByteString)?;
     if declared > (bytes.len() - reader.at) as u64 {
         return Err(FormatError::Truncated { len: bytes.len() });
     }
