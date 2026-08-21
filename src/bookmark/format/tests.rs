@@ -60,7 +60,7 @@ proptest! {
         let framed = frame(&payload);
         let mut opening = SELF_DESCRIBED.to_vec();
         opening.push(FRAME_ARRAY);
-        push_head(&mut opening, MAJOR_UNSIGNED, BOOKMARK_FORMAT_VERSION);
+        cbor::write_head(&mut opening, MAJOR_UINT, BOOKMARK_FORMAT_VERSION);
         prop_assert!(framed.starts_with(&opening));
     }
 
@@ -205,7 +205,7 @@ fn non_canonical_version_spelling_is_rejected() {
     let mut covered = vec![0x18, u8::try_from(BOOKMARK_FORMAT_VERSION).unwrap()];
     let version_item_len = covered.len();
     covered.extend_from_slice(&EMBEDDED_CBOR);
-    push_head(&mut covered, MAJOR_BYTES, payload.len() as u64);
+    cbor::write_head(&mut covered, MAJOR_BSTR, payload.len() as u64);
     covered.extend_from_slice(payload);
     let hash = blake3::hash(&covered);
 
@@ -229,7 +229,7 @@ fn non_canonical_version_spelling_is_rejected() {
 /// hardcoding it, so a version bump cannot silently skew the flips.
 fn version_item_len() -> usize {
     let mut version_item = Vec::new();
-    push_head(&mut version_item, MAJOR_UNSIGNED, BOOKMARK_FORMAT_VERSION);
+    cbor::write_head(&mut version_item, MAJOR_UINT, BOOKMARK_FORMAT_VERSION);
     version_item.len()
 }
 
@@ -288,10 +288,10 @@ fn non_canonical_payload_spelling_is_rejected() {
     // it.
     let payload = b"payload";
     let mut covered = Vec::new();
-    push_head(&mut covered, MAJOR_UNSIGNED, BOOKMARK_FORMAT_VERSION);
+    cbor::write_head(&mut covered, MAJOR_UINT, BOOKMARK_FORMAT_VERSION);
     let version_item_len = covered.len();
     covered.extend_from_slice(&EMBEDDED_CBOR);
-    covered.extend_from_slice(&[MAJOR_BYTES | 24, u8::try_from(payload.len()).unwrap()]);
+    covered.extend_from_slice(&[0x58, u8::try_from(payload.len()).unwrap()]);
     covered.extend_from_slice(payload);
     let hash = blake3::hash(&covered);
 
