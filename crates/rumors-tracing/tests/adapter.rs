@@ -170,7 +170,9 @@ fn adapter_bridges_real_sessions() {
             .expect("current-thread runtime");
         runtime.block_on(async {
             let alice = Peer::<String>::seed().into_rumors();
-            alice.send("from the seed".to_string());
+            alice
+                .send("from the seed".to_string())
+                .expect("a flat string admits");
 
             // Bob's own bootstrap session is observed through the
             // builder; the attachment then follows the joined peer.
@@ -189,8 +191,11 @@ fn adapter_bridges_real_sessions() {
 
             // Diverge both replicas so the follow-up gossip elects a
             // role and moves data-stream frames both ways.
-            bob.send("from bob".to_string());
-            alice.send("from alice".to_string());
+            bob.send("from bob".to_string())
+                .expect("a flat string admits");
+            alice
+                .send("from alice".to_string())
+                .expect("a flat string admits");
             let (mut near, mut far) = rumors::link::memory();
             let (a, b) = tokio::join!(alice.gossip(&mut far), bob.gossip(&mut near));
             a.expect("alice's gossip session");
@@ -312,7 +317,9 @@ fn concurrent_sessions_number_cleanly() {
             .expect("current-thread runtime");
         runtime.block_on(async {
             let alice = Peer::<String>::seed().into_rumors();
-            alice.send("from the seed".to_string());
+            alice
+                .send("from the seed".to_string())
+                .expect("a flat string admits");
 
             // Bootstrap both counterparties unobserved, and attach the
             // adapter to bob only after his join: the two concurrent
@@ -343,9 +350,14 @@ fn concurrent_sessions_number_cleanly() {
 
             // Diverge all three replicas so both sessions elect roles
             // and move data-stream frames.
-            alice.send("from alice".to_string());
-            bob.send("from bob".to_string());
-            carol.send("from carol".to_string());
+            alice
+                .send("from alice".to_string())
+                .expect("a flat string admits");
+            bob.send("from bob".to_string())
+                .expect("a flat string admits");
+            carol
+                .send("from carol".to_string())
+                .expect("a flat string admits");
 
             // Both of bob's sessions run inside one join, through the
             // one shared observer, over separate links.
