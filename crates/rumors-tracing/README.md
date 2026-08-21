@@ -94,8 +94,7 @@ the hook's back-pressure contract in `rumors::observe`): the
 adapter therefore does bounded work per item — one parse plus one
 capped rendering — and only when the `message` event is enabled by
 your subscriber; a disabled target costs the enabled check plus one
-relaxed atomic increment (the ordinal must advance even unobserved;
-see `StreamAdapter::message`).
+relaxed atomic increment (the ordinal must advance even unobserved).
 A subscriber that blocks inside `event` stalls the emitting stream,
 exactly as any slow `StreamObserver` would: keep slow sinks
 behind a channel.
