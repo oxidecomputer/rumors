@@ -3,90 +3,124 @@ source: tests/gossip_snapshot.rs
 expression: capture
 ---
 direction A -> B
-preamble: 25 bytes
-  0000: 52 55 4d 4f 52 53 00 02
-  0008: 8c 18 96 68 c9 e4 83 72
-  0010: 37 bf 31 e0 2d 7f 6b 70
-  0018: 00
-version: (1, 4095, 0)
-greeting words: set len 2, version-size bound 5, message-size target 1638912
-version frame: 35 bytes
-  0000: 00 00 00 1f 02 00 00 00
-  0008: 00 00 00 00 05 00 00 00
-  0010: 00 00 00 00 00 02 19 00
-  0018: 00 00 00 00 40 02 00 30
-  0020: 00 ff f4
-listing: 1 child(ren)
-  child 0x9a: 636d485e0ec23826ab88a639e80fe993d036c716de1441a1
-listing frame: 29 bytes
-  0000: 00 00 00 19 9a 63 6d 48
-  0008: 5e 0e c2 38 26 ab 88 a6
-  0010: 39 e8 0f e9 93 d0 36 c7
-  0018: 16 de 14 41 a1
-Initiator stream 0 (height 31), epoch 0
-  frame 0: Supply(End)
-    supply run: 1 record(s)
-      record 0: version (1, 432, 0), message 3 byte(s)
-    0000: 77 00 00 00 0d 00 00 00
-    0008: 09 45 40 36 50 06 c1 19
-    0010: 01 b1
-  frame 1: End(Stream)
-    0000: 99
-Initiator stream 1 (height 30), epoch 0
-  frame 0: End(Reply)
-    0000: 89
-  frame 1: End(Stream)
-    0000: 9a
-trailing frame: 1 bytes
-  0000: 2e
+role: Initiator
+control item 0 (30 bytes) / preamble /
+  55799( / self-described CBOR /
+    [
+      "rumors"
+      2
+      h'8c189668c9e4837237bf31e02d7f6b70'
+      0
+    ]
+  )
+control item 1 (137 bytes) / greeting /
+  24(<< / embedded item, 133 bytes /
+    {
+      "listing" =>
+        { / listing: 1 child(ren) /
+          0x9a => h'636d485e0ec23826ab88a639e80fe993d036c716de1441a1' / digest /
+        }
+      "set_len" => 2
+      "version" =>
+        53846(h'4002003000fff4') / causal version, event tree: (1, 4095, 0) /
+      "max_version_bytes" => 5
+      "payload_depth_limit" => 256
+      "target_message_size" => 1830400
+    }
+  >>)
+control item 2 (2 bytes) / epilogue /
+  "."
+Initiator stream 0 (height 31), epoch 0, 26 wire bytes
+  frame 0 (21 bytes)
+    [
+      119 / Supply(End) /
+      63(<< / supply run, 1 record(s), 15 bytes /
+        63(<< / record, 2 item(s), 12 bytes /
+          53846(h'40365006c1') / causal version, event tree: (1, 432, 0) /
+          433
+        >>)
+      >>)
+    ]
+  frame 1 (3 bytes)
+    [
+      153 / End(Stream) /
+    ]
+Initiator stream 1 (height 30), epoch 0, 8 wire bytes
+  frame 0 (3 bytes)
+    [
+      137 / End(Reply) /
+    ]
+  frame 1 (3 bytes)
+    [
+      154 / End(Stream) /
+    ]
 
 direction B -> A
-preamble: 25 bytes
-  0000: 52 55 4d 4f 52 53 00 02
-  0008: 8c 18 96 68 c9 e4 83 72
-  0010: 37 bf 31 e0 2d 7f 6b 70
-  0018: 00
-version: (1, 0, 30)
-greeting words: set len 3, version-size bound 2, message-size target 1638912
-version frame: 31 bytes
-  0000: 00 00 00 1b 03 00 00 00
-  0008: 00 00 00 00 02 00 00 00
-  0010: 00 00 00 00 00 02 19 00
-  0018: 00 00 00 00 54 1e c0
-listing: 3 child(ren)
-  child 0x90: 937506250024599968f64f7c4e2f3ac050a148a65441140d
-  child 0xab: 0e0630bedb15ab6e5a395048d02bb03e950f377b95eed0b1
-  child 0xfa: 096df9d6e522813481d0f18c5e7cb824eb404882002c26a2
-listing frame: 79 bytes
-  0000: 00 00 00 4b 90 93 75 06
-  0008: 25 00 24 59 99 68 f6 4f
-  0010: 7c 4e 2f 3a c0 50 a1 48
-  0018: a6 54 41 14 0d ab 0e 06
-  0020: 30 be db 15 ab 6e 5a 39
-  0028: 50 48 d0 2b b0 3e 95 0f
-  0030: 37 7b 95 ee d0 b1 fa 09
-  0038: 6d f9 d6 e5 22 81 34 81
-  0040: d0 f1 8c 5e 7c b8 24 eb
-  0048: 40 48 82 00 2c 26 a2
-Responder stream 0 (height 31), epoch 0
-  frame 0: Supply(Continue)
-    supply run: 1 record(s)
-      record 0: version (1, 0, 4), message 3 byte(s)
-    0000: 66 00 00 00 0a 00 00 00
-    0008: 06 42 54 4c 19 27 12
-  frame 1: QueryEmpty(Continue)
-    0000: 22
-  frame 2: Supply(Continue)
-    supply run: 1 record(s)
-      record 0: version (1, 0, 2), message 3 byte(s)
-    0000: 66 00 00 00 0a 00 00 00
-    0008: 06 42 54 b0 19 27 10
-  frame 3: Supply(End)
-    supply run: 1 record(s)
-      record 0: version (1, 0, 3), message 3 byte(s)
-    0000: 77 00 00 00 0a 00 00 00
-    0008: 06 42 54 f0 19 27 11
-  frame 4: End(Stream)
-    0000: 99
-trailing frame: 1 bytes
-  0000: 2e
+role: Responder
+control item 0 (30 bytes) / preamble /
+  55799( / self-described CBOR /
+    [
+      "rumors"
+      2
+      h'8c189668c9e4837237bf31e02d7f6b70'
+      0
+    ]
+  )
+control item 1 (189 bytes) / greeting /
+  24(<< / embedded item, 185 bytes /
+    {
+      "listing" =>
+        { / listing: 3 child(ren) /
+          0x90 => h'937506250024599968f64f7c4e2f3ac050a148a65441140d' / digest /
+          0xab => h'0e0630bedb15ab6e5a395048d02bb03e950f377b95eed0b1' / digest /
+          0xfa => h'096df9d6e522813481d0f18c5e7cb824eb404882002c26a2' / digest /
+        }
+      "set_len" => 3
+      "version" =>
+        53846(h'541ec0') / causal version, event tree: (1, 0, 30) /
+      "max_version_bytes" => 2
+      "payload_depth_limit" => 256
+      "target_message_size" => 1830400
+    }
+  >>)
+control item 2 (2 bytes) / epilogue /
+  "."
+Responder stream 0 (height 31), epoch 0, 62 wire bytes
+  frame 0 (18 bytes)
+    [
+      102 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 12 bytes /
+        63(<< / record, 2 item(s), 9 bytes /
+          53846(h'544c') / causal version, event tree: (1, 0, 4) /
+          10002
+        >>)
+      >>)
+    ]
+  frame 1 (3 bytes)
+    [
+      34 / QueryEmpty(Continue) /
+    ]
+  frame 2 (18 bytes)
+    [
+      102 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 12 bytes /
+        63(<< / record, 2 item(s), 9 bytes /
+          53846(h'54b0') / causal version, event tree: (1, 0, 2) /
+          10000
+        >>)
+      >>)
+    ]
+  frame 3 (18 bytes)
+    [
+      119 / Supply(End) /
+      63(<< / supply run, 1 record(s), 12 bytes /
+        63(<< / record, 2 item(s), 9 bytes /
+          53846(h'54f0') / causal version, event tree: (1, 0, 3) /
+          10001
+        >>)
+      >>)
+    ]
+  frame 4 (3 bytes)
+    [
+      153 / End(Stream) /
+    ]

@@ -18,7 +18,7 @@ const SYMMETRIC: u64 = 10_000_000_000;
 /// The exact quotient moves with the pinned wire-cost anchor; the
 /// round figure is the stable benchmark shape.
 ///
-/// Stated, not minted: the budget default is policy, so nothing here
+/// Stated, not derived: the budget default is policy, so nothing here
 /// derives from the wire-cost anchor at compile time; this constant
 /// names the session shape [`SCOPE_ENVELOPE_BYTES`] prices.
 const DESIGN_SESSION_MESSAGES: u64 = 62_500;
@@ -296,7 +296,7 @@ fn default_crossover_matches_the_solve() {
     });
     assert_eq!(
         crossover,
-        Some(60),
+        Some(52),
         "the default's self-consistent slowdown-1 crossover moved: update the figures \
          quoted at Peer::sync_memory_budget",
     );
@@ -304,8 +304,8 @@ fn default_crossover_matches_the_solve() {
     let u64_corpus = (SPEC_BDP_BYTES / (DISPUTE_OVERHEAD_BYTES + 9)) as u64;
     assert_eq!(
         window_at(u64_corpus),
-        65_404,
-        "the u64 BDP-scale window moved: update the ~4.6x figure quoted at \
+        91_941,
+        "the u64 BDP-scale window moved: update the ~2.6x figure quoted at \
          Peer::sync_memory_budget",
     );
 }

@@ -668,7 +668,7 @@ struct SharedWindow {
 /// Handle to one direction's shared connection window.
 type Window = Arc<Mutex<SharedWindow>>;
 
-/// Mint one direction's window with `budget` bytes available.
+/// Create one direction's window with `budget` bytes available.
 fn window(budget: usize) -> Window {
     Arc::new(Mutex::new(SharedWindow {
         available: budget,
@@ -741,7 +741,7 @@ impl<R: AsyncRead + Unpin> AsyncRead for WindowedRx<R> {
     }
 }
 
-/// The windowed connector: every minted stream's writes charge the shared
+/// The windowed connector: every opened stream's writes charge the shared
 /// window.
 #[derive(Clone)]
 struct WindowedConnector {
@@ -1047,16 +1047,23 @@ fn starved_pool_degrades_latency_not_liveness() {
             .sync_window_floor()
             .into_rumors();
         {
-            let mut batch = seed.batch();
-            for payload in 0..2048u64 {
-                batch.send(payload);
-            }
+            seed.batch(|batch| {
+                for payload in 0..2048u64 {
+                    batch.send(payload)?;
+                }
+                Ok::<(), crate::message::EncodeError>(())
+            })
+            .expect("flat test payloads are within any depth limit");
         }
         {
-            let mut batch = newcomer.batch();
-            for payload in 2048..4096u64 {
-                batch.send(payload);
-            }
+            newcomer
+                .batch(|batch| {
+                    for payload in 2048..4096u64 {
+                        batch.send(payload)?;
+                    }
+                    Ok::<(), crate::message::EncodeError>(())
+                })
+                .expect("flat test payloads are within any depth limit");
         }
         let (near, far) = futures::future::join(seed.gossip(&mut a), newcomer.gossip(&mut b)).await;
         near.expect("gossip completes over the starved pool");

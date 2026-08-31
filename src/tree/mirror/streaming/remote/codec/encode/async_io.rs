@@ -2,6 +2,8 @@
 
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 
+use crate::observe::StreamObserver;
+
 use super::super::{
     error::{EncodeError, EncodeErrorKind, FramePart},
     frame::WireFrame,
@@ -17,12 +19,25 @@ use super::{BodyEncoding, FrameEncoding};
 pub struct FrameWrite<W> {
     speaker: Speaker,
     write: W,
+    /// The directed stream's observer, if any: handed each flushed
+    /// frame's contiguous bytes, and costing one branch when absent.
+    observe: Option<Box<dyn StreamObserver>>,
 }
 
 impl<W> FrameWrite<W> {
     /// Bind `write` to the direction spoken by `speaker`.
     pub fn new(speaker: Speaker, write: W) -> Self {
-        Self { speaker, write }
+        Self {
+            speaker,
+            write,
+            observe: None,
+        }
+    }
+
+    /// Deliver every flushed frame to `observe`, when one is attached.
+    pub fn observed(mut self, observe: Option<Box<dyn StreamObserver>>) -> Self {
+        self.observe = observe;
+        self
     }
 
     /// Recover the transport writer without buffered frame state. Every
@@ -48,7 +63,14 @@ impl<W: AsyncWrite + Unpin> FrameWrite<W> {
         let result = async {
             let encoding = FrameEncoding::new(*stream, frame)?;
             write_encoding(&mut self.write, &encoding).await?;
-            self.write.flush().await.map_err(EncodeErrorKind::Flush)
+            self.write.flush().await.map_err(EncodeErrorKind::Flush)?;
+            // The frame is on the wire: deliver its one-item view. The
+            // pieces are the bytes just written, so the materialized
+            // buffer equals the wire by construction.
+            if let Some(observe) = &mut self.observe {
+                observe.message(&encoding.to_vec());
+            }
+            Ok(())
         }
         .await;
         result.map_err(|kind| EncodeError::new(self.speaker, *stream, kind))
@@ -59,18 +81,14 @@ async fn write_encoding(
     out: &mut (impl AsyncWrite + Unpin),
     encoding: &FrameEncoding<'_>,
 ) -> Result<(), EncodeErrorKind> {
-    write(out, FramePart::Signal, &encoding.signal).await?;
+    write(out, FramePart::FrameHead, &encoding.head).await?;
     match &encoding.body {
         BodyEncoding::Empty => {}
-        BodyEncoding::Query { count, children } => {
-            write(out, FramePart::QueryCount, count).await?;
-            for (radix, hash) in *children {
-                write(out, FramePart::QueryChildren, std::slice::from_ref(radix)).await?;
-                write(out, FramePart::QueryChildren, hash.as_bytes()).await?;
-            }
+        BodyEncoding::Listing(listing) => {
+            write(out, FramePart::QueryChildren, listing).await?;
         }
-        BodyEncoding::Supply { header, run } => {
-            write(out, FramePart::SupplyLength, header).await?;
+        BodyEncoding::Supply { head, run } => {
+            write(out, FramePart::SupplyLength, head).await?;
             write(out, FramePart::SupplyRun, run.as_bytes()).await?;
         }
     }

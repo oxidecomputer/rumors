@@ -1,5 +1,7 @@
 //! End-to-end sessions between materialized peers and protocol-start proxies.
 
+use crate::message::{PayloadCodec, PayloadDepthLimit};
+use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::convert::Infallible;
 use std::sync::Arc;
@@ -10,6 +12,7 @@ use proptest::collection::vec;
 use proptest::prelude::*;
 
 use crate::link::memory_with_capacity;
+use crate::observe::SessionHandle;
 use crate::testing::{
     IoPlan, IoReportHandle, IoSide, Quiescence, reorder_accepts, run_to_quiescence, wrap_link,
 };
@@ -56,10 +59,18 @@ async fn reconcile(a: TreeRoot, b: TreeRoot) -> (TreeRoot, TreeRoot) {
     let b = Handshaking::start(Local, Root::<Local>::from(b)).window(WindowConfig::FLOOR);
 
     let (a_link, b_link) = memory_with_capacity(TRANSPORT_CAPACITY);
-    let remote_b = RemoteHandshaking::start(Local, a_link, Message::deserializer::<()>())
-        .window(WindowConfig::FLOOR);
-    let remote_a = RemoteHandshaking::start(Local, b_link, Message::deserializer::<()>())
-        .window(WindowConfig::FLOOR);
+    let remote_b = RemoteHandshaking::start(
+        Local,
+        a_link,
+        PayloadCodec::new::<()>(PayloadDepthLimit::default()),
+    )
+    .window(WindowConfig::FLOOR);
+    let remote_a = RemoteHandshaking::start(
+        Local,
+        b_link,
+        PayloadCodec::new::<()>(PayloadDepthLimit::default()),
+    )
+    .window(WindowConfig::FLOOR);
 
     let (a, b) = join!(Box::pin(mirror(a, remote_b)), Box::pin(mirror(remote_a, b)));
     let (a, _control) = a.expect("endpoint A should reconcile through its proxy");
@@ -75,15 +86,23 @@ async fn reconcile_symmetric_accepts<T>(
     transport_capacity: usize,
 ) -> (TreeRoot, TreeRoot)
 where
-    T: DeserializeOwned + Send + Sync + 'static,
+    T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
     let a = Handshaking::start(Local, Root::<Local>::from(a)).window(WindowConfig::FLOOR);
     let b = Handshaking::start(Local, Root::<Local>::from(b)).window(WindowConfig::FLOOR);
     let (a_link, b_link) = memory_with_capacity(transport_capacity);
-    let remote_b = RemoteHandshaking::start(Local, a_link, Message::deserializer::<T>())
-        .window(WindowConfig::FLOOR);
-    let remote_a = RemoteHandshaking::start(Local, b_link, Message::deserializer::<T>())
-        .window(WindowConfig::FLOOR);
+    let remote_b = RemoteHandshaking::start(
+        Local,
+        a_link,
+        PayloadCodec::new::<T>(PayloadDepthLimit::default()),
+    )
+    .window(WindowConfig::FLOOR);
+    let remote_a = RemoteHandshaking::start(
+        Local,
+        b_link,
+        PayloadCodec::new::<T>(PayloadDepthLimit::default()),
+    )
+    .window(WindowConfig::FLOOR);
 
     let (a, b) = join!(Box::pin(mirror(a, remote_b)), Box::pin(mirror(b, remote_a)),);
     let (a, _control) = a.expect("endpoint A should reconcile through its proxy");
@@ -108,17 +127,25 @@ async fn reconcile_symmetric_accepts_reordered<T>(
     reordered: Arc<AtomicUsize>,
 ) -> (TreeRoot, TreeRoot)
 where
-    T: DeserializeOwned + Send + Sync + 'static,
+    T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
     let a = Handshaking::start(Local, Root::<Local>::from(a)).window(WindowConfig::FLOOR);
     let b = Handshaking::start(Local, Root::<Local>::from(b)).window(WindowConfig::FLOOR);
     let (a_link, b_link) = memory_with_capacity(transport_capacity);
     let a_link = reorder_accepts(a_link, REORDER_BATCH, reordered.clone());
     let b_link = reorder_accepts(b_link, REORDER_BATCH, reordered);
-    let remote_b = RemoteHandshaking::start(Local, a_link, Message::deserializer::<T>())
-        .window(WindowConfig::FLOOR);
-    let remote_a = RemoteHandshaking::start(Local, b_link, Message::deserializer::<T>())
-        .window(WindowConfig::FLOOR);
+    let remote_b = RemoteHandshaking::start(
+        Local,
+        a_link,
+        PayloadCodec::new::<T>(PayloadDepthLimit::default()),
+    )
+    .window(WindowConfig::FLOOR);
+    let remote_a = RemoteHandshaking::start(
+        Local,
+        b_link,
+        PayloadCodec::new::<T>(PayloadDepthLimit::default()),
+    )
+    .window(WindowConfig::FLOOR);
 
     let (a, b) = join!(Box::pin(mirror(a, remote_b)), Box::pin(mirror(b, remote_a)),);
     let (a, _control) = a.expect("endpoint A should reconcile through its proxy");
@@ -130,14 +157,15 @@ where
 /// transport halves, proving that neither phase consumes the other's bytes.
 async fn reconcile_after_preamble<T>(a: TreeRoot, b: TreeRoot) -> (TreeRoot, TreeRoot)
 where
-    T: DeserializeOwned + Send + Sync + 'static,
+    T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
     let a = Handshaking::start(Local, Root::<Local>::from(a)).window(WindowConfig::FLOOR);
     let b = Handshaking::start(Local, Root::<Local>::from(b)).window(WindowConfig::FLOOR);
     let (mut a_link, mut b_link) = memory_with_capacity(64 * 1024);
     let network = crate::Network::from_bytes([1; 16]);
-    let mut a_staged = handshake::Staged::new();
-    let mut b_staged = handshake::Staged::new();
+    let mut a_staged = handshake::Staged::new(crate::Protocol::V2);
+    let mut b_staged = handshake::Staged::new(crate::Protocol::V2);
+    let observe = SessionHandle::default();
     let (seen_a, seen_b) = join!(
         handshake::preamble(
             crate::Protocol::V2,
@@ -146,6 +174,7 @@ where
             &mut a_staged,
             &mut a_link.control_read,
             &mut a_link.control_write,
+            &observe
         ),
         handshake::preamble(
             crate::Protocol::V2,
@@ -154,15 +183,24 @@ where
             &mut b_staged,
             &mut b_link.control_read,
             &mut b_link.control_write,
+            &observe
         ),
     );
     seen_a.expect("A preamble");
     seen_b.expect("B preamble");
 
-    let remote_b = RemoteHandshaking::start(Local, a_link, Message::deserializer::<T>())
-        .window(WindowConfig::FLOOR);
-    let remote_a = RemoteHandshaking::start(Local, b_link, Message::deserializer::<T>())
-        .window(WindowConfig::FLOOR);
+    let remote_b = RemoteHandshaking::start(
+        Local,
+        a_link,
+        PayloadCodec::new::<T>(PayloadDepthLimit::default()),
+    )
+    .window(WindowConfig::FLOOR);
+    let remote_a = RemoteHandshaking::start(
+        Local,
+        b_link,
+        PayloadCodec::new::<T>(PayloadDepthLimit::default()),
+    )
+    .window(WindowConfig::FLOOR);
     let (a, b) = join!(Box::pin(mirror(a, remote_b)), Box::pin(mirror(b, remote_a)),);
     let (a, _control) = a.expect("endpoint A should reconcile through its proxy");
     let (b, _control) = b.expect("endpoint B should reconcile through its proxy");
@@ -244,10 +282,18 @@ async fn reconcile_with_stacked_failures(
     } else {
         failing
     };
-    let remote_b = RemoteHandshaking::start(left_backend, a_link, Message::deserializer::<()>())
-        .window(WindowConfig::FLOOR);
-    let remote_a = RemoteHandshaking::start(right_backend, b_link, Message::deserializer::<()>())
-        .window(WindowConfig::FLOOR);
+    let remote_b = RemoteHandshaking::start(
+        left_backend,
+        a_link,
+        PayloadCodec::new::<()>(PayloadDepthLimit::default()),
+    )
+    .window(WindowConfig::FLOOR);
+    let remote_a = RemoteHandshaking::start(
+        right_backend,
+        b_link,
+        PayloadCodec::new::<()>(PayloadDepthLimit::default()),
+    )
+    .window(WindowConfig::FLOOR);
 
     let (left, right) = join!(Box::pin(mirror(a, remote_b)), Box::pin(mirror(remote_a, b)));
     (
@@ -258,11 +304,11 @@ async fn reconcile_with_stacked_failures(
 
 /// Extract the injected backend operation from a proxy conversion failure.
 fn injected_operation(error: &ProxyFailure) -> Option<Operation> {
-    use crate::tree::mirror::streaming::remote::{DecodeError, EncodeError};
+    use crate::tree::mirror::streaming::remote::{ReplyDecodeError, ReplyEncodeError};
 
     match error {
-        RemoteError::Encode(EncodeError::Backend(Failure::Injected(operation)))
-        | RemoteError::Decode(DecodeError::Backend(Failure::Injected(operation))) => {
+        RemoteError::Encode(ReplyEncodeError::Backend(Failure::Injected(operation)))
+        | RemoteError::Decode(ReplyDecodeError::Backend(Failure::Injected(operation))) => {
             Some(*operation)
         }
         _ => None,

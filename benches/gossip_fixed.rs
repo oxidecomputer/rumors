@@ -291,17 +291,25 @@ fn build_unilateral_redactions(
 }
 
 fn send_all(rumors: &Rumors<u8>, messages: Vec<u8>) {
-    let mut batch = rumors.batch();
-    for message in messages {
-        batch.send(message);
-    }
+    rumors
+        .batch(|batch| {
+            for message in messages {
+                batch.send(message)?;
+            }
+            Ok::<(), rumors::EncodeError>(())
+        })
+        .expect("flat test payloads are within any depth limit");
 }
 
 fn redact_all(rumors: &Rumors<u8>, versions: &[Version]) {
-    let mut batch = rumors.batch();
-    for version in versions {
-        batch.redact(version);
-    }
+    rumors
+        .batch(|batch| {
+            for version in versions {
+                batch.redact(version);
+            }
+            Ok::<(), rumors::EncodeError>(())
+        })
+        .expect("flat test payloads are within any depth limit");
 }
 
 /// A seed peer measuring shipped behavior: the default pipeline window is

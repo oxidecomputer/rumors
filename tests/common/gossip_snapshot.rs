@@ -42,9 +42,15 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 
 use rumors::link::{Connector, Done, Link, LinkParts, MemoryAcceptor, MemoryConnector};
+use rumors::observe::{
+    Direction, Observer, Role, SessionInfo, SessionObserver, StreamId, StreamInfo, StreamObserver,
+};
 use rumors::{
     Rumors,
-    testing::{LinkCapture, render_v2_capture},
+    testing::{
+        HookCapture, HookStream, LinkCapture, assert_items_account_for, render_hook_capture,
+        stream_label,
+    },
 };
 use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadBuf};
 
@@ -89,6 +95,9 @@ impl Log {
         });
     }
 }
+
+/// Re-exported so byte-level suites can hold captures directly.
+pub use rumors::testing::LinkCapture as CapturedLink;
 
 /// An [`AsyncRead`] + [`AsyncWrite`] wrapper around one control half that
 /// records every byte crossing it into a shared [`Log`].
@@ -252,26 +261,169 @@ impl Side {
     }
 }
 
+/// The hook-side recorder a capture driver attaches to its peer.
+///
+/// Records one session: its elected role and every *sent* directed
+/// stream's items. The received directions are declined — each side of
+/// a capture renders what it sent, and the two sides together cover
+/// both directions.
+#[derive(Default)]
+pub struct HookRecorder {
+    sessions: Mutex<Vec<Arc<RecordedSession>>>,
+}
+
+/// One observed session's recording.
+#[derive(Default)]
+struct RecordedSession {
+    role: Mutex<Option<Role>>,
+    streams: Mutex<Vec<Arc<RecordedStream>>>,
+}
+
+/// One observed sent stream: its identity and its items, in order.
+struct RecordedStream {
+    id: StreamId,
+    items: Mutex<Vec<Vec<u8>>>,
+}
+
+impl Observer for HookRecorder {
+    fn session(&self, _: &SessionInfo) -> Option<Box<dyn SessionObserver>> {
+        let session = Arc::new(RecordedSession::default());
+        self.sessions.lock().unwrap().push(session.clone());
+        Some(Box::new(RecordSession(session)))
+    }
+}
+
+struct RecordSession(Arc<RecordedSession>);
+
+impl SessionObserver for RecordSession {
+    fn elected(&self, role: Role) {
+        *self.0.role.lock().unwrap() = Some(role);
+    }
+
+    fn stream(&self, stream: &StreamInfo) -> Option<Box<dyn StreamObserver>> {
+        if stream.direction != Direction::Sent {
+            return None;
+        }
+        let recorded = Arc::new(RecordedStream {
+            id: stream.id,
+            items: Mutex::new(Vec::new()),
+        });
+        self.0.streams.lock().unwrap().push(recorded.clone());
+        Some(Box::new(RecordStream(recorded)))
+    }
+}
+
+struct RecordStream(Arc<RecordedStream>);
+
+impl StreamObserver for RecordStream {
+    fn message(&mut self, bytes: &[u8]) {
+        self.0.items.lock().unwrap().push(bytes.to_vec());
+    }
+}
+
+/// Attach `hook` to a sole-handle [`Rumors`], for drivers whose peer is
+/// already past its builder. Panics if other clones are live: capture
+/// drivers own their peers.
+pub async fn observed<T>(rumors: Rumors<T>, hook: Arc<HookRecorder>) -> Rumors<T>
+where
+    T: Send + Sync + 'static,
+{
+    rumors
+        .try_into_peer()
+        .await
+        .expect("capture drivers hold the sole handle")
+        .observe(hook)
+        .into_rumors()
+}
+
+/// Harvest one side's [`HookCapture`], held to the transport oracle.
+///
+/// The stream label plus the concatenated observed items must
+/// reproduce each directed stream's wire bytes exactly. That assertion
+/// is what licenses rendering hook items as a pin of wire bytes.
+fn hook_capture(recorder: &HookRecorder, transport: &LinkCapture) -> HookCapture {
+    let sessions = recorder.sessions.lock().unwrap();
+    assert_eq!(sessions.len(), 1, "one captured session per driver");
+    let session = &sessions[0];
+    let role = *session.role.lock().unwrap();
+    let streams = session.streams.lock().unwrap();
+
+    let control: Vec<Vec<u8>> = streams
+        .iter()
+        .find(|stream| matches!(stream.id, StreamId::Control))
+        .map(|stream| stream.items.lock().unwrap().clone())
+        .expect("every session observes its sent control stream");
+    assert_items_account_for(&control, &transport.control);
+
+    let mut data = Vec::new();
+    for wire in &transport.streams {
+        let ((epoch, index), label_len) = stream_label(wire);
+        let recorded = streams
+            .iter()
+            .find(|stream| matches!(stream.id, StreamId::Data { index: i, .. } if i == index))
+            .unwrap_or_else(|| panic!("no hook stream observed wire stream {index}"));
+        let StreamId::Data { speaker, .. } = recorded.id else {
+            unreachable!("matched a data stream id");
+        };
+        let items = recorded.items.lock().unwrap().clone();
+        assert_items_account_for(&items, &wire[label_len..]);
+        data.push(HookStream {
+            index,
+            speaker,
+            epoch,
+            wire_len: wire.len(),
+            items,
+        });
+    }
+    let observed_data = streams
+        .iter()
+        .filter(|stream| matches!(stream.id, StreamId::Data { .. }))
+        .count();
+    assert_eq!(
+        observed_data,
+        data.len(),
+        "every observed data stream has transport bytes"
+    );
+
+    HookCapture {
+        role,
+        control,
+        streams: data,
+    }
+}
+
 /// Capture and render an arbitrary pair of V2 protocol sessions.
 ///
-/// Each side is a closure handed its recorded link end; it returns the
-/// future that drives its role (`gossip`, `bootstrap`, `retire`, …). The
-/// renderer preserves exact bytes per stream but keys data streams by their
-/// labeled index, which is the V2 protocol's deterministic observable
-/// ordering. A driver must run its session to completion and assert its own
-/// outcome.
+/// Each side is a closure handed its recorded link end and its hook
+/// recorder; it attaches the recorder to its peer (or builder) and
+/// returns the future that drives its role (`gossip`, `bootstrap`,
+/// `retire`, …). Rendering consumes the observation hook's items — the
+/// instrument enters through the public door — while the transport
+/// capture stays as the totality oracle behind the byte-pin claim. The
+/// renderer preserves exact items per stream but keys data streams by
+/// their labeled index, which is the V2 protocol's deterministic
+/// observable ordering. A driver must run its session to completion
+/// and assert its own outcome.
 ///
 /// [`capture_gossip`] is the gossip/gossip specialization; the bootstrap and
 /// retire snapshot suites build the asymmetric pairings on top of this.
 pub fn capture_session<DriveA, DriveB, FutA, FutB>(drive_a: DriveA, drive_b: DriveB) -> String
 where
-    DriveA: FnOnce(CaptureLink) -> FutA,
-    DriveB: FnOnce(CaptureLink) -> FutB,
+    DriveA: FnOnce(CaptureLink, Arc<HookRecorder>) -> FutA,
+    DriveB: FnOnce(CaptureLink, Arc<HookRecorder>) -> FutB,
     FutA: Future<Output = ()>,
     FutB: Future<Output = ()>,
 {
-    let (a, b) = capture_sides(drive_a, drive_b);
-    render_v2_capture(&a, &b)
+    let hook_a = Arc::new(HookRecorder::default());
+    let hook_b = Arc::new(HookRecorder::default());
+    let (a, b) = {
+        let (hook_a, hook_b) = (hook_a.clone(), hook_b.clone());
+        capture_sides(
+            move |link| drive_a(link, hook_a),
+            move |link| drive_b(link, hook_b),
+        )
+    };
+    render_hook_capture(&hook_capture(&hook_a, &a), &hook_capture(&hook_b, &b))
 }
 
 /// Capture one V1 session in its strict direction-switching timeline.
@@ -288,7 +440,11 @@ where
 }
 
 /// Drive both roles over recording links and return both sides' captures.
-fn capture_sides<DriveA, DriveB, FutA, FutB>(
+///
+/// The raw form of [`capture_session`], for suites that inspect the
+/// captured bytes themselves (the wire-legibility property) rather than
+/// the rendered transcript.
+pub fn capture_sides<DriveA, DriveB, FutA, FutB>(
     drive_a: DriveA,
     drive_b: DriveB,
 ) -> (LinkCapture, LinkCapture)
@@ -365,22 +521,50 @@ where
 /// reconcile cleanly; a gossip error panics the helper.
 pub fn capture_gossip<T>(a: Rumors<T>, b: Rumors<T>) -> String
 where
-    T: Serialize + DeserializeOwned + Send + Sync + 'static,
+    T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
-    capture_session(
-        move |mut link| async move {
-            a.gossip(&mut link).await.expect("gossip A");
-        },
-        move |mut link| async move {
-            b.gossip(&mut link).await.expect("gossip B");
-        },
-    )
+    capture_gossip_returning(a, b).0
+}
+
+/// [`capture_gossip`], handing the two live handles back after the
+/// session, for tests that assert on post-session replica state.
+///
+/// The hook attaches by briefly reclaiming each `Peer` (the observation
+/// hook's attach point), which requires the passed handle to be its
+/// peer's sole one — so a caller wanting post-state must take its
+/// handles back here rather than holding clones across the capture (a
+/// held clone stalls the reclaim, and the deterministic executor
+/// reports the whole session stalled).
+pub fn capture_gossip_returning<T>(a: Rumors<T>, b: Rumors<T>) -> (String, Rumors<T>, Rumors<T>)
+where
+    T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
+{
+    let a_out = Arc::new(Mutex::new(None));
+    let b_out = Arc::new(Mutex::new(None));
+    let rendered = {
+        let (a_out, b_out) = (a_out.clone(), b_out.clone());
+        capture_session(
+            move |mut link, hook| async move {
+                let a = observed(a, hook).await;
+                a.gossip(&mut link).await.expect("gossip A");
+                *a_out.lock().unwrap() = Some(a);
+            },
+            move |mut link, hook| async move {
+                let b = observed(b, hook).await;
+                b.gossip(&mut link).await.expect("gossip B");
+                *b_out.lock().unwrap() = Some(b);
+            },
+        )
+    };
+    let a = a_out.lock().unwrap().take().expect("driver A completed");
+    let b = b_out.lock().unwrap().take().expect("driver B completed");
+    (rendered, a, b)
 }
 
 /// Capture the strict V1 timeline for a gossip/gossip session.
 pub fn capture_gossip_v1<T>(a: Rumors<T>, b: Rumors<T>) -> String
 where
-    T: Serialize + DeserializeOwned + Send + Sync + 'static,
+    T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
     capture_session_v1(
         move |mut link| async move {

@@ -47,18 +47,18 @@ pub fn arb_string_actions() -> impl Strategy<Value = Vec<LocalAction<String>>> {
 /// Returns the [`Version`] of the single live leaf in `snapshot` above
 /// the causal frontier `pre`.
 ///
-/// This is how a builder recovers the version a `send` just minted,
+/// This is how a builder recovers the version a `send` just created,
 /// given the `latest()` it recorded before sending.
 ///
 /// # Panics
 ///
 /// Panics unless exactly one leaf qualifies.
-pub fn minted_version<T: Send + Sync + 'static>(snapshot: &Snapshot<T>, pre: &Version) -> Version {
+pub fn created_version<T: Send + Sync + 'static>(snapshot: &Snapshot<T>, pre: &Version) -> Version {
     let mut fresh = snapshot.range(causally::since(pre)).map(|(v, _)| v);
-    let version = fresh.next().expect("a send mints exactly one live leaf");
+    let version = fresh.next().expect("a send creates exactly one live leaf");
     assert!(
         fresh.next().is_none(),
-        "a single send must mint exactly one live leaf"
+        "a single send must create exactly one live leaf"
     );
     version.clone()
 }
@@ -66,15 +66,15 @@ pub fn minted_version<T: Send + Sync + 'static>(snapshot: &Snapshot<T>, pre: &Ve
 /// Apply a `LocalAction` sequence to an already-bootstrapped local replica.
 pub fn build_local<T>(local: rumors::Rumors<T>, actions: &[LocalAction<T>]) -> rumors::Rumors<T>
 where
-    T: Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
+    T: Send + Sync + Clone + Serialize + DeserializeOwned + Eq + 'static,
 {
     let mut versions: Vec<Version> = Vec::new();
     for a in actions {
         match a {
             LocalAction::Insert(v) => {
                 let pre = local.snapshot().latest().clone();
-                local.send(v.clone());
-                versions.push(minted_version(&local.snapshot(), &pre));
+                local.send(v.clone()).unwrap();
+                versions.push(created_version(&local.snapshot(), &pre));
             }
             LocalAction::Redact(idx) => {
                 if !versions.is_empty() {

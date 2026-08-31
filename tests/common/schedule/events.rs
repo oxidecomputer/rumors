@@ -11,7 +11,7 @@ pub enum Event<T> {
         peer: usize,
         value: T,
     },
-    /// Redact the message (by its minted `Version`) sent by the
+    /// Redact the message (by its created `Version`) sent by the
     /// `Insert` event at this index in the schedule's emitted event
     /// sequence.
     ///
@@ -25,7 +25,7 @@ pub enum Event<T> {
         a: usize,
         b: usize,
     },
-    /// Mint a new peer mid-schedule by serving it a bootstrap from
+    /// Create a new peer mid-schedule by serving it a bootstrap from
     /// `parent`.
     ///
     /// The newcomer takes index `newcomer` — always the next

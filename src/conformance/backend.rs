@@ -677,8 +677,8 @@ where
 {
     let charged = Charged::new(backend);
 
-    // Two concurrent histories from one universe: the left clock mints the
-    // shared corpus and its own tail; the right fork mints the other tail.
+    // Two concurrent histories from one universe: the left clock produces the
+    // shared corpus and its own tail; the right fork produces the other tail.
     let mut left_clock = before::Clock::seed();
     let mut right_clock = left_clock.fork();
 
@@ -741,7 +741,7 @@ where
 }
 
 /// Assemble one corpus through the charged backend, leaves in path order.
-// The inline pair type is clearer than a name minted only to satisfy the
+// The inline pair type is clearer than a name coined only to satisfy the
 // lint.
 #[allow(clippy::type_complexity)]
 async fn corpus<B>(

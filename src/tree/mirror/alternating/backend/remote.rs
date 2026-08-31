@@ -50,7 +50,7 @@ use std::marker::PhantomData;
 
 use tokio::io::{AsyncRead, AsyncWrite};
 
-use crate::message::PayloadDeserializer;
+use crate::message::PayloadCodec;
 use crate::tree::wire;
 
 use crate::Error;
@@ -81,9 +81,9 @@ pub struct Connected;
 pub struct Exchange<R, W, V, H: Height> {
     reader: FrameRead<R>,
     writer: FrameWrite<W>,
-    /// The peer's payload deserializer: every `providing` channel this
+    /// The peer's payload codec: every `providing` channel this
     /// proxy decodes builds its leaf payloads through it.
-    deserializer: PayloadDeserializer,
+    codec: PayloadCodec,
     _phantom: PhantomData<fn() -> (V, H)>,
 }
 
@@ -91,17 +91,13 @@ impl<R, W> Exchange<R, W, Start, Root> {
     /// Begin an [`Exchange`] on transport halves wrapped after the shared raw
     /// preamble has completed.
     ///
-    /// `deserializer` is the peer's payload deserializer, the typed
+    /// `codec` is the peer's payload codec, the typed
     /// ingress for every leaf this session decodes.
-    pub fn start(
-        reader: FrameRead<R>,
-        writer: FrameWrite<W>,
-        deserializer: PayloadDeserializer,
-    ) -> Self {
+    pub fn start(reader: FrameRead<R>, writer: FrameWrite<W>, codec: PayloadCodec) -> Self {
         Self {
             reader,
             writer,
-            deserializer,
+            codec,
             _phantom: PhantomData,
         }
     }
@@ -110,15 +106,11 @@ impl<R, W> Exchange<R, W, Start, Root> {
 impl<R, W, H: Height> Exchange<R, W, Connected, H> {
     /// Construct a [`Connected`]-state [`Exchange`] from already-framed
     /// reader/writer halves, threading them through from a predecessor stage.
-    fn connected(
-        reader: FrameRead<R>,
-        writer: FrameWrite<W>,
-        deserializer: PayloadDeserializer,
-    ) -> Self {
+    fn connected(reader: FrameRead<R>, writer: FrameWrite<W>, codec: PayloadCodec) -> Self {
         Self {
             reader,
             writer,
-            deserializer,
+            codec,
             _phantom: PhantomData,
         }
     }
@@ -180,10 +172,10 @@ where
 
 /// [`recv_msg`] for the payload-bearing messages: the frame decodes
 /// through [`message::DecodeWith`], its leaf payloads through the peer's
-/// deserializer.
+/// codec.
 pub(super) async fn recv_msg_with<M, R>(
     reader: &mut FrameRead<R>,
-    deserializer: PayloadDeserializer,
+    codec: PayloadCodec,
 ) -> Result<M, Error>
 where
     R: AsyncRead + Unpin + Send,
@@ -201,7 +193,7 @@ where
         })
         .map_err(Error::Io)?;
     let mut slice = frame.as_slice();
-    let msg = M::read_wire_with(&mut slice, deserializer).map_err(Error::Io)?;
+    let msg = M::read_wire_with(&mut slice, codec).map_err(Error::Io)?;
     if !slice.is_empty() {
         return Err(Error::Io(wire::invalid(format!(
             "{} trailing bytes after the decoded message",
@@ -249,7 +241,7 @@ where
 
         Ok(protocol::Step::Continue {
             msg: peer,
-            next: Exchange::connected(self.reader, self.writer, self.deserializer),
+            next: Exchange::connected(self.reader, self.writer, self.codec),
         })
     }
 }
@@ -270,7 +262,7 @@ where
         // is `Infallible`, so `Done` is uninhabitable here.
         Ok(Step::Continue {
             msg,
-            next: Exchange::connected(self.reader, self.writer, self.deserializer),
+            next: Exchange::connected(self.reader, self.writer, self.codec),
         })
     }
 }
@@ -297,7 +289,7 @@ where
         let response: message::Opening = recv_msg(&mut self.reader).await?;
         Ok(Step::Continue {
             msg: response,
-            next: Exchange::connected(self.reader, self.writer, self.deserializer),
+            next: Exchange::connected(self.reader, self.writer, self.codec),
         })
     }
 }
@@ -320,7 +312,7 @@ where
         // counterparty to send back a non-trivial `providing` (the "we have,
         // they lack" Left case when we are the empty side).
         let response: message::Exchange<UnderUnderRoot> =
-            recv_msg_with(&mut self.reader, self.deserializer).await?;
+            recv_msg_with(&mut self.reader, self.codec).await?;
 
         if response.requested.is_empty() && response.uncertain.is_empty() {
             Ok(Step::Done {
@@ -330,7 +322,7 @@ where
         } else {
             Ok(Step::Continue {
                 msg: response,
-                next: Exchange::connected(self.reader, self.writer, self.deserializer),
+                next: Exchange::connected(self.reader, self.writer, self.codec),
             })
         }
     }
@@ -368,8 +360,7 @@ where
             });
         }
 
-        let response: message::Exchange<H> =
-            recv_msg_with(&mut self.reader, self.deserializer).await?;
+        let response: message::Exchange<H> = recv_msg_with(&mut self.reader, self.codec).await?;
 
         if response.requested.is_empty() && response.uncertain.is_empty() {
             Ok(Step::Done {
@@ -379,7 +370,7 @@ where
         } else {
             Ok(Step::Continue {
                 msg: response,
-                next: Exchange::connected(self.reader, self.writer, self.deserializer),
+                next: Exchange::connected(self.reader, self.writer, self.codec),
             })
         }
     }
@@ -409,7 +400,7 @@ where
             });
         }
 
-        let response: message::Closing = recv_msg_with(&mut self.reader, self.deserializer).await?;
+        let response: message::Closing = recv_msg_with(&mut self.reader, self.codec).await?;
 
         if response.requested.is_empty() {
             Ok(Step::Done {
@@ -419,7 +410,7 @@ where
         } else {
             Ok(Step::Continue {
                 msg: response,
-                next: Exchange::connected(self.reader, self.writer, self.deserializer),
+                next: Exchange::connected(self.reader, self.writer, self.codec),
             })
         }
     }
@@ -447,8 +438,7 @@ where
             });
         }
 
-        let response: message::Complete =
-            recv_msg_with(&mut self.reader, self.deserializer).await?;
+        let response: message::Complete = recv_msg_with(&mut self.reader, self.codec).await?;
 
         // `CompleteInitiator` is statically `Done`: the `Next` slot is
         // `Infallible`, so `Continue` is uninhabitable here.

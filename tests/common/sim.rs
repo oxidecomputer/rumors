@@ -91,7 +91,7 @@ use crate::common::wire::wire_gossip_async;
 ///
 /// Derived from measurement, not transcribed: the envelope session —
 /// a fully-divergent pair on the generator's maximal fork lattice, each
-/// endpoint holding more unique content than an entire plan can mint,
+/// endpoint holding more unique content than an entire plan can create,
 /// every party's ticks entangled into the version bounds, at the
 /// sweep's widest window — moves fewer bytes per endpoint than this
 /// bound, and the bound stays within twice that measurement, so
@@ -366,11 +366,13 @@ pub fn arb_plan() -> impl Strategy<Value = Plan> {
 /// invariant violation, not a disruption, and fails the test on the spot.
 ///
 /// A wire cut stops the byte stream mid-frame, so a faulted read surfaces as an
-/// I/O error whose kind is `UnexpectedEof` (or a write/broken-pipe variant) —
-/// never a complete-but-malformed frame. A decode failure (`InvalidData`) is
-/// therefore a protocol/codec bug, not a fault: it is exactly how a
-/// non-canonical [`Party`] on the wire once slipped through, so reject it
-/// alongside the non-I/O variants.
+/// I/O error whose kind is `UnexpectedEof` (or a write/broken-pipe variant),
+/// or — when the cut lands inside the handshake or the identity hand-off —
+/// as the typed `PreambleTruncated` or `HandOffTruncated`; never a
+/// complete-but-malformed frame. A decode failure (`InvalidData`,
+/// `PreambleMalformed`, `HandOffMalformed`) is therefore a protocol/codec
+/// bug, not a fault: it is exactly how a non-canonical [`Party`] on the
+/// wire once slipped through, so reject it alongside the non-I/O variants.
 pub fn assert_honest_error(e: &Error) {
     assert!(
         is_honest_error(e),
@@ -383,6 +385,15 @@ pub fn assert_honest_error(e: &Error) {
 pub fn is_honest_error(error: &Error) -> bool {
     match error {
         Error::Io(error) => honest_io(error),
+        // A cut that lands inside the preamble surfaces as the typed
+        // truncation: its byte counts say the stream *stopped*, never
+        // that it lied. A malformed preamble stays dishonest — a cut
+        // never corrupts a frame.
+        Error::PreambleTruncated { .. } => true,
+        // Likewise a cut that lands inside the promised identity
+        // hand-off: the typed truncation says the stream stopped. A
+        // malformed hand-off stays dishonest, as everywhere.
+        Error::HandOffTruncated => true,
         // A cut that lands on the closing epilogue exchange is post-commit
         // but still an honest severed wire; a non-marker byte there
         // (`InvalidData`) stays dishonest, as everywhere.
@@ -523,7 +534,7 @@ async fn run_activity(handle: Rumors<u64>, script: Vec<Activity>) -> Vec<(Versio
     for op in script {
         match op {
             Activity::Send(value) => {
-                handle.send(value);
+                handle.send(value).unwrap();
             }
             Activity::Redact(index) => {
                 let live: Vec<(Version, u64)> = handle
@@ -674,10 +685,13 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
         .apply(Peer::<u64>::seed())
         .into_rumors();
     {
-        let mut batch = seed.batch();
-        for &v in &plan.seed_messages {
-            batch.send(v);
-        }
+        seed.batch(|batch| {
+            for &v in &plan.seed_messages {
+                batch.send(v)?;
+            }
+            Ok::<(), rumors::EncodeError>(())
+        })
+        .expect("flat test payloads are within any depth limit");
     }
     let mut fleet: Vec<Rumors<u64>> = vec![seed];
     for i in 1..plan.n_peers {

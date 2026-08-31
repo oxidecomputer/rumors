@@ -79,7 +79,7 @@ fn pristine_seed_attaches_without_touching_storage() {
 fn failed_persist_returns_peer_for_retry() {
     block_on(async {
         let rumors = Peer::<String>::seed().sync_window_floor().into_rumors();
-        rumors.send("the meeting is at noon".to_string());
+        rumors.send("the meeting is at noon".to_string()).unwrap();
         let peer = rumors.try_into_peer().await.expect("sole handle");
         let network = peer.network();
 
@@ -163,7 +163,7 @@ fn failed_attach_does_not_reclaim_into_an_unbookmarked_peer() {
         // Advance the network so a recovering peer's frontier strictly
         // dominates the stranded region's recorded version (the precondition
         // for `reclaim` to fold it in).
-        a.send("tick".to_string());
+        a.send("tick".to_string()).unwrap();
 
         // B' recovers: a *fresh* fork from A, disjoint from the stranded region.
         let b_prime = bootstrap_unbookmarked(&a).await;

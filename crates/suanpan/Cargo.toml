@@ -11,13 +11,13 @@ readme = "README.md"
 # stored words, so streaming a wide delta allocates nothing) and the final
 # normalized magnitude leaves as one. Default features stay off: `std` alone
 # covers this crate's use.
-dashu-int = { version = "0.5", default-features = false, features = ["std"] }
+dashu-int = { workspace = true }
 
 [dev-dependencies]
-proptest = "1"
+proptest = { workspace = true }
 # The workspace-shared source scanners behind the claims roster
 # (`src/claims.rs`): the public-surface extractor and the witness scanner.
-surface-scan = { path = "../surface-scan" }
+surface-scan = { workspace = true }
 
 [features]
 # Counts every digit read-modify-write (plus one per operand limb read by a

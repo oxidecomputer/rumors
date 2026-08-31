@@ -144,12 +144,12 @@
 //! use rumors::Peer;
 //!
 //! #[tokio::main]
-//! async fn main() -> Result<(), rumors::Error> {
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     // The universe's first peer creates it; every later peer bootstraps in.
 //!     let alice = Peer::<String>::seed().into_rumors();
 //!
-//!     // A bare `send` statement commits when its `Batch` drops, right here.
-//!     alice.send("the meeting is at noon".to_string());
+//!     // A send commits right here.
+//!     alice.send("the meeting is at noon".to_string())?;
 //!
 //!     // A session runs over a `Link`: a control byte stream plus a supply
 //!     // of independent data streams (see the `link` module); here, the
@@ -208,6 +208,11 @@
 //! to yield ([`Rumors::redact`] explains why none is needed); an application
 //! that needs deletion events sends them as ordinary messages of its own.
 //!
+//! All of the above observe the *set*. To watch the *wire* instead — every
+//! protocol message of a live session, as raw CBOR items, for debuggers,
+//! recorders, and tracing adapters — attach a handler from the [`observe`]
+//! module ([`Peer::observe`]).
+//!
 //! # Transport: bring a [`Link`]
 //!
 //! A session's transport is a [`Link`]: one persistent bidirectional
@@ -230,17 +235,41 @@
 //! [`AsyncRead`](tokio::io::AsyncRead) and [`AsyncWrite`](tokio::io::AsyncWrite);
 //! no Tokio runtime, spawning, sockets, or timers are required by this crate.
 //!
-//! # Message payloads and compatibility
+//! # Choosing a payload type
 //!
-//! Your message type `T` needs [`serde::Serialize`] and
-//! [`serde::de::DeserializeOwned`]; payloads are serialized as
-//! CBOR ([RFC 8949](https://www.rfc-editor.org/rfc/rfc8949)). Because
-//! CBOR carries field and variant *names*, reordering `struct` fields
-//! or `enum` variants does not break compatibility with prior versions
-//! of your type `T`; however, *renaming breaks compabitility*. It is worth
-//! designing around this from the get-go: consider an outer `enum` indicating
-//! the version of your application-level message type, even if it starts
-//! out only having one variant, `V1`.
+//! Your message type `T` needs [`serde::Serialize`],
+//! [`serde::de::DeserializeOwned`], [`Eq`], [`Send`], [`Sync`], and
+//! `'static`, all demanded once, at peer construction. Payloads are
+//! serialized as CBOR ([RFC 8949](https://www.rfc-editor.org/rfc/rfc8949)).
+//! Each bound guards replication:
+//!
+//! - **`Serialize` must succeed on every value you send.** CBOR itself
+//!   imposes no format-driven failures, so a `Serialize` error is a bug
+//!   in the payload type: sending panics. Avoid types whose `Serialize`
+//!   is data-dependently fallible (for example `std::path::PathBuf`,
+//!   which errors on non-UTF-8 paths).
+//! - **Every encoding must decode back equal to the value sent.** Each
+//!   send re-decodes its own encoding with the exact decoder receivers
+//!   run and compares by `Eq`; a lossy encoding (for example
+//!   `Some(None)` in a nested `Option`, which decodes as `None`) is the
+//!   typed [`EncodeError`], rejected at the author rather than silently
+//!   diverging at every replica. The bound is `Eq` rather than
+//!   `PartialEq` so the check is never spurious; this excludes
+//!   `f32`/`f64` fields (NaN compares unequal to itself).
+//! - **Nesting depth is bounded.** Decoding a payload may recurse at
+//!   most [`Peer::payload_depth_limit`] steps (256 by default, ample
+//!   for ordinary types); an over-deep value is rejected at send. The
+//!   limit is held to exact equality fleet-wide at every handshake, so
+//!   an admitted payload is transferable everywhere; the knob's docs
+//!   carry the full contract.
+//!
+//! On compatibility across versions of your own type: because CBOR
+//! carries field and variant *names*, reordering `struct` fields or
+//! `enum` variants does not break compatibility with prior versions of
+//! your type `T`; however, *renaming breaks compatibility*. It is worth
+//! designing around this from the get-go: consider an outer `enum`
+//! indicating the version of your application-level message type, even
+//! if it starts out only having one variant, `V1`.
 //!
 //! # Cargo features
 //!
@@ -282,11 +311,13 @@ pub mod error;
 pub mod link;
 mod message;
 mod network;
+pub mod observe;
 mod peer;
 mod protocol;
 pub mod reconciliation;
 mod rumors;
 mod snapshot;
+pub mod tags;
 #[cfg(any(test, feature = "test-internals"))]
 #[doc(hidden)]
 pub mod testing;
@@ -296,21 +327,24 @@ pub mod tutorial;
 #[cfg(test)]
 mod tests;
 
+#[cfg(feature = "protocol-v1")]
 pub use crate::peer::PROTOCOL_MAGIC;
 pub use ::before;
 pub use batch::Batch;
 pub use before::{Ticks, Version, causally};
 pub use bookmark::{
-    BOOKMARK_FORMAT_VERSION, BOOKMARK_MAGIC, Bookmark, BookmarkError, BookmarkIo, FormatError,
-    NoBookmark, Serialized,
+    BOOKMARK_FORMAT_VERSION, Bookmark, BookmarkError, BookmarkIo, FormatError, FrameDefect,
+    NoBookmark, RecordDefect, Serialized,
 };
 pub use error::{Error, MirrorError};
 pub use link::{Acceptor, Connector, Link};
+pub use message::EncodeError;
 pub use network::Network;
 pub(crate) use peer::Inner;
 pub use peer::{
-    BookmarkedBootstrap, Bootstrap, DEFAULT_SYNC_MEMORY_BUDGET, DEFAULT_TARGET_MESSAGE_SIZE,
-    Gossiped, Joined, Led, Peer, Retire, Unbookmarked,
+    BookmarkedBootstrap, Bootstrap, DEFAULT_PAYLOAD_DEPTH_LIMIT, DEFAULT_SYNC_MEMORY_BUDGET,
+    DEFAULT_TARGET_MESSAGE_SIZE, Gossiped, Joined, Led, PayloadDepthLimit, Peer, Retire,
+    Unbookmarked,
 };
 pub use protocol::Protocol;
 pub use rumors::{CausalMessages, Changes, Rumors, TryNext, TryTick, UnorderedMessages};

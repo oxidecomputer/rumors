@@ -67,7 +67,7 @@ async fn tcp_endpoint(buffers: Option<u32>) -> (Endpoint<TcpDial>, Incoming<TcpD
     (endpoint, incoming, addr)
 }
 
-/// Mint a fresh routed-link pair over TCP: two endpoints, one
+/// Create a fresh routed-link pair over TCP: two endpoints, one
 /// establishment.
 ///
 /// `dialer_first` picks which construction (the dialing or the
@@ -100,7 +100,7 @@ async fn tcp_conformance(buffers: Option<u32>, dialer_first: bool) {
     .expect("conformance suite ran past its liveness bound");
 }
 
-/// Mint a fresh routed-link pair over an in-memory network of its own.
+/// Create a fresh routed-link pair over an in-memory network of its own.
 async fn memory_pair(dialer_first: bool) -> (RoutedLink<MemoryDial>, RoutedLink<MemoryDial>) {
     let net = MemoryNet::new();
     let name_a = MemoryName::new("a");
@@ -163,7 +163,7 @@ async fn conforms_over_tcp_at_minimal_buffers_swapped() {
     tcp_conformance(Some(MINIMAL_BUFFER_REQUEST), false).await;
 }
 
-/// Mint a routed-link pair whose shared dialer pools recycled
+/// Create a routed-link pair whose shared dialer pools recycled
 /// connections, so the suite's completed streams ride recycled
 /// connections wherever a pooled one is available.
 async fn pooled_tcp_pair(
@@ -236,16 +236,23 @@ async fn pooled_mutual_sessions_converge() {
             .expect("the seed serves the bootstrap")
             .into_rumors();
         {
-            let mut batch = seed.batch();
-            for payload in 0..48u64 {
-                batch.send(payload);
-            }
+            seed.batch(|batch| {
+                for payload in 0..48u64 {
+                    batch.send(payload)?;
+                }
+                Ok::<(), rumors::EncodeError>(())
+            })
+            .expect("flat test payloads are within any depth limit");
         }
         {
-            let mut batch = newcomer.batch();
-            for payload in 48..96u64 {
-                batch.send(payload);
-            }
+            newcomer
+                .batch(|batch| {
+                    for payload in 48..96u64 {
+                        batch.send(payload)?;
+                    }
+                    Ok::<(), rumors::EncodeError>(())
+                })
+                .expect("flat test payloads are within any depth limit");
         }
         for _ in 0..2 {
             let (near, far) = tokio::join!(seed.gossip(&mut a), newcomer.gossip(&mut b));
@@ -320,9 +327,9 @@ async fn mesh_converges_beside_a_stalled_header() {
         let b = bootstrap_fork_async(&a).await;
         let c = bootstrap_fork_async(&a).await;
         for payload in 0..MESH_PAYLOADS {
-            a.send(payload);
-            b.send(100 + payload);
-            c.send(200 + payload);
+            a.send(payload).unwrap();
+            b.send(100 + payload).unwrap();
+            c.send(200 + payload).unwrap();
         }
 
         // Two rounds, each running all three pairwise sessions

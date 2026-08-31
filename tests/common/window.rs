@@ -46,7 +46,7 @@ impl WindowChoice {
 /// [`choice(i)`](WindowAssignment::choice).
 ///
 /// Indexing wraps, so one
-/// assignment covers founders and any peers minted later (mid-run
+/// assignment covers founders and any peers created later (mid-run
 /// bootstraps) without knowing the final fleet size up front.
 #[derive(Debug, Clone)]
 pub struct WindowAssignment(Vec<WindowChoice>);

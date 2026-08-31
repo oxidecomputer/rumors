@@ -10,6 +10,7 @@
 use std::marker::PhantomData;
 
 use crate::link::{Acceptor, Connector};
+use crate::observe::SessionHandle;
 use crate::tree::{
     mirror::streaming::{
         Backend, Leaf,
@@ -44,6 +45,9 @@ where
     /// The session's stats recorder, handed to every stream this session
     /// binds so the codec seam's byte counts accumulate in one place.
     stats: Recorder,
+    /// The session's observation handle, handed to every stream this
+    /// session binds so each can create its own observer when it opens.
+    observe: SessionHandle,
     work: Work<B, R, W, A>,
 }
 
@@ -63,6 +67,7 @@ where
             self.budget,
             self.route.clone(),
             self.stats.clone(),
+            self.observe.clone(),
         )
     }
 
@@ -75,6 +80,7 @@ where
             local,
             stream_at::<H>(local),
             self.stats.clone(),
+            self.observe.clone(),
         )
     }
 }
@@ -119,6 +125,7 @@ where
         route: ErrorRoute,
         budget: RunBudget,
         stats: Recorder,
+        observe: SessionHandle,
         work: Work<B, R, W, A>,
     ) -> Self {
         Self {
@@ -130,6 +137,7 @@ where
                 route,
                 budget,
                 stats,
+                observe,
                 work,
             })),
         }

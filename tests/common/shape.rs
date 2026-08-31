@@ -4,7 +4,7 @@
 //! universe's versions are a pure function of the staging script (the
 //! seeded network, the fork points, the send order) — payload bytes steer
 //! nothing. A fixture therefore stages a required shape in three steps:
-//! mint a pool of messages, search the minted versions for ones whose
+//! send a pool of messages, search the created versions for ones whose
 //! paths satisfy the shape, and redact the rest. Same script, same
 //! versions, same winners, every run: the searches here are deterministic,
 //! and each fixture's self-checks still verify the landed shape.
@@ -25,10 +25,14 @@ pub fn path_radix(version: &Version) -> u8 {
 /// Send `count` messages carrying the payloads `from..from + count`, as
 /// one batch: one fresh version per payload, in payload order.
 pub fn send_pool(rumors: &Rumors<u64>, from: u64, count: u64) {
-    let mut batch = rumors.batch();
-    for value in from..from + count {
-        batch.send(value);
-    }
+    rumors
+        .batch(|batch| {
+            for value in from..from + count {
+                batch.send(value)?;
+            }
+            Ok::<(), rumors::EncodeError>(())
+        })
+        .expect("flat test payloads are within any depth limit");
 }
 
 /// The live pool as `(payload, version)` in ascending payload order,
@@ -54,10 +58,14 @@ pub fn keep_only(rumors: &Rumors<u64>, from: u64, count: u64, keep: &[u64]) {
         .filter(|(_, m)| (from..from + count).contains(m) && !keep.contains(m))
         .map(|(v, _)| v.clone())
         .collect();
-    let mut batch = rumors.batch();
-    for version in &losers {
-        batch.redact(version);
-    }
+    rumors
+        .batch(|batch| {
+            for version in &losers {
+                batch.redact(version);
+            }
+            Ok::<(), rumors::EncodeError>(())
+        })
+        .expect("flat test payloads are within any depth limit");
 }
 
 /// The first pool pair (in payload order) whose paths agree on the

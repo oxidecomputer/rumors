@@ -352,7 +352,7 @@ fn value_oracle_survives_committed_retire_chain() {
 // ---- MAX_CUT derivation pin --------------------------------------------------
 
 /// Distinct values per side of the envelope session: one more than the
-/// most content an entire plan can mint anywhere.
+/// most content an entire plan can create anywhere.
 ///
 /// Derived from the generator's own bounds so the dominance premise
 /// cannot drift from the strategy.
@@ -362,7 +362,7 @@ const ENVELOPE_VALUES_PER_SIDE: u64 =
 /// Byte extent of the envelope session, per endpoint.
 ///
 /// The construction dominates a plan's *value count* exactly — each
-/// endpoint holds more unique content than an entire plan can mint —
+/// endpoint holds more unique content than an entire plan can create —
 /// and exercises the version shapes plans produce at the generator's
 /// bounds: the fleet sits on a `MAX_PLAN_PEERS`-party fork lattice,
 /// every party contributes a send tick and a redaction tick, and two
@@ -390,7 +390,7 @@ async fn envelope_session_bytes() -> usize {
     // ticks in its version bounds without leaving shared live content
     // that would blunt the divergence.
     for (i, peer) in fleet.iter().enumerate() {
-        peer.send(2_000_000 + i as u64);
+        peer.send(2_000_000 + i as u64).unwrap();
         let marker = {
             let snapshot = peer.snapshot();
             let (marker, _) = snapshot
@@ -584,7 +584,7 @@ proptest! {
     }
 }
 
-// ---- re-minted inter-process counterexamples ---------------------------------
+// ---- reconstructed inter-process counterexamples -----------------------------
 //
 // Historical shrunk counterexamples, preserved as explicit constructions:
 // their committed seeds regenerate through the fault strategy's cut range,
@@ -593,7 +593,7 @@ proptest! {
 // under the same invariants as the proptest above. The seed files stay
 // committed; these constructions carry the counterexamples themselves.
 
-/// Shorthand for one endpoint's fault plan in a re-minted construction.
+/// Shorthand for one endpoint's fault plan in a reconstructed counterexample.
 fn fp(write_cut: Option<usize>, read_cut: Option<usize>) -> FaultPlan {
     FaultPlan {
         write_cut,
@@ -601,11 +601,11 @@ fn fp(write_cut: Option<usize>, read_cut: Option<usize>) -> FaultPlan {
     }
 }
 
-/// Re-minted counterexample: a single clean child whose final retirement
+/// Reconstructed counterexample: a single clean child whose final retirement
 /// wire dies at the very first written byte, forcing the
 /// recovered-then-retry path against a live parent.
 #[test]
-fn remint_child_retire_cut_at_first_byte() {
+fn reconstructed_child_retire_cut_at_first_byte() {
     mt_runtime().block_on(run_proc_plan(ProcPlan {
         n_parent_peers: 1,
         seed_messages: vec![],
@@ -618,11 +618,11 @@ fn remint_child_retire_cut_at_first_byte() {
     }));
 }
 
-/// Re-minted counterexample: one child whose deliberately lossy first
+/// Reconstructed counterexample: one child whose deliberately lossy first
 /// bootstrap dies mid-transfer and whose gossip sessions are cut in both
 /// directions, retiring cleanly afterward.
 #[test]
-fn remint_child_faulted_boot_and_sessions() {
+fn reconstructed_child_faulted_boot_and_sessions() {
     mt_runtime().block_on(run_proc_plan(ProcPlan {
         n_parent_peers: 1,
         seed_messages: vec![8910283091],
@@ -635,10 +635,10 @@ fn remint_child_faulted_boot_and_sessions() {
     }));
 }
 
-/// Re-minted counterexample: three children with cuts across every phase
+/// Reconstructed counterexample: three children with cuts across every phase
 /// (bootstrap, sessions, retirement), overlapping at the parent.
 #[test]
-fn remint_three_children_cut_across_phases() {
+fn reconstructed_three_children_cut_across_phases() {
     mt_runtime().block_on(run_proc_plan(ProcPlan {
         n_parent_peers: 1,
         seed_messages: vec![16893878652516216069, 17088246115921829969],
@@ -669,11 +669,11 @@ fn remint_three_children_cut_across_phases() {
     }));
 }
 
-/// Re-minted counterexample: three children whose cuts sit near the deep
+/// Reconstructed counterexample: three children whose cuts sit near the deep
 /// end of the fault range the case was found under, severing sessions and
 /// retirements late in their byte streams.
 #[test]
-fn remint_three_children_deep_cuts() {
+fn reconstructed_three_children_deep_cuts() {
     mt_runtime().block_on(run_proc_plan(ProcPlan {
         n_parent_peers: 1,
         seed_messages: vec![597761422003064892],
@@ -705,10 +705,13 @@ async fn run_proc_plan(plan: ProcPlan) {
     // so inbound sessions can overlap arbitrarily.
     let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
     {
-        let mut batch = seed.batch();
-        for &v in &plan.seed_messages {
-            batch.send(v);
-        }
+        seed.batch(|batch| {
+            for &v in &plan.seed_messages {
+                batch.send(v)?;
+            }
+            Ok::<(), rumors::EncodeError>(())
+        })
+        .expect("flat test payloads are within any depth limit");
     }
     let mut casts: Vec<Rumors<u64>> = vec![seed];
     for _ in 1..plan.n_parent_peers {
@@ -947,7 +950,7 @@ async fn child_main(addr: String) -> i32 {
         let handle = cast.clone();
         tokio::spawn(async move {
             for s in 0..n_sends {
-                handle.send(child_value(index, s));
+                handle.send(child_value(index, s)).unwrap();
                 tokio::task::yield_now().await;
             }
         })

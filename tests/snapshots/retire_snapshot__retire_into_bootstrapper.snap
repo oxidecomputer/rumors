@@ -3,60 +3,86 @@ source: tests/retire_snapshot.rs
 expression: capture
 ---
 direction A -> B
-preamble: 25 bytes
-  0000: 52 55 4d 4f 52 53 00 02
-  0008: 00 00 00 00 00 00 00 00
-  0010: 00 00 00 00 00 00 00 00
-  0018: 00
-version: 0
-greeting words: set len 0, version-size bound 0, message-size target 1638912
-version frame: 29 bytes
-  0000: 00 00 00 19 00 00 00 00
-  0008: 00 00 00 00 00 00 00 00
-  0010: 00 00 00 00 00 02 19 00
-  0018: 00 00 00 00 e0
-listing: 0 child(ren)
-listing frame: 4 bytes
-  0000: 00 00 00 00
-trailing frame: 1 bytes
-  0000: 2e
+role: Initiator
+control item 0 (30 bytes) / preamble /
+  55799( / self-described CBOR /
+    [
+      "rumors"
+      2
+      h'00000000000000000000000000000000'
+      0
+    ]
+  )
+control item 1 (103 bytes) / greeting /
+  24(<< / embedded item, 99 bytes /
+    {
+      "listing" =>
+        { / listing: 0 child(ren) /
+        }
+      "set_len" => 0
+      "version" =>
+        53846(h'e0') / causal version, event tree: 0 /
+      "max_version_bytes" => 0
+      "payload_depth_limit" => 256
+      "target_message_size" => 1830400
+    }
+  >>)
+control item 2 (2 bytes) / epilogue /
+  "."
 
 direction B -> A
-preamble: 25 bytes
-  0000: 52 55 4d 4f 52 53 00 02
-  0008: 8c 18 96 68 c9 e4 83 72
-  0010: 37 bf 31 e0 2d 7f 6b 70
-  0018: 01
-version: (0, 0, 2)
-greeting words: set len 2, version-size bound 2, message-size target 1638912
-version frame: 30 bytes
-  0000: 00 00 00 1a 02 00 00 00
-  0008: 00 00 00 00 02 00 00 00
-  0010: 00 00 00 00 00 02 19 00
-  0018: 00 00 00 00 72 c0
-listing: 2 child(ren)
-  child 0x36: a93c14a59c62f37321d21557b0e821de471a7e3d079c6fce
-  child 0xf2: 42bb8c7ce00cc0681c05edde50af1bd47d5d94d0a136c882
-listing frame: 54 bytes
-  0000: 00 00 00 32 36 a9 3c 14
-  0008: a5 9c 62 f3 73 21 d2 15
-  0010: 57 b0 e8 21 de 47 1a 7e
-  0018: 3d 07 9c 6f ce f2 42 bb
-  0020: 8c 7c e0 0c c0 68 1c 05
-  0028: ed de 50 af 1b d4 7d 5d
-  0030: 94 d0 a1 36 c8 82
-Responder stream 0 (height 31), epoch 0
-  frame 0: Supply(Continue)
-    supply run: 1 record(s)
-      record 0: version (0, 0, 2), message 1 byte(s)
-    0000: 66 00 00 00 08 00 00 00
-    0008: 04 42 72 c0 02
-  frame 1: Supply(End)
-    supply run: 1 record(s)
-      record 0: version (0, 0, 1), message 1 byte(s)
-    0000: 77 00 00 00 07 00 00 00
-    0008: 03 41 77 01
-  frame 2: End(Stream)
-    0000: 99
-trailing frame: 6 bytes
-  0000: 00 00 00 01 48 2e
+role: Responder
+control item 0 (30 bytes) / preamble /
+  55799( / self-described CBOR /
+    [
+      "rumors"
+      2
+      h'8c189668c9e4837237bf31e02d7f6b70'
+      1
+    ]
+  )
+control item 1 (160 bytes) / greeting /
+  24(<< / embedded item, 156 bytes /
+    {
+      "listing" =>
+        { / listing: 2 child(ren) /
+          0x36 => h'a93c14a59c62f37321d21557b0e821de471a7e3d079c6fce' / digest /
+          0xf2 => h'42bb8c7ce00cc0681c05edde50af1bd47d5d94d0a136c882' / digest /
+        }
+      "set_len" => 2
+      "version" =>
+        53846(h'72c0') / causal version, event tree: (0, 0, 2) /
+      "max_version_bytes" => 2
+      "payload_depth_limit" => 256
+      "target_message_size" => 1830400
+    }
+  >>)
+control item 2 (5 bytes) / party hand-off /
+  53845(h'48') / party /
+control item 3 (2 bytes) / epilogue /
+  "."
+Responder stream 0 (height 31), epoch 0, 36 wire bytes
+  frame 0 (16 bytes)
+    [
+      102 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 10 bytes /
+        63(<< / record, 2 item(s), 7 bytes /
+          53846(h'72c0') / causal version, event tree: (0, 0, 2) /
+          2
+        >>)
+      >>)
+    ]
+  frame 1 (15 bytes)
+    [
+      119 / Supply(End) /
+      63(<< / supply run, 1 record(s), 9 bytes /
+        63(<< / record, 2 item(s), 6 bytes /
+          53846(h'77') / causal version, event tree: (0, 0, 1) /
+          1
+        >>)
+      >>)
+    ]
+  frame 2 (3 bytes)
+    [
+      153 / End(Stream) /
+    ]

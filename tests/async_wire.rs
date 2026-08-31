@@ -6,8 +6,8 @@
 //!
 //! Wire gossip *is* the merge — there is no in-process join to compare
 //! against — so the oracle is the abstract union of the two pre-session
-//! readouts: sound because the peers tick disjoint parties, never mint
-//! the same version, and only ever redact messages they themselves minted
+//! readouts: sound because the peers tick disjoint parties, never create
+//! the same version, and only ever redact messages they themselves sent
 //! before the session.
 //!
 //! Both tests share the `Insert`/`Redact` action shape, so redactions cross

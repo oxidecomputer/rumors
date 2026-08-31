@@ -19,6 +19,7 @@
 //! from `FAN² × size_of::<(u8, Hash)>()`. These tests hold both shapes to
 //! that accounting.
 
+use crate::message::{PayloadCodec, PayloadDepthLimit};
 use std::mem;
 
 use futures::{TryStreamExt, stream};
@@ -55,7 +56,7 @@ const LEAVES: u64 = 512;
 /// heavier framing — fails the pin and forces the module doc's charged
 /// figure (and `streaming/message.rs`, which states it) to be
 /// re-derived rather than silently going stale.
-const DISPUTED_REPLY_TRANSIENT_CEILING: usize = 3_380_000;
+const DISPUTED_REPLY_TRANSIENT_CEILING: usize = 3_570_000;
 
 /// A parked decoded reply holds one pointer-sized node handle per supplied
 /// node — O(fan) handles independent of how many leaves streamed through
@@ -126,7 +127,7 @@ fn parked_supply_reply_holds_handles_not_subtrees() {
             unbounded(),
             scope,
             &mut frames,
-            Message::deserializer::<u64>(),
+            PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
         ))
         .expect("a canonical supplied fan decodes");
 
@@ -214,7 +215,7 @@ fn maximally_disputed_reply_parks_bounded_skeleton() {
             unbounded(),
             Scope::opening(&listing),
             &mut frames,
-            Message::deserializer::<u64>(),
+            PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
         ))
         .expect("a canonical maximally disputed reply decodes");
 

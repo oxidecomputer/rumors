@@ -42,7 +42,7 @@ use rumors::{Error, Gossiped, Led, Peer, Rumors, testing::run_to_quiescence};
 use tokio::io::AsyncWriteExt;
 use tokio::time::timeout;
 
-use crate::common::action::minted_version;
+use crate::common::action::created_version;
 use crate::common::fault::{FaultPlan, faulty};
 use crate::common::wire::{bootstrap_fork_async, tokio_block_on as block_on, wire_gossip_async};
 
@@ -98,8 +98,8 @@ async fn one_round(
 #[tokio::test(flavor = "current_thread")]
 async fn single_tick_reduces_to_gossip() {
     let (a, b) = pair().await;
-    a.send(1);
-    b.send(2);
+    a.send(1).unwrap();
+    b.send(2).unwrap();
 
     let (mut a_link, mut b_link) = links();
     let once = || stream::once(std::future::ready(()));
@@ -135,7 +135,7 @@ async fn pending_when_serves_remote_initiations() {
     let mut b_sessions = b.gossip_when(stream::pending::<()>(), &mut b_link);
 
     for round in 0..3u64 {
-        a.send(round);
+        a.send(round).unwrap();
         a_tx.unbounded_send(()).expect("driver alive");
         let (a_session, b_session) = one_round(&mut a_sessions, &mut b_sessions).await;
         assert_eq!(a_session.led, Led::Local, "round {round}: A initiated");
@@ -162,7 +162,7 @@ async fn suppression_swallows_echoes_not_news() {
 
     // Round 1: the initial `changes()` yield on both sides drives the
     // reconnect-convergence session (both led locally; one session total).
-    a.send(1);
+    a.send(1).unwrap();
     let (a_session, b_session) = one_round(&mut a_sessions, &mut b_sessions).await;
     assert_eq!(a.snapshot().hash(), b.snapshot().hash());
 
@@ -181,7 +181,7 @@ async fn suppression_swallows_echoes_not_news() {
 
     // But real news still initiates: a change on B drives exactly one more
     // session, B-led.
-    b.send(2);
+    b.send(2).unwrap();
     let (a_session, b_session) = one_round(&mut a_sessions, &mut b_sessions).await;
     assert_eq!(b_session.led, Led::Local, "B had the news");
     assert_eq!(a_session.led, Led::Remote, "A only served");
@@ -223,7 +223,7 @@ async fn heartbeat_ticks_are_free_until_divergence() {
     // interval stream never does): the next heartbeat tick fires a real
     // session. This recovery is what makes an interval policy a liveness
     // net for whatever a chosen `when` stream stays quiet about.
-    a.send(7);
+    a.send(7).unwrap();
     a_tx.unbounded_send(()).expect("driver alive");
     let (a_session, _) = one_round(&mut a_sessions, &mut b_sessions).await;
     assert_eq!(a_session.led, Led::Local);
@@ -242,7 +242,7 @@ async fn changes_propagate_transitively_through_a_chain() {
     let (mut ab_a_link, mut ab_b_link) = links();
     let (mut bc_b_link, mut bc_c_link) = links();
 
-    a.send(42);
+    a.send(42).unwrap();
 
     // Four drivers, every policy stream a real change signal. Consume
     // session items in the background of the convergence check: the
@@ -337,8 +337,8 @@ async fn a_redaction_frontier_propagates_transitively_through_a_chain() {
     // A sends and redacts between driver polls: the commit's only surviving
     // trace is A's advanced causal frontier.
     let pre = a.snapshot().latest().clone();
-    a.send(42);
-    a.redact(&minted_version(&a.snapshot(), &pre));
+    a.send(42).unwrap();
+    a.redact(&created_version(&a.snapshot(), &pre));
 
     // The A-side connection carries the news to B...
     let ab = futures::future::join(a_drv.next(), b_ab_drv.next());
@@ -409,8 +409,8 @@ async fn when_exhaustion_then_hangup_both_end_cleanly() {
 #[pollster::test]
 async fn dropping_a_driver_mid_session_commits_nothing() {
     let (a, b) = pair().await;
-    a.send(1);
-    b.send(2);
+    a.send(1).unwrap();
+    b.send(2).unwrap();
     let a_before = (a.snapshot().hash(), a.snapshot().latest().clone());
     let b_before = (b.snapshot().hash(), b.snapshot().latest().clone());
 
@@ -518,7 +518,7 @@ fn dropping_next_futures_loses_nothing() {
     let mut a_sessions = a.gossip_when(a_when, &mut a_link);
     let mut b_sessions = b.gossip_when(stream::pending::<()>(), &mut b_link);
 
-    a.send(1);
+    a.send(1).unwrap();
     a_tx.unbounded_send(()).expect("driver alive");
 
     // Every poll creates each driver's `next()` future afresh, polls it once,
@@ -557,7 +557,7 @@ async fn a_clean_end_leaves_the_connection_reusable() {
     let mut b_sessions = b.gossip_when(stream::pending::<()>(), &mut b_link);
 
     // Phase 1: a single-tick driver runs one session and ends cleanly.
-    a.send(1);
+    a.send(1).unwrap();
     {
         let once = stream::once(std::future::ready(()));
         let mut a_sessions = a.gossip_when(once, &mut a_link);
@@ -579,7 +579,7 @@ async fn a_clean_end_leaves_the_connection_reusable() {
     }
 
     // Phase 2: the same link hosts a one-shot `gossip`.
-    a.send(2);
+    a.send(2).unwrap();
     let (a_out, b_item) = timeout(
         DEADLINE,
         futures::future::join(a.gossip(&mut a_link), b_sessions.next()),
@@ -590,7 +590,7 @@ async fn a_clean_end_leaves_the_connection_reusable() {
     b_item.expect("B's driver running").expect("B's session");
 
     // Phase 3: and then a second driver.
-    a.send(3);
+    a.send(3).unwrap();
     {
         let once = stream::once(std::future::ready(()));
         let mut a_sessions = a.gossip_when(once, &mut a_link);
@@ -639,8 +639,8 @@ proptest! {
     ) {
         block_on(async {
             let (a, b) = pair().await;
-            a.send(1);
-            b.send(2);
+            a.send(1).unwrap();
+            b.send(2).unwrap();
 
             let (a_side, b_side) = rumors::link::memory_with_capacity(LINK_BUF);
             let a_link = faulty(a_side, FaultPlan {
@@ -775,11 +775,11 @@ proptest! {
                 for op in &script {
                     match op {
                         Op::SendA => {
-                            a.send(sent);
+                            a.send(sent).unwrap();
                             sent += 1;
                         }
                         Op::SendB => {
-                            b.send(1_000_000 + sent);
+                            b.send(1_000_000 + sent).unwrap();
                             sent += 1;
                         }
                         Op::TickA => a_tx.unbounded_send(()).expect("A driver holds its rx"),
@@ -848,8 +848,11 @@ async fn truncated_initiation_is_a_terminal_error() {
         .expect("error never surfaced")
         .expect("driver yielded its terminal item");
     match item {
-        Err(Error::Io(e)) => assert_eq!(e.kind(), std::io::ErrorKind::UnexpectedEof),
-        other => panic!("expected Io(UnexpectedEof), got {other:?}"),
+        Err(Error::PreambleTruncated { received, expected }) => {
+            assert_eq!(received, 4, "the four delivered bytes are counted");
+            assert_eq!(expected, 30, "the V2 dialect width is named");
+        }
+        other => panic!("expected PreambleTruncated, got {other:?}"),
     }
     assert!(
         timeout(DEADLINE, a_sessions.next())

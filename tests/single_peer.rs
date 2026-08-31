@@ -2,8 +2,8 @@
 //!
 //! Exercises the surface area of [`Batch`](rumors::Batch) commits:
 //! live-leaf fan-out, distinctness of the [`Version`](rumors::Version)s
-//! minted within a batch, and strict monotonicity of the local party's
-//! component of each minted version.
+//! created within a batch, and strict monotonicity of the local party's
+//! component of each created version.
 
 mod common;
 
@@ -13,20 +13,19 @@ use proptest::collection::vec;
 use proptest::prelude::*;
 use rumors::{Peer, Rumors, Version, causally};
 
-use crate::common::wire::block_on;
-
 use serde::Serialize;
 use serde::Serializer;
 /// Commit `values` to `peer` as one batch, returning the [`Version`]s it
-/// minted (recovered as the live leaves above the pre-commit frontier).
+/// created (recovered as the live leaves above the pre-commit frontier).
 fn batch_send(peer: &Rumors<u64>, values: &[u64]) -> Vec<Version> {
     let pre = peer.snapshot().latest().clone();
-    {
-        let mut batch = peer.batch();
+    peer.batch(|batch| {
         for v in values {
-            batch.send(*v);
+            batch.send(*v)?;
         }
-    }
+        Ok::<(), rumors::EncodeError>(())
+    })
+    .expect("flat test payloads are within any depth limit");
     peer.snapshot()
         .range(causally::since(&pre))
         .map(|(v, _)| v.clone())
@@ -37,40 +36,40 @@ proptest! {
     /// Every value committed in a batch becomes exactly one live leaf:
     /// no duplicates, no omissions.
     #[test]
-    fn batch_mints_once_per_value(values in vec(any::<u64>(), 0..=32)) {
+    fn batch_commits_one_leaf_per_value(values in vec(any::<u64>(), 0..=32)) {
         let peer = Peer::<u64>::seed().sync_window_floor().into_rumors();
-        let minted = batch_send(&peer, &values);
-        prop_assert_eq!(minted.len(), values.len());
+        let created = batch_send(&peer, &values);
+        prop_assert_eq!(created.len(), values.len());
         prop_assert_eq!(peer.snapshot().len(), values.len());
     }
 
-    /// All `Version`s minted within a single batch are distinct, even
+    /// All `Version`s created within a single batch are distinct, even
     /// when several values in the batch are equal.
     #[test]
     fn distinct_versions_per_batch(values in vec(any::<u64>(), 1..=32)) {
         let peer = Peer::<u64>::seed().sync_window_floor().into_rumors();
-        let minted = batch_send(&peer, &values);
-        prop_assert_eq!(minted.len(), values.len());
+        let created = batch_send(&peer, &values);
+        prop_assert_eq!(created.len(), values.len());
         let unique: BTreeSet<_> =
-            minted.iter().map(|v| v.as_bytes().to_vec()).collect();
+            created.iter().map(|v| v.as_bytes().to_vec()).collect();
         prop_assert_eq!(unique.len(), values.len(), "versions must be distinct");
     }
 
     /// The same value inserted `n` times in one batch still yields `n`
-    /// distinct leaves — each send mints a fresh `Version`, so content
+    /// distinct leaves — each send creates a fresh `Version`, so content
     /// equality does not collapse messages.
     #[test]
     fn duplicate_values_get_distinct_versions(n in 1usize..=16, value in any::<u64>()) {
         let peer = Peer::<u64>::seed().sync_window_floor().into_rumors();
         let values: Vec<u64> = std::iter::repeat_n(value, n).collect();
-        let minted = batch_send(&peer, &values);
-        prop_assert_eq!(minted.len(), n);
+        let created = batch_send(&peer, &values);
+        prop_assert_eq!(created.len(), n);
         let unique: BTreeSet<_> =
-            minted.iter().map(|v| v.as_bytes().to_vec()).collect();
+            created.iter().map(|v| v.as_bytes().to_vec()).collect();
         prop_assert_eq!(unique.len(), n);
     }
 
-    /// Every `Version` minted by a lone peer is totally ordered against
+    /// Every `Version` created by a lone peer is totally ordered against
     /// every other — both within a single batch (the batch docs promise
     /// strictly increasing versions per action) and across successive
     /// batches.
@@ -83,16 +82,16 @@ proptest! {
     ) {
         let peer = Peer::<u64>::seed().sync_window_floor().into_rumors();
 
-        // Versions in commit order: per batch, the minted versions sorted
+        // Versions in commit order: per batch, the created versions sorted
         // into their (total) causal order; batches concatenated in commit
         // order. Each batch's recovery is scoped by the pre-commit frontier.
         let mut versions: Vec<Version> = Vec::new();
         for batch in &batches {
-            let mut minted: Vec<Version> = batch_send(&peer, batch);
-            minted.sort_by(|a, b| {
+            let mut created: Vec<Version> = batch_send(&peer, batch);
+            created.sort_by(|a, b| {
                 a.partial_cmp(b).expect("a lone peer's versions are totally ordered")
             });
-            versions.extend(minted);
+            versions.extend(created);
         }
 
         // Strict precedence on causal versions is transitive, so
@@ -149,7 +148,7 @@ proptest! {
 /// A value whose serialization fails on demand, so a test can fire
 /// [`rumors::Batch::send`]'s documented serialization panic at a chosen
 /// point mid-batch.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 struct Explosive {
     value: u64,
     fail: bool,
@@ -164,7 +163,7 @@ impl Serialize for Explosive {
     }
 }
 
-// Peer construction mints the payload deserializer up front, so even this
+// Peer construction builds the payload deserializer up front, so even this
 // send-only payload type states how its wire form reads back.
 impl<'de> serde::Deserialize<'de> for Explosive {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
@@ -175,80 +174,152 @@ impl<'de> serde::Deserialize<'de> for Explosive {
     }
 }
 
-/// A batch interrupted by a panic between its sends commits nothing.
+/// A batch whose closure panics commits nothing, earlier-queued sends
+/// included.
 ///
-/// [`Batch`](rumors::Batch) documents that a batch dropped by a panic's
-/// unwind commits nothing: the caller never finished building it, so
-/// nothing it holds may publish.
+/// [`Rumors::batch`](rumors::Rumors::batch) commits iff the closure
+/// returns `Ok`; a panic's unwind exits the closure without returning, so
+/// the commit call never runs and nothing publishes — structurally, with
+/// no unwind detection anywhere.
 ///
 /// `Batch::send` panics when a value fails to serialize (its documented
-/// panic), and the unwind drops the half-built batch. `Batch`'s `Drop`
-/// consults `std::thread::panicking()` and commits nothing during an
-/// unwind, so the prefix queued before the panic never publishes; this
-/// test pins that guard.
+/// panic contract), which is this test's panic source: the first send is
+/// queued, the second detonates.
 #[test]
 fn a_panicked_batch_commits_nothing() {
     let rumors: Rumors<Explosive> = Peer::seed().sync_window_floor().into_rumors();
     let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let mut batch = rumors.batch();
-        batch.send(Explosive {
-            value: 1,
-            fail: false,
-        });
-        // The documented serialization panic fires here, after the first
-        // send is queued; the unwind drops the half-built batch.
-        batch.send(Explosive {
-            value: 2,
-            fail: true,
-        });
+        rumors.batch(|batch| {
+            batch.send(Explosive {
+                value: 1,
+                fail: false,
+            })?;
+            // The documented serialization panic fires here, after the
+            // first send is queued; the unwind exits the closure.
+            batch.send(Explosive {
+                value: 2,
+                fail: true,
+            })?;
+            Ok::<(), rumors::EncodeError>(())
+        })
     }));
     assert!(unwound.is_err(), "the second send must panic");
     assert_eq!(
         rumors.snapshot().len(),
         0,
-        "a batch interrupted by a panic must commit nothing: an unwound \
-         batch aborts"
+        "a batch whose closure panicked must commit nothing"
     );
 }
 
-/// Pins the drop semantics [`Batch`](rumors::Batch) documents for async
-/// cancellation: a batch dropped mid-await commits its queued prefix.
-///
-/// Dropping the future holding a batch across an await runs no unwind, so
-/// the drop is indistinguishable from an ordinary end-of-statement commit
-/// and publishes the prefix queued before the cancellation point. This is
-/// the documented hazard behind the rule that a batch must not be held
-/// across an `.await` in a cancellable task: a batch is a performance
-/// optimization, and all-or-nothing delivery bundles into one
-/// application-level message instead.
+/// A batch commits nothing until — and everything once — the closure
+/// returns `Ok`: mid-closure the set is untouched (queueing publishes
+/// nothing), and the `Ok` return lands sends and redactions together,
+/// all-or-nothing.
 #[test]
-fn a_cancelled_batch_commits_its_prefix() {
+fn a_batch_commits_iff_the_closure_returns_ok() {
     let rumors: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
-    // The select needs no runtime facilities, so the closed-future driver
-    // suffices: the whole select completes on its first poll.
-    block_on(async {
-        let work = async {
-            let mut batch = rumors.batch();
-            batch.send(1);
-            // The cancellation point: parked mid-build, holding the batch.
-            std::future::pending::<()>().await;
-            batch.send(2);
-        };
-        // A biased select polls `work` first (queuing the prefix, then
-        // parking) and completes on the ready branch, dropping `work` (and
-        // the batch it holds) mid-await.
-        tokio::select! {
-            biased;
-            _ = work => unreachable!("the parked future never completes"),
-            _ = std::future::ready(()) => {}
-        }
-    });
+    rumors.send(7).unwrap();
+    let doomed = rumors
+        .snapshot()
+        .iter()
+        .map(|(v, _)| v.clone())
+        .next()
+        .expect("the pre-batch send is live");
 
-    // The documented behavior, exactly: the prefix committed as a batch
-    // of one; the send queued after the cancellation point never ran.
+    rumors
+        .batch(|batch| {
+            batch.send(1)?;
+            batch.send(2)?;
+            batch.redact(&doomed);
+            // Nothing queued is visible while the closure runs: the batch
+            // publishes only at its commit.
+            assert_eq!(rumors.snapshot().len(), 1, "queueing publishes nothing");
+            Ok::<(), rumors::EncodeError>(())
+        })
+        .expect("flat payloads are within any depth limit");
+
+    let live: Vec<u64> = rumors.snapshot().iter().map(|(_, m)| *m).collect();
+    assert_eq!(live.len(), 2, "the sends landed and the redaction took");
+    assert!(live.contains(&1) && live.contains(&2));
+}
+
+/// A depth-rejected send, `?`-propagated out of the closure, cancels
+/// the whole batch: earlier-queued actions included — the
+/// cancel-on-error pin.
+///
+/// The typed error carries the configured limit, and the tree is
+/// untouched.
+#[test]
+fn a_depth_error_cancels_the_whole_batch() {
+    /// Pure CBOR array nesting from a type satisfying the payload
+    /// contract: each layer is a one-element array, the innermost empty.
+    #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    struct Arr(Vec<Arr>);
+    let limit = rumors::PayloadDepthLimit::new(4);
+    let rumors: Rumors<Arr> = Peer::seed()
+        .payload_depth_limit(limit)
+        .sync_window_floor()
+        .into_rumors();
+    let deep = (1..5).fold(Arr(vec![]), |a, _| Arr(vec![a]));
+
+    let error = rumors
+        .batch(|batch| {
+            batch.send(Arr(vec![]))?;
+            batch.send(deep.clone())?;
+            Ok::<(), rumors::EncodeError>(())
+        })
+        .expect_err("the second send exceeds the limit");
+    assert!(
+        matches!(error, rumors::EncodeError::Depth { limit: l } if l == limit),
+        "the rejection is the typed depth case naming the limit: {error:?}"
+    );
     assert_eq!(
         rumors.snapshot().len(),
-        1,
-        "cancellation drop-commits the prefix queued before the await"
+        0,
+        "a cancelled batch commits nothing, earlier-queued sends included"
     );
+}
+
+/// A user `Err` return cancels the batch — the deliberate abort
+/// affordance — and comes back verbatim.
+#[test]
+fn a_user_error_cancels_the_batch() {
+    let rumors: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+    let error = rumors
+        .batch(|batch| {
+            batch.send(1).unwrap();
+            batch.send(2).unwrap();
+            Err::<(), &str>("changed my mind")
+        })
+        .expect_err("the closure aborts deliberately");
+    assert_eq!(error, "changed my mind");
+    assert_eq!(
+        rumors.snapshot().len(),
+        0,
+        "an aborted batch commits nothing"
+    );
+}
+
+/// Batches nest: the closure may use the same handle, and the nested
+/// operations commit first, the outer batch after, as separate commits
+/// (inner-before-outer).
+#[test]
+fn nested_batches_commit_inner_before_outer() {
+    let rumors: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+    rumors
+        .batch(|batch| {
+            batch.send(1)?;
+            // Re-entrant single send and nested batch, both on the same
+            // handle: each commits immediately, before the outer batch.
+            rumors.send(2)?;
+            rumors.batch(|inner| inner.send(3))?;
+            let mid: Vec<u64> = rumors.snapshot().iter().map(|(_, m)| *m).collect();
+            assert!(
+                mid.contains(&2) && mid.contains(&3) && !mid.contains(&1),
+                "inner commits land before the outer batch: {mid:?}"
+            );
+            Ok::<(), rumors::EncodeError>(())
+        })
+        .expect("flat payloads are within any depth limit");
+    assert_eq!(rumors.snapshot().len(), 3, "the outer batch lands last");
 }

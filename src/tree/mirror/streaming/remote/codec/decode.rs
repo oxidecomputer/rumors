@@ -1,13 +1,9 @@
 //! Self-delimiting frame decoding.
 
 #[cfg(test)]
-use std::slice;
-
-#[cfg(test)]
 use std::io::{ErrorKind, Read};
 
-use crate::tree::mirror::framing::LENGTH_HEADER_LEN;
-use crate::tree::typed::{Hash, hash::MERKLE_HASH_LEN};
+use crate::tree::mirror::cbor::{self, HeadReadError, MAJOR_ARRAY, MAJOR_UINT};
 
 mod async_io;
 
@@ -16,15 +12,14 @@ pub use async_io::FrameRead;
 #[cfg(test)]
 use super::budget::RunBudget;
 #[cfg(test)]
+use super::frame::{Frame, LeafRun, Reaction, WireFrame};
 use super::{
-    error::FramePart,
-    frame::{Frame, LeafRun, QUERY_COUNT_BIAS, Reaction, WireFrame},
-};
-use super::{
-    error::{DecodeError, DecodeErrorKind},
-    frame::{QUERY_CHILD_LEN, validate_children},
+    error::{DecodeError, DecodeErrorKind, FramePart},
+    frame::ListingIssue,
     signal::{Signal, Speaker, Stream, WireSignal},
 };
+#[cfg(test)]
+use crate::tree::typed::{Hash, hash::MERKLE_HASH_LEN};
 
 /// Decode one frame from `read`, leaving subsequent bytes untouched.
 #[cfg(test)]
@@ -76,18 +71,44 @@ impl<'a, R: Read> FrameDecoder<'a, R> {
     }
 
     fn decode(mut self) -> Result<WireFrame, DecodeError> {
+        let arity = self
+            .arity()
+            .map_err(|kind| DecodeError::direction(self.speaker, kind))?;
         let (stream, signal) = self.signal()?;
-        let frame = self
-            .body(signal)
+        let frame = check_arity(signal, arity)
+            .and_then(|()| self.body(signal))
             .map_err(|kind| DecodeError::stream(self.speaker, stream, kind))?;
         Ok((stream, frame))
     }
 
+    /// Read the frame's array head; this oracle treats a clean close as a
+    /// truncation, since its callers always expect a frame.
+    fn arity(&mut self) -> Result<u64, DecodeErrorKind> {
+        let head = cbor::read_head_io(self.read)
+            .map_err(|e| head_error(FramePart::FrameHead, e))?
+            .ok_or_else(|| {
+                head_error(
+                    FramePart::FrameHead,
+                    HeadReadError::Io(ErrorKind::UnexpectedEof.into()),
+                )
+            })?;
+        frame_arity(head)
+    }
+
     fn signal(&mut self) -> Result<(Stream, Signal), DecodeError> {
-        let byte = self
-            .byte(FramePart::Signal)
+        let head = cbor::read_head_io(self.read)
+            .map_err(|e| head_error(FramePart::Signal, e))
+            .and_then(|head| {
+                head.ok_or_else(|| {
+                    head_error(
+                        FramePart::Signal,
+                        HeadReadError::Io(ErrorKind::UnexpectedEof.into()),
+                    )
+                })
+            })
             .map_err(|kind| DecodeError::direction(self.speaker, kind))?;
-        decode_signal(self.speaker, byte)
+        let code = signal_code(head).map_err(|kind| DecodeError::direction(self.speaker, kind))?;
+        decode_signal(self.speaker, code)
     }
 
     fn body(&mut self, signal: Signal) -> Result<Frame, DecodeErrorKind> {
@@ -102,41 +123,50 @@ impl<'a, R: Read> FrameDecoder<'a, R> {
     }
 
     fn query(&mut self) -> Result<Vec<(u8, Hash)>, DecodeErrorKind> {
-        let count = usize::from(self.byte(FramePart::QueryCount)?) + QUERY_COUNT_BIAS;
-        // One bulk read for the whole listing rather than one call per child.
-        let mut listing = vec![0; count * QUERY_CHILD_LEN];
-        self.read_exact(&mut listing, FramePart::QueryChildren)?;
-
-        parse_query(&listing)
+        let head = self.head(FramePart::QueryChildren)?;
+        let mut listing = query_listing(head)?;
+        let count = head.value;
+        for _ in 0..count {
+            let key = self.head(FramePart::QueryChildren)?;
+            let radix = listing.key(key).map_err(listing_issue)?;
+            let value = self.head(FramePart::QueryChildren)?;
+            super::frame::ListingBuilder::value_head(value).map_err(listing_issue)?;
+            let mut digest = [0; MERKLE_HASH_LEN];
+            self.read_exact(&mut digest, FramePart::QueryChildren)?;
+            listing.entry(radix, digest);
+        }
+        Ok(listing.finish())
     }
 
     fn supply(&mut self) -> Result<LeafRun, DecodeErrorKind> {
-        let mut header = [0; LENGTH_HEADER_LEN];
-        self.read_exact(&mut header, FramePart::SupplyLength)?;
-        let len = u32::from_be_bytes(header) as usize;
+        let tag = self.head(FramePart::SupplyLength)?;
+        let body = self.head(FramePart::SupplyLength)?;
+        let len = run_head(tag, body)?;
         // The run-budget ingress check, mirroring the async reader's exactly
         // (see `AsyncFrameDecoder::supply` for the memory argument this
         // oracle does not need): an over-budget frame is legal only as one
         // lone record spanning the whole body, decided from the first
-        // record's length header alone.
+        // record's heads alone.
         if !self.budget.covers(len) {
             let budget = self.budget;
             let overbatched = move || DecodeErrorKind::OverbatchedRun {
                 declared: super::budget::SUPPLY_FRAME_OVERHEAD.saturating_add(len),
                 budget: budget.bytes(),
             };
-            if len < LENGTH_HEADER_LEN {
+            // A body too short to hold a record's heads cannot be a lone
+            // record: rejected on the declared length alone.
+            if len < super::frame::RECORD_TAG_LEN + 1 {
                 return Err(overbatched());
             }
-            let mut first = [0; LENGTH_HEADER_LEN];
-            self.read_exact(&mut first, FramePart::SupplyRun)?;
-            let record = u32::from_be_bytes(first) as usize;
-            if !lone_record_spans(len, record) {
+            let Some((prefix, record)) = self.record_prefix()? else {
+                return Err(overbatched());
+            };
+            if !super::frame::lone_record_spans(len, record) {
                 return Err(overbatched());
             }
             let mut run = vec![0; len];
-            run[..LENGTH_HEADER_LEN].copy_from_slice(&first);
-            self.read_exact(&mut run[LENGTH_HEADER_LEN..], FramePart::SupplyRun)?;
+            run[..prefix.len()].copy_from_slice(&prefix);
+            self.read_exact(&mut run[prefix.len()..], FramePart::SupplyRun)?;
             return Ok(LeafRun::from_encoded(run)?);
         }
         // This oracle deliberately reads the whole declared body at once so
@@ -149,10 +179,29 @@ impl<'a, R: Read> FrameDecoder<'a, R> {
         Ok(LeafRun::from_encoded(run)?)
     }
 
-    fn byte(&mut self, part: FramePart) -> Result<u8, DecodeErrorKind> {
-        let mut byte = 0;
-        self.read_exact(slice::from_mut(&mut byte), part)?;
-        Ok(byte)
+    /// Read the first record's heads inside an over-budget run, returning
+    /// the exact bytes consumed and the record content length; `None` when
+    /// they are not a record's heads (over budget, the distinction from
+    /// malformed is moot).
+    fn record_prefix(&mut self) -> Result<Option<(Vec<u8>, u64)>, DecodeErrorKind> {
+        let mut prefix = Vec::new();
+        let tag = self.head(FramePart::SupplyRun)?;
+        cbor::write_head(&mut prefix, tag.major, tag.value);
+        if tag.major != cbor::MAJOR_TAG || tag.value != cbor::TAG_CBOR_SEQUENCE {
+            return Ok(None);
+        }
+        let body = self.head(FramePart::SupplyRun)?;
+        cbor::write_head(&mut prefix, body.major, body.value);
+        if body.major != cbor::MAJOR_BSTR {
+            return Ok(None);
+        }
+        Ok(Some((prefix, body.value)))
+    }
+
+    fn head(&mut self, part: FramePart) -> Result<cbor::Head, DecodeErrorKind> {
+        cbor::read_head_io(self.read)
+            .map_err(|e| head_error(part, e))?
+            .ok_or_else(|| head_error(part, HeadReadError::Io(ErrorKind::UnexpectedEof.into())))
     }
 
     fn read_exact(&mut self, bytes: &mut [u8], part: FramePart) -> Result<(), DecodeErrorKind> {
@@ -168,39 +217,145 @@ impl<'a, R: Read> FrameDecoder<'a, R> {
     }
 }
 
-/// Whether a run body of `len` bytes is exactly one record: the first
-/// record's header plus the record it declares span the body.
-///
-/// The lone-record test of the run-budget ingress check, shared by the
-/// async reader and the sync oracle so the two decoders draw the
-/// over-budget legality boundary identically. A body this predicate
-/// rejects may also be structurally malformed; over budget, that
-/// distinction is moot — either way the frame is not the one legal
-/// overhang — so the check does not refine it further.
-fn lone_record_spans(len: usize, first_record_len: usize) -> bool {
-    LENGTH_HEADER_LEN.saturating_add(first_record_len) == len
+/// Validate a frame's array head: a definite array of one or two items.
+pub(super) fn frame_arity(head: cbor::Head) -> Result<u64, DecodeErrorKind> {
+    if head.major != MAJOR_ARRAY {
+        return Err(DecodeErrorKind::FrameShape {
+            detail: "frame item is not an array",
+        });
+    }
+    if !(1..=2).contains(&head.value) {
+        return Err(DecodeErrorKind::FrameShape {
+            detail: "frame array is not one or two items",
+        });
+    }
+    Ok(head.value)
 }
 
-fn decode_signal(speaker: Speaker, byte: u8) -> Result<(Stream, Signal), DecodeError> {
-    let wire = WireSignal::from_byte(speaker, byte)
+/// Validate a signal head: an unsigned int within the dense code space's
+/// byte range. Codes above the dense space but within the byte range keep
+/// their reserved-value taxonomy downstream.
+pub(super) fn signal_code(head: cbor::Head) -> Result<u8, DecodeErrorKind> {
+    if head.major != MAJOR_UINT {
+        return Err(DecodeErrorKind::Malformed {
+            part: FramePart::Signal,
+            detail: "signal is not an unsigned int",
+        });
+    }
+    u8::try_from(head.value).map_err(|_| DecodeErrorKind::Malformed {
+        part: FramePart::Signal,
+        detail: "signal is outside the dense code space",
+    })
+}
+
+/// Enforce the frame array's length against its signal's body arity.
+pub(super) fn check_arity(signal: Signal, arity: u64) -> Result<(), DecodeErrorKind> {
+    let expected = match signal {
+        Signal::Match(_) | Signal::QueryEmpty(_) | Signal::End(_) => 1,
+        Signal::Query(_) | Signal::Supply(_) => 2,
+    };
+    if arity != expected {
+        return Err(DecodeErrorKind::FrameArity {
+            expected,
+            found: arity,
+        });
+    }
+    Ok(())
+}
+
+/// Open a query body: its head must be a nonempty listing map (an empty
+/// query travels as its own signal), within the radix space.
+pub(super) fn query_listing(
+    head: cbor::Head,
+) -> Result<super::frame::ListingBuilder, DecodeErrorKind> {
+    if head.major != cbor::MAJOR_MAP {
+        return Err(DecodeErrorKind::Malformed {
+            part: FramePart::QueryChildren,
+            detail: "query body is not a listing map",
+        });
+    }
+    if head.value == 0 {
+        return Err(DecodeErrorKind::Malformed {
+            part: FramePart::QueryChildren,
+            detail: "a nonempty query's listing is empty",
+        });
+    }
+    super::frame::ListingBuilder::new(head.value).map_err(listing_issue)
+}
+
+/// Open a supply body: the run's embedded-sequence tag and byte-string
+/// head, held to the wire's run byte cap.
+pub(super) fn run_head(tag: cbor::Head, body: cbor::Head) -> Result<usize, DecodeErrorKind> {
+    if tag.major != cbor::MAJOR_TAG || tag.value != cbor::TAG_CBOR_SEQUENCE {
+        return Err(DecodeErrorKind::Malformed {
+            part: FramePart::SupplyLength,
+            detail: "supply body does not open with the embedded-sequence tag",
+        });
+    }
+    if body.major != cbor::MAJOR_BSTR {
+        return Err(DecodeErrorKind::Malformed {
+            part: FramePart::SupplyLength,
+            detail: "supply tag does not wrap a byte string",
+        });
+    }
+    u32::try_from(body.value)
+        .map(|len| len as usize)
+        .map_err(|_| DecodeErrorKind::Malformed {
+            part: FramePart::SupplyLength,
+            detail: "supply run exceeds the run byte cap",
+        })
+}
+
+/// Type a listing-map violation into the frame error taxonomy.
+pub(super) fn listing_issue(issue: ListingIssue) -> DecodeErrorKind {
+    match issue {
+        ListingIssue::Order(order) => DecodeErrorKind::QueryOutOfOrder(order),
+        ListingIssue::Head(_) => DecodeErrorKind::Malformed {
+            part: FramePart::QueryChildren,
+            detail: "listing head is not canonical",
+        },
+        ListingIssue::Shape(detail) => DecodeErrorKind::Malformed {
+            part: FramePart::QueryChildren,
+            detail,
+        },
+        ListingIssue::Truncated => DecodeErrorKind::Malformed {
+            part: FramePart::QueryChildren,
+            detail: "listing hash bytes are truncated",
+        },
+    }
+}
+
+/// Type a head-read failure by the frame part it interrupted.
+pub(super) fn head_error(part: FramePart, error: HeadReadError) -> DecodeErrorKind {
+    match error {
+        HeadReadError::Io(source) => match source.kind() {
+            std::io::ErrorKind::UnexpectedEof => DecodeErrorKind::Truncated {
+                missing: part,
+                source,
+            },
+            _ => DecodeErrorKind::Read { part, source },
+        },
+        HeadReadError::Malformed(head) => DecodeErrorKind::Malformed {
+            part,
+            detail: head_detail(head),
+        },
+    }
+}
+
+/// Name a deterministic-contract violation for the error taxonomy.
+fn head_detail(error: cbor::HeadError) -> &'static str {
+    match error {
+        cbor::HeadError::Truncated => "truncated head",
+        cbor::HeadError::Indefinite => "indefinite-length head",
+        cbor::HeadError::Reserved => "reserved head",
+        cbor::HeadError::NotShortest => "head not in shortest form",
+    }
+}
+
+pub(super) fn decode_signal(speaker: Speaker, code: u8) -> Result<(Stream, Signal), DecodeError> {
+    let wire = WireSignal::from_byte(speaker, code)
         .map_err(|invalid| DecodeError::stream(speaker, invalid.stream(), invalid.into()))?;
     Ok(wire.into_parts())
-}
-
-/// `pub(super)` for the capture renderer, which decodes captured query
-/// children through the same canonical path (order validation included).
-pub(super) fn parse_query(listing: &[u8]) -> Result<Vec<(u8, Hash)>, DecodeErrorKind> {
-    let mut children = Vec::with_capacity(listing.len() / QUERY_CHILD_LEN);
-    for record in listing.chunks_exact(QUERY_CHILD_LEN) {
-        let (&radix, encoded_hash) = record
-            .split_first()
-            .expect("a query child record contains its radix");
-        let mut hash = [0; MERKLE_HASH_LEN];
-        hash.copy_from_slice(encoded_hash);
-        children.push((radix, Hash(hash)));
-    }
-    validate_children(&children)?;
-    Ok(children)
 }
 
 #[cfg(test)]

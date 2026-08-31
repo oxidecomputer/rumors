@@ -224,7 +224,7 @@ impl AsyncRead for TracedReader {
     }
 }
 
-/// The traced delayed-pipe connector: labels each minted pipe in open order.
+/// The traced delayed-pipe connector: labels each opened pipe in open order.
 #[derive(Clone)]
 struct TracedConnector {
     announce: mpsc::Sender<TracedReader>,
@@ -329,7 +329,7 @@ fn traced_pair(trace: &Trace) -> (TracedLink, TracedLink) {
 /// Gossip one pair over a traced delayed link and return the trace.
 fn traced_session<T>(a: Rumors<T>, b: Rumors<T>) -> Trace
 where
-    T: Serialize + DeserializeOwned + Send + Sync + 'static,
+    T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
     let trace = Trace::default();
     let (mut a_link, mut b_link) = traced_pair(&trace);
@@ -472,17 +472,25 @@ fn diverged_redactions() -> (Rumors<u64>, Rumors<u64>) {
 }
 
 fn send_random(rumors: &Rumors<u64>, count: usize, rng: &mut SmallRng) {
-    let mut batch = rumors.batch();
-    for _ in 0..count {
-        batch.send(rng.next_u64());
-    }
+    rumors
+        .batch(|batch| {
+            for _ in 0..count {
+                batch.send(rng.next_u64())?;
+            }
+            Ok::<(), rumors::EncodeError>(())
+        })
+        .expect("flat test payloads are within any depth limit");
 }
 
 fn redact_all(rumors: &Rumors<u64>, versions: &[Version]) {
-    let mut batch = rumors.batch();
-    for version in versions {
-        batch.redact(version);
-    }
+    rumors
+        .batch(|batch| {
+            for version in versions {
+                batch.redact(version);
+            }
+            Ok::<(), rumors::EncodeError>(())
+        })
+        .expect("flat test payloads are within any depth limit");
 }
 
 fn bootstrap_fork(parent: &Rumors<u64>) -> Rumors<u64> {
@@ -534,11 +542,11 @@ fn trace_redaction_session() {
 /// first byte while its ballast counterpart's three land under other root
 /// radices, so no root child is populated on both sides and the session is
 /// pure transfer in both directions. A leaf's path is the BLAKE3 hash of
-/// its version's canonical bytes, so the shape is a property of the minted
+/// its version's canonical bytes, so the shape is a property of the created
 /// version sequence; the self-checks below verify it.
 fn transfer_pair() -> (Rumors<u64>, Rumors<u64>) {
     // Stage by pool search: paths are version-derived, so the shape is a
-    // deterministic function of the seeded universe and send order — mint
+    // deterministic function of the seeded universe and send order — send
     // a pool, pick the versions whose paths land the shape, redact the
     // rest. The left peer keeps exactly two leaves sharing a root radix;
     // the right keeps three ballast leaves outside it and advertises the
@@ -551,10 +559,14 @@ fn transfer_pair() -> (Rumors<u64>, Rumors<u64>) {
             .filter(|(_, m)| !keep.contains(m))
             .map(|(v, _)| v.clone())
             .collect();
-        let mut batch = rumors.batch();
-        for version in &losers {
-            batch.redact(version);
-        }
+        rumors
+            .batch(|batch| {
+                for version in &losers {
+                    batch.redact(version);
+                }
+                Ok::<(), rumors::EncodeError>(())
+            })
+            .expect("flat test payloads are within any depth limit");
     };
 
     let left = Peer::seed_rng(&mut SmallRng::seed_from_u64(0))
@@ -562,10 +574,13 @@ fn transfer_pair() -> (Rumors<u64>, Rumors<u64>) {
         .into_rumors();
     let right = bootstrap_fork(&left);
     {
-        let mut batch = left.batch();
-        for value in 0..64u64 {
-            batch.send(value);
-        }
+        left.batch(|batch| {
+            for value in 0..64u64 {
+                batch.send(value)?;
+            }
+            Ok::<(), rumors::EncodeError>(())
+        })
+        .expect("flat test payloads are within any depth limit");
     }
     let mut pool: Vec<(u64, u8)> = left
         .snapshot()
@@ -587,10 +602,14 @@ fn transfer_pair() -> (Rumors<u64>, Rumors<u64>) {
         .find_map(|&(value, radix)| (value == first).then_some(radix))
         .expect("the kept pair is in the pool");
     {
-        let mut batch = right.batch();
-        for value in 10_000..10_016u64 {
-            batch.send(value);
-        }
+        right
+            .batch(|batch| {
+                for value in 10_000..10_016u64 {
+                    batch.send(value)?;
+                }
+                Ok::<(), rumors::EncodeError>(())
+            })
+            .expect("flat test payloads are within any depth limit");
     }
     let ballast: Vec<u64> = right
         .snapshot()

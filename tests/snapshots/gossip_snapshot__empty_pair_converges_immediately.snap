@@ -3,39 +3,55 @@ source: tests/gossip_snapshot.rs
 expression: "capture_gossip(a, b)"
 ---
 direction A -> B
-preamble: 25 bytes
-  0000: 52 55 4d 4f 52 53 00 02
-  0008: 8c 18 96 68 c9 e4 83 72
-  0010: 37 bf 31 e0 2d 7f 6b 70
-  0018: 00
-version: 0
-greeting words: set len 0, version-size bound 0, message-size target 1638912
-version frame: 29 bytes
-  0000: 00 00 00 19 00 00 00 00
-  0008: 00 00 00 00 00 00 00 00
-  0010: 00 00 00 00 00 02 19 00
-  0018: 00 00 00 00 e0
-listing: 0 child(ren)
-listing frame: 4 bytes
-  0000: 00 00 00 00
-trailing frame: 1 bytes
-  0000: 2e
+control item 0 (30 bytes) / preamble /
+  55799( / self-described CBOR /
+    [
+      "rumors"
+      2
+      h'8c189668c9e4837237bf31e02d7f6b70'
+      0
+    ]
+  )
+control item 1 (103 bytes) / greeting /
+  24(<< / embedded item, 99 bytes /
+    {
+      "listing" =>
+        { / listing: 0 child(ren) /
+        }
+      "set_len" => 0
+      "version" =>
+        53846(h'e0') / causal version, event tree: 0 /
+      "max_version_bytes" => 0
+      "payload_depth_limit" => 256
+      "target_message_size" => 1830400
+    }
+  >>)
+control item 2 (2 bytes) / epilogue /
+  "."
 
 direction B -> A
-preamble: 25 bytes
-  0000: 52 55 4d 4f 52 53 00 02
-  0008: 8c 18 96 68 c9 e4 83 72
-  0010: 37 bf 31 e0 2d 7f 6b 70
-  0018: 00
-version: 0
-greeting words: set len 0, version-size bound 0, message-size target 1638912
-version frame: 29 bytes
-  0000: 00 00 00 19 00 00 00 00
-  0008: 00 00 00 00 00 00 00 00
-  0010: 00 00 00 00 00 02 19 00
-  0018: 00 00 00 00 e0
-listing: 0 child(ren)
-listing frame: 4 bytes
-  0000: 00 00 00 00
-trailing frame: 1 bytes
-  0000: 2e
+control item 0 (30 bytes) / preamble /
+  55799( / self-described CBOR /
+    [
+      "rumors"
+      2
+      h'8c189668c9e4837237bf31e02d7f6b70'
+      0
+    ]
+  )
+control item 1 (103 bytes) / greeting /
+  24(<< / embedded item, 99 bytes /
+    {
+      "listing" =>
+        { / listing: 0 child(ren) /
+        }
+      "set_len" => 0
+      "version" =>
+        53846(h'e0') / causal version, event tree: 0 /
+      "max_version_bytes" => 0
+      "payload_depth_limit" => 256
+      "target_message_size" => 1830400
+    }
+  >>)
+control item 2 (2 bytes) / epilogue /
+  "."

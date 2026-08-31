@@ -93,7 +93,7 @@ impl<C> Drop for Registration<C> {
     }
 }
 
-/// Register a fresh outbound link: mint an unclaimed token and claim
+/// Register a fresh outbound link: draw an unclaimed token and claim
 /// it.
 ///
 /// Collisions are astronomically unlikely at the token's width; the
@@ -251,7 +251,7 @@ async fn deliver<D: Dial>(
                 let mut entries = entries(table);
                 if entries.contains_key(&token) {
                     // A duplicate establishment is a peer bug (tokens
-                    // are minted fresh per link); dropping it leaves
+                    // are drawn fresh per link); dropping it leaves
                     // the live link undisturbed.
                     return Ok(());
                 }

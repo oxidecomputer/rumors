@@ -25,6 +25,7 @@ pub mod streaming;
 #[cfg(test)]
 mod tests;
 
+pub(crate) mod cbor;
 pub(crate) mod framing;
 pub(crate) mod handshake;
 pub(crate) mod party;

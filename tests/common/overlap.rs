@@ -92,7 +92,7 @@ pub struct Session {
 /// Open a wire gossip session between `a` and `b` without polling it.
 pub fn open<T>(a: &Rumors<T>, b: &Rumors<T>) -> Session
 where
-    T: Serialize + DeserializeOwned + Send + Sync + 'static,
+    T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
     let a = a.clone();
     let b = b.clone();
@@ -165,7 +165,7 @@ impl Session {
 pub enum OverlapEvent<T> {
     /// Insert `value` at `peer`.
     Insert { peer: usize, value: T },
-    /// Redact the message minted by the `Insert` at `target_event_idx`.
+    /// Redact the message created by the `Insert` at `target_event_idx`.
     /// Valid by construction: the generator's shadow guarantees `peer`
     /// has observed that message when this event runs.
     Redact {

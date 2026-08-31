@@ -256,7 +256,15 @@ fn canonical_frame_atlas_snapshot() {
                     Ok(wire) => {
                         let mut encoded = Vec::new();
                         encode(speaker, &(stream, frame.clone()), &mut encoded).unwrap();
-                        assert_eq!(encoded.first(), Some(&wire.to_byte()));
+                        // The frame head carries the dense code as a uint
+                        // item right behind the array head.
+                        let mut expected_signal = Vec::new();
+                        crate::tree::mirror::cbor::write_head(
+                            &mut expected_signal,
+                            crate::tree::mirror::cbor::MAJOR_UINT,
+                            u64::from(wire.to_byte()),
+                        );
+                        assert_eq!(&encoded[1..1 + expected_signal.len()], expected_signal);
                         assert_eq!(
                             decode_exact(speaker, RunBudget::default(), &encoded).unwrap(),
                             (stream, frame)
@@ -267,8 +275,19 @@ fn canonical_frame_atlas_snapshot() {
                         atlas.push('\n');
                     }
                     Err(invalid) => {
-                        let error = decode_exact(speaker, RunBudget::default(), &[invalid.byte()])
-                            .unwrap_err();
+                        let mut rejected = Vec::new();
+                        crate::tree::mirror::cbor::write_head(
+                            &mut rejected,
+                            crate::tree::mirror::cbor::MAJOR_ARRAY,
+                            1,
+                        );
+                        crate::tree::mirror::cbor::write_head(
+                            &mut rejected,
+                            crate::tree::mirror::cbor::MAJOR_UINT,
+                            u64::from(invalid.byte()),
+                        );
+                        let error =
+                            decode_exact(speaker, RunBudget::default(), &rejected).unwrap_err();
                         assert_eq!(error.origin, Origin::stream(speaker, stream));
                         assert!(matches!(
                             error.kind,

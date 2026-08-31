@@ -57,10 +57,14 @@ const DELTAS: &[usize] = &[1, 100, 10_000];
 
 /// Commit `n` unit payloads to `rumors` as one batch.
 fn send_units(rumors: &Rumors<()>, n: usize) {
-    let mut batch = rumors.batch();
-    for _ in 0..n {
-        batch.send(());
-    }
+    rumors
+        .batch(|batch| {
+            for _ in 0..n {
+                batch.send(())?;
+            }
+            Ok::<(), rumors::EncodeError>(())
+        })
+        .expect("flat test payloads are within any depth limit");
 }
 
 /// A freshly seeded rumor set holding `n` messages, paired with its live
@@ -143,11 +147,14 @@ fn bench_redact(c: &mut Criterion) {
             b.iter_batched(
                 || build(n),
                 |(rumors, versions)| {
-                    let mut batch = rumors.batch();
-                    for version in &versions {
-                        batch.redact(black_box(version));
-                    }
-                    drop(batch);
+                    rumors
+                        .batch(|batch| {
+                            for version in &versions {
+                                batch.redact(black_box(version));
+                            }
+                            Ok::<(), rumors::EncodeError>(())
+                        })
+                        .expect("flat test payloads are within any depth limit");
                     rumors
                 },
                 BatchSize::PerIteration,

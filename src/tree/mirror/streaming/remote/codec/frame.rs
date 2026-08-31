@@ -2,9 +2,12 @@
 
 use crate::{
     Version,
-    message::{Message, PayloadDeserializer},
+    message::{Message, PayloadCodec},
     tree::{
-        mirror::framing::{LENGTH_HEADER_LEN, LengthOverflow, length_header},
+        mirror::cbor::{
+            self, HeadError, MAJOR_BSTR, MAJOR_MAP, MAJOR_TAG, MAJOR_UINT, TAG_CBOR_SEQUENCE,
+        },
+        mirror::framing::LengthOverflow,
         typed::{Hash, hash::MERKLE_HASH_LEN},
     },
 };
@@ -12,20 +15,25 @@ use crate::{
 use super::error::{DecodeLeafError, QueryOrderError};
 use super::signal::{End, Flow, Stream};
 
-/// The count byte stores one less than the nonempty query's actual fan.
-pub const QUERY_COUNT_BIAS: usize = 1;
+/// Largest query fan a listing map can carry: one child per radix value.
+pub const MAX_QUERY_CHILDREN: usize = 256;
 
-/// Largest query fan representable by a count-minus-one byte.
-pub const MAX_QUERY_CHILDREN: usize = u8::MAX as usize + QUERY_COUNT_BIAS;
+/// Bytes of the byte-string head ahead of one listed Merkle hash.
+pub const HASH_HEAD_LEN: usize = cbor::head_len(MERKLE_HASH_LEN as u64);
 
-/// Bytes occupied by one query child: its radix followed by its Merkle hash.
-pub const QUERY_CHILD_LEN: usize = std::mem::size_of::<u8>() + MERKLE_HASH_LEN;
+/// Bytes one listed child occupies as a map entry: its radix key's head,
+/// then its hash value's head and digest bytes. Radixes of 24 and above
+/// take a two-byte key head; smaller radixes take one.
+pub const fn listing_entry_len(radix: u8) -> usize {
+    cbor::head_len(radix as u64) + HASH_HEAD_LEN + MERKLE_HASH_LEN
+}
 
-/// Bytes occupied by the count-minus-one field of a nonempty query.
-pub const QUERY_COUNT_LEN: usize = std::mem::size_of::<u8>();
+/// Head bytes of the embedded-CBOR-sequence tag (63) opening every supply
+/// run and every record within one.
+pub(super) const RECORD_TAG_LEN: usize = cbor::head_len(TAG_CBOR_SEQUENCE);
 
-/// Items in the adjacent-child window used to validate strict ordering.
-const ADJACENT_CHILD_COUNT: usize = 2;
+/// Head bytes of the version-atom tag ahead of a record's version.
+const VERSION_TAG_LEN: usize = cbor::head_len(crate::tags::VERSION_TAG);
 
 /// The body of one complete reaction frame.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -44,28 +52,36 @@ pub enum Frame {
     End(End),
 }
 
-/// A frame paired with the logical stream named by its signal byte.
+/// A frame paired with the logical stream named by its signal.
 pub type WireFrame = (Stream, Frame);
 
 /// One supply frame's run of leaf records, held in encoded form.
 ///
-/// A run is a delimited sequence of one or more `(Version, Message)`
-/// records: each record is a [`LENGTH_HEADER_LEN`]-byte big-endian length
-/// followed by one CBOR value (a byte string wrapping the version's
-/// canonical encoding) and then the message's CBOR payload, back to back —
-/// the record header delimits the payload, so it travels bare, and the
-/// version's CBOR framing is what lets the decoder split the two without
-/// re-measuring. The run stays encoded on both sides of the wire — the encoder
-/// appends records copied from borrowed leaf data ([`push`](Self::push)) and
-/// the decoder yields them one at a time ([`records`](Self::records)) — so
-/// neither side materializes a decoded vector of leaves per frame; the bound
-/// is one run's bytes.
+/// A run is a CBOR sequence of one or more records. Each record is an
+/// embedded-sequence item — tag 63 wrapping a byte string — whose content
+/// is itself a two-item CBOR sequence: the version atom (its own tag
+/// wrapping a byte string of the version's canonical encoding) followed by
+/// the message's CBOR payload. The record's byte-string head delimits the
+/// payload, so the payload travels bare, and the version's framing is what
+/// lets the decoder split the two without re-measuring. The run stays
+/// encoded on both sides of the wire — the encoder appends records copied
+/// from borrowed leaf data ([`push`](Self::push)) and the decoder yields
+/// them one at a time ([`records`](Self::records)) — so neither side
+/// materializes a decoded vector of leaves per frame; the bound is one
+/// run's bytes.
 ///
-/// Construction guarantees record framing: [`push`] rejects a record no run
-/// body can carry within the wire's `u32` frame header, and
-/// [`from_encoded`](Self::from_encoded) rejects wire bytes whose headers do
-/// not chain exactly to the end. A [`records`] iterator therefore never
-/// fails structurally, only on a record's canonical content.
+/// Construction guarantees record framing: [`push`] rejects a record no
+/// run body can carry within the wire's run byte cap, and
+/// [`from_encoded`](Self::from_encoded) rejects wire bytes whose record
+/// items do not chain exactly to the end in canonical form. A [`records`]
+/// iterator therefore never fails structurally, only on a record's
+/// content: a version-atom tag that is missing, non-canonical, or cut
+/// short by the record's end (the tag's head is hand-parsed and
+/// spelling-judged), a version item the general CBOR reader cannot
+/// decode behind that tag, a version atom whose content bytes fail the
+/// strict [`Version`] decoder (the atom's byte-string head is read by
+/// that general reader and not re-judged for spelling), or an
+/// application payload that does not decode.
 ///
 /// [`push`]: Self::push
 /// [`records`]: Self::records
@@ -116,7 +132,8 @@ impl LeafRun {
         self.bytes.is_empty()
     }
 
-    /// Bytes this run occupies on the wire, excluding signal and run length.
+    /// Bytes this run occupies on the wire, excluding the frame head and
+    /// the run's own embedded-sequence head.
     pub fn encoded_len(&self) -> usize {
         self.bytes.len()
     }
@@ -128,16 +145,25 @@ impl LeafRun {
 
     /// Bytes one record with these components will occupy in a run.
     ///
-    /// Exactly what [`push`](Self::push) writes — the record header, the
-    /// version's CBOR byte-string framing plus its canonical bytes, and
-    /// the payload — pinned against an actual push by
-    /// `record_len_matches_an_actual_push`. Saturating: a sum past
-    /// `usize::MAX` cannot occur for in-memory slices, and an over-large
-    /// record is rejected by [`push`](Self::push) regardless.
+    /// Exactly what [`push`](Self::push) writes — the record's
+    /// embedded-sequence tag and byte-string head, the version atom's tag
+    /// and byte-string framing plus its canonical bytes, and the payload —
+    /// pinned against an actual push by `record_len_matches_an_actual_push`.
+    /// Saturating: a sum past `usize::MAX` cannot occur for in-memory
+    /// slices, and an over-large record is rejected by [`push`](Self::push)
+    /// regardless.
     pub fn record_len(version: &Version, message: &Message) -> usize {
+        let body = Self::record_body_len(version, message);
+        RECORD_TAG_LEN
+            .saturating_add(cbor::head_len(body as u64))
+            .saturating_add(body)
+    }
+
+    /// Bytes of a record's content behind its embedded-sequence head.
+    fn record_body_len(version: &Version, message: &Message) -> usize {
         let version = version.as_bytes().len();
-        LENGTH_HEADER_LEN
-            .saturating_add(cbor_bytes_header_len(version))
+        VERSION_TAG_LEN
+            .saturating_add(cbor::head_len(version as u64))
             .saturating_add(version)
             .saturating_add(message.as_slice().len())
     }
@@ -146,45 +172,57 @@ impl LeafRun {
     ///
     /// # Errors
     ///
-    /// Rejects a record no run can carry — one whose combined encoding plus
-    /// its own record header exceeds the `u32` run-body limit — leaving the
-    /// run untouched.
+    /// Rejects a record no run can carry — one whose whole record item
+    /// exceeds the wire's run byte cap — leaving the run untouched.
     pub fn push(&mut self, version: &Version, message: &Message) -> Result<(), LengthOverflow> {
+        let body = Self::record_body_len(version, message);
+        let item = RECORD_TAG_LEN
+            .saturating_add(cbor::head_len(body as u64))
+            .saturating_add(body);
+        checked_run_len(item)?;
         let version = version.as_bytes();
         let message = message.as_slice();
-        let len = cbor_bytes_header_len(version.len())
-            .saturating_add(version.len())
-            .saturating_add(message.len());
-        let header = checked_record_header(len)?;
-        self.bytes.reserve(LENGTH_HEADER_LEN + len);
-        self.bytes.extend_from_slice(&header);
-        write_cbor_bytes_header(&mut self.bytes, version.len());
+        self.bytes.reserve(item);
+        cbor::write_tag(&mut self.bytes, TAG_CBOR_SEQUENCE);
+        cbor::write_head(&mut self.bytes, MAJOR_BSTR, body as u64);
+        cbor::write_tag(&mut self.bytes, crate::tags::VERSION_TAG);
+        cbor::write_head(&mut self.bytes, MAJOR_BSTR, version.len() as u64);
         self.bytes.extend_from_slice(version);
         self.bytes.extend_from_slice(message);
         Ok(())
     }
 
-    /// Validate wire bytes as a run: nonempty, headers chaining exactly.
+    /// Validate wire bytes as a run: nonempty, canonical record items
+    /// chaining exactly to the end.
     pub fn from_encoded(bytes: Vec<u8>) -> Result<Self, LeafRunError> {
         if bytes.is_empty() {
             return Err(LeafRunError::Empty);
         }
         let mut rest = bytes.as_slice();
         while !rest.is_empty() {
-            if rest.len() < LENGTH_HEADER_LEN {
-                return Err(LeafRunError::TruncatedHeader {
+            let remaining = rest.len();
+            let len = match record_head(&mut rest) {
+                Ok(len) => len,
+                Err(RecordHeadError::Head(source)) => {
+                    return Err(LeafRunError::Head { remaining, source });
+                }
+                Err(RecordHeadError::NotARecord(detail)) => {
+                    return Err(LeafRunError::NotARecord { remaining, detail });
+                }
+            };
+            let Ok(len) = usize::try_from(len) else {
+                return Err(LeafRunError::NotARecord {
+                    remaining,
+                    detail: "record exceeds the run byte cap",
+                });
+            };
+            if rest.len() < len {
+                return Err(LeafRunError::TruncatedRecord {
+                    len,
                     remaining: rest.len(),
                 });
             }
-            let (header, body) = rest.split_at(LENGTH_HEADER_LEN);
-            let len = record_header(header);
-            if body.len() < len {
-                return Err(LeafRunError::TruncatedRecord {
-                    len,
-                    remaining: body.len(),
-                });
-            }
-            rest = &body[len..];
+            rest = &rest[len..];
         }
         Ok(Self { bytes })
     }
@@ -197,13 +235,13 @@ impl LeafRun {
     /// Iterate the run's records, decoding each into its canonical pair.
     pub fn records(
         &self,
-        deserializer: PayloadDeserializer,
+        codec: PayloadCodec,
     ) -> impl Iterator<Item = Result<(Version, Message), DecodeLeafError>> {
         self.record_slices()
-            .map(move |record| parse_record(record, deserializer))
+            .map(move |record| parse_record(record, codec))
     }
 
-    /// Split the validated run back into its exact record slices.
+    /// Split the validated run back into its exact record contents.
     ///
     /// `pub(super)` for the capture renderer, which decodes each
     /// record's version structurally without knowing the leaf type.
@@ -212,7 +250,7 @@ impl LeafRun {
     }
 }
 
-/// Iterator over the exact record bodies of a structurally valid run.
+/// Iterator over the exact record contents of a structurally valid run.
 pub(super) struct RecordSlices<'a> {
     rest: &'a [u8],
 }
@@ -224,96 +262,114 @@ impl<'a> Iterator for RecordSlices<'a> {
         if self.rest.is_empty() {
             return None;
         }
-        let (header, body) = self.rest.split_at(LENGTH_HEADER_LEN);
-        let (record, rest) = body.split_at(record_header(header));
+        let len = record_head(&mut self.rest).expect("a validated run chains canonical records");
+        let (record, rest) = self
+            .rest
+            .split_at(usize::try_from(len).expect("a validated record fits in memory"));
         self.rest = rest;
         Some(record)
     }
 }
 
-/// The record header for a `len`-byte record, checked against the outer frame.
+/// A record's leading heads were not a canonical embedded-sequence item.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum RecordHeadError {
+    Head(HeadError),
+    NotARecord(&'static str),
+}
+
+/// Parse one record's leading heads — the embedded-sequence tag and its
+/// byte-string head — off the front of `input`, returning the record's
+/// content length.
+pub(super) fn record_head(input: &mut &[u8]) -> Result<u64, RecordHeadError> {
+    let head = cbor::read_head(input).map_err(RecordHeadError::Head)?;
+    if head.major != MAJOR_TAG || head.value != TAG_CBOR_SEQUENCE {
+        return Err(RecordHeadError::NotARecord(
+            "record does not open with the embedded-sequence tag",
+        ));
+    }
+    let head = cbor::read_head(input).map_err(RecordHeadError::Head)?;
+    if head.major != MAJOR_BSTR {
+        return Err(RecordHeadError::NotARecord(
+            "record tag does not wrap a byte string",
+        ));
+    }
+    Ok(head.value)
+}
+
+/// Check a run body length against the wire's run byte cap.
 ///
-/// A record is only encodable if the smallest run body holding it — the
-/// record's bytes plus its own [`LENGTH_HEADER_LEN`]-byte header — fits the
-/// wire's `u32` frame header, so the check charges the record header too.
-/// [`LeafRun::push`] rejects on this boundary eagerly: an unshippable record
-/// fails at record level rather than later at the outer frame.
-fn checked_record_header(len: usize) -> Result<[u8; LENGTH_HEADER_LEN], LengthOverflow> {
-    length_header(len.saturating_add(LENGTH_HEADER_LEN))?;
-    Ok(length_header(len).expect("bounded by the header-charged check above"))
+/// The encoder's boundary: a run the cap rejects was necessarily a single
+/// record (the budget saturates below the cap, so a multi-record run never
+/// grows here), and [`LeafRun::push`] already rejected any such record —
+/// this check is the belt to that suspender, priced identically.
+pub(super) fn checked_run_len(len: usize) -> Result<u64, LengthOverflow> {
+    // The cap is exactly the u32 range, so the failed conversion is the
+    // overflow witness.
+    match u32::try_from(len) {
+        Ok(len) => Ok(u64::from(len)),
+        Err(source) => Err(LengthOverflow { len, source }),
+    }
 }
 
-/// Read one record header; construction guarantees its width.
-fn record_header(header: &[u8]) -> usize {
-    u32::from_be_bytes(
-        header
-            .try_into()
-            .expect("a validated run chunks exact record headers"),
-    ) as usize
+/// Whether a run body of `len` bytes is exactly one record: the first
+/// record's heads plus the content they declare span the body.
+///
+/// The lone-record test of the run-budget ingress check, shared by the
+/// async reader and the sync oracle so the two decoders draw the
+/// over-budget legality boundary identically. A body this predicate
+/// rejects may also be structurally malformed; over budget, that
+/// distinction is moot — either way the frame is not the one legal
+/// overhang — so the check does not refine it further.
+pub(super) fn lone_record_spans(len: usize, record_content: u64) -> bool {
+    (RECORD_TAG_LEN as u64)
+        .saturating_add(cbor::head_len(record_content) as u64)
+        .saturating_add(record_content)
+        == len as u64
 }
 
-/// Decode one exact record body into its canonical pair.
-fn parse_record(
-    record: &[u8],
-    deserializer: PayloadDeserializer,
-) -> Result<(Version, Message), DecodeLeafError> {
-    // Both fields are self-delimiting CBOR values, so the exact record
-    // body parses without retrying, and whatever the payload's parse does
-    // not consume is trailing.
+/// Decode one exact record content into its canonical pair.
+fn parse_record(record: &[u8], codec: PayloadCodec) -> Result<(Version, Message), DecodeLeafError> {
+    // The version atom's tag is protocol vocabulary, read here by hand;
+    // the byte string behind it and the payload are self-delimiting CBOR
+    // values, so the exact record content parses without retrying, and
+    // whatever the payload's parse does not consume is trailing.
     fn de_error(e: ciborium::de::Error<std::io::Error>) -> std::io::Error {
         match e {
             ciborium::de::Error::Io(e) => e,
             e => std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()),
         }
     }
+    fn invalid(message: &str) -> std::io::Error {
+        std::io::Error::new(std::io::ErrorKind::InvalidData, message.to_string())
+    }
     let mut input = record;
+    match cbor::read_head(&mut input) {
+        Ok(head) if head.major == MAJOR_TAG && head.value == crate::tags::VERSION_TAG => {}
+        Ok(_) => {
+            return Err(DecodeLeafError::Version(invalid(
+                "supplied version does not carry the version-atom tag",
+            )));
+        }
+        // A record too short to hold the version's tag ran out of bytes,
+        // the same class as a version cut mid-encoding.
+        Err(HeadError::Truncated) => {
+            return Err(DecodeLeafError::Version(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "record ends inside the version atom's tag",
+            )));
+        }
+        Err(e) => return Err(DecodeLeafError::Version(invalid(&e.to_string()))),
+    }
     let version: Version =
         ciborium::de::from_reader(&mut input).map_err(|e| DecodeLeafError::Version(de_error(e)))?;
-    // The deserializer owns the payload parse, including the
+    // The payload codec owns the payload parse, including the
     // exactly-one-value check the record framing otherwise cannot make
     // (the payload runs to the record's end), so trailing bytes surface
     // as its InvalidData.
-    let message = Message::from_wire(bytes::Bytes::copy_from_slice(input), deserializer)
+    let message = Message::from_wire(bytes::Bytes::copy_from_slice(input), codec)
         .map_err(DecodeLeafError::Message)?;
     Ok((version, message))
-}
-
-/// Bytes of the CBOR definite-length byte-string header for a `len`-byte
-/// payload: the major-type-2 initial byte, plus the argument's width.
-///
-/// The dual of [`write_cbor_bytes_header`]; `record_len` prices with one
-/// and `push` writes with the other, and the
-/// `record_len_matches_an_actual_push` pin holds them together.
-fn cbor_bytes_header_len(len: usize) -> usize {
-    match len {
-        0..=23 => 1,
-        24..=0xff => 2,
-        0x100..=0xffff => 3,
-        0x1_0000..=0xffff_ffff => 5,
-        _ => 9,
-    }
-}
-
-/// Append the CBOR definite-length byte-string header for a `len`-byte
-/// payload: exactly what [`ciborium`] emits for `serialize_bytes`.
-fn write_cbor_bytes_header(out: &mut Vec<u8>, len: usize) {
-    const MAJOR_BYTES: u8 = 2 << 5;
-    match len {
-        0..=23 => out.push(MAJOR_BYTES | len as u8),
-        24..=0xff => out.extend_from_slice(&[MAJOR_BYTES | 24, len as u8]),
-        0x100..=0xffff => {
-            out.push(MAJOR_BYTES | 25);
-            out.extend_from_slice(&(len as u16).to_be_bytes());
-        }
-        0x1_0000..=0xffff_ffff => {
-            out.push(MAJOR_BYTES | 26);
-            out.extend_from_slice(&(len as u32).to_be_bytes());
-        }
-        _ => {
-            out.push(MAJOR_BYTES | 27);
-            out.extend_from_slice(&(len as u64).to_be_bytes());
-        }
-    }
 }
 
 /// A supply run whose record framing is structurally invalid.
@@ -322,39 +378,154 @@ pub enum LeafRunError {
     /// Every supply frame carries at least one record.
     #[error("a supply run carries no leaf records")]
     Empty,
-    /// A record header overruns the run's declared length.
-    #[error("a leaf record header overruns the {remaining} bytes left in its run")]
-    TruncatedHeader { remaining: usize },
-    /// A record body overruns the run's declared length.
+    /// A record's leading heads are truncated or non-canonical.
+    #[error("a leaf record's heads are invalid in the {remaining} bytes left in its run: {source}")]
+    Head {
+        remaining: usize,
+        #[source]
+        source: HeadError,
+    },
+    /// The bytes where a record belongs are some other CBOR item.
+    #[error("a {remaining}-byte run tail is not a leaf record: {detail}")]
+    NotARecord {
+        remaining: usize,
+        detail: &'static str,
+    },
+    /// A record's content overruns the run's declared length.
     #[error("a leaf record of {len} bytes overruns the {remaining} bytes left in its run")]
     TruncatedRecord { len: usize, remaining: usize },
 }
 
-/// Validate that a radix listing is in canonical order: strictly ascending.
+/// One structural problem in a child-listing map.
 ///
-/// This is the one gate every child listing entering from the wire passes,
-/// whichever surface carries it — a query frame's body or the greeting's
-/// root-fan listing. Strictness is the whole invariant: the canonical form
-/// admits each radix at most once, so an equal adjacent pair is rejected
-/// exactly like a descent.
+/// Every child listing entering from the wire — a query frame's body or
+/// the greeting's root-fan listing — passes one structural gate, and
+/// this names how a listing failed it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum ListingIssue {
+    /// A head was truncated, indefinite, reserved, or widened.
+    #[error("{0}")]
+    Head(HeadError),
+    /// An item had the wrong major type, value range, or count.
+    #[error("{0}")]
+    Shape(&'static str),
+    /// The digest bytes behind a value head were cut short.
+    #[error("listing hash bytes are truncated")]
+    Truncated,
+    /// Adjacent keys were not strictly ascending.
+    #[error("{0}")]
+    Order(QueryOrderError),
+}
+
+/// Incrementally validated state of one child-listing map's entries.
 ///
-/// # Errors
-///
-/// The first adjacent non-ascending pair reports both radices as a
-/// [`QueryOrderError`].
-pub fn validate_children(children: &[(u8, Hash)]) -> Result<(), QueryOrderError> {
-    for pair in children.windows(ADJACENT_CHILD_COUNT) {
-        let [previous, current] = pair else {
-            unreachable!("an adjacent-child window contains exactly two items")
-        };
-        if previous.0 >= current.0 {
-            return Err(QueryOrderError {
-                previous: previous.0,
-                radix: current.0,
-            });
+/// This is the one gate every child listing entering from the wire
+/// passes, whichever surface carries it — a query frame's body or the
+/// greeting's root-fan listing — and whichever reader drives it (the
+/// async decoder, the sync oracle, or the slice parser). The map's
+/// deterministic-encoding key order and the wire's canonical child order
+/// are one discipline: keys must be strictly ascending radixes, so an
+/// equal adjacent pair is rejected exactly like a descent
+/// ([`ListingIssue::Order`]).
+pub(super) struct ListingBuilder {
+    children: Vec<(u8, Hash)>,
+    previous: Option<u8>,
+}
+
+impl ListingBuilder {
+    /// Accept a map head of `count` entries within the radix space.
+    pub(super) fn new(count: u64) -> Result<Self, ListingIssue> {
+        if count > MAX_QUERY_CHILDREN as u64 {
+            return Err(ListingIssue::Shape("listing exceeds the radix space"));
         }
+        Ok(Self {
+            children: Vec::with_capacity(count as usize),
+            previous: None,
+        })
     }
-    Ok(())
+
+    /// Accept one entry's key head: an unsigned radix, strictly above the
+    /// previous key.
+    pub(super) fn key(&mut self, head: cbor::Head) -> Result<u8, ListingIssue> {
+        if head.major != MAJOR_UINT || head.value > u64::from(u8::MAX) {
+            return Err(ListingIssue::Shape("listing key is not a radix"));
+        }
+        let radix = head.value as u8;
+        if let Some(previous) = self.previous
+            && previous >= radix
+        {
+            return Err(ListingIssue::Order(QueryOrderError { previous, radix }));
+        }
+        self.previous = Some(radix);
+        Ok(radix)
+    }
+
+    /// Accept one entry's value head: a byte string of exactly one digest.
+    pub(super) fn value_head(head: cbor::Head) -> Result<(), ListingIssue> {
+        if head.major != MAJOR_BSTR || head.value != MERKLE_HASH_LEN as u64 {
+            return Err(ListingIssue::Shape("listing value is not a Merkle hash"));
+        }
+        Ok(())
+    }
+
+    /// Record one entry whose key and value heads were accepted.
+    pub(super) fn entry(&mut self, radix: u8, hash: [u8; MERKLE_HASH_LEN]) {
+        self.children.push((radix, Hash(hash)));
+    }
+
+    /// Yield the validated children.
+    pub(super) fn finish(self) -> Vec<(u8, Hash)> {
+        self.children
+    }
+}
+
+/// Parse one complete child-listing map off the front of `input`,
+/// advancing past it.
+pub(crate) fn parse_listing_map(input: &mut &[u8]) -> Result<Vec<(u8, Hash)>, ListingIssue> {
+    let head = cbor::read_head(input).map_err(ListingIssue::Head)?;
+    if head.major != MAJOR_MAP {
+        return Err(ListingIssue::Shape("listing is not a map"));
+    }
+    let count = head.value;
+    let mut listing = ListingBuilder::new(count)?;
+    for _ in 0..count {
+        let key = cbor::read_head(input).map_err(ListingIssue::Head)?;
+        let radix = listing.key(key)?;
+        let value = cbor::read_head(input).map_err(ListingIssue::Head)?;
+        ListingBuilder::value_head(value)?;
+        if input.len() < MERKLE_HASH_LEN {
+            return Err(ListingIssue::Truncated);
+        }
+        let (digest, rest) = input.split_at(MERKLE_HASH_LEN);
+        *input = rest;
+        listing.entry(radix, digest.try_into().expect("split at the digest width"));
+    }
+    Ok(listing.finish())
+}
+
+/// Append one child listing as a canonical map: ascending radix keys,
+/// each hash a definite-length byte string.
+///
+/// The encoder is not a trust boundary — callers guarantee canonical
+/// child order — so this writes without revalidating it.
+pub(crate) fn write_listing(out: &mut Vec<u8>, children: &[(u8, Hash)]) {
+    cbor::write_head(out, MAJOR_MAP, children.len() as u64);
+    for (radix, hash) in children {
+        cbor::write_head(out, MAJOR_UINT, u64::from(*radix));
+        cbor::write_head(out, MAJOR_BSTR, MERKLE_HASH_LEN as u64);
+        out.extend_from_slice(hash.as_bytes());
+    }
+}
+
+/// Bytes a whole child listing occupies as a map: its head plus entries.
+#[cfg(test)]
+pub fn listing_len(children: &[(u8, Hash)]) -> usize {
+    let mut total = cbor::head_len(children.len() as u64);
+    for (radix, _) in children {
+        total += listing_entry_len(*radix);
+    }
+    total
 }
 
 #[cfg(test)]

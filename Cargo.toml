@@ -6,6 +6,66 @@ members = [
     "crates/suanpan",
 ]
 
+# The version of record for every dependency in the workspace: member
+# manifests inherit an entry with `workspace = true`, adding only their own
+# feature selections and `optional` flags (which cargo requires at the
+# member). No member declares a version, path, or default-features choice of
+# its own.
+[workspace.dependencies]
+arc-swap = "1"
+async-stream = "0.3"
+base64 = "0.22"
+before = { path = "crates/before" }
+bitvec = "1"
+blake3 = "1.8"
+borsh = "1"
+bytes = "1"
+# Pinned exactly: depth admission and wire ingress run the same compiled
+# deserializer, so decode-recursion accounting is symmetric within a binary,
+# and across a mixed-version fleet it holds only if every build shares one
+# accounting — which this exact pin provides, since ciborium documents no
+# accounting contract. Bumping is a deliberate, fleet-coordinated event: run
+# a two-build accept/reject verdict differential over a seeded corpus at the
+# old and candidate versions; identical verdicts make a pure bump; differing
+# verdicts ship with a greeting accounting stamp so mixed fleets fail fast at
+# the handshake; and a verdict-strictening bump additionally requires
+# re-validating stored payloads before gossiping.
+ciborium = "=0.2.2"
+clap = { version = "4", features = ["derive"] }
+console_error_panic_hook = "0.1"
+criterion = "0.5"
+dashu-int = { version = "0.5", default-features = false, features = ["std"] }
+dsi-bitstream = { version = "0.10.1", default-features = false, features = ["alloc"] }
+futures = { version = "0.3", default-features = false, features = ["std", "async-await"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+hex = "0.4"
+indicatif = "0.18"
+insta = "1.47"
+itertools = "0.14"
+peak_alloc = "0.3"
+pollster = { version = "0.4", features = ["macro"] }
+postcard = { version = "1", default-features = false, features = ["use-std"] }
+proptest = "1"
+rand = "0.8"
+rand_chacha = "0.3"
+ratatui = "0.30"
+rayon = "1"
+rumors = { path = "." }
+seq-macro = "0.3"
+serde = { version = "1", default-features = false }
+serde_json = "1"
+smallvec = { version = "1.15", features = ["union"] }
+stacker = "0.1"
+static_assertions = "1.1"
+stats_alloc = "0.1"
+suanpan = { path = "crates/suanpan" }
+surface-scan = { path = "crates/surface-scan" }
+thiserror = "2"
+tinyvec = { version = "1.11", features = ["alloc"] }
+tokio = { version = "1", default-features = false }
+tokio-stream = "0.1"
+wasm-bindgen = "0.2"
+
 [package]
 name = "rumors"
 version = "0.1.0"
@@ -55,35 +115,35 @@ protocol-v1 = []
 meter = ["before/limb-meter", "before/scan-meter"]
 
 [dependencies]
-before = { path = "crates/before", features = ["serde"] }
-bytes = { version = "1", features = ["serde"] }
-blake3 = "1.8"
-static_assertions = "1.1"
-itertools = "0.14"
-serde = { version = "1", features = ["derive"] }
-ciborium = "0.2"
-seq-macro = "0.3"
-smallvec = { version = "1.15", features = ["union"] }
-tinyvec = { version = "1.11", features = ["alloc"] }
-thiserror = "2.0"
-hex = "0.4"
-tokio = { version = "1", default-features = false, features = ["io-util", "macros", "sync"] }
-tokio-stream = "0.1"
-futures = { version = "0.3", default-features = false, features = ["std", "async-await"] }
-futures-util = { version = "0.3", default-features = false, features = ["std"] }
-async-stream = "0.3"
-rand = "0.8"
+before = { workspace = true, features = ["serde"] }
+bytes = { workspace = true, features = ["serde"] }
+blake3 = { workspace = true }
+static_assertions = { workspace = true }
+itertools = { workspace = true }
+serde = { workspace = true, default-features = true, features = ["derive"] }
+ciborium = { workspace = true }
+seq-macro = { workspace = true }
+smallvec = { workspace = true }
+tinyvec = { workspace = true }
+thiserror = { workspace = true }
+hex = { workspace = true }
+tokio = { workspace = true, features = ["io-util", "macros", "sync"] }
+tokio-stream = { workspace = true }
+futures = { workspace = true }
+futures-util = { workspace = true }
+async-stream = { workspace = true }
+rand = { workspace = true }
 
 [dev-dependencies]
-rumors = { path = ".", features = ["test-internals", "conformance"] }
+rumors = { workspace = true, features = ["test-internals", "conformance"] }
 # The meter feature lights before's instrument surface for this crate's
 # own tests: the conservation suite reads the exact-bit-length observation
 # (`encoded_bits`) it denominates identity conservation in.
-before = { path = "crates/before", features = ["serde", "meter"] }
-proptest = "1"
-criterion = { version = "0.5", features = ["html_reports"] }
-insta = "1.47"
-tokio = { version = "1", features = [
+before = { workspace = true, features = ["serde", "meter"] }
+proptest = { workspace = true }
+criterion = { workspace = true, features = ["html_reports"] }
+insta = { workspace = true }
+tokio = { workspace = true, default-features = true, features = [
     "rt",
     "rt-multi-thread",
     "macros",
@@ -94,15 +154,15 @@ tokio = { version = "1", features = [
     # delay to virtual time so sweeps cost wall-clock compute only.
     "test-util",
 ] }
-clap = { version = "4", features = ["derive"] }
-rand = { version = "0.8", features = ["small_rng"] }
-arc-swap = "1"
-pollster = { version = "0.4", features = ["macro"] }
-ratatui = "0.30"
+clap = { workspace = true }
+rand = { workspace = true, features = ["small_rng"] }
+arc-swap = { workspace = true }
+pollster = { workspace = true }
+ratatui = { workspace = true }
 # Counting global allocator for the decoder allocation meter
 # (`tests/decode_alloc.rs`): prices decodes in bytes requested from the
 # allocator, so a declared-length pre-allocation is observable.
-stats_alloc = "0.1"
+stats_alloc = { workspace = true }
 
 [profile.dev]
 debug = "line-tables-only"

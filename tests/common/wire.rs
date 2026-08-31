@@ -122,7 +122,7 @@ fn unread_control_bytes<R: AsyncRead + Unpin>(mut read: R) -> Vec<u8> {
 #[track_caller]
 pub fn wire_gossip<T>(a: &Rumors<T>, b: &Rumors<T>)
 where
-    T: Serialize + DeserializeOwned + Send + Sync + 'static,
+    T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
     block_on(wire_gossip_async(a, b));
 }
@@ -131,7 +131,7 @@ where
 /// block on this thread's runtime (where a nested [`block_on`] would panic).
 pub async fn wire_gossip_async<T>(a: &Rumors<T>, b: &Rumors<T>)
 where
-    T: Serialize + DeserializeOwned + Send + Sync + 'static,
+    T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
     let _ = gossip_pair_async(a, b).await;
 }
@@ -146,7 +146,7 @@ pub async fn gossip_pair_async<T>(
     b: &Rumors<T>,
 ) -> (rumors::Gossiped, rumors::Gossiped)
 where
-    T: Serialize + DeserializeOwned + Send + Sync + 'static,
+    T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
     let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(LINK_BUF);
 
@@ -157,22 +157,31 @@ where
     (a_report, b_report)
 }
 
+/// Commit `values` to `rumors` as one batch. Suites send flat test
+/// payloads, which no depth limit rejects, so the depth-admission
+/// `Result` resolves here rather than at every call site.
+#[track_caller]
+pub fn batch_send<T, I>(rumors: &Rumors<T>, values: I)
+where
+    T: Send + Sync + 'static,
+    I: IntoIterator<Item = T>,
+{
+    rumors
+        .batch(|batch| {
+            for value in values {
+                batch.send(value)?;
+            }
+            Ok::<(), rumors::EncodeError>(())
+        })
+        .expect("flat test payloads are within any depth limit");
+}
+
 /// Give each side `values_per_side` values the other lacks: `a` draws
 /// from one range, `b` from a disjoint one, so the pair ends fully
 /// divergent (every leaf disputed in their next session).
 pub fn diverge(a: &Rumors<u64>, b: &Rumors<u64>, values_per_side: u64) {
-    {
-        let mut batch = a.batch();
-        for v in 0..values_per_side {
-            batch.send(v);
-        }
-    }
-    {
-        let mut batch = b.batch();
-        for v in 0..values_per_side {
-            batch.send(1_000_000 + v);
-        }
-    }
+    batch_send(a, 0..values_per_side);
+    batch_send(b, (0..values_per_side).map(|v| 1_000_000 + v));
 }
 
 /// Two party-disjoint forks of one fresh universe, fully divergent by
@@ -195,7 +204,7 @@ pub async fn divergent_pair(
     (a, b)
 }
 
-/// Mint a genuine, party-disjoint `Rumors` from `parent` by serving it a
+/// Create a genuine, party-disjoint `Rumors` from `parent` by serving it a
 /// bootstrap over an in-memory link.
 ///
 /// This is how a test obtains a second *originator*: the returned peer
@@ -207,7 +216,7 @@ pub async fn divergent_pair(
 #[track_caller]
 pub fn bootstrap_fork<T>(parent: &Rumors<T>) -> Rumors<T>
 where
-    T: Serialize + DeserializeOwned + Send + Sync + Clone + 'static,
+    T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
     block_on(bootstrap_fork_async_with_protocol(parent, Protocol::V2))
 }
@@ -216,33 +225,33 @@ where
 /// block on this thread's runtime (where a nested [`block_on`] would panic).
 pub async fn bootstrap_fork_async<T>(parent: &Rumors<T>) -> Rumors<T>
 where
-    T: Serialize + DeserializeOwned + Send + Sync + Clone + 'static,
+    T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
     bootstrap_fork_async_with_protocol(parent, Protocol::V2).await
 }
 
-/// Mint a disjoint peer using an explicitly selected wire protocol.
+/// Create a disjoint peer using an explicitly selected wire protocol.
 ///
-/// Pins the minted peer at the serialization floor, keeping the
+/// Pins the new peer at the serialization floor, keeping the
 /// capacity-one orderings the deadlock-freedom argument certifies
-/// exercised; suites sweeping the window dimension mint through
+/// exercised; suites sweeping the window dimension fork through
 /// [`bootstrap_fork_with_window_async`] instead.
 pub async fn bootstrap_fork_async_with_protocol<T>(
     parent: &Rumors<T>,
     protocol: Protocol,
 ) -> Rumors<T>
 where
-    T: Serialize + DeserializeOwned + Send + Sync + Clone + 'static,
+    T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
     bootstrap_fork_configured(parent, protocol, WindowChoice::Floor).await
 }
 
-/// [`bootstrap_fork`] with the minted peer's window taken from the sweep
+/// [`bootstrap_fork`] with the new peer's window taken from the sweep
 /// dimension instead of pinned at the floor.
 #[track_caller]
 pub fn bootstrap_fork_with_window<T>(parent: &Rumors<T>, window: WindowChoice) -> Rumors<T>
 where
-    T: Serialize + DeserializeOwned + Send + Sync + Clone + 'static,
+    T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
     block_on(bootstrap_fork_with_window_async(parent, window))
 }
@@ -254,12 +263,12 @@ pub async fn bootstrap_fork_with_window_async<T>(
     window: WindowChoice,
 ) -> Rumors<T>
 where
-    T: Serialize + DeserializeOwned + Send + Sync + Clone + 'static,
+    T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
     bootstrap_fork_configured(parent, Protocol::V2, window).await
 }
 
-/// Mint a disjoint peer over an in-memory link, with the minted peer's
+/// Create a disjoint peer over an in-memory link, with the new peer's
 /// wire protocol and window configuration both chosen by the caller.
 async fn bootstrap_fork_configured<T>(
     parent: &Rumors<T>,
@@ -267,7 +276,7 @@ async fn bootstrap_fork_configured<T>(
     window: WindowChoice,
 ) -> Rumors<T>
 where
-    T: Serialize + DeserializeOwned + Send + Sync + Clone + 'static,
+    T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
     let (mut parent_link, mut boot_link) = rumors::link::memory_with_capacity(LINK_BUF);
 
@@ -278,7 +287,7 @@ where
             .join(&mut boot_link),
     );
     server_out.expect("bootstrap server gossip");
-    let minted = window
+    let forked = window
         .apply(
             boot_out
                 .expect("bootstrap handshake")
@@ -286,5 +295,5 @@ where
         )
         .into_rumors();
     assert_control_drained(parent_link, boot_link);
-    minted
+    forked
 }

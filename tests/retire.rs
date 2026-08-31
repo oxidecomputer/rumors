@@ -26,7 +26,9 @@ use rumors::{Peer, Retire, Rumors, causally};
 
 use crate::common::action::{LocalAction, arb_local_actions, build_local};
 use crate::common::oracle::readout;
-use crate::common::wire::{assert_control_drained, block_on, bootstrap_fork, wire_gossip};
+use crate::common::wire::{
+    assert_control_drained, batch_send, block_on, bootstrap_fork, wire_gossip,
+};
 
 /// Capacity for each in-memory link stream. A divergent retiree's session moves
 /// content through the gossip round, so keep the other wire tests' headroom.
@@ -190,7 +192,7 @@ fn retiree_redaction_propagates_through_retire() {
     // and their versions are shared); the retiree then redacts 1 while the
     // peer inserts 3.
     let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    seed.batch().send(1).send(2);
+    batch_send(&seed, [1, 2]);
     let version_of_1 = seed
         .snapshot()
         .iter()
@@ -285,7 +287,7 @@ fn retire_into_bootstrapper_hands_off_the_identity() {
 
     // The inherited party is live: an origination from the successor
     // survives gossip with the rest of the universe.
-    successor.send(99);
+    successor.send(99).unwrap();
     wire_gossip(&successor, &seed);
     assert!(
         seed.snapshot().iter().any(|(_, m)| *m == 99),

@@ -1,8 +1,9 @@
 //! Public failures from transport sessions and durable identity handling.
 //!
-//! You handle [`Error`]; everything else on this page is the diagnostic
-//! taxonomy reachable through [`Error::Mirror`], for matching and bug
-//! reports. Every session `Err` poisons its link (discard it and
+//! You handle [`Error`], and a send can return the local admission
+//! error [`EncodeError`] (also at the crate root); everything else on
+//! this page is the diagnostic taxonomy reachable through
+//! [`Error::Mirror`], for matching and bug reports. Every session `Err` poisons its link (discard it and
 //! reconnect, [`Error::LinkPoisoned`]), so the table below states what
 //! each variant means *beyond* that:
 //!
@@ -12,9 +13,14 @@
 //! | [`Error::MagicMismatch`] | unchanged | the counterparty is not speaking rumors: fix the dial target |
 //! | [`Error::VersionMismatch`] | unchanged | select the same [`Protocol`] at both ends; if both already do, the selected protocol's wire version differs across the two releases: align crate versions |
 //! | [`Error::NetworkMismatch`] | unchanged | unrelated universes: apply the dominance rule ([`Peer`](crate::Peer)'s "Bootstrapping without consensus") |
+//! | [`Error::PayloadDepthMismatch`] | unchanged | fix the configuration: the payload depth limit is a fleet-wide parameter ([`Peer::payload_depth_limit`](crate::Peer::payload_depth_limit)); align it and reconnect |
 //! | [`Error::PartyOverlap`] | unchanged | nothing was absorbed: the retiring peer's identity overlaps ours |
 //! | [`Error::Epilogue`] | **committed** (a bootstrapping side instead applies nothing) | none locally: what was certainly lost is the peer's confirmation (a donor's identity may be lost with it: see the variant) |
 //! | [`Error::LinkPoisoned`] | unchanged | handle the first non-poisoned error; repeats mean the reconnect is not producing a fresh link |
+//! | [`Error::PreambleMalformed`] | unchanged | counterparty bug: report it (the defect names the field) |
+//! | [`Error::PreambleTruncated`] | unchanged | the peer or transport hung up mid-handshake: retry over a fresh link |
+//! | [`Error::HandOffMalformed`] | unchanged | counterparty bug: report it (the defect names the fault) |
+//! | [`Error::HandOffTruncated`] | unchanged | the peer or transport hung up before delivering its promised identity hand-off: retry over a fresh link |
 //! | [`Error::IntentInvalid`] | unchanged | counterparty bug: report it |
 //! | [`Error::BootstrapRetireConflict`] | unchanged | counterparty bug: report it |
 //! | [`Error::BootstrapHistoryConflict`] | unchanged | counterparty bug: report it |
@@ -24,20 +30,23 @@
 use std::convert::Infallible;
 
 use crate::{
-    Network, Protocol, Ticks,
+    Network, PayloadDepthLimit, Protocol, Ticks,
     bookmark::{BookmarkError, BookmarkIo, NoBookmark},
     tree::mirror::{self, handshake},
 };
 
+pub use crate::message::EncodeError;
+pub use crate::tree::mirror::handshake::PreambleDefect;
+pub use crate::tree::mirror::party::HandOffDefect;
 pub use crate::tree::mirror::streaming::materialized::{
     Error as MaterializedError, Violation as MaterializedViolation,
 };
 pub use crate::tree::mirror::streaming::remote::{
     AcceptError, CodecDecodeError, CodecDecodeErrorKind, CodecEncodeError, CodecEncodeErrorKind,
-    DecodeError, DecodeLeafError, DecodeSignalError, EncodeError, FramePart,
-    InvalidSignalPlacement, InvalidWireSignal, LeafRunError, LengthOverflow, OpeningError, Origin,
-    QueryOrderError, RemoteError, ReplyFrameError, ScopeError, SendError, Speaker, Stream,
-    StreamClass, StreamError,
+    DecodeLeafError, DecodeSignalError, FramePart, GreetingError, HeadError,
+    InvalidSignalPlacement, InvalidWireSignal, LeafRunError, LengthOverflow, ListingIssue,
+    OpeningError, Origin, QueryOrderError, RemoteError, ReplyDecodeError, ReplyEncodeError,
+    ReplyFrameError, ScopeError, SendError, Speaker, Stream, StreamClass, StreamError,
 };
 
 /// The concrete production mirror failure, retaining its detecting side.
@@ -57,15 +66,17 @@ pub enum Error<B: BookmarkError = NoBookmark> {
     #[error(transparent)]
     Io(#[from] std::io::Error),
 
-    /// The peer's preamble did not begin with [`PROTOCOL_MAGIC`](crate::PROTOCOL_MAGIC).
-    #[error("peer is not a rumors stream (remote magic: {remote_magic:x?})")]
+    /// The peer is not speaking the rumors protocol: its preamble began
+    /// with neither the self-described CBOR opening of a
+    /// [`Protocol::V2`] session nor the legacy raw magic of a V1 one.
+    #[error("peer is not a rumors stream (leading bytes: {remote_magic:x?})")]
     MagicMismatch { remote_magic: [u8; 6] },
 
     /// The peer speaks a different wire dialect.
     #[error("peer speaks rumors protocol version {remote_version}, we selected {local_protocol:?}")]
     VersionMismatch {
         local_protocol: Protocol,
-        remote_version: u16,
+        remote_version: u64,
     },
 
     /// Both peers were gossiping but belong to unrelated causal universes.
@@ -90,6 +101,25 @@ pub enum Error<B: BookmarkError = NoBookmark> {
     /// A retiring peer offered an identity overlapping one already held here.
     #[error("retiring peer's party overlaps ours")]
     PartyOverlap,
+
+    /// The peer's configured payload depth limit differs from ours.
+    ///
+    /// The limit is a property of the shared set — every replica must be
+    /// able to hold and forward all content — so all peers of a fleet
+    /// must select the same [`Peer::payload_depth_limit`](crate::Peer::payload_depth_limit).
+    /// Both sides detect the mismatch symmetrically, after the greetings
+    /// are exchanged and before anything else (the converged-session
+    /// short-circuit included), so a mixed configuration is caught
+    /// deterministically at every pairing rather than mid-session on
+    /// particular content. Fix the configuration — align the limit
+    /// fleet-wide — and reconnect.
+    #[error("peer's payload depth limit ({remote}) differs from ours ({local})")]
+    PayloadDepthMismatch {
+        /// This side's configured limit.
+        local: PayloadDepthLimit,
+        /// The limit the peer's greeting declared.
+        remote: PayloadDepthLimit,
+    },
 
     /// The session's closing epilogue failed *after* the session's local
     /// work committed.
@@ -145,6 +175,61 @@ pub enum Error<B: BookmarkError = NoBookmark> {
         "link is poisoned: an earlier session on it was interrupted before completing; discard the link and reconnect"
     )]
     LinkPoisoned,
+
+    /// The peer opened as a rumors stream of the selected dialect, but a
+    /// field of its preamble is not spelled the way the wire demands.
+    ///
+    /// The preamble is deterministic-encoding CBOR — one spelling per
+    /// field — so this is always a counterparty bug, never an alternate
+    /// encoding; the defect names the offending field.
+    #[error("peer preamble is malformed: {defect}")]
+    PreambleMalformed {
+        /// Which preamble field failed, and how.
+        defect: PreambleDefect,
+    },
+
+    /// The peer closed the stream partway through its preamble.
+    ///
+    /// Distinct from [`Io`](Self::Io): the transport delivered a clean
+    /// close, not a failure — the counterparty (or something between)
+    /// hung up mid-handshake. Retry over a fresh link; persistent
+    /// zero-byte truncations from a live peer are a counterparty bug.
+    #[error("peer closed after sending {received} of its {expected} preamble bytes")]
+    PreambleTruncated {
+        /// Preamble bytes received before the close.
+        received: usize,
+        /// The selected dialect's full preamble width.
+        expected: usize,
+    },
+
+    /// The peer delivered its promised identity hand-off, but the item is
+    /// not spelled the way the wire demands, or its content is not one
+    /// canonical party encoding.
+    ///
+    /// The hand-off — the trailing party donation of a bootstrap or
+    /// retirement session — is deterministic-encoding CBOR wrapping a
+    /// canonical party encoding, one spelling per donation, so this is
+    /// always a counterparty bug, never an alternate encoding; the defect
+    /// names the fault. Nothing was absorbed: the local replica is
+    /// unchanged. Reachable only for [`Protocol::V2`]; the frozen V1
+    /// dialect reports hand-off failures as [`Io`](Self::Io).
+    #[error("peer identity hand-off is malformed: {defect}")]
+    HandOffMalformed {
+        /// Which part of the hand-off failed, and how.
+        defect: HandOffDefect,
+    },
+
+    /// The peer closed the stream before delivering its promised identity
+    /// hand-off whole.
+    ///
+    /// Distinct from [`Io`](Self::Io): the transport delivered a clean
+    /// close, not a failure — the counterparty (or something between)
+    /// hung up after its preamble intent promised a donation. Nothing was
+    /// absorbed: the local replica is unchanged. Retry over a fresh link.
+    /// Reachable only for [`Protocol::V2`]; the frozen V1 dialect reports
+    /// hand-off failures as [`Io`](Self::Io).
+    #[error("peer closed before delivering its promised identity hand-off")]
+    HandOffTruncated,
 
     /// The peer's intent byte had no defined meaning.
     #[error("peer sent an invalid intent byte ({byte:#04x})")]
@@ -221,6 +306,10 @@ impl From<handshake::Error> for Error<NoBookmark> {
                 local_protocol,
                 remote_version,
             },
+            handshake::Error::Malformed { defect } => Error::PreambleMalformed { defect },
+            handshake::Error::Truncated { received, expected } => {
+                Error::PreambleTruncated { received, expected }
+            }
             handshake::Error::IntentInvalid { byte } => Error::IntentInvalid { byte },
             handshake::Error::BootstrapRetireConflict => Error::BootstrapRetireConflict,
         }
@@ -254,8 +343,17 @@ impl Error<NoBookmark> {
                 local_min_events,
             },
             Error::PartyOverlap => Error::PartyOverlap,
+            Error::PayloadDepthMismatch { local, remote } => {
+                Error::PayloadDepthMismatch { local, remote }
+            }
             Error::Epilogue(error) => Error::Epilogue(error),
             Error::LinkPoisoned => Error::LinkPoisoned,
+            Error::PreambleMalformed { defect } => Error::PreambleMalformed { defect },
+            Error::PreambleTruncated { received, expected } => {
+                Error::PreambleTruncated { received, expected }
+            }
+            Error::HandOffMalformed { defect } => Error::HandOffMalformed { defect },
+            Error::HandOffTruncated => Error::HandOffTruncated,
             Error::IntentInvalid { byte } => Error::IntentInvalid { byte },
             Error::BootstrapRetireConflict => Error::BootstrapRetireConflict,
             Error::BootstrapHistoryConflict { claimed_min_events } => {

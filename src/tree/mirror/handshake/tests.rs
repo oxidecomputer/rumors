@@ -1,142 +1,253 @@
 use proptest::prelude::*;
 use tokio::io::{duplex, split};
 
-use super::{Error, Intent, PREAMBLE_LEN, Preamble, Staged, preamble};
+use super::{
+    Error, Intent, Preamble, PreambleDefect, Staged, V2_PREAMBLE_LEN, V2_PREFIX, preamble,
+};
+use crate::observe::SessionHandle;
 use crate::{Network, Protocol};
 
-/// Construct a fully received preamble with one caller-selected intent byte.
+/// Construct a fully received V2 preamble with one caller-selected raw
+/// byte in the intent item's place.
 fn staged(network: Network, intent: u8) -> Staged {
-    let mut staged = Staged::new();
-    staged.buf[..6].copy_from_slice(&crate::PROTOCOL_MAGIC);
-    staged.buf[6..8].copy_from_slice(&(Protocol::V2 as u16).to_be_bytes());
-    staged.buf[8..24].copy_from_slice(&network.to_bytes());
-    staged.buf[24] = intent;
-    staged.filled = PREAMBLE_LEN;
+    let encoded = Preamble {
+        network,
+        intent: Intent::Remain,
+    }
+    .encode(Protocol::V2);
+    let mut staged = Staged::new(Protocol::V2);
+    staged.buf[..encoded.len()].copy_from_slice(&encoded);
+    staged.buf[V2_PREAMBLE_LEN - 1] = intent;
+    staged.filled = V2_PREAMBLE_LEN;
     staged
+}
+
+/// The V2 preamble's pinned prefix literal is exactly what the head
+/// writers render for the self-described tag, the four-item array, and
+/// the text `"rumors"`: the validation constant cannot drift from the
+/// encoder.
+#[test]
+fn prefix_matches_the_writers() {
+    use crate::tree::mirror::cbor::{self, MAJOR_ARRAY, MAJOR_TEXT};
+    let mut prefix = Vec::new();
+    cbor::write_tag(&mut prefix, cbor::TAG_SELF_DESCRIBED);
+    cbor::write_head(&mut prefix, MAJOR_ARRAY, 4);
+    cbor::write_head(&mut prefix, MAJOR_TEXT, "rumors".len() as u64);
+    prefix.extend_from_slice(b"rumors");
+    assert_eq!(prefix, V2_PREFIX);
 }
 
 /// Both sides exchange the shared preamble over a one-byte transport without
 /// deadlock, preserving each peer's network and intent exactly.
 #[test]
 fn fragmented_exchange_is_symmetric() {
-    let left = Network::from_bytes([1; 16]);
-    let right = Network::from_bytes([2; 16]);
-    let (left_io, right_io) = duplex(1);
-    let (left_read, left_write) = split(left_io);
-    let (right_read, right_write) = split(right_io);
-    let mut left_read = left_read;
-    let mut left_write = left_write;
-    let mut right_read = right_read;
-    let mut right_write = right_write;
-    let mut left_staged = Staged::new();
-    let mut right_staged = Staged::new();
+    for protocol in [Protocol::V1, Protocol::V2] {
+        let left = Network::from_bytes([1; 16]);
+        let right = Network::from_bytes([2; 16]);
+        let (left_io, right_io) = duplex(1);
+        let (left_read, left_write) = split(left_io);
+        let (right_read, right_write) = split(right_io);
+        let mut left_read = left_read;
+        let mut left_write = left_write;
+        let mut right_read = right_read;
+        let mut right_write = right_write;
+        let mut left_staged = Staged::new(protocol);
+        let mut right_staged = Staged::new(protocol);
 
-    let (seen_by_left, seen_by_right) = pollster::block_on(async {
-        tokio::join!(
-            preamble(
-                Protocol::V2,
-                left,
-                Intent::Remain,
-                &mut left_staged,
-                &mut left_read,
-                &mut left_write,
-            ),
-            preamble(
-                Protocol::V2,
-                right,
-                Intent::Retire,
-                &mut right_staged,
-                &mut right_read,
-                &mut right_write,
-            ),
-        )
-    });
+        let observe = SessionHandle::default();
+        let (seen_by_left, seen_by_right) = pollster::block_on(async {
+            tokio::join!(
+                preamble(
+                    protocol,
+                    left,
+                    Intent::Remain,
+                    &mut left_staged,
+                    &mut left_read,
+                    &mut left_write,
+                    &observe,
+                ),
+                preamble(
+                    protocol,
+                    right,
+                    Intent::Retire,
+                    &mut right_staged,
+                    &mut right_read,
+                    &mut right_write,
+                    &observe,
+                ),
+            )
+        });
 
-    assert_eq!(
-        seen_by_left.unwrap(),
-        Preamble {
-            network: right,
-            intent: Intent::Retire,
-        }
-    );
-    assert_eq!(
-        seen_by_right.unwrap(),
-        Preamble {
-            network: left,
-            intent: Intent::Remain,
-        }
-    );
+        assert_eq!(
+            seen_by_left.unwrap(),
+            Preamble {
+                network: right,
+                intent: Intent::Retire,
+            }
+        );
+        assert_eq!(
+            seen_by_right.unwrap(),
+            Preamble {
+                network: left,
+                intent: Intent::Remain,
+            }
+        );
+    }
 }
 
-/// Intent decoding is exhaustive: exactly the two defined bytes are accepted
-/// for an established network and every other byte retains its typed value.
+/// Intent decoding is exhaustive over the raw byte in the intent item's
+/// place.
+///
+/// The two defined values are accepted, other small uint items are the
+/// typed intent rejection, and bytes that are no one-byte uint item at
+/// all are the malformed-preamble class.
 #[test]
 fn intent_byte_space_is_exhaustive() {
     let network = Network::from_bytes([1; 16]);
     for byte in u8::MIN..=u8::MAX {
-        match (byte, staged(network, byte).validate(Protocol::V2)) {
+        match (byte, staged(network, byte).validate()) {
             (0, Ok(preamble)) => assert_eq!(preamble.intent, Intent::Remain),
             (1, Ok(preamble)) => assert_eq!(preamble.intent, Intent::Retire),
             (0 | 1, other) => panic!("defined intent {byte} was rejected: {other:?}"),
-            (byte, Err(Error::IntentInvalid { byte: rejected })) => assert_eq!(rejected, byte),
-            (_, other) => panic!("invalid intent produced the wrong result: {other:?}"),
+            (2..=0x17, Err(Error::IntentInvalid { byte: rejected })) => {
+                assert_eq!(rejected, byte);
+            }
+            (
+                0x18..,
+                Err(Error::Malformed {
+                    defect: PreambleDefect::Intent,
+                }),
+            ) => {}
+            (_, other) => panic!("invalid intent {byte} produced the wrong result: {other:?}"),
         }
     }
 }
 
 /// A peer that closes the connection at any point inside the preamble
-/// surfaces a typed I/O error, never a hang and never a partial decode.
+/// surfaces a typed truncation, never a hang and never a partial decode.
 ///
-/// Every strict prefix of the 25-byte frame is a structurally distinct
-/// truncation (the boundaries between magic, version, network, and intent
-/// included), so the whole prefix space is swept: zero bytes is the
-/// clean-goodbye close, every longer prefix a mid-preamble cut, and both
-/// must resolve to [`Error::Io`] with `UnexpectedEof`.
+/// Every strict prefix of the fixed item is a structurally distinct
+/// truncation, so the whole prefix space is swept in both dialects, each
+/// cut resolving to [`Error::Truncated`] carrying the exact byte counts
+/// of the cut (a V2 endpoint cut where a whole legacy preamble ends with
+/// a skewed version is instead the version mismatch it is — the separate
+/// legacy-peer test).
 #[test]
-fn every_truncation_boundary_is_a_typed_eof() {
-    let network = Network::from_bytes([1; 16]);
-    let full = Preamble {
-        network,
-        intent: Intent::Remain,
-    }
-    .encode(Protocol::V2);
-
-    for cut in 0..full.len() {
-        let mut staged = Staged::new();
-        let mut reader = &full[..cut];
-        let mut writer = tokio::io::sink();
-        let result = pollster::block_on(preamble(
-            Protocol::V2,
+fn every_truncation_boundary_is_typed() {
+    for protocol in [Protocol::V1, Protocol::V2] {
+        let network = Network::from_bytes([1; 16]);
+        let full = Preamble {
             network,
-            Intent::Remain,
-            &mut staged,
-            &mut reader,
-            &mut writer,
-        ));
-        match result {
-            Err(Error::Io(error)) => assert_eq!(
-                error.kind(),
-                std::io::ErrorKind::UnexpectedEof,
-                "cut after {cut} bytes must be an unexpected EOF",
-            ),
-            other => panic!("cut after {cut} bytes must be a typed I/O error, got {other:?}"),
+            intent: Intent::Remain,
+        }
+        .encode(protocol);
+
+        for cut in 0..full.len() {
+            let mut staged = Staged::new(protocol);
+            let mut reader = &full[..cut];
+            let mut writer = tokio::io::sink();
+            let result = pollster::block_on(preamble(
+                protocol,
+                network,
+                Intent::Remain,
+                &mut staged,
+                &mut reader,
+                &mut writer,
+                &SessionHandle::default(),
+            ));
+            match result {
+                Err(Error::Truncated { received, expected }) => {
+                    assert_eq!(received, cut, "the truncation reports the cut point");
+                    assert_eq!(
+                        expected,
+                        full.len(),
+                        "the truncation reports the dialect's full width"
+                    );
+                }
+                other => {
+                    panic!("cut after {cut} bytes must be a typed truncation, got {other:?}")
+                }
+            }
         }
     }
 }
 
+/// A V2 endpoint whose peer speaks the legacy dialect diagnoses the
+/// version mismatch, not a bare cut or a foreign protocol.
+///
+/// The legacy 25-byte preamble ends five bytes short of the V2 item, and
+/// its magic names the rumors protocol at version 1.
+#[test]
+fn legacy_peer_is_a_version_mismatch() {
+    let network = Network::from_bytes([1; 16]);
+    let legacy = Preamble {
+        network,
+        intent: Intent::Remain,
+    }
+    .encode(Protocol::V1);
+
+    // The peer sent its whole legacy preamble and closed.
+    let mut staged = Staged::new(Protocol::V2);
+    let mut reader = legacy.as_slice();
+    let mut writer = tokio::io::sink();
+    let result = pollster::block_on(preamble(
+        Protocol::V2,
+        network,
+        Intent::Remain,
+        &mut staged,
+        &mut reader,
+        &mut writer,
+        &SessionHandle::default(),
+    ));
+    assert!(
+        matches!(
+            result,
+            Err(Error::VersionMismatch {
+                local_protocol: Protocol::V2,
+                remote_version: 1,
+            })
+        ),
+        "expected the dialect diagnosis, got {result:?}",
+    );
+
+    // The peer's next five bytes (its greeting) arrived too: the full
+    // 30-byte read then validates, and the magic check diagnoses the
+    // dialect ahead of any structural complaint.
+    let mut padded = legacy;
+    padded.extend_from_slice(&[0; 5]);
+    let mut staged = Staged::new(Protocol::V2);
+    let mut reader = padded.as_slice();
+    let mut writer = tokio::io::sink();
+    let result = pollster::block_on(preamble(
+        Protocol::V2,
+        network,
+        Intent::Remain,
+        &mut staged,
+        &mut reader,
+        &mut writer,
+        &SessionHandle::default(),
+    ));
+    assert!(matches!(
+        result,
+        Err(Error::VersionMismatch {
+            local_protocol: Protocol::V2,
+            remote_version: 1,
+        })
+    ));
+}
+
 /// A wrong magic is diagnosed first, before any other field is judged.
 ///
-/// The frame here is wrong in every field — magic, version, and intent —
-/// and must still surface [`Error::MagicMismatch`] carrying the exact
-/// remote bytes: the diagnostic order promised by the module docs puts
-/// "not a rumors stream" ahead of "wrong dialect".
+/// The item here is wrong in every field and must still surface
+/// [`Error::MagicMismatch`] carrying the leading remote bytes: the
+/// diagnostic order promised by the module docs puts "not a rumors
+/// stream" ahead of "wrong dialect".
 #[test]
 fn magic_mismatch_is_diagnosed_first() {
     let mut wrong = staged(Network::from_bytes([1; 16]), 0xFF);
     wrong.buf[..6].copy_from_slice(b"SROMUR");
-    wrong.buf[6..8].copy_from_slice(&0xFFFF_u16.to_be_bytes());
 
-    let result = wrong.validate(Protocol::V2);
+    let result = wrong.validate();
     assert!(
         matches!(
             &result,
@@ -148,16 +259,16 @@ fn magic_mismatch_is_diagnosed_first() {
 
 /// A wrong wire version is diagnosed before the semantic fields.
 ///
-/// With a correct magic but a foreign version, the frame's (invalid)
-/// intent byte must never be reached: the typed rejection is
+/// With a correct opening but a foreign version, the item's (invalid)
+/// intent must never be reached: the typed rejection is
 /// [`Error::VersionMismatch`] carrying the remote's declared version, so a
 /// dialect skew is reported as such rather than as a garbled body.
 #[test]
 fn version_mismatch_is_diagnosed_before_intent() {
     let mut wrong = staged(Network::from_bytes([1; 16]), 0xFF);
-    wrong.buf[6..8].copy_from_slice(&7_u16.to_be_bytes());
+    wrong.buf[V2_PREFIX.len()] = 0x07;
 
-    let result = wrong.validate(Protocol::V2);
+    let result = wrong.validate();
     assert!(
         matches!(
             result,
@@ -171,38 +282,37 @@ fn version_mismatch_is_diagnosed_before_intent() {
 }
 
 proptest! {
-    /// Any complete 25-byte preamble decodes exactly as the field-by-field
-    /// oracle predicts: a typed error naming the first invalid field in
-    /// diagnostic order, or the valid preamble — never a panic.
+    /// Any complete V2 preamble whose fields are canonically spelled
+    /// decodes exactly as the field-by-field oracle predicts.
     ///
-    /// The strategy weights the magic and version toward their valid values
-    /// so the deeper fields' arms are actually reached; the oracle
-    /// recomputes the documented diagnosis order (magic, then version, then
-    /// intent, then the network/intent combination) independently of the
-    /// decoder.
+    /// The prediction: a typed error naming the first invalid field in
+    /// diagnostic order, or the valid preamble — never a panic.
     #[test]
     fn arbitrary_preamble_decodes_by_the_oracle(
-        magic in prop_oneof![Just(crate::PROTOCOL_MAGIC), any::<[u8; 6]>()],
-        version in prop_oneof![Just(Protocol::V2 as u16), any::<u16>()],
+        magic_valid in prop_oneof![Just(true), any::<bool>()],
+        version in prop_oneof![Just(Protocol::V2 as u8), 0_u8..=0x17],
         network in any::<[u8; 16]>(),
-        intent in prop_oneof![0_u8..=3, any::<u8>()],
+        intent in prop_oneof![0_u8..=3, 0_u8..=0x17],
     ) {
-        let mut bytes = [0u8; PREAMBLE_LEN];
-        bytes[..6].copy_from_slice(&magic);
-        bytes[6..8].copy_from_slice(&version.to_be_bytes());
-        bytes[8..24].copy_from_slice(&network);
-        bytes[24] = intent;
+        let mut bytes = Vec::with_capacity(V2_PREAMBLE_LEN);
+        if magic_valid {
+            bytes.extend_from_slice(&V2_PREFIX);
+        } else {
+            bytes.extend_from_slice(b"SROMURxxxxx");
+        }
+        bytes.push(version);
+        bytes.push(0x50);
+        bytes.extend_from_slice(&network);
+        bytes.push(intent);
 
         let result = Preamble::decode(&bytes, Protocol::V2);
-        let as_oracle = if magic != crate::PROTOCOL_MAGIC {
+        let as_oracle = if !magic_valid {
+            matches!(&result, Err(Error::MagicMismatch { remote_magic }) if remote_magic == b"SROMUR")
+        } else if version != Protocol::V2 as u8 {
             matches!(
                 &result,
-                Err(Error::MagicMismatch { remote_magic }) if *remote_magic == magic,
-            )
-        } else if version != Protocol::V2 as u16 {
-            matches!(
-                &result,
-                Err(Error::VersionMismatch { remote_version, .. }) if *remote_version == version,
+                Err(Error::VersionMismatch { remote_version, .. })
+                    if *remote_version == u64::from(version),
             )
         } else if intent > 1 {
             matches!(&result, Err(Error::IntentInvalid { byte }) if *byte == intent)
@@ -217,6 +327,14 @@ proptest! {
         };
         prop_assert!(as_oracle, "decode disagreed with the oracle: {:?}", result);
     }
+
+    /// Arbitrary bytes in the preamble's place decode to a typed error or
+    /// a valid preamble, never a panic: the parser is total over its
+    /// fixed-width input.
+    #[test]
+    fn arbitrary_bytes_never_panic(bytes in any::<[u8; V2_PREAMBLE_LEN]>()) {
+        let _ = Preamble::decode(&bytes, Protocol::V2);
+    }
 }
 
 /// The bootstrap placeholder composes only with remain intent; retirement
@@ -224,16 +342,86 @@ proptest! {
 #[test]
 fn bootstrap_intent_matrix_is_exhaustive() {
     assert_eq!(
-        staged(Network::BOOTSTRAP, 0)
-            .validate(Protocol::V2)
-            .unwrap(),
+        staged(Network::BOOTSTRAP, 0).validate().unwrap(),
         Preamble {
             network: Network::BOOTSTRAP,
             intent: Intent::Remain,
         }
     );
     assert!(matches!(
-        staged(Network::BOOTSTRAP, 1).validate(Protocol::V2),
+        staged(Network::BOOTSTRAP, 1).validate(),
         Err(Error::BootstrapRetireConflict)
     ));
+}
+
+// Defensive-variant exemption: `PreambleDefect::NetworkTruncated` and
+// `PreambleDefect::TrailingBytes` deliberately have no construction tests.
+// In the fixed 30-byte V2 preamble, a validated version and network head
+// always leave exactly 17 bytes -- the 16 network bytes and the one-byte
+// intent -- so neither arm is reachable from any input the dialect admits;
+// both guard the decoder's width arithmetic. Every reachable defect
+// (`Version`, `Network`, `Intent`) has a construction: `Intent` in
+// `intent_byte_space_is_exhaustive`, the other two below.
+
+/// A version item that is not an unsigned int is the typed version
+/// defect: a negative-int head in the version item's place fails the
+/// major-type filter, and the defect names the version field.
+#[test]
+fn version_item_wrong_major_is_the_version_defect() {
+    let mut wrong = staged(Network::from_bytes([1; 16]), 0);
+    // 0x38: a two-byte negative-int head; its argument byte (the network
+    // head behind it) parses, so the head is well-formed but the wrong
+    // major type.
+    wrong.buf[V2_PREFIX.len()] = 0x38;
+    let result = wrong.validate();
+    assert!(
+        matches!(
+            result,
+            Err(Error::Malformed {
+                defect: PreambleDefect::Version,
+            }),
+        ),
+        "expected the version defect, got {result:?}",
+    );
+}
+
+/// A widened spelling of the correct version value is the typed version
+/// defect.
+///
+/// The wire admits one spelling per value, so `0x18 0x02` (a two-byte
+/// head for 2) is rejected as non-canonical before its value is compared
+/// against the dialect.
+#[test]
+fn widened_version_spelling_is_the_version_defect() {
+    let mut wrong = staged(Network::from_bytes([1; 16]), 0);
+    wrong.buf[V2_PREFIX.len()..V2_PREFIX.len() + 2].copy_from_slice(&[0x18, 0x02]);
+    let result = wrong.validate();
+    assert!(
+        matches!(
+            result,
+            Err(Error::Malformed {
+                defect: PreambleDefect::Version,
+            }),
+        ),
+        "expected the version defect, got {result:?}",
+    );
+}
+
+/// A network item that is not a 16-byte byte string is the typed network
+/// defect: a byte-string head declaring 17 bytes fails the length filter,
+/// and the defect names the network field.
+#[test]
+fn network_item_wrong_length_is_the_network_defect() {
+    let mut wrong = staged(Network::from_bytes([1; 16]), 0);
+    wrong.buf[V2_PREFIX.len() + 1] = 0x51;
+    let result = wrong.validate();
+    assert!(
+        matches!(
+            result,
+            Err(Error::Malformed {
+                defect: PreambleDefect::Network,
+            }),
+        ),
+        "expected the network defect, got {result:?}",
+    );
 }

@@ -21,7 +21,7 @@ use crate::Network;
 
 pub(crate) mod format;
 
-pub use format::{BOOKMARK_FORMAT_VERSION, BOOKMARK_MAGIC, FormatError};
+pub use format::{BOOKMARK_FORMAT_VERSION, FormatError, FrameDefect, RecordDefect};
 
 /// The error a [`Bookmark`] reports when persistence fails.
 pub trait BookmarkError {

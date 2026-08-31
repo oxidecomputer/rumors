@@ -12,8 +12,8 @@
 //! [`materialized`](crate::tree::mirror::streaming::materialized) for the ordering argument).
 //!
 //! The memory unit is one reply: a maximally disputed reply is 256
-//! reactions × a 256-entry listing ≈ fan² hashes ≈ 1.6 MB encoded
-//! (≈ 3.3 MB while an encoded and a decoded copy coexist), transient, at
+//! reactions × a 256-entry listing ≈ fan² hashes ≈ 1.8 MB encoded
+//! (≈ 3.5 MB while an encoded and a decoded copy coexist), transient, at
 //! most one in flight per stage.
 
 use std::cmp::Ordering;
@@ -91,7 +91,7 @@ pub struct Greeting {
     /// supplies is one its tree materializes, so it must encode within
     /// this bound, and a session that receives one over it fails with a
     /// typed violation
-    /// ([`DecodeError::OversizedVersion`](crate::tree::mirror::streaming::remote::DecodeError::OversizedVersion)).
+    /// ([`ReplyDecodeError::OversizedVersion`](crate::tree::mirror::streaming::remote::ReplyDecodeError::OversizedVersion)).
     pub max_version_bytes: u64,
     /// The sender's supply-run byte target
     /// ([`Peer::target_message_size`](crate::Peer::target_message_size)).
@@ -101,6 +101,18 @@ pub struct Greeting {
     /// builds *and* the frames built for it, so the more
     /// memory-constrained end sets the pace.
     pub target_message_size: u64,
+    /// The sender's configured payload nesting-depth limit
+    /// ([`Peer::payload_depth_limit`](crate::Peer::payload_depth_limit)),
+    /// in scopes.
+    ///
+    /// A session proceeds only if the two exchanged values are equal:
+    /// the limit is a property of the shared set (every replica must be
+    /// able to hold and forward all content), so a mismatch in either
+    /// direction is a typed, unconditional abort at the handshake, before
+    /// the equal-versions resolution. On the wire the value is authored
+    /// by the proxy from the session's payload codec at send; an
+    /// in-process participant carries the default.
+    pub payload_depth_limit: u64,
     /// The sender's root children as `(radix, hash)` pairs in strictly
     /// ascending radix order; empty when the sender's tree is empty.
     pub listing: Vec<(u8, Hash)>,

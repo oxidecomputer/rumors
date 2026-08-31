@@ -35,7 +35,10 @@ use std::time::Duration;
 
 use rand::rngs::SmallRng;
 use rand::{RngCore, SeedableRng};
-use rumors::testing::{envelope_and_wire_bytes, supply_decode_envelope_bytes, window_capacities};
+use rumors::testing::{
+    dispute_overhead_bytes, envelope_and_wire_bytes, supply_decode_envelope_bytes,
+    window_capacities,
+};
 use rumors::{Peer, Protocol, Rumors};
 
 use serde::Serialize;
@@ -57,17 +60,21 @@ const DIVERGENT: usize = 62_500;
 /// An effectively unbounded budget: the transfer-bound baseline.
 const UNBOUNDED: usize = 8 << 30;
 
-fn diverged<T>(budget: usize, mint: &mut impl FnMut(&mut SmallRng) -> T) -> (Rumors<T>, Rumors<T>)
+fn diverged<T>(budget: usize, make: &mut impl FnMut(&mut SmallRng) -> T) -> (Rumors<T>, Rumors<T>)
 where
-    T: Serialize + DeserializeOwned + Send + Sync + Clone + 'static,
+    T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
     let left = Peer::seed().sync_memory_budget(budget).into_rumors();
     let mut rng = SmallRng::seed_from_u64(0x0b05_2026_7ade_0ff1);
     let mut send = |rumors: &Rumors<T>, n: usize, rng: &mut SmallRng| {
-        let mut batch = rumors.batch();
-        for _ in 0..n {
-            batch.send(mint(rng));
-        }
+        rumors
+            .batch(|batch| {
+                for _ in 0..n {
+                    batch.send(make(rng))?;
+                }
+                Ok::<(), rumors::EncodeError>(())
+            })
+            .expect("flat test payloads are within any depth limit");
     };
     send(&left, COMMON, &mut rng);
 
@@ -99,11 +106,11 @@ where
 /// advances only while every task is blocked on the wire, so wall
 /// compute is excluded and the count is deterministic (the hop-trace
 /// principle: every wire event lands on an exact delay multiple).
-fn wire_hops<T>(budget: usize, pipe: usize, mint: &mut impl FnMut(&mut SmallRng) -> T) -> u64
+fn wire_hops<T>(budget: usize, pipe: usize, make: &mut impl FnMut(&mut SmallRng) -> T) -> u64
 where
-    T: Serialize + DeserializeOwned + Send + Sync + Clone + 'static,
+    T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
-    let (left, right) = diverged(budget, mint);
+    let (left, right) = diverged(budget, make);
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_time()
         .start_paused(true)
@@ -131,13 +138,15 @@ fn run_cells<T>(
     encoded_m: usize,
     pipe: usize,
     targets: &[f64],
-    mint: &mut impl FnMut(&mut SmallRng) -> T,
+    make: &mut impl FnMut(&mut SmallRng) -> T,
 ) where
-    T: Serialize + DeserializeOwned + Send + Sync + Clone + 'static,
+    T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
     let (envelope, _) = envelope_and_wire_bytes();
-    let overhead = 28usize;
-    let transfer = wire_hops(UNBOUNDED, pipe, mint);
+    // The shipped intercept, never a transcribed copy: the probe's byte
+    // denominators move with the wire's own calibration.
+    let overhead = dispute_overhead_bytes();
+    let transfer = wire_hops(UNBOUNDED, pipe, make);
     assert!(transfer >= 4, "degenerate transfer count {transfer}");
     let bdp_messages = 2.0 * DIVERGENT as f64 / transfer as f64;
     let bdp_bytes = bdp_messages * (overhead + encoded_m) as f64;
@@ -156,7 +165,7 @@ fn run_cells<T>(
         let caps = window_capacities(session_len, session_len, budget);
         let k_max = caps.iter().copied().max().unwrap_or(1);
         let exact = (bdp_messages / k_max as f64).max(1.0);
-        let hops = wire_hops(budget, pipe, mint);
+        let hops = wire_hops(budget, pipe, make);
         let observed = hops as f64 / transfer as f64;
         let fans = supply_decode_envelope_bytes();
         eprintln!(
@@ -186,25 +195,27 @@ fn run_cells<T>(
 #[test]
 #[ignore = "one-shot validation instrument: run explicitly with --run-ignored"]
 fn tradeoff_closed_form_validation_run() {
-    // m = 8: minimal u64 records (the table's first column). Targets
-    // (denominated in the closed-form estimate, a budget-choosing
-    // device only) span a constricted, a near-crossover, and a
-    // comfortable cell at derived windows of a thousand scopes and up.
+    // m = 9: minimal u64 records (the table's first column; a random
+    // u64's CBOR encoding is nine bytes). Targets (denominated in the
+    // closed-form estimate, a budget-choosing device only) span a
+    // constricted, a near-crossover, and a comfortable cell at derived
+    // windows of a thousand scopes and up.
     run_cells(
         "u64",
-        8,
+        9,
         256 * 1024,
         &[4.0, 1.3, 0.4],
         &mut |rng: &mut SmallRng| rng.next_u64(),
     );
 
-    // m = 172: the design record (the table's third column), one
+    // m = 172: the design record (the table's third column; a 170-byte
+    // `Bytes` payload behind CBOR's two-byte byte-string head), one
     // constricted cell on a wider pipe so the window stays past the
     // near-root band.
     let mut design = |rng: &mut SmallRng| {
-        let mut payload = vec![0u8; 168];
+        let mut payload = vec![0u8; 170];
         rng.fill_bytes(&mut payload);
-        payload
+        bytes::Bytes::from(payload)
     };
     run_cells("design", 172, 1024 * 1024, &[3.0], &mut design);
 }

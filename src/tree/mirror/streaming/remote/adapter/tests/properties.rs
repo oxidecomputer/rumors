@@ -1,6 +1,6 @@
 //! Laws which hold uniformly across the adapter's type-level height ladder.
 
-use crate::message::Message;
+use crate::message::{PayloadCodec, PayloadDepthLimit};
 use std::convert::Infallible;
 
 use futures::{StreamExt, TryStreamExt, stream};
@@ -115,7 +115,7 @@ impl AdapterHeight for Z {
                 unbounded(),
                 scope.clone(),
                 &mut frames,
-                Message::deserializer::<u64>(),
+                PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
             ))
             .expect("an in-scope leaf decodes");
 
@@ -165,7 +165,7 @@ impl AdapterHeight for Z {
                 unbounded(),
                 scope,
                 &mut frames,
-                Message::deserializer::<u64>(),
+                PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
             ))
             .expect("canonical matches decode");
         prop_assert!(decoded.questions.is_empty(), "height 0");
@@ -243,7 +243,7 @@ impl AdapterHeight for Z {
                 unbounded(),
                 scope,
                 &mut frames,
-                Message::deserializer::<u64>(),
+                PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
             ))
             .expect("canonical leaf reactions decode");
         prop_assert_eq!(&decoded.questions, &expected_questions, "height 0");
@@ -295,7 +295,7 @@ impl AdapterHeight for Z {
                 unbounded(),
                 scope,
                 &mut frames,
-                Message::deserializer::<u64>(),
+                PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
             ))
             .expect("canonical mixed leaf reactions decode");
         prop_assert_eq!(&decoded.questions, &expected_questions, "height 0");
@@ -325,7 +325,7 @@ impl AdapterHeight for Z {
                 unbounded(),
                 Scope::new(parent.erase(), &[]),
                 &mut frames,
-                Message::deserializer::<u64>(),
+                PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
             ))
             .err()
             .expect("duplicate leaves are not strictly ascending");
@@ -346,7 +346,7 @@ impl AdapterHeight for Z {
                 unbounded(),
                 Scope::new(foreign.erase(), &[]),
                 &mut frames,
-                Message::deserializer::<u64>(),
+                PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
             ))
             .err()
             .expect("a leaf outside the retained scope must fail");
@@ -380,7 +380,7 @@ where
                 unbounded(),
                 scope.clone(),
                 &mut frames,
-                Message::deserializer::<u64>(),
+                PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
             ))
             .expect("an in-scope leaf decodes");
 
@@ -430,7 +430,7 @@ where
                 unbounded(),
                 scope,
                 &mut frames,
-                Message::deserializer::<u64>(),
+                PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
             ))
             .expect("canonical matches decode");
         prop_assert!(decoded.questions.is_empty(), "height {}", Self::HEIGHT);
@@ -514,7 +514,7 @@ where
                 unbounded(),
                 scope,
                 &mut frames,
-                Message::deserializer::<u64>(),
+                PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
             ))
             .expect("canonical positional reactions decode");
         prop_assert_eq!(
@@ -582,7 +582,7 @@ where
                 unbounded(),
                 scope,
                 &mut frames,
-                Message::deserializer::<u64>(),
+                PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
             ))
             .expect("canonical mixed reactions decode");
         prop_assert_eq!(
@@ -622,7 +622,7 @@ where
                 unbounded(),
                 Scope::new(parent.erase(), &[]),
                 &mut frames,
-                Message::deserializer::<u64>(),
+                PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
             ))
             .err()
             .expect("duplicate leaves are not strictly ascending");
@@ -649,7 +649,7 @@ where
                 unbounded(),
                 Scope::new(foreign.erase(), &[]),
                 &mut frames,
-                Message::deserializer::<u64>(),
+                PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
             ))
             .err()
             .expect("a leaf outside the retained scope must fail");

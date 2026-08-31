@@ -174,9 +174,9 @@ Every input, in one process, under libFuzzer:
    `Error::Epilogue`, `Error::Mirror` wrapping
    `MaterializedError`/`Violation` — `UnaskedReply`,
    `UncontainedSupply`, … — and `RemoteError` over the codec's
-   `DecodeError`/`DecodeErrorKind`, the stream layer's
+   `CodecDecodeError`/`CodecDecodeErrorKind`, the stream layer's
    `StreamError`/`AcceptError`/`SendError`, and the adapter's
-   `DecodeError` with `OversizedVersion`, `LeafOutsideScope`, …). What
+   `ReplyDecodeError` with `OversizedVersion`, `LeafOutsideScope`, …). What
    the harness asserts dynamically is the *link consequence* the
    contract attaches: on any `Err`, the link end's
    `SessionState::poisoned()` reads true (via `Link::into_parts`).

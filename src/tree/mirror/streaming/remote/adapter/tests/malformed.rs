@@ -1,5 +1,6 @@
 //! Focused malformed-wire cases which are not naturally height-parametric.
 
+use crate::message::{PayloadCodec, PayloadDepthLimit};
 use std::{collections::BTreeMap, convert::Infallible};
 
 use before::Version;
@@ -46,7 +47,7 @@ fn bare_end_cannot_follow_reactions() {
             unbounded(),
             Scope::new(parent.erase(), &[(0, hash(0))]),
             &mut frames,
-            Message::deserializer::<u64>(),
+            PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
         )
         .await
         .err()
@@ -69,7 +70,7 @@ fn stream_exhaustion_before_a_boundary_is_truncation() {
             unbounded(),
             Scope::new(parent.erase(), &[(0, hash(0))]),
             &mut frames,
-            Message::deserializer::<u64>(),
+            PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
         )
         .await
         .err()
@@ -103,7 +104,7 @@ fn an_unpositioned_match_is_rejected_in_both_directions() {
             unbounded(),
             Scope::new(parent.erase(), &[(1, hash(1))]),
             &mut frames,
-            Message::deserializer::<u64>(),
+            PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
         )
         .await
         .err()
@@ -154,7 +155,7 @@ fn an_unpositioned_query_is_rejected_in_both_directions() {
             unbounded(),
             Scope::new(parent.erase(), &[]),
             &mut frames,
-            Message::deserializer::<u64>(),
+            PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
         )
         .await
         .err()
@@ -254,7 +255,7 @@ fn leaf_query_matrix_is_exhaustive() {
                     unbounded(),
                     Scope::new(parent.erase(), &scope_listing),
                     &mut frames,
-                    Message::deserializer::<u64>(),
+                    PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
                 )
                 .await
             });
@@ -295,7 +296,7 @@ fn stream_end_is_not_a_protocol_reply() {
             unbounded(),
             Scope::new(parent.erase(), &[]),
             &mut frames,
-            Message::deserializer::<u64>(),
+            PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
         ))
         .err()
         .expect("stream control must be consumed below the adapter");
@@ -357,7 +358,7 @@ fn a_multi_leaf_run_is_one_supplied_subtree() {
             unbounded(),
             scope.clone(),
             &mut input,
-            Message::deserializer::<u64>(),
+            PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
         )
         .await
         .expect("ascending in-scope leaves assemble");
@@ -419,7 +420,7 @@ fn leaf_order_is_enforced_within_one_run() {
             unbounded(),
             Scope::opening(&[]),
             &mut input,
-            Message::deserializer::<u64>(),
+            PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
         )
         .await
         .err()
@@ -461,7 +462,7 @@ fn leaf_scope_is_enforced_within_one_run() {
             unbounded(),
             Scope::new(parent.erase(), &[]),
             &mut input,
-            Message::deserializer::<u64>(),
+            PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
         )
         .await
         .err()
@@ -474,15 +475,17 @@ fn leaf_scope_is_enforced_within_one_run() {
     assert_eq!(actual, <[u8; 32]>::from(outside.path()));
 }
 
-/// The run body of a single zero-length record: one bare record header.
-const ZERO_LENGTH_RECORD_RUN: [u8; 4] = [0, 0, 0, 0];
+/// The run body of a single empty-content record: the embedded-sequence
+/// tag wrapping an empty byte string.
+const ZERO_LENGTH_RECORD_RUN: [u8; 3] = [0xd8, 0x3f, 0x40];
 
-/// A zero-length record passes structural validation but fails canonically.
+/// An empty-content record passes structural validation but fails
+/// canonically.
 ///
-/// A `00000000` record header inside a run chains exactly, so the wire
-/// accepts the run's structure; the record's empty body cannot hold a
-/// version, so the reply decoder reports `DecodeError::Record` carrying the
-/// version decoder's `UnexpectedEof`.
+/// A record whose byte string is empty chains exactly, so the wire
+/// accepts the run's structure; the empty content cannot hold a tagged
+/// version, so the reply decoder reports `DecodeError::Record` carrying
+/// the version decoder's `UnexpectedEof`.
 #[test]
 fn a_zero_length_record_fails_as_a_version_decode_error() {
     let run = LeafRun::from_encoded(ZERO_LENGTH_RECORD_RUN.to_vec())
@@ -498,7 +501,7 @@ fn a_zero_length_record_fails_as_a_version_decode_error() {
             unbounded(),
             Scope::opening(&[]),
             &mut input,
-            Message::deserializer::<u64>(),
+            PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
         )
         .await
         .err()
@@ -536,7 +539,7 @@ fn a_version_over_the_declared_bound_is_rejected() {
             unbounded(),
             Scope::new(parent.erase(), &[]),
             &mut input,
-            Message::deserializer::<u64>(),
+            PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
         )
         .await
         .expect("a version exactly at the declared bound is admitted");
@@ -550,7 +553,7 @@ fn a_version_over_the_declared_bound_is_rejected() {
             unbounded(),
             Scope::new(parent.erase(), &[]),
             &mut input,
-            Message::deserializer::<u64>(),
+            PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
         )
         .await
         .err()
@@ -630,7 +633,7 @@ fn a_reply_past_the_declared_set_len_fails_at_its_first_over_record() {
                 SupplyLedger::new(declared),
                 Scope::opening(&[]),
                 &mut input,
-                Message::deserializer::<u64>(),
+                PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
             )
             .await
         });
@@ -706,7 +709,7 @@ fn a_supply_run_cannot_resume_after_another_reaction() {
             unbounded(),
             Scope::opening(&[(1, hash(1))]),
             &mut input,
-            Message::deserializer::<u64>(),
+            PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
         )
         .await
         .err()
