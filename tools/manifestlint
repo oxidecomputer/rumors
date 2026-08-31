@@ -1,0 +1,168 @@
+#!/usr/bin/env python3
+# manifestlint — hold every workspace member's dependency declarations to the
+# workspace table.
+#
+# The root Cargo.toml's [workspace.dependencies] is the version of record for
+# every dependency in the workspace: member manifests inherit an entry with
+# `workspace = true`, adding only what cargo permits or requires at the
+# member — feature selections (`features`, and `default-features = true` to
+# widen a table default of false; cargo itself rejects the narrowing
+# direction) and the `optional` flag. Everything else a member could say —
+# a bare version string, `version`, `path`, `git`, `branch`, `rev`, `tag`,
+# `registry`, `package` — restates or contradicts the table, and such a
+# restatement drifts silently when the table moves.
+#
+# Cargo offers no native check: `cargo metadata` resolves inheritance before
+# reporting, so an inherited entry and a locally-versioned one are
+# indistinguishable in its output, and no cargo lint reads manifests. Cargo
+# does own member *discovery*, so the tool asks `cargo metadata --no-deps`
+# which manifests belong to the workspace and reads each with the standard
+# library's TOML parser. Detached workspaces (the fuzz targets, with their
+# own Cargo.lock) are separate workspaces with their own tables, outside
+# this tool's scope.
+#
+# Usage:
+#   manifestlint --self-test   # pin the declarations the rule accepts and
+#                              # rejects
+#   manifestlint               # check every member manifest of the workspace
+#                              # containing the current directory
+#
+# Exits non-zero if any violation is found, printing `manifest: [table] name`
+# plus what offends, the way the rest of the gate names its failures.
+
+import json
+import subprocess
+import sys
+import tomllib
+from pathlib import Path
+
+# What a member entry may say beside `workspace = true`. `features` and
+# `default-features` widen the table's feature base (cargo rejects a member
+# narrowing `default-features` below the table's), and cargo requires
+# `optional` at the member whenever the dependency backs a feature.
+ALLOWED_KEYS = {"workspace", "features", "optional", "default-features"}
+
+# The dependency tables a manifest may carry; each is also legal under a
+# `[target.'…'.<table>]` heading.
+DEP_TABLES = ("dependencies", "dev-dependencies", "build-dependencies")
+
+
+def violations(manifest):
+    """Yield `(table, name, reason)` for every dependency entry that is not
+    a workspace inheritance plus allowed member-side additions. The
+    manifest's own `[workspace.dependencies]` table is the version of
+    record, not a member declaration, and is never scanned."""
+    tables = []
+    for kind in DEP_TABLES:
+        if kind in manifest:
+            tables.append((kind, manifest[kind]))
+        for target, cfg in manifest.get("target", {}).items():
+            if kind in cfg:
+                tables.append((f"target.{target}.{kind}", cfg[kind]))
+    for table, deps in tables:
+        for name, spec in deps.items():
+            if not isinstance(spec, dict):
+                yield table, name, (
+                    f"declares {spec!r} instead of inheriting the workspace entry"
+                )
+            elif spec.get("workspace") is not True:
+                yield table, name, "does not inherit the workspace entry (workspace = true)"
+            else:
+                extra = sorted(set(spec) - ALLOWED_KEYS)
+                if extra:
+                    yield table, name, (
+                        f"declares {', '.join(extra)} beside the workspace entry"
+                    )
+
+
+def member_manifests():
+    """Every manifest cargo considers a member of the enclosing workspace,
+    from cargo's own discovery."""
+    # cargo's stderr passes through, so a discovery failure (a manifest
+    # cargo itself rejects, say) surfaces as cargo's own diagnostic.
+    metadata = json.loads(
+        subprocess.run(
+            ["cargo", "metadata", "--no-deps", "--format-version", "1"],
+            check=True,
+            stdout=subprocess.PIPE,
+        ).stdout
+    )
+    return sorted(Path(package["manifest_path"]) for package in metadata["packages"])
+
+
+def check(paths):
+    """Print every violation in `paths`, returning how many were found."""
+    found = 0
+    for path in paths:
+        with open(path, "rb") as f:
+            manifest = tomllib.load(f)
+        for table, name, reason in violations(manifest):
+            print(f"{path}: [{table}] {name} {reason}")
+            found += 1
+    return found
+
+
+def self_test():
+    """Pin the declarations the rule accepts and rejects: each fixture must
+    red (or stay green) for exactly the entry it encodes."""
+    cases = [
+        # The convention's shape: inherit, adding only feature selections
+        # and optional flags.
+        (
+            """
+            [dependencies]
+            a = { workspace = true }
+            b = { workspace = true, features = ["derive"], optional = true }
+            c = { workspace = true, default-features = true }
+            """,
+            [],
+        ),
+        # A bare version string bypasses the table entirely.
+        ("[dependencies]\na = \"1\"", [("dependencies", "a")]),
+        # A member-local version, even one matching the table today, drifts
+        # silently when the table moves.
+        (
+            "[dev-dependencies]\na = { version = \"1\" }",
+            [("dev-dependencies", "a")],
+        ),
+        # Inheriting and then naming another source contradicts the table.
+        (
+            "[dependencies]\na = { workspace = true, path = \"../a\" }",
+            [("dependencies", "a")],
+        ),
+        (
+            "[build-dependencies]\na = { workspace = true, git = \"https://x\" }",
+            [("build-dependencies", "a")],
+        ),
+        # workspace = false is spelled inheritance but is not one.
+        ("[dependencies]\na = { workspace = false }", [("dependencies", "a")]),
+        # Target-specific tables carry the same rule, named by their heading.
+        (
+            "[target.'cfg(unix)'.dependencies]\na = \"1\"",
+            ("target.cfg(unix).dependencies", "a"),
+        ),
+        # The workspace table itself is the version of record, never a
+        # member declaration: entries there carry versions by design.
+        ("[workspace.dependencies]\na = \"1\"", []),
+    ]
+    for source, expected in cases:
+        if isinstance(expected, tuple):
+            expected = [expected]
+        actual = [(table, name) for table, name, _ in violations(tomllib.loads(source))]
+        if actual != expected:
+            raise AssertionError(f"expected {expected}, got {actual} for:\n{source}")
+    print("manifestlint: self-test ok")
+
+
+def main():
+    if sys.argv[1:] == ["--self-test"]:
+        self_test()
+        return 0
+    if sys.argv[1:]:
+        print("usage: manifestlint [--self-test]", file=sys.stderr)
+        return 2
+    return 1 if check(member_manifests()) else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

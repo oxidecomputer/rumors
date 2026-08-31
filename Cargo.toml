@@ -9,9 +9,11 @@ members = [
 
 # The version of record for every dependency in the workspace: member
 # manifests inherit an entry with `workspace = true`, adding only their own
-# feature selections and `optional` flags (which cargo requires at the
-# member). No member declares a version, path, or default-features choice of
-# its own.
+# feature selections — `features`, and `default-features = true` to widen a
+# table default of false (cargo itself rejects the narrowing direction) —
+# and the `optional` flags cargo requires at the member. No member declares
+# a version, path, or other source of its own; the gate's manifestlint leg
+# holds every member manifest to this.
 [workspace.dependencies]
 arc-swap = "1"
 async-stream = "0.3"
