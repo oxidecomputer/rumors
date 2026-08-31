@@ -1,4 +1,4 @@
-//! The [`rumors::Rumors::gossip_when`] driver: change-driven gossip over a
+//! The [`rumors::Rumors::gossip_when`] driver: policy-driven gossip over a
 //! long-lived connection.
 //!
 //! Every test drives the policy stream by hand — a `futures` mpsc channel
@@ -9,6 +9,8 @@
 //! - the reduction to one-shot `gossip`, and remote-led serving;
 //! - suppression exactness: the echo a naive driver would produce does not
 //!   happen, while real changes always do;
+//! - unconditional cues: a probe session on a converged connection
+//!   round-trips, re-converges, and wakes no observer;
 //! - transitive propagation across a chain of connections, and who-led
 //!   attribution;
 //! - clean shutdown on both the `when` stream ending and the peer hanging
@@ -38,7 +40,7 @@ use futures::channel::mpsc::{UnboundedSender, unbounded};
 use futures::stream;
 use futures::{FutureExt, StreamExt};
 use proptest::prelude::*;
-use rumors::{Error, Gossiped, Led, Peer, Rumors, testing::run_to_quiescence};
+use rumors::{Error, Gossip, Gossiped, Led, Peer, Rumors, testing::run_to_quiescence};
 use tokio::io::AsyncWriteExt;
 use tokio::time::timeout;
 
@@ -67,8 +69,10 @@ fn links() -> (rumors::link::MemoryLink, rumors::link::MemoryLink) {
     rumors::link::memory_with_capacity(LINK_BUF)
 }
 
-/// A hand-driven tick source: send `()` into the sender to tick the stream.
-fn ticks() -> (UnboundedSender<()>, impl stream::Stream<Item = ()>) {
+/// A hand-driven cue source: send an item into the sender to cue the
+/// stream. Most tests send `()` (the when-changed default); the probe
+/// tests send [`Gossip`] cues directly.
+fn ticks<I>() -> (UnboundedSender<I>, impl stream::Stream<Item = I>) {
     let (tx, rx) = unbounded();
     (tx, rx)
 }
@@ -189,12 +193,12 @@ async fn suppression_swallows_echoes_not_news() {
     assert_eq!(a.snapshot().len(), 2);
 }
 
-/// An interval-style tick on a converged connection costs nothing, and the
-/// same tick stream initiates again as soon as the local frontier has
-/// really moved.
+/// An interval-style `()` tick — the when-changed default — on a converged
+/// connection costs nothing, and the same tick stream initiates again as
+/// soon as the local frontier has really moved.
 ///
-/// This is the anti-entropy property heartbeats rely on, pinned
-/// with hand-fed ticks instead of a timer.
+/// This is the anti-entropy property change-conditional heartbeats rely
+/// on, pinned with hand-fed ticks instead of a timer.
 #[tokio::test(flavor = "current_thread")]
 async fn heartbeat_ticks_are_free_until_divergence() {
     let (a, b) = pair().await;
@@ -228,6 +232,69 @@ async fn heartbeat_ticks_are_free_until_divergence() {
     let (a_session, _) = one_round(&mut a_sessions, &mut b_sessions).await;
     assert_eq!(a_session.led, Led::Local);
     assert_eq!(a.snapshot().hash(), b.snapshot().hash());
+}
+
+/// An unconditional cue initiates on a converged connection where a
+/// when-changed cue stays suppressed.
+///
+/// The probe session is a full end-to-end round-trip, it re-converges on
+/// the same frontier, and it wakes no `changes()` observer on either
+/// side. That last clause is the invariant that keeps unconditional probing
+/// from ever feeding an echo loop through a change-driven policy stream:
+/// a no-news session's join is a no-op at both ends, so nothing queues a
+/// cue anywhere.
+#[tokio::test(flavor = "current_thread")]
+async fn unconditional_cues_probe_a_converged_connection() {
+    let (a, b) = pair().await;
+    let (mut a_link, mut b_link) = links();
+
+    let (a_tx, a_when) = ticks();
+    let mut a_sessions = a.gossip_when(a_when, &mut a_link);
+    let mut b_sessions = b.gossip_when(stream::pending::<Gossip>(), &mut b_link);
+
+    // Converge the pair: the fresh driver's first cue always initiates
+    // (reconnect convergence).
+    a.send(1).unwrap();
+    a_tx.unbounded_send(Gossip::WhenChanged)
+        .expect("driver alive");
+    let (first, _) = one_round(&mut a_sessions, &mut b_sessions).await;
+
+    // Fresh observers owe an immediate first yield; drain it so a later
+    // yield means a genuine post-convergence advance.
+    let mut a_changes = a.changes();
+    let mut b_changes = b.changes();
+    a_changes.next().await.expect("set open");
+    b_changes.next().await.expect("set open");
+
+    // Unconditional cues on the converged connection: each initiates a
+    // real session (A cued it, B only served), and each re-converges on
+    // the same frontier — the round-trip carried no news.
+    for probe in 0..2 {
+        a_tx.unbounded_send(Gossip::Unconditionally)
+            .expect("driver alive");
+        let (a_session, b_session) = one_round(&mut a_sessions, &mut b_sessions).await;
+        assert_eq!(a_session.led, Led::Local, "probe {probe}: A cued");
+        assert_eq!(b_session.led, Led::Remote, "probe {probe}: B served");
+        assert_eq!(a_session.converged, first.converged, "probe {probe}");
+        assert_eq!(b_session.converged, first.converged, "probe {probe}");
+    }
+
+    // No observer woke: the probes' joins were no-ops at both ends.
+    let woke = futures::future::join(a_changes.next(), b_changes.next());
+    assert!(
+        timeout(Duration::from_millis(100), woke).await.is_err(),
+        "a no-news probe session woke a changes() observer"
+    );
+
+    // A when-changed cue on the same converged connection still initiates
+    // nothing: the two policies differ exactly in the suppression check.
+    a_tx.unbounded_send(Gossip::WhenChanged)
+        .expect("driver alive");
+    let idle = futures::future::join(a_sessions.next(), b_sessions.next());
+    assert!(
+        timeout(Duration::from_millis(100), idle).await.is_err(),
+        "a when-changed cue initiated a session on a converged connection"
+    );
 }
 
 /// Suppression is per connection, not per set: a change at A crosses B and

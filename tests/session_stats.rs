@@ -146,7 +146,7 @@ fn gossip_when_reports_session_stats() {
         let mut a_drive = a.gossip_when(a.changes(), &mut a_link);
         // The serving side's policy stream stays quiet, so its session is
         // remote-led (a `changes()` stream's first tick would initiate).
-        let mut b_drive = b.gossip_when(futures::stream::pending(), &mut b_link);
+        let mut b_drive = b.gossip_when(futures::stream::pending::<()>(), &mut b_link);
         let (pushed, served) = tokio::join!(a_drive.next(), b_drive.next());
         let pushed = pushed.expect("driver running").expect("push succeeds");
         let served = served.expect("driver running").expect("serve succeeds");

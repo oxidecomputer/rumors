@@ -32,7 +32,7 @@ mod gossip;
 pub use bootstrap::{BookmarkedBootstrap, Bootstrap, Joined};
 #[cfg(feature = "protocol-v1")]
 pub use gossip::PROTOCOL_MAGIC;
-pub use gossip::{Gossiped, Led, Retire, Unbookmarked};
+pub use gossip::{Gossip, Gossiped, Led, Retire, Unbookmarked};
 
 /// The start and end of a [`Rumors`]'s lifecycle.
 ///

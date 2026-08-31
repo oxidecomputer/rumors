@@ -9,7 +9,7 @@ pub use unordered::{TryNext, UnorderedMessages};
 use crate::bookmark::{Bookmark, BookmarkError, NoBookmark};
 use crate::link::{Acceptor, Connector, Link};
 use crate::message::EncodeError;
-use crate::{Batch, Error, Gossiped, Network, Peer, Snapshot, Version};
+use crate::{Batch, Error, Gossip, Gossiped, Network, Peer, Snapshot, Version};
 use futures::Stream;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -431,19 +431,25 @@ impl<T, B: Bookmark> Rumors<T, B> {
         self.peer.gossip(link).await
     }
 
-    /// Drive a long-lived connection: run one gossip session per `when` tick
-    /// (if there's been local change since the last gossip), and serve every
-    /// session the remote initiates, until `when` ends or the connection fails.
+    /// Drive a long-lived connection: run one gossip session per initiating
+    /// `when` cue, and serve every session the remote initiates, until
+    /// `when` ends or the connection fails.
     ///
-    /// `when` defines the local initiation policy: providing
-    /// [`self.changes()`](Self::changes) implements push-on-change; an interval
-    /// stream gossips regularly; adding debounce/jitter/rate-limit adapters can
-    /// set cadence; an always-pending stream only ever serves in response to
-    /// remote initiation.
+    /// `when` defines the local initiation policy. Each item it yields
+    /// converts into a [`Gossip`] cue (`()` converts to
+    /// [`Gossip::WhenChanged`]): providing
+    /// [`self.changes()`](Self::changes) implements push-on-change; an
+    /// interval stream mapped to [`Gossip::Unconditionally`] probes the
+    /// connection on a heartbeat (the initiation-policy section below);
+    /// adding debounce/jitter/rate-limit adapters can set cadence; an
+    /// always-pending stream only ever serves in response to remote
+    /// initiation.
     ///
     /// Do not provide an always-ready stream (e.g.
     /// [`stream::repeat`](futures::stream::repeat)), because this would
-    /// busy-loop: `when` should go quiet between reasons to gossip.
+    /// busy-loop — and a stream of always-ready unconditional cues would
+    /// saturate the connection with back-to-back sessions: `when` should go
+    /// quiet between reasons to gossip.
     ///
     /// The returned stream *must be polled* for gossip to continue. It
     /// yields one [`Gossiped`] per completed gossip session. It terminates
@@ -467,16 +473,23 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// promises exactly what a one-shot [`gossip`](Self::gossip) does
     /// ([what a session promises](crate::link::Link#what-a-session-promises)).
     ///
-    /// # Suppression
+    /// # Initiation policy
     ///
-    /// A tick from the `when` stream initiates gossip only if the local
+    /// A [`Gossip::WhenChanged`] cue initiates gossip only if the local
     /// [`Rumors`] has advanced past this connection's last
     /// [`converged`](Gossiped::converged) version. Providing
     /// [`changes`](Self::changes) as `when` therefore never echoes a session
-    /// back after its own gossip. However, a local tick from the `when` stream
-    /// never *pulls* from the other side: each side pushes its own news, so
-    /// probing a silent connection for liveness must be the transport's job
-    /// (e.g. TCP keepalives), not the `when`-stream's.
+    /// back after its own gossip. A when-changed cue never *pulls* from the
+    /// other side: each side pushes its own news.
+    ///
+    /// A [`Gossip::Unconditionally`] cue initiates whether or not anything
+    /// changed locally, and a session converges both replicas both ways —
+    /// so an interval stream of unconditional cues is both a liveness probe
+    /// (every session is an end-to-end round-trip, so a dead connection
+    /// surfaces as the stream's terminal `Err`) and an anti-entropy net
+    /// (pulling any news the remote's own policy stream stayed quiet
+    /// about). Between converged replicas such a session is a short
+    /// exchange that changes nothing and wakes no observer.
     ///
     /// # Cancellation
     ///
@@ -543,7 +556,8 @@ impl<T, B: Bookmark> Rumors<T, B> {
         CW: AsyncWrite + Unpin + Send,
         C: Connector,
         A: Acceptor,
-        S: Stream<Item = ()> + 'a,
+        S: Stream + 'a,
+        S::Item: Into<Gossip>,
     {
         self.peer.gossip_when(when, link)
     }

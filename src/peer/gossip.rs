@@ -208,12 +208,50 @@ pub enum Led {
     /// This side initiated.
     ///
     /// Either its [`gossip_when`](crate::Rumors::gossip_when) `when`
-    /// stream yielded `()`, or the caller invoked the one-shot
-    /// [`gossip`](crate::Rumors::gossip): the call itself is the local
-    /// trigger, so a one-shot session always reports `Local`.
+    /// stream yielded a [`Gossip`] cue that initiated, or the caller
+    /// invoked the one-shot [`gossip`](crate::Rumors::gossip): the call
+    /// itself is the local trigger, so a one-shot session always reports
+    /// `Local`.
     Local,
     /// The remote's preamble arrived first: this side responded.
     Remote,
+}
+
+/// One cue from a [`gossip_when`](crate::Rumors::gossip_when) policy stream:
+/// whether this reason to gossip is conditional on local change.
+///
+/// The `when` stream's items convert into this (`Into<Gossip>`), and `()`
+/// converts to [`WhenChanged`](Self::WhenChanged), so a
+/// [`changes`](crate::Rumors::changes) stream plugs in directly as the
+/// push-on-change policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Gossip {
+    /// Initiate a session only if the local set has changed since this
+    /// connection last [`converged`](Gossiped::converged).
+    ///
+    /// A cue that finds nothing new costs nothing and crosses no wire; in
+    /// particular, the cue a [`changes`](crate::Rumors::changes) stream
+    /// fires after a session's own merge never echoes a second session
+    /// back over the connection that delivered it.
+    WhenChanged,
+    /// Initiate a session whether or not anything changed locally.
+    ///
+    /// A session between already-converged replicas is a short round-trip
+    /// that confirms the connection works end to end, and a session
+    /// between diverged ones converges them both ways — so an interval
+    /// stream of unconditional cues doubles as a liveness probe and an
+    /// anti-entropy net, pulling news a remote's own policy stream stayed
+    /// quiet about.
+    Unconditionally,
+}
+
+/// `()` is the when-changed cue: [`changes`](crate::Rumors::changes) (and
+/// any other unit stream) feeds [`gossip_when`](crate::Rumors::gossip_when)
+/// the push-on-change policy without adaptation.
+impl From<()> for Gossip {
+    fn from((): ()) -> Self {
+        Gossip::WhenChanged
+    }
 }
 
 impl<T> Peer<T, NoBookmark> {
@@ -577,8 +615,8 @@ impl<T, B: Persist> Peer<T, B> {
     /// the reconciled tree both replicas now hold, before any commits that
     /// ran concurrently with the session. The session's [`SessionStats`]
     /// ride along with it. [`gossip_when`] records the version as the
-    /// suppression token — "the local frontier has advanced" means exactly
-    /// "latest no longer equals this".
+    /// suppression token for [`Gossip::WhenChanged`] cues — "the local
+    /// frontier has advanced" means exactly "latest no longer equals this".
     ///
     /// `staged` is the remote preamble's staging buffer, usually empty; a
     /// [`gossip_when`] driver hands one that may already hold part (or all)
@@ -861,9 +899,14 @@ impl<T, B: Persist> Peer<T, B> {
             // frontiers are plain field reads, cheap under the lock.
             // Waking on a ceiling advance cannot loop: the driver's
             // suppression token is the converged frontier itself, so the
-            // echo tick this notification queues on the session's own
+            // echo cue this notification queues on the session's own
             // connection is swallowed, and a fresh connection initiates once
             // and then quiesces (`tests/gossip_when.rs` pins the chain).
+            // Unconditional cues bypass the token, but they come from the
+            // caller's timers, never from this wake — and a session that
+            // carried no news (nothing crossed, nobody retired) takes none
+            // of the three wake branches below, so unconditional probing
+            // feeds no wake either (pinned in the same suite).
             //
             // The join runs unconditionally — it must commit the merge even
             // when the retirement alone decides the notification.
@@ -913,7 +956,7 @@ impl<T, B: Persist> Peer<T, B> {
 }
 
 impl<T, B: Bookmark> Peer<T, B> {
-    /// Run the change-driven gossip driver behind
+    /// Run the cue-driven gossip driver behind
     /// [`Rumors::gossip_when`](crate::Rumors::gossip_when); the public
     /// contract lives there.
     #[must_use = "the driver does nothing until the returned stream is polled"]
@@ -928,7 +971,8 @@ impl<T, B: Bookmark> Peer<T, B> {
         CW: AsyncWrite + Unpin + Send,
         C: Connector,
         A: Acceptor,
-        S: Stream<Item = ()> + 'a,
+        S: Stream + 'a,
+        S::Item: Into<Gossip>,
     {
         // The link erases here ([`DynRead`]'s contract); `when` stays
         // generic because erasing it would cost callers the stream's
@@ -971,7 +1015,7 @@ impl<T, B: Bookmark> Peer<T, B> {
                     let trigger = {
                         tokio::select! {
                             arrival = drive.staged.fill(&mut *drive.read) => Trigger::Arrival(arrival),
-                            tick = drive.when.next() => Trigger::Tick(tick),
+                            cue = drive.when.next() => Trigger::Tick(cue.map(Into::into)),
                         }
                     };
                     let led = match trigger {
@@ -1001,12 +1045,13 @@ impl<T, B: Bookmark> Peer<T, B> {
                             drive.done = true;
                             Led::Remote
                         }
-                        Trigger::Tick(Some(())) => {
-                            // Suppression: a tick initiates only if the local
-                            // frontier has advanced past what this connection
-                            // last converged on. The comparison is local-only —
-                            // it can never block learning *remote* news, which
-                            // always arrives remote-led.
+                        Trigger::Tick(Some(Gossip::WhenChanged)) => {
+                            // Suppression: a when-changed cue initiates only
+                            // if the local frontier has advanced past what
+                            // this connection last converged on. The
+                            // comparison is local-only — it can never block
+                            // learning *remote* news, which always arrives
+                            // remote-led.
                             let news = {
                                 let inner = drive.peer.inner.borrow();
                                 drive.converged.as_ref() != Some(inner.tree.latest())
@@ -1016,6 +1061,11 @@ impl<T, B: Bookmark> Peer<T, B> {
                             }
                             Led::Local
                         }
+                        // An unconditional cue's whole job is a session that
+                        // may have nothing to say: the round-trip is the
+                        // liveness probe, and the convergence is the
+                        // anti-entropy pull.
+                        Trigger::Tick(Some(Gossip::Unconditionally)) => Led::Local,
                     };
 
                     let epoch = match drive.state.begin() {
@@ -1405,7 +1455,7 @@ async fn epilogue(
 /// driver's transport halves.
 enum Trigger {
     Arrival(Result<handshake::Fill, handshake::Error>),
-    Tick(Option<()>),
+    Tick(Option<Gossip>),
 }
 
 /// The state a [`gossip_when`](Peer::gossip_when) driver carries between
@@ -1423,10 +1473,11 @@ struct Drive<'a, T, B: BookmarkError, S> {
     state: &'a mut SessionState,
     when: Pin<Box<S>>,
     staged: handshake::Staged,
-    /// The frontier this connection last converged on: a tick initiates
-    /// only once the local frontier differs. `None` until the first
-    /// session, so a fresh driver's first tick always initiates (the
-    /// reconnect-convergence session).
+    /// The frontier this connection last converged on: a when-changed cue
+    /// initiates only once the local frontier differs.
+    ///
+    /// `None` until the first session, so a fresh driver's first cue
+    /// always initiates (the reconnect-convergence session).
     converged: Option<Version>,
     /// Terminal-state latch: set on error, clean remote goodbye, or `when`
     /// exhaustion, after which the stream yields nothing further.
