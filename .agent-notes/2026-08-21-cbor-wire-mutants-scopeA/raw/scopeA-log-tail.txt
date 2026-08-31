@@ -1,0 +1,40 @@
+MISSED   src/tree/mirror/streaming/remote/codec/capture.rs:417:34: replace | with ^ in parse_major_seven in 99s build + 300s test
+MISSED   src/tree/mirror/streaming/remote/codec/capture.rs:417:29: replace << with >> in parse_major_seven in 99s build + 300s test
+MISSED   src/tree/mirror/streaming/remote/codec/capture.rs:460:41: replace match guard text == "listing" with true in render_node in 99s build + 338s test
+MISSED   src/tree/mirror/streaming/remote/codec/capture.rs:469:73: replace + with - in render_node in 108s build + 327s test
+MISSED   src/tree/mirror/streaming/remote/codec/capture.rs:479:65: replace + with - in render_node in 115s build + 333s test
+MISSED   src/tree/mirror/streaming/remote/codec/capture.rs:469:73: replace + with * in render_node in 117s build + 336s test
+MISSED   src/tree/mirror/streaming/remote/codec/capture.rs:479:65: replace + with * in render_node in 197s build + 314s test
+MISSED   src/tree/mirror/streaming/remote/codec/capture.rs:501:26: replace < with > in render_listing in 98s build + 334s test
+MISSED   src/tree/mirror/streaming/remote/codec/capture.rs:532:70: replace + with - in render_listing in 104s build + 336s test
+MISSED   src/tree/mirror/streaming/remote/codec/capture.rs:498:49: replace < with <= in render_listing in 212s build + 330s test
+MISSED   src/tree/mirror/streaming/remote/codec/capture.rs:532:70: replace + with * in render_listing in 114s build + 325s test
+MISSED   src/tree/mirror/streaming/remote/codec/capture.rs:580:9: delete match arm (crate::tags::CLOCK_TAG, Node::Bytes(bytes)) in render_tag in 110s build + 314s test
+MISSED   src/tree/mirror/streaming/remote/codec/capture.rs:589:32: replace match guard scalar(scalar_content).is_some() with true in render_tag in 108s build + 326s test
+MISSED   src/tree/mirror/streaming/remote/codec/capture.rs:589:32: replace match guard scalar(scalar_content).is_some() with false in render_tag in 194s build + 304s test
+MISSED   src/tree/mirror/streaming/remote/codec/decode.rs:289:37: replace || with && in run_head in 116s build + 349s test
+MISSED   src/tree/mirror/streaming/remote/codec/encode.rs:104:62: replace + with * in FrameEncoding<'a>::to_vec in 127s build + 324s test
+MISSED   src/tree/mirror/streaming/remote/codec/frame.rs:108:9: replace <impl PartialEq for LeafRun>::eq -> bool with true in 112s build + 342s test
+MISSED   src/tree/mirror/streaming/remote/codec/frame.rs:116:9: replace <impl std::fmt::Debug for LeafRun>::fmt -> std::fmt::Result with Ok(Default::default()) in 127s build + 349s test
+MISSED   src/tree/mirror/streaming/remote/codec/frame.rs:286:32: replace || with && in record_head in 131s build + 332s test
+MISSED   src/tree/mirror/streaming/remote/codec/frame.rs:348:21: replace match guard head.major == MAJOR_TAG && head.value == crate::tags::VERSION_TAG with true in parse_record in 147s build + 322s test
+MISSED   src/tree/mirror/streaming/remote/codec/frame.rs:348:45: replace && with || in parse_record in 128s build + 322s test
+MISSED   src/tree/mirror/streaming/remote/codec/frame.rs:466:9: replace ListingBuilder::value_head -> Result<(), ListingIssue> with Ok(()) in 125s build + 311s test
+MISSED   src/tree/mirror/streaming/remote/codec/frame.rs:466:37: replace || with && in ListingBuilder::value_head in 118s build + 315s test
+MISSED   src/tree/mirror/streaming/remote/codec/greeting.rs:148:37: replace || with && in parse_greeting in 175s build + 338s test
+MISSED   src/tree/mirror/streaming/remote/codec/greeting.rs:135:38: replace || with && in parse_greeting in 244s build + 345s test
+MISSED   src/tree/mirror/streaming/remote/codec/greeting.rs:172:44: replace || with && in parse_greeting in 105s build + 320s test
+MISSED   src/tree/mirror/streaming/remote/codec/greeting.rs:194:45: replace || with && in parse_greeting in 124s build + 325s test
+MISSED   src/tree/mirror/streaming/remote/codec/greeting.rs:276:32: replace || with && in read_greeting in 201s build + 332s test
+MISSED   src/tree/mirror/streaming/remote/codec/signal.rs:217:53: replace + with * in 108s build + 356s test
+MISSED   src/tree/mirror/streaming/remote/codec/signal.rs:287:82: replace - with / in 111s build + 373s test
+MISSED   src/tree/mirror/streaming/remote/codec/signal.rs:287:82: replace - with + in 119s build + 372s test
+MISSED   src/tree/mirror/streaming/remote/codec/signal.rs:287:66: replace * with + in 128s build + 368s test
+MISSED   src/tree/mirror/streaming/remote/codec/decode/async_io.rs:193:20: replace < with <= in AsyncFrameDecoder<'a, R>::supply in 126s build + 299s test
+MISSED   src/tree/mirror/streaming/remote/codec/decode/async_io.rs:221:41: replace || with && in AsyncFrameDecoder<'a, R>::record_prefix in 249s build + 301s test
+MISSED   src/tree/mirror/streaming/remote/proxy/work/encode.rs:54:5: replace terminal -> Result<(), Error<B::Error>> with Ok(()) in 204s build + 291s test
+MISSED   src/tree/mirror/streaming/remote/proxy/work/encode.rs:66:19: delete ! in terminal in 181s build + 284s test
+MISSED   src/tree/mirror/streaming/remote/proxy/work/pump.rs:516:16: delete ! in Early<B, Rx>::finish in 137s build + 197s test
+MISSED   src/tree/mirror/streaming/remote/proxy/work/pump.rs:475:25: replace > with >= in Early<B, Rx>::advance_to in 228s build + 189s test
+MISSED   src/tree/mirror/streaming/remote/proxy/work/pump.rs:512:9: replace Early<B, Rx>::finish -> Result<(), Error<B::Error>> with Ok(()) in 226s build + 189s test
+3141 mutants tested in 6h: 126 missed, 960 caught, 2055 unviable

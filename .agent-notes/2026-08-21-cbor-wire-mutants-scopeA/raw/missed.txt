@@ -1,0 +1,126 @@
+src/message.rs:111:9: replace <impl fmt::Display for PayloadDepthLimit>::fmt -> fmt::Result with Ok(Default::default())
+src/message.rs:586:9: replace <impl fmt::Debug for Message>::fmt -> fmt::Result with Ok(Default::default())
+src/message.rs:607:9: replace <impl Hash for Message>::hash with ()
+src/observe.rs:281:9: replace <impl std::fmt::Debug for Attachment>::fmt -> std::fmt::Result with Ok(Default::default())
+src/observe.rs:154:9: replace SessionObserver::elected with ()
+src/message.rs:599:9: replace <impl PartialEq for Message>::eq -> bool with true
+src/peer.rs:190:9: replace <impl std::fmt::Debug for Peer<T, B>>::fmt -> std::fmt::Result with Ok(Default::default())
+src/bookmark/format.rs:89:30: replace << with >>
+src/peer.rs:722:9: replace Peer<T, B>::warm_caches with ()
+src/bookmark/format.rs:240:34: replace | with ^ in push_head
+src/bookmark/format.rs:249:9: delete match arm 0x1_0000..= 0xffff_ffff in push_head
+src/bookmark/format.rs:242:28: replace | with ^ in push_head
+src/bookmark/format.rs:246:28: replace | with ^ in push_head
+src/bookmark/format.rs:250:28: replace | with & in push_head
+src/bookmark/format.rs:254:28: replace | with & in push_head
+src/bookmark/format.rs:250:28: replace | with ^ in push_head
+src/bookmark/format.rs:254:28: replace | with ^ in push_head
+src/bookmark/format.rs:346:13: delete match arm 26 in Reader<'a>::head
+src/bookmark/format.rs:350:13: delete match arm 27 in Reader<'a>::head
+src/tree/mirror/cbor.rs:72:34: replace | with ^ in write_head
+src/tree/mirror/cbor.rs:73:52: replace | with ^ in write_head
+src/tree/mirror/cbor.rs:83:28: replace | with ^ in write_head
+src/tree/mirror/cbor.rs:75:28: replace | with ^ in write_head
+src/tree/mirror/cbor.rs:79:28: replace | with ^ in write_head
+src/tree/mirror/framing.rs:41:48: replace * with +
+src/tree/mirror/cbor.rs:232:9: delete match arm 28..= 30 in extension_len
+src/tree/mirror/handshake.rs:88:24: replace > with >=
+src/tree/mirror/handshake.rs:189:54: replace && with || in Preamble::decode_legacy
+src/tree/mirror/handshake.rs:189:80: replace < with <= in Preamble::decode_legacy
+src/tree/mirror/handshake.rs:257:24: replace < with == in Preamble::decode_v2
+src/tree/mirror/handshake.rs:257:24: replace < with <= in Preamble::decode_v2
+src/tree/mirror/handshake.rs:387:9: replace Staged::is_empty -> bool with true
+src/tree/mirror/party.rs:197:45: replace match guard io.kind() == std::io::ErrorKind::UnexpectedEof with true in read_head
+src/tree/mirror/streaming/materialized.rs:894:13: delete match arm [Reaction::Supply(_, _)] in absorb
+src/tree/mirror/streaming/materialized.rs:886:48: replace match guard *radix == expected with true in absorb
+src/tree/mirror/streaming/stats.rs:279:9: replace <impl AsyncWrite for CountedWrite<W>>::poll_shutdown -> Poll<std::io::Result<()>> with Poll::from(Ok(()))
+src/tree/mirror/streaming/stats.rs:316:48: replace - with + in <impl AsyncRead for CountedRead<R>>::poll_read
+src/tree/mirror/streaming/tasks.rs:48:5: replace park_after_published_error with ()
+src/tree/mirror/streaming/window.rs:442:63: replace * with + in Window::from_budget
+src/tree/mirror/streaming/window.rs:442:63: replace * with / in Window::from_budget
+src/tree/mirror/streaming/window.rs:658:37: replace < with <= in small_mean_quantile
+src/tree/mirror/streaming/window.rs:708:10: replace > with >= in leaves_quantile
+src/tree/mirror/streaming/window.rs:714:24: replace > with < in leaves_quantile
+src/tree/mirror/streaming/window.rs:714:24: replace > with == in leaves_quantile
+src/tree/mirror/streaming/window.rs:714:24: replace > with >= in leaves_quantile
+src/tree/mirror/streaming/window.rs:751:15: replace || with && in stage_population
+src/tree/mirror/streaming/window.rs:759:19: replace - with / in stage_population
+src/tree/mirror/streaming/window.rs:759:19: replace - with + in stage_population
+src/tree/mirror/alternating/backend/remote.rs:188:13: delete match arm std::io::ErrorKind::UnexpectedEof in recv_msg_with
+src/tree/mirror/streaming/backend/local.rs:39:9: replace <impl Node for typed::Node<H>>::hash -> typed::Hash with Default::default()
+src/tree/mirror/streaming/materialized/unknown.rs:92:52: delete ! in unknown
+src/tree/mirror/streaming/remote/streams.rs:762:27: replace match guard head.major == cbor::MAJOR_UINT with true in label_item
+src/tree/mirror/alternating/backend/local/partition.rs:408:61: replace < with > in Exchange<Connected, L>::partition_leaf_uncertain
+src/tree/mirror/alternating/backend/local/partition.rs:545:56: replace | with & in Exchange<Connected, L>::close
+src/tree/mirror/streaming/materialized/work/answer.rs:124:41: replace && with || in leaf_parent
+src/tree/mirror/streaming/materialized/work/answer.rs:158:21: replace && with || in leaf_parent
+src/tree/mirror/streaming/materialized/work/levels.rs:365:26: replace + with * in Work<B>::internal_walk
+src/tree/mirror/streaming/materialized/work/levels.rs:369:26: replace + with * in Work<B>::internal_walk
+src/tree/mirror/streaming/materialized/work/levels.rs:370:47: replace + with * in Work<B>::internal_walk
+src/tree/mirror/streaming/materialized/work/resolver.rs:81:46: replace > with == in Resolver<'v, B>::react
+src/tree/mirror/streaming/materialized/work/resolver.rs:81:40: replace match guard radix > *next with false in Resolver<'v, B>::react
+src/tree/mirror/streaming/materialized/work/resolver.rs:81:46: replace > with >= in Resolver<'v, B>::react
+src/tree/mirror/streaming/remote/adapter/decode.rs:188:39: replace match guard !any with true in read_early
+src/tree/mirror/streaming/remote/adapter/encode.rs:250:5: replace validate_leaf with ()
+src/tree/mirror/streaming/remote/codec/budget.rs:88:5: replace + with *
+src/tree/mirror/streaming/remote/codec/budget.rs:102:59: replace - with +
+src/tree/mirror/streaming/remote/codec/budget.rs:102:59: replace - with /
+src/tree/mirror/streaming/remote/codec/capture.rs:288:21: replace match guard rest.is_empty() with true in render_item
+src/tree/mirror/streaming/remote/codec/capture.rs:349:16: replace >> with << in parse_node
+src/tree/mirror/streaming/remote/codec/capture.rs:355:9: delete match arm 1 in parse_node
+src/tree/mirror/streaming/remote/codec/capture.rs:376:53: replace + with * in parse_node
+src/tree/mirror/streaming/remote/codec/capture.rs:375:51: replace + with * in parse_node
+src/tree/mirror/streaming/remote/codec/capture.rs:383:46: replace + with * in parse_node
+src/tree/mirror/streaming/remote/codec/capture.rs:393:24: replace & with | in parse_major_seven
+src/tree/mirror/streaming/remote/codec/capture.rs:393:24: replace & with ^ in parse_major_seven
+src/tree/mirror/streaming/remote/codec/capture.rs:395:9: delete match arm 0..= 23 in parse_major_seven
+src/tree/mirror/streaming/remote/codec/capture.rs:409:9: delete match arm 25..= 27 in parse_major_seven
+src/tree/mirror/streaming/remote/codec/capture.rs:422:9: delete match arm 28..= 30 in parse_major_seven
+src/tree/mirror/streaming/remote/codec/capture.rs:399:9: delete match arm 24 in parse_major_seven
+src/tree/mirror/streaming/remote/codec/capture.rs:403:22: replace < with <= in parse_major_seven
+src/tree/mirror/streaming/remote/codec/capture.rs:410:32: replace << with >> in parse_major_seven
+src/tree/mirror/streaming/remote/codec/capture.rs:410:41: replace - with + in parse_major_seven
+src/tree/mirror/streaming/remote/codec/capture.rs:410:41: replace - with / in parse_major_seven
+src/tree/mirror/streaming/remote/codec/capture.rs:411:27: replace < with == in parse_major_seven
+src/tree/mirror/streaming/remote/codec/capture.rs:411:27: replace < with > in parse_major_seven
+src/tree/mirror/streaming/remote/codec/capture.rs:411:27: replace < with <= in parse_major_seven
+src/tree/mirror/streaming/remote/codec/capture.rs:417:34: replace | with & in parse_major_seven
+src/tree/mirror/streaming/remote/codec/capture.rs:417:34: replace | with ^ in parse_major_seven
+src/tree/mirror/streaming/remote/codec/capture.rs:417:29: replace << with >> in parse_major_seven
+src/tree/mirror/streaming/remote/codec/capture.rs:460:41: replace match guard text == "listing" with true in render_node
+src/tree/mirror/streaming/remote/codec/capture.rs:469:73: replace + with - in render_node
+src/tree/mirror/streaming/remote/codec/capture.rs:479:65: replace + with - in render_node
+src/tree/mirror/streaming/remote/codec/capture.rs:469:73: replace + with * in render_node
+src/tree/mirror/streaming/remote/codec/capture.rs:479:65: replace + with * in render_node
+src/tree/mirror/streaming/remote/codec/capture.rs:501:26: replace < with > in render_listing
+src/tree/mirror/streaming/remote/codec/capture.rs:532:70: replace + with - in render_listing
+src/tree/mirror/streaming/remote/codec/capture.rs:498:49: replace < with <= in render_listing
+src/tree/mirror/streaming/remote/codec/capture.rs:532:70: replace + with * in render_listing
+src/tree/mirror/streaming/remote/codec/capture.rs:580:9: delete match arm (crate::tags::CLOCK_TAG, Node::Bytes(bytes)) in render_tag
+src/tree/mirror/streaming/remote/codec/capture.rs:589:32: replace match guard scalar(scalar_content).is_some() with true in render_tag
+src/tree/mirror/streaming/remote/codec/capture.rs:589:32: replace match guard scalar(scalar_content).is_some() with false in render_tag
+src/tree/mirror/streaming/remote/codec/decode.rs:289:37: replace || with && in run_head
+src/tree/mirror/streaming/remote/codec/encode.rs:104:62: replace + with * in FrameEncoding<'a>::to_vec
+src/tree/mirror/streaming/remote/codec/frame.rs:108:9: replace <impl PartialEq for LeafRun>::eq -> bool with true
+src/tree/mirror/streaming/remote/codec/frame.rs:116:9: replace <impl std::fmt::Debug for LeafRun>::fmt -> std::fmt::Result with Ok(Default::default())
+src/tree/mirror/streaming/remote/codec/frame.rs:286:32: replace || with && in record_head
+src/tree/mirror/streaming/remote/codec/frame.rs:348:21: replace match guard head.major == MAJOR_TAG && head.value == crate::tags::VERSION_TAG with true in parse_record
+src/tree/mirror/streaming/remote/codec/frame.rs:348:45: replace && with || in parse_record
+src/tree/mirror/streaming/remote/codec/frame.rs:466:9: replace ListingBuilder::value_head -> Result<(), ListingIssue> with Ok(())
+src/tree/mirror/streaming/remote/codec/frame.rs:466:37: replace || with && in ListingBuilder::value_head
+src/tree/mirror/streaming/remote/codec/greeting.rs:148:37: replace || with && in parse_greeting
+src/tree/mirror/streaming/remote/codec/greeting.rs:135:38: replace || with && in parse_greeting
+src/tree/mirror/streaming/remote/codec/greeting.rs:172:44: replace || with && in parse_greeting
+src/tree/mirror/streaming/remote/codec/greeting.rs:194:45: replace || with && in parse_greeting
+src/tree/mirror/streaming/remote/codec/greeting.rs:276:32: replace || with && in read_greeting
+src/tree/mirror/streaming/remote/codec/signal.rs:217:53: replace + with *
+src/tree/mirror/streaming/remote/codec/signal.rs:287:82: replace - with /
+src/tree/mirror/streaming/remote/codec/signal.rs:287:82: replace - with +
+src/tree/mirror/streaming/remote/codec/signal.rs:287:66: replace * with +
+src/tree/mirror/streaming/remote/codec/decode/async_io.rs:193:20: replace < with <= in AsyncFrameDecoder<'a, R>::supply
+src/tree/mirror/streaming/remote/codec/decode/async_io.rs:221:41: replace || with && in AsyncFrameDecoder<'a, R>::record_prefix
+src/tree/mirror/streaming/remote/proxy/work/encode.rs:54:5: replace terminal -> Result<(), Error<B::Error>> with Ok(())
+src/tree/mirror/streaming/remote/proxy/work/encode.rs:66:19: delete ! in terminal
+src/tree/mirror/streaming/remote/proxy/work/pump.rs:516:16: delete ! in Early<B, Rx>::finish
+src/tree/mirror/streaming/remote/proxy/work/pump.rs:475:25: replace > with >= in Early<B, Rx>::advance_to
+src/tree/mirror/streaming/remote/proxy/work/pump.rs:512:9: replace Early<B, Rx>::finish -> Result<(), Error<B::Error>> with Ok(())

@@ -21,11 +21,4 @@ multiple-versions = "deny"
 # old line disappears from the lock turns into an unmatched-skip warning,
 # so stale entries name themselves. Requirements match the tolerated minor
 # line only: a third version of any of these still fails the check.
-skip = [
-    # embed-doc-image (the doc-images rustdoc feature) has not moved to
-    # the current base64.
-    { name = "base64", version = "0.13" },
-    # embed-doc-image (the pin above) and wezterm-dynamic-derive
-    # (before-viz's terminal layer) are still on syn 1.
-    { name = "syn", version = "1" },
-]
+skip = []

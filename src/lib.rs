@@ -343,7 +343,7 @@ pub use network::Network;
 pub(crate) use peer::Inner;
 pub use peer::{
     BookmarkedBootstrap, Bootstrap, DEFAULT_PAYLOAD_DEPTH_LIMIT, DEFAULT_SYNC_MEMORY_BUDGET,
-    DEFAULT_TARGET_MESSAGE_SIZE, Gossiped, Joined, Led, PayloadDepthLimit, Peer, Retire,
+    DEFAULT_TARGET_MESSAGE_SIZE, Gossip, Gossiped, Joined, Led, PayloadDepthLimit, Peer, Retire,
     Unbookmarked,
 };
 pub use protocol::Protocol;
