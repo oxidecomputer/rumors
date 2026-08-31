@@ -35,7 +35,8 @@ Interval Tree Clock library (`crates/before-viz` visualizes the clocks).
 The `justfile` is the source of truth for verification: every artifact in
 the workspace has a recipe there, and the comment above each recipe explains
 what it checks and why. `just --list` is the tour. Run `just gate` and get
-it fully clean before every commit.
+it fully clean before every commit that touches anything the gate checks;
+no gate leg reads `.agent-notes/`, so a commit confined there needs no run.
 
 ## Contributing a change
 
@@ -61,6 +62,8 @@ wants `wasm-pack` and node/npm.
    files that appear.
 4. Run `just gate` and get it fully clean before every commit: it adds
    everything the inner loop skips (the justfile's tier comments map it).
+   The gate gates what it checks: a commit confined to `.agent-notes/`
+   needs no run.
 5. Sweep your prose against the hard rules below before asking for
    review; nothing in the gate checks them mechanically.
 
