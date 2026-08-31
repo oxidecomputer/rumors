@@ -7,9 +7,11 @@ license = "MPL-2.0"
 readme = "README.md"
 
 [dependencies]
-rumors = { path = "../.." }
-tracing = "0.1"
-ciborium = "0.2"
+cbor-diag = { workspace = true }
+hex = { workspace = true }
+rumors = { workspace = true }
+tracing = { workspace = true }
 
 [dev-dependencies]
-tokio = { version = "1", features = ["rt", "macros"] }
+ciborium = { workspace = true }
+tokio = { workspace = true, features = ["rt", "macros"] }

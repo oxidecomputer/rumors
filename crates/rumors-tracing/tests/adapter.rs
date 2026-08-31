@@ -271,8 +271,7 @@ fn adapter_bridges_real_sessions() {
     for event in &message_events {
         let item = &event.fields["item"];
         assert!(!item.is_empty());
-        assert!(!item.contains("!undecodable"), "clean item: {item}");
-        assert!(!item.contains("!trailing"), "single item: {item}");
+        assert!(!item.contains("unrenderable"), "clean item: {item}");
     }
 
     // Sorting one session's events by ordinal reconstructs the

@@ -9,10 +9,10 @@
 //! already uses, and every session the peer enters becomes a span tree
 //! with each protocol message a structured event inside it. Because
 //! the wire is CBOR end to end, the adapter needs no knowledge of the
-//! protocol's message vocabulary: it unfolds each item generically and
-//! names only the registered rumors atom tags ([`rumors::tags`]) —
-//! deep inspection of application payloads comes free, since they are
-//! the application's own CBOR.
+//! protocol's message vocabulary: items render generically through the
+//! `cbor-diag` crate — deep inspection of application payloads comes
+//! free, since they are the application's own CBOR, and rumors' own
+//! tags read back through the [`rumors::tags`] registry.
 //!
 //! # Quickstart
 //!
@@ -64,13 +64,16 @@
 //!   `direction`, plus `speaker` and `index` for data streams.
 //! - **One `message` event per wire item** (level `DEBUG`, inside its
 //!   stream span): fields `ordinal` (see below), `len` (the item's
-//!   exact wire size in bytes), and `item` — the item rendered in RFC
-//!   8949 diagnostic-notation style, structure unfolded, embedded-CBOR
-//!   tags (24, 63) shown as `<<…>>`, rumors atom tags named
-//!   (`version(h'…')`), byte strings as hex. The rendering is bounded:
-//!   long byte strings, deep nesting, and long renderings all elide
-//!   with explicit marks, so events stay cheap under megabyte supply
-//!   runs.
+//!   exact wire size in bytes), and `item` — the item rendered by the
+//!   `cbor-diag` crate in RFC 8949 extended diagnostic notation:
+//!   structure unfolded, encoding indicators where a head is not the
+//!   immediate form, embedded-CBOR tags (24, 63) shown as `<<…>>`,
+//!   byte strings as hex, and tags by number ([`rumors::tags`] is the
+//!   decoder ring for rumors' own). The rendering is bounded: nesting
+//!   depth by `cbor-diag`'s default depth limit (embedded unfolds past
+//!   the budget fall back to plain byte strings) and rendered length
+//!   by a local cap with an explicit elision mark, so events stay
+//!   cheap under megabyte supply runs.
 //!
 //! # Ordering across streams
 //!
@@ -88,9 +91,11 @@
 //! Handlers run synchronously inside the session's stream tasks (see
 //! the hook's back-pressure contract in [`rumors::observe`]): the
 //! adapter therefore does bounded work per item — one parse plus one
-//! capped rendering — and only when the `message` event is enabled by
-//! your subscriber; a disabled target costs the enabled check plus one
-//! relaxed atomic increment (the ordinal must advance even unobserved).
+//! capped rendering, carried lazily so it runs only when a subscriber
+//! actually formats the `item` field — and only when the `message`
+//! event is enabled by your subscriber; a disabled target costs the
+//! enabled check plus one relaxed atomic increment (the ordinal must
+//! advance even unobserved).
 //! A subscriber that blocks inside `event` stalls the emitting stream,
 //! exactly as any slow [`StreamObserver`] would: keep slow sinks
 //! behind a channel.
@@ -231,7 +236,7 @@ impl StreamObserver for StreamAdapter {
             parent: &self.span,
             ordinal,
             len = bytes.len(),
-            item = %render::item(bytes),
+            item = %render::DiagCbor(bytes),
             "message",
         );
     }
