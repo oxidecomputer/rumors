@@ -1047,22 +1047,12 @@ fn starved_pool_degrades_latency_not_liveness() {
             .sync_window_floor()
             .into_rumors();
         {
-            seed.batch(|batch| {
-                for payload in 0..2048u64 {
-                    batch.send(payload)?;
-                }
-                Ok::<(), crate::message::EncodeError>(())
-            })
-            .expect("flat test payloads are within any depth limit");
+            seed.send_all(0..2048u64)
+                .expect("flat test payloads are within any depth limit");
         }
         {
             newcomer
-                .batch(|batch| {
-                    for payload in 2048..4096u64 {
-                        batch.send(payload)?;
-                    }
-                    Ok::<(), crate::message::EncodeError>(())
-                })
+                .send_all(2048..4096u64)
                 .expect("flat test payloads are within any depth limit");
         }
         let (near, far) = futures::future::join(seed.gossip(&mut a), newcomer.gossip(&mut b)).await;

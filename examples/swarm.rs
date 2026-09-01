@@ -427,13 +427,8 @@ fn main() -> io::Result<()> {
     let seed: Rumors<Payload> = Peer::seed().into_rumors();
     {
         let mut rng = SmallRng::from_entropy();
-        seed.batch(|batch| {
-            for _ in 0..args.seed_messages {
-                batch.send(random_message(&mut rng, args.message_size))?;
-            }
-            Ok::<(), rumors::EncodeError>(())
-        })
-        .expect("flat test payloads are within any depth limit");
+        seed.send_all((0..args.seed_messages).map(|_| random_message(&mut rng, args.message_size)))
+            .expect("flat test payloads are within any depth limit");
     }
     // Every party starts as a disjoint fork of the seed: same observations,
     // its own party region. The seed party itself only serves the initial

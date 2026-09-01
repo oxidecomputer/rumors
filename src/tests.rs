@@ -29,13 +29,8 @@ const PREAMBLE_LEN: usize = crate::tree::mirror::handshake::V2_PREAMBLE_LEN;
 
 /// Insert each of `vals` into `k` as one committed batch.
 fn with_messages(k: Peer<u64>, vals: &[u64]) -> Peer<u64> {
-    k.batch(|batch| {
-        for &v in vals {
-            batch.send(v)?;
-        }
-        Ok::<(), crate::message::EncodeError>(())
-    })
-    .expect("flat test payloads are within any depth limit");
+    k.send_all(vals.iter().copied())
+        .expect("flat test payloads are within any depth limit");
     k
 }
 

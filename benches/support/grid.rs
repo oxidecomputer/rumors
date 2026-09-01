@@ -27,6 +27,8 @@
 //! - small-delta = `common = n,  differing = k, redacted = 0` (small `k`)
 //! - identical   = `common = n,  differing = 0, redacted = 0`
 
+use std::iter;
+
 use rumors::{Peer, Rumors, Version};
 
 #[path = "wire.rs"]
@@ -56,12 +58,7 @@ pub const REDACTED: &[usize] = &[0, 1, 10, 100, 1_000, 10_000, 100_000];
 /// payload serialization.
 pub fn send_units(rumors: &Rumors<()>, n: usize) {
     rumors
-        .batch(|batch| {
-            for _ in 0..n {
-                batch.send(())?;
-            }
-            Ok::<(), rumors::EncodeError>(())
-        })
+        .send_all(iter::repeat_n((), n))
         .expect("flat test payloads are within any depth limit");
 }
 
@@ -170,21 +167,8 @@ pub fn build(cell: Cell) -> (Rumors<()>, Rumors<()>) {
         // prefix, so the other must honor `redacted` deletions it never made.
         // `cells` guarantees `common >= 2 * redacted`, so the slices don't
         // overlap and are in bounds.
-        left.batch(|batch| {
-            for version in &shared[..redacted] {
-                batch.redact(version);
-            }
-            Ok::<(), rumors::EncodeError>(())
-        })
-        .expect("flat test payloads are within any depth limit");
-        right
-            .batch(|batch| {
-                for version in &shared[redacted..2 * redacted] {
-                    batch.redact(version);
-                }
-                Ok::<(), rumors::EncodeError>(())
-            })
-            .expect("flat test payloads are within any depth limit");
+        left.redact_all(&shared[..redacted]);
+        right.redact_all(&shared[redacted..2 * redacted]);
     }
 
     (left, right)

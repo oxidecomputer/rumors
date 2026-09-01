@@ -67,14 +67,7 @@ where
     let left = Peer::seed().sync_memory_budget(budget).into_rumors();
     let mut rng = SmallRng::seed_from_u64(0x0b05_2026_7ade_0ff1);
     let mut send = |rumors: &Rumors<T>, n: usize, rng: &mut SmallRng| {
-        rumors
-            .batch(|batch| {
-                for _ in 0..n {
-                    batch.send(make(rng))?;
-                }
-                Ok::<(), rumors::EncodeError>(())
-            })
-            .expect("flat test payloads are within any depth limit");
+        rumors.send_all((0..n).map(|_| make(rng))).unwrap();
     };
     send(&left, COMMON, &mut rng);
 

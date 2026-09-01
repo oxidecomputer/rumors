@@ -88,12 +88,7 @@ fn diverged(budget: usize, divergent: usize) -> (Rumors<u64>, Rumors<u64>) {
 /// Commit `n` random payloads as one batch.
 fn send_random(rumors: &Rumors<u64>, n: usize, rng: &mut SmallRng) {
     rumors
-        .batch(|batch| {
-            for _ in 0..n {
-                batch.send(rng.next_u64())?;
-            }
-            Ok::<(), rumors::EncodeError>(())
-        })
+        .send_all((0..n).map(|_| rng.next_u64()))
         .expect("flat test payloads are within any depth limit");
 }
 

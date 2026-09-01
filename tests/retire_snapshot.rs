@@ -30,7 +30,7 @@ use rand::{SeedableRng as _, rngs::SmallRng};
 use rumors::{Peer, Retire, Rumors};
 
 use crate::common::gossip_snapshot::{capture_session, observed};
-use crate::common::wire::{batch_send, bootstrap_fork};
+use crate::common::wire::bootstrap_fork;
 
 /// A seed universe from a fixed RNG, so the [`rumors::Network`] id and every
 /// party forked from it are deterministic and these captures stay reproducible.
@@ -109,8 +109,8 @@ fn mutual_retire_declines() {
     let seed = seeded();
     let a = bootstrap_fork(&seed);
     let b = seed;
-    batch_send(&a, [1, 2]);
-    batch_send(&b, [3, 4]);
+    a.send_all([1, 2]).unwrap();
+    b.send_all([3, 4]).unwrap();
 
     let capture = capture_session(
         move |mut link, hook| async move {
@@ -153,7 +153,7 @@ fn mutual_retire_declines() {
 fn retire_into_bootstrapper() {
     let seed = seeded();
     let retiree = bootstrap_fork(&seed);
-    batch_send(&retiree, [1, 2]);
+    retiree.send_all([1, 2]).unwrap();
 
     let capture = capture_session(
         |mut link, hook| async move {

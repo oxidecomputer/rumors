@@ -26,14 +26,7 @@ pub fn path_radix(version: &Version) -> u8 {
 /// Send `count` messages carrying the payloads `from..from + count`, as
 /// one batch: one fresh version per payload, in payload order.
 pub fn send_pool(rumors: &Rumors<u64>, from: u64, count: u64) {
-    rumors
-        .batch(|batch| {
-            for value in from..from + count {
-                batch.send(value)?;
-            }
-            Ok::<(), rumors::EncodeError>(())
-        })
-        .expect("flat test payloads are within any depth limit");
+    rumors.send_all(from..from + count).unwrap();
 }
 
 /// The live pool as `(payload, version)` in ascending payload order,
@@ -59,14 +52,7 @@ pub fn keep_only(rumors: &Rumors<u64>, from: u64, count: u64, keep: &[u64]) {
         .filter(|(_, m)| (from..from + count).contains(m) && !keep.contains(m))
         .map(|(v, _)| v.clone())
         .collect();
-    rumors
-        .batch(|batch| {
-            for version in &losers {
-                batch.redact(version);
-            }
-            Ok::<(), rumors::EncodeError>(())
-        })
-        .expect("flat test payloads are within any depth limit");
+    rumors.redact_all(&losers);
 }
 
 /// The first pool pair (in payload order) whose paths agree on the

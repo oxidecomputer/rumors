@@ -685,13 +685,7 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
         .apply(Peer::<u64>::seed())
         .into_rumors();
     {
-        seed.batch(|batch| {
-            for &v in &plan.seed_messages {
-                batch.send(v)?;
-            }
-            Ok::<(), rumors::EncodeError>(())
-        })
-        .expect("flat test payloads are within any depth limit");
+        seed.send_all(plan.seed_messages.iter().copied()).unwrap();
     }
     let mut fleet: Vec<Rumors<u64>> = vec![seed];
     for i in 1..plan.n_peers {

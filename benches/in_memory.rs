@@ -39,6 +39,7 @@
 //! - `get`: a point lookup by [`Version`] in a size-N set.
 
 use std::hint::black_box;
+use std::iter;
 
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use futures::{FutureExt, StreamExt};
@@ -58,12 +59,7 @@ const DELTAS: &[usize] = &[1, 100, 10_000];
 /// Commit `n` unit payloads to `rumors` as one batch.
 fn send_units(rumors: &Rumors<()>, n: usize) {
     rumors
-        .batch(|batch| {
-            for _ in 0..n {
-                batch.send(())?;
-            }
-            Ok::<(), rumors::EncodeError>(())
-        })
+        .send_all(iter::repeat_n((), n))
         .expect("flat test payloads are within any depth limit");
 }
 
@@ -147,14 +143,7 @@ fn bench_redact(c: &mut Criterion) {
             b.iter_batched(
                 || build(n),
                 |(rumors, versions)| {
-                    rumors
-                        .batch(|batch| {
-                            for version in &versions {
-                                batch.redact(black_box(version));
-                            }
-                            Ok::<(), rumors::EncodeError>(())
-                        })
-                        .expect("flat test payloads are within any depth limit");
+                    rumors.redact_all(versions.iter().map(black_box));
                     rumors
                 },
                 BatchSize::PerIteration,

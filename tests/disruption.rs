@@ -705,13 +705,7 @@ async fn run_proc_plan(plan: ProcPlan) {
     // so inbound sessions can overlap arbitrarily.
     let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
     {
-        seed.batch(|batch| {
-            for &v in &plan.seed_messages {
-                batch.send(v)?;
-            }
-            Ok::<(), rumors::EncodeError>(())
-        })
-        .expect("flat test payloads are within any depth limit");
+        seed.send_all(plan.seed_messages.iter().copied()).unwrap();
     }
     let mut casts: Vec<Rumors<u64>> = vec![seed];
     for _ in 1..plan.n_parent_peers {

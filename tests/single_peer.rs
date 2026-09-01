@@ -19,13 +19,7 @@ use serde::Serializer;
 /// created (recovered as the live leaves above the pre-commit frontier).
 fn batch_send(peer: &Rumors<u64>, values: &[u64]) -> Vec<Version> {
     let pre = peer.snapshot().latest().clone();
-    peer.batch(|batch| {
-        for v in values {
-            batch.send(*v)?;
-        }
-        Ok::<(), rumors::EncodeError>(())
-    })
-    .expect("flat test payloads are within any depth limit");
+    peer.send_all(values.iter().copied()).unwrap();
     peer.snapshot()
         .range(causally::since(&pre))
         .map(|(v, _)| v.clone())
@@ -243,6 +237,18 @@ fn a_batch_commits_iff_the_closure_returns_ok() {
     assert!(live.contains(&1) && live.contains(&2));
 }
 
+/// Pure CBOR array nesting from a type satisfying the payload contract:
+/// each layer is a one-element array, the innermost empty. `nested(n)`
+/// is `n` layers deep.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+struct Arr(Vec<Arr>);
+
+impl Arr {
+    fn nested(layers: usize) -> Self {
+        (0..layers).fold(Arr(vec![]), |a, _| Arr(vec![a]))
+    }
+}
+
 /// A depth-rejected send, `?`-propagated out of the closure, cancels
 /// the whole batch: earlier-queued actions included — the
 /// cancel-on-error pin.
@@ -251,16 +257,12 @@ fn a_batch_commits_iff_the_closure_returns_ok() {
 /// untouched.
 #[test]
 fn a_depth_error_cancels_the_whole_batch() {
-    /// Pure CBOR array nesting from a type satisfying the payload
-    /// contract: each layer is a one-element array, the innermost empty.
-    #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-    struct Arr(Vec<Arr>);
     let limit = rumors::PayloadDepthLimit::new(4);
     let rumors: Rumors<Arr> = Peer::seed()
         .payload_depth_limit(limit)
         .sync_window_floor()
         .into_rumors();
-    let deep = (1..5).fold(Arr(vec![]), |a, _| Arr(vec![a]));
+    let deep = Arr::nested(4);
 
     let error = rumors
         .batch(|batch| {
@@ -297,6 +299,141 @@ fn a_user_error_cancels_the_batch() {
         rumors.snapshot().len(),
         0,
         "an aborted batch commits nothing"
+    );
+}
+
+/// [`Rumors::send_all`](rumors::Rumors::send_all) is one all-or-nothing
+/// commit: a depth-rejected message anywhere in the iterator is the
+/// returned error, and nothing lands.
+///
+/// The messages admitted before the rejected one are cancelled with it,
+/// and admission stops at the rejected message rather than draining the
+/// iterator.
+#[test]
+fn send_all_commits_nothing_when_a_message_is_rejected() {
+    let limit = rumors::PayloadDepthLimit::new(4);
+    let rumors: Rumors<Arr> = Peer::seed()
+        .payload_depth_limit(limit)
+        .sync_window_floor()
+        .into_rumors();
+
+    let mut drawn = 0;
+    let error = rumors
+        .send_all(
+            [
+                Arr::nested(0),
+                Arr::nested(1),
+                Arr::nested(4),
+                Arr::nested(2),
+            ]
+            .into_iter()
+            .inspect(|_| drawn += 1),
+        )
+        .expect_err("the third message exceeds the limit");
+    assert!(
+        matches!(error, rumors::EncodeError::Depth { limit: l } if l == limit),
+        "the rejection is the typed depth case naming the limit: {error:?}"
+    );
+    assert_eq!(
+        rumors.snapshot().len(),
+        0,
+        "a rejected send_all commits nothing, earlier-admitted messages included"
+    );
+    assert_eq!(drawn, 3, "admission stops at the rejected message");
+}
+
+/// [`Rumors::redact_all`](rumors::Rumors::redact_all) removes every held
+/// version it names, skips versions not currently held, and lands as
+/// one commit: a change observer sees exactly one tick for the whole
+/// redaction.
+#[test]
+fn redact_all_removes_the_held_skips_the_unheld_and_commits_once() {
+    use futures::{FutureExt, StreamExt};
+
+    let rumors: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+    batch_send(&rumors, &[1, 2, 3, 4]);
+    // Versions come back through observation, by payload: a batch's
+    // versions carry no input-order correspondence.
+    let version_of = |payload: u64| -> Version {
+        rumors
+            .snapshot()
+            .iter()
+            .find(|(_, m)| **m == payload)
+            .map(|(v, _)| v.clone())
+            .expect("the payload is live")
+    };
+    let targets = [version_of(1), version_of(2), version_of(3)];
+    // Redacting the first version singly makes it a version not held
+    // when the bulk redaction names it again.
+    rumors.redact(&targets[0]);
+
+    let mut changes = rumors.changes();
+    assert_eq!(
+        changes.next().now_or_never(),
+        Some(Some(())),
+        "a fresh observer's first tick is immediate"
+    );
+    assert_eq!(changes.next().now_or_never(), None, "then quiet");
+
+    rumors.redact_all(&targets);
+    assert_eq!(
+        changes.next().now_or_never(),
+        Some(Some(())),
+        "the whole redaction is one commit, one tick"
+    );
+    assert_eq!(changes.next().now_or_never(), None, "and only one");
+
+    let live: Vec<u64> = rumors.snapshot().iter().map(|(_, m)| *m).collect();
+    assert_eq!(
+        live,
+        vec![4],
+        "the two held versions are gone, the unheld one skipped, the rest untouched"
+    );
+}
+
+/// A rejected [`Batch::send_all`](rumors::Batch::send_all) handled inside
+/// the closure leaves the batch alive with the admitted prefix queued.
+///
+/// A [`Batch::redact_all`] in the same closure lands with that prefix as
+/// one commit.
+///
+/// [`Batch::redact_all`]: rumors::Batch::redact_all
+#[test]
+fn batch_send_all_handled_locally_keeps_the_admitted_prefix() {
+    let limit = rumors::PayloadDepthLimit::new(4);
+    let rumors: Rumors<Arr> = Peer::seed()
+        .payload_depth_limit(limit)
+        .sync_window_floor()
+        .into_rumors();
+    rumors.send_all([Arr::nested(3)]).unwrap();
+    let doomed: Vec<Version> = rumors.snapshot().iter().map(|(v, _)| v.clone()).collect();
+
+    rumors
+        .batch(|batch| {
+            let error = batch
+                .send_all([
+                    Arr::nested(0),
+                    Arr::nested(1),
+                    Arr::nested(4),
+                    Arr::nested(2),
+                ])
+                .expect_err("the third message exceeds the limit");
+            assert!(matches!(error, rumors::EncodeError::Depth { .. }));
+            batch.redact_all(&doomed);
+            Ok::<(), rumors::EncodeError>(())
+        })
+        .expect("the closure handles the rejection itself");
+
+    let mut live: Vec<Arr> = rumors
+        .snapshot()
+        .iter()
+        .map(|(_, m)| (*m).clone())
+        .collect();
+    live.sort_by_key(|a| a.0.len());
+    assert_eq!(
+        live,
+        vec![Arr::nested(0), Arr::nested(1)],
+        "the admitted prefix and the redaction land together; the rest never queued"
     );
 }
 

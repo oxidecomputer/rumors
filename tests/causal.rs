@@ -21,7 +21,7 @@ use proptest::prelude::*;
 use rumors::{CausalMessages, Peer, Rumors, Version};
 
 use crate::common::action::created_version;
-use crate::common::wire::{batch_send, bootstrap_fork, wire_gossip};
+use crate::common::wire::{bootstrap_fork, wire_gossip};
 
 /// One observer step, with the borrowed faces cloned out.
 #[derive(Debug, PartialEq)]
@@ -161,8 +161,8 @@ fn delivery_order_is_replica_independent() {
     let a = Peer::<u64>::seed().sync_window_floor().into_rumors();
     let b = bootstrap_fork(&a);
 
-    batch_send(&a, [1, 2]);
-    batch_send(&b, [3, 4]);
+    a.send_all([1, 2]).unwrap();
+    b.send_all([3, 4]).unwrap();
     wire_gossip(&a, &b);
     a.send(5).unwrap();
     b.send(6).unwrap();
@@ -198,7 +198,7 @@ fn live_passes_preserve_causal_order_cumulatively() {
     a.send(1).unwrap();
     delivered.extend(drain(&mut obs).0);
 
-    batch_send(&b, [2, 3]);
+    b.send_all([2, 3]).unwrap();
     wire_gossip(&a, &b);
     delivered.extend(drain(&mut obs).0);
 
@@ -306,7 +306,7 @@ fn staged_then_redacted_is_still_delivered() {
 #[test]
 fn observer_drains_the_final_state_causally_then_ends() {
     let known = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    batch_send(&known, [1, 2, 3]);
+    known.send_all([1, 2, 3]).unwrap();
     let expected = live_map(&known);
 
     let mut obs = known.causal_messages();

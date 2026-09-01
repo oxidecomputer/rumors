@@ -88,13 +88,8 @@ fn controller_converges_through_retargeting() {
     let seed: Rumors<Payload> = Peer::seed().into_rumors();
     {
         let mut rng = SmallRng::seed_from_u64(0x5eed);
-        seed.batch(|batch| {
-            for _ in 0..100 {
-                batch.send(random_message(&mut rng, TEST_MESSAGE_SIZE))?;
-            }
-            Ok::<(), rumors::EncodeError>(())
-        })
-        .expect("flat test payloads are within any depth limit");
+        seed.send_all((0..100).map(|_| random_message(&mut rng, TEST_MESSAGE_SIZE)))
+            .expect("flat test payloads are within any depth limit");
     }
     let mut parties = [
         Party::new(
