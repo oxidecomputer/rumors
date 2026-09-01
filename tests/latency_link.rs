@@ -16,7 +16,7 @@ mod latency;
 
 use std::time::Duration;
 
-use rumors::{Peer, Protocol, Rumors};
+use rumors::{Peer, Rumors};
 
 /// Commit `values` to `rumors` as one batch; flat `u64` payloads are
 /// within any depth limit, so admission cannot fail here.
@@ -69,9 +69,7 @@ fn diverged_pair() -> (Rumors<u64>, Rumors<u64>) {
         let (mut provider, mut newcomer) = rumors::link::memory_with_capacity(ROOMY_CAPACITY);
         let (served, joined) = tokio::join!(
             left.gossip(&mut provider),
-            Peer::<u64>::bootstrap()
-                .protocol(Protocol::V2)
-                .join(&mut newcomer),
+            Peer::<u64>::bootstrap().join(&mut newcomer),
         );
         served.expect("serve bootstrap");
         joined

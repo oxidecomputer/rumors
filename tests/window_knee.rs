@@ -25,7 +25,7 @@ use std::time::Duration;
 use rand::rngs::SmallRng;
 use rand::{RngCore, SeedableRng};
 use rumors::testing::window_capacities;
-use rumors::{Peer, Protocol, Rumors};
+use rumors::{Peer, Rumors};
 
 /// A budget sized so the binding capacity lands in the low hundreds:
 /// small enough that a modest divergence crosses the knee at test scale,
@@ -195,9 +195,7 @@ fn diverged(divergent: usize) -> (Rumors<u64>, Rumors<u64>) {
         let (mut provider, mut newcomer) = rumors::link::memory_with_capacity(LINK_CAPACITY);
         let (served, joined) = tokio::join!(
             left.gossip(&mut provider),
-            Peer::<u64>::bootstrap()
-                .protocol(Protocol::V2)
-                .join(&mut newcomer),
+            Peer::<u64>::bootstrap().join(&mut newcomer),
         );
         served.expect("serve bootstrap");
         joined

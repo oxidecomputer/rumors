@@ -13,8 +13,10 @@
 //! `main.rs` — the deepest such anchor above the source — then reads
 //! `<the anchor's parent>/proptest-regressions/<suffix>.txt`, where the
 //! suffix is the source's path below the anchor; where no anchor exists
-//! on the walk (integration-test binaries), it falls back to the
-//! sibling `<source>.proptest-regressions` file. A seed anywhere else —
+//! on the walk, it falls back to the sibling
+//! `<source>.proptest-regressions` file (this tree pins an anchor over
+//! every proptest suite — `tests/main.rs` is the integration suites' —
+//! so the fallback is never a sanctioned seed location here). A seed anywhere else —
 //! however plausible the path looks — is never read: it sits committed,
 //! looking like coverage, replaying nothing. This sweep reconstructs
 //! that resolution in reverse for every committed file under a seed

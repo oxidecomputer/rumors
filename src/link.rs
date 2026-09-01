@@ -280,8 +280,7 @@ impl<A: Acceptor> Acceptor for &mut A {
 ///
 /// Every session on a link resolves in one of three ways:
 ///
-/// - **`Ok`: both replicas committed.** Under the default
-///   [`Protocol::V2`](crate::Protocol::V2) the session ends with each side
+/// - **`Ok`: both replicas committed.** The session ends with each side
 ///   exchanging a completion marker on the control stream, so `Ok`
 ///   certifies that the *peer* completed and committed too: every message
 ///   and identity the session moved is applied on both ends. The link rests
@@ -290,8 +289,7 @@ impl<A: Acceptor> Acceptor for &mut A {
 ///   which case that side observes
 ///   [`Error::Epilogue`](crate::Error::Epilogue), an `Err` whose local
 ///   replica is nonetheless fully committed (the error's docs explain why
-///   the gap cannot be closed). (The frozen `V1` oracle wire has no marker
-///   exchange; its `Ok` certifies only the local commit.)
+///   the gap cannot be closed).
 /// - **`Err`: the local replica is unchanged, and the link is poisoned.**
 ///   The failed session leaves the control stream mid-frame, so every later
 ///   session on the link fails fast with

@@ -35,18 +35,16 @@ use before::Party;
 use futures::future::BoxFuture;
 use tokio::io::{duplex, split};
 
-use super::{EPILOGUE_MARKER, alternating_error, epilogue, erase, streaming_error};
+use super::{EPILOGUE_MARKER, epilogue, erase, streaming_error};
 use crate::link::{Link, MemoryLink, memory};
 use crate::observe::SessionHandle;
 use crate::tree::mirror::{
-    alternating::{self, local as alternating_local, remote as alternating_remote},
-    framing::{FrameRead, FrameWrite},
     handshake::{self, Intent},
     party,
     streaming::{self, Local, materialized, remote as streaming_remote},
 };
 use crate::tree::{self, Tree};
-use crate::{Error, Network, Peer, Protocol};
+use crate::{Error, Network, Peer};
 
 /// Unwrap the sole error variant the epilogue can produce.
 fn epilogue_error(result: Result<(), Error>) -> std::io::Error {
@@ -207,9 +205,8 @@ async fn claim_bootstrap_v2(
     root: tree::Root,
 ) -> Result<(Party, Tree<u64>), Error> {
     let (read, write, connector, acceptor, epoch) = erase(link)?;
-    let mut staged = handshake::Staged::new(Protocol::V2);
+    let mut staged = handshake::Staged::new();
     handshake::preamble(
-        Protocol::V2,
         Network::BOOTSTRAP,
         Intent::Remain,
         &mut staged,
@@ -232,47 +229,9 @@ async fn claim_bootstrap_v2(
         .map_err(streaming_error)?;
     let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
     let (root, (mut read, mut write)) = descent.await.map_err(streaming_error)?;
-    let party = party::receive(Protocol::V2, &mut read, &SessionHandle::default()).await?;
+    let party = party::receive(&mut read, &SessionHandle::default()).await?;
     epilogue(&mut read, &mut write, &SessionHandle::default()).await?;
     Ok((party, Tree::from_root(root.into())))
-}
-
-/// Drive one V1 session as a bootstrap claimant whose greeting version comes
-/// from `root` instead of a newborn's empty version.
-///
-/// [`claim_bootstrap_v2`]'s alternating-protocol twin; the frozen V1 wire has
-/// no epilogue.
-async fn claim_bootstrap_v1(
-    link: &mut MemoryLink,
-    root: tree::Root,
-) -> Result<(Party, Tree<u64>), Error> {
-    let (read, write, _connector, _acceptor, _epoch) = erase(link)?;
-    let mut staged = handshake::Staged::new(Protocol::V1);
-    handshake::preamble(
-        Protocol::V1,
-        Network::BOOTSTRAP,
-        Intent::Remain,
-        &mut staged,
-        read,
-        write,
-        &SessionHandle::default(),
-    )
-    .await
-    .map_err(Error::from)?;
-    let local = alternating_local::Exchange::start(root);
-    let proxy = alternating_remote::Exchange::start(
-        FrameRead::new(read),
-        FrameWrite::new(write),
-        PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
-    );
-    let handshaken = alternating::handshake(local, proxy)
-        .await
-        .map_err(alternating_error)?;
-    let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
-    let (root, (read, _write)) = descent.await.map_err(alternating_error)?;
-    let mut read = read.into_inner();
-    let party = party::receive(Protocol::V1, &mut read, &SessionHandle::default()).await?;
-    Ok((party, Tree::from_root(root)))
 }
 
 /// A provider holding `values`, plus its pre-session root hash.
@@ -371,65 +330,6 @@ fn v2_bootstrap_claimant_declaring_history_is_rejected() {
     );
 }
 
-/// A provider serving a bootstrap rejects, under V1, a claimant whose
-/// greeting declares causal history: [`Error::BootstrapHistoryConflict`],
-/// nothing moved.
-///
-/// The alternating protocol's deletion-honoring filter trusts the greeting
-/// version exactly as the streaming protocol's does, so the newborn
-/// requirement is enforced protocol-independently, above both descents.
-#[test]
-fn v1_bootstrap_claimant_declaring_history_is_rejected() {
-    let provider = provider_with(&[1, 2, 3]).protocol(Protocol::V1);
-    let hash_before = provider.snapshot().hash();
-    let party_before = party_of(&provider);
-    let claimant_tree = Tree::<()>::from_root(redacted_history_root(8));
-    let claimed_min_events = claimant_tree.latest().min_ticks();
-
-    let provider_ref = &provider;
-    let (claim_out, (first, second)) = pollster::block_on(async {
-        let (mut a_link, mut b_link) = memory();
-        tokio::join!(
-            async move { claim_bootstrap_v1(&mut a_link, claimant_tree.root).await },
-            async move {
-                let first = provider_ref.gossip(&mut b_link).await;
-                // The second session on the same link must fail fast,
-                // before any wire traffic: the rejection poisoned it.
-                let second = provider_ref.gossip(&mut b_link).await;
-                (first, second)
-            },
-        )
-    });
-
-    match first {
-        Err(Error::BootstrapHistoryConflict {
-            claimed_min_events: reported,
-        }) => assert_eq!(
-            reported, claimed_min_events,
-            "the error carries the claimed history's event floor",
-        ),
-        other => panic!("the provider rejects the claimant, got {other:?}"),
-    }
-    assert!(
-        matches!(second, Err(Error::LinkPoisoned)),
-        "the failed session poisons the link, got {second:?}",
-    );
-    assert!(
-        claim_out.is_err(),
-        "the rejected claimant's session fails, got {claim_out:?}",
-    );
-    assert_eq!(
-        provider.snapshot().hash(),
-        hash_before,
-        "the provider's content is unchanged",
-    );
-    assert_eq!(
-        party_of(&provider),
-        party_before,
-        "the speculative bootstrap fork snapped back in place",
-    );
-}
-
 /// A joining peer rejects, under V2, a mutual-bootstrap counterparty whose
 /// greeting declares causal history, instead of bailing as if the
 /// encounter were two honest newborns.
@@ -446,37 +346,6 @@ fn v2_mutual_bootstrap_counterparty_with_history_is_rejected() {
         tokio::join!(
             async move { Peer::<u64>::bootstrap().join(&mut a_link).await },
             async move { claim_bootstrap_v2(&mut b_link, redacted_history_root(8)).await },
-        )
-    });
-
-    assert!(
-        matches!(join_out, Err(Error::BootstrapHistoryConflict { .. })),
-        "the joining side rejects the counterparty's claimed history, got {join_out:?}",
-    );
-    assert!(
-        claim_out.is_err(),
-        "the rejected counterparty's session fails, got {claim_out:?}",
-    );
-}
-
-/// A joining peer rejects, under V1, a mutual-bootstrap counterparty whose
-/// greeting declares causal history.
-///
-/// [`v2_mutual_bootstrap_counterparty_with_history_is_rejected`]'s
-/// alternating-protocol twin: the rejection replaces the mutual bail on
-/// the frozen V1 wire too.
-#[test]
-fn v1_mutual_bootstrap_counterparty_with_history_is_rejected() {
-    let (join_out, claim_out) = pollster::block_on(async {
-        let (mut a_link, mut b_link) = memory();
-        tokio::join!(
-            async move {
-                Peer::<u64>::bootstrap()
-                    .protocol(Protocol::V1)
-                    .join(&mut a_link)
-                    .await
-            },
-            async move { claim_bootstrap_v1(&mut b_link, redacted_history_root(8)).await },
         )
     });
 

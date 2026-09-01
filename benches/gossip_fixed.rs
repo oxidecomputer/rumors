@@ -6,10 +6,8 @@
 //! drives [`Rumors::gossip`] over one persistent in-memory link, so the timed
 //! body pays for the gossip session rather than transport allocation.
 //!
-//! Each of the four Criterion groups measures [`Protocol::V2`] on the same
-//! fixtures — and [`Protocol::V1`] alongside it when the `protocol-v1`
-//! feature is enabled (`cargo bench --features protocol-v1 gossip_fixed`),
-//! which is the comparative-measurement path that feature exists for:
+//! The four Criterion groups measure the wire protocol on the same
+//! fixtures (each series is labeled `V2`, the dialect it measures):
 //!
 //! - `gossip_fixed_bidir_insertions`: total post-fork insertions `I`.
 //! - `gossip_fixed_bidir_redactions`: total post-fork redactions `R`.
@@ -47,7 +45,7 @@ use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, 
 use rand::rngs::SmallRng;
 use rand::seq::SliceRandom;
 use rand::{RngCore, SeedableRng};
-use rumors::{Peer, Protocol, Rumors, Version};
+use rumors::{Peer, Rumors, Version};
 
 // The shared grid module exposes a superset of helpers; this bench only needs
 // its sample-size policy so fixed-N runs line up with the existing benches.
@@ -87,12 +85,6 @@ const LATENCY_REDACTIONS: &[usize] = &[2_500];
 /// bandwidth-delay throttling (the window caps per-stream throughput at
 /// `capacity / delay`).
 const LATENCY_CAPACITY: usize = 8 * 1024 * 1024;
-
-/// The protocols under measurement: V1 joins the sweep only when built in.
-#[cfg(feature = "protocol-v1")]
-const PROTOCOLS: [Protocol; 2] = [Protocol::V1, Protocol::V2];
-#[cfg(not(feature = "protocol-v1"))]
-const PROTOCOLS: [Protocol; 1] = [Protocol::V2];
 
 #[derive(Clone, Copy)]
 enum Scenario {
@@ -135,12 +127,12 @@ impl Scenario {
         }
     }
 
-    fn build(self, protocol: Protocol, param: usize) -> (Rumors<u8>, Rumors<u8>) {
+    fn build(self, param: usize) -> (Rumors<u8>, Rumors<u8>) {
         match self {
-            Scenario::BidirInsertions => build_bidir_insertions(protocol, param),
-            Scenario::BidirRedactions => build_bidir_redactions(protocol, param),
-            Scenario::UnilateralInsertions => build_unilateral_insertions(protocol, param),
-            Scenario::UnilateralRedactions => build_unilateral_redactions(protocol, param),
+            Scenario::BidirInsertions => build_bidir_insertions(param),
+            Scenario::BidirRedactions => build_bidir_redactions(param),
+            Scenario::UnilateralInsertions => build_unilateral_insertions(param),
+            Scenario::UnilateralRedactions => build_unilateral_redactions(param),
         }
     }
 }
@@ -159,15 +151,13 @@ fn bench_gossip_fixed(c: &mut Criterion) {
 
         for param in (0..=scenario.max_param()).step_by(scenario.step()) {
             group.throughput(Throughput::Elements(param as u64));
-            for protocol in PROTOCOLS {
-                group.bench_function(BenchmarkId::new(format!("{protocol:?}"), param), |b| {
-                    b.iter_batched(
-                        || warmed(scenario.build(protocol, param)),
-                        |(left, right)| black_box(wire.round_trip(left, right)),
-                        BatchSize::PerIteration,
-                    )
-                });
-            }
+            group.bench_function(BenchmarkId::new("V2", param), |b| {
+                b.iter_batched(
+                    || warmed(scenario.build(param)),
+                    |(left, right)| black_box(wire.round_trip(left, right)),
+                    BatchSize::PerIteration,
+                )
+            });
         }
 
         group.finish();
@@ -196,23 +186,21 @@ fn bench_gossip_latency(c: &mut Criterion) {
             let delay = Duration::from_millis(latency_ms);
             let mut wire = latency::DelayedWire::new(LATENCY_CAPACITY, delay);
             for &param in params {
-                for protocol in PROTOCOLS {
-                    group.bench_function(
-                        BenchmarkId::new(format!("{protocol:?}/divergence={param}"), latency_ms),
-                        |b| {
-                            b.iter_custom(|iters| {
-                                let mut total = Duration::ZERO;
-                                for _ in 0..iters {
-                                    let (left, right) = warmed(scenario.build(protocol, param));
-                                    let (pair, elapsed) = wire.round_trip(left, right);
-                                    black_box(pair);
-                                    total += elapsed;
-                                }
-                                total
-                            })
-                        },
-                    );
-                }
+                group.bench_function(
+                    BenchmarkId::new(format!("V2/divergence={param}"), latency_ms),
+                    |b| {
+                        b.iter_custom(|iters| {
+                            let mut total = Duration::ZERO;
+                            for _ in 0..iters {
+                                let (left, right) = warmed(scenario.build(param));
+                                let (pair, elapsed) = wire.round_trip(left, right);
+                                black_box(pair);
+                                total += elapsed;
+                            }
+                            total
+                        })
+                    },
+                );
             }
         }
 
@@ -220,12 +208,12 @@ fn bench_gossip_latency(c: &mut Criterion) {
     }
 }
 
-fn build_bidir_insertions(protocol: Protocol, total_insertions: usize) -> (Rumors<u8>, Rumors<u8>) {
+fn build_bidir_insertions(total_insertions: usize) -> (Rumors<u8>, Rumors<u8>) {
     assert!(total_insertions <= N);
     assert_eq!(total_insertions % 2, 0);
 
-    let left = seeded_with_messages(protocol, N - total_insertions, 0x1189_2d1a_c54f_a94d);
-    let right = grid::wire::bootstrap_fork(&left, protocol);
+    let left = seeded_with_messages(N - total_insertions, 0x1189_2d1a_c54f_a94d);
+    let right = grid::wire::bootstrap_fork(&left);
     let per_side = total_insertions / 2;
 
     send_all(
@@ -240,14 +228,11 @@ fn build_bidir_insertions(protocol: Protocol, total_insertions: usize) -> (Rumor
     (left, right)
 }
 
-fn build_unilateral_insertions(
-    protocol: Protocol,
-    total_insertions: usize,
-) -> (Rumors<u8>, Rumors<u8>) {
+fn build_unilateral_insertions(total_insertions: usize) -> (Rumors<u8>, Rumors<u8>) {
     assert!(total_insertions <= N);
 
-    let left = seeded_with_messages(protocol, N - total_insertions, 0x70e4_a5b8_cce0_25da);
-    let right = grid::wire::bootstrap_fork(&left, protocol);
+    let left = seeded_with_messages(N - total_insertions, 0x70e4_a5b8_cce0_25da);
+    let right = grid::wire::bootstrap_fork(&left);
 
     send_all(
         &left,
@@ -260,12 +245,12 @@ fn build_unilateral_insertions(
     (left, right)
 }
 
-fn build_bidir_redactions(protocol: Protocol, total_redactions: usize) -> (Rumors<u8>, Rumors<u8>) {
+fn build_bidir_redactions(total_redactions: usize) -> (Rumors<u8>, Rumors<u8>) {
     assert!(total_redactions <= N / 2);
     assert_eq!(total_redactions % 2, 0);
 
-    let (left, versions) = seeded_with_versions(protocol, N, 0xc786_a046_6b7d_c9d3);
-    let right = grid::wire::bootstrap_fork(&left, protocol);
+    let (left, versions) = seeded_with_versions(N, 0xc786_a046_6b7d_c9d3);
+    let right = grid::wire::bootstrap_fork(&left);
     let shuffled = shuffled_versions(versions, 0x84f6_7932_1265_9eec ^ total_redactions as u64);
     let per_side = total_redactions / 2;
 
@@ -275,14 +260,11 @@ fn build_bidir_redactions(protocol: Protocol, total_redactions: usize) -> (Rumor
     (left, right)
 }
 
-fn build_unilateral_redactions(
-    protocol: Protocol,
-    total_redactions: usize,
-) -> (Rumors<u8>, Rumors<u8>) {
+fn build_unilateral_redactions(total_redactions: usize) -> (Rumors<u8>, Rumors<u8>) {
     assert!(total_redactions <= N / 2);
 
-    let (left, versions) = seeded_with_versions(protocol, N, 0x2526_34f4_918f_e1c7);
-    let right = grid::wire::bootstrap_fork(&left, protocol);
+    let (left, versions) = seeded_with_versions(N, 0x2526_34f4_918f_e1c7);
+    let right = grid::wire::bootstrap_fork(&left);
     let shuffled = shuffled_versions(versions, 0xd4f9_f46b_3c09_1d60 ^ total_redactions as u64);
 
     redact_all(&left, &shuffled[..total_redactions]);
@@ -314,18 +296,18 @@ fn redact_all(rumors: &Rumors<u8>, versions: &[Version]) {
 
 /// A seed peer measuring shipped behavior: the default pipeline window is
 /// the production budget in every build shape (see `support/wire.rs`).
-fn production_seed(protocol: Protocol) -> Rumors<u8> {
-    Peer::seed().protocol(protocol).into_rumors()
+fn production_seed() -> Rumors<u8> {
+    Peer::seed().into_rumors()
 }
 
-fn seeded_with_messages(protocol: Protocol, n: usize, seed: u64) -> Rumors<u8> {
-    let rumors = production_seed(protocol);
+fn seeded_with_messages(n: usize, seed: u64) -> Rumors<u8> {
+    let rumors = production_seed();
     send_all(&rumors, random_bytes(n, seed));
     rumors
 }
 
-fn seeded_with_versions(protocol: Protocol, n: usize, seed: u64) -> (Rumors<u8>, Vec<Version>) {
-    let rumors = production_seed(protocol);
+fn seeded_with_versions(n: usize, seed: u64) -> (Rumors<u8>, Vec<Version>) {
+    let rumors = production_seed();
     send_all(&rumors, random_bytes(n, seed));
     let versions = rumors.snapshot().iter().map(|(v, _)| v.clone()).collect();
     (rumors, versions)

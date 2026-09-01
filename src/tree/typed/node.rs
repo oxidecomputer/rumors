@@ -2,20 +2,11 @@ use std::{fmt::Debug, iter::Map, marker::PhantomData};
 
 use before::{Dominance, Span};
 
-#[cfg(any(test, feature = "protocol-v1"))]
-use crate::message::PayloadCodec;
 use crate::{Version, causally, message::Message};
 
 use super::hash::Hash;
 use super::height::{self, Height, S, Z};
-
-#[cfg(any(test, feature = "protocol-v1"))]
-use super::levels::{Top, levels};
 use super::untyped;
-#[cfg(any(test, feature = "protocol-v1"))]
-use crate::tree::wire;
-#[cfg(any(test, feature = "protocol-v1"))]
-use crate::tree::wire::Decode;
 use untyped::fan::{self, Fan};
 
 /// The typed node with a height of 32; the root of the tree.
@@ -376,14 +367,6 @@ impl Node<Z> {
 }
 
 impl Node<height::Root> {
-    /// Open the multi-level zipper over this (possibly absent) root: the
-    /// starting state of a mirror descent (see
-    /// [`Levels`](super::levels::Levels)).
-    #[cfg(any(test, feature = "protocol-v1"))]
-    pub fn levels(node: Option<Root>) -> Top {
-        levels(node)
-    }
-
     /// Look up the live leaf whose full 32-byte path is `path`, by a single
     /// `O(depth)` descent.
     pub fn get(&self, path: &[u8]) -> Option<(&Version, &Message)> {
@@ -462,97 +445,3 @@ impl<H: Height> PartialEq for Node<H> {
 // compression invariant); singletons appear on the wire only as
 // `prefix_len > 0` and reconstruct through [`Node::beneath`].
 //
-// The branch decoder builds a typed [`Children`] through its safe `insert`
-// API rather than transmuting an untyped fan: `Node` carries no unsafe
-// code, so the wire decoder stays within the same safe boundary as
-// [`Node::branch`]. The wire's ascending radix order makes each insert an
-// appending binary-search miss, so the rebuild costs no shifting.
-
-#[cfg(any(test, feature = "protocol-v1"))]
-impl<H> wire::Encode for Node<H>
-where
-    H: Height,
-{
-    fn write_wire<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        self.inner.serialize_to(writer)
-    }
-}
-
-#[cfg(any(test, feature = "protocol-v1"))]
-/// The typed-payload decode of the node wire shape, per height.
-///
-/// The node itself is erased; a leaf's payload decodes through the
-/// peer's codec (the alternating protocol's typed ingress:
-/// malformed payloads fail here, at the wire boundary), so the decoder
-/// takes that extra argument rather than implementing [`wire::Decode`] —
-/// the height trait carries the same one-step-down recursion as the
-/// batch-apply walk ([`Act`](crate::tree::traverse::act::Act)).
-pub trait DecodeNode: Height {
-    fn read_node<R>(reader: &mut R, codec: PayloadCodec) -> std::io::Result<Node<Self>>
-    where
-        R: std::io::Read;
-}
-
-#[cfg(any(test, feature = "protocol-v1"))]
-impl DecodeNode for Z {
-    fn read_node<R>(reader: &mut R, codec: PayloadCodec) -> std::io::Result<Node<Z>>
-    where
-        R: std::io::Read,
-    {
-        let prefix_len = u8::read_wire(reader)?;
-        if prefix_len != 0 {
-            return Err(wire::invalid("leaf height cannot carry a prefix"));
-        }
-        let version = Version::read_wire(reader)?;
-        let message = Message::from_reader(reader, codec)?;
-        Ok(Node::leaf(version, message))
-    }
-}
-
-#[cfg(any(test, feature = "protocol-v1"))]
-impl<H> DecodeNode for S<H>
-where
-    H: DecodeNode,
-    S<H>: Height,
-{
-    fn read_node<R>(reader: &mut R, codec: PayloadCodec) -> std::io::Result<Node<S<H>>>
-    where
-        R: std::io::Read,
-    {
-        let prefix_len = u8::read_wire(reader)?;
-        if (prefix_len as usize) > <S<H>>::HEIGHT {
-            return Err(wire::invalid("prefix length exceeds typed height"));
-        }
-        if prefix_len == 0 {
-            let count_minus_two = u8::read_wire(reader)?;
-            let count = (count_minus_two as usize) + 2;
-            if count > 256 {
-                return Err(wire::invalid("branch children count exceeds 256"));
-            }
-            let mut children = Children::<H>::default();
-            let mut prev: Option<u8> = None;
-            for _ in 0..count {
-                let radix = u8::read_wire(reader)?;
-                if let Some(p) = prev
-                    && radix <= p
-                {
-                    return Err(wire::invalid("branch radices not strictly ascending"));
-                }
-                prev = Some(radix);
-                let child = H::read_node(reader, codec)?;
-                children.insert(radix, child);
-            }
-            Node::branch(children).ok_or_else(|| wire::invalid("branch could not be reconstructed"))
-        } else {
-            let head = u8::read_wire(reader)?;
-            // Prepend `prefix_len - 1` to the rest of the stream so the
-            // inner typed level reads it as if it were on the wire,
-            // synthesizing the singleton-chain recursion without a second
-            // dispatch layer.
-            let synthesized = [prefix_len - 1];
-            let mut chained = std::io::Read::chain(synthesized.as_slice(), &mut *reader);
-            let inner = H::read_node(&mut chained, codec)?;
-            Ok(Node::beneath(inner, head))
-        }
-    }
-}

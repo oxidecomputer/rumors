@@ -18,7 +18,7 @@ use std::time::Duration;
 
 use rand::rngs::SmallRng;
 use rand::{RngCore, SeedableRng};
-use rumors::{DEFAULT_SYNC_MEMORY_BUDGET, Peer, Protocol, Rumors};
+use rumors::{DEFAULT_SYNC_MEMORY_BUDGET, Peer, Rumors};
 
 /// Messages both peers share before the fork.
 const COMMON: usize = 2_048;
@@ -73,9 +73,7 @@ fn diverged_pair() -> (Rumors<u64>, Rumors<u64>) {
         let (mut provider, mut newcomer) = rumors::link::memory_with_capacity(LINK_CAPACITY);
         let (served, joined) = tokio::join!(
             left.gossip(&mut provider),
-            Peer::<u64>::bootstrap()
-                .protocol(Protocol::V2)
-                .join(&mut newcomer),
+            Peer::<u64>::bootstrap().join(&mut newcomer),
         );
         served.expect("serve bootstrap");
         joined

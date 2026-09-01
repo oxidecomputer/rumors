@@ -1,5 +1,0 @@
----
-source: src/tree/mirror/alternating/wire_snapshot.rs
-expression: snap(&v)
----
-0000: 42 39 6a

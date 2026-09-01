@@ -8,13 +8,10 @@
 //! module is the adapter: [`Node<H>`](Node) pairs an untyped node with
 //! a phantom [`Height`](height::Height), and the typed surface
 //! ([`Path`], [`Children`]) keeps every descent and reassembly height-correct
-//! at compile time. The selectable alternating protocol also retains its typed
-//! level stack.
+//! at compile time.
 
 pub mod hash;
 pub mod height;
-#[cfg(any(test, feature = "protocol-v1"))]
-pub mod levels;
 pub mod node;
 pub mod path;
 pub mod prefix;
@@ -24,12 +21,7 @@ pub mod prefix;
 // resolve. The items below are still re-exported as the canonical paths.
 pub(crate) mod untyped;
 
-#[cfg(test)]
-mod tests;
-
 pub use hash::Hash;
-#[cfg(any(test, feature = "protocol-v1"))]
-pub use levels::{Level, Levels};
 pub use node::{Children, Node};
 pub use path::Path;
 pub(crate) use prefix::ErasedPrefix;

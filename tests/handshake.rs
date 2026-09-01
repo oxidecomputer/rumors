@@ -51,16 +51,11 @@ fn preamble(opening: [u8; 11], version: u8, intent: u8) -> [u8; PREAMBLE_LEN] {
     p
 }
 
-/// The fixed markers and selectable versions match the hand-encoded
-/// layouts: the legacy magic opens V1 preambles, the self-described CBOR
-/// opening starts V2 ones.
+/// The fixed markers match the hand-encoded layout: the self-described
+/// CBOR opening starts every preamble, and the wire version is the
+/// dialect's discriminant.
 #[test]
 fn protocol_constants_match_spec() {
-    #[cfg(feature = "protocol-v1")]
-    {
-        assert_eq!(rumors::PROTOCOL_MAGIC, *b"RUMORS");
-        assert_eq!(Protocol::V1 as u16, 1);
-    }
     assert_eq!(Protocol::V2 as u16, 2);
     assert_eq!(&V2_OPENING[..3], &[0xd9, 0xd9, 0xf7]);
 }
@@ -149,39 +144,6 @@ async fn version_mismatch_surfaces_error() {
         }
         other => panic!("expected VersionMismatch, got {other:?}"),
     }
-}
-
-/// Selecting V1 changes the preamble dialect itself; a V2 counterparty is
-/// diagnosed as a version mismatch before either implementation consumes
-/// protocol-specific bytes, in both directions of the skew.
-#[cfg(feature = "protocol-v1")]
-#[pollster::test]
-async fn selected_protocols_must_match() {
-    let (mut a_link, b) = rumors::link::memory();
-    let b = b.into_parts();
-    let mut b_r = b.control_read;
-    let mut b_w = b.control_write;
-
-    const LEGACY_PREAMBLE_LEN: usize = 25;
-    let fake_v2 = async move {
-        let mut got = [0u8; LEGACY_PREAMBLE_LEN];
-        b_r.read_exact(&mut got).await.expect("fake peer read");
-        let reply = preamble(V2_OPENING, Protocol::V2 as u8, INTENT_REMAIN);
-        b_w.write_all(&reply).await.expect("fake peer write");
-    };
-    let v1 = Peer::<String>::seed()
-        .sync_window_floor()
-        .protocol(Protocol::V1)
-        .into_rumors();
-
-    let (result, ()) = tokio::join!(v1.gossip(&mut a_link), fake_v2);
-    assert!(matches!(
-        result,
-        Err(Error::VersionMismatch {
-            local_protocol: Protocol::V1,
-            remote_version,
-        }) if remote_version == Protocol::V2 as u64
-    ));
 }
 
 /// A peer whose intent is neither 0 (remain) nor 1 (retire) is rejected

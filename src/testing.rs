@@ -93,17 +93,20 @@ pub fn supply_decode_envelope_bytes() -> usize {
     crate::tree::mirror::streaming::window::SUPPLY_DECODE_ENVELOPE_BYTES
 }
 
-/// Read one exact length-delimited mirror frame, returning its payload.
+/// Read exactly `declared` payload bytes under the framing layer's
+/// growth policy, returning the payload.
 ///
-/// This is the framing layer's frame read, unwrapped from any session
-/// machinery. The allocator meter (`tests/decode_alloc.rs`) drives it to
-/// price a framed payload in bytes requested from the allocator.
-pub async fn read_framed_payload(
-    read: impl tokio::io::AsyncRead + Unpin,
+/// This is the declared-length payload read every variable-length body
+/// funnels through — the party hand-off's byte string and the codec's
+/// framed bodies alike — unwrapped from any session machinery, with the
+/// peer-declared length supplied directly. The allocator meter
+/// (`tests/decode_alloc.rs`) drives it to price a declared payload in
+/// bytes requested from the allocator.
+pub async fn read_declared_payload(
+    mut read: impl tokio::io::AsyncRead + Unpin,
+    declared: usize,
 ) -> std::io::Result<Vec<u8>> {
-    crate::tree::mirror::framing::FrameRead::new(read)
-        .frame()
-        .await
+    crate::tree::mirror::framing::read_payload(&mut read, declared).await
 }
 
 /// The initial reservation granule of the framed-payload readers.

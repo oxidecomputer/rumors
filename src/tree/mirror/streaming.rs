@@ -37,9 +37,7 @@
 //! before the atomic tree snapshot/party fork; this module begins with the
 //! subsequent greeting exchange, the one message each side sends before any
 //! frame flows. What the greeting carries — and why each field rides this
-//! early — is documented at its definition, [`message::Greeting`]. The
-//! selectable V1 alternating protocol is an independent behavioral oracle
-//! with a greeting of its own.
+//! early — is documented at its definition, [`message::Greeting`].
 
 // Where we're going, we need to write some Complex Types.
 #![allow(clippy::type_complexity)]

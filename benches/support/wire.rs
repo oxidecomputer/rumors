@@ -4,7 +4,7 @@
 //! pipeline window, which is the production budget in every build shape.
 
 use rumors::link::MemoryLink;
-use rumors::{Peer, Protocol, Rumors};
+use rumors::{Peer, Rumors};
 
 /// Bounded transport capacity; concurrent polling supplies the backpressure.
 const CAPACITY: usize = 64 * 1024;
@@ -37,7 +37,7 @@ impl Wire {
 }
 
 /// Create one disjoint replica by serving a bootstrap over an ephemeral link.
-pub fn bootstrap_fork<T>(parent: &Rumors<T>, protocol: Protocol) -> Rumors<T>
+pub fn bootstrap_fork<T>(parent: &Rumors<T>) -> Rumors<T>
 where
     T: serde::Serialize + serde::de::DeserializeOwned + Eq + Send + Sync + 'static,
 {
@@ -45,9 +45,7 @@ where
         let (mut parent_link, mut newcomer_link) = rumors::link::memory_with_capacity(CAPACITY);
         let (served, newcomer) = tokio::join!(
             parent.gossip(&mut parent_link),
-            Peer::<T>::bootstrap()
-                .protocol(protocol)
-                .join(&mut newcomer_link),
+            Peer::<T>::bootstrap().join(&mut newcomer_link),
         );
         served.expect("serve bootstrap");
         newcomer

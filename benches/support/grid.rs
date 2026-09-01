@@ -27,7 +27,7 @@
 //! - small-delta = `common = n,  differing = k, redacted = 0` (small `k`)
 //! - identical   = `common = n,  differing = 0, redacted = 0`
 
-use rumors::{Peer, Protocol, Rumors, Version};
+use rumors::{Peer, Rumors, Version};
 
 #[path = "wire.rs"]
 pub mod wire;
@@ -161,7 +161,7 @@ pub fn build(cell: Cell) -> (Rumors<()>, Rumors<()>) {
     // and the snapshot iterates in a stable order).
     let shared: Vec<Version> = left.snapshot().iter().map(|(v, _)| v.clone()).collect();
 
-    let right = wire::bootstrap_fork(&left, Protocol::V2);
+    let right = wire::bootstrap_fork(&left);
     send_units(&left, differing);
     send_units(&right, differing);
 

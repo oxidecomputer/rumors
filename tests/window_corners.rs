@@ -20,7 +20,7 @@ use std::time::Duration;
 use rand::rngs::SmallRng;
 use rand::{RngCore, SeedableRng};
 use rumors::testing::run_to_quiescence;
-use rumors::{Peer, Protocol, Rumors};
+use rumors::{Peer, Rumors};
 
 /// One-way delay for the virtual-time measurements (the timer grain).
 const DELAY: Duration = Duration::from_millis(10);
@@ -44,9 +44,7 @@ fn pair(
         let (mut provider, mut newcomer) = rumors::link::memory_with_capacity(LINK_CAPACITY);
         let (served, joined) = tokio::join!(
             left.gossip(&mut provider),
-            Peer::<u64>::bootstrap()
-                .protocol(Protocol::V2)
-                .join(&mut newcomer),
+            Peer::<u64>::bootstrap().join(&mut newcomer),
         );
         served.expect("serve bootstrap");
         joined

@@ -650,64 +650,6 @@ impl Node {
         self.inner.prefix.len()
     }
 
-    /// Serialize the node in its in-memory layout.
-    ///
-    /// This is the canonical encoder: the typed
-    /// [`wire::Encode`](crate::tree::wire::Encode) impl is a
-    /// thin delegate over it, and on the decode side the same shape is
-    /// reconstructed via the chain-reader trick that synthesizes per-level
-    /// `prefix_len` bytes.
-    ///
-    /// The encoded shape, in order, is:
-    ///
-    /// 1. `prefix_len: u8` — the path-compressed prefix's byte count;
-    /// 2. `prefix_len` head bytes, shallowest first (decoders peel from the
-    ///    outermost compressed level inward);
-    /// 3. the body, dispatched on `children`:
-    ///    - [`Children::Leaf`]: `version`, then `message`, each one CBOR
-    ///      value (self-delimiting; see [`wire`](crate::tree::wire));
-    ///    - [`Children::Branch`]: `count_minus_two: u8`, then for each
-    ///      child (in ascending radix order, structural in the fan):
-    ///      `radix: u8`, `serialize_to(child)`.
-    ///
-    /// Leaf-vs-branch is **not** tagged on the wire: at the receiver, the
-    /// typed height and the running `prefix_len` together name the body's
-    /// shape. Multi-child branches always carry at least two children, by
-    /// the path-compression invariant.
-    #[cfg(any(test, feature = "protocol-v1"))]
-    pub fn serialize_to<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        use crate::tree::wire::{Encode, invalid};
-        let prefix_len = u8::try_from(self.inner.prefix.len())
-            .map_err(|_| invalid("node prefix length does not fit in a u8"))?;
-        prefix_len.write_wire(writer)?;
-        // Wire order is shallowest-first; the in-memory `prefix` stores the
-        // shallowest byte at the last index, so iterate in reverse.
-        for byte in self.inner.prefix.iter().rev() {
-            byte.write_wire(writer)?;
-        }
-        match &self.inner.children {
-            Children::Leaf { message, version } => {
-                version.write_wire(writer)?;
-                message.write_wire(writer)?;
-            }
-            Children::Branch { children, .. } => {
-                debug_assert!(
-                    (2..=256).contains(&children.len()),
-                    "multi-child branch must have 2..=256 children",
-                );
-                let count_minus_two = u8::try_from(children.len() - 2).map_err(|_| {
-                    invalid("branch children count does not fit in count_minus_two: u8")
-                })?;
-                count_minus_two.write_wire(writer)?;
-                for (radix, child) in children.iter() {
-                    radix.write_wire(writer)?;
-                    child.serialize_to(writer)?;
-                }
-            }
-        }
-        Ok(())
-    }
-
     /// Place a node beneath the given child index, increasing its height by
     /// one.
     ///

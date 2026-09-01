@@ -13,8 +13,6 @@ use std::sync::{Arc, Mutex};
 
 use proptest::prelude::*;
 use rumors::{Joined, Peer, Rumors};
-#[cfg(feature = "protocol-v1")]
-use rumors::{Protocol, Retire};
 
 use crate::common::action::{arb_local_actions, arb_string_actions, build_local};
 use crate::common::flaky::{DurableStore, FaultFeed, FlakyInMemoryBookmark, persisted_record};
@@ -412,55 +410,4 @@ fn persist_failure_hands_back_the_live_peer() {
         readout(&provider.snapshot()),
         "the unbookmarked peer must hold the provider's whole set",
     );
-}
-
-/// Explicit V1 selection applies to both bootstrap and every later session:
-/// the original alternating wire remains a usable compatibility path rather
-/// than merely a protocol-level test oracle.
-#[cfg(feature = "protocol-v1")]
-#[test]
-fn v1_bootstrap_selection_persists_into_gossip() {
-    let provider = Peer::<u64>::seed()
-        .sync_window_floor()
-        .protocol(Protocol::V1)
-        .into_rumors();
-    provider.send(1).unwrap();
-
-    let newcomer = block_on(async {
-        let (mut provider_link, mut newcomer_link) = rumors::link::memory_with_capacity(LINK_BUF);
-        let (served, joined) = tokio::join!(
-            provider.gossip(&mut provider_link),
-            Peer::<u64>::bootstrap()
-                .protocol(Protocol::V1)
-                .join(&mut newcomer_link),
-        );
-        served.expect("V1 provider serves bootstrap");
-        let newcomer = joined
-            .expect("V1 bootstrap succeeds")
-            .expect("provider is established")
-            .into_rumors();
-        assert_control_drained(provider_link, newcomer_link);
-        newcomer
-    });
-
-    newcomer.send(2).unwrap();
-    wire_gossip(&provider, &newcomer);
-    assert_eq!(readout(&provider.snapshot()), readout(&newcomer.snapshot()));
-    assert_eq!(provider.snapshot().len(), 2);
-
-    let retired = block_on(async {
-        let newcomer = newcomer
-            .try_into_peer()
-            .await
-            .expect("sole V1 handle reclaims its peer");
-        let (mut provider_link, mut newcomer_link) = rumors::link::memory_with_capacity(LINK_BUF);
-        let (served, retired) = tokio::join!(
-            provider.gossip(&mut provider_link),
-            newcomer.retire(&mut newcomer_link),
-        );
-        served.expect("V1 provider absorbs retiree");
-        assert_control_drained(provider_link, newcomer_link);
-        retired
-    });
-    assert!(matches!(retired, Retire::Retired));
 }

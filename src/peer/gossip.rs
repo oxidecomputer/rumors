@@ -22,13 +22,8 @@ use crate::link::{
 };
 use crate::message::PayloadCodec;
 use crate::observe::{SessionHandle, SessionKind};
-#[cfg(any(test, feature = "protocol-v1"))]
-use crate::tree::mirror::{
-    alternating::{self, local as alternating_local, remote as alternating_remote},
-    framing::{FrameRead, FrameWrite},
-};
 use crate::tree::{self, Tree};
-use crate::{Error, Network, Protocol, Version};
+use crate::{Error, Network, Version};
 use crate::{
     bookmark::{Bookmark, BookmarkError, BookmarkIo, Bookmarked, NoBookmark, Persist},
     tree::mirror::{
@@ -47,19 +42,8 @@ use super::{Inner, Peer, bootstrap::Bootstrap};
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-/// Magic bytes that open a V1 gossip session's preamble frame.
-///
-/// A [`Protocol::V2`] session opens with the self-described CBOR tag
-/// instead, and carries its protocol magic in the preamble's opening
-/// array; this raw marker belongs to the V1 wire dialect alone, so it
-/// is exposed only with the `protocol-v1` feature. (A V2 endpoint
-/// still recognizes these bytes internally, to diagnose a legacy peer
-/// as the version mismatch it is.)
-#[cfg(feature = "protocol-v1")]
-pub const PROTOCOL_MAGIC: [u8; 6] = crate::tree::mirror::handshake::LEGACY_MAGIC;
-
 /// The epilogue marker each side writes on the control stream after all
-/// of its session work, under [`Protocol::V2`]: the CBOR text item `"."`.
+/// of its session work: the CBOR text item `"."`.
 ///
 /// Reading the peer's marker is what lets `Ok` certify that the peer
 /// completed and committed too. As an item, the marker keeps the control
@@ -110,12 +94,9 @@ type DynLinkParts<'a> = (DynRead<'a>, DynWrite<'a>, DynConnector, DynAcceptor<'a
 pub enum Retire<T, B: BookmarkError = NoBookmark> {
     /// **Retired.** This replica has left the universe.
     ///
-    /// The peer reconciled with us, absorbed our identity, and — under
-    /// [`Protocol::V2`] — confirmed the absorption
-    /// through the session epilogue; the frozen
-    /// [`Protocol::V1`] wire has no confirmation, so
-    /// its `Retired` certifies only that the donation was fully sent. The
-    /// link rests at a clean session boundary.
+    /// The peer reconciled with us, absorbed our identity, and confirmed
+    /// the absorption through the session epilogue. The link rests at a
+    /// clean session boundary.
     Retired,
     /// **Declined, unchanged.** The peer was itself retiring, so nothing
     /// moved; our replica is handed back intact, to try retiring elsewhere.
@@ -194,8 +175,7 @@ pub struct Gossiped {
     /// the two ends of one session report their own numbers.
     ///
     /// See [`SessionStats`] for each field's mechanism and the seam it is
-    /// counted at. Sessions under
-    /// [`Protocol::V1`] report zero in every field.
+    /// counted at.
     pub stats: SessionStats,
 }
 
@@ -299,14 +279,11 @@ impl<T> Peer<T, NoBookmark> {
             // the bootstrap session's ingress decodes through it, and the
             // constructed peer inherits it.
             let codec = PayloadCodec::new::<T>(config.payload_depth_limit);
-            let observe = config
-                .observe
-                .begin(SessionKind::Bootstrap, config.protocol);
-            // Magic/version/network/intent preamble first, before either protocol
-            // is allowed to trust peer-declared frame lengths.
-            let mut staged = handshake::Staged::new(config.protocol);
+            let observe = config.observe.begin(SessionKind::Bootstrap);
+            // Magic/version/network/intent preamble first, before the
+            // protocol is allowed to trust peer-declared frame lengths.
+            let mut staged = handshake::Staged::new();
             let remote = handshake::preamble(
-                config.protocol,
                 Network::BOOTSTRAP,
                 Intent::Remain,
                 &mut staged,
@@ -322,41 +299,34 @@ impl<T> Peer<T, NoBookmark> {
             // absorb it.
             let _ = remote.intent;
 
-            // Reconcile from an empty tree using the selected wire protocol. Both
-            // branches return the same lifecycle boundary: a materialized root and
-            // the raw control halves positioned at the trailing party frame.
-            // The protocol bodies are the non-generic [`bootstrap_v2`] and
-            // [`bootstrap_v1`], which return their futures boxed; see
-            // [`Reconciliation::v2`] for the boxing and inlining discipline.
+            // Reconcile from an empty tree; the lifecycle boundary is a
+            // materialized root and the raw control halves positioned at
+            // the trailing party frame. The protocol body is the
+            // non-generic [`bootstrap_reconcile`], which returns its
+            // future boxed; see [`Reconciliation::reconcile`] for the
+            // boxing and inlining discipline.
             let both_bootstrapping = remote.network.is_bootstrap();
-            let reconcile = match config.protocol {
-                Protocol::V2 => bootstrap_v2(
-                    (read, write, connector, acceptor, epoch),
-                    codec,
-                    config.window,
-                    config.run_budget,
-                    both_bootstrapping,
-                    observe.clone(),
-                ),
-                #[cfg(any(test, feature = "protocol-v1"))]
-                Protocol::V1 => bootstrap_v1(read, write, codec, both_bootstrapping),
-            };
+            let reconcile = bootstrap_reconcile(
+                (read, write, connector, acceptor, epoch),
+                codec,
+                config.window,
+                config.run_budget,
+                both_bootstrapping,
+                observe.clone(),
+            );
             let Some((root, mut read, mut write)) = reconcile.await? else {
                 return Ok(None);
             };
-            let party = party::receive(config.protocol, &mut read, &observe).await?;
+            let party = party::receive(&mut read, &observe).await?;
             // Our absorption of the received identity completes with the
             // in-memory `Peer` construction below, which cannot fail: certify
             // completion now, and require the provider's certificate so `Ok`
-            // means it committed its donation. (V2 only; the V1 wire is
-            // frozen.) On `Err` the received fork is dropped — its region
-            // leaks, benignly, like any fork lost in flight.
-            if config.protocol == Protocol::V2 {
-                epilogue(&mut read, &mut write, &observe).await?;
-            }
+            // means it committed its donation. On `Err` the received fork
+            // is dropped — its region leaks, benignly, like any fork lost
+            // in flight.
+            epilogue(&mut read, &mut write, &observe).await?;
             let peer = Self {
                 network: remote.network,
-                protocol: config.protocol,
                 window: config.window,
                 run_budget: config.run_budget,
                 inner: watch::Sender::new(Inner {
@@ -378,7 +348,6 @@ impl<T> Peer<T, NoBookmark> {
     ) -> Result<Peer<T, B>, Unbookmarked<T, B>> {
         let Peer {
             network,
-            protocol,
             window,
             run_budget,
             inner,
@@ -388,7 +357,6 @@ impl<T> Peer<T, NoBookmark> {
         } = self;
         let peer = Peer {
             network,
-            protocol,
             window,
             run_budget,
             inner,
@@ -418,7 +386,6 @@ impl<T> Peer<T, NoBookmark> {
             Err(error) => Err(Unbookmarked {
                 peer: Peer {
                     network: peer.network,
-                    protocol: peer.protocol,
                     window: peer.window,
                     run_budget: peer.run_budget,
                     inner: peer.inner,
@@ -461,7 +428,7 @@ impl<T, B: Persist> Peer<T, B> {
         C: Connector,
         A: Acceptor,
     {
-        let mut staged = handshake::Staged::new(self.protocol);
+        let mut staged = handshake::Staged::new();
         let parts = match erase(link) {
             Ok(parts) => parts,
             // The fail-fast happened before any wire traffic: nothing of
@@ -500,7 +467,7 @@ impl<T, B: Persist> Peer<T, B> {
         C: Connector,
         A: Acceptor,
     {
-        let mut staged = handshake::Staged::new(self.protocol);
+        let mut staged = handshake::Staged::new();
         let parts = erase(link).map_err(Error::widen)?;
         let (_intent, result) = self.gossip_inner(Intent::Remain, &mut staged, parts).await;
         // Un-poison on clean completion: the session's own `Ok` under V2 is
@@ -639,11 +606,11 @@ impl<T, B: Persist> Peer<T, B> {
     {
         let (read, write, connector, acceptor, epoch) = link;
         let codec = self.codec;
-        // The session's stats recorder: under V2, both protocol
-        // participants below share it (the walk counts disputes, gains,
-        // sheds, and the window grant; the proxy's codec seam counts
-        // bytes), and its snapshot rides the `Ok`. A session that ends
-        // before reconciliation, and every V1 session, reports zeros.
+        // The session's stats recorder: both protocol participants below
+        // share it (the walk counts disputes, gains, sheds, and the
+        // window grant; the proxy's codec seam counts bytes), and its
+        // snapshot rides the `Ok`. A session that ends before
+        // reconciliation reports zeros.
         let stats = Recorder::default();
         // The session's observation handle: inert unless a handler is
         // attached and the dialect is observable, and shared, like the
@@ -652,23 +619,14 @@ impl<T, B: Persist> Peer<T, B> {
             Intent::Remain => SessionKind::Gossip,
             Intent::Retire => SessionKind::Retire,
         };
-        let observe = self.observe.begin(kind, self.protocol);
+        let observe = self.observe.begin(kind);
         // Magic/version preamble: reject a non-rumors or incompatible peer
         // before the framing trusts any peer-supplied frame length.
-        let remote = match handshake::preamble(
-            self.protocol,
-            self.network,
-            intent,
-            staged,
-            read,
-            write,
-            &observe,
-        )
-        .await
-        {
-            Err(error) => return (Intent::Remain, Err(Error::from(error).widen())),
-            Ok(remote) => remote,
-        };
+        let remote =
+            match handshake::preamble(self.network, intent, staged, read, write, &observe).await {
+                Err(error) => return (Intent::Remain, Err(Error::from(error).widen())),
+                Ok(remote) => remote,
+            };
         let peer_bootstrapping = remote.network.is_bootstrap();
         let self_retiring = intent == Intent::Retire;
         let peer_retiring = remote.intent == Intent::Retire;
@@ -677,9 +635,7 @@ impl<T, B: Persist> Peer<T, B> {
         // Symmetric by construction: both sides take this same branch, so the
         // epilogue markers pair up with no session body between them.
         if self_retiring && peer_retiring {
-            if self.protocol == Protocol::V2
-                && let Err(e) = epilogue(read, write, &observe).await
-            {
+            if let Err(e) = epilogue(read, write, &observe).await {
                 return (Intent::Remain, Err(e.widen()));
             }
             let unchanged = self.inner.borrow().tree.latest().clone();
@@ -784,11 +740,7 @@ impl<T, B: Persist> Peer<T, B> {
             network: self.network,
             local_min_events,
         };
-        let reconcile = match self.protocol {
-            Protocol::V2 => reconciliation.v2(),
-            #[cfg(any(test, feature = "protocol-v1"))]
-            Protocol::V1 => reconciliation.v1(),
-        };
+        let reconcile = reconciliation.reconcile();
         let (root, read, write) = match reconcile.await {
             Ok(reconciled) => reconciled,
             Err(error) => return (Intent::Remain, Err(error.widen())),
@@ -806,7 +758,7 @@ impl<T, B: Persist> Peer<T, B> {
             // The preamble rejects a peer that claims to both bootstrap and
             // retire, and we bailed early if we were retiring too, so no
             // party of ours is in flight here: `guarded.party` is `None`.
-            absorbed = match party::receive(self.protocol, read, &observe).await {
+            absorbed = match party::receive(read, &observe).await {
                 Err(e) => return (Intent::Remain, Err(e.widen())),
                 Ok(donated_party) => Some(donated_party),
             };
@@ -827,7 +779,7 @@ impl<T, B: Persist> Peer<T, B> {
             // the peer may hold the party even if the send errors, so it can
             // never be safely re-joined.
             let donated = guarded.party.take().expect("is_some");
-            match party::send(self.protocol, donated, write, &observe).await {
+            match party::send(donated, write, &observe).await {
                 Err(e) => {
                     // A retiring donation in limbo must be assumed received:
                     // report `Intent::Retire` alongside the error so that the
@@ -942,9 +894,7 @@ impl<T, B: Persist> Peer<T, B> {
         // The failure return must preserve `outcome`: a retiree whose party
         // crossed the wire but whose epilogue failed is post-hand-off, and
         // mapping it back to `Intent::Remain` would duplicate the identity.
-        if self.protocol == Protocol::V2
-            && let Err(e) = epilogue(read, write, &observe).await
-        {
+        if let Err(e) = epilogue(read, write, &observe).await {
             return (outcome, Err(e.widen()));
         }
 
@@ -985,7 +935,7 @@ impl<T, B: Bookmark> Peer<T, B> {
             acceptor: &mut link.acceptor as DynAcceptor<'a>,
             state: &mut link.session,
             when: Box::pin(when),
-            staged: handshake::Staged::new(self.protocol),
+            staged: handshake::Staged::new(),
             converged: None,
             done: false,
         };
@@ -1096,7 +1046,7 @@ impl<T, B: Bookmark> Peer<T, B> {
                             // fresh staging buffer (this preamble is
                             // consumed), and the new suppression token.
                             drive.state.finish();
-                            drive.staged = handshake::Staged::new(drive.peer.protocol);
+                            drive.staged = handshake::Staged::new();
                             drive.converged = Some(converged.clone());
                             Some((
                                 Ok(Gossiped {
@@ -1121,11 +1071,11 @@ impl<T, B: Bookmark> Peer<T, B> {
 /// One gossip reconciliation's inputs, fully erased.
 ///
 /// [`Peer::gossip_inner`] assembles this and immediately consumes it through
-/// [`v2`](Self::v2) or [`v1`](Self::v1). The struct exists so those bodies
-/// are non-generic: `gossip_inner` is generic over the payload and bookmark
+/// [`reconcile`](Self::reconcile). The struct exists so that body is
+/// non-generic: `gossip_inner` is generic over the payload and bookmark
 /// types, and a reconciliation written inline there would monomorphize the
 /// entire protocol tower it drives into every consumer crate, once per
-/// instantiation. Behind this boundary the towers codegen exactly once, into
+/// instantiation. Behind this boundary the tower codegens exactly once, into
 /// this crate's own object code.
 struct Reconciliation<'a> {
     /// The local replica's root, snapshotted inside the session transaction's
@@ -1140,15 +1090,15 @@ struct Reconciliation<'a> {
     /// earlier session's ingress). Its depth limit rides the greeting,
     /// where the counterparty's must match.
     codec: PayloadCodec,
-    /// The window policy the V2 session negotiates under.
+    /// The window policy the session negotiates under.
     window: WindowConfig,
-    /// The V2 supply-run sizing budget; its byte target rides the greeting.
+    /// The supply-run sizing budget; its byte target rides the greeting.
     run_budget: RunBudget,
-    /// The session's stats recorder, shared by both V2 participants.
+    /// The session's stats recorder, shared by both protocol participants.
     stats: Recorder,
     /// The session's observation handle: inert unless a handler is
-    /// attached and the dialect is observable, and shared, like the
-    /// recorder, by every layer that moves a wire item.
+    /// attached, and shared, like the recorder, by every layer that
+    /// moves a wire item.
     observe: SessionHandle,
     /// Whether the remote's preamble declared it a bootstrap claimant.
     peer_bootstrapping: bool,
@@ -1161,7 +1111,7 @@ struct Reconciliation<'a> {
 }
 
 impl<'a> Reconciliation<'a> {
-    /// Drive one V2 (streaming) reconciliation to the lifecycle boundary the
+    /// Drive one streaming reconciliation to the lifecycle boundary the
     /// session transaction resumes from: the reconciled local root plus the
     /// raw control halves, positioned after the descent.
     ///
@@ -1174,7 +1124,7 @@ impl<'a> Reconciliation<'a> {
     /// automatic cross-crate MIR inlining, which would move the coercion —
     /// and the tower behind it — back into the consumer.
     #[inline(never)]
-    fn v2(self) -> BoxFuture<'a, Result<(tree::Root, DynRead<'a>, DynWrite<'a>), Error>> {
+    fn reconcile(self) -> BoxFuture<'a, Result<(tree::Root, DynRead<'a>, DynWrite<'a>), Error>> {
         Box::pin(async move {
             let Self {
                 root,
@@ -1216,55 +1166,9 @@ impl<'a> Reconciliation<'a> {
             Ok((root.into(), read, write))
         })
     }
-
-    /// Drive one V1 (alternating) reconciliation to the same lifecycle
-    /// boundary as [`v2`](Self::v2), boxed and `inline(never)` for the same
-    /// reasons.
-    ///
-    /// The frozen V1 wire has no window, budget, or stats vocabulary, and
-    /// its proxy runs on the control halves alone, so those inputs are
-    /// dropped unread.
-    #[cfg(any(test, feature = "protocol-v1"))]
-    #[inline(never)]
-    fn v1(self) -> BoxFuture<'a, Result<(tree::Root, DynRead<'a>, DynWrite<'a>), Error>> {
-        Box::pin(async move {
-            let Self {
-                root,
-                link,
-                codec,
-                peer_bootstrapping,
-                remote_network,
-                network,
-                local_min_events,
-                ..
-            } = self;
-            let (read, write, ..) = link;
-            let local = alternating_local::Exchange::start(root);
-            let proxy = alternating_remote::Exchange::start(
-                FrameRead::new(read),
-                FrameWrite::new(write),
-                codec,
-            );
-            let handshaken = alternating::handshake(local, proxy)
-                .await
-                .map_err(alternating_error)?;
-            if peer_bootstrapping {
-                bootstrap_claimant_is_newborn(&handshaken.peer().version)?;
-            } else if remote_network != network {
-                return Err(Error::NetworkMismatch {
-                    remote_network,
-                    remote_min_events: handshaken.peer().version.min_ticks(),
-                    local_min_events,
-                });
-            }
-            let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
-            let (root, (read, write)) = descent.await.map_err(alternating_error)?;
-            Ok((root, read.into_inner(), write.into_inner()))
-        })
-    }
 }
 
-/// Drive one V2 bootstrap reconciliation from an empty local replica.
+/// Drive one bootstrap reconciliation from an empty local replica.
 ///
 /// Free and non-generic for the same reason [`Reconciliation`] is: the
 /// generic [`Peer::bootstrap_erased`] shell funnels through here, so the
@@ -1275,11 +1179,11 @@ impl<'a> Reconciliation<'a> {
 /// already been exchanged. `Ok(Some(..))` hands back the reconciled root and
 /// the control halves positioned at the trailing party frame.
 ///
-/// Boxed and `inline(never)` for [`Reconciliation::v2`]'s reasons: the `dyn`
-/// coercion is what pins the protocol state machine in this crate.
+/// Boxed and `inline(never)` for [`Reconciliation::reconcile`]'s reasons:
+/// the `dyn` coercion is what pins the protocol state machine in this crate.
 #[inline(never)]
 #[allow(clippy::type_complexity)]
-fn bootstrap_v2<'a>(
+fn bootstrap_reconcile<'a>(
     link: DynLinkParts<'a>,
     codec: PayloadCodec,
     window: WindowConfig,
@@ -1323,42 +1227,6 @@ fn bootstrap_v2<'a>(
             return Ok(None);
         }
         Ok(Some((root.into(), read, write)))
-    })
-}
-
-/// Drive one V1 bootstrap reconciliation from an empty local replica; see
-/// [`bootstrap_v2`] for the lifecycle boundary and the boxing and inlining
-/// discipline.
-///
-/// The frozen V1 wire has no epilogue: a mutual bootstrap (`Ok(None)`)
-/// bails right after the handshake, exactly as V1 always has — once the
-/// fellow claimant proves as newborn as we are.
-#[cfg(any(test, feature = "protocol-v1"))]
-#[inline(never)]
-#[allow(clippy::type_complexity)]
-fn bootstrap_v1<'a>(
-    read: DynRead<'a>,
-    write: DynWrite<'a>,
-    codec: PayloadCodec,
-    both_bootstrapping: bool,
-) -> BoxFuture<'a, Result<Option<(tree::Root, DynRead<'a>, DynWrite<'a>)>, Error>> {
-    Box::pin(async move {
-        let local = alternating_local::Exchange::start(tree::Root::default());
-        let proxy = alternating_remote::Exchange::start(
-            FrameRead::new(read),
-            FrameWrite::new(write),
-            codec,
-        );
-        let handshaken = alternating::handshake(local, proxy)
-            .await
-            .map_err(alternating_error)?;
-        if both_bootstrapping {
-            bootstrap_claimant_is_newborn(&handshaken.peer().version)?;
-            return Ok(None);
-        }
-        let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
-        let (root, (read, write)) = descent.await.map_err(alternating_error)?;
-        Ok(Some((root, read.into_inner(), write.into_inner())))
     })
 }
 
@@ -1560,24 +1428,6 @@ fn streaming_error(
         return Error::PayloadDepthMismatch { local, remote };
     }
     Error::Mirror(error)
-}
-
-/// Route a V1 session failure to the public error surface.
-///
-/// The local participant's only failure mode is a diagnosed peer
-/// violation, which surfaces through the same
-/// [`MaterializedViolation`](crate::error::MaterializedViolation) taxonomy
-/// V2 sessions use; the wire proxy's errors are already public.
-#[cfg(any(test, feature = "protocol-v1"))]
-fn alternating_error(
-    error: tree::mirror::Error<crate::error::MaterializedViolation, Error>,
-) -> Error {
-    match error {
-        tree::mirror::Error::Client(violation) => Error::Mirror(tree::mirror::Error::Client(
-            materialized::Error::Violation(violation),
-        )),
-        tree::mirror::Error::Server(error) => error,
-    }
 }
 
 #[cfg(test)]

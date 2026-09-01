@@ -3,10 +3,9 @@
 //!
 //! Each test stages a scenario, drives one gossip session through the
 //! recording link in [`common::gossip_snapshot`], and pins every wire byte.
-//! V2 frames are grouped by logical stream so nondeterministic cross-stream
+//! Frames are grouped by logical stream so nondeterministic cross-stream
 //! scheduling does not destabilize the snapshots, while ordering within each
-//! stream remains exact. A representative V1 case pins its strictly
-//! alternating timeline. Re-accept only after a deliberate protocol change,
+//! stream remains exact. Re-accept only after a deliberate protocol change,
 //! never as an accommodation of drift; the two-regime re-accept rule and
 //! its procedure (`cargo insta review`) are in `AGENTS.md`.
 //!
@@ -18,18 +17,12 @@ mod common;
 
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
-#[cfg(feature = "protocol-v1")]
-use rumors::Protocol;
 use rumors::{Peer, Rumors, Version};
 
-#[cfg(feature = "protocol-v1")]
-use crate::common::gossip_snapshot::capture_gossip_v1;
 use crate::common::gossip_snapshot::{capture_gossip, capture_gossip_returning};
 use crate::common::shape::{
     ballast_avoiding, keep_only, leaf_path, path_radix, pool, send_pool, shaped_pair,
 };
-#[cfg(feature = "protocol-v1")]
-use crate::common::wire::bootstrap_fork_async_with_protocol;
 use crate::common::wire::{batch_send, block_on, bootstrap_fork, bootstrap_fork_async};
 
 /// A peer seeded from a fixed RNG, so the [`rumors::Network`] id carried in
@@ -406,23 +399,6 @@ fn early_supplies_honor_redactions() {
         "the survivor converges to the responder"
     );
     insta::assert_snapshot!(capture);
-}
-
-/// V1 retains its original strict alternating transcript through the public
-/// selector, including content transfer rather than only an empty handshake.
-#[cfg(feature = "protocol-v1")]
-#[test]
-fn v1_one_sided_transfer() {
-    let (a, b) = block_on(async {
-        let a: Rumors<u64> = Peer::seed_rng(&mut SmallRng::seed_from_u64(0))
-            .sync_window_floor()
-            .protocol(Protocol::V1)
-            .into_rumors();
-        let b = bootstrap_fork_async_with_protocol(&a, Protocol::V1).await;
-        batch_send(&a, [1, 2]);
-        (a, b)
-    });
-    insta::assert_snapshot!(capture_gossip_v1(a, b));
 }
 
 /// The headline scenario, exercising most of the wire protocol's properties in

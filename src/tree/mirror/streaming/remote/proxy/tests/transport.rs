@@ -19,9 +19,8 @@ fn plan(read_chunk: usize, write_chunk: usize, delays: Vec<u8>, hold_until_flush
     }
 }
 
-/// A one-byte pipe whose writers publish only on flush still completes a full
-/// divergent session, not merely the preamble shared with the alternating
-/// protocol.
+/// A one-byte pipe whose writers publish only on flush still completes a
+/// full divergent session, not merely the preamble.
 #[test]
 fn flush_only_one_byte_transport_reconciles() {
     let mut left = Tree::<()>::new();

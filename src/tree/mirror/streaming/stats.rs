@@ -36,9 +36,6 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 ///   call (or the `gossip_when` stream's polls) in whatever timing
 ///   instrument the application already uses. A duration measured inside
 ///   the crate would bake in one notion of time and satisfy nobody's.
-/// - **[`Protocol::V1`](crate::Protocol::V1) sessions report zero in every
-///   field.** The counters live in the streaming session's machinery; the
-///   V1 implementation computes none of them, and each field states this.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct SessionStats {
@@ -67,10 +64,8 @@ pub struct SessionStats {
     /// so neither side's count alone is the session total.
     ///
     /// Zero when the greeting versions were equal (the session ends before
-    /// any descent), when either replica held nothing under every shared
-    /// prefix (a bootstrap catch-up: supplies are not disputes), and for
-    /// every [`Protocol::V1`](crate::Protocol::V1) session (the V1
-    /// implementation does not compute this).
+    /// any descent) and when either replica held nothing under every shared
+    /// prefix (a bootstrap catch-up: supplies are not disputes).
     pub disputed_scopes: u64,
     /// Live messages this replica learned from the peer during the session.
     ///
@@ -83,9 +78,6 @@ pub struct SessionStats {
     /// and the opening's early supplies). With no writes committed
     /// concurrently with the session, the replica's live count moves by
     /// exactly `messages_gained - messages_shed`.
-    ///
-    /// Zero for every [`Protocol::V1`](crate::Protocol::V1) session (the
-    /// V1 implementation does not compute this).
     pub messages_gained: u64,
     /// Live messages this replica dropped during the session because the
     /// peer had provably seen and deleted them: deletions honored.
@@ -103,9 +95,6 @@ pub struct SessionStats {
     /// when the cached version bounds already decide them; a pruned
     /// subtree adds its exact live-leaf count, so the number always reads
     /// in messages.
-    ///
-    /// Zero for every [`Protocol::V1`](crate::Protocol::V1) session (the
-    /// V1 implementation does not compute this).
     pub messages_shed: u64,
     /// Bytes of reconciliation frames this side's frame codec wrote to the
     /// link's streams during the session.
@@ -125,8 +114,7 @@ pub struct SessionStats {
     /// [`bytes_received`](Self::bytes_received).
     ///
     /// Zero when the greeting versions were equal (no data stream ever
-    /// opens), and for every [`Protocol::V1`](crate::Protocol::V1) session
-    /// (V1 frames ride a different codec, which does not count).
+    /// opens).
     pub bytes_sent: u64,
     /// Bytes of reconciliation frames this side's frame codec read from the
     /// link's streams during the session.
@@ -140,9 +128,7 @@ pub struct SessionStats {
     /// mid-frame has counted the prefix it consumed; on `Ok` every
     /// counted frame was a complete one.
     ///
-    /// Zero when the greeting versions were equal, and for every
-    /// [`Protocol::V1`](crate::Protocol::V1) session (V1 frames ride a
-    /// different codec, which does not count).
+    /// Zero when the greeting versions were equal.
     pub bytes_received: u64,
     /// The widest per-stage pipeline width the session's window solve
     /// granted, in disputed scopes.
@@ -161,8 +147,7 @@ pub struct SessionStats {
     /// round trip per disputed scope.
     ///
     /// Zero when the greeting versions were equal (the session ends
-    /// before any window is derived), and for every
-    /// [`Protocol::V1`](crate::Protocol::V1) session (V1 has no window).
+    /// before any window is derived).
     pub window_granted: u64,
 }
 

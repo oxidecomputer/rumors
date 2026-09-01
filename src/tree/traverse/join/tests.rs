@@ -1,27 +1,15 @@
-//! `Tree::join` is observationally identical to mirroring two local trees: for
-//! any divergent pair it produces the same merged tree, including honoring
-//! deletions by version dominance.
+//! `Tree::join`'s algebraic laws and its deletion honoring by version
+//! dominance.
 //!
-//! The oracle is the mirror engine driven directly.
+//! Join is the in-memory oracle the wire reconciliation is differentially
+//! tested against (the streaming suites' join-oracle properties), so these
+//! laws — with the route-equivalence property in the tree's own suite —
+//! are what ground that oracle.
 
 use proptest::prelude::*;
 
 use crate::tree::arb::{arb_divergent_pair, arb_tree_root};
-use crate::tree::mirror::alternating::{local, mirror};
 use crate::tree::{Root, Tree};
-
-/// Drives the local-local mirror directly: the oracle that `Tree::join`
-/// must match.
-fn mirror_merge(a: Root, b: Root) -> Root {
-    pollster::block_on(async {
-        let l = local::Exchange::start(a);
-        let r = local::Exchange::start(b);
-        match mirror(l, r).await {
-            Ok((merged, _)) => merged,
-            Err(e) => panic!("honest oracle endpoints speak no violations: {e}"),
-        }
-    })
-}
 
 /// Merges via `Tree::join`.
 fn join_tree(a: Root, b: Root) -> Root {
@@ -31,17 +19,6 @@ fn join_tree(a: Root, b: Root) -> Root {
 }
 
 proptest! {
-    /// `Tree::join` produces a byte-identical merged tree to the mirror,
-    /// including honoring deletions by version dominance.
-    #[test]
-    fn join_matches_mirror((a, b) in arb_divergent_pair()) {
-        let tree_j = join_tree(a.clone(), b.clone());
-        let tree_m = mirror_merge(a, b);
-
-        // Same merged tree (version + structure; equal trees ⟹ equal hash).
-        prop_assert_eq!(&tree_j, &tree_m);
-    }
-
     /// Merging a tree with itself is a content no-op.
     #[test]
     fn join_idempotent((a, _b) in arb_divergent_pair()) {

@@ -278,8 +278,6 @@
 //! - `conformance`: the public validation suite for caller-built [`link`]
 //!   instantiations (the [`conformance::link`] module). Enable it from a
 //!   dev-dependency; it is safe, though pointless, in an application.
-//! - `protocol-v1`: the strictly alternating `Protocol::V1`, kept for
-//!   comparative measurement.
 //! - `test-internals`: this crate's own test scaffolding, enabled through
 //!   its self-referential dev-dependency. Never enable it in an application.
 //!
@@ -327,8 +325,6 @@ pub mod tutorial;
 #[cfg(test)]
 mod tests;
 
-#[cfg(feature = "protocol-v1")]
-pub use crate::peer::PROTOCOL_MAGIC;
 pub use ::before;
 pub use batch::Batch;
 pub use before::{Ticks, Version, causally};

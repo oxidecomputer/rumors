@@ -218,32 +218,21 @@ pub fn bootstrap_fork<T>(parent: &Rumors<T>) -> Rumors<T>
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
-    block_on(bootstrap_fork_async_with_protocol(parent, Protocol::V2))
+    block_on(bootstrap_fork_async(parent))
 }
 
 /// Awaitable core of [`bootstrap_fork`], for callers already inside an async
 /// block on this thread's runtime (where a nested [`block_on`] would panic).
-pub async fn bootstrap_fork_async<T>(parent: &Rumors<T>) -> Rumors<T>
-where
-    T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
-{
-    bootstrap_fork_async_with_protocol(parent, Protocol::V2).await
-}
-
-/// Create a disjoint peer using an explicitly selected wire protocol.
 ///
 /// Pins the new peer at the serialization floor, keeping the
 /// capacity-one orderings the deadlock-freedom argument certifies
 /// exercised; suites sweeping the window dimension fork through
 /// [`bootstrap_fork_with_window_async`] instead.
-pub async fn bootstrap_fork_async_with_protocol<T>(
-    parent: &Rumors<T>,
-    protocol: Protocol,
-) -> Rumors<T>
+pub async fn bootstrap_fork_async<T>(parent: &Rumors<T>) -> Rumors<T>
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
-    bootstrap_fork_configured(parent, protocol, WindowChoice::Floor).await
+    bootstrap_fork_configured(parent, WindowChoice::Floor).await
 }
 
 /// [`bootstrap_fork`] with the new peer's window taken from the sweep
@@ -265,16 +254,12 @@ pub async fn bootstrap_fork_with_window_async<T>(
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
-    bootstrap_fork_configured(parent, Protocol::V2, window).await
+    bootstrap_fork_configured(parent, window).await
 }
 
 /// Create a disjoint peer over an in-memory link, with the new peer's
-/// wire protocol and window configuration both chosen by the caller.
-async fn bootstrap_fork_configured<T>(
-    parent: &Rumors<T>,
-    protocol: Protocol,
-    window: WindowChoice,
-) -> Rumors<T>
+/// window configuration chosen by the caller.
+async fn bootstrap_fork_configured<T>(parent: &Rumors<T>, window: WindowChoice) -> Rumors<T>
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
@@ -282,9 +267,7 @@ where
 
     let (server_out, boot_out) = tokio::join!(
         parent.gossip(&mut parent_link),
-        Peer::<T>::bootstrap()
-            .protocol(protocol)
-            .join(&mut boot_link),
+        Peer::<T>::bootstrap().join(&mut boot_link),
     );
     server_out.expect("bootstrap server gossip");
     let forked = window

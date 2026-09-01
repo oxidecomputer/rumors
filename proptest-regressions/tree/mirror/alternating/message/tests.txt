@@ -1,9 +1,0 @@
-# Seeds for failure cases proptest has generated in the past. It is
-# automatically read and these particular cases re-run before any
-# novel cases are generated.
-#
-# It is recommended to check this file in to source control so that
-# everyone who runs the test benefits from these saved cases.
-cc c2ae54d74566f028417f3f6f6d5911ab17b8e31cac981b648a39ba9a0d3fc373 # shrinks to providing_entries = [([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], Node { prefix: "", children: Leaf { version: 0, message: () } })]
-cc 194ca0758e26b1a80899be625e69746a733be3fccc0d3e0e05e077c019cf5643 # shrinks to providing_entries = [([], Some(Node { prefix: "32808dff4ce5ec9f4e78e36ba3500d0a7a61e32d973b81c6075dbebe2015f2f2", children: Leaf { version: (0, 0, 1), message: () } }))], requested = [], uncertain = []
-cc bc768ba70efde529acf81ed6926a73c824b48d57fad92b6c76e7f8face0a0ff8 # shrinks to providing_entries = [([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], Node { prefix: "", children: Leaf { version: 0, message: () } })], requested = []

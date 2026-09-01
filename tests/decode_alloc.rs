@@ -1,12 +1,15 @@
-//! Allocator metering for the wire decoders' framed-payload reads.
+//! Allocator metering for the wire decoders' declared-length payload
+//! reads.
 //!
 //! A counting global allocator prices each decode in bytes requested from
 //! the allocator, holding decoder memory against the bytes a peer actually
-//! delivered. The two metered entries are the framing layer's frame read
-//! and the streaming codec's supply read — the two places a peer-declared
-//! `u32` length stands ahead of a variable body. The counters are
-//! process-global, so a mutex serializes every metered region; the suite
-//! is correct under any test runner's threading.
+//! delivered. The two metered entries are the framing layer's
+//! declared-length payload read — the policy beneath every variable body
+//! a peer-declared length stands ahead of, the party hand-off's byte
+//! string included — and the streaming codec's supply read, which layers
+//! its run grammar over the same policy. The counters are process-global,
+//! so a mutex serializes every metered region; the suite is correct under
+//! any test runner's threading.
 
 use std::alloc::System;
 use std::sync::Mutex;
@@ -75,17 +78,6 @@ fn growth_events(len: usize) -> usize {
         + 1
 }
 
-/// A framing-layer frame declaring `declared` payload bytes, delivering
-/// `payload` behind the header.
-fn framed(declared: usize, payload: &[u8]) -> Vec<u8> {
-    let mut bytes = u32::try_from(declared)
-        .expect("declared lengths in this suite fit the u32 header")
-        .to_be_bytes()
-        .to_vec();
-    bytes.extend_from_slice(payload);
-    bytes
-}
-
 /// A streaming supply frame declaring `declared` run bytes, delivering
 /// `body` behind the frame and run heads.
 fn supply_frame(declared: usize, body: &[u8]) -> Vec<u8> {
@@ -101,17 +93,20 @@ fn run_body(len: usize) -> Vec<u8> {
     rumors::testing::lone_record_run(len)
 }
 
-/// Ceiling: a frame declaring 256 MiB with zero delivered payload bytes
-/// requests at most one payload chunk (plus sub-KiB noise).
+/// Ceiling: a declared 256 MiB payload with zero delivered bytes requests
+/// at most one payload chunk (plus sub-KiB noise).
 ///
 /// Decoder memory tracks bytes actually received, never the peer-declared
 /// length: with nothing delivered, at most one granule is reserved.
 #[test]
 fn framing_zero_delivered_costs_at_most_one_chunk() {
-    let bytes = framed(DECLARED_LEN, &[]);
-    let (change, result) =
-        metered(|| pollster::block_on(rumors::testing::read_framed_payload(&bytes[..])));
-    let error = result.expect_err("a frame with nothing behind its header cannot complete");
+    let (change, result) = metered(|| {
+        pollster::block_on(rumors::testing::read_declared_payload(
+            &[][..],
+            DECLARED_LEN,
+        ))
+    });
+    let error = result.expect_err("a read with nothing behind its declared length cannot complete");
     assert_eq!(error.kind(), std::io::ErrorKind::UnexpectedEof);
     let ceiling = rumors::testing::frame_payload_chunk_len() + METER_SLACK;
     assert!(
@@ -154,7 +149,7 @@ fn supply_zero_delivered_costs_at_most_one_chunk() {
     );
 }
 
-/// Ceiling: a frame declaring 256 MiB with only k delivered payload bytes
+/// Ceiling: a declared 256 MiB payload with only k delivered bytes
 /// requests at most 2k plus one chunk (plus sub-KiB noise).
 ///
 /// Allocation must track receipt at every prefix, not merely at zero: a
@@ -165,10 +160,13 @@ fn framing_partial_delivery_costs_receipt_proportional() {
     let chunk = rumors::testing::frame_payload_chunk_len();
     let delivered_len = 2 * chunk + 37;
     let delivered: Vec<u8> = (0..delivered_len).map(|i| i as u8).collect();
-    let bytes = framed(DECLARED_LEN, &delivered);
-    let (change, result) =
-        metered(|| pollster::block_on(rumors::testing::read_framed_payload(&bytes[..])));
-    let error = result.expect_err("a partially delivered frame cannot complete");
+    let (change, result) = metered(|| {
+        pollster::block_on(rumors::testing::read_declared_payload(
+            &delivered[..],
+            DECLARED_LEN,
+        ))
+    });
+    let error = result.expect_err("a partially delivered payload cannot complete");
     assert_eq!(error.kind(), std::io::ErrorKind::UnexpectedEof);
     let ceiling = 2 * delivered_len + chunk + METER_SLACK;
     assert!(
@@ -179,17 +177,20 @@ fn framing_partial_delivery_costs_receipt_proportional() {
     );
 }
 
-/// Liveness floor: an honest fully-delivered frame of N payload bytes
+/// Liveness floor: an honest fully-delivered payload of N declared bytes
 /// meters at least N requested bytes and decodes byte-identically, so the
 /// meter provably counts the framing payload path it prices.
 #[test]
 fn framing_full_delivery_meters_at_least_payload() {
     let payload: Vec<u8> = (0..HONEST_LEN).map(|i| i as u8).collect();
-    let bytes = framed(HONEST_LEN, &payload);
-    let (change, result) =
-        metered(|| pollster::block_on(rumors::testing::read_framed_payload(&bytes[..])));
+    let (change, result) = metered(|| {
+        pollster::block_on(rumors::testing::read_declared_payload(
+            &payload[..],
+            HONEST_LEN,
+        ))
+    });
     assert_eq!(
-        result.expect("a fully delivered frame decodes"),
+        result.expect("a fully delivered payload decodes"),
         payload,
         "the decoded payload is byte-identical to what the peer sent"
     );
@@ -219,8 +220,8 @@ fn supply_full_delivery_meters_at_least_payload() {
     );
 }
 
-/// Ceilings: an honest fully-delivered frame of non-power-of-two length N
-/// requests at most N plus one chunk in bytes, within a logarithmic
+/// Ceilings: an honest fully-delivered payload of non-power-of-two length
+/// N requests at most N plus one chunk in bytes, within a logarithmic
 /// budget of allocation events, and still meters the >= N floor.
 ///
 /// The byte ceiling fails a growth policy whose capacity overshoots the
@@ -231,11 +232,14 @@ fn supply_full_delivery_meters_at_least_payload() {
 #[test]
 fn framing_full_delivery_costs_at_most_payload_plus_chunk() {
     let payload: Vec<u8> = (0..HONEST_ODD_LEN).map(|i| i as u8).collect();
-    let bytes = framed(HONEST_ODD_LEN, &payload);
-    let (change, result) =
-        metered(|| pollster::block_on(rumors::testing::read_framed_payload(&bytes[..])));
+    let (change, result) = metered(|| {
+        pollster::block_on(rumors::testing::read_declared_payload(
+            &payload[..],
+            HONEST_ODD_LEN,
+        ))
+    });
     assert_eq!(
-        result.expect("a fully delivered frame decodes"),
+        result.expect("a fully delivered payload decodes"),
         payload,
         "the decoded payload is byte-identical to what the peer sent"
     );

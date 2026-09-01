@@ -1,9 +1,0 @@
----
-source: src/tree/mirror/alternating/wire_snapshot.rs
-expression: snap(&m)
----
-0000: 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
-0010: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
-0020: 00 00 00 00 00 41 77 41 f6 01 00 00 00 ff ff ff
-0030: ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff
-0040: ff ff ff ff ff ff ff ff ff ff ff ff ff

@@ -1,4 +1,4 @@
-use crate::message::{PayloadCodec, PayloadDepthLimit};
+use crate::message::PayloadDepthLimit;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
@@ -97,34 +97,6 @@ proptest! {
         let wrapped = cbor_vec(&m);
         let direct = cbor_vec(&Bstr(m.bytes()));
         prop_assert_eq!(wrapped, direct);
-    }
-
-    /// A `Message` roundtrips through its serde form: `from_reader` on a
-    /// serialized message yields an equal message with equal cached bytes.
-    #[test]
-    fn serde_roundtrip(p in payload()) {
-        let m = Message::new(p);
-        let bytes = cbor_vec(&m);
-        let back = Message::from_reader(bytes.as_slice(), PayloadCodec::new::<Payload>(PayloadDepthLimit::default())).unwrap();
-        prop_assert_eq!(&m, &back);
-        prop_assert_eq!(m.bytes(), back.bytes());
-    }
-
-    /// Reading a message off a stream consumes exactly the message's own
-    /// bytes: trailing data after the CBOR value survives for the next
-    /// field (the property the wire codec's mid-stream decodes rest on).
-    #[test]
-    fn stream_decode_consumes_only_message_bytes(p in payload(), trailer in any::<Vec<u8>>()) {
-        let m = Message::new(p);
-        let mut combined = cbor_vec(&m);
-        let expected = combined.clone();
-        combined.extend_from_slice(&trailer);
-
-        let mut slice: &[u8] = &combined;
-        let back = Message::from_reader(&mut slice, PayloadCodec::new::<Payload>(PayloadDepthLimit::default())).unwrap();
-        prop_assert_eq!(back.bytes(), m.bytes());
-        prop_assert_eq!(slice, trailer.as_slice());
-        prop_assert_eq!(combined.len() - slice.len(), expected.len());
     }
 
     /// Equal `Message`s hash identically, so `Hash` agrees with

@@ -47,7 +47,7 @@ impl StreamObserver for Sink {
 #[test]
 fn unattached_handles_are_inert() {
     let attachment = Attachment::default();
-    let handle = attachment.begin(SessionKind::Gossip, Protocol::V2);
+    let handle = attachment.begin(SessionKind::Gossip);
     assert!(!handle.attached());
     handle.control_sent(b"x");
     handle.control_received(b"x");
@@ -63,7 +63,7 @@ fn begin_creates_the_control_handlers() {
     let mut attachment = Attachment::default();
     attachment.attach(observer.clone());
 
-    let handle = attachment.begin(SessionKind::Bootstrap, Protocol::V2);
+    let handle = attachment.begin(SessionKind::Bootstrap);
     assert!(handle.attached());
     assert_eq!(observer.sessions.load(Ordering::Relaxed), 1);
     let infos = observer.infos.lock().unwrap();

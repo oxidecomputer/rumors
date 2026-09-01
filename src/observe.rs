@@ -36,14 +36,12 @@
 //!   [`message`](StreamObserver::message) stalls that directed stream,
 //!   and waiting on protocol progress deadlocks; hand bytes off to a
 //!   channel if the consumer is slow.
-//! - **Coverage**: every directed stream of a `Protocol::V2` session,
-//!   both directions, control and data streams alike. The stream-open
-//!   label is stream *addressing*, not an item, and is not delivered.
-//!   Only complete items are observed: a session that dies mid-frame
-//!   does not deliver the fragment, and an aborted session may have
-//!   observed fewer items than crossed the wire. `Protocol::V1`
-//!   sessions are not observed: the frozen legacy wire is not a CBOR
-//!   sequence, so it cannot honor the one-item contract.
+//! - **Coverage**: every directed stream of a session, both directions,
+//!   control and data streams alike. The stream-open label is stream
+//!   *addressing*, not an item, and is not delivered. Only complete
+//!   items are observed: a session that dies mid-frame does not deliver
+//!   the fragment, and an aborted session may have observed fewer items
+//!   than crossed the wire.
 //! - **Cost**: unattached (or a level declined), one branch per frame;
 //!   attached, one extra contiguous copy of each observed frame. The
 //!   wire bytes themselves are unchanged either way.
@@ -71,9 +69,8 @@ pub trait Observer: Send + Sync {
     /// Begin observing one session, or return `None` to skip it.
     ///
     /// Called once per session, before the session's first byte
-    /// crosses the wire — for sessions of an observable dialect; see
-    /// the module docs' `Protocol::V1` exclusion. `session` identifies
-    /// it; the returned handler's lifetime is the session's.
+    /// crosses the wire. `session` identifies it; the returned
+    /// handler's lifetime is the session's.
     fn session(&self, session: &SessionInfo) -> Option<Box<dyn SessionObserver>>;
 }
 
@@ -235,18 +232,15 @@ impl Attachment {
     /// Enter one session: create its handle.
     ///
     /// The handle is inert — every invocation a no-op branch — when no
-    /// observer is attached, when the observer declines the session,
-    /// or when the dialect is not observable (`Protocol::V1`'s frozen
-    /// wire is not a CBOR sequence; the module docs state the
-    /// exclusion).
-    pub(crate) fn begin(&self, kind: SessionKind, protocol: Protocol) -> SessionHandle {
+    /// observer is attached or when the observer declines the session.
+    pub(crate) fn begin(&self, kind: SessionKind) -> SessionHandle {
         let Some(handler) = &self.handler else {
             return SessionHandle::default();
         };
-        if protocol != Protocol::V2 {
-            return SessionHandle::default();
-        }
-        let info = SessionInfo { kind, protocol };
+        let info = SessionInfo {
+            kind,
+            protocol: Protocol::V2,
+        };
         let Some(session) = handler.session(&info) else {
             return SessionHandle::default();
         };

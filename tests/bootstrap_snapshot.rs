@@ -5,9 +5,8 @@
 //! The companion to `gossip_snapshot.rs` for the *bootstrap* leg of the
 //! protocol. Each test stages a provider, drives one bootstrap through the
 //! recording link in [`common::gossip_snapshot::capture_session`], and pins
-//! every wire byte. V2 traffic is grouped by logical stream while preserving
-//! its exact per-stream order; a representative V1 case pins its strictly
-//! alternating timeline. Drift in the preamble, reconciliation, or trailing
+//! every wire byte. Traffic is grouped by logical stream while preserving
+//! its exact per-stream order. Drift in the preamble, reconciliation, or trailing
 //! party hand-off shows up as a diff. Re-accept only after a deliberate
 //! protocol change: a new protocol version, never a mutation of an existing
 //! one. The re-accept procedure (`cargo insta review`) is in `AGENTS.md`.
@@ -27,12 +26,8 @@ use crate::common::wire::batch_send;
 
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
-#[cfg(feature = "protocol-v1")]
-use rumors::Protocol;
 use rumors::{Peer, Rumors};
 
-#[cfg(feature = "protocol-v1")]
-use crate::common::gossip_snapshot::capture_session_v1;
 use crate::common::gossip_snapshot::{capture_session, observed};
 
 use serde::Serialize;
@@ -92,35 +87,6 @@ fn populated_provider() {
     let provider: Rumors<u64> = seeded();
     batch_send(&provider, [1, 2, 3]);
     insta::assert_snapshot!(capture_bootstrap(provider));
-}
-
-/// V1 bootstrap retains its original preamble, alternating descent, and
-/// trailing party hand-off through the public compatibility entry point.
-#[cfg(feature = "protocol-v1")]
-#[test]
-fn v1_populated_provider() {
-    let provider: Rumors<u64> = Peer::seed_rng(&mut SmallRng::seed_from_u64(0))
-        .sync_window_floor()
-        .protocol(Protocol::V1)
-        .into_rumors();
-    batch_send(&provider, [1, 2, 3]);
-    let capture = capture_session_v1(
-        move |mut link| async move {
-            provider
-                .gossip(&mut link)
-                .await
-                .expect("V1 provider gossip");
-        },
-        move |mut link| async move {
-            Peer::<u64>::bootstrap()
-                .protocol(Protocol::V1)
-                .join(&mut link)
-                .await
-                .expect("V1 bootstrap handshake")
-                .expect("V1 provider served the bootstrap");
-        },
-    );
-    insta::assert_snapshot!(capture);
 }
 
 /// Bootstrap of a non-primitive, variable-length payload.

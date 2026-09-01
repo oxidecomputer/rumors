@@ -14,7 +14,6 @@ use crate::tree::arb::{
     arb_divergent_pair, arb_tree_root, leaf_parent_dispute_pair, leaf_parent_redaction_pair,
     uncontained_supply_pair,
 };
-use crate::tree::mirror::alternating;
 use crate::tree::mirror::streaming::backend::with_local_schedule;
 use crate::tree::mirror::streaming::materialized::channel::with_schedule;
 use crate::tree::mirror::streaming::materialized::progress::{Trace, with_trace};
@@ -23,7 +22,7 @@ use crate::tree::mirror::streaming::window::WindowConfig;
 use crate::tree::mirror::streaming::{
     Local, Root as StreamingRoot, materialized::Handshaking, mirror as drive_streaming,
 };
-use crate::tree::{Root, mirror::Error as MirrorError};
+use crate::tree::{Root, Tree, mirror::Error as MirrorError};
 
 mod announced;
 mod capacity;
@@ -150,29 +149,18 @@ fn fully_scheduled_streaming_mirror(
     ours
 }
 
-/// Reconcile `a` and `b` through the alternating implementation — the
-/// behavioral oracle the streaming protocol must reproduce exactly —
-/// returning both sides' roots in argument order, with no convergence
-/// assertion.
-fn alternating_mirror_sides(a: Root, b: Root) -> (Root, Root) {
-    pollster::block_on(async {
-        let local_a = alternating::local::Exchange::start(a);
-        let local_b = alternating::local::Exchange::start(b);
-        alternating::mirror(local_a, local_b)
-            .await
-            .expect("two honest oracle endpoints speak no violations")
-    })
+/// Merge `a` and `b` through `Tree::join`: the in-memory oracle.
+///
+/// Its observational equivalence to wire reconciliation is the design of
+/// record: `join` and the mirror delegate deletion honoring to the same
+/// filter, so a reconciled endpoint must hold exactly the joined tree.
+fn join_oracle(a: Root, b: Root) -> Root {
+    let mut joined = Tree::<()>::from_root(a);
+    joined.join(Tree::from_root(b));
+    joined.root
 }
 
-/// Reconcile `a` and `b` through the alternating oracle, asserting the two
-/// sides converge to the same root, and return it.
-fn alternating_mirror(a: Root, b: Root) -> Root {
-    let (ours, theirs) = alternating_mirror_sides(a, b);
-    assert_eq!(ours, theirs, "oracle endpoints should converge");
-    ours
-}
-
-/// Generated relationships for the independent alternating oracle.
+/// Generated relationships for the independent join oracle.
 ///
 /// The union covers shared-history divergence (including redactions and
 /// matched subtrees), independent party histories (including empty bootstrap
@@ -262,19 +250,20 @@ fn uncontained_supply_is_rejected_by_streaming() {
 }
 
 proptest! {
-    /// Streaming and the alternating oracle agree in both orientations.
+    /// Streaming and the in-memory join oracle agree in both orientations.
     ///
-    /// Across every generated causal relationship, both implementations
-    /// return the same two roots and converge their endpoints. This is the
-    /// design-of-record property tying selectable V1 to default V2 semantics.
+    /// Across every generated causal relationship, both wire endpoints
+    /// converge to exactly `Tree::join` of the two inputs. This ties the
+    /// wire reconciliation to the in-memory merge the convergence suites
+    /// are stated over: join and mirror delegate deletion honoring to the
+    /// same filter, so any divergence here is a protocol bug.
     #[test]
-    fn streaming_matches_alternating_oracle((a, b) in arb_oracle_pair()) {
+    fn streaming_matches_join_oracle((a, b) in arb_oracle_pair()) {
+        let expected = join_oracle(a.clone(), b.clone());
         for (left, right) in [(a.clone(), b.clone()), (b, a)] {
-            let expected = alternating_mirror_sides(left.clone(), right.clone());
             let actual = streaming_mirror_sides(left, right);
-            prop_assert_eq!(&actual, &expected);
-            prop_assert_eq!(&actual.0, &actual.1);
-            prop_assert_eq!(&expected.0, &expected.1);
+            prop_assert_eq!(&actual.0, &expected);
+            prop_assert_eq!(&actual.1, &expected);
         }
     }
 }

@@ -234,12 +234,13 @@ proptest! {
     /// The same final leaf set — reached by different insertion orders,
     /// different react-batch partitionings, a join of two disjoint halves,
     /// and a detour through extra leaves that are then redacted — must
-    /// produce byte-identical serialized root nodes (the serialization *is*
-    /// the structure: maximal prefixes, >= 2-child branches) and equal root
-    /// hashes, all matching the canonical bulk construction over the sorted
-    /// leaf set. The single-preimage hash rule commits the compressed shape
-    /// directly, so cross-peer hash agreement rests on exactly this
-    /// invariant.
+    /// produce equal root hashes and identical leaf views, all matching
+    /// the canonical bulk construction over the sorted leaf set. The
+    /// single-preimage hash rule commits the compressed shape (maximal
+    /// prefixes, >= 2-child branches), the prefix bytes, and the version
+    /// set directly — so cross-peer hash agreement rests on exactly this
+    /// invariant — and the leaf view pins the version-to-payload mapping
+    /// the hash deliberately omits.
     ///
     /// Every leaf rides its own disjoint party, so all versions are pairwise
     /// concurrent: no reordering across react batches or join sides can
@@ -297,15 +298,19 @@ proptest! {
         right.react(kept[cut..].iter().map(versioned));
         joined.join(right);
 
-        let serialize = |tree: &Tree<Bytes>| -> Option<Vec<u8>> {
-            tree.root
-                .root
-                .as_ref()
-                .map(|node| crate::tree::wire::to_vec(node).expect("node serializes"))
+        // Two facets pin the whole tree. The Merkle hash commits the
+        // compressed shape, prefix bytes, and version set — but never
+        // message bytes — and the leaf view (every (version, payload)
+        // pair in ascending path order) covers exactly the facet the
+        // hash omits.
+        let leaf_view = |tree: &Tree<Bytes>| -> Vec<(Version, Bytes)> {
+            tree.iter()
+                .map(|(version, value)| (version.clone(), (*value).clone()))
+                .collect()
         };
-        let expected = serialize(&direct);
-        prop_assert_eq!(&serialize(&detoured), &expected);
-        prop_assert_eq!(&serialize(&joined), &expected);
+        let expected_view = leaf_view(&direct);
+        prop_assert_eq!(&leaf_view(&detoured), &expected_view);
+        prop_assert_eq!(&leaf_view(&joined), &expected_view);
         prop_assert_eq!(detoured.hash(), direct.hash());
         prop_assert_eq!(joined.hash(), direct.hash());
 
@@ -324,12 +329,15 @@ proptest! {
             .collect();
         let canonical =
             (!entries.is_empty()).then(|| untyped::Node::from_sorted_leaves(0, &mut entries));
-        let canonical_bytes = canonical.as_ref().map(|node| {
-            let mut buf = Vec::new();
-            node.serialize_to(&mut buf).expect("node serializes");
-            buf
-        });
-        prop_assert_eq!(&canonical_bytes, &expected);
+        let canonical_view: Vec<(Version, Bytes)> = canonical
+            .as_ref()
+            .map(|node| {
+                untyped::Iter::root(node)
+                    .map(|(v, m)| (v.clone(), (*m.arc::<Bytes>()).clone()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        prop_assert_eq!(&canonical_view, &expected_view);
         if let Some(node) = canonical {
             prop_assert_eq!(*node.hash().as_bytes(), direct.hash());
         }
