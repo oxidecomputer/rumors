@@ -66,9 +66,9 @@ pub enum Error<B: BookmarkError = NoBookmark> {
     #[error(transparent)]
     Io(#[from] std::io::Error),
 
-    /// The peer is not speaking the rumors protocol: its preamble began
-    /// with neither the self-described CBOR opening of a
-    /// [`Protocol::V2`] session nor the legacy raw magic of a V1 one.
+    /// The peer is not speaking the rumors protocol: its preamble does
+    /// not begin with the self-described CBOR opening of a rumors
+    /// session.
     #[error("peer is not a rumors stream (leading bytes: {remote_magic:x?})")]
     MagicMismatch { remote_magic: [u8; 6] },
 
@@ -211,8 +211,7 @@ pub enum Error<B: BookmarkError = NoBookmark> {
     /// canonical party encoding, one spelling per donation, so this is
     /// always a counterparty bug, never an alternate encoding; the defect
     /// names the fault. Nothing was absorbed: the local replica is
-    /// unchanged. Reachable only for [`Protocol::V2`]; the frozen V1
-    /// dialect reports hand-off failures as [`Io`](Self::Io).
+    /// unchanged.
     #[error("peer identity hand-off is malformed: {defect}")]
     HandOffMalformed {
         /// Which part of the hand-off failed, and how.
@@ -226,8 +225,6 @@ pub enum Error<B: BookmarkError = NoBookmark> {
     /// close, not a failure — the counterparty (or something between)
     /// hung up after its preamble intent promised a donation. Nothing was
     /// absorbed: the local replica is unchanged. Retry over a fresh link.
-    /// Reachable only for [`Protocol::V2`]; the frozen V1 dialect reports
-    /// hand-off failures as [`Io`](Self::Io).
     #[error("peer closed before delivering its promised identity hand-off")]
     HandOffTruncated,
 

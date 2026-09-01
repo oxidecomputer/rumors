@@ -35,7 +35,7 @@
 //! [`ops`] dispatch derives its height from that same length (so the
 //! coordinate and the witness cannot drift apart), and every channel
 //! keeps its [`QueueRole`] height label for
-//! the instrumented diagnostics. The behavioral pins — the alternating
+//! the instrumented diagnostics. The behavioral pins — the join
 //! oracle, the violation and capacity suites, the byte-pinned wire
 //! snapshots — exercise exactly these pairings.
 

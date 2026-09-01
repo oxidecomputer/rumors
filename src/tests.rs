@@ -101,7 +101,6 @@ fn overlapping_retiree_party_is_rejected() {
     let forged = Peer::<u64> {
         codec: PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
         network: survivor.network,
-        protocol: survivor.protocol,
         window: survivor.window,
         run_budget: survivor.run_budget,
         inner: watch::Sender::new(Inner {

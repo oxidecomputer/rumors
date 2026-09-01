@@ -20,8 +20,7 @@ use crate::tree::mirror::streaming::remote::RunBudget;
 pub use crate::tree::mirror::streaming::window::DEFAULT_SYNC_MEMORY_BUDGET;
 use crate::tree::mirror::streaming::window::WindowConfig;
 use crate::{
-    Batch, Bookmark, CausalMessages, Network, Protocol, Rumors, Snapshot, UnorderedMessages,
-    Version,
+    Batch, Bookmark, CausalMessages, Network, Rumors, Snapshot, UnorderedMessages, Version,
 };
 
 use serde::Serialize;
@@ -30,8 +29,6 @@ mod bootstrap;
 mod gossip;
 
 pub use bootstrap::{BookmarkedBootstrap, Bootstrap, Joined};
-#[cfg(feature = "protocol-v1")]
-pub use gossip::PROTOCOL_MAGIC;
 pub use gossip::{Gossip, Gossiped, Led, Retire, Unbookmarked};
 
 /// The start and end of a [`Rumors`]'s lifecycle.
@@ -147,7 +144,6 @@ pub use gossip::{Gossip, Gossiped, Led, Retire, Unbookmarked};
 /// partitioned before reuniting with the rest of the network.
 pub struct Peer<T, B: BookmarkError = NoBookmark> {
     pub(crate) network: Network,
-    pub(crate) protocol: Protocol,
     /// The reconciliation window choice selected by
     /// [`sync_memory_budget`](Self::sync_memory_budget), resolved per
     /// session against the greeting's exchanged set sizes.
@@ -190,7 +186,6 @@ impl<T, B: BookmarkError> std::fmt::Debug for Peer<T, B> {
         let inner = self.inner.borrow();
         f.debug_struct("Peer")
             .field("network", &self.network)
-            .field("protocol", &self.protocol)
             .field("latest", inner.tree.latest())
             .field("len", &inner.tree.len())
             .finish_non_exhaustive()
@@ -218,7 +213,6 @@ impl<T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<T, NoBoo
     pub fn seed_rng<R: RngCore + ?Sized>(rng: &mut R) -> Self {
         Self {
             network: Network::from_rng(rng),
-            protocol: Protocol::default(),
             window: WindowConfig::default(),
             run_budget: RunBudget::default(),
             inner: watch::Sender::new(Inner {
@@ -239,8 +233,7 @@ impl<T> Peer<T> {
     /// [`Bootstrap::join`] runs the session and returns the brand-new peer;
     /// its docs state the session contract (the mutual-bootstrap bail, what
     /// a failure at the very end can cost, the unbookmarked arrival). The
-    /// builder's settings ([`Bootstrap::protocol`],
-    /// [`Bootstrap::sync_memory_budget`],
+    /// builder's settings ([`Bootstrap::sync_memory_budget`],
     /// [`Bootstrap::target_message_size`]) are the peer-to-be's own,
     /// selected before it exists so the bootstrap session and every
     /// session after it run configured. The zero-configuration join is
@@ -312,18 +305,6 @@ impl<T, B: BookmarkError> Peer<T, B> {
         self.network
     }
 
-    /// Select the reconciliation protocol used by this peer's future sessions.
-    ///
-    /// The choice follows the peer through [`into_rumors`](Self::into_rumors),
-    /// cloning and reunion, bookmarking, and retirement. Both endpoints of a
-    /// connection must select the same protocol. New peers default to
-    /// [`Protocol::V2`].
-    #[must_use]
-    pub fn protocol(mut self, protocol: Protocol) -> Self {
-        self.protocol = protocol;
-        self
-    }
-
     /// Bound the memory a synchronization may spend on pipelining.
     ///
     /// Reconciliation pipelines disputed subtrees to pay wire latency per
@@ -363,11 +344,9 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// the budget buys width only where disputes can exist. The setting
     /// is not wire-visible: peers with different budgets interoperate.
     ///
-    /// Like [`protocol`](Self::protocol), the choice follows the peer
-    /// through [`into_rumors`](Self::into_rumors), cloning and reunion,
-    /// bookmarking, and retirement. `Protocol::V1` sessions (behind the
-    /// `protocol-v1` cargo feature) ignore it: the alternating protocol
-    /// batches whole levels instead of pipelining.
+    /// The choice follows the peer through
+    /// [`into_rumors`](Self::into_rumors), cloning and reunion,
+    /// bookmarking, and retirement.
     ///
     /// # What this does not bound
     ///
@@ -516,9 +495,8 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// is the [`observe`](crate::observe) module's.
     ///
     /// Observation never changes the wire: an observed session's bytes
-    /// are identical to an unobserved one's. Like
-    /// [`protocol`](Self::protocol), the choice follows the peer
-    /// through [`into_rumors`](Self::into_rumors), cloning and
+    /// are identical to an unobserved one's. The choice follows the
+    /// peer through [`into_rumors`](Self::into_rumors), cloning and
     /// reunion, bookmarking, and retirement; every [`Rumors`] clone
     /// shares the one handler. To observe a joining peer's own
     /// bootstrap session, attach on the builder instead
@@ -564,11 +542,9 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// (`u32::MAX` less the frame envelope) saturate to it, so a run built
     /// within the target always fits the cap.
     ///
-    /// Like [`protocol`](Self::protocol), the choice follows the peer
-    /// through [`into_rumors`](Self::into_rumors), cloning and reunion,
-    /// bookmarking, and retirement. `Protocol::V1` sessions (behind the
-    /// `protocol-v1` cargo feature) ignore it: the alternating protocol's
-    /// wire format is frozen.
+    /// The choice follows the peer through
+    /// [`into_rumors`](Self::into_rumors), cloning and reunion,
+    /// bookmarking, and retirement.
     #[must_use]
     pub fn target_message_size(mut self, bytes: usize) -> Self {
         self.run_budget = RunBudget::from_bytes(bytes);
@@ -625,15 +601,11 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// could already hold messages deeper than the negotiated bound,
     /// which it would then not be allowed to gossip. Changing the limit
     /// is therefore a fleet-coordinated configuration event, like
-    /// changing the selected [`Protocol`], never a per-peer tuning
-    /// parameter.
+    /// changing the selected [`Protocol`](crate::Protocol), never a
+    /// per-peer tuning parameter.
     ///
-    /// The frozen `Protocol::V1` greeting cannot carry the parameter, so
-    /// V1 sessions enforce only at decode, and a mixed-limit V1 fleet can
-    /// still fail mid-session, conditional on content.
-    ///
-    /// Like [`protocol`](Self::protocol), the choice follows the peer
-    /// through [`into_rumors`](Self::into_rumors), cloning and reunion,
+    /// The choice follows the peer through
+    /// [`into_rumors`](Self::into_rumors), cloning and reunion,
     /// bookmarking, and retirement.
     #[must_use]
     pub fn payload_depth_limit(mut self, limit: PayloadDepthLimit) -> Self {

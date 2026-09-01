@@ -14,7 +14,7 @@ use crate::message::PayloadDepthLimit;
 use crate::observe::{Attachment, Observer};
 use crate::tree::mirror::streaming::remote::RunBudget;
 use crate::tree::mirror::streaming::window::WindowConfig;
-use crate::{Error, Peer, Protocol};
+use crate::{Error, Peer};
 
 use super::gossip::Unbookmarked;
 
@@ -31,8 +31,7 @@ use serde::de::DeserializeOwned;
 /// provider belongs to.
 ///
 /// Every setting here is the new peer's own, selected one session
-/// early: [`protocol`](Self::protocol),
-/// [`sync_memory_budget`](Self::sync_memory_budget),
+/// early: [`sync_memory_budget`](Self::sync_memory_budget),
 /// [`target_message_size`](Self::target_message_size), and
 /// [`payload_depth_limit`](Self::payload_depth_limit) each state what they
 /// change about the bootstrap session itself, and the joined peer keeps
@@ -58,9 +57,6 @@ use serde::de::DeserializeOwned;
 /// one, never by both sides.
 #[must_use = "a `Bootstrap` does nothing until `join` runs it against a link"]
 pub struct Bootstrap<T> {
-    /// The wire protocol selected by [`protocol`](Self::protocol): spoken
-    /// by the join session, carried into the joined peer.
-    pub(crate) protocol: Protocol,
     /// The window policy selected by
     /// [`sync_memory_budget`](Self::sync_memory_budget): the join
     /// session's reconciliation memory bound, carried into the joined
@@ -88,7 +84,6 @@ pub struct Bootstrap<T> {
 impl<T> Clone for Bootstrap<T> {
     fn clone(&self) -> Self {
         Self {
-            protocol: self.protocol,
             window: self.window,
             run_budget: self.run_budget,
             payload_depth_limit: self.payload_depth_limit,
@@ -102,7 +97,6 @@ impl<T> Clone for Bootstrap<T> {
 impl<T> std::fmt::Debug for Bootstrap<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Bootstrap")
-            .field("protocol", &self.protocol)
             .field("window", &self.window)
             .field("run_budget", &self.run_budget)
             .field("payload_depth_limit", &self.payload_depth_limit)
@@ -115,27 +109,12 @@ impl<T> Bootstrap<T> {
     /// constructor.
     pub(crate) fn new() -> Self {
         Self {
-            protocol: Protocol::default(),
             window: WindowConfig::default(),
             run_budget: RunBudget::default(),
             payload_depth_limit: PayloadDepthLimit::default(),
             observe: Attachment::default(),
             marker: PhantomData,
         }
-    }
-
-    /// Select the reconciliation protocol for the bootstrap session and
-    /// every later session of the joined peer.
-    ///
-    /// Both endpoints of a connection must select the same protocol, so
-    /// use this when joining through a provider which selected a
-    /// non-default dialect such as `Protocol::V1` (behind the
-    /// `protocol-v1` cargo feature). The default is [`Protocol::V2`]. The
-    /// joined peer retains the choice exactly as
-    /// [`Peer::protocol`] would select it.
-    pub fn protocol(mut self, protocol: Protocol) -> Self {
-        self.protocol = protocol;
-        self
     }
 
     /// Bound the memory the joined peer's synchronizations may spend on
@@ -150,9 +129,7 @@ impl<T> Bootstrap<T> {
     ///
     /// The default, what the budget prices, and how to choose one are
     /// [`Peer::sync_memory_budget`]'s; the joined peer behaves exactly as
-    /// if it had called it. `Protocol::V1` sessions ignore the setting:
-    /// the alternating protocol batches whole levels instead of
-    /// pipelining.
+    /// if it had called it.
     pub fn sync_memory_budget(mut self, budget_bytes: usize) -> Self {
         self.window = WindowConfig::Budget(budget_bytes);
         self
@@ -172,8 +149,7 @@ impl<T> Bootstrap<T> {
     /// The default and the full contract (flush accounting, the memory
     /// unit on each side, and the framing ceiling) are
     /// [`Peer::target_message_size`]'s; the joined peer behaves exactly
-    /// as if it had called it. `Protocol::V1` sessions ignore the
-    /// setting: the alternating protocol's wire format is frozen.
+    /// as if it had called it.
     pub fn target_message_size(mut self, bytes: usize) -> Self {
         self.run_budget = RunBudget::from_bytes(bytes);
         self
@@ -319,13 +295,6 @@ impl<T, B> std::fmt::Debug for BookmarkedBootstrap<T, B> {
 }
 
 impl<T, B: Bookmark> BookmarkedBootstrap<T, B> {
-    /// Select the reconciliation protocol; the contract is
-    /// [`Bootstrap::protocol`]'s.
-    pub fn protocol(mut self, protocol: Protocol) -> Self {
-        self.config = self.config.protocol(protocol);
-        self
-    }
-
     /// Bound pipelining memory; the contract is
     /// [`Bootstrap::sync_memory_budget`]'s.
     pub fn sync_memory_budget(mut self, budget_bytes: usize) -> Self {

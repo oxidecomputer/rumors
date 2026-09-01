@@ -94,9 +94,6 @@ default:
 
 # ── inner loop ───────────────────────────────────────────────────────────────
 
-# Default features only, so the inner loop skips the `protocol-v1` towers;
-# the gate's clippy/docs/test-all still build every feature.
-
 # Type-check every host target: libs, tests, benches, examples.
 check:
     cargo check --workspace --all-targets
@@ -107,14 +104,12 @@ check:
 # `check`/`clippy` skip codegen, so they can't detonate one and run bare.
 # Override the limits per-invocation: `PROC_LIMIT_GB=64 just test`.
 
-# Default features only: the V1 wire tests (and the V1 towers in every test
-# binary) build only in `test-all`, which the gate runs.
-
 # Run the test suites; pass a filter to narrow (`just test mirror`).
 test *args:
     {{ justfile_directory() }}/tools/memwatch cargo nextest run --workspace {{ args }}
 
-# The gate's test run: every feature, including the `protocol-v1` wire tests.
+# The gate's test run: every feature (the meter suites and the conformance
+# module build only here).
 test-all *args:
     {{ justfile_directory() }}/tools/memwatch cargo nextest run --workspace --all-features {{ args }}
 
@@ -510,7 +505,6 @@ features:
     cargo check -p before --no-default-features --features scan-meter
     cargo check -p before --no-default-features --features serde,borsh
     cargo check -p rumors --no-default-features
-    cargo check -p rumors --features protocol-v1
     cargo check -p rumors --features meter
     cargo check -p rumors --no-default-features --features conformance
 

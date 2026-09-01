@@ -4,7 +4,7 @@ use before::Party;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
 use crate::{
-    Error, Protocol,
+    Error,
     observe::{CaptureRead, SessionHandle},
     tags::PARTY_TAG,
     tree::mirror::cbor::{self, HeadError, MAJOR_BSTR},
@@ -17,8 +17,7 @@ use crate::{
 /// the way the wire demands, or its content is not one canonical party
 /// encoding. The hand-off is deterministic-encoding CBOR wrapping a
 /// canonical party encoding — one spelling per donation — so every defect
-/// here is a counterparty bug, never an alternate encoding. Reachable
-/// only for [`Protocol::V2`].
+/// here is a counterparty bug, never an alternate encoding.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum HandOffDefect {
@@ -56,13 +55,10 @@ pub enum HandOffDefect {
 ///
 /// Bootstrapping sends a freshly forked party from provider to newcomer;
 /// retirement sends the retiree's whole party toward its absorber. The
-/// hand-off's spelling is the selected dialect's: under V2, one
-/// self-delimiting item — the party-atom tag wrapping a byte string of
-/// the party's canonical encoding — and under the frozen V1 wire, one
-/// length-delimited frame of the bare encoding. Either way its exact
-/// boundary leaves a following session preamble untouched.
+/// hand-off is one self-delimiting item — the party-atom tag wrapping a
+/// byte string of the party's canonical encoding — so its exact boundary
+/// leaves a following session preamble untouched.
 pub(crate) async fn send<W>(
-    protocol: Protocol,
     party: Party,
     writer: &mut W,
     observe: &SessionHandle,
@@ -70,16 +66,6 @@ pub(crate) async fn send<W>(
 where
     W: AsyncWrite + Unpin + ?Sized,
 {
-    #[cfg(any(test, feature = "protocol-v1"))]
-    if protocol == Protocol::V1 {
-        // The frame delimits, so the body is the party's canonical
-        // encoding, bare.
-        crate::tree::mirror::framing::FrameWrite::new(writer)
-            .frame(party.as_bytes())
-            .await?;
-        return Ok(());
-    }
-    let _ = protocol;
     let bytes = party.as_bytes();
     let mut item = Vec::with_capacity(
         cbor::head_len(PARTY_TAG) + cbor::head_len(bytes.len() as u64) + bytes.len(),
@@ -94,34 +80,22 @@ where
 }
 
 /// Receive the identity donation promised by the peer's preamble intent.
-pub(crate) async fn receive<R>(
-    protocol: Protocol,
-    reader: &mut R,
-    observe: &SessionHandle,
-) -> Result<Party, Error>
+pub(crate) async fn receive<R>(reader: &mut R, observe: &SessionHandle) -> Result<Party, Error>
 where
     R: AsyncRead + Unpin + ?Sized,
 {
-    #[cfg(any(test, feature = "protocol-v1"))]
-    if protocol == Protocol::V1 {
-        let bytes = crate::tree::mirror::framing::FrameRead::new(reader)
-            .frame()
-            .await?;
-        return decode_party_v1(&bytes);
-    }
-    let _ = protocol;
     if observe.attached() {
         let mut capture = CaptureRead::new(reader);
-        let party = receive_v2(&mut capture).await?;
+        let party = receive_item(&mut capture).await?;
         observe.control_received(capture.bytes());
         Ok(party)
     } else {
-        receive_v2(reader).await
+        receive_item(reader).await
     }
 }
 
-/// Read and decode one V2 hand-off item.
-async fn receive_v2<R>(reader: &mut R) -> Result<Party, Error>
+/// Read and decode one hand-off item.
+async fn receive_item<R>(reader: &mut R) -> Result<Party, Error>
 where
     R: AsyncRead + Unpin + ?Sized,
 {
@@ -161,23 +135,6 @@ fn decode_party(bytes: &[u8]) -> Result<Party, Error> {
             defect: HandOffDefect::Undecodable(defect),
         },
     })
-}
-
-/// Decode one exact donation body into its canonical party, spelling
-/// failures in the frozen V1 dialect's I/O vocabulary.
-#[cfg(any(test, feature = "protocol-v1"))]
-fn decode_party_v1(bytes: &[u8]) -> Result<Party, Error> {
-    Party::decode(bytes)
-        .map_err(|e| match e {
-            // An item that ends inside the encoding is a truncation, not
-            // corruption; the reader's own failures pass through.
-            before::error::Decode::Truncated => {
-                std::io::Error::new(std::io::ErrorKind::UnexpectedEof, e)
-            }
-            before::error::Decode::Io(e) => e,
-            e => std::io::Error::new(std::io::ErrorKind::InvalidData, e),
-        })
-        .map_err(Error::Io)
 }
 
 /// Read one canonical head, treating any close as a truncation of the

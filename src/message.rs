@@ -500,25 +500,6 @@ impl Message {
         }
     }
 
-    /// Reads one `Message` off a byte stream, consuming exactly its bytes.
-    ///
-    /// The shape is one CBOR byte string wrapping the payload's own CBOR
-    /// encoding (the same shape [`Serialize`] writes), decoded through
-    /// the peer's payload codec. The outer parse is a flat byte string,
-    /// so it runs at the decoder's default recursion bound; the codec
-    /// bounds the payload inside. Trailing data after the byte string
-    /// survives for the next field: the property the wire codec's
-    /// mid-stream decodes rest on. Gated to the alternating protocol's
-    /// codec, its only production consumer.
-    #[cfg(any(test, feature = "protocol-v1"))]
-    pub(crate) fn from_reader<R>(reader: R, codec: PayloadCodec) -> io::Result<Self>
-    where
-        R: io::Read,
-    {
-        let bytes: Vec<u8> = ciborium::de::from_reader(reader).map_err(de_error)?;
-        Self::from_wire(Bytes::from(bytes), codec)
-    }
-
     /// Clones out an owned handle to the payload: a reference bump on the
     /// same shared allocation.
     ///
@@ -580,8 +561,7 @@ impl Hash for Message {
 /// nests inside larger CBOR values without re-encoding.
 ///
 /// The wrapper is what makes a nested message self-delimiting wherever
-/// the container does not delimit it; [`from_reader`](Message::from_reader)
-/// is the typed decoder of the same shape.
+/// the container does not delimit it.
 impl Serialize for Message {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_bytes(&self.serialized)

@@ -304,34 +304,6 @@ fn byte_counters_match_the_transport_tally() {
     });
 }
 
-/// A V1 session reports zero in every field: the alternating
-/// implementation computes none of the counters, and each field
-/// documents the zero. The session itself still converges the pair.
-#[cfg(feature = "protocol-v1")]
-#[test]
-fn v1_sessions_report_zero_stats() {
-    use rumors::Protocol;
-
-    use crate::common::wire::bootstrap_fork_async_with_protocol;
-
-    block_on(async {
-        let a: Rumors<u64> = Peer::seed()
-            .sync_window_floor()
-            .protocol(Protocol::V1)
-            .into_rumors();
-        let b = bootstrap_fork_async_with_protocol(&a, Protocol::V1).await;
-        batch_send(&a, [5]);
-        batch_send(&b, [6]);
-
-        let (a_g, b_g) = gossip_pair(&a, &b).await;
-        assert_eq!(a_g.stats, SessionStats::default());
-        assert_eq!(b_g.stats, SessionStats::default());
-        // The session was not a no-op: the transfer happened, uncounted.
-        assert_eq!(a.snapshot().len(), 2);
-        assert_eq!(b.snapshot().len(), 2);
-    });
-}
-
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(24))]
 

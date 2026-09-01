@@ -3,16 +3,15 @@
 //!
 //! The knobs' *behavioral* contracts are pinned end to end elsewhere —
 //! run sizing under the exchanged minimum in `tests/target_message_size.rs`,
-//! protocol persistence in `tests/bootstrap.rs`, the session bytes in
-//! `tests/bootstrap_snapshot.rs`. This suite pins the plumbing those tests
+//! the session bytes in `tests/bootstrap_snapshot.rs`. This suite pins the plumbing those tests
 //! rest on: every builder knob reaches the builder's state, and every
 //! stored choice reaches the joined peer unchanged.
 
 use super::{Bootstrap, Joined};
+use crate::Peer;
 use crate::bookmark::NoBookmark;
 use crate::tree::mirror::streaming::remote::RunBudget;
 use crate::tree::mirror::streaming::window::{DEFAULT_SYNC_MEMORY_BUDGET, WindowConfig};
-use crate::{Peer, Protocol};
 
 /// A non-default budget distinguishable from every constant the defaults
 /// could alias.
@@ -43,13 +42,11 @@ fn join_from_seed(config: Bootstrap<u64>) -> Peer<u64> {
 }
 
 /// A zero-configuration builder is exactly the crate's default peer
-/// configuration: the same protocol, budget, and run target
-/// [`Peer::seed`] starts with, so joining and seeding cannot diverge on
-/// defaults.
+/// configuration: the same budget and run target [`Peer::seed`] starts
+/// with, so joining and seeding cannot diverge on defaults.
 #[test]
 fn defaults_match_the_seed_configuration() {
     let config = Peer::<u64>::bootstrap();
-    assert_eq!(config.protocol, Protocol::default());
     assert_eq!(budget_bytes(config.window), DEFAULT_SYNC_MEMORY_BUDGET);
     assert_eq!(config.run_budget, RunBudget::default());
 }
@@ -63,10 +60,8 @@ fn defaults_match_the_seed_configuration() {
 #[test]
 fn knobs_store_the_selected_values() {
     let config = Peer::<u64>::bootstrap()
-        .protocol(Protocol::V1)
         .sync_memory_budget(CUSTOM_BUDGET)
         .target_message_size(CUSTOM_TARGET);
-    assert_eq!(config.protocol, Protocol::V1);
     assert_eq!(budget_bytes(config.window), CUSTOM_BUDGET);
     assert_eq!(config.run_budget, RunBudget::from_bytes(CUSTOM_TARGET));
 
@@ -91,7 +86,6 @@ fn joined_peer_retains_the_configuration() {
             .sync_memory_budget(CUSTOM_BUDGET)
             .target_message_size(CUSTOM_TARGET),
     );
-    assert_eq!(peer.protocol, Protocol::V2);
     assert_eq!(budget_bytes(peer.window), CUSTOM_BUDGET);
     assert_eq!(peer.run_budget, RunBudget::from_bytes(CUSTOM_TARGET));
 }
@@ -103,7 +97,6 @@ fn joined_peer_retains_the_configuration() {
 #[test]
 fn unconfigured_join_produces_the_defaults() {
     let peer = join_from_seed(Peer::<u64>::bootstrap());
-    assert_eq!(peer.protocol, Protocol::default());
     assert_eq!(budget_bytes(peer.window), DEFAULT_SYNC_MEMORY_BUDGET);
     assert_eq!(peer.run_budget, RunBudget::default());
     assert_ne!(budget_bytes(peer.window), CUSTOM_BUDGET);
@@ -116,17 +109,14 @@ fn unconfigured_join_produces_the_defaults() {
 #[test]
 fn bookmark_transition_preserves_and_accepts_knobs() {
     let before = Peer::<u64>::bootstrap()
-        .protocol(Protocol::V1)
         .sync_memory_budget(CUSTOM_BUDGET)
         .target_message_size(CUSTOM_TARGET)
         .bookmark(NoBookmark);
     let after = Peer::<u64>::bootstrap()
         .bookmark(NoBookmark)
-        .protocol(Protocol::V1)
         .sync_memory_budget(CUSTOM_BUDGET)
         .target_message_size(CUSTOM_TARGET);
     for config in [before.config, after.config] {
-        assert_eq!(config.protocol, Protocol::V1);
         assert_eq!(budget_bytes(config.window), CUSTOM_BUDGET);
         assert_eq!(config.run_budget, RunBudget::from_bytes(CUSTOM_TARGET));
     }

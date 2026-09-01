@@ -64,7 +64,6 @@ impl<T, B: BookmarkError> Clone for Rumors<T, B> {
         Self {
             peer: Peer {
                 network: self.peer.network,
-                protocol: self.peer.protocol,
                 window: self.peer.window,
                 run_budget: self.peer.run_budget,
                 inner: self.peer.inner.clone(),
@@ -84,7 +83,6 @@ impl<T, B: BookmarkError> std::fmt::Debug for Rumors<T, B> {
         let inner = self.peer.inner.borrow();
         f.debug_struct("Rumors")
             .field("network", &self.peer.network)
-            .field("protocol", &self.peer.protocol)
             .field("latest", inner.tree.latest())
             .field("len", &inner.tree.len())
             .finish_non_exhaustive()
@@ -377,13 +375,10 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// [`gossip_when`](Self::gossip_when) triggers do.
     ///
     /// On `Ok`, both replicas hold every message either one held when the
-    /// session began **and neither had deleted**, and, under
-    /// [`Protocol::V2`](crate::Protocol::V2), the peer has confirmed that
-    /// it completed and committed the session too (the frozen
-    /// [`Protocol::V1`](crate::Protocol::V1) oracle wire has no
-    /// confirmation exchange, so a V1 session's `Ok` certifies only the
-    /// local commit). The link rests exactly at the session boundary,
-    /// ready to host this pair's next session.
+    /// session began **and neither had deleted**, and the peer has
+    /// confirmed that it completed and committed the session too. The
+    /// link rests exactly at the session boundary, ready to host this
+    /// pair's next session.
     ///
     /// On `Err`, the replica is unchanged and the link is poisoned:
     /// discard it and reconnect. This is enforced, not advisory, since

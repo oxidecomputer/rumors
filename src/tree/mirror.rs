@@ -1,14 +1,12 @@
 //! Mirror-sync between two replicas of the typed tree.
 //!
-//! [`streaming`] is the default protocol. `alternating` serves as streaming's
-//! behavioral oracle in this crate's tests, and remains selectable on the
-//! wire behind the `protocol-v1` cargo feature: its state machines are a
-//! large monomorphization surface, so binaries that never speak V1 should
-//! not spend compile time on it.
+//! [`streaming`] is the wire protocol; its behavioral oracle in this
+//! crate's tests is the in-memory merge (`Tree::join`), which routes
+//! deletion honoring through the same filter the mirror does.
 //!
 //! # Malformed input
 //!
-//! Wherever peer-controlled bytes enter a parser, in either protocol, the
+//! Wherever peer-controlled bytes enter a parser, the
 //! tripwire contract is uniform: malformed bytes surface a typed session
 //! error — never a panic, never a hang, never a silent misparse. Under the
 //! trusted-counterparty model (see the crate docs) this validation is a bug
@@ -18,8 +16,6 @@
 //! suite in the `tests.rs` sibling of the parser it exercises, and a new
 //! ingress must bring its own.
 
-#[cfg(any(test, feature = "protocol-v1"))]
-pub(crate) mod alternating;
 pub mod streaming;
 
 #[cfg(test)]
@@ -31,7 +27,7 @@ pub(crate) mod handshake;
 pub(crate) mod party;
 
 /// Whether `bound` is causally contained in `declared`: the version-
-/// containment predicate both protocols enforce on supplied subtrees at
+/// containment predicate the protocol enforces on supplied subtrees at
 /// ingestion.
 ///
 /// Named because version order is partial and the callers branch on the

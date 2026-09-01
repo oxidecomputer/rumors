@@ -147,12 +147,9 @@ impl Hash {
     /// tree's shape is a pure function of its content. Equal content
     /// therefore yields equal shape, hence equal `(prefix, children)`
     /// fields, hence equal hashes, however two peers compressed or arrived
-    /// at that content. This is the same ≥ 2-children maximal-compression
-    /// invariant the node serializer's shape-discriminated decoding already
-    /// rests on (see
-    /// [`Node::serialize_to`](super::untyped::Node::serialize_to)); the
-    /// canonicity proptests pin it so any future relaxation breaks loudly
-    /// rather than desynchronizing hashes silently. In debug builds this
+    /// at that content. The
+    /// canonicity proptests pin the invariant so any future relaxation
+    /// breaks loudly rather than desynchronizing hashes silently. In debug builds this
     /// function trips on a one-child fan and on out-of-order radixes at the
     /// call site.
     ///

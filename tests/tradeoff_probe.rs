@@ -39,7 +39,7 @@ use rumors::testing::{
     dispute_overhead_bytes, envelope_and_wire_bytes, supply_decode_envelope_bytes,
     window_capacities,
 };
-use rumors::{Peer, Protocol, Rumors};
+use rumors::{Peer, Rumors};
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -82,9 +82,7 @@ where
         let (mut provider, mut newcomer) = rumors::link::memory_with_capacity(BUILD_CAPACITY);
         let (served, joined) = tokio::join!(
             left.gossip(&mut provider),
-            Peer::<T>::bootstrap()
-                .protocol(Protocol::V2)
-                .join(&mut newcomer),
+            Peer::<T>::bootstrap().join(&mut newcomer),
         );
         served.expect("serve bootstrap");
         joined

@@ -18,7 +18,7 @@
 use rand::rngs::SmallRng;
 use rand::{RngCore, SeedableRng};
 use rumors::testing::{node_census, node_census_reset, window_capacities};
-use rumors::{Peer, Protocol, Rumors};
+use rumors::{Peer, Rumors};
 
 /// Per-stream in-memory link buffering: far above every transfer here, so
 /// link backpressure never shapes residency.
@@ -54,9 +54,7 @@ fn diverged(budget: usize, divergent: usize) -> (Rumors<u64>, Rumors<u64>) {
         let (mut provider, mut newcomer) = rumors::link::memory_with_capacity(LINK_CAPACITY);
         let (served, joined) = tokio::join!(
             left.gossip(&mut provider),
-            Peer::<u64>::bootstrap()
-                .protocol(Protocol::V2)
-                .join(&mut newcomer),
+            Peer::<u64>::bootstrap().join(&mut newcomer),
         );
         served.expect("serve bootstrap");
         joined
@@ -168,9 +166,7 @@ fn version_bounds_stay_inside_the_priced_pair_bound() {
         let (mut provider, mut newcomer) = rumors::link::memory_with_capacity(LINK_CAPACITY);
         let (served, joined) = tokio::join!(
             right.gossip(&mut provider),
-            Peer::<u64>::bootstrap()
-                .protocol(Protocol::V2)
-                .join(&mut newcomer),
+            Peer::<u64>::bootstrap().join(&mut newcomer),
         );
         served.expect("serve third bootstrap");
         joined
@@ -203,9 +199,7 @@ fn bootstrap_from(provider: &Rumors<u64>) -> Rumors<u64> {
         let (mut serving, mut joining) = rumors::link::memory_with_capacity(LINK_CAPACITY);
         let (served, joined) = tokio::join!(
             provider.gossip(&mut serving),
-            Peer::<u64>::bootstrap()
-                .protocol(Protocol::V2)
-                .join(&mut joining),
+            Peer::<u64>::bootstrap().join(&mut joining),
         );
         served.expect("serve swarm bootstrap");
         joined

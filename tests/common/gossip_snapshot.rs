@@ -7,32 +7,26 @@
 //!
 //! # What a capture pins, and what it discards
 //!
-//! V2 traffic rides a [`rumors::Link`], which keeps logical streams
+//! Traffic rides a [`rumors::Link`], which keeps logical streams
 //! physically separate, so a capture is already demultiplexed: the control
 //! stream's exact bytes plus each opened data stream's exact bytes. Two
 //! kinds of incidental nondeterminism are erased so snapshots stay stable:
 //!
-//! - **Read/write framing**: neither representation retains incidental
-//!   boundaries between individual `poll_write` or `poll_read` calls — each V2
-//!   capture concatenates every byte sent per stream before parsing, and
-//!   V1 collapses consecutive events in the same direction.
+//! - **Read/write framing**: the representation retains no incidental
+//!   boundaries between individual `poll_write` or `poll_read` calls —
+//!   each capture concatenates every byte sent per stream before parsing.
 //! - **Cross-stream scheduling**: independent streams may be polled in
-//!   different orders, so the V2 renderer keys stream groups by their
+//!   different orders, so the renderer keys stream groups by their
 //!   labeled index — the protocol's deterministic observable ordering —
 //!   while preserving every exact byte and the complete order within each
 //!   group.
-//!
-//! Representative V1 tests instead retain the control stream's strict
-//! send/receive timeline: V1 is strictly alternating, and its two peers are
-//! driven by `tokio::join!` on a deterministic executor, so the
-//! direction-switching timeline is reproducible.
 //!
 //! # Interposition
 //!
 //! Each side's in-memory link is rebuilt with recording parts: the control
 //! halves are wrapped in a [`Recorder`] logging every accepted write and
-//! delivered read into one shared, ordered [`Log`] (the V1 timeline needs
-//! both directions), and the connector is wrapped so each opened data
+//! delivered read into one shared, ordered [`Log`] (the drain assertion
+//! needs both directions), and the connector is wrapped so each opened data
 //! stream's accepted writes accumulate in a per-stream buffer.
 
 use std::future::Future;
@@ -426,19 +420,6 @@ where
     render_hook_capture(&hook_capture(&hook_a, &a), &hook_capture(&hook_b, &b))
 }
 
-/// Capture one V1 session in its strict direction-switching timeline.
-pub fn capture_session_v1<DriveA, DriveB, FutA, FutB>(drive_a: DriveA, drive_b: DriveB) -> String
-where
-    DriveA: FnOnce(CaptureLink) -> FutA,
-    DriveB: FnOnce(CaptureLink) -> FutB,
-    FutA: Future<Output = ()>,
-    FutB: Future<Output = ()>,
-{
-    let log = Log::default();
-    let events = capture_events(drive_a, drive_b, &log);
-    render_v1(&events)
-}
-
 /// Drive both roles over recording links and return both sides' captures.
 ///
 /// The raw form of [`capture_session`], for suites that inspect the
@@ -489,33 +470,6 @@ fn assert_control_drained(events: &[Event]) {
     }
 }
 
-/// Drive both roles and return the control-stream I/O event log.
-fn capture_events<DriveA, DriveB, FutA, FutB>(
-    drive_a: DriveA,
-    drive_b: DriveB,
-    log: &Log,
-) -> Vec<Event>
-where
-    DriveA: FnOnce(CaptureLink) -> FutA,
-    DriveB: FnOnce(CaptureLink) -> FutB,
-    FutA: Future<Output = ()>,
-    FutB: Future<Output = ()>,
-{
-    let (a_link, b_link) = rumors::link::memory();
-    let (a_link, _a_side) = Side::wrap(a_link, "A", log.clone());
-    let (b_link, _b_side) = Side::wrap(b_link, "B", log.clone());
-    block_on(async {
-        tokio::join!(drive_a(a_link), drive_b(b_link));
-    });
-
-    let events = {
-        let mut events = log.0.lock().unwrap();
-        std::mem::take(&mut *events)
-    };
-    assert_control_drained(&events);
-    events
-}
-
 /// Gossip `a` and `b` through recording links (the gossip/gossip
 /// specialization of [`capture_session`]). The two sets are expected to
 /// reconcile cleanly; a gossip error panics the helper.
@@ -561,29 +515,6 @@ where
     (rendered, a, b)
 }
 
-/// Capture the strict V1 timeline for a gossip/gossip session.
-pub fn capture_gossip_v1<T>(a: Rumors<T>, b: Rumors<T>) -> String
-where
-    T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
-{
-    capture_session_v1(
-        move |mut link| async move {
-            a.gossip(&mut link).await.expect("V1 gossip A");
-        },
-        move |mut link| async move {
-            b.gossip(&mut link).await.expect("V1 gossip B");
-        },
-    )
-}
-
-/// Render the event log as two per-party transcripts laid out side by side,
-/// each collapsed by direction (see the module docs).
-fn render_v1(events: &[Event]) -> String {
-    let left = transcript("A", events);
-    let right = transcript("B", events);
-    side_by_side(&left, &right)
-}
-
 /// Concatenate every control byte one party sent, erasing write chunking.
 fn sent(peer: &str, events: &[Event]) -> Vec<u8> {
     events
@@ -600,75 +531,4 @@ fn received(peer: &str, events: &[Event]) -> Vec<u8> {
         .filter(|event| event.peer == peer && event.op == Op::Recv)
         .flat_map(|event| event.bytes.iter().copied())
         .collect()
-}
-
-/// Build one party's transcript as a list of text lines: a column header
-/// and rule, then one stanza per direction-run.
-///
-/// Consecutive same-direction events are coalesced into a single block
-/// before rendering, so buffer-level chunk boundaries leave no trace.
-fn transcript(peer: &str, events: &[Event]) -> Vec<String> {
-    // Coalesce consecutive same-`Op` events for this party into runs.
-    let mut runs: Vec<(Op, Vec<u8>)> = Vec::new();
-    for event in events.iter().filter(|e| e.peer == peer) {
-        match runs.last_mut() {
-            Some((op, bytes)) if *op == event.op => bytes.extend_from_slice(&event.bytes),
-            _ => runs.push((event.op, event.bytes.clone())),
-        }
-    }
-
-    let mut body: Vec<String> = Vec::new();
-    if runs.is_empty() {
-        body.push("(no traffic)".to_string());
-    }
-    for (op, bytes) in &runs {
-        let label = match op {
-            Op::Send => "sent",
-            Op::Recv => "received",
-        };
-        body.push(format!("{label} {} bytes", bytes.len()));
-        body.extend(hex_lines(bytes));
-    }
-
-    // Header and a rule sized to the widest body line, so the two columns read
-    // as titled, ruled-off panels.
-    let width = body.iter().map(|l| l.chars().count()).max().unwrap_or(0);
-    let mut lines = vec![format!("party {peer}"), "─".repeat(width.max(1))];
-    lines.extend(body);
-    lines
-}
-
-/// `hexdump`-style body lines: 8 bytes per line (narrow enough to sit two
-/// transcripts side by side within a terminal), each with a `0000:`-style
-/// offset and indented to set it apart from its stanza header.
-fn hex_lines(bytes: &[u8]) -> Vec<String> {
-    bytes
-        .chunks(8)
-        .enumerate()
-        .map(|(line, chunk)| {
-            let mut s = format!("  {:04x}:", line * 8);
-            for byte in chunk {
-                s.push_str(&format!(" {byte:02x}"));
-            }
-            s
-        })
-        .collect()
-}
-
-/// Lay two columns of lines beside each other, separated by ` │ `. The left
-/// column is padded to its widest line so the separator stays aligned; the
-/// shorter column is padded with blank rows. Trailing whitespace is trimmed.
-fn side_by_side(left: &[String], right: &[String]) -> String {
-    let width = left.iter().map(|l| l.chars().count()).max().unwrap_or(0);
-    let rows = left.len().max(right.len());
-    let mut out = String::new();
-    for row in 0..rows {
-        let l = left.get(row).map(String::as_str).unwrap_or("");
-        let r = right.get(row).map(String::as_str).unwrap_or("");
-        let pad = " ".repeat(width - l.chars().count());
-        let line = format!("{l}{pad} │ {r}");
-        out.push_str(line.trim_end());
-        out.push('\n');
-    }
-    out
 }

@@ -18,7 +18,7 @@ use std::time::Duration;
 use criterion::{Criterion, criterion_group, criterion_main};
 use rand::rngs::SmallRng;
 use rand::{RngCore, SeedableRng};
-use rumors::{Peer, Protocol, Rumors};
+use rumors::{Peer, Rumors};
 
 /// One-way delay: small, so a serialized cell still finishes in tens of
 /// milliseconds of real time.
@@ -70,9 +70,7 @@ fn diverged(budget: usize, divergent: usize) -> (Rumors<u64>, Rumors<u64>) {
         let (mut provider, mut newcomer) = rumors::link::memory_with_capacity(LINK_CAPACITY);
         let (served, joined) = tokio::join!(
             left.gossip(&mut provider),
-            Peer::<u64>::bootstrap()
-                .protocol(Protocol::V2)
-                .join(&mut newcomer),
+            Peer::<u64>::bootstrap().join(&mut newcomer),
         );
         served.expect("serve bootstrap");
         joined

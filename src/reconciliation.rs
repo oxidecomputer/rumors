@@ -233,19 +233,16 @@
 //! and the measured trade-off table — lives at
 //! [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget).
 //!
-//! # Two protocols
+//! # Why streaming, not level-synchronous exchange
 //!
-//! [`Protocol`](crate::Protocol) names two wire dialects for the same
-//! reconciliation: they process the same tree, based on the same logical
-//! concepts of the disjoint frontier and its causal sieve.
-//! [`Protocol::V1`](crate::Protocol::V1), the strictly alternating original
-//! protocol, exchanges the dispute frontier a whole tree-level at a time: each
-//! message carries an entire level's listings and supplies, built in full
-//! before it ships. That shape is simple and hand-verifiably correct, but its
-//! message size is unbounded; at high divergence a level's message grows with
-//! the divergence itself, so a session can transiently hold a second copy of
-//! much of the set, doubling the replica's memory footprint in the worst case.
-//! [`Protocol::V2`](crate::Protocol::V2), the default, runs the descent using
-//! the bounded-memory streaming approach described above. V1 remains selectable
-//! (the `protocol-v1` cargo feature) as the simpler behavioral oracle the
-//! streaming implementation is checked against.
+//! The straightforward wire shape for this reconciliation exchanges the
+//! dispute frontier a whole tree-level at a time: each message carries an
+//! entire level's listings and supplies, built in full before it ships.
+//! That shape is simple and hand-verifiably correct, but its message size
+//! is unbounded; at high divergence a level's message grows with the
+//! divergence itself, so a session can transiently hold a second copy of
+//! much of the set, doubling the replica's memory footprint in the worst
+//! case. [`Protocol::V2`](crate::Protocol::V2) instead runs the descent
+//! using the bounded-memory streaming approach described above; its
+//! behavioral oracle in the test suite is the in-memory merge
+//! (`Tree::join`), which honors deletions through the same filter.

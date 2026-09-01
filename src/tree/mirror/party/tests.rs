@@ -18,7 +18,6 @@ use proptest::prelude::*;
 
 use super::{HandOffDefect, receive, send};
 use crate::Error;
-use crate::Protocol;
 use crate::observe::SessionHandle;
 use crate::tree::arb::nth_party;
 use crate::tree::mirror::cbor::{self, MAJOR_BSTR};
@@ -35,9 +34,7 @@ fn frame(body: &[u8]) -> Vec<u8> {
 
 /// Receive a donation from crafted wire bytes through the production ingress.
 fn receive_party(bytes: &[u8]) -> Result<Party, Error> {
-    pollster::block_on(async {
-        receive(Protocol::V2, &mut &bytes[..], &SessionHandle::default()).await
-    })
+    pollster::block_on(async { receive(&mut &bytes[..], &SessionHandle::default()).await })
 }
 
 /// Unwrap the typed defect of a malformed donation.
@@ -69,15 +66,10 @@ fn defect(result: Result<Party, Error>) -> HandOffDefect {
 fn a_donated_party_round_trips() {
     pollster::block_on(async {
         let mut wire = Vec::new();
-        send(
-            Protocol::V2,
-            nth_party(3),
-            &mut wire,
-            &SessionHandle::default(),
-        )
-        .await
-        .expect("donation sends");
-        let received = receive(Protocol::V2, &mut &wire[..], &SessionHandle::default())
+        send(nth_party(3), &mut wire, &SessionHandle::default())
+            .await
+            .expect("donation sends");
+        let received = receive(&mut &wire[..], &SessionHandle::default())
             .await
             .expect("a canonical donation decodes");
         assert_eq!(received, nth_party(3));
@@ -234,18 +226,13 @@ fn trailing_frame_bytes_are_rejected() {
 fn bytes_after_the_frame_stay_untouched() {
     pollster::block_on(async {
         let mut wire = Vec::new();
-        send(
-            Protocol::V2,
-            nth_party(3),
-            &mut wire,
-            &SessionHandle::default(),
-        )
-        .await
-        .expect("donation sends");
+        send(nth_party(3), &mut wire, &SessionHandle::default())
+            .await
+            .expect("donation sends");
         wire.extend_from_slice(b".RUMORS");
 
         let mut cursor = &wire[..];
-        receive(Protocol::V2, &mut cursor, &SessionHandle::default())
+        receive(&mut cursor, &SessionHandle::default())
             .await
             .expect("a canonical donation decodes");
         assert_eq!(cursor, b".RUMORS", "bytes after the donation were consumed");

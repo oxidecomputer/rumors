@@ -23,9 +23,9 @@
 
 mod common;
 
-use rumors::{Peer, Protocol, Retire, Rumors};
+use rumors::{Peer, Retire, Rumors};
 
-use crate::common::wire::{assert_control_drained, block_on, bootstrap_fork_async_with_protocol};
+use crate::common::wire::{assert_control_drained, block_on, bootstrap_fork_async};
 
 /// Per-stream byte capacity of the link every cell's session runs over: the
 /// harness minimum, so no frame of any phase fits in flight.
@@ -82,14 +82,14 @@ async fn gossip_over(a: &Rumors<u64>, b: &Rumors<u64>, capacity: usize) {
 /// regions whose uneven tick counts defeat event-tree normalization.
 ///
 /// `payload_base` keeps distinct seasoned replicas' payloads disjoint.
-async fn season(rumors: &Rumors<u64>, protocol: Protocol, payload_base: u64) {
+async fn season(rumors: &Rumors<u64>, payload_base: u64) {
     let mut payload = payload_base;
     // Live originators: dropped at the end of seasoning (their regions leak,
     // benignly), but their events — a different count per region — stay in
     // the version forever, keeping it branchy.
     let mut originators = Vec::new();
     for originator in 0..ORIGINATORS {
-        let fork = bootstrap_fork_async_with_protocol(rumors, protocol).await;
+        let fork = bootstrap_fork_async(rumors).await;
         for _ in 0..(originator + 1) * MESSAGES_PER_ORIGINATOR {
             fork.send(payload).unwrap();
             payload += 1;
@@ -114,7 +114,7 @@ async fn season(rumors: &Rumors<u64>, protocol: Protocol, payload_base: u64) {
     }
     // One bootstrap→retire cycle: the retiree's region rejoins the seed's,
     // exercising the id-space shape a recycled identity leaves behind.
-    let cycled = bootstrap_fork_async_with_protocol(rumors, protocol).await;
+    let cycled = bootstrap_fork_async(rumors).await;
     cycled.send(payload).unwrap();
     let cycled = cycled
         .try_into_peer()
@@ -140,13 +140,10 @@ async fn season(rumors: &Rumors<u64>, protocol: Protocol, payload_base: u64) {
     );
 }
 
-/// A seasoned replica: a fresh universe on `protocol` with a wide version.
-async fn seasoned(protocol: Protocol) -> Rumors<u64> {
-    let seed: Rumors<u64> = Peer::seed()
-        .sync_window_floor()
-        .protocol(protocol)
-        .into_rumors();
-    season(&seed, protocol, 0).await;
+/// A seasoned replica: a fresh universe with a wide version.
+async fn seasoned() -> Rumors<u64> {
+    let seed: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+    season(&seed, 0).await;
     seed
 }
 
@@ -154,9 +151,9 @@ async fn seasoned(protocol: Protocol) -> Rumors<u64> {
 ///
 /// Converged means equal versions, so both sides' greetings carry the same
 /// wide frame; cells that need divergence commit on top of the pair.
-async fn seasoned_pair(protocol: Protocol) -> (Rumors<u64>, Rumors<u64>) {
-    let a = seasoned(protocol).await;
-    let b = bootstrap_fork_async_with_protocol(&a, protocol).await;
+async fn seasoned_pair() -> (Rumors<u64>, Rumors<u64>) {
+    let a = seasoned().await;
+    let b = bootstrap_fork_async(&a).await;
     // The fork originates a little of its own before converging, so the
     // pair's shared version includes events from b's region too.
     for payload in 0..MESSAGES_PER_ORIGINATOR {
@@ -171,20 +168,19 @@ async fn seasoned_pair(protocol: Protocol) -> (Rumors<u64>, Rumors<u64>) {
 //
 // Each shape runs one complete session over the minimal link and asserts
 // only liveness (the session completes) and convergence (the replicas agree)
-// — never wire layout. The `_v1`/`_v2` cells below instantiate each shape
-// per protocol.
+// — never wire layout. The test cells below instantiate one shape each.
 
 /// Converged: equal wide versions, so the session ends at the greeting.
-async fn converged(protocol: Protocol) {
-    let (a, b) = seasoned_pair(protocol).await;
+async fn converged_session() {
+    let (a, b) = seasoned_pair().await;
     gossip_over(&a, &b, MIN_CAPACITY).await;
     assert_eq!(a.snapshot().hash(), b.snapshot().hash());
 }
 
 /// Divergent gossip: both sides hold unshared content, so the session runs
 /// the full descent and moves messages in both directions.
-async fn divergent(protocol: Protocol) {
-    let (a, b) = seasoned_pair(protocol).await;
+async fn divergent_session() {
+    let (a, b) = seasoned_pair().await;
     let converged_len = a.snapshot().len();
     for v in 0..DIVERGENT_MESSAGES {
         a.send(100_000 + v).unwrap();
@@ -207,8 +203,8 @@ async fn divergent(protocol: Protocol) {
 /// set, so the size election routes it into the initiator role
 /// deterministically, and every early-supply frame dwarfs the one-byte
 /// window.
-async fn bulk_initiator(protocol: Protocol) {
-    let (a, b) = seasoned_pair(protocol).await;
+async fn bulk_initiator_session() {
+    let (a, b) = seasoned_pair().await;
     let converged_len = a.snapshot().len();
     for v in 0..DIVERGENT_MESSAGES {
         a.send(300_000 + v).unwrap();
@@ -232,15 +228,12 @@ async fn bulk_initiator(protocol: Protocol) {
 /// Empty meets populated: one replica has committed nothing (a tiny
 /// greeting), the other is seasoned (a wide one), so the two greeting
 /// frames are maximally asymmetric and the descent is one-sided.
-async fn empty_meets_populated(protocol: Protocol) {
-    let seed: Rumors<u64> = Peer::seed()
-        .sync_window_floor()
-        .protocol(protocol)
-        .into_rumors();
+async fn empty_meets_populated_session() {
+    let seed: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
     // Fork the empty side out before any content exists, then season only
     // the seed.
-    let empty = bootstrap_fork_async_with_protocol(&seed, protocol).await;
-    season(&seed, protocol, 0).await;
+    let empty = bootstrap_fork_async(&seed).await;
+    season(&seed, 0).await;
     gossip_over(&seed, &empty, MIN_CAPACITY).await;
     assert_eq!(seed.snapshot().hash(), empty.snapshot().hash());
     assert!(
@@ -251,14 +244,12 @@ async fn empty_meets_populated(protocol: Protocol) {
 
 /// Bootstrap: a seasoned provider serves a newcomer, so the whole tree and
 /// the trailing party donation cross the minimal link.
-async fn bootstrap(protocol: Protocol) {
-    let provider = seasoned(protocol).await;
+async fn bootstrap_session() {
+    let provider = seasoned().await;
     let (mut p_link, mut n_link) = rumors::link::memory_with_capacity(MIN_CAPACITY);
     let (served, joined) = tokio::join!(
         provider.gossip(&mut p_link),
-        Peer::<u64>::bootstrap()
-            .protocol(protocol)
-            .join(&mut n_link),
+        Peer::<u64>::bootstrap().join(&mut n_link),
     );
     served.expect("the serving session completes");
     let newcomer = joined
@@ -271,8 +262,8 @@ async fn bootstrap(protocol: Protocol) {
 
 /// Retire: a seasoned, divergent retiree hands its content and then its
 /// whole party to the absorber, all through the minimal link.
-async fn retire(protocol: Protocol) {
-    let (a, b) = seasoned_pair(protocol).await;
+async fn retire_session() {
+    let (a, b) = seasoned_pair().await;
     let converged_len = b.snapshot().len();
     for v in 0..DIVERGENT_MESSAGES {
         a.send(300_000 + v).unwrap();
@@ -302,15 +293,11 @@ async fn retire(protocol: Protocol) {
 /// No seasoning is possible here: a
 /// bootstrapping peer holds no identity to widen, so the fixed frames are
 /// the whole hazard.
-async fn mutual_bootstrap(protocol: Protocol) {
+async fn mutual_bootstrap_session() {
     let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(MIN_CAPACITY);
     let (a_out, b_out) = tokio::join!(
-        Peer::<u64>::bootstrap()
-            .protocol(protocol)
-            .join(&mut a_link),
-        Peer::<u64>::bootstrap()
-            .protocol(protocol)
-            .join(&mut b_link),
+        Peer::<u64>::bootstrap().join(&mut a_link),
+        Peer::<u64>::bootstrap().join(&mut b_link),
     );
     assert!(
         a_out.expect("side A handshake completes").is_none(),
@@ -329,8 +316,8 @@ async fn mutual_bootstrap(protocol: Protocol) {
 /// This is the maximally
 /// asymmetric greetings of bootstrap plus the trailing donation of retire,
 /// all through the minimal link.
-async fn retire_into_bootstrapper(protocol: Protocol) {
-    let retiree = seasoned(protocol).await;
+async fn retire_into_bootstrapper_session() {
+    let retiree = seasoned().await;
     let before = retiree.snapshot();
     let retiree = retiree
         .try_into_peer()
@@ -339,9 +326,7 @@ async fn retire_into_bootstrapper(protocol: Protocol) {
     let (mut r_link, mut n_link) = rumors::link::memory_with_capacity(MIN_CAPACITY);
     let (retired, joined) = tokio::join!(
         retiree.retire(&mut r_link),
-        Peer::<u64>::bootstrap()
-            .protocol(protocol)
-            .join(&mut n_link),
+        Peer::<u64>::bootstrap().join(&mut n_link),
     );
     assert!(
         matches!(retired, Retire::Retired),
@@ -363,8 +348,8 @@ async fn retire_into_bootstrapper(protocol: Protocol) {
 
 /// Mutual retire: both sides declare `Retire`, so the session early-outs
 /// right after the preamble and both replicas survive intact.
-async fn mutual_retire(protocol: Protocol) {
-    let (a, b) = seasoned_pair(protocol).await;
+async fn mutual_retire_session() {
+    let (a, b) = seasoned_pair().await;
     let a = a.try_into_peer().await.expect("a is the sole handle");
     let b = b.try_into_peer().await.expect("b is the sole handle");
     let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(MIN_CAPACITY);
@@ -385,135 +370,62 @@ async fn mutual_retire(protocol: Protocol) {
 /// A V2 session between converged seasoned replicas stays live and
 /// re-converges over a one-byte-window link.
 #[test]
-fn converged_v2() {
-    block_on(converged(Protocol::V2));
-}
-
-/// A V1 session between converged seasoned replicas stays live and
-/// re-converges over a one-byte-window link.
-#[cfg(feature = "protocol-v1")]
-#[test]
-fn converged_v1() {
-    block_on(converged(Protocol::V1));
+fn converged() {
+    block_on(converged_session());
 }
 
 /// A divergent V2 gossip session stays live over a one-byte-window link and
 /// converges both replicas.
 #[test]
-fn divergent_v2() {
-    block_on(divergent(Protocol::V2));
-}
-
-/// A divergent V1 gossip session stays live over a one-byte-window link and
-/// converges both replicas.
-#[cfg(feature = "protocol-v1")]
-#[test]
-fn divergent_v1() {
-    block_on(divergent(Protocol::V1));
+fn divergent() {
+    block_on(divergent_session());
 }
 
 /// A V2 session whose initiator ships bulk opening supplies stays live
 /// over a one-byte-window link and converges both replicas.
 #[test]
-fn bulk_initiator_v2() {
-    block_on(bulk_initiator(Protocol::V2));
-}
-
-/// A V1 session with the bulk-initiator shape (the smaller set holding the
-/// bulk) stays live over a one-byte-window link and converges both
-/// replicas.
-#[cfg(feature = "protocol-v1")]
-#[test]
-fn bulk_initiator_v1() {
-    block_on(bulk_initiator(Protocol::V1));
+fn bulk_initiator() {
+    block_on(bulk_initiator_session());
 }
 
 /// A V2 session between an empty replica and a seasoned one — maximally
 /// asymmetric greetings — stays live over a one-byte-window link.
 #[test]
-fn empty_meets_populated_v2() {
-    block_on(empty_meets_populated(Protocol::V2));
-}
-
-/// A V1 session between an empty replica and a seasoned one — maximally
-/// asymmetric greetings — stays live over a one-byte-window link.
-#[cfg(feature = "protocol-v1")]
-#[test]
-fn empty_meets_populated_v1() {
-    block_on(empty_meets_populated(Protocol::V1));
+fn empty_meets_populated() {
+    block_on(empty_meets_populated_session());
 }
 
 /// A V2 bootstrap served by a seasoned provider stays live over a
 /// one-byte-window link, tree and party donation included.
 #[test]
-fn bootstrap_v2() {
-    block_on(bootstrap(Protocol::V2));
-}
-
-/// A V1 bootstrap served by a seasoned provider stays live over a
-/// one-byte-window link, tree and party donation included.
-#[cfg(feature = "protocol-v1")]
-#[test]
-fn bootstrap_v1() {
-    block_on(bootstrap(Protocol::V1));
+fn bootstrap() {
+    block_on(bootstrap_session());
 }
 
 /// A V2 retirement of a divergent seasoned replica stays live over a
 /// one-byte-window link and loses none of the retiree's content.
 #[test]
-fn retire_v2() {
-    block_on(retire(Protocol::V2));
-}
-
-/// A V1 retirement of a divergent seasoned replica stays live over a
-/// one-byte-window link and loses none of the retiree's content.
-#[cfg(feature = "protocol-v1")]
-#[test]
-fn retire_v1() {
-    block_on(retire(Protocol::V1));
+fn retire() {
+    block_on(retire_session());
 }
 
 /// A mutual V2 bootstrap bails cleanly on both sides over a
 /// one-byte-window link, its fixed-width greeting exchange included.
 #[test]
-fn mutual_bootstrap_v2() {
-    block_on(mutual_bootstrap(Protocol::V2));
-}
-
-/// A mutual V1 bootstrap bails cleanly on both sides over a
-/// one-byte-window link, its fixed-width greeting exchange included.
-#[cfg(feature = "protocol-v1")]
-#[test]
-fn mutual_bootstrap_v1() {
-    block_on(mutual_bootstrap(Protocol::V1));
+fn mutual_bootstrap() {
+    block_on(mutual_bootstrap_session());
 }
 
 /// A V2 retirement into a bootstrapper stays live over a one-byte-window
 /// link and hands the newcomer the retiree's exact content.
 #[test]
-fn retire_into_bootstrapper_v2() {
-    block_on(retire_into_bootstrapper(Protocol::V2));
-}
-
-/// A V1 retirement into a bootstrapper stays live over a one-byte-window
-/// link and hands the newcomer the retiree's exact content.
-#[cfg(feature = "protocol-v1")]
-#[test]
-fn retire_into_bootstrapper_v1() {
-    block_on(retire_into_bootstrapper(Protocol::V1));
+fn retire_into_bootstrapper() {
+    block_on(retire_into_bootstrapper_session());
 }
 
 /// A mutual V2 retirement early-outs cleanly over a one-byte-window link,
 /// declining both sides.
 #[test]
-fn mutual_retire_v2() {
-    block_on(mutual_retire(Protocol::V2));
-}
-
-/// A mutual V1 retirement early-outs cleanly over a one-byte-window link,
-/// declining both sides.
-#[cfg(feature = "protocol-v1")]
-#[test]
-fn mutual_retire_v1() {
-    block_on(mutual_retire(Protocol::V1));
+fn mutual_retire() {
+    block_on(mutual_retire_session());
 }

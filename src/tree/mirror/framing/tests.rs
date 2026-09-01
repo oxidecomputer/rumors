@@ -54,19 +54,17 @@ impl AsyncRead for ChunkedRead {
     }
 }
 
-/// A whole-read reference: allocate the declared length, then one exact
-/// read. The differential proptest holds the chunked reader to this shape's
-/// observable behavior.
-async fn whole_read_reference(mut bytes: &[u8]) -> std::io::Result<Vec<u8>> {
-    let mut header = [0u8; LENGTH_HEADER_LEN];
-    bytes.read_exact(&mut header).await?;
-    let mut payload = vec![0u8; u32::from_be_bytes(header) as usize];
+/// A whole-read reference: allocate the declared length up front, then one
+/// exact read. The differential proptest holds the chunked reader to this
+/// shape's observable behavior.
+async fn whole_read_reference(mut bytes: &[u8], len: usize) -> std::io::Result<Vec<u8>> {
+    let mut payload = vec![0u8; len];
     bytes.read_exact(&mut payload).await?;
     Ok(payload)
 }
 
 proptest! {
-    /// The chunked frame read is observably identical to a whole-read
+    /// The chunked payload read is observably identical to a whole-read
     /// reference across arbitrary read schedules and truncation points.
     ///
     /// Full delivery yields the byte-identical payload, and any truncation
@@ -79,17 +77,15 @@ proptest! {
         cut in proptest::option::of(0f64..1f64),
     ) {
         let payload = pattern(len, seed);
-        let mut transcript = u32::try_from(len).unwrap().to_be_bytes().to_vec();
-        transcript.extend_from_slice(&payload);
         let delivered = match cut {
-            None => transcript.len(),
-            Some(fraction) => (fraction * transcript.len() as f64) as usize,
+            None => payload.len(),
+            Some(fraction) => (fraction * payload.len() as f64) as usize,
         };
-        let truncated = &transcript[..delivered];
+        let truncated = &payload[..delivered];
 
-        let mut chunked = FrameRead::new(ChunkedRead::new(truncated.to_vec(), schedule));
-        let via_chunks = pollster::block_on(chunked.frame());
-        let via_whole = pollster::block_on(whole_read_reference(truncated));
+        let mut chunked = ChunkedRead::new(truncated.to_vec(), schedule);
+        let via_chunks = pollster::block_on(read_payload(&mut chunked, len));
+        let via_whole = pollster::block_on(whole_read_reference(truncated, len));
 
         match (via_chunks, via_whole) {
             (Ok(chunked), Ok(whole)) => {
@@ -109,16 +105,14 @@ proptest! {
 
 /// Truncation cuts landing one byte short of, exactly on, and one byte
 /// past each payload chunk boundary all surface as `UnexpectedEof`:
-/// chunking never changes how a mid-frame close classifies.
+/// chunking never changes how a mid-payload close classifies.
 #[test]
 fn truncation_at_chunk_boundaries_is_unexpected_eof() {
     let len = 2 * PAYLOAD_CHUNK_LEN + 5;
     let payload = pattern(len, 7);
     for delivered in chunk_boundary_cuts(len) {
-        let mut transcript = u32::try_from(len).unwrap().to_be_bytes().to_vec();
-        transcript.extend_from_slice(&payload[..delivered]);
-        let mut read = FrameRead::new(transcript.as_slice());
-        let error = pollster::block_on(read.frame()).unwrap_err();
+        let mut truncated = &payload[..delivered];
+        let error = pollster::block_on(read_payload(&mut truncated, len)).unwrap_err();
         assert_eq!(
             error.kind(),
             std::io::ErrorKind::UnexpectedEof,
@@ -127,20 +121,18 @@ fn truncation_at_chunk_boundaries_is_unexpected_eof() {
     }
 }
 
-/// A frame read consumes exactly its header and payload: the next frame's
+/// A payload read consumes exactly the declared byte count: the following
 /// bytes stay untouched in the transport, whatever the payload chunking.
 #[test]
-fn frame_read_never_consumes_beyond_the_frame() {
+fn payload_read_never_consumes_beyond_the_declared_length() {
     let len = PAYLOAD_CHUNK_LEN + 3;
     let payload = pattern(len, 3);
     let trailing = *b"next-frame-bytes";
-    let mut transcript = u32::try_from(len).unwrap().to_be_bytes().to_vec();
-    transcript.extend_from_slice(&payload);
+    let mut transcript = payload.clone();
     transcript.extend_from_slice(&trailing);
 
     let mut cursor: &[u8] = &transcript;
-    let mut read = FrameRead::new(&mut cursor);
-    let decoded = pollster::block_on(read.frame()).unwrap();
+    let decoded = pollster::block_on(read_payload(&mut cursor, len)).unwrap();
     assert_eq!(decoded, payload);
     assert_eq!(cursor, trailing.as_slice());
 }

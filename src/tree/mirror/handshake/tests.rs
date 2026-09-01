@@ -14,8 +14,8 @@ fn staged(network: Network, intent: u8) -> Staged {
         network,
         intent: Intent::Remain,
     }
-    .encode(Protocol::V2);
-    let mut staged = Staged::new(Protocol::V2);
+    .encode();
+    let mut staged = Staged::new();
     staged.buf[..encoded.len()].copy_from_slice(&encoded);
     staged.buf[V2_PREAMBLE_LEN - 1] = intent;
     staged.filled = V2_PREAMBLE_LEN;
@@ -41,58 +41,54 @@ fn prefix_matches_the_writers() {
 /// deadlock, preserving each peer's network and intent exactly.
 #[test]
 fn fragmented_exchange_is_symmetric() {
-    for protocol in [Protocol::V1, Protocol::V2] {
-        let left = Network::from_bytes([1; 16]);
-        let right = Network::from_bytes([2; 16]);
-        let (left_io, right_io) = duplex(1);
-        let (left_read, left_write) = split(left_io);
-        let (right_read, right_write) = split(right_io);
-        let mut left_read = left_read;
-        let mut left_write = left_write;
-        let mut right_read = right_read;
-        let mut right_write = right_write;
-        let mut left_staged = Staged::new(protocol);
-        let mut right_staged = Staged::new(protocol);
+    let left = Network::from_bytes([1; 16]);
+    let right = Network::from_bytes([2; 16]);
+    let (left_io, right_io) = duplex(1);
+    let (left_read, left_write) = split(left_io);
+    let (right_read, right_write) = split(right_io);
+    let mut left_read = left_read;
+    let mut left_write = left_write;
+    let mut right_read = right_read;
+    let mut right_write = right_write;
+    let mut left_staged = Staged::new();
+    let mut right_staged = Staged::new();
 
-        let observe = SessionHandle::default();
-        let (seen_by_left, seen_by_right) = pollster::block_on(async {
-            tokio::join!(
-                preamble(
-                    protocol,
-                    left,
-                    Intent::Remain,
-                    &mut left_staged,
-                    &mut left_read,
-                    &mut left_write,
-                    &observe,
-                ),
-                preamble(
-                    protocol,
-                    right,
-                    Intent::Retire,
-                    &mut right_staged,
-                    &mut right_read,
-                    &mut right_write,
-                    &observe,
-                ),
-            )
-        });
+    let observe = SessionHandle::default();
+    let (seen_by_left, seen_by_right) = pollster::block_on(async {
+        tokio::join!(
+            preamble(
+                left,
+                Intent::Remain,
+                &mut left_staged,
+                &mut left_read,
+                &mut left_write,
+                &observe,
+            ),
+            preamble(
+                right,
+                Intent::Retire,
+                &mut right_staged,
+                &mut right_read,
+                &mut right_write,
+                &observe,
+            ),
+        )
+    });
 
-        assert_eq!(
-            seen_by_left.unwrap(),
-            Preamble {
-                network: right,
-                intent: Intent::Retire,
-            }
-        );
-        assert_eq!(
-            seen_by_right.unwrap(),
-            Preamble {
-                network: left,
-                intent: Intent::Remain,
-            }
-        );
-    }
+    assert_eq!(
+        seen_by_left.unwrap(),
+        Preamble {
+            network: right,
+            intent: Intent::Retire,
+        }
+    );
+    assert_eq!(
+        seen_by_right.unwrap(),
+        Preamble {
+            network: left,
+            intent: Intent::Remain,
+        }
+    );
 }
 
 /// Intent decoding is exhaustive over the raw byte in the intent item's
@@ -127,113 +123,43 @@ fn intent_byte_space_is_exhaustive() {
 /// surfaces a typed truncation, never a hang and never a partial decode.
 ///
 /// Every strict prefix of the fixed item is a structurally distinct
-/// truncation, so the whole prefix space is swept in both dialects, each
-/// cut resolving to [`Error::Truncated`] carrying the exact byte counts
-/// of the cut (a V2 endpoint cut where a whole legacy preamble ends with
-/// a skewed version is instead the version mismatch it is — the separate
-/// legacy-peer test).
+/// truncation, so the whole prefix space is swept, each cut resolving to
+/// [`Error::Truncated`] carrying the exact byte counts of the cut.
 #[test]
 fn every_truncation_boundary_is_typed() {
-    for protocol in [Protocol::V1, Protocol::V2] {
-        let network = Network::from_bytes([1; 16]);
-        let full = Preamble {
-            network,
-            intent: Intent::Remain,
-        }
-        .encode(protocol);
-
-        for cut in 0..full.len() {
-            let mut staged = Staged::new(protocol);
-            let mut reader = &full[..cut];
-            let mut writer = tokio::io::sink();
-            let result = pollster::block_on(preamble(
-                protocol,
-                network,
-                Intent::Remain,
-                &mut staged,
-                &mut reader,
-                &mut writer,
-                &SessionHandle::default(),
-            ));
-            match result {
-                Err(Error::Truncated { received, expected }) => {
-                    assert_eq!(received, cut, "the truncation reports the cut point");
-                    assert_eq!(
-                        expected,
-                        full.len(),
-                        "the truncation reports the dialect's full width"
-                    );
-                }
-                other => {
-                    panic!("cut after {cut} bytes must be a typed truncation, got {other:?}")
-                }
-            }
-        }
-    }
-}
-
-/// A V2 endpoint whose peer speaks the legacy dialect diagnoses the
-/// version mismatch, not a bare cut or a foreign protocol.
-///
-/// The legacy 25-byte preamble ends five bytes short of the V2 item, and
-/// its magic names the rumors protocol at version 1.
-#[test]
-fn legacy_peer_is_a_version_mismatch() {
     let network = Network::from_bytes([1; 16]);
-    let legacy = Preamble {
+    let full = Preamble {
         network,
         intent: Intent::Remain,
     }
-    .encode(Protocol::V1);
+    .encode();
 
-    // The peer sent its whole legacy preamble and closed.
-    let mut staged = Staged::new(Protocol::V2);
-    let mut reader = legacy.as_slice();
-    let mut writer = tokio::io::sink();
-    let result = pollster::block_on(preamble(
-        Protocol::V2,
-        network,
-        Intent::Remain,
-        &mut staged,
-        &mut reader,
-        &mut writer,
-        &SessionHandle::default(),
-    ));
-    assert!(
-        matches!(
-            result,
-            Err(Error::VersionMismatch {
-                local_protocol: Protocol::V2,
-                remote_version: 1,
-            })
-        ),
-        "expected the dialect diagnosis, got {result:?}",
-    );
-
-    // The peer's next five bytes (its greeting) arrived too: the full
-    // 30-byte read then validates, and the magic check diagnoses the
-    // dialect ahead of any structural complaint.
-    let mut padded = legacy;
-    padded.extend_from_slice(&[0; 5]);
-    let mut staged = Staged::new(Protocol::V2);
-    let mut reader = padded.as_slice();
-    let mut writer = tokio::io::sink();
-    let result = pollster::block_on(preamble(
-        Protocol::V2,
-        network,
-        Intent::Remain,
-        &mut staged,
-        &mut reader,
-        &mut writer,
-        &SessionHandle::default(),
-    ));
-    assert!(matches!(
-        result,
-        Err(Error::VersionMismatch {
-            local_protocol: Protocol::V2,
-            remote_version: 1,
-        })
-    ));
+    for cut in 0..full.len() {
+        let mut staged = Staged::new();
+        let mut reader = &full[..cut];
+        let mut writer = tokio::io::sink();
+        let result = pollster::block_on(preamble(
+            network,
+            Intent::Remain,
+            &mut staged,
+            &mut reader,
+            &mut writer,
+            &SessionHandle::default(),
+        ));
+        match result {
+            Err(Error::Truncated { received, expected }) => {
+                assert_eq!(received, cut, "the truncation reports the cut point");
+                assert_eq!(
+                    expected,
+                    full.len(),
+                    "the truncation reports the preamble's full width"
+                );
+            }
+            other => {
+                panic!("cut after {cut} bytes must be a typed truncation, got {other:?}")
+            }
+        }
+    }
 }
 
 /// A wrong magic is diagnosed first, before any other field is judged.
@@ -305,7 +231,7 @@ proptest! {
         bytes.extend_from_slice(&network);
         bytes.push(intent);
 
-        let result = Preamble::decode(&bytes, Protocol::V2);
+        let result = Preamble::decode(&bytes);
         let as_oracle = if !magic_valid {
             matches!(&result, Err(Error::MagicMismatch { remote_magic }) if remote_magic == b"SROMUR")
         } else if version != Protocol::V2 as u8 {
@@ -333,7 +259,7 @@ proptest! {
     /// fixed-width input.
     #[test]
     fn arbitrary_bytes_never_panic(bytes in any::<[u8; V2_PREAMBLE_LEN]>()) {
-        let _ = Preamble::decode(&bytes, Protocol::V2);
+        let _ = Preamble::decode(&bytes);
     }
 }
 
