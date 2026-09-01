@@ -236,23 +236,10 @@ async fn pooled_mutual_sessions_converge() {
             .expect("the seed serves the bootstrap")
             .into_rumors();
         {
-            seed.batch(|batch| {
-                for payload in 0..48u64 {
-                    batch.send(payload)?;
-                }
-                Ok::<(), rumors::EncodeError>(())
-            })
-            .expect("flat test payloads are within any depth limit");
+            seed.send_all(0..48u64).unwrap();
         }
         {
-            newcomer
-                .batch(|batch| {
-                    for payload in 48..96u64 {
-                        batch.send(payload)?;
-                    }
-                    Ok::<(), rumors::EncodeError>(())
-                })
-                .expect("flat test payloads are within any depth limit");
+            newcomer.send_all(48..96u64).unwrap();
         }
         for _ in 0..2 {
             let (near, far) = tokio::join!(seed.gossip(&mut a), newcomer.gossip(&mut b));

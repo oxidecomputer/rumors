@@ -22,8 +22,6 @@
 
 mod common;
 
-use crate::common::wire::batch_send;
-
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
 use rumors::{Peer, Rumors};
@@ -85,7 +83,7 @@ fn empty_provider() {
 #[test]
 fn populated_provider() {
     let provider: Rumors<u64> = seeded();
-    batch_send(&provider, [1, 2, 3]);
+    provider.send_all([1, 2, 3]).unwrap();
     insta::assert_snapshot!(capture_bootstrap(provider));
 }
 
@@ -98,7 +96,9 @@ fn populated_provider() {
 #[test]
 fn string_payload() {
     let provider: Rumors<String> = seeded();
-    batch_send(&provider, ["hello".to_string(), "world".to_string()]);
+    provider
+        .send_all(["hello".to_string(), "world".to_string()])
+        .unwrap();
     insta::assert_snapshot!(capture_bootstrap(provider));
 }
 

@@ -33,13 +33,7 @@ fn message_sent_after_bootstrap_survives_gossip() {
         let f = Peer::<u64>::seed().sync_window_floor().into_rumors();
         // F ticks well past genesis before serving anyone.
         {
-            f.batch(|batch| {
-                for v in 0..16u64 {
-                    batch.send(v)?;
-                }
-                Ok::<(), rumors::EncodeError>(())
-            })
-            .expect("flat test payloads are within any depth limit");
+            f.send_all(0..16u64).unwrap();
         }
 
         // B bootstraps from F and sends a brand-new message: its version

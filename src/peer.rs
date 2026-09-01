@@ -654,6 +654,27 @@ impl<T, B: BookmarkError> Peer<T, B> {
         Ok(result)
     }
 
+    pub(crate) fn send_all<I>(&self, messages: I) -> Result<(), EncodeError>
+    where
+        T: Send + Sync + 'static,
+        I: IntoIterator<Item = T>,
+    {
+        let mut batch = Batch::new(&self.inner, self.codec);
+        batch.send_all(messages)?;
+        batch.commit();
+        Ok(())
+    }
+
+    pub(crate) fn redact_all<'v, I>(&self, versions: I)
+    where
+        T: Send + Sync,
+        I: IntoIterator<Item = &'v Version>,
+    {
+        let mut batch = Batch::new(&self.inner, self.codec);
+        batch.redact_all(versions);
+        batch.commit();
+    }
+
     pub(crate) fn snapshot(&self) -> Snapshot<T> {
         Snapshot::new(self.network, self.inner.borrow().tree.clone())
     }

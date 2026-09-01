@@ -11,7 +11,7 @@ use futures::{FutureExt, StreamExt};
 use rumors::{Peer, Rumors};
 
 use crate::common::action::created_version;
-use crate::common::wire::{batch_send, bootstrap_fork_async, wire_gossip_async};
+use crate::common::wire::{bootstrap_fork_async, wire_gossip_async};
 
 /// A fresh observer yields immediately — even on an empty set — because a
 /// new subscriber has seen nothing, so whatever the set holds is news.
@@ -38,7 +38,7 @@ async fn one_tick_per_observed_commit() {
     assert_eq!(changes.next().now_or_never(), None);
 
     // One batch of several changes: still one commit, one tick.
-    batch_send(&rumors, [2, 3]);
+    rumors.send_all([2, 3]).unwrap();
     assert_eq!(changes.next().now_or_never(), Some(Some(())));
     assert_eq!(changes.next().now_or_never(), None);
 
@@ -173,7 +173,7 @@ fn try_tick_coalesces_quiet_and_end() {
     use rumors::TryTick;
 
     let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    batch_send(&rumors, [1, 2]);
+    rumors.send_all([1, 2]).unwrap();
 
     let mut changes = rumors.changes();
     assert!(

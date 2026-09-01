@@ -23,9 +23,7 @@ use rand::rngs::SmallRng;
 use rumors::{Peer, Retire, Rumors, UnorderedMessages, Version, causally};
 
 use crate::common::action::created_version;
-use crate::common::wire::{
-    assert_control_drained, batch_send, block_on, bootstrap_fork, wire_gossip,
-};
+use crate::common::wire::{assert_control_drained, block_on, bootstrap_fork, wire_gossip};
 
 /// One observer step, with the borrowed faces cloned out.
 #[derive(Debug, PartialEq)]
@@ -79,14 +77,7 @@ fn live_map(rumors: &Rumors<u64>) -> BTreeMap<Vec<u8>, u64> {
 fn genesis_replay_observes_the_live_set_once() {
     let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
     {
-        rumors
-            .batch(|batch| {
-                for v in 0..8u64 {
-                    batch.send(v)?;
-                }
-                Ok::<(), rumors::EncodeError>(())
-            })
-            .expect("flat test payloads are within any depth limit");
+        rumors.send_all(0..8u64).unwrap();
     }
 
     let mut obs = rumors.unordered_messages();
@@ -120,9 +111,9 @@ fn genesis_replay_observes_the_live_set_once() {
 #[test]
 fn checkpoint_start_observes_only_what_it_does_not_contain() {
     let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    batch_send(&rumors, [1, 2, 3]);
+    rumors.send_all([1, 2, 3]).unwrap();
     let v_mid = rumors.snapshot().latest().clone();
-    batch_send(&rumors, [4, 5, 6]);
+    rumors.send_all([4, 5, 6]).unwrap();
 
     let mut obs = rumors.unordered_messages_since(v_mid.clone());
     let (items, _) = drain(&mut obs);
@@ -226,7 +217,7 @@ fn redactions_are_honored_silently() {
 #[test]
 fn observer_drains_the_final_state_then_ends() {
     let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    batch_send(&rumors, [1, 2]);
+    rumors.send_all([1, 2]).unwrap();
     let expected = live_map(&rumors);
 
     let mut obs = rumors.unordered_messages();
@@ -342,7 +333,7 @@ fn observer_does_not_block_reunite_and_survives_it() {
 #[test]
 fn lent_borrows_do_not_block_senders() {
     let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    batch_send(&rumors, [1, 2]);
+    rumors.send_all([1, 2]).unwrap();
 
     let mut obs = rumors.unordered_messages();
     let lent = block_on(obs.next()).expect("first item of the pass");
@@ -369,7 +360,7 @@ fn lent_borrows_do_not_block_senders() {
 #[test]
 fn checkpoint_round_trips_on_an_unchanged_set() {
     let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    batch_send(&rumors, [1, 2, 3]);
+    rumors.send_all([1, 2, 3]).unwrap();
 
     let mut obs = rumors.unordered_messages();
     let (items, _) = drain(&mut obs);
@@ -420,7 +411,7 @@ fn try_next_distinguishes_quiet_from_ended() {
     use rumors::TryNext;
 
     let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    batch_send(&rumors, [1, 2]);
+    rumors.send_all([1, 2]).unwrap();
 
     let mut obs = rumors.unordered_messages();
     let mut seen = BTreeSet::new();
@@ -452,7 +443,7 @@ fn try_next_distinguishes_quiet_from_ended() {
 #[test]
 fn stream_face_matches_and_terminates() {
     let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    batch_send(&rumors, [1, 2]);
+    rumors.send_all([1, 2]).unwrap();
     let expected = live_map(&rumors);
 
     let mut obs = rumors.unordered_messages();
@@ -637,13 +628,7 @@ proptest! {
         let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
         {
             rumors
-                .batch(|batch| {
-                    for v in &phase_one {
-                        batch.send(*v)?;
-                    }
-                    Ok::<(), rumors::EncodeError>(())
-                })
-                .expect("flat test payloads are within any depth limit");
+                .send_all(phase_one.iter().copied()).unwrap();
         }
 
         // Deliver a prefix of the first pass — or, when `complete_pass`,
@@ -667,13 +652,7 @@ proptest! {
         // More traffic after the stop.
         {
             rumors
-                .batch(|batch| {
-                    for v in &phase_two {
-                        batch.send(*v)?;
-                    }
-                    Ok::<(), rumors::EncodeError>(())
-                })
-                .expect("flat test payloads are within any depth limit");
+                .send_all(phase_two.iter().copied()).unwrap();
         }
 
         // Resume from the persisted checkpoint and drain to the end.

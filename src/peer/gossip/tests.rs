@@ -161,12 +161,7 @@ fn redacted_history_root(events: u64) -> tree::Root {
     let donor = Peer::<u64>::seed();
     {
         donor
-            .batch(|batch| {
-                for v in 0..events {
-                    batch.send(v)?;
-                }
-                Ok::<(), crate::message::EncodeError>(())
-            })
+            .send_all(0..events)
             .expect("flat test payloads are within any depth limit");
     }
     let versions: Vec<_> = donor
@@ -175,14 +170,7 @@ fn redacted_history_root(events: u64) -> tree::Root {
         .map(|(version, _)| version.clone())
         .collect();
     {
-        donor
-            .batch(|batch| {
-                for version in &versions {
-                    batch.redact(version);
-                }
-                Ok::<(), crate::message::EncodeError>(())
-            })
-            .expect("flat test payloads are within any depth limit");
+        donor.redact_all(&versions);
     }
     let snapshot = donor.snapshot();
     assert!(snapshot.is_empty(), "every message was redacted");
@@ -239,12 +227,7 @@ fn provider_with(values: &[u64]) -> Peer<u64> {
     let provider = Peer::<u64>::seed();
     {
         provider
-            .batch(|batch| {
-                for &v in values {
-                    batch.send(v)?;
-                }
-                Ok::<(), crate::message::EncodeError>(())
-            })
+            .send_all(values.iter().copied())
             .expect("flat test payloads are within any depth limit");
     }
     provider

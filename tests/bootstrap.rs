@@ -17,9 +17,7 @@ use rumors::{Joined, Peer, Rumors};
 use crate::common::action::{arb_local_actions, arb_string_actions, build_local};
 use crate::common::flaky::{DurableStore, FaultFeed, FlakyInMemoryBookmark, persisted_record};
 use crate::common::oracle::readout;
-use crate::common::wire::{
-    assert_control_drained, batch_send, block_on, bootstrap_fork, wire_gossip,
-};
+use crate::common::wire::{assert_control_drained, block_on, bootstrap_fork, wire_gossip};
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -162,7 +160,7 @@ fn both_bootstrapping_bail_with_none() {
 #[test]
 fn zero_budget_bootstrap_converges() {
     let provider = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    batch_send(&provider, [1, 2, 3]);
+    provider.send_all([1, 2, 3]).unwrap();
 
     let bootstrapped = block_on(async {
         let (mut provider_link, mut newcomer_link) = rumors::link::memory_with_capacity(LINK_BUF);
@@ -229,7 +227,7 @@ fn wire_bookmarked_join(
 /// bootstrap from.
 fn populated_provider() -> Rumors<u64> {
     let provider = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    batch_send(&provider, [1, 2, 3]);
+    provider.send_all([1, 2, 3]).unwrap();
     provider
 }
 

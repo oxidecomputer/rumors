@@ -136,8 +136,9 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     /// admission runs the exact decode every receiver's wire ingress
     /// runs, so a payload a receiver would reject or misread is the
     /// typed [`EncodeError`] instead (its variants name the causes),
-    /// and nothing commits. To apply several changes in one commit,
-    /// use [`batch`](Self::batch).
+    /// and nothing commits. To send many messages in one commit, use
+    /// [`send_all`](Self::send_all); to mix sends and redactions in one
+    /// commit, use [`batch`](Self::batch).
     ///
     /// `send` does not return the message's [`Version`]. Versions come back
     /// through observation: the observers and [`Snapshot`] attach every
@@ -174,8 +175,9 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     ///
     /// Redacting a version not currently held is a no-op, and redaction
     /// is infallible: no payload is created, so no depth admission
-    /// applies. To bundle redactions and sends into one commit, use
-    /// [`batch`](Self::batch).
+    /// applies. To redact many versions in one commit, use
+    /// [`redact_all`](Self::redact_all); to mix redactions and sends in
+    /// one commit, use [`batch`](Self::batch).
     ///
     /// # Deletion is honored
     ///
@@ -208,6 +210,78 @@ impl<T, B: BookmarkError> Rumors<T, B> {
         T: Send + Sync,
     {
         self.peer.redact(version)
+    }
+
+    /// Send every message `messages` yields, as one all-or-nothing commit.
+    ///
+    /// Equivalent to a [`batch`](Self::batch) whose whole body is one
+    /// [`Batch::send_all`]: observers and concurrent gossip sessions see
+    /// all of them land at once, in at most one observer wakeup, and every
+    /// message is in the causal past of the same commit. Admission runs per
+    /// message, exactly as [`send`](Self::send) states; the first message
+    /// a receiver would reject or misread is the returned [`EncodeError`],
+    /// and then **nothing** commits, not even the messages admitted before
+    /// it. An empty iterator commits nothing and wakes no observer.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rumors::{EncodeError, Peer};
+    ///
+    /// let rumors = Peer::<u64>::seed().into_rumors();
+    /// rumors.send_all(0..10)?;
+    /// // All ten landed, in one commit.
+    /// assert_eq!(rumors.snapshot().len(), 10);
+    /// # Ok::<(), EncodeError>(())
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// If any message fails to serialize: a violation of the payload
+    /// contract ([choosing a payload
+    /// type](crate#choosing-a-payload-type)), exactly as
+    /// [`send`](Self::send) treats it.
+    pub fn send_all<I>(&self, messages: I) -> Result<(), EncodeError>
+    where
+        T: Send + Sync + 'static,
+        I: IntoIterator<Item = T>,
+    {
+        self.peer.send_all(messages)
+    }
+
+    /// Redact every version `versions` yields, as one commit.
+    ///
+    /// Equivalent to a [`batch`](Self::batch) whose whole body is one
+    /// [`Batch::redact_all`]: observers and
+    /// concurrent gossip sessions see every redaction land at once, in at
+    /// most one observer wakeup. Like [`redact`](Self::redact) it is
+    /// infallible, and versions not currently held are skipped. An empty
+    /// iterator commits nothing and wakes no observer.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rumors::{EncodeError, Peer, Version};
+    ///
+    /// let rumors = Peer::<u64>::seed().into_rumors();
+    /// rumors.send_all(0..10)?;
+    /// // Observe the versions back out, then redact the even payloads.
+    /// let evens: Vec<Version> = rumors
+    ///     .snapshot()
+    ///     .iter()
+    ///     .filter(|(_, message)| **message % 2 == 0)
+    ///     .map(|(version, _)| version.clone())
+    ///     .collect();
+    /// rumors.redact_all(&evens);
+    /// assert_eq!(rumors.snapshot().len(), 5);
+    /// # Ok::<(), EncodeError>(())
+    /// ```
+    pub fn redact_all<'v, I>(&self, versions: I)
+    where
+        T: Send + Sync,
+        I: IntoIterator<Item = &'v Version>,
+    {
+        self.peer.redact_all(versions)
     }
 
     /// Apply several changes in one all-or-nothing commit.

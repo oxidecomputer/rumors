@@ -45,25 +45,13 @@ proptest! {
         let alice = bootstrap_fork(&seed);
         {
             alice
-                .batch(|batch| {
-                    for v in &alice_values {
-                        batch.send(*v)?;
-                    }
-                    Ok::<(), rumors::EncodeError>(())
-                })
-                .expect("flat test payloads are within any depth limit");
+                .send_all(alice_values.iter().copied()).unwrap();
         }
 
         let bob = bootstrap_fork(&seed);
         {
             bob
-                .batch(|batch| {
-                    for v in &bob_values {
-                        batch.send(*v)?;
-                    }
-                    Ok::<(), rumors::EncodeError>(())
-                })
-                .expect("flat test payloads are within any depth limit");
+                .send_all(bob_values.iter().copied()).unwrap();
         }
 
         // Recombine a disjoint copy of alice with a carrier of bob's content.

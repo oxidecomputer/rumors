@@ -71,14 +71,7 @@ fn diverged(budget: usize, divergent: usize) -> (Rumors<u64>, Rumors<u64>) {
 
 /// Commit `n` random payloads as one batch.
 fn send_random(rumors: &Rumors<u64>, n: usize, rng: &mut SmallRng) {
-    rumors
-        .batch(|batch| {
-            for _ in 0..n {
-                batch.send(rng.next_u64())?;
-            }
-            Ok::<(), rumors::EncodeError>(())
-        })
-        .expect("flat test payloads are within any depth limit");
+    rumors.send_all((0..n).map(|_| rng.next_u64())).unwrap();
 }
 
 /// One reconciliation session over a roomy in-memory link.
@@ -243,13 +236,8 @@ fn wide_concurrent_frontiers_stay_inside_the_exchanged_bound() {
     // interval, while each member's own stamps refine only its own.
     for (ticks, member) in swarm.iter().enumerate() {
         member
-            .batch(|batch| {
-                for _ in 0..=ticks {
-                    batch.send(rng.next_u64())?;
-                }
-                Ok::<(), rumors::EncodeError>(())
-            })
-            .expect("flat test payloads are within any depth limit");
+            .send_all((0..=ticks).map(|_| rng.next_u64()))
+            .unwrap();
     }
 
     // One replica gathers the whole frontier; the last member stays

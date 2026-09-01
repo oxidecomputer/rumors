@@ -23,7 +23,7 @@ use crate::common::gossip_snapshot::{capture_gossip, capture_gossip_returning};
 use crate::common::shape::{
     ballast_avoiding, keep_only, leaf_path, path_radix, pool, send_pool, shaped_pair,
 };
-use crate::common::wire::{batch_send, block_on, bootstrap_fork, bootstrap_fork_async};
+use crate::common::wire::{block_on, bootstrap_fork, bootstrap_fork_async};
 
 /// A peer seeded from a fixed RNG, so the [`rumors::Network`] id carried in
 /// the preamble is deterministic and these byte-level captures stay
@@ -74,7 +74,7 @@ fn one_sided_transfer() {
         // it is an empty peer in the same universe.
         let b = bootstrap_fork_async(&a).await;
 
-        batch_send(&a, [1, 2]);
+        a.send_all([1, 2]).unwrap();
         (a, b)
     });
     insta::assert_snapshot!(capture_gossip(a, b));
@@ -425,7 +425,7 @@ fn fork_insert_redact() {
         let a: Rumors<u64> = seeded();
 
         // (1) Two distinct common messages.
-        batch_send(&a, [1, 2]);
+        a.send_all([1, 2]).unwrap();
 
         // (2) Fork: B is a genuine disjoint fork sharing A's observations
         // (both hold 1 and 2, under the same versions).
@@ -455,7 +455,7 @@ fn fork_insert_redact() {
 fn converged_forks_noop() {
     let (a, b) = block_on(async {
         let a: Rumors<u64> = seeded();
-        batch_send(&a, [1, 2]);
+        a.send_all([1, 2]).unwrap();
         let b = bootstrap_fork_async(&a).await;
         (a, b)
     });
@@ -473,7 +473,7 @@ fn converged_forks_noop() {
 fn redaction_only() {
     let (a, b) = block_on(async {
         let a: Rumors<u64> = seeded();
-        batch_send(&a, [1, 2]);
+        a.send_all([1, 2]).unwrap();
         let b = bootstrap_fork_async(&a).await;
         a.redact(&version_for(&a, 1));
         (a, b)
@@ -503,22 +503,11 @@ fn deep_trie_divergence() {
         let a: Rumors<u64> = seeded();
         let b = bootstrap_fork_async(&a).await;
         {
-            a.batch(|batch| {
-                for v in 0..DEEP_TRIE_PER_SIDE {
-                    batch.send(v)?;
-                }
-                Ok::<(), rumors::EncodeError>(())
-            })
-            .expect("flat test payloads are within any depth limit");
+            a.send_all(0..DEEP_TRIE_PER_SIDE).unwrap();
         }
         {
-            b.batch(|batch| {
-                for v in DEEP_TRIE_PER_SIDE..2 * DEEP_TRIE_PER_SIDE {
-                    batch.send(v)?;
-                }
-                Ok::<(), rumors::EncodeError>(())
-            })
-            .expect("flat test payloads are within any depth limit");
+            b.send_all(DEEP_TRIE_PER_SIDE..2 * DEEP_TRIE_PER_SIDE)
+                .unwrap();
         }
         (a, b)
     });
@@ -675,7 +664,7 @@ fn same_live_content_divergent_versions() {
 fn both_redact_the_same_message() {
     let (a, b) = block_on(async {
         let a: Rumors<u64> = seeded();
-        batch_send(&a, [1, 2]);
+        a.send_all([1, 2]).unwrap();
         let b = bootstrap_fork_async(&a).await;
         let v1 = version_for(&a, 1);
         a.redact(&v1);

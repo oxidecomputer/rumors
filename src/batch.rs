@@ -81,6 +81,43 @@ impl<'a, T: Send + Sync> Batch<'a, T> {
         self.actions.push(Action::Forget(Path::for_leaf(version)));
     }
 
+    /// Queues every message `messages` yields for this batch's commit.
+    ///
+    /// Equivalent to calling [`send`](Self::send) on each in turn:
+    /// admission runs per message, and the first rejected message is the
+    /// returned [`EncodeError`], with the messages before it queued and
+    /// the rest never drawn from the iterator. Propagating the error out
+    /// of the closure cancels the whole batch; handling it locally keeps
+    /// the batch alive with only the messages admitted so far queued.
+    ///
+    /// # Panics
+    ///
+    /// If any message fails to serialize, exactly as [`send`](Self::send).
+    pub fn send_all<I>(&mut self, messages: I) -> Result<(), EncodeError>
+    where
+        T: 'static,
+        I: IntoIterator<Item = T>,
+    {
+        for message in messages {
+            self.send(message)?;
+        }
+        Ok(())
+    }
+
+    /// Queues a redaction of every version `versions` yields for this
+    /// batch's commit.
+    ///
+    /// Equivalent to calling [`redact`](Self::redact) on each in turn;
+    /// versions not held at commit time are no-ops.
+    pub fn redact_all<'v, I>(&mut self, versions: I)
+    where
+        I: IntoIterator<Item = &'v Version>,
+    {
+        for version in versions {
+            self.redact(version);
+        }
+    }
+
     /// Commit everything queued, as one commit.
     ///
     /// Observers and concurrent gossip sessions see all of it land at

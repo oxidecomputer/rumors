@@ -61,17 +61,7 @@ fn pair(
 
 /// Commit `n` random payloads as one batch.
 fn send_random(rumors: &Rumors<u64>, n: usize, rng: &mut SmallRng) {
-    if n == 0 {
-        return;
-    }
-    rumors
-        .batch(|batch| {
-            for _ in 0..n {
-                batch.send(rng.next_u64())?;
-            }
-            Ok::<(), rumors::EncodeError>(())
-        })
-        .expect("flat test payloads are within any depth limit");
+    rumors.send_all((0..n).map(|_| rng.next_u64())).unwrap();
 }
 
 /// Serialized one-way hops one session spends on the wire, in exact
@@ -188,14 +178,7 @@ fn growth_during_a_session_only_serializes() {
         let mut rng = SmallRng::seed_from_u64(0x0b05_2026_c07e_0004);
         let race = async {
             for _ in 0..64 {
-                racer
-                    .batch(|batch| {
-                        for _ in 0..32 {
-                            batch.send(rng.next_u64())?;
-                        }
-                        Ok::<(), rumors::EncodeError>(())
-                    })
-                    .expect("flat test payloads are within any depth limit");
+                racer.send_all((0..32).map(|_| rng.next_u64())).unwrap();
                 tokio::task::yield_now().await;
             }
         };

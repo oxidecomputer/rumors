@@ -216,14 +216,17 @@ fn build_bidir_insertions(total_insertions: usize) -> (Rumors<u8>, Rumors<u8>) {
     let right = grid::wire::bootstrap_fork(&left);
     let per_side = total_insertions / 2;
 
-    send_all(
-        &left,
-        random_bytes(per_side, 0x7a27_9f20_6c8b_d141 ^ total_insertions as u64),
-    );
-    send_all(
-        &right,
-        random_bytes(per_side, 0xc436_90ed_83f6_5b55 ^ total_insertions as u64),
-    );
+    left.send_all(random_bytes(
+        per_side,
+        0x7a27_9f20_6c8b_d141 ^ total_insertions as u64,
+    ))
+    .expect("flat test payloads are within any depth limit");
+    right
+        .send_all(random_bytes(
+            per_side,
+            0xc436_90ed_83f6_5b55 ^ total_insertions as u64,
+        ))
+        .expect("flat test payloads are within any depth limit");
 
     (left, right)
 }
@@ -234,13 +237,11 @@ fn build_unilateral_insertions(total_insertions: usize) -> (Rumors<u8>, Rumors<u
     let left = seeded_with_messages(N - total_insertions, 0x70e4_a5b8_cce0_25da);
     let right = grid::wire::bootstrap_fork(&left);
 
-    send_all(
-        &left,
-        random_bytes(
-            total_insertions,
-            0xf193_d419_8d66_85d1 ^ total_insertions as u64,
-        ),
-    );
+    left.send_all(random_bytes(
+        total_insertions,
+        0xf193_d419_8d66_85d1 ^ total_insertions as u64,
+    ))
+    .expect("flat test payloads are within any depth limit");
 
     (left, right)
 }
@@ -254,8 +255,8 @@ fn build_bidir_redactions(total_redactions: usize) -> (Rumors<u8>, Rumors<u8>) {
     let shuffled = shuffled_versions(versions, 0x84f6_7932_1265_9eec ^ total_redactions as u64);
     let per_side = total_redactions / 2;
 
-    redact_all(&left, &shuffled[..per_side]);
-    redact_all(&right, &shuffled[per_side..total_redactions]);
+    left.redact_all(&shuffled[..per_side]);
+    right.redact_all(&shuffled[per_side..total_redactions]);
 
     (left, right)
 }
@@ -267,31 +268,9 @@ fn build_unilateral_redactions(total_redactions: usize) -> (Rumors<u8>, Rumors<u
     let right = grid::wire::bootstrap_fork(&left);
     let shuffled = shuffled_versions(versions, 0xd4f9_f46b_3c09_1d60 ^ total_redactions as u64);
 
-    redact_all(&left, &shuffled[..total_redactions]);
+    left.redact_all(&shuffled[..total_redactions]);
 
     (left, right)
-}
-
-fn send_all(rumors: &Rumors<u8>, messages: Vec<u8>) {
-    rumors
-        .batch(|batch| {
-            for message in messages {
-                batch.send(message)?;
-            }
-            Ok::<(), rumors::EncodeError>(())
-        })
-        .expect("flat test payloads are within any depth limit");
-}
-
-fn redact_all(rumors: &Rumors<u8>, versions: &[Version]) {
-    rumors
-        .batch(|batch| {
-            for version in versions {
-                batch.redact(version);
-            }
-            Ok::<(), rumors::EncodeError>(())
-        })
-        .expect("flat test payloads are within any depth limit");
 }
 
 /// A seed peer measuring shipped behavior: the default pipeline window is
@@ -302,13 +281,17 @@ fn production_seed() -> Rumors<u8> {
 
 fn seeded_with_messages(n: usize, seed: u64) -> Rumors<u8> {
     let rumors = production_seed();
-    send_all(&rumors, random_bytes(n, seed));
+    rumors
+        .send_all(random_bytes(n, seed))
+        .expect("flat test payloads are within any depth limit");
     rumors
 }
 
 fn seeded_with_versions(n: usize, seed: u64) -> (Rumors<u8>, Vec<Version>) {
     let rumors = production_seed();
-    send_all(&rumors, random_bytes(n, seed));
+    rumors
+        .send_all(random_bytes(n, seed))
+        .expect("flat test payloads are within any depth limit");
     let versions = rumors.snapshot().iter().map(|(v, _)| v.clone()).collect();
     (rumors, versions)
 }
