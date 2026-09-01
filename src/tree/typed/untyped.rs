@@ -454,7 +454,7 @@ impl Node {
     ///
     /// The hash is computed lazily on first call and memoized, so the first
     /// read of a freshly-built subtree is `O(nodes)` — one preimage and one
-    /// BLAKE3 pass per node — and every read thereafter is an `O(1)` field
+    /// SHA3-256 pass per node — and every read thereafter is an `O(1)` field
     /// load. The convention (see [`Hash::leaf`] and [`Hash::branch`]): a
     /// single preimage commits the node's kind, its compressed prefix in
     /// path order, and, for a branch, its children as ascending

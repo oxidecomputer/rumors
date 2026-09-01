@@ -409,7 +409,7 @@ impl Node<height::Root> {
     /// The observable hash of a possibly-absent root.
     pub fn root_hash(node: &Option<Root>) -> Hash {
         // An absent root is the empty tree, which hashes as a prefixless
-        // branch with no children (`blake3(BRANCH_TAG ‖ 0 ‖ 0u16)`), not as
+        // branch with no children (`sha3_256(BRANCH_TAG ‖ 0 ‖ 0u16)`), not as
         // the all-zero default.
         node.as_ref()
             .map(|n| n.hash())

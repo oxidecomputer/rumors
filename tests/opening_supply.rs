@@ -15,6 +15,7 @@ mod common;
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
 use rumors::{Peer, Rumors, Version};
+use sha3::Digest;
 
 use crate::common::gossip_snapshot::capture_gossip_returning;
 use crate::common::shape::{ballast_avoiding, keep_only, path_radix, pool, send_pool};
@@ -101,8 +102,8 @@ fn divergent_root_child_has_one_question_owner() {
 
     // Fixture self-checks: one shared radix, disputed; the subtree holder
     // is the smaller set and initiates. A leaf's path is the full-width
-    // BLAKE3 hash of its version's canonical bytes.
-    let path_radix = |version: &Version| blake3::hash(version.as_bytes()).as_bytes()[0];
+    // SHA3-256 hash of its version's canonical bytes.
+    let path_radix = |version: &Version| sha3::Sha3_256::digest(version.as_bytes())[0];
     let apaths: Vec<u8> = a.snapshot().iter().map(|(v, _)| path_radix(v)).collect();
     assert_eq!(apaths.len(), 2, "the initiator holds the sibling pair");
     assert_eq!(

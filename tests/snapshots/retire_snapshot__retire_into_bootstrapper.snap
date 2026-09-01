@@ -46,8 +46,8 @@ control item 1 (160 bytes) / greeting /
     {
       "listing" =>
         { / listing: 2 child(ren) /
-          0x36 => h'a93c14a59c62f37321d21557b0e821de471a7e3d079c6fce' / digest /
-          0xf2 => h'42bb8c7ce00cc0681c05edde50af1bd47d5d94d0a136c882' / digest /
+          0xad => h'c427db6fe92e923509619eb51d8a601e31b985ac24a3baa2' / digest /
+          0xf1 => h'871321571b8582637fc4d52dc6df1c0f865df999eaab42f2' / digest /
         }
       "set_len" => 2
       "version" =>

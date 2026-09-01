@@ -13,27 +13,27 @@ control item 0 (30 bytes) / preamble /
       0
     ]
   )
-control item 1 (553 bytes) / greeting /
-  24(<< / embedded item, 548 bytes /
+control item 1 (552 bytes) / greeting /
+  24(<< / embedded item, 547 bytes /
     {
       "listing" =>
         { / listing: 16 child(ren) /
-          0x4 => h'4d08cfcd4cf728cc13583332b6cd0c76cfe4e2498224a962' / digest /
-          0x1b => h'1ea6c1c25041537b9a1602794a36d951f44fbdc7edb3e398' / digest /
-          0x21 => h'6bdfff4b8f9e7c9a8987b5b91c63112dd13386cb1755eb52' / digest /
-          0x4b => h'accae91486823c7c298ecf001e14dcb265380be95fd27e07' / digest /
-          0x66 => h'404620be25055e0824849dcbf40c8e88002ef4c4b3a19832' / digest /
-          0x6c => h'8460519a71f03836e27029e150e6a45777a5b6c989cd6707' / digest /
-          0x6f => h'aa7dff928791534d97c9a14867af2d4aec7dc9f35930e6ed' / digest /
-          0x87 => h'55a3d6508c651d3b0e5c4d5f5415ac5136c1f1a8eeb84de2' / digest /
-          0x93 => h'c4c0139f3f4f4afe9715d26a43953691cdc861574ffc8196' / digest /
-          0xa0 => h'7835b0a8791af76763e8248004d356e7d5c938bb893ecc9c' / digest /
-          0xb4 => h'4ac23f4c5f0f4ab2b981488bbef7332ff5038ae1a500dac5' / digest /
-          0xb7 => h'0c6e8d58c7dc2afc324e6323f7597f91edc316c06d70eae3' / digest /
-          0xc4 => h'cbd073bca9b510a182ce1abf0c260bceeaf630e1dbfc64da' / digest /
-          0xd0 => h'16470168f5ac21cd9435e6c52d1bd47e79b1fed68a845781' / digest /
-          0xf3 => h'7a295e6ea121ff22d3df5eeed5799451fca896836b7f18ce' / digest /
-          0xf5 => h'1d9c1fa1c842dd2eac5b8f5773f06978dc1276e2f86b8ae8' / digest /
+          0x9 => h'7fcfe5ddc79994d48121e59df4fa76b2abc10dae127871c8' / digest /
+          0x12 => h'2faefee85382ec00ec6e46bee4d4e65a8e5704c704171c27' / digest /
+          0x19 => h'033a5a5bdafdf660c15507531d90f304348728b13a6989e8' / digest /
+          0x2f => h'f2455eb6489c2ee4b1992d50127ce15df9fe1116ae9aa81c' / digest /
+          0x37 => h'8aa4c74db538a6640e6d368e2519a78db03eeac36619a96d' / digest /
+          0x52 => h'b0425f1120b0c131ab72af780c67564c0340de7049ea3580' / digest /
+          0x63 => h'4ab319add5bfe22094db37633d4d7ab3aa5d3002f8f3471f' / digest /
+          0x72 => h'affc07ce6c37c4fc0442c25b05048afcf175156ace6bcead' / digest /
+          0x79 => h'9602973f461003f36f18b1ccb468d352b1f1a711efc1e963' / digest /
+          0x94 => h'fdf2e4f46197ca0b24b8461d8d83e63deedddbd3af0b6886' / digest /
+          0x9a => h'5bd84f5aa8c02d35d684a052efc14fbf01aa946496120b18' / digest /
+          0xa6 => h'd7cc20cdaabd6f00dcd5eea4d9674d4e71eefadc66bded88' / digest /
+          0xb2 => h'3fd1810476df8f9e3bce3224af62ac29973ae1154e0f794c' / digest /
+          0xbb => h'bc14df3d4ab8b50233aa6d692ed9cd05e44953c11310f7b1' / digest /
+          0xc9 => h'6519a416494a98ae06ff1f9ae592d7538f994d4afe68cfbd' / digest /
+          0xd4 => h'e57fcaad6bbe82b187d1b2f96b4cd384abe9243e017b9d89' / digest /
         }
       "set_len" => 16
       "version" =>
@@ -45,8 +45,23 @@ control item 1 (553 bytes) / greeting /
   >>)
 control item 2 (2 bytes) / epilogue /
   "."
-Responder stream 0 (height 31), epoch 0, 316 wire bytes
-  frame 0 (17 bytes)
+Responder stream 0 (height 31), epoch 0, 340 wire bytes
+  frame 0 (3 bytes)
+    [
+      0 / stream /
+      2 / QueryEmpty(Continue) /
+    ]
+  frame 1 (3 bytes)
+    [
+      0 / stream /
+      2 / QueryEmpty(Continue) /
+    ]
+  frame 2 (3 bytes)
+    [
+      0 / stream /
+      2 / QueryEmpty(Continue) /
+    ]
+  frame 3 (17 bytes)
     [
       0 / stream /
       6 / Supply(Continue) /
@@ -57,167 +72,12 @@ Responder stream 0 (height 31), epoch 0, 316 wire bytes
         >>)
       >>)
     ]
-  frame 1 (3 bytes)
+  frame 4 (3 bytes)
     [
       0 / stream /
       2 / QueryEmpty(Continue) /
     ]
-  frame 2 (16 bytes)
-    [
-      0 / stream /
-      6 / Supply(Continue) /
-      63(<< / supply run, 1 record(s), 10 bytes /
-        63(<< / record, 2 item(s), 7 bytes /
-          53846(h'4b11') / causal version, event tree: (0, 4, 0) /
-          3
-        >>)
-      >>)
-    ]
-  frame 3 (3 bytes)
-    [
-      0 / stream /
-      2 / QueryEmpty(Continue) /
-    ]
-  frame 4 (17 bytes)
-    [
-      0 / stream /
-      6 / Supply(Continue) /
-      63(<< / supply run, 1 record(s), 11 bytes /
-        63(<< / record, 2 item(s), 8 bytes /
-          53846(h'47c390') / causal version, event tree: (0, 14, 0) /
-          13
-        >>)
-      >>)
-    ]
-  frame 5 (3 bytes)
-    [
-      0 / stream /
-      2 / QueryEmpty(Continue) /
-    ]
-  frame 6 (3 bytes)
-    [
-      0 / stream /
-      2 / QueryEmpty(Continue) /
-    ]
-  frame 7 (17 bytes)
-    [
-      0 / stream /
-      6 / Supply(Continue) /
-      63(<< / supply run, 1 record(s), 11 bytes /
-        63(<< / record, 2 item(s), 8 bytes /
-          53846(h'474350') / causal version, event tree: (0, 13, 0) /
-          12
-        >>)
-      >>)
-    ]
-  frame 8 (3 bytes)
-    [
-      0 / stream /
-      2 / QueryEmpty(Continue) /
-    ]
-  frame 9 (3 bytes)
-    [
-      0 / stream /
-      2 / QueryEmpty(Continue) /
-    ]
-  frame 10 (3 bytes)
-    [
-      0 / stream /
-      2 / QueryEmpty(Continue) /
-    ]
-  frame 11 (17 bytes)
-    [
-      0 / stream /
-      6 / Supply(Continue) /
-      63(<< / supply run, 1 record(s), 11 bytes /
-        63(<< / record, 2 item(s), 8 bytes /
-          53846(h'4210f4') / causal version, event tree: (0, 15, 0) /
-          14
-        >>)
-      >>)
-    ]
-  frame 12 (17 bytes)
-    [
-      0 / stream /
-      6 / Supply(Continue) /
-      63(<< / supply run, 1 record(s), 11 bytes /
-        63(<< / record, 2 item(s), 8 bytes /
-          53846(h'423041') / causal version, event tree: (0, 16, 0) /
-          15
-        >>)
-      >>)
-    ]
-  frame 13 (17 bytes)
-    [
-      0 / stream /
-      6 / Supply(Continue) /
-      63(<< / supply run, 1 record(s), 11 bytes /
-        63(<< / record, 2 item(s), 8 bytes /
-          53846(h'46c310') / causal version, event tree: (0, 12, 0) /
-          11
-        >>)
-      >>)
-    ]
-  frame 14 (3 bytes)
-    [
-      0 / stream /
-      2 / QueryEmpty(Continue) /
-    ]
-  frame 15 (3 bytes)
-    [
-      0 / stream /
-      2 / QueryEmpty(Continue) /
-    ]
-  frame 16 (17 bytes)
-    [
-      0 / stream /
-      6 / Supply(Continue) /
-      63(<< / supply run, 1 record(s), 11 bytes /
-        63(<< / record, 2 item(s), 8 bytes /
-          53846(h'454250') / causal version, event tree: (0, 9, 0) /
-          8
-        >>)
-      >>)
-    ]
-  frame 17 (16 bytes)
-    [
-      0 / stream /
-      6 / Supply(Continue) /
-      63(<< / supply run, 1 record(s), 10 bytes /
-        63(<< / record, 2 item(s), 7 bytes /
-          53846(h'5540') / causal version, event tree: (0, 1, 0) /
-          0
-        >>)
-      >>)
-    ]
-  frame 18 (3 bytes)
-    [
-      0 / stream /
-      2 / QueryEmpty(Continue) /
-    ]
-  frame 19 (16 bytes)
-    [
-      0 / stream /
-      6 / Supply(Continue) /
-      63(<< / supply run, 1 record(s), 10 bytes /
-        63(<< / record, 2 item(s), 7 bytes /
-          53846(h'5c90') / causal version, event tree: (0, 2, 0) /
-          1
-        >>)
-      >>)
-    ]
-  frame 20 (17 bytes)
-    [
-      0 / stream /
-      6 / Supply(Continue) /
-      63(<< / supply run, 1 record(s), 11 bytes /
-        63(<< / record, 2 item(s), 8 bytes /
-          53846(h'44c210') / causal version, event tree: (0, 8, 0) /
-          7
-        >>)
-      >>)
-    ]
-  frame 21 (16 bytes)
+  frame 5 (16 bytes)
     [
       0 / stream /
       6 / Supply(Continue) /
@@ -228,28 +88,112 @@ Responder stream 0 (height 31), epoch 0, 316 wire bytes
         >>)
       >>)
     ]
-  frame 22 (3 bytes)
-    [
-      0 / stream /
-      2 / QueryEmpty(Continue) /
-    ]
-  frame 23 (17 bytes)
+  frame 6 (17 bytes)
     [
       0 / stream /
       6 / Supply(Continue) /
       63(<< / supply run, 1 record(s), 11 bytes /
         63(<< / record, 2 item(s), 8 bytes /
-          53846(h'45c290') / causal version, event tree: (0, 10, 0) /
-          9
+          53846(h'454250') / causal version, event tree: (0, 9, 0) /
+          8
         >>)
       >>)
     ]
-  frame 24 (3 bytes)
+  frame 7 (3 bytes)
     [
       0 / stream /
       2 / QueryEmpty(Continue) /
     ]
-  frame 25 (16 bytes)
+  frame 8 (17 bytes)
+    [
+      0 / stream /
+      6 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 11 bytes /
+        63(<< / record, 2 item(s), 8 bytes /
+          53846(h'474350') / causal version, event tree: (0, 13, 0) /
+          12
+        >>)
+      >>)
+    ]
+  frame 9 (3 bytes)
+    [
+      0 / stream /
+      2 / QueryEmpty(Continue) /
+    ]
+  frame 10 (17 bytes)
+    [
+      0 / stream /
+      6 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 11 bytes /
+        63(<< / record, 2 item(s), 8 bytes /
+          53846(h'44c210') / causal version, event tree: (0, 8, 0) /
+          7
+        >>)
+      >>)
+    ]
+  frame 11 (3 bytes)
+    [
+      0 / stream /
+      2 / QueryEmpty(Continue) /
+    ]
+  frame 12 (16 bytes)
+    [
+      0 / stream /
+      6 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 10 bytes /
+        63(<< / record, 2 item(s), 7 bytes /
+          53846(h'5c90') / causal version, event tree: (0, 2, 0) /
+          1
+        >>)
+      >>)
+    ]
+  frame 13 (3 bytes)
+    [
+      0 / stream /
+      2 / QueryEmpty(Continue) /
+    ]
+  frame 14 (32 bytes)
+    [
+      0 / stream /
+      4 / Query(Continue) /
+      { / listing: 1 child(ren) /
+        0xaf => h'72dbeb62425da61f8402d848065fe9940504e4ec4ece6cb4' / digest /
+      }
+    ]
+  frame 15 (16 bytes)
+    [
+      0 / stream /
+      6 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 10 bytes /
+        63(<< / record, 2 item(s), 7 bytes /
+          53846(h'4b11') / causal version, event tree: (0, 4, 0) /
+          3
+        >>)
+      >>)
+    ]
+  frame 16 (16 bytes)
+    [
+      0 / stream /
+      6 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 10 bytes /
+        63(<< / record, 2 item(s), 7 bytes /
+          53846(h'5540') / causal version, event tree: (0, 1, 0) /
+          0
+        >>)
+      >>)
+    ]
+  frame 17 (17 bytes)
+    [
+      0 / stream /
+      6 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 11 bytes /
+        63(<< / record, 2 item(s), 8 bytes /
+          53846(h'423041') / causal version, event tree: (0, 16, 0) /
+          15
+        >>)
+      >>)
+    ]
+  frame 18 (16 bytes)
     [
       0 / stream /
       6 / Supply(Continue) /
@@ -260,28 +204,31 @@ Responder stream 0 (height 31), epoch 0, 316 wire bytes
         >>)
       >>)
     ]
-  frame 26 (3 bytes)
+  frame 19 (32 bytes)
+    [
+      0 / stream /
+      4 / Query(Continue) /
+      { / listing: 1 child(ren) /
+        0xdd => h'e9a4403e50a62d20972cea377193ae1b569d5d1f352125af' / digest /
+      }
+    ]
+  frame 20 (3 bytes)
     [
       0 / stream /
       2 / QueryEmpty(Continue) /
     ]
-  frame 27 (3 bytes)
-    [
-      0 / stream /
-      2 / QueryEmpty(Continue) /
-    ]
-  frame 28 (17 bytes)
+  frame 21 (17 bytes)
     [
       0 / stream /
       6 / Supply(Continue) /
       63(<< / supply run, 1 record(s), 11 bytes /
         63(<< / record, 2 item(s), 8 bytes /
-          53846(h'444740') / causal version, event tree: (0, 7, 0) /
-          6
+          53846(h'4210f4') / causal version, event tree: (0, 15, 0) /
+          14
         >>)
       >>)
     ]
-  frame 29 (16 bytes)
+  frame 22 (16 bytes)
     [
       0 / stream /
       6 / Supply(Continue) /
@@ -292,14 +239,79 @@ Responder stream 0 (height 31), epoch 0, 316 wire bytes
         >>)
       >>)
     ]
-  frame 30 (3 bytes)
+  frame 23 (3 bytes)
+    [
+      0 / stream /
+      2 / QueryEmpty(Continue) /
+    ]
+  frame 24 (17 bytes)
+    [
+      0 / stream /
+      6 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 11 bytes /
+        63(<< / record, 2 item(s), 8 bytes /
+          53846(h'45c290') / causal version, event tree: (0, 10, 0) /
+          9
+        >>)
+      >>)
+    ]
+  frame 25 (3 bytes)
+    [
+      0 / stream /
+      2 / QueryEmpty(Continue) /
+    ]
+  frame 26 (17 bytes)
+    [
+      0 / stream /
+      6 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 11 bytes /
+        63(<< / record, 2 item(s), 8 bytes /
+          53846(h'46c310') / causal version, event tree: (0, 12, 0) /
+          11
+        >>)
+      >>)
+    ]
+  frame 27 (3 bytes)
+    [
+      0 / stream /
+      2 / QueryEmpty(Continue) /
+    ]
+  frame 28 (3 bytes)
     [
       0 / stream /
       3 / QueryEmpty(End) /
     ]
-  frame 31 (3 bytes)
+  frame 29 (3 bytes)
     [
       0 / stream /
+      9 / End(Stream) /
+    ]
+Responder stream 1 (height 29), epoch 0, 39 wire bytes
+  frame 0 (17 bytes)
+    [
+      1 / stream /
+      7 / Supply(End) /
+      63(<< / supply run, 1 record(s), 11 bytes /
+        63(<< / record, 2 item(s), 8 bytes /
+          53846(h'444740') / causal version, event tree: (0, 7, 0) /
+          6
+        >>)
+      >>)
+    ]
+  frame 1 (17 bytes)
+    [
+      1 / stream /
+      7 / Supply(End) /
+      63(<< / supply run, 1 record(s), 11 bytes /
+        63(<< / record, 2 item(s), 8 bytes /
+          53846(h'47c390') / causal version, event tree: (0, 14, 0) /
+          13
+        >>)
+      >>)
+    ]
+  frame 2 (3 bytes)
+    [
+      1 / stream /
       9 / End(Stream) /
     ]
 
@@ -314,26 +326,26 @@ control item 0 (30 bytes) / preamble /
       0
     ]
   )
-control item 1 (525 bytes) / greeting /
-  24(<< / embedded item, 520 bytes /
+control item 1 (521 bytes) / greeting /
+  24(<< / embedded item, 516 bytes /
     {
       "listing" =>
         { / listing: 15 child(ren) /
-          0x1a => h'f1f3aa8a784d1361fc809d57df14a1955f8956c55e120e19' / digest /
-          0x1e => h'b13b7c8a2f30ffe9911f9507721dd41f2718d2d6d0fd1da0' / digest /
-          0x36 => h'a93c14a59c62f37321d21557b0e821de471a7e3d079c6fce' / digest /
-          0x47 => h'6bbe84feb97e48e1ae522ccd13793b6574c2777efb6dee5c' / digest /
-          0x5b => h'9c4eb9d5fe911b7d5e4ed9f0c5cf1bc192e715c7efec964e' / digest /
-          0x5d => h'13d7f7d066b80413cbbf47191b8f0279bc51ed7b0ce2aacc' / digest /
-          0x5e => h'1858235ee7f18e370085cc932b286588358a914bbada3414' / digest /
-          0x74 => h'd97d914facb39def2423ff7905152aae5f43205fc66e09b7' / digest /
-          0x83 => h'55c53f50187c26e8c66b15499ff80b250e2e4137d7fd0509' / digest /
-          0x9b => h'128101b9c92b93bfb6ab5ae172b728f8dd550ac4e8d154eb' / digest /
-          0xc0 => h'ff0b7fe81fb5ee50e91030be1e97d38df4d74655739d1d9c' / digest /
-          0xc6 => h'23d3a3698c06decd9cc6888d1d692ad5976827ae3cc38e81' / digest /
-          0xe9 => h'a02232f72cb56d04bb218f4a9b8a698f95f5cfd6b4e6f227' / digest /
-          0xf2 => h'42bb8c7ce00cc0681c05edde50af1bd47d5d94d0a136c882' / digest /
-          0xf8 => h'4ef63107bdc439cfb254ecc2cc1cee9bf68aec015a8fee8f' / digest /
+          0x2 => h'98ce6b5c36fe7a0218a33c8325d312de40ad00956663fcef' / digest /
+          0x3 => h'0e16e3ba46d66cc627ebbf7e4c53edc3252b612f19451269' / digest /
+          0x6 => h'e62c1736212d7818ba1ef6e117236c79c3c52ba6756262ae' / digest /
+          0x10 => h'76673b9254ccdafd7fe01a59a0702a0108c6ea0c201c017f' / digest /
+          0x2a => h'373cb2db2e49895b3f53deed27c14c831b1a41e2c2ee9be8' / digest /
+          0x36 => h'baa315cab6fa94b0dd4c6d19e249f3bf33dba55c43593cc9' / digest /
+          0x39 => h'131331730f28a4b4ba24c81f2e246f846a3d437f526c68ba' / digest /
+          0x62 => h'73d8e46b8bdf6fe2d231fe4eb520cba7fe545ff1f2bb25c7' / digest /
+          0x63 => h'd37d5a66a342164998f89098b66e1014ee757e14c9d7a41c' / digest /
+          0xa6 => h'cb9d7d244a3720ea5ae6d7984b229a6b1e95c6b708e2c5a0' / digest /
+          0xad => h'c427db6fe92e923509619eb51d8a601e31b985ac24a3baa2' / digest /
+          0xc7 => h'075fc1551304ec1fcd0a5039357ff30878164317327f1906' / digest /
+          0xca => h'1950ba7afb798fce15b3607511216a7ba874ade0e9f1d719' / digest /
+          0xe8 => h'a82ff6a5e3f64d4901f633ca61b549cfa54be033845641db' / digest /
+          0xf1 => h'871321571b8582637fc4d52dc6df1c0f865df999eaab42f2' / digest /
         }
       "set_len" => 16
       "version" =>
@@ -345,41 +357,8 @@ control item 1 (525 bytes) / greeting /
   >>)
 control item 2 (2 bytes) / epilogue /
   "."
-Initiator stream 0 (height 31), epoch 0, 262 wire bytes
-  frame 0 (16 bytes)
-    [
-      0 / stream /
-      6 / Supply(Continue) /
-      63(<< / supply run, 1 record(s), 10 bytes /
-        63(<< / record, 2 item(s), 7 bytes /
-          53846(h'73c0') / causal version, event tree: (0, 0, 3) /
-          18
-        >>)
-      >>)
-    ]
-  frame 1 (17 bytes)
-    [
-      0 / stream /
-      6 / Supply(Continue) /
-      63(<< / supply run, 1 record(s), 11 bytes /
-        63(<< / record, 2 item(s), 8 bytes /
-          53846(h'70ac') / causal version, event tree: (0, 0, 10) /
-          25
-        >>)
-      >>)
-    ]
-  frame 2 (16 bytes)
-    [
-      0 / stream /
-      6 / Supply(Continue) /
-      63(<< / supply run, 1 record(s), 10 bytes /
-        63(<< / record, 2 item(s), 7 bytes /
-          53846(h'72c0') / causal version, event tree: (0, 0, 2) /
-          17
-        >>)
-      >>)
-    ]
-  frame 3 (17 bytes)
+Initiator stream 0 (height 31), epoch 0, 229 wire bytes
+  frame 0 (17 bytes)
     [
       0 / stream /
       6 / Supply(Continue) /
@@ -390,33 +369,29 @@ Initiator stream 0 (height 31), epoch 0, 262 wire bytes
         >>)
       >>)
     ]
-  frame 4 (17 bytes)
+  frame 1 (17 bytes)
     [
       0 / stream /
       6 / Supply(Continue) /
       63(<< / supply run, 1 record(s), 11 bytes /
         63(<< / record, 2 item(s), 8 bytes /
-          53846(h'70fc') / causal version, event tree: (0, 0, 15) /
-          30
+          53846(h'70ec') / causal version, event tree: (0, 0, 14) /
+          29
         >>)
       >>)
     ]
-  frame 5 (26 bytes)
+  frame 2 (16 bytes)
     [
       0 / stream /
       6 / Supply(Continue) /
-      63(<< / supply run, 2 record(s), 20 bytes /
-        63(<< / record, 2 item(s), 7 bytes /
-          53846(h'71f0') / causal version, event tree: (0, 0, 7) /
-          22
-        >>)
+      63(<< / supply run, 1 record(s), 10 bytes /
         63(<< / record, 2 item(s), 7 bytes /
           53846(h'7130') / causal version, event tree: (0, 0, 4) /
           19
         >>)
       >>)
     ]
-  frame 6 (16 bytes)
+  frame 3 (16 bytes)
     [
       0 / stream /
       6 / Supply(Continue) /
@@ -427,11 +402,48 @@ Initiator stream 0 (height 31), epoch 0, 262 wire bytes
         >>)
       >>)
     ]
-  frame 7 (17 bytes)
+  frame 4 (17 bytes)
     [
       0 / stream /
       6 / Supply(Continue) /
       63(<< / supply run, 1 record(s), 11 bytes /
+        63(<< / record, 2 item(s), 8 bytes /
+          53846(h'70ac') / causal version, event tree: (0, 0, 10) /
+          25
+        >>)
+      >>)
+    ]
+  frame 5 (16 bytes)
+    [
+      0 / stream /
+      6 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 10 bytes /
+        63(<< / record, 2 item(s), 7 bytes /
+          53846(h'7170') / causal version, event tree: (0, 0, 5) /
+          20
+        >>)
+      >>)
+    ]
+  frame 6 (17 bytes)
+    [
+      0 / stream /
+      6 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 11 bytes /
+        63(<< / record, 2 item(s), 8 bytes /
+          53846(h'70dc') / causal version, event tree: (0, 0, 13) /
+          28
+        >>)
+      >>)
+    ]
+  frame 7 (28 bytes)
+    [
+      0 / stream /
+      6 / Supply(Continue) /
+      63(<< / supply run, 2 record(s), 22 bytes /
+        63(<< / record, 2 item(s), 8 bytes /
+          53846(h'70fc') / causal version, event tree: (0, 0, 15) /
+          30
+        >>)
         63(<< / record, 2 item(s), 8 bytes /
           53846(h'709c') / causal version, event tree: (0, 0, 9) /
           24
@@ -444,8 +456,8 @@ Initiator stream 0 (height 31), epoch 0, 262 wire bytes
       6 / Supply(Continue) /
       63(<< / supply run, 1 record(s), 10 bytes /
         63(<< / record, 2 item(s), 7 bytes /
-          53846(h'71b0') / causal version, event tree: (0, 0, 6) /
-          21
+          53846(h'72c0') / causal version, event tree: (0, 0, 2) /
+          17
         >>)
       >>)
     ]
@@ -455,23 +467,12 @@ Initiator stream 0 (height 31), epoch 0, 262 wire bytes
       6 / Supply(Continue) /
       63(<< / supply run, 1 record(s), 10 bytes /
         63(<< / record, 2 item(s), 7 bytes /
-          53846(h'7170') / causal version, event tree: (0, 0, 5) /
-          20
+          53846(h'71b0') / causal version, event tree: (0, 0, 6) /
+          21
         >>)
       >>)
     ]
   frame 10 (17 bytes)
-    [
-      0 / stream /
-      6 / Supply(Continue) /
-      63(<< / supply run, 1 record(s), 11 bytes /
-        63(<< / record, 2 item(s), 8 bytes /
-          53846(h'70dc') / causal version, event tree: (0, 0, 13) /
-          28
-        >>)
-      >>)
-    ]
-  frame 11 (17 bytes)
     [
       0 / stream /
       6 / Supply(Continue) /
@@ -482,21 +483,21 @@ Initiator stream 0 (height 31), epoch 0, 262 wire bytes
         >>)
       >>)
     ]
-  frame 12 (17 bytes)
+  frame 11 (16 bytes)
     [
       0 / stream /
       6 / Supply(Continue) /
-      63(<< / supply run, 1 record(s), 11 bytes /
-        63(<< / record, 2 item(s), 8 bytes /
-          53846(h'70ec') / causal version, event tree: (0, 0, 14) /
-          29
+      63(<< / supply run, 1 record(s), 10 bytes /
+        63(<< / record, 2 item(s), 7 bytes /
+          53846(h'73c0') / causal version, event tree: (0, 0, 3) /
+          18
         >>)
       >>)
     ]
-  frame 13 (15 bytes)
+  frame 12 (15 bytes)
     [
       0 / stream /
-      6 / Supply(Continue) /
+      7 / Supply(End) /
       63(<< / supply run, 1 record(s), 9 bytes /
         63(<< / record, 2 item(s), 6 bytes /
           53846(h'77') / causal version, event tree: (0, 0, 1) /
@@ -504,23 +505,12 @@ Initiator stream 0 (height 31), epoch 0, 262 wire bytes
         >>)
       >>)
     ]
-  frame 14 (17 bytes)
-    [
-      0 / stream /
-      7 / Supply(End) /
-      63(<< / supply run, 1 record(s), 11 bytes /
-        63(<< / record, 2 item(s), 8 bytes /
-          53846(h'7043') / causal version, event tree: (0, 0, 16) /
-          31
-        >>)
-      >>)
-    ]
-  frame 15 (3 bytes)
+  frame 13 (3 bytes)
     [
       0 / stream /
       9 / End(Stream) /
     ]
-Initiator stream 1 (height 30), epoch 0, 50 wire bytes
+Initiator stream 1 (height 30), epoch 0, 83 wire bytes
   frame 0 (3 bytes)
     [
       1 / stream /
@@ -561,25 +551,37 @@ Initiator stream 1 (height 30), epoch 0, 50 wire bytes
       1 / stream /
       8 / End(Reply) /
     ]
-  frame 8 (3 bytes)
+  frame 8 (17 bytes)
     [
       1 / stream /
-      8 / End(Reply) /
+      6 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 11 bytes /
+        63(<< / record, 2 item(s), 8 bytes /
+          53846(h'7043') / causal version, event tree: (0, 0, 16) /
+          31
+        >>)
+      >>)
     ]
   frame 9 (3 bytes)
     [
       1 / stream /
-      8 / End(Reply) /
+      3 / QueryEmpty(End) /
     ]
-  frame 10 (3 bytes)
+  frame 10 (16 bytes)
     [
       1 / stream /
-      8 / End(Reply) /
+      6 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 10 bytes /
+        63(<< / record, 2 item(s), 7 bytes /
+          53846(h'71f0') / causal version, event tree: (0, 0, 7) /
+          22
+        >>)
+      >>)
     ]
   frame 11 (3 bytes)
     [
       1 / stream /
-      8 / End(Reply) /
+      3 / QueryEmpty(End) /
     ]
   frame 12 (3 bytes)
     [
@@ -597,6 +599,16 @@ Initiator stream 1 (height 30), epoch 0, 50 wire bytes
       8 / End(Reply) /
     ]
   frame 15 (3 bytes)
+    [
+      1 / stream /
+      8 / End(Reply) /
+    ]
+  frame 16 (3 bytes)
+    [
+      1 / stream /
+      8 / End(Reply) /
+    ]
+  frame 17 (3 bytes)
     [
       1 / stream /
       9 / End(Stream) /

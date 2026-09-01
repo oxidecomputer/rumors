@@ -9,7 +9,7 @@
 //!
 //! # One hash binds identity, causality, and placement
 //!
-//! Every message is stored at one address: the BLAKE3 hash of the
+//! Every message is stored at one address: the SHA3-256 hash of the
 //! [`Version`](crate::Version) stamped on it at send time. Nothing else
 //! enters the address; it rests on the invariant the protocol already
 //! requires everywhere — no two sends ever share a version (a replica's
@@ -41,7 +41,7 @@
 //! uniformly, and the trie's shape is a pure function of its membership:
 //! two replicas holding the same set of messages hold the *same tree*,
 //! whatever order they learned it in. Each interior node memoizes two
-//! summaries of its subtree: a digest (a 24-byte truncation of BLAKE3;
+//! summaries of its subtree: a digest (a 24-byte truncation of SHA3-256;
 //! [`MERKLE_HASH_LEN`](crate::MERKLE_HASH_LEN)) and the ceiling and floor
 //! of its leaves' versions. The digest answers "do we hold the same things
 //! here?"; the version bounds answer "could anything here be news to a
@@ -137,8 +137,9 @@
 //!
 //! # Twenty-four-byte digests
 //!
-//! The digests the descent compares are 24-byte truncations of BLAKE3 (BLAKE3
-//! is designed to be truncated: any prefix is itself a cryptographic hash).
+//! The digests the descent compares are 24-byte truncations of SHA3-256
+//! (truncating an approved hash is itself an approved hash of the shorter
+//! width: NIST SP 800-107 Rev. 1, §5.1).
 //! Digest bytes dominate every dispute listing on the wire — they are the
 //! protocol's main metadata price — so the width is spent deliberately;
 //! leaf addresses in the tree remain full 32-byte hashes.

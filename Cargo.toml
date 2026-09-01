@@ -20,7 +20,7 @@ async-stream = "0.3"
 base64 = "0.22"
 before = { path = "crates/before" }
 bitvec = "1"
-blake3 = "1.8"
+sha3 = "0.10"
 borsh = "1"
 bytes = "1"
 # Oxide's fork of cbor-diag: nesting depth is bounded by default in every
@@ -124,7 +124,7 @@ meter = ["before/limb-meter", "before/scan-meter"]
 [dependencies]
 before = { workspace = true, features = ["serde"] }
 bytes = { workspace = true, features = ["serde"] }
-blake3 = { workspace = true }
+sha3 = { workspace = true }
 static_assertions = { workspace = true }
 itertools = { workspace = true }
 serde = { workspace = true, default-features = true, features = ["derive"] }

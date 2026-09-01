@@ -232,7 +232,7 @@ pub fn arb_wide_divergent_pair() -> BoxedStrategy<(crate::tree::Root, crate::tre
 /// A divergent pair whose sides share a spine of drawn depth before their
 /// novelty splits: the constructed analogue of a hash-prefix collision.
 ///
-/// Content-addressed generators cannot produce this shape — blake3 scatters
+/// Content-addressed generators cannot produce this shape — SHA3-256 scatters
 /// their keys at the root fan, so a merge's divergent descent below the
 /// root is reachable only through chosen paths like these. Both sides
 /// extend one shared leaf whose all-zero path pins the spine; each side's

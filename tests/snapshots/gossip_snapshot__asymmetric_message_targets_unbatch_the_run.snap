@@ -18,38 +18,38 @@ control item 1 (136 bytes) / greeting /
     {
       "listing" =>
         { / listing: 1 child(ren) /
-          0x79 => h'5f06438950116f9d1463d15d1c3b1dadd5e17dcd5e244f29' / digest /
+          0x90 => h'5b9b4e07e489554d42eef4b5c4a7ae87f5483a12455d0b4f' / digest /
         }
       "set_len" => 2
       "version" =>
         53846(h'400fff001ff9') / causal version, event tree: (0, 2046, 0) /
-      "max_version_bytes" => 3
+      "max_version_bytes" => 6
       "payload_depth_limit" => 256
       "target_message_size" => 1830400
     }
   >>)
 control item 2 (2 bytes) / epilogue /
   "."
-Responder stream 0 (height 31), epoch 0, 40 wire bytes
-  frame 0 (18 bytes)
+Responder stream 0 (height 31), epoch 0, 47 wire bytes
+  frame 0 (22 bytes)
     [
       0 / stream /
       6 / Supply(Continue) /
-      63(<< / supply run, 1 record(s), 12 bytes /
-        63(<< / record, 2 item(s), 9 bytes /
-          53846(h'437069') / causal version, event tree: (0, 26, 0) /
-          25
+      63(<< / supply run, 1 record(s), 16 bytes /
+        63(<< / record, 2 item(s), 13 bytes /
+          53846(h'40120c009010') / causal version, event tree: (0, 576, 0) /
+          575
         >>)
       >>)
     ]
-  frame 1 (17 bytes)
+  frame 1 (20 bytes)
     [
       0 / stream /
       7 / Supply(End) /
-      63(<< / supply run, 1 record(s), 11 bytes /
-        63(<< / record, 2 item(s), 8 bytes /
-          53846(h'42b051') / causal version, event tree: (0, 20, 0) /
-          19
+      63(<< / supply run, 1 record(s), 14 bytes /
+        63(<< / record, 2 item(s), 11 bytes /
+          53846(h'4042c02110') / causal version, event tree: (0, 132, 0) /
+          131
         >>)
       >>)
     ]

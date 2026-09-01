@@ -1,6 +1,8 @@
 use std::fmt::Debug;
 use std::sync::LazyLock;
 
+use sha3::{Digest, Sha3_256};
+
 /// Width in bytes of the tree's Merkle hashes.
 ///
 /// The subtree-comparison digests that gossip exchanges, surfaced as
@@ -14,12 +16,12 @@ pub const MERKLE_HASH_LEN: usize = 24;
 /// A newtype over a fixed-size byte array; on the wire it travels as its
 /// raw bytes, never length-prefixed (the width is pinned by the type).
 ///
-/// The underlying primitive is [`blake3`], truncated to its leading
-/// [`MERKLE_HASH_LEN`] bytes — BLAKE3 is an extendable-output function, so
-/// prefix truncation is the sanctioned narrow form, with collision resistance
-/// 2⁹⁶ and preimage resistance 2¹⁹². Callers use [`Hash::of`] (or
-/// [`PathHash`] for the full width) and never touch the `blake3` types
-/// directly.
+/// The underlying primitive is SHA3-256 (FIPS 202), truncated to its leading
+/// [`MERKLE_HASH_LEN`] bytes. Truncating an approved hash to a shorter
+/// output is the sanctioned narrow form (NIST SP 800-107 Rev. 1, §5.1): the
+/// prefix keeps collision resistance 2⁹⁶ and preimage resistance 2¹⁹² at
+/// this width. Callers use [`Hash::of`] (or [`PathHash`] for the full width)
+/// and never touch the `sha3` types directly.
 ///
 /// # Why 24 bytes here, and 32 for content
 ///
@@ -84,7 +86,7 @@ impl Hash {
     }
 
     /// The hash of a leaf observed from the top of its compressed `suffix`:
-    /// `blake3(LEAF_TAG ‖ suffix_len ‖ suffix)`.
+    /// `sha3_256(LEAF_TAG ‖ suffix_len ‖ suffix)`.
     ///
     /// `suffix` is the leaf's path-compressed span in **path order** —
     /// shallowest byte first, as the node serializer emits it — and
@@ -117,7 +119,7 @@ impl Hash {
 
     /// The hash of a branch observed from the top of its compressed
     /// `prefix`:
-    /// `blake3(BRANCH_TAG ‖ prefix_len ‖ prefix ‖ child_count ‖ r₀ ‖ h₀ ‖ …)`.
+    /// `sha3_256(BRANCH_TAG ‖ prefix_len ‖ prefix ‖ child_count ‖ r₀ ‖ h₀ ‖ …)`.
     ///
     /// One preimage per node, `children` given as `(radix, child hash)`
     /// pairs in ascending radix order, every variable-width field
@@ -159,14 +161,15 @@ impl Hash {
     /// tree, whose height cap bounds compressed spans at the 32-byte path.
     pub fn branch(prefix: &[u8], children: impl IntoIterator<Item = (u8, Hash)>) -> Self {
         // Assemble the whole preimage contiguously, then hash it in one shot.
-        // Handing BLAKE3 a single large slice lets it engage its multi-block
-        // SIMD compression; streaming a tiny `update` per field defeats that
-        // and compresses block-by-block. Measured by `benches/branch_hash.rs`
-        // over this preimage layout: ~2x faster for a saturated 256-child
-        // branch, and never slower at the hot small nodes (short prefix,
-        // small fan), whose whole preimage fits one 64-byte block and costs
-        // a single compression. `size_hint` sizes the buffer exactly for
-        // the fan/array/empty callers (all exact).
+        // Handing the sponge a single slice lets it absorb whole 136-byte
+        // rate blocks straight from the buffer; a tiny `update` per field
+        // instead stages each fragment through the sponge's block buffer.
+        // Measured by `benches/branch_hash.rs` over this preimage layout:
+        // modestly faster (on the order of a tenth) for a saturated
+        // 256-child branch, and never slower at the hot small nodes (short
+        // prefix, small fan), whose whole preimage fits one rate block and
+        // costs a single permutation either way. `size_hint` sizes the
+        // buffer exactly for the fan/array/empty callers (all exact).
         let prefix_len =
             u8::try_from(prefix.len()).expect("a compressed span fits in one length byte");
         let children = children.into_iter();
@@ -210,7 +213,7 @@ impl Hash {
     }
 
     /// The hash of the empty tree: a prefixless branch with no children,
-    /// `blake3(BRANCH_TAG ‖ 0 ‖ 0u16)`.
+    /// `sha3_256(BRANCH_TAG ‖ 0 ‖ 0u16)`.
     pub fn empty_root() -> Self {
         // A compile-time constant: memoize it rather than re-hashing the
         // four fixed bytes on every empty-root read.
@@ -236,7 +239,7 @@ impl From<Hash> for [u8; MERKLE_HASH_LEN] {
     }
 }
 
-/// Full-width 32-byte BLAKE3 hash: the identity primitive a leaf's path
+/// Full-width 32-byte SHA3-256 hash: the identity primitive a leaf's path
 /// is made of.
 ///
 /// This is the width that carries identity. A leaf's path *is* a hash of this
@@ -252,7 +255,7 @@ pub struct PathHash([u8; 32]);
 impl PathHash {
     /// One-shot full-width hash of a contiguous byte slice.
     pub fn of(bytes: &[u8]) -> Self {
-        PathHash(*blake3::hash(bytes).as_bytes())
+        PathHash(Sha3_256::digest(bytes).into())
     }
 
     /// Truncate to the Merkle width: the leading [`MERKLE_HASH_LEN`] bytes.

@@ -2,12 +2,12 @@
 source: src/bookmark/format/tests.rs
 expression: "annotated(&encode(&BTreeMap::new()))"
 ---
-d9d9f78304582067c95c28df909f2e5e18657636011941814b36aa68617abfe7ced6793215a9efd81841a0
+d9d9f783055820dad6e0582808f7ea272aae5ce9d63d526c0b01889589d3bc794f0c6e66826126d81841a0
 
 55799( / self-described CBOR /
   [
-    4 / bookmark format version /
-    h'67c95c28df909f2e5e18657636011941814b36aa68617abfe7ced6793215a9ef' / integrity: BLAKE3 of the embedded record /
+    5 / bookmark format version /
+    h'dad6e0582808f7ea272aae5ce9d63d526c0b01889589d3bc794f0c6e66826126' / integrity: SHA3-256 of the embedded record /
     24(<< / embedded record, 1 byte(s) /
       { / 0 network(s) /
       }
