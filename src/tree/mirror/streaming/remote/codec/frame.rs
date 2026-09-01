@@ -445,9 +445,13 @@ impl ListingBuilder {
         })
     }
 
-    /// Accept one entry's key head: an unsigned radix, strictly above the
-    /// previous key.
-    pub(super) fn key(&mut self, head: cbor::Head) -> Result<u8, ListingIssue> {
+    /// Judge one entry's key head: an unsigned radix, strictly above the
+    /// last recorded entry's.
+    ///
+    /// A pure check, so a reader may judge a key as soon as it arrives and
+    /// again when its entry is whole; recording the entry
+    /// ([`entry`](Self::entry)) is what advances the order.
+    pub(super) fn key(&self, head: cbor::Head) -> Result<u8, ListingIssue> {
         if head.major != MAJOR_UINT || head.value > u64::from(u8::MAX) {
             return Err(ListingIssue::Shape("listing key is not a radix"));
         }
@@ -457,7 +461,6 @@ impl ListingBuilder {
         {
             return Err(ListingIssue::Order(QueryOrderError { previous, radix }));
         }
-        self.previous = Some(radix);
         Ok(radix)
     }
 
@@ -469,9 +472,11 @@ impl ListingBuilder {
         Ok(())
     }
 
-    /// Record one entry whose key and value heads were accepted.
+    /// Record one entry whose key and value heads were accepted; later
+    /// keys must ascend past its radix.
     pub(super) fn entry(&mut self, radix: u8, hash: [u8; MERKLE_HASH_LEN]) {
         self.children.push((radix, Hash(hash)));
+        self.previous = Some(radix);
     }
 
     /// Yield the validated children.

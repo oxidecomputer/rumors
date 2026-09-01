@@ -72,6 +72,10 @@ pub(crate) const TAG_SELF_DESCRIBED: u64 = 55799;
 /// rendering of the tag number.
 pub(crate) const SELF_DESCRIBED_HEAD: [u8; 3] = [0xd9, 0xd9, 0xf7];
 
+/// Bytes the widest head occupies: the initial byte and an eight-byte
+/// argument.
+pub(crate) const MAX_HEAD_LEN: usize = 9;
+
 /// Bytes the shortest-form head for `value` occupies, any major type.
 pub(crate) const fn head_len(value: u64) -> usize {
     match value {
@@ -79,30 +83,52 @@ pub(crate) const fn head_len(value: u64) -> usize {
         24..=0xff => 2,
         0x100..=0xffff => 3,
         0x1_0000..=0xffff_ffff => 5,
-        _ => 9,
+        _ => MAX_HEAD_LEN,
     }
+}
+
+/// One shortest-form head, rendered on the stack.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct HeadBytes {
+    bytes: [u8; MAX_HEAD_LEN],
+    len: usize,
+}
+
+impl HeadBytes {
+    /// The head's bytes.
+    pub(crate) fn as_slice(&self) -> &[u8] {
+        &self.bytes[..self.len]
+    }
+}
+
+/// Render the shortest-form head `(major, value)`.
+pub(crate) fn render_head(major: u8, value: u64) -> HeadBytes {
+    debug_assert!(major < 8, "a CBOR major type is three bits");
+    let major = major << 5;
+    let mut bytes = [0u8; MAX_HEAD_LEN];
+    let len = head_len(value);
+    match value {
+        0..=23 => bytes[0] = major | value as u8,
+        24..=0xff => bytes[..len].copy_from_slice(&[major | 24, value as u8]),
+        0x100..=0xffff => {
+            bytes[0] = major | 25;
+            bytes[1..len].copy_from_slice(&(value as u16).to_be_bytes());
+        }
+        0x1_0000..=0xffff_ffff => {
+            bytes[0] = major | 26;
+            bytes[1..len].copy_from_slice(&(value as u32).to_be_bytes());
+        }
+        _ => {
+            bytes[0] = major | 27;
+            bytes[1..len].copy_from_slice(&value.to_be_bytes());
+        }
+    }
+    HeadBytes { bytes, len }
 }
 
 /// Append the shortest-form head `(major, value)` to `out`.
 pub(crate) fn write_head(out: &mut Vec<u8>, major: u8, value: u64) {
-    debug_assert!(major < 8, "a CBOR major type is three bits");
-    let major = major << 5;
-    match value {
-        0..=23 => out.push(major | value as u8),
-        24..=0xff => out.extend_from_slice(&[major | 24, value as u8]),
-        0x100..=0xffff => {
-            out.push(major | 25);
-            out.extend_from_slice(&(value as u16).to_be_bytes());
-        }
-        0x1_0000..=0xffff_ffff => {
-            out.push(major | 26);
-            out.extend_from_slice(&(value as u32).to_be_bytes());
-        }
-        _ => {
-            out.push(major | 27);
-            out.extend_from_slice(&value.to_be_bytes());
-        }
-    }
+    out.extend_from_slice(render_head(major, value).as_slice());
 }
 
 /// Append the head of a tag item to `out`.
@@ -206,7 +232,7 @@ pub(crate) async fn read_head_async<R: AsyncRead + Unpin + ?Sized>(
         _ => unreachable!("a one-byte read returns at most one byte"),
     }
     let extension = extension_len(initial)?;
-    let mut bytes = [0u8; 9];
+    let mut bytes = [0u8; MAX_HEAD_LEN];
     bytes[0] = initial;
     read.read_exact(&mut bytes[1..1 + extension]).await?;
     let mut input = &bytes[..1 + extension];
@@ -231,7 +257,7 @@ pub(crate) fn read_head_io<R: std::io::Read + ?Sized>(
         _ => unreachable!("a one-byte read returns at most one byte"),
     }
     let extension = extension_len(initial)?;
-    let mut bytes = [0u8; 9];
+    let mut bytes = [0u8; MAX_HEAD_LEN];
     bytes[0] = initial;
     read.read_exact(&mut bytes[1..1 + extension])?;
     let mut input = &bytes[..1 + extension];
@@ -241,7 +267,7 @@ pub(crate) fn read_head_io<R: std::io::Read + ?Sized>(
 }
 
 /// Bytes of head argument following an initial byte, before reading them.
-fn extension_len(initial: u8) -> Result<usize, HeadReadError> {
+pub(crate) fn extension_len(initial: u8) -> Result<usize, HeadReadError> {
     match initial & 0x1f {
         0..=23 => Ok(0),
         24 => Ok(1),

@@ -10,7 +10,7 @@ use proptest::{
 };
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
-use super::frame::{LeafRun, MAX_QUERY_CHILDREN};
+use super::frame::{LeafRun, MAX_QUERY_CHILDREN, listing_entry_len};
 use super::signal::{Signal, WireSignal};
 use super::*;
 use crate::{
@@ -547,39 +547,78 @@ impl AsyncRead for CountingRead<'_> {
     }
 }
 
-/// Transport reads the async decoder spends on one head: one for its
-/// initial byte, one more when the head carries an argument extension
-/// (a value of 24 or more).
-fn head_reads(value: u64) -> usize {
-    1 + usize::from(cbor::head_len(value) > 1)
+/// Transport reads the async decoder spends on a head's argument
+/// extension when nothing rides along with it: one when the head carries
+/// one (a value of 24 or more), none otherwise.
+fn extension_reads(value: u64) -> usize {
+    usize::from(cbor::head_len(value) > 1)
+}
+
+/// Transport reads a listing's entries cost in bulk.
+///
+/// Each read takes the fewest bytes the entries still owed can occupy
+/// (the narrow entry width per entry until a radix of 24 or more has
+/// been recorded, the wide width after), or what the entry cut short by
+/// the previous read still needs once its key head has arrived,
+/// whichever is more; each parses every entry it completes.
+fn listing_bulk_reads(children: &[(u8, Hash)]) -> usize {
+    let widths: Vec<usize> = children
+        .iter()
+        .map(|(radix, _)| listing_entry_len(*radix))
+        .collect();
+    let (mut reads, mut buffered, mut next, mut wide, mut need) = (0, 0usize, 0usize, false, 0);
+    while next < widths.len() {
+        let entry_min = listing_entry_len(if wide { u8::MAX } else { 0 });
+        let owed = ((widths.len() - next) * entry_min)
+            .saturating_sub(buffered)
+            .max(need);
+        reads += 1;
+        buffered += owed;
+        while next < widths.len() && widths[next] <= buffered {
+            buffered -= widths[next];
+            wide |= children[next].0 >= 24;
+            next += 1;
+        }
+        if next < widths.len() {
+            let key_head = cbor::head_len(u64::from(children[next].0));
+            need = if buffered < key_head {
+                key_head - buffered
+            } else {
+                widths[next] - buffered
+            };
+        }
+    }
+    reads
 }
 
 /// Transport reads the async decoder spends on one canonical frame whose
 /// transport serves every read in full: the reader's read plan, stated
 /// over the frame's wire shape.
 ///
-/// The reader fetches one CBOR head at a time ([`head_reads`]), then one
-/// read per fixed-width field: a listed digest, or a run body within one
-/// payload chunk. A supply frame's run must fit one chunk for the plan
-/// to hold; `async_decode_spends_its_read_plan` assumes that bound.
+/// Every read takes only bytes the grammar guarantees to exist given what
+/// is already parsed, and takes all of them it can. The frame opens with
+/// one read for its array head and signal's initial byte, plus one for
+/// the signal's extension when it has one. A listing costs its map head
+/// (one read, plus one for an extension) and then its bulk reads
+/// ([`listing_bulk_reads`]). A supply costs one read for each of its two
+/// heads' initial bytes, one for each extension present, and one for a
+/// run body within one payload chunk (`async_decode_spends_its_read_plan`
+/// assumes that bound).
 fn read_plan(frame: &WireFrame) -> usize {
     let (stream, frame) = frame;
     let signal = frame_signal(frame);
-    let arity = match frame {
-        Frame::Reaction(Reaction::Query(children), _) if !children.is_empty() => 2,
-        Frame::Reaction(Reaction::Supply(_), _) => 2,
-        _ => 1,
-    };
-    let mut reads = head_reads(arity) + head_reads(u64::from(WireSignal::encode(*stream, signal)));
+    let mut reads = 1 + extension_reads(u64::from(WireSignal::encode(*stream, signal)));
     match frame {
         Frame::Reaction(Reaction::Query(children), _) if !children.is_empty() => {
-            reads += head_reads(children.len() as u64);
-            for (radix, _) in children {
-                reads += head_reads(u64::from(*radix)) + head_reads(MERKLE_HASH_LEN as u64) + 1;
-            }
+            reads += 1 + extension_reads(children.len() as u64);
+            reads += listing_bulk_reads(children);
         }
         Frame::Reaction(Reaction::Supply(run), _) => {
-            reads += head_reads(cbor::TAG_CBOR_SEQUENCE) + head_reads(run.encoded_len() as u64) + 1;
+            reads += 1
+                + extension_reads(cbor::TAG_CBOR_SEQUENCE)
+                + 1
+                + extension_reads(run.encoded_len() as u64)
+                + 1;
         }
         _ => {}
     }
@@ -629,7 +668,7 @@ proptest! {
         encode(speaker, &frame, &mut encoded).unwrap();
         let (decoded, reads) = decode_counting(speaker, &encoded);
         prop_assert_eq!(&decoded, &frame);
-        prop_assert_eq!(reads, read_plan(&frame));
+        prop_assert_eq!(reads, read_plan(&frame), "{:?}", frame);
     }
 }
 
@@ -651,12 +690,12 @@ fn read_plan_at_reference_shapes() {
         (
             "match ending its reply, one-byte signal",
             (stream, Frame::Reaction(Reaction::Match, Flow::End)),
-            2,
+            1,
         ),
         (
             "match ending its reply, two-byte signal",
             (last_stream, Frame::Reaction(Reaction::Match, Flow::End)),
-            3,
+            2,
         ),
         (
             "full-fan query",
@@ -671,7 +710,7 @@ fn read_plan_at_reference_shapes() {
                     Flow::Continue,
                 ),
             ),
-            1261,
+            6,
         ),
         (
             "lone-record supply",
@@ -682,7 +721,7 @@ fn read_plan_at_reference_shapes() {
                     Flow::End,
                 ),
             ),
-            7,
+            6,
         ),
     ];
     for (name, frame, expected) in cases {
