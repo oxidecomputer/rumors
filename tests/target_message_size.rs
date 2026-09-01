@@ -119,9 +119,9 @@ fn supply_frames(capture: &str) -> usize {
         .count()
 }
 
-/// Whether one rendered line is a supply frame's signal line: a bare
-/// dense code followed by a `/ Supply… /` comment. The bare-digit code
-/// distinguishes signal lines from every other annotated line.
+/// Whether one rendered line is a supply frame's state line: a bare
+/// state code followed by a `/ Supply… /` comment. The bare-digit code
+/// and the comment distinguish it from every other annotated line.
 fn is_supply_signal(line: &str) -> bool {
     let Some((code, rest)) = line.trim_start().split_once(" / ") else {
         return false;

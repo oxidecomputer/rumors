@@ -45,13 +45,13 @@ use super::signal::WireSignal;
 
 /// The exact wire size of one full-fan query frame.
 ///
-/// Its array head, its signal head (every query code takes the two-byte
-/// head), the listing map's head at the full fan, and one entry per radix
-/// value — the map spelling's per-entry cost varies with the key's head
-/// width, so the sum walks the radix space rather than multiplying.
+/// Its array head, its stream and state items, the listing map's head at
+/// the full fan, and one entry per radix value — the map spelling's
+/// per-entry cost varies with the key's head width, so the sum walks the
+/// radix space rather than multiplying.
 const FULL_FAN_QUERY_FRAME_LEN: usize = {
-    let mut total = cbor::head_len(2) // the frame's two-item array head
-        + WireSignal::MAX_ENCODED_LEN
+    let mut total = cbor::head_len(3) // the frame's three-item array head
+        + WireSignal::ENCODED_LEN
         + cbor::head_len(MAX_QUERY_CHILDREN as u64);
     let mut radix = 0usize;
     while radix < MAX_QUERY_CHILDREN {
@@ -73,18 +73,18 @@ pub const DEFAULT_TARGET_MESSAGE_SIZE: usize = FAN * FULL_FAN_QUERY_FRAME_LEN;
 /// Wire bytes a supply frame wraps around its run body, charged at their
 /// widest.
 ///
-/// The envelope: the frame's array head, the signal's widest head, and
+/// The envelope: the frame's array head, its stream and state items, and
 /// the run's embedded-sequence tag with the widest byte-string head the
-/// run cap admits. The heads narrow for small runs; charging the envelope
-/// constant keeps the flush algebra exact-or-conservative, never
+/// run cap admits. The run head narrows for small runs; charging the
+/// envelope constant keeps the flush algebra exact-or-conservative, never
 /// optimistic.
 ///
 /// The budget prices whole wire frames, so the encoder's flush accounting
 /// charges this envelope alongside the accumulated records — a frame's full
 /// wire size stays within the budget except when a single record alone
 /// exceeds it.
-pub const SUPPLY_FRAME_OVERHEAD: usize = cbor::head_len(2)
-    + WireSignal::MAX_ENCODED_LEN
+pub const SUPPLY_FRAME_OVERHEAD: usize = cbor::head_len(3)
+    + WireSignal::ENCODED_LEN
     + cbor::head_len(cbor::TAG_CBOR_SEQUENCE)
     + cbor::head_len(u32::MAX as u64);
 

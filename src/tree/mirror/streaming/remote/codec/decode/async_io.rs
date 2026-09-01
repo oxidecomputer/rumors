@@ -10,11 +10,11 @@ use super::super::{
     budget::RunBudget,
     error::{DecodeError, DecodeErrorKind, FramePart},
     frame::{Frame, LeafRun, ListingBuilder, Reaction, WireFrame, listing_entry_len},
-    signal::{Signal, Speaker},
+    signal::{Signal, Speaker, WireSignal},
 };
 use super::{
-    check_arity, decode_signal, frame_arity, head_error, listing_issue, query_listing, run_head,
-    signal_code,
+    OpenerItem, check_arity, decode_signal, frame_arity, head_error, listing_issue, opener_item,
+    query_listing, run_head,
 };
 use crate::tree::{
     mirror::cbor::{self, HeadError, HeadReadError},
@@ -34,6 +34,10 @@ const WIDE_ENTRY_LEN: usize = listing_entry_len(u8::MAX);
 /// The smallest radix whose key head takes two bytes.
 const FIRST_WIDE_RADIX: u8 = 24;
 
+/// Bytes a canonical frame opener occupies: the array head of a two- or
+/// three-item frame, then the stream and state items.
+const OPENER_LEN: usize = cbor::head_len(3) + WireSignal::ENCODED_LEN;
+
 /// Async frame reader over one speaker's transport direction.
 ///
 /// EOF before a frame's array head is a clean direction close and returns
@@ -48,9 +52,10 @@ const FIRST_WIDE_RADIX: u8 = 24;
 /// Every transport read takes only bytes the frame grammar guarantees to
 /// exist given what has already been parsed, so a valid frame is consumed
 /// exactly and no byte of the next frame is touched. Within that bound a
-/// read takes as many bytes as it can: a frame's array head arrives with
-/// its signal's initial byte, and a listing's entries arrive in bulk
-/// reads sized to the fewest bytes the remaining entries can occupy. How
+/// read takes as many bytes as it can: a frame's opener — its array head
+/// and its stream and state items, one byte each — arrives in one read,
+/// and a listing's entries arrive in bulk reads sized to the fewest bytes
+/// the remaining entries can occupy. How
 /// bytes are batched never changes how a frame is judged: components are
 /// validated in wire order over the bytes that arrived, so a defect is
 /// classified exactly as a reader fetching one head at a time would
@@ -138,11 +143,12 @@ async fn read_frame<R: AsyncRead + Unpin>(
 ) -> Result<Option<WireFrame>, DecodeError> {
     let direction = |kind| DecodeError::direction(speaker, kind);
     let mut exact = Exact { read };
-    // Every frame is at least two bytes — its array head and its signal's
-    // initial byte — so one read may take both. A close before the first
-    // byte is the clean end of the direction; anything shorter after it
-    // is judged in wire order below.
-    let mut opener = [0u8; 2];
+    // Every frame opens with its array head, its stream item, and its
+    // state item, each a one-byte head when canonical, so one read may
+    // take all three. A close before the first byte is the clean end of
+    // the direction; anything shorter after it is judged in wire order
+    // below, each item taking what the read fetched ahead of it.
+    let mut opener = [0u8; OPENER_LEN];
     let arrived = exact.fill(&mut opener).await;
     if arrived.filled == 0 {
         return match arrived.failure {
@@ -153,20 +159,22 @@ async fn read_frame<R: AsyncRead + Unpin>(
             })),
         };
     }
-    let arity = {
+    let (arity, index, state) = {
         let mut head = Pending::new(FramePart::FrameHead);
         head.take(&opener[..arrived.filled]);
         let (head, rest) = exact.head(&mut head).await.map_err(direction)?;
         let arity = frame_arity(head).map_err(direction)?;
-        // What the opener fetched past the array head is the signal's.
-        let mut signal = Pending::new(FramePart::Signal);
-        signal.take(rest);
-        let (signal_head, _) = exact.head(&mut signal).await.map_err(direction)?;
-        let code = signal_code(signal_head).map_err(direction)?;
-        (arity, code)
+        let mut stream = Pending::new(FramePart::Signal);
+        stream.take(rest);
+        let (stream_head, rest) = exact.head(&mut stream).await.map_err(direction)?;
+        let index = opener_item(stream_head, OpenerItem::Stream).map_err(direction)?;
+        let mut state = Pending::new(FramePart::Signal);
+        state.take(rest);
+        let (state_head, _) = exact.head(&mut state).await.map_err(direction)?;
+        let state = opener_item(state_head, OpenerItem::State).map_err(direction)?;
+        (arity, index, state)
     };
-    let (arity, code) = arity;
-    let (stream, signal) = decode_signal(speaker, code)?;
+    let (stream, signal) = decode_signal(speaker, index, state)?;
     let mut decoder = AsyncFrameDecoder {
         exact,
         budget,

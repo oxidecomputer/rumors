@@ -20,24 +20,19 @@ fn stream(index: u8) -> Stream {
     Stream::new(index).unwrap()
 }
 
-fn signal(stream: Stream, signal: Signal) -> u8 {
-    WireSignal::new(Speaker::Initiator, stream, signal)
-        .unwrap()
-        .to_byte()
-}
-
-/// The frame head of a `arity`-item frame carrying `code`: the array head
-/// then the signal's unsigned-int head.
-fn frame_head(arity: u64, code: u8) -> Vec<u8> {
+/// The opener of an `arity`-item frame on `stream` carrying `signal`: the
+/// array head, then the stream and state items.
+fn frame_head(arity: u64, stream: Stream, signal: Signal) -> Vec<u8> {
     let mut head = Vec::new();
     cbor::write_head(&mut head, cbor::MAJOR_ARRAY, arity);
-    cbor::write_head(&mut head, MAJOR_UINT, u64::from(code));
+    cbor::write_head(&mut head, MAJOR_UINT, u64::from(stream.index()));
+    cbor::write_head(&mut head, MAJOR_UINT, u64::from(signal.state()));
     head
 }
 
 /// A whole body-free frame.
 fn bare_frame(stream: Stream, s: Signal) -> Vec<u8> {
-    frame_head(1, signal(stream, s))
+    frame_head(2, stream, s)
 }
 
 /// A whole supply frame declaring `body.len()` run bytes and carrying
@@ -48,7 +43,7 @@ fn supply(stream: Stream, flow: Flow, body: &[u8]) -> Vec<u8> {
 
 /// A supply frame declaring `declared` run bytes while carrying `body`.
 fn supply_declaring(stream: Stream, flow: Flow, declared: usize, body: &[u8]) -> Vec<u8> {
-    let mut encoded = frame_head(2, signal(stream, Signal::Supply(flow)));
+    let mut encoded = frame_head(3, stream, Signal::Supply(flow));
     cbor::write_head(&mut encoded, MAJOR_TAG, TAG_CBOR_SEQUENCE);
     cbor::write_head(&mut encoded, MAJOR_BSTR, declared as u64);
     encoded.extend_from_slice(body);
@@ -59,7 +54,7 @@ fn supply_declaring(stream: Stream, flow: Flow, declared: usize, body: &[u8]) ->
 /// raw (no canonical-order validation) so tests can synthesize
 /// violations.
 fn query(stream: Stream, flow: Flow, children: &[(u8, Hash)]) -> Vec<u8> {
-    let mut encoded = frame_head(2, signal(stream, Signal::Query(flow)));
+    let mut encoded = frame_head(3, stream, Signal::Query(flow));
     super::super::frame::write_listing(&mut encoded, children);
     encoded
 }
@@ -117,35 +112,47 @@ fn out_of_range_stream_index_is_rejected() {
     );
 }
 
-/// Reserved signal codes within the byte range retain the stream encoded
-/// alongside them; codes past the byte range and non-int signal items are
-/// malformed signals.
+/// A reserved state code on a known stream is rejected naming that
+/// stream; a reserved stream index is rejected against the direction;
+/// a non-int item in either position is a malformed signal.
 #[test]
-fn invalid_signals_are_rejected() {
-    for byte in WireSignal::BYTE_COUNT..=u8::MAX {
-        for speaker in SPEAKERS {
-            let invalid = WireSignal::from_byte(speaker, byte).unwrap_err();
-            let DecodeSignalError::Reserved(reserved) = invalid else {
-                panic!("unexpected signal error")
-            };
-            let encoded = frame_head(1, byte);
-            let error = decode_exact(speaker, RunBudget::default(), &encoded).unwrap_err();
-            assert_eq!(error.origin, Origin::stream(speaker, reserved.stream()));
-            let DecodeErrorKind::InvalidSignal(DecodeSignalError::Reserved(source)) = error.kind
-            else {
-                panic!("unexpected error kind");
-            };
-            assert_eq!(source, reserved);
-            assert_eq!(source.byte(), byte);
-            assert_eq!(source.state(), byte / Stream::COUNT);
-            assert!(std::error::Error::source(&source).is_some());
-        }
-    }
-    // Past the byte range, and a non-int item where the signal belongs.
+fn invalid_openers_are_rejected() {
+    let stream = stream(4);
     for speaker in SPEAKERS {
+        for state in [u64::from(Signal::STATE_COUNT), u64::from(u8::MAX), 256] {
+            let mut encoded = Vec::new();
+            cbor::write_head(&mut encoded, cbor::MAJOR_ARRAY, 2);
+            cbor::write_head(&mut encoded, MAJOR_UINT, u64::from(stream.index()));
+            cbor::write_head(&mut encoded, MAJOR_UINT, state);
+            let error = decode_exact(speaker, RunBudget::default(), &encoded).unwrap_err();
+            assert_eq!(error.origin, Origin::stream(speaker, stream));
+            let DecodeErrorKind::InvalidSignal(DecodeSignalError::State {
+                stream: framed,
+                state: rejected,
+            }) = error.kind
+            else {
+                panic!("unexpected error kind: {:?}", error.kind);
+            };
+            assert_eq!((framed, rejected), (stream, state));
+        }
+        for index in [u64::from(Stream::COUNT), u64::from(u8::MAX), 256] {
+            let mut encoded = Vec::new();
+            cbor::write_head(&mut encoded, cbor::MAJOR_ARRAY, 2);
+            cbor::write_head(&mut encoded, MAJOR_UINT, index);
+            cbor::write_head(&mut encoded, MAJOR_UINT, 0);
+            let error = decode_exact(speaker, RunBudget::default(), &encoded).unwrap_err();
+            assert_eq!(error.origin, Origin::direction(speaker));
+            assert!(matches!(
+                error.kind,
+                DecodeErrorKind::InvalidSignal(DecodeSignalError::Stream { index: rejected })
+                    if rejected == index
+            ));
+        }
+        // A non-int item where the stream belongs, and where the state
+        // belongs.
         let mut encoded = Vec::new();
-        cbor::write_head(&mut encoded, cbor::MAJOR_ARRAY, 1);
-        cbor::write_head(&mut encoded, MAJOR_UINT, 256);
+        cbor::write_head(&mut encoded, cbor::MAJOR_ARRAY, 2);
+        cbor::write_head(&mut encoded, MAJOR_BSTR, 0);
         let error = decode_exact(speaker, RunBudget::default(), &encoded).unwrap_err();
         assert_eq!(error.origin, Origin::direction(speaker));
         assert!(matches!(
@@ -155,9 +162,9 @@ fn invalid_signals_are_rejected() {
                 ..
             }
         ));
-
         let mut encoded = Vec::new();
-        cbor::write_head(&mut encoded, cbor::MAJOR_ARRAY, 1);
+        cbor::write_head(&mut encoded, cbor::MAJOR_ARRAY, 2);
+        cbor::write_head(&mut encoded, MAJOR_UINT, u64::from(stream.index()));
         cbor::write_head(&mut encoded, MAJOR_BSTR, 0);
         let error = decode_exact(speaker, RunBudget::default(), &encoded).unwrap_err();
         assert!(matches!(
@@ -170,7 +177,7 @@ fn invalid_signals_are_rejected() {
     }
 }
 
-/// A frame item that is not a one- or two-element array, or whose array
+/// A frame item that is not a two- or three-element array, or whose array
 /// length contradicts its signal's body arity, is rejected typed.
 #[test]
 fn frame_shape_is_enforced() {
@@ -179,42 +186,44 @@ fn frame_shape_is_enforced() {
         // Not an array at all.
         let error = decode_exact(speaker, RunBudget::default(), &[0x00]).unwrap_err();
         assert!(matches!(error.kind, DecodeErrorKind::FrameShape { .. }));
-        // A three-item array.
-        let error = decode_exact(speaker, RunBudget::default(), &[0x83]).unwrap_err();
-        assert!(matches!(error.kind, DecodeErrorKind::FrameShape { .. }));
-        // A body-free signal inside a two-item array.
-        let encoded = frame_head(2, signal(stream, Signal::Match(Flow::Continue)));
+        // A one-item array, and a four-item array.
+        for head in [0x81, 0x84] {
+            let error = decode_exact(speaker, RunBudget::default(), &[head]).unwrap_err();
+            assert!(matches!(error.kind, DecodeErrorKind::FrameShape { .. }));
+        }
+        // A body-free signal inside a three-item array.
+        let encoded = frame_head(3, stream, Signal::Match(Flow::Continue));
         let error = decode_exact(speaker, RunBudget::default(), &encoded).unwrap_err();
         assert_eq!(error.origin, Origin::stream(speaker, stream));
         assert!(matches!(
             error.kind,
             DecodeErrorKind::FrameArity {
-                expected: 1,
-                found: 2
+                expected: 2,
+                found: 3
             }
         ));
-        // A body-bearing signal inside a one-item array.
-        let encoded = frame_head(1, signal(stream, Signal::Query(Flow::Continue)));
+        // A body-bearing signal inside a two-item array.
+        let encoded = frame_head(2, stream, Signal::Query(Flow::Continue));
         let error = decode_exact(speaker, RunBudget::default(), &encoded).unwrap_err();
         assert!(matches!(
             error.kind,
             DecodeErrorKind::FrameArity {
-                expected: 2,
-                found: 1
+                expected: 3,
+                found: 2
             }
         ));
     }
 }
 
-/// A widened (non-shortest-form) signal head is rejected: the wire admits
+/// A widened (non-shortest-form) state item is rejected: the wire admits
 /// one spelling per value.
 #[test]
 fn widened_signal_heads_are_rejected() {
     let stream = stream(3);
-    let code = signal(stream, Signal::Match(Flow::Continue));
+    let state = Signal::Match(Flow::Continue).state();
     for speaker in SPEAKERS {
-        // The code spelled with a needlessly wide argument.
-        let encoded = [0x81, 0x19, 0x00, code];
+        // The state code spelled with a needlessly wide argument.
+        let encoded = [0x82, stream.index(), 0x19, 0x00, state];
         let error = decode_exact(speaker, RunBudget::default(), &encoded).unwrap_err();
         assert!(matches!(
             error.kind,
@@ -231,13 +240,13 @@ fn widened_signal_heads_are_rejected() {
 fn truncated_bodies_are_rejected() {
     let stream = stream(4);
     for speaker in SPEAKERS {
-        let query_head = frame_head(2, signal(stream, Signal::Query(Flow::Continue)));
+        let query_head = frame_head(3, stream, Signal::Query(Flow::Continue));
         let mut half_listing = query_head.clone();
         cbor::write_head(&mut half_listing, MAJOR_MAP, 1);
-        let supply_head = frame_head(2, signal(stream, Signal::Supply(Flow::Continue)));
+        let supply_head = frame_head(3, stream, Signal::Supply(Flow::Continue));
         let cases = [
             (Vec::new(), FramePart::FrameHead, Origin::direction(speaker)),
-            (vec![0x81], FramePart::Signal, Origin::direction(speaker)),
+            (vec![0x82], FramePart::Signal, Origin::direction(speaker)),
             (
                 query_head,
                 FramePart::QueryChildren,
@@ -625,7 +634,7 @@ fn empty_query_listing_is_rejected() {
 #[test]
 fn oversized_query_listing_is_rejected() {
     let stream = stream(5);
-    let mut encoded = frame_head(2, signal(stream, Signal::Query(Flow::Continue)));
+    let mut encoded = frame_head(3, stream, Signal::Query(Flow::Continue));
     // A map head declaring one entry past the radix space, with no
     // entries behind it: the rejection is decided on the head alone, in
     // both decoders.
@@ -682,15 +691,15 @@ fn async_eof_distinguishes_close_from_truncation() {
         let mut closed = FrameRead::new(speaker, RunBudget::default(), &[][..]);
         assert_eq!(pollster::block_on(closed.frame()).unwrap(), None);
 
-        let supply_head = frame_head(2, signal(stream, Signal::Supply(Flow::Continue)));
+        let supply_head = frame_head(3, stream, Signal::Supply(Flow::Continue));
         let cases = [
             (
-                frame_head(2, signal(stream, Signal::Query(Flow::Continue))),
+                frame_head(3, stream, Signal::Query(Flow::Continue)),
                 FramePart::QueryChildren,
             ),
             (
                 {
-                    let mut frame = frame_head(2, signal(stream, Signal::Query(Flow::Continue)));
+                    let mut frame = frame_head(3, stream, Signal::Query(Flow::Continue));
                     cbor::write_head(&mut frame, MAJOR_MAP, 1);
                     frame
                 },
@@ -743,14 +752,10 @@ fn async_invalid_signal_does_not_consume_a_body() {
                 Frame::End(End::Reply),
             ),
         };
-        let invalid = WireSignal::new(other, stream, invalid_signal)
-            .unwrap()
-            .to_byte();
-        let valid = WireSignal::new(speaker, stream, valid_signal)
-            .unwrap()
-            .to_byte();
-        let mut bytes = frame_head(1, invalid);
-        bytes.extend_from_slice(&frame_head(1, valid));
+        WireSignal::new(other, stream, invalid_signal).expect("valid for the other speaker");
+        WireSignal::new(speaker, stream, valid_signal).expect("valid for this speaker");
+        let mut bytes = frame_head(2, stream, invalid_signal);
+        bytes.extend_from_slice(&frame_head(2, stream, valid_signal));
         let mut reader = FrameRead::new(speaker, RunBudget::default(), bytes.as_slice());
 
         let error = pollster::block_on(reader.frame()).unwrap_err();

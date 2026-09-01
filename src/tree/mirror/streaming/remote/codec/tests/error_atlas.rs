@@ -56,7 +56,8 @@ const WITNESS_MARKERS: &[&str] = &[
     // DecodeErrorKind, including its nested DecodeSignalError and
     // LeafRunError variants (describe_decode_kind).
     "kind: Read(part=",
-    "kind: InvalidSignal::Reserved(",
+    "kind: InvalidSignal::Stream(",
+    "kind: InvalidSignal::State(",
     "kind: InvalidSignal::Placement(",
     "kind: Truncated(missing=",
     "kind: QueryOutOfOrder(previous=",
@@ -112,9 +113,6 @@ const EXEMPT_MARKERS: &[(&str, &str)] = &[
 
 /// Interior stream used where both speakers admit every signal state.
 const INTERIOR_STREAM: u8 = 8;
-
-/// First reserved semantic-state byte.
-const FIRST_RESERVED_SIGNAL: u8 = WireSignal::BYTE_COUNT;
 
 /// Build a supply run holding one leaf record.
 fn one_record_run<T: Serialize + Send + Sync + 'static>(version: Version, value: T) -> LeafRun {
@@ -181,10 +179,9 @@ fn encode_errors(atlas: &mut String) {
     );
 
     for speaker in [Speaker::Initiator, Speaker::Responder] {
-        // Offsets in whole delivered bytes: the interior-stream query and
-        // supply frames open with a three-byte frame head (one array byte,
-        // a two-byte signal head), and the small supply run's own heads
-        // take three more.
+        // Offsets in whole delivered bytes: every frame opens with a
+        // three-byte opener (the array head, the stream item, the state
+        // item), and the small supply run's own heads take three more.
         for (label, frame, offset) in [
             ("write/frame-head", &query, 0),
             ("write/query-children", &query, 3),
@@ -230,8 +227,8 @@ fn decode_errors(atlas: &mut String) {
     );
 
     for speaker in [Speaker::Initiator, Speaker::Responder] {
-        // The three-byte frame head and the small supply run's heads
-        // locate every read failure below.
+        // The three-byte opener and the small supply run's heads locate
+        // every read failure below.
         let error = decode(
             speaker,
             RunBudget::default(),
@@ -276,15 +273,34 @@ fn decode_errors(atlas: &mut String) {
             record_decode(atlas, &format!("{speaker:?}/truncated/{label}"), &error);
         }
 
-        let mut reserved = Vec::new();
-        cbor::write_head(&mut reserved, cbor::MAJOR_ARRAY, 1);
+        // A reserved stream index, and a reserved state code on a known
+        // stream: the first is judged against the direction, the second
+        // names its stream.
+        let mut reserved_stream = Vec::new();
+        cbor::write_head(&mut reserved_stream, cbor::MAJOR_ARRAY, 2);
         cbor::write_head(
-            &mut reserved,
+            &mut reserved_stream,
             cbor::MAJOR_UINT,
-            u64::from(FIRST_RESERVED_SIGNAL),
+            u64::from(Stream::COUNT),
         );
-        let error = decode_exact(speaker, RunBudget::default(), &reserved).unwrap_err();
-        record_decode(atlas, &format!("{speaker:?}/reserved-signal"), &error);
+        cbor::write_head(&mut reserved_stream, cbor::MAJOR_UINT, 0);
+        let error = decode_exact(speaker, RunBudget::default(), &reserved_stream).unwrap_err();
+        record_decode(atlas, &format!("{speaker:?}/reserved-stream"), &error);
+
+        let mut reserved_state = Vec::new();
+        cbor::write_head(&mut reserved_state, cbor::MAJOR_ARRAY, 2);
+        cbor::write_head(
+            &mut reserved_state,
+            cbor::MAJOR_UINT,
+            u64::from(INTERIOR_STREAM),
+        );
+        cbor::write_head(
+            &mut reserved_state,
+            cbor::MAJOR_UINT,
+            u64::from(Signal::STATE_COUNT),
+        );
+        let error = decode_exact(speaker, RunBudget::default(), &reserved_state).unwrap_err();
+        record_decode(atlas, &format!("{speaker:?}/reserved-state"), &error);
 
         // The frame item's own shape violations: a non-array item, an
         // arity contradicting the signal, and non-canonical heads.
@@ -292,14 +308,14 @@ fn decode_errors(atlas: &mut String) {
         record_decode(atlas, &format!("{speaker:?}/frame/not-an-array"), &error);
 
         let mut mismatched = Vec::new();
-        cbor::write_head(&mut mismatched, cbor::MAJOR_ARRAY, 2);
+        cbor::write_head(&mut mismatched, cbor::MAJOR_ARRAY, 3);
         mismatched.extend_from_slice(&matched[1..]);
         let error = decode_exact(speaker, RunBudget::default(), &mismatched).unwrap_err();
         record_decode(atlas, &format!("{speaker:?}/frame/arity"), &error);
 
-        // The matched frame's signal is a one-byte head (a small code),
-        // so its code byte is the head itself; respell it widened.
-        let widened = [0x81, 0x19, 0x00, matched[1]];
+        // The matched frame's state item is a one-byte head; respell it
+        // widened behind the intact array head and stream item.
+        let widened = [0x82, matched[1], 0x19, 0x00, matched[2]];
         let error = decode_exact(speaker, RunBudget::default(), &widened).unwrap_err();
         record_decode(atlas, &format!("{speaker:?}/frame/widened-signal"), &error);
 
@@ -320,15 +336,17 @@ fn decode_errors(atlas: &mut String) {
         // kind (a byte string where a radix belongs) reaches the listing
         // gate and collapses into this taxonomy as
         // Malformed(part=QueryChildren).
-        let listing_signal = WireSignal::new(speaker, stream, Signal::Query(Flow::Continue))
-            .unwrap()
-            .to_byte();
         let mut defective_listing = Vec::new();
-        cbor::write_head(&mut defective_listing, cbor::MAJOR_ARRAY, 2);
+        cbor::write_head(&mut defective_listing, cbor::MAJOR_ARRAY, 3);
         cbor::write_head(
             &mut defective_listing,
             cbor::MAJOR_UINT,
-            u64::from(listing_signal),
+            u64::from(stream.index()),
+        );
+        cbor::write_head(
+            &mut defective_listing,
+            cbor::MAJOR_UINT,
+            u64::from(Signal::Query(Flow::Continue).state()),
         );
         cbor::write_head(&mut defective_listing, cbor::MAJOR_MAP, 1);
         cbor::write_head(&mut defective_listing, MAJOR_BSTR, 0);
@@ -397,10 +415,11 @@ fn decode_errors(atlas: &mut String) {
 
     for (label, speaker, stream, frame) in placement_witnesses() {
         let signal = frame_signal(&frame);
-        let invalid = WireSignal::new(speaker, stream, signal).unwrap_err();
+        WireSignal::new(speaker, stream, signal).expect_err("a placement witness is invalid");
         let mut bytes = Vec::new();
-        cbor::write_head(&mut bytes, cbor::MAJOR_ARRAY, 1);
-        cbor::write_head(&mut bytes, cbor::MAJOR_UINT, u64::from(invalid.byte()));
+        cbor::write_head(&mut bytes, cbor::MAJOR_ARRAY, 2);
+        cbor::write_head(&mut bytes, cbor::MAJOR_UINT, u64::from(stream.index()));
+        cbor::write_head(&mut bytes, cbor::MAJOR_UINT, u64::from(signal.state()));
         let error = decode_exact(speaker, RunBudget::default(), &bytes).unwrap_err();
         record_decode(atlas, &format!("{label}/decode"), &error);
     }
@@ -507,12 +526,14 @@ fn encoded(speaker: Speaker, frame: WireFrame) -> Vec<u8> {
 }
 
 fn raw_supply(stream: Stream, flow: Flow, body: &[u8]) -> Vec<u8> {
-    let signal = WireSignal::new(Speaker::Initiator, stream, Signal::Supply(flow))
-        .unwrap()
-        .to_byte();
     let mut encoded = Vec::new();
-    cbor::write_head(&mut encoded, cbor::MAJOR_ARRAY, 2);
-    cbor::write_head(&mut encoded, cbor::MAJOR_UINT, u64::from(signal));
+    cbor::write_head(&mut encoded, cbor::MAJOR_ARRAY, 3);
+    cbor::write_head(&mut encoded, cbor::MAJOR_UINT, u64::from(stream.index()));
+    cbor::write_head(
+        &mut encoded,
+        cbor::MAJOR_UINT,
+        u64::from(Signal::Supply(flow).state()),
+    );
     cbor::write_head(&mut encoded, MAJOR_TAG, TAG_CBOR_SEQUENCE);
     cbor::write_head(&mut encoded, MAJOR_BSTR, body.len() as u64);
     encoded.extend_from_slice(body);
@@ -573,17 +594,20 @@ fn describe_decode_kind(out: &mut String, kind: &DecodeErrorKind) {
         DecodeErrorKind::Read { part, source } => {
             write!(out, "Read(part={part:?}, io={:?})", source.kind()).unwrap()
         }
-        DecodeErrorKind::InvalidSignal(DecodeSignalError::Reserved(invalid)) => write!(
+        DecodeErrorKind::InvalidSignal(DecodeSignalError::Stream { index }) => {
+            write!(out, "InvalidSignal::Stream(index={index})").unwrap()
+        }
+        DecodeErrorKind::InvalidSignal(DecodeSignalError::State { stream, state }) => write!(
             out,
-            "InvalidSignal::Reserved(byte={:02x}, state={})",
-            invalid.byte(),
-            invalid.state()
+            "InvalidSignal::State(stream={}, state={state})",
+            stream.index()
         )
         .unwrap(),
         DecodeErrorKind::InvalidSignal(DecodeSignalError::Placement(invalid)) => write!(
             out,
-            "InvalidSignal::Placement(byte={:02x}, class={:?})",
-            invalid.byte(),
+            "InvalidSignal::Placement(stream={}, signal={:?}, class={:?})",
+            invalid.stream().index(),
+            invalid.signal(),
             invalid.class()
         )
         .unwrap(),

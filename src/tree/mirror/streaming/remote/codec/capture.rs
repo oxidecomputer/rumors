@@ -241,27 +241,34 @@ fn control_item_name(item: &[u8]) -> &'static str {
 
 /// Render one data frame.
 ///
-/// The codec's frame grammar (array head and signal) is held to
-/// panics — a violation means the capture is broken — while the body
-/// renders through the generic walk, falling back explicitly where it
-/// cannot vouch for inversion.
+/// The codec's frame grammar (the array head and the opener's stream and
+/// state items) is held to panics — a violation means the capture is
+/// broken — while the body renders through the generic walk, falling
+/// back explicitly where it cannot vouch for inversion. The opener's two
+/// items render one per line, the stream index annotated `stream` and
+/// the state code annotated with the signal it names.
 fn render_frame(speaker: Speaker, stream: Stream, item: &[u8], out: &mut String) {
     let mut probe = item;
     let head = cbor::read_head(&mut probe).expect("captured frame head is canonical");
     assert_eq!(head.major, MAJOR_ARRAY, "captured frame is an array");
-    let signal = cbor::read_head(&mut probe).expect("captured signal is canonical");
+    let index = cbor::read_head(&mut probe).expect("captured stream item is canonical");
     assert_eq!(
-        signal.major, MAJOR_UINT,
-        "captured signal is an unsigned int"
+        index.major, MAJOR_UINT,
+        "captured stream item is an unsigned int"
     );
-    let code = u8::try_from(signal.value).expect("captured signal is in the dense code space");
-    let (framed, semantic) = WireSignal::from_byte(speaker, code)
-        .expect("captured signal is valid")
+    let state = cbor::read_head(&mut probe).expect("captured state item is canonical");
+    assert_eq!(
+        state.major, MAJOR_UINT,
+        "captured state item is an unsigned int"
+    );
+    let (framed, semantic) = WireSignal::decode(speaker, index.value, state.value)
+        .expect("captured frame opener is valid")
         .into_parts();
     assert_eq!(framed, stream, "captured frame contradicts its label");
 
     writeln!(out, "    [").unwrap();
-    writeln!(out, "      {code} / {semantic:?} /").unwrap();
+    writeln!(out, "      {} / stream /", framed.index()).unwrap();
+    writeln!(out, "      {} / {semantic:?} /", semantic.state()).unwrap();
     let naming = match semantic {
         Signal::Query(_) => Naming::Listing,
         Signal::Supply(_) => Naming::Run,

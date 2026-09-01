@@ -37,7 +37,8 @@ control item 3 (2 bytes) / epilogue /
 Responder stream 0 (height 31), epoch 0, 50 wire bytes
   frame 0 (15 bytes)
     [
-      102 / Supply(Continue) /
+      0 / stream /
+      6 / Supply(Continue) /
       63(<< / supply run, 1 record(s), 9 bytes /
         63(<< / record, 2 item(s), 6 bytes /
           53846(h'b8') / causal version, event tree: 2 /
@@ -47,7 +48,8 @@ Responder stream 0 (height 31), epoch 0, 50 wire bytes
     ]
   frame 1 (15 bytes)
     [
-      102 / Supply(Continue) /
+      0 / stream /
+      6 / Supply(Continue) /
       63(<< / supply run, 1 record(s), 9 bytes /
         63(<< / record, 2 item(s), 6 bytes /
           53846(h'92') / causal version, event tree: 3 /
@@ -57,7 +59,8 @@ Responder stream 0 (height 31), epoch 0, 50 wire bytes
     ]
   frame 2 (15 bytes)
     [
-      119 / Supply(End) /
+      0 / stream /
+      7 / Supply(End) /
       63(<< / supply run, 1 record(s), 9 bytes /
         63(<< / record, 2 item(s), 6 bytes /
           53846(h'a8') / causal version, event tree: 1 /
@@ -67,7 +70,8 @@ Responder stream 0 (height 31), epoch 0, 50 wire bytes
     ]
   frame 3 (3 bytes)
     [
-      153 / End(Stream) /
+      0 / stream /
+      9 / End(Stream) /
     ]
 
 direction B -> A

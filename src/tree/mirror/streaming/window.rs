@@ -212,7 +212,7 @@ pub(crate) const SPEC_BDP_BYTES: usize = 12_500_000;
 /// affine law — this intercept plus the record's CBOR-encoded
 /// payload — at three payload sizes. The closed form documented at
 /// [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget) is
-/// denominated in it. (The minimal-payload cell reads two bytes under
+/// denominated in it. (The minimal-payload cell reads one byte under
 /// this intercept — small records batch more densely, so their share
 /// of per-frame framing is smaller — pinned as the minimal cell's own
 /// residual constant in `tests/dispute_wire.rs`; the interior and

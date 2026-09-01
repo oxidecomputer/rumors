@@ -27,16 +27,16 @@ fn deep_pair() -> (crate::tree::Root, crate::tree::Root) {
     early_first_child_dispute_pair()
 }
 
-/// Extract the reserved signal byte from a full incoming error chain.
-fn reserved_signal(error: &RemoteError<std::convert::Infallible>) -> Option<u8> {
+/// Extract the reserved state code from a full incoming error chain.
+fn reserved_state(error: &RemoteError<std::convert::Infallible>) -> Option<u64> {
     let RemoteError::Stream(StreamError::Decode(error)) = error else {
         return None;
     };
-    let CodecDecodeErrorKind::InvalidSignal(DecodeSignalError::Reserved(signal)) = &error.kind
+    let CodecDecodeErrorKind::InvalidSignal(DecodeSignalError::State { state, .. }) = &error.kind
     else {
         return None;
     };
-    Some(signal.byte())
+    Some(*state)
 }
 
 /// Borrow the remote error detected opposite the corrupt writer.
@@ -58,13 +58,14 @@ fn receiving_error<'a>(
     }
 }
 
-/// A reserved signal injected in either physical direction is reported
-/// exactly by its receiving proxy, while the other endpoint also terminates.
+/// A reserved state code injected in either physical direction is
+/// reported exactly by its receiving proxy, while the other endpoint also
+/// terminates.
 #[test]
 fn reserved_signals_propagate_through_the_full_proxy() {
     for corrupt_left in [false, true] {
         let (left, right) = deep_pair();
-        let script = Script::new(FrameSelector::First, FrameMutation::Signal(u8::MAX));
+        let script = Script::new(FrameSelector::First, FrameMutation::State(u8::MAX));
         let (left_result, right_result) = run_to_quiescence(harness::reconcile_scripted(
             left,
             right,
@@ -74,8 +75,8 @@ fn reserved_signals_propagate_through_the_full_proxy() {
         .expect("a malformed signal must terminate both sessions");
         assert!(script.fired(), "the malformed signal was never injected");
 
-        let actual = reserved_signal(receiving_error(corrupt_left, &left_result, &right_result));
-        assert_eq!(actual, Some(u8::MAX));
+        let actual = reserved_state(receiving_error(corrupt_left, &left_result, &right_result));
+        assert_eq!(actual, Some(u64::from(u8::MAX)));
         assert!(left_result.is_err());
         assert!(right_result.is_err());
     }
@@ -83,21 +84,21 @@ fn reserved_signals_propagate_through_the_full_proxy() {
 
 /// A signal placed in a forbidden stream phase is a typed placement failure.
 ///
-/// The injected byte is a continuing `Match` aimed at the opening-supply
+/// The injected state is a continuing `Match` aimed at the opening-supply
 /// stream — whose grammar admits only supplies and ends — and the
 /// receiving proxy retains the exact placement rejection through the full
 /// stack. The corrupt side must be the elected *initiator*: its first
-/// data frame is an opening supply, the stream the mutated signal must
+/// data frame is an opening supply, the stream the mutated state must
 /// land in.
 #[test]
 fn phase_invalid_signal_propagates_through_the_full_proxy() {
-    const OPENING_MATCH_CONTINUE_SIGNAL: u8 = 0;
+    const MATCH_CONTINUE_STATE: u8 = 0;
 
     let (left, right) = deep_pair();
     let corrupt_left = harness::left_initiates(&left, &right);
     let script = Script::new(
         FrameSelector::First,
-        FrameMutation::Signal(OPENING_MATCH_CONTINUE_SIGNAL),
+        FrameMutation::State(MATCH_CONTINUE_STATE),
     );
     let (left_result, right_result) = run_to_quiescence(harness::reconcile_scripted(
         left,

@@ -60,12 +60,14 @@ control item 1 (159 bytes) / greeting /
   >>)
 control item 2 (2 bytes) / epilogue /
   "."
-Responder stream 0 (height 31), epoch 0, 7 wire bytes
-  frame 0 (2 bytes)
+Responder stream 0 (height 31), epoch 0, 8 wire bytes
+  frame 0 (3 bytes)
     [
-      17 / Match(End) /
+      0 / stream /
+      1 / Match(End) /
     ]
   frame 1 (3 bytes)
     [
-      153 / End(Stream) /
+      0 / stream /
+      9 / End(Stream) /
     ]

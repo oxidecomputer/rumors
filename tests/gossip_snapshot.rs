@@ -160,17 +160,21 @@ fn asymmetric_message_targets_unbatch_the_run() {
 
 /// Extract one rendered signal line's semantic.
 ///
-/// A signal line has the form `<dense code> / <semantic> /`. The
-/// bare-digit code distinguishes signal lines from every other
-/// annotated line (tagged atoms carry parentheses, listings carry
-/// `=>`, payloads carry no comment), so the extraction cannot misfire
-/// inside a frame body.
+/// A signal line has the form `<state code> / <Semantic> /`. The
+/// bare-digit code distinguishes it from every other annotated line
+/// (tagged atoms carry parentheses, listings carry `=>`, payloads carry
+/// no comment) except the frame's stream line, `<index> / stream /`,
+/// whose lowercase comment tells it apart from the capitalized
+/// semantics, so the extraction cannot misfire inside a frame.
 fn signal_semantic(line: &str) -> Option<&str> {
     let (code, rest) = line.trim_start().split_once(" / ")?;
     if code.is_empty() || !code.bytes().all(|b| b.is_ascii_digit()) {
         return None;
     }
-    rest.strip_suffix(" /")
+    let semantic = rest.strip_suffix(" /")?;
+    semantic
+        .starts_with(|c: char| c.is_ascii_uppercase())
+        .then_some(semantic)
 }
 
 /// The child count of every nonempty-Query frame body in a capture.

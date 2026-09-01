@@ -74,7 +74,7 @@ impl<'a, R: Read> FrameDecoder<'a, R> {
         let arity = self
             .arity()
             .map_err(|kind| DecodeError::direction(self.speaker, kind))?;
-        let (stream, signal) = self.signal()?;
+        let (stream, signal) = self.opener()?;
         let frame = check_arity(signal, arity)
             .and_then(|()| self.body(signal))
             .map_err(|kind| DecodeError::stream(self.speaker, stream, kind))?;
@@ -95,20 +95,17 @@ impl<'a, R: Read> FrameDecoder<'a, R> {
         frame_arity(head)
     }
 
-    fn signal(&mut self) -> Result<(Stream, Signal), DecodeError> {
-        let head = cbor::read_head_io(self.read)
-            .map_err(|e| head_error(FramePart::Signal, e))
-            .and_then(|head| {
-                head.ok_or_else(|| {
-                    head_error(
-                        FramePart::Signal,
-                        HeadReadError::Io(ErrorKind::UnexpectedEof.into()),
-                    )
-                })
-            })
+    /// Read the opener's stream and state items behind the array head.
+    fn opener(&mut self) -> Result<(Stream, Signal), DecodeError> {
+        let index = self
+            .head(FramePart::Signal)
+            .and_then(|head| opener_item(head, OpenerItem::Stream))
             .map_err(|kind| DecodeError::direction(self.speaker, kind))?;
-        let code = signal_code(head).map_err(|kind| DecodeError::direction(self.speaker, kind))?;
-        decode_signal(self.speaker, code)
+        let state = self
+            .head(FramePart::Signal)
+            .and_then(|head| opener_item(head, OpenerItem::State))
+            .map_err(|kind| DecodeError::direction(self.speaker, kind))?;
+        decode_signal(self.speaker, index, state)
     }
 
     fn body(&mut self, signal: Signal) -> Result<Frame, DecodeErrorKind> {
@@ -217,42 +214,52 @@ impl<'a, R: Read> FrameDecoder<'a, R> {
     }
 }
 
-/// Validate a frame's array head: a definite array of one or two items.
+/// Validate a frame's array head: a definite array of two or three items
+/// (the opener's stream and state, then a body if the state takes one).
 pub(super) fn frame_arity(head: cbor::Head) -> Result<u64, DecodeErrorKind> {
     if head.major != MAJOR_ARRAY {
         return Err(DecodeErrorKind::FrameShape {
             detail: "frame item is not an array",
         });
     }
-    if !(1..=2).contains(&head.value) {
+    if !(2..=3).contains(&head.value) {
         return Err(DecodeErrorKind::FrameShape {
-            detail: "frame array is not one or two items",
+            detail: "frame array is not two or three items",
         });
     }
     Ok(head.value)
 }
 
-/// Validate a signal head: an unsigned int within the dense code space's
-/// byte range. Codes above the dense space but within the byte range keep
-/// their reserved-value taxonomy downstream.
-pub(super) fn signal_code(head: cbor::Head) -> Result<u8, DecodeErrorKind> {
+/// One of the two items every frame opens with.
+#[derive(Debug, Clone, Copy)]
+pub(super) enum OpenerItem {
+    /// The logical stream's index.
+    Stream,
+    /// The signal's state code.
+    State,
+}
+
+/// Validate an opener item's head: an unsigned int. Its range is the
+/// signal grammar's to judge ([`decode_signal`]), so an out-of-range
+/// value keeps its reserved-value taxonomy.
+pub(super) fn opener_item(head: cbor::Head, item: OpenerItem) -> Result<u64, DecodeErrorKind> {
     if head.major != MAJOR_UINT {
         return Err(DecodeErrorKind::Malformed {
             part: FramePart::Signal,
-            detail: "signal is not an unsigned int",
+            detail: match item {
+                OpenerItem::Stream => "stream item is not an unsigned int",
+                OpenerItem::State => "state item is not an unsigned int",
+            },
         });
     }
-    u8::try_from(head.value).map_err(|_| DecodeErrorKind::Malformed {
-        part: FramePart::Signal,
-        detail: "signal is outside the dense code space",
-    })
+    Ok(head.value)
 }
 
 /// Enforce the frame array's length against its signal's body arity.
 pub(super) fn check_arity(signal: Signal, arity: u64) -> Result<(), DecodeErrorKind> {
     let expected = match signal {
-        Signal::Match(_) | Signal::QueryEmpty(_) | Signal::End(_) => 1,
-        Signal::Query(_) | Signal::Supply(_) => 2,
+        Signal::Match(_) | Signal::QueryEmpty(_) | Signal::End(_) => 2,
+        Signal::Query(_) | Signal::Supply(_) => 3,
     };
     if arity != expected {
         return Err(DecodeErrorKind::FrameArity {
@@ -352,9 +359,18 @@ fn head_detail(error: cbor::HeadError) -> &'static str {
     }
 }
 
-pub(super) fn decode_signal(speaker: Speaker, code: u8) -> Result<(Stream, Signal), DecodeError> {
-    let wire = WireSignal::from_byte(speaker, code)
-        .map_err(|invalid| DecodeError::stream(speaker, invalid.stream(), invalid.into()))?;
+/// Interpret the opener's decoded items for `speaker`; a rejection names
+/// the stream when the stream item was valid, the direction otherwise.
+pub(super) fn decode_signal(
+    speaker: Speaker,
+    index: u64,
+    state: u64,
+) -> Result<(Stream, Signal), DecodeError> {
+    let wire =
+        WireSignal::decode(speaker, index, state).map_err(|invalid| match invalid.stream() {
+            Some(stream) => DecodeError::stream(speaker, stream, invalid.into()),
+            None => DecodeError::direction(speaker, invalid.into()),
+        })?;
     Ok(wire.into_parts())
 }
 

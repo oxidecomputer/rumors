@@ -48,7 +48,8 @@ control item 2 (2 bytes) / epilogue /
 Responder stream 0 (height 31), epoch 0, 316 wire bytes
   frame 0 (17 bytes)
     [
-      102 / Supply(Continue) /
+      0 / stream /
+      6 / Supply(Continue) /
       63(<< / supply run, 1 record(s), 11 bytes /
         63(<< / record, 2 item(s), 8 bytes /
           53846(h'4642d0') / causal version, event tree: (0, 11, 0) /
@@ -58,11 +59,13 @@ Responder stream 0 (height 31), epoch 0, 316 wire bytes
     ]
   frame 1 (3 bytes)
     [
-      34 / QueryEmpty(Continue) /
+      0 / stream /
+      2 / QueryEmpty(Continue) /
     ]
   frame 2 (16 bytes)
     [
-      102 / Supply(Continue) /
+      0 / stream /
+      6 / Supply(Continue) /
       63(<< / supply run, 1 record(s), 10 bytes /
         63(<< / record, 2 item(s), 7 bytes /
           53846(h'4b11') / causal version, event tree: (0, 4, 0) /
@@ -72,11 +75,13 @@ Responder stream 0 (height 31), epoch 0, 316 wire bytes
     ]
   frame 3 (3 bytes)
     [
-      34 / QueryEmpty(Continue) /
+      0 / stream /
+      2 / QueryEmpty(Continue) /
     ]
   frame 4 (17 bytes)
     [
-      102 / Supply(Continue) /
+      0 / stream /
+      6 / Supply(Continue) /
       63(<< / supply run, 1 record(s), 11 bytes /
         63(<< / record, 2 item(s), 8 bytes /
           53846(h'47c390') / causal version, event tree: (0, 14, 0) /
@@ -86,15 +91,18 @@ Responder stream 0 (height 31), epoch 0, 316 wire bytes
     ]
   frame 5 (3 bytes)
     [
-      34 / QueryEmpty(Continue) /
+      0 / stream /
+      2 / QueryEmpty(Continue) /
     ]
   frame 6 (3 bytes)
     [
-      34 / QueryEmpty(Continue) /
+      0 / stream /
+      2 / QueryEmpty(Continue) /
     ]
   frame 7 (17 bytes)
     [
-      102 / Supply(Continue) /
+      0 / stream /
+      6 / Supply(Continue) /
       63(<< / supply run, 1 record(s), 11 bytes /
         63(<< / record, 2 item(s), 8 bytes /
           53846(h'474350') / causal version, event tree: (0, 13, 0) /
@@ -104,19 +112,23 @@ Responder stream 0 (height 31), epoch 0, 316 wire bytes
     ]
   frame 8 (3 bytes)
     [
-      34 / QueryEmpty(Continue) /
+      0 / stream /
+      2 / QueryEmpty(Continue) /
     ]
   frame 9 (3 bytes)
     [
-      34 / QueryEmpty(Continue) /
+      0 / stream /
+      2 / QueryEmpty(Continue) /
     ]
   frame 10 (3 bytes)
     [
-      34 / QueryEmpty(Continue) /
+      0 / stream /
+      2 / QueryEmpty(Continue) /
     ]
   frame 11 (17 bytes)
     [
-      102 / Supply(Continue) /
+      0 / stream /
+      6 / Supply(Continue) /
       63(<< / supply run, 1 record(s), 11 bytes /
         63(<< / record, 2 item(s), 8 bytes /
           53846(h'4210f4') / causal version, event tree: (0, 15, 0) /
@@ -126,7 +138,8 @@ Responder stream 0 (height 31), epoch 0, 316 wire bytes
     ]
   frame 12 (17 bytes)
     [
-      102 / Supply(Continue) /
+      0 / stream /
+      6 / Supply(Continue) /
       63(<< / supply run, 1 record(s), 11 bytes /
         63(<< / record, 2 item(s), 8 bytes /
           53846(h'423041') / causal version, event tree: (0, 16, 0) /
@@ -136,7 +149,8 @@ Responder stream 0 (height 31), epoch 0, 316 wire bytes
     ]
   frame 13 (17 bytes)
     [
-      102 / Supply(Continue) /
+      0 / stream /
+      6 / Supply(Continue) /
       63(<< / supply run, 1 record(s), 11 bytes /
         63(<< / record, 2 item(s), 8 bytes /
           53846(h'46c310') / causal version, event tree: (0, 12, 0) /
@@ -146,15 +160,18 @@ Responder stream 0 (height 31), epoch 0, 316 wire bytes
     ]
   frame 14 (3 bytes)
     [
-      34 / QueryEmpty(Continue) /
+      0 / stream /
+      2 / QueryEmpty(Continue) /
     ]
   frame 15 (3 bytes)
     [
-      34 / QueryEmpty(Continue) /
+      0 / stream /
+      2 / QueryEmpty(Continue) /
     ]
   frame 16 (17 bytes)
     [
-      102 / Supply(Continue) /
+      0 / stream /
+      6 / Supply(Continue) /
       63(<< / supply run, 1 record(s), 11 bytes /
         63(<< / record, 2 item(s), 8 bytes /
           53846(h'454250') / causal version, event tree: (0, 9, 0) /
@@ -164,7 +181,8 @@ Responder stream 0 (height 31), epoch 0, 316 wire bytes
     ]
   frame 17 (16 bytes)
     [
-      102 / Supply(Continue) /
+      0 / stream /
+      6 / Supply(Continue) /
       63(<< / supply run, 1 record(s), 10 bytes /
         63(<< / record, 2 item(s), 7 bytes /
           53846(h'5540') / causal version, event tree: (0, 1, 0) /
@@ -174,11 +192,13 @@ Responder stream 0 (height 31), epoch 0, 316 wire bytes
     ]
   frame 18 (3 bytes)
     [
-      34 / QueryEmpty(Continue) /
+      0 / stream /
+      2 / QueryEmpty(Continue) /
     ]
   frame 19 (16 bytes)
     [
-      102 / Supply(Continue) /
+      0 / stream /
+      6 / Supply(Continue) /
       63(<< / supply run, 1 record(s), 10 bytes /
         63(<< / record, 2 item(s), 7 bytes /
           53846(h'5c90') / causal version, event tree: (0, 2, 0) /
@@ -188,7 +208,8 @@ Responder stream 0 (height 31), epoch 0, 316 wire bytes
     ]
   frame 20 (17 bytes)
     [
-      102 / Supply(Continue) /
+      0 / stream /
+      6 / Supply(Continue) /
       63(<< / supply run, 1 record(s), 11 bytes /
         63(<< / record, 2 item(s), 8 bytes /
           53846(h'44c210') / causal version, event tree: (0, 8, 0) /
@@ -198,7 +219,8 @@ Responder stream 0 (height 31), epoch 0, 316 wire bytes
     ]
   frame 21 (16 bytes)
     [
-      102 / Supply(Continue) /
+      0 / stream /
+      6 / Supply(Continue) /
       63(<< / supply run, 1 record(s), 10 bytes /
         63(<< / record, 2 item(s), 7 bytes /
           53846(h'4f19') / causal version, event tree: (0, 6, 0) /
@@ -208,11 +230,13 @@ Responder stream 0 (height 31), epoch 0, 316 wire bytes
     ]
   frame 22 (3 bytes)
     [
-      34 / QueryEmpty(Continue) /
+      0 / stream /
+      2 / QueryEmpty(Continue) /
     ]
   frame 23 (17 bytes)
     [
-      102 / Supply(Continue) /
+      0 / stream /
+      6 / Supply(Continue) /
       63(<< / supply run, 1 record(s), 11 bytes /
         63(<< / record, 2 item(s), 8 bytes /
           53846(h'45c290') / causal version, event tree: (0, 10, 0) /
@@ -222,11 +246,13 @@ Responder stream 0 (height 31), epoch 0, 316 wire bytes
     ]
   frame 24 (3 bytes)
     [
-      34 / QueryEmpty(Continue) /
+      0 / stream /
+      2 / QueryEmpty(Continue) /
     ]
   frame 25 (16 bytes)
     [
-      102 / Supply(Continue) /
+      0 / stream /
+      6 / Supply(Continue) /
       63(<< / supply run, 1 record(s), 10 bytes /
         63(<< / record, 2 item(s), 7 bytes /
           53846(h'4934') / causal version, event tree: (0, 3, 0) /
@@ -236,15 +262,18 @@ Responder stream 0 (height 31), epoch 0, 316 wire bytes
     ]
   frame 26 (3 bytes)
     [
-      34 / QueryEmpty(Continue) /
+      0 / stream /
+      2 / QueryEmpty(Continue) /
     ]
   frame 27 (3 bytes)
     [
-      34 / QueryEmpty(Continue) /
+      0 / stream /
+      2 / QueryEmpty(Continue) /
     ]
   frame 28 (17 bytes)
     [
-      102 / Supply(Continue) /
+      0 / stream /
+      6 / Supply(Continue) /
       63(<< / supply run, 1 record(s), 11 bytes /
         63(<< / record, 2 item(s), 8 bytes /
           53846(h'444740') / causal version, event tree: (0, 7, 0) /
@@ -254,7 +283,8 @@ Responder stream 0 (height 31), epoch 0, 316 wire bytes
     ]
   frame 29 (16 bytes)
     [
-      102 / Supply(Continue) /
+      0 / stream /
+      6 / Supply(Continue) /
       63(<< / supply run, 1 record(s), 10 bytes /
         63(<< / record, 2 item(s), 7 bytes /
           53846(h'4d15') / causal version, event tree: (0, 5, 0) /
@@ -264,11 +294,13 @@ Responder stream 0 (height 31), epoch 0, 316 wire bytes
     ]
   frame 30 (3 bytes)
     [
-      51 / QueryEmpty(End) /
+      0 / stream /
+      3 / QueryEmpty(End) /
     ]
   frame 31 (3 bytes)
     [
-      153 / End(Stream) /
+      0 / stream /
+      9 / End(Stream) /
     ]
 
 direction B -> A
@@ -316,7 +348,8 @@ control item 2 (2 bytes) / epilogue /
 Initiator stream 0 (height 31), epoch 0, 262 wire bytes
   frame 0 (16 bytes)
     [
-      102 / Supply(Continue) /
+      0 / stream /
+      6 / Supply(Continue) /
       63(<< / supply run, 1 record(s), 10 bytes /
         63(<< / record, 2 item(s), 7 bytes /
           53846(h'73c0') / causal version, event tree: (0, 0, 3) /
@@ -326,7 +359,8 @@ Initiator stream 0 (height 31), epoch 0, 262 wire bytes
     ]
   frame 1 (17 bytes)
     [
-      102 / Supply(Continue) /
+      0 / stream /
+      6 / Supply(Continue) /
       63(<< / supply run, 1 record(s), 11 bytes /
         63(<< / record, 2 item(s), 8 bytes /
           53846(h'70ac') / causal version, event tree: (0, 0, 10) /
@@ -336,7 +370,8 @@ Initiator stream 0 (height 31), epoch 0, 262 wire bytes
     ]
   frame 2 (16 bytes)
     [
-      102 / Supply(Continue) /
+      0 / stream /
+      6 / Supply(Continue) /
       63(<< / supply run, 1 record(s), 10 bytes /
         63(<< / record, 2 item(s), 7 bytes /
           53846(h'72c0') / causal version, event tree: (0, 0, 2) /
@@ -346,7 +381,8 @@ Initiator stream 0 (height 31), epoch 0, 262 wire bytes
     ]
   frame 3 (17 bytes)
     [
-      102 / Supply(Continue) /
+      0 / stream /
+      6 / Supply(Continue) /
       63(<< / supply run, 1 record(s), 11 bytes /
         63(<< / record, 2 item(s), 8 bytes /
           53846(h'70cc') / causal version, event tree: (0, 0, 12) /
@@ -356,7 +392,8 @@ Initiator stream 0 (height 31), epoch 0, 262 wire bytes
     ]
   frame 4 (17 bytes)
     [
-      102 / Supply(Continue) /
+      0 / stream /
+      6 / Supply(Continue) /
       63(<< / supply run, 1 record(s), 11 bytes /
         63(<< / record, 2 item(s), 8 bytes /
           53846(h'70fc') / causal version, event tree: (0, 0, 15) /
@@ -366,7 +403,8 @@ Initiator stream 0 (height 31), epoch 0, 262 wire bytes
     ]
   frame 5 (26 bytes)
     [
-      102 / Supply(Continue) /
+      0 / stream /
+      6 / Supply(Continue) /
       63(<< / supply run, 2 record(s), 20 bytes /
         63(<< / record, 2 item(s), 7 bytes /
           53846(h'71f0') / causal version, event tree: (0, 0, 7) /
@@ -380,7 +418,8 @@ Initiator stream 0 (height 31), epoch 0, 262 wire bytes
     ]
   frame 6 (16 bytes)
     [
-      102 / Supply(Continue) /
+      0 / stream /
+      6 / Supply(Continue) /
       63(<< / supply run, 1 record(s), 10 bytes /
         63(<< / record, 2 item(s), 7 bytes /
           53846(h'708c') / causal version, event tree: (0, 0, 8) /
@@ -390,7 +429,8 @@ Initiator stream 0 (height 31), epoch 0, 262 wire bytes
     ]
   frame 7 (17 bytes)
     [
-      102 / Supply(Continue) /
+      0 / stream /
+      6 / Supply(Continue) /
       63(<< / supply run, 1 record(s), 11 bytes /
         63(<< / record, 2 item(s), 8 bytes /
           53846(h'709c') / causal version, event tree: (0, 0, 9) /
@@ -400,7 +440,8 @@ Initiator stream 0 (height 31), epoch 0, 262 wire bytes
     ]
   frame 8 (16 bytes)
     [
-      102 / Supply(Continue) /
+      0 / stream /
+      6 / Supply(Continue) /
       63(<< / supply run, 1 record(s), 10 bytes /
         63(<< / record, 2 item(s), 7 bytes /
           53846(h'71b0') / causal version, event tree: (0, 0, 6) /
@@ -410,7 +451,8 @@ Initiator stream 0 (height 31), epoch 0, 262 wire bytes
     ]
   frame 9 (16 bytes)
     [
-      102 / Supply(Continue) /
+      0 / stream /
+      6 / Supply(Continue) /
       63(<< / supply run, 1 record(s), 10 bytes /
         63(<< / record, 2 item(s), 7 bytes /
           53846(h'7170') / causal version, event tree: (0, 0, 5) /
@@ -420,7 +462,8 @@ Initiator stream 0 (height 31), epoch 0, 262 wire bytes
     ]
   frame 10 (17 bytes)
     [
-      102 / Supply(Continue) /
+      0 / stream /
+      6 / Supply(Continue) /
       63(<< / supply run, 1 record(s), 11 bytes /
         63(<< / record, 2 item(s), 8 bytes /
           53846(h'70dc') / causal version, event tree: (0, 0, 13) /
@@ -430,7 +473,8 @@ Initiator stream 0 (height 31), epoch 0, 262 wire bytes
     ]
   frame 11 (17 bytes)
     [
-      102 / Supply(Continue) /
+      0 / stream /
+      6 / Supply(Continue) /
       63(<< / supply run, 1 record(s), 11 bytes /
         63(<< / record, 2 item(s), 8 bytes /
           53846(h'70bc') / causal version, event tree: (0, 0, 11) /
@@ -440,7 +484,8 @@ Initiator stream 0 (height 31), epoch 0, 262 wire bytes
     ]
   frame 12 (17 bytes)
     [
-      102 / Supply(Continue) /
+      0 / stream /
+      6 / Supply(Continue) /
       63(<< / supply run, 1 record(s), 11 bytes /
         63(<< / record, 2 item(s), 8 bytes /
           53846(h'70ec') / causal version, event tree: (0, 0, 14) /
@@ -450,7 +495,8 @@ Initiator stream 0 (height 31), epoch 0, 262 wire bytes
     ]
   frame 13 (15 bytes)
     [
-      102 / Supply(Continue) /
+      0 / stream /
+      6 / Supply(Continue) /
       63(<< / supply run, 1 record(s), 9 bytes /
         63(<< / record, 2 item(s), 6 bytes /
           53846(h'77') / causal version, event tree: (0, 0, 1) /
@@ -460,7 +506,8 @@ Initiator stream 0 (height 31), epoch 0, 262 wire bytes
     ]
   frame 14 (17 bytes)
     [
-      119 / Supply(End) /
+      0 / stream /
+      7 / Supply(End) /
       63(<< / supply run, 1 record(s), 11 bytes /
         63(<< / record, 2 item(s), 8 bytes /
           53846(h'7043') / causal version, event tree: (0, 0, 16) /
@@ -470,70 +517,87 @@ Initiator stream 0 (height 31), epoch 0, 262 wire bytes
     ]
   frame 15 (3 bytes)
     [
-      153 / End(Stream) /
+      0 / stream /
+      9 / End(Stream) /
     ]
 Initiator stream 1 (height 30), epoch 0, 50 wire bytes
   frame 0 (3 bytes)
     [
-      137 / End(Reply) /
+      1 / stream /
+      8 / End(Reply) /
     ]
   frame 1 (3 bytes)
     [
-      137 / End(Reply) /
+      1 / stream /
+      8 / End(Reply) /
     ]
   frame 2 (3 bytes)
     [
-      137 / End(Reply) /
+      1 / stream /
+      8 / End(Reply) /
     ]
   frame 3 (3 bytes)
     [
-      137 / End(Reply) /
+      1 / stream /
+      8 / End(Reply) /
     ]
   frame 4 (3 bytes)
     [
-      137 / End(Reply) /
+      1 / stream /
+      8 / End(Reply) /
     ]
   frame 5 (3 bytes)
     [
-      137 / End(Reply) /
+      1 / stream /
+      8 / End(Reply) /
     ]
   frame 6 (3 bytes)
     [
-      137 / End(Reply) /
+      1 / stream /
+      8 / End(Reply) /
     ]
   frame 7 (3 bytes)
     [
-      137 / End(Reply) /
+      1 / stream /
+      8 / End(Reply) /
     ]
   frame 8 (3 bytes)
     [
-      137 / End(Reply) /
+      1 / stream /
+      8 / End(Reply) /
     ]
   frame 9 (3 bytes)
     [
-      137 / End(Reply) /
+      1 / stream /
+      8 / End(Reply) /
     ]
   frame 10 (3 bytes)
     [
-      137 / End(Reply) /
+      1 / stream /
+      8 / End(Reply) /
     ]
   frame 11 (3 bytes)
     [
-      137 / End(Reply) /
+      1 / stream /
+      8 / End(Reply) /
     ]
   frame 12 (3 bytes)
     [
-      137 / End(Reply) /
+      1 / stream /
+      8 / End(Reply) /
     ]
   frame 13 (3 bytes)
     [
-      137 / End(Reply) /
+      1 / stream /
+      8 / End(Reply) /
     ]
   frame 14 (3 bytes)
     [
-      137 / End(Reply) /
+      1 / stream /
+      8 / End(Reply) /
     ]
   frame 15 (3 bytes)
     [
-      154 / End(Stream) /
+      1 / stream /
+      9 / End(Stream) /
     ]

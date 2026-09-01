@@ -1,8 +1,9 @@
 //! The self-delimiting frame grammar shared by every logical wire stream.
 //!
 //! Every frame is one CBOR array item, so a directed stream's frames form
-//! an RFC 8742 CBOR sequence a generic tool can walk: `[signal]` for a
-//! body-free frame, `[signal, body]` otherwise. The wire is *emitted* as
+//! an RFC 8742 CBOR sequence a generic tool can walk: `[stream, state]`
+//! for a body-free frame, `[stream, state, body]` otherwise. The wire is
+//! *emitted* as
 //! deterministic-encoding CBOR — shortest-form heads everywhere, definite
 //! lengths only, one spelling per value
 //! ([`cbor`](crate::tree::mirror::cbor)) — which is what keeps the
@@ -14,15 +15,15 @@
 //! spelling rule; the atom's *content* canonicality is enforced by its
 //! own strict decoder.
 //!
-//! The signal is an unsigned int carrying the dense `(frame state,
-//! stream)` code. There are ten frame states — four reaction forms, each
-//! continuing or ending its reply, plus a bare empty-reply end and a bare
-//! stream-end control — and 17 streams. `state * 17 + stream` occupies
-//! values 0 through 169; the rest of the byte-ranged code space is
-//! reserved, and the signal's stream component deliberately restates the
-//! transport label so a mislabeled stream is its own diagnosis. Speaker
-//! and stream then select a phase-specific subset: the initiator admits
-//! 162 placements and the responder 163, rejecting the rest before their
+//! A frame opens with two unsigned ints: the index of the logical stream
+//! it rides (one of 17) and its signal's state code (one of ten frame
+//! states — four reaction forms, each continuing or ending its reply,
+//! plus a bare empty-reply end and a bare stream-end control). Both are
+//! below 24, so each item is a single byte; any other index or code is
+//! reserved. The stream item deliberately restates the transport label so
+//! a mislabeled stream is its own diagnosis. Speaker and stream then
+//! select a phase-specific subset of states: the initiator admits 162
+//! placements and the responder 163, rejecting the rest before their
 //! frame body is read.
 //!
 //! Reply and stream lifetimes are deliberately orthogonal. Every nonempty
@@ -98,13 +99,13 @@ pub use frame::{Frame, LeafRun, LeafRunError, ListingIssue, Reaction};
 pub(crate) use frame::{parse_listing_map, write_listing};
 pub use greeting::GreetingError;
 pub use signal::{
-    DecodeSignalError, End, Flow, InvalidSignalPlacement, InvalidWireSignal, Speaker, Stream,
-    StreamClass,
+    DecodeSignalError, End, Flow, InvalidSignalPlacement, Speaker, Stream, StreamClass,
 };
 
 /// The whole wire prefix of one initiator-spoken, reply-ending supply
 /// frame declaring a `declared`-byte run: the frame's array head, its
-/// signal head, and the run's embedded-sequence tag and byte-string head.
+/// stream and state items, and the run's embedded-sequence tag and
+/// byte-string head.
 ///
 /// The allocator meter (`tests/decode_alloc.rs`) prepends it to a
 /// hand-built run body so the codec's supply read path is drivable from
@@ -112,13 +113,15 @@ pub use signal::{
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) fn supply_frame_head(declared: usize) -> Vec<u8> {
     use crate::tree::mirror::cbor;
-    let code = signal::WireSignal::encode(
-        Stream::new(0).expect("stream 0 is within the stream range"),
-        signal::Signal::Supply(Flow::End),
-    );
+    let stream = Stream::new(0).expect("stream 0 is within the stream range");
     let mut bytes = Vec::new();
-    cbor::write_head(&mut bytes, cbor::MAJOR_ARRAY, 2);
-    cbor::write_head(&mut bytes, cbor::MAJOR_UINT, u64::from(code));
+    cbor::write_head(&mut bytes, cbor::MAJOR_ARRAY, 3);
+    cbor::write_head(&mut bytes, cbor::MAJOR_UINT, u64::from(stream.index()));
+    cbor::write_head(
+        &mut bytes,
+        cbor::MAJOR_UINT,
+        u64::from(signal::Signal::Supply(Flow::End).state()),
+    );
     cbor::write_tag(&mut bytes, cbor::TAG_CBOR_SEQUENCE);
     cbor::write_head(&mut bytes, cbor::MAJOR_BSTR, declared as u64);
     bytes

@@ -1,0 +1,14 @@
+---
+source: src/tree/mirror/streaming/remote/codec/signal/tests.rs
+expression: roster
+---
+0: Match(Continue)
+1: Match(End)
+2: QueryEmpty(Continue)
+3: QueryEmpty(End)
+4: Query(Continue)
+5: Query(End)
+6: Supply(Continue)
+7: Supply(End)
+8: End(Reply)
+9: End(Stream)

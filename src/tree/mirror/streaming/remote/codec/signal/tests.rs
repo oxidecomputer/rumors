@@ -6,41 +6,50 @@ use super::*;
 /// Protocol-valid signal placements in either speaker direction.
 const VALID_PLACEMENTS: [usize; 2] = [162, 163];
 
-/// The semantic signal product maps bijectively onto bytes 0 through 169.
+/// The state roster is a bijection between the ten signals and the state
+/// codes 0 through 9; every other code is reserved.
 #[test]
-fn encoding_is_bijective() {
-    let mut bytes = BTreeSet::new();
+fn state_roster_is_bijective() {
+    let mut codes = BTreeSet::new();
     for (state, signal) in Signal::STATES.into_iter().enumerate() {
         let state = state as u8;
+        assert_eq!(signal.state(), state);
         assert_eq!(Signal::from_state(state), Ok(signal));
-        for index in 0..Stream::COUNT {
-            let stream = Stream::new(index).unwrap();
-            let wire = WireSignal::pair(stream, signal);
-            let byte = wire.to_byte();
-            assert!(bytes.insert(byte), "duplicate signal byte {byte:#04x}");
-            assert_eq!(WireSignal::parse(byte).unwrap(), wire);
-        }
+        assert!(codes.insert(state), "duplicate state code {state}");
     }
-    assert_eq!(bytes.len(), usize::from(WireSignal::BYTE_COUNT));
-
-    for byte in 0..=u8::MAX {
-        match WireSignal::parse(byte) {
-            Ok(wire) => {
-                assert!(byte < WireSignal::BYTE_COUNT);
-                assert_eq!(wire.to_byte(), byte);
-            }
-            Err(invalid) => {
-                assert_eq!(invalid.byte(), byte);
-                assert_eq!(invalid.stream(), Stream(byte % Stream::COUNT));
-                assert_eq!(invalid.state(), byte / Stream::COUNT);
-                assert!(std::error::Error::source(&invalid).is_some());
-                assert!(byte >= WireSignal::BYTE_COUNT);
-            }
-        }
-    }
-
+    assert_eq!(codes.len(), usize::from(Signal::STATE_COUNT));
     for state in Signal::STATE_COUNT..=u8::MAX {
-        assert_eq!(Signal::from_state(state), Err(InvalidSignalState { state }));
+        let invalid = Signal::from_state(state).unwrap_err();
+        assert_eq!(invalid, InvalidSignalState { state });
+        assert_eq!(invalid.state(), state);
+    }
+}
+
+/// Decoding an opener rejects a reserved stream index before looking at
+/// the state, and a reserved state on a known stream names that stream.
+#[test]
+fn reserved_opener_items_are_typed() {
+    for speaker in [Speaker::Initiator, Speaker::Responder] {
+        for index in [
+            u64::from(Stream::COUNT),
+            u64::from(u8::MAX),
+            u64::from(u8::MAX) + 1,
+        ] {
+            let invalid = WireSignal::decode(speaker, index, 0).unwrap_err();
+            assert_eq!(invalid, DecodeSignalError::Stream { index });
+            assert_eq!(invalid.stream(), None);
+        }
+        for state in [
+            u64::from(Signal::STATE_COUNT),
+            u64::from(u8::MAX),
+            u64::from(u8::MAX) + 1,
+        ] {
+            let stream = Stream::new(3).unwrap();
+            let invalid =
+                WireSignal::decode(speaker, u64::from(stream.index()), state).unwrap_err();
+            assert_eq!(invalid, DecodeSignalError::State { stream, state });
+            assert_eq!(invalid.stream(), Some(stream));
+        }
     }
 }
 
@@ -56,17 +65,19 @@ fn placements_match_the_phase_schedule_exhaustively() {
             let stream = Stream::new(index).unwrap();
             assert_eq!(stream.class(speaker), expected_class(speaker, index));
             for signal in Signal::STATES {
-                let byte = WireSignal::pair(stream, signal).to_byte();
                 let expected = placement_is_valid(speaker, index, signal);
                 let constructed = WireSignal::new(speaker, stream, signal);
-                let decoded = WireSignal::from_byte(speaker, byte);
+                let decoded =
+                    WireSignal::decode(speaker, u64::from(index), u64::from(signal.state()));
                 if expected {
                     accepted += 1;
                     let wire = constructed.unwrap();
                     assert_eq!(decoded.unwrap(), wire);
+                    assert_eq!(wire.into_parts(), (stream, signal));
                 } else {
                     let invalid = constructed.unwrap_err();
-                    assert_eq!(invalid.byte(), byte);
+                    assert_eq!(invalid.stream(), stream);
+                    assert_eq!(invalid.signal(), signal);
                     assert_eq!(invalid.class(), expected_class(speaker, index));
                     assert_eq!(decoded, Err(DecodeSignalError::Placement(invalid)));
                 }
@@ -76,7 +87,7 @@ fn placements_match_the_phase_schedule_exhaustively() {
     }
 }
 
-/// Every phase-invalid placement is pinned separately from the raw byte layout.
+/// Every phase-invalid placement is pinned by stream and signal.
 #[test]
 fn invalid_placement_snapshot() {
     let mut rejected = String::new();
@@ -90,8 +101,7 @@ fn invalid_placement_snapshot() {
                 };
                 writeln!(
                     rejected,
-                    "  {:02x}: stream {index:02} {signal:?} -> {:?}",
-                    invalid.byte(),
+                    "  stream {index:02} {signal:?} -> {:?}",
                     invalid.class(),
                 )
                 .unwrap();
@@ -123,33 +133,14 @@ fn placement_is_valid(speaker: Speaker, index: u8, signal: Signal) -> bool {
     }
 }
 
-/// Every byte's exact stream/state interpretation is pinned as wire format.
+/// The state roster is wire format: each state code's signal is pinned.
 #[test]
-fn wire_byte_layout_snapshot() {
-    let mut layout = String::new();
-    for byte in u8::MIN..=u8::MAX {
-        match WireSignal::parse(byte) {
-            Ok(wire) => {
-                let (stream, signal) = wire.into_parts();
-                writeln!(
-                    layout,
-                    "{byte:02x}: stream {:02} {signal:?}",
-                    stream.index()
-                )
-                .unwrap();
-            }
-            Err(invalid) => {
-                writeln!(
-                    layout,
-                    "{byte:02x}: stream {:02} InvalidState({})",
-                    invalid.stream().index(),
-                    invalid.state(),
-                )
-                .unwrap();
-            }
-        }
+fn state_roster_snapshot() {
+    let mut roster = String::new();
+    for state in 0..Signal::STATE_COUNT {
+        writeln!(roster, "{state}: {:?}", Signal::from_state(state).unwrap()).unwrap();
     }
-    insta::assert_snapshot!(layout);
+    insta::assert_snapshot!(roster);
 }
 
 /// Both elected speakers map their 17 stream indices bijectively to schedule heights.

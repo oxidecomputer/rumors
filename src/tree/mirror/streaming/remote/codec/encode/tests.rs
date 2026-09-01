@@ -28,17 +28,13 @@ fn stream(index: u8) -> Stream {
     Stream::new(index).unwrap()
 }
 
-fn signal(stream: Stream, signal: Signal) -> u8 {
-    WireSignal::new(Speaker::Initiator, stream, signal)
-        .unwrap()
-        .to_byte()
-}
-
-/// The frame head of a `arity`-item frame carrying `code`.
-fn frame_head(arity: u64, code: u8) -> Vec<u8> {
+/// The opener of an `arity`-item frame on `stream` carrying `signal`: the
+/// array head, then the stream and state items.
+fn frame_head(arity: u64, stream: Stream, signal: Signal) -> Vec<u8> {
     let mut head = Vec::new();
     cbor::write_head(&mut head, MAJOR_ARRAY, arity);
-    cbor::write_head(&mut head, MAJOR_UINT, u64::from(code));
+    cbor::write_head(&mut head, MAJOR_UINT, u64::from(stream.index()));
+    cbor::write_head(&mut head, MAJOR_UINT, u64::from(signal.state()));
     head
 }
 
@@ -71,12 +67,9 @@ fn query_count_covers_every_fan_and_flow() {
                 let mut encoded = Vec::new();
                 encode(speaker, &frame, &mut encoded).unwrap();
                 if count == 0 {
-                    assert_eq!(
-                        encoded,
-                        frame_head(1, signal(stream, Signal::QueryEmpty(flow)))
-                    );
+                    assert_eq!(encoded, frame_head(2, stream, Signal::QueryEmpty(flow)));
                 } else {
-                    let head = frame_head(2, signal(stream, Signal::Query(flow)));
+                    let head = frame_head(3, stream, Signal::Query(flow));
                     assert_eq!(&encoded[..head.len()], head.as_slice());
                     assert_eq!(encoded.len(), head.len() + listing_len(&children));
                 }
@@ -86,33 +79,27 @@ fn query_count_covers_every_fan_and_flow() {
 }
 
 /// Match flow and both bare ends exhaust the body-free representations:
-/// each is exactly its one-item array head and signal.
+/// each is exactly its two-item array head, stream item, and state item.
 #[test]
 fn body_free_frames_are_exhaustive() {
     let stream = stream(4);
-    let cases: Vec<(WireFrame, u8)> = vec![
+    let cases: Vec<(WireFrame, Signal)> = vec![
         (
             (stream, Frame::Reaction(Reaction::Match, Flow::Continue)),
-            signal(stream, Signal::Match(Flow::Continue)),
+            Signal::Match(Flow::Continue),
         ),
         (
             (stream, Frame::Reaction(Reaction::Match, Flow::End)),
-            signal(stream, Signal::Match(Flow::End)),
+            Signal::Match(Flow::End),
         ),
-        (
-            (stream, Frame::End(End::Reply)),
-            signal(stream, Signal::End(End::Reply)),
-        ),
-        (
-            (stream, Frame::End(End::Stream)),
-            signal(stream, Signal::End(End::Stream)),
-        ),
+        ((stream, Frame::End(End::Reply)), Signal::End(End::Reply)),
+        ((stream, Frame::End(End::Stream)), Signal::End(End::Stream)),
     ];
     for speaker in SPEAKERS {
         for (frame, expected) in &cases {
             let mut encoded = Vec::new();
             encode(speaker, frame, &mut encoded).unwrap();
-            assert_eq!(encoded, frame_head(1, *expected));
+            assert_eq!(encoded, frame_head(2, stream, *expected));
         }
     }
 }
@@ -149,7 +136,7 @@ proptest! {
 
         let mut encoded = Vec::new();
         encode(speaker, &frame, &mut encoded).unwrap();
-        let mut expected = frame_head(2, signal(stream, Signal::Supply(flow)));
+        let mut expected = frame_head(3, stream, Signal::Supply(flow));
         cbor::write_head(&mut expected, MAJOR_TAG, TAG_CBOR_SEQUENCE);
         cbor::write_head(&mut expected, MAJOR_BSTR, body.len() as u64);
         expected.extend_from_slice(&body);

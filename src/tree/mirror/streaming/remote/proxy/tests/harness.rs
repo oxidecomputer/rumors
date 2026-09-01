@@ -59,7 +59,7 @@ pub struct Outcome {
     pub right_io: IoReportHandle,
 }
 
-/// A complete frame selected by its dense signal state.
+/// A complete frame selected by its signal state code.
 #[derive(Clone, Copy)]
 pub enum FrameSelector {
     /// The first frame regardless of its signal.
@@ -75,8 +75,8 @@ pub enum FrameSelector {
 /// One mutation applied to the selected complete frame.
 #[derive(Clone, Copy)]
 pub enum FrameMutation {
-    /// Replace only the signal byte, retaining the original body.
-    Signal(u8),
+    /// Replace only the state item, retaining the stream item and body.
+    State(u8),
     /// Emit the complete frame twice before its flush completes.
     Duplicate,
     /// Make the second query radix duplicate the first.
@@ -160,7 +160,8 @@ impl<W> ScriptedWrite<W> {
             return;
         }
         // Locate the frame behind any leading label items, then parse its
-        // array and signal heads through the wire's own head grammar.
+        // array head, stream item, and state item through the wire's own
+        // head grammar.
         let mut rest = self.frame.as_slice();
         if self.label {
             for _ in 0..2 {
@@ -170,18 +171,17 @@ impl<W> ScriptedWrite<W> {
             }
         }
         let frame_at = self.frame.len() - rest.len();
-        if cbor::read_head(&mut rest).is_err() {
+        if cbor::read_head(&mut rest).is_err() || cbor::read_head(&mut rest).is_err() {
             return;
         }
-        let signal_at = self.frame.len() - rest.len();
-        let Ok(signal) = cbor::read_head(&mut rest) else {
+        let state_at = self.frame.len() - rest.len();
+        let Ok(state) = cbor::read_head(&mut rest) else {
             return;
         };
         let body_at = self.frame.len() - rest.len();
-        let Ok(code) = u8::try_from(signal.value) else {
+        let Ok(state) = u8::try_from(state.value) else {
             return;
         };
-        let state = code / crate::tree::mirror::streaming::remote::codec::Stream::COUNT;
         let selected = match script.selector {
             FrameSelector::First => true,
             FrameSelector::State(expected) => state == expected,
@@ -192,10 +192,10 @@ impl<W> ScriptedWrite<W> {
             return;
         }
         match script.mutation {
-            FrameMutation::Signal(signal) => {
+            FrameMutation::State(state) => {
                 let mut head = Vec::new();
-                cbor::write_head(&mut head, cbor::MAJOR_UINT, u64::from(signal));
-                self.output.splice(signal_at..body_at, head);
+                cbor::write_head(&mut head, cbor::MAJOR_UINT, u64::from(state));
+                self.output.splice(state_at..body_at, head);
             }
             FrameMutation::Duplicate => self.output.extend_from_slice(&self.frame[frame_at..]),
             FrameMutation::UnorderQuery => {

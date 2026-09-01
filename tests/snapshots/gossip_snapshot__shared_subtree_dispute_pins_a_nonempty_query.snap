@@ -33,7 +33,8 @@ control item 2 (2 bytes) / epilogue /
 Responder stream 0 (height 31), epoch 0, 93 wire bytes
   frame 0 (88 bytes)
     [
-      85 / Query(End) /
+      0 / stream /
+      5 / Query(End) /
       { / listing: 3 child(ren) /
         0x1a => h'054676406bb280ac20d5d8d52e745151251ddb930f5b3c31' / digest /
         0x32 => h'e8ae1a6562bdf839010d24df53f13c52909ea415ca248598' / digest /
@@ -42,12 +43,14 @@ Responder stream 0 (height 31), epoch 0, 93 wire bytes
     ]
   frame 1 (3 bytes)
     [
-      153 / End(Stream) /
+      0 / stream /
+      9 / End(Stream) /
     ]
 Responder stream 1 (height 29), epoch 0, 24 wire bytes
   frame 0 (19 bytes)
     [
-      120 / Supply(End) /
+      1 / stream /
+      7 / Supply(End) /
       63(<< / supply run, 1 record(s), 13 bytes /
         63(<< / record, 2 item(s), 10 bytes /
           53846(h'405940cd') / causal version, event tree: (126, 51, 0) /
@@ -57,7 +60,8 @@ Responder stream 1 (height 29), epoch 0, 24 wire bytes
     ]
   frame 1 (3 bytes)
     [
-      154 / End(Stream) /
+      1 / stream /
+      9 / End(Stream) /
     ]
 
 direction B -> A
@@ -88,20 +92,24 @@ control item 1 (131 bytes) / greeting /
   >>)
 control item 2 (2 bytes) / epilogue /
   "."
-Initiator stream 1 (height 30), epoch 0, 12 wire bytes
-  frame 0 (2 bytes)
+Initiator stream 1 (height 30), epoch 0, 14 wire bytes
+  frame 0 (3 bytes)
     [
-      1 / Match(Continue) /
+      1 / stream /
+      0 / Match(Continue) /
     ]
   frame 1 (3 bytes)
     [
-      35 / QueryEmpty(Continue) /
+      1 / stream /
+      2 / QueryEmpty(Continue) /
     ]
-  frame 2 (2 bytes)
+  frame 2 (3 bytes)
     [
-      18 / Match(End) /
+      1 / stream /
+      1 / Match(End) /
     ]
   frame 3 (3 bytes)
     [
-      154 / End(Stream) /
+      1 / stream /
+      9 / End(Stream) /
     ]

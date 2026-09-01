@@ -3,19 +3,19 @@ source: src/tree/mirror/streaming/remote/codec/signal/tests.rs
 expression: rejected
 ---
 Initiator
-  00: stream 00 Match(Continue) -> OpeningSupplies
-  11: stream 00 Match(End) -> OpeningSupplies
-  22: stream 00 QueryEmpty(Continue) -> OpeningSupplies
-  33: stream 00 QueryEmpty(End) -> OpeningSupplies
-  44: stream 00 Query(Continue) -> OpeningSupplies
-  55: stream 00 Query(End) -> OpeningSupplies
-  54: stream 16 Query(Continue) -> LeafParentReplies
-  65: stream 16 Query(End) -> LeafParentReplies
+  stream 00 Match(Continue) -> OpeningSupplies
+  stream 00 Match(End) -> OpeningSupplies
+  stream 00 QueryEmpty(Continue) -> OpeningSupplies
+  stream 00 QueryEmpty(End) -> OpeningSupplies
+  stream 00 Query(Continue) -> OpeningSupplies
+  stream 00 Query(End) -> OpeningSupplies
+  stream 16 Query(Continue) -> LeafParentReplies
+  stream 16 Query(End) -> LeafParentReplies
 Responder
-  10: stream 16 Match(Continue) -> TerminalLeafReplies
-  21: stream 16 Match(End) -> TerminalLeafReplies
-  32: stream 16 QueryEmpty(Continue) -> TerminalLeafReplies
-  43: stream 16 QueryEmpty(End) -> TerminalLeafReplies
-  54: stream 16 Query(Continue) -> TerminalLeafReplies
-  65: stream 16 Query(End) -> TerminalLeafReplies
-  76: stream 16 Supply(Continue) -> TerminalLeafReplies
+  stream 16 Match(Continue) -> TerminalLeafReplies
+  stream 16 Match(End) -> TerminalLeafReplies
+  stream 16 QueryEmpty(Continue) -> TerminalLeafReplies
+  stream 16 QueryEmpty(End) -> TerminalLeafReplies
+  stream 16 Query(Continue) -> TerminalLeafReplies
+  stream 16 Query(End) -> TerminalLeafReplies
+  stream 16 Supply(Continue) -> TerminalLeafReplies

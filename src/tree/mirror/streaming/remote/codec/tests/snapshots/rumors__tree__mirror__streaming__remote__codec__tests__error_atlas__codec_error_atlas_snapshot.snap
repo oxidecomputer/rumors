@@ -124,22 +124,26 @@ DECODE
     kind: Truncated(missing=SupplyRun, io=UnexpectedEof)
     source[0]: frame ended before its supply run
     source[1]: Io(UnexpectedEof)
-  Initiator/reserved-signal
-    display: Initiator stream 0: signal code 0xaa encodes an invalid semantic state
-    origin: Initiator stream 0
-    kind: InvalidSignal::Reserved(byte=aa, state=10)
-    source[0]: signal code 0xaa encodes an invalid semantic state
-    source[1]: semantic signal state 10 is outside the valid range
+  Initiator/reserved-stream
+    display: Initiator direction: frame names stream 17, outside the logical streams
+    origin: Initiator direction
+    kind: InvalidSignal::Stream(index=17)
+    source[0]: frame names stream 17, outside the logical streams
+  Initiator/reserved-state
+    display: Initiator stream 8: frame carries state 10, outside the state roster
+    origin: Initiator stream 8
+    kind: InvalidSignal::State(stream=8, state=10)
+    source[0]: frame carries state 10, outside the state roster
   Initiator/frame/not-an-array
     display: Initiator direction: frame is not a CBOR reaction array: frame item is not an array
     origin: Initiator direction
     kind: FrameShape(frame item is not an array)
     source[0]: frame is not a CBOR reaction array: frame item is not an array
   Initiator/frame/arity
-    display: Initiator stream 8: frame array carries 2 item(s) where its signal takes 1
+    display: Initiator stream 8: frame array carries 3 item(s) where its signal takes 2
     origin: Initiator stream 8
-    kind: FrameArity(expected=1, found=2)
-    source[0]: frame array carries 2 item(s) where its signal takes 1
+    kind: FrameArity(expected=2, found=3)
+    source[0]: frame array carries 3 item(s) where its signal takes 2
   Initiator/frame/widened-signal
     display: Initiator direction: frame's signal is malformed: head not in shortest form
     origin: Initiator direction
@@ -246,22 +250,26 @@ DECODE
     kind: Truncated(missing=SupplyRun, io=UnexpectedEof)
     source[0]: frame ended before its supply run
     source[1]: Io(UnexpectedEof)
-  Responder/reserved-signal
-    display: Responder stream 0: signal code 0xaa encodes an invalid semantic state
-    origin: Responder stream 0
-    kind: InvalidSignal::Reserved(byte=aa, state=10)
-    source[0]: signal code 0xaa encodes an invalid semantic state
-    source[1]: semantic signal state 10 is outside the valid range
+  Responder/reserved-stream
+    display: Responder direction: frame names stream 17, outside the logical streams
+    origin: Responder direction
+    kind: InvalidSignal::Stream(index=17)
+    source[0]: frame names stream 17, outside the logical streams
+  Responder/reserved-state
+    display: Responder stream 8: frame carries state 10, outside the state roster
+    origin: Responder stream 8
+    kind: InvalidSignal::State(stream=8, state=10)
+    source[0]: frame carries state 10, outside the state roster
   Responder/frame/not-an-array
     display: Responder direction: frame is not a CBOR reaction array: frame item is not an array
     origin: Responder direction
     kind: FrameShape(frame item is not an array)
     source[0]: frame is not a CBOR reaction array: frame item is not an array
   Responder/frame/arity
-    display: Responder stream 8: frame array carries 2 item(s) where its signal takes 1
+    display: Responder stream 8: frame array carries 3 item(s) where its signal takes 2
     origin: Responder stream 8
-    kind: FrameArity(expected=1, found=2)
-    source[0]: frame array carries 2 item(s) where its signal takes 1
+    kind: FrameArity(expected=2, found=3)
+    source[0]: frame array carries 3 item(s) where its signal takes 2
   Responder/frame/widened-signal
     display: Responder direction: frame's signal is malformed: head not in shortest form
     origin: Responder direction
@@ -309,20 +317,20 @@ DECODE
     kind: TrailingBytes(count=1)
     source[0]: 1 trailing bytes follow the frame
   placement/opening-supplies/decode
-    display: Initiator stream 0: signal code 0x00 is invalid for the initiator's opening supplies
+    display: Initiator stream 0: signal Match(Continue) on stream 0 is invalid for the initiator's opening supplies
     origin: Initiator stream 0
-    kind: InvalidSignal::Placement(byte=00, class=OpeningSupplies)
-    source[0]: signal code 0x00 is invalid for the initiator's opening supplies
+    kind: InvalidSignal::Placement(stream=0, signal=Match(Continue), class=OpeningSupplies)
+    source[0]: signal Match(Continue) on stream 0 is invalid for the initiator's opening supplies
   placement/leaf-parent/decode
-    display: Initiator stream 16: signal code 0x54 is invalid for the initiator's leaf-parent replies
+    display: Initiator stream 16: signal Query(Continue) on stream 16 is invalid for the initiator's leaf-parent replies
     origin: Initiator stream 16
-    kind: InvalidSignal::Placement(byte=54, class=LeafParentReplies)
-    source[0]: signal code 0x54 is invalid for the initiator's leaf-parent replies
+    kind: InvalidSignal::Placement(stream=16, signal=Query(Continue), class=LeafParentReplies)
+    source[0]: signal Query(Continue) on stream 16 is invalid for the initiator's leaf-parent replies
   placement/terminal-leaf/decode
-    display: Responder stream 16: signal code 0x10 is invalid for the responder's terminal leaf replies
+    display: Responder stream 16: signal Match(Continue) on stream 16 is invalid for the responder's terminal leaf replies
     origin: Responder stream 16
-    kind: InvalidSignal::Placement(byte=10, class=TerminalLeafReplies)
-    source[0]: signal code 0x10 is invalid for the responder's terminal leaf replies
+    kind: InvalidSignal::Placement(stream=16, signal=Match(Continue), class=TerminalLeafReplies)
+    source[0]: signal Match(Continue) on stream 16 is invalid for the responder's terminal leaf replies
 RECORD
   record/version
     display: supplied Version could not be decoded

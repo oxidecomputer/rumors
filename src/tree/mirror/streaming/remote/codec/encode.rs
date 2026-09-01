@@ -21,9 +21,9 @@ use super::{
     signal::Speaker,
 };
 
-/// Bytes a frame head occupies at its widest: the array head of a one- or
-/// two-item frame, then the widest signal head.
-const FRAME_HEAD_LEN: usize = cbor::head_len(2) + WireSignal::MAX_ENCODED_LEN;
+/// Bytes a frame's opener occupies: the array head of a two- or
+/// three-item frame, then the stream and state items.
+const FRAME_HEAD_LEN: usize = cbor::head_len(3) + WireSignal::ENCODED_LEN;
 
 /// Bytes a supply body's heads occupy at their widest: the
 /// embedded-sequence tag, then the byte-string head of a run at the
@@ -86,7 +86,7 @@ impl<const N: usize> Heads<N> {
 /// renders every head — the fixed ones on the stack — so the write paths
 /// move bytes without measuring anything.
 struct FrameEncoding<'a> {
-    /// The frame's array head and signal head.
+    /// The frame's opener: its array head, stream item, and state item.
     head: Heads<FRAME_HEAD_LEN>,
     body: BodyEncoding<'a>,
 }
@@ -124,12 +124,13 @@ impl<'a> FrameEncoding<'a> {
             Frame::End(end) => (Signal::End(*end), BodyEncoding::Empty),
         };
         let arity = match &body {
-            BodyEncoding::Empty => 1,
-            BodyEncoding::Listing(_) | BodyEncoding::Supply { .. } => 2,
+            BodyEncoding::Empty => 2,
+            BodyEncoding::Listing(_) | BodyEncoding::Supply { .. } => 3,
         };
         let mut head = Heads::new();
         head.put(MAJOR_ARRAY, arity);
-        head.put(MAJOR_UINT, u64::from(WireSignal::encode(stream, signal)));
+        head.put(MAJOR_UINT, u64::from(stream.index()));
+        head.put(MAJOR_UINT, u64::from(signal.state()));
         Ok(Self { head, body })
     }
 

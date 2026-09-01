@@ -9,18 +9,18 @@
 //! direction, each carried by its own independently flow-controlled
 //! transport stream, lazily established as the descent needs it.
 //!
-//! [`codec`] defines the common frame grammar: the signal densely encodes
-//! the product of ten frame states and 17 stream ids as
-//! `state * 17 + stream`. The states are each of the four reaction forms
-//! (`Match`, empty/nonempty `Query`, and `Supply`) either continuing or
-//! ending its reply, plus bare `ReplyEnd` and `StreamEnd`. Values 170
-//! through 255 are reserved. The phase schedule narrows that syntactic
-//! product further: the initiator admits 162 placements and the responder
-//! 163, rejecting the rest immediately after the signal byte, before any
-//! frame body is read. Every frame's signal names the stream it rides, so
-//! the signal's stream component is redundant with the stream's label —
-//! deliberately: [`streams`] holds every frame to exact agreement with the
-//! label, so a miswired link surfaces at the first frame.
+//! [`codec`] defines the common frame grammar: a frame opens with its
+//! stream's index (one of 17) and its signal's state code (one of ten:
+//! each of the four reaction forms — `Match`, empty/nonempty `Query`, and
+//! `Supply` — either continuing or ending its reply, plus bare `ReplyEnd`
+//! and `StreamEnd`), each a one-byte item; other indices and codes are
+//! reserved. The phase schedule narrows that product: the initiator
+//! admits 162 placements and the responder 163, rejecting the rest
+//! immediately after the opener, before any frame body is read. Every
+//! frame names the stream it rides, so its stream item is redundant with
+//! the stream's label — deliberately: [`streams`] holds every frame to
+//! exact agreement with the label, so a miswired link surfaces at the
+//! first frame.
 //!
 //! Reply and stream ends are separate events. A reaction or bare `ReplyEnd`
 //! completes a reply; a later bare `StreamEnd` closes the logical stream

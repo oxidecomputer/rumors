@@ -1,6 +1,8 @@
-//! The dense signal code and its semantic components.
+//! The frame opener's two items — the stream a frame rides and its
+//! semantic state — and the phase schedule that admits a state on a stream.
 
 use crate::observe::Role;
+use crate::tree::mirror::cbor;
 use crate::tree::typed::height::{Height, Root, UnderRoot, Z};
 
 /// Lowest node height carried by a logical stream.
@@ -44,7 +46,7 @@ impl Stream {
         }
     }
 
-    /// Return this stream's five-bit wire index.
+    /// Return this stream's wire index.
     pub fn index(self) -> u8 {
         self.0
     }
@@ -187,7 +189,7 @@ impl Flow {
     }
 }
 
-/// The semantic state carried alongside a stream id in one signal code.
+/// The semantic state a frame carries in its state item.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Signal {
     Match(Flow),
@@ -198,7 +200,7 @@ pub enum Signal {
 }
 
 impl Signal {
-    /// Distance between adjacent dense semantic state codes.
+    /// Distance between adjacent state codes.
     const STATE_STRIDE: u8 = 1;
 
     /// Reaction forms represented by the signal grammar.
@@ -225,9 +227,11 @@ impl Signal {
     /// State occupied by a bare stream end.
     const STREAM_END_STATE: u8 = Self::REPLY_END_STATE + Self::STATE_STRIDE;
 
-    /// Total semantic states in a signal, before pairing with a stream.
-    const STATE_COUNT: u8 = Flow::STATE_COUNT * Self::REACTION_COUNT + Self::END_COUNT;
+    /// Semantic states in the wire's roster; state codes run from zero to
+    /// one below this.
+    pub const STATE_COUNT: u8 = Flow::STATE_COUNT * Self::REACTION_COUNT + Self::END_COUNT;
 
+    /// The wire's state roster: the signal each state code names.
     const STATES: [Signal; Self::STATE_COUNT as usize] = [
         Signal::Match(Flow::Continue),
         Signal::Match(Flow::End),
@@ -241,7 +245,8 @@ impl Signal {
         Signal::End(End::Stream),
     ];
 
-    fn state(self) -> u8 {
+    /// The state code this signal travels as.
+    pub fn state(self) -> u8 {
         match self {
             Signal::Match(flow) => Self::MATCH_STATE + flow.offset(),
             Signal::QueryEmpty(flow) => Self::QUERY_EMPTY_STATE + flow.offset(),
@@ -252,7 +257,8 @@ impl Signal {
         }
     }
 
-    fn from_state(state: u8) -> Result<Self, InvalidSignalState> {
+    /// The signal a state code names.
+    pub fn from_state(state: u8) -> Result<Self, InvalidSignalState> {
         Self::STATES
             .get(usize::from(state))
             .copied()
@@ -260,19 +266,22 @@ impl Signal {
     }
 }
 
+/// A state code outside the wire's state roster.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("semantic signal state {state} is outside the valid range")]
-struct InvalidSignalState {
+#[error("signal state {state} names no frame state")]
+pub struct InvalidSignalState {
     state: u8,
 }
 
 impl InvalidSignalState {
-    fn state(self) -> u8 {
+    /// Return the rejected state code.
+    pub fn state(self) -> u8 {
         self.state
     }
 }
 
-/// A semantic signal paired with the logical stream encoded beside it.
+/// A signal placed on a stream: the two unsigned-int items every frame
+/// opens with, the stream's index then the signal's state code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WireSignal {
     stream: Stream,
@@ -280,15 +289,10 @@ pub struct WireSignal {
 }
 
 impl WireSignal {
-    /// Widest head a dense signal code occupies as a CBOR unsigned int
-    /// item: every code of 24 and above takes a two-byte head, and the
-    /// code space tops out at 169.
-    pub const MAX_ENCODED_LEN: usize =
-        crate::tree::mirror::cbor::head_len((Signal::STATE_COUNT * Stream::COUNT - 1) as u64);
-
-    /// Byte values occupied by the syntactic `(signal state, stream)` product.
-    #[cfg(test)]
-    pub const BYTE_COUNT: u8 = Signal::STATE_COUNT * Stream::COUNT;
+    /// Bytes the two items occupy on the wire: every stream index and
+    /// state code is below 24, so each item is a one-byte head.
+    pub const ENCODED_LEN: usize =
+        cbor::head_len(Stream::MAX as u64) + cbor::head_len((Signal::STATE_COUNT - 1) as u64);
 
     /// Pair a stream with a signal valid for its speaker and protocol phase.
     #[cfg(test)]
@@ -297,34 +301,25 @@ impl WireSignal {
         stream: Stream,
         signal: Signal,
     ) -> Result<Self, InvalidSignalPlacement> {
-        Self::pair(stream, signal).validate(speaker)
+        Self { stream, signal }.validate(speaker)
     }
 
-    /// Parse and validate a dense code for its speaker's protocol phase.
-    pub fn from_byte(speaker: Speaker, byte: u8) -> Result<Self, DecodeSignalError> {
-        Self::parse(byte)?.validate(speaker).map_err(Into::into)
-    }
-
-    /// Render protocol-produced components without revalidating their phase.
-    pub fn encode(stream: Stream, signal: Signal) -> u8 {
-        Self::pair(stream, signal).to_byte()
-    }
-
-    /// Pair raw grammar components before speaker-specific validation.
-    fn pair(stream: Stream, signal: Signal) -> Self {
+    /// Interpret a frame's decoded stream and state items for `speaker`:
+    /// an index outside the logical streams or a code outside the state
+    /// roster is reserved, and a known pair outside the phase schedule is
+    /// an invalid placement.
+    pub fn decode(speaker: Speaker, index: u64, state: u64) -> Result<Self, DecodeSignalError> {
+        let stream = u8::try_from(index)
+            .ok()
+            .and_then(|index| Stream::new(index).ok())
+            .ok_or(DecodeSignalError::Stream { index })?;
+        let signal = u8::try_from(state)
+            .ok()
+            .and_then(|state| Signal::from_state(state).ok())
+            .ok_or(DecodeSignalError::State { stream, state })?;
         Self { stream, signal }
-    }
-
-    /// Parse the speaker-independent dense grammar.
-    fn parse(byte: u8) -> Result<Self, InvalidWireSignal> {
-        let stream = Stream(byte % Stream::COUNT);
-        let signal =
-            Signal::from_state(byte / Stream::COUNT).map_err(|source| InvalidWireSignal {
-                byte,
-                stream,
-                source,
-            })?;
-        Ok(Self { stream, signal })
+            .validate(speaker)
+            .map_err(DecodeSignalError::Placement)
     }
 
     /// Enforce the signal subset admitted by this speaker's stream phase.
@@ -348,15 +343,11 @@ impl WireSignal {
             Ok(self)
         } else {
             Err(InvalidSignalPlacement {
-                byte: self.to_byte(),
+                stream: self.stream,
+                signal: self.signal,
                 class,
             })
         }
-    }
-
-    /// Render the paired stream and semantic signal as the dense code.
-    pub fn to_byte(self) -> u8 {
-        self.signal.state() * Stream::COUNT + self.stream.index()
     }
 
     /// Separate the checked stream and semantic signal.
@@ -365,18 +356,24 @@ impl WireSignal {
     }
 }
 
-/// A valid signal state placed on a stream where the protocol forbids it.
+/// A known signal placed on a stream where the protocol forbids it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("signal code {byte:#04x} is invalid for {class}")]
+#[error("signal {signal:?} on stream {} is invalid for {class}", stream.index())]
 pub struct InvalidSignalPlacement {
-    byte: u8,
+    stream: Stream,
+    signal: Signal,
     class: StreamClass,
 }
 
 impl InvalidSignalPlacement {
-    /// Return the rejected dense code.
-    pub fn byte(self) -> u8 {
-        self.byte
+    /// Return the stream the signal was placed on.
+    pub fn stream(self) -> Stream {
+        self.stream
+    }
+
+    /// Return the rejected signal.
+    pub fn signal(self) -> Signal {
+        self.signal
     }
 
     /// Return the protocol phase whose signal grammar was violated.
@@ -385,49 +382,30 @@ impl InvalidSignalPlacement {
     }
 }
 
-/// A syntactically invalid signal code or a valid state in an invalid phase.
+/// A frame opener the speaker's grammar rejects: a reserved stream index
+/// or state code, or a known signal in an invalid phase.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum DecodeSignalError {
-    #[error(transparent)]
-    Reserved(#[from] InvalidWireSignal),
+    /// The stream item names no logical stream.
+    #[error("frame names stream {index}, outside the logical streams")]
+    Stream { index: u64 },
+    /// The state item names no frame state; the stream it rides is known
+    /// and reported as the error's origin.
+    #[error("frame carries state {state}, outside the state roster")]
+    State { stream: Stream, state: u64 },
     #[error(transparent)]
     Placement(#[from] InvalidSignalPlacement),
 }
 
 impl DecodeSignalError {
-    /// Return the stream component decoded from the rejected byte.
-    pub fn stream(self) -> Stream {
+    /// Return the stream the rejected frame rides, when its stream item
+    /// was valid.
+    pub fn stream(self) -> Option<Stream> {
         match self {
-            DecodeSignalError::Reserved(invalid) => invalid.stream(),
-            DecodeSignalError::Placement(invalid) => Stream(invalid.byte() % Stream::COUNT),
+            DecodeSignalError::Stream { .. } => None,
+            DecodeSignalError::State { stream, .. } => Some(stream),
+            DecodeSignalError::Placement(invalid) => Some(invalid.stream()),
         }
-    }
-}
-
-/// A reserved dense signal code and the stream encoded within it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("signal code {byte:#04x} encodes an invalid semantic state")]
-pub struct InvalidWireSignal {
-    byte: u8,
-    stream: Stream,
-    #[source]
-    source: InvalidSignalState,
-}
-
-impl InvalidWireSignal {
-    /// Return the rejected dense code.
-    pub fn byte(self) -> u8 {
-        self.byte
-    }
-
-    /// Return the stream component which was valid independently of the state.
-    pub fn stream(self) -> Stream {
-        self.stream
-    }
-
-    /// Return the invalid semantic state component.
-    pub fn state(self) -> u8 {
-        self.source.state()
     }
 }
 

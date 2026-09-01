@@ -257,15 +257,21 @@ fn canonical_frame_atlas_snapshot() {
                     Ok(wire) => {
                         let mut encoded = Vec::new();
                         encode(speaker, &(stream, frame.clone()), &mut encoded).unwrap();
-                        // The frame head carries the dense code as a uint
-                        // item right behind the array head.
-                        let mut expected_signal = Vec::new();
+                        // The opener carries the stream index and the
+                        // state code as uint items behind the array head.
+                        let (framed, semantic) = wire.into_parts();
+                        let mut expected_opener = Vec::new();
                         crate::tree::mirror::cbor::write_head(
-                            &mut expected_signal,
+                            &mut expected_opener,
                             crate::tree::mirror::cbor::MAJOR_UINT,
-                            u64::from(wire.to_byte()),
+                            u64::from(framed.index()),
                         );
-                        assert_eq!(&encoded[1..1 + expected_signal.len()], expected_signal);
+                        crate::tree::mirror::cbor::write_head(
+                            &mut expected_opener,
+                            crate::tree::mirror::cbor::MAJOR_UINT,
+                            u64::from(semantic.state()),
+                        );
+                        assert_eq!(&encoded[1..1 + expected_opener.len()], expected_opener);
                         assert_eq!(
                             decode_exact(speaker, RunBudget::default(), &encoded).unwrap(),
                             (stream, frame)
@@ -280,12 +286,17 @@ fn canonical_frame_atlas_snapshot() {
                         crate::tree::mirror::cbor::write_head(
                             &mut rejected,
                             crate::tree::mirror::cbor::MAJOR_ARRAY,
-                            1,
+                            2,
                         );
                         crate::tree::mirror::cbor::write_head(
                             &mut rejected,
                             crate::tree::mirror::cbor::MAJOR_UINT,
-                            u64::from(invalid.byte()),
+                            u64::from(stream.index()),
+                        );
+                        crate::tree::mirror::cbor::write_head(
+                            &mut rejected,
+                            crate::tree::mirror::cbor::MAJOR_UINT,
+                            u64::from(signal.state()),
                         );
                         let error =
                             decode_exact(speaker, RunBudget::default(), &rejected).unwrap_err();
@@ -297,8 +308,8 @@ fn canonical_frame_atlas_snapshot() {
                         ));
                         writeln!(
                             atlas,
-                            "    {signal:?}: rejected byte {:02x} class {:?}",
-                            invalid.byte(),
+                            "    {signal:?}: rejected state {} class {:?}",
+                            signal.state(),
                             invalid.class(),
                         )
                         .unwrap();
@@ -437,7 +448,8 @@ impl CorpusBucket {
         self.cases += 1;
         self.rejected += 1;
         self.rejection = Some(class);
-        self.hasher.update(&[REJECTED, invalid.byte()]);
+        self.hasher
+            .update(&[REJECTED, invalid.stream().index(), invalid.signal().state()]);
     }
 }
 
@@ -596,18 +608,17 @@ fn listing_bulk_reads(children: &[(u8, Hash)]) -> usize {
 /// over the frame's wire shape.
 ///
 /// Every read takes only bytes the grammar guarantees to exist given what
-/// is already parsed, and takes all of them it can. The frame opens with
-/// one read for its array head and signal's initial byte, plus one for
-/// the signal's extension when it has one. A listing costs its map head
+/// is already parsed, and takes all of them it can. The frame's opener —
+/// its array head, stream item, and state item, one byte each — costs
+/// one read. A listing costs its map head
 /// (one read, plus one for an extension) and then its bulk reads
 /// ([`listing_bulk_reads`]). A supply costs one read for each of its two
 /// heads' initial bytes, one for each extension present, and one for a
 /// run body within one payload chunk (`async_decode_spends_its_read_plan`
 /// assumes that bound).
 fn read_plan(frame: &WireFrame) -> usize {
-    let (stream, frame) = frame;
-    let signal = frame_signal(frame);
-    let mut reads = 1 + extension_reads(u64::from(WireSignal::encode(*stream, signal)));
+    let (_, frame) = frame;
+    let mut reads = 1;
     match frame {
         Frame::Reaction(Reaction::Query(children), _) if !children.is_empty() => {
             reads += 1 + extension_reads(children.len() as u64);
@@ -675,27 +686,19 @@ proptest! {
 /// The read plan at the wire's reference shapes, pinned as numbers so a
 /// change to the reader's batching shows in this diff.
 ///
-/// The match reaction is the frame the reader meets most often, pinned
-/// on either side of the signal head's width boundary (codes below 24
-/// take a one-byte head); the full-fan query is the widest listing; the
-/// lone-record supply is the smallest run. Each case checks the decoder's
-/// actual reads against the pinned number and the pinned number against
-/// the plan formula, so the formula and the reader are held to each
-/// other.
+/// The match reaction is the frame the reader meets most often; the
+/// full-fan query is the widest listing; the lone-record supply is the
+/// smallest run. Each case checks the decoder's actual reads against the
+/// pinned number and the pinned number against the plan formula, so the
+/// formula and the reader are held to each other.
 #[test]
 fn read_plan_at_reference_shapes() {
     let stream = Stream::new(4).unwrap();
-    let last_stream = Stream::new(Stream::MAX).unwrap();
-    let cases: [(&str, WireFrame, usize); 4] = [
+    let cases: [(&str, WireFrame, usize); 3] = [
         (
-            "match ending its reply, one-byte signal",
+            "match ending its reply",
             (stream, Frame::Reaction(Reaction::Match, Flow::End)),
             1,
-        ),
-        (
-            "match ending its reply, two-byte signal",
-            (last_stream, Frame::Reaction(Reaction::Match, Flow::End)),
-            2,
         ),
         (
             "full-fan query",
@@ -710,7 +713,7 @@ fn read_plan_at_reference_shapes() {
                     Flow::Continue,
                 ),
             ),
-            6,
+            5,
         ),
         (
             "lone-record supply",
@@ -721,7 +724,7 @@ fn read_plan_at_reference_shapes() {
                     Flow::End,
                 ),
             ),
-            6,
+            5,
         ),
     ];
     for (name, frame, expected) in cases {

@@ -232,10 +232,10 @@ Mutation-friendliness: honest transcripts give the mutator valid
 preambles, greetings, labels, and frames to splice; the capped length
 prefixes mean truncation and crossover always yield well-formed harness
 inputs; single-byte mutations inside a section reach the codec's
-"reject immediately after the signal byte" paths (the signal encodes
-`state × 17 + stream` with values 170–255 reserved —
-`src/tree/mirror/streaming/remote.rs` documents the grammar — so bit
-flips there are productive). One seed per fixture plus one truncated
+"reject immediately after the opener" paths (a frame opens with its
+stream index and state code as one-byte items, every other value
+reserved — `src/tree/mirror/streaming/remote.rs` documents the
+grammar — so bit flips there are productive). One seed per fixture plus one truncated
 and one label-perturbed variant is the committed minimum; the corpus
 grows organically thereafter.
 

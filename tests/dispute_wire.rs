@@ -112,7 +112,7 @@ const U64_ENCODED_BYTES: usize = 9;
 /// `src/tree/mirror/streaming/window.rs`. A measured value moving off
 /// `intercept + payload - MINIMAL_CELL_RESIDUAL` is a real framing
 /// change, in either direction.
-const MINIMAL_CELL_RESIDUAL: usize = 2;
+const MINIMAL_CELL_RESIDUAL: usize = 1;
 
 /// An `AsyncWrite` that tallies every byte accepted by the inner writer.
 struct CountingWrite<W> {

@@ -181,8 +181,8 @@ fn maximally_disputed_reply_parks_bounded_skeleton() {
     // The coexistence transient, held to the module doc's charged figure:
     // the encoded half measured off the codec (every frame's exact wire
     // bytes), the decoded half derived from the skeleton's in-memory
-    // entries. The stream label prices nothing: the signal byte is
-    // per-frame and identical across streams.
+    // entries. The stream label prices nothing: the frame opener is
+    // per-frame and the same width on every stream.
     let stream = Stream::new(11).expect("a valid data stream index");
     let encoded_bytes: usize = frames
         .iter()

@@ -283,7 +283,7 @@ async fn first_reported_error(
     (error, errors)
 }
 
-/// A frame whose signal byte names a different logical stream than its
+/// A frame whose stream item names a different logical stream than its
 /// label is reported as `Mislabeled` carrying both indices, never yielded.
 ///
 /// This is the label-equality tripwire: a routing mistake in a
@@ -301,7 +301,7 @@ fn mislabeled_frame_is_reported_not_yielded() {
     let error = run_to_quiescence(async {
         let send = async {
             // A deliberately miswiring transport: the label names one
-            // stream, the frame's signal byte another.
+            // stream, the frame's stream item another.
             let mut write = raw_labeled(&a.connector, labeled).await;
             write
                 .frame(&(framed, Frame::End(End::Reply)))
