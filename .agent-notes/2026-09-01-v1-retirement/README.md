@@ -1,7 +1,10 @@
 # Retiring Protocol::V1 (the alternating mirror): plan
 
-Status: plan, awaiting rulings on the decision queue below. Nothing
-implemented. Base surveyed at 4e64a4fb.
+Status: in progress. Base surveyed at 4e64a4fb. Rulings (2026-09-01):
+decision 1 — drop the legacy-magic recognition; decision 2 — remove the
+`.protocol()` builders; decision 3 — the scoped mutants A/B is deferred
+(the seed-corpus replay check still applies). Premise confirmed by Finch:
+the crate is pre-release and nothing uses V1.
 
 ## Goal
 
