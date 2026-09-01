@@ -5,7 +5,7 @@ use proptest::prelude::*;
 use super::fixtures::{
     LeafOrder, divergent_cells_pair, full_depth_comb_pair, one_sided_pair, pyramid_pair,
 };
-use super::{alternating_mirror, fully_scheduled_streaming_mirror, scheduled_streaming_mirror};
+use super::{fully_scheduled_streaming_mirror, join_oracle, scheduled_streaming_mirror};
 use crate::testing::{Quiescence, run_to_quiescence};
 use crate::tree::mirror::streaming::window::WindowConfig;
 use crate::tree::{
@@ -38,7 +38,7 @@ fn underbuffered_mirror_stalls(a: Root, b: Root, capacity: usize) -> bool {
 /// Check one structural stress case under endpoint and poll-order variations.
 fn assert_capacity_case(name: &'static str, pair: (Root, Root)) {
     let (a, b) = pair;
-    let expected = alternating_mirror(a.clone(), b.clone());
+    let expected = join_oracle(a.clone(), b.clone());
     let schedules = [
         (Vec::new(), Vec::new()),
         (
@@ -172,7 +172,7 @@ fn capacity_stress_covers_every_queue_role() {
 #[test]
 fn capacity_stress_witness_requires_inter_level_fan() {
     let (a, b) = pyramid_pair(&[32, 256], 1, LeafOrder::Reversed);
-    let expected = alternating_mirror(a.clone(), b.clone());
+    let expected = join_oracle(a.clone(), b.clone());
     let (actual, report) =
         with_observation(|| scheduled_streaming_mirror(a.clone(), b.clone(), vec![2; 16_384]));
     assert_eq!(
@@ -372,7 +372,7 @@ proptest! {
         reverse in any::<bool>(),
     ) {
         let (a, b) = pyramid_pair(&widths, shared, order);
-        let expected = alternating_mirror(a.clone(), b.clone());
+        let expected = join_oracle(a.clone(), b.clone());
         let (left, right) = if reverse { (b, a) } else { (a, b) };
         let actual = fully_scheduled_streaming_mirror(
             left,

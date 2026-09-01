@@ -23,7 +23,7 @@ use crate::tree::mirror::streaming::window::WindowConfig;
 use crate::tree::mirror::streaming::{
     Local, Root as StreamingRoot, materialized::Handshaking, mirror as drive_streaming,
 };
-use crate::tree::{Root, mirror::Error as MirrorError};
+use crate::tree::{Root, Tree, mirror::Error as MirrorError};
 
 mod announced;
 mod capacity;
@@ -164,12 +164,15 @@ fn alternating_mirror_sides(a: Root, b: Root) -> (Root, Root) {
     })
 }
 
-/// Reconcile `a` and `b` through the alternating oracle, asserting the two
-/// sides converge to the same root, and return it.
-fn alternating_mirror(a: Root, b: Root) -> Root {
-    let (ours, theirs) = alternating_mirror_sides(a, b);
-    assert_eq!(ours, theirs, "oracle endpoints should converge");
-    ours
+/// Merge `a` and `b` through `Tree::join`: the in-memory oracle.
+///
+/// Its observational equivalence to wire reconciliation is the design of
+/// record: `join` and the mirror delegate deletion honoring to the same
+/// filter, so a reconciled endpoint must hold exactly the joined tree.
+fn join_oracle(a: Root, b: Root) -> Root {
+    let mut joined = Tree::<()>::from_root(a);
+    joined.join(Tree::from_root(b));
+    joined.root
 }
 
 /// Generated relationships for the independent alternating oracle.
@@ -275,6 +278,23 @@ proptest! {
             prop_assert_eq!(&actual, &expected);
             prop_assert_eq!(&actual.0, &actual.1);
             prop_assert_eq!(&expected.0, &expected.1);
+        }
+    }
+
+    /// Streaming and the in-memory join oracle agree in both orientations.
+    ///
+    /// Across every generated causal relationship, both wire endpoints
+    /// converge to exactly `Tree::join` of the two inputs. This ties the
+    /// wire reconciliation to the in-memory merge the convergence suites
+    /// are stated over: join and mirror delegate deletion honoring to the
+    /// same filter, so any divergence here is a protocol bug.
+    #[test]
+    fn streaming_matches_join_oracle((a, b) in arb_oracle_pair()) {
+        let expected = join_oracle(a.clone(), b.clone());
+        for (left, right) in [(a.clone(), b.clone()), (b, a)] {
+            let actual = streaming_mirror_sides(left, right);
+            prop_assert_eq!(&actual.0, &expected);
+            prop_assert_eq!(&actual.1, &expected);
         }
     }
 }

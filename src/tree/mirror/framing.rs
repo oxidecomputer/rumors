@@ -28,7 +28,7 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 
 /// Bytes occupied by the big-endian `u32` payload-length header.
-#[cfg(any(test, feature = "protocol-v1", feature = "test-internals"))]
+#[cfg(any(test, feature = "protocol-v1"))]
 pub(crate) const LENGTH_HEADER_LEN: usize = std::mem::size_of::<u32>();
 
 /// The initial reservation granule for framed payload buffers.
@@ -121,7 +121,7 @@ pub(crate) async fn resume_payload<R: AsyncRead + Unpin>(
     Ok(payload)
 }
 
-#[cfg(any(test, feature = "protocol-v1", feature = "test-internals"))]
+#[cfg(any(test, feature = "protocol-v1"))]
 /// The read half of a session's transport, yielding one exact frame at a time.
 ///
 /// Stateless beyond the reader it wraps: it buffers nothing, so dropping it
@@ -130,7 +130,7 @@ pub struct FrameRead<R> {
     read: R,
 }
 
-#[cfg(any(test, feature = "protocol-v1", feature = "test-internals"))]
+#[cfg(any(test, feature = "protocol-v1"))]
 impl<R> FrameRead<R> {
     /// Wrap `read` for frame-at-a-time reading.
     pub fn new(read: R) -> Self {
@@ -147,7 +147,7 @@ impl<R> FrameRead<R> {
     }
 }
 
-#[cfg(any(test, feature = "protocol-v1", feature = "test-internals"))]
+#[cfg(any(test, feature = "protocol-v1"))]
 impl<R: AsyncRead + Unpin> FrameRead<R> {
     /// Read one frame, growing the payload buffer as its bytes arrive.
     ///
