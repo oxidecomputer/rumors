@@ -8,7 +8,7 @@ use proptest::{
     collection::{btree_map, vec},
     prelude::*,
 };
-use tokio::io::AsyncWrite;
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use super::frame::{LeafRun, MAX_QUERY_CHILDREN};
 use super::signal::{Signal, WireSignal};
@@ -18,6 +18,7 @@ use crate::{
     message::Message,
     tree::{
         arb::arb_version,
+        mirror::{cbor, framing::PAYLOAD_CHUNK_LEN},
         typed::{Hash, hash::MERKLE_HASH_LEN},
     },
 };
@@ -521,4 +522,175 @@ fn generic_io_preserves_frame_boundaries() {
         frame
     );
     assert_eq!(reader.position(), frame_len);
+}
+
+/// A slice-backed async reader that counts transport reads and serves
+/// each in full, so a decode's count is the reader's own read plan and
+/// not the transport's chunking.
+struct CountingRead<'a> {
+    bytes: &'a [u8],
+    reads: usize,
+}
+
+impl AsyncRead for CountingRead<'_> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        self.reads += 1;
+        let served = self.bytes.len().min(buf.remaining());
+        let (head, rest) = self.bytes.split_at(served);
+        buf.put_slice(head);
+        self.bytes = rest;
+        Poll::Ready(Ok(()))
+    }
+}
+
+/// Transport reads the async decoder spends on one head: one for its
+/// initial byte, one more when the head carries an argument extension
+/// (a value of 24 or more).
+fn head_reads(value: u64) -> usize {
+    1 + usize::from(cbor::head_len(value) > 1)
+}
+
+/// Transport reads the async decoder spends on one canonical frame whose
+/// transport serves every read in full: the reader's read plan, stated
+/// over the frame's wire shape.
+///
+/// The reader fetches one CBOR head at a time ([`head_reads`]), then one
+/// read per fixed-width field: a listed digest, or a run body within one
+/// payload chunk. A supply frame's run must fit one chunk for the plan
+/// to hold; `async_decode_spends_its_read_plan` assumes that bound.
+fn read_plan(frame: &WireFrame) -> usize {
+    let (stream, frame) = frame;
+    let signal = frame_signal(frame);
+    let arity = match frame {
+        Frame::Reaction(Reaction::Query(children), _) if !children.is_empty() => 2,
+        Frame::Reaction(Reaction::Supply(_), _) => 2,
+        _ => 1,
+    };
+    let mut reads = head_reads(arity) + head_reads(u64::from(WireSignal::encode(*stream, signal)));
+    match frame {
+        Frame::Reaction(Reaction::Query(children), _) if !children.is_empty() => {
+            reads += head_reads(children.len() as u64);
+            for (radix, _) in children {
+                reads += head_reads(u64::from(*radix)) + head_reads(MERKLE_HASH_LEN as u64) + 1;
+            }
+        }
+        Frame::Reaction(Reaction::Supply(run), _) => {
+            reads += head_reads(cbor::TAG_CBOR_SEQUENCE) + head_reads(run.encoded_len() as u64) + 1;
+        }
+        _ => {}
+    }
+    reads
+}
+
+/// Decode `encoded` as one frame through the async reader over a
+/// transport that serves every read in full, returning the frame and the
+/// reads it cost.
+fn decode_counting(speaker: Speaker, encoded: &[u8]) -> (WireFrame, usize) {
+    let mut reader = FrameRead::new(
+        speaker,
+        RunBudget::default(),
+        CountingRead {
+            bytes: encoded,
+            reads: 0,
+        },
+    );
+    let frame = pollster::block_on(reader.frame())
+        .expect("a canonical frame decodes")
+        .expect("a nonempty stream is not a clean close");
+    (frame, reader.into_inner().reads)
+}
+
+proptest! {
+    /// The async decoder spends exactly its read plan on every canonical
+    /// frame.
+    ///
+    /// No head or field costs a transport read the plan does not name,
+    /// and none is skipped: the plan is positive for every frame, so a
+    /// reader that stopped reading could not satisfy it.
+    #[test]
+    fn async_decode_spends_its_read_plan(
+        frame in arb_frame(),
+        initiator in any::<bool>(),
+    ) {
+        let speaker = if initiator {
+            Speaker::Initiator
+        } else {
+            Speaker::Responder
+        };
+        prop_assume!(WireSignal::new(speaker, frame.0, frame_signal(&frame.1)).is_ok());
+        if let Frame::Reaction(Reaction::Supply(run), _) = &frame.1 {
+            prop_assume!(run.encoded_len() <= PAYLOAD_CHUNK_LEN);
+        }
+        let mut encoded = Vec::new();
+        encode(speaker, &frame, &mut encoded).unwrap();
+        let (decoded, reads) = decode_counting(speaker, &encoded);
+        prop_assert_eq!(&decoded, &frame);
+        prop_assert_eq!(reads, read_plan(&frame));
+    }
+}
+
+/// The read plan at the wire's reference shapes, pinned as numbers so a
+/// change to the reader's batching shows in this diff.
+///
+/// The match reaction is the frame the reader meets most often, pinned
+/// on either side of the signal head's width boundary (codes below 24
+/// take a one-byte head); the full-fan query is the widest listing; the
+/// lone-record supply is the smallest run. Each case checks the decoder's
+/// actual reads against the pinned number and the pinned number against
+/// the plan formula, so the formula and the reader are held to each
+/// other.
+#[test]
+fn read_plan_at_reference_shapes() {
+    let stream = Stream::new(4).unwrap();
+    let last_stream = Stream::new(Stream::MAX).unwrap();
+    let cases: [(&str, WireFrame, usize); 4] = [
+        (
+            "match ending its reply, one-byte signal",
+            (stream, Frame::Reaction(Reaction::Match, Flow::End)),
+            2,
+        ),
+        (
+            "match ending its reply, two-byte signal",
+            (last_stream, Frame::Reaction(Reaction::Match, Flow::End)),
+            3,
+        ),
+        (
+            "full-fan query",
+            (
+                stream,
+                Frame::Reaction(
+                    Reaction::Query(
+                        (0..=u8::MAX)
+                            .map(|radix| (radix, Hash([radix; MERKLE_HASH_LEN])))
+                            .collect(),
+                    ),
+                    Flow::Continue,
+                ),
+            ),
+            1261,
+        ),
+        (
+            "lone-record supply",
+            (
+                stream,
+                Frame::Reaction(
+                    Reaction::Supply(leaf_run(&[(Version::new(), 42_u64)])),
+                    Flow::End,
+                ),
+            ),
+            7,
+        ),
+    ];
+    for (name, frame, expected) in cases {
+        let mut encoded = Vec::new();
+        encode(Speaker::Initiator, &frame, &mut encoded).unwrap();
+        let (decoded, reads) = decode_counting(Speaker::Initiator, &encoded);
+        assert_eq!(decoded, frame, "{name}");
+        assert_eq!(reads, expected, "{name}: transport reads");
+        assert_eq!(read_plan(&frame), expected, "{name}: read plan");
+    }
 }

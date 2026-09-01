@@ -169,5 +169,72 @@ pub(crate) async fn decode_frame_discarded(
     read.frame().await.map(|_| ())
 }
 
+/// The shape of one canonical frame, for the encoder allocation meter
+/// (`tests/encode_alloc.rs`).
+#[cfg(any(test, feature = "test-internals"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FrameShape {
+    /// A body-free frame: a match reaction ending its reply.
+    BodyFree,
+    /// A query listing `children` radixes, from zero upward, each with a
+    /// digest.
+    Query {
+        /// Listed children, at most one per radix value.
+        children: usize,
+    },
+    /// A supply frame carrying one structurally valid record whose run
+    /// spans `run_len` bytes.
+    Supply {
+        /// The run body's length in bytes.
+        run_len: usize,
+    },
+}
+
+/// A frame built ahead of writing, so a meter around the write prices the
+/// write alone.
+#[cfg(any(test, feature = "test-internals"))]
+pub struct PreparedFrame(frame::WireFrame);
+
+/// Build one canonical frame of `shape` on an interior reply stream,
+/// where every reaction form is admissible.
+#[cfg(any(test, feature = "test-internals"))]
+pub(crate) fn prepare_frame(shape: FrameShape) -> PreparedFrame {
+    use crate::tree::typed::{Hash, hash::MERKLE_HASH_LEN};
+    let stream = Stream::new(4).expect("stream 4 is within the stream range");
+    let frame = match shape {
+        FrameShape::BodyFree => Frame::Reaction(Reaction::Match, Flow::End),
+        FrameShape::Query { children } => {
+            let children = (0..children)
+                .map(|radix| {
+                    let radix = u8::try_from(radix).expect("a listing fits the radix space");
+                    (radix, Hash([radix; MERKLE_HASH_LEN]))
+                })
+                .collect();
+            Frame::Reaction(Reaction::Query(children), Flow::End)
+        }
+        FrameShape::Supply { run_len } => {
+            let run = LeafRun::from_encoded(lone_record_run(run_len))
+                .expect("a lone-record run is structurally valid");
+            Frame::Reaction(Reaction::Supply(run), Flow::End)
+        }
+    };
+    PreparedFrame((stream, frame))
+}
+
+/// Write a prepared frame through the async frame writer into `out`,
+/// exactly as a session's stream sender writes it.
+///
+/// The encoder allocation meter (`tests/encode_alloc.rs`) prices this
+/// call; it pre-reserves `out` so the transport's own growth stays out
+/// of the count.
+#[cfg(any(test, feature = "test-internals"))]
+pub(crate) async fn write_prepared_frame(frame: &PreparedFrame, out: &mut Vec<u8>) {
+    let mut write = FrameWrite::new(Speaker::Initiator, out);
+    write
+        .frame(&frame.0)
+        .await
+        .expect("writing into a vector cannot fail");
+}
+
 #[cfg(test)]
 mod tests;

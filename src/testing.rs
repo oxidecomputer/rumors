@@ -11,7 +11,9 @@ pub use transport::{
     wrap_link,
 };
 
-pub use crate::tree::mirror::streaming::remote::{HookCapture, HookStream, LinkCapture};
+pub use crate::tree::mirror::streaming::remote::{
+    FrameShape, HookCapture, HookStream, LinkCapture, PreparedFrame,
+};
 
 /// Render two hook captures grouped by labeled logical streams.
 pub fn render_hook_capture(a: &HookCapture, b: &HookCapture) -> String {
@@ -170,6 +172,23 @@ pub async fn decode_supply_frame_budgeted(
         crate::tree::mirror::streaming::remote::RunBudget::from_bytes(budget),
     )
     .await
+}
+
+/// Build one canonical streaming-codec frame of `shape` ahead of writing
+/// it, so the encoder allocation meter (`tests/encode_alloc.rs`) prices
+/// the write alone.
+pub fn prepare_frame(shape: FrameShape) -> PreparedFrame {
+    crate::tree::mirror::streaming::remote::prepare_frame(shape)
+}
+
+/// Write a prepared frame through the streaming codec's async frame
+/// writer into `out`, exactly as a session's stream sender writes it.
+///
+/// Pre-reserve `out` for the frame's bytes: the encoder allocation meter
+/// (`tests/encode_alloc.rs`) counts every allocation inside this call,
+/// and the transport's own growth is not the encoder's.
+pub async fn write_prepared_frame(frame: &PreparedFrame, out: &mut Vec<u8>) {
+    crate::tree::mirror::streaming::remote::write_prepared_frame(frame, out).await
 }
 
 /// Renders the sync-budget trade-off table that

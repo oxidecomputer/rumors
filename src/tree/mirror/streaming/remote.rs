@@ -73,11 +73,15 @@ mod proxy;
 mod streams;
 
 #[cfg(any(test, feature = "test-internals"))]
+pub use codec::{FrameShape, PreparedFrame};
+#[cfg(any(test, feature = "test-internals"))]
 pub use codec::{HookCapture, HookStream, LinkCapture};
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) use codec::{assert_items_account_for, render_hook_capture, stream_label};
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) use codec::{decode_frame_discarded, lone_record_run, supply_frame_head};
+#[cfg(any(test, feature = "test-internals"))]
+pub(crate) use codec::{prepare_frame, write_prepared_frame};
 pub use error::*;
 
 /// The codec's logical stream count, for cross-layer constant assertions.
