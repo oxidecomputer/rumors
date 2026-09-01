@@ -8,6 +8,7 @@ use proptest::{
     collection::{btree_map, vec},
     prelude::*,
 };
+use sha3::Digest;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use super::frame::{LeafRun, MAX_QUERY_CHILDREN, listing_entry_len};
@@ -411,7 +412,7 @@ fn bounded_corpus_manifest_snapshot() {
                     bucket.accepted,
                     bucket.rejected,
                     bucket.rejection,
-                    bucket.hasher.clone().finalize().to_hex(),
+                    hex::encode(bucket.hasher.clone().finalize()),
                 )
                 .unwrap();
             }
@@ -426,7 +427,7 @@ struct CorpusBucket {
     accepted: usize,
     rejected: usize,
     rejection: Option<StreamClass>,
-    hasher: blake3::Hasher,
+    hasher: sha3::Sha3_256,
 }
 
 impl CorpusBucket {
@@ -435,8 +436,8 @@ impl CorpusBucket {
 
         self.cases += 1;
         self.accepted += 1;
-        self.hasher.update(&[ACCEPTED]);
-        self.hasher.update(&(encoded.len() as u64).to_be_bytes());
+        self.hasher.update([ACCEPTED]);
+        self.hasher.update((encoded.len() as u64).to_be_bytes());
         self.hasher.update(encoded);
     }
 
@@ -449,7 +450,7 @@ impl CorpusBucket {
         self.rejected += 1;
         self.rejection = Some(class);
         self.hasher
-            .update(&[REJECTED, invalid.stream().index(), invalid.signal().state()]);
+            .update([REJECTED, invalid.stream().index(), invalid.signal().state()]);
     }
 }
 

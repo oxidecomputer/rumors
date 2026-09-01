@@ -1,14 +1,13 @@
 //! Feeding-strategy microbenchmark behind `Hash::branch`'s one-shot form.
 //!
 //! A branch preimage is `kind ‖ prefix_len ‖ prefix ‖ count ‖ (radix ‖ hash)*`
-//! — dominated by fixed 17-byte child records, several to one of BLAKE3's
-//! 64-byte blocks. The shipped `Hash::branch` assembles the whole preimage in
-//! a contiguous buffer and hashes it in one shot, on the claim that a single
-//! large slice engages BLAKE3's multi-block SIMD compression while per-field
-//! `update` calls compress block-by-block. This bench measures exactly that
-//! comparison over the current preimage layout, across fan-outs from the
-//! smallest representable branch to the saturated 256, so the factor quoted
-//! at `Hash::branch` stays re-measurable: run
+//! — dominated by fixed-width child records, several to one of SHA3-256's
+//! 136-byte rate blocks. The shipped `Hash::branch` assembles the whole
+//! preimage in a contiguous buffer and hashes it in one shot; the
+//! alternative feeds the sponge one `update` per field. This bench measures
+//! exactly that comparison over the current preimage layout, across fan-outs
+//! from the smallest representable branch to the saturated 256, so the
+//! claim at `Hash::branch` stays re-measurable: run
 //! `just bench branch_hash` and compare the `contiguous` and `streamed`
 //! curves.
 //!
@@ -21,6 +20,7 @@
 use std::hint::black_box;
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use sha3::{Digest, Sha3_256};
 
 /// Kind byte leading a branch preimage, mirrored from the documented layout.
 const BRANCH_TAG: u8 = 1;
@@ -69,25 +69,23 @@ fn contiguous(prefix: &[u8], children: &[(u8, [u8; HASH_LEN])]) -> [u8; 32] {
     }
     let count = u16::try_from(children.len()).expect("fan-out fits u16");
     buf[count_at..count_at + 2].copy_from_slice(&count.to_be_bytes());
-    *blake3::hash(&buf).as_bytes()
+    Sha3_256::digest(&buf).into()
 }
 
-/// The defeated form: one `update` call per field, so BLAKE3 sees the
-/// preimage in radix-byte and hash-width fragments and compresses
-/// block-by-block.
+/// The streamed form: one `update` call per field, so the sponge sees the
+/// preimage in radix-byte and hash-width fragments.
 fn streamed(prefix: &[u8], children: &[(u8, [u8; HASH_LEN])]) -> [u8; 32] {
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(&[BRANCH_TAG]);
-    hasher
-        .update(&[u8::try_from(prefix.len()).expect("a compressed span fits in one length byte")]);
+    let mut hasher = Sha3_256::new();
+    hasher.update([BRANCH_TAG]);
+    hasher.update([u8::try_from(prefix.len()).expect("a compressed span fits in one length byte")]);
     hasher.update(prefix);
     let count = u16::try_from(children.len()).expect("fan-out fits u16");
-    hasher.update(&count.to_be_bytes());
+    hasher.update(count.to_be_bytes());
     for (radix, hash) in children {
-        hasher.update(&[*radix]);
+        hasher.update([*radix]);
         hasher.update(hash);
     }
-    *hasher.finalize().as_bytes()
+    hasher.finalize().into()
 }
 
 fn branch_hash(criterion: &mut Criterion) {

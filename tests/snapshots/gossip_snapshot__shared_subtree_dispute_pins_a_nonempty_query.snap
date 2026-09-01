@@ -13,17 +13,17 @@ control item 0 (30 bytes) / preamble /
       0
     ]
   )
-control item 1 (136 bytes) / greeting /
-  24(<< / embedded item, 132 bytes /
+control item 1 (137 bytes) / greeting /
+  24(<< / embedded item, 133 bytes /
     {
       "listing" =>
         { / listing: 1 child(ren) /
-          0x8 => h'2d16f1fdb20625b2790383817de384ce333cd74c3bd98556' / digest /
+          0xb8 => h'78de0c248cc1ab42a1fe3e70e760f0ea747f209e524f32c7' / digest /
         }
       "set_len" => 3
       "version" =>
         53846(h'40020fd000fff4') / causal version, event tree: (126, 4095, 0) /
-      "max_version_bytes" => 4
+      "max_version_bytes" => 5
       "payload_depth_limit" => 256
       "target_message_size" => 1830400
     }
@@ -36,9 +36,9 @@ Responder stream 0 (height 31), epoch 0, 93 wire bytes
       0 / stream /
       5 / Query(End) /
       { / listing: 3 child(ren) /
-        0x1a => h'054676406bb280ac20d5d8d52e745151251ddb930f5b3c31' / digest /
-        0x32 => h'e8ae1a6562bdf839010d24df53f13c52909ea415ca248598' / digest /
-        0xe0 => h'62412dd8c6fbdedc725edb37c91df6fabeda30a701a00fa2' / digest /
+        0x56 => h'1faf8fb07589a94097c9fa09c5bebb255e91d14a1abbf9df' / digest /
+        0x93 => h'038cec0d20f5d63d0164683a443bf231d8c9bf9c3c22178a' / digest /
+        0x9b => h'b8ff09282ace2f376e1bb6c511455a2161893a7dc46345ea' / digest /
       }
     ]
   frame 1 (3 bytes)
@@ -46,15 +46,15 @@ Responder stream 0 (height 31), epoch 0, 93 wire bytes
       0 / stream /
       9 / End(Stream) /
     ]
-Responder stream 1 (height 29), epoch 0, 24 wire bytes
-  frame 0 (19 bytes)
+Responder stream 1 (height 29), epoch 0, 26 wire bytes
+  frame 0 (21 bytes)
     [
       1 / stream /
       7 / Supply(End) /
-      63(<< / supply run, 1 record(s), 13 bytes /
-        63(<< / record, 2 item(s), 10 bytes /
-          53846(h'405940cd') / causal version, event tree: (126, 51, 0) /
-          150
+      63(<< / supply run, 1 record(s), 15 bytes /
+        63(<< / record, 2 item(s), 12 bytes /
+          53846(h'4038d0051d') / causal version, event tree: (126, 327, 0) /
+          426
         >>)
       >>)
     ]
@@ -75,12 +75,12 @@ control item 0 (30 bytes) / preamble /
       0
     ]
   )
-control item 1 (131 bytes) / greeting /
-  24(<< / embedded item, 127 bytes /
+control item 1 (132 bytes) / greeting /
+  24(<< / embedded item, 128 bytes /
     {
       "listing" =>
         { / listing: 1 child(ren) /
-          0x8 => h'8e114c641c07a2a9e59d6f179b5ebbdbfa90cf16de4caf0d' / digest /
+          0xb8 => h'637f3315fe244bda1d9b0c308c4a16ea93e7df24699aa713' / digest /
         }
       "set_len" => 2
       "version" =>

@@ -13,13 +13,13 @@ control item 0 (30 bytes) / preamble /
       0
     ]
   )
-control item 1 (160 bytes) / greeting /
-  24(<< / embedded item, 156 bytes /
+control item 1 (159 bytes) / greeting /
+  24(<< / embedded item, 155 bytes /
     {
       "listing" =>
         { / listing: 2 child(ren) /
-          0x64 => h'bb28d1c9e9fa40672e21164802bc8e7a23eb03126468e82c' / digest /
-          0x7c => h'f53f9477309788c6ed8834008f394a3be5f212959fac55fa' / digest /
+          0x8 => h'711c107a02ffed39979bcdd86654134ee8bb931687a03a29' / digest /
+          0x82 => h'ad151bc8bfcf8e311bf94802769422676fec3e83d495d637' / digest /
         }
       "set_len" => 2
       "version" =>
@@ -75,8 +75,8 @@ control item 1 (160 bytes) / greeting /
     {
       "listing" =>
         { / listing: 2 child(ren) /
-          0x9a => h'cca7fd1fe957c5267ce159c8f3fe95bc4f496f6b2fb5fa39' / digest /
-          0xe7 => h'c9b78024d3d0ad1a5523b4ac969d289fee0651305c416d72' / digest /
+          0x8e => h'1b5c7a2a860aa40597f61b26a1d3d54b48591068e45aed32' / digest /
+          0x98 => h'387ecab186fe71c89d5894b895f5917b7549e591ce2f098c' / digest /
         }
       "set_len" => 2
       "version" =>

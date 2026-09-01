@@ -18,31 +18,31 @@ control item 1 (134 bytes) / greeting /
     {
       "listing" =>
         { / listing: 1 child(ren) /
-          0x1b => h'4c9f80ab8bdeed98a72d4976c2879ccd5cb17e2aeacd24d3' / digest /
+          0x9a => h'fff22c04c986261bb486eb580d11a38f011b4c6b326f7a13' / digest /
         }
       "set_len" => 2
       "version" =>
         53846(h'40ff01f9') / causal version, event tree: (0, 126, 0) /
-      "max_version_bytes" => 4
+      "max_version_bytes" => 3
       "payload_depth_limit" => 256
       "target_message_size" => 1830400
     }
   >>)
 control item 2 (2 bytes) / epilogue /
   "."
-Initiator stream 0 (height 31), epoch 0, 34 wire bytes
-  frame 0 (29 bytes)
+Initiator stream 0 (height 31), epoch 0, 33 wire bytes
+  frame 0 (28 bytes)
     [
       0 / stream /
       7 / Supply(End) /
-      63(<< / supply run, 2 record(s), 23 bytes /
-        63(<< / record, 2 item(s), 10 bytes /
-          53846(h'41041f40') / causal version, event tree: (0, 31, 0) /
-          30
+      63(<< / supply run, 2 record(s), 22 bytes /
+        63(<< / record, 2 item(s), 9 bytes /
+          53846(h'437069') / causal version, event tree: (0, 26, 0) /
+          25
         >>)
         63(<< / record, 2 item(s), 7 bytes /
-          53846(h'4b11') / causal version, event tree: (0, 4, 0) /
-          3
+          53846(h'4934') / causal version, event tree: (0, 3, 0) /
+          2
         >>)
       >>)
     ]
@@ -79,9 +79,9 @@ control item 1 (188 bytes) / greeting /
     {
       "listing" =>
         { / listing: 3 child(ren) /
-          0x1a => h'f1f3aa8a784d1361fc809d57df14a1955f8956c55e120e19' / digest /
-          0x36 => h'a93c14a59c62f37321d21557b0e821de471a7e3d079c6fce' / digest /
-          0xf2 => h'42bb8c7ce00cc0681c05edde50af1bd47d5d94d0a136c882' / digest /
+          0xad => h'c427db6fe92e923509619eb51d8a601e31b985ac24a3baa2' / digest /
+          0xe8 => h'a82ff6a5e3f64d4901f633ca61b549cfa54be033845641db' / digest /
+          0xf1 => h'871321571b8582637fc4d52dc6df1c0f865df999eaab42f2' / digest /
         }
       "set_len" => 3
       "version" =>
@@ -94,23 +94,12 @@ control item 1 (188 bytes) / greeting /
 control item 2 (2 bytes) / epilogue /
   "."
 Responder stream 0 (height 31), epoch 0, 61 wire bytes
-  frame 0 (18 bytes)
-    [
-      0 / stream /
-      6 / Supply(Continue) /
-      63(<< / supply run, 1 record(s), 12 bytes /
-        63(<< / record, 2 item(s), 9 bytes /
-          53846(h'73c0') / causal version, event tree: (0, 0, 3) /
-          10002
-        >>)
-      >>)
-    ]
-  frame 1 (3 bytes)
+  frame 0 (3 bytes)
     [
       0 / stream /
       2 / QueryEmpty(Continue) /
     ]
-  frame 2 (18 bytes)
+  frame 1 (18 bytes)
     [
       0 / stream /
       6 / Supply(Continue) /
@@ -118,6 +107,17 @@ Responder stream 0 (height 31), epoch 0, 61 wire bytes
         63(<< / record, 2 item(s), 9 bytes /
           53846(h'72c0') / causal version, event tree: (0, 0, 2) /
           10001
+        >>)
+      >>)
+    ]
+  frame 2 (18 bytes)
+    [
+      0 / stream /
+      6 / Supply(Continue) /
+      63(<< / supply run, 1 record(s), 12 bytes /
+        63(<< / record, 2 item(s), 9 bytes /
+          53846(h'73c0') / causal version, event tree: (0, 0, 3) /
+          10002
         >>)
       >>)
     ]

@@ -187,8 +187,8 @@ fn prior_versions_are_rejected() {
 /// CBOR, and a wide header is a spelling this codec never writes.
 #[test]
 fn non_canonical_version_spelling_is_rejected() {
-    // Rebuild a frame exactly as `frame_as` would, but spell version 4 as
-    // the two-byte header 0x18 0x04, hashing over that spelling so only the
+    // Rebuild a frame exactly as `frame_as` would, but spell the version as
+    // a two-byte header 0x18 0x05, hashing over that spelling so only the
     // spelling check can reject it.
     let payload = b"payload";
     let mut covered = vec![0x18, u8::try_from(BOOKMARK_FORMAT_VERSION).unwrap()];
@@ -196,13 +196,13 @@ fn non_canonical_version_spelling_is_rejected() {
     covered.extend_from_slice(&EMBEDDED_CBOR);
     cbor::write_head(&mut covered, MAJOR_BSTR, payload.len() as u64);
     covered.extend_from_slice(payload);
-    let hash = blake3::hash(&covered);
+    let hash = Sha3_256::digest(&covered);
 
     let mut framed = SELF_DESCRIBED_HEAD.to_vec();
     framed.push(FRAME_ARRAY);
     framed.extend_from_slice(&covered[..version_item_len]);
     framed.extend_from_slice(&INTEGRITY_HEAD);
-    framed.extend_from_slice(hash.as_bytes());
+    framed.extend_from_slice(&hash);
     framed.extend_from_slice(&covered[version_item_len..]);
 
     assert!(matches!(
@@ -282,13 +282,13 @@ fn non_canonical_payload_spelling_is_rejected() {
     covered.extend_from_slice(&EMBEDDED_CBOR);
     covered.extend_from_slice(&[0x58, u8::try_from(payload.len()).unwrap()]);
     covered.extend_from_slice(payload);
-    let hash = blake3::hash(&covered);
+    let hash = Sha3_256::digest(&covered);
 
     let mut framed = SELF_DESCRIBED_HEAD.to_vec();
     framed.push(FRAME_ARRAY);
     framed.extend_from_slice(&covered[..version_item_len]);
     framed.extend_from_slice(&INTEGRITY_HEAD);
-    framed.extend_from_slice(hash.as_bytes());
+    framed.extend_from_slice(&hash);
     framed.extend_from_slice(&covered[version_item_len..]);
 
     assert!(matches!(
@@ -425,7 +425,7 @@ fn annotated(frame: &[u8]) -> String {
     .unwrap();
     writeln!(
         out,
-        "    h'{}' / integrity: BLAKE3 of the embedded record /",
+        "    h'{}' / integrity: SHA3-256 of the embedded record /",
         hex::encode(integrity)
     )
     .unwrap();

@@ -18,7 +18,7 @@ control item 1 (132 bytes) / greeting /
     {
       "listing" =>
         { / listing: 1 child(ren) /
-          0x7c => h'f53f9477309788c6ed8834008f394a3be5f212959fac55fa' / digest /
+          0x82 => h'ad151bc8bfcf8e311bf94802769422676fec3e83d495d637' / digest /
         }
       "set_len" => 1
       "version" =>
@@ -58,7 +58,7 @@ control item 1 (132 bytes) / greeting /
     {
       "listing" =>
         { / listing: 1 child(ren) /
-          0x7c => h'f53f9477309788c6ed8834008f394a3be5f212959fac55fa' / digest /
+          0x82 => h'ad151bc8bfcf8e311bf94802769422676fec3e83d495d637' / digest /
         }
       "set_len" => 1
       "version" =>

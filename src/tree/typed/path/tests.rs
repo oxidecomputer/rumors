@@ -3,10 +3,11 @@ use proptest::prelude::*;
 use crate::tree::arb::arb_version;
 
 use super::*;
+use sha3::Digest;
 
 proptest! {
     /// `for_leaf` is exactly the *full-width* hash of the version's
-    /// canonical bytes: `blake3(version)`, 32 bytes, no other input.
+    /// canonical bytes: `sha3_256(version)`, 32 bytes, no other input.
     ///
     /// Full width is what keeps a path collision at 2^128 birthday
     /// strength (a truncated Merkle-width hash would cap it lower), and
@@ -15,7 +16,7 @@ proptest! {
     /// wrong reading.
     #[test]
     fn for_leaf_is_the_full_width_version_hash(version in arb_version()) {
-        let expected: [u8; 32] = *blake3::hash(version.as_bytes()).as_bytes();
+        let expected: [u8; 32] = sha3::Sha3_256::digest(version.as_bytes()).into();
         let path = Path::for_leaf(&version);
         prop_assert_eq!(<[u8; 32]>::from(path), expected);
     }

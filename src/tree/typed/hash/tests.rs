@@ -41,7 +41,7 @@ fn leaf_preimage_layout() {
 }
 
 /// The empty tree hashes as a prefixless branch with no children —
-/// `blake3(BRANCH_TAG ‖ 0 ‖ 0u16)` — and the memoized constant agrees with
+/// `sha3_256(BRANCH_TAG ‖ 0 ‖ 0u16)` — and the memoized constant agrees with
 /// the general branch rule applied to empty fields.
 #[test]
 fn empty_root_is_the_empty_branch() {

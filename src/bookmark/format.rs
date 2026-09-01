@@ -8,7 +8,7 @@
 //! ```text
 //! 55799([                                   ; self-described CBOR (RFC 8949)
 //!     format_version : uint,                ; BOOKMARK_FORMAT_VERSION
-//!     integrity      : bstr .size 32,       ; BLAKE3, coverage below
+//!     integrity      : bstr .size 32,       ; SHA3-256, coverage below
 //!     payload        : 24(bstr .cbor map),  ; the record, embedded
 //! ])
 //! ```
@@ -32,7 +32,7 @@
 //! its canonical encoding. The tags are written and read here, by the codec —
 //! the atom types' serde implementations stay untagged and format-agnostic.
 //!
-//! The hash is a plain [`blake3`] digest, deliberately *not* the tree's
+//! The hash is a plain SHA3-256 digest, deliberately *not* the tree's
 //! path-identity hash: that type's contract is identity (a leaf's path), a
 //! different concern from this one's local, non-adversarial corruption check.
 //!
@@ -52,6 +52,7 @@ use std::collections::BTreeMap;
 
 use before::Clock;
 use ciborium::value::Value;
+use sha3::{Digest, Sha3_256};
 
 use crate::Network;
 use crate::tags::CLOCK_TAG;
@@ -59,13 +60,13 @@ use crate::tree::mirror::cbor::{self, MAJOR_BSTR, MAJOR_UINT, SELF_DESCRIBED_HEA
 
 /// On-disk bookmark format version, the first item of the frame array.
 ///
-/// Version 4 is the fully CBOR-parseable frame: the self-described tag, this
-/// version, the integrity hash, and the record as an embedded CBOR item
+/// Version 5 is the fully CBOR-parseable frame: the self-described tag, this
+/// version, the SHA3-256 integrity hash, and the record as an embedded CBOR item
 /// (clocks as [`CLOCK_TAG`]-tagged byte strings wrapping their canonical
 /// codec, skyline version coding inside). A file carrying any other version
 /// is rejected with [`FormatError::VersionMismatch`] rather than misread;
 /// there is no migration path.
-pub const BOOKMARK_FORMAT_VERSION: u64 = 4;
+pub const BOOKMARK_FORMAT_VERSION: u64 = 5;
 
 /// The frame array's header byte: a definite-length array of three items.
 const FRAME_ARRAY: u8 = 0x83;
@@ -73,7 +74,7 @@ const FRAME_ARRAY: u8 = 0x83;
 /// The integrity item's header: a 32-byte byte string.
 const INTEGRITY_HEAD: [u8; 2] = [0x58, 0x20];
 
-/// Width of the BLAKE3 integrity hash, in bytes.
+/// Width of the SHA3-256 integrity hash, in bytes.
 const HASH_LEN: usize = 32;
 
 /// The payload item's tag header: tag 24, "encoded CBOR data item".
@@ -243,20 +244,20 @@ fn frame_as(version: u64, payload: &[u8]) -> Vec<u8> {
     covered.extend_from_slice(&EMBEDDED_CBOR);
     cbor::write_head(&mut covered, MAJOR_BSTR, payload.len() as u64);
     covered.extend_from_slice(payload);
-    let hash = blake3::hash(&covered);
+    let hash = Sha3_256::digest(&covered);
 
     let mut out = Vec::with_capacity(SELF_DESCRIBED_HEAD.len() + 1 + 2 + HASH_LEN + covered.len());
     out.extend_from_slice(&SELF_DESCRIBED_HEAD);
     out.push(FRAME_ARRAY);
     out.extend_from_slice(&covered[..version_item_len]);
     out.extend_from_slice(&INTEGRITY_HEAD);
-    out.extend_from_slice(hash.as_bytes());
+    out.extend_from_slice(&hash);
     out.extend_from_slice(&covered[version_item_len..]);
     out
 }
 
 /// Wrap `payload` in a bookmark frame: the self-described tag, the frame
-/// array, the format version, a BLAKE3 hash over the version and payload
+/// array, the format version, a SHA3-256 hash over the version and payload
 /// items, and the payload as an embedded CBOR item.
 ///
 /// The inverse of [`unframe`].
@@ -366,10 +367,10 @@ pub(crate) fn unframe(bytes: &[u8]) -> Result<&[u8], FormatError> {
         });
     }
 
-    let mut hasher = blake3::Hasher::new();
+    let mut hasher = Sha3_256::new();
     hasher.update(&bytes[version_start..version_end]);
     hasher.update(&bytes[payload_start..]);
-    if hasher.finalize().as_bytes().as_slice() != stored_hash {
+    if hasher.finalize().as_slice() != stored_hash {
         return Err(FormatError::HashMismatch);
     }
 

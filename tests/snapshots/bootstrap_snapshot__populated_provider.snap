@@ -18,9 +18,9 @@ control item 1 (187 bytes) / greeting /
     {
       "listing" =>
         { / listing: 3 child(ren) /
-          0x7c => h'f53f9477309788c6ed8834008f394a3be5f212959fac55fa' / digest /
-          0x88 => h'cf55a19b320fee28bbdd5998cabc6c0000caeb8c569ad975' / digest /
-          0x9a => h'cca7fd1fe957c5267ce159c8f3fe95bc4f496f6b2fb5fa39' / digest /
+          0x1e => h'873255e39c6ccc1019916b8d5c5eb211a991ea504acd727d' / digest /
+          0x82 => h'ad151bc8bfcf8e311bf94802769422676fec3e83d495d637' / digest /
+          0x8e => h'1b5c7a2a860aa40597f61b26a1d3d54b48591068e45aed32' / digest /
         }
       "set_len" => 3
       "version" =>
@@ -41,8 +41,8 @@ Responder stream 0 (height 31), epoch 0, 50 wire bytes
       6 / Supply(Continue) /
       63(<< / supply run, 1 record(s), 9 bytes /
         63(<< / record, 2 item(s), 6 bytes /
-          53846(h'b8') / causal version, event tree: 2 /
-          2
+          53846(h'92') / causal version, event tree: 3 /
+          3
         >>)
       >>)
     ]
@@ -52,8 +52,8 @@ Responder stream 0 (height 31), epoch 0, 50 wire bytes
       6 / Supply(Continue) /
       63(<< / supply run, 1 record(s), 9 bytes /
         63(<< / record, 2 item(s), 6 bytes /
-          53846(h'92') / causal version, event tree: 3 /
-          3
+          53846(h'b8') / causal version, event tree: 2 /
+          2
         >>)
       >>)
     ]
