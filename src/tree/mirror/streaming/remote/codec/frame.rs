@@ -524,8 +524,7 @@ pub(crate) fn write_listing(out: &mut Vec<u8>, children: &[(u8, Hash)]) {
 }
 
 /// Bytes a whole child listing occupies as a map: its head plus entries.
-#[cfg(test)]
-pub fn listing_len(children: &[(u8, Hash)]) -> usize {
+pub(crate) fn listing_len(children: &[(u8, Hash)]) -> usize {
     let mut total = cbor::head_len(children.len() as u64);
     for (radix, _) in children {
         total += listing_entry_len(*radix);

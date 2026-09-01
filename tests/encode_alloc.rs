@@ -35,19 +35,19 @@ const OUT_CAPACITY: usize = 128 * 1024;
 const HARNESS_ALLOCATIONS: usize = 1;
 
 /// Allocation events a body-free frame's write performs.
-const BODY_FREE_ALLOCATIONS: usize = 1;
+const BODY_FREE_ALLOCATIONS: usize = 0;
 
 /// Allocation events a supply frame's write performs: the run is
-/// borrowed, so the count is the heads' alone.
-const SUPPLY_ALLOCATIONS: usize = 2;
+/// borrowed and its heads are rendered on the stack.
+const SUPPLY_ALLOCATIONS: usize = 0;
 
-/// Allocation events a full-fan query's write performs: its heads plus
-/// the rendered listing.
-const QUERY_ALLOCATIONS: usize = 2;
+/// Allocation events a full-fan query's write performs: the rendered
+/// listing alone.
+const QUERY_ALLOCATIONS: usize = 1;
 
-/// Reallocation events a full-fan query's write performs while the
-/// rendered listing grows.
-const QUERY_REALLOCATIONS: usize = 9;
+/// Reallocation events a full-fan query's write performs: none, the
+/// listing being reserved at its exact rendered length.
+const QUERY_REALLOCATIONS: usize = 0;
 
 /// The run length of the metered supply frame: wide enough that the run's
 /// byte-string head takes its widest form below the u32 range.

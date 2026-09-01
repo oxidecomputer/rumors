@@ -81,14 +81,14 @@ async fn write_encoding(
     out: &mut (impl AsyncWrite + Unpin),
     encoding: &FrameEncoding<'_>,
 ) -> Result<(), EncodeErrorKind> {
-    write(out, FramePart::FrameHead, &encoding.head).await?;
+    write(out, FramePart::FrameHead, encoding.head.as_slice()).await?;
     match &encoding.body {
         BodyEncoding::Empty => {}
         BodyEncoding::Listing(listing) => {
             write(out, FramePart::QueryChildren, listing).await?;
         }
         BodyEncoding::Supply { head, run } => {
-            write(out, FramePart::SupplyLength, head).await?;
+            write(out, FramePart::SupplyLength, head.as_slice()).await?;
             write(out, FramePart::SupplyRun, run.as_bytes()).await?;
         }
     }
