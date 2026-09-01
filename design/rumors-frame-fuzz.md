@@ -61,12 +61,12 @@ bytes played from the other end. Rationale:
   thought to craft; it should add them at the boundary where all the
   layers meet.
 - **Depth is a seeds problem, not an entry-point problem.** Almost all
-  random inputs die at the 25-byte preamble; recorded honest transcripts
+  random inputs die at the 30-byte preamble; recorded honest transcripts
   (section 4) start the search past the handshake, and libFuzzer's
   comparison tracing learns the magic and framing from there.
 
 One target, not a family, to start. The wire dialect fuzzed is
-`Protocol::V2` only — V1 is a feature-gated frozen oracle (section 5).
+`Protocol::V2`, the crate's one dialect.
 A first input byte selects the local fixture from a small table, so one
 binary still explores several tree shapes (open question 2 covers
 growing the family to bootstrap/retire pairings).
@@ -256,12 +256,10 @@ grows organically thereafter.
   (it runs on the validated in-memory reference); it never probes it.
 - **Honest-peer behavior.** Convergence, redaction, bookmark, and
   causality properties of well-formed sessions belong to the
-  differential and property suites (`tests/common`, the V1-vs-V2 oracle
-  mirroring in `src/tree/mirror/`); a fuzz input that happens to encode
-  an honest session asserts only section 3's contracts.
-- **The V1 wire.** `Protocol::V1` is feature-gated off by default and
-  frozen as the streaming protocol's behavioral oracle; hardening spend
-  goes to the dialect deployments speak (open question 5).
+  differential and property suites (`tests/common`, the join-oracle
+  differentials in `src/tree/mirror/streaming/`); a fuzz input that
+  happens to encode an honest session asserts only section 3's
+  contracts.
 - **Off-model regimes.** Nothing here prices resistance to a motivated
   adversary — spoofing, replay, confidentiality, and tampering are the
   transport's obligations by the model of record, and no finding or
@@ -324,12 +322,7 @@ grows organically thereafter.
    input-proportional fuel? *Recommendation:* harness-local — the fuel
    policy is fuzz-specific, the loop is ~30 lines over public `Future`
    API, and the target then needs no internal features at all.
-5. **V1 exclusion.** Confirm the frozen V1 oracle wire stays out of
-   scope permanently, not just initially. *Recommendation:* exclude
-   permanently; V1's value is as a behavioral oracle for honest
-   sessions, and hardening a feature-gated dialect nobody deploys buys
-   nothing.
-6. **Serviceability probe on committed outcomes.** Keep the
+5. **Serviceability probe on committed outcomes.** Keep the
    second-session probe (section 3, contract 5), or is version
    dominance enough? *Recommendation:* keep it — it is the only total,
    public-API check that a committed post-garbage state remains

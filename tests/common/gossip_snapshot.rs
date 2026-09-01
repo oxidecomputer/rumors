@@ -455,7 +455,7 @@ where
 /// total must equal the sent total (delivery preserves order, so equal
 /// totals mean the streams rest at the session boundary). Every capture
 /// driver asserts a successful outcome, so the drain invariant applies to
-/// every captured session — V1's frozen wire included.
+/// every captured session.
 fn assert_control_drained(events: &[Event]) {
     for (sender, receiver) in [("A", "B"), ("B", "A")] {
         let sent = sent(sender, events);

@@ -211,10 +211,10 @@ not the database.
 
 The straightforward implementation of that recursion is
 request/response per level: send the children of every disputed node,
-wait for the peer's reactions, recurse. `rumors` ships that protocol
-too (the _alternating_ mirror) and uses it as the behavioral oracle for
-the one this document is about. Its cost is latency: a 32-level trie
-means 32 round-trip phases, each fully drained before the next begins.
+wait for the peer's reactions, recurse. That shape is simple and
+hand-verifiably correct, but its cost is latency: a 32-level trie means
+32 round-trip phases, each fully drained before the next begins — and
+its per-level messages are unbounded, built whole before they ship.
 
 The _streaming_ mirror instead runs the whole recursion as a pipeline.
 Each tree level is a stage; stages for different levels run
