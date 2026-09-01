@@ -2,15 +2,18 @@
 members = [
     "crates/before",
     "crates/before-viz",
+    "crates/rumors-tracing",
     "crates/surface-scan",
     "crates/suanpan",
 ]
 
 # The version of record for every dependency in the workspace: member
 # manifests inherit an entry with `workspace = true`, adding only their own
-# feature selections and `optional` flags (which cargo requires at the
-# member). No member declares a version, path, or default-features choice of
-# its own.
+# feature selections — `features`, and `default-features = true` to widen a
+# table default of false (cargo itself rejects the narrowing direction) —
+# and the `optional` flags cargo requires at the member. No member declares
+# a version, path, or other source of its own; the gate's manifestlint leg
+# holds every member manifest to this.
 [workspace.dependencies]
 arc-swap = "1"
 async-stream = "0.3"
@@ -20,6 +23,16 @@ bitvec = "1"
 blake3 = "1.8"
 borsh = "1"
 bytes = "1"
+# Oxide's fork of cbor-diag: nesting depth is bounded by default in every
+# input-driven parse and print (upstream recurses on input-controlled
+# depth), so wire-derived bytes can be rendered without a guard in front.
+# Its `url` dependency reaches idna, whose unicode backend is selected by
+# `idna_adapter`: the lock pins idna_adapter to 1.1 (the unicode-rs
+# backend), because the icu backend behind later versions carries derive
+# macros on a second `syn` major, which the bans check rejects. If a
+# `cargo update` resurfaces a duplicate `syn`, re-pin with
+# `cargo update -p idna_adapter --precise 1.1.0`.
+cbor-diag = { git = "https://github.com/oxidecomputer/cbor-diag-rs", branch = "depth-limit" }
 # Pinned exactly: depth admission and wire ingress run the same compiled
 # deserializer, so decode-recursion accounting is symmetric within a binary,
 # and across a mixed-version fleet it holds only if every build shares one
@@ -64,6 +77,7 @@ thiserror = "2"
 tinyvec = { version = "1.11", features = ["alloc"] }
 tokio = { version = "1", default-features = false }
 tokio-stream = "0.1"
+tracing = "0.1"
 wasm-bindgen = "0.2"
 
 [package]

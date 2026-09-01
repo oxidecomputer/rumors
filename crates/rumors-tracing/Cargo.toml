@@ -1,0 +1,17 @@
+[package]
+name = "rumors-tracing"
+version = "0.1.0"
+edition = "2024"
+description = "A tracing adapter for rumors gossip sessions: spans per session and stream, one structured event per observed wire item."
+license = "MPL-2.0"
+readme = "README.md"
+
+[dependencies]
+cbor-diag = { workspace = true }
+hex = { workspace = true }
+rumors = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+ciborium = { workspace = true }
+tokio = { workspace = true, features = ["rt", "macros"] }

@@ -195,6 +195,19 @@ workflowlint:
     ./tools/workflowlint --self-test
     ./tools/workflowlint .github
 
+# tools/manifestlint holds every member manifest to the workspace dependency
+# table: each dependency entry inherits with `workspace = true`, adding only
+# feature selections and `optional` flags, so the table stays the one version
+# of record and no member-local restatement can drift when it moves. Cargo
+# has no native check (`cargo metadata` resolves inheritance away before
+# reporting), so the tool reads the member manifests cargo names.
+# Build-free, so it rides the lint tier.
+
+# Hold every member manifest's dependencies to the workspace table.
+manifestlint:
+    ./tools/manifestlint --self-test
+    ./tools/manifestlint
+
 # tools/digestshare reads the committed V2 wire captures and totals digest
 # vs non-digest bytes. As a gate leg it checks the renderer-vocabulary
 # contract, not a threshold: the tool exits nonzero when the corpus's
@@ -387,7 +400,7 @@ fuzz-build:
 gate: gate-lints gate-streams
 
 # The build-free tier, sequential: a lint failure should cost seconds.
-gate-lints: fmt-check doclint testdoc workflowlint digestshare mutants-list readme-check
+gate-lints: fmt-check doclint testdoc workflowlint manifestlint digestshare mutants-list readme-check
 
 # Each stream's output is captured rather than interleaved, and a failing
 # stream's log is replayed in full at the end, so a parallel failure reads

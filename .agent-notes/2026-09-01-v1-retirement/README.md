@@ -40,6 +40,12 @@ proptest suite would share a seed file with a `tests/<x>.rs` suite of the
 same name; seeds are harmless replayed cross-suite, but the sharing is
 worth noticing if it ever happens.
 
+Status: in progress. Base surveyed at 4e64a4fb. Rulings (2026-09-01):
+decision 1 — drop the legacy-magic recognition; decision 2 — remove the
+`.protocol()` builders; decision 3 — the scoped mutants A/B is deferred
+(the seed-corpus replay check still applies). Premise confirmed by Finch:
+the crate is pre-release and nothing uses V1.
+
 ## Goal
 
 Remove the V1 (alternating) protocol from the crate entirely: the
