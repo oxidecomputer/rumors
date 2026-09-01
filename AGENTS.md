@@ -80,15 +80,16 @@ wants `wasm-pack` and node/npm.
   it as a proptest invariant; the shrunk counterexample then rides along
   as a committed seed. A point regression may stay a unit test.
 - A failing proptest writes a seed file automatically, at the one path
-  its persistence derives from the test's source location:
-  `<crate root>/proptest-regressions/<module path>.txt` for `src/`
-  tests, and the sibling `tests/<binary>.proptest-regressions` file for
-  `tests/` suites. A seed anywhere else is never read —
-  `tests/seed_liveness.rs` holds every committed seed to a path
-  proptest actually resolves. A failure reproduced by an
-  already-committed seed replays first and owes no new entry. Commit
-  every seed file that appears, wherever it appears; never strip one
-  from a diff.
+  its persistence derives from the test's source location: the central
+  `<package root>/proptest-regressions/<path below the anchor>.txt`,
+  where the anchor is the nearest directory holding `lib.rs` or
+  `main.rs` — `src/` for unit suites, and `tests/` for integration
+  suites, anchored by the deliberate empty `tests/main.rs`. A seed
+  anywhere else is never read — `tests/seed_liveness.rs` holds every
+  committed seed to a path proptest actually resolves, and fails any
+  scattered sibling `.proptest-regressions` file. A failure reproduced
+  by an already-committed seed replays first and owes no new entry.
+  Commit every seed file that appears; never strip one from a diff.
 - Mutant exclusions (.cargo/mutants.toml) are a last resort, never a
   way to green a campaign: the standing policy — refactor the mutated
   codepoint out of structural existence, make truly-unreachable
@@ -142,8 +143,8 @@ You can leave durable notes and other artifacts of exploration and ideation in
 - Never let two independently-`seed`ed universes interact; within a universe,
   linearity of parties is the invariant everything rests on (see the crate
   docs' safety rules).
-- Commit every proptest seed file (`proptest-regressions/**` and
-  `tests/*.proptest-regressions`); never strip them from diffs.
+- Commit every proptest seed file (`proptest-regressions/**`); never
+  strip them from diffs.
 - `tests/gossip_snapshot.rs` and the `insta` snapshots pin the wire format
   byte-for-byte; re-accept them only after a deliberate protocol change,
   never as an accommodation of drift. Pre-release (no shipped version

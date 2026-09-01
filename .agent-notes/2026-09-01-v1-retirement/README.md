@@ -1,10 +1,44 @@
 # Retiring Protocol::V1 (the alternating mirror): plan
 
-Status: in progress. Base surveyed at 4e64a4fb. Rulings (2026-09-01):
-decision 1 — drop the legacy-magic recognition; decision 2 — remove the
-`.protocol()` builders; decision 3 — the scoped mutants A/B is deferred
-(the seed-corpus replay check still applies). Premise confirmed by Finch:
-the crate is pre-release and nothing uses V1.
+Status: implemented on the `v1-retirement` branch, gate-clean at every
+commit. Base surveyed at 4e64a4fb. Rulings (2026-09-01): decision 1 —
+drop the legacy-magic recognition (done; a legacy opening now reports
+`MagicMismatch`, whose hex preview still shows the old magic bytes);
+decision 2 — remove the `.protocol()` builders (done; the `Protocol`
+enum and the config plumbing's dialect parameters went with them);
+decision 3 — the scoped mutants A/B is deferred (the seed corpora for
+the streaming suites were kept in place and keep replaying through the
+renamed join-oracle differential). Premise confirmed by Finch: the crate
+is pre-release and nothing uses V1.
+
+Implementation record, by commit: the oracle handoff (join-oracle
+differential landed beside the alternating one; the allocator meter's
+framing legs retargeted onto `read_payload`; the route-equivalence
+property re-stated as hash-plus-leaf-view — `Node` equality is
+hash-mediated, so structural `Eq` would have been redundant with the
+hash assertions, and the leaf view covers exactly the payload facet the
+hash omits); the removal itself (one atomic commit; the snapshot witness
+held: under `tests/snapshots` only the three `*__v1_*` files moved, as
+deletions); and the prose re-denomination. `traverse::unknown` needed no
+re-gating: it is `Tree::join`'s own production deletion filter, which
+also tightens the oracle story — join, the materialized pruner's
+differential oracle, and the wire protocol all route deletion honoring
+through one filter.
+
+Addendum, requested mid-implementation: proptest seed persistence is
+now centralized. Integration suites scattered sibling
+`tests/<suite>.proptest-regressions` files because proptest's
+`SourceParallel` walk found no `lib.rs`/`main.rs` anchor above `tests/`;
+a deliberate empty `tests/main.rs` (and its twin in the fuzzfit harness)
+is the anchor, so every seed resolves into the package's central
+`proptest-regressions/`. Adequacy was demonstrated before the move:
+with the anchor present, `tests/seed_liveness.rs` failed every sibling
+file by name (no code change — it reconstructs resolution from the
+filesystem), and a deliberately failing probe property persisted its
+fresh seed centrally. One caveat recorded: a future top-level `src/<x>.rs`
+proptest suite would share a seed file with a `tests/<x>.rs` suite of the
+same name; seeds are harmless replayed cross-suite, but the sharing is
+worth noticing if it ever happens.
 
 ## Goal
 
