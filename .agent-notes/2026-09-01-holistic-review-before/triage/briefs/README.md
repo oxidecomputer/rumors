@@ -473,7 +473,7 @@ The "ruled" and "approved" columns count rows; the mediums are listed by id, eac
   `tools` to tools. The ledger's `lane` column is unchanged (this fork
   changes no ledger row); the coordinator may reseed it from this map
   with a `phase!` note if the split is approved.
-- **The 42 P6 mediums** are ruled (93 to 103); each brief states the decision and any amendment beside the entry (board-ops-render-26's own counter site; envelopes-b-21 ceilings only; envelopes-b-7 deleted; fuzzfit-bands-19's probe deleted with no test; tools-33's interpreter recognizer deleted, uses-pinning kept; testing-diff-gen-14's floors derived from arm weights; benches-examples-19, tools-4, tools-28, envelopes-a-15 as dups; surface-roster-4 under ruling 98's regime).
+- **The 42 P6 mediums** are ruled (93 to 103, with tools-33 re-ruled by 106); each brief states the decision and any amendment beside the entry (board-ops-render-26's own counter site; envelopes-b-21 ceilings only; envelopes-b-7 deleted; fuzzfit-bands-19's probe deleted with no test; tools-33's interpreter recognizer deleted, uses-pinning kept; testing-diff-gen-14's floors derived from arm weights; benches-examples-19, tools-4, tools-28, envelopes-a-15 as dups; surface-roster-4 under ruling 98's regime).
 - **The 474 P6 lows and nits** are approved rosters (ruling 104), each with its Resolution quoted (nit rows quote the table row and point at `evidence/`); the surface lane's are re-read under ruling 98.
 - **Rendering stop.** Ruling 89's rule stands in every P6 brief: a change
   that would alter a rendered `before` doc panel is a stop for a
@@ -510,3 +510,7 @@ under ruling 98 is ruled `dup` against it.
 ## Prose
 
 `PROSE.md` is the statement of intent for prose in `before` (ruling 105); every lane's ground rules point at it, and one dedicated fresh-eyes prose pass per crate follows the code lanes.
+
+## Ruling 106
+
+`tools/workflowlint` is deleted entirely (the `p1-gate` lane lands it with the roster retirement); the identity-ladder essay in `codec/bits.rs` is deleted once each rung decision is stated at its owning site (`p4-ghosts`).

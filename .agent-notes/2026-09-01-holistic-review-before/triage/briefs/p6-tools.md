@@ -8,7 +8,7 @@ The workspace tools' and gate recipes' per-module entries, landed per their Reso
 
 ## Rulings on this lane's mediums
 
-Every medium in this lane is ruled (rulings 93 to 103): gate-legs-5, tools-28, tools-33, tools-4. The decisions stand beside each entry under Members.
+Every medium in this lane is ruled (rulings 93 to 106): gate-legs-5, tools-28, tools-33, tools-4. The decisions stand beside each entry under Members.
 
 ## Roster summary
 
@@ -172,7 +172,7 @@ Resolution: after parsing both captures, compute the unclaimed set (mutants in r
 
 Ruled (96): Dup, moot: mutantcheck retires under ruling 18 (`p1-gate`). Nothing to land in this lane. See ../rulings.md.
 
-### tools-33 (medium, verification): ruling 103
+### tools-33 (medium, verification): ruling 106
 
 workflowlint's interpreter recognizer stops at the first non-prefix token, so `| sudo -E bash -` and `| env -i sh` pass as fetch-without-execute
 
@@ -180,7 +180,7 @@ workflowlint's interpreter recognizer stops at the first non-prefix token, so `|
 
 Resolution: adopt the tool's own over-matching policy: after a prefix word, skip flag tokens (those starting with `-`) and their arguments, or treat a post-fetch segment as fetch-execute when an interpreter token appears anywhere in it after stripping prefix words, flags, and assignments. Add `curl ... | sudo -E bash -`, `curl ... | sudo -u runner sh`, and `curl ... | env -i sh` to the self-test's red fixtures. Acceptance: `./tools/workflowlint --self-test` fails on the current recognizer with the three new fixtures and passes after the fix; the fetch-to-a-file green fixture stays green.
 
-Ruled (103): Amendment (Finch: "Get rid of this entirely."): delete workflowlint's interpreter recognizer (the pipe-to-shell detection) entirely, with its docstring claims and self-test cases; the flag-skipping fix is struck. workflowlint's `uses:` pinning role is untouched; if Finch meant the whole tool, that is a stop. See ../rulings.md.
+Ruled (106): Amendment (Finch: "I want to *entirely delete* workflowlint."): delete `tools/workflowlint` whole: the tool, its `--self-test`, its gate and ci legs, and any expected-value roster it reads. No in-house check replaces it; the Resolution's flag-skipping fix is struck. Nothing replaces the tool by design (owner ruling).
 
 ### tools-4 (medium, verification): ruling 96
 
@@ -308,7 +308,7 @@ Roster note: approved by ruling 104; lands per the quoted Resolution and Accepta
 
 ### tools-32 (low, simplification): roster: approved (ruling 104)
 
-workflowlint spells the interpreter roster twice
+workflowlint spells the interpreter roster twice (moot under ruling 106: the tool is deleted)
 
 - Owner-gated: no
 

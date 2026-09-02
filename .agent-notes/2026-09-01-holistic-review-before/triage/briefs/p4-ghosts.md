@@ -131,7 +131,7 @@ or `admit.rs`; leave their prose to `p4-structure`).
 - Ruling 66 restores nothing. If a dangling pointer cannot be deleted
   without leaving a sentence that is false, restate the sentence to
   what the code does; never reconstruct the deleted text.
-- Ruling 68 forbids touching the identity-ladder essay (codec-bits-1).
+- Ruling 106 disposes the identity-ladder essay (codec-bits-1): deleted once every rung decision it decrees is stated at the call site that owns it; anything only the essay carries moves to its owning site first, in the essay's own words.
 - envelopes-a-1's header never asserts the contract holds today, and
   `lib.rs` never lists exceptions (ruling 1).
 - A `just readme` regeneration follows any crate-root rustdoc edit;
@@ -251,7 +251,7 @@ The crate guidepost names an `implementation` module and a "Law of Disjointness"
 
 Resolution: point the model reference at the crate docs' "Safety rules" section (Causal Singularity, Identity Linearity), and either delete the `implementation` pointer or name where the design essay now lives (`version/skyline.rs` and `testing/validation_index.rs` are the surviving homes). Acceptance: every module and heading named in crates/before/AGENTS.md resolves to an existing item or heading.
 
-Ruled (68): `crates/before/AGENTS.md` toward reality, compact and drift-proof. Do not add a pointer to the essay (codec-bits-1 is deferred); do not add hand-maintained enumerations.
+Ruled (68): `crates/before/AGENTS.md` toward reality, compact and drift-proof. Do not add a pointer to the essay (codec-bits-1 deletes it under ruling 106); do not add hand-maintained enumerations.
 
 ### board-frame-5 (low, documentation): ruling 68
 
@@ -261,13 +261,13 @@ Resolution: State the map rule inline at the top of board.rs ("this doc orients;
 
 Ruled (68): fix `crates/before/AGENTS.md` toward the tree, kept compact and drift-proof (it names structure and points at the docs of record; it restates no enumerable fact). Finch's words: "Please keep agent instructions compact and drift-proof."
 
-### codec-bits-1 (low, documentation): ruling 68
+### codec-bits-1 (low, documentation): ruling 106
 
 The identity-ladder essay decides for operations outside the module, without saying it is their home
 
 Resolution: Either state in the essay's first paragraph that it is the ladder's single home for rung policy and reduce the call sites to a pointer ("rung choice: see `codec::bits`"), or keep the bullets as criteria only (free insurance; pays where the replaced walk is expensive and equality is common; not where the fallback is itself a cheap scan and unequal is the common case; not on linear predicates) and drop the named operations, letting each site carry its rationale as today. Acceptance: the per-operation rung rationale appears exactly once in the crate, and wherever it lives names itself as the home.
 
-Ruled (68): deferred, home: Finch's own rewrite. Do not move, edit, or rewrite the identity-ladder essay. Finch's words: "I will re-write the essay in my own words, some day. Do not rewrite it." Nothing to do in this lane; listed so the lane does not touch it.
+Ruled (106): Amendment (Finch: "Delete the essay if it's fully redundant."): the module-doc essay in `codec/bits.rs` is deleted once each rung decision is stated at its owning call site; the decision rule and the two instruments it names move to their owning sites first, verbatim. The earlier deferral is superseded.
 
 Ledger note: essay untouched; home: Finch's own rewrite
 

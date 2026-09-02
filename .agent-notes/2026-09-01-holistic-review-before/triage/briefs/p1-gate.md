@@ -248,7 +248,7 @@ ghost reference remains: `AGENTS.md`'s "Mutant exclusions" paragraph
 under "Writing tests" (restate the standing policy it carries, which is
 about refactoring unreachable branches into structural nonexistence and
 making truly-unreachable branches assert, without the roster as its
-home), `tools/workflowlint` if it holds the cargo-mutants version,
+home), `tools/workflowlint` (deleted whole under ruling 106),
 `crates/before/tests/meter.rs:5073-5077` (the eq early-exit band cites
 the roster's `sweep::eq_exit` entry; ruling 20's restatement in the
 suites lane covers that doc, so coordinate: this lane deletes the roster,
@@ -257,7 +257,7 @@ doc and say so in the report), and any `.agent-notes`-external prose
 found by `grep -rn 'mutants\|mutantcheck' --exclude-dir=.agent-notes
 --exclude-dir=target .`. Acceptance: that grep returns nothing outside
 `.agent-notes/` and git history; `just gate` and `just ci` list no
-mutants leg; `tools/workflowlint` passes.
+mutants leg; `tools/workflowlint` is deleted by this lane (ruling 106).
 
 The mutants roster is also where suanpan-40's two exclusions live; their
 code-side dissolution is `p1-survivors`' work and needs nothing from you
@@ -279,14 +279,14 @@ passes.
 
 Resolution: install the pinned toolchains from one source: read `just --evaluate nightly_toolchain` in a step and pass it as `toolchain:` (with `llvm-tools` in the coverage job), drop the floating nightly installs; drop the stable install steps or re-denominate their comments to "rust-toolchain.toml provisions 1.97.1 with clippy, rustfmt, and wasm32"; rewrite lines 17-25, 54-58, 128-133, 139-141, and 202-205 to the pinned regime. Optionally extend tools/workflowlint to require every dtolnay `toolchain:` input to equal the justfile pin or the rust-toolchain.toml channel. Acceptance: no `toolchain: nightly` or `toolchain: stable` remains in ci.yml; every comment naming a toolchain names the pinned one; the three jobs stay green.
 
-Ruled (25): as stated, with the optional `tools/workflowlint` extension
+Ruled (25, 106): as stated; `tools/workflowlint` is deleted entirely under ruling 106, so no workflowlint extension
 taken: a `toolchain:` input in the workflow must be the derived
 `nightly_toolchain` output or absent (rust-toolchain.toml provisions
 stable). Land the lint extension red-first against the untouched
 workflow and record its failure in the commit message. Do not write the
 dated nightly string into ci.yml by hand anywhere; the single source is
 `just --evaluate nightly_toolchain`. "The three jobs stay green" is
-observed by the coordinator after merge; your evidence is `tools/workflowlint`
+observed by the coordinator after merge; `tools/workflowlint` is deleted (ruling 106), so your evidence is the workflow diff itself
 passing and `act`-free reasoning about the step (state which step reads
 the value and how it is consumed).
 
