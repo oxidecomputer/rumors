@@ -8,10 +8,14 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use async_stream::stream;
 use futures::{Stream, StreamExt, stream as futures_stream};
+use proptest::prelude::*;
 
 use before::Span;
 
-use super::{Charged, Measure, check, ledger, run};
+use super::{
+    BOUND_SWEEP_CEILING, Charged, Measure, check, fan_slot_excess, ledger, node_bytes_monotone,
+    reference_slot_excess, run,
+};
 use crate::{
     Version,
     message::Message,
@@ -19,7 +23,7 @@ use crate::{
         mirror::streaming::{
             Backend, BoxNodeStream, ErasedNode, Leaf, Local, Node, NodeStream,
             convert::Convert,
-            window::{SUPPLY_DECODE_ENVELOPE_BYTES, WindowConfig},
+            window::{FAN, SUPPLY_DECODE_ENVELOPE_BYTES, WindowConfig},
         },
         typed::{
             self, Hash, Path, Prefix,
@@ -131,6 +135,10 @@ impl Measure for Local {
         // tree: its shallow size is everything it keeps resident.
         std::mem::size_of_val(node)
     }
+
+    fn measure_erased(node: &Self::Erased) -> usize {
+        std::mem::size_of_val(node)
+    }
 }
 
 /// The stated budget the in-memory check runs under.
@@ -182,6 +190,12 @@ fn a_pre_charge_only_budget_fails_the_liveness_floor() {
 /// knob's value, so the knob's honest resting value is the real header
 /// and anything less underprices — what the lying tests opt into
 /// through the knob's guard.
+///
+/// Its node is aligned wider than a pointer ([`MaterializedNode`]), so
+/// the decode-fan and reference slots the session keeps it in pad
+/// beyond the in-memory layout the window's slot constants derive from;
+/// that padding ([`SLOT_PADDING`]) is the backend's to price, and
+/// [`PRICED_SLOT_PADDING`] is the knob that prices it honestly at rest.
 #[derive(Clone, Copy, Debug)]
 struct Materializing;
 
@@ -245,6 +259,60 @@ static LEAF_VERSION_INFLATE: Knob = Knob::new(0);
 /// honest at zero, a monotonicity dip above it.
 static PRICED_DIP: Knob = Knob::new(0);
 
+/// The version bound above which [`Materializing::node_bytes`] prices
+/// [`STEP_DROP`] fewer header bytes: honest at zero (no step), a
+/// step-shaped monotonicity dip above it.
+static PRICED_BOUND_STEP: Knob = Knob::new(0);
+
+/// The one version bound at which [`Materializing::node_bytes`] prices
+/// one byte less than at the bound before it: honest at zero (no dip),
+/// a point dip above it.
+static PRICED_BOUND_DIP: Knob = Knob::new(0);
+
+/// The bound the point-dip control dips at: inside the dense sweep and
+/// off every power of two and its neighbors, so only a sweep dense
+/// through it compares across the dip.
+const DIP_BOUND: usize = 101;
+
+/// The slot padding [`Materializing::node_bytes`] prices: honest at the
+/// real [`SLOT_PADDING`], lying below it.
+static PRICED_SLOT_PADDING: Knob = Knob::new(SLOT_PADDING);
+
+/// Extra bytes a row keeps after [`Backend::assume`] re-tags it: honest
+/// at zero, a residency-changing re-tag above it.
+static ASSUME_SLACK: Knob = Knob::new(0);
+
+/// Extra bytes a row keeps after [`Backend::erase`] re-tags it: honest
+/// at zero, a residency-changing re-tag above it.
+static ERASE_SLACK: Knob = Knob::new(0);
+
+/// The threshold bound the step control places strictly inside the
+/// sweep grid's widest gap, between the neighbors of the two largest
+/// powers of two: no adjacent grid pair straddles it, so the grid alone
+/// cannot see the step.
+const STEP_THRESHOLD: usize = (BOUND_SWEEP_CEILING / 2 + 1 + BOUND_SWEEP_CEILING - 1) / 2;
+
+/// The header bytes the step drops: the width of that gap, the largest
+/// drop the gap's two grid endpoints still ascend across.
+const STEP_DROP: usize = (BOUND_SWEEP_CEILING - 1) - (BOUND_SWEEP_CEILING / 2 + 1);
+
+/// The bytes the session's slots pad around a [`MaterializedNode`]
+/// beyond the in-memory layout the window prices: the larger of the
+/// decode-fan slot's and the reference slots' excess, so one price
+/// covers both.
+const SLOT_PADDING: usize = {
+    let fan = fan_slot_excess::<Materializing>();
+    let reference = reference_slot_excess::<Materializing, Z>();
+    if fan > reference { fan } else { reference }
+};
+
+// The control below zeroes the priced padding; it convicts only if the
+// real padding is positive, which the node's alignment guarantees.
+const _: () = assert!(
+    SLOT_PADDING > 0,
+    "a node aligned wider than a pointer pads its slots",
+);
+
 /// The one fan [`PRICED_DIP`] carves the dip at: an arbitrary interior
 /// value the monotonicity sweep's adjacent-fan comparisons must cross.
 const DIP_FAN: usize = 7;
@@ -265,7 +333,12 @@ const ROW_ENTRY: usize = 24;
 const MATERIALIZING_BUDGET: usize = 4 * 1024 * 1024;
 
 /// A node value that owns its simulated row.
+///
+/// Aligned wider than a pointer, as a handle carrying a 16-byte row id
+/// would be: the shape the window's slot constants say owes its extra
+/// slot padding to its own price.
 #[derive(Clone, Debug)]
+#[repr(align(16))]
 struct MaterializedNode<N> {
     inner: N,
     row: Vec<u8>,
@@ -359,9 +432,11 @@ impl Backend for Materializing {
 
     // Erasure re-tags the store's handle; the resident row rides along
     // unchanged, so the census this backend exists to exercise sees no
-    // movement from either conversion.
+    // movement from either conversion -- until the re-tag-lying knobs
+    // ([`ERASE_SLACK`], [`ASSUME_SLACK`]) grow the row across it.
     fn erase<H: Height>(node: Self::Node<H>) -> Self::Erased {
-        let MaterializedNode { inner, row } = node;
+        let MaterializedNode { inner, mut row } = node;
+        row.resize(row.len() + ERASE_SLACK.get(), 0);
         MaterializedNode {
             inner: inner.into_untyped(),
             row,
@@ -369,7 +444,8 @@ impl Backend for Materializing {
     }
 
     fn assume<H: Height>(erased: Self::Erased) -> Self::Node<H> {
-        let MaterializedNode { inner, row } = erased;
+        let MaterializedNode { inner, mut row } = erased;
+        row.resize(row.len() + ASSUME_SLACK.get(), 0);
         MaterializedNode {
             inner: typed::Node::from_untyped(inner),
             row,
@@ -378,13 +454,27 @@ impl Backend for Materializing {
 
     fn node_bytes(children: usize, version_bound: usize) -> usize {
         let priced = std::mem::size_of::<MaterializedNode<typed::Node<Z>>>()
+            + PRICED_SLOT_PADDING.get()
             + PRICED_HEADER.get()
             + ROW_ENTRY * children
             + version_bound;
-        // The monotonicity-lying knob: a dip at one fan, invisible to
-        // every check that does not compare across it.
-        if children == DIP_FAN {
+        // The monotonicity-lying knobs: a dip at one fan, invisible to
+        // every check that does not compare across it, and a step in
+        // the bound, invisible to a grid whose points all sit on one
+        // side of it.
+        let priced = if children == DIP_FAN {
             priced.saturating_sub(PRICED_DIP.get())
+        } else {
+            priced
+        };
+        let priced = if version_bound != 0 && version_bound == PRICED_BOUND_DIP.get() {
+            priced.saturating_sub(2)
+        } else {
+            priced
+        };
+        let step = PRICED_BOUND_STEP.get();
+        if step != 0 && version_bound > step {
+            priced.saturating_sub(STEP_DROP)
         } else {
             priced
         }
@@ -504,6 +594,10 @@ impl Backend for Materializing {
 
 impl Measure for Materializing {
     fn measure<H: Height>(node: &Self::Node<H>) -> usize {
+        std::mem::size_of_val(node) + node.row.len()
+    }
+
+    fn measure_erased(node: &Self::Erased) -> usize {
         std::mem::size_of_val(node) + node.row.len()
     }
 }
@@ -739,6 +833,41 @@ fn inflated_leaf_version_bytes_fails_the_walk_check() {
     pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
 }
 
+/// A backend whose node is aligned wider than a pointer and whose price
+/// omits the slot padding that alignment costs is convicted by name at
+/// the first leaf it constructs.
+///
+/// The window's slot constants derive from the in-memory layout and
+/// leave a wider layout's extra padding to the backend's price; the
+/// leaf check folds that excess into its comparison, so pricing the
+/// node value alone falls short by exactly the padding.
+#[test]
+#[should_panic(expected = "of decode-slot padding")]
+fn unpriced_slot_padding_fails_the_pointwise_check() {
+    let _dishonest = PRICED_SLOT_PADDING.set(0);
+    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+}
+
+/// A re-tag that grows the node's residency on the way back to a typed
+/// handle is convicted by name: the measurement after `assume` differs
+/// from the bytes the erased handle carried.
+#[test]
+#[should_panic(expected = "re-tagged node changed residency: erased")]
+fn a_residency_changing_assume_fails_the_re_tag_check() {
+    let _dishonest = ASSUME_SLACK.set(BULK_OVERHOLD);
+    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+}
+
+/// A re-tag that grows the node's residency on the way to an erased
+/// handle is convicted by name: the measurement after `erase` differs
+/// from the bytes the typed handle carried.
+#[test]
+#[should_panic(expected = "re-tagged node changed residency: typed")]
+fn a_residency_changing_erase_fails_the_re_tag_check() {
+    let _dishonest = ERASE_SLACK.set(BULK_OVERHOLD);
+    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+}
+
 /// A cost function with a dip between quantile evaluation points is
 /// caught by the monotonicity sweep before any session runs.
 ///
@@ -825,4 +954,87 @@ fn ledger_settles_over_clone_and_drop() {
         before + 200,
         "the peak persists after handles settle",
     );
+}
+
+/// One case of the bound-monotonicity property: the price at `bound`
+/// does not exceed the price at any larger bound, at one fan.
+fn assert_monotone_in_bound<B: Backend<Node<Z>: Leaf>>(fan: usize, bound: usize, delta: usize) {
+    let there = bound.saturating_add(delta);
+    let here_priced = B::node_bytes(fan, bound);
+    let there_priced = B::node_bytes(fan, there);
+    assert!(
+        here_priced <= there_priced,
+        "node_bytes must be monotone in version bound: bound {bound} prices {here_priced} B, \
+         bound {there} prices {there_priced} B, at fan {fan}",
+    );
+}
+
+proptest! {
+    /// The in-memory cost function is monotone in the version bound over
+    /// the whole family: for any bound and any increase, at any fan, the
+    /// price does not fall.
+    ///
+    /// The sweep in `check` samples adjacent grid points; this covers
+    /// the pairs between them.
+    #[test]
+    fn local_node_bytes_is_monotone_in_the_version_bound(
+        fan in 0..=FAN,
+        bound in 0..=BOUND_SWEEP_CEILING,
+        delta in 0..=BOUND_SWEEP_CEILING,
+    ) {
+        let _serial = serialized();
+        assert_monotone_in_bound::<Local>(fan, bound, delta);
+    }
+
+    /// The materializing cost function is monotone in the version bound
+    /// over the whole family: for any bound and any increase, at any fan,
+    /// the price does not fall.
+    ///
+    /// The sweep in `check` samples adjacent grid points; this covers
+    /// the pairs between them.
+    #[test]
+    fn materializing_node_bytes_is_monotone_in_the_version_bound(
+        fan in 0..=FAN,
+        bound in 0..=BOUND_SWEEP_CEILING,
+        delta in 0..=BOUND_SWEEP_CEILING,
+    ) {
+        let _serial = serialized();
+        assert_monotone_in_bound::<Materializing>(fan, bound, delta);
+    }
+
+    /// A step-shaped dip strictly inside a grid gap fails the
+    /// bound-monotonicity property by name: the case the grid sweep
+    /// cannot see, which the sibling control shows it passing.
+    ///
+    /// The knob is set for each case's lifetime; the failing case's seed
+    /// is committed, so the conviction replays deterministically.
+    #[test]
+    #[should_panic(expected = "monotone in version bound")]
+    fn a_step_dip_fails_the_monotonicity_property(
+        fan in 0..=FAN,
+        bound in 0..=BOUND_SWEEP_CEILING,
+        delta in 0..=BOUND_SWEEP_CEILING,
+    ) {
+        let _dishonest = PRICED_BOUND_STEP.set(STEP_THRESHOLD);
+        assert_monotone_in_bound::<Materializing>(fan, bound, delta);
+    }
+}
+
+/// A point dip at one bound inside the dense sweep is caught by the
+/// sweep's adjacent-bound comparison before any session runs: the
+/// price at [`DIP_BOUND`] falls one byte below the bound before it.
+#[test]
+#[should_panic(expected = "monotone in version bound")]
+fn a_point_dip_fails_the_dense_sweep() {
+    let _dishonest = PRICED_BOUND_DIP.set(DIP_BOUND);
+    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+}
+
+/// The same step-shaped dip passes the grid sweep: every adjacent grid
+/// pair sits on one side of the threshold, so the sweep is a sample of
+/// the family and the property test above is what holds the family.
+#[test]
+fn a_step_dip_hides_from_the_grid_sweep() {
+    let _dishonest = PRICED_BOUND_STEP.set(STEP_THRESHOLD);
+    node_bytes_monotone::<Materializing>();
 }

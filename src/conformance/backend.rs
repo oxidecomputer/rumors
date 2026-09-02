@@ -15,8 +15,12 @@
 //!   or explodes is measured (via [`Measure`]) against the cost function
 //!   at that node's actual fan and version bounds -- or, where the fan
 //!   is invisible, at the widest fan the node can have, which
-//!   monotonicity makes an upper bound on the price at its own. An
-//!   underpriced node fails the run by name.
+//!   monotonicity makes an upper bound on the price at its own. The
+//!   measurement carries the slot padding the window's own constants
+//!   leave to the backend (a node aligned wider than a pointer pads the
+//!   decode-fan and reference slots it sits in), and a node re-tagged
+//!   across heights is re-measured. An underpriced node fails the run
+//!   by name.
 //! - **Bulk seams**: the backend's own [`leaves`](Backend::leaves) and
 //!   [`assemble`](Backend::assemble) overrides — the paths the wire codec
 //!   runs — are delegated to, their yields priced on the same census,
@@ -55,6 +59,7 @@
 //! the [`Link`](crate::link::Link) boundary.
 
 use std::collections::BTreeMap;
+use std::mem::size_of;
 use std::pin::pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -68,14 +73,14 @@ use crate::{
     message::Message,
     tree::{
         mirror::streaming::{
-            self, Backend, BoxNodeStream, ErasedNode, Leaf, Node, NodeStream, Root,
+            self, Backend, BoxNodeStream, ErasedNode, Leaf, Local, Node, NodeStream, Root,
             convert::Convert,
-            materialized,
+            materialized::{self, Resolve},
             stats::{Recorder, SessionStats},
-            window::{FAN, WindowConfig},
+            window::{FAN, FAN_SLOT_BYTES, REFERENCE_SLOT_BYTES, WindowConfig},
         },
         typed::{
-            Hash, Path, Prefix,
+            self, Hash, Path, Prefix,
             height::{self, Height, S, Z},
         },
     },
@@ -91,7 +96,59 @@ use crate::{
 pub(crate) trait Measure: Backend<Node<Z>: Leaf> {
     /// The actual resident bytes of one node value, measured.
     fn measure<H: Height>(node: &Self::Node<H>) -> usize;
+
+    /// The actual resident bytes of one height-erased node value,
+    /// measured: the oracle for the re-tag clause in the
+    /// [`erase`](Backend::erase) direction.
+    fn measure_erased(node: &Self::Erased) -> usize;
 }
+
+/// Bytes one decode-fan slot pads around a leaf handle of `B` beyond
+/// what the window charges for the in-memory handle's slot.
+///
+/// The window prices a fan slot at `node_bytes(0, bound)` plus
+/// [`FAN_SLOT_BYTES`], the pair's padding under the pointer-class
+/// handle, and leaves a wider-aligned handle's extra padding to the
+/// backend's own price: this is that extra, the obligation the leaf
+/// checks fold into their comparison. Never negative: a handle narrower
+/// than a pointer is overcharged, which is the safe direction.
+const fn fan_slot_excess<B: Backend<Node<Z>: Leaf>>() -> usize {
+    (size_of::<(Prefix<Z>, B::Node<Z>)>() - size_of::<B::Node<Z>>()).saturating_sub(FAN_SLOT_BYTES)
+}
+
+/// Bytes the per-level reference slots pad around a height-`H` handle
+/// of `B` beyond what the window charges for the in-memory handle's.
+///
+/// A held reference sits in a query slot `(u8, node)` and a resolution
+/// slot `(u8, Resolve<erased>)`; the window prices both at
+/// [`REFERENCE_SLOT_BYTES`], derived for the pointer-class handle, and
+/// leaves a wider layout's extra padding to the backend's price. The
+/// listing slot carries a hash, not a handle, so it pads the same for
+/// every backend.
+const fn reference_slot_excess<B: Backend<Node<Z>: Leaf>, H: Height>() -> usize {
+    let real = (size_of::<(u8, B::Node<H>)>() - size_of::<B::Node<H>>())
+        + (size_of::<(u8, Resolve<B::Erased>)>() - size_of::<B::Erased>());
+    real.saturating_sub(LOCAL_REFERENCE_PADDING)
+}
+
+/// The padding the window's reference-slot constant carries for the
+/// in-memory handle: the query and resolution slots less the handle in
+/// each.
+const LOCAL_REFERENCE_PADDING: usize = (size_of::<(u8, typed::Node<Z>)>()
+    - size_of::<typed::Node<Z>>())
+    + (size_of::<(u8, Resolve<<Local as Backend>::Erased>)>()
+        - size_of::<<Local as Backend>::Erased>());
+
+// The decomposition above is the window constant's own: the two
+// handle-bearing slots' padding, the two handles, and the listing slot.
+const _: () = assert!(
+    LOCAL_REFERENCE_PADDING
+        + size_of::<typed::Node<Z>>()
+        + size_of::<<Local as Backend>::Erased>()
+        + size_of::<(u8, Hash)>()
+        == REFERENCE_SLOT_BYTES,
+    "the reference-slot padding decomposes the window's constant",
+);
 
 /// The process-global byte census the charged decorator maintains.
 mod ledger {
@@ -279,12 +336,14 @@ where
         // The pointwise contract at the leaf seam: after construction has
         // had its chance to persist the payload, the cost function at
         // `children = 0` and the node's own bounds must cover what the
-        // handle keeps resident — this is the price the session budget
-        // charges every decode-fan slot.
+        // handle keeps resident, its decode-fan slot's padding included
+        // — this is the price the session budget charges every
+        // decode-fan slot.
+        let padding = fan_slot_excess::<N::Backend>();
         let priced = <N::Backend as Backend>::node_bytes(0, bound_bytes(&node));
-        if measured > priced {
+        if measured + padding > priced {
             ledger::violation(format!(
-                "underpriced leaf: measured {measured} B, node_bytes priced {priced} B",
+                "underpriced leaf: measured {measured} B plus {padding} B of decode-slot                  padding, node_bytes priced {priced} B",
             ));
         }
         Ok(Self::wrap(node, measured))
@@ -308,18 +367,37 @@ where
     type Erased = ChargedNode<B::Erased>;
     type Error = B::Error;
 
-    // Both conversions settle the wrapper's ledger entry and open an
-    // identical one around the re-tagged handle: the running total dips by
-    // one node's bytes between the two calls and never rises, so the
-    // census peak is untouched.
+    // Both conversions settle the wrapper's ledger entry and open one
+    // around the re-tagged handle at its measured size: the running
+    // total dips by one node's bytes between the two calls and never
+    // rises, so the census peak is untouched exactly when the re-tag
+    // leaves residency unchanged. That is the trait's re-tag clause (a
+    // tag forgotten and restored "without changing the value";
+    // `assume::<H>(erase::<H>(node)) == node`), checked here rather than
+    // relied on: a re-tag that changes residency is recorded by name and
+    // charged at what it measures.
     fn erase<H: Height>(node: Self::Node<H>) -> Self::Erased {
         let bytes = node.bytes;
-        ChargedNode::wrap(B::erase(node.into_inner()), bytes)
+        let erased = B::erase(node.into_inner());
+        let measured = B::measure_erased(&erased);
+        if measured != bytes {
+            ledger::violation(format!(
+                "re-tagged node changed residency: typed {bytes} B, erased {measured} B",
+            ));
+        }
+        ChargedNode::wrap(erased, measured)
     }
 
     fn assume<H: Height>(erased: Self::Erased) -> Self::Node<H> {
         let bytes = erased.bytes;
-        ChargedNode::wrap(B::assume(erased.into_inner()), bytes)
+        let node = B::assume::<H>(erased.into_inner());
+        let measured = B::measure::<H>(&node);
+        if measured != bytes {
+            ledger::violation(format!(
+                "re-tagged node changed residency: erased {bytes} B, assumed {measured} B",
+            ));
+        }
+        ChargedNode::wrap(node, measured)
     }
 
     fn node_bytes(children: usize, version_bound: usize) -> usize {
@@ -406,16 +484,20 @@ where
                     let measured = B::measure(&node);
                     // The pointwise contract at the explosion: an exploded
                     // child is one of the held references the window
-                    // prices per depth. Its own fan is invisible here, so
-                    // the price is taken at the widest fan it can have
-                    // (its leaf count, capped at the radix), which the
-                    // contract's monotonicity in fan makes an upper bound
-                    // on the price at its own fan.
+                    // prices per depth, sitting in the reference slots
+                    // whose padding beyond the pointer-class layout is
+                    // the backend's to price. Its own fan is invisible
+                    // here, so the price is taken at the widest fan it
+                    // can have (its leaf count, capped at the radix),
+                    // which the contract's monotonicity in fan makes an
+                    // upper bound on the price at its own fan.
+                    let padding = reference_slot_excess::<B, H>();
                     let priced = B::node_bytes(node.len().min(FAN), bound_bytes(&node));
-                    if measured > priced {
+                    if measured + padding > priced {
                         ledger::violation(format!(
-                            "underpriced child: measured {measured} B, \
-                             node_bytes at the widest fan prices {priced} B",
+                            "underpriced child: measured {measured} B plus {padding} B of \
+                             reference-slot padding, node_bytes at the widest fan prices \
+                             {priced} B",
                         ));
                     }
                     (prefix, ChargedNode::wrap(node, measured))
@@ -462,12 +544,13 @@ where
                     let measured = B::measure(&leaf);
                     // The pointwise contract at the walk: a walked leaf
                     // is a fan slot the session budget prices at
-                    // `children = 0`.
+                    // `children = 0`, its slot's padding included.
+                    let padding = fan_slot_excess::<B>();
                     let priced = B::node_bytes(0, bound_bytes(&leaf));
-                    if measured > priced {
+                    if measured + padding > priced {
                         ledger::violation(format!(
-                            "underpriced walked leaf: measured {measured} B, \
-                             node_bytes priced {priced} B",
+                            "underpriced walked leaf: measured {measured} B plus {padding} B \
+                             of decode-slot padding, node_bytes priced {priced} B",
                         ));
                     }
                     // Every version bound under the walked node is in its
@@ -621,9 +704,13 @@ where
     }
 }
 
-/// Every version bound up to this many bytes is swept pairwise: the
-/// small encodings real sessions exchange, where an off-by-one hides.
-const BOUND_DENSE_CEILING: usize = 64;
+/// Every version bound up to this many bytes is swept pairwise.
+///
+/// Far past the encodings the suite's corpora exchange (tens of bytes),
+/// so a dip at any one bound a session at this scale can evaluate is a
+/// grid point's neighbor. Dense costs nothing here: the cost function
+/// is pure arithmetic.
+const BOUND_DENSE_CEILING: usize = 4096;
 
 /// The sweep's largest version bound: 1 MiB, far past any canonical
 /// encoding the suite's corpus scale reaches, sampled at powers of two.
@@ -657,6 +744,12 @@ fn sweep_bounds() -> Vec<usize> {
 /// out of release, so the suite sweeps the grid: every adjacent fan pair
 /// up to the radix ([`FAN`]), crossed with [`sweep_bounds`]'s version
 /// bounds, and every adjacent bound pair at each swept fan.
+///
+/// The fan dimension is exhaustive; the bound dimension is a sample of
+/// the family, dense where sessions evaluate and sparse above. A dip
+/// that begins and recovers strictly between two sparse grid points
+/// passes the sweep; the family itself (any bound, any increase) is
+/// held by a property test over each backend in this module's tests.
 fn node_bytes_monotone<B>()
 where
     B: Measure + Clone,

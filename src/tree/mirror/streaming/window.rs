@@ -151,7 +151,7 @@ const KEY_DEPTH: usize = 32;
 /// pointer-class node handles; a backend whose `Node` demands a wider
 /// layout pads the real slots beyond this constant and owes that padding
 /// to its own `node_bytes` price.
-const REFERENCE_SLOT_BYTES: usize = std::mem::size_of::<(u8, typed::Node<Z>)>()
+pub(crate) const REFERENCE_SLOT_BYTES: usize = std::mem::size_of::<(u8, typed::Node<Z>)>()
     + std::mem::size_of::<(u8, Resolve<<Local as Backend>::Erased>)>()
     + std::mem::size_of::<(u8, typed::Hash)>();
 
@@ -172,7 +172,7 @@ const LEAF_REQUEST_BYTES: usize = 40;
 /// whose `Node<Z>` demands wider alignment pads the real slot beyond
 /// `node_bytes + FAN_SLOT_BYTES` and owes that padding to its own
 /// `node_bytes` price.
-const FAN_SLOT_BYTES: usize =
+pub(crate) const FAN_SLOT_BYTES: usize =
     std::mem::size_of::<(Prefix<Z>, typed::Node<Z>)>() - std::mem::size_of::<typed::Node<Z>>();
 
 /// Worst-case bytes the decode fans of one session keep resident, under
