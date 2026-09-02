@@ -215,7 +215,11 @@ for example). A stop is reported to Finch as a numbered block, each item
 re-grounded with enough context to rule on without scrollback and with a
 recommendation, both in the packet and in the message that announces it.
 The entry stays `open` in the ledger and nothing else in the lane waits
-on it unless the brief says so.
+on it unless the brief says so. A stop's deliverables (a failing test
+as a patch, its seed, the run log, a construction) are committed on the
+lane branch under `triage/stops/<lane>/` with a README naming the entry
+and the choice, never left in the session scratchpad: the scratchpad
+does not outlive the session, and the owner rules on the artifact.
 
 ## What never happens
 
@@ -240,6 +244,9 @@ wave. One
 under the lane's scratchpad directory and polled, never a foreground
 demand.
 Fresh-eyes rounds are reads, not builds; they do not run the suite.
+A reviewer reads the lane by sha (`git show <sha>:<path>`), never the
+working tree, because the coordinator's verification runner may be
+replaying negative controls in the same worktree at the same time.
 Timing measurements a brief asks for are made once, load reported, never
 iterated.
 
