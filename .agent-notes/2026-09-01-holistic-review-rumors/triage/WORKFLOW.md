@@ -105,11 +105,18 @@ in the same turn.
   `git -C /Users/oxide/src/rumors worktree add ../rumors-<lane> -b
   <lane-branch> <base>`. Stacked lanes branch from the parent lane's
   branch, not from `main` (see "Stacks").
-- Set the lane's commit identity in the worktree:
-  `git config user.name "Claude (lane <lane>)"`, `git config
-  user.email "claude+<lane>@rumors.local"`, `git config commit.gpgsign
-  false`. Lane commits are authored by Claude and unsigned; they are
-  signed by Finch as committer when he rebases them onto `main`.
+- Set the lane's commit identity in the worktree's own config, never
+  the shared one: the repository has `extensions.worktreeConfig`
+  enabled, so run `git -C <worktree> config --worktree user.name "Claude
+  (lane <lane>)"`, likewise `--worktree user.email
+  "claude+<lane>@rumors.local"` and `--worktree commit.gpgsign false`,
+  and confirm with `git config --show-origin user.name` that the value
+  comes from `.git/worktrees/<name>/config.worktree`. Without
+  `--worktree`, `git -C <worktree> config` writes the shared
+  `.git/config` and every checkout of the repository, `main` included,
+  commits under the lane's name. Lane commits are authored by Claude and
+  unsigned; they are signed by Finch as committer when they are rebased
+  onto `main`.
 - Launch the lane agent with the brief's path, the worktree path, its
   scratchpad subdirectory, and the annotation requirement above. The
   brief carries every other ground rule; do not restate them, and do not

@@ -19,6 +19,7 @@ carries the ground rules in full.
 | `p1-renderer.md` | T5, T9 | `codec/capture.rs` and its tests, `AGENTS.md` | small |
 | `p1-envelope.md` | T10, T17, T43 | `window/tests.rs`, `window.rs`, `examples/envelope_sim.rs`, `src/lib.rs`, `results/` | medium |
 | `p1-gate.md` | T7, T15, T16, T20, T26 (deps-1, verification-infra-7/-8/-9), T28 (CI and manifest), T29, T30 | `justfile`, `.github/workflows/ci.yml`, `tools/testdoc`, `Cargo.toml`, `src/lib.rs`, `tests/future_size.rs`, `src/peer.rs` rustdoc | medium |
+| `p1-memwatch.md` | T136 | `tools/memwatch`, the justfile, `.github/workflows/ci.yml`, the `Cargo.toml` `[lib]` comment, `design/rumors-frame-fuzz.md` | small |
 | `p1-harness-crate.md` | T19, T22, T24, T26 (streaming-tests-11, materialized-27, remote-proxy-19) | in-crate suites under `src/tree/mirror/streaming/` | large |
 | `p1-harness-tests.md` | T13, T21, T26 (tests-disruption-handshake-7, tests-lifecycle-15), T28 (disruption ranges, PollBudget) | `tests/`, `src/testing/transport.rs`, `src/conformance/link/tests.rs` | medium |
 | `p1-swarm.md` | T27 | `examples/swarm*`, `Cargo.toml` | small |
@@ -43,7 +44,10 @@ adds.
 
 ## Independence and launch order
 
-No lane depends on another's commits. Two pairs share a file and should
+No lane depends on another's commits, with one exception: `p1-memwatch`
+stacks on `p1-gate` (its base is the gate lane's final sha; both edit the
+justfile) and launches after gate lands and before `p1-envelope` rebases,
+so envelope rebases onto memwatch's sha. Two pairs share a file and should
 not run concurrently, or one must rebase onto the other before its gate
 run:
 
