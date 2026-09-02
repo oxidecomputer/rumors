@@ -127,3 +127,129 @@ prose-only and that lane is the one T40 governs; it touches test files in
 Order: `p2-codec`, `p2-link`, `p2-walk`, `p2-commit-path` as one wave of
 four (with P1 wave 1 already running, check the disk and cap concurrent
 builders at four total); `p2-peer` after `p2-commit-path` lands.
+
+# P3 lane briefs
+
+Conventions and lints, each with a committed check. Every lane is based
+on `<base sha>`, which the coordinator fills at launch: `main` after
+every P1 and P2 lane has merged, because the sweeps touch the files all
+of them edit. The lanes are governed by rulings T46 through T59 (T27 for
+three moot rows), with T141's prose standard (`PROSE.md`) binding each.
+The ledger's `lane` column is empty for P3 rows; the `ruling` column is
+the roster, and each brief takes the rows of the rulings it names. Every
+brief quotes each row's Resolution (and Acceptance, for heading entries)
+verbatim, states the goal beside the mechanism, names the exact oracle
+whose empty output is the acceptance, the committed check that keeps it
+empty, and the known-bad artifact that must fail that check.
+
+| Brief | Rulings | Rows | Touches | Size | Effort |
+|---|---|---|---|---|---|
+| `p3-lints.md` | T47, T54, T55 | 22 | `Cargo.toml` (`[lints]`), `src/lib.rs` attributes, the four clippy-lint site families, `type_complexity` allows under `streaming/`, `src/error.rs` and the error enums | large | high |
+| `p3-modules.md` | T46, T53 | 20 | `AGENTS.md` (one line), `src/tree/typed.rs` comment, six test-module moves, a `tools/` placement check, the justfile | small | medium |
+| `p3-seeds.md` | T59 | 5 | `proptest-regressions/**`, `tests/seed_liveness.rs` | small | high |
+| `p3-vocabulary.md` | T49, T50, T51, T56, T57 (+T27: swarm-example-4) | 40 | rustdoc and comments across `src`, `tests`, `benches`; fixture renames in `conformance/backend/tests.rs`, `streaming/testing/faulting.rs`, `tests/common`; `AGENTS.md` (one line); `tools/doclint` if T51's check is cheap | large | medium |
+| `p3-dashes.md` | T48 (+T27: swarm-example-11) | 20 | a `tools/` em-dash check, the justfile, `//` and `#` comments and assert strings across the rumors paths and the root config files | small | medium |
+| `p3-imports.md` | T52 (+T27: swarm-example-25) | 31 | `rustfmt.toml`, the justfile `fmt` recipes, `ci.yml`, every import block in the workspace | medium | medium |
+| `p3-prose-pass.md` | T58 | 0 | rustdoc across `src` | medium | medium (its fresh-eyes readers high) |
+
+The rows sum to 138; every P3 id sits in exactly one brief.
+
+## Grouping decisions
+
+- Lanes group by the mechanism each check needs, and the `ruling`
+  column's rosters are kept whole. T47, T54, and T55 share one lane
+  because all three are lint-attribute edits on the public surface and
+  the `missing_docs` sweep opens the same error files T55 edits. T46 and
+  T53 share one lane as the two module conventions (one AGENTS.md line
+  and one placement check). T52 stands alone: it is the one sweep a
+  formatter produces, workspace-wide, redone on every rebase. T48 stands
+  alone: its tool is shared with the `before` triage (its rulings 7 and
+  54). T49, T50, T56, T57, and T51 share one lane because they rewrite
+  the same prose and the same fixtures (`conformance/backend/tests.rs`
+  carries both `Knob` and `Dishonest`), and T57's comment text depends on
+  T50's sweep. T59 stands alone: its files are disjoint from everything.
+- The three T27 rows (`swarm-example-4`, `-11`, `-25`) are moot, disposed
+  by the example's deletion in `p1-swarm`; each sits in the lane matching
+  its class, and the lane's only act is quoting the file's absence at base.
+- `p3-prose-pass.md` carries no rows: TRIAGE.md's P3 table names owner
+  decision 13 and T58 rules it as a pass run after the mechanical sweeps,
+  so it has a brief; the coordinator may hold it until P3's other lanes
+  have merged.
+- Rows a P6 ruling owns are named as such in the briefs and not landed
+  here: the `Iter` re-export (T60, in the lints lane's rows), the codec
+  constructors' narrowing (T63), the twelve `Debug` impls (T84), the
+  `warm_caches` docs (T96).
+
+## Open before launch
+
+Places where a ruling and a row's disposition disagree, or where a
+ruling's mechanism cannot be executed as worded; each brief marks its
+item as a stop, and none is resolved in the briefs.
+
+1. `module-graph-14` (T53 row, P3, `fix`): T53 says the five inline
+   production modules it names are "a separate P5 question and untouched
+   here". The modules brief stops before touching it.
+2. `tests-lifecycle-18` (T59 row, P3, `fix`, medium): its Resolution
+   deletes `tests/async_wire.rs`, which T131 lands in the P5 tests lane;
+   T59 disposes only the row's "consequence" (the four seeds re-homing in
+   that commit). The seeds brief does not delete the binary.
+3. `api-core-17` (T51): the row's three named sites are the
+   `warm_caches` docs T96 deletes, and T51's wording ("every public
+   type's and module's rustdoc is imperative, matching `Peer`, `Rumors`,
+   `Bootstrap`") does not match the tree, where those type docs open as
+   noun phrases and the mixed mood is in method docs. PROSE.md reads T51
+   as one mood per item kind. The vocabulary brief stops before rewriting
+   a type doc.
+4. T47's "landed at `warn`, swept to zero, then promoted": under the
+   recipes' `-D warnings` a `warn` entry in `[lints]` already fails the
+   gate, so no lint can sit in the table with a nonzero remainder, and
+   the three rustc lints' remainders are partly P6's (T60, T63, T84). The
+   lints brief enumerates and stops on those three with a recommendation.
+5. T53's check, read literally ("no `.rs` file contains an inline
+   `cfg(test)` module body"), fires on `src/tree.rs`'s
+   `#[cfg(test)] pub(crate) mod meter {`, which the same ruling leaves to
+   P5. The modules brief checks by module name (`tests`/`test`) and asks
+   which reading is meant.
+6. `inventory-18` and the `header.rs` site of `clippy-pedantic-1` (T47
+   rows) are link-25's, ruled T44 and landed by `p2-link`; the lints
+   brief verifies them at base rather than landing them.
+7. Cross-triage: the em-dash tool is one workspace check by the `before`
+   triage's rulings 7 and 54 (whichever lane lands first ships it; the
+   other sweep runs against it), and `p3-imports`' formatter run moves
+   76 files under `crates/` (dry run at `6c90bd7d`) that the in-flight
+   `before` lanes also edit. Both go through `.agent-notes/merge-queue.md`.
+
+## Independence and launch order
+
+Every unmerged `triage/*` branch at `6c90bd7d` collides with at least one
+P3 lane: `p1-gate` (justfile, `ci.yml`, `Cargo.toml`, `src/lib.rs`,
+`tools/testdoc`, five `.rs` files), `p1-memwatch` (justfile, `ci.yml`,
+`Cargo.toml`), `p1-swarm` (`Cargo.toml`, `Cargo.lock`, `examples/swarm*`),
+`p1-renderer` (`AGENTS.md`, `Cargo.toml`, justfile, `capture.rs` and its
+tests, `tools/digestshare`, the snapshots), `p1-causality`
+(`tests/bookmark_*.rs`, `tests/common/flaky.rs`), `p1-harness-tests`
+(`src/testing.rs`, `src/testing/transport.rs`, `src/conformance/link/tests.rs`,
+`tests/common/*`, `tests/disruption.rs`, `tests/gossip_when.rs`,
+`tests/multi_peer.rs`, `tests/pairwise.rs`, `proptest-regressions/disruption.txt`),
+`p2-link` (`src/link/routed/*`, `proptest-regressions/link/**`). The
+lanes not yet started (`p1-harness-crate`, `p1-envelope`,
+`p1-collision-mode`, `p2-codec`, `p2-commit-path`, `p2-walk`) overlap the
+sweeps as well. So P3 launches only after the last P1 and P2 merge, from
+`main`, and the briefs' "surveyed at `6c90bd7d`" counts are re-derived by
+grep at that base.
+
+Within P3, waves of at most four builders, hand-heavy lanes first and
+formatter-shaped lanes last so a rebase redoes only what is cheap:
+
+1. `p3-modules`, `p3-seeds`, `p3-lints` (seeds is file-disjoint from
+   both; lints and modules overlap in `adversarial.rs`, so lints rebases
+   onto modules' sha before its gate run).
+2. `p3-vocabulary`, after modules (the AGENTS.md line) and lints (its
+   new rustdoc is T51's input) have merged.
+3. `p3-dashes`, then `p3-imports` (its formatter commit is separate,
+   announced in the merge queue, and redone on every rebase).
+4. `p3-prose-pass`, after `p3-imports` has merged.
+
+P6 waits on `p3-lints`' enumeration (T47: the rustc lints list P6's
+mechanical half); nothing in P4 or P5 waits on a P3 lane beyond the
+rulings themselves, which are already recorded.
