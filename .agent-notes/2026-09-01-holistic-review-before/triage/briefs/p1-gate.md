@@ -23,9 +23,14 @@ authority that does not run.
 These apply to every P1 lane; the lane sections below add to them and
 never relax them.
 
-- **Base.** Your worktree's HEAD must equal `bba0e31a` before you start.
-  Run `git -C <worktree> rev-parse HEAD`. If HEAD is an ancestor of
-  `bba0e31a`, fast-forward; if it has diverged, stop and report. Never call
+- **Base.** This lane is stacked on the rumors triage's gate lane
+  (ruling 107): your worktree's HEAD must equal the SHA the coordinator
+  names in your launch message, the tip of the branch `triage/p1-gate`.
+  Run `git -C <worktree> rev-parse HEAD`. If HEAD is an ancestor of that
+  SHA, fast-forward; if it has diverged, stop and report. That branch
+  already edits `ci.yml`, the justfile header and `ci` recipe, the root
+  lockfile, and `tools/testdoc`; read its diff against `main` before you
+  edit any of those files, and never rewrite its commits. Never call
   EnterWorktree; operate on the worktree through `git -C <path>` and
   absolute paths, one shell invocation at a time.
 - **The review documents are the specification.** Each member entry below
@@ -259,6 +264,13 @@ found by `grep -rn 'mutants\|mutantcheck' --exclude-dir=.agent-notes
 `.agent-notes/` and git history; `just gate` and `just ci` list no
 mutants leg; `tools/workflowlint` is deleted by this lane (ruling 106).
 
+Your base carries the rumors gate lane's commit `c35943ca`, which pins
+`cargo-mutants@27.1.0` in the CI install step and rewrites that step's
+comment to call the roster's counts a committed expectation (ruling 107
+lets that commit stand as written). Delete the pin and restate the
+comment here, with the rest of the retirement; do not amend or reorder
+the rumors lane's commits.
+
 The mutants roster is also where suanpan-40's two exclusions live; their
 code-side dissolution is `p1-survivors`' work and needs nothing from you
 beyond the deletion.
@@ -272,14 +284,28 @@ Ruled (25): cargo-mutants is not pinned; it leaves CI with the roster
 remains true: `cargo-rdme@2.1.0` is pinned because its emitted bytes are
 a committed expectation (the READMEs), and every other installed tool
 only reports findings. Acceptance: no `cargo-mutants` in ci.yml; the
-comment names the one pinned tool and the reason; `tools/workflowlint`
-passes.
+comment names the one pinned tool and the reason. The comment as found
+at your base is the rumors lane's wording (two pinned tools); restate it
+to the one that remains. `tools/workflowlint` is deleted (ruling 106), so
+its passing is not an acceptance.
 
 ### deps-6 (medium, documentation): ruling 25
 
 Resolution: install the pinned toolchains from one source: read `just --evaluate nightly_toolchain` in a step and pass it as `toolchain:` (with `llvm-tools` in the coverage job), drop the floating nightly installs; drop the stable install steps or re-denominate their comments to "rust-toolchain.toml provisions 1.97.1 with clippy, rustfmt, and wasm32"; rewrite lines 17-25, 54-58, 128-133, 139-141, and 202-205 to the pinned regime. Optionally extend tools/workflowlint to require every dtolnay `toolchain:` input to equal the justfile pin or the rust-toolchain.toml channel. Acceptance: no `toolchain: nightly` or `toolchain: stable` remains in ci.yml; every comment naming a toolchain names the pinned one; the three jobs stay green.
 
-Ruled (25, 106): as stated; `tools/workflowlint` is deleted entirely under ruling 106, so no workflowlint extension
+Ruled (25, 106, 107): the mechanism is `just --evaluate
+nightly_toolchain`, `just` installed before the toolchain steps (the
+install action ships it as a prebuilt binary; no toolchain is needed to
+run it). Your base carries, in each of the three jobs, a "Read the
+toolchain pins" step that derives both pins with `sed` over
+`rust-toolchain.toml` and the justfile; the coordinator's launch message
+says whether the rumors lane has already replaced that step with the
+`just --evaluate` derivation (then verify it and record the entry as
+landed there) or whether this lane replaces it (then the nightly derives
+from `just --evaluate` and the stable pin may keep its
+`rust-toolchain.toml` read, since the dtolnay action reads no toolchain
+file). `tools/workflowlint` is deleted entirely under ruling 106, so no
+workflowlint extension is
 taken: a `toolchain:` input in the workflow must be the derived
 `nightly_toolchain` output or absent (rust-toolchain.toml provisions
 stable). Land the lint extension red-first against the untouched

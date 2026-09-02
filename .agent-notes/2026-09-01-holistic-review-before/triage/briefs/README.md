@@ -7,9 +7,12 @@ cost-cure phase (P2), the vocabulary phase (P3), and the pattern-sweep
 phase (P4), the scaffolding-dissolution phase (P5), the module lanes
 (P6), the API phase (P7), and the performance phase (P8) of the before
 and suanpan triage. Every P1 lane is
-based on `bba0e31a` (main, the commit recording the S2 rulings; the tree
-outside `.agent-notes/` is byte-identical to the reviewed commit
-`9e5784fb`, so every line number in the class documents holds). The P2
+based on `bba0e31a` or a later `main` (the tree under `crates/before`,
+the justfile, `tools/`, and the root manifests is byte-identical to the
+reviewed commit `9e5784fb` there, so every line number in the class
+documents holds), except `p1-gate`, which is stacked on the rumors
+triage's gate lane branch (ruling 107) and `p1-fuzz`, stacked on
+`p1-gate`. The coordinator names each lane's exact base SHA at launch. The P2
 lanes name their base by dependency (a main commit carrying the P1 lanes
 they build on; the coordinator names the SHA at launch). Every lane is
 governed by `../rulings.md`. Each brief quotes its members' Resolution and
@@ -120,13 +123,21 @@ Two further orderings from the rulings and TRIAGE.md:
 Recommended order, with waves of at most four builders and the disk
 checked before each wave:
 
-1. `p1-gate`, `p1-harness`, `p1-fuzz`
-2. `p1-survivors` (after the gate lane's roster retirement lands),
-   `p1-board` (rebased onto harness), `p1-suites` (rebased onto harness)
+1. `p1-gate` (stacked on the rumors gate lane's branch, ruling 107) and
+   `p1-harness` (from `main`)
+2. `p1-fuzz` (stacked on `p1-gate`: the wasmtime bump and the `ops.rs`
+   cast removal are then already under it when it calibrates)
+3. `p1-survivors` (stacked on `p1-gate`, after the roster retirement),
+   then `p1-board` and `p1-suites` in that order, each stacked on the
+   one before, since all three edit `tests/meter.rs`
 
-The rumors triage runs lanes in the same workspace. Lanes from the two
-plans do not run concurrently against `just gate`; the coordinator
-sequences them (ruling 5).
+The rumors triage runs lanes in the same workspace, and the two plans
+share the workspace-root files (the justfile, `ci.yml`, the manifests
+and lockfile, root `AGENTS.md`, `tools/`); `../WORKFLOW.md` carries the
+stacks, the cross-plan rules agreed with the rumors session, and the
+merge queue both plans use. Builds, tests, and gates run on the illumos
+box, never on the Mac (Finch's ruling: a clean gate there is the gate of
+record).
 
 ## P2 lanes
 
