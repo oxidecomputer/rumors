@@ -28,6 +28,17 @@ const DELAY: Duration = Duration::from_millis(10);
 /// Roomy per-stream pipe buffering: only round-trip structure is measured.
 const LINK_CAPACITY: usize = 8 * 1024 * 1024;
 
+/// A budget under which the greeting's sizes derive a window wider than
+/// the serialization floor.
+///
+/// The window solve takes a flat decode-fan pre-charge (about 210 KB
+/// under the in-memory pricing) off every budget before widening any
+/// stage, so a budget below it derives the floor whatever the sizes
+/// say; 512 KiB clears it with room for stages a few dozen scopes wide
+/// at the growth test's population, and the test holds the session to
+/// having widened.
+const GROWTH_BUDGET: usize = 512 * 1024;
+
 /// Build a bootstrapped pair, then commit `left_extra`/`right_extra`
 /// further messages on the respective sides, all under `budget`.
 fn pair(
@@ -100,6 +111,14 @@ fn asymmetric_catch_up_is_ladder_bound_at_the_floor() {
         "a one-common-message catch-up must cost ladder hops, not waves: \
          {measured} hops",
     );
+    // The floor is the one exchange no transfer avoids: completion
+    // depends on a reply to a delivered message, two causally chained
+    // one-way hops.
+    assert!(
+        measured >= 2,
+        "a catch-up cannot complete without one request and its reply: \
+         {measured} hops",
+    );
 }
 
 /// The same catch-up serves in the other direction: the large side
@@ -112,6 +131,11 @@ fn asymmetric_catch_up_is_direction_independent() {
     assert!(
         measured <= 12,
         "catch-up direction must not change the dispute price: {measured} hops",
+    );
+    assert!(
+        measured >= 2,
+        "a catch-up cannot complete without one request and its reply: \
+         {measured} hops",
     );
 }
 
@@ -165,13 +189,17 @@ fn one_byte_pipes_at_the_floor_stay_live() {
 
 /// A set that grows mid-session cannot break the session it grows under.
 ///
-/// The window derives from the sizes exchanged at the greeting; commits
-/// racing the session make those sizes stale in the direction of more
-/// population, which may only serialize. The racing session completes,
-/// and the next session converges whatever it missed.
+/// The window derives from the sizes exchanged at the greeting (a
+/// budget past the flat pre-charge, so the derivation widens it past
+/// the floor); commits racing the session make those sizes stale in
+/// the direction of more population, which may only serialize. The
+/// racing session completes, at least one racing commit is witnessed
+/// to have landed after the greeting's snapshot (the left replica has
+/// grown past what the session gave the right one), and the next
+/// session converges whatever it missed.
 #[test]
 fn growth_during_a_session_only_serializes() {
-    let (left, right) = pair(64 * 1024, 2_048, 2_000, 2_000);
+    let (left, right) = pair(GROWTH_BUDGET, 2_048, 2_000, 2_000);
     let racer = left.clone();
     pollster::block_on(async {
         let (mut a, mut b) = rumors::link::memory_with_capacity(LINK_CAPACITY);
@@ -184,8 +212,24 @@ fn growth_during_a_session_only_serializes() {
         };
         let (left_result, right_result, ()) =
             tokio::join!(left.gossip(&mut a), right.gossip(&mut b), race);
-        left_result.expect("gossip left under concurrent growth");
+        let left_result = left_result.expect("gossip left under concurrent growth");
         right_result.expect("gossip right");
+        assert!(
+            left_result.stats.window_granted > 1,
+            "the racing session ran at the serialization floor (widest capacity {}): the \
+             greeting's sizes derived no window for the race to stale",
+            left_result.stats.window_granted,
+        );
+        // The mid-session-growth witness: a commit that landed after the
+        // greeting's snapshot is on the left replica and was never
+        // offered to the right one, so the left has grown past the right.
+        assert!(
+            left.snapshot().len() > right.snapshot().len(),
+            "no racing commit landed after the greeting: the left replica holds {} \
+             messages and the right {}, so the session raced nothing",
+            left.snapshot().len(),
+            right.snapshot().len(),
+        );
 
         let (mut a, mut b) = rumors::link::memory_with_capacity(LINK_CAPACITY);
         let (left_result, right_result) = tokio::join!(left.gossip(&mut a), right.gossip(&mut b));
@@ -193,8 +237,8 @@ fn growth_during_a_session_only_serializes() {
         right_result.expect("follow-up gossip right");
     });
     assert_eq!(
-        left.snapshot().len(),
-        right.snapshot().len(),
+        left.snapshot(),
+        right.snapshot(),
         "the follow-up session converges everything the race added",
     );
 }
