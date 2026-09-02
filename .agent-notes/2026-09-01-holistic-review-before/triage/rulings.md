@@ -635,3 +635,9 @@ Disposes: fuzz-guests-pins-29, fuzzfit-bands-19, fuzzfit-strategies-11, fuzzfit-
 Finch's words (fuzzfit-bands-19): "Delete the probe, don't build the test. We know things are deterministic."
 
 Decision. Every wasm32 rank pin gets a seam-bit witness (a second stream differing only in the deep bit with strict order asserted, the algebraic inverse for add and checked subtraction, tight brackets for the version rank, clone checks on encodings), coordinated with the API lane's binary text form. `probe.rs` is deleted; no fuel-determinism test is added, fuel determinism being taken as known. The fuzz-fit mirror models the empty-operand identity rungs for join and meet, pins the predicate on the four pair kinds, and re-pins the bands with the movement annotated. The builder counts refusals, and sanity tests assert zero on both escalation replays and every bootstrap program, with the bootstrap stream's sub-floor coverage asserted.
+
+## Ruling 97 (2026-09-02): P6 meter-core, registry, and oracle mediums
+
+Disposes: meter-core-2, meter-registry-tier2-16, oracle-laws-13.
+
+Decision. All twenty unpinned generators get size-and-canonicality pins at two sizes with the six closed forms corrected, one typed roster-wide pin walks every `Shape` variant through its check, and `Packed::version()` routes through `Version::decode` under the meter feature. The Lipschitz coding pin folds into the subadditivity check as a leaf-count bound, its helper, constant, and four tests deleted, its larger operands carried into the subadditivity grid. The two oracle test docs' claims are asserted in their bodies.
