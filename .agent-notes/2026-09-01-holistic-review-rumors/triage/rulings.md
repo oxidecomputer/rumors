@@ -175,3 +175,81 @@ Home: the rustdoc on `lean_wedge_literal` in `src/tree/mirror/streaming/tests/we
 Disposes: tests-observation-37 (fix, entry of record); remote-proxy-tests-27, tests-disruption-handshake-33 (dup)
 Decision: `tools/testdoc`'s attribute pattern recognizes `#[pollster::test]`, and a committed probe demonstrates that an undocumented pollster test fails the gate.
 Home: code.
+
+## T31 (2026-09-02): A pooling `Dial` is a first-class deployment shape
+Disposes: owner decision 36; link-28, link-14 (fix)
+Decision: Recovered pooled connections get their own bound, applied before `READY`, so a stalled fresh header can never evict an admitted idle connection. `set_nodelay(true)` in the routed TCP guidance and harnesses, and one sentence on `Conn`, land in the same change. The constructed in-memory eviction test pins the old failure.
+Home: code.
+
+## T32 (2026-09-02): The `Bookmark` doc states the checkpoint reclaim rule; a test pins it
+Disposes: owner decision 37; session-bookmark-21 (fix)
+Decision: The public `Bookmark` doc is reworded to the code's rule: reclaim happens at the first unsuppressed pre-session checkpoint after dominance. The constructed scenario lands as a test pinning that timing.
+Home: code.
+
+## T33 (2026-09-02): The exactness clamp lives in `resume_payload`
+Disposes: owner decision 38; mirror-common-8, remote-codec-14 (fix)
+Decision: `resume_payload` clamps every read so no iteration fills past `len`, and its doc states the one remaining precondition (`payload.len() <= len`). The demonstrated fixtures at both altitudes land as the tests, through the kept sync-oracle differential (T24).
+Home: code.
+
+## T34 (2026-09-02): No user destructor runs under the watch write lock
+Disposes: owner decision 39; async-hazards-3 (fix-amended: full evacuation)
+Decision: At both commit sites the pre-image root leaves the `send_if_modified` closure through an `Option` and drops after the lock is released; the act and join walks push every discarded incoming value (a causally-skipped action's message, a duplicate or deletion-filtered incoming subtree) into a sink that is returned from the closure and dropped after the lock as well. The public payload guidance states that destructors never run under the replica's lock. The demonstrated hang (a `redact` whose payload destructor calls `snapshot()`) lands as the pin and must complete. The measurement of a large `send_all` under the lock stays with owner decision 64 in P7.
+Home: code.
+Reasoning: Finch proposed the `Option` mechanism; the sink covers the two mid-walk last-handle drops of incoming values, which the `Option` alone does not reach.
+
+## T35 (2026-09-02): Content changes always advance the frontier; a party-only change wakes no one
+Disposes: owner decision 40 (correctness open questions 15 and 17)
+Decision: A content change without a frontier advance is impossible: every action in `Tree::act` ticks the party before it is applied (forgets included), a gained leaf carries a version outside the local ceiling (a leaf inside it that we lack was redacted, and deletion honoring refuses it), and a shed leaf requires the peer's ceiling to contain the redaction tick, which we cannot already hold because holding it means we already shed the leaf. The `Changes` field doc states this argument in one sentence. The wake rule at both sites is: a party-only change (take or fork) notifies no watcher; content processing is independent of the party, and the user never reasons about it. `gossip.rs`'s take-or-fork site adopts `bookmark_update`'s rule. The lane verifies that no consumer relied on the party-only wake (the retire, bootstrap, and bookmark suites are the check) and stops if one did.
+Home: code (the `Changes` field doc; one comment at the shared wake rule).
+Reasoning: Finch: "the frontier always updates when content changes" (verified against `Tree::act` and the join's deletion honoring); "we shouldn't wake anyone when the party only changes."
+
+## T36 (2026-09-02): `ErasedPrefix::assume`'s length check is a release assert
+Disposes: owner decision 41 (correctness open question 16)
+Decision: The O(1) length-versus-height check in `ErasedPrefix::assume` is a release-profile `assert!` carrying the proof, so a cross-height re-tag panics as programmer error in every profile instead of misplacing a leaf silently.
+Home: code.
+
+## T37 (2026-09-02): The in-flight party lives in the retire future; `Inner.party` is not an `Option`
+Disposes: owner decision 94; api-core-2 (fix-amended: the redesign lands now)
+Decision: `Peer::retire` holds the party it is moving inside the retire future rather than leaving a `None` behind in `Inner`, so `Inner.party` becomes a plain `Party`, `Batch::commit`'s no-party arm and its sibling unreachable arm disappear, and no release path can drop a batch silently. This lands in P2, not as a later design item.
+Home: code.
+
+## T38 (2026-09-02): The leaf stores its action's version; the running join is dissolved
+Disposes: owner decision 95; tree-core-30 (fix-amended)
+Decision: `Z::act` stores the applied action's own version at the leaf and the per-key running join is removed: the ceiling observer already joins every effectual action's version, and under `Tree::act` the versions at one key form a causally ascending chain (each action ticks the party in specification order; an insert's path is fresh from its post-tick version, so only forgets of an existing path share a key), so the join at a key equals the last version and a surviving leaf has exactly one. `react`'s doc states that it is `act`'s commit section over versioned actions and that its contract assumes the ascending per-key order `act` guarantees. The two constructions in tree-core-30 land as tests of the stated contract (the first now yields the insert's version; the second is documented as outside the contract or made to hold, the lane reports which). Simplifications the removal exposes are reported, not landed unbidden.
+Home: code.
+Reasoning: Finch: "the running join is the same as taking the last, in all production code ... the version uniquely keys the path ... some simplification can be done here." Verified at `Tree::act`.
+
+## T39 (2026-09-02): The single-sort tier of `act` lands in P2
+Disposes: tree-core-27 (fix-amended: the single-sort tier only; the slice-recursion redesign stays with owner decision 64 in P7), tree-typed-30's fan-doc contradiction rides along
+Decision: `act` sorts its action list once at entry and merges on reassembly, replacing the per-height sort and re-materialization. It lands beside the destructor evacuation (T34), since both touch the commit path, and is measured with the existing benches at the parent commit before the change is credited. The deeper redesign is ruled in P7.
+Home: code.
+
+## T40 (2026-09-02): The walk's end legs share the `Resolver`'s classifier; "aborts typed" leaves the prose
+Disposes: materialized-14 (fix-amended); a crate-wide vocabulary ruling
+Decision: The lane first resolves the recorded opening-leg liveness gap (a violation raised before the opening's first yield must return an error over a wire rather than stall), then routes the terminal and opening legs through `Resolver::react` so one classifier serves every height, falling back to per-arm reclassification only if the ends genuinely differ (reported, not assumed). The early-supply structural checks and the trailing-reply check land either way, each malformed shape pinned by a committed injection that fails on the current arms; `absorb` moves the accepted leaf instead of cloning it. Vocabulary: the phrase family "fails typed", "aborts typed", and kin is excised crate-wide in favor of "returns an error"; the sweep runs its regenerating grep to zero in the commit that lands it.
+Home: code; the vocabulary rule joins the P3 convention sweeps.
+
+## T41 (2026-09-02): The async opener read surfaces a recorded transport failure in wire order
+Disposes: remote-codec-11 (fix)
+Decision: The bulk opener read keeps a pending-failure slot; the bytes in hand are parsed, and the first item that needs more bytes returns the recorded failure as a read error at that part rather than re-reading the transport. The non-sticky failing async reader fixture (one byte, then an error, then end-of-stream) pins that both decoders classify it identically; the sticky-error and full-delivery cases are unchanged. Lands beside the exactness clamp (T33).
+Home: code.
+
+## T42 (2026-09-02): `warm_caches` forces the memos it lists
+Disposes: tree-core-8 (fix)
+Decision: `warm_caches` forces `version_bytes` (which forces the bounds span, so the separate ceiling and floor calls go), its doc names the memos it forces rather than claiming "every", `Snapshot::warm_caches` mirrors the wording, and a `cfg(test)` probe on the node pins that the memo is populated after warming.
+Home: code.
+
+## T43 (2026-09-02): `examples/envelope_sim.rs` is deleted
+Disposes: benches-envelope-34, benches-envelope-31 (fix-amended: resolved by deletion); amends T10
+Decision: Once the differential proptest of T10 demonstrably fails on a lowered shipped quantile, the whole example is deleted, its `[[example]]` entry and every recipe and prose reference with it. Nothing of its Monte Carlo tiers is kept; the certificate of record is the in-tree proptest. The P1 envelope brief's "empty example" stop is resolved by this ruling.
+Home: code.
+
+## T44 (2026-09-02): The advertised name travels as a validated-length newtype
+Disposes: link-25 (fix-amended)
+Decision: The routed link's advertised name is carried as a newtype whose constructor is the one place its length is checked against `MAX_ADDR_LEN`, so `link_header` takes the type and writes its length without a cast or a guard; the `debug_assert!` and the `as u8` both go. The endpoint's construction-time validation moves into that constructor.
+Home: code.
+
+## T45 (2026-09-02): The router's read-id counter wraps
+Disposes: link-29 (fix)
+Decision: `next_id` advances with `wrapping_add(1)`, with a one-line comment that at most `pending_headers` ids are live at once, so distinctness among live entries is all the counter owes.
+Home: code.
