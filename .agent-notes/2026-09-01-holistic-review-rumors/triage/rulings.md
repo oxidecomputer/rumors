@@ -689,3 +689,8 @@ Home: code.
 Disposes: tests-lifecycle-22, tests-observation-18, tests-resource-link-window-29, tests-wire-format-16, tests-wire-format-3, tests-wire-format-6, tests-bookmark-3, tests-disruption-handshake-31, tests-lifecycle-3, tests-observation-2, tests-observation-32, tests-resource-link-window-22, tests-resource-link-window-3 (fix)
 Decision: Each lands per its entry. The harness consolidation entries (tests-bookmark-3, tests-lifecycle-3, tests-observation-2, tests-observation-32, tests-resource-link-window-22, tests-disruption-handshake-31) land in the shared harness crate of T115, the harness lane before the suite lanes. `tests/async_wire.rs` is deleted with its `String` payload riding `pairwise`'s union property and its four seeds re-homed into `pairwise.txt` in the same commit (T59).
 Home: code.
+
+## T132 (2026-09-02): `api-core-18` lands as stated; every remaining low and nit roster is approved
+Disposes: api-core-18 (fix); every open low and nit row in P4, P5, P6, and P7 (fix)
+Decision: Each open low and nit entry lands per its own Resolution and Acceptance inside its pattern sweep (P4), module lane (P5), the error pass (the two P6 nits), or the performance lane (P7). Finch reviews each lane's diff; a lane agent that must deviate from a stated resolution stops and reports, and the entry stays open until ruled.
+Home: code.
