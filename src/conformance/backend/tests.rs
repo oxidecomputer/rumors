@@ -23,7 +23,10 @@ use crate::{
         mirror::streaming::{
             Backend, BoxNodeStream, ErasedNode, Leaf, Local, Node, NodeStream,
             convert::Convert,
-            window::{FAN, SUPPLY_DECODE_ENVELOPE_BYTES, WindowConfig},
+            window::{
+                FAN, FAN_SLOT_BYTES, REFERENCE_SLOT_BYTES, SUPPLY_DECODE_ENVELOPE_BYTES,
+                WindowConfig,
+            },
         },
         typed::{
             self, Hash, Path, Prefix,
@@ -227,6 +230,10 @@ static CHILDREN_SLACK: Knob = Knob::new(0);
 /// with `Ok(None)`, spent one per call: honest at zero.
 static PARENT_DROPS: Knob = Knob::new(0);
 
+/// Whether an empty group presented to `parent` is answered with a
+/// conjured node instead of `None`: honest at zero.
+static PARENT_CONJURES: Knob = Knob::new(0);
+
 /// Extra bytes bulk-assembled rows keep resident: honest at zero,
 /// over-holding above it.
 static ASSEMBLE_SLACK: Knob = Knob::new(0);
@@ -293,7 +300,8 @@ static ERASE_SLACK: Knob = Knob::new(0);
 const STEP_THRESHOLD: usize = (BOUND_SWEEP_CEILING / 2 + 1 + BOUND_SWEEP_CEILING - 1) / 2;
 
 /// The header bytes the step drops: the width of that gap, the largest
-/// drop the gap's two grid endpoints still ascend across.
+/// drop the gap's two grid endpoints tolerate; across it they price
+/// equal, which the sweep's non-strict comparison accepts.
 const STEP_DROP: usize = (BOUND_SWEEP_CEILING - 1) - (BOUND_SWEEP_CEILING / 2 + 1);
 
 /// The bytes the session's slots pad around a [`MaterializedNode`]
@@ -311,6 +319,24 @@ const SLOT_PADDING: usize = {
 const _: () = assert!(
     SLOT_PADDING > 0,
     "a node aligned wider than a pointer pads its slots",
+);
+
+// The same padding written out from the layouts by hand, independently
+// of the suite's excess functions, so an over-estimate there cannot
+// hide behind a price that covers it. On a 64-bit target: `Prefix<Z>`
+// is 34 bytes at alignment 2, the in-memory handle one 8-byte `Arc`,
+// and `Hash` 24 bytes, so the window's decode-fan pair is 48 bytes
+// (`FAN_SLOT_BYTES` 40) and its query, resolution, and listing slots
+// 16 + 24 + 25 bytes (`REFERENCE_SLOT_BYTES` 65). `MaterializedNode` is
+// 32 bytes at alignment 16: the fan pair grows to 80 bytes (excess
+// 80 - 32 - 40 = 8), the query slot to 48 (16 of padding against the
+// handle's 8, excess 8), and the resolution slot keeps 16 of padding
+// either way (24 - 8 and 48 - 32); the padding is 8. Layouts differ at
+// other pointer widths, so the pin is gated.
+const _: () = assert!(
+    std::mem::size_of::<usize>() != 8
+        || (FAN_SLOT_BYTES == 40 && REFERENCE_SLOT_BYTES == 65 && SLOT_PADDING == 8),
+    "the derived slot padding matches the hand-computed 64-bit layout",
 );
 
 /// The one fan [`PRICED_DIP`] carves the dip at: an arbitrary interior
@@ -494,6 +520,17 @@ impl Backend for Materializing {
         // parent, the fault the trait's `parent` clause forbids.
         if fan > 0 && PARENT_DROPS.take() {
             return Ok(None);
+        }
+        // The other direction of the presence lie: a group with no real
+        // child answered with a node conjured from nothing (a leaf
+        // re-tagged at the parent's height; the tag is phantom, and the
+        // check on trial reads only the answer's presence).
+        if fan == 0 && PARENT_CONJURES.get() != 0 {
+            let conjured = typed::Node::from_untyped(typed::untyped::Node::leaf(
+                Version::new(),
+                Message::new(0),
+            ));
+            return Ok(Some(MaterializedNode::wrap(conjured, ROW_HEADER)));
         }
         let children = children
             .into_iter()
@@ -731,6 +768,16 @@ fn an_interior_parent_answering_none_fails_the_presence_check() {
     pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
 }
 
+/// A `parent` that answers an empty group with a node is convicted by
+/// name at the presence check's other direction, on the empty group the
+/// run presents at rest.
+#[test]
+#[should_panic(expected = "parent contract: fan 0 yielded Some")]
+fn a_parent_conjured_from_an_empty_group_fails_the_presence_check() {
+    let _dishonest = PARENT_CONJURES.set(1);
+    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+}
+
 /// A bulk walk that yields two leaves out of path order is convicted by
 /// name at the walk's order check: count and prices are unchanged, so
 /// nothing else would notice.
@@ -842,7 +889,7 @@ fn inflated_leaf_version_bytes_fails_the_walk_check() {
 /// leaf check folds that excess into its comparison, so pricing the
 /// node value alone falls short by exactly the padding.
 #[test]
-#[should_panic(expected = "of decode-slot padding")]
+#[should_panic(expected = "underpriced leaf: ")]
 fn unpriced_slot_padding_fails_the_pointwise_check() {
     let _dishonest = PRICED_SLOT_PADDING.set(0);
     pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));

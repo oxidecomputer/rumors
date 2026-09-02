@@ -343,7 +343,8 @@ where
         let priced = <N::Backend as Backend>::node_bytes(0, bound_bytes(&node));
         if measured + padding > priced {
             ledger::violation(format!(
-                "underpriced leaf: measured {measured} B plus {padding} B of decode-slot                  padding, node_bytes priced {priced} B",
+                "underpriced leaf: measured {measured} B plus {padding} B of decode-slot \
+                 padding, node_bytes priced {priced} B",
             ));
         }
         Ok(Self::wrap(node, measured))
@@ -816,7 +817,8 @@ const DIVERGENT: usize = 1_024;
 ///   underpriced;
 /// - a bulk seam mis-answered an aggregate, yielded out of order or
 ///   outside its prefix, merged, split, or swallowed a run, or
-///   `parent` answered a real child with no parent;
+///   `parent` answered a real child with no parent or an empty group
+///   with one;
 /// - the stated budget resolves to the serialization floor, or the
 ///   budgeted run's census peak does not exceed the floor run's (the
 ///   admittance ceiling would otherwise compare two identical runs);
@@ -915,6 +917,7 @@ where
     // `parent` call of a run is one those checks see.
     fold_default(&charged, left_leaves.clone()).await;
     fold_default(&charged, right_leaves.clone()).await;
+    empty_group(&charged).await;
 
     // The bulk assembly boundary in the regime the wire decoder runs it:
     // many maximal same-prefix runs per stream, one node each, in run
@@ -972,7 +975,7 @@ where
     if reconciled != union {
         fail(&format!(
             "the conformance session converged short: the root holds {reconciled} \
-             messages, the corpora's union is {union}",
+             messages; the corpora are built to hold {union} between them",
         ));
     }
     (peak, stats.snapshot())
@@ -1065,6 +1068,26 @@ where
     while let Some(node) = folded.next().await {
         node.unwrap_or_else(|error| fail(&format!("corpus leaves fold at rest: {error:?}")));
     }
+}
+
+/// Present `parent` with an empty group, the trait's stated case of a
+/// scope that resolved to nothing at all, which must answer `None`.
+///
+/// Driven at rest because the session over this suite's corpora never
+/// produces one: a mixed scope keeps at least one unpruned child, and
+/// no resolution here comes back empty. Without this drive the
+/// presence check's second direction has no reachable input.
+async fn empty_group<B>(charged: &Charged<B>)
+where
+    B: Measure + Clone,
+    B::Error: std::fmt::Debug,
+{
+    let answered = charged
+        .clone()
+        .parent::<height::UnderRoot>(Prefix::<height::Root>::new(), Vec::new())
+        .await
+        .unwrap_or_else(|error| fail(&format!("an empty group assembles at rest: {error:?}")));
+    drop(answered);
 }
 
 /// Drive sorted leaves through the charged backend's bulk assembly at

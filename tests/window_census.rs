@@ -44,17 +44,15 @@ fn census_locked() -> MutexGuard<'static, ()> {
 /// link backpressure never shapes residency.
 const LINK_CAPACITY: usize = 8 * 1024 * 1024;
 
-/// A budget that binds at test scale.
+/// A budget under which the window widens past the serialization floor.
 ///
 /// It must clear the flat decode-fan pre-charge the window solve takes
 /// off every budget before widening any stage (about 210 KB under the
 /// in-memory pricing, [`supply_decode_envelope_bytes`]), so that some
-/// stage resolves wider than the one-scope serialization floor, and it
-/// must stay far below what admits the whole divergence in flight, so
-/// the widened window still binds. At [`DIVERGENT_WIDE`] the solve lands
-/// stages between a dozen and a hundred scopes wide against a ceiling in
-/// the high hundreds; [`fixture_capacities`] holds the first property
-/// and the admittance arithmetic the second.
+/// stage resolves wider than one scope: [`fixture_capacities`] holds
+/// that of the derived capacities, and the admittance test holds it of
+/// the session's own report. At [`DIVERGENT_WIDE`] the solve lands
+/// stages between a dozen and a hundred scopes wide.
 const TIGHT_BUDGET: usize = 2 * 1024 * 1024;
 
 /// Messages each side originates beyond the common prefix.
