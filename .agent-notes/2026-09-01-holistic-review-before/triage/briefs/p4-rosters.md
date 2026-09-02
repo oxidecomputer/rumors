@@ -402,6 +402,34 @@ Resolution (nit row): state the contract once on each cursor struct's doc (`Leaf
 
 Ruled (67): one pass copying `Rank::decode`'s `# Errors` form and `walk.rs`'s `# Panics` form; `doclint` gains the rule that every `pub fn` returning `Result` carries `# Errors`, with a committed fixture that fails without the section.
 
+## Ruled members owned by this lane whose ledger phase is P5
+
+Three rows the P3/P4 generator's phase filter missed; rulings 61 and 64 own them, so they land here.
+
+### board-frame-25 (medium, simplification): ruling 61
+
+`BOARD_DECLARED_BENCH_RIDERS` is a hand-maintained cell list in a module whose doc says none exists, derivable from each cell's own declarations, pinned in one direction only, and it is the time leg the committed cadence judges
+
+Resolution: In `bench_cells`, keep the prepared `Cell` and include a cell under `BenchMode::Pinned` when `designed(family.kind, op.group) || cell.declared_heap.is_some() || cell.declared_limb.is_some()`; delete the constant, its re-export at board.rs:293, the registry.rs:581 link, and the one-way test (the property becomes structural); re-word the benchjudge roster's notes. Rule explicitly on the fold and capacity models (today every such cell sits on a designed pairing, so the derived subset is unchanged either way) and state the rule at `BenchMode::Pinned`. Re-word export.rs:9-11 to what the cadence judges (the pinned subset; full mode is an owner-invoked verdict) or add a full-mode leg to `just all`. If the constant must survive as public vocabulary, pin the converse instead: compute declared minus designed from the cell table and assert set equality with the roster. Acceptance: `bench_cells(scale, BenchMode::Pinned)` at the record scales yields today's cell set (diff the sidecar's denominator file); adding `.with_declared_heap(x)` to a row on a non-designed family makes that cell appear in the pinned subset with no other edit; no `BOARD_DECLARED_BENCH_RIDERS` symbol remains, or a test asserts the converse. Construction: Add `.with_declared_heap(ASCEND_CLIFF_MIN_TICKS_HEAP_BYTES_PER_INPUT_BYTE)` to `version_min_ticks` on a second family whose `designed` arm excludes `Measure` (e.g. `Staircase`, a Tick-designed family); `bench_riders_name_declared_model_cells` passes unchanged, `bench_cells(_, BenchMode::Pinned)` omits the new cell, and `just bench-judge` never times it, contradicting export.rs:107-108.
+
+Ruled (61, decision 51): yes, as the entry states, under ruling 43's direction (typed, compiler-held; a cleaner idiomatic shape may be adopted and is reported). Listed in this P4 lane because ruling 61 owns it; its ledger phase is P5.
+
+### inventory-4 (low, simplification): ruling 64
+
+O(n) debug asserts recompute invariants the exhaustive ledger suite already checks, and one of them is limb-metered
+
+Resolution: drop the two O(n) accumulator asserts, or reduce each to its O(1) clause (`self.top == 0 || self.digits[self.top] != 0`) if a local probe is wanted; drop the `Sub for Base` assert (the backend panics on underflow with its own message). Any limb envelope in `tests/meter.rs` that moves is a measured improvement to re-pin, attributed to the assert's removal. Acceptance: the exhaustive ledger driver still passes; no dev-profile assert performs a metered `Base` comparison.
+
+Ruled (64, decision 70): delete the guard; the commit message names the committed differential test that holds the property; no comment, marker, or trace in code. Listed in this P4 lane because ruling 64 owns it; its ledger phase is P5.
+
+### suanpan-21 (medium, simplification): ruling 64
+
+`add_at`'s exit `debug_assert!` scans the whole buffer above `top` on every digit write; the ledger suite already holds the clause
+
+Resolution: keep the O(1) conjunct (`self.top == 0 || self.digits[self.top] != 0`), delete the `digits[top + 1..]` scan, and re-state the comment at 1365-1368 to name `ledger_invariants_hold_exhaustively` (and the run-forming stream property) as the check that holds the exit invariant. Acceptance: the retiring-an-instrument discipline: run the suanpan mutants campaign under the configuration of record before and after and confirm no mutant moves from caught to survived (the dev profile's assertions are "part of the observer", mutants.toml:33-35, and the ledger suite's assertions remain in it); the ledger suite unchanged. Construction (debug build; corrected from the lens: `reset()` returns to the register at 678, so `add_small` after a reset never reaches `add_at` and a spill must precede the loop): `let mut acc = Accumulator::new(); acc.add_wide_shl(&UBig::ONE, 32 * 100_000); acc.reset(); acc.add_wide(&UBig::ONE); for _ in 0..100_000 { acc.add_small(1); }`: after the spill every `add_small` reaches `add_at` and the exit scan walks about 100,000 slack digits, roughly 10^10 element reads in debug; linear in release.
+
+Ruled (64, decision 70): delete `add_at`'s exit `debug_assert!`, superseding commit 9f68c475's keep; the commit message names the covering differential test; no trace in code. Listed in this P4 lane because ruling 64 owns it; its ledger phase is P5.
+
 ## Roster members pending Finch's approval
 
 Lows and nits no ruling has reached, placed here by the files they touch. Land only after the coordinator confirms the roster is approved.

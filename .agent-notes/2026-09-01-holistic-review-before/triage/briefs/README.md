@@ -1,10 +1,11 @@
 <!-- CAVEAT LECTOR: written by Claude (Fable 5.1) for Finch as lane briefs derived from the rulings in ../rulings.md; not authored, audited, or endorsed by Finch. Read with the ground rules in ../../README.md. -->
 
-# Lane briefs for P1 through P4
+# Lane briefs for P1 through P5
 
 One brief per lane for the instruments phase (P1), the correctness and
 cost-cure phase (P2), the vocabulary phase (P3), and the pattern-sweep
-phase (P4) of the before and suanpan triage. Every P1 lane is
+phase (P4), and the scaffolding-dissolution phase (P5) of the before and
+suanpan triage. Every P1 lane is
 based on `bba0e31a` (main, the commit recording the S2 rulings; the tree
 outside `.agent-notes/` is byte-identical to the reviewed commit
 `9e5784fb`, so every line number in the class documents holds). The P2
@@ -15,7 +16,7 @@ Acceptance verbatim from the class documents and names the ruling that
 governs each, with any amendment stated beside the quote. A lane agent
 reads only its brief; the brief carries the ground rules in full.
 
-Rulings 1 to 77 have individually ruled every high and medium in these
+Rulings 1 to 80 have individually ruled every high and medium in these
 lanes. Lows and nits inside a roster are swept per their entries under the
 same rulings; members marked "roster: pending Finch's approval" are lows
 and nits no ruling has reached yet, placed here so the roster can be
@@ -254,6 +255,78 @@ These lanes follow the P1 and P2 lanes that rewrite the same files:
    quiet machine.
 4. `p3-vocabulary` last, since it touches every file; its mechanical
    commits may land earlier and be rebased.
+
+## P5 lanes
+
+Based on `33779b10` (the commit recording ruling 80; the tree outside
+`.agent-notes/` is still byte-identical to `9e5784fb`). Rulings 78, 79,
+and 80 govern them, under the retirement discipline every brief states:
+the replacement lands and is shown firing on what the old instrument
+caught, then the instrument is deleted, one commit series per
+retirement, no trace left in code.
+
+| Brief | Rulings | Members | Touches | Size |
+|---|---|---|---|---|
+| `p5-scanners.md` | 78 (decision 44), 80 (decision 79) | 13 ruled (5 medium, 8 low), 1 pending | `tools/citecheck*` (rewritten in Rust), `tools/doclint*`, the superlinear, twin, and band roster tests, `src/surface.rs`'s scan half, the justfile legs | large |
+| `p5-judge.md` | 78 (decision 77), 79 (decisions 49 and 78) | 19 ruled (8 medium, 10 low, 1 nit), 4 pending | `tools/benchjudge*`, `tools/digestshare*`, `benches/{amplify,emit_probe,perf_probe,tripwire}.rs` and sidecars, `tests/bench_judge_roster.rs`, the A/B arms, `fuelscape/spanbands`, the cliff-fan family, the render `overlay` field, `just all` and `ci` | large |
+| `p5-buffers.md` | 78 (decisions 46, 47), 79 (decisions 48, 50), 80 (fuzzfit-strategies-19, version-core-11) | 17 ruled (1 high, 6 medium, 9 low, 1 nit), 7 pending | `tools/covcheck*`, the `EXEMPTIONS` and `ITEM_EXCEPTIONS` sites, `registry.rs` and `surface.rs` date fields, `src/oracle/**` and `fold.rs`, `tier2.rs` and `testing/compactness.rs`, `fuzzfit/harness/src/strategies.rs`, `version.rs`'s `_view` doors | large |
+
+### Placement decisions
+
+- **Three lanes by kind of dissolution**: scanners (one typed
+  collection authority replaces the hand scanners and an in-house lint
+  rule), judge and expired instruments (retirements with a fuzz-fit
+  demonstration first), buffers and dead machinery (acceptance lists,
+  dates, the oracle copy of the fold, unread models). No two lanes edit
+  a file for the same reason; `registry.rs` and the justfile are shared
+  with P1 and P2 lanes and every brief says to rebase.
+- **The eight ruling-78 rows the P3/P4 README left for P5**
+  (envelopes-b-22, envelopes-b-25, meter-registry-tier2-3,
+  prose-hygiene-7, suite-economics-3, surface-roster-10,
+  surface-roster-11, tests-other-24) are in `p5-scanners` (the roster
+  rebinding and old-scanner deletions) and `p5-buffers`
+  (prose-hygiene-7, a date site).
+- **meter-adequacy-4** (P1, decision 72, ruling 78) is in `p5-judge`:
+  moot with the judge deleted.
+- **Three P5-phase rows owned by P4 rulings** (board-frame-25 under
+  ruling 61; inventory-4 and suanpan-21 under ruling 64) are appended
+  to `p4-rosters.md` under their own heading, since the P3/P4 generator
+  filtered by phase and missed them.
+- **The P5 rows under decision 42 (ruling 38)** (board-frame-1,
+  meter-core-11, board-ops-render-15, inventory-2, module-graph-1) and
+  **decision 43 (ruling 4)** (envelopes-a-8, envelopes-a-11) are owned
+  by `p1-harness` and `p1-board`; board-frame-1 and meter-core-11 are
+  the board-side records of the segments dissolution and land with
+  `p1-board`'s step 4 (that brief's segments section covers them by
+  mechanism; the coordinator writes their sha from that lane).
+- **Pending P5 lows and nits by kind**: gate-legs-10 (doclint's walk)
+  in `p5-scanners`; fuelscape-pipeline-13, fuelscape-render-26,
+  fuzz-guests-pins-19, fuzzfit-bands-18 (dead instrument code) in
+  `p5-judge`; crate-root-22, envelopes-b-17, oracle-laws-24, rank-26,
+  skyline-fill-grow-32, skyline-watermark-28, testing-oracles-9 (dead
+  code and unread counters) in `p5-buffers`.
+- **Three P5 rows are deliberately in no brief**: deps-16 (decision 20,
+  packaging, ruled with P7), testing-oracles-17 and testing-oracles-25
+  (decision 72, the small instrument rulings that ride with the P6
+  board lane).
+- **Ruling 26 is superseded** by ruling 78 (the judge retires); no
+  brief carries a load-average stamp item. `p1-gate` never carried one;
+  nothing is struck there.
+
+### Launch order
+
+1. `p5-buffers`' ruling 64-style deletions, the covcheck category
+   removal, and version-core-11 may start on `33779b10`; version-core-11
+   lands before `p4-structure`'s span-causally-9. Its oracle rewrite and
+   date dissolution rebase onto `p1-suites`, `p2-surface`, and
+   `p4-rosters` where landed.
+2. `p5-judge` after `p1-fuzz` has landed `bands.rs` (the tripwire's
+   fuzz-fit case is this lane's one calibration run) and after
+   `p1-gate` for the justfile and lockfile edits.
+3. `p5-scanners` after `p2-surface` (surface-roster-28's `syn`
+   extractor must exist before before's line scan retires) and after
+   `p1-gate` for the justfile; its citecheck rewrite may start earlier
+   on a branch and rebase.
 
 ## What the coordinator does with a report
 
