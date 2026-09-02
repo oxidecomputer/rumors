@@ -411,6 +411,13 @@
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
+// Every `thread_local!` initializer in this crate is a `const` block. On
+// targets without native thread-local storage, `thread_local!` expands
+// through the OS-keyed path and clippy misreads the expansion, reporting
+// the `const` block as missing. The allow is scoped to that target so the
+// lint keeps guarding everywhere else; it cannot sit on the sites, since an
+// attribute on the macro invocation never reaches the expanded `static`.
+#![cfg_attr(target_os = "illumos", allow(clippy::missing_const_for_thread_local))]
 
 mod auto_traits;
 mod clock;
