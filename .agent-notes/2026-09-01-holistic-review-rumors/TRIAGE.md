@@ -14,8 +14,8 @@ of what was decided.
 
 The unit of triage is not the finding. It is the ruling and the lane. A
 ruling is a decision only Finch can make: a crate-wide convention, a public
-API shape, a reopened prior ruling, a design question, or a high-severity
-verdict. A lane is a scoped batch of entries whose resolution the review
+API shape, a reopened prior ruling, a design question, or the disposition
+of any high or medium entry. A lane is a scoped batch of entries whose resolution the review
 already states with an acceptance criterion, executed by an agent in a
 worktree and reviewed by Finch as a diff rather than as a list. The review's
 own structure makes this efficient: the README's 102 owner decisions already
@@ -44,7 +44,7 @@ a bin for known failures.
 | `fix` | Land the entry's stated Resolution, meeting its Acceptance. | `sha` names the landed commit. |
 | `fix-amended` | Land a resolution Finch amended. | `sha` and a ruling carrying the amendment. |
 | `model` | The behavior is intended. The ruling names where the intent is stated so the finding cannot recur: a rustdoc sentence, an AGENTS.md line, a comment at the site. | A ruling with a named home. |
-| `defer` | A design proposal or a resource trade that waits on a measurement or a later phase. The ruling names the home: a `design/` document, a shadow-tracker issue, or a named lane. | A ruling with a named home. Never admitted for a high-severity or correctness-class entry. |
+| `defer` | A design proposal or a resource trade that waits on a measurement or a later phase. Never applied by rule or class: each candidate is put to Finch individually, and the ruling names the home: a `design/` document, a shadow-tracker issue, or a named lane. | A ruling with a named home. Never admitted for a high-severity or correctness-class entry. |
 | `dispute` | Finch refutes the finding. The ruling records why. | A ruling. |
 | `dup` | Fully carried by another entry. | A ruling or the `note` column naming the entry of record. |
 
@@ -391,8 +391,9 @@ and the two are pipelined so ruling time overlaps agent compute.
    resolution first, mechanical sweeps last. In narration mode, one file
    at a time in the editor; asynchronously, the branch, the SHA, and a
    per-entry evidence table. Merge to main only at Finch's word.
-5. **Never a question to Finch.** Nits, grep remainders, ledger
-   bookkeeping, agent supervision, seed files, gate runs. These surface
+5. **Never a question to Finch.** Nits and lows inside an approved lane
+   roster, grep remainders, ledger bookkeeping, agent supervision, seed
+   files, gate runs. Every high and medium is ruled on individually. These surface
    as outcomes in the diff and in `ledger.py summary` at each session's
    end.
 6. **Always a stop.** Anything that would move a snapshot, change a
@@ -455,6 +456,8 @@ belongs to a lane rather than a ruling:
 ## Open questions for Finch
 
 Numbered so they can be ruled on as a block; each carries a recommendation.
+All five are ruled: T1 through T4 and T25 in `triage/rulings.md`. The text
+stands as the record of what was asked.
 
 1. **The record's form.** Recommendation: the ledger and rulings file under
    `triage/`, with the topic documents left untouched. The CBOR review's
