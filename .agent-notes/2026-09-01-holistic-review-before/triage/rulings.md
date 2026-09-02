@@ -695,3 +695,11 @@ Disposes: no finding; a standing direction for every lane.
 Finch's words: "I would *really* like to bump up the quality of the prose throughout the library, in terms of concision, legibility, and altitude-correctness."
 
 Decision. `triage/briefs/PROSE.md` is the statement of intent for prose in `before`, adopted as written after the workshop: three tests every touched paragraph passes (altitude, concision, legibility), the reviewer's checks (standalone first sentences, no implementation concept in public prose, no sentence falsifiable by an untouched-prose code change unless mechanically held, every hard claim beside its argument or instrument, and the diff net shorter in prose unless the lane report justifies the additions), and its limits (lanes touch the prose in files they already edit and hand the rest back as findings; one dedicated fresh-eyes prose pass per crate follows the code lanes; Finch's own paragraphs he has said he will rewrite stay untouched; a two-way sentence takes the shorter reading, noted in the report). Every brief's ground rules point at it. The writing-style guide stays the doctrine of record beneath it.
+
+## Ruling 106 (2026-09-02): workflowlint is deleted entirely; the identity-ladder essay goes if redundant
+
+Disposes: tools-33 (supersedes ruling 103's reading), the workflowlint half of ruling 25 and of decision 68 (gate-legs-2); codec-bits-1 (supersedes ruling 68's deferral).
+
+Finch's words: "I want to *entirely delete* workflowlint." "Delete the essay if it's fully redundant."
+
+Decision. `tools/workflowlint`, its `--self-test`, its gate and ci legs, and any expected-value roster it reads are deleted; no in-house check holds the workflows' `uses:` pins or scans for pipe-to-interpreter lines. Ruling 25's nightly derivation stands without workflowlint holding anything. The identity-ladder essay in `codec/bits.rs`'s module doc is deleted if every rung decision it decrees is stated at the call site that owns it (the five sites in `version.rs`, the party predicates' sites, the comparison sweep's); anything the essay alone carries (the decision rule, the two instruments that hold the ladder) is moved to the site that owns it first, in the essay's own words, then the essay goes. codec-bits-1 is no longer deferred.
