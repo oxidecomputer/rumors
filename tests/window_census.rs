@@ -7,10 +7,14 @@
 //! atomic replace), the reconciled generation, the session's output tree
 //! (transiently coexisting with both at the commit join), and the
 //! window's in-flight work. The first three are content and scale with
-//! the divergence; only the fourth is the window's to bound. These tests
-//! isolate it by differencing runs of the *identical* divergence under
-//! different budgets, then hold it against the admittance the derived
-//! capacities state.
+//! the divergence; only the fourth is the window's to bound, and its
+//! byte admittance is owned by the backend conformance suite's census
+//! (`rumors::conformance::backend`), whose session has no commit join.
+//! Here the census pins what a session at the floor holds above its
+//! generations (the commit's double-existence, bounded by the content),
+//! the version bounds a reconciled tree assembles against the pair
+//! bound the greeting priced, and that a tight budget widens the
+//! session's window past the serialization floor.
 //!
 //! The census is process-global, so every test body holds
 //! [`CENSUS_LOCK`]: the suite is correct under any runner's threading,
@@ -50,22 +54,13 @@ const LINK_CAPACITY: usize = 8 * 1024 * 1024;
 /// off every budget before widening any stage (about 210 KB under the
 /// in-memory pricing, [`supply_decode_envelope_bytes`]), so that some
 /// stage resolves wider than one scope: [`fixture_capacities`] holds
-/// that of the derived capacities, and the admittance test holds it of
+/// that of the derived capacities, and the widening test holds it of
 /// the session's own report. At [`DIVERGENT_WIDE`] the solve lands
 /// stages between a dozen and a hundred scopes wide.
 const TIGHT_BUDGET: usize = 2 * 1024 * 1024;
 
 /// Messages each side originates beyond the common prefix.
 const DIVERGENT_WIDE: usize = 20_000;
-
-/// Handles one buffered scope can pin at most: a full fan of child
-/// references plus its own bookkeeping.
-const HANDLES_PER_SCOPE: usize = 256 + 2;
-
-/// Handles the assembly fan queues can hold beyond the window: one full
-/// fan per active level (their capacity is a correctness floor the window
-/// never scales; see the window module docs).
-const ASSEMBLY_FAN_HANDLES: usize = 33 * 256;
 
 /// Transient slack: conversion buffers, in-hand replies, and the join's
 /// working set, all bounded per session rather than per divergence.
@@ -148,11 +143,11 @@ fn overhead(budget: usize, divergent: usize) -> Overhead {
     }
 }
 
-/// The per-height capacities `budget` derives for the admittance test's
+/// The per-height capacities `budget` derives for the widening test's
 /// session, held to the fixture's own liveness.
 ///
 /// Some stage must resolve wider than the one-scope serialization floor,
-/// or the differenced arms would run the identical window.
+/// or the budgeted session would run the floor's window.
 fn fixture_capacities(budget: usize) -> Vec<usize> {
     // The sizes the session itself will exchange: both replicas hold the
     // common prefix plus their own divergence when they reconcile.
@@ -161,7 +156,7 @@ fn fixture_capacities(budget: usize) -> Vec<usize> {
     assert!(
         capacities.iter().sum::<usize>() > capacities.len(),
         "budget {budget} resolves to the serialization floor at {session_len} messages a \
-         side: every capacity is one, so a budgeted arm would run the floor's window",
+         side: every capacity is one, so a budgeted session would run the floor's window",
     );
     capacities
 }
@@ -176,32 +171,22 @@ fn a_pre_charge_only_budget_fails_the_fixture_liveness() {
     fixture_capacities(supply_decode_envelope_bytes());
 }
 
-/// Window-attributable residency stays inside the derived admittance.
+/// A tight budget widens the session's window past the serialization
+/// floor, at the derived capacities and in the session itself.
 ///
-/// The identical divergence runs once at the zero-budget floor and once
-/// at a budget that binds at test scale; the content components (both
-/// generations and the output tree) are the same trees in both runs, so
-/// the peak difference is the window's own buffering — which must stay
-/// inside what the derived capacities admit: each scope a full fan of
-/// handles, plus the assembly fans and bounded per-session slack. The
-/// admittance is denominated in the same capacities `sync_memory_budget`
-/// derives, so a regression that buffers past the window moves the
-/// measurement, not the bound. The budgeted arm is held to have run a
-/// different window from the floor arm: the session itself reports the
-/// widest capacity it was granted, and it must exceed one.
+/// The budget's derived capacities must sum past one per stage, and the
+/// real session over the same population must report a widest capacity
+/// above one: the solve and the session agree that the budget bound a
+/// window wider than the floor. What that window admits in bytes is the
+/// backend conformance suite's claim to hold (its census has no commit
+/// join, so a wider window moves its peak); this census's peak is the
+/// commit join at every budget, so nothing here differences peaks.
 #[test]
-fn window_attributable_residency_stays_inside_admittance() {
+fn a_tight_budget_widens_the_session_window() {
     let _census = census_locked();
     let capacities = fixture_capacities(TIGHT_BUDGET);
-    let admitted: usize = capacities.iter().sum::<usize>() * HANDLES_PER_SCOPE
-        + ASSEMBLY_FAN_HANDLES
-        + TRANSIENT_SLACK;
-    let floor = overhead(0, DIVERGENT_WIDE);
     let windowed = overhead(TIGHT_BUDGET, DIVERGENT_WIDE);
-    eprintln!(
-        "admittance {admitted} (capacities sum {})",
-        capacities.iter().sum::<usize>(),
-    );
+    eprintln!("capacities sum {}", capacities.iter().sum::<usize>());
     // The real session widened, not only the test-side solve: the
     // budgeted side reports the widest capacity it was granted.
     assert!(
@@ -209,12 +194,6 @@ fn window_attributable_residency_stays_inside_admittance() {
         "the budgeted session ran at the serialization floor (widest capacity {}); \
          the budget does not bind at this population",
         windowed.session.stats.window_granted,
-    );
-    assert!(
-        windowed.handles <= floor.handles + admitted,
-        "widening the window from the floor added {} handles at peak; \
-         the derived capacities admit {admitted}",
-        windowed.handles.saturating_sub(floor.handles),
     );
 }
 
