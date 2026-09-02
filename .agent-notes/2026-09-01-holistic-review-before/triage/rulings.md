@@ -667,3 +667,9 @@ Decision. The verdict matrix's legs are rostered as typed data, the polarity twi
 Disposes: deps-3, module-graph-2, tests-other-11, skyline-coding-23.
 
 Decision. `build.rs`'s `rerun-if-changed` list is derived from the one enumeration of inputs the script reads. The justfile lints before's bare library (default features and none) under `-D warnings` with no test targets, the recipe comment naming feature unification as the mechanism. The coincident-span docs match their assertions, dominance named as the divergence-only leg. Both test-local recursions route through `descend!`.
+
+## Ruling 102 (2026-09-02): P6 skyline mediums, sixth group
+
+Disposes: skyline-coding-6, skyline-fill-grow-12, skyline-fill-grow-24, skyline-sweep-place-masked-19.
+
+Decision. The mid-stream collapsible-pair composite is committed as a span test through both `Span::decode` and the borsh leg, and the planted-pair proptest drives the admission entry (with or before ruling 75's unification). `Memo` and `PreScan` own their lifetime methods and every `pub(super)` field becomes private. Walk-surface depth widths have one rationale at `codec/stack.rs`, cited elsewhere, the false `usize` contrast deleted. The placement rows gain touch-identity legs on a carry-boundary fixture, and the three docs name them.
