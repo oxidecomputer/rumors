@@ -1,72 +1,75 @@
-//! Resource envelopes: peak transient heap, grown stack segments, and
-//! big-integer limb work per operation on the adversarial input families.
+//! Resource envelopes: each operation's peak transient heap, grown stack
+//! segments, big-integer limb work, accumulator digit touches, and
+//! packed-stream bits scanned on the adversarial input families, pinned as
+//! ceilings.
 //!
-//! The contract this suite is driving toward: no operation materializes
-//! transient state asymptotically larger than its packed operands, and every
-//! operation is amortized O(n + m) in the packed input bits — with no bound
-//! on value magnitude, tree depth, or encoded size. Today's implementation
-//! is far from that — several operations amplify their input by large
-//! constants or worse — so every scenario here pins the *current* measured
-//! cost, with ×1.25 slack, as a ceiling. A regression fails loudly now; each
-//! improvement tightens a committed number.
+//! A regression fails a pinned row loudly; an improvement tightens a
+//! committed number. The rows pin constants on fixed shapes; the flatness
+//! bands beside them hold each cost flat per unit across a scale doubling,
+//! which is where the asymptotic claims are judged.
 //!
-//! Three deterministic meters, asserted together per scenario:
+//! # The columns
+//!
+//! Deterministic meters, read over the scenario body alone and asserted
+//! together by [`metered`]:
 //!
 //! - **Peak heap bytes**: the binary-wide counting allocator
-//!   ([`PeakAlloc`]), read as a delta over the scenario body. One global
-//!   allocator exists per test binary, and the counters are process-global,
-//!   so per-scenario peaks are meaningful **only under nextest's
-//!   process-per-test isolation** — this workspace's runner. Under a runner
-//!   that shares one process across tests, concurrent allocation would bleed
-//!   between scenarios.
+//!   ([`PeakAlloc`]), read as a delta over the scenario body. The canaries
+//!   below prove the meter live.
 //! - **Grown stack segments** ([`meter::stack_segments`]): the deep
 //!   traversals grow the stack onto the heap in fixed-size segments that
-//!   bypass any allocator meter; the segment counter is the honest stand-in
-//!   for recursion-driven stack cost. Process-global, same isolation
-//!   requirement.
-//! - **Big-integer limb operations** ([`meter::limb_ops`], only when the
-//!   `limb-meter` feature compiles the counter into the arithmetic):
-//!   operand limbs per `Base` operation plus one value-width record per
-//!   decoded wide-gamma value. Arithmetic-width cost is invisible to the
-//!   other two meters — the work is wider, not more frequent — so this is
-//!   the only column that sees a magnitude-quadratic regression. Without
-//!   the feature the scenarios still run and assert the other two columns.
+//!   bypass any allocator meter; the segment counter stands in for
+//!   recursion-driven stack cost.
+//! - **Limb operations** ([`meter::limb_ops`], under `limb-meter`): operand
+//!   limbs per `Base` operation plus one value-width record per decoded
+//!   wide-gamma value. Arithmetic-width cost is invisible to the other
+//!   meters (the work is wider, not more frequent), so this is the column
+//!   that sees a magnitude-quadratic regression.
+//! - **Accumulator digit touches** (`suanpan::touch_meter`, under
+//!   `limb-meter`): the cliff-free accumulator's own currency, where the
+//!   folds and the tick walk do their arithmetic.
+//! - **Scanned bits** ([`meter::scan_bits`], under `scan-meter`):
+//!   packed-stream bits read and written through the metered primitives,
+//!   the column that sees traversal work that allocates nothing, recurses
+//!   nothing, and does no arithmetic.
 //!
-//! Every row whose measured limb count is nonzero also carries a limb
-//! lower bound — the measured value ×0.75, rounded down, a column in the
-//! same tables as the ceilings. Two lower-bound genres appear in this
-//! suite, named apart because their trips mean opposite things: a derived
-//! *liveness floor* states a mechanism's irreducible work, never a
-//! measured basis — an honest improvement can approach but never cross
-//! it, so a trip means the work left the metered representation
-//! (investigate the meter) — while a measured-×0.75 *improvement
-//! tripwire*, the envelope columns' genre, bands the pinned reading — a
-//! trip means the reading dropped more than 25% below the pin: attribute
-//! it, and an honest improvement re-pins the band while a dead meter is
-//! the bypass the column exists to catch. A limb ceiling passes vacuously
-//! when the counter stops counting (a meter hook deleted from one `Base`
-//! operation reads a near-zero column with every ceiling green), and the
-//! tripwire is what fails instead. Like the board's floors, these detect
-//! *total* bypass, not partial rerouting: an implementation that routes
-//! some width-scale work through metered operations and the rest around
-//! them still reads green, so the column is a bypass tripwire, never a
-//! full-liveness proof.
+//! The counters are process-global, so per-scenario readings are meaningful
+//! only under nextest's process-per-test isolation, this workspace's
+//! runner. Without a counter's feature the scenarios still run and assert
+//! the columns that are compiled in.
 //!
-//! Wall time is deliberately never asserted *in this suite*: it is the one
-//! number here that is not deterministic (the bench judge fits the time
-//! *exponent* over criterion medians across two bench scales — see
-//! `meter::board`'s module docs and `tools/benchjudge`; its wide-display
-//! pair judges the conversion class no counter column can see — that is
-//! the wall leg of record). The envelope constants are **measured** on the
-//! development target (aarch64-apple-darwin, dev profile); heap byte counts
-//! and limb counts are deterministic and portable across 64-bit targets
-//! (limb counts shrink under release, where `debug_assert!` comparisons
-//! vanish, so the dev-profile pin is the binding one), while segment counts
-//! track per-target frame sizes, and the slack absorbs modest variation.
+//! # The pin convention
+//!
+//! A ceiling is the measured reading ×1.25, rounded up, and only ever
+//! tightened: where a re-measure rises while staying inside the ceiling
+//! (heap cells whose backend growth headroom varies), the tighter ceiling
+//! stands. A re-denomination of a column, the same work newly counted at a
+//! metered seam, is a sanctioned rise, recorded in its pin commit. Under
+//! each counter column sits an **improvement tripwire**: the measured
+//! reading ×0.75, rounded down. A trip is a drop of more than 25% from the
+//! pinned reading: attribute it. An improvement re-pins the band; a dead
+//! meter is the bypass the column exists to catch, since a ceiling passes
+//! vacuously once a counter stops counting. The tripwire detects total
+//! bypass, not partial rerouting: work routed around the metered
+//! primitives in part still reads green. A column a row does not yet pin
+//! is `None` in its table: the harness prints the reading and asserts
+//! nothing there.
+//!
+//! The measurements of record, and every re-pin's movement and
+//! attribution, live in the pin commits (`git log -S` the constant). Re-pin
+//! by rerunning this binary under `--no-capture` with `--all-features` and
+//! reading the MEASURED lines.
+//!
+//! Wall time is never asserted here: it is the one number that is not
+//! deterministic. The pins are dev-profile (limb counts shrink under
+//! release, where `debug_assert!` comparisons vanish, so the dev pin
+//! binds); heap, limb, touch, and scan readings are deterministic and
+//! portable across 64-bit targets, while segment counts track per-target
+//! frame sizes.
 
 use before::meter::registry::Shape;
 use std::cmp::Ordering;
-use std::fmt::Debug;
+use std::fmt::{Debug, Write as _};
 
 use before::{meter, Party, Version};
 use peak_alloc::PeakAlloc;
@@ -205,99 +208,98 @@ const RANK_SUM_EXP_DEPTH: usize = 250_000;
 
 // ─── pinned envelopes ───────────────────────────────────────────────────────
 
-/// One scenario's pinned ceilings (the measured value ×1.25, rounded up)
-/// and its limb improvement tripwire (measured ×0.75, rounded down — the
-/// file doc's tripwire genre).
+/// One scenario's pins: a peak-heap ceiling, a grown-segments ceiling, and
+/// one [`Bound`] per counter column, per the file doc's convention.
+///
+/// A column the row does not yet pin is `None`: the harness prints its
+/// reading and asserts nothing.
+#[derive(Clone, Copy)]
 struct Envelope {
     /// Peak heap delta over the scenario body, in bytes.
     peak_heap: usize,
     /// Stack segments grown during the scenario body.
     segments: u64,
-    /// Big-integer limb operations counted during the scenario body.
-    #[cfg(feature = "limb-meter")]
-    limb_ops: u64,
-    /// Improvement tripwire under the limb column.
-    ///
-    /// A reading below it is a drop of more than 25% from the pinned
-    /// reading — attribute it, re-pinning an honest improvement or curing a
-    /// dead meter (zero where the measured count is zero, under which the
-    /// bound asserts nothing).
-    #[cfg(feature = "limb-meter")]
-    limb_floor: u64,
+    /// Big-integer limb operations.
+    limb: Option<Bound>,
+    /// Accumulator digit touches.
+    touch: Option<Bound>,
+    /// Packed-stream bits scanned.
+    scan: Option<Bound>,
 }
 
-/// Build an [`Envelope`] from the three pinned columns and the limb floor.
-///
-/// The limb columns are carried only when the `limb-meter` feature
-/// compiles the counter into the arithmetic; the leading underscores keep
-/// the parameters warning-free in the other configuration.
-const fn envelope(peak_heap: usize, segments: u64, _limb_ops: u64, _limb_floor: u64) -> Envelope {
+/// One counter column's pin: its ceiling and the improvement tripwire under
+/// it.
+#[derive(Clone, Copy)]
+struct Bound {
+    /// The measured reading ×1.25, rounded up; only ever tightened.
+    ceiling: u64,
+    /// The measured reading ×0.75, rounded down (zero where the reading is
+    /// zero, under which the floor asserts nothing).
+    floor: u64,
+}
+
+/// A column pinned at `ceiling` with its improvement tripwire at `floor`.
+const fn band(ceiling: u64, floor: u64) -> Bound {
+    Bound { ceiling, floor }
+}
+
+/// Build an [`Envelope`] from a row's columns.
+const fn envelope(
+    peak_heap: usize,
+    segments: u64,
+    limb: Option<Bound>,
+    touch: Option<Bound>,
+    scan: Option<Bound>,
+) -> Envelope {
     Envelope {
         peak_heap,
         segments,
-        #[cfg(feature = "limb-meter")]
-        limb_ops: _limb_ops,
-        #[cfg(feature = "limb-meter")]
-        limb_floor: _limb_floor,
+        limb,
+        touch,
+        scan,
     }
 }
 
-// The envelope table: pinned ceiling = measured ×1.25, rounded up
-// (aarch64-apple-darwin, dev profile, three identical runs), and only ever
-// tightened: where a remeasure rises while staying inside an existing
-// ceiling (the spilled-magnitude heap cells, which carry the backend's
-// `len/8 + 2` words of growth headroom per heap allocation), the older,
-// tighter ceiling stands. The trailing comment on each line states the
-// mechanism that prices the row; the measurements of record — and every
-// re-pin's movement and attribution — live in the pin commits (`git log
-// -S` the constant), never in this prose. Re-pin by rerunning this binary
-// under `--no-capture` and reading the MEASURED lines (the limb column
-// needs `--all-features` or `--features limb-meter`).
-// The limb floor column is the measured value ×0.75, rounded down (the
-// file doc's improvement-tripwire convention).
+// Pins per the file doc's convention; each row's trailing comment states
+// the mechanism that prices it.
 #[rustfmt::skip]
 mod envelope {
-    use super::{envelope, sweep_envelope, Envelope, SweepEnvelope};
-    //                                              peak heap,  segments, limb ops, limb floor
-    pub const DECODE_DENSE: Envelope = envelope(120_035, 0, 0, 0); // wire decode is validate + wrap on the skyline kernels; decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    pub const CMP_DENSE: Envelope = envelope(30_720, 0, 0, 0); // the iterative sweep over the Bytes-backed at-rest form (OpenedPair states the pair walk's opening move once); word-valued payloads keep the limb column at zero
-    pub const JOIN_DENSE: Envelope = envelope(130_277, 0, 0, 0); // the emit kernel's peak alone: the value-operator cell's lhs clone is a refcount bump, not a byte copy of the operand; word-valued payloads keep the limb column at zero
-    // The tick rows live in `query_env`: the tick walk's cost currency
-    // is accumulator digit touches (with scanned bits beside it), which
-    // this four-column table never watched.
-    pub const DECODE_BIGROOT: Envelope = envelope(60_090, 0, 783, 469); // wire decode is validate + wrap; the one wide root magnitude keeps a linear limb record while the word-valued form carries the narrow codes
-    pub const CMP_BIGROOT: Envelope = envelope(40_340, 0, 783, 469); // the iterative sweep over the Bytes-backed at-rest form; the wide root's decode is the limb record
-    pub const JOIN_BIGROOT: Envelope = envelope(85_060, 0, 1_565, 939); // the emit kernel's peak alone (the lhs clone is a refcount bump); the wide root decodes on both sides carry the limb record
-    pub const DECODE_HUGELEAF: Envelope = envelope(   122_504,        0,         2_443, 1_465); // the validating wire decode holds the running height; one wide gamma code's linear limb work
-    pub const JOIN_HUGELEAF: Envelope   = envelope(   185_494,        0,         4_887, 2_931); // the emit kernel holds both payload buffers, and the lhs clone is a refcount bump, so the public join's peak is the emit kernel's alone
-    pub const ID_JOIN: Envelope         = envelope(   279_132,        0,             0, 0); // iterative id walks: frame bits on the heap, no grown segments
-    pub const ID_COVERS: Envelope       = envelope(        10,        0,             0, 0); // iterative id walks
-    pub const ID_DISJOINT: Envelope     = envelope(        10,        0,             0, 0); // iterative id walks
-    pub const ID_WITHOUT: Envelope      = envelope(   521_110,        0,             0, 0); // iterative complement over the Bytes-backed at-rest form; dev builds run no shadow re-parse of the diff emission (the differential suites carry the normal-form check)
-    pub const DECODE_CLIFF: Envelope = envelope(4_052, 0, 88, 52); // wire decode is validate + wrap; each cliff crossing's limb work is paid by its own wide stored code
-    pub const CMP_CLIFF: Envelope = envelope(1_330, 0, 88, 52); // the cliff-free sweep (two accumulators, opened once) over the Bytes-backed at-rest form
-    pub const JOIN_CLIFF: Envelope = envelope(5_362, 0, 308, 184); // the emit kernel's peak alone (the lhs clone is a refcount bump); each re-coded tooth's limb work is paid by its comparably-wide input code
+    use super::{band, envelope, Envelope};
+    pub const DECODE_DENSE: Envelope                = envelope(120_035, 0,           Some(band(0, 0)), None,                     None); // wire decode is validate + wrap on the skyline kernels; decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
+    pub const CMP_DENSE: Envelope                   = envelope( 30_720, 0,           Some(band(0, 0)), None,                     None); // the iterative sweep over the Bytes-backed at-rest form (OpenedPair states the pair walk's opening move once); word-valued payloads keep the limb column at zero
+    pub const JOIN_DENSE: Envelope                  = envelope(130_277, 0,           Some(band(0, 0)), None,                     None); // the emit kernel's peak alone: the value-operator cell's lhs clone is a refcount bump, not a byte copy of the operand; word-valued payloads keep the limb column at zero
+    pub const DECODE_BIGROOT: Envelope              = envelope( 60_090, 0,       Some(band(783, 469)), None,                     None); // wire decode is validate + wrap; the one wide root magnitude keeps a linear limb record while the word-valued form carries the narrow codes
+    pub const CMP_BIGROOT: Envelope                 = envelope( 40_340, 0,       Some(band(783, 469)), None,                     None); // the iterative sweep over the Bytes-backed at-rest form; the wide root's decode is the limb record
+    pub const JOIN_BIGROOT: Envelope                = envelope( 85_060, 0,     Some(band(1_565, 939)), None,                     None); // the emit kernel's peak alone (the lhs clone is a refcount bump); the wide root decodes on both sides carry the limb record
+    pub const DECODE_HUGELEAF: Envelope             = envelope(122_504, 0,   Some(band(2_443, 1_465)), None,                     None); // the validating wire decode holds the running height; one wide gamma code's linear limb work
+    pub const JOIN_HUGELEAF: Envelope               = envelope(185_494, 0,   Some(band(4_887, 2_931)), None,                     None); // the emit kernel holds both payload buffers, and the lhs clone is a refcount bump, so the public join's peak is the emit kernel's alone
+    pub const ID_JOIN: Envelope                     = envelope(279_132, 0,           Some(band(0, 0)), None,                     None); // iterative id walks: frame bits on the heap, no grown segments
+    pub const ID_COVERS: Envelope                   = envelope(     10, 0,           Some(band(0, 0)), None,                     None); // iterative id walks
+    pub const ID_DISJOINT: Envelope                 = envelope(     10, 0,           Some(band(0, 0)), None,                     None); // iterative id walks
+    pub const ID_WITHOUT: Envelope                  = envelope(521_110, 0,           Some(band(0, 0)), None,                     None); // iterative complement over the Bytes-backed at-rest form; dev builds run no shadow re-parse of the diff emission (the differential suites carry the normal-form check)
+    pub const DECODE_CLIFF: Envelope                = envelope(  4_052, 0,         Some(band(88, 52)), None,                     None); // wire decode is validate + wrap; each cliff crossing's limb work is paid by its own wide stored code
+    pub const CMP_CLIFF: Envelope                   = envelope(  1_330, 0,         Some(band(88, 52)), None,                     None); // the cliff-free sweep (two accumulators, opened once) over the Bytes-backed at-rest form
+    pub const JOIN_CLIFF: Envelope                  = envelope(  5_362, 0,       Some(band(308, 184)), None,                     None); // the emit kernel's peak alone (the lhs clone is a refcount bump); each re-coded tooth's limb work is paid by its comparably-wide input code
     // Skyline validator rows: the validator's transient is the
-    // open-ancestor bit stack plus reallocation growth — bits per level,
-    // not frames. The validator and decoder rows carry
-    // the sweep tables' scanned-bits column: their work is cursor reads
-    // end to end (the validator allocates near-nothing and, off the wide
-    // families, does little arithmetic), so scan is the column that sees
-    // a re-read the others cannot. Decode is validate plus the wrap, so
-    // each shape's scan reading equals its validate row's.
-    pub const SKYLINE_VALIDATE_DENSE: SweepEnvelope = sweep_envelope(61_440, 0, 0, 468_758, 0); // the open-ancestor bit stack; word-valued payloads keep the limb column at zero
-    pub const SKYLINE_VALIDATE_CLIFF: SweepEnvelope = sweep_envelope(1_770, 0, 88, 17_923, 52); // the cliff-free accumulator: amortized O(1) per delta
-    pub const SKYLINE_VALIDATE_WIDE_TOOTH: SweepEnvelope = sweep_envelope(1_520, 0, 29_509, 1_000_480, 17_705); // each wide delta's limb work is paid by its own zigzag code; heap stays at the bit stack plus the zero-run ledger's map node
-    pub const SKYLINE_VALIDATE_HUGELEAF: SweepEnvelope   = sweep_envelope(    80_980,        0,         2_443, 312_503, 1_465); // one wide decode and one wide accumulator load, both linear in the code's width
-    pub const SKYLINE_VALIDATE_ALT_SPINE: SweepEnvelope = sweep_envelope(61_440, 0, 0, 468_758, 0); // per-level state stays two bits however the descent direction flips
+    // open-ancestor bit stack plus reallocation growth, bits per level,
+    // not frames. Its work is cursor reads end to end (it allocates
+    // near-nothing and, off the wide families, does little arithmetic),
+    // so scan is the column that sees a re-read the others cannot.
+    // Decode is validate plus the wrap, so each shape's scan reading
+    // equals its validate row's.
+    pub const SKYLINE_VALIDATE_DENSE: Envelope      = envelope( 61_440, 0,           Some(band(0, 0)), None,   Some(band(468_758, 0))); // the open-ancestor bit stack; word-valued payloads keep the limb column at zero
+    pub const SKYLINE_VALIDATE_CLIFF: Envelope      = envelope(  1_770, 0,         Some(band(88, 52)), None,    Some(band(17_923, 0))); // the cliff-free accumulator: amortized O(1) per delta
+    pub const SKYLINE_VALIDATE_WIDE_TOOTH: Envelope = envelope(  1_520, 0, Some(band(29_509, 17_705)), None, Some(band(1_000_480, 0))); // each wide delta's limb work is paid by its own zigzag code; heap stays at the bit stack plus the zero-run ledger's map node
+    pub const SKYLINE_VALIDATE_HUGELEAF: Envelope   = envelope( 80_980, 0,   Some(band(2_443, 1_465)), None,   Some(band(312_503, 0))); // one wide decode and one wide accumulator load, both linear in the code's width
+    pub const SKYLINE_VALIDATE_ALT_SPINE: Envelope  = envelope( 61_440, 0,           Some(band(0, 0)), None,   Some(band(468_758, 0))); // per-level state stays two bits however the descent direction flips
     // Skyline decoder rows: validation plus the wrap into storage — the
     // stored coding is the skyline stream itself, so decode materializes
     // nothing beyond the copy and stays priced by the wire input.
-    pub const SKYLINE_DECODE_DENSE: SweepEnvelope = sweep_envelope(61_440, 0, 0, 468_758, 0); // decode is validate + wrap: the wrap allocates the copy once, exactly sized
-    pub const SKYLINE_DECODE_CLIFF: SweepEnvelope = sweep_envelope(2_250, 0, 88, 17_923, 52); // decode is validate + wrap: the wrap allocates the copy once, exactly sized
-    pub const SKYLINE_DECODE_WIDE_TOOTH: SweepEnvelope = sweep_envelope(125_100, 0, 29_509, 1_000_480, 17_705); // decode is validate + wrap; the once-allocated copy prices the wide payloads
-    pub const SKYLINE_DECODE_HUGELEAF: SweepEnvelope     = sweep_envelope(    83_440,        0,         2_443, 312_503, 1_465); // decode is validate + wrap
-    pub const SKYLINE_DECODE_ALT_SPINE: SweepEnvelope = sweep_envelope(61_440, 0, 0, 468_758, 0); // decode is validate + wrap: the wrap allocates the copy once, exactly sized
+    pub const SKYLINE_DECODE_DENSE: Envelope        = envelope( 61_440, 0,           Some(band(0, 0)), None,   Some(band(468_758, 0))); // decode is validate + wrap: the wrap allocates the copy once, exactly sized
+    pub const SKYLINE_DECODE_CLIFF: Envelope        = envelope(  2_250, 0,         Some(band(88, 52)), None,    Some(band(17_923, 0))); // decode is validate + wrap: the wrap allocates the copy once, exactly sized
+    pub const SKYLINE_DECODE_WIDE_TOOTH: Envelope   = envelope(125_100, 0, Some(band(29_509, 17_705)), None, Some(band(1_000_480, 0))); // decode is validate + wrap; the once-allocated copy prices the wide payloads
+    pub const SKYLINE_DECODE_HUGELEAF: Envelope     = envelope( 83_440, 0,   Some(band(2_443, 1_465)), None,   Some(band(312_503, 0))); // decode is validate + wrap
+    pub const SKYLINE_DECODE_ALT_SPINE: Envelope    = envelope( 61_440, 0,           Some(band(0, 0)), None,   Some(band(468_758, 0))); // decode is validate + wrap: the wrap allocates the copy once, exactly sized
 }
 
 // ─── meter liveness canaries ────────────────────────────────────────────────
@@ -354,31 +356,138 @@ fn heap_meter_floor_on_decode_dense() {
 const ISOLATION_NOTE: &str = "note: the meters are process-global and meaningful only one \
      scenario per process: run under cargo nextest, not a shared-process cargo test";
 
-/// Run one scenario body under both meters and assert its envelope.
-///
-/// Prints the measured numbers (visible under `--no-capture` or on failure)
-/// so re-pinning an envelope never requires editing the harness. The
-/// scenario's result is returned alive, so the peak includes the fully
-/// materialized output, and is dropped by the caller after measurement.
-fn metered<R>(name: &str, input_bytes: usize, env: &Envelope, f: impl FnOnce() -> R) -> R {
-    meter::reset_stack_segments();
+/// One counter column of the harness: its MEASURED key, its unit in
+/// failure messages, its counter's reset and read, and the row's pin.
+#[derive(Clone, Copy)]
+struct Column {
+    /// The key of the column's `key=reading` fragment on the MEASURED line.
+    key: &'static str,
+    /// The unit named when the column's ceiling is exceeded.
+    unit: &'static str,
+    /// Reset the counter before the scenario body.
+    reset: fn(),
+    /// Read the counter after the body, or `None` when its feature is not
+    /// compiled in.
+    read: fn() -> Option<u64>,
+    /// The row's pin for this column.
+    pin: fn(&Envelope) -> Option<Bound>,
+    /// The row's pin for this column, writable (the harness self-test's
+    /// probe).
+    pin_mut: fn(&mut Envelope) -> &mut Option<Bound>,
+}
+
+/// The counter columns, in MEASURED-line order.
+const COLUMNS: [Column; 3] = [
+    Column {
+        key: "limb_ops",
+        unit: "limb operations",
+        reset: reset_limb_ops,
+        read: limb_ops,
+        pin: |env| env.limb,
+        pin_mut: |env| &mut env.limb,
+    },
+    Column {
+        key: "touches",
+        unit: "accumulator digit touches",
+        reset: reset_touches,
+        read: touches,
+        pin: |env| env.touch,
+        pin_mut: |env| &mut env.touch,
+    },
+    Column {
+        key: "scan_bits",
+        unit: "scanned bits",
+        reset: reset_scan_bits,
+        read: scan_bits,
+        pin: |env| env.scan,
+        pin_mut: |env| &mut env.scan,
+    },
+];
+
+/// Reset the limb counter; nothing to reset without the `limb-meter`
+/// feature.
+fn reset_limb_ops() {
     #[cfg(feature = "limb-meter")]
     meter::reset_limb_ops();
+}
+
+/// The limb counter, or `None` without the `limb-meter` feature.
+fn limb_ops() -> Option<u64> {
+    #[cfg(feature = "limb-meter")]
+    {
+        Some(meter::limb_ops())
+    }
+    #[cfg(not(feature = "limb-meter"))]
+    {
+        None
+    }
+}
+
+/// Reset the accumulator touch counter; nothing to reset without the
+/// `limb-meter` feature.
+fn reset_touches() {
+    #[cfg(feature = "limb-meter")]
+    suanpan::touch_meter::reset();
+}
+
+/// The accumulator touch counter, or `None` without the `limb-meter`
+/// feature.
+fn touches() -> Option<u64> {
+    #[cfg(feature = "limb-meter")]
+    {
+        Some(suanpan::touch_meter::touches())
+    }
+    #[cfg(not(feature = "limb-meter"))]
+    {
+        None
+    }
+}
+
+/// Reset the scan counter; nothing to reset without the `scan-meter`
+/// feature.
+fn reset_scan_bits() {
+    #[cfg(feature = "scan-meter")]
+    meter::reset_scan_bits();
+}
+
+/// The scan counter, or `None` without the `scan-meter` feature.
+fn scan_bits() -> Option<u64> {
+    #[cfg(feature = "scan-meter")]
+    {
+        Some(meter::scan_bits())
+    }
+    #[cfg(not(feature = "scan-meter"))]
+    {
+        None
+    }
+}
+
+/// Run one scenario body under every meter and assert its envelope.
+///
+/// Prints the MEASURED line (visible under `--no-capture` or on failure) so
+/// re-pinning never requires editing the harness. The scenario's result is
+/// returned alive, so the peak includes the fully materialized output, and
+/// is dropped by the caller after measurement.
+fn metered<R>(name: &str, input_bytes: usize, env: &Envelope, f: impl FnOnce() -> R) -> R {
+    meter::reset_stack_segments();
+    for column in &COLUMNS {
+        (column.reset)();
+    }
     HEAP.reset_peak_usage();
     let baseline = HEAP.current_usage();
     let r = f();
     let peak_heap = HEAP.peak_usage().saturating_sub(baseline);
     let segments = meter::stack_segments();
-    #[cfg(feature = "limb-meter")]
-    let limb_ops = meter::limb_ops();
-    #[cfg(feature = "limb-meter")]
-    eprintln!(
-        "MEASURED {name}: input_bytes={input_bytes} peak_heap={peak_heap} segments={segments} limb_ops={limb_ops}"
-    );
-    #[cfg(not(feature = "limb-meter"))]
-    eprintln!(
+    let readings = COLUMNS.map(|column| (column.read)());
+    let mut line = format!(
         "MEASURED {name}: input_bytes={input_bytes} peak_heap={peak_heap} segments={segments}"
     );
+    for (column, reading) in COLUMNS.iter().zip(readings) {
+        if let Some(reading) = reading {
+            write!(line, " {}={reading}", column.key).expect("a String write cannot fail");
+        }
+    }
+    eprintln!("{line}");
     assert!(
         peak_heap <= env.peak_heap,
         "{name}: peak heap {peak_heap} B exceeds the pinned envelope {} B (input {input_bytes} B): {ISOLATION_NOTE}",
@@ -389,22 +498,95 @@ fn metered<R>(name: &str, input_bytes: usize, env: &Envelope, f: impl FnOnce() -
         "{name}: {segments} grown stack segments exceed the pinned envelope {}: {ISOLATION_NOTE}",
         env.segments,
     );
-    #[cfg(feature = "limb-meter")]
-    assert!(
-        limb_ops <= env.limb_ops,
-        "{name}: {limb_ops} limb operations exceed the pinned envelope {}: {ISOLATION_NOTE}",
-        env.limb_ops,
-    );
-    #[cfg(feature = "limb-meter")]
-    assert!(
-        limb_ops >= env.limb_floor,
-        "{name}: limb counter reads {limb_ops}, below the {} improvement \
-         tripwire (measured x0.75): attribute the drop — an honest \
-         improvement re-pins the band; a dead meter is the bypass this \
-         column exists to catch",
-        env.limb_floor,
-    );
+    for (column, reading) in COLUMNS.iter().zip(readings) {
+        let (Some(reading), Some(bound)) = (reading, (column.pin)(env)) else {
+            continue;
+        };
+        assert!(
+            reading <= bound.ceiling,
+            "{name}: {reading} {} exceed the pinned envelope {}: {ISOLATION_NOTE}",
+            column.unit,
+            bound.ceiling,
+        );
+        assert!(
+            reading >= bound.floor,
+            "{name}: the {} counter reads {reading}, below the {} improvement \
+             tripwire (measured x0.75): attribute the drop; an improvement re-pins \
+             the band, and a dead meter is the bypass this column exists to catch",
+            column.key,
+            bound.floor,
+        );
+    }
     r
+}
+
+/// Magnitude (bits) of the harness self-test's probe operand.
+const HARNESS_PROBE_MAGNITUDE_BITS: usize = 1_024;
+
+/// Depth of the harness self-test's probe operand.
+const HARNESS_PROBE_DEPTH: usize = 64;
+
+/// The harness judges every column: a body that moves every counter fails
+/// under a ceiling below its reading on any one column, under a floor
+/// above its reading on any one column, and under a zero heap ceiling.
+///
+/// The harness's own negative control: a column whose assert is skipped, a
+/// reset that leaves a stale reading, or a read wired to a counter the body
+/// never moves shows up here as a probe that passes when it must not.
+#[test]
+fn harness_judges_every_column() {
+    let v = version_of(&Shape::Bigroot.packed2(HARNESS_PROBE_MAGNITUDE_BITS, HARNESS_PROBE_DEPTH));
+    let input = v.encode().len();
+    let open = Envelope {
+        peak_heap: usize::MAX,
+        segments: u64::MAX,
+        limb: None,
+        touch: None,
+        scan: None,
+    };
+    HEAP.reset_peak_usage();
+    let baseline = HEAP.current_usage();
+    consumed(metered("harness_probe", input, &open, || v.rank()));
+    assert!(
+        HEAP.peak_usage().saturating_sub(baseline) > 0,
+        "the probe body must allocate"
+    );
+    let readings = COLUMNS.map(|column| (column.read)());
+    let fails = |env: &Envelope| {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            consumed(metered("harness_probe", input, env, || v.rank()))
+        }))
+        .is_err()
+    };
+    let closed = Envelope {
+        peak_heap: 0,
+        ..open
+    };
+    assert!(fails(&closed), "a zero heap ceiling must fail the probe");
+    for (column, reading) in COLUMNS.iter().zip(readings) {
+        let Some(reading) = reading else {
+            continue;
+        };
+        assert!(
+            reading > 0,
+            "the probe body must move the {} counter",
+            column.key
+        );
+        let mut over = open;
+        *(column.pin_mut)(&mut over) = Some(band(reading - 1, 0));
+        assert!(
+            fails(&over),
+            "{}: a ceiling under the reading must fail the probe",
+            column.key
+        );
+        let mut under = open;
+        *(column.pin_mut)(&mut under) = Some(band(u64::MAX, reading + 1));
+        assert!(
+            fails(&under),
+            "{}: a floor over the reading must fail the probe",
+            column.key
+        );
+    }
 }
 
 /// Lift a generated shape into a [`Version`], outside any measurement.
@@ -469,7 +651,7 @@ fn tick_dense_envelope() {
     let p = Shape::Dense.packed1(DENSE_DEPTH);
     let mut v = version_of(&p);
     let seed = Party::seed();
-    query_metered("tick_dense", p.bytes.len(), &query_env::TICK_DENSE, || {
+    metered("tick_dense", p.bytes.len(), &query_env::TICK_DENSE, || {
         v.tick(&seed)
     });
     drop(v);
@@ -486,7 +668,7 @@ fn tick_nested_wide_envelope() {
     let mut v = version_of(&ev);
     let p = party_of(&id);
     let input = ev.bytes.len() + id.bytes.len();
-    query_metered(
+    metered(
         "tick_nested_wide",
         input,
         &query_env::TICK_NESTED_WIDE,
@@ -506,7 +688,7 @@ fn tick_mirror_wide_envelope() {
     let mut v = version_of(&ev);
     let p = party_of(&id);
     let input = ev.bytes.len() + id.bytes.len();
-    query_metered(
+    metered(
         "tick_mirror_wide",
         input,
         &query_env::TICK_MIRROR_WIDE,
@@ -532,7 +714,7 @@ fn tick_ownership_hole_envelope() {
     let mut v = version_of(&ev);
     let p = party_of(&id);
     let input = ev.bytes.len() + id.bytes.len();
-    query_metered(
+    metered(
         "tick_ownership_hole",
         input,
         &query_env::TICK_OWNERSHIP_HOLE,
@@ -557,7 +739,7 @@ fn tick_ownership_comb_envelope() {
     let mut v = version_of(&ev);
     let p = party_of(&id);
     let input = ev.bytes.len() + id.bytes.len();
-    query_metered(
+    metered(
         "tick_ownership_comb",
         input,
         &query_env::TICK_OWNERSHIP_COMB,
@@ -581,7 +763,7 @@ fn tick_collapse_hole_envelope() {
     let mut v = version_of(&ev);
     let p = party_of(&id);
     let input = ev.bytes.len() + id.bytes.len();
-    query_metered(
+    metered(
         "tick_collapse_hole",
         input,
         &query_env::TICK_COLLAPSE_HOLE,
@@ -605,7 +787,7 @@ fn tick_copy_hole_envelope() {
     let mut v = version_of(&ev);
     let p = party_of(&id);
     let input = ev.bytes.len() + id.bytes.len();
-    query_metered("tick_copy_hole", input, &query_env::TICK_COPY_HOLE, || {
+    metered("tick_copy_hole", input, &query_env::TICK_COPY_HOLE, || {
         v.tick(&p)
     });
     drop(v);
@@ -627,7 +809,7 @@ fn tick_site_hole_envelope() {
     let mut v = version_of(&ev);
     let p = party_of(&id);
     let input = ev.bytes.len() + id.bytes.len();
-    query_metered("tick_site_hole", input, &query_env::TICK_SITE_HOLE, || {
+    metered("tick_site_hole", input, &query_env::TICK_SITE_HOLE, || {
         v.tick(&p)
     });
     drop(v);
@@ -648,7 +830,7 @@ fn tick_raise_hole_envelope() {
     let mut v = version_of(&ev);
     let p = party_of(&id);
     let input = ev.bytes.len() + id.bytes.len();
-    query_metered(
+    metered(
         "tick_raise_hole",
         input,
         &query_env::TICK_RAISE_HOLE,
@@ -665,7 +847,7 @@ fn ticks_dense_envelope() {
     let p = Shape::Dense.packed1(DENSE_DEPTH);
     let mut v = version_of(&p);
     let seed = Party::seed();
-    query_metered(
+    metered(
         "ticks_dense",
         p.bytes.len(),
         &query_env::TICKS_DENSE,
@@ -684,7 +866,7 @@ fn ticks_nested_wide_envelope() {
     let mut v = version_of(&ev);
     let p = party_of(&id);
     let input = ev.bytes.len() + id.bytes.len();
-    query_metered(
+    metered(
         "ticks_nested_wide",
         input,
         &query_env::TICKS_NESTED_WIDE,
@@ -703,7 +885,7 @@ fn ticks_mirror_wide_envelope() {
     let mut v = version_of(&ev);
     let p = party_of(&id);
     let input = ev.bytes.len() + id.bytes.len();
-    query_metered(
+    metered(
         "ticks_mirror_wide",
         input,
         &query_env::TICKS_MIRROR_WIDE,
@@ -1111,167 +1293,16 @@ fn join_cliff_envelope() {
 // the raw-accumulator Sum (one normalization at the end, where a
 // per-summand renormalization reads magnitude-quadratic).
 
-/// One touch-priced scenario's pinned ceilings, asserted when the
-/// `limb-meter` feature is lit.
-///
-/// [`Envelope`]'s three columns plus accumulator digit touches — the
-/// rank folds' and the tick walk's own cost currency: wide content
-/// moves through `Accumulator`s that the heap and limb columns cannot see.
-struct TouchEnvelope {
-    /// Peak heap delta over the scenario body, in bytes.
-    peak_heap: usize,
-    /// Stack segments grown during the scenario body.
-    segments: u64,
-    /// Big-integer limb operations counted during the scenario body.
-    #[cfg(feature = "limb-meter")]
-    limb_ops: u64,
-    /// Accumulator digit touches counted during the scenario body.
-    #[cfg(feature = "limb-meter")]
-    touches: u64,
-    /// Improvement tripwire under the limb column: measured ×0.75, per
-    /// the file doc's tripwire convention.
-    #[cfg(feature = "limb-meter")]
-    limb_floor: u64,
-    /// Improvement tripwire under the touch column: measured ×0.75, per
-    /// the file doc's tripwire convention.
-    ///
-    /// A touch reading below it is a >25% drop from the pinned reading —
-    /// attribute it, re-pinning an honest improvement or curing a dead
-    /// meter, without which every touch ceiling above would hold
-    /// vacuously.
-    #[cfg(feature = "limb-meter")]
-    touch_floor: u64,
-}
-
-/// Build a [`TouchEnvelope`] from the four pinned columns and the two
-/// improvement tripwires.
-///
-/// The limb and touch columns are carried only when the `limb-meter`
-/// feature compiles their counters in; the leading underscores keep the
-/// parameters warning-free in the other configuration.
-const fn touch_envelope(
-    peak_heap: usize,
-    segments: u64,
-    _limb_ops: u64,
-    _touches: u64,
-    _limb_floor: u64,
-    _touch_floor: u64,
-) -> TouchEnvelope {
-    TouchEnvelope {
-        peak_heap,
-        segments,
-        #[cfg(feature = "limb-meter")]
-        limb_ops: _limb_ops,
-        #[cfg(feature = "limb-meter")]
-        touches: _touches,
-        #[cfg(feature = "limb-meter")]
-        limb_floor: _limb_floor,
-        #[cfg(feature = "limb-meter")]
-        touch_floor: _touch_floor,
-    }
-}
-
-// The touch-priced envelope table (the rank rows): pinned ceiling =
-// measured ×1.25, rounded up (aarch64-apple-darwin, dev profile, three
-// identical runs), and only ever tightened: where a remeasure rises while
-// staying inside an existing ceiling (the spilled-numerator heap cells,
-// which carry the backend's `len/8 + 2` words of growth headroom per heap
-// allocation), the older, tighter ceiling stands. The trailing comment on
-// each line states the mechanism that prices the row; the measurements of
-// record — and every re-pin's movement and attribution — live in the pin
-// commits (`git log -S` the constant). Re-pin by rerunning under
-// `--no-capture` with `--all-features` and reading the MEASURED lines.
-// The limb floor column is the measured value ×0.75, rounded down (the
-// file doc's improvement-tripwire convention).
-// A re-denomination of a column — the same work newly counted at the
-// metered seam (`Base::trailing_zeros`, widening shifts) — is a
-// sanctioned rise under the tightening rule, recorded in its pin commit,
-// never a weakening.
+// Pins per the file doc's convention; each row's trailing comment states
+// the mechanism that prices it.
 #[rustfmt::skip]
 mod rank_env {
-    use super::{touch_envelope, TouchEnvelope};
-    //                                                             peak heap, segments,    limb ops, touches, limb floor, touch floor
-    pub const RANK_DENSE: TouchEnvelope = touch_envelope(30_720, 0, 4, 7, 2, 3); // the depth control: word-scale numerators fold in the accumulator's quick register, so the work columns sit near zero and the heap is the at-rest form
-    pub const RANK_BIGROOT: TouchEnvelope = touch_envelope(72_005, 0, 2_739, 8_993, 1_643, 5_395); // the wide-magnitude control: one root-wide decode and one root-wide fold; the segment feed opens only at the first freeze
-    pub const RANK_HARMONIC: TouchEnvelope = touch_envelope(52_500, 0, 2_562, 248_285, 1_536, 148_971); // the separating family: each level's one-leaf sibling lands at the exponent gap, so touches stay linear in depth and no accumulated numerator is re-shifted
-    pub const RANK_PAIR_MISMATCH: TouchEnvelope = touch_envelope(     234_400,        0,      87_910,      0, 52_746, 0); // class-first cmp decides order in O(1); the limb record is checked_sub's and add's mandatory output content plus the metered exponent-alignment shifts
-    pub const RANK_SUM_MIXED: TouchEnvelope     = touch_envelope(      78_140,        0,       9_769, 22_268, 5_861, 13_360); // the raw accumulator: digit-routed summands, one normalization at the end
-}
-
-/// Run one touch-priced scenario body under all four meters and assert
-/// its envelope, both improvement tripwires included.
-///
-/// [`metered`]'s harness plus the accumulator touch column; prints the
-/// measured numbers so re-pinning never requires editing the harness.
-fn touch_metered<R>(
-    name: &str,
-    input_bytes: usize,
-    env: &TouchEnvelope,
-    f: impl FnOnce() -> R,
-) -> R {
-    meter::reset_stack_segments();
-    #[cfg(feature = "limb-meter")]
-    meter::reset_limb_ops();
-    #[cfg(feature = "limb-meter")]
-    suanpan::touch_meter::reset();
-    HEAP.reset_peak_usage();
-    let baseline = HEAP.current_usage();
-    let r = f();
-    let peak_heap = HEAP.peak_usage().saturating_sub(baseline);
-    let segments = meter::stack_segments();
-    #[cfg(feature = "limb-meter")]
-    let limb_ops = meter::limb_ops();
-    #[cfg(feature = "limb-meter")]
-    let touches = suanpan::touch_meter::touches();
-    #[cfg(feature = "limb-meter")]
-    eprintln!(
-        "MEASURED {name}: input_bytes={input_bytes} peak_heap={peak_heap} segments={segments} limb_ops={limb_ops} touches={touches}"
-    );
-    #[cfg(not(feature = "limb-meter"))]
-    eprintln!(
-        "MEASURED {name}: input_bytes={input_bytes} peak_heap={peak_heap} segments={segments}"
-    );
-    assert!(
-        peak_heap <= env.peak_heap,
-        "{name}: peak heap {peak_heap} B exceeds the pinned envelope {} B (input {input_bytes} B): {ISOLATION_NOTE}",
-        env.peak_heap,
-    );
-    assert!(
-        segments <= env.segments,
-        "{name}: {segments} grown stack segments exceed the pinned envelope {}: {ISOLATION_NOTE}",
-        env.segments,
-    );
-    #[cfg(feature = "limb-meter")]
-    assert!(
-        limb_ops <= env.limb_ops,
-        "{name}: {limb_ops} limb operations exceed the pinned envelope {}: {ISOLATION_NOTE}",
-        env.limb_ops,
-    );
-    #[cfg(feature = "limb-meter")]
-    assert!(
-        touches <= env.touches,
-        "{name}: {touches} accumulator digit touches exceed the pinned envelope {}: {ISOLATION_NOTE}",
-        env.touches,
-    );
-    #[cfg(feature = "limb-meter")]
-    assert!(
-        limb_ops >= env.limb_floor,
-        "{name}: limb counter reads {limb_ops}, below the {} improvement \
-         tripwire (measured x0.75): attribute the drop — an honest \
-         improvement re-pins the band; a dead meter is the bypass this \
-         column exists to catch",
-        env.limb_floor,
-    );
-    #[cfg(feature = "limb-meter")]
-    assert!(
-        touches >= env.touch_floor,
-        "{name}: touch counter reads {touches}, below the {} improvement \
-         tripwire (measured x0.75): attribute the drop — an honest \
-         improvement re-pins the band; a dead meter is the bypass this \
-         column exists to catch",
-        env.touch_floor,
-    );
-    r
+    use super::{band, envelope, Envelope};
+    pub const RANK_DENSE: Envelope         = envelope( 30_720, 0,           Some(band(4, 2)),             Some(band(7, 3)), None); // the depth control: word-scale numerators fold in the accumulator's quick register, so the work columns sit near zero and the heap is the at-rest form
+    pub const RANK_BIGROOT: Envelope       = envelope( 72_005, 0,   Some(band(2_739, 1_643)),     Some(band(8_993, 5_395)), None); // the wide-magnitude control: one root-wide decode and one root-wide fold; the segment feed opens only at the first freeze
+    pub const RANK_HARMONIC: Envelope      = envelope( 52_500, 0,   Some(band(2_562, 1_536)), Some(band(248_285, 148_971)), None); // the separating family: each level's one-leaf sibling lands at the exponent gap, so touches stay linear in depth and no accumulated numerator is re-shifted
+    pub const RANK_PAIR_MISMATCH: Envelope = envelope(234_400, 0, Some(band(87_910, 52_746)),             Some(band(0, 0)), None); // class-first cmp decides order in O(1); the limb record is checked_sub's and add's mandatory output content plus the metered exponent-alignment shifts
+    pub const RANK_SUM_MIXED: Envelope     = envelope( 78_140, 0,   Some(band(9_769, 5_861)),   Some(band(22_268, 13_360)), None); // the raw accumulator: digit-routed summands, one normalization at the end
 }
 
 /// The rank fold on the dense spine stays within its envelope (the
@@ -1281,7 +1312,7 @@ fn touch_metered<R>(
 fn rank_dense_envelope() {
     let p = Shape::Dense.packed1(DENSE_DEPTH);
     let v = version_of(&p);
-    let r = touch_metered("rank_dense", p.bytes.len(), &rank_env::RANK_DENSE, || {
+    let r = metered("rank_dense", p.bytes.len(), &rank_env::RANK_DENSE, || {
         v.rank()
     });
     consumed(r);
@@ -1293,7 +1324,7 @@ fn rank_dense_envelope() {
 fn rank_bigroot_envelope() {
     let p = Shape::Bigroot.packed2(BIGROOT_MAGNITUDE_BITS, BIGROOT_DEPTH);
     let v = version_of(&p);
-    let r = touch_metered(
+    let r = metered(
         "rank_bigroot",
         p.bytes.len(),
         &rank_env::RANK_BIGROOT,
@@ -1312,7 +1343,7 @@ fn rank_bigroot_envelope() {
 fn rank_harmonic_envelope() {
     let p = Shape::Harmonic.packed1(RANK_HARMONIC_DEPTH);
     let v = version_of(&p);
-    let r = touch_metered(
+    let r = metered(
         "rank_harmonic",
         p.bytes.len(),
         &rank_env::RANK_HARMONIC,
@@ -1341,7 +1372,7 @@ fn rank_pair_mismatch_envelope() {
     // Informational denominator: the pair's value content in bytes
     // (numerator bits + exponent, over eight).
     let content_bytes = RANK_PAIR_DEPTH / 8 + 1;
-    let r = touch_metered(
+    let r = metered(
         "rank_pair_mismatch",
         content_bytes,
         &rank_env::RANK_PAIR_MISMATCH,
@@ -1386,7 +1417,7 @@ fn rank_sum_mixed_envelope() {
         .collect();
     let content_bytes = RANK_SUM_EXP_DEPTH / 8 + RANK_SUM_COUNT;
     let ranks: Vec<before::Rank> = std::iter::once(high).chain(ones).collect();
-    let r = touch_metered(
+    let r = metered(
         "rank_sum_mixed",
         content_bytes,
         &rank_env::RANK_SUM_MIXED,
@@ -1420,7 +1451,7 @@ fn skyline_of(p: &meter::Packed) -> meter::skyline::BitsBuf {
 #[test]
 fn skyline_validate_dense_envelope() {
     let enc = skyline_of(&Shape::Dense.packed1(DENSE_DEPTH));
-    let r = sweep_metered(
+    let r = metered(
         "skyline_validate_dense",
         enc.as_raw_slice().len(),
         &envelope::SKYLINE_VALIDATE_DENSE,
@@ -1438,7 +1469,7 @@ fn skyline_validate_dense_envelope() {
 #[test]
 fn skyline_validate_cliff_envelope() {
     let enc = skyline_of(&Shape::CliffComb.packed2(CLIFF_SCALE, CLIFF_SCALE));
-    let r = sweep_metered(
+    let r = metered(
         "skyline_validate_cliff",
         enc.as_raw_slice().len(),
         &envelope::SKYLINE_VALIDATE_CLIFF,
@@ -1454,7 +1485,7 @@ fn skyline_validate_cliff_envelope() {
 fn skyline_validate_wide_tooth_envelope() {
     let enc =
         skyline_of(&Shape::WideToothComb.packed3(CLIFF_SCALE, WIDE_TOOTH_WIDTH_BITS, CLIFF_SCALE));
-    let r = sweep_metered(
+    let r = metered(
         "skyline_validate_wide_tooth",
         enc.as_raw_slice().len(),
         &envelope::SKYLINE_VALIDATE_WIDE_TOOTH,
@@ -1472,7 +1503,7 @@ fn skyline_validate_wide_tooth_envelope() {
 #[test]
 fn skyline_validate_hugeleaf_envelope() {
     let enc = skyline_of(&Shape::Hugeleaf.packed1(HUGELEAF_MAGNITUDE_BITS));
-    let r = sweep_metered(
+    let r = metered(
         "skyline_validate_hugeleaf",
         enc.as_raw_slice().len(),
         &envelope::SKYLINE_VALIDATE_HUGELEAF,
@@ -1488,7 +1519,7 @@ fn skyline_validate_hugeleaf_envelope() {
 #[test]
 fn skyline_validate_alt_spine_envelope() {
     let enc = skyline_of(&Shape::AltSpine.packed1(DENSE_DEPTH));
-    let r = sweep_metered(
+    let r = metered(
         "skyline_validate_alt_spine",
         enc.as_raw_slice().len(),
         &envelope::SKYLINE_VALIDATE_ALT_SPINE,
@@ -1503,7 +1534,7 @@ fn skyline_validate_alt_spine_envelope() {
 fn skyline_decode_dense_envelope() {
     let p = Shape::Dense.packed1(DENSE_DEPTH);
     let enc = skyline_of(&p);
-    let v = sweep_metered(
+    let v = metered(
         "skyline_decode_dense",
         enc.as_raw_slice().len(),
         &envelope::SKYLINE_DECODE_DENSE,
@@ -1521,7 +1552,7 @@ fn skyline_decode_dense_envelope() {
 fn skyline_decode_cliff_envelope() {
     let p = Shape::CliffComb.packed2(CLIFF_SCALE, CLIFF_SCALE);
     let enc = skyline_of(&p);
-    let v = sweep_metered(
+    let v = metered(
         "skyline_decode_cliff",
         enc.as_raw_slice().len(),
         &envelope::SKYLINE_DECODE_CLIFF,
@@ -1536,7 +1567,7 @@ fn skyline_decode_cliff_envelope() {
 fn skyline_decode_wide_tooth_envelope() {
     let p = Shape::WideToothComb.packed3(CLIFF_SCALE, WIDE_TOOTH_WIDTH_BITS, CLIFF_SCALE);
     let enc = skyline_of(&p);
-    let v = sweep_metered(
+    let v = metered(
         "skyline_decode_wide_tooth",
         enc.as_raw_slice().len(),
         &envelope::SKYLINE_DECODE_WIDE_TOOTH,
@@ -1551,7 +1582,7 @@ fn skyline_decode_wide_tooth_envelope() {
 fn skyline_decode_hugeleaf_envelope() {
     let p = Shape::Hugeleaf.packed1(HUGELEAF_MAGNITUDE_BITS);
     let enc = skyline_of(&p);
-    let v = sweep_metered(
+    let v = metered(
         "skyline_decode_hugeleaf",
         enc.as_raw_slice().len(),
         &envelope::SKYLINE_DECODE_HUGELEAF,
@@ -1566,7 +1597,7 @@ fn skyline_decode_hugeleaf_envelope() {
 fn skyline_decode_alt_spine_envelope() {
     let p = Shape::AltSpine.packed1(DENSE_DEPTH);
     let enc = skyline_of(&p);
-    let v = sweep_metered(
+    let v = metered(
         "skyline_decode_alt_spine",
         enc.as_raw_slice().len(),
         &envelope::SKYLINE_DECODE_ALT_SPINE,
@@ -1584,151 +1615,26 @@ fn skyline_decode_alt_spine_envelope() {
 // shallow-operand shape, where the whole deep side is consumed
 // iteratively against a single depth-0 plateau — and the self scenario
 // compares identical dense streams, so every boundary is an aligned tie
-// and both cursors advance in lockstep to full depth. These rows carry a
-// fourth column, packed-stream bits scanned, because the sweep's work is
+// and both cursors advance in lockstep to full depth. The sweep's work is
 // dominated by stream reads that allocate nothing, recurse nothing, and
-// (off the cliff families) do almost no arithmetic — the scan column is
+// (off the cliff families) do almost no arithmetic, so the scan column is
 // the one that sees it.
 
-/// One sweep scenario's pinned ceilings: [`Envelope`]'s three columns
-/// plus scanned bits, asserted when the `scan-meter` feature is lit.
-struct SweepEnvelope {
-    /// Peak heap delta over the scenario body, in bytes.
-    peak_heap: usize,
-    /// Stack segments grown during the scenario body.
-    segments: u64,
-    /// Big-integer limb operations counted during the scenario body.
-    #[cfg(feature = "limb-meter")]
-    limb_ops: u64,
-    /// Packed-stream bits scanned during the scenario body.
-    #[cfg(feature = "scan-meter")]
-    scan_bits: u64,
-    /// Improvement tripwire under the limb column: measured ×0.75, per
-    /// the file doc's tripwire convention.
-    #[cfg(feature = "limb-meter")]
-    limb_floor: u64,
-}
-
-/// Build a [`SweepEnvelope`] from the four pinned columns and the limb
-/// floor.
-///
-/// The limb and scan columns are carried only when their features
-/// compile the counters in; the leading underscores keep the parameters
-/// warning-free in the other configurations.
-const fn sweep_envelope(
-    peak_heap: usize,
-    segments: u64,
-    _limb_ops: u64,
-    _scan_bits: u64,
-    _limb_floor: u64,
-) -> SweepEnvelope {
-    SweepEnvelope {
-        peak_heap,
-        segments,
-        #[cfg(feature = "limb-meter")]
-        limb_ops: _limb_ops,
-        #[cfg(feature = "scan-meter")]
-        scan_bits: _scan_bits,
-        #[cfg(feature = "limb-meter")]
-        limb_floor: _limb_floor,
-    }
-}
-
-// The sweep envelope table: pinned ceiling = measured ×1.25, rounded up
-// (aarch64-apple-darwin, dev profile, three identical runs), and only
-// ever tightened: where a remeasure rises while staying inside an
-// existing ceiling (spilled-magnitude heap cells and their backend growth
-// headroom), the older, tighter ceiling stands. The trailing comment on
-// each line states the mechanism that prices the row; the measurements of
-// record — and every re-pin's movement and attribution — live in the pin
-// commits (`git log -S` the constant). Re-pin by rerunning under
-// `--no-capture` with `--all-features` and reading the MEASURED lines.
-// The limb floor column is the measured value ×0.75, rounded down (the
-// file doc's improvement-tripwire convention).
+// Pins per the file doc's convention; each row's trailing comment states
+// the mechanism that prices it.
 #[rustfmt::skip]
 mod sweep_env {
-    use super::{sweep_envelope, SweepEnvelope};
-    //                                                               peak heap, segments, limb ops,  scan bits, limb floor
-    pub const SKYLINE_CMP_DENSE: SweepEnvelope = sweep_envelope(30_720, 0, 0, 468_760, 0); // path-bit stacks and one accumulator; word-valued payloads keep the limb column at zero
-    pub const SKYLINE_CMP_DENSE_SELF: SweepEnvelope = sweep_envelope(51_200, 0, 0, 937_515, 0); // aligned ties in lockstep to full depth: both streams' bits scanned whole
-    pub const SKYLINE_CMP_BIGROOT: SweepEnvelope = sweep_envelope(39_540, 0, 783, 137_514, 469); // the wide first height absorbed once, paid by its own code
-    pub const SKYLINE_CMP_CLIFF: SweepEnvelope = sweep_envelope(1_330, 0, 88, 17_925, 52); // the cliff-free accumulator: amortized O(1) per crossing (the shared emission-sweep step holds each consumed delta; OpenedPair states the opening move once)
+    use super::{band, envelope, Envelope};
+    pub const SKYLINE_CMP_DENSE: Envelope      = envelope(30_720, 0,           Some(band(0, 0)), None,   Some(band(468_760, 0))); // path-bit stacks and one accumulator; word-valued payloads keep the limb column at zero
+    pub const SKYLINE_CMP_DENSE_SELF: Envelope = envelope(51_200, 0,           Some(band(0, 0)), None,   Some(band(937_515, 0))); // aligned ties in lockstep to full depth: both streams' bits scanned whole
+    pub const SKYLINE_CMP_BIGROOT: Envelope    = envelope(39_540, 0,       Some(band(783, 469)), None,   Some(band(137_514, 0))); // the wide first height absorbed once, paid by its own code
+    pub const SKYLINE_CMP_CLIFF: Envelope      = envelope( 1_330, 0,         Some(band(88, 52)), None,    Some(band(17_925, 0))); // the cliff-free accumulator: amortized O(1) per crossing (the shared emission-sweep step holds each consumed delta; OpenedPair states the opening move once)
     // SKYLINE_CMP_WIDE_TOOTH's deliberately thin heap margin is a
     // change-detector on the backend's and the accumulator's allocation
     // policies: the committed Cargo.lock (dashu-int 0.5.0 exact) is what
     // makes the measurement deterministic, and a cargo update to any other
     // 0.5.x is a deliberate re-measure event, not noise.
-    pub const SKYLINE_CMP_WIDE_TOOTH: SweepEnvelope = sweep_envelope(    1_250,        0,    29_509, 1_000_483, 17_705); // each wide delta's limb work paid by its own zigzag code; heap stays at the stacks, the accumulator, and the zero-run ledger's map node
-}
-
-/// Run one sweep scenario body under all four meters and assert its
-/// envelope.
-///
-/// [`metered`]'s harness plus the scan column; prints the measured
-/// numbers so re-pinning never requires editing the harness.
-fn sweep_metered<R>(
-    name: &str,
-    input_bytes: usize,
-    env: &SweepEnvelope,
-    f: impl FnOnce() -> R,
-) -> R {
-    meter::reset_stack_segments();
-    #[cfg(feature = "limb-meter")]
-    meter::reset_limb_ops();
-    #[cfg(feature = "scan-meter")]
-    meter::reset_scan_bits();
-    HEAP.reset_peak_usage();
-    let baseline = HEAP.current_usage();
-    let r = f();
-    let peak_heap = HEAP.peak_usage().saturating_sub(baseline);
-    let segments = meter::stack_segments();
-    #[cfg(feature = "limb-meter")]
-    let limb_ops = meter::limb_ops();
-    #[cfg(feature = "scan-meter")]
-    let scan_bits = meter::scan_bits();
-    #[cfg(feature = "limb-meter")]
-    let limb_col = format!(" limb_ops={limb_ops}");
-    #[cfg(not(feature = "limb-meter"))]
-    let limb_col = "";
-    #[cfg(feature = "scan-meter")]
-    let scan_col = format!(" scan_bits={scan_bits}");
-    #[cfg(not(feature = "scan-meter"))]
-    let scan_col = "";
-    eprintln!(
-        "MEASURED {name}: input_bytes={input_bytes} peak_heap={peak_heap} segments={segments}{limb_col}{scan_col}"
-    );
-    assert!(
-        peak_heap <= env.peak_heap,
-        "{name}: peak heap {peak_heap} B exceeds the pinned envelope {} B (input {input_bytes} B): {ISOLATION_NOTE}",
-        env.peak_heap,
-    );
-    assert!(
-        segments <= env.segments,
-        "{name}: {segments} grown stack segments exceed the pinned envelope {}: {ISOLATION_NOTE}",
-        env.segments,
-    );
-    #[cfg(feature = "limb-meter")]
-    assert!(
-        limb_ops <= env.limb_ops,
-        "{name}: {limb_ops} limb operations exceed the pinned envelope {}: {ISOLATION_NOTE}",
-        env.limb_ops,
-    );
-    #[cfg(feature = "scan-meter")]
-    assert!(
-        scan_bits <= env.scan_bits,
-        "{name}: {scan_bits} scanned bits exceed the pinned envelope {}: {ISOLATION_NOTE}",
-        env.scan_bits,
-    );
-    #[cfg(feature = "limb-meter")]
-    assert!(
-        limb_ops >= env.limb_floor,
-        "{name}: limb counter reads {limb_ops}, below the {} improvement \
-         tripwire (measured x0.75): attribute the drop — an honest \
-         improvement re-pins the band; a dead meter is the bypass this \
-         column exists to catch",
-        env.limb_floor,
-    );
-    r
+    pub const SKYLINE_CMP_WIDE_TOOTH: Envelope = envelope( 1_250, 0, Some(band(29_509, 17_705)), None, Some(band(1_000_483, 0))); // each wide delta's limb work paid by its own zigzag code; heap stays at the stacks, the accumulator, and the zero-run ledger's map node
 }
 
 /// The empty version's two-bit skyline stream: the shallow operand of
@@ -1751,7 +1657,7 @@ fn sweep_input_bytes(a: &meter::skyline::BitsBuf, b: &meter::skyline::BitsBuf) -
 fn skyline_cmp_dense_envelope() {
     let a = skyline_of(&Shape::Dense.packed1(DENSE_DEPTH));
     let b = skyline_empty();
-    let r = sweep_metered(
+    let r = metered(
         "skyline_cmp_dense",
         sweep_input_bytes(&a, &b),
         &sweep_env::SKYLINE_CMP_DENSE,
@@ -1773,7 +1679,7 @@ fn skyline_cmp_dense_envelope() {
 fn skyline_cmp_dense_self_envelope() {
     let a = skyline_of(&Shape::Dense.packed1(DENSE_DEPTH));
     let b = a.clone();
-    let r = sweep_metered(
+    let r = metered(
         "skyline_cmp_dense_self",
         sweep_input_bytes(&a, &b),
         &sweep_env::SKYLINE_CMP_DENSE_SELF,
@@ -1789,7 +1695,7 @@ fn skyline_cmp_dense_self_envelope() {
 fn skyline_cmp_bigroot_envelope() {
     let a = skyline_of(&Shape::Bigroot.packed2(BIGROOT_MAGNITUDE_BITS, BIGROOT_DEPTH));
     let b = skyline_empty();
-    let r = sweep_metered(
+    let r = metered(
         "skyline_cmp_bigroot",
         sweep_input_bytes(&a, &b),
         &sweep_env::SKYLINE_CMP_BIGROOT,
@@ -1812,7 +1718,7 @@ fn skyline_cmp_bigroot_envelope() {
 fn skyline_cmp_cliff_envelope() {
     let a = skyline_of(&Shape::CliffComb.packed2(CLIFF_SCALE, CLIFF_SCALE));
     let b = skyline_empty();
-    let r = sweep_metered(
+    let r = metered(
         "skyline_cmp_cliff",
         sweep_input_bytes(&a, &b),
         &sweep_env::SKYLINE_CMP_CLIFF,
@@ -1835,7 +1741,7 @@ fn skyline_cmp_wide_tooth_envelope() {
     let a =
         skyline_of(&Shape::WideToothComb.packed3(CLIFF_SCALE, WIDE_TOOTH_WIDTH_BITS, CLIFF_SCALE));
     let b = skyline_empty();
-    let r = sweep_metered(
+    let r = metered(
         "skyline_cmp_wide_tooth",
         sweep_input_bytes(&a, &b),
         &sweep_env::SKYLINE_CMP_WIDE_TOOTH,
@@ -1862,28 +1768,18 @@ fn skyline_cmp_wide_tooth_envelope() {
 // per level around a held wide code — the shape whose cost a re-copying
 // collapse discipline would make quadratic in depth times code width.
 
-// The emission envelope table: pinned ceiling = measured ×1.25, rounded
-// up (aarch64-apple-darwin, dev profile, three identical runs), and only
-// ever tightened: where a remeasure rises while staying inside an
-// existing ceiling (spilled-magnitude heap cells and their backend growth
-// headroom), the older, tighter ceiling stands. The trailing comment on
-// each line states the mechanism that prices the row; the measurements of
-// record — and every re-pin's movement and attribution — live in the pin
-// commits (`git log -S` the constant). Re-pin by rerunning under
-// `--no-capture` with `--all-features` and reading the MEASURED lines.
-// The limb floor column is the measured value ×0.75, rounded down (the
-// file doc's improvement-tripwire convention).
+// Pins per the file doc's convention; each row's trailing comment states
+// the mechanism that prices it.
 #[rustfmt::skip]
 mod emit_env {
-    use super::{sweep_envelope, SweepEnvelope};
-    //                                                                peak heap, segments, limb ops,  scan bits, limb floor
-    pub const SKYLINE_JOIN_DENSE: SweepEnvelope = sweep_envelope(130_277, 0, 0, 625_018, 0); // the peak is the emitted stream itself; word-valued payloads keep the limb column at zero
-    pub const SKYLINE_JOIN_ABSORB: SweepEnvelope = sweep_envelope(270_798, 0, 4_887, 1_250_013, 2_931); // the collapse-heavy extreme: one truncation per level around a held wide code, which absorb never moves
-    pub const SKYLINE_JOIN_BIGROOT: SweepEnvelope = sweep_envelope(85_060, 0, 1_565, 275_028, 939); // the wide first height absorbed once, paid by its own code
-    pub const SKYLINE_JOIN_CLIFF: SweepEnvelope = sweep_envelope(5_362, 0, 308, 35_848, 184); // every crossing re-emitted at amortized O(1) through the accumulator
-    pub const SKYLINE_JOIN_WIDE_TOOTH: SweepEnvelope = sweep_envelope(  128_312,        0,    74_477, 2_000_963, 44_685); // each wide delta re-coded into the output, paid by its own zigzag code
-    pub const SKYLINE_MEET_CLIFF: SweepEnvelope = sweep_envelope(4_422, 0, 88, 23_055, 52); // the absorb cascade collapses to the flat leaf while every delta still crosses the carry boundary in the accumulator
-    pub const SKYLINE_MEET_WIDE_TOOTH: SweepEnvelope = sweep_envelope(127_732, 0, 29_512, 1_005_613, 17_706); // wide deltas folded but never re-emitted: the collapse discipline at spilled operand widths
+    use super::{band, envelope, Envelope};
+    pub const SKYLINE_JOIN_DENSE: Envelope      = envelope(130_277, 0,           Some(band(0, 0)), None,   Some(band(625_018, 0))); // the peak is the emitted stream itself; word-valued payloads keep the limb column at zero
+    pub const SKYLINE_JOIN_ABSORB: Envelope     = envelope(270_798, 0,   Some(band(4_887, 2_931)), None, Some(band(1_250_013, 0))); // the collapse-heavy extreme: one truncation per level around a held wide code, which absorb never moves
+    pub const SKYLINE_JOIN_BIGROOT: Envelope    = envelope( 85_060, 0,     Some(band(1_565, 939)), None,   Some(band(275_028, 0))); // the wide first height absorbed once, paid by its own code
+    pub const SKYLINE_JOIN_CLIFF: Envelope      = envelope(  5_362, 0,       Some(band(308, 184)), None,    Some(band(35_848, 0))); // every crossing re-emitted at amortized O(1) through the accumulator
+    pub const SKYLINE_JOIN_WIDE_TOOTH: Envelope = envelope(128_312, 0, Some(band(74_477, 44_685)), None, Some(band(2_000_963, 0))); // each wide delta re-coded into the output, paid by its own zigzag code
+    pub const SKYLINE_MEET_CLIFF: Envelope      = envelope(  4_422, 0,         Some(band(88, 52)), None,    Some(band(23_055, 0))); // the absorb cascade collapses to the flat leaf while every delta still crosses the carry boundary in the accumulator
+    pub const SKYLINE_MEET_WIDE_TOOTH: Envelope = envelope(127_732, 0, Some(band(29_512, 17_706)), None, Some(band(1_005_613, 0))); // wide deltas folded but never re-emitted: the collapse discipline at spilled operand widths
 }
 
 /// The one-tick version's skyline stream: the shallow operand of the
@@ -1917,7 +1813,7 @@ fn skyline_join_dense_envelope() {
     let p = Shape::Dense.packed1(DENSE_DEPTH);
     let (a, expected) = skyline_oracle(&p, true);
     let b = skyline_one_tick();
-    let out = sweep_metered(
+    let out = metered(
         "skyline_join_dense",
         sweep_input_bytes(&a, &b),
         &emit_env::SKYLINE_JOIN_DENSE,
@@ -1939,7 +1835,7 @@ fn skyline_join_absorb_envelope() {
     let a = skyline_of(&p);
     let b = meter::skyline::encode(&flat);
     let expected = b.clone();
-    let out = sweep_metered(
+    let out = metered(
         "skyline_join_absorb",
         sweep_input_bytes(&a, &b),
         &emit_env::SKYLINE_JOIN_ABSORB,
@@ -1956,7 +1852,7 @@ fn skyline_join_bigroot_envelope() {
     let p = Shape::Bigroot.packed2(BIGROOT_MAGNITUDE_BITS, BIGROOT_DEPTH);
     let (a, expected) = skyline_oracle(&p, true);
     let b = skyline_one_tick();
-    let out = sweep_metered(
+    let out = metered(
         "skyline_join_bigroot",
         sweep_input_bytes(&a, &b),
         &emit_env::SKYLINE_JOIN_BIGROOT,
@@ -1974,7 +1870,7 @@ fn skyline_join_cliff_envelope() {
     let p = Shape::CliffComb.packed2(CLIFF_SCALE, CLIFF_SCALE);
     let (a, expected) = skyline_oracle(&p, true);
     let b = skyline_one_tick();
-    let out = sweep_metered(
+    let out = metered(
         "skyline_join_cliff",
         sweep_input_bytes(&a, &b),
         &emit_env::SKYLINE_JOIN_CLIFF,
@@ -1991,7 +1887,7 @@ fn skyline_join_wide_tooth_envelope() {
     let p = Shape::WideToothComb.packed3(CLIFF_SCALE, WIDE_TOOTH_WIDTH_BITS, CLIFF_SCALE);
     let (a, expected) = skyline_oracle(&p, true);
     let b = skyline_one_tick();
-    let out = sweep_metered(
+    let out = metered(
         "skyline_join_wide_tooth",
         sweep_input_bytes(&a, &b),
         &emit_env::SKYLINE_JOIN_WIDE_TOOTH,
@@ -2011,7 +1907,7 @@ fn skyline_meet_cliff_envelope() {
     let p = Shape::CliffComb.packed2(CLIFF_SCALE, CLIFF_SCALE);
     let (a, expected) = skyline_oracle(&p, false);
     let b = skyline_one_tick();
-    let out = sweep_metered(
+    let out = metered(
         "skyline_meet_cliff",
         sweep_input_bytes(&a, &b),
         &emit_env::SKYLINE_MEET_CLIFF,
@@ -2031,7 +1927,7 @@ fn skyline_meet_wide_tooth_envelope() {
     let p = Shape::WideToothComb.packed3(CLIFF_SCALE, WIDE_TOOTH_WIDTH_BITS, CLIFF_SCALE);
     let (a, expected) = skyline_oracle(&p, false);
     let b = skyline_one_tick();
-    let out = sweep_metered(
+    let out = metered(
         "skyline_meet_wide_tooth",
         sweep_input_bytes(&a, &b),
         &emit_env::SKYLINE_MEET_WIDE_TOOTH,
@@ -2078,7 +1974,7 @@ fn tick_expand_spine_envelope() {
     // Byte sizes of buffers this test just allocated fit `usize`.
     let input =
         ((meter::skyline::encode(&v).len() / 8) + party.encoded_bits().div_ceil(8)) as usize;
-    query_metered(
+    metered(
         "tick_expand_spine",
         input,
         &query_env::TICK_EXPAND_SPINE,
@@ -2109,7 +2005,7 @@ fn tick_expand_cross_envelope() {
     let expected = &v | &left_spike(ID_DEPTH);
     // Byte sizes of buffers this test just allocated fit `usize`.
     let input = ev.bytes.len() + party.encoded_bits().div_ceil(8) as usize;
-    query_metered(
+    metered(
         "tick_expand_cross",
         input,
         &query_env::TICK_EXPAND_CROSS,
@@ -2136,27 +2032,19 @@ fn tick_expand_cross_envelope() {
 // heights never materialize, so no summary or accumulator state carries
 // a copy of the wide magnitude per level.
 
-// The text envelope table: pinned ceiling = measured ×1.25, rounded up
-// (aarch64-apple-darwin, dev profile, identical repeated runs), and only
-// ever tightened. The trailing comment on each line states the mechanism
-// that prices the row; the measurements of record — and every re-pin's
-// movement and attribution — live in the pin commits (`git log -S` the
-// constant). Re-pin by rerunning under `--no-capture` with
-// `--all-features` and reading the MEASURED lines.
-// The limb floor column is the measured value ×0.75, rounded down (the
-// file doc's improvement-tripwire convention).
+// Pins per the file doc's convention; each row's trailing comment states
+// the mechanism that prices it.
 #[rustfmt::skip]
 mod text_env {
-    use super::{sweep_envelope, SweepEnvelope};
-    //                                                                 peak heap, segments, limb ops,  scan bits, limb floor
-    pub const SKYLINE_RENDER_DENSE: SweepEnvelope    = sweep_envelope( 1_996_800,        0, 1_562_513,   468_758, 937_507); // word-sized finalize summaries per open node; the output sized exactly before one byte is written
-    pub const SKYLINE_RENDER_BIGROOT: SweepEnvelope  = sweep_envelope(   249_600,        0,   127_368,   137_512, 76_420); // leaf-delta-sized summaries: no per-level copy of the wide root value
-    pub const SKYLINE_RENDER_HUGELEAF: SweepEnvelope = sweep_envelope(   171_310,        0,     7_330,   312_503, 4_398); // one delegated decimal rendering plus the exact-sized output, no tree state
-    pub const SKYLINE_RENDER_CLIFF: SweepEnvelope    = sweep_envelope( 1_113_202,        0,   243_385,    17_923, 146_031); // each tooth's printed base re-derived from its 3-bit deltas, paid by its own rendered digits
-    pub const SKYLINE_PARSE_DENSE: SweepEnvelope = sweep_envelope(4_041_052, 0, 625_007, 468_758, 375_003); // parallel chunked open-node stacks; the parse pipeline ends at the builder — the built stream's canonicality rides the committed render↔parse inverse pair and transcoder differential — so the scan column is the build pass's own, and word-valued payloads keep narrow-value work out of the limb denomination
-    pub const SKYLINE_PARSE_BIGROOT: SweepEnvelope = sweep_envelope(377_944, 0, 51_574, 137_512, 30_944); // the wide root base converts once through the backend's divide-and-conquer parser; the scan column is the build pass's own
-    pub const SKYLINE_PARSE_HUGELEAF: SweepEnvelope  = sweep_envelope(   152_480,        0,     4_887,   312_503, 2_931); // one delegated conversion, one absolute payload out; no accumulator re-walks the built stream's wide payloads
-    pub const SKYLINE_PARSE_CLIFF: SweepEnvelope = sweep_envelope(344_152, 0, 56_475, 17_923, 33_885); // every tooth's base enters and leaves the cliff-free accumulator paid by its own digit run; the scan column is the build pass's own
+    use super::{band, envelope, Envelope};
+    pub const SKYLINE_RENDER_DENSE: Envelope    = envelope(1_996_800, 0, Some(band(1_562_513, 937_507)), None, Some(band(468_758, 0))); // word-sized finalize summaries per open node; the output sized exactly before one byte is written
+    pub const SKYLINE_RENDER_BIGROOT: Envelope  = envelope(  249_600, 0,    Some(band(127_368, 76_420)), None, Some(band(137_512, 0))); // leaf-delta-sized summaries: no per-level copy of the wide root value
+    pub const SKYLINE_RENDER_HUGELEAF: Envelope = envelope(  171_310, 0,       Some(band(7_330, 4_398)), None, Some(band(312_503, 0))); // one delegated decimal rendering plus the exact-sized output, no tree state
+    pub const SKYLINE_RENDER_CLIFF: Envelope    = envelope(1_113_202, 0,   Some(band(243_385, 146_031)), None,  Some(band(17_923, 0))); // each tooth's printed base re-derived from its 3-bit deltas, paid by its own rendered digits
+    pub const SKYLINE_PARSE_DENSE: Envelope     = envelope(4_041_052, 0,   Some(band(625_007, 375_003)), None, Some(band(468_758, 0))); // parallel chunked open-node stacks; the parse pipeline ends at the builder — the built stream's canonicality rides the committed render↔parse inverse pair and transcoder differential — so the scan column is the build pass's own, and word-valued payloads keep narrow-value work out of the limb denomination
+    pub const SKYLINE_PARSE_BIGROOT: Envelope   = envelope(  377_944, 0,     Some(band(51_574, 30_944)), None, Some(band(137_512, 0))); // the wide root base converts once through the backend's divide-and-conquer parser; the scan column is the build pass's own
+    pub const SKYLINE_PARSE_HUGELEAF: Envelope  = envelope(  152_480, 0,       Some(band(4_887, 2_931)), None, Some(band(312_503, 0))); // one delegated conversion, one absolute payload out; no accumulator re-walks the built stream's wide payloads
+    pub const SKYLINE_PARSE_CLIFF: Envelope     = envelope(  344_152, 0,     Some(band(56_475, 33_885)), None,  Some(band(17_923, 0))); // every tooth's base enters and leaves the cliff-free accumulator paid by its own digit run; the scan column is the build pass's own
 }
 
 /// Rendering the dense spine's skyline stays within its envelope.
@@ -2169,7 +2057,7 @@ fn skyline_render_dense_envelope() {
     let v = version_of(&Shape::Dense.packed1(DENSE_DEPTH));
     let a = meter::skyline::encode(&v);
     let expected = v.to_string();
-    let out = sweep_metered(
+    let out = metered(
         "skyline_render_dense",
         a.as_raw_slice().len(),
         &text_env::SKYLINE_RENDER_DENSE,
@@ -2190,7 +2078,7 @@ fn skyline_render_bigroot_envelope() {
     let v = version_of(&Shape::Bigroot.packed2(BIGROOT_MAGNITUDE_BITS, BIGROOT_DEPTH));
     let a = meter::skyline::encode(&v);
     let expected = v.to_string();
-    let out = sweep_metered(
+    let out = metered(
         "skyline_render_bigroot",
         a.as_raw_slice().len(),
         &text_env::SKYLINE_RENDER_BIGROOT,
@@ -2207,7 +2095,7 @@ fn skyline_render_hugeleaf_envelope() {
     let v = version_of(&Shape::Hugeleaf.packed1(HUGELEAF_MAGNITUDE_BITS));
     let a = meter::skyline::encode(&v);
     let expected = v.to_string();
-    let out = sweep_metered(
+    let out = metered(
         "skyline_render_hugeleaf",
         a.as_raw_slice().len(),
         &text_env::SKYLINE_RENDER_HUGELEAF,
@@ -2225,7 +2113,7 @@ fn skyline_render_cliff_envelope() {
     let v = version_of(&Shape::CliffComb.packed2(CLIFF_SCALE, CLIFF_SCALE));
     let a = meter::skyline::encode(&v);
     let expected = v.to_string();
-    let out = sweep_metered(
+    let out = metered(
         "skyline_render_cliff",
         a.as_raw_slice().len(),
         &text_env::SKYLINE_RENDER_CLIFF,
@@ -2242,7 +2130,7 @@ fn skyline_parse_dense_envelope() {
     let v = version_of(&Shape::Dense.packed1(DENSE_DEPTH));
     let s = v.to_string();
     let expected = meter::skyline::encode(&v);
-    let out = sweep_metered(
+    let out = metered(
         "skyline_parse_dense",
         s.len(),
         &text_env::SKYLINE_PARSE_DENSE,
@@ -2265,7 +2153,7 @@ fn skyline_parse_bigroot_envelope() {
     let v = version_of(&Shape::Bigroot.packed2(BIGROOT_MAGNITUDE_BITS, BIGROOT_DEPTH));
     let s = v.to_string();
     let expected = meter::skyline::encode(&v);
-    let out = sweep_metered(
+    let out = metered(
         "skyline_parse_bigroot",
         s.len(),
         &text_env::SKYLINE_PARSE_BIGROOT,
@@ -2285,7 +2173,7 @@ fn skyline_parse_hugeleaf_envelope() {
     let v = version_of(&Shape::Hugeleaf.packed1(HUGELEAF_MAGNITUDE_BITS));
     let s = v.to_string();
     let expected = meter::skyline::encode(&v);
-    let out = sweep_metered(
+    let out = metered(
         "skyline_parse_hugeleaf",
         s.len(),
         &text_env::SKYLINE_PARSE_HUGELEAF,
@@ -2307,7 +2195,7 @@ fn skyline_parse_cliff_envelope() {
     let v = version_of(&Shape::CliffComb.packed2(CLIFF_SCALE, CLIFF_SCALE));
     let s = v.to_string();
     let expected = meter::skyline::encode(&v);
-    let out = sweep_metered(
+    let out = metered(
         "skyline_parse_cliff",
         s.len(),
         &text_env::SKYLINE_PARSE_CLIFF,
@@ -6394,8 +6282,7 @@ mod id_walk_scan_cost {
 
 // ─── fork envelope (the split kernel's committed cost record) ───────────────
 
-/// The fork envelope: measured ×1.25 (dev profile, the envelope
-/// suite's convention).
+/// The fork envelope.
 ///
 /// The split kernel builds both halves by raw bit-slice writes and walks
 /// the spine by raw indexing — deliberately outside the scan primitives —
@@ -6405,9 +6292,8 @@ mod id_walk_scan_cost {
 /// column is the one that prices the halves' materialization.
 #[rustfmt::skip]
 mod fork_env {
-    use super::{sweep_envelope, SweepEnvelope};
-    //                                                    peak heap, segments, limb ops, scan bits, limb floor
-    pub const ID_FORK: SweepEnvelope = sweep_envelope(      156_253,        0,        0,         3, 0); // the heap column prices both halves' materialization (~2x the packed input); the scan ceiling pins the raw split path's near-zero reading
+    use super::{band, envelope, Envelope};
+    pub const ID_FORK: Envelope = envelope(156_253, 0, Some(band(0, 0)), None, Some(band(3, 0))); // the heap column prices both halves' materialization (~2x the packed input); the scan ceiling pins the raw split path's near-zero reading
 }
 
 /// Forking the deep id spine stays within its envelope, and the halves
@@ -6423,7 +6309,7 @@ fn id_fork_envelope() {
     let input = pa.bytes.len();
     let original = pa.bytes.clone();
     let mut a = party_of(&pa);
-    let child = sweep_metered("id_fork", input, &fork_env::ID_FORK, || a.fork());
+    let child = metered("id_fork", input, &fork_env::ID_FORK, || a.fork());
     a.join(child).expect("a fork's halves are disjoint");
     assert_eq!(
         a.encode(),
@@ -6724,12 +6610,10 @@ mod accum_streams {
 //
 // The query kernels over skyline streams: rank on the anchored-segment
 // height split, min_ticks on the range-minimum anchor web and its epoch
-// ledger, and
-// projection against a packed id. Streams are transcoded outside
-// measurement. These rows carry all five columns — heap, segments, limbs,
-// scanned bits, and accumulator touches — because the kernels' arithmetic
-// lives in digit touches (the limb column alone would read a vacuous
-// near-zero), while their stream work lives in the scan column. The cliff
+// ledger, and projection against a packed id. Streams are transcoded
+// outside measurement. The kernels' arithmetic lives in digit touches (the
+// limb column alone reads a vacuous near-zero) and their stream work in
+// the scan column. The cliff
 // and wide-tooth rank rows are load-bearing live-path pins: wide deltas
 // ride the live component without freezing — the comb's terminal borrow
 // and every 192-bit tooth are each paid by their own codes — and the
@@ -6740,126 +6624,48 @@ mod accum_streams {
 // mandatory and dominates its input, so the pinned ceilings price
 // input + output bytes (the MEASURED line prints both).
 
-/// One query scenario's pinned ceilings: [`Envelope`]'s three columns
-/// plus scanned bits and accumulator touches, asserted when their
-/// features are lit.
-struct QueryEnvelope {
-    /// Peak heap delta over the scenario body, in bytes.
-    peak_heap: usize,
-    /// Stack segments grown during the scenario body.
-    segments: u64,
-    /// Big-integer limb operations counted during the scenario body.
-    #[cfg(feature = "limb-meter")]
-    limb_ops: u64,
-    /// Packed-stream bits scanned during the scenario body.
-    #[cfg(feature = "scan-meter")]
-    scan_bits: u64,
-    /// Accumulator digit touches counted during the scenario body.
-    #[cfg(feature = "limb-meter")]
-    touches: u64,
-    /// Improvement tripwire under the limb column: measured ×0.75, per
-    /// the file doc's tripwire convention.
-    #[cfg(feature = "limb-meter")]
-    limb_floor: u64,
-    /// Improvement tripwire under the touch column: measured ×0.75, per
-    /// the file doc's tripwire convention.
-    ///
-    /// A touch reading below it is a >25% drop from the pinned reading —
-    /// attribute it, re-pinning an honest improvement or curing a dead
-    /// meter, without which every touch ceiling above would hold
-    /// vacuously (zero where the measured count is zero, under which the
-    /// bound asserts nothing).
-    #[cfg(feature = "limb-meter")]
-    touch_floor: u64,
-}
-
-/// Build a [`QueryEnvelope`] from the five pinned columns and the limb
-/// and touch floors.
-///
-/// The limb, scan, and touch columns are carried only when their features
-/// compile the counters in; the leading underscores keep the parameters
-/// warning-free in the other configurations.
-const fn query_envelope(
-    peak_heap: usize,
-    segments: u64,
-    _limb_ops: u64,
-    _scan_bits: u64,
-    _touches: u64,
-    _limb_floor: u64,
-    _touch_floor: u64,
-) -> QueryEnvelope {
-    QueryEnvelope {
-        peak_heap,
-        segments,
-        #[cfg(feature = "limb-meter")]
-        limb_ops: _limb_ops,
-        #[cfg(feature = "scan-meter")]
-        scan_bits: _scan_bits,
-        #[cfg(feature = "limb-meter")]
-        touches: _touches,
-        #[cfg(feature = "limb-meter")]
-        limb_floor: _limb_floor,
-        #[cfg(feature = "limb-meter")]
-        touch_floor: _touch_floor,
-    }
-}
-
-// The query envelope table: pinned ceiling = measured ×1.25, rounded up
-// (aarch64-apple-darwin, dev profile, three identical runs), and only
-// ever tightened: where a remeasure rises while staying inside an
-// existing ceiling (the bigroot heap and touch cells, whose frozen
-// component lives on the accumulator), the older, tighter ceiling
-// stands. The trailing comment on each line states the mechanism that
-// prices the row; the measurements of record — and every re-pin's
-// movement and attribution — live in the pin commits (`git log -S` the
-// constant). Re-pin by rerunning under `--no-capture` with
-// `--all-features` and reading the MEASURED lines.
-// The limb floor column is the measured value ×0.75, rounded down (the
-// file doc's improvement-tripwire convention).
+// Pins per the file doc's convention; each row's trailing comment states
+// the mechanism that prices it.
 #[rustfmt::skip]
 mod query_env {
-    use super::{query_envelope, QueryEnvelope};
-    //                                                                        peak heap, segments,  limb ops, scan bits,   touches, limb floor, touch floor
-    pub const SKYLINE_RANK_DENSE: QueryEnvelope = query_envelope(30_720, 0, 4, 937_515, 7, 2, 3); // the depth control: path bits and near-zero arithmetic; the max_depth pre-scan records each payload skip once, and word-valued payloads keep the work columns near zero
-    pub const SKYLINE_RANK_BIGROOT: QueryEnvelope = query_envelope(67_145, 0, 2_739, 275_023, 8_993, 1_643, 5_395); // the wide-magnitude control: the first leaf's magnitude seeds the frozen component and is read once, in the closing shifted add
-    pub const SKYLINE_RANK_HARMONIC: QueryEnvelope = query_envelope(52_500, 0, 2_562, 491_530, 248_285, 1_536, 148_971); // the separating family: each level's one-leaf delta lands at its own weight; the segment feed opens only at the first freeze
-    pub const SKYLINE_RANK_CLIFF: QueryEnvelope = query_envelope(2_855, 0, 172, 35_845, 6_688, 102, 4_012); // the live component absorbs the oscillation at O(1) digits per fold; the terminal borrow rides it into one wide add, no freeze
-    pub const SKYLINE_RANK_WIDE_TOOTH: QueryEnvelope      = query_envelope(     3_635,        0,    29_552, 2_000_960,    24_585, 17_755, 14_751); // the no-freeze pin: every fold paid by its tooth's own code; certificate skips replace zero-run walks, and the pre-scan records each payload skip once on this payload-dominated comb
+    use super::{band, envelope, Envelope};
+    pub const SKYLINE_RANK_DENSE: Envelope           = envelope( 30_720, 0,            Some(band(4, 2)),             Some(band(7, 3)),   Some(band(937_515, 0))); // the depth control: path bits and near-zero arithmetic; the max_depth pre-scan records each payload skip once, and word-valued payloads keep the work columns near zero
+    pub const SKYLINE_RANK_BIGROOT: Envelope         = envelope( 67_145, 0,    Some(band(2_739, 1_643)),     Some(band(8_993, 5_395)),   Some(band(275_023, 0))); // the wide-magnitude control: the first leaf's magnitude seeds the frozen component and is read once, in the closing shifted add
+    pub const SKYLINE_RANK_HARMONIC: Envelope        = envelope( 52_500, 0,    Some(band(2_562, 1_536)), Some(band(248_285, 148_971)),   Some(band(491_530, 0))); // the separating family: each level's one-leaf delta lands at its own weight; the segment feed opens only at the first freeze
+    pub const SKYLINE_RANK_CLIFF: Envelope           = envelope(  2_855, 0,        Some(band(172, 102)),     Some(band(6_688, 4_012)),    Some(band(35_845, 0))); // the live component absorbs the oscillation at O(1) digits per fold; the terminal borrow rides it into one wide add, no freeze
+    pub const SKYLINE_RANK_WIDE_TOOTH: Envelope      = envelope(  3_635, 0,  Some(band(29_552, 17_755)),   Some(band(24_585, 14_751)), Some(band(2_000_960, 0))); // the no-freeze pin: every fold paid by its tooth's own code; certificate skips replace zero-run walks, and the pre-scan records each payload skip once on this payload-dominated comb
     // The practical-regime gauge: `Version::rank`
     // on one concurrent-pair operand — word-scale heights over organic
     // forks, no freeze, no arming. The row pins the benign path's
     // constants so the adversarial machinery's price on common inputs is
     // a committed number, not a vibe.
-    pub const RANK_CONCURRENT: QueryEnvelope = query_envelope(0, 0, 4, 61_448, 11_099, 2, 6_659); // word-scale heights: zero heap, near-zero limb work, one walk's scan and touches
-    pub const TICKS_DENSE: QueryEnvelope = query_envelope(58_815, 0, 8, 468_809, 156_270, 4, 93_762); // the tick row's cost plus the count's gamma codes
-    pub const TICKS_NESTED_WIDE: QueryEnvelope = query_envelope(14_107, 0, 323, 150_072, 31_125, 193, 18_675); // the fill branch pays its documented second walk: scan ~2x the tick row's one walk
-    pub const TICKS_MIRROR_WIDE: QueryEnvelope = query_envelope(39_506, 0, 723, 220_048, 72_582, 433, 43_548); // second-walk fill branch, as the nested-wide row; the pre-scan records minima only, so the per-site collapse re-read and raise-mirror folds stay out of the scan and touch columns
-    pub const SKYLINE_MIN_TICKS_DENSE: QueryEnvelope = query_envelope(30_720, 0, 5, 468_758, 312_508, 3, 187_504); // every delta folds into two accumulators — the live height and the web's gap — so touches run ~2x the rank row's with no minima circulation
-    pub const SKYLINE_MIN_TICKS_CLIFF: QueryEnvelope = query_envelope(3_530, 0, 180, 17_923, 12_000, 108, 7_200); // the comb's wide F-relative pending offsets are epoch-ledger counts, and the wide first height enters the exact total once, through the counting term
-    pub const SKYLINE_MIN_TICKS_ASCEND: QueryEnvelope = query_envelope(553_660, 0, 33, 12_823, 20_044, 19, 12_026); // the boundary-stacking row: the anchor web's per-boundary word compaction's measured basis — with compaction deleted the same body reads well over both the heap and touch ceilings
-    pub const SKYLINE_PROJECT_COMB_SCATTER: QueryEnvelope = query_envelope(   525_700,        0,   115_265, 2_652_165,    44_924, 69_159, 26_954); // output-dominated: the pinned ceilings price input + output bytes; id tags are single records
-    pub const FOLD_VERSION_SCATTER: QueryEnvelope = query_envelope(323, 0, 0, 330_913, 61_429, 0, 36_857); // the balanced reduction: near-linear in the population's packed bytes where a left fold re-scans its whole accumulator per input; the at-rest form is a length-carrying container of the wire bytes, cloned by refcount in the fold's lone-group settle and adoption arms, and the counter stack's entries carry the operand-form tag (~8 B per level)
-    pub const FOLD_PARTY_SCATTER: QueryEnvelope          = query_envelope(       780,        0,         0,   322_068,         0, 0, 0); // pure stream scanning: join_all answers its up-front tests through a per-call id index, the id walk does no arithmetic, and one refcount control block per frozen stream lives in the fold's groups
-    // Tick rows, on the five-meter harness: the tick walk's cost
-    // currency is accumulator digit touches (with scanned bits beside
-    // it), which the four-column table never watched. Ceilings ×1.25
-    // and floors ×0.75 over the measurements of record in the pin
-    // commits.
-    pub const TICK_DENSE: QueryEnvelope = query_envelope(58_815, 0, 0, 468_765, 156_265, 0, 93_759); // the fused tick: copy-on-first-divergence defers the output buffer past the collapse scan, so the scan path and the builder never coexist at peak
-    pub const TICK_NESTED_WIDE: QueryEnvelope = query_envelope(14_108, 0, 239, 80_028, 30_808, 143, 18_484); // the explicit-stack walk: suspended ancestors ride metered frame bits, zero grown segments (the zero pin is the ratchet); the anchor web reads the wide first payload O(1) times
-    pub const TICK_MIRROR_WIDE: QueryEnvelope = query_envelope(32_467, 0, 398, 160_003, 71_955, 238, 43_173); // the frame ledger stores no link for the shared wide minimum (heap parity with one queue word per site); the pre-scan records minima only, so the per-site collapse re-read and raise-mirror folds stay out of the scan and touch columns
+    pub const RANK_CONCURRENT: Envelope              = envelope(      0, 0,            Some(band(4, 2)),    Some(band(11_099, 6_659)),    Some(band(61_448, 0))); // word-scale heights: zero heap, near-zero limb work, one walk's scan and touches
+    pub const TICKS_DENSE: Envelope                  = envelope( 58_815, 0,            Some(band(8, 4)),  Some(band(156_270, 93_762)),   Some(band(468_809, 0))); // the tick row's cost plus the count's gamma codes
+    pub const TICKS_NESTED_WIDE: Envelope            = envelope( 14_107, 0,        Some(band(323, 193)),   Some(band(31_125, 18_675)),   Some(band(150_072, 0))); // the fill branch pays its documented second walk: scan ~2x the tick row's one walk
+    pub const TICKS_MIRROR_WIDE: Envelope            = envelope( 39_506, 0,        Some(band(723, 433)),   Some(band(72_582, 43_548)),   Some(band(220_048, 0))); // second-walk fill branch, as the nested-wide row; the pre-scan records minima only, so the per-site collapse re-read and raise-mirror folds stay out of the scan and touch columns
+    pub const SKYLINE_MIN_TICKS_DENSE: Envelope      = envelope( 30_720, 0,            Some(band(5, 3)), Some(band(312_508, 187_504)),   Some(band(468_758, 0))); // every delta folds into two accumulators — the live height and the web's gap — so touches run ~2x the rank row's with no minima circulation
+    pub const SKYLINE_MIN_TICKS_CLIFF: Envelope      = envelope(  3_530, 0,        Some(band(180, 108)),    Some(band(12_000, 7_200)),    Some(band(17_923, 0))); // the comb's wide F-relative pending offsets are epoch-ledger counts, and the wide first height enters the exact total once, through the counting term
+    pub const SKYLINE_MIN_TICKS_ASCEND: Envelope     = envelope(553_660, 0,          Some(band(33, 19)),   Some(band(20_044, 12_026)),    Some(band(12_823, 0))); // the boundary-stacking row: the anchor web's per-boundary word compaction's measured basis — with compaction deleted the same body reads well over both the heap and touch ceilings
+    pub const SKYLINE_PROJECT_COMB_SCATTER: Envelope = envelope(525_700, 0, Some(band(115_265, 69_159)),   Some(band(44_924, 26_954)), Some(band(2_652_165, 0))); // output-dominated: the pinned ceilings price input + output bytes; id tags are single records
+    pub const FOLD_VERSION_SCATTER: Envelope         = envelope(    323, 0,            Some(band(0, 0)),   Some(band(61_429, 36_857)),   Some(band(330_913, 0))); // the balanced reduction: near-linear in the population's packed bytes where a left fold re-scans its whole accumulator per input; the at-rest form is a length-carrying container of the wire bytes, cloned by refcount in the fold's lone-group settle and adoption arms, and the counter stack's entries carry the operand-form tag (~8 B per level)
+    pub const FOLD_PARTY_SCATTER: Envelope           = envelope(    780, 0,            Some(band(0, 0)),             Some(band(0, 0)),   Some(band(322_068, 0))); // pure stream scanning: join_all answers its up-front tests through a per-call id index, the id walk does no arithmetic, and one refcount control block per frozen stream lives in the fold's groups
+    // The tick rows: the tick walk's cost currency is accumulator digit
+    // touches, with scanned bits beside it.
+    pub const TICK_DENSE: Envelope                   = envelope( 58_815, 0,            Some(band(0, 0)),  Some(band(156_265, 93_759)),   Some(band(468_765, 0))); // the fused tick: copy-on-first-divergence defers the output buffer past the collapse scan, so the scan path and the builder never coexist at peak
+    pub const TICK_NESTED_WIDE: Envelope             = envelope( 14_108, 0,        Some(band(239, 143)),   Some(band(30_808, 18_484)),    Some(band(80_028, 0))); // the explicit-stack walk: suspended ancestors ride metered frame bits, zero grown segments (the zero pin is the ratchet); the anchor web reads the wide first payload O(1) times
+    pub const TICK_MIRROR_WIDE: Envelope             = envelope( 32_467, 0,        Some(band(398, 238)),   Some(band(71_955, 43_173)),   Some(band(160_003, 0))); // the frame ledger stores no link for the shared wide minimum (heap parity with one queue word per site); the pre-scan records minima only, so the per-site collapse re-read and raise-mirror folds stay out of the scan and touch columns
     // The expansion rows: grow-branch deep
     // ticks measuring the whole public tick — walk, route fold, and
     // splice — in one fused pass.
-    pub const TICK_OWNERSHIP_HOLE: QueryEnvelope = query_envelope(3_647, 0, 0, 37_585, 7_563, 0, 4_537); // the ownership-gated block scan: unowned staircase runs fold as one net-and-minimum summary each; the touch ceiling sits below the leaf-by-leaf mechanism's reading, so the skip must engage for the pin to hold, and the scan column holds every skipped bit still read
-    pub const TICK_OWNERSHIP_COMB: QueryEnvelope = query_envelope(59_575, 0, 0, 498_774, 156_275, 0, 93_765); // readings identical to the ungated per-leaf walk's on this family (single-leaf regions everywhere, so the block gate never opens and may cost nothing when closed)
-    pub const TICK_COLLAPSE_HOLE: QueryEnvelope = query_envelope(2_748, 0, 0, 14_368, 8_125, 0, 4_875); // the descend-arm consuming max scan rides the block summary over each deep collapse range, its only crossing; rerouting either lead's ranges to the per-leaf fold reads touches over the ceiling, and the scan column holds every folded bit still read
-    pub const TICK_COPY_HOLE: QueryEnvelope = query_envelope(1_733, 0, 18, 53_302, 15_615, 10, 9_369); // the pre-scan copies each untouched range as one net movement and one watermark emission; rerouting either lead's ranges to per-leaf virtual emissions reads touches over the ceiling, and the scan column holds every folded bit still read
-    pub const TICK_RAISE_HOLE: QueryEnvelope = query_envelope(2_660, 0, 0, 13_543, 8_030, 0, 4_818); // the ascend-arm consuming max scan rides the block summary over each deep raised range, its only crossing; rerouting either lead's ranges to the per-leaf fold reads touches over the ceiling, and the scan column holds every folded bit still read
-    pub const TICK_SITE_HOLE: QueryEnvelope = query_envelope(2_768, 0, 0, 27_962, 10_779, 0, 6_467); // the pre-scan's collapse skip and the walk's consuming max scan each cross every deep range once as one block fold, and the collapse skip's fold accumulates the net movement alone; a block fold that also streams the range's unread minimum reads touches over the ceiling, and the scan column holds every folded bit still read
-    pub const MASKED_CMP_HOLE: QueryEnvelope = query_envelope(480, 0, 0, 7_535, 18, 0, 10); // the block skip consumes the spine's unowned continuation whole: the touch reading is a function of the mask depth alone; a per-boundary walk reads ~one touch per spine boundary, orders over the ceiling — the depth band beside this row holds the reading flat across a spine-depth doubling
-    pub const TICK_EXPAND_SPINE: QueryEnvelope = query_envelope(435_435, 0, 5, 2_187_519, 0, 3, 0); // an empty version's tick folds one word-scale payload: near-zero accumulator work; the emit codes the whole expansion chain as fresh one-bit deltas
-    pub const TICK_EXPAND_CROSS: QueryEnvelope = query_envelope(611_210, 0, 5, 3_593_782, 156_260, 3, 93_756); // the mixed regimes: the fused walk down the shared spine plus the id-only expansion fold, spliced in one pass
+    pub const TICK_OWNERSHIP_HOLE: Envelope          = envelope(  3_647, 0,            Some(band(0, 0)),     Some(band(7_563, 4_537)),    Some(band(37_585, 0))); // the ownership-gated block scan: unowned staircase runs fold as one net-and-minimum summary each; the touch ceiling sits below the leaf-by-leaf mechanism's reading, so the skip must engage for the pin to hold, and the scan column holds every skipped bit still read
+    pub const TICK_OWNERSHIP_COMB: Envelope          = envelope( 59_575, 0,            Some(band(0, 0)),  Some(band(156_275, 93_765)),   Some(band(498_774, 0))); // readings identical to the ungated per-leaf walk's on this family (single-leaf regions everywhere, so the block gate never opens and may cost nothing when closed)
+    pub const TICK_COLLAPSE_HOLE: Envelope           = envelope(  2_748, 0,            Some(band(0, 0)),     Some(band(8_125, 4_875)),    Some(band(14_368, 0))); // the descend-arm consuming max scan rides the block summary over each deep collapse range, its only crossing; rerouting either lead's ranges to the per-leaf fold reads touches over the ceiling, and the scan column holds every folded bit still read
+    pub const TICK_COPY_HOLE: Envelope               = envelope(  1_733, 0,          Some(band(18, 10)),    Some(band(15_615, 9_369)),    Some(band(53_302, 0))); // the pre-scan copies each untouched range as one net movement and one watermark emission; rerouting either lead's ranges to per-leaf virtual emissions reads touches over the ceiling, and the scan column holds every folded bit still read
+    pub const TICK_RAISE_HOLE: Envelope              = envelope(  2_660, 0,            Some(band(0, 0)),     Some(band(8_030, 4_818)),    Some(band(13_543, 0))); // the ascend-arm consuming max scan rides the block summary over each deep raised range, its only crossing; rerouting either lead's ranges to the per-leaf fold reads touches over the ceiling, and the scan column holds every folded bit still read
+    pub const TICK_SITE_HOLE: Envelope               = envelope(  2_768, 0,            Some(band(0, 0)),    Some(band(10_779, 6_467)),    Some(band(27_962, 0))); // the pre-scan's collapse skip and the walk's consuming max scan each cross every deep range once as one block fold, and the collapse skip's fold accumulates the net movement alone; a block fold that also streams the range's unread minimum reads touches over the ceiling, and the scan column holds every folded bit still read
+    pub const MASKED_CMP_HOLE: Envelope              = envelope(    480, 0,            Some(band(0, 0)),           Some(band(18, 10)),     Some(band(7_535, 0))); // the block skip consumes the spine's unowned continuation whole: the touch reading is a function of the mask depth alone; a per-boundary walk reads ~one touch per spine boundary, orders over the ceiling — the depth band beside this row holds the reading flat across a spine-depth doubling
+    pub const TICK_EXPAND_SPINE: Envelope            = envelope(435_435, 0,            Some(band(5, 3)),             Some(band(0, 0)), Some(band(2_187_519, 0))); // an empty version's tick folds one word-scale payload: near-zero accumulator work; the emit codes the whole expansion chain as fresh one-bit deltas
+    pub const TICK_EXPAND_CROSS: Envelope            = envelope(611_210, 0,            Some(band(5, 3)),  Some(band(156_260, 93_756)), Some(band(3_593_782, 0))); // the mixed regimes: the fused walk down the shared spine plus the id-only expansion fold, spliced in one pass
     // The version-pair rows: the public
     // two-operand queries on the pair families (the corpus pairing
     // `w = v + one seed tick` collapses the second operand onto a
@@ -6872,107 +6678,16 @@ mod query_env {
     // accumulator instead of skipping the meet leg, which is what buys
     // its heap, limb, and scan columns down to the distance row's
     // neighborhood.
-    pub const DISTANCE_JUMP_PAIR: QueryEnvelope = query_envelope(5_750, 0, 48_714, 2_694_095, 208_749, 29_228, 125_249); // the fused co-sweep with cluster-delegated settle products and certificate skips; this pair freezes early, so the segment feed's deposits are the pre-freeze prefix alone, and the max_depth pre-scan records each payload skip once, twice per pair walk
-    pub const LAG_JUMP_PAIR: QueryEnvelope = query_envelope(5_750, 0, 45_420, 2_694_095, 173_492, 27_252, 104_094); // the one-sided functional over the same fused co-sweep as the distance row
-    pub const DISTANCE_CONCURRENT: QueryEnvelope = query_envelope(0, 0, 4, 117_753, 32_429, 2, 19_457); // orientation-switch density on word-scale heights: the pair never freezes, so no segment feed deposits
-    pub const LAG_CONCURRENT: QueryEnvelope = query_envelope(0, 0, 4, 117_753, 33_278, 2, 19_966); // the one-sided functional over the same switch-dense overlay
+    pub const DISTANCE_JUMP_PAIR: Envelope           = envelope(  5_750, 0,  Some(band(48_714, 29_228)), Some(band(208_749, 125_249)), Some(band(2_694_095, 0))); // the fused co-sweep with cluster-delegated settle products and certificate skips; this pair freezes early, so the segment feed's deposits are the pre-freeze prefix alone, and the max_depth pre-scan records each payload skip once, twice per pair walk
+    pub const LAG_JUMP_PAIR: Envelope                = envelope(  5_750, 0,  Some(band(45_420, 27_252)), Some(band(173_492, 104_094)), Some(band(2_694_095, 0))); // the one-sided functional over the same fused co-sweep as the distance row
+    pub const DISTANCE_CONCURRENT: Envelope          = envelope(      0, 0,            Some(band(4, 2)),   Some(band(32_429, 19_457)),   Some(band(117_753, 0))); // orientation-switch density on word-scale heights: the pair never freezes, so no segment feed deposits
+    pub const LAG_CONCURRENT: Envelope               = envelope(      0, 0,            Some(band(4, 2)),   Some(band(33_278, 19_966)),   Some(band(117_753, 0))); // the one-sided functional over the same switch-dense overlay
     // The masked-comparison rows:
     // the fused projected comparisons on the correlated mask-drift
     // families, priced input-only on shapes whose *materialization* is
-    // product-growth — the laziness the view exists for. Ceilings x1.25
-    // and floors x0.75 over the measurements of record in the pin
-    // commits.
-    pub const MASKED_CMP_DRIFT_TRIPLE: QueryEnvelope = query_envelope(1_570, 0, 59, 20_488, 5_240, 35, 3_144); // one pass over the overlay, ~2 touches per stored delta
-    pub const MASKED_CMP_DRIFT_QUAD: QueryEnvelope        = query_envelope(     2_720,        0,    39_722, 1_342_092,    83_946, 23_833, 50_367); // the sparse comb's wide climb/drop codes dominate the input; scan ~8 bits per input byte
-}
-
-/// Run one query scenario body under all five meters and assert its
-/// envelope.
-///
-/// [`sweep_metered`]'s harness plus the accumulator touch column; prints
-/// the measured numbers so re-pinning never requires editing the harness.
-fn query_metered<R>(
-    name: &str,
-    input_bytes: usize,
-    env: &QueryEnvelope,
-    f: impl FnOnce() -> R,
-) -> R {
-    meter::reset_stack_segments();
-    #[cfg(feature = "limb-meter")]
-    meter::reset_limb_ops();
-    #[cfg(feature = "limb-meter")]
-    suanpan::touch_meter::reset();
-    #[cfg(feature = "scan-meter")]
-    meter::reset_scan_bits();
-    HEAP.reset_peak_usage();
-    let baseline = HEAP.current_usage();
-    let r = f();
-    let peak_heap = HEAP.peak_usage().saturating_sub(baseline);
-    let segments = meter::stack_segments();
-    #[cfg(feature = "limb-meter")]
-    let limb_ops = meter::limb_ops();
-    #[cfg(feature = "limb-meter")]
-    let touches = suanpan::touch_meter::touches();
-    #[cfg(feature = "scan-meter")]
-    let scan_bits = meter::scan_bits();
-    #[cfg(feature = "limb-meter")]
-    let limb_col = format!(" limb_ops={limb_ops} touches={touches}");
-    #[cfg(not(feature = "limb-meter"))]
-    let limb_col = "";
-    #[cfg(feature = "scan-meter")]
-    let scan_col = format!(" scan_bits={scan_bits}");
-    #[cfg(not(feature = "scan-meter"))]
-    let scan_col = "";
-    eprintln!(
-        "MEASURED {name}: input_bytes={input_bytes} peak_heap={peak_heap} segments={segments}{limb_col}{scan_col}"
-    );
-    assert!(
-        peak_heap <= env.peak_heap,
-        "{name}: peak heap {peak_heap} B exceeds the pinned envelope {} B (input {input_bytes} B): {ISOLATION_NOTE}",
-        env.peak_heap,
-    );
-    assert!(
-        segments <= env.segments,
-        "{name}: {segments} grown stack segments exceed the pinned envelope {}: {ISOLATION_NOTE}",
-        env.segments,
-    );
-    #[cfg(feature = "limb-meter")]
-    assert!(
-        limb_ops <= env.limb_ops,
-        "{name}: {limb_ops} limb operations exceed the pinned envelope {}: {ISOLATION_NOTE}",
-        env.limb_ops,
-    );
-    #[cfg(feature = "scan-meter")]
-    assert!(
-        scan_bits <= env.scan_bits,
-        "{name}: {scan_bits} scanned bits exceed the pinned envelope {}: {ISOLATION_NOTE}",
-        env.scan_bits,
-    );
-    #[cfg(feature = "limb-meter")]
-    assert!(
-        touches <= env.touches,
-        "{name}: {touches} accumulator digit touches exceed the pinned envelope {}: {ISOLATION_NOTE}",
-        env.touches,
-    );
-    #[cfg(feature = "limb-meter")]
-    assert!(
-        limb_ops >= env.limb_floor,
-        "{name}: limb counter reads {limb_ops}, below the {} improvement \
-         tripwire (measured x0.75): attribute the drop — an honest \
-         improvement re-pins the band; a dead meter is the bypass this \
-         column exists to catch",
-        env.limb_floor,
-    );
-    #[cfg(feature = "limb-meter")]
-    assert!(
-        touches >= env.touch_floor,
-        "{name}: touch counter reads {touches}, below the {} improvement \
-         tripwire (measured x0.75): attribute the drop — an honest \
-         improvement re-pins the band; a dead meter is the bypass this \
-         column exists to catch",
-        env.touch_floor,
-    );
-    r
+    // product-growth — the laziness the view exists for.
+    pub const MASKED_CMP_DRIFT_TRIPLE: Envelope      = envelope(  1_570, 0,          Some(band(59, 35)),     Some(band(5_240, 3_144)),    Some(band(20_488, 0))); // one pass over the overlay, ~2 touches per stored delta
+    pub const MASKED_CMP_DRIFT_QUAD: Envelope        = envelope(  2_720, 0,  Some(band(39_722, 23_833)),   Some(band(83_946, 50_367)), Some(band(1_342_092, 0))); // the sparse comb's wide climb/drop codes dominate the input; scan ~8 bits per input byte
 }
 
 /// The rank kernel on the dense spine's skyline stays within its
@@ -6983,7 +6698,7 @@ fn skyline_rank_dense_envelope() {
     let p = Shape::Dense.packed1(DENSE_DEPTH);
     let v = version_of(&p);
     let enc = skyline_of(&p);
-    let r = query_metered(
+    let r = metered(
         "skyline_rank_dense",
         enc.as_raw_slice().len(),
         &query_env::SKYLINE_RANK_DENSE,
@@ -7002,7 +6717,7 @@ fn skyline_rank_bigroot_envelope() {
     let p = Shape::Bigroot.packed2(BIGROOT_MAGNITUDE_BITS, BIGROOT_DEPTH);
     let v = version_of(&p);
     let enc = skyline_of(&p);
-    let r = query_metered(
+    let r = metered(
         "skyline_rank_bigroot",
         enc.as_raw_slice().len(),
         &query_env::SKYLINE_RANK_BIGROOT,
@@ -7022,7 +6737,7 @@ fn skyline_rank_harmonic_envelope() {
     let p = Shape::Harmonic.packed1(RANK_HARMONIC_DEPTH);
     let v = version_of(&p);
     let enc = skyline_of(&p);
-    let r = query_metered(
+    let r = metered(
         "skyline_rank_harmonic",
         enc.as_raw_slice().len(),
         &query_env::SKYLINE_RANK_HARMONIC,
@@ -7043,7 +6758,7 @@ fn skyline_rank_cliff_envelope() {
     let p = Shape::CliffComb.packed2(CLIFF_SCALE, CLIFF_SCALE);
     let v = version_of(&p);
     let enc = skyline_of(&p);
-    let r = query_metered(
+    let r = metered(
         "skyline_rank_cliff",
         enc.as_raw_slice().len(),
         &query_env::SKYLINE_RANK_CLIFF,
@@ -7065,7 +6780,7 @@ fn skyline_rank_wide_tooth_envelope() {
     let p = Shape::WideToothComb.packed3(CLIFF_SCALE, WIDE_TOOTH_WIDTH_BITS, CLIFF_SCALE);
     let v = version_of(&p);
     let enc = skyline_of(&p);
-    let r = query_metered(
+    let r = metered(
         "skyline_rank_wide_tooth",
         enc.as_raw_slice().len(),
         &query_env::SKYLINE_RANK_WIDE_TOOTH,
@@ -7082,7 +6797,7 @@ fn skyline_min_ticks_dense_envelope() {
     let p = Shape::Dense.packed1(DENSE_DEPTH);
     let v = version_of(&p);
     let enc = skyline_of(&p);
-    let r = query_metered(
+    let r = metered(
         "skyline_min_ticks_dense",
         enc.as_raw_slice().len(),
         &query_env::SKYLINE_MIN_TICKS_DENSE,
@@ -7105,7 +6820,7 @@ fn skyline_min_ticks_cliff_envelope() {
     let p = Shape::CliffComb.packed2(CLIFF_SCALE, CLIFF_SCALE);
     let v = version_of(&p);
     let enc = skyline_of(&p);
-    let r = query_metered(
+    let r = metered(
         "skyline_min_ticks_cliff",
         enc.as_raw_slice().len(),
         &query_env::SKYLINE_MIN_TICKS_CLIFF,
@@ -7143,7 +6858,7 @@ fn skyline_min_ticks_ascend_envelope() {
     let p = Shape::AscendCliff.packed2(ASCEND_STACK_DEPTH, ASCEND_STACK_MAGNITUDE_BITS);
     let v = version_of(&p);
     let enc = skyline_of(&p);
-    let r = query_metered(
+    let r = metered(
         "skyline_min_ticks_ascend",
         enc.as_raw_slice().len(),
         &query_env::SKYLINE_MIN_TICKS_ASCEND,
@@ -7183,7 +6898,7 @@ fn skyline_project_comb_scatter_envelope() {
     let enc = skyline_of(&p);
     let io_bytes_in =
         enc.as_raw_slice().len() + Shape::ScatteredId.packed1(CLIFF_SCALE / 2).bytes.len();
-    let out = query_metered(
+    let out = metered(
         "skyline_project_comb_scatter",
         io_bytes_in,
         &query_env::SKYLINE_PROJECT_COMB_SCATTER,
@@ -7226,7 +6941,7 @@ fn version_distance_jump_pair_envelope() {
     let a = pa.version();
     let b = pb.version();
     let input_bytes = a.encode().len() + b.encode().len();
-    let (r, a, b) = query_metered(
+    let (r, a, b) = metered(
         "version_distance_jump_pair",
         input_bytes,
         &query_env::DISTANCE_JUMP_PAIR,
@@ -7256,7 +6971,7 @@ fn version_lag_jump_pair_envelope() {
     let a = pa.version();
     let b = pb.version();
     let input_bytes = a.encode().len() + b.encode().len();
-    query_metered(
+    metered(
         "version_lag_jump_pair",
         input_bytes,
         &query_env::LAG_JUMP_PAIR,
@@ -7281,7 +6996,7 @@ fn version_lag_jump_pair_envelope() {
 fn version_rank_concurrent_envelope() {
     let (v, _) = Shape::ConcurrentPair.version_pair(CONCURRENT_PAIR_LEAVES);
     let input_bytes = v.encode().len();
-    query_metered(
+    metered(
         "version_rank_concurrent",
         input_bytes,
         &query_env::RANK_CONCURRENT,
@@ -7306,7 +7021,7 @@ fn version_rank_concurrent_envelope() {
 fn version_distance_concurrent_envelope() {
     let (v, w) = Shape::ConcurrentPair.version_pair(CONCURRENT_PAIR_LEAVES);
     let input_bytes = v.encode().len() + w.encode().len();
-    let (r, _, _) = query_metered(
+    let (r, _, _) = metered(
         "version_distance_concurrent",
         input_bytes,
         &query_env::DISTANCE_CONCURRENT,
@@ -7331,7 +7046,7 @@ fn version_distance_concurrent_envelope() {
 fn version_lag_concurrent_envelope() {
     let (v, w) = Shape::ConcurrentPair.version_pair(CONCURRENT_PAIR_LEAVES);
     let input_bytes = v.encode().len() + w.encode().len();
-    query_metered(
+    metered(
         "version_lag_concurrent",
         input_bytes,
         &query_env::LAG_CONCURRENT,
@@ -7370,7 +7085,7 @@ fn own_version_cmp_mask_drift_envelope() {
     let p = Party::decode(&mask.bytes[..]).expect("the mask is strict normal form");
     let w = plateau.version();
     let input_bytes = v.encode().len() + mask.bytes.len() + w.encode().len();
-    let (ord, v, p, w) = query_metered(
+    let (ord, v, p, w) = metered(
         "own_version_cmp_mask_drift",
         input_bytes,
         &query_env::MASKED_CMP_DRIFT_TRIPLE,
@@ -7408,7 +7123,7 @@ fn own_version_pair_cmp_mask_drift_envelope() {
     let p2 = Party::decode(&odd_mask.bytes[..]).expect("the mask is strict normal form");
     let input_bytes =
         v1.encode().len() + even_mask.bytes.len() + v2.encode().len() + odd_mask.bytes.len();
-    let (ord, v1, p1, v2, p2) = query_metered(
+    let (ord, v1, p1, v2, p2) = metered(
         "own_version_pair_cmp_mask_drift",
         input_bytes,
         &query_env::MASKED_CMP_DRIFT_QUAD,
@@ -7448,7 +7163,7 @@ fn masked_cmp_hole_envelope() {
     let p = Party::decode(&mask.bytes[..]).expect("the mask is strict normal form");
     let w = plateau.version();
     let input_bytes = v.encode().len() + mask.bytes.len() + w.encode().len();
-    let (ord, v, p, w) = query_metered(
+    let (ord, v, p, w) = metered(
         "masked_cmp_hole",
         input_bytes,
         &query_env::MASKED_CMP_HOLE,
@@ -7661,7 +7376,7 @@ fn fold_version_scatter_envelope() {
     let reference = versions.iter().fold(Version::new(), |acc, v| acc | v);
     let rest = versions.split_off(1);
     let receiver = versions.pop().expect("the population is nonempty");
-    let out = query_metered(
+    let out = metered(
         "fold_version_scatter",
         input_bytes,
         &query_env::FOLD_VERSION_SCATTER,
@@ -7683,7 +7398,7 @@ fn fold_party_scatter_envelope() {
     let input_bytes: usize = parties.iter().map(|p| p.encode().len()).sum();
     let rest = parties.split_off(1);
     let mut acc = parties.remove(0);
-    let acc = query_metered(
+    let acc = metered(
         "fold_party_scatter",
         input_bytes,
         &query_env::FOLD_PARTY_SCATTER,
