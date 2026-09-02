@@ -81,10 +81,16 @@ never relax them.
 
 Resolution: Replace the boolean probes with a three-way outcome: `fn outcome(pair, capacity, schedules) -> Result<Result<(Root, Root), MirrorError<..>>, Quiescence>` (or the `Outcome` of the `LocalSession` builder in streaming-tests-3), with `stalls(o) = matches!(o, Err(Quiescence::Stalled))` and `completes(o)` returning the roots so the caller can compare them to `join_oracle`. Rewrite `stalls_under_any_schedule` as `any(stalls)` and add `completes_under_every_schedule` as `all(completes)` for the negative sites; treat `Ok(Err(_))` and `Err(Quiescence::PollBudget)` as failures with their own messages. Acceptance: inject `Fault::Reply(Violation::UnexpectedQuery)` into the `internal_fan(3)` session (or temporarily make the completion path return `Ok(Err(..))`) and confirm `parent_delay_single_parent_boundary` fails; restore and confirm it passes; every `!stalls` site is a `completes` site whose roots are compared to `join_oracle`.
 
-`streaming-tests-3` (the `LocalSession` builder) is a P5 entry; do not
-build it here. Ordering hazard from TRIAGE.md: this lands before any P7
+Ruling T127: build `streaming-tests-3`'s `LocalSession` builder here too,
+with this entry's `Outcome` as its result type, consolidating the nine
+construction sites (its Resolution and Acceptance are quoted under its
+own heading below). Ordering hazard from TRIAGE.md: this lands before any P7
 measurement of the capacity suite's width; do not change the suite's
 parent count.
+
+### streaming-tests-3 (medium): ruling T127
+
+Resolution: Give tests.rs one `LocalSession` builder: `LocalSession::new(a, b)` with `.channel_schedule(..)`, `.backend_schedule(..)`, `.kind_capacity(kind, n)`, `.stats()`, `.trace()`, `.transcript()`, and `run(self) -> Outcome`, where `Outcome` carries `Result<Result<(Root, Root), MirrorError<..>>, Quiescence>` plus the requested instruments, with `converged(self) -> Root` and `sides(self) -> (Root, Root)` owning the two `expect`s. Express `transcribed_mirror_sides`, `mirror_with_stats`, `shape_stalls`, `underbuffered_mirror_stalls`, and the inline body of `uncontained_supply_is_rejected_by_streaming` through it; keep `faults.rs`'s own construction only where a `Faulting` or `Failing` wrapper replaces `Local`, via a `floor_start(root)` helper that also wraps the long lines. The same `Outcome` type resolves streaming-tests-11. Acceptance: `grep -c 'Handshaking::start(Local'` over the partition drops to the builder plus the fault-wrapper sites; `streaming_mirror_sides_with_schedule` and `scheduled_streaming_mirror` are gone; `awk 'length > 100' faults.rs` prints nothing.
 
 ### materialized-27 (high): ruling T26
 

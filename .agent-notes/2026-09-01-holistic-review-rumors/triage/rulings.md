@@ -649,3 +649,43 @@ Home: code.
 Disposes: owner decision 102; the tests-observation overlap-sweep item and remote-capture-atlas-28 (fix)
 Decision: The total overlap sweep and the bounded corpus manifest each get one measured wall time stated as a band in the test's module doc, load reported in the commit. `Cargo.toml` sets `[profile.dev.package.sha3] opt-level = 2`, which serves the corpus test and the geometry fixture.
 Home: code.
+
+## T124 (2026-09-02): Tree-core mediums land as stated
+Disposes: tree-core-1, tree-core-11, tree-core-16, tree-core-23, tree-core-22, tree-core-34 (fix)
+Decision: Each lands per its entry's Resolution and Acceptance. Ordering: tree-core-11 after T38 (the leaf level it documents changes there); tree-core-16 with T34 (the evacuation rewrites the same comments). tree-core-23's two out-of-partition sites ride with it.
+Home: code.
+
+## T125 (2026-09-02): Tree-typed and crate-root mediums land as stated
+Disposes: tree-typed-5, prose-hygiene-1, tree-typed-19, api-core-25, api-core-22, api-core-33, module-graph-1 (fix); inventory-9 (dup of tree-typed-5)
+Decision: Each lands per its entry. Ordering: api-core-25's reunion tests before api-core-22's `Extant` redesign; api-core-33's shared `Channel` with T74's observer registration change; prose-hygiene-1's `future_size` half is T7's.
+Home: code.
+
+## T126 (2026-09-02): Remote adapter, codec, proxy, and capture mediums land as stated
+Disposes: remote-adapter-streams-3, remote-adapter-streams-5, remote-adapter-tests-10, remote-adapter-tests-20, remote-adapter-tests-17, remote-adapter-tests-15, remote-adapter-tests-22, remote-codec-27, remote-proxy-1, remote-proxy-tests-25, remote-proxy-tests-26, remote-proxy-tests-7, remote-capture-atlas-2 (fix); inventory-5 (dup of remote-codec-27)
+Decision: Each lands per its entry. Ordering: remote-adapter-streams-3 before remote-adapter-tests-15, so the recognizer-differential family pins one loop at two entries; remote-proxy-1 rides with T63's error pass; remote-codec-27 moves no wire byte (the greeting snapshot is the check).
+Home: code.
+
+## T127 (2026-09-02): The `LocalSession` builder lands with the three-way outcome in the P1 harness lane
+Disposes: streaming-tests-3 (fix); amends the P1 harness-crate brief
+Decision: The P1 harness-crate lane builds the `LocalSession` builder and its `Outcome` type together with streaming-tests-11's three-way stall verdict, consolidating the nine construction sites while the probes are rewritten. The brief's "do not build it here" note is withdrawn.
+Home: code; `triage/briefs/p1-harness-crate.md`.
+
+## T128 (2026-09-02): Materialized, window, conformance, streaming-test, and link mediums land as stated
+Disposes: materialized-18, materialized-20, materialized-13, materialized-34, streaming-backend-window-19, deps-2, streaming-backend-window-37, conformance-9, streaming-tests-18, streaming-tests-19, streaming-tests-23, streaming-tests-26, streaming-tests-27, streaming-tests-5, async-hazards-2, link-26 (fix)
+Decision: Each lands per its entry. Ordering: materialized-18 with T63's error pass; deps-2's full form (the production receiver wrapper) so `tokio-stream` leaves the manifest, which T86's cycle work depends on; materialized-20's out-of-partition sites ride with it (streaming-tests-8, prose-hygiene-4 agree on keeping `B5`); streaming-tests-19's terminal-phase failure, if any, is reported as a finding.
+Home: code.
+
+## T129 (2026-09-02): Scaffolding, bench, suite-economics, and session-bookmark mediums land as stated
+Disposes: testing-infra-16, testing-infra-21, testing-infra-22, testing-infra-2, testing-infra-20, benches-envelope-10, benches-envelope-8, benches-envelope-13, suite-economics-4, tests-resource-link-window-1, session-bookmark-10, session-bookmark-22 (fix)
+Decision: Each lands per its entry. benches-envelope-13's visit counter is admitted as a pin on the pruning claim (a correctness-shaped property), distinct from the allocation meters T110 declined. session-bookmark-22 lands with T62's trait edit. testing-infra-20 deletes the in-crate fuse; `tests/common/fault.rs` follows only once its severed-direction capability has a home in `IoPlan`, reported by the lane.
+Home: code.
+
+## T130 (2026-09-02): Integration-test mediums, first half, land as stated
+Disposes: tests-resource-link-window-16, tests-bookmark-21 (option (a)), tests-bookmark-6, tests-disruption-handshake-14, tests-disruption-handshake-15, tests-disruption-handshake-22, tests-lifecycle-21, tests-observation-17, tests-observation-25, tests-common-25, tests-wire-format-27, prose-hygiene-3, tests-observation-15 (the same defect), tests-common-11, tests-disruption-handshake-4, tests-disruption-handshake-9, tests-lifecycle-19 (fix)
+Decision: Each lands per its entry. tests-common-25's new fault-plan fields are drawn after `windows` so every committed disruption seed keeps regenerating its prefix; tests-disruption-handshake-4's separate question (a redaction step in the child plan) is a lane-reported item, not ruled here.
+Home: code.
+
+## T131 (2026-09-02): Integration-test mediums, second half, land as stated; `async_wire.rs` is deleted
+Disposes: tests-lifecycle-22, tests-observation-18, tests-resource-link-window-29, tests-wire-format-16, tests-wire-format-3, tests-wire-format-6, tests-bookmark-3, tests-disruption-handshake-31, tests-lifecycle-3, tests-observation-2, tests-observation-32, tests-resource-link-window-22, tests-resource-link-window-3 (fix)
+Decision: Each lands per its entry. The harness consolidation entries (tests-bookmark-3, tests-lifecycle-3, tests-observation-2, tests-observation-32, tests-resource-link-window-22, tests-disruption-handshake-31) land in the shared harness crate of T115, the harness lane before the suite lanes. `tests/async_wire.rs` is deleted with its `String` payload riding `pairwise`'s union property and its four seeds re-homed into `pairwise.txt` in the same commit (T59).
+Home: code.
