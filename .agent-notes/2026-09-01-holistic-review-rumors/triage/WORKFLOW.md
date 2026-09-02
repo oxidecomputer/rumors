@@ -289,7 +289,11 @@ seconds means a green build of stale code; on skew, a lane either runs
 with a fresh target directory on the box (a cold build, no stale
 artifact to trust) or waits, and says which. Stepping the box's clock is
 admin work on a shared machine and is Finch's, never a lane's. The
-builder cap counts Mac builders only.
+builder cap counts Mac builders only; on the box (96 cores, 1 TiB) there
+is no lane cap, only the load: hold a launch while the one-minute load
+average sits above about 150 on 192 threads, and keep wall-time
+measurements under `pset-run` to one at a time, announced in the merge
+queue first.
 
 ## Effort and orchestration
 
