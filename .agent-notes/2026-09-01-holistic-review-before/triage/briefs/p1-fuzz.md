@@ -25,9 +25,9 @@ any other abort.
 These apply to every P1 lane; the lane sections below add to them and
 never relax them.
 
-- **Base.** Your worktree's HEAD must equal `0fc1921e` before you start.
+- **Base.** Your worktree's HEAD must equal `bba0e31a` before you start.
   Run `git -C <worktree> rev-parse HEAD`. If HEAD is an ancestor of
-  `0fc1921e`, fast-forward; if it has diverged, stop and report. Never call
+  `bba0e31a`, fast-forward; if it has diverged, stop and report. Never call
   EnterWorktree; operate on the worktree through `git -C <path>` and
   absolute paths, one shell invocation at a time.
 - **The review documents are the specification.** Each member entry below
@@ -45,6 +45,20 @@ never relax them.
   it picks one; where the ruling amends the Resolution, the amendment is
   stated under the quote and wins. Where a quoted Resolution and the lane
   goal come apart, the goal wins, and the discrepancy is reported.
+- **Typed references, never strings (ruling 43).** Wherever this lane
+  touches `meter/registry.rs`, a family roster, `TRIPWIRE_ROSTER`, the
+  surface rosters, or any test that names another test, file, or line:
+  reasons, pins, and enforcement homes are expressed as references the
+  compiler resolves (function items, registered law names, `Shape` and
+  `Op` values), never as strings naming a test function, a file, or a
+  line number. A lane that sees a cleaner idiomatic shape for a roster is
+  authorized to adopt it and reports the reshaping in its diff. Finch's
+  words: "please make these instruments impossible to drift in the
+  future. I *really don't like* the pattern of hard-coded strings and
+  Rust source locations embedded in tests; the way these family rosters
+  ended up is not really to my taste, but I haven't had time to make it
+  more idiomatic and obviously correct. If you see a good way to clean it
+  up, please do."
 - **Stops.** Report and leave the entry open; do not work around: anything
   that moves an `insta` snapshot or a committed pin the brief does not
   name as moving; any change to a public signature or public rustdoc
@@ -103,9 +117,18 @@ never relax them.
 3. The fuzz-fit work (ruling 14): the parity test against
    `METHOD_SURFACE` red-first (naming the 49 uncovered kernels), the
    riders that change criteria (shape-leg reference, `REFIT_SLACK`,
-   `DETERMINISTIC_MARGIN`) each with its synthetic red case, then the
+   `DETERMINISTIC_MARGIN`) each with its synthetic red case, the
+   floor-over-nop enforcement (fuzzfit-bands-17, ruling 50) with its
+   synthetic red case, the multi-scale rank band past 65 KiB
+   (skyline-query-9, ruling 10) added to the vocabulary, then the
    vocabulary extension and one `just fuzzfit-calibrate` re-pin as the
    last commit of the lane, attributed in full.
+4. The overflow-checks self-test (fuzz-guests-pins-26, ruling 50) rides
+   step 2 (it uses the discriminator); the seed derivation fix
+   (tests-other-26, ruling 50) rides step 1, before the seed-replay leg
+   lands, so the replay leg's first green run is over the regenerated
+   seeds; the fuelscape overlay twins (fuelscape-pipeline-23, ruling 50)
+   are independent and may land at any point.
 
 Re-pin discipline for step 3: one calibration run, at the end, after
 every criterion change has landed with its own red case; never iterate
@@ -116,9 +139,10 @@ re-pin commit. `p1-gate` may bump wasmtime in the detached lockfiles
 note names the version you ran.
 
 Files shared: `fuzzfit/harness/src/ops.rs` (the gate lane removes two
-casts at :764 and :858; rebase over that small commit); `bands.rs` (the
-suites lane's ruling 10 adds a rank fuel fit past 65 KiB; that lane is
-told to land after you).
+casts at :764 and :858; rebase over that small commit); `crates/before-fuelscape/src/families.rs` (fuelscape-pipeline-23;
+`p1-gate`'s deps-9 sweep runs `just fuelscape-test` but edits no
+fuelscape source). The rank fuel fit past 65 KiB (skyline-query-9,
+ruling 10) is this lane's, so `bands.rs` has one owner.
 
 ## Members
 
@@ -237,6 +261,77 @@ discriminator (the panic flag, the memory-size read, or both) by what
 that confirmation allows; state the finding in the commit. The planted
 `assert!(n < 1_000_000_000)` construction is the negative control,
 recorded in the commit message with all three pins' observed red.
+
+### fuzz-guests-pins-26 (medium, verification-gap): ruling 50
+
+Resolution: Add `pin_selftest_overflow() -> i64` to the guest that computes `black_box(u32::MAX) + black_box(1u32)` (and a `usize` variant) and a harness test asserting `Outcome::Trapped(Trap::UnreachableCodeReached)` (with the panic-genre discriminator from finding 35, asserting the panic genre). Name it beside `version_small_roundtrips_and_rejects_typed` as the leg's second liveness pin. Acceptance: `CARGO_PROFILE_RELEASE_OVERFLOW_CHECKS=false just wasm32-pins` turns the self-test red; the default build keeps it green.
+Construction: Run `CARGO_PROFILE_RELEASE_OVERFLOW_CHECKS=false just wasm32-pins`: every existing pin passes, because no pin's observation is a wrapped quantity and no export exercises a wrap on purpose.
+
+Ruled (50): as stated, with the panic-genre discriminator from
+fuzz-guests-pins-35 (ruling 17) asserting the overflow panic genre. The
+negative control is the acceptance's own: one build with
+`CARGO_PROFILE_RELEASE_OVERFLOW_CHECKS=false` turning the self-test red,
+recorded in the commit message; the default build keeps it green.
+
+### fuzzfit-bands-17 (medium, verification-gap): ruling 50
+
+Resolution: Add an enforcement test that calls `ff_nop` on a live `Guest` and, for every band in `BANDS` and `SMALL_BANDS`, asserts `intercept + slope · log10(d) - width_below - ENFORCE_MARGIN_BELOW > log10(nop)` at both `d = min_denom` and `d = max_denom` (the endpoint argument `line_divergence` already uses). Make calibrate's loop evaluate both endpoints over `fits` and `small_fits` and fail rather than print when any gap is non-positive; drop the caveat once the code no longer needs it. Consider measuring a dispatch-only control kernel (borrow two registers, return) once, so the `ff_rank_cmp` floor's liveness claim is stated against the dead reading a stubbed pair kernel actually produces (see open question 6). This composes with finding 2's `PIN_EVIDENCE.floor_min_gap`. Acceptance: a committed synthetic case (the pinned `ff_rank_cmp` band with `width_below` widened by 0.12) reads `InBand` for `fuel = nop` at 128 bits and the new check rejects such a band by name; calibrate exits non-zero on a non-positive gap; the printed minimum covers 53 floors at both endpoints.
+Construction: Copy the pinned `ff_rank_cmp` `Band` (bands.rs:700-711) into a test, add 0.12 to `width_below`, and call `judge_against(&band, 128, 2)`: the result is `InBand`. Nothing in `tests/enforce.rs` or `tests/sanity.rs` would fail if calibrate emitted such a band; the judgment tripwire at sanity.rs:186-217 and the burner test at enforce.rs:273-310 use synthetic bands and never touch the pinned floors.
+
+Ruled (50): the enforcement test over both rosters at both endpoints,
+`calibrate` failing rather than printing on a non-positive gap, the
+caveat dropped, and the widened-band synthetic case committed as the
+known-bad the check rejects by name. The dispatch-only control kernel the
+entry suggests considering is not taken in this lane; report if the
+`ff_rank_cmp` floor's gap over nop is under the margin at the current
+pin, since the re-pin at the end of the lane must then clear it. This is
+a criterion change: it lands before the one calibration run.
+
+### tests-other-26 (medium, correctness): ruling 50
+
+Resolution: Capture `let concurrent = sibling.version().clone();` before the sync (or build the message from a sibling that has not synced) and use it for the flavour-1 payload and the laws family's second version; assert the relation at the derivation (`assert!(clock.version().concurrent(&concurrent))`) and in the ops contract test of tests-other-18; regenerate with `cargo run -p before --example fuzz_seeds` and commit the changed seed files. Acceptance: the relation assertion fails against the current derivation and passes after the reorder; `committed_seeds_match_the_live_derivation` is red until regeneration and green after; the two comments read true of the bytes.
+Construction: After fuzz_seed_set.rs:275 add `assert!(clock.version().concurrent(sibling.version()));`. It panics: `sync` joins both histories into both clocks, as the `Clock::sync` doc example asserts with `assert_eq!(a.version(), b.version())`.
+
+Ruled (50): as stated. Capture the concurrent sibling before the sync,
+assert the relation at the derivation, regenerate with `cargo run -p
+before --example fuzz_seeds`, and commit every changed seed file. The
+negative control is the acceptance's own: the relation assertion fails
+against the parent's derivation (record it), and
+`committed_seeds_match_the_live_derivation` is red until regeneration.
+Land before the seed-replay leg (fuzz-guests-pins-38) so that leg's
+first green run is over the regenerated seeds.
+
+### fuelscape-pipeline-23 (medium, correctness): ruling 50
+
+Resolution: On the `[Version, Version]` arm replace the two self-pairs with perturbed twins that defeat the equality rung while keeping the shape (the family and the same family after one tick on its first leaf, or dense(t) crossed with dense at the next ramp point), or drop them and rely on the three committed pair generators already present; do the same for the `[Party, Party]` self-pairs on rows with an early-exit predicate. State at `overlay_inputs` which rows own an equality short-circuit and that self-pairs are reserved for rows without one (version_cmp, version_concurrent, party_covers, the contains rows). Rewrite families.rs:91-92 to describe what the arm does. Acceptance: a committed test in a families.rs sibling `tests.rs`: for every `[Version, Version]` and `[Party, Party]` roster row, every `overlay_inputs` point has `inputs[0] != inputs[1]` unless the row is in an explicit allowlist of rows without an equality rung in the measured kernel.
+Construction: Build `Plan { base_seed: 0x5eed, samples_per_column: 1, max_bytes: 64 }`, call `overlay_inputs` on the version_join row at 64, take the largest "dense × self" point, and run `(op.measure)(&mut Guest::new(), &fam.inputs, 2)`; compare its fuel with the `version_eq` row measured on `inputs[0]` at the same size. The two agree up to the clone's constant and both sit far below the "jump_pair" point at the same total size, which is the join sweep's cost.
+
+Ruled (50): perturbed twins (the family after one tick on its first
+leaf, or dense crossed with dense at the next ramp point) on every
+two-operand row whose kernel opens with an equality rung, on both the
+`[Version, Version]` and `[Party, Party]` arms; the allowlist of rows
+without a short-circuit is explicit at `overlay_inputs`; the committed
+distinctness test asserts every other overlay point has distinct
+operands. `families.rs:91-92` is rewritten to what the arm does. The
+compact datasets and the SVG gallery carry the old points; regenerating
+them is a fuelscape survey (hours) and is not run in this lane: report
+that the committed datasets still carry the self-pair points and leave
+their regeneration to the coordinator.
+
+### skyline-query-9 (low, verification-gap): ruling 10 (moved here from the suites lane)
+
+Resolution: Either instrument or narrow. To instrument: a multi-scale fuel fit (the fuzzfit harness already counts wasm fuel for `ff_version_rank`) over the doc's tight construction at three or more scales past 65 KiB, judged against the `M(n) · log n` model with `M ≈ n log n`; or a deterministic check that records `meter_product`'s operand widths per tree level on that construction and holds the per-level product widths to the model's telescoping. To narrow: state in the public contract only what committed instruments pin and move the quasilinear-tier remark to a decision record. Acceptance: either a committed cell or test whose operands' parked sums exceed 4,000 words at every scale, named from integral.rs in place of the "[derived; ...]" bracket and rostered, or the public `# Complexity` no longer carries the unwitnessed clause.
+Construction: Build the doc's own worst case: `Θ(log |v|)` armings whose parked widths grow as `4,000 · 2^i` words, each banked ahead of a trailing window of span `Θ(|v|)`, at |v| of about 65 KiB, 130 KiB, and 260 KiB packed; run `Version::rank` under the fuzzfit fuel harness; fit the exponent across the three scales against `n log^2 n`. A settle that re-ran an NTT-tier product once per tree level without telescoping reads the extra `log` here and in no committed counter.
+
+Ruled (10): instrument, by the multi-scale fuel fit in the fuzzfit
+harness at three or more scales past 65 KiB over the doc's own tight
+construction, judged against `M(n) · log n`. The public clause stands.
+The band joins the vocabulary before the lane's one calibration run so
+its pin carries the same wasmtime and toolchain provenance as every other
+band's. If the fit reads the extra log where the model says it should
+not, or fails to read it where the doc says it is tight, that is a
+finding about the doc's argument: report the readings, do not re-word
+the contract.
 
 ## Hazards and stops
 

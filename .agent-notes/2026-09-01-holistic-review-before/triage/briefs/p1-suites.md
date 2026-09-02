@@ -26,9 +26,9 @@ exist; and the one claim with no instrument at its tier gets one.
 These apply to every P1 lane; the lane sections below add to them and
 never relax them.
 
-- **Base.** Your worktree's HEAD must equal `0fc1921e` before you start.
+- **Base.** Your worktree's HEAD must equal `bba0e31a` before you start.
   Run `git -C <worktree> rev-parse HEAD`. If HEAD is an ancestor of
-  `0fc1921e`, fast-forward; if it has diverged, stop and report. Never call
+  `bba0e31a`, fast-forward; if it has diverged, stop and report. Never call
   EnterWorktree; operate on the worktree through `git -C <path>` and
   absolute paths, one shell invocation at a time.
 - **The review documents are the specification.** Each member entry below
@@ -46,6 +46,20 @@ never relax them.
   it picks one; where the ruling amends the Resolution, the amendment is
   stated under the quote and wins. Where a quoted Resolution and the lane
   goal come apart, the goal wins, and the discrepancy is reported.
+- **Typed references, never strings (ruling 43).** Wherever this lane
+  touches `meter/registry.rs`, a family roster, `TRIPWIRE_ROSTER`, the
+  surface rosters, or any test that names another test, file, or line:
+  reasons, pins, and enforcement homes are expressed as references the
+  compiler resolves (function items, registered law names, `Shape` and
+  `Op` values), never as strings naming a test function, a file, or a
+  line number. A lane that sees a cleaner idiomatic shape for a roster is
+  authorized to adopt it and reports the reshaping in its diff. Finch's
+  words: "please make these instruments impossible to drift in the
+  future. I *really don't like* the pattern of hard-coded strings and
+  Rust source locations embedded in tests; the way these family rosters
+  ended up is not really to my taste, but I haven't had time to make it
+  more idiomatic and obviously correct. If you see a good way to clean it
+  up, please do."
 - **Stops.** Report and leave the entry open; do not work around: anything
   that moves an `insta` snapshot or a committed pin the brief does not
   name as moving; any change to a public signature or public rustdoc
@@ -111,15 +125,18 @@ never relax them.
    of each half. Check `uptime` first; if the load average is above the
    core count divided by four, skip the timing, say so, and leave the
    number to the coordinator. Never repeat the timing.
-6. skyline-query-9 (ruling 10) last, after `p1-fuzz` has landed its
-   re-pin; rebase onto it. If `p1-fuzz` has not landed, stop on this
-   entry and report it as waiting (the coordinator may move it to that
-   lane).
+6. The rows and pins ruling 50 adds (envelopes-b-18's fold tripwire,
+   the coverage-exit rows of skyline-sweep-place-masked-20, the
+   `cmp_early_exit` rows of skyline-sweep-place-masked-32, meter-core-8's
+   promotion tap and re-parameterized band), in `tests/meter.rs` after
+   the rebase, each red-first; testing-oracles-22's grow-pair floor in
+   `src/testing/exhaustive` at any point.
 
 Files shared: `tests/meter.rs` with `p1-harness` (rebase; your edits
 there are the isolation call, three band docs, the folded binaries, and
 the reset sites) and with `p1-board` (two band docs, different bands);
-`fuzzfit/harness/src/bands.rs` with `p1-fuzz`.
+`src/version/skyline/query/integral.rs` with nobody in P1
+(meter-core-8's promotion tap), though `p2-cures` will edit it later.
 
 ## Members
 
@@ -300,19 +317,90 @@ and record the two per-test times in the commit. The fuzz target and the
 organic drive list pick the new group up by construction; confirm by
 running the law totality pins.
 
-### skyline-query-9 (low, verification-gap): ruling 10
+### envelopes-b-18 (medium, verification-gap): ruling 50
 
-Resolution: Either instrument or narrow. To instrument: a multi-scale fuel fit (the fuzzfit harness already counts wasm fuel for `ff_version_rank`) over the doc's tight construction at three or more scales past 65 KiB, judged against the `M(n) · log n` model with `M ≈ n log n`; or a deterministic check that records `meter_product`'s operand widths per tree level on that construction and holds the per-level product widths to the model's telescoping. To narrow: state in the public contract only what committed instruments pin and move the quasilinear-tier remark to a decision record. Acceptance: either a committed cell or test whose operands' parked sums exceed 4,000 words at every scale, named from integral.rs in place of the "[derived; ...]" bracket and rostered, or the public `# Complexity` no longer carries the unwitnessed clause.
+Resolution: add `sequential_join_reduce_reads_superlinear_on_stagger` mirroring 8313-8343 (`population.into_iter().reduce(|acc, v| acc | v)` over the version half of `Shape::StaggerPopulation.population(n, m)` on the arity axis at two scales, asserting model-normalized per-byte growth at or above a class-separating floor such as ×1.49), roster it in `TRIPWIRE_ROSTER`, and excise the parenthetical at 7727; do the same for the party left fold if its reading separates. Acceptance: a `_reads_superlinear_on_stagger` kernel in tests/meter.rs, rostered, red on the sequential fold and failing if `join_all` is swapped in; 7727 no longer points at a commit message.
+Construction: copy `sequential_meet_reduce_reads_superlinear_on_shade` with `&` -> `|` and the shade population -> the stagger population at `(n, n)` and `(2n, n)`; the module comment predicts about ×2 per-byte growth per arity doubling, so a ≥ ×1.49 assertion should hold; if it does not, the module comment's adequacy claim is the finding.
 
-Ruled (10): instrument, by the multi-scale fuel fit in the fuzzfit
-harness at three or more scales past 65 KiB over the doc's own
-construction, judged against `M(n) · log n`. The public clause stands.
-This entry is last in the lane and waits for `p1-fuzz`'s re-pin; its
-own pin is attributed in its commit with the wasmtime and toolchain
-provenance the bands file names. If the fit reads the extra log where the
-model says it should not, or fails to read it where the doc says it is
-tight, that is a finding about the doc's argument: report the readings,
-do not re-word the contract.
+Ruled (50): commit `sequential_join_reduce_reads_superlinear_on_stagger`
+mirroring the meet tripwire, rostered, and excise the parenthetical at
+7727; do the same for the party left fold if its reading separates (say
+which way it read). Under ruling 43 the roster entry is the function
+item, not its name as a string, if `TRIPWIRE_ROSTER`'s type allows it at
+your base; otherwise report that the roster's typing is the next reshaping
+and cite by name. The witness read ×1.73 against ×1.12 with the ×1.49
+class floor; if your reading does not clear the floor, report the numbers
+rather than lowering the floor.
+
+### skyline-sweep-place-masked-20 (medium, verification-gap): ruling 50
+
+Resolution: add two scan-bit rows to the placement meter module, stated relationally like the others: (1) a hole-only query concurrent to both endpoints must read strictly under the composed four `partial_cmp`s and stop at the second deciding interval (the early `Full`); (2) a required floor plus a hole whose `lo` pair settles must show the `lo` stream's scan stopping (compare against the same query with the hole removed). Add the two deterministic verdict witnesses (all-holes-settled `Full`; endpoint drop then `Partial`) to `filter_coverage_organic_witnesses`. Acceptance: the new rows read green at HEAD and red when lines 427-430 and 439-440 are removed, while every verdict test stays green.
+
+Ruled (50): the two relational scan rows in the placement module and
+the two deterministic verdict witnesses. The negative control is the
+acceptance's own: with lines 427-430 and 439-440 removed (a reversible
+mutation), the rows read red while every verdict test stays green; record
+the readings in the commit message.
+
+### skyline-sweep-place-masked-32 (medium, verification-gap): ruling 50
+
+Resolution: add `cmp_early_exit` rows in the `eq_early_exit` idiom: a pair decided concurrent at its second elementary interval with a scale-varying tail, absolute two-scale touch and scan pins on `Version::partial_cmp`, plus the masked twins (`(v / p).partial_cmp(&w)` with the deciding intervals inside owned regions, and a masked `eq`). Update sweep.rs:46-52 and masked.rs:61-65 to name the rows. Acceptance: with `order_exit` returning `Continue` unconditionally (and masked's `run` ignoring `Break`), all verdict suites remain green and the new rows read tail-linear and fail at both scales; restored, the rows read identical at both scales.
+
+Ruled (50): `cmp_early_exit` rows in the `eq_early_exit` idiom on
+production `Version::partial_cmp`, plus the masked twins, with
+`sweep.rs:46-52` and `masked.rs:61-65` naming the rows. The negative
+control is the acceptance's own: `order_exit` returning `Continue`
+unconditionally and masked's `run` ignoring `Break`, as a reversible
+mutation, with the tail-linear readings (the witness saw 8005 to 16005
+touches) recorded in the commit message. The witness also saw
+`coincident_place_collapses_to_the_pair_sweep` go red under that mutation
+through its relative inequality; that test is folded into this file by
+ruling 22 and is not a pin of the exit, so its reaction is noted, not
+relied on.
+
+### meter-core-8 (medium, claim): ruling 50
+
+Resolution: Add a `cfg(test)` promotion tap beside `FREEZE_HITS` (integral.rs:284) and a meter/tests.rs pin that `wide_arming(w, d).version().rank()` promotes exactly once for `w >= 18` and zero times at `w = 17`; then either raise both guards to the promotion threshold, derived from `FREEZE_ALLOWANCE_DIGITS` once meter-core-7 makes it reachable, and hand the envelope partition a re-parameterized `hoisted_window` band at a promoting width, or re-state both docs and the band prose to the freeze-only mechanism the current widths realize. Acceptance: the promotion pin exists and passes; the guard's number and its rationale describe the same threshold; the `hoisted_window` band's width sits on the documented side of it.
+
+Ruled (50): the first branch in full. A `cfg(test)` promotion tap
+beside `FREEZE_HITS`, a pin that `wide_arming(w, d).version().rank()`
+promotes exactly once for `w >= 18` and zero times at `w = 17`, both
+guards raised to the threshold derived from `FREEZE_ALLOWANCE_DIGITS`
+(state the derivation at the guard; the witness read three freezes per
+run, not the entry's two, so derive from the code, not the entry's
+trace), and the `hoisted_window` band re-parameterized at a promoting
+width with its re-pin measured at the parent and attributed. meter-core-7
+(the constant's reachability) is a P6 entry; if the derivation needs it,
+take only what the derivation needs and say so.
+
+### testing-oracles-22 (medium, verification-gap): ruling 50
+
+Resolution: Count the pairs that reach line 317 (an `AtomicUsize` under the par iter, returned from `check_tick` or asserted inside it) and assert `grow_pairs >= ids.len() * evs.iter().filter(|v| matches!(v, oracle::Version::Leaf(_))).count()`, with the premise stated at the assertion site (fill is the identity on a leaf event for every nonempty id). Acceptance: temporarily making `fill_for_test` return `self.fill(id).tick(&Party::Leaf(true))` (always different from `self`) turns `exhaustive_small` red on the new floor rather than green; restored, it is green.
+Construction: In crates/before/src/oracle/version.rs change `fill_for_test` to return `self.fill(id).tick(&Party::Leaf(true))`; run `cargo nextest run -p before exhaustive_small`: every pair hits `continue`, `best_inflation` and `all_inflations` execute zero times, and the test passes. With the floor added, the same mutation fails the floor's assertion.
+
+Ruled (50): count the pairs that reach the grow check under the
+parallel iterator and assert the universal floor at the site with its
+premise stated. The negative control is the acceptance's own: the
+always-changing `fill_for_test` mutant turns `exhaustive_small` red on
+the floor; record the run in the commit message.
+
+### meter-adequacy-10 (nit, (table)): roster: pending Finch's approval
+
+Table row: `crates/before/tests/meter.rs:8168-8197`; The meet-fold band's `touches >= bytes` is labelled a liveness floor with no mechanism for one touch per operand byte. Resolution: Derive from nonzero deltas times first-level merges, or relabel it a measured band (the suite's own "improvement tripwire" class).
+
+Roster note: the meet-fold band's `touches >= bytes` floor either
+derives from nonzero deltas times first-level merges or is relabeled a
+measured band. Lands with the band-doc work if Finch approves the
+roster; say which way you took and why.
+
+### skyline-sweep-place-masked-4 (nit, claim): roster: pending Finch's approval
+
+Resolution: state the pinned mechanism as "no per-interval sign read inside an unowned run" at masked.rs:313-316 and at the generator (src/meter.rs:3506-3515) and band (tests/meter.rs:7515-7517), and name the zero-delta premise at the generator. Optionally add a nonzero-delta spine variant whose reading is expected linear, as the fold floor. Acceptance: the prose names sign reads and the zero-delta premise; the band is unchanged.
+
+Roster note: prose at three sites naming the pinned mechanism (no
+per-interval sign read inside an unowned run) and the zero-delta premise;
+the band is unchanged. The optional nonzero-delta spine variant is not
+taken unless Finch's roster approval says so. Lands only if approved.
 
 ## Hazards and stops
 
@@ -330,4 +418,7 @@ do not re-word the contract.
 - The satellites' MEASURED grids must match the parent byte for byte
   after folding, or the difference is the leaf-order caveat the entries
   name; anything else is a stop.
-- skyline-query-9 stops if `p1-fuzz` has not landed.
+- meter-core-8 moves the `hoisted_window` band's width and re-pins
+  the band; that re-pin is the one this lane makes by design, measured
+  at the parent and named in the commit. Any other band pin moving is a
+  stop.

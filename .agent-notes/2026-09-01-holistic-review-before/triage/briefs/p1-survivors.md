@@ -21,9 +21,9 @@ this lane repairs.
 These apply to every P1 lane; the lane sections below add to them and
 never relax them.
 
-- **Base.** Your worktree's HEAD must equal `0fc1921e` before you start.
+- **Base.** Your worktree's HEAD must equal `bba0e31a` before you start.
   Run `git -C <worktree> rev-parse HEAD`. If HEAD is an ancestor of
-  `0fc1921e`, fast-forward; if it has diverged, stop and report. Never call
+  `bba0e31a`, fast-forward; if it has diverged, stop and report. Never call
   EnterWorktree; operate on the worktree through `git -C <path>` and
   absolute paths, one shell invocation at a time.
 - **The review documents are the specification.** Each member entry below
@@ -41,6 +41,20 @@ never relax them.
   it picks one; where the ruling amends the Resolution, the amendment is
   stated under the quote and wins. Where a quoted Resolution and the lane
   goal come apart, the goal wins, and the discrepancy is reported.
+- **Typed references, never strings (ruling 43).** Wherever this lane
+  touches `meter/registry.rs`, a family roster, `TRIPWIRE_ROSTER`, the
+  surface rosters, or any test that names another test, file, or line:
+  reasons, pins, and enforcement homes are expressed as references the
+  compiler resolves (function items, registered law names, `Shape` and
+  `Op` values), never as strings naming a test function, a file, or a
+  line number. A lane that sees a cleaner idiomatic shape for a roster is
+  authorized to adopt it and reports the reshaping in its diff. Finch's
+  words: "please make these instruments impossible to drift in the
+  future. I *really don't like* the pattern of hard-coded strings and
+  Rust source locations embedded in tests; the way these family rosters
+  ended up is not really to my taste, but I haven't had time to make it
+  more idiomatic and obviously correct. If you see a good way to clean it
+  up, please do."
 - **Stops.** Report and leave the entry open; do not work around: anything
   that moves an `insta` snapshot or a committed pin the brief does not
   name as moving; any change to a public signature or public rustdoc
@@ -147,6 +161,31 @@ message (the witness measured 3 vs 6 and 0 vs 66); (c) suanpan's whole
 suite green under `cargo nextest run -p suanpan --all-features`.
 `Ticks::limbs`'s callers are unaffected; if the restructure changes any
 committed touch pin elsewhere in the workspace, that is a stop.
+
+### suanpan-tests-25 (medium, verification-gap): ruling 50
+
+Resolution: pin the exact totals the way metered.rs does: assert `s1(n, d) == 16 * n + 2` for all four grid cells with the per-round derivation in the message (add 2: one limb read plus one deposit; sign 5: read, zero, deciding read, collapse zero, re-deposit; sub 2; sign 7: read, zero, read to partial 0, zero, certificate skip to digit 0, read −1, collapse zero and re-deposit; plus 2 once for the parked −1's spill). The measured number is the refutation pass's, not mine; measure once more before committing. At minimum add the universal floor `grid[0] >= 4 * n0` (four calls per round, one touch minimum each). Acceptance: with `touch()` stubbed to a no-op under the feature the test fails; with the shipped code it passes with the pinned totals, and the mixed second difference is exactly 0.
+Construction: make `fn touch(count: u64)` (accumulator.rs:21-26) ignore `count` under `touch-meter` and run only `sign_flip_oscillation_has_no_width_product`: it passes with `grid [0, 0, 0, 0]` while every pin in metered.rs fails. Alternatively delete only the `touch(1)` at accumulator.rs:850 (the fold's per-digit read): the grid drops uniformly and the test still passes.
+
+Ruled (50): pin the exact totals (`16 * n + 2` at all four grid cells)
+with the per-round derivation in the assertion message, measured once at
+the parent before committing (the number is the witness pass's, a
+hypothesis until your run confirms it; if it does not, report the
+measured totals and pin those with their derivation, or stop if no
+derivation reproduces them). The negative control is the acceptance's
+own: `touch()` stubbed to a no-op under the feature, a reversible
+mutation, recorded in the commit message. Same file family as suanpan-40;
+land after it so the pins read the restructured `read_digits`.
+
+### suanpan-39 (low, verification-gap): roster: pending Finch's approval
+
+Resolution: a per-cell floor from irreducible work (two one-limb writes and two sign reads per round: `s1(n, d) >= 6 * n`); better, pin the exact total `16 * n + 2` at all four cells, which subsumes the floor and the no-product bound. Treat `16n + 2` as a hypothesis until one run confirms it. Acceptance: with `touch_meter::record` stubbed to a no-op the test fails; unmodified, the pinned counts hold at all four cells. Construction: stub `record` and run `cargo nextest run -p suanpan --features touch-meter sign_flip_oscillation_has_no_width_product`: it passes today.
+
+Roster note: the same anchor and defect as suanpan-tests-25, filed by
+the suanpan partition (its Resolution names the same `16 * n + 2` pin).
+Landing suanpan-tests-25 satisfies this entry's Acceptance; the
+coordinator may record it as `dup` of suanpan-tests-25 rather than a
+separate fix. Nothing further to do here.
 
 ## Hazards and stops
 

@@ -25,9 +25,9 @@ pinned cell measured at the parent and attributed in the commit.
 These apply to every P1 lane; the lane sections below add to them and
 never relax them.
 
-- **Base.** Your worktree's HEAD must equal `0fc1921e` before you start.
+- **Base.** Your worktree's HEAD must equal `bba0e31a` before you start.
   Run `git -C <worktree> rev-parse HEAD`. If HEAD is an ancestor of
-  `0fc1921e`, fast-forward; if it has diverged, stop and report. Never call
+  `bba0e31a`, fast-forward; if it has diverged, stop and report. Never call
   EnterWorktree; operate on the worktree through `git -C <path>` and
   absolute paths, one shell invocation at a time.
 - **The review documents are the specification.** Each member entry below
@@ -45,6 +45,20 @@ never relax them.
   it picks one; where the ruling amends the Resolution, the amendment is
   stated under the quote and wins. Where a quoted Resolution and the lane
   goal come apart, the goal wins, and the discrepancy is reported.
+- **Typed references, never strings (ruling 43).** Wherever this lane
+  touches `meter/registry.rs`, a family roster, `TRIPWIRE_ROSTER`, the
+  surface rosters, or any test that names another test, file, or line:
+  reasons, pins, and enforcement homes are expressed as references the
+  compiler resolves (function items, registered law names, `Shape` and
+  `Op` values), never as strings naming a test function, a file, or a
+  line number. A lane that sees a cleaner idiomatic shape for a roster is
+  authorized to adopt it and reports the reshaping in its diff. Finch's
+  words: "please make these instruments impossible to drift in the
+  future. I *really don't like* the pattern of hard-coded strings and
+  Rust source locations embedded in tests; the way these family rosters
+  ended up is not really to my taste, but I haven't had time to make it
+  more idiomatic and obviously correct. If you see a good way to clean it
+  up, please do."
 - **Stops.** Report and leave the entry open; do not work around: anything
   that moves an `insta` snapshot or a committed pin the brief does not
   name as moving; any change to a public signature or public rustdoc
@@ -102,20 +116,33 @@ never relax them.
    behavior-preserving commit; capture the parent's MEASURED lines to
    `<scratchpad>/p1-harness/measured-parent.log` before you start and
    diff against them.
-2. Widen to every column pinned on every row: measure each unpinned
+2. Delete the segments column (ruling 38): the `segments` field, every
+   `segments:` pin, the segments fragment of the MEASURED line, and the
+   file-doc prose that calls the zero a measurement, naming
+   `clock::tests::deep_tree_stack_safety` as the no-recursion proof of
+   record in its place. Every other fragment of every MEASURED line stays
+   byte-identical to step 1's. The readers `meter::stack_segments` and
+   `meter::reset_stack_segments` still exist at your base (the board lane
+   deletes them after you land); simply stop calling them.
+3. Widen to every column pinned on every row: measure each unpinned
    cell at the parent (the same log), set its ceiling by the file's
    stated pin convention, its floor by the file's stated floor rule, and
    name every new pin and its measured value in the commit message. This
-   is the one-time re-measure ruling 4 sanctions. Segments cells are
-   excluded from this step (see hazards).
-3. Fold `skyline_render_records_zero_touches` into the `SKYLINE_RENDER_*`
+   is the one-time re-measure ruling 4 sanctions. With step 2 done there
+   is no segments cell to pin.
+4. Scan floors on every nonzero row (envelopes-a-6, ruling 50), with the
+   stubbed-validator construction committed as the known-bad.
+5. Fold `skyline_render_records_zero_touches` into the `SKYLINE_RENDER_*`
    rows as a touch column pinned to 0; move the tick scenarios beside
    their table; delete the pointer comment at 265-267.
-4. Retire the twin rows per envelopes-a-8 and envelopes-a-11 under the
+6. Retire the twin rows per envelopes-a-8 and envelopes-a-11 under the
    public-entry roster.
+7. The `compile_error!` without the meter features (meter-adequacy-11,
+   ruling 51), with the one justfile recipe change it needs.
 
-Land nothing outside `tests/meter.rs` in this lane. Other lanes hold
-their `meter.rs` commits until you land (README, launch order).
+Land nothing outside `tests/meter.rs` in this lane except the `just
+test` recipe line step 7 needs. Other lanes hold their `meter.rs`
+commits until you land (README, launch order).
 
 ## Members
 
@@ -166,16 +193,73 @@ no shape loses its decode pin (measured at the parent through the public
 door, attributed in the commit); keep the round-trip equality as a plain
 unit test if `skyline::decode` remains in the tests' vocabulary.
 
+### envelopes-a-2 (medium, verification-gap): ruling 38
+
+Resolution: Present to Finch as a premise change on the 2026-07-24 keep, not a fresh dissolution argument. Two consistent end states: (a) dissolve the `segments` field from `Envelope`, `TouchEnvelope`, `SweepEnvelope`, `QueryEnvelope`, their constructors, tables, and harness asserts, and restate lines 13-26 and 60-65: library traversals are iterative by construction (AGENTS.md's rule), the committed proof is `clock::tests::deep_tree_stack_safety`, and a recursion regression fails the deep scenarios here by overflow; or (b) if a live meter in this binary is wanted, compile `grow`/`descend!` under `any(test, feature = "meter")`, make `stacker` optional behind `meter`, and add a canary beside `heap_meter_registers_known_allocation` that dives through a guarded recursion and asserts `stack_segments() >= 1`, while stating at line 22 that no library kernel can reach the counter, so the zero pin is a rule pin rather than a cost. Under either, correct `recurse.rs:17-20`'s "measured fact" to name the binaries in which the reading is measured (the lib's cfg(test) suite). Acceptance: either no `segments` field or column remains in `tests/meter.rs` and the doc names the depth test as the proof, or a committed canary in this binary fails when the `SEGMENTS_GROWN.fetch_add` line is deleted.
+
+Ruled (38): end state (a), the dissolution. This lane owns the
+`tests/meter.rs` half in full: the field, the constructors, the tables,
+the harness asserts, and the file-doc restatement at 13-26 and 60-65
+(library traversals are iterative by construction; the committed proof is
+`clock::tests::deep_tree_stack_safety`; a recursion regression fails the
+deep scenarios by overflow). The `recurse.rs:17-20` correction is the
+board lane's (crate-root-32). No canary is added.
+
+### crate-root-32 (medium, verification-gap): ruling 38, this lane's half
+
+Resolution: The owner's call between two sound options. (a) Dissolve, my recommendation: remove the segments currency from the board (`Currency::Segments`, `seg_ceiling_only()` on every cell, `MAX_GROWN_STACK_SEGMENTS`, `SEG_FLOOR_TRIP`, the render column) and `Envelope.segments` with every `segments:` pin in tests/meter.rs, and `meter::{stack_segments, reset_stack_segments}`; confine `SEGMENTS_GROWN` and its readers to `cfg(test)` beside their one live client, the determinism dive; name `clock::tests::deep_tree_stack_safety` (depth 100k) plus the structural fact that `descend!` is `cfg(test)` and `stacker` a dev-dependency as the instruments against reintroduced depth recursion. (b) Keep and make it live: `stacker` becomes an optional dependency enabled by `meter`, `grow`/`descend!` compile under `any(test, feature = "meter")`, and a guarded 200k-deep descent in tests/meter.rs and in the board's self-check reads `stack_segments() > 0` in each enforcing binary before the kernels' zero is asserted. Either way, restate recurse.rs:16-20 and 74-76 as what IS (the guard and its counter exist for the test-only oracle bridge and its witnesses; in non-test meter builds the counter has no writer), fix line 37, and excise tests/meter.rs:441's clause. Acceptance: (a) `grep -rn 'stack_segments\|SEGMENTS_GROWN\|Currency::Segments' crates/before` finds only the `cfg(test)` determinism witness, and `just gate` is green; (b) a test in crates/before/tests/ built with `--features meter` asserts `before::meter::stack_segments() > 0` after a guarded deep descent. In both, no prose calls the segments zero a measured fact.
+Construction: Read-only: in a build of the library with `--features meter,limb-meter,scan-meter` and without `cfg(test)` (what tests/meter.rs and examples/amp_board.rs link), no expression writes `SEGMENTS_GROWN`; the sole `fetch_add` is inside `#[cfg(test)] fn grow`. Runtime: add a temporary scenario to tests/meter.rs whose body recurses 10^6 frames through `stacker::grow` directly; `meter::stack_segments()` still reads 0 and every `segments: 0` envelope passes. Conversely, delete the body of `stack_segment_meter_counts_deterministically_and_resets` and run the meter suite and `just amp-board-acceptance`: every segments ceiling stays green, because nothing in those binaries could have moved the counter before the change either.
+
+Ruled (38): option (a). This lane lands only the `tests/meter.rs`
+clauses of that option: `Envelope.segments` and every `segments:` pin go,
+and `tests/meter.rs:441`'s clause is excised. The board currency, the
+`meter::{stack_segments, reset_stack_segments}` readers, the `cfg(test)`
+confinement of `SEGMENTS_GROWN`, and the `recurse.rs` restatement are the
+board lane's; the acceptance grep is checked by the coordinator once both
+lanes have landed.
+
+### envelopes-a-6 (medium, verification-gap): ruling 50
+
+Resolution: Rewrite the `DECODE_DENSE`, `CMP_DENSE`, and `JOIN_DENSE` row comments to state the liveness signal those rows actually have (today: none beyond the heap ceiling; see envelopes-a-9), or move them onto the five-column shape so they gain the scan column. Add a scan floor (the ×0.75 tripwire, or a derived one bit per live input bit where the walk provably reads its whole input, as `id_walk_scan_cost` does) to the sweep and query envelopes under `scan-meter` and pin it for every nonzero row; the docketed unification is the natural vehicle. Acceptance: stubbing `skyline::validate_bits` to `Ok(())` fails at least one `SKYLINE_VALIDATE_*` row; no row comment names a floor its table lacks.
+
+Ruled (50): the scan floors land on every nonzero row inside the
+unification (step 4), so the first option's "move them onto the
+five-column shape" is what step 3 already does and the second half (a
+scan floor for every nonzero row under `scan-meter`) is the work. Derive
+the floor where the walk provably reads its whole input (as
+`id_walk_scan_cost` does) and use the tripwire fraction elsewhere; state
+which at the row. The `DECODE_DENSE`, `CMP_DENSE`, and `JOIN_DENSE`
+comments state the liveness signal their rows now carry. The negative
+control is the entry's construction: stub `skyline::validate_bits` to
+`Ok(())` as a reversible mutation, record which `SKYLINE_VALIDATE_*` rows
+go red in the commit message, restore.
+
+### meter-adequacy-11 (low, verification-gap): ruling 51
+
+Resolution: either a `compile_error!` under
+`not(all(feature = "limb-meter", feature = "scan-meter"))` at the top of
+tests/meter.rs (with `just test` passing the features for `-p before`), or
+an explicit `limb_ops=off scan_bits=off touches=off` marker on every
+MEASURED line so absence cannot read as zero. Acceptance: a
+default-features run either fails to build the meter binary or prints the
+marker on every MEASURED line.
+
+Ruled (51): the `compile_error!`. `just test`'s `-p before` invocation
+passes `limb-meter` and `scan-meter` so the inner loop still builds the
+binary; that recipe line is the one edit outside `tests/meter.rs` this
+lane makes, and its recipe comment says why. Acceptance: a
+default-features `cargo nextest run -p before --test meter --no-run`
+fails at the `compile_error!` with a message naming the two features;
+`just test` and `just gate` build it.
+
 ## Hazards and stops
 
-- **Segments.** The `segments` column's only writer is `#[cfg(test)] fn
-  grow`, and its disposition (decision 42: dissolve the column or give it
-  a writer) is ruled in S4. Carry the column through the unified struct
-  exactly as the four structs carry it today; re-derive no segments cell;
-  add no segments pin to a row that lacks one. If "every column pinned
-  on every row" cannot be satisfied without pinning a segments cell that
-  is unpinned today, stop on that row's segments cell (leave the
-  placeholder, say so) and land everything else.
+- **Segments.** Ruling 38 dissolves the currency. Step 2 deletes the
+  column from this file; nothing in this lane re-derives, pins, or
+  carries a segments cell. The readers in `before::meter` and the board's
+  currency are the board lane's to delete, after you land; if your gate
+  run fails because a reader has already gone (the board lane landed
+  first), rebase and drop the calls, nothing more.
 - **Heap pins.** Every row already carries a heap pin; this lane moves
   none. The 480 B pin at `MASKED_CMP_HOLE` is under ruling 24's
   reproduction in the gate lane and never widens. A heap reading that

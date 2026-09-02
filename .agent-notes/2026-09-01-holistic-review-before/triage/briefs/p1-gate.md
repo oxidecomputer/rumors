@@ -23,9 +23,9 @@ authority that does not run.
 These apply to every P1 lane; the lane sections below add to them and
 never relax them.
 
-- **Base.** Your worktree's HEAD must equal `0fc1921e` before you start.
+- **Base.** Your worktree's HEAD must equal `bba0e31a` before you start.
   Run `git -C <worktree> rev-parse HEAD`. If HEAD is an ancestor of
-  `0fc1921e`, fast-forward; if it has diverged, stop and report. Never call
+  `bba0e31a`, fast-forward; if it has diverged, stop and report. Never call
   EnterWorktree; operate on the worktree through `git -C <path>` and
   absolute paths, one shell invocation at a time.
 - **The review documents are the specification.** Each member entry below
@@ -43,6 +43,20 @@ never relax them.
   it picks one; where the ruling amends the Resolution, the amendment is
   stated under the quote and wins. Where a quoted Resolution and the lane
   goal come apart, the goal wins, and the discrepancy is reported.
+- **Typed references, never strings (ruling 43).** Wherever this lane
+  touches `meter/registry.rs`, a family roster, `TRIPWIRE_ROSTER`, the
+  surface rosters, or any test that names another test, file, or line:
+  reasons, pins, and enforcement homes are expressed as references the
+  compiler resolves (function items, registered law names, `Shape` and
+  `Op` values), never as strings naming a test function, a file, or a
+  line number. A lane that sees a cleaner idiomatic shape for a roster is
+  authorized to adopt it and reports the reshaping in its diff. Finch's
+  words: "please make these instruments impossible to drift in the
+  future. I *really don't like* the pattern of hard-coded strings and
+  Rust source locations embedded in tests; the way these family rosters
+  ended up is not really to my taste, but I haven't had time to make it
+  more idiomatic and obviously correct. If you see a good way to clean it
+  up, please do."
 - **Stops.** Report and leave the entry open; do not work around: anything
   that moves an `insta` snapshot or a committed pin the brief does not
   name as moving; any change to a public signature or public rustdoc
@@ -103,7 +117,12 @@ never relax them.
 3. The roster retirement (ruling 18) before the CI tool-pin edits
    (ruling 25), since the retirement decides what the install step
    contains.
-4. The lockfile audit and wasm32 leg (ruling 16) last: the wasmtime bump
+4. gate-legs-4 (ruling 50) with the roster retirement, since both edit
+   the `ci` recipe line: `ci` is defined from `gate-lints` in the same
+   commit that removes the mutants leg from both.
+5. gate-legs-8 (ruling 50): the writer-door law and the coverage-suite
+   assertion; library-side files no other P1 lane touches.
+6. The lockfile audit and wasm32 leg (ruling 16) last: the wasmtime bump
    inside `wasm32-pins` wants `just wasm32-pins` run once after it, and
    that is minutes and a few GiB.
 
@@ -272,6 +291,51 @@ the value and how it is consumed).
 Resolution: install the dated toolchain in CI from the justfile's single pin (a step that writes `just --evaluate nightly_toolchain` to `GITHUB_OUTPUT`, consumed by the `toolchain:` input), and rewrite ci.yml:128-133 to say the job runs the pinned nightly. The `ci` and `coverage` jobs' `toolchain: nightly` steps (64-67, 206-210) feed `doctest`, `fuzz-build`, and the branch-coverage leg, all spelled `+{{ nightly_toolchain }}` too; same fix, outside this partition. Acceptance: ci.yml derives `nightly-2026-06-30` wherever a `+{{ nightly_toolchain }}` recipe runs; the comment matches the mechanism; bumping one side alone fails the job with surfacecheck's format_version message, not a rustup error.
 
 Ruled (25): one change with deps-6, covering all three jobs.
+
+### gate-legs-4 (medium, verification-gap): ruling 50
+
+Resolution: Add `manifestlint` to the `ci` line (build-free, seconds), and consider defining `ci` as `gate-lints` plus its build legs so the two rosters cannot diverge again. Acceptance: every recipe named in `gate-lints` appears in `ci`, ideally by construction.
+
+Ruled (50): the second half is taken, not merely considered: `ci` is
+defined as `gate-lints` plus its build legs, so every gate lint is in CI
+by construction and `manifestlint` comes with it. The justfile's tier
+comments describe the derived shape. Negative control: the commit message
+records `just --evaluate` (or `just --show ci`) at the parent listing no
+`manifestlint`, and after the change listing it.
+
+### gate-legs-8 (medium, verification-gap): ruling 50
+
+Resolution: Extend `encode_to_matches_encode` (or add one law over every `*_to` door) to cover the rank, ranked, and span writers, cite it in each of the five rows' `pins`, and add a coverage-suite assertion that a row excluded on all three legs cites at least one resolvable name, so the vacuous shape cannot recur. Acceptance: no roster row has three excluded legs with an empty union of pins, and the new assertion fails when one is introduced.
+Construction: Delete the `# Example` block at rank.rs:412-420 and run `just gate`: green (no leg names `Rank::encode_to`).
+
+Ruled (50): as stated. One law over every `*_to` door (extend
+`encode_to_matches_encode` or add its sibling), cited from the five rows,
+and the coverage-suite assertion that a row excluded on all three legs
+cites at least one resolvable name. Under ruling 43 the citation is a
+reference the compiler resolves, not a string, if the roster's row type
+allows it at your base; if the row type only carries strings, cite by
+name and report that the roster's typing is the p2-surface lane's
+(meter-registry-tier2-10) to reshape. Negative control: the entry's
+delete-the-doctest construction, run as a reversible mutation and
+recorded in the commit message.
+
+### meter-adequacy-9 (low, verification-gap): roster: pending Finch's approval
+
+Resolution: write the sidecar after `wide.bench(c)` returns (the directory
+argument at sidecar.rs:149-152 holds either way, since `write_denoms`
+creates the parent), or add a completion stamp the judge requires; have
+the judge refuse an `estimates.json` older than the sidecar's write. For
+the wasm guests, export a build identifier from the guest and assert it
+from the harness. Acceptance: a judge run over a baseline pair in which one
+cell's estimates predate the sidecar exits 2.
+
+Roster note: a low with two halves. The sidecar-after-bench write and
+the judge's refusal of estimates older than the sidecar are this lane's
+(`benches/board.rs`, `tools/benchjudge`; the judge acceptance runs over a
+synthetic baseline pair, which is not a bench run). The wasm-guest
+build-identifier clause touches both guests, which `p1-fuzz` owns; land
+the harness-side assert only after `p1-fuzz` has landed, or report it as
+handed to that lane. Lands only if Finch approves the roster.
 
 ## Hazards and stops
 

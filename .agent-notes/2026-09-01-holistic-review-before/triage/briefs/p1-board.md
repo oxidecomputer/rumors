@@ -25,9 +25,9 @@ with a committed known-bad reading red through each repaired leg.
 These apply to every P1 lane; the lane sections below add to them and
 never relax them.
 
-- **Base.** Your worktree's HEAD must equal `0fc1921e` before you start.
+- **Base.** Your worktree's HEAD must equal `bba0e31a` before you start.
   Run `git -C <worktree> rev-parse HEAD`. If HEAD is an ancestor of
-  `0fc1921e`, fast-forward; if it has diverged, stop and report. Never call
+  `bba0e31a`, fast-forward; if it has diverged, stop and report. Never call
   EnterWorktree; operate on the worktree through `git -C <path>` and
   absolute paths, one shell invocation at a time.
 - **The review documents are the specification.** Each member entry below
@@ -45,6 +45,20 @@ never relax them.
   it picks one; where the ruling amends the Resolution, the amendment is
   stated under the quote and wins. Where a quoted Resolution and the lane
   goal come apart, the goal wins, and the discrepancy is reported.
+- **Typed references, never strings (ruling 43).** Wherever this lane
+  touches `meter/registry.rs`, a family roster, `TRIPWIRE_ROSTER`, the
+  surface rosters, or any test that names another test, file, or line:
+  reasons, pins, and enforcement homes are expressed as references the
+  compiler resolves (function items, registered law names, `Shape` and
+  `Op` values), never as strings naming a test function, a file, or a
+  line number. A lane that sees a cleaner idiomatic shape for a roster is
+  authorized to adopt it and reports the reshaping in its diff. Finch's
+  words: "please make these instruments impossible to drift in the
+  future. I *really don't like* the pattern of hard-coded strings and
+  Rust source locations embedded in tests; the way these family rosters
+  ended up is not really to my taste, but I haven't had time to make it
+  more idiomatic and obviously correct. If you see a good way to clean it
+  up, please do."
 - **Stops.** Report and leave the entry open; do not work around: anything
   that moves an `insta` snapshot or a committed pin the brief does not
   name as moving; any change to a public signature or public rustdoc
@@ -106,7 +120,15 @@ never relax them.
 3. The probe re-orientations (ruling 12) after: they move two
    `WORST_RANKINGS` pin rows, and the board run that re-pins them wants
    the judge settled first.
-4. The two band-doc entries in `tests/meter.rs` (envelopes-a-16,
+4. The segments currency's dissolution (ruling 38: board-ops-render-15,
+   inventory-2, module-graph-1, recursion-1, and crate-root-32's board
+   half), after `p1-harness` has landed and the envelope field is gone:
+   one commit removing the currency, the readers, and the column, with
+   the acceptance and pin renders diffed byte-identical on the four
+   remaining columns; the shard `PROTOCOL` bump rides in it.
+5. tests-other-27 and benches-examples-17 (ruling 50), and the two
+   roster entries if approved; independent of the above.
+6. The two band-doc entries in `tests/meter.rs` (envelopes-a-16,
    envelopes-b-4) last, rebased onto `p1-harness` if it has landed.
 
 Every board run for a re-pin is `just amp-board-acceptance` (and the
@@ -226,6 +248,156 @@ Ruled (9): the second option (correct the comment; keep the constants;
 state the exponent each band enforces). Same file-sharing note as
 envelopes-a-16.
 
+### board-ops-render-15 (high, verification-gap): ruling 38
+
+Resolution: Owner ruling. (a) Recommended: dissolve the segments currency from the board: drop `ByCurrency::segments`, every row's `seg_ceiling_only()` declaration, the `seg[...]` column, the legend clause, `SEG_FLOOR_TRIP`, and the judge's segments arm; bump the shard `PROTOCOL`; re-state `LADDER_TOP_SCALE`'s rationale on the onset effects that do occur at ×4 (worst.rs:65-66 names the doubling-chain steps); re-word recurse.rs:17-20 and 74-76 and meter/tests.rs:399-403 so the unit test's claim is about the counter mechanism in the test build, not the board; handle or explicitly defer tests/meter.rs's segments pins in the same change. (b) Minimum: disclose in the legend and in board.rs that the counter has no writer outside the lib's test build, so a reader does not take the column as a measurement. Acceptance for (a): `ByCurrency` has four fields; the example and smoke suite pass with no `segments` text on the board face; the acceptance and pin renders are byte-identical on the four remaining columns. For (b): the legend names the column as an inert pinned zero and cites the lib unit test as the counter's only live witness.
+
+Ruled (38): option (a) in full. The shard `PROTOCOL` bump is part of
+the dissolution the ruling authorizes (the shard format is the board's
+own capture format, not the gossip wire; `tests/gossip_snapshot.rs` and
+the `insta` snapshots do not move, and any movement there stays a stop).
+`LADDER_TOP_SCALE`'s rationale is restated on the onset effects that do
+occur at ×4. The `tests/meter.rs` segments pins are the harness lane's
+and are gone at your rebase point; if they are not, stop and report
+rather than deleting them here.
+
+### inventory-2 (medium, verification-gap): ruling 38
+
+Resolution: retire the segments column: drop the `segments` field and its
+assert from the `Envelope`/`TouchEnvelope` harnesses in `tests/meter.rs`, the
+`stack_segments` read in `board/measure.rs`, the segments currency and its
+ceiling-only declaration in the board, the `meter::stack_segments` and
+`reset_stack_segments` readers, and the `cfg(any(test, feature = "meter"))`
+on the static and its accessors (leaving them `cfg(test)`); keep `grow`,
+`descend!`, and the counter as the test-surface guard for the oracle bridge,
+with `stack_segment_meter_counts_deterministically_and_resets` as that guard's
+own liveness test; re-word recurse.rs:16-20 to state that the guard is
+test-surface machinery and that `deep_tree_stack_safety` is the committed
+no-recursion proof. The alternative, making the column able to fail, requires
+promoting `stacker` to an optional dependency under `meter` and routing a
+committed known-bad recursive library shape through it, which contradicts the
+deliberate dev-dependency placement. Acceptance: no envelope, board cell, or
+doc reports a segments reading; `deep_tree_stack_safety` remains the depth
+proof; the guard's unit test still runs under `cargo nextest run -p before`.
+
+Ruled (38): as stated, less the `tests/meter.rs` clause (the harness
+lane's). `stacker` stays a dev-dependency; the static and its accessors
+go to `cfg(test)`; `stack_segment_meter_counts_deterministically_and_resets`
+stays as the guard's own liveness test; `recurse.rs:16-20` is restated to
+name the guard as test-surface machinery and `deep_tree_stack_safety` as
+the committed no-recursion proof.
+
+### module-graph-1 (medium, verification-gap): ruling 38
+
+Resolution: Two accurate dispositions, one of which the owner picks. (a) Retire the currency where it
+cannot move: drop the `segments` field and column from `tests/meter.rs`'s four envelope kinds,
+remove `Currency::Segments` and its ceiling, floor-trip string, judge arms, and worst-map arm from
+the board, keep `stack_segment_meter_counts_deterministically_and_resets` as the guard's own unit
+test and the tick pin, make `mod recurse` `#[cfg(test)]`, and remove `meter::stack_segments`
+and `meter::reset_stack_segments`. (b) If a production `descend!` user is foreseen, gate `grow`,
+`should_grow`, `descend!`, and the three constants under `any(test, feature = "meter")` so the
+column has a writer in every build that reads it; the column still reads zero on every current
+kernel, and the readers stay. Under either disposition, rewrite `recurse.rs:74-76` and
+`tests/meter.rs:22-26` now so they describe the writer that exists in the build that reads the
+counter. Acceptance: no binary carries a segments ceiling whose counter has no writer in that
+binary; both doc passages name the actual writer.
+Construction: Add to `tests/meter.rs` a helper that recurses through `before::recurse::descend!`
+and a scenario expecting `segments > 0`. The binary fails to compile (`descend!` and `grow` are
+`cfg(test)` and `pub(crate)`); that compile error is the demonstration that no reading in the
+integration binary can be nonzero. Equivalently, every segments cell of `cargo run --release -p
+before --example amp_board --features limb-meter,scan-meter` prints 0 on every ladder.
+
+Ruled (38): disposition (a). `mod recurse` becomes `#[cfg(test)]`;
+`meter::stack_segments` and `meter::reset_stack_segments` are removed
+(instrument surface under ruling 8, so no stable-API stop; `rumors` does
+not call them, and if it does the change lands with the `rumors` update
+in the same commit). `recurse.rs:74-76` is rewritten now; the
+`tests/meter.rs:22-26` passage is the harness lane's.
+
+### recursion-1 (medium, verification-gap): ruling 38
+
+Resolution: Either dissolve the segments currency from the envelope suite and
+the board (`Envelope.segments` and the segments columns of the other envelope
+structs, `MAX_GROWN_STACK_SEGMENTS`, `Currency::Segments` and its NA policy
+declarations, `meter::stack_segments`/`reset_stack_segments`), naming the
+depth-100k/250k tests as the no-recursion detector where the column was cited
+(recurse.rs:16-20, tests/meter.rs:22-26 and 6131-6133, board.rs:47-49), and
+keep `SEGMENTS_GROWN` under `cfg(test)` only if the `meter/tests.rs` dive stays
+as a test of the guard itself (re-word recurse.rs:16-20 to say it measures the
+test-surface guard, not the library kernels); or keep the column and land a
+committed known-bad demonstration that moves it in the meter build, which today
+cannot exist without un-gating `descend!` and restoring `stacker` as a
+dependency. Acceptance: either the segments currency is gone from
+`tests/meter.rs` and the board with the detector named in its place, or a
+committed known-bad demonstration exists in the meter build whose segments
+reading exceeds the ceiling.
+
+Ruled (38): dissolve. One change with the three entries above; the
+public readers under the `meter` feature go with the currency.
+
+### crate-root-32 (medium, verification-gap): ruling 38, this lane's half
+
+Resolution: The owner's call between two sound options. (a) Dissolve, my recommendation: remove the segments currency from the board (`Currency::Segments`, `seg_ceiling_only()` on every cell, `MAX_GROWN_STACK_SEGMENTS`, `SEG_FLOOR_TRIP`, the render column) and `Envelope.segments` with every `segments:` pin in tests/meter.rs, and `meter::{stack_segments, reset_stack_segments}`; confine `SEGMENTS_GROWN` and its readers to `cfg(test)` beside their one live client, the determinism dive; name `clock::tests::deep_tree_stack_safety` (depth 100k) plus the structural fact that `descend!` is `cfg(test)` and `stacker` a dev-dependency as the instruments against reintroduced depth recursion. (b) Keep and make it live: `stacker` becomes an optional dependency enabled by `meter`, `grow`/`descend!` compile under `any(test, feature = "meter")`, and a guarded 200k-deep descent in tests/meter.rs and in the board's self-check reads `stack_segments() > 0` in each enforcing binary before the kernels' zero is asserted. Either way, restate recurse.rs:16-20 and 74-76 as what IS (the guard and its counter exist for the test-only oracle bridge and its witnesses; in non-test meter builds the counter has no writer), fix line 37, and excise tests/meter.rs:441's clause. Acceptance: (a) `grep -rn 'stack_segments\|SEGMENTS_GROWN\|Currency::Segments' crates/before` finds only the `cfg(test)` determinism witness, and `just gate` is green; (b) a test in crates/before/tests/ built with `--features meter` asserts `before::meter::stack_segments() > 0` after a guarded deep descent. In both, no prose calls the segments zero a measured fact.
+Construction: Read-only: in a build of the library with `--features meter,limb-meter,scan-meter` and without `cfg(test)` (what tests/meter.rs and examples/amp_board.rs link), no expression writes `SEGMENTS_GROWN`; the sole `fetch_add` is inside `#[cfg(test)] fn grow`. Runtime: add a temporary scenario to tests/meter.rs whose body recurses 10^6 frames through `stacker::grow` directly; `meter::stack_segments()` still reads 0 and every `segments: 0` envelope passes. Conversely, delete the body of `stack_segment_meter_counts_deterministically_and_resets` and run the meter suite and `just amp-board-acceptance`: every segments ceiling stays green, because nothing in those binaries could have moved the counter before the change either.
+
+Ruled (38): option (a). This lane lands the board currency's removal
+(`Currency::Segments`, `seg_ceiling_only()`, `MAX_GROWN_STACK_SEGMENTS`,
+`SEG_FLOOR_TRIP`, the render column), the readers, the `cfg(test)`
+confinement of `SEGMENTS_GROWN` beside the determinism dive, the
+`recurse.rs:16-20` and `74-76` restatement (what IS: the guard and its
+counter exist for the test-only oracle bridge and its witnesses), and
+line 37. The `tests/meter.rs` clauses are the harness lane's. The
+acceptance grep (`stack_segments`, `SEGMENTS_GROWN`, `Currency::Segments`
+finding only the `cfg(test)` determinism witness) is yours to run after
+the rebase, since both halves are then in your tree.
+
+### tests-other-27 (medium, correctness): ruling 50
+
+Resolution: Join the round-robin groups the doc describes: `(a.version().join(b.version()), c.version().join(d.version()))`, which yields `(0, (0,1,0), (0,1,0))` and `(0, (0,0,1), (0,0,1))`, both present at the root's two children. Add a pool-membership floor to `every_family_answers_the_matrix_coverage_question`: each family's answer interns at least one version not already in the pool, or the collision is declared at the arm. Optionally (owner-gated) expose a smallest-instance door from the board's family module under the `meter` feature so the three organic pairs derive from the same code as `scatter`/`weave`/`benign`. Acceptance: `assert_ne!(weave_pair(), scatter_pair())` holds; the pool grows by two versions against the parent commit; the new floor reads red on HEAD's `weave_pair` and green after the swap.
+Construction: In `every_family_answers_the_matrix_coverage_question` add `assert_ne!(weave_pair(), scatter_pair(), "the weave pair collapses to the scatter pair");` and run `cargo nextest run -p before --all-features --test verdict_matrix`: red at HEAD by the normal-form argument above; green after the join swap.
+
+Ruled (50): fix the pair (join the round-robin groups the doc
+describes) and add the pool-membership floor; the optional
+smallest-instance door is not taken. Negative control: the floor reads
+red on the parent's `weave_pair` (record the run in the commit message)
+and green after the swap; `assert_ne!(weave_pair(), scatter_pair())` is
+committed.
+
+### benches-examples-17 (medium, test-quality): ruling 50
+
+Resolution: decode a twin in a distinct buffer for the equal row (`let twin = Version::decode(&base.encode()[..]).unwrap();` and `("equal", &base, &twin, &obase, &obase)`); restate the doc ("equal streams in distinct buffers: the sweep runs to exhaustion"); optionally keep `&base, &base` as an explicitly named `identical` row if the rung's cost is worth tracking. Acceptance: at every `n`, the `before/equal` median scales with `n` like `before/ordered`; the doc names distinct buffers.
+Construction: `just bench-quick version partial_cmp` at HEAD: `before/equal` reads near-constant (tens of nanoseconds) across n = 8..32768 while `oracle/equal` grows with n; after the twin change, `before/equal` grows with n.
+
+Ruled (50): the distinct-buffer twin for the `equal` row, the doc
+restated, and the same-reference case kept only as an explicitly named
+`identical` row if you judge the rung worth tracking (say which). This is
+a source edit to `benches/version.rs` only: do not run the bench or the
+judge; the acceptance's median-scaling clause is the coordinator's to
+observe on a quiet machine. Your evidence is `cargo bench --no-run` for
+the binary and the diff.
+
+### board-families-floors-judge-19 (low, verification-gap): roster: pending Finch's approval
+
+Resolution: Extend the probe pattern at tests.rs:430-457 with one `Sample` pair per remaining floored currency: `touch: Some(0)` under `touch_pair_fold(v, w)` on a dense pair -> `red == [TOUCH_FLOOR_TRIP]`; `limb: Some(0)` under `limb_stream(mandatory_limbs_stream(&hugeleaf(256)))` -> `[LIMB_FLOOR_TRIP]`; `heap: Some(0)` under `heap_materializes(n)` -> `[HEAP_FLOOR_TRIP]`. Acceptance: each of the four live `*_FLOOR_TRIP` constants is asserted by name in a committed test that feeds a zero reading against a floor the floors.rs constructors derived.
+Construction: Reuse the tests.rs:430-457 `sample` closure with `touch: Some(0)` and `floors: walk_floors(n, touch_pair_fold(&v, &w))` where `v = version_of(&dense(1_000))` and `w` is `v` ticked at the seed; `evaluate` on two such samples must give `red == vec![TOUCH_FLOOR_TRIP]`. Repeat with `limb: Some(0)` and `floors.limb = limb_stream(mandatory_limbs_stream(&hugeleaf(256)))` (4 limbs per tests.rs:55), expecting LIMB_FLOOR_TRIP.
+
+Roster note: three `Sample` pairs beside the existing scan-bypass
+probe, each feeding a zero reading against a derived floor and asserting
+its `*_FLOOR_TRIP` by name; lands with step 2's judge tests if Finch
+approves the roster. Under ruling 43 the trip constants are asserted as
+the values the judge returns, not re-spelled strings.
+
+### board-frame-23 (low, correctness): roster: pending Finch's approval
+
+Resolution: Target the last leaf token whichever it is, `rfind(|c: char| c == '0' || c == '1')`, and re-spell `t` as `(t, t)`; the parser rejects `(0, 0)` and `(1, 1)` identically at the `)`, so the row's `Parse::NotCanonical` assertion holds and only closing parens follow the defect. Re-word the doc ("its last leaf token `t` re-spelled `(t, t)`, the non-normal pair judged at the node's close, the text's last token"). Acceptance: a unit test beside the builder: for the mounted `id-pair` operand, the produced text's `(t, t)` closes at the last non-paren byte and `parse::<Party>()` returns `Parse::NotCanonical`; the row's heap readings on the left-mounted families do not fall.
+Construction: `Party` text `(((((1, 0), 0), 0), 0), 0)` (the `id_spine(4, false)` shape mounted left, 26 bytes) becomes `((((((1, 1), 0), 0), 0), 0), 0)`; `parse_id_tree` returns `NotCanonical` after consuming the 12 bytes `((((((1, 1)`, leaving 19 unparsed. A test asserting `d.len() - d.find("(1, 1)").unwrap() <= 8` fails on the current placer.
+
+Roster note: a defect placer that misses the text's end on every left-
+mounted operand; the fix targets the last leaf token and re-spells it as
+a non-normal pair. The row's heap readings on the left-mounted families
+must not fall (that would be a re-pin, a stop). Lands only if Finch
+approves the roster.
+
 ## Hazards and stops
 
 - Any committed board cell that turns red under the repaired judge, the
@@ -237,6 +409,11 @@ envelopes-a-16.
 - The 480 B `MASKED_CMP_HOLE` pin and every heap pin in `tests/meter.rs`
   are out of scope (ruling 24's reproduction runs in the gate lane).
 - `tests/meter.rs` is the harness lane's file first; your two band-doc
-  edits rebase onto it.
+  edits rebase onto it, and the segments dissolution (step 4) waits for
+  the harness lane's deletion of the envelope field so the readers you
+  remove have no caller left.
+- The shard `PROTOCOL` bump is the one format change this lane makes, and
+  ruling 38 covers it; an `insta` snapshot or a wire-format pin moving is
+  still a stop.
 - No bench judge runs; the wall-time acceptance clauses are the
   coordinator's to observe on a quiet machine after merge.
