@@ -17,7 +17,9 @@ packet Finch has edited, with the hunk header and the annotation it sits
 under, as a numbered list the coordinator hands to the lane agent.
 
 Annotation TSV columns: path, line, entry, ruling, note. The note may carry
-literal `\\n` sequences, unescaped on render.
+literal `\\n` sequences, unescaped on render. A row whose line is 0 annotates
+every hunk of its file (a deleted file, a regenerated lockfile). Hunks of the
+annotation file and the packet itself are never flagged.
 """
 
 import argparse
@@ -31,6 +33,7 @@ REPLY = ">> finch:"
 COMMENT_START = "<!-- annotation -->"
 
 HUNK_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
+SELF_DESCRIBING = re.compile(r"/triage/(annotations|reviews)/")
 
 
 def run(args, cwd):
@@ -74,10 +77,9 @@ def parse_diff(text):
             if hunk:
                 yield hunk
                 hunk = None
-            path = None
-        elif line.startswith("+++ "):
-            path = line[4:]
-            path = path[2:] if path.startswith("b/") else path
+            # The `+++` line reads `/dev/null` for a deletion, so the path
+            # comes from the header: `diff --git a/<path> b/<path>`.
+            path = line.split(" b/", 1)[1] if " b/" in line else None
         elif line.startswith("@@"):
             if hunk:
                 yield hunk
@@ -105,10 +107,17 @@ def packet(args):
     unannotated = 0
     for i, h in enumerate(hunks, 1):
         lo, hi = h["new_start"], h["new_start"] + h["new_len"] - 1
-        mine = [r for r in by_path.get(h["path"], []) if lo <= r["line"] <= hi]
+        # A row at line 0 annotates the whole file (every hunk of it): a
+        # deleted file, or a regenerated one such as a lockfile.
+        mine = [r for r in by_path.get(h["path"], []) if r["line"] == 0 or lo <= r["line"] <= hi]
         anchor = f"hunk-{i}"
         block = [f'<a id="{anchor}"></a>', f"### {h['path']} `{h['header']}`", "", "```diff", h["header"], *h["lines"], "```", ""]
-        if not mine:
+        if not mine and SELF_DESCRIBING.search(h["path"]):
+            # The annotation file and the packet describe the change; they
+            # carry no rows of their own.
+            block.append("*(review record; no annotation expected)*")
+            block.append("")
+        elif not mine:
             block.append("**(no annotation)**")
             block.append("")
             unannotated += 1

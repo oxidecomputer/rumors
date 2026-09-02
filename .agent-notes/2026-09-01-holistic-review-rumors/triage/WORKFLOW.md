@@ -51,7 +51,9 @@ committed with the lane, with one row per changed region:
     path <TAB> line <TAB> entry id <TAB> ruling <TAB> note
 
 `line` is a line number in the final tree of the lane (the new side of
-the diff); a deletion is annotated at the line that follows it. The note
+the diff); a deletion is annotated at the line that follows it, and a
+row at line 0 annotates every hunk of its file (a deleted file, a
+regenerated lockfile). The note
 is the agent's own reason for the change at that site, written when it
 makes the change: what the entry claimed, what it did about it, and
 anything it would tell a reviewer standing at that line (a judgment call,
