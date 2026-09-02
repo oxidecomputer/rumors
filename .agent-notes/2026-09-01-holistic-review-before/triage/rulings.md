@@ -687,3 +687,11 @@ Decision. A directed `min_ticks` witness lands beside the query differentials an
 Disposes: the roster question for every lane brief under `triage/briefs/`: the P1 to P5 and P7 lanes' pending rows, and the sixteen P6 lanes' pending rows (board split six ways per ruling 6; core; skyline; suanpan; codec; tools; fuelscape; harness; fuzz; benches; surface).
 
 Decision. The lows and nits placed in each lane brief as "roster: pending Finch's approval" are approved as rosters. Each lands per its entry's Resolution and Acceptance inside its lane, swept with the lane's ruled members, and is reviewed as a diff; a lane agent that finds a row's Resolution in conflict with a ruling, or that would move a snapshot, change an unnamed public signature, or alter a rendered before panel, stops and reports (rulings 6 and 89's stops). The surface lane re-reads its rows under ruling 98 and reports which survive. The ledger's open rows move to `fix` as their lanes land them, cited to this ruling.
+
+## Ruling 105 (2026-09-02): the statement of intent for prose
+
+Disposes: no finding; a standing direction for every lane.
+
+Finch's words: "I would *really* like to bump up the quality of the prose throughout the library, in terms of concision, legibility, and altitude-correctness."
+
+Decision. `triage/briefs/PROSE.md` is the statement of intent for prose in `before`, adopted as written after the workshop: three tests every touched paragraph passes (altitude, concision, legibility), the reviewer's checks (standalone first sentences, no implementation concept in public prose, no sentence falsifiable by an untouched-prose code change unless mechanically held, every hard claim beside its argument or instrument, and the diff net shorter in prose unless the lane report justifies the additions), and its limits (lanes touch the prose in files they already edit and hand the rest back as findings; one dedicated fresh-eyes prose pass per crate follows the code lanes; Finch's own paragraphs he has said he will rewrite stay untouched; a two-way sentence takes the shorter reading, noted in the report). Every brief's ground rules point at it. The writing-style guide stays the doctrine of record beneath it.
