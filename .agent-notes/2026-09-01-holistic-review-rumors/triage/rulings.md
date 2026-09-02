@@ -739,3 +739,8 @@ Home: lane `p1-renderer`.
 Disposes: the prose standard for every lane and every fresh-eyes review
 Decision: `briefs/PROSE.md` (adapted from the `before` triage's statement of intent) is part of every lane brief and every reviewer brief from this ruling on. A lane applies its three tests (altitude, concision, legibility) to every paragraph it touches in the files it already edits, and hands prose findings elsewhere back as findings; a reviewer applies its checks; a diff that grows prose says in its annotations what the added sentences buy. Lanes already in flight receive it as a mid-flight instruction for the prose they have not yet committed and for their final prose pass.
 Home: `triage/briefs/PROSE.md`, `triage/WORKFLOW.md`.
+
+## T142 (2026-09-02): The conformance lane is merged; slot padding priced by alignment
+Disposes: the p1-conformance packet's stop 2 (`conformance-40`)
+Decision: Merged at Finch's word after his read of the packet. The honest `Materializing` suite passes unchanged with the type's slot padding priced by a sixteen-byte alignment on `MaterializedNode` and a knob for the derived excess, rather than a fourth backend type whose census would cost a further run; accepted as the reading of "pass unchanged".
+Home: `main` at the merge of `triage/p1-conformance`.
