@@ -264,12 +264,12 @@ found by `grep -rn 'mutants\|mutantcheck' --exclude-dir=.agent-notes
 `.agent-notes/` and git history; `just gate` and `just ci` list no
 mutants leg; `tools/workflowlint` is deleted by this lane (ruling 106).
 
-Your base carries the rumors gate lane's commit `c35943ca`, which pins
-`cargo-mutants@27.1.0` in the CI install step and rewrites that step's
-comment to call the roster's counts a committed expectation (ruling 107
-lets that commit stand as written). Delete the pin and restate the
-comment here, with the rest of the retirement; do not amend or reorder
-the rumors lane's commits.
+The rumors gate lane, on whose branch you are stacked, has agreed to
+drop the cargo-mutants install and pin from `ci.yml` itself (ruling
+107's outcome), so expect to find none there; verify with a grep and
+report if one remains. Do not amend or reorder the rumors lane's
+commits. The root `AGENTS.md` paragraph on mutant exclusions is yours to
+restate, as the entry says.
 
 The mutants roster is also where suanpan-40's two exclusions live; their
 code-side dissolution is `p1-survivors`' work and needs nothing from you
