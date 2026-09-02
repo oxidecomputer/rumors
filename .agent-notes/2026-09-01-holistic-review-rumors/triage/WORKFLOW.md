@@ -257,11 +257,24 @@ where a lane builds, tests, and gates. The wrapper syncs the Mac
 worktree to `~/src/<worktree basename>` on the box and runs one command
 there with its own target directory, so lanes do not collide; cargo
 runs `--locked` there; nothing is edited or committed on the box. A
-clean `just gate` on the box is the gate of record for a commit; the
-Mac runs no gate (Finch's ruling). Two legs that pin toolchain-derived
-numbers may fire on the box if its toolchains differ from the pinned
-ones; a lane reports such a leg with both numbers rather than re-pinning
-anything. Benchmarks whose committed baselines are the Mac's run on the
+clean gate on the box is the gate of record for a commit; the Mac runs
+no gate (Finch's ruling). The box gate is run as
+
+    on-illumos.sh <worktree> 'RUSTFLAGS="-A clippy::missing_const_for_thread_local" just gate'
+
+and `just fuzz-build` runs on the Mac once per commit series. The two
+departures from a bare `just gate`: clippy's
+`missing_const_for_thread_local` misfires on illumos, where
+`thread_local!` expands through the OS-keyed path, at two `before` sites
+whose initializers already are `const` blocks (the allow is
+environment-only until a tree-side allow lands in `before`); and
+libFuzzer has no illumos port (`FuzzerPlatform.h` refuses the target),
+so the fuzz leg is box-untestable and builds on the Mac. Two legs that
+pin toolchain-derived numbers may fire on the box if its toolchains
+differ from the pinned ones; a lane reports such a leg with both numbers
+rather than re-pinning anything. memwatch's `ps -axo` is invalid on
+illumos and prints usage errors into every wrapped leg there; noise,
+gone with the memwatch lane. Benchmarks whose committed baselines are the Mac's run on the
 Mac, once, on a quiet machine. Clock guard, checked before every box
 run: rsync preserves mtimes and cargo's rebuild detection is
 mtime-based, so a box clock ahead of the Mac by more than a couple of
