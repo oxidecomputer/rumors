@@ -105,18 +105,8 @@ in the same turn.
   `git -C /Users/oxide/src/rumors worktree add ../rumors-<lane> -b
   <lane-branch> <base>`. Stacked lanes branch from the parent lane's
   branch, not from `main` (see "Stacks").
-- Set the lane's commit identity in the worktree's own config, never
-  the shared one: the repository has `extensions.worktreeConfig`
-  enabled, so run `git -C <worktree> config --worktree user.name "Claude
-  (lane <lane>)"`, likewise `--worktree user.email
-  "claude+<lane>@rumors.local"` and `--worktree commit.gpgsign false`,
-  and confirm with `git config --show-origin user.name` that the value
-  comes from `.git/worktrees/<name>/config.worktree`. Without
-  `--worktree`, `git -C <worktree> config` writes the shared
-  `.git/config` and every checkout of the repository, `main` included,
-  commits under the lane's name. Lane commits are authored by Claude and
-  unsigned; they are signed by Finch as committer when they are rebased
-  onto `main`.
+- Lane commits use the repository's default identity and signing, like
+  every other commit; nothing is configured per worktree or per lane.
 - Launch the lane agent with the brief's path, the worktree path, its
   scratchpad subdirectory, and the annotation requirement above. The
   brief carries every other ground rule; do not restate them, and do not
@@ -182,11 +172,12 @@ not converged by then is a finding about the lane, reported to Finch.
   annotation rows. The coordinator re-verifies acceptance for anything a
   repair touched, rebuilds the packet, and shows Finch `git range-diff
   <base> <old-head> <new-head>` so the round's change is exact.
-- Merge is Finch's: a rebase of the lane onto `main` with his signature
-  (`git rebase --exec 'git commit --amend --no-edit -S' <base>` on the
-  lane branch, then a fast-forward of `main`), so the per-entry commits
-  survive with Claude as author and Finch as signed committer. Never a
-  squash.
+- Merge happens at Finch's explicit word, per lane, after he has read
+  the packet; the coordinator runs it: a rebase of the lane branch onto
+  `main`, then a fast-forward of `main`, so the per-entry commits
+  survive. Never a squash. A lane commit that lacks a signature or
+  carries a stray identity is amended in the same rebase
+  (`--exec 'git commit --amend --no-edit --reset-author -S'`).
 - After the merge: the coordinator writes each entry's `sha` into the
   ledger (the sha on `main`), runs `ledger.py check`, commits the ledger,
   rebases every child of the merged branch (see "Stacks"), and retires
@@ -227,7 +218,8 @@ on it unless the brief says so.
 
 - Nothing is pushed to any remote by Claude under this procedure; the
   review record is the packet and the branch, on this machine.
-- No lane is merged by Claude; no lane commit is signed by Claude.
+- No lane is merged without Finch's explicit, per-lane word after he
+  has read its packet.
 - No snapshot is re-accepted by Claude; a moved snapshot is a stop.
 - No `defer` is written without a ruling naming its home (T4).
 - No ledger `sha` is written from a report; only from a commit on `main`
