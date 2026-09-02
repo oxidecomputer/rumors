@@ -195,3 +195,149 @@ Decision. The generator splits semantically into a lattice/metric group and a sp
 Disposes: README owner-decision item 76; fuzzfit-strategies-13.
 
 Decision. The P1 gate lane runs `just fuzzfit` once. The two same-type casts at `fuzzfit/harness/src/ops.rs:764` and `:858` are removed. If the run fails on them, the stream had not been running and that is a process finding the lane reports.
+
+## Ruling 29 (2026-09-02): `Ranked::cmp`'s contract is the multiplication-bound class
+
+Disposes: README owner-decision item 23; rank-33.
+
+Decision. The public `# Complexity` of `Ranked::cmp` states the pair measures' class, `O(M(|self| + |other|) · log(|self| + |other|))` time and `O(|self| + |other|)` space, mirroring `version_distance`; a sign-only fold cannot be linear on exact ties. `fuelscape/ranked_cmp.json` is regenerated through the compactor, the plateau_puncture and wide_arming pair families join the `ranked_cmp` OpSpec so the fit confronts the superlinear shapes, and the type doc's "cheaper than two folds and a compare" is restated as the constant-factor fact it is. A domination-certificate early exit for the non-tie case stays optional; the worst case is M-bound either way. The two-scale row lands red first (ruling 1).
+
+## Ruling 30 (2026-09-02): the masked skip's peek is guarded, and stack-word reads are charged to the scan currency
+
+Disposes: README owner-decision item 24; skyline-sweep-place-masked-5, codec-bits-29.
+
+Decision. Each `peek_flip` in `block_skip` is guarded by `depth() > bound` (and its twin on the other cursor); the projection loop gets the same check; the amortization premise the caller must keep is stated at `peek_flip`'s doc. The scan currency charges 64 scan bits per word read inside `trailing_ones`, so the board sees stack-word reads; that charge and the dual masked family land red before the guard.
+
+## Ruling 31 (2026-09-02): the multi-hole refinement fuses, the contract is restated, and the `k` axis is pinned
+
+Disposes: README owner-decision item 25; span-causally-36, span-causally-24, span-causally-25, span-causally-28, skyline-sweep-place-masked-21.
+
+Decision. `refine_partial` becomes one fused membership walk over the polarity's deciding clamp end. The published "linear time" is restated as linear in bits decoded, with per-interval work proportional to live holes. A deterministic scan-meter row in the placement module measures (k, |hi|), (2k, |hi|), and (k, 2|hi|) and asserts the marginal cost of doubling |hi| is independent of k; it lands red first. The `causally` module summary is rewritten as three clauses.
+
+## Ruling 32 (2026-09-02): `sum_ranks` gets its ascending-order row, then the headroom cure
+
+Disposes: README owner-decision item 27; rank-20.
+
+Decision. The ascending-order touch row lands red, then the geometric-headroom cure; both `impl Sum` blocks carry `# Complexity`, and the pins' "adversarial order" prose is corrected.
+
+## Ruling 33 (2026-09-02): the `u32` caps widen; every structure is bounded by memory alone
+
+Disposes: README owner-decision item 28; inventory-1, party-23, skyline-fill-grow-23, skyline-query-24, recursion-5.
+
+Decision. The fill walk's frame-ledger link index and `EpochLedger`'s freeze count widen to `usize`; the fold index keeps its order at every size (`Rights` as a narrow-or-wide table chosen by `bits.len()`, or `Vec<u64>` unconditionally if the board's `party_join_all` heap reading tolerates it, measured at the parent first), dissolving the unindexed fallback arm, `build_unindexed`, and the fallback differentials (or converting them to a forced-wide-table differential). `lib.rs`'s "for all input sizes" is the contract; no `# Panics` clause states a cap.
+
+## Ruling 34 (2026-09-02): the tuple-literal constructors emit in one pass
+
+Disposes: README owner-decision item 29; party-11, codec-base-text-tree-13, clock-14, skyline-coding-20, version-core-16.
+
+Decision. The sealed, doc-hidden `PartyLiteral::into_id_bits` is reshaped to thread one `IdBuilder` through the literal (reserve, patch, close per level), making the door truly `O(n)`; the per-level `validate_id` is deleted; the version composer takes the same shape. The sealed trait's signature change is not a stable-API break.
+
+## Ruling 35 (2026-09-02): `forks` yields exactly `k` children at every `k`, `u64::MAX` included
+
+Disposes: README owner-decision item 30; clock-3, tests-other-17, party-14, api-audit-10.
+
+Decision. The behavior changes rather than the doc: `Clock::forks` and `Party::forks` yield exactly `k` children for every `k`, including `k == u64::MAX`, where today the residual consumes the count's headroom and `u64::MAX - 1` are yielded. The public docs keep "exactly `k`" unqualified, the parameter is named `k`, and the "keeps the last share" sentence is reworded to name the residual's true position. `tests/forks_max.rs` pins the new boundary. This is an owner-directed behavior change on the stable surface; its commit names it as such.
+
+## Ruling 36 (2026-09-02): the render merge is cured and its declared model retires
+
+Disposes: README owner-decision item 32; skyline-coding-29. Reopens and retires the ratified render-merge model.
+
+Decision. `span` and `drop` are carried up the spine instead of re-summed at each level (an `Accumulator` per flowing summary keeps the fold amortized O(1) across carry cliffs; only a printed base pays a magnitude read), measured at the parent on the `SKYLINE_RENDER_*` rows and the mirror-wide cells. With the cure landed, the declared model and its liveness pin retire together as `ceilings.rs` prescribes, and the class prose in `ops.rs` and the island states the derived bound.
+
+## Ruling 37 (2026-09-02): the shape walks get their instruments; ungrounded allocation sentences are elided
+
+Disposes: README owner-decision item 34; party-9, party-12, crate-root-37, clock-9, recursion-6, meter-adequacy-1. Ruling 44 governs the prose half.
+
+Decision. The four public shape walks get board rows as their enforcing home, and a closed-form depth pin with a 3:1 known-bad committed; `forks`' minimal-depth balance is pinned. `Party::shape`'s "nothing allocates" sentence is elided under ruling 44, not restated.
+
+## Ruling 38 (2026-09-02): the stack-segments currency dissolves
+
+Disposes: README owner-decision item 42; crate-root-32, envelopes-a-2, board-ops-render-15, module-graph-1, recursion-1, inventory-2. Supersedes the 2026-07-24 defended keep of the segment meter, on the premise change that no binary judging the column can write it.
+
+Decision. The segments currency is removed from the board (`Currency::Segments`, the per-cell ceiling, `MAX_GROWN_STACK_SEGMENTS`, `SEG_FLOOR_TRIP`, the render column), from every envelope type and every `segments:` pin in `tests/meter.rs`, and from `meter::{stack_segments, reset_stack_segments}`. `SEGMENTS_GROWN` and its readers are confined to `cfg(test)` beside their one live client, the determinism dive. The committed no-recursion proof of record is `clock::tests::deep_tree_stack_safety`, named where the column's prose stood. The harness unification (ruling 4) performs the envelope half in the same series.
+
+## Ruling 39 (2026-09-02): suanpan computes digit positions in `u64` and converts once
+
+Disposes: suanpan-24.
+
+Decision. Every landing position is computed in `u64` and converted with one `usize::try_from` per `add_at`, wired to the documented panic; `# Panics` is restated in terms of the landing position. A red-first pin on a 32-bit target rides the `wasm32-pins` guest (which gains a suanpan export) under the CI leg ruling 16 adds.
+
+## Ruling 40 (2026-09-02): the family surface binds to the census both ways
+
+Disposes: surface-roster-7.
+
+Decision. Each `FAMILY_SURFACE` row carries a machine-checkable membership (census-row prefixes or exact rows), and surfacecheck reconciles the two layers in both directions, the three non-impl rows excepted by name. The missing rows (`Default` on `Version`, `Rank`, `Ticks`; the `Cow<Version>` conversions; `error::Overlap` and `TooWide`) are added, and the three prose sites that describe a gate which never fires are restated.
+
+## Ruling 41 (2026-09-02): the wide-gamma guard uses the existing reject with the exact platform threshold
+
+Disposes: codec-bits-23.
+
+Finch's words: "Don't we already have a mechanism in place for falling back when dashu cannot represent our data? We should ensure we use it."
+
+Decision. The mechanism is the decoders' typed `Decode::NotCanonical` reject for a width the backend cannot hold; it stays. Its threshold is derived from `usize::BITS` so it rejects exactly the widths dashu cannot represent on the running platform (`k / W >= usize::MAX / W`), in both the per-bit and word-parallel readers through one shared predicate, with the derivation and the dependence on dashu's word width stated inline. Pinned red-first in the wasm32 guest with a bit cursor that yields the prefix without materializing it.
+
+## Ruling 42 (2026-09-02): the combine arity cap is exported by the guest
+
+Disposes: fuelscape-pipeline-28.
+
+Decision. The guest exports its arity cap and the host constant derives from that export; the doc sentence that claimed a nonexistent smoke pin goes. No second hand-maintained constant remains to drift.
+
+## Ruling 43 (2026-09-02): registry reasons become accurate, and the rosters are made drift-proof and idiomatic
+
+Disposes: meter-registry-tier2-10. Standing direction for every lane that touches `meter/registry.rs`, the family rosters, and the tests they name.
+
+Finch's words: "please make these instruments impossible to drift in the future. I *really don't like* the pattern of hard-coded strings and Rust source locations embedded in tests; the way these family rosters ended up is not really to my taste, but I haven't had time to make it more idiomatic and obviously correct. If you see a good way to clean it up, please do."
+
+Decision. Each family's reason is corrected toward the code (nested-full, mirror-narrow, staircase priced by their board columns; cliff-fan and cancelling-chain naming the accumulator-stream pins they actually have; wide-tooth and jump-comb routed through public `Version::rank`). Beyond the correction: reasons, pins, and enforcement homes are to be expressed as typed references the compiler resolves (function items, registered law names, `Shape` and `Op` values), never as strings naming test functions, files, or line numbers; a lane that finds a cleaner idiomatic shape for the family rosters is authorized to adopt it, reporting the reshaping in its diff. The verification patterns "Rosters that attest a name, not a run" and "Hand rosters checked only against each other" are read under this direction.
+
+## Ruling 44 (2026-09-02): allocation and size claims not grounded in a measurement are elided, not restated
+
+Disposes: party-1, party-22; governs the prose half of ruling 37 (party-9) and any sibling sentence a lane meets.
+
+Finch's words: "Get rid of all the claims about allocation that aren't grounded in reality; don't restate them, just elide them."
+
+Decision. A rustdoc or comment sentence asserting "no allocation", "nothing allocates", or a size comparison the code does not honor is deleted, leaving the complexity clause the code does honor. `Party::covers` and `Party::is_disjoint` keep `O(|self| + |other|)` and lose the allocation sentence; `IdIndex`'s doc loses the "strictly smaller than the operand" sentence; `Party::shape` loses "nothing allocates". No replacement bound is written unless a committed instrument pins it.
+
+## Ruling 45 (2026-09-02): the envelope suite's docs speak of the present implementation
+
+Disposes: prose-hygiene-1.
+
+Decision. `tests/meter.rs`'s module doc states what the suite pins; the cmp, decode, and tick scenario docs are restated from their own table comments; every recursion or quadratic description and the word "today" go.
+
+## Ruling 46 (2026-09-02): `Rank`'s size claim becomes a derived exact bound, pinned by proptest
+
+Disposes: rank-4.
+
+Finch's words: "Derive and pin (using a proptest) an exact upper bound."
+
+Decision. The unqualified "never larger" sentence is replaced by a derived exact upper bound on the rank encoding's size in terms of the version's packed size (per-level bit accounting: topology and payload bits against fraction bits; a b-bit counter's gamma cost against its packed cost), with the small-scale behavior stated, and a proptest over generated versions asserts the bound. The small-scale witness (`"(0, 1, 0)"` encodes to two bytes; its rank to two) is committed beside it.
+
+## Ruling 47 (2026-09-02): the surface extractor is replaced by a real parser
+
+Disposes: surface-roster-28, suanpan-35.
+
+Decision. `surface-scan`'s line-scanning extractor is replaced by `syn`-based parsing that enumerates public functions structurally, so no indent, qualifier (`const`, `async`, `unsafe`), or nesting shape can drop silently. The fixtures the entry names become tests of the parser. surface-roster-9's proposal to retire before's line scan is read against this replacement when its P5 ruling comes.
+
+## Ruling 48 (2026-09-02): the board's `mechanism()` column dissolves
+
+Disposes: board-ops-render-12.
+
+Decision. The clause citing the excised red-triage buffer is deleted; `mechanism()` and the `mech[...]` render column go, the `<- {reasons}` list being the record of every red leg.
+
+## Ruling 49 (2026-09-02): auto-trait impls are pinned in the census; the hand list dissolves
+
+Disposes: surface-roster-23.
+
+Decision. Synthetic `Send`, `Sync`, and `Unpin` impls stop being excluded from the surface census and are pinned for every reachable type; `auto_traits.rs` dissolves. A public type losing `Send` fails `just surface-totality`.
+
+## Ruling 50 (2026-09-02): fifteen pattern-placed P1 mediums land per their stated resolution, with three choices fixed
+
+Disposes: benches-examples-17, envelopes-a-6, envelopes-b-18, fuzz-guests-pins-26, fuzzfit-bands-17, gate-legs-4, gate-legs-8, meter-core-8, skyline-sweep-place-masked-20, skyline-sweep-place-masked-32, suanpan-tests-25, testing-oracles-22, tests-other-26, tests-other-27, fuelscape-pipeline-23.
+
+Decision. Each lands per its entry's Resolution and Acceptance, walked through individually. Where an entry offered a choice: gate-legs-4 defines `ci` from `gate-lints` plus the build legs so the rosters cannot diverge; meter-core-8 adds the promotion tap and pin, raises both guards to the threshold derived from the freeze allowance, and re-parameterizes the hoisted-window band at a promoting width with its re-pin measured at the parent; envelopes-a-6's scan floors land on every nonzero row inside the harness unification; tests-other-27 lands without the optional smallest-instance door; fuelscape-pipeline-23 uses perturbed twins with the distinctness test; suanpan-tests-25 pins exact totals re-measured once at the parent.
+
+## Ruling 51 (2026-09-02): the envelope suite refuses to build without its meter features
+
+Disposes: meter-adequacy-11.
+
+Decision. `tests/meter.rs` carries a `compile_error!` when the limb and scan meter features are off; `just test` passes the features for the package.
