@@ -264,12 +264,16 @@ found by `grep -rn 'mutants\|mutantcheck' --exclude-dir=.agent-notes
 `.agent-notes/` and git history; `just gate` and `just ci` list no
 mutants leg; `tools/workflowlint` is deleted by this lane (ruling 106).
 
-The rumors gate lane, on whose branch you are stacked, has agreed to
-drop the cargo-mutants install and pin from `ci.yml` itself (ruling
-107's outcome), so expect to find none there; verify with a grep and
-report if one remains. Do not amend or reorder the rumors lane's
-commits. The root `AGENTS.md` paragraph on mutant exclusions is yours to
-restate, as the entry says.
+Your base carries the rumors gate lane's commit that pins cargo-mutants
+in the CI install step at the version `tools/mutantcheck-expected.json`
+names and rewrites that step's comment to call the roster's counts a
+committed expectation. It stays there deliberately (ruling 107's
+outcome): the `ci` roster names `mutants-list` until this lane removes
+it, and a workflow whose roster names a tool it does not install is red
+at every commit in between. Delete the install, the leg, and the roster
+line in one commit, and restate the comment. Do not amend or reorder the
+rumors lane's commits. The root `AGENTS.md` paragraph on mutant
+exclusions is yours to restate, as the entry says.
 
 The mutants roster is also where suanpan-40's two exclusions live; their
 code-side dissolution is `p1-survivors`' work and needs nothing from you
@@ -298,13 +302,18 @@ nightly_toolchain`, `just` installed before the toolchain steps (the
 install action ships it as a prebuilt binary; no toolchain is needed to
 run it). Your base carries, in each of the three jobs, a "Read the
 toolchain pins" step that derives both pins with `sed` over
-`rust-toolchain.toml` and the justfile; the coordinator's launch message
-says whether the rumors lane has already replaced that step with the
-`just --evaluate` derivation (then verify it and record the entry as
-landed there) or whether this lane replaces it (then the nightly derives
-from `just --evaluate` and the stable pin may keep its
-`rust-toolchain.toml` read, since the dtolnay action reads no toolchain
-file). `tools/workflowlint` is deleted entirely under ruling 106, so no
+`rust-toolchain.toml` and the justfile; the rumors lane replaces
+that step itself before you launch (ruling 107's outcome): the stable
+pin is read from `rust-toolchain.toml` with `sed` and installed first,
+because the justfile's `host_triple` backtick assignment runs `rustc`
+and so `just --evaluate` needs a toolchain to exist; `just` is installed
+next; the nightly then derives from `just --evaluate nightly_toolchain`.
+Verify that shape at your base (no `toolchain: nightly` or `toolchain:
+stable` literal, no dated nightly string written by hand, the nightly
+consumed from the `just --evaluate` output in all three jobs) and record
+deps-6 and surface-roster-1 as landed by that lane's commit, with its
+SHA, in your report; edit those steps only if the verification fails,
+and then report the failure first. `tools/workflowlint` is deleted entirely under ruling 106, so no
 workflowlint extension is
 taken: a `toolchain:` input in the workflow must be the derived
 `nightly_toolchain` output or absent (rust-toolchain.toml provisions
