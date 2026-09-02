@@ -253,3 +253,73 @@ Home: code.
 Disposes: link-29 (fix)
 Decision: `next_id` advances with `wrapping_add(1)`, with a one-line comment that at most `pending_headers` ids are live at once, so distinctness among live entries is all the counter owes.
 Home: code.
+
+## T46 (2026-09-02): Pub-in-private is the recorded convention under private modules
+Disposes: owner decision 1; inventory-10, module-graph-12, tree-typed-1, streaming-backend-window-2, materialized-6, mirror-common-20, session-bookmark-44, api-audit-14, remote-codec-21, inventory-14, inventory-19, session-bookmark-17, link-22, tree-core-25 (model, except where an entry's remainder is a doc-voice fix)
+Decision: No `unreachable_pub` lint. Under a private module, `pub` and `pub(crate)` are both admitted and carry no API meaning; the convention is stated in one AGENTS.md line, and the comment at `typed.rs:19-22` is reconciled with it. The remaining halves of these entries (rustdoc on unreachable items written in library-user voice, such as `Message`) are re-voiced for the maintainer in the module lanes.
+Home: AGENTS.md (one line); `src/tree/typed.rs`'s module comment.
+
+## T47 (2026-09-02): A `[lints]` table with seven lints
+Disposes: owner decision 2; clippy-pedantic open question; api-audit-12, api-audit-7, api-core-34, tree-core-5, link-5 (the mechanical halves)
+Decision: `Cargo.toml` gains a `[lints]` table enabling `clippy::elidable_lifetime_names`, `clippy::redundant_closure_for_method_calls`, `clippy::manual_let_else`, `clippy::match_wildcard_for_single_variants`, `missing_debug_implementations`, `unnameable_types`, and `missing_docs`, each landed at `warn`, swept to zero, then promoted so it rides `-D warnings`. `unnameable_types` and `missing_docs` enumerate P6's mechanical half; their sweeps land with the API pass where the fix is an API decision (decision 15) and in P3 where it is not.
+Home: `Cargo.toml` `[lints]`.
+
+## T48 (2026-09-02): Em-dashes leave non-doc comments; a gate check holds it
+Disposes: owner decision 3; prose-hygiene-9, prose-hygiene-8, and the eighteen per-partition nit rows of the em-dash class (fix)
+Decision: One mechanical sweep rewrites every em-dash in `//` and `#` comments and in assert strings, using the greps prose-hygiene-9 records; a `tools/` check on U+2014 in non-doc comment lines and string literals of `.rs`, justfile, `.toml`, and `.yml` files joins `just gate` in the same series, at zero. Rustdoc em-dashes are decision 13's question and untouched here.
+Home: code (`tools/`, wired into the gate).
+
+## T49 (2026-09-02): "seam" and "knob" are swept out entirely
+Disposes: owner decision 4; prose-hygiene-10, prose-hygiene-11 (the knob half), mirror-common-34, conformance-22, session-bookmark-5, fresh-eyes-11, link-13, streaming-backend-window-3, tree-core-12, tests-bookmark-22, tests-resource-link-window-6, testing-infra-6 (the seam and knob halves) (fix)
+Decision: Neither word survives anywhere in the tree, the height-erasure site included: every use is rewritten as the mechanism it names ("boundary", "setting", or the specific thing). The sweep runs prose-hygiene-10's regenerating greps to zero in its commit; no standing check.
+Home: code.
+
+## T50 (2026-09-02): "honest" means the trust premise and nothing else
+Disposes: owner decision 5; conformance-32, remote-proxy-tests-14, tests-common-23, session-bookmark-16, tests-resource-link-window-6, testing-infra-6, tests-observation-19, mirror-common-36, tests-wire-format-15, remote-codec-2, swarm-example-4 (moot), benches-envelope-26 (moot), and the "honest" halves of tree-core-12, streaming-backend-window-3, remote-proxy-22, remote-adapter-streams-11 (fix)
+Decision: One prose commit reserves "honest" for the authenticated-honest-peer trust premise. Every other use becomes the accuracy term it means (accurate, complete, delivered, well-formed, self-consistent), and the fixtures are renamed: `HONEST_LEN`, `Dishonest`, `Knob.honest`, `is_honest_error`, `GreetingLie`, and their kin. "lie", "lied", "deceived", and "malicious" become "misdeclared" or the mechanism they name. The regenerating grep runs to zero in the commit.
+Home: code.
+
+## T51 (2026-09-02): Public rustdoc opens in the imperative
+Disposes: owner decision 6; api-core-17 (fix-amended)
+Decision: The first sentence of every public type's and module's rustdoc is imperative, matching `Peer`, `Rumors`, `Bootstrap`, and the observers; `Batch`, `Snapshot`, `Network`, and every other third-person opener are rewritten, and the three sentences that appear in both moods are unified. `tools/doclint` gains the mood check if it can be expressed cheaply; otherwise the sweep is one-time.
+Home: code.
+
+## T52 (2026-09-02): `group_imports` on the pinned nightly
+Disposes: owner decision 7; tests-wire-format-10 and the import-hygiene pattern's 22 sites, api-core-31, materialized-9, mirror-common-7, mirror-common-18, remote-adapter-streams-18, remote-capture-atlas-26, remote-codec-13, session-bookmark-41, testing-infra-3, tests-common-26, tests-wire-format-24, tree-core-19, tree-typed-4, tree-typed-15, clippy-pedantic-5, clippy-pedantic-15, inventory-15, module-graph-10, remote-adapter-tests-5, remote-proxy-tests-3, remote-proxy-11, session-bookmark-2, tests-common-1, tests-lifecycle-12, tests-observation-21, tests-resource-link-window-17, tests-disruption-handshake-29, streaming-tests-21, remote-capture-atlas-30, swarm-example-25 (moot) (fix)
+Decision: `rustfmt.toml` gains `group_imports = "StdExternalCrate"`, and `fmt`/`fmt-check` run on the pinned nightly toolchain the gate already names. The first run is the sweep; the qualified-path stragglers are merged into their imports by hand in the same commit.
+Home: `rustfmt.toml`; the justfile.
+
+## T53 (2026-09-02): Test modules live in sibling files, without exception, and a check holds it
+Disposes: owner decision 8; module-graph-6 (with mirror-common-22, suite-economics-11 as cross-references), streaming-backend-window-14, testing-infra-5, tree-core-25 (the test-block half); documentation open question 22 (declined) (fix)
+Decision: All six inline `#[cfg(test)] mod tests {}` blocks move to sibling `tests.rs` files, scaffolding files included; a `tools/` check that no `.rs` file contains an inline `cfg(test)` module body joins `just gate`. The five inline production modules named in module-graph-14 are a separate P5 question and untouched here.
+Home: code (`tools/`, wired into the gate).
+
+## T54 (2026-09-02): One module-wide `type_complexity` allow; the item-level copies go
+Disposes: owner decision 9; inventory-3, materialized-8 (the allow half), mirror-common-29 (fix)
+Decision: The module-wide allow at the streaming module root stays, with its reason stated once (the phase-schedule types); the twelve item-level allows and `protocol.rs`'s inner allow are deleted.
+Home: code.
+
+## T55 (2026-09-02): The `#[non_exhaustive]` rule lives in `error.rs`; the growing seven open
+Disposes: owner decision 10; session-bookmark-46, remote-codec-18, remote-capture-atlas-35, remote-adapter-streams-22, api-audit-10, link-17, and the exhaustiveness half of materialized-17 (fix)
+Decision: `src/error.rs`'s module doc states the rule: an error taxonomy that grows with enforcement is `#[non_exhaustive]`; a wire-grammar or contract-outcome enum is closed. `EncodeError`, `SendError`, the adapter's `EncodeError<E>`, `EncodeErrorKind`, `DecodeLeafError`, `LeafRunError`, and `DecodeSignalError` become open; every deliberately closed public enum carries one comment naming the rule. `EndpointError` and `LinkError` are classified under the same rule in the same commit.
+Home: `src/error.rs` module doc.
+
+## T56 (2026-09-02): "V2" stays only where the wire number is the subject
+Disposes: owner decision 11; tests-common-7, session-bookmark-12 (fix)
+Decision: Prose that describes behavior drops "V2"; prose whose subject is the wire dialect number keeps it, as do identifiers and wire constants. One sweep by that rule.
+Home: code.
+
+## T57 (2026-09-02): The illumos lint-allow comments stay, restated platform-free
+Disposes: owner decision 12; remote-proxy-22, remote-adapter-streams-11, inventory-13 (fix-amended)
+Decision: The nine allows stay at their sites. Each comment is restated without naming a platform the tree does not build for and without "honest" (T50): the allow exists because a target the crate supports flags the item under `-D warnings`. AGENTS.md gains one line recording that the illumos build is a hand run on ox-east-1.
+Home: code; AGENTS.md (one line).
+
+## T58 (2026-09-02): A dedicated prose pass on intensifier "genuine(ly)" and rustdoc em-dash density
+Disposes: owner decision 13; prose-hygiene open questions 2 and 3 (fix)
+Decision: One prose pass, run with fresh-eyes readers per the documentation change policy, removes every pure-intensifier "genuine(ly)" (contrastive uses stay) and rewrites em-dash-heavy rustdoc toward colons, semicolons, and sentence breaks wherever the dash carries no emphasis. It lands after the mechanical P3 sweeps so it reads the tree they leave.
+Home: code.
+
+## T59 (2026-09-02): Orphaned seeds are disposed by named commits; `seed_liveness` matches parameters
+Disposes: owner decision 14; tests-observation-38, tests-lifecycle-1, tests-common-32, streaming-tests-20, tests-lifecycle-18's consequence (fix)
+Decision: Each orphaned seed line (the awaiting-disposition `cc` in `shadow_validity.txt`, the deleted-property line in `retire.txt`, the two `faults.txt` lines naming values no strategy generates) is removed in a commit that names the deleted or changed property, or its comment corrected where the seed still replays; the `async_wire` seeds re-home into `pairwise.txt` in the commit that deletes that binary; "minted" comments are restated in the present tense; `tests/seed_liveness.rs` is extended to match each seed's shrink-note parameter names against the live `proptest!` signature it anchors to.
+Home: code.
