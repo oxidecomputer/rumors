@@ -234,6 +234,15 @@ does not outlive the session, and the owner rules on the artifact.
 - No worktree is force-removed; no cache is deleted before its forge
   directory has been resolved from inside the worktree.
 
+## Out of scope for every lane
+
+The formal tier (`lean`, `eventdag`, `muxprobe`, everything under
+`formal/`) and `before`'s bench judge (`bench-judge`,
+`bench-judge-tripwire`) are never run or edited by a rumors lane; a
+recipe that composes them (`all`) is exercised by its other legs
+individually. A rustdoc on a Rust-side literal derived from the Lean
+artifact is Rust prose and may be edited where a ruling names it.
+
 ## Resource discipline for the coordinator
 
 The concurrent-builder cap is Finch's setting: four by default, raised
