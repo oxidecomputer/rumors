@@ -7,21 +7,22 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use async_stream::stream;
-use futures::{StreamExt, stream as futures_stream};
+use futures::{Stream, StreamExt, stream as futures_stream};
 
 use before::Span;
 
-use super::{Charged, Measure, check, ledger};
+use super::{Charged, Measure, check, ledger, run};
 use crate::{
     Version,
     message::Message,
     tree::{
         mirror::streaming::{
-            Backend, BoxNodeStream, ErasedNode, Leaf, Local, Node, NodeStream, convert::Convert,
-            window::SUPPLY_DECODE_ENVELOPE_BYTES,
+            Backend, BoxNodeStream, ErasedNode, Leaf, Local, Node, NodeStream,
+            convert::Convert,
+            window::{SUPPLY_DECODE_ENVELOPE_BYTES, WindowConfig},
         },
         typed::{
-            self, Hash, Prefix,
+            self, Hash, Path, Prefix,
             height::{Height, S, Z},
         },
     },
@@ -86,6 +87,18 @@ impl Knob {
 
     fn get(&self) -> usize {
         self.cell.load(Ordering::Relaxed)
+    }
+
+    /// Spend one unit of the knob's value: true while it was positive.
+    ///
+    /// For knobs that count faults to inject rather than bytes to add;
+    /// the guard restores the honest value on drop regardless.
+    fn take(&self) -> bool {
+        self.cell
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+                value.checked_sub(1)
+            })
+            .is_ok()
     }
 
     /// Move the knob off its honest value for one test's lifetime.
@@ -183,12 +196,41 @@ static WALK_SLACK: Knob = Knob::new(0);
 /// Leaves the bulk walk silently drops: honest at zero.
 static WALK_SKIPS: Knob = Knob::new(0);
 
+/// Whether the bulk walk yields its first two leaves in swapped order:
+/// honest at zero, unordered above it.
+static LEAVES_SWAP: Knob = Knob::new(0);
+
+/// Whether the bulk walk re-tags its first leaf's prefix outside the
+/// walked subtree: honest at zero, escaping above it.
+static WALK_ESCAPES: Knob = Knob::new(0);
+
+/// Extra bytes the exploded interior child rows keep resident (leaf
+/// children stay honest, so the walk's leaf check is silent): honest at
+/// zero, over-holding above it.
+static CHILDREN_SLACK: Knob = Knob::new(0);
+
+/// Interior `parent` calls (a fan of at least one real child) answered
+/// with `Ok(None)`, spent one per call: honest at zero.
+static PARENT_DROPS: Knob = Knob::new(0);
+
 /// Extra bytes bulk-assembled rows keep resident: honest at zero,
 /// over-holding above it.
 static ASSEMBLE_SLACK: Knob = Knob::new(0);
 
 /// Leaves bulk assembly silently drops: honest at zero.
 static ASSEMBLE_SKIPS: Knob = Knob::new(0);
+
+/// Whether bulk assembly yields its first two nodes in swapped order:
+/// honest at zero, unordered above it.
+static ASSEMBLE_SWAP: Knob = Knob::new(0);
+
+/// The one-based position of the assembled node bulk assembly folds and
+/// then swallows: honest at zero (none swallowed).
+static ASSEMBLED_DROPS: Knob = Knob::new(0);
+
+/// The one-based position of the assembled node bulk assembly re-tags to
+/// its neighbor's prefix: honest at zero (none re-tagged).
+static ASSEMBLE_RETAGS: Knob = Knob::new(0);
 
 /// Bytes subtracted from every node's `version_bytes` answer: honest at
 /// zero, deflating the aggregate above it.
@@ -358,6 +400,11 @@ impl Backend for Materializing {
         S<H>: Height,
     {
         let fan = children.iter().filter(|(_, child)| child.is_some()).count();
+        // The presence-lying knob: an interior fan answered with no
+        // parent, the fault the trait's `parent` clause forbids.
+        if fan > 0 && PARENT_DROPS.take() {
+            return Ok(None);
+        }
         let children = children
             .into_iter()
             .map(|(radix, child)| (radix, child.map(|child| child.inner)))
@@ -379,8 +426,13 @@ impl Backend for Materializing {
             while let Some(child) = children.next().await {
                 yield child.map(|(prefix, node)| {
                     // A lazily loaded row: header and bounds, its child
-                    // table not yet materialized.
-                    let row = ROW_HEADER + bounds_of(&node);
+                    // table not yet materialized. The over-holding knob
+                    // ([`CHILDREN_SLACK`]) inflates interior rows only:
+                    // leaf-height children re-enter the walk's own leaf
+                    // check through `leaves`, and the control's subject
+                    // is the check on exploded interior references.
+                    let slack = if H::HEIGHT > 0 { CHILDREN_SLACK.get() } else { 0 };
+                    let row = ROW_HEADER + bounds_of(&node) + slack;
                     (prefix, MaterializedNode::wrap(node, row))
                 });
             }
@@ -393,20 +445,29 @@ impl Backend for Materializing {
         node: Self::Node<H>,
     ) -> impl NodeStream<Self, Z> {
         // The reference bulk walk: the default explosion behind knobs
-        // that drop leaves ([`WALK_SKIPS`]) and inflate the yielded rows
-        // ([`WALK_SLACK`]) — honest at rest, the negative controls'
+        // that drop leaves ([`WALK_SKIPS`]), inflate the yielded rows
+        // ([`WALK_SLACK`]), re-tag the first leaf out of the walked
+        // subtree ([`WALK_ESCAPES`]), and swap the first two leaves
+        // ([`LEAVES_SWAP`]) — honest at rest, the negative controls'
         // subject when set.
-        H::explode::<Self>(
+        let walked = H::explode::<Self>(
             self,
             Box::pin(futures_stream::once(async move { Ok((prefix, node)) })),
         )
         .skip(WALK_SKIPS.get())
-        .map(|item| {
+        .enumerate()
+        .map(|(index, item)| {
             item.map(|(prefix, mut leaf)| {
                 leaf.row.resize(leaf.row.len() + WALK_SLACK.get(), 0);
+                let prefix = if index == 0 && WALK_ESCAPES.get() != 0 {
+                    escaped(prefix)
+                } else {
+                    prefix
+                };
                 (prefix, leaf)
             })
-        })
+        });
+        swapped_head(LEAVES_SWAP.get() != 0, walked)
     }
 
     fn assemble<'a, H: Convert>(
@@ -414,16 +475,30 @@ impl Backend for Materializing {
         leaves: BoxNodeStream<'a, Self, Z>,
     ) -> impl NodeStream<Self, H> + 'a {
         // The reference bulk assembly: the default fold behind knobs
-        // that drop supplied leaves ([`ASSEMBLE_SKIPS`]) and inflate the
-        // assembled rows ([`ASSEMBLE_SLACK`]) — honest at rest, the
-        // negative controls' subject when set.
+        // that drop supplied leaves ([`ASSEMBLE_SKIPS`]), inflate the
+        // assembled rows ([`ASSEMBLE_SLACK`]), swallow one assembled
+        // node ([`ASSEMBLED_DROPS`]), re-tag one to its neighbor's
+        // prefix ([`ASSEMBLE_RETAGS`]), and swap the first two
+        // ([`ASSEMBLE_SWAP`]) — honest at rest, the negative controls'
+        // subject when set.
         let supplied: BoxNodeStream<'a, Self, Z> = Box::pin(leaves.skip(ASSEMBLE_SKIPS.get()));
-        H::assemble(self, supplied).map(|item| {
-            item.map(|(prefix, mut node)| {
-                node.row.resize(node.row.len() + ASSEMBLE_SLACK.get(), 0);
-                (prefix, node)
+        let assembled = H::assemble(self, supplied)
+            .enumerate()
+            .filter_map(|(index, item)| async move {
+                (index + 1 != ASSEMBLED_DROPS.get()).then_some((index, item))
             })
-        })
+            .map(|(index, item)| {
+                item.map(|(prefix, mut node)| {
+                    node.row.resize(node.row.len() + ASSEMBLE_SLACK.get(), 0);
+                    let prefix = if index + 1 == ASSEMBLE_RETAGS.get() {
+                        neighbor(prefix)
+                    } else {
+                        prefix
+                    };
+                    (prefix, node)
+                })
+            });
+        swapped_head(ASSEMBLE_SWAP.get() != 0, assembled)
     }
 }
 
@@ -431,6 +506,45 @@ impl Measure for Materializing {
     fn measure<H: Height>(node: &Self::Node<H>) -> usize {
         std::mem::size_of_val(node) + node.row.len()
     }
+}
+
+/// `inner` with its first two items in swapped order when `swap` holds:
+/// the order-lying adaptor behind the walk's and the assembly's controls.
+fn swapped_head<T>(swap: bool, inner: impl Stream<Item = T>) -> impl Stream<Item = T> {
+    stream! {
+        let mut inner = pin!(inner);
+        if swap {
+            let first = inner.next().await;
+            let second = inner.next().await;
+            for item in [second, first].into_iter().flatten() {
+                yield item;
+            }
+        }
+        while let Some(item) = inner.next().await {
+            yield item;
+        }
+    }
+}
+
+/// A leaf prefix moved out of every subtree but the root's: its first
+/// path byte flipped at the top bit.
+fn escaped(prefix: Prefix<Z>) -> Prefix<Z> {
+    let mut path = <[u8; 32]>::from(prefix);
+    path[0] ^= 0x80;
+    Prefix::from(path)
+}
+
+/// The prefix's neighbor at its own height, one radix bit over on its
+/// last byte; the root prefix has no neighbor and is returned as is.
+fn neighbor<H: Height>(prefix: Prefix<H>) -> Prefix<H> {
+    let depth = prefix.as_bytes().len();
+    if depth == 0 {
+        return prefix;
+    }
+    let mut path = [0u8; 32];
+    path[..depth].copy_from_slice(prefix.as_bytes());
+    path[depth - 1] ^= 1;
+    Prefix::<H>::containing(&Path::from(Prefix::<Z>::from(path)))
 }
 
 /// An honestly priced materializing backend passes the whole suite.
@@ -507,6 +621,100 @@ fn overholding_bulk_assembly_fails_the_capped_check() {
 fn lossy_bulk_assembly_fails_the_len_check() {
     let _dishonest = ASSEMBLE_SKIPS.set(1);
     pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+}
+
+/// A `parent` that answers a fan of real children with no parent is
+/// convicted by name at the presence check.
+///
+/// The knob spends itself on the first interior `parent` call of the
+/// run, which is the default fold's over the charged decorator, where
+/// the check lives; this backend's own bulk assembly folds through its
+/// `parent` directly, where the same fault is felt only as a short run.
+#[test]
+#[should_panic(expected = "parent contract: fan")]
+fn an_interior_parent_answering_none_fails_the_presence_check() {
+    let _dishonest = PARENT_DROPS.set(1);
+    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+}
+
+/// A bulk walk that yields two leaves out of path order is convicted by
+/// name at the walk's order check: count and prices are unchanged, so
+/// nothing else would notice.
+#[test]
+#[should_panic(expected = "unordered leaf walk")]
+fn a_swapped_walk_fails_the_order_check() {
+    let _dishonest = LEAVES_SWAP.set(1);
+    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+}
+
+/// A bulk walk that yields a leaf outside the walked prefix is convicted
+/// by name at the walk's containment check, which has content at the
+/// sub-root walk the run drives (every leaf is inside the root's empty
+/// prefix).
+#[test]
+#[should_panic(expected = "escaped leaf walk")]
+fn an_escaping_walk_fails_the_containment_check() {
+    let _dishonest = WALK_ESCAPES.set(1);
+    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+}
+
+/// A `children` override whose exploded interior rows over-hold memory
+/// is convicted by name at the explosion's pointwise check.
+///
+/// The walk's leaf check never sees an interior child, so this check is
+/// the only one that prices the references the window prices per depth.
+#[test]
+#[should_panic(expected = "underpriced child")]
+fn overholding_children_fail_the_pointwise_check() {
+    let _dishonest = CHILDREN_SLACK.set(BULK_OVERHOLD);
+    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+}
+
+/// Bulk assembly that yields two nodes out of run order is convicted by
+/// name at the assembly's order check, in the multi-run regime the run
+/// drives at a sub-root height (the root assembly has one node to
+/// order).
+#[test]
+#[should_panic(expected = "unordered assembly")]
+fn a_swapped_assembly_fails_the_order_check() {
+    let _dishonest = ASSEMBLE_SWAP.set(1);
+    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+}
+
+/// Bulk assembly that folds a run and then swallows its node is
+/// convicted by name: the run it supplied never yielded a node.
+///
+/// The same fault at the root assembly costs the corpus its root, and
+/// the by-name report rides in that failure rather than being masked by
+/// it.
+#[test]
+#[should_panic(expected = "unassembled run")]
+fn a_swallowed_assembled_node_fails_the_run_check() {
+    let _dishonest = ASSEMBLED_DROPS.set(1);
+    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+}
+
+/// Bulk assembly that yields a node at a prefix other than its own run's
+/// is convicted by name: a node arrives at a prefix no run supplied.
+#[test]
+#[should_panic(expected = "unsupplied assembly")]
+fn a_re_tagged_assembled_node_fails_the_run_check() {
+    let _dishonest = ASSEMBLE_RETAGS.set(1);
+    pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+}
+
+/// A loss both sides share is invisible to their agreement and caught
+/// by the completeness oracle: the reconciled root must hold the
+/// corpora's whole union.
+///
+/// Driven at the run level with one shared message left out of both
+/// corpora, the fault a symmetric backend defect produces and the only
+/// shape the two-sided convergence check cannot see.
+#[test]
+#[should_panic(expected = "converged short")]
+fn a_symmetric_loss_fails_the_completeness_check() {
+    let _serial = serialized();
+    pollster::block_on(run(Materializing, WindowConfig::Budget(0), 1));
 }
 
 /// A deflated `version_bytes` answer is caught by the assembly seam's floor.

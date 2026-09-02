@@ -11,17 +11,25 @@
 //!   arguments over a fan and version-bound grid before any session
 //!   runs — the property that keeps the window's quantile evaluation an
 //!   upper bound.
-//! - **Pointwise**: every node the session assembles is measured (via
-//!   [`Measure`]) against the cost function at that node's actual fan and
-//!   version bounds. An underpriced node fails the run by name.
+//! - **Pointwise**: every node the session constructs, assembles, walks,
+//!   or explodes is measured (via [`Measure`]) against the cost function
+//!   at that node's actual fan and version bounds -- or, where the fan
+//!   is invisible, at the widest fan the node can have, which
+//!   monotonicity makes an upper bound on the price at its own. An
+//!   underpriced node fails the run by name.
 //! - **Bulk seams**: the backend's own [`leaves`](Backend::leaves) and
 //!   [`assemble`](Backend::assemble) overrides — the paths the wire codec
-//!   runs — are delegated to, their yields priced on the same census and
-//!   held to the walked or assembled node's aggregates.
+//!   runs — are delegated to, their yields priced on the same census,
+//!   held to the walked or assembled node's aggregates, and held to the
+//!   clauses the trait states for them: a walk stays inside the walked
+//!   prefix and ascends, an assembly yields one node per run in run
+//!   order, and [`parent`](Backend::parent) answers a real child with a
+//!   parent and an empty group with none.
 //! - **End to end**: identical divergent corpora reconcile once at the
 //!   zero-budget floor and once under a stated budget, with every live
 //!   node value's measured bytes on a census ledger. The peak difference
-//!   — the bytes the *window* itself admitted — must fit the budget.
+//!   — the bytes the *window* itself admitted — must fit the budget, and
+//!   the reconciled root must hold the corpora's whole union.
 //!
 //! # Accounting premises
 //!
@@ -128,6 +136,23 @@ mod ledger {
                 .expect("the violation ledger mutex is not poisoned"),
         )
     }
+}
+
+/// Fail the run for `reason`, with every contract violation still
+/// pending on the ledger appended.
+///
+/// A by-name report is never masked by the failure that followed it: a
+/// backend fault first recorded on the ledger and then felt as a lost
+/// root or a short session names itself in the panic.
+fn fail(reason: &str) -> ! {
+    let pending = ledger::take_violations();
+    if pending.is_empty() {
+        panic!("{reason}");
+    }
+    panic!(
+        "{reason}; contract violations pending:\n{}",
+        pending.join("\n"),
+    );
 }
 
 /// The byte-charging census decorator.
@@ -324,6 +349,14 @@ where
             .map(|(radix, child)| (radix, child.map(ChargedNode::into_inner)))
             .collect();
         let parent = self.inner.parent(prefix, children).await?;
+        // The presence contract: at least one real child yields a
+        // parent, and a group with no real child yields none.
+        if parent.is_some() != (fan > 0) {
+            ledger::violation(format!(
+                "parent contract: fan {fan} yielded {}",
+                if parent.is_some() { "Some" } else { "None" },
+            ));
+        }
         Ok(parent.map(|node| {
             let measured = B::measure(&node);
             // The pointwise contract: the cost function evaluated at this
@@ -371,6 +404,20 @@ where
             while let Some(child) = children.next().await {
                 yield child.map(|(prefix, node)| {
                     let measured = B::measure(&node);
+                    // The pointwise contract at the explosion: an exploded
+                    // child is one of the held references the window
+                    // prices per depth. Its own fan is invisible here, so
+                    // the price is taken at the widest fan it can have
+                    // (its leaf count, capped at the radix), which the
+                    // contract's monotonicity in fan makes an upper bound
+                    // on the price at its own fan.
+                    let priced = B::node_bytes(node.len().min(FAN), bound_bytes(&node));
+                    if measured > priced {
+                        ledger::violation(format!(
+                            "underpriced child: measured {measured} B, \
+                             node_bytes at the widest fan prices {priced} B",
+                        ));
+                    }
                     (prefix, ChargedNode::wrap(node, measured))
                 });
             }
@@ -390,11 +437,28 @@ where
         stream! {
             let mut walked = 0usize;
             let mut failed = false;
+            let mut previous: Option<Prefix<Z>> = None;
             let mut leaves = pin!(self.inner.leaves(prefix, node.into_inner()));
             while let Some(leaf) = leaves.next().await {
                 failed |= leaf.is_err();
-                yield leaf.map(|(prefix, leaf)| {
+                yield leaf.map(|(leaf_prefix, leaf)| {
                     walked += 1;
+                    // The containment and order clauses the trait states
+                    // for an override: every yielded prefix extends the
+                    // walked one, and the walk ascends strictly.
+                    if Prefix::<H>::containing(&Path::from(leaf_prefix)) != prefix {
+                        ledger::violation(format!(
+                            "escaped leaf walk: a leaf at {leaf_prefix:?} yielded \
+                             outside the walked prefix {prefix:?}",
+                        ));
+                    }
+                    if let Some(before) = previous.replace(leaf_prefix)
+                        && before >= leaf_prefix
+                    {
+                        ledger::violation(format!(
+                            "unordered leaf walk: {leaf_prefix:?} yielded after {before:?}",
+                        ));
+                    }
                     let measured = B::measure(&leaf);
                     // The pointwise contract at the walk: a walked leaf
                     // is a fan slot the session budget prices at
@@ -415,7 +479,7 @@ where
                              the walked node's aggregate answers {aggregate} B",
                         ));
                     }
-                    (prefix, ChargedNode::wrap(leaf, measured))
+                    (leaf_prefix, ChargedNode::wrap(leaf, measured))
                 });
             }
             // The len aggregate is exact, so a completed walk returns it.
@@ -455,9 +519,20 @@ where
         stream! {
             let mut assembled = pin!(assembled);
             let mut failed = false;
+            let mut previous: Option<Prefix<H>> = None;
             while let Some(item) = assembled.next().await {
                 failed |= item.is_err();
                 yield item.map(|(prefix, node)| {
+                    // The order clause the trait states for an override:
+                    // nodes come one per run, in run order, so their
+                    // prefixes ascend strictly.
+                    if let Some(before) = previous.replace(prefix)
+                        && before >= prefix
+                    {
+                        ledger::violation(format!(
+                            "unordered assembly: a node at {prefix:?} yielded after {before:?}",
+                        ));
+                    }
                     let run = runs
                         .lock()
                         .expect("the run ledger mutex is not poisoned")
@@ -625,8 +700,12 @@ const DIVERGENT: usize = 1_024;
 ///
 /// Sweeps the cost function for monotonicity, then builds two corpora
 /// sharing [`COMMON`] messages and diverging by [`DIVERGENT`] more on
-/// each side, walks each corpus through the bulk leaf seam, and
-/// reconciles them twice: once at the zero-budget floor, once under
+/// each side, drives each corpus's sorted leaves through the default
+/// fold and through the bulk assembly at a sub-root height (many runs)
+/// and at the root (one),
+/// walks each corpus through the bulk leaf walk at the root and, after
+/// exploding the root, at each child's own prefix, and reconciles the
+/// corpora twice: once at the zero-budget floor, once under
 /// `budget_bytes`.
 ///
 /// Checks in one process must not overlap: the census ledger is
@@ -640,13 +719,17 @@ const DIVERGENT: usize = 1_024;
 ///
 /// - the cost function dips anywhere on the swept fan and version-bound
 ///   grid;
-/// - any constructed, walked, or assembled node was underpriced;
-/// - a bulk seam mis-answered an aggregate;
+/// - any constructed, walked, exploded, or assembled node was
+///   underpriced;
+/// - a bulk seam mis-answered an aggregate, yielded out of order or
+///   outside its prefix, merged, split, or swallowed a run, or
+///   `parent` answered a real child with no parent;
 /// - the stated budget resolves to the serialization floor, or the
 ///   budgeted run's census peak does not exceed the floor run's (the
 ///   admittance ceiling would otherwise compare two identical runs);
 /// - the window's measured byte admittance exceeded the budget; or
-/// - the session failed to converge the corpora.
+/// - the session failed to converge the corpora, or converged them to
+///   less than their union.
 pub(crate) async fn check<B>(backend: B, budget_bytes: usize)
 where
     B: Measure + Clone,
@@ -654,8 +737,8 @@ where
 {
     node_bytes_monotone::<B>();
 
-    let (floor_peak, floor_stats) = run(backend.clone(), WindowConfig::Budget(0)).await;
-    let (budget_peak, budget_stats) = run(backend, WindowConfig::Budget(budget_bytes)).await;
+    let (floor_peak, floor_stats) = run(backend.clone(), WindowConfig::Budget(0), 0).await;
+    let (budget_peak, budget_stats) = run(backend, WindowConfig::Budget(budget_bytes), 0).await;
     eprintln!(
         "conformance census at budget {budget_bytes} B: floor run peaked at {floor_peak} B \
          (widest capacity {}), budgeted run at {budget_peak} B (widest capacity {})",
@@ -698,7 +781,15 @@ where
 /// One controlled-divergence reconciliation; returns the ledger's peak
 /// measured bytes above the resting corpora, with the session's own
 /// account of itself (the window it resolved, above all).
-async fn run<B>(backend: B, window: WindowConfig) -> (usize, SessionStats)
+///
+/// `omitted` shared messages are left out of *both* corpora: zero for
+/// every honest run, and the completeness control's fault, a loss the
+/// two sides' agreement cannot see.
+pub(super) async fn run<B>(
+    backend: B,
+    window: WindowConfig,
+    omitted: usize,
+) -> (usize, SessionStats)
 where
     B: Measure + Clone,
     B::Error: std::fmt::Debug,
@@ -720,15 +811,40 @@ where
         .map(|payload| (right_clock.tick().clone(), 2 << 32 | payload))
         .collect();
 
-    let left = corpus(&charged, common.iter().chain(&left_tail)).await;
-    let right = corpus(&charged, common.iter().chain(&right_tail)).await;
+    let shared = common.iter().skip(omitted);
+    let left_leaves = sorted_leaves::<B>(shared.clone().chain(&left_tail)).await;
+    let right_leaves = sorted_leaves::<B>(shared.chain(&right_tail)).await;
 
-    // The bulk walk seam, exercised the way the wire encoder runs it:
-    // every leaf of each corpus once. Before the baseline resets, so the
-    // walk's checks land on the ledger while its transient charges stay
-    // out of the session's differenced peak.
+    // The default fold over the charged backend: the path a backend
+    // without an `assemble` override runs, and the one that brings every
+    // interior group of a resting corpus through `parent`'s own checks
+    // (presence, price, aggregates). First, so the first interior
+    // `parent` call of a run is one those checks see.
+    fold_default(&charged, left_leaves.clone()).await;
+    fold_default(&charged, right_leaves.clone()).await;
+
+    // The bulk assembly boundary in the regime the wire decoder runs it:
+    // many maximal same-prefix runs per stream, one node each, in run
+    // order. A one-byte prefix partitions each corpus into up to `FAN`
+    // runs at this scale. Before the corpora assemble at the root, so a
+    // fault felt there is already named on the ledger.
+    assemble_runs(&charged, left_leaves.clone()).await;
+    assemble_runs(&charged, right_leaves.clone()).await;
+
+    let left = corpus(&charged, left_leaves).await;
+    let right = corpus(&charged, right_leaves).await;
+
+    // The bulk walk boundary, exercised the way the wire encoder runs it:
+    // every leaf of each corpus once from the root, then once more from
+    // each of the root's children at the child's own prefix, where the
+    // walk's containment clause has content and the explosion prices
+    // every child. Before the baseline resets, so the checks land on
+    // the ledger while the transient charges stay out of the session's
+    // differenced peak.
     walk(&charged, &left).await;
     walk(&charged, &right).await;
+    walk_children(&charged, &left).await;
+    walk_children(&charged, &right).await;
 
     // The corpora are what exists regardless of the window; measure the
     // session's own admittance above them. The greeting's sizes need no
@@ -744,21 +860,33 @@ where
     let server = materialized::Handshaking::start(charged, right).window(window);
     let (ours, theirs) = streaming::mirror(client, server)
         .await
-        .expect("the conformance session reconciles");
+        .unwrap_or_else(|error| fail(&format!("the conformance session reconciles: {error:?}")));
     let peak = ledger::peak();
 
-    let converged = match (&ours.root, &theirs.root) {
-        (Some(left_root), Some(right_root)) => left_root.hash() == right_root.hash(),
-        _ => false,
+    // Convergence is agreement on one root; completeness is that root
+    // holding the corpora's whole union, which agreement alone cannot
+    // show when both sides lose the same leaves.
+    let (converged, reconciled) = match (&ours.root, &theirs.root) {
+        (Some(left_root), Some(right_root)) => {
+            (left_root.hash() == right_root.hash(), left_root.len())
+        }
+        _ => (false, 0),
     };
-    assert!(
-        converged,
-        "the conformance session must converge both corpora to one root",
-    );
+    if !converged {
+        fail("the conformance session must converge both corpora to one root");
+    }
+    let union = COMMON + 2 * DIVERGENT;
+    if reconciled != union {
+        fail(&format!(
+            "the conformance session converged short: the root holds {reconciled} \
+             messages, the corpora's union is {union}",
+        ));
+    }
     (peak, stats.snapshot())
 }
 
-/// Drain one corpus's bulk leaf walk so the walk seam's checks run.
+/// Drain one corpus's bulk leaf walk from the root so the walk's checks
+/// run.
 async fn walk<B>(charged: &Charged<B>, corpus: &Root<Charged<B>>)
 where
     B: Measure + Clone,
@@ -769,18 +897,48 @@ where
     };
     let mut leaves = pin!(charged.clone().leaves(Prefix::<height::Root>::new(), root));
     while let Some(leaf) = leaves.next().await {
-        leaf.expect("corpus leaves walk at rest");
+        leaf.unwrap_or_else(|error| fail(&format!("corpus leaves walk at rest: {error:?}")));
     }
 }
 
-/// Assemble one corpus through the charged backend, leaves in path order.
+/// Explode one corpus's root into its children and drain each child's
+/// bulk leaf walk at the child's own prefix.
+///
+/// The explosion prices every child; the walk's containment clause has
+/// content only when the walked prefix is not the root's empty one.
+async fn walk_children<B>(charged: &Charged<B>, corpus: &Root<Charged<B>>)
+where
+    B: Measure + Clone,
+    B::Error: std::fmt::Debug,
+{
+    let Some(root) = corpus.root.clone() else {
+        return;
+    };
+    let mut children = pin!(
+        charged
+            .clone()
+            .children::<height::UnderRoot>(Prefix::<height::Root>::new(), root)
+    );
+    while let Some(child) = children.next().await {
+        let (prefix, child) = child
+            .unwrap_or_else(|error| fail(&format!("corpus children explode at rest: {error:?}")));
+        let mut leaves = pin!(charged.clone().leaves(prefix, child));
+        while let Some(leaf) = leaves.next().await {
+            leaf.unwrap_or_else(|error| {
+                fail(&format!("corpus subtree leaves walk at rest: {error:?}"))
+            });
+        }
+    }
+}
+
+/// One corpus's leaves, constructed through the charged backend and
+/// sorted into path order.
 // The inline pair type is clearer than a name coined only to satisfy the
 // lint.
 #[allow(clippy::type_complexity)]
-async fn corpus<B>(
-    charged: &Charged<B>,
+async fn sorted_leaves<B>(
     messages: impl Iterator<Item = &(Version, u64)>,
-) -> Root<Charged<B>>
+) -> Vec<(Prefix<Z>, ChargedNode<B::Node<Z>>)>
 where
     B: Measure + Clone,
     B::Error: std::fmt::Debug,
@@ -791,10 +949,64 @@ where
         let path = Path::for_leaf(version);
         let leaf = <ChargedNode<B::Node<Z>> as Leaf>::leaf(version.clone(), message)
             .await
-            .expect("corpus leaves construct at rest");
+            .unwrap_or_else(|error| fail(&format!("corpus leaves construct at rest: {error:?}")));
         leaves.push((Prefix::from(path), leaf));
     }
     leaves.sort_by_key(|(prefix, _)| *prefix);
+    leaves
+}
+
+/// Fold sorted leaves up to the height just under the root through the
+/// default level-by-level assembly over the charged backend, and drain
+/// it: every interior group passes through [`Charged::parent`].
+#[allow(clippy::type_complexity)]
+async fn fold_default<B>(charged: &Charged<B>, leaves: Vec<(Prefix<Z>, ChargedNode<B::Node<Z>>)>)
+where
+    B: Measure + Clone,
+    B::Error: std::fmt::Debug,
+{
+    let mut folded = pin!(<height::UnderRoot as Convert>::assemble::<Charged<B>>(
+        charged.clone(),
+        Box::pin(futures_stream::iter(leaves.into_iter().map(Ok))),
+    ));
+    while let Some(node) = folded.next().await {
+        node.unwrap_or_else(|error| fail(&format!("corpus leaves fold at rest: {error:?}")));
+    }
+}
+
+/// Drive sorted leaves through the charged backend's bulk assembly at
+/// the height just under the root, one node per one-byte prefix, and
+/// drain it: the multi-run regime, held to account by the assembly's
+/// own checks.
+#[allow(clippy::type_complexity)]
+async fn assemble_runs<B>(charged: &Charged<B>, leaves: Vec<(Prefix<Z>, ChargedNode<B::Node<Z>>)>)
+where
+    B: Measure + Clone,
+    B::Error: std::fmt::Debug,
+{
+    let mut assembled = pin!(
+        charged
+            .clone()
+            .assemble::<height::UnderRoot>(Box::pin(futures_stream::iter(
+                leaves.into_iter().map(Ok)
+            )))
+    );
+    while let Some(node) = assembled.next().await {
+        node.unwrap_or_else(|error| fail(&format!("corpus runs assemble at rest: {error:?}")));
+    }
+}
+
+/// Assemble one corpus's sorted leaves through the charged backend into
+/// its root.
+#[allow(clippy::type_complexity)]
+async fn corpus<B>(
+    charged: &Charged<B>,
+    leaves: Vec<(Prefix<Z>, ChargedNode<B::Node<Z>>)>,
+) -> Root<Charged<B>>
+where
+    B: Measure + Clone,
+    B::Error: std::fmt::Debug,
+{
     // The spans are bound to a local so their borrowed join endpoints
     // outlive the fold's iterator.
     let bounds: Vec<Span<'_>> = leaves.iter().map(|(_, leaf)| leaf.span()).collect();
@@ -808,12 +1020,11 @@ where
     let root = assembled
         .next()
         .await
-        .expect("a non-empty corpus assembles a root")
-        .expect("corpus assembly is infallible at rest");
-    assert!(
-        assembled.next().await.is_none(),
-        "one sorted run assembles exactly one root",
-    );
+        .unwrap_or_else(|| fail("a non-empty corpus assembles a root"))
+        .unwrap_or_else(|error| fail(&format!("corpus assembly is infallible at rest: {error:?}")));
+    if assembled.next().await.is_some() {
+        fail("one sorted run assembles exactly one root");
+    }
     Root {
         ceiling,
         root: Some(root.1),
