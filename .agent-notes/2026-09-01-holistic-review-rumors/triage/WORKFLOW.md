@@ -229,7 +229,10 @@ on it unless the brief says so.
 
 ## Resource discipline for the coordinator
 
-At most four builders at once; check the disk before each wave. One
+The concurrent-builder cap is Finch's setting: four by default, raised
+to six at his word on 2026-09-02 (memory is not the constraint on this
+machine; CPU contention only slows gates). Check the disk before each
+wave. One
 `just gate` run per lane commit series, backgrounded to a log under the
 lane's scratchpad directory and polled, never a foreground demand.
 Fresh-eyes rounds are reads, not builds; they do not run the suite.
@@ -247,7 +250,7 @@ oracle is a regenerating grep or a deletion (the swarm and envelope
 deletions, the em-dash, vocabulary, and import sweeps, the retired-prose
 sweeps) may run at medium. The coordinator stays at high.
 
-Lanes are launched with the Agent tool in waves of at most four, never
+Lanes are launched with the Agent tool in waves up to the cap, never
 as a scripted workflow: a lane's defining event is a stop that needs
 Finch's ruling mid-lane, which a background script cannot pause for, and
 per-lane supervision (early intervention, verification by artifact,
