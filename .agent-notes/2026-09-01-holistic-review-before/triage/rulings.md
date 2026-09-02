@@ -473,3 +473,11 @@ Decision. `examples/code_study.rs`, its `[[example]]` entry, and `study_family_v
 Disposes: board-families-floors-judge-8, prose-hygiene-4, board-families-floors-judge-1, board-families-floors-judge-24, board-frame-22, board-ops-render-29, clock-25, fresh-eyes-1.
 
 Decision. Each lands per its entry, walked individually, with these choices fixed: the two floor kinds are defined by contrast and carried as a typed `FloorKind` the legend renders from; the six base-size docs take commit 500d4d09's treatment with ruling 20 governing the two uncommitted kernels; operand.rs gets one stored-code walk and one height decode with defect.rs (board-frame-22) and bridge.rs routed through them; the clock tests' canonicity section dissolves and the three contradicting comments are fixed.
+
+## Ruling 73 (2026-09-02): walked mediums, second group; the board excludes a log factor by affine residual
+
+Disposes: fuelscape-render-9, fuzzfit-bands-2, fuzzfit-strategies-6, meter-adequacy-3. Amends ruling 9's reading of the exponent ceiling.
+
+Finch's words (meter-adequacy-3): "Can we make it so that we *do* exclude n log n?"
+
+Decision. fuelscape-render-9, fuzzfit-bands-2 (a typed `PIN_EVIDENCE` constant emitted by calibrate, docs citing its fields, an ordering test), and fuzzfit-strategies-6 (claims corrected; ranks snapshotted through `encode()`) land per their entries. For meter-adequacy-3: the board's acceptance ladder holds every deterministic currency (touch, scan, limb; heap on the allowance-subtracted residual of ruling 11) to an affine model fitted on its two smallest points and asserted at the larger points with a tolerance derived from rounding and the O(1) setup term alone, so an n log n term reads red; a committed n log n ladder is the known-bad. The slope ceiling stays as the coarse first leg. The two-point envelope bands state that they admit a logarithmic factor and that the board excludes it for every operation with a board row.
