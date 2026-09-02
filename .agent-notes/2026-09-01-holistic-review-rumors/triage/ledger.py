@@ -285,7 +285,7 @@ def check():
             fail(f"{fid}: {d} without a ruling reference")
         if d == "defer" and (r["severity"] == "high" or r["class"] == "correctness"):
             fail(f"{fid}: a {r['severity']} {r['class']} entry may not be deferred")
-        if r["phase"] not in {"P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8"}:
+        if r["phase"] not in {"P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8", "P9"}:
             fail(f"{fid}: phase {r['phase']!r} is not a phase")
         if r["phase"] == "P5" and r["lane"] in ("", "?"):
             fail(f"{fid}: P5 entry with no lane")

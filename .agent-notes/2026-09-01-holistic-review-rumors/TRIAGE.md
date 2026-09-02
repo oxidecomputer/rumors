@@ -103,6 +103,7 @@ commit; `ledger.py summary` is authoritative.
 | P6 Public API pass | 56 | 15-35 | P3 lints (they enumerate the work) |
 | P7 Performance and suite cost | 32 | 62-72 | P1 (honest harnesses); meters before trades |
 | P8 Design questions | 2 | 94-102 | nothing; each gets a home |
+| P9 Publication preparation | 1 | T79 | every earlier phase: licensing, headers, manifest metadata, `publish = false`, and the workspace rearrangement a clean `cargo publish` needs; planned as a design document first |
 
 ### P1: Instruments before cures
 

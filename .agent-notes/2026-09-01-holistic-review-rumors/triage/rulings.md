@@ -323,3 +323,134 @@ Home: code.
 Disposes: owner decision 14; tests-observation-38, tests-lifecycle-1, tests-common-32, streaming-tests-20, tests-lifecycle-18's consequence (fix)
 Decision: Each orphaned seed line (the awaiting-disposition `cc` in `shadow_validity.txt`, the deleted-property line in `retire.txt`, the two `faults.txt` lines naming values no strategy generates) is removed in a commit that names the deleted or changed property, or its comment corrected where the seed still replays; the `async_wire` seeds re-home into `pairwise.txt` in the commit that deletes that binary; "minted" comments are restated in the present tense; `tests/seed_liveness.rs` is extended to match each seed's shrink-note parameter names against the live `proptest!` signature it anchors to.
 Home: code.
+
+## T60 (2026-09-02): `Snapshot`'s iterator is a nameable public type
+Disposes: owner decision 15; tree-core-5, fresh-eyes-4, inventory-1, api-audit-2 (the Iter half), api-core-34 (fix)
+Decision: `Iter` is re-exported at the crate root, `Snapshot::iter` returns it by name, and `IntoIterator for &Snapshot<T>` names the same type. The simplification document's opposite proposal (delete the `IntoIterator` impl) is declined. `unnameable_types` (T47) holds the class thereafter.
+Home: code.
+
+## T61 (2026-09-02): `Snapshot` equality is documented as network, live set, and frontier
+Disposes: owner decision 16; api-core-35 (fix-amended)
+Decision: The `PartialEq` impl stays as it is. The type doc states that `==` compares the network, the live set, and the causal frontier, and contrasts it with `hash()`, which excludes the frontier.
+Home: code (the `Snapshot` rustdoc).
+
+## T62 (2026-09-02): `Bookmark::store` takes owned bytes; `BookmarkError` folds into `Bookmark`
+Disposes: owner decision 17; session-bookmark-23, api-audit-4 (fix)
+Decision: In one pre-release edit, `store` takes the already-encoded record as `Vec<u8>` by value under the same commit-iff-`Ok` obligation, `Serialized` is deleted, `type Error` moves onto `Bookmark` and the `BookmarkError` trait is deleted, and `load` stays reader-shaped. Every generic bound `B: BookmarkError` becomes `B: Bookmark`.
+Home: code.
+
+## T63 (2026-09-02): The `rumors::error` pass lands whole, R2 reopened
+Disposes: owner decision 18; api-audit-13, api-audit-14 (the error half), remote-codec-30, remote-codec-28, remote-proxy-2, remote-proxy-3, remote-codec-9, remote-adapter-streams-19, mirror-common-10, api-core-7, mirror-common-15, fresh-eyes-10 (fix)
+Decision: The codec, adapter, stream, and proxy taxonomies are diagnostic surface: constructors and schedule helpers become `pub(crate)`; `signal::StreamError` is renamed; the two `Display` impls stop routing through `Debug`; a concrete `MirrorError` is constructed at `streaming_error` so the `Infallible` arms and the dead `PayloadDepthMismatch` arm disappear; `GreetingError::Order` is deleted; `RemoteError` states which variants diagnose the local participant and which the peer; `DecodeErrorKind` gains typed `Head { part, source }` and `InvalidListing(ListingIssue)`; `ReplyFrame`'s constructors become infallible and `ReplyFrameError` is deleted; `Preamble::decode` takes `[u8; V2_PREAMBLE_LEN]` and the two defensive `PreambleDefect` variants dissolve, which reopens ruling R2 on the fact that `Staged::buf` is now that array (the commit names the reopening); the flat generic `Error<B>` shape is kept and the reason recorded in `Error::widen`'s doc.
+Home: code.
+
+## T64 (2026-09-02): `seed_rng` and `warm_caches` are gated on `test-internals`
+Disposes: owner decision 19; api-audit-15, api-core-12, inventory-4, benches-envelope-6, tests-lifecycle-10, deps-5, async-hazards-4 (the gating half) (fix); the `Network`-taking constructor is not added (model until a user asks)
+Decision: Both hooks move behind `any(test, feature = "test-internals")` like their siblings; a private inner function keeps `seed` calling `seed_rng`. No documented `Network`-taking constructor is added; if an application test suite needs deterministic network ids, that becomes a fresh API proposal carrying the two-universes hazard. `warm_caches` stays a bench hook with no documented name. `Snapshot::warm_caches`, which has no caller, is deleted (api-core-12).
+Home: code; this file for the declined constructor.
+
+## T65 (2026-09-02): `Snapshot` gains `versions()` and `contains()`; `Rumors` reads through a snapshot
+Disposes: owner decision 21; benches-envelope-19, api-audit open question on direct readers (fix)
+Decision: `Snapshot::versions()` enumerates versions without touching payloads and `Snapshot::contains(&Version)` is a membership test; `Rumors` keeps no readers of its own, and its type doc states that reading goes through `snapshot()`.
+Home: code.
+
+## T66 (2026-09-02): Observability additions: the session outcome hook, frame and window-stall counters, settings readback
+Disposes: owner decision 22 (three of four parts); session-bookmark-38, remote-adapter-streams-21, materialized-2, api-audit-11, remote-codec-5 (fix)
+Decision: `SessionObserver` gains a `finished` hook carrying the session's outcome; `SessionStats` gains `frames_sent`, `frames_received`, and a `window_stalls` readout (zero versus nonzero is the claim it must support); `Peer` and `Rumors` gain getters for `sync_memory_budget`, `target_message_size`, and `payload_depth_limit` and show them in `Debug` output; the effective (saturated) run budget gets a getter and `MAX_RUN_BUDGET_BYTES` is re-exported. The fourth part (the dialer's `Token`, router eviction counters) is ruled separately.
+Home: code.
+
+## T67 (2026-09-02): `Rumors::send` returns the `Version` it stamped
+Disposes: owner decision 20; tests-common-2, tests-lifecycle-31 (fix-amended); supersedes the recorded ruling at `src/rumors.rs` ("Where the version comes from") for the single-message method
+Decision: `send` returns `Version` by value: the type is backed by a refcounted buffer, so the return is an O(1) clone and never touches the payload. A borrowed return is not possible, since the version lives behind the replica's write lock. `send_all` and `Batch` are unchanged (batching still breaks the one-to-one correspondence, and the doc keeps that half of the argument). The harness's six recovery idioms consolidate onto the return value.
+Home: code (the `send` rustdoc records the reversal's reason).
+
+## T68 (2026-09-02): The dialer sees its token; router counters follow T31
+Disposes: owner decision 22, part four; link-21, link-16 (fix)
+Decision: `Endpoint::link` returns `(LinkInfo<D::Addr>, RoutedLink<D>)`, mirroring `Incoming::accept`. After the pooling bound (T31) lands, the endpoint exposes atomic counters for the router events a committed known-bad test moves (the pending-header eviction and the stream-queue overflow at minimum); a counter no test moves is not added.
+Home: code.
+
+## T69 (2026-09-02): A `conformance::bookmark` suite ships; a hang under `check` is documented
+Disposes: owner decision 23; conformance-1, conformance-6 (fix); conformance-37 is ruled separately
+Decision: `conformance::bookmark` validates a caller's `Bookmark` implementation against the commit-iff-`Ok` clause and its siblings, ships with a negative control (a bookmark that commits a partial frame on `Err`) and a paragraph naming what the suite cannot see. `check`'s rustdoc states that a hang under the caller's timeout names no check. The suite lands after T62 reshapes the trait.
+Home: code.
+
+## T70 (2026-09-02): `Joined::Bailed` and `Joined::Failed` return the whole builder
+Disposes: owner decision 24; fresh-eyes-9 (fix)
+Decision: Both outcomes carry the `BookmarkedBootstrap<T, B>` back, so the retry the type's doc promises is one call.
+Home: code.
+
+## T71 (2026-09-02): The cancellation probe needs no connect backlog
+Disposes: conformance-37 (fix-amended)
+Decision: The link conformance suite's cancellation probe is rewritten to poll the peer's acceptor while its two connects complete, so a conforming link with no backlog passes; no requirement is added to the suite's preconditions and no clause to the link contract.
+Home: code.
+
+## T72 (2026-09-02): Payload bounds live on the type definitions
+Disposes: owner decision 25; api-audit-3, api-core-8 (fix)
+Decision: `T: Send + Sync + 'static` is stated once, on the definitions of `Peer`, `Rumors`, `Snapshot`, and the observers; every per-method restatement is deleted, and the crate doc's "demanded once" sentence becomes true as written.
+Home: code.
+
+## T73 (2026-09-02): `pub use ::before;` stays, with its reason at the site
+Disposes: owner decision 26; deps-6 (model)
+Decision: The whole-crate re-export is the version-pinning path for the ITC types and stays; one comment at the `src/lib.rs` re-export records that reason.
+Home: `src/lib.rs` (the comment at the re-export).
+
+## T74 (2026-09-02): `observe` accumulates observers
+Disposes: owner decision 27; session-bookmark-40 (fix-amended)
+Decision: A second `Peer::observe` or `Bootstrap::observe` adds an observer rather than replacing the first; every registered observer receives every callback, in registration order, and the builder docs say so. The shipped tracing adapter is unaffected.
+Home: code.
+
+## T75 (2026-09-02): `latest` and `earliest` keep their names, with both definitions stated
+Disposes: owner decision 28; tree-core-6 (fix-amended)
+Decision: The tree-level docs and the public accessors state that `latest` is the causal ceiling of every action, redactions included, and `earliest` is the floor of the live leaves; the names stay.
+Home: code.
+
+## T76 (2026-09-02): `IoFault` becomes an enum carrying the unit only where bytes move
+Disposes: owner decision 29; testing-infra-8 (fix)
+Decision: The fault injector's type is an enum whose byte-moving surfaces carry the unit and whose others carry none.
+Home: code.
+
+## T77 (2026-09-02): Both bootstraps return a typed `Joined`
+Disposes: owner decision 30; the tests-disruption-handshake partition's asymmetry item (fix-amended)
+Decision: `Bootstrap::join` returns a typed `Joined` like `BookmarkedBootstrap::join`, replacing `Result<Option<Peer>>`; the seven double-`expect` test sites collapse onto the typed outcome. The prior commit's recorded rationale for the asymmetry is superseded by this ruling.
+Home: code.
+
+## T78 (2026-09-02): Causal delivery order is arbitrary among concurrent messages; the tests pin the single-pass order
+Disposes: owner decision 31; tests-observation-3 (fix-amended)
+Decision: The public `CausalMessages` contract stands as written. The private field doc qualifies "deterministic" to "within one ingested backlog". The two tests are re-labeled as pins of the single-pass staging order (rank, then canonical bytes), and a new test constructs the cross-session inversion (a concurrent, lower-ranked message ingested in a later session is delivered after higher-ranked messages from an earlier pass) so that the arbitrary-order clause is pinned as real.
+Home: code.
+Reasoning: Finch: "You can go backwards in the ordering if a concurrent (but lesser-ranked) message arrives in a subsequent gossip session." Verified: `staged` is documented as the residue of a single ingest.
+
+## T79 (2026-09-02): A publication-preparation phase, P9
+Disposes: owner decision 32; deps-12 (fix-amended, moved to P9)
+Decision: Publication preparation is its own phase, after the triage phases: every crate in the workspace is licensed MPL-2.0 with correct license headers on every source file; every package carries `publish = false` until Finch lifts it; manifests gain the metadata a clean `cargo publish` needs (description, license, repository, and whatever else the dry run demands) so publishing later is one flag flip; and the workspace is rearranged as publication requires. Nothing is published. The phase is planned as a design document before it runs.
+Home: TRIAGE.md (the P9 section); the crate-description sentences are Finch's prose and are approved by him before they land.
+
+## T80 (2026-09-02): `Link` publishes its fields; `LinkParts` dissolves
+Disposes: owner decision 33; link-9 (fix)
+Decision: `Link`'s fields become public and `LinkParts` is deleted, the decorate-and-rebuild sites moving mechanically onto the fields.
+Home: code.
+
+## T81 (2026-09-02): Counts stay `usize` with a runtime check
+Disposes: owner decision 34; link-20 (model)
+Decision: `Config`'s counts and `memory_with_capacity` keep `usize` parameters checked at the boundary, consistent with the crate's precedent; the precedent is stated once at `Config`.
+Home: `Config`'s rustdoc.
+
+## T82 (2026-09-02): `VersionMismatch.local_protocol` stays the enum; the "select" prose is rewritten
+Disposes: owner decision 35; api-audit-5, api-core-4, api-core-21, fresh-eyes-2, module-graph-4, prose-hygiene-2, mirror-common-12 (fix)
+Decision: The field keeps the `Protocol` enum. Every public site that tells the user to "select" a protocol (the error table's remedy row, the two `Display` strings, `peer.rs`, `protocol.rs`'s "Selectable", the handshake twin) is rewritten to describe the dialect the crate speaks. The vestigial `#[repr(u16)]` and the `Default` derive on `Protocol` are deleted.
+Home: code.
+
+## T83 (2026-09-02): Generic wrappers carry no derive-added bounds
+Disposes: api-core-5, api-audit-1, tree-core-2 (fix)
+Decision: The derives on `Error<B>`, `Snapshot<T>`, `Tree<T>`, `Retire<T, B>`, `Unbookmarked<T, B>`, and `Joined<T, B>` are replaced by manual impls that bound only what the representation inspects, following the rule the crate already states at `bootstrap.rs`; a compile test clones and compares a `Snapshot` over a non-`Clone` payload and converts an `Error` over a non-`Debug` bookmark into `Box<dyn Error>`. The rendered impl headers are the acceptance.
+Home: code.
+
+## T84 (2026-09-02): Three strictly widening additions
+Disposes: api-core-1, api-core-30, link-5 (fix); link-6 (dup: T80's published fields make the getter unnecessary)
+Decision: `redact_all` accepts `I::Item: Borrow<Version>`; the four small `Copy` enums gain `Hash` and `Protocol` gains `PartialOrd, Ord`; the twelve public types without `Debug` gain manual impls printing what is type-agnostic through `finish_non_exhaustive`, with `PartialEq, Eq` on `SessionState`, `Config`, `LinkInfo` and `PartialOrd, Ord` on `Token`. No `Link::session()` getter: `Link`'s fields are public under T80.
+Home: code.
+
+## T85 (2026-09-02): Error-variant docs; two `testing` exports; `assert_parent_early` dissolves
+Disposes: remote-codec-19 (fix, the prose half; the constructor narrowing is T63), tests-common-6 (fix), materialized-22 (fix-amended: dissolve)
+Decision: Every public error variant gets one doc line stating what separates it from its neighbors, and the two docs naming private items are rewritten. `rumors::testing` exports `leaf_path(&Version)` and `decode_bookmark_record(&[u8])`, delegating to the crate's own derivations, and the harness's transcriptions are deleted. `assert_parent_early` and its test are removed, the d5/d6 design-space record left to the model, and `assert_parent_last`'s doc stops pointing at it.
+Home: code.
