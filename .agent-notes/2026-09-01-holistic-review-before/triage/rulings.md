@@ -499,3 +499,9 @@ Decision. Each lands per its entry: `CheckedCursor` becomes the one strict skyli
 Disposes: skyline-sweep-place-masked-33, skyline-watermark-18, skyline-watermark-19, span-causally-9.
 
 Decision. Each lands per its entry: sweep.rs names the recursive oracle reached through the bridge as its verdict witness; watermark.rs gets one undercut tail with the lease-after order documented and one `cmp_min` ladder; the receiver-seeded two-sided fold has one home shared by `fold_endpoints` and `Version::span_all`, its envelopes re-measured at the parent and unchanged.
+
+## Ruling 77 (2026-09-02): walked mediums, sixth group; S3's individually ruled set is complete
+
+Disposes: surface-roster-6, tests-other-18, tests-other-22.
+
+Decision. surface-roster-6 is a duplicate of gate-legs-8 (ruling 50), its exposure clause refuted by the witness and its roster half carried there. tests-other-18 adds the per-framing decode test for the `fuzz_decode_ops` seeds. tests-other-22 moves the fuzz framing constants into one `fuzz/framing.rs` shared by `#[path]` with the targets, the seed writer, and the checker. With this ruling every P3 and P4 high and medium has an individual disposition; the lows and nits sweep inside the lane rosters.
