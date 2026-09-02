@@ -529,3 +529,11 @@ Decision. clippy's `too_long_first_doc_paragraph` is enabled on the root and det
 Disposes: README owner-decision items 2, 3, 4, 5; api-audit-1, clippy-pedantic-4; api-audit-6, fresh-eyes-9; clock-17, party-13; api-audit-13, fresh-eyes-14, meter-core-5, envelopes-b-19.
 
 Decision. (2) `#[must_use]` with a reason string on `Party` and `Clock`, and method-level on `Version::join`, `join_all`, `meet`, `meet_all`, `Rank::checked_sub`, `saturating_sub`, and `Party::without`. (3) Finch's words: "I like the public names. Please have those be the only visible ones." The fork iterator types are renamed so `iter::Clock` and `iter::Party` are their defining names; `Forks` is not visible anywhere in the rendered docs; the public path is unchanged. (4) Finch's words: "Can we conditionally make it ExactSizeIterator on 64-bit?" Yes: the `ExactSizeIterator` impls on both fork iterators are gated `#[cfg(target_pointer_width = "64")]`, documented as such, so a 32-bit target has no `len()` rather than a trap; the wasm32 pin becomes the demonstration that the impl is absent there. (5) `TryFrom<Ticks>` by value, the `u128`/`usize`/`u32` duals, and `checked_sub`/`saturating_sub` are adopted; `From<suanpan::UBig> for Ticks` is declined, and the envelope suite gets a test-local helper.
+
+## Ruling 82 (2026-09-02): `forks` takes a `usize`
+
+Disposes: README owner-decision item 4 (again); clock-17, party-13, api-audit-10. Supersedes ruling 81's item (4); restates ruling 35's boundary.
+
+Finch's words: "can we have it take a usize as an argument?"
+
+Decision. `Clock::forks` and `Party::forks` take the child count as `usize`. The fork iterators implement `ExactSizeIterator` unconditionally, `len()` and the count sharing one type on every target, so no 32-bit trap exists to document or gate. Ruling 35 reads with `usize::MAX` in place of `u64::MAX`: exactly `k` children for every `k`, the boundary pinned by `tests/forks_max.rs`. This is an owner-directed signature change on the stable surface; its commit names it as such.
