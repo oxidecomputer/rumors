@@ -454,3 +454,100 @@ Home: code.
 Disposes: remote-codec-19 (fix, the prose half; the constructor narrowing is T63), tests-common-6 (fix), materialized-22 (fix-amended: dissolve)
 Decision: Every public error variant gets one doc line stating what separates it from its neighbors, and the two docs naming private items are rewritten. `rumors::testing` exports `leaf_path(&Version)` and `decode_bookmark_record(&[u8])`, delegating to the crate's own derivations, and the harness's transcriptions are deleted. `assert_parent_early` and its test are removed, the d5/d6 design-space record left to the model, and `assert_parent_last`'s doc stops pointing at it.
 Home: code.
+
+## T86 (2026-09-02): `DEFAULT_TARGET_MESSAGE_SIZE` stays in `codec::budget`, threaded into the walk
+Disposes: owner decision 73; module-graph-2 (the constant half), materialized-10 (dup) (fix)
+Decision: The constant stays where the frame constants derive it; the walk receives the target at its start instead of importing it from `remote`, which removes that edge of the streaming core's cycle. Its type is unchanged.
+Home: code.
+
+## T87 (2026-09-02): The codec owns the stream count; the link cites it by name
+Disposes: owner decision 74; link-3, remote-codec-3 (the count half) (fix)
+Decision: The stream count is derived at compile time in the codec from `STREAMED_HEIGHT_COUNT` and `STREAM_HEIGHT_STRIDE`; `link::STREAM_COUNT` cites that derivation by name rather than restating the literal, and the pin test that compared two literals becomes a check of the derivation.
+Home: code.
+
+## T88 (2026-09-02): `SCOPE_FIXED_BYTES` and `LEAF_REQUEST_BYTES` derive from `size_of`
+Disposes: owner decision 75; streaming-backend-window-26 (fix)
+Decision: The `Query` and `Resolution` types are named, both constants derive from `size_of`, and if `SCOPE_ENVELOPE_BYTES` moves as a result it is re-pinned in the same commit with the layout attribution stated.
+Home: code.
+
+## T89 (2026-09-02): The criterion series ids drop `V2`
+Disposes: owner decision 76; benches-envelope-2 (fix)
+Decision: The series are renamed now; saved local baselines are discarded; the two unreachable latency-group arms go in the same change.
+Home: code.
+
+## T90 (2026-09-02): The `encoded_bits` assertions and the `meter` dev-feature go
+Disposes: owner decision 77; tests-observation-35 (fix); supersedes the ruling recorded in 05d87e1b
+Decision: Both `encoded_bits` assertions and the `meter` dev-feature are deleted: `Party`'s byte-level equality already implies the size equality they checked. The commit names the superseded ruling.
+Home: code.
+
+## T91 (2026-09-02): `tempfile` becomes a dev-dependency
+Disposes: owner decision 78; tests-wire-format-21 (fix)
+Decision: One manifest line; the transitive presence in the lockfile is made explicit.
+Home: code.
+
+## T92 (2026-09-02): The sizing guide moves to a docs-only explanation module
+Disposes: owner decision 80; api-audit-9, api-core-15, fresh-eyes-3, api-audit-8 (fix)
+Decision: The operator sizing guide and its table leave `Peer::sync_memory_budget`'s rustdoc for a public explanation module beside `reconciliation`; the setter keeps its contract and one link. No public page cites a test file, a test function, a `cfg(test)` constant, or an internal cost function. The earlier rulings that placed the guide on the setter are superseded.
+Home: code.
+
+## T93 (2026-09-02): The CBOR evolution rules stay out of the crate doc; the tests are reworded
+Disposes: owner decision 82; tests-wire-format-9, tests-wire-format-14 (fix-amended)
+Decision: The removal in 3d16765f9 stands as a ruling: the crate doc does not promise unknown-field skipping or `#[serde(default)]` semantics. `cbor_evolution.rs`'s test docs stop claiming the crate documents them and state what each test pins; the serializer-only test is routed through `Peer`.
+Home: code.
+
+## T94 (2026-09-02): A file-backed `Bookmark` ships behind a feature
+Disposes: owner decision 84; fresh-eyes-8 (fix-amended)
+Decision: The crate ships a minimal atomic file-backed `Bookmark` implementation behind a cargo feature (name proposed by the lane, e.g. `fs`), written against the T62 trait shape, with the trait's `# Examples` block pointing at it. It is validated by the `conformance::bookmark` suite of T69.
+Home: code.
+
+## T95 (2026-09-02): The outside-the-network adversary is stated explicitly; no off-model label
+Disposes: owner decision 83; session-bookmark-34, tree-typed-3 (fix-amended)
+Decision: The reconciliation page and the crate docs' trust-model section state the one non-member adversary the model admits: an actor outside the gossip network who can inject messages through a peer's application surface and cause partitions, and who thereby steers which versions are created and merged, and so the paths, indirectly and within bounds. The 24-byte width's 2^96 offline birthday floor is stated as the in-model bound against that actor; no "off-model" label is applied to it. `hash.rs` keeps the type-local accident bound (2^-192 per interior comparison) and cites the page for the rest; its "author of message content" bullet, which prices nobody, is deleted. The wording is Finch's trust model and goes to him for read before it lands.
+Home: code (`src/reconciliation.rs`, `src/lib.rs`); this file records the model.
+Reasoning: Finch: "The adversary exists outside the gossip network, but may arbitrarily inject messages and cause partitions. This indirectly gives them the ability to manipulate paths into the tree, but not totally arbitrarily."
+
+## T96 (2026-09-02): Memos warm eagerly; the first greeting never hashes a cold tree
+Disposes: owner decision 85; async-hazards-4 (fix-amended); amends T42 and T64 for `warm_caches`
+Decision: After every commit (outside the lock, per T34) and at every install point that creates a tree (bootstrap install, a rebuilt set), the memos of the new spine are forced, so the greeting does O(fan) work inside a poll. `warm_caches` becomes redundant and is deleted from every handle (superseding T42's body change and T64's gating of it); the benches call nothing. A test pins that a greeting on a freshly installed tree forces no memo. Rides the P2 commit-path lane after T34.
+Home: code.
+
+## T97 (2026-09-02): `Snapshot::hash` and `MERKLE_HASH_LEN` leave the public surface
+Disposes: owner decision 86; tree-typed-2 (fix-amended)
+Decision: `Snapshot::hash` (and `Tree::hash`'s public face) is gated on `any(test, feature = "test-internals")`; the crate root stops re-exporting `MERKLE_HASH_LEN`, which becomes crate-private. Users compare snapshots with `==` (T61) or by readout. The crate's tests and benches keep using the accessor under the feature. The reconciliation page's "twenty-four-byte digests" section stays as the wire argument and no longer links a public constant.
+Home: code.
+
+## T98 (2026-09-02): Hop bands stay; recorded measurements leave the comments
+Disposes: owner decision 87; tests-resource-link-window-24 (fix)
+Decision: `window_corners` keeps its headroom bands; the exact hop counts recorded in comments beside them are deleted.
+Home: code.
+
+## T99 (2026-09-02): One enum names the election
+Disposes: owner decision 88; remote-codec-32 (fix-amended)
+Decision: `Speaker` and `observe::Role` become one public enum; the other is deleted (or is an alias if a name must survive at both paths), and every site uses the one.
+Home: code.
+
+## T100 (2026-09-02): The two owner passages in `link.rs` are restated
+Disposes: owner decision 89; link-2, link-15 (fix)
+Decision: The pooled-flow-control paragraph is restated in the present tense naming the pin that holds it; `Dial::recycle`'s doc says the ready byte has an unspecified value rather than exposing `READY`.
+Home: code.
+
+## T101 (2026-09-02): The reordering tripwire is one deterministic case, documented as unreachable
+Disposes: owner decision 90; remote-proxy-tests-6 (fix)
+Decision: The `REORDER_BATCH` and helper docs state that no inversion is reachable under the joined-endpoint driver and why (accepts complete one at a time over the synchronous in-memory link, so a batch never forms); the property reduces to one deterministic case over `early_first_child_dispute_pair` asserting `reordered == 0`, the tripwire for a driver change. The prior ruling keeping the `== 0` assertion (cbc4a0aa, T21) stands.
+Home: code.
+
+## T102 (2026-09-02): The `Backend` family is internal, documented for the maintainer, with no mention of the future
+Disposes: owner decision 91; streaming-backend-window-1, the inventory open question (fix-amended)
+Decision: The `Backend` trait family's docs address the crate's maintainer, state that the boundary is crate-internal, and describe `Local` as the implementation; they say nothing about future implementations or publication. No trait-shape pass is scheduled: the boundary is always internal, and the next implementation shapes the trait when it arrives.
+Home: code (the backend module doc).
+Reasoning: Finch: "It is always going to be internal, but there will be a second implementation when persistent storage arrives. Do not mention the future in the docs."
+
+## T103 (2026-09-02): Window-module prose placement, all three
+Disposes: owner decision 92; streaming-backend-window-24, streaming-backend-window-10, streaming-backend-window-27 (fix)
+Decision: The flushed-question derivation moves onto `queues::local_questions`; `Local::assemble`'s run buffer is priced in prose; `DEFAULT_SYNC_MEMORY_BUDGET` takes the proposed first sentence.
+Home: code.
+
+## T104 (2026-09-02): The reconciliation page cites `STREAM_COUNT` by name
+Disposes: owner decision 93; fresh-eyes-1, session-bookmark-35 (fix)
+Decision: The stream-bound derivation on the public reconciliation page states the structure (data streams per direction beside one control stream) and cites `STREAM_COUNT` by name, with no literal counts.
+Home: code.
