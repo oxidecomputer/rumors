@@ -1,9 +1,10 @@
 <!-- CAVEAT LECTOR: written by Claude (Fable 5.1) for Finch as lane briefs derived from the rulings in ../rulings.md; not authored, audited, or endorsed by Finch. Read with the ground rules in ../../README.md. -->
 
-# Lane briefs for P1 and P2
+# Lane briefs for P1 through P4
 
-One brief per lane for the instruments phase (P1) and the correctness and
-cost-cure phase (P2) of the before and suanpan triage. Every P1 lane is
+One brief per lane for the instruments phase (P1), the correctness and
+cost-cure phase (P2), the vocabulary phase (P3), and the pattern-sweep
+phase (P4) of the before and suanpan triage. Every P1 lane is
 based on `bba0e31a` (main, the commit recording the S2 rulings; the tree
 outside `.agent-notes/` is byte-identical to the reviewed commit
 `9e5784fb`, so every line number in the class documents holds). The P2
@@ -14,7 +15,7 @@ Acceptance verbatim from the class documents and names the ruling that
 governs each, with any amendment stated beside the quote. A lane agent
 reads only its brief; the brief carries the ground rules in full.
 
-Rulings 1 to 51 have individually ruled every high and medium in these
+Rulings 1 to 77 have individually ruled every high and medium in these
 lanes. Lows and nits inside a roster are swept per their entries under the
 same rulings; members marked "roster: pending Finch's approval" are lows
 and nits no ruling has reached yet, placed here so the roster can be
@@ -188,6 +189,71 @@ sequences them (ruling 5).
 Every P2 cure is measured at the parent with its re-pin named in the
 commit; no cure lands before its row is red in the tree (rulings 1 and
 2). The P2 lanes precede the rumors plan's performance phase (ruling 5).
+
+## P3 and P4 lanes
+
+Based on `10cdd255` (the commit recording ruling 78; the tree outside
+`.agent-notes/` is still byte-identical to `9e5784fb`). Rulings 52 to 77
+govern them. Each carries its ruled members with the ruling's choice
+stated beside the quoted Resolution, then the P3 or P4 lows and nits no
+ruling has reached as a roster pending Finch's approval, placed by the
+files they touch.
+
+| Brief | Rulings | Members | Touches | Size |
+|---|---|---|---|---|
+| `p3-vocabulary.md` | 52, 53, 54, 55, 56, 57 | 27 ruled, 62 pending (3 medium, 37 low, 49 nit) | prose in nearly every file of `crates/before/src`, `tools/`, the detached workspaces; `Cargo.toml` editions; `results/benchmarks` | large, mechanical |
+| `p4-ghosts.md` | 58, 59, 60, 66, 68, 69, 70, 71, 72 (prose), 73, 74 (prose) | 47 ruled, 105 pending (5 high, 21 medium, 84 low, 42 nit) | rustdoc and comments across the crate, `tests/meter.rs` header and row docs, `crates/before/AGENTS.md`, `examples/`, `tools/citecheck`, `fuzzfit/harness/src/bands.rs` docs, the fuelscape render docs | large |
+| `p4-structure.md` | 72 (operand walk), 74 (idbits helpers), 75, 76, 77 | 13 ruled, 22 pending (13 medium, 16 low, 6 nit) | `src/meter/board/{operand,defect}.rs`, the fill walks, `place.rs`, `filter.rs`, `overlay.rs`, `admit.rs`, `shape.rs`, `validate.rs`, `watermark.rs`, `span/algebra.rs`, `idbits.rs`, the party ops, `fuzz/framing.rs`, `tests/fuzz_seeds.rs` | large |
+| `p4-rosters.md` | 61, 62, 63, 64, 65, 67 | 29 ruled, 25 pending (5 medium, 43 low, 6 nit) | `src/meter/board/**`, `registry.rs`, the validation index, the guard sites, `Cargo.toml` features, the relocated test files, `tools/doclint` | medium |
+
+### Placement decisions
+
+- **The four briefs split by kind of edit, not by module.** Vocabulary
+  (P3) is one mechanical sweep with six rulings; the P4 sweeps split
+  into prose (`p4-ghosts`), structural extractions (`p4-structure`), and
+  roster, guard, scope, and relocation work (`p4-rosters`), so that no
+  two lanes edit the same file for the same reason. Ruling 72's two
+  structural entries (board-families-floors-judge-24, board-frame-22)
+  and ruling 74's party-4 are in `p4-structure`; the rest of 72 and 74
+  are prose and sit in `p4-ghosts`.
+- **Pending lows and nits by class document.** P3's unruled rows all go
+  to `p3-vocabulary` (they are the vocabulary pattern's instances).
+  P4's unruled rows go by document: documentation and claims to
+  `p4-ghosts`; simplification to `p4-structure`; verification and
+  correctness to `p4-rosters`.
+- **Twenty P3 and P4 rows are deliberately in no brief.** Twelve wait on
+  an owner decision ruled in a later session: rank-10 (decision 10),
+  api-audit-9 and fresh-eyes-8 (15), version-core-5 (18), crate-root-2
+  (20), envelopes-b-19 (5), codec-bits-12 (41 and 45),
+  meter-registry-tier2-14 and testing-diff-gen-17 (50),
+  fuelscape-pipeline-1 (66), inventory-5 (72), oracle-laws-4 (91's
+  carried item). Eight are disposed by ruling 78 and belong to the P5
+  briefs: envelopes-b-22, envelopes-b-25, meter-registry-tier2-3,
+  prose-hygiene-7, suite-economics-3, surface-roster-10,
+  surface-roster-11, tests-other-24.
+- **meter-adequacy-3's judge half** (the affine-residual exclusion of a
+  log factor on the board, ruling 73) edits `judge.rs`, which
+  `p1-board` owns; the brief lands the doc halves and reports the judge
+  half for the board lane if that lane has not landed.
+- **prose-hygiene-3** is recorded as `dup` of board-ops-render-29 and
+  **surface-roster-6** as `dup` of gate-legs-8; both are listed in their
+  brief only so the lane knows the edit is owned elsewhere.
+
+### Launch order
+
+These lanes follow the P1 and P2 lanes that rewrite the same files:
+
+1. `p4-rosters`' ruling 64 deletions and ruling 67's doclint rule may
+   start on `10cdd255`; its ruling 61 roster work waits for `p1-board`
+   and `p2-surface`; its ruling 65 relocation runs alone, with no other
+   lane building against the moved files.
+2. `p4-structure` after `p2-cures` for the kernel files it shares, and
+   after `p1-fuzz` for the framing file.
+3. `p4-ghosts` after `p1-harness` and `p2-rows` (the meter header) and
+   after `p1-fuzz` (the bands file); ruling 60's one measured run on a
+   quiet machine.
+4. `p3-vocabulary` last, since it touches every file; its mechanical
+   commits may land earlier and be rebased.
 
 ## What the coordinator does with a report
 
