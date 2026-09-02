@@ -234,3 +234,25 @@ lane's scratchpad directory and polled, never a foreground demand.
 Fresh-eyes rounds are reads, not builds; they do not run the suite.
 Timing measurements a brief asks for are made once, load reported, never
 iterated.
+
+## Effort and orchestration
+
+Lane agents that touch a harness or production code (all of P1 and P2,
+the API pass, the commit path) run at high effort: the failure mode of a
+cheap agent there is a plausible test that passes for the wrong reason.
+Fresh-eyes reviewers run at high effort too; a reviewer below the
+author's effort confirms rather than disputes. Mechanical lanes whose
+oracle is a regenerating grep or a deletion (the swarm and envelope
+deletions, the em-dash, vocabulary, and import sweeps, the retired-prose
+sweeps) may run at medium. The coordinator stays at high.
+
+Lanes are launched with the Agent tool in waves of at most four, never
+as a scripted workflow: a lane's defining event is a stop that needs
+Finch's ruling mid-lane, which a background script cannot pause for, and
+per-lane supervision (early intervention, verification by artifact,
+relaying findings between concurrent lanes) belongs to the coordinator.
+A scripted workflow fits only fixed-shape fan-outs with no stops
+expected: several fresh-eyes reviewers over one packet with escalating
+briefs, merged mechanically, or a P3 sweep whose acceptance is a grep
+count. Their merged output is still verified against the diff before it
+reaches Finch.
