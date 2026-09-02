@@ -1,11 +1,12 @@
 <!-- CAVEAT LECTOR: written by Claude (Fable 5.1) for Finch as lane briefs derived from the rulings in ../rulings.md; not authored, audited, or endorsed by Finch. Read with the ground rules in ../../README.md. -->
 
-# Lane briefs for P1 through P5 and P7
+# Lane briefs for P1 through P8
 
 One brief per lane for the instruments phase (P1), the correctness and
 cost-cure phase (P2), the vocabulary phase (P3), and the pattern-sweep
-phase (P4), the scaffolding-dissolution phase (P5), and the API phase
-(P7) of the before and suanpan triage. Every P1 lane is
+phase (P4), the scaffolding-dissolution phase (P5), the module lanes
+(P6), the API phase (P7), and the performance phase (P8) of the before
+and suanpan triage. Every P1 lane is
 based on `bba0e31a` (main, the commit recording the S2 rulings; the tree
 outside `.agent-notes/` is byte-identical to the reviewed commit
 `9e5784fb`, so every line number in the class documents holds). The P2
@@ -16,8 +17,10 @@ Acceptance verbatim from the class documents and names the ruling that
 governs each, with any amendment stated beside the quote. A lane agent
 reads only its brief; the brief carries the ground rules in full.
 
-Rulings 1 to 87 have individually ruled every high and medium in these
-lanes. Lows and nits inside a roster are swept per their entries under the
+Rulings 1 to 92 have individually ruled every high and medium in the P1
+to P5, P7, and P8 lanes; the P6 mediums without a ruling are marked
+"awaiting individual ruling" in their briefs while the coordinator walks
+them with Finch, and nothing lands for them until the ruling is appended. Lows and nits inside a roster are swept per their entries under the
 same rulings; members marked "roster: pending Finch's approval" are lows
 and nits no ruling has reached yet, placed here so the roster can be
 approved as a block (rumors precedent T28) and struck by exception. A lane
@@ -25,11 +28,15 @@ agent lands a pending member only once the coordinator confirms the
 roster is approved, and reports a low or nit whose stated resolution
 conflicts with a ruling or a sibling entry rather than choosing.
 
-One ground rule is new since the first draft and stands in every brief:
+Two ground rules are new since the first draft and stand in every P6 and
+P8 brief (the first in every brief):
 ruling 43's direction that reasons, pins, and enforcement homes are typed
 references the compiler resolves, never strings naming a test, a file, or
 a line, and that a lane which sees a cleaner idiomatic shape for a roster
-is authorized to adopt it.
+is authorized to adopt it; and ruling 88's rule that no pin anywhere
+fixes a lower bound on performance: every pin is a ceiling, an
+improvement lands by tightening it with attribution, and the only floors
+are liveness floors derived from a mechanism's irreducible work.
 
 ## P1 lanes
 
@@ -388,6 +395,120 @@ home in `tests/meter.rs`; and, for the rumors-relied contracts, after
 `p2-cures` has landed the cost rows that the `# Complexity` sentences
 sit beside. Its `suanpan` items are independent of the `before` items
 and may be a separate commit series on the same branch.
+
+## P8 lane
+
+Based on `5328537c` (the commit recording ruling 92). Rulings 88 (no
+lower bound pinned; the fixed-sign batch; the parity floor derived first;
+the measure-first trades), 89 (decisions 45 and 71; party-25), 90
+(rank-22), and 92 (the P8 roster) govern it.
+
+| Brief | Rulings | Members | Touches | Size |
+|---|---|---|---|---|
+| `p8-performance.md` | 88, 89, 90, 92 | 28 ruled (4 medium, 17 low, 7 nit); no pending | `crates/suanpan/src/accumulator.rs` and its metered tests, `src/party/ops/index.rs`, `src/codec/{build,buf,stack}.rs`, `src/version/rank/num.rs`, `src/version/skyline/sweep.rs`, `src/causally/**`'s `le`/`lt` routing, the batch's kernels, the re-pinned rows in `tests/meter.rs` | large; strict resource discipline |
+
+### Placement decisions
+
+- **Three rows move into P8 from other phases**: rank-22 (P6 core;
+  ruling 90's limbs-only `Num`, which is a measured change with two
+  re-pins and a regression stop), codec-bits-12 (P4; ruling 88's A/B of
+  the staging register), and skyline-sweep-place-masked-35 (P1; ruling
+  89 lifts `le` rather than narrowing it, with span-causally-26). Their
+  P6, P4, and P1 briefs no longer carry them.
+- **The batch (decision 39)**: party-25 and the thirteen ruling 92
+  roster rows land as one commit series, measured at the parent, every
+  moved reading tightened with its attribution in the batch; no reading
+  may rise.
+- **Resource discipline** is stated in the brief's Ordering: load
+  checked and disclosed, one run per A/B side, no iterating on timings,
+  ox-east-1 under `pset-run` as the approved runner when the local
+  machine is contended. Deterministic counters are the readings of
+  record.
+- The bench judge is retired (ruling 78), so every Acceptance that named
+  a `bench-judge` run reads as the fuel bands plus the deterministic
+  meters; each such entry says so.
+
+### Launch order
+
+After `p1-harness` (rows), `p1-survivors` and `p7-api` (suanpan and
+`Rank`'s `Display`), `p2-cures` (ruling 2's representation), `p2-surface`
+(rank.rs), and `p4-structure` (the pair and fold consolidations). Inside
+the lane: the suanpan contract restatement, then suanpan-17 and -14;
+the parity floor, then party-26; the batch; the `PackedBuilder` A/B and
+the consolidation; the remaining trades; `sweep::le`; rank-22 last.
+
+## P6 lanes
+
+Based on `5328537c`. The 544 module-lane rows, placed by the files they
+touch. The board lane is split six ways per ruling 6. Every P6 row is in
+exactly one brief; 571 rows are placed across P6 and P8 in total (the
+544 P6 rows plus the P8 phase and the three rows moved into P8).
+
+| Brief | Ruled | Awaiting ruling (mediums) | Pending roster | Follows |
+|---|---|---|---|---|
+| `p6-core.md` | 5 | 4 (clock-22, clock-28, deps-3, module-graph-2) | 99 (49 low, 50 nit) | p2-widths, p2-cures, p4-ghosts, p4-structure, p4-rosters, p7-api |
+| `p6-skyline.md` | 5 | 6 (skyline-coding-6, -23, skyline-fill-grow-12, -24, skyline-sweep-place-masked-19, skyline-watermark-21) | 76 (26 low, 50 nit) | p2-rows, p2-cures, p2-widths, p4-structure, p4-ghosts, p8 |
+| `p6-codec.md` | 0 | 1 (codec-bits-30) | 22 (6 low, 16 nit) | p2-widths, p7-api, p8, p4-rosters |
+| `p6-suanpan.md` | 1 | 1 (suanpan-tests-7) | 35 (17 low, 18 nit) | p1-survivors, p7-api, p8, p4-rosters |
+| `p6-tools.md` | 3 | 4 (gate-legs-5, tools-4, -28, -33) | 27 (13 low, 14 nit) | p1-gate, p5-scanners, p5-judge, p5-buffers, p4-rosters |
+| `p6-harness.md` | 4 | 12 (envelopes-a-9, -14, -15, -17, envelopes-b-7, -21, testing-diff-gen-14, testing-oracles-3, tests-other-10, -11, -16, -30) | 57 (28 low, 29 nit) | p1-harness (alone against meter.rs first), p1-suites, p2-rows, p4-rosters, p4-ghosts, p5-scanners |
+| `p6-fuzz.md` | 1 | 4 (fuzz-guests-pins-29, fuzzfit-bands-19, fuzzfit-strategies-11, -16) | 37 (23 low, 14 nit) | p1-fuzz, p2-widths |
+| `p6-fuelscape.md` | 6 | 2 (fuelscape-render-18, -19) | 34 (16 low, 18 nit) | p1-fuzz, p2-surface, p7-api; the dataset survey is the coordinator's run |
+| `p6-benches.md` | 1 | 0 | 15 (8 low, 7 nit) | p5-judge |
+| `p6-surface.md` | 0 | 1 (surface-roster-4) | 11 (3 low, 8 nit) | p2-surface, p5-scanners |
+| `p6-board-frame.md` | 0 | 0 | 9 (4 low, 5 nit) | p1-board, p1-harness, p4-rosters |
+| `p6-board-families.md` | 2 | 0 | 9 (6 low, 3 nit) | p1-board, p4-rosters, p4-structure |
+| `p6-board-ops.md` | 1 | 0 | 12 (8 low, 4 nit) | p1-board, p2-rows, p4-ghosts |
+| `p6-board-registry.md` | 0 | 1 (meter-registry-tier2-16) | 7 (2 low, 5 nit) | p2-surface, p4-rosters, p5-buffers |
+| `p6-board-oracle.md` | 2 | 1 (oracle-laws-13) | 18 (8 low, 10 nit) | p5-buffers, p7-api |
+| `p6-board-meter-core.md` | 0 | 1 (meter-core-2) | 6 (5 low, 1 nit) | p1-suites, p2-surface, p4-ghosts, p4-rosters |
+
+The "ruled" and "pending" columns count rows; the mediums awaiting a
+ruling are listed by id because each becomes a ruling the coordinator
+appends to its brief.
+
+### Placement decisions
+
+- **Lane by id prefix, not by the ledger's `lane` column alone.** The
+  ledger derived `board` from the module heading, and the three
+  documents that use the generic heading "The instruments" put 201 rows
+  there that belong to the harness, fuzz, fuelscape, benches, surface,
+  and tools lanes by the files they touch. Each row's lane is its ledger
+  lane unless that lane is `board`, in which case the id prefix decides:
+  `board-frame`, `board-families-floors-judge`, `board-ops-render`,
+  `meter-registry-tier2`, `oracle-laws` (with `paper-fidelity`), and
+  `meter-core` are the six board lanes; `envelopes-*`, `testing-*`,
+  `tests-other`, `suite-economics`, `meter-adequacy`, and `recursion` go
+  to harness; `fuzz-*` and `fuzzfit-*` to fuzz; `fuelscape-*` to
+  fuelscape; `benches-examples` to benches; `surface-roster` to surface;
+  `tools` to tools. The ledger's `lane` column is unchanged (this fork
+  changes no ledger row); the coordinator may reseed it from this map
+  with a `phase!` note if the split is approved.
+- **Mediums awaiting ruling** (42 in total) are listed at the top of
+  each brief and in the table above, with their Resolution quoted so the
+  lane knows the files, and a standing instruction not to land them or
+  choose among their alternatives.
+- **Pending lows and nits** (474) are roster members pending approval,
+  each with its Resolution quoted (nit rows quote the table row and point
+  at `evidence/`).
+- **Rendering stop.** Ruling 89's rule stands in every P6 brief: a change
+  that would alter a rendered `before` doc panel is a stop for a
+  deliberate ruling; the two ruled rendering changes (fuelscape-render-23
+  and -27's other-crate gating) are in `p6-fuelscape`.
+- **Held rows** (suanpan-10, suanpan-tests-4, suanpan-tests-8; ruling
+  86) are `p7-api`'s and appear in no P6 brief.
+
+### Launch order
+
+P6 lanes run last, each after the earlier lanes named in its Follows
+column have landed on main (or it rebases before its final gate run).
+Among themselves: `p6-harness` first and alone against `tests/meter.rs`;
+the six board lanes may run concurrently with each other (disjoint
+files) but after `p6-harness`; `p6-skyline` after `p8-performance`;
+`p6-core`, `p6-codec`, `p6-suanpan` after `p7-api` and `p8-performance`;
+`p6-tools` after the P5 lanes; `p6-fuzz`, `p6-fuelscape`, `p6-benches`,
+`p6-surface` whenever their Follows lanes are in. No two lanes touching
+one file run concurrently; the coordinator sequences them on the machine.
 
 ## What the coordinator does with a report
 
