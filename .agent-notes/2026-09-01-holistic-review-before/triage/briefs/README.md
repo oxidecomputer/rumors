@@ -337,7 +337,7 @@ restates ruling 35 at `usize::MAX`; ruling 85 completes ruling 84's item
 
 | Brief | Rulings | Members | Touches | Size |
 |---|---|---|---|---|
-| `p7-api.md` | 81, 82, 83, 84, 85, 86, 87 | 40 ruled (7 medium, 24 low, 9 nit), 4 pending, 3 held | `src/{clock,party}.rs` and their `forks.rs`, `src/iter.rs`, `src/version/{ticks,rank,ranked}.rs`, `src/span.rs` and `span/wire.rs`, `src/shape.rs`, `src/error.rs`, the serde impls, `src/codec/text.rs`'s three entries, the `Floor`/`Ceiling`/`Query` docs, `src/laws.rs`, `tests/forks_max.rs`, `crates/suanpan/src/{limbs,accumulator}.rs`, `crates/before/Cargo.toml` | large |
+| `p7-api.md` | 81, 82, 83, 84, 85, 86, 87 | 40 ruled (7 medium, 24 low, 9 nit), 4 roster approved by ruling 104, 3 held | `src/{clock,party}.rs` and their `forks.rs`, `src/iter.rs`, `src/version/{ticks,rank,ranked}.rs`, `src/span.rs` and `span/wire.rs`, `src/shape.rs`, `src/error.rs`, the serde impls, `src/codec/text.rs`'s three entries, the `Floor`/`Ceiling`/`Query` docs, `src/laws.rs`, `tests/forks_max.rs`, `crates/suanpan/src/{limbs,accumulator}.rs`, `crates/before/Cargo.toml` | large |
 
 ### Placement decisions
 
