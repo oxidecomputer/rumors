@@ -273,6 +273,8 @@ count representation cannot hold `u64::MAX` children without a wider
 counter, report the design you chose (a `u128` count, or a residual
 folded into the last share) with its cost before landing.
 
+Superseded by ruling 82 (`p7-api.md`): `Clock::forks` and `Party::forks` take the count as `usize`, `ExactSizeIterator` is unconditional, and ruling 35's boundary reads at `usize::MAX`. Do not land this entry from this brief; `p7-api` owns the forks change (this lane's `p2-widths` members clock-3, tests-other-17, party-14, api-audit-10, clock-17, and party-13 all move there).
+
 ### party-14 (medium, documentation): ruling 35, resolution replaced
 
 Resolution: One sentence on `Forks`' doc, with a pointer from `Party::forks`, and the same on `clock::Forks`/`Clock::forks`: "The count is `k` for every `k < u64::MAX`; at `u64::MAX` it saturates to `u64::MAX − 1`, because the borrowed party must keep one share." (cdad46060's wording is a usable reference.) Acceptance: `cargo doc` renders the saturation clause on both iterators and both methods; tests/forks_max.rs:1 cites public prose that exists.
@@ -281,6 +283,8 @@ Ruled (35): no saturation clause is written, because there is no
 saturation to document after clock-3's change. `cargo doc` renders
 "exactly `k`" on both iterators and both methods, and `tests/forks_max.rs:1`
 cites public prose that exists.
+
+Superseded by ruling 82 (`p7-api.md`): `Clock::forks` and `Party::forks` take the count as `usize`, `ExactSizeIterator` is unconditional, and ruling 35's boundary reads at `usize::MAX`. Do not land this entry from this brief; `p7-api` owns the forks change (this lane's `p2-widths` members clock-3, tests-other-17, party-14, api-audit-10, clock-17, and party-13 all move there).
 
 ### tests-other-17 (medium, claim): ruling 35, resolution replaced
 
@@ -294,6 +298,8 @@ profiles" replaced by the property held ("total: no panic in any
 profile"), and no test doc claiming a release-profile run the gate does
 not perform.
 
+Superseded by ruling 82 (`p7-api.md`): `Clock::forks` and `Party::forks` take the count as `usize`, `ExactSizeIterator` is unconditional, and ruling 35's boundary reads at `usize::MAX`. Do not land this entry from this brief; `p7-api` owns the forks change (this lane's `p2-widths` members clock-3, tests-other-17, party-14, api-audit-10, clock-17, and party-13 all move there).
+
 ### api-audit-10 (low, documentation): ruling 35
 
 Resolution: one sentence in `Party::forks`, `Clock::forks`, and both `Forks` type docs ("`k == u64::MAX` saturates: `u64::MAX - 1` shares are yielded, the residual taking the last slot"), after which tests/forks_max.rs's "documented behavior" becomes true; or count in `u128` internally so `k` shares are always yielded. Acceptance: the public `forks` docs state the corner, or `forks(u64::MAX).len()` equals `u64::MAX` on 64-bit.
@@ -302,6 +308,8 @@ Ruled (35): the second alternative in the resolution (`k` shares are
 always yielded), so the acceptance is `forks(u64::MAX).len()` equal to
 `u64::MAX` on 64-bit. Decision 4's `ExactSizeIterator` question (clock-17,
 party-13) is separate and below.
+
+Superseded by ruling 82 (`p7-api.md`): `Clock::forks` and `Party::forks` take the count as `usize`, `ExactSizeIterator` is unconditional, and ruling 35's boundary reads at `usize::MAX`. Do not land this entry from this brief; `p7-api` owns the forks change (this lane's `p2-widths` members clock-3, tests-other-17, party-14, api-audit-10, clock-17, and party-13 all move there).
 
 ### clock-17 (medium, correctness): roster: pending Finch's approval
 
@@ -317,6 +325,8 @@ not change the 32-bit `len()` question. Land the red-first wasm32 pin in
 step 1 only if Finch approves; edit no public doc or impl until decision
 4 is ruled.
 
+Superseded by ruling 82 (`p7-api.md`): `Clock::forks` and `Party::forks` take the count as `usize`, `ExactSizeIterator` is unconditional, and ruling 35's boundary reads at `usize::MAX`. Do not land this entry from this brief; `p7-api` owns the forks change (this lane's `p2-widths` members clock-3, tests-other-17, party-14, api-audit-10, clock-17, and party-13 all move there).
+
 ### party-13 (medium, correctness): roster: pending Finch's approval
 
 Resolution: Owner's choice among: document a `# Panics` on `Forks`/`clock::Forks` for `len()` past `usize::MAX` shares on 32-bit targets; override `len()` to saturate at `usize::MAX` (documented as the one place the count is inexact); or stop implementing `ExactSizeIterator` (an API removal, least attractive). Whichever is chosen, add a wasm32 pin. Nit alongside: `size_hint` converts `remaining` twice; compute `usize::try_from(self.remaining)` once. Acceptance: a committed wasm32-pins test exercises `len()` on `forks(u64::from(u32::MAX) + 1)` under the chosen contract; tests/forks_max.rs loses its `64-bit test host` caveat or states why it remains.
@@ -325,6 +335,8 @@ Construction: on any 32-bit target: `let mut p = Party::seed(); let it = p.forks
 Roster note: the `Party` twin of clock-17 under decision 4; the same
 pin and the same wait. The `size_hint` nit (one `usize::try_from`) may
 land with the pin if approved.
+
+Superseded by ruling 82 (`p7-api.md`): `Clock::forks` and `Party::forks` take the count as `usize`, `ExactSizeIterator` is unconditional, and ruling 35's boundary reads at `usize::MAX`. Do not land this entry from this brief; `p7-api` owns the forks change (this lane's `p2-widths` members clock-3, tests-other-17, party-14, api-audit-10, clock-17, and party-13 all move there).
 
 ### clippy-pedantic-2 (low, correctness): roster: pending Finch's approval
 

@@ -1,11 +1,11 @@
 <!-- CAVEAT LECTOR: written by Claude (Fable 5.1) for Finch as lane briefs derived from the rulings in ../rulings.md; not authored, audited, or endorsed by Finch. Read with the ground rules in ../../README.md. -->
 
-# Lane briefs for P1 through P5
+# Lane briefs for P1 through P5 and P7
 
 One brief per lane for the instruments phase (P1), the correctness and
 cost-cure phase (P2), the vocabulary phase (P3), and the pattern-sweep
-phase (P4), and the scaffolding-dissolution phase (P5) of the before and
-suanpan triage. Every P1 lane is
+phase (P4), the scaffolding-dissolution phase (P5), and the API phase
+(P7) of the before and suanpan triage. Every P1 lane is
 based on `bba0e31a` (main, the commit recording the S2 rulings; the tree
 outside `.agent-notes/` is byte-identical to the reviewed commit
 `9e5784fb`, so every line number in the class documents holds). The P2
@@ -16,7 +16,7 @@ Acceptance verbatim from the class documents and names the ruling that
 governs each, with any amendment stated beside the quote. A lane agent
 reads only its brief; the brief carries the ground rules in full.
 
-Rulings 1 to 80 have individually ruled every high and medium in these
+Rulings 1 to 87 have individually ruled every high and medium in these
 lanes. Lows and nits inside a roster are swept per their entries under the
 same rulings; members marked "roster: pending Finch's approval" are lows
 and nits no ruling has reached yet, placed here so the roster can be
@@ -327,6 +327,67 @@ retirement, no trace left in code.
    extractor must exist before before's line scan retires) and after
    `p1-gate` for the justfile; its citecheck rewrite may start earlier
    on a branch and rebase.
+
+## P7 lane
+
+Based on `59998ad0` (the commit recording ruling 87; the tree outside
+`.agent-notes/` is still byte-identical to `9e5784fb`). Rulings 81 to
+87 govern it: every change to the stable surface is one Finch named,
+recorded in those rulings; ruling 82 supersedes ruling 81's item (4) and
+restates ruling 35 at `usize::MAX`; ruling 85 completes ruling 84's item
+(12) with the text forms.
+
+| Brief | Rulings | Members | Touches | Size |
+|---|---|---|---|---|
+| `p7-api.md` | 81, 82, 83, 84, 85, 86, 87 | 40 ruled (7 medium, 24 low, 9 nit), 4 pending, 3 held | `src/{clock,party}.rs` and their `forks.rs`, `src/iter.rs`, `src/version/{ticks,rank,ranked}.rs`, `src/span.rs` and `span/wire.rs`, `src/shape.rs`, `src/error.rs`, the serde impls, `src/codec/text.rs`'s three entries, the `Floor`/`Ceiling`/`Query` docs, `src/laws.rs`, `tests/forks_max.rs`, `crates/suanpan/src/{limbs,accumulator}.rs`, `crates/before/Cargo.toml` | large |
+
+### Placement decisions
+
+- **One lane for the whole API block**, so the stable surface is edited
+  in one reviewable diff and every signature change is named as
+  owner-directed in its commit. Order inside the lane: additive
+  attributes and impls, then the renames and the `usize` signature, then
+  the `Parse` rule, then `serde_bytes` and the byte pins, then the text
+  forms and the human-readable branch, then the rumors-relied contracts,
+  then the `suanpan` items, then packaging.
+- **The `forks(k: usize)` change moves out of `p2-widths`.** Ruling 82
+  supersedes the ruling 35 entries there (clock-3, tests-other-17,
+  party-14, api-audit-10) and the two pending decision-4 entries
+  (clock-17, party-13); each of those six entries in `p2-widths.md` now
+  carries a "Superseded by ruling 82" paragraph pointing here. If
+  `p2-widths` lands first with a `u64` count, `p7-api` rebases and
+  changes the type; `tests/forks_max.rs` is re-pinned at `usize::MAX`.
+- **Rows from other phases that rulings 81 to 87 dispose** are members
+  here regardless of phase: envelopes-b-19 (P4), api-audit-9,
+  fresh-eyes-8, span-causally-38 (P4; the `Query` sentence, whose
+  dangling-pointer half is ruling 66 in `p4-ghosts`, coordinated so the
+  site is edited once), crate-root-2 and version-core-5 (P4), deps-16
+  (P5). The P3/P4 and P5 READMEs listed several of these as waiting on
+  later-session decisions; they are now placed.
+- **Held**: suanpan-10, suanpan-tests-4, suanpan-tests-8 (decision 17)
+  are listed but not landed until the `merge_into_wider` swap pin and
+  decision 25's zero-operand row have been read; the lane reports the
+  readings so Finch can rule.
+- **Pending nits**: api-audit-5, codec-bits-11, fresh-eyes-11,
+  fuelscape-pipeline-14 (the P7 rows with no ruling), pending roster
+  approval.
+- **citecheck's rumors root** (ruling 87, item 19) belongs to
+  `p5-scanners` once the typed checker exists; `p7-api` only reports any
+  `rumors` public rustdoc citing a `before` law name as a rumors-ledger
+  finding.
+- **Not wire.** The text forms and the human-readable serde branch are
+  `Display`/`FromStr` and the `is_human_readable()` branch only; a
+  moving wire snapshot or encoding pin is a stop.
+
+### Launch order
+
+`p7-api` runs after `p3-vocabulary`, `p4-ghosts`, and `p4-rosters` have
+landed (they touch the same rustdoc), or rebases onto them before its
+final gate run; after `p1-harness` for the test-local `Ticks` helper's
+home in `tests/meter.rs`; and, for the rumors-relied contracts, after
+`p2-cures` has landed the cost rows that the `# Complexity` sentences
+sit beside. Its `suanpan` items are independent of the `before` items
+and may be a separate commit series on the same branch.
 
 ## What the coordinator does with a report
 
