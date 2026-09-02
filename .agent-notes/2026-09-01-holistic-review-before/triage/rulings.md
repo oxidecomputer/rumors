@@ -537,3 +537,9 @@ Disposes: README owner-decision item 4 (again); clock-17, party-13, api-audit-10
 Finch's words: "can we have it take a usize as an argument?"
 
 Decision. `Clock::forks` and `Party::forks` take the child count as `usize`. The fork iterators implement `ExactSizeIterator` unconditionally, `len()` and the count sharing one type on every target, so no 32-bit trap exists to document or gate. Ruling 35 reads with `usize::MAX` in place of `u64::MAX`: exactly `k` children for every `k`, the boundary pinned by `tests/forks_max.rs`. This is an owner-directed signature change on the stable surface; its commit names it as such.
+
+## Ruling 83 (2026-09-02): API decisions 6 to 9
+
+Disposes: README owner-decision items 6, 7, 8, 9; api-audit-11, span-causally-1; fresh-eyes-5, api-audit-2, crate-root-15; fresh-eyes-15; fresh-eyes-6.
+
+Decision. (6) `Hash` is derived on `Span`, `shape::Plateau`, `Rise`, and `Region`. (7) `Decode::Io`'s field is annotated `#[source]`. (8) `Clock::join` keeps `Err(Clock)`, the handed-back share being the design; model, home: `Clock::join`'s rustdoc, which states why the share comes back. Finch's words: "don't document the idiom, it's an anti-pattern": no `map_err(|_| Overlap)` example appears anywhere. (9) `Floor` and `Ceiling` docs point at `Query::from` now, and a delegating `coverage` method lands as an additive change.
