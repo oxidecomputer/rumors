@@ -341,3 +341,135 @@ Decision. Each lands per its entry's Resolution and Acceptance, walked through i
 Disposes: meter-adequacy-11.
 
 Decision. `tests/meter.rs` carries a `compile_error!` when the limb and scan meter features are off; `just test` passes the features for the package.
+
+## Ruling 52 (2026-09-02): the coinages retire everywhere
+
+Disposes: README owner-decision item 81; crate-root-21, codec-bits-5, rank-13, skyline-coding-1, oracle-laws-19, span-causally-17, span-causally-22, testing-diff-gen-24, version-core-17, fresh-eyes-4, prose-hygiene-11, meter-core-1, and the sites the documentation document's vocabulary pattern lists.
+
+Decision. "door", "seam", "genre", "knob", "luck-proof", "keystone", "pincer", "jaw", and "sentry" are retired from every surface, public rustdoc and maintainer prose alike; each use becomes the plain noun or the property it named. No definition site survives. The census greps hold zero.
+
+## Ruling 53 (2026-09-02): "honest" and "genuine" sweep to plain words
+
+Disposes: README owner-decision item 82; prose-hygiene-10, board-families-floors-judge-15, board-frame-18, skyline-query-12, tools-8 (its "honest" sites).
+
+Decision. One crate-wide pass replaces the moralized uses with measured, real, unmodified, or baseline as each sentence needs; the replacement list is drafted in the lane brief for Finch's review. The anchored technical names (`assert_honest_text`, benchjudge's algorithm class) stay.
+
+## Ruling 54 (2026-09-02): the em-dash check lands first, then one sweep
+
+Disposes: README owner-decision item 83's sweep half; prose-hygiene-12, tools-29. Ruling 7 holds the tool.
+
+Decision. The workspace U+2014 check lands in `just gate`, reads red on the existing lines, and one mechanical sweep commit takes it to zero across `crates/before` and `tools/`.
+
+## Ruling 55 (2026-09-02): `Reign::mint` becomes `Reign::new`; "mint" sweeps to the plain verb
+
+Disposes: README owner-decision item 84; prose-hygiene-5, skyline-fill-grow-21, tools-8 (its "mint" sites).
+
+Decision. The method is renamed and the prose uses construct, create, build, or the specific operation. `watermark.rs`'s latent-register sense of the word comes back as its own question when the lane presents it.
+
+## Ruling 56 (2026-09-02): "plateau" keeps both senses
+
+Disposes: README owner-decision item 87; crate-root-38.
+
+Finch's words: "I think this overloading is fine. Two adjacent same-height plateaux are the same as one."
+
+Decision. Model. A leaf and a maximal constant run are the same object under canonical form, since adjacent same-height plateaux merge; the word may name either. Home: one sentence saying so on `shape::Plateau`'s doc.
+
+## Ruling 57 (2026-09-02): `std` paths, edition 2024 for the five crates, `results/benchmarks` excised
+
+Disposes: README owner-decision item 91; span-causally-10, oracle-laws-7, suanpan-1, benches-examples-25.
+
+Decision. `std` over `core` crate-wide; the five edition-2021 member crates migrate to 2024 in one commit with `manifestlint` holding the edition; the stale benchmark record directory is deleted (git keeps it).
+
+## Ruling 58 (2026-09-02): `shape`'s likelihood paragraph goes
+
+Disposes: README owner-decision item 35; version-core-9.
+
+Decision. The "realistically reachable" framing is dropped; the paragraph states what the shape is and how the walk handles it, and the file's doctest stands as the counterexample.
+
+## Ruling 59 (2026-09-02): complexity notation is defined once in `lib.rs`
+
+Disposes: README owner-decision item 36; rank-31, skyline-query-28, the clock partition's open question 6.
+
+Decision. One crate-level section defines `M`, `|x|`, and `|iter|`, linked from the fuelscape include; the dashu tier thresholds are named once with the bump note beside them.
+
+## Ruling 60 (2026-09-02): the space figures are measured and committed
+
+Disposes: README owner-decision item 37; crate-root-24, crate-root-29, paper-fidelity-1, paper-fidelity-2.
+
+Decision. `examples/space_consumption.rs` emits the oracle tree's boxed footprint beside `encode().len()`; the run is committed and the front page and paper-fidelity paragraphs cite it with the denominator named, replacing the unsourced "100×" and "100 parties, 1,000,000 events" figures.
+
+## Ruling 61 (2026-09-02): the compiler holds the rosters
+
+Disposes: README owner-decision item 51; board-frame-25, board-ops-render-2, board-families-floors-judge-6, meter-core-7, envelopes-a-19, meter-registry-tier2-11, meter-registry-tier2-8, board-families-floors-judge-16.
+
+Decision. Yes to each: the bench-rider list derives from the declared ceilings; `designed()` and the envelope-only arms fold into a `BoardFamily` enum; `FREEZE_ALLOWANCE_DIGITS` is `pub(crate)`; `FamilyId::ALL`, `index()`, and `ALL_SHAPES` derive; the two unread `FamilySpec` fields go; the policy ceremony is restated per site. Ruling 43 governs the shape.
+
+## Ruling 62 (2026-09-02): `hull_traffic` and `web_traffic` move under `scan-meter`
+
+Disposes: README owner-decision item 52; module-graph-3, skyline-watermark-27.
+
+Decision. Both move; `rumors`' `meter` feature already enables `scan-meter`, so nothing in `rumors` changes.
+
+## Ruling 63 (2026-09-02): the validation index dissolves
+
+Disposes: README owner-decision item 69; testing-oracles-28, testing-oracles-2, board-frame-26, surface-roster-16, module-graph-11, tests-other-1, fuzz-guests-pins-24.
+
+Decision. The validation index and its totality claim are deleted; the justfile's recipe comments are the map of record for verification artifacts. Each entry's other clauses (a wrong sentence, a stale pointer) go with the index.
+
+## Ruling 64 (2026-09-02): the recomputing guards are deleted, with the covering test named only in the commit message
+
+Disposes: README owner-decision item 70; codec-base-text-tree-6, suanpan-21, inventory-4, skyline-sweep-place-masked-3, codec-base-text-tree-16, codec-bits-25, inventory-6, codec-base-text-tree-7, version-core-13. Supersedes commit 9f68c475's keep of `add_at`'s exit assert.
+
+Finch's words: "By 'delete, citing' you mean in the commit message, right? Don't leave traces in the code."
+
+Decision. Each guard is deleted. The commit message names the committed differential test that holds the guarded property; the code carries no comment, marker, or trace of the deletion.
+
+## Ruling 65 (2026-09-02): test suites relocate to the crate's convention
+
+Disposes: README owner-decision item 73; version-core-27, rank-2, clock-26, suanpan-30, the envelopes-b partition's open question 1.
+
+Decision. The `Rank` and `Ranked` suites move to sibling `tests.rs` files, the serde legs to `serde_impls/tests.rs`, and the accumulator witnesses into `crates/suanpan/tests/` so `claims.rs` cites nothing across the crate boundary.
+
+## Ruling 66 (2026-09-02): the pointers to hand-deleted sentences are deleted
+
+Disposes: README owner-decision item 85; party-7, party-8, span-causally-5, span-causally-33, span-causally-34, span-causally-38 (party-14 is disposed by ruling 35).
+
+Decision. The deletions in a6dcfbb4, b3f09baa0, 20c0515a, and bbb9f802 stand as intended; the prose that still points at the deleted sentences is deleted or restated so it points at nothing missing. No substance is restored.
+
+## Ruling 67 (2026-09-02): `# Errors` and `# Panics` are made uniform, held by doclint
+
+Disposes: README owner-decision item 86; fresh-eyes-2, api-audit-8, version-core-14, clock-11, api-audit-21, skyline-fill-grow-4, skyline-sweep-place-masked-9, skyline-sweep-place-masked-13, skyline-coding-35.
+
+Decision. One pass copies `Rank::decode`'s form; `doclint` requires `# Errors` on every `pub fn` returning `Result`; `walk.rs`'s accurate `# Panics` form is adopted crate-wide.
+
+## Ruling 68 (2026-09-02): guideposts toward reality; the essay waits for Finch
+
+Disposes: README owner-decision item 88; api-audit-3, recursion-4, board-frame-5, tests-other-4, skyline-watermark-8; codec-bits-1 deferred.
+
+Finch's words: "I will re-write the essay in my own words, some day. Do not rewrite it. Otherwise, fix AGENTS.md towards reality, etc. Please keep agent instructions compact and drift-proof."
+
+Decision. `crates/before/AGENTS.md` is corrected toward the tree, kept compact, and shaped so it cannot drift (it names structure and points at docs of record, never restating enumerable facts). The board root doc follows its own summary-plus-pointer rule; the `answer-embedded` test name splits into its two claims; `MinWeb::compacting`'s dated ratios are excised. The identity-ladder essay (codec-bits-1) is not moved and not rewritten; it is deferred, home: Finch's own rewrite.
+
+## Ruling 69 (2026-09-02): kernel-doc citations stay names, resolved by citecheck
+
+Disposes: README owner-decision item 89; skyline-fill-grow-17.
+
+Decision. `tools/citecheck` extends to backticked identifiers under `src/version/skyline/**` that match a collected test or envelope name. Real rustdoc links were considered and set aside: they would require the rows and laws to become documented items of the crate.
+
+## Ruling 70 (2026-09-02): the `Ω(M)` floor stays private
+
+Disposes: README owner-decision item 90; testing-diff-gen-22.
+
+Decision. The floor is a meter liveness floor, not a contract; the `mul_bound_*` pins' docs are re-scoped to the derivation.
+
+## Ruling 71 (2026-09-02): the five P4 highs
+
+Disposes: benches-examples-18, envelopes-a-1, envelopes-b-27, party-3, surface-roster-20.
+
+Decision. `examples/code_study.rs`, its `[[example]]` entry, and `study_family_versions` are deleted; the integer-code question is closed. `tests/meter.rs`'s header and row docs are rewritten per ruling 1 (the under-repair operations named by finding id, never an assertion that the contract holds today), and `span_shares_the_crossing_folds`'s doc states the touch leg alone. party-3's six ghost sites and surface-roster-20's four are fixed as their entries state.
+
+## Ruling 72 (2026-09-02): walked P3 and P4 mediums, first group
+
+Disposes: board-families-floors-judge-8, prose-hygiene-4, board-families-floors-judge-1, board-families-floors-judge-24, board-frame-22, board-ops-render-29, clock-25, fresh-eyes-1.
+
+Decision. Each lands per its entry, walked individually, with these choices fixed: the two floor kinds are defined by contrast and carried as a typed `FloorKind` the legend renders from; the six base-size docs take commit 500d4d09's treatment with ruling 20 governing the two uncommitted kernels; operand.rs gets one stored-code walk and one height decode with defect.rs (board-frame-22) and bridge.rs routed through them; the clock tests' canonicity section dissolves and the three contradicting comments are fixed.
