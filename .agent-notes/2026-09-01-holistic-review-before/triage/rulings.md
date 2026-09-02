@@ -481,3 +481,9 @@ Disposes: fuelscape-render-9, fuzzfit-bands-2, fuzzfit-strategies-6, meter-adequ
 Finch's words (meter-adequacy-3): "Can we make it so that we *do* exclude n log n?"
 
 Decision. fuelscape-render-9, fuzzfit-bands-2 (a typed `PIN_EVIDENCE` constant emitted by calibrate, docs citing its fields, an ordering test), and fuzzfit-strategies-6 (claims corrected; ranks snapshotted through `encode()`) land per their entries. For meter-adequacy-3: the board's acceptance ladder holds every deterministic currency (touch, scan, limb; heap on the allowance-subtracted residual of ruling 11) to an affine model fitted on its two smallest points and asserted at the larger points with a tolerance derived from rounding and the O(1) setup term alone, so an n log n term reads red; a committed n log n ladder is the known-bad. The slope ceiling stays as the coarse first leg. The two-point envelope bands state that they admit a logarithmic factor and that the board excludes it for every operation with a board row.
+
+## Ruling 74 (2026-09-02): walked mediums, third group
+
+Disposes: meter-core-4, party-4, prose-hygiene-3, skyline-coding-14.
+
+Decision. Each lands per its entry: the comb rationales rewritten to the stored delta coding and the accumulator; the id tag read and subtree skip given two shared `pub(crate)` helpers in `idbits`, with `build_split`'s spine re-pin (party-27) attributed in the same commit; the design-doc clause deleted (prose-hygiene-3 is the same edit as board-ops-render-29 under ruling 72); the two-bit-zero counterfactual restated without the essay.
