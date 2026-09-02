@@ -108,9 +108,11 @@ in the same turn.
 - Lane commits use the repository's default identity and signing, like
   every other commit; nothing is configured per worktree or per lane.
 - Launch the lane agent with the brief's path, the worktree path, its
-  scratchpad subdirectory, and the annotation requirement above. The
-  brief carries every other ground rule; do not restate them, and do not
-  add mechanism the brief lacks without also stating the goal it serves.
+  scratchpad subdirectory, the annotation requirement above, and the
+  prose standard `briefs/PROSE.md` (three tests for every paragraph the
+  lane touches; the lane owns the prose it passes through). The brief
+  carries every other ground rule; do not restate them, and do not add
+  mechanism the brief lacks without also stating the goal it serves.
 
 ### 2. Implementation
 
@@ -134,8 +136,9 @@ re-run here, once.
 
 Before the packet is built, at least one fresh-eyes reviewer reads the
 diff cold, with a brief that names the invariants the lane's entries
-protect but not the resolutions, and with the instruction to dispute
-rather than confirm. Escalate across rounds as the doctrine says: surface
+protect but not the resolutions, that carries the reviewer's checks from
+`briefs/PROSE.md`, and with the instruction to dispute rather than
+confirm. Escalate across rounds as the doctrine says: surface
 correctness first, then operational validity, then interaction with the
 rest of the tree, then the assumptions the change rests on. A round's
 findings are classified by the coordinator:
