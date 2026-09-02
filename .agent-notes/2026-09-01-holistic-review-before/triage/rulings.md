@@ -681,3 +681,9 @@ Disposes: skyline-watermark-21, suanpan-tests-7, gate-legs-5, tools-33.
 Finch's words (tools-33): "Get rid of this entirely."
 
 Decision. A directed `min_ticks` witness lands beside the query differentials and the watermark test module's reachability sentence is restated. `size_probe_covers_the_value` tightens to `32·D + 2` with the derivation in its doc. CI installs exactly the toolchains the recipes name, sourced from the justfile's pin, the floating steps dropped and the three prose sites rewritten for the pinned regime. workflowlint's interpreter recognizer (the pipe-to-shell detection) is deleted entirely with its docstring claims and self-test cases; the tool's `uses:` pinning role is untouched (read as the scope of "this"; a stop if Finch meant the whole tool). With this ruling every high and medium entry in the ledger carries an individual disposition; the lows and nits await lane roster approval.
+
+## Ruling 104 (2026-09-02): every lane roster of lows and nits is approved
+
+Disposes: the roster question for every lane brief under `triage/briefs/`: the P1 to P5 and P7 lanes' pending rows, and the sixteen P6 lanes' pending rows (board split six ways per ruling 6; core; skyline; suanpan; codec; tools; fuelscape; harness; fuzz; benches; surface).
+
+Decision. The lows and nits placed in each lane brief as "roster: pending Finch's approval" are approved as rosters. Each lands per its entry's Resolution and Acceptance inside its lane, swept with the lane's ruled members, and is reviewed as a diff; a lane agent that finds a row's Resolution in conflict with a ruling, or that would move a snapshot, change an unnamed public signature, or alter a rendered before panel, stops and reports (rulings 6 and 89's stops). The surface lane re-reads its rows under ruling 98 and reports which survive. The ledger's open rows move to `fix` as their lanes land them, cited to this ruling.
