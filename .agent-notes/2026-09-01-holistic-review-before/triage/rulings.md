@@ -661,3 +661,9 @@ Decision. The generator census gains classes each fed by exactly one `arb_base` 
 Disposes: tests-other-30, codec-bits-30, clock-22, clock-28.
 
 Decision. The verdict matrix's legs are rostered as typed data, the polarity twin asserted per strict-order leg, the union of fired legs asserted equal to the roster, and `flag` refusing an unrostered leg. The `BitStack` model test reaches the word spill by construction, models `set_last`, checks `trailing_ones` against the model over two spilled words, and names only what it checks. `deep_tree_stack_safety` extends to right-spine and both-present families at depth 100k with its operation set enumerated in the doc. The static-orbit pin gets a schedule covering every ordered peer pair, a re-measured octave array, a mechanism sentence derived from the coding, and no dead branch.
+
+## Ruling 101 (2026-09-02): P6 core, harness, and skyline mediums, fifth group
+
+Disposes: deps-3, module-graph-2, tests-other-11, skyline-coding-23.
+
+Decision. `build.rs`'s `rerun-if-changed` list is derived from the one enumeration of inputs the script reads. The justfile lints before's bare library (default features and none) under `-D warnings` with no test targets, the recipe comment naming feature unification as the mechanism. The coincident-span docs match their assertions, dominance named as the divergence-only leg. Both test-local recursions route through `descend!`.
