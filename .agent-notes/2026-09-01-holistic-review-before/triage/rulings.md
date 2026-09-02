@@ -487,3 +487,9 @@ Decision. fuelscape-render-9, fuzzfit-bands-2 (a typed `PIN_EVIDENCE` constant e
 Disposes: meter-core-4, party-4, prose-hygiene-3, skyline-coding-14.
 
 Decision. Each lands per its entry: the comb rationales rewritten to the stored delta coding and the accumulator; the id tag read and subtree skip given two shared `pub(crate)` helpers in `idbits`, with `build_split`'s spine re-pin (party-27) attributed in the same commit; the design-doc clause deleted (prose-hygiene-3 is the same edit as board-ops-render-29 under ruling 72); the two-bit-zero counterfactual restated without the essay.
+
+## Ruling 75 (2026-09-02): walked mediums, fourth group
+
+Disposes: skyline-coding-33, skyline-fill-grow-27, skyline-sweep-place-masked-15, skyline-sweep-place-masked-7.
+
+Decision. Each lands per its entry: `CheckedCursor` becomes the one strict skyline parser with `validate_from` a height fold over it and the planted-pair proptest driving both entries; the suspended-ancestor control bits become one `FrameBits` type and one `Frame` enum shared by the fill and prescan walks; one `Pair` type with one seeding constructor serves place, filter, overlay, and admit; `advance_refinement` routes through `advance_set`. Every re-pin any layout change causes is measured at the parent and attributed.
