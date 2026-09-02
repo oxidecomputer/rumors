@@ -6,13 +6,13 @@
 
 The workspace tools' and gate recipes' per-module entries, landed per their Resolutions inside an approved roster, under rulings 18 (no mutants roster), 78 (the typed checker, the retired judge), 79 (digestshare deleted, the buffers gone), 91 and 92 (covcheck's file floor, the shared walker), and 43.
 
-## Awaiting individual ruling
+## Rulings on this lane's mediums
 
-The coordinator is walking these mediums with Finch; nothing below lands for them until the ruling is appended here: gate-legs-5, tools-28, tools-33, tools-4.
+Every medium in this lane is ruled (rulings 93 to 103): gate-legs-5, tools-28, tools-33, tools-4. The decisions stand beside each entry under Members.
 
 ## Roster summary
 
-3 ruled (2 medium, 1 low); 4 medium awaiting ruling; 27 pending roster approval (13 low, 14 nit).
+3 ruled (2 medium, 1 low); 4 medium ruled (93 to 103); 27 roster members approved (ruling 104) (13 low, 14 nit).
 
 ## Ground rules
 
@@ -110,7 +110,7 @@ never relax them.
 
 ## Ordering
 
-Every P6 lane runs after the P1 to P5 and P7 lanes that touch its files have landed on main, or rebases onto them before its final gate run; the coordinator names the base SHA at launch. Lows and nits inside this lane's approved roster are swept without a question to Finch; every high and medium has, or awaits, an individual ruling. A change that would alter a rendered `before` doc panel is a stop (ruling 89). Follows `p1-gate`, `p5-scanners`, `p5-judge`, `p5-buffers`, and `p4-rosters`. Owns `tools/**`, the `justfile`, `.github/workflows/**`, `.cargo/**`, and the workspace manifests.
+Every P6 lane runs after the P1 to P5 and P7 lanes that touch its files have landed on main, or rebases onto them before its final gate run; the coordinator names the base SHA at launch. Lows and nits inside this lane's approved roster are swept without a question to Finch; every high and medium has an individual ruling. A change that would alter a rendered `before` doc panel is a stop (ruling 89). Follows `p1-gate`, `p5-scanners`, `p5-judge`, `p5-buffers`, and `p4-rosters`. Owns `tools/**`, the `justfile`, `.github/workflows/**`, `.cargo/**`, and the workspace manifests.
 
 ## Members
 
@@ -144,11 +144,11 @@ Resolution: one discovery routine shared by doclint and testdoc (a small helper 
 
 Ruled (92, decision 80): one shared file-enumeration helper in `tools/` over `git ls-files`, used by doclint, testdoc, and the test that copies their walk; no shared self-test scaffold (each tool stays self-contained).
 
-## Mediums awaiting individual ruling
+## Mediums ruled 93 to 103
 
-Listed with their Resolution so the lane knows the files they touch; not landed until ruled.
+Each medium below now carries its ruling and any amendment beside its quoted Resolution; land per the ruling.
 
-### gate-legs-5 (medium, documentation): awaiting individual ruling
+### gate-legs-5 (medium, documentation): ruling 103
 
 ci.yml installs and describes floating toolchains the recipes never invoke; the dated toolchains arrive by rustup auto-install
 
@@ -156,9 +156,9 @@ ci.yml installs and describes floating toolchains the recipes never invoke; the 
 
 Resolution: Install what the recipes name: `toolchain: nightly-2026-06-30` in each nightly step (with `components: llvm-tools` in the coverage job), sourced from one place so the pin cannot fork (a workflow `env` the justfile variable is checked against, or a step that reads `nightly_toolchain` from the justfile); drop the floating `stable` steps and let rust-toolchain.toml provision stable (add `llvm-tools` to its `components` if the coverage job should not rely on cargo-llvm-cov's self-install); rewrite lines 17-20, 54-58, and 128-133 for the pinned regime and its paired bump procedure. Acceptance: CI logs show no `syncing channel updates` for a toolchain the workflow did not name, and the workflow prose names the same nightly date as justfile:40.
 
-Awaiting individual ruling: the coordinator is walking the P6 mediums with Finch now. Do not land this entry and do not choose among its alternatives; when the ruling arrives it is appended to this brief by the coordinator.
+Ruled (103): Install exactly the toolchains the recipes name, sourced from the justfile's pin (ruling 25's derivation); drop the floating stable steps in favor of rust-toolchain.toml (adding `llvm-tools` for the coverage job); rewrite the three prose sites for the pinned regime. See ../rulings.md.
 
-### tools-28 (medium, verification): awaiting individual ruling
+### tools-28 (medium, verification): ruling 96
 
 mutantcheck never accounts for mutants missing from the filtered listing, and reads only `exclude_re`
 
@@ -166,9 +166,9 @@ mutantcheck never accounts for mutants missing from the filtered listing, and re
 
 Resolution: after parsing both captures, compute the unclaimed set (mutants in raw minus filtered matched by no pinned pattern) and fail by name for each; refuse any filtering key in the config beyond `exclude_re` (`exclude_globs`, `examine_globs`, `examine_re`) as an unpinned campaign restriction; add a self-test case: raw {a, b, c, d}, filtered {c}, d matched by no pattern, must red with "suppressed by no pinned pattern". Acceptance: with `exclude_globs = ["**/watermark.rs"]` appended to .cargo/mutants.toml and the captures regenerated, `just mutants-list` fails naming the watermark mutants or the key; the current tree stays green; the new case is committed.
 
-Awaiting individual ruling: the coordinator is walking the P6 mediums with Finch now. Do not land this entry and do not choose among its alternatives; when the ruling arrives it is appended to this brief by the coordinator.
+Ruled (96): Dup, moot: mutantcheck retires under ruling 18 (`p1-gate`). Nothing to land in this lane. See ../rulings.md.
 
-### tools-33 (medium, verification): awaiting individual ruling
+### tools-33 (medium, verification): ruling 103
 
 workflowlint's interpreter recognizer stops at the first non-prefix token, so `| sudo -E bash -` and `| env -i sh` pass as fetch-without-execute
 
@@ -176,9 +176,9 @@ workflowlint's interpreter recognizer stops at the first non-prefix token, so `|
 
 Resolution: adopt the tool's own over-matching policy: after a prefix word, skip flag tokens (those starting with `-`) and their arguments, or treat a post-fetch segment as fetch-execute when an interpreter token appears anywhere in it after stripping prefix words, flags, and assignments. Add `curl ... | sudo -E bash -`, `curl ... | sudo -u runner sh`, and `curl ... | env -i sh` to the self-test's red fixtures. Acceptance: `./tools/workflowlint --self-test` fails on the current recognizer with the three new fixtures and passes after the fix; the fetch-to-a-file green fixture stays green.
 
-Awaiting individual ruling: the coordinator is walking the P6 mediums with Finch now. Do not land this entry and do not choose among its alternatives; when the ruling arrives it is appended to this brief by the coordinator.
+Ruled (103): Amendment (Finch: "Get rid of this entirely."): delete workflowlint's interpreter recognizer (the pipe-to-shell detection) entirely, with its docstring claims and self-test cases; the flag-skipping fix is struck. workflowlint's `uses:` pinning role is untouched; if Finch meant the whole tool, that is a stop. See ../rulings.md.
 
-### tools-4 (medium, verification): awaiting individual ruling
+### tools-4 (medium, verification): ruling 96
 
 `ci` omits manifestlint, so the lint tier has two hand-maintained rosters and GitHub CI never runs it
 
@@ -186,13 +186,13 @@ Awaiting individual ruling: the coordinator is walking the P6 mediums with Finch
 
 Resolution: make `ci` depend on `gate-lints` instead of re-listing its legs (`ci: gate-lints fuelscape-claims clippy clippy-default ...`), so the lint tier has one definition; ci.yml:83-86 already installs cargo-mutants and cargo-rdme, so nothing new is required of the runner. Acceptance: `just --show ci` names `gate-lints` as a dependency; a member manifest carrying `path = "../suanpan"` beside `workspace = true` fails `just ci`. Construction: add `path = "../suanpan"` beside `workspace = true` on any member dependency; `just gate-lints` fails at manifestlint and `just ci` passes.
 
-Awaiting individual ruling: the coordinator is walking the P6 mediums with Finch now. Do not land this entry and do not choose among its alternatives; when the ruling arrives it is appended to this brief by the coordinator.
+Ruled (96): Dup: the same defect as gate-legs-4 (ruling 50, `ci` built from `gate-lints`, in `p1-gate`). Nothing to land in this lane. See ../rulings.md.
 
-## Roster members pending Finch's approval
+## Roster members approved (ruling 104)
 
-Lows and nits no ruling has reached, placed here by the files they touch. Land only after the coordinator confirms the roster is approved.
+Lows and nits approved as this lane's roster by ruling 104. Land each per its quoted Resolution and Acceptance, swept with the ruled members; report rather than choose if a Resolution conflicts with a ruling or offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89).
 
-### gate-legs-7 (low, documentation): roster: pending Finch's approval
+### gate-legs-7 (low, documentation): roster: approved (ruling 104)
 
 `all` is documented as "Everything" while omitting the gate's instrument legs and the coverage legs, and its exclusive legs have no recorded cadence
 
@@ -200,9 +200,9 @@ Lows and nits no ruling has reached, placed here by the files they touch. Land o
 
 Resolution: Rename the doc line and header entry to what `all` is (the no-rot sweep plus the manual tier), or make `all` include `gate` so the word is true. For cadence, see the open question below: either a scheduled workflow for the shared-runner-safe legs (the fuzz smoke) or a committed attestation of the last `all` run. Acceptance: `just --list` describes `all` accurately, and the tree or CI states when the `all`-only legs last ran.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### module-graph-4 (low, simplification): roster: pending Finch's approval
+### module-graph-4 (low, simplification): roster: approved (ruling 104)
 
 Limb-meter taps are spelled three ways and their module path five ways
 
@@ -210,9 +210,9 @@ Limb-meter taps are spelled three ways and their module path five ways
 
 Resolution: Fold `limb_metered.rs` into `limb_meter.rs` in the `codec::scan` shape: an inner `#[cfg(feature = "limb-meter")] mod counter` holding the statics, readers, and resets; ungated shims `record(u64)`, `record_wide(&UBig)`, `record_densified(u64)`, and the existing `meter_limbs*`; make `pub(crate) mod limb_meter` unconditional and the codec.rs:39-40 re-export ungated; replace the five inline `#[cfg]` taps with plain calls; reduce the four site-local shims to direct calls; spell the path one way (`crate::codec::limb_meter`); re-word base.rs:10 to name the feature. Acceptance: no `#[cfg(feature = "limb-meter")]` attribute appears outside `limb_meter.rs` and `meter.rs`; behaviour and every envelope reading unchanged.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### module-graph-9 (low, simplification): roster: pending Finch's approval
+### module-graph-9 (low, simplification): roster: approved (ruling 104)
 
 meter.rs holds a private generator table and the public counter read surface in one file
 
@@ -220,9 +220,9 @@ meter.rs holds a private generator table and the public counter read surface in 
 
 Resolution: Move the constructors, `Packed::from_bits`, and the `ev_*`/`pow2*` helpers into `meter/shapes.rs` as `pub(super)` items; leave meter.rs with its module doc, submodule declarations, `Packed`, the counter readers, and the re-exports; rewrite registry.rs's `super::x` to `super::shapes::x` (mechanical). Nit in the same spirit: `ops()` spans lines 193-2275 under a `too_many_lines` allow; concatenated per-`OpGroup` functions would keep the table declarative while making a row findable. Acceptance: `before::meter`'s public items and the `compile_fail,E0603` doctest at registry.rs:23-27 are unchanged; file motion only.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### tools-1 (low, documentation): roster: pending Finch's approval
+### tools-1 (low, documentation): roster: approved (ruling 104)
 
 ci.yml restates memwatch's per-process cap as a number that has rotted
 
@@ -230,9 +230,9 @@ ci.yml restates memwatch's per-process cap as a number that has rotted
 
 Resolution: drop the figure and name the variable ("its per-process cap, `PROC_LIMIT_GB` in tools/memwatch, sits well above ..."). Acceptance: `grep -n GiB .github/workflows/ci.yml` is empty.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### tools-11 (low, verification): roster: pending Finch's approval
+### tools-11 (low, verification): roster: approved (ruling 104)
 
 benchjudge's self-test is fifty bare asserts that `python3 -O` strips
 
@@ -240,9 +240,9 @@ benchjudge's self-test is fifty bare asserts that `python3 -O` strips
 
 Resolution: open `self_test` with `if sys.flags.optimize: raise SystemExit("benchjudge --self-test needs asserts; run without -O")`, or convert the asserts to explicit `if not ...: raise AssertionError(...)` as the sibling tools do; same one-liner for citecheck:805. Acceptance: `PYTHONOPTIMIZE=1 python3 tools/benchjudge --self-test` exits nonzero.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### tools-15 (low, verification): roster: pending Finch's approval
+### tools-15 (low, verification): roster: approved (ruling 104)
 
 covcheck validates only the disposition: a `why`-less or extra-keyed entry passes and a missing `anchor` tracebacks
 
@@ -250,9 +250,9 @@ covcheck validates only the disposition: a `why`-less or extra-keyed entry passe
 
 Resolution: validate each entry's key set as exactly {anchor, disposition, why} plus optional {offset}, with anchor and why nonempty strings and offset an int, reporting violations as problems; add self-test cases for a missing why, an extra key, and a missing anchor. Acceptance: `{"anchor": "...", "disposition": "unreachable"}` fails by name; the committed file still passes.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### tools-18 (low, simplification): roster: pending Finch's approval
+### tools-18 (low, simplification): roster: approved (ruling 104)
 
 covcheck-expected.json carries an empty `place/filter.rs` branch key, the residue of a cured remediation entry
 
@@ -260,9 +260,9 @@ covcheck-expected.json carries an empty `place/filter.rs` branch key, the residu
 
 Resolution: delete the key; if file presence is the intended pin, it belongs in covcheck as the scope-wide rule of tools-16, not in one empty row. Acceptance: the branch map has no empty lists and `just coverage-kernel-branch` is unaffected.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### tools-2 (low, documentation): roster: pending Finch's approval
+### tools-2 (low, documentation): roster: approved (ruling 104)
 
 The validation index omits citecheck, covcheck, and mutantcheck
 
@@ -270,9 +270,9 @@ The validation index omits citecheck, covcheck, and mutantcheck
 
 Resolution: add one row each under the semantic instruments (citecheck, covcheck, mutantcheck), naming the recipe and the roster file; consider rows for surfacecheck and the wasm32 pins in the same pass. Acceptance: `grep -n 'citecheck\|covcheck\|mutantcheck' crates/before/src/testing/validation_index.rs` returns one row each.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### tools-23 (low, verification): roster: pending Finch's approval
+### tools-23 (low, verification): roster: approved (ruling 104)
 
 fuelscape-claims has no liveness floor and no self-test
 
@@ -280,9 +280,9 @@ fuelscape-claims has no liveness floor and no self-test
 
 Resolution: fail when `index.ops.length === 0` or when any `doc.op.claim`/`sizes` is missing, naming the file; add `--self-test` asserting `Fuelscape.accepts` refuses a syntax error and the `log n` at n=1 case and accepts a linear claim; run the self-test first in the recipe like the other tools. Acceptance: `{"ops": []}` exits 1 naming the floor; `tools/fuelscape-claims --self-test` fails when `accepts` is stubbed to `() => ({})`; the committed index still passes with its count printed.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### tools-26 (low, verification): roster: pending Finch's approval
+### tools-26 (low, verification): roster: approved (ruling 104)
 
 memwatch's kill path has no committed demonstration
 
@@ -290,9 +290,9 @@ memwatch's kill path has no committed demonstration
 
 Resolution: add a `--self-test` that runs memwatch with a tiny `PROC_LIMIT_GB` around a child whose command matches the filter (a copied `python3` named `rustc-selftest`, or a script) that allocates past the limit, asserting the `KILL pid` note and a nonzero exit; and a second case where the child is named outside the filter and survives; run it at the head of one recipe; degrade explicitly (skip with a message) where `ps -o rss` differs. Acceptance: both cases pass on macOS; the construction below fails the self-test. Construction: swap the fields at line 109 to `print rss[p], p`: every recipe still passes, and pid numbers are compared against `lim_kib`, so the next runaway is never killed.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### tools-30 (low, verification): roster: pending Finch's approval
+### tools-30 (low, verification): roster: approved (ruling 104)
 
 readme's crate roster is hand-maintained with no totality check, and `image_refs` is never exercised by the self-test
 
@@ -300,9 +300,9 @@ readme's crate roster is hand-maintained with no totality check, and `image_refs
 
 Resolution: derive the crate set from `cargo metadata --no-deps` packages whose README contains the markers, keeping only `image_refs` as per-crate data; or, minimally, assert in `check()` that the marker-bearing README set equals CRATES and fail by name. Add a self-test case for the comment-wrapped image reference. Acceptance: adding the markers to crates/before-viz/README.md with no roster change makes `just readme-check` derive it or fail naming it; `tools/readme self-test` has an `image_refs` case.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### tools-32 (low, simplification): roster: pending Finch's approval
+### tools-32 (low, simplification): roster: approved (ruling 104)
 
 workflowlint spells the interpreter roster twice
 
@@ -310,9 +310,9 @@ workflowlint spells the interpreter roster twice
 
 Resolution: build the alternation from the set (`"|".join(map(re.escape, sorted(INTERPRETERS)))` joined with the python form) and compile `SUBST_FETCH` from it. Acceptance: each interpreter name appears once in the file; a self-test case adds a name to the set and shows both the pipeline and substitution forms red.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### tools-9 (low, documentation): roster: pending Finch's approval
+### tools-9 (low, documentation): roster: approved (ruling 104)
 
 benchjudge cites code that no longer exists and narrates its own migration
 
@@ -320,9 +320,9 @@ benchjudge cites code that no longer exists and narrates its own migration
 
 Resolution: benchjudge:128-130: "This ceiling separates the divide-and-conquer class from the schoolbook (quadratic) class." Delete the sibling clause at 65-67 and in the JSON notes; at 29-30 write "at the general ceiling — the same convention"; at 857 and 864 name the attack ("a roster class cannot select a ceiling"; "a rostered red is still judged at its own ceiling"); reflow the orphaned short lines at 23 and 128. memwatch:4-8: state the invariant ("a codegen runaway fails the build with the crate named instead of wedging the machine") and leave the incident to git. Acceptance: `grep -rn 'wall-ratio\|expected-failure\|moved here\|review.s .*attack\|once made' tools/` is empty.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### clippy-pedantic-7 (nit, simplification): roster: pending Finch's approval
+### clippy-pedantic-7 (nit, simplification): roster: approved (ruling 104)
 
 A bundle of pedantic hits that are pure spelling improvements with no behavior change
 
@@ -330,9 +330,9 @@ Where: `crates/before/src/codec/base.rs:46-50`. Nit row (the full record is in `
 
 Resolution (nit row): One mechanical commit of the listed spellings (`is_ok_and`, `ilog2`, `&self`, elided lifetimes, digit separators)
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### deps-13 (nit, simplification): roster: pending Finch's approval
+### deps-13 (nit, simplification): roster: approved (ruling 104)
 
 before names one type two ways: `dashu_int::UBig` in codec, `suanpan::UBig` in meter and the query tests
 
@@ -340,9 +340,9 @@ Where: `crates/before/src/meter.rs:1660-1663`. Nit row (the full record is in `e
 
 Resolution (nit row): `use dashu_int::UBig;` in meter.rs and query/tests.rs
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### deps-14 (nit, simplification): roster: pending Finch's approval
+### deps-14 (nit, simplification): roster: approved (ruling 104)
 
 before-fuelscape carries a second bignum (num-bigint + num-traits) beside the dashu-int already in its graph
 
@@ -350,9 +350,9 @@ Where: `crates/before-fuelscape/Cargo.toml:42-45`. Nit row (the full record is i
 
 Resolution (nit row): Port count.rs and sample.rs to dashu-int's `rand` feature; hold the atlas byte-identical
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### gate-legs-12 (nit, documentation): roster: pending Finch's approval
+### gate-legs-12 (nit, documentation): roster: approved (ruling 104)
 
 `just --list` renders eight recipe descriptions as sentence fragments
 
@@ -360,9 +360,9 @@ Where: `justfile:2-3`. Nit row (the full record is in `evidence/`, under the par
 
 Resolution (nit row): Insert a blank line and a one-sentence doc comment above each of the eight recipes
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### inventory-11 (nit, simplification): roster: pending Finch's approval
+### inventory-11 (nit, simplification): roster: approved (ruling 104)
 
 Capacity hint spelled as an `expect` where the crate elsewhere degrades to zero
 
@@ -370,9 +370,9 @@ Where: `crates/before/src/version/rank.rs:838-843`. Nit row (the full record is 
 
 Resolution (nit row): `unwrap_or(0)` with the hint sentence
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### inventory-8 (nit, simplification): roster: pending Finch's approval
+### inventory-8 (nit, simplification): roster: approved (ruling 104)
 
 `#[allow(clippy::result_large_err)]` on `Clock::join_all` carries no local justification
 
@@ -380,9 +380,9 @@ Where: `crates/before/src/clock.rs:257`. Nit row (the full record is in `evidenc
 
 Resolution (nit row): Put the rationale at line 257
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### module-graph-10 (nit, simplification): roster: pending Finch's approval
+### module-graph-10 (nit, simplification): roster: approved (ruling 104)
 
 The production module cycles are facade/engine pairs; one (codec::display -> idbits) is the substrate reaching up
 
@@ -390,9 +390,9 @@ Where: `crates/before/src/codec/display.rs:1-3`. Nit row (the full record is in 
 
 Resolution (nit row): Consider moving `write_id` beside `idbits`; leave the five facade pairs
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### module-graph-12 (nit, simplification): roster: pending Finch's approval
+### module-graph-12 (nit, simplification): roster: approved (ruling 104)
 
 Redundant cfg on the exported law-roster macro inside an already-gated module
 
@@ -400,9 +400,9 @@ Where: `crates/before/src/laws.rs:107-109`. Nit row (the full record is in `evid
 
 Resolution (nit row): Drop the redundant cfg attribute
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### suite-economics-7 (nit, simplification): roster: pending Finch's approval
+### suite-economics-7 (nit, simplification): roster: approved (ruling 104)
 
 surface-scan test fixtures are written under the shared temp dir and never removed
 
@@ -410,9 +410,9 @@ Where: `crates/surface-scan/src/tests.rs:14-25`. Nit row (the full record is in 
 
 Resolution (nit row): `tempfile::tempdir()` from `fixture`
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### tools-10 (nit, simplification): roster: pending Finch's approval
+### tools-10 (nit, simplification): roster: approved (ruling 104)
 
 `checked_denominators` runs twice per judged cell (the call inside `fit_exponent` can never raise), and mutantcheck computes each pattern's listed and suppressed counts twice
 
@@ -420,9 +420,9 @@ Where: `tools/benchjudge:244-247`. Nit row (the full record is in `evidence/`, u
 
 Resolution (nit row): Drop the call at benchjudge:246 and say in `fit_exponent`'s docstring that the caller validated the pair; a `counts(rx, raw, filtered)` helper in mutantcheck
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### tools-21 (nit, simplification): roster: pending Finch's approval
+### tools-21 (nit, simplification): roster: approved (ruling 104)
 
 Two overlapping fixture suites (`summary_cases` 3-tuples and the named `cases` 4-tuples) drive `long_summaries`, pinning the crate-root exemption twice
 
@@ -430,9 +430,9 @@ Where: `tools/doclint:279-282`. Nit row (the full record is in `evidence/`, unde
 
 Resolution (nit row): Fold `summary_cases` into `cases` with names, one loop
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### tools-24 (nit, simplification): roster: pending Finch's approval
+### tools-24 (nit, simplification): roster: approved (ruling 104)
 
 One self-test expectation is a bare tuple, and the `isinstance` branch at 149-150 exists only to normalize it
 
@@ -440,9 +440,9 @@ Where: `tools/manifestlint:140-143`. Nit row (the full record is in `evidence/`,
 
 Resolution (nit row): Write the expectation as a one-element list; delete the branch
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### tools-27 (nit, documentation): roster: pending Finch's approval
+### tools-27 (nit, documentation): roster: approved (ruling 104)
 
 Two prose sites restate the pinned cargo-mutants release that `tool` in tools/mutantcheck-expected.json holds, and edits left docstring lines orphaned mid-clause (mutantcheck:19-20, benchjudge:23 and :128, justfile:308-309)
 
@@ -450,9 +450,9 @@ Where: `tools/mutantcheck:33-36`. Nit row (the full record is in `evidence/`, un
 
 Resolution (nit row): Name the pin file instead of the version at both sites; reflow the orphaned lines
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### tools-31 (nit, simplification): roster: pending Finch's approval
+### tools-31 (nit, simplification): roster: approved (ruling 104)
 
 House style varies per tool: self-test success announced by five and silent in three; `read_text`/`write_text` without an encoding at four sites; three defs without docstrings; argparse in four tools and hand-parsed argv in six
 
@@ -460,5 +460,5 @@ Where: `tools/testdoc:111-113`. Nit row (the full record is in `evidence/`, unde
 
 Resolution (nit row): One convention per axis: `<tool>: self-test ok`, `encoding="utf-8"` on every call, a docstring per def, one argv style
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 

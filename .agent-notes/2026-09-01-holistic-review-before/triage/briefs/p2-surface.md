@@ -272,7 +272,7 @@ two bytes and its rank to two, per the witness pass; the resolution's
 `== 1` is wrong). The provenance pin's doc names its denominator and
 scales. The proptest's shrunk seed, if one appears, is committed.
 
-### surface-roster-21 (low, correctness): roster: pending Finch's approval
+### surface-roster-21 (low, correctness): roster: approved (ruling 104)
 
 Resolution: retire the line scan (surface-roster-9), or state at tests/doc_hidden.rs (beside the roster) that a hidden inherent `pub fn` in a `SURFACE_SOURCES` file cannot satisfy both totality checks and is therefore not a shape the crate admits. Acceptance: the prose exists, or only one extractor remains.
 Construction: add `#[doc(hidden)] pub fn probe(&self) {}` inside `impl Party` in src/party.rs. `roster_is_total_over_the_public_fn_surface` fails naming `Party::probe` as unrostered; add the row, and `just surface-totality` fails naming `Party::probe` as orphaned.
@@ -283,7 +283,7 @@ parser (ruling 47) the question becomes whether the parser reports hidden
 items, which one policy at `tests/doc_hidden.rs` settles. Lands with
 step 1 if approved.
 
-### surface-roster-29 (low, correctness): roster: pending Finch's approval
+### surface-roster-29 (low, correctness): roster: approved (ruling 104)
 
 Resolution: track the previous character and do not count a `>` preceded by `-` as a close (or skip `->` as a unit); add a fixture `impl<F: FnMut() -> u8> Thing<F> {\n    pub fn poke(&self) {}\n}` extracting as `Thing::poke`. Acceptance: the fixture is red on the current parser (it yields `u8::poke`) and green after.
 Construction: the fixture above with `spec(None)`: `extract_public_fns` returns `{"u8::poke"}`.
@@ -292,7 +292,7 @@ Roster note: the `->` arrow mis-parsed as a closing angle bracket;
 dissolved by the parser (ruling 47), whose fixtures include the entry's
 `impl<F: FnMut() -> u8> Thing<F>`. Lands with step 1 if approved.
 
-### crate-root-17 (low, claim): roster: pending Finch's approval
+### crate-root-17 (low, claim): roster: approved (ruling 104)
 
 Resolution: "so each input passes through `O(log k)` combines, each pairing two groups holding equally many inputs; because the groups at any counter level partition the inputs, one level's combines cost `O(D)` in total packed size and the whole fold `O(D log k)`." Acceptance: the cost argument mentions input-count balance and per-level partition only; no claim about operand packed-size ratio remains.
 Construction: Two inputs, a one-leaf version and `Shape::Dense.packed1(125_000)`: `balanced_reduce` performs exactly one combine whose operands differ in packed size by about five orders of magnitude, contradicting the "bounded factor" clause while the `O(D log k)` bound holds trivially at `k = 2`.
@@ -301,7 +301,7 @@ Roster note: `fold.rs` states an operand-size balance the counter
 does not provide; the cost argument is restated on input-count balance
 and per-level partition. Prose toward the code; lands if approved.
 
-### paper-fidelity-5 (low, claim): roster: pending Finch's approval
+### paper-fidelity-5 (low, claim): roster: approved (ruling 104)
 
 Resolution: replace the partner-ratio clause with the per-input participation bound, and state (or cite) the output-size bound the roster contracts rest on. Acceptance: the paragraph's every clause is true under the crate's byte-size denomination, and the `log k` contract's two premises are both stated.
 
@@ -309,7 +309,7 @@ Roster note: the same `fold.rs` paragraph's partner-size clause,
 false in the byte-size denomination; one change with crate-root-17 if
 approved.
 
-### skyline-coding-2 (low, claim): roster: pending Finch's approval
+### skyline-coding-2 (low, claim): roster: approved (ruling 104)
 
 Resolution: reword skyline.rs:119-121 to encode.rs:14-15's bound ("transient state is one `Base` per open subtree, bounded by the packed input's depth and magnitudes"), or make the transcoder push the node's base rather than the running sum so the stack holds Θ(input) bits and the sentence becomes true. Acceptance: the two docs state the same bound; if the delta-stack rewrite lands, the length-agreement and round-trip tests in skyline/tests.rs stay green.
 Construction: under `limb-meter`, transcode `Shape::Bigroot.packed2(b, d)` for (b, d) = (2048, 2048) and (4096, 4096) and read `meter::limb_ops()` per input bit; the per-bit cost roughly doubles where a stream-priced walk would stay flat.
@@ -317,35 +317,35 @@ Construction: under `limb-meter`, transcode `Shape::Bigroot.packed2(b, d)` for (
 Roster note: the transcoder cost sentence overstates on Bigroot;
 reword to `encode.rs`'s bound (the first option). Lands if approved.
 
-### skyline-coding-16 (nit, claim): roster: pending Finch's approval
+### skyline-coding-16 (nit, claim): roster: approved (ruling 104)
 
 Resolution: "a bounded number of reallocations, never correctness", or derive the output bound (each elementary interval's code is at most the wider input code at that boundary plus a constant) and size the capacity to it. Acceptance: the comment states only what is argued.
 
 Roster note: "costing one reallocation" is unargued; state "a bounded
 number of reallocations". Lands if approved.
 
-### skyline-sweep-place-masked-14 (nit, claim): roster: pending Finch's approval
+### skyline-sweep-place-masked-14 (nit, claim): roster: approved (ruling 104)
 
 Resolution: write the comparison in bits scanned ("|v| + |s| + |e| bits against the composition's 2|v| + |s| + |e|") and keep one O() for the order. Acceptance: no O() expression in the partition carries a numeric constant.
 
 Roster note: a numeric constant inside big-O; write the comparison in
 bits scanned. Lands if approved.
 
-### version-core-23 (low, claim): roster: pending Finch's approval
+### version-core-23 (low, claim): roster: approved (ruling 104)
 
 Resolution: write `Sum` as `O(N + k)` for `k` summands, "amortized: each carry clears bits an earlier summand set", or define `N` as `Σ(1 + ‖nᵢ‖)`. Acceptance: the stated `Sum` bound is nonzero for every nonempty iterator and names its amortization.
 
 Roster note: `Ticks`' `Sum` bound omits the per-summand term; write
 `O(N + k)` with the amortization named. Lands if approved.
 
-### codec-bits-27 (nit, claim): roster: pending Finch's approval
+### codec-bits-27 (nit, claim): roster: approved (ruling 104)
 
 Resolution: "`push`, `pop`, `last`, and `set_last` are O(1); the run scans (`trailing_ones`, `all_set`) are priced where they are declared." Acceptance: the type doc names no operation as O(1) that is not.
 
 Roster note: `BitStack`'s doc claims every operation is O(1); the run
 scans are priced where declared. Lands if approved.
 
-### codec-bits-10 (nit, claim): roster: pending Finch's approval
+### codec-bits-10 (nit, claim): roster: approved (ruling 104)
 
 Resolution: State what the code does ("a request that does not fit `usize` allocates nothing up front; callers pass hints bounded by their operands' live lengths"), or clamp the hint if the no-op semantics are wanted. Acceptance: both sentences match the code's behavior on both target widths.
 
@@ -353,21 +353,21 @@ Roster note: `with_capacity`'s "allocates nothing up front" holds
 only where `usize::try_from` fails; state what the code does. Lands if
 approved.
 
-### suanpan-4 (low, claim): roster: pending Finch's approval
+### suanpan-4 (low, claim): roster: approved (ruling 104)
 
 Resolution: at both sites, "a nonzero partial decides within one step over a zero digit, so a fold never walks into a certified run while carrying value". Acceptance: both sentences mention the zero digit. Construction (a witness worth adding to witnesses.rs if the small-partial descent is not already pinned): build digits `[1 at index k, -(2^32 - 1) at each of k-1..1]` via `sub_magnitude_shl` for `i in 1..k` then `add_magnitude_shl(&UBig::ONE, 32 * k)`; `sign()` descends k digits with partial exactly 1 at every step, deciding only at digit 0; every step is over a nonzero digit, refuting the clause, and no certified run is entered, so the conclusion stands.
 
 Roster note: "a nonzero partial decides within one step" is false in
 general; both sites say "over a zero digit". Lands if approved.
 
-### rank-23 (nit, claim): roster: pending Finch's approval
+### rank-23 (nit, claim): roster: approved (ruling 104)
 
 Resolution: "held to the real backend from above by the wasm32 boundary pins: a decode one fraction group past the capacity succeeds, which it could not if the ceiling routed that width to the backend (the pins assert values, not arms; the lower side is not load-bearing)". Acceptance: the sentence claims only what a pin observes.
 
 Roster note: the module doc attributes arm placement to pins that
 assert values only; claim only what a pin observes. Lands if approved.
 
-### crate-root-6 (low, claim): roster: pending Finch's approval
+### crate-root-6 (low, claim): roster: approved (ruling 104)
 
 Resolution: Give the widget data a short denominator phrase beside `size_measure` (or derive one from its first clause) and interpolate it into the summary and noscript strings; this is the same change the note's open item 4 wants for the x-axis caption, done once for all three readers. Acceptance: the rendered summary for `rank_add` names the versions' packed bytes and for `party_fromstr` the value's packed bytes; the constant phrase no longer appears in build.rs.
 Construction: Open the rendered docs for `Rank::add` with JavaScript disabled: the noscript text reads "in total input bytes" while the dataset's x-axis is the packed bytes of two versions the ranks were derived from.

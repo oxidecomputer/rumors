@@ -8,7 +8,7 @@ Every claimed improvement moves a committed reading, measured at the parent, and
 
 ## Roster summary
 
-28 ruled (4 medium, 17 low, 7 nit); 0 medium awaiting ruling; 0 pending roster approval ().
+28 ruled (4 medium, 17 low, 7 nit); 0 medium ruled (93 to 103); 0 roster members approved (ruling 104) ().
 
 ## Ground rules
 

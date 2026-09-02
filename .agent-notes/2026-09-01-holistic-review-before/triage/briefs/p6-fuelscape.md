@@ -6,13 +6,13 @@
 
 The fuelscape pipeline's and renderer's entries, landed per their Resolutions inside an approved roster, under ruling 89 (decision 66: the grid pin's mechanism, the typesetting gate, the accretion writer, the overlay derived from the board, the size-axis classification; `build.rs` stays) and ruling 90 (the probe trace keeps its smooth and aligns the rest to it). Any change to a rendered `before` panel beyond those two ruled ones is a stop.
 
-## Awaiting individual ruling
+## Rulings on this lane's mediums
 
-The coordinator is walking these mediums with Finch; nothing below lands for them until the ruling is appended here: fuelscape-render-18, fuelscape-render-19.
+Every medium in this lane is ruled (rulings 93 to 103): fuelscape-render-18, fuelscape-render-19. The decisions stand beside each entry under Members.
 
 ## Roster summary
 
-6 ruled (4 medium, 2 low); 2 medium awaiting ruling; 34 pending roster approval (16 low, 18 nit).
+6 ruled (4 medium, 2 low); 2 medium ruled (93 to 103); 34 roster members approved (ruling 104) (16 low, 18 nit).
 
 ## Ground rules
 
@@ -110,7 +110,7 @@ never relax them.
 
 ## Ordering
 
-Every P6 lane runs after the P1 to P5 and P7 lanes that touch its files have landed on main, or rebases onto them before its final gate run; the coordinator names the base SHA at launch. Lows and nits inside this lane's approved roster are swept without a question to Finch; every high and medium has, or awaits, an individual ruling. A change that would alter a rendered `before` doc panel is a stop (ruling 89). Follows `p1-fuzz` (fuelscape-pipeline-23's perturbed twins), `p2-surface` (the guest-exported arity cap, the surface row shape), and `p7-api` (ruling 85's `rank_display` re-pin). The fuelscape survey that regenerates the committed datasets after the overlay change is hours long and is the coordinator's run: report the code change and the local verification, leave the regeneration to the coordinator. Owns `crates/before-fuelscape/**`, `crates/before/docs/**`, `crates/before/build.rs`.
+Every P6 lane runs after the P1 to P5 and P7 lanes that touch its files have landed on main, or rebases onto them before its final gate run; the coordinator names the base SHA at launch. Lows and nits inside this lane's approved roster are swept without a question to Finch; every high and medium has an individual ruling. A change that would alter a rendered `before` doc panel is a stop (ruling 89). Follows `p1-fuzz` (fuelscape-pipeline-23's perturbed twins), `p2-surface` (the guest-exported arity cap, the surface row shape), and `p7-api` (ruling 85's `rank_display` re-pin). The fuelscape survey that regenerates the committed datasets after the overlay change is hours long and is the coordinator's run: report the code change and the local verification, leave the regeneration to the coordinator. Owns `crates/before-fuelscape/**`, `crates/before/docs/**`, `crates/before/build.rs`.
 
 ## Members
 
@@ -176,11 +176,11 @@ Ruled (90). Finch's words on rendering: any change to before's rendered docs is 
 
 Ledger note: smooth kept; handle, readout, guide aligned to it
 
-## Mediums awaiting individual ruling
+## Mediums ruled 93 to 103
 
-Listed with their Resolution so the lane knows the files they touch; not landed until ruled.
+Each medium below now carries its ruling and any amendment beside its quoted Resolution; land per the ruling.
 
-### fuelscape-render-18 (medium, simplification): awaiting individual ruling
+### fuelscape-render-18 (medium, simplification): ruling 95
 
 A panel pool of width 1: scoped threads, an atomic cursor, and two mutexes wrap a sequential loop
 
@@ -188,9 +188,9 @@ A panel pool of width 1: scoped threads, an atomic cursor, and two mutexes wrap 
 
 Resolution: replace the pool with `for (i, op) in selected.iter().enumerate()` holding `writer` and `rendered` directly (no mutexes, no slots, no cursor), delete the constant, and rewrite lines 37-41 and 206-211 for sequential panels whose samples fan out on rayon; or, if 1 is a measured tuning outcome the owner wants to keep as a parameter, record the measured reason at the constant. Acceptance: either `std::thread::scope`, `AtomicUsize`, and both `Mutex`es are gone from `main` with the smoke and dump pins unchanged and the gallery in roster order, or the constant's doc names why 1 and the module doc no longer describes overlap that cannot occur.
 
-Awaiting individual ruling: the coordinator is walking the P6 mediums with Finch now. Do not land this entry and do not choose among its alternatives; when the ruling arrives it is appended to this brief by the coordinator.
+Ruled (95): Replace the width-1 pool with a plain sequential loop holding the writer and results directly; delete the constant; rewrite the two comments. The keep-the-pool alternative is struck. No rendering change. See ../rulings.md.
 
-### fuelscape-render-19 (medium, verification): awaiting individual ruling
+### fuelscape-render-19 (medium, verification): ruling 95
 
 Measurement provenance is stamped unchecked and accepted as any string
 
@@ -198,13 +198,13 @@ Measurement provenance is stamped unchecked and accepted as any string
 
 Resolution: (1) in the `fuelscape` recipe, refuse to run a `--dump` survey when `git diff --quiet HEAD -- crates/before crates/suanpan` fails (or stamp `git describe --always --dirty --abbrev=40` so a dirty tree is visible); (2) make `--dump` refuse to run without `FUELSCAPE_TIP` instead of writing `untracked` (ad-hoc renders may keep the fallback); (3) require the commit to be exactly 40 lowercase hex characters in `compact::validate` and in `build.rs`'s loop, so neither `untracked` nor `<sha>-dirty` can reach the committed dataset. Acceptance: a `--dump` run without `FUELSCAPE_TIP` exits nonzero naming the variable; a tamper line in compact/tests.rs setting `doc["meta"]["commit"] = "untracked"` is rejected naming the check; the same edit to a committed `crates/before/fuelscape/<op>.json` fails `cargo build -p before` naming the file. Construction: `FUZZFIT_GUEST_WASM=... cargo run --bin fuelscape -- --dump --max-bytes 2 --samples 1 --out <tmp> version_tick` without `FUELSCAPE_TIP`, then `--compact-from <tmp> --out <tmp2>`: the written `version_tick.json` carries `"commit":"untracked"` and passes build.rs's checks verbatim. Or edit one committed document's `meta.commit` to `"untracked"` and run `cargo build -p before`: it succeeds.
 
-Awaiting individual ruling: the coordinator is walking the P6 mediums with Finch now. Do not land this entry and do not choose among its alternatives; when the ruling arrives it is appended to this brief by the coordinator.
+Ruled (95): Bind the stamp: the survey refuses a dirty tree under `crates/before` or `crates/suanpan` (or stamps `--dirty` visibly); `--dump` refuses without the tip variable; compact's validator and `build.rs` require exactly forty lowercase hex characters. See ../rulings.md.
 
-## Roster members pending Finch's approval
+## Roster members approved (ruling 104)
 
-Lows and nits no ruling has reached, placed here by the files they touch. Land only after the coordinator confirms the roster is approved.
+Lows and nits approved as this lane's roster by ruling 104. Land each per its quoted Resolution and Acceptance, swept with the ruled members; report rather than choose if a Resolution conflicts with a ruling or offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89).
 
-### fuelscape-pipeline-11 (low, simplification): roster: pending Finch's approval
+### fuelscape-pipeline-11 (low, simplification): roster: approved (ruling 104)
 
 split_sum's hand-written parallel/sequential branch, its reference twin, and the 2048-bit pin dissolve into rayon's with_min_len
 
@@ -212,9 +212,9 @@ split_sum's hand-written parallel/sequential branch, its reference twin, and the
 
 Resolution: One chain over `*splits.start()..*splits.end() + 1` (a `Range<usize>`, which rayon indexes): `.into_par_iter().with_min_len(PAR_SPLIT_THRESHOLD).map(|a| &subtree[a] * &subtree[pair_sum - a]).sum::<BigUint>()`. Delete `split_sum_sequential`, both `build_sequential`, the `sum:` parameter of `build_with`, and `parallel_build_matches_sequential_reference`; restate the threshold doc as the `with_min_len` floor (rayon's splitter stops splitting when a half would fall below it, so the sequential regime is roughly twice the constant; the doc already calls the exact cut low-stakes). Acceptance: count.rs holds one convolution expression; count/tests.rs retains the enumeration and decoder pins; `just fuelscape-test` passes and its wall time drops by the four 2048-entry builds.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### fuelscape-pipeline-12 (low, simplification): roster: pending Finch's approval
+### fuelscape-pipeline-12 (low, simplification): roster: approved (ruling 104)
 
 VersionCounts and PartyCounts, and the two samplers, duplicate every method but the recurrence
 
@@ -222,9 +222,9 @@ VersionCounts and PartyCounts, and the two samplers, duplicate every method but 
 
 Resolution: One `Counts<G: Grammar>` with the shared methods, a `Grammar` trait with one method (`fn entry(j: usize, subtree: &[BigUint]) -> BigUint`) and two unit types holding the recurrences; `VersionCounts = Counts<VersionGrammar>` and `PartyCounts = Counts<PartyGrammar>` keep the typed distinction the refutation notes. Behavior-preserving. Acceptance: count/tests.rs passes with constructor names unchanged; both recurrences read in one screen.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### fuelscape-pipeline-15 (low, documentation): roster: pending Finch's approval
+### fuelscape-pipeline-15 (low, documentation): roster: approved (ruling 104)
 
 The census literals' claimed independent derivation is not in the tree
 
@@ -232,9 +232,9 @@ The census literals' claimed independent derivation is not in the tree
 
 Resolution: Re-state the doc against what the tree holds: the literals are the committed canonical-stream counts per bit length; the enumeration must reproduce them; the decoder census below re-derives the same numbers from the shipping parser, and this pin alone survives a coordinated change to both, so a canonical-form change edits these integers deliberately. Drop the reference to the out-of-tree program (or commit it as a test if its independence is wanted live). Acceptance: the doc comment names no derivation the tree does not contain and states the tamper-evidence role; the array is unchanged.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### fuelscape-pipeline-24 (low, simplification): roster: pending Finch's approval
+### fuelscape-pipeline-24 (low, simplification): roster: approved (ruling 104)
 
 slice_overlays dispatches on operation-name strings with a runtime panic as its only totality check
 
@@ -242,9 +242,9 @@ slice_overlays dispatches on operation-name strings with a runtime panic as its 
 
 Resolution: Move the slice-family choice into the roster (`Inputs::VersionSlice(SliceFamilies)`, `VersionSliceCapped(u32, SliceFamilies)`), delete the name match, and keep the signature-keyed table for fixed-arity rows (a function of the signature). Keep the `other => panic!` at 385 only with a comment naming the smoke test as its check. Acceptance: no `match name` on string literals remains in families.rs; adding a slice row without choosing its families is a compile error.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### fuelscape-pipeline-29 (low, documentation): roster: pending Finch's approval
+### fuelscape-pipeline-29 (low, documentation): roster: approved (ruling 104)
 
 Constants restated as literals in stamped size-measure strings and overlay labels
 
@@ -252,9 +252,9 @@ Constants restated as literals in stamped size-measure strings and overlay label
 
 Resolution: Build the stamped strings from the constants (`const_format::formatcp!`, a dependency in keeping with the crate's preference for libraries over hand-rolling) or assemble them at compaction time from `OpSpec` fields; label the party-fold overlays with `format!("... (k={PARTY_FOLD_OVERLAY_SHARES})")`. Failing that, one unit test in ops/tests.rs asserting each such string contains its constant formatted. Acceptance: changing `COMBINE_ARITY_CAP`, `FORKS_SHARES`, `TICKS_COUNT`, or `PARTY_FOLD_OVERLAY_SHARES` either needs no prose edit or fails a test.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### fuelscape-pipeline-4 (low, simplification): roster: pending Finch's approval
+### fuelscape-pipeline-4 (low, simplification): roster: approved (ruling 104)
 
 draw_inputs copies the member-draw closure seven times; the two slice arms differ by one expression
 
@@ -262,9 +262,9 @@ draw_inputs copies the member-draw closure seven times; the two slice arms diffe
 
 Resolution: Two helpers, `draw_version(samplers, n, rng, &mut rejected) -> Vec<u8>` and `draw_party(samplers, n, rng) -> Vec<u8>`, owning the two `expect` proofs; `draw_packed` and every arm call them. Match `Inputs::VersionSlice | Inputs::VersionSliceCapped(_)` in one arm with `let cap = match op.inputs { Inputs::VersionSliceCapped(c) => size.min(c as usize), _ => size }`, or give `VersionSlice` an `Option<u32>` cap. Acceptance: `run_op_is_deterministic_and_ordered` and the smoke test pass unchanged (the draw order is preserved); each `expect` string appears once in plan.rs.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### fuelscape-pipeline-5 (low, verification): roster: pending Finch's approval
+### fuelscape-pipeline-5 (low, verification): roster: approved (ruling 104)
 
 The determinism test says its op list walks every input space; VersionSliceCapped has no replay pin
 
@@ -272,9 +272,9 @@ The determinism test says its op list walks every input space; VersionSliceCappe
 
 Resolution: Add `"shape_combine"` to the list and name the capped draw in the doc; better, derive the list from `ROSTER` by picking the first row per `Inputs` variant through a `match` with no wildcard arm, so a new variant is a compile error and the doc can say "one row per `Inputs` variant". Acceptance: every `Inputs` variant has a row in the replay; adding a variant without one fails to compile (derived) or the doc no longer says "every".
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### fuelscape-pipeline-7 (low, verification): roster: pending Finch's approval
+### fuelscape-pipeline-7 (low, verification): roster: approved (ruling 104)
 
 The chi-square statistic is written three times; plan/tests.rs hardcodes the threshold sample/tests.rs derives
 
@@ -282,9 +282,9 @@ The chi-square statistic is written three times; plan/tests.rs hardcodes the thr
 
 Resolution: A `#[cfg(test)]` helper module (`src/testing.rs`) with `chi_square(observed: &[u64], expected: f64) -> f64`, `chi_square_threshold(categories) -> f64`, and `assert_uniform(observed, label)`; the two sampler pins, the arity pin, and the split pin proposed in fuelscape-pipeline-9 call it. Acceptance: the literal `32.0` is gone from plan/tests.rs and one chi-square implementation exists in the crate.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### fuelscape-pipeline-8 (low, verification): roster: pending Finch's approval
+### fuelscape-pipeline-8 (low, verification): roster: approved (ruling 104)
 
 fold_rows_expose_the_arity_axis_in_fuel asserts a sign with no margin, on a tuple sort that biases toward passing
 
@@ -292,9 +292,9 @@ fold_rows_expose_the_arity_axis_in_fuel asserts a sign with no margin, on a tupl
 
 Resolution: Sort by arity alone with a stable sort (`sort_by_key(|&(arity, _)| arity)`) and require a relationship with margin that costs no fuel threshold: a Spearman rank correlation between arity and fuel across the column at or above a stated bound, or the mean of the top-arity third exceeding the bottom-arity third by a factor the fold's `log k` model predicts. Commit the known-bad demonstration beside it. Acceptance: passing a constant arity to `op.measure` at plan.rs:394 while leaving `CellSample.arity` as drawn fails the test deterministically at the committed seed for both fold rows. Construction: At plan.rs:394 replace `(op.measure)(&mut guest, &inputs, arity)` with `(op.measure)(&mut guest, &inputs, 4)` for the `PartyShares` row (for `clock_join_all`, whose measure ignores the argument, fix the drawn clock count instead). Fuel is then independent of the recorded arity; sorting by `(arity, fuel)` and splitting at the median yields two means whose order depends only on which party bytes landed in which half at seed 0x5eed.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### fuelscape-pipeline-9 (low, verification): roster: pending Finch's approval
+### fuelscape-pipeline-9 (low, verification): roster: approved (ruling 104)
 
 split_budget is pinned for reachability where the module doc claims exact uniformity, and the suite's own argument says reachability cannot pin uniformity
 
@@ -302,9 +302,9 @@ split_budget is pinned for reachability where the module doc claims exact unifor
 
 Resolution: Replace the reachability test with a one-sided chi-square over the ten compositions of (6, 3) at 2000 draws (expected 200 each; threshold `chi_square_threshold(10)` = 9 + 6 * sqrt(18), about 34.5, the sampler pins' idiom), which subsumes reachability (an unreached composition alone contributes 200). Acceptance: green on the current `split_budget`, red on either known-bad split below, at the committed seed. Construction: Known-bad A (stick-breaking): first part `gen_range(1..=total - parts + 1)`, recurse on the remainder; for (6, 3), P((4,1,1)) = 1/4 and P((1,1,4)) = 1/16 against the uniform 1/10; every composition is reachable, sum and positivity hold, and the chi-square over 2000 draws reads in the hundreds. Known-bad B (collision nudge): draw `parts - 1` cuts in `1..total` with replacement, sort, and move each duplicate to the next unused position; for (6, 3) the compositions with adjacent cuts carry 3/25 each and the rest 2/25, all reachable, statistic about 84.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### fuelscape-render-12 (low, simplification): roster: pending Finch's approval
+### fuelscape-render-12 (low, simplification): roster: approved (ruling 104)
 
 `compact.rs` and `dump.rs` carry one reader and one writer twice
 
@@ -312,9 +312,9 @@ Roster note: lands only once the coordinator confirms this lane's roster is appr
 
 Resolution: extract one generic dataset layer in `dump.rs` (or a sibling module): a `read` parameterized by the banner constants and the payload type with a per-document `validate` callback, and the matching writer; `dump` passes the grid check, `compact` passes `validate`; both keep their own constants and payload types. Acceptance: one reader body in the crate; `compact::read` and `dump::read` are thin calls; every existing compact and dump test passes unchanged.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### fuelscape-render-14 (low, verification): roster: pending Finch's approval
+### fuelscape-render-14 (low, verification): roster: approved (ruling 104)
 
 The tamper test's doc undercounts its cases, and several enumerated rejections in both readers have no known-bad demonstration
 
@@ -322,9 +322,9 @@ The tamper test's doc undercounts its cases, and several enumerated rejections i
 
 Resolution: rewrite the doc as the family ("each structural rejection the module doc enumerates that a single-field edit can reach is alive") and let the `tamper` calls be the list; add the missing cases (`doc["op"]["extra"] = 1` expecting "unknown field"; `doc["op"]["op_name"] = "other"` expecting "index claims"; `doc["op"]["cols"] = []` expecting "one histogram per size column"; `doc["op"]["sizes"] = []` expecting "empty"; `doc["op"]["cols"][0]["c"] = []` expecting "empty"; through the index file, `ops: []`); lift the closure into dump/tests.rs for the dump reader's banner, run-parameter, name, empty-samples, and unknown-field checks. Acceptance: every `malformed(...)`/`reject(...)` site in `dump::read` and `compact::validate`/`read` is reached by a tamper case whose assertion names it; commenting out any one rejection branch turns a test red; neither test doc enumerates by hand. Construction: comment out dump.rs:225-233 (the op-name check) and run the fuelscape suite: nothing fails today; the proposed `doc["op"]["op_name"] = "other"` case would.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### fuelscape-render-29 (low, documentation): roster: pending Finch's approval
+### fuelscape-render-29 (low, documentation): roster: approved (ruling 104)
 
 `build.rs`'s module doc describes one of its two jobs and denies a duplication the script deliberately carries
 
@@ -332,9 +332,9 @@ Roster note: lands only once the coordinator confirms this lane's roster is appr
 
 Resolution: open the doc with both responsibilities and add a second inputs/outputs paragraph naming the three figure paths (or split the figure job into `mod figure;` with its own doc); reword the sentence to "holds no binning or statistical constant; the format banners and version are the one deliberate duplication, spelled on both sides of the package boundary"; hoist `const FORMAT_VERSION: u64 = 3;` and the two banner strings so the check and its message read one constant; and either add build.rs's overlay-positivity check or state at 280-282 which of the compactor's checks are deliberately not repeated. Acceptance: the module doc names every file build.rs reads and writes; no bare `3`/"v3" in `check_banner`; the doc names the duplicated identifiers.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### fuelscape-render-30 (low, verification): roster: pending Finch's approval
+### fuelscape-render-30 (low, verification): roster: approved (ruling 104)
 
 `build.rs` reads two figure files it does not declare in `rerun-if-changed`, so the README-figure freshness check is dormant under incremental builds
 
@@ -342,9 +342,9 @@ Roster note: lands only once the coordinator confirms this lane's roster is appr
 
 Resolution: add `println!("cargo:rerun-if-changed=results/space_consumption/itc_space_consumption.svg");` and `println!("cargo:rerun-if-changed=docs/itc_space_consumption_readme.svg");` beside the existing four (the second may sit next to the env-changed line in `check_readme_figure_fresh` for locality). Acceptance: after a warm `cargo build -p before`, append a byte to `docs/itc_space_consumption_readme.svg` and build again: the script reruns (visible with `-vv`) and fails with "is stale relative to results/space_consumption". Construction: warm build of `before`; edit a color in `results/space_consumption/itc_space_consumption.svg` (in a scratch copy of the repo); `cargo build -p before -vv` shows `Fresh before` with no build-script run and no staleness panic; `cargo clean -p before` then fails with the stale-figure message.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### fuelscape-render-5 (low, documentation): roster: pending Finch's approval
+### fuelscape-render-5 (low, documentation): roster: approved (ruling 104)
 
 Unanchored design-system vocabulary in the palette constants
 
@@ -352,9 +352,9 @@ Unanchored design-system vocabulary in the palette constants
 
 Resolution: state the checkable property in plain terms ("orange, chosen to stay distinguishable from the ramp's blue under common color-vision deficiencies"; "a 6% inset leaves a visible gap between adjacent occupied bins so cells stay countable"), or drop the qualifiers. Acceptance: the three phrases are gone and each color constant's doc names a checkable property or none.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### module-graph-7 (low, documentation): roster: pending Finch's approval
+### module-graph-7 (low, documentation): roster: approved (ruling 104)
 
 before-fuelscape depends on suanpan directly on a claim that `before` exposes no touch reader; `before::meter::touch_ops` exists
 
@@ -362,9 +362,9 @@ before-fuelscape depends on suanpan directly on a claim that `before` exposes no
 
 Resolution: In spanbands.rs read `meter::reset_touch_ops()` and `meter::touch_ops()`, then drop the `suanpan` dependency and its comment (the detached workspace's lockfile updates with it); if the owner prefers the direct read, correct the comment to the actual reason. Acceptance: fuelscape's manifest has no `suanpan` line, or its comment states a true reason.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### fuelscape-pipeline-10 (nit, documentation): roster: pending Finch's approval
+### fuelscape-pipeline-10 (nit, documentation): roster: approved (ruling 104)
 
 The count module says every count is pinned two independent ways; the version table reaches the decoder only through the enumeration
 
@@ -372,9 +372,9 @@ Where: `crates/before-fuelscape/src/count.rs:31-35`. Nit row (the full record is
 
 Resolution (nit row): "Every count is pinned against the grammar enumeration; the party table is also pinned directly against `Party::decode`'s accept census ...
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### fuelscape-pipeline-16 (nit, simplification): roster: pending Finch's approval
+### fuelscape-pipeline-16 (nit, simplification): roster: approved (ruling 104)
 
 enumerate is a pub module with only test callers, and party_subtrees returns a documented tuple beside a named struct
 
@@ -382,9 +382,9 @@ Where: `crates/before-fuelscape/src/enumerate.rs:120`. Nit row (the full record 
 
 Resolution (nit row): `#[cfg(test)] pub mod enumerate;`; a `PartyMember` struct
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### fuelscape-pipeline-17 (nit, documentation): roster: pending Finch's approval
+### fuelscape-pipeline-17 (nit, documentation): roster: approved (ruling 104)
 
 Two small doc inaccuracies: "zero pad" for the marker padding; EXHAUSTIVE_BYTES credits the wrong companion pin
 
@@ -392,9 +392,9 @@ Where: `crates/before-fuelscape/src/sample.rs:178-179`. Nit row (the full record
 
 Resolution (nit row): "before the marker padding" at sample.rs:178 and 376; at sample/tests.rs:14-16 name count/tests.rs's decoder census (23 bits) as the companion that ca ...
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### fuelscape-pipeline-18 (nit, simplification): roster: pending Finch's approval
+### fuelscape-pipeline-18 (nit, simplification): roster: approved (ruling 104)
 
 The zero-leaf exclusion is spelled through version_leaf_count at a corner argument; the two samplers differ in assert strength; a dead .max(1)
 
@@ -402,9 +402,9 @@ Where: `crates/before-fuelscape/src/sample.rs:289-290`. Nit row (the full record
 
 Resolution (nit row): One `excluded_two_bit_leaf` helper; one assert strength; drop `.max(1)`
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### fuelscape-pipeline-20 (nit, simplification): roster: pending Finch's approval
+### fuelscape-pipeline-20 (nit, simplification): roster: approved (ruling 104)
 
 Two exhaustive byte-string sweeps of the decoders, in two modules, with two bound constants
 
@@ -412,9 +412,9 @@ Where: `crates/before-fuelscape/src/sample/tests.rs:40-61`. Nit row (the full re
 
 Resolution (nit row): One parallel `accepted_byte_strings(len)` helper; one bound constant
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### fuelscape-pipeline-22 (nit, simplification): roster: pending Finch's approval
+### fuelscape-pipeline-22 (nit, simplification): roster: approved (ruling 104)
 
 ramp's 1 << 20 guard contradicts its comment and names what it catches nowhere
 
@@ -422,9 +422,9 @@ Where: `crates/before-fuelscape/src/families.rs:58-60`. Nit row (the full record
 
 Resolution (nit row): `const MAX_RAMP_KNOB` with the failure it catches
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### fuelscape-pipeline-25 (nit, documentation): roster: pending Finch's approval
+### fuelscape-pipeline-25 (nit, documentation): roster: approved (ruling 104)
 
 "adding an operation is one OpSpec entry" names one step of the chain a new row requires
 
@@ -432,9 +432,9 @@ Where: `crates/before-fuelscape/src/ops.rs:4-5`. Nit row (the full record is in 
 
 Resolution (nit row): Replace the clause with a short "adding a row" list naming the kernel, the overlay arm (or its signature match), the re-measure and compact re-pin ...
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### fuelscape-pipeline-26 (nit, documentation): roster: pending Finch's approval
+### fuelscape-pipeline-26 (nit, documentation): roster: approved (ruling 104)
 
 "constant dispatch overhead, identical for every sample" is one register move per operand on the fold rows
 
@@ -442,9 +442,9 @@ Where: `crates/before-fuelscape/src/ops.rs:9-12`. Nit row (the full record is in
 
 Resolution (nit row): "plus the guest's dispatch overhead: constant for the fixed-signature rows, one register move per operand for the folds"
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### fuelscape-pipeline-31 (nit, documentation): roster: pending Finch's approval
+### fuelscape-pipeline-31 (nit, documentation): roster: approved (ruling 104)
 
 Exemption reasons cite panels in unchecked prose; the Ticks entry names "min_ticks", a panel that is not a roster name
 
@@ -452,9 +452,9 @@ Where: `crates/before-fuelscape/src/ops.rs:2354-2358`. Nit row (the full record 
 
 Resolution (nit row): Write `version_min_ticks` at 2357. If the panel references are worth enforcing, structure the exemptions as `Exemption::NoSizeAxis(&str)` and `Exempti ...
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### fuelscape-pipeline-6 (nit, verification): roster: pending Finch's approval
+### fuelscape-pipeline-6 (nit, verification): roster: approved (ruling 104)
 
 `arity_draw_reaches_every_count` is subsumed by the chi-square pin, and the known-bad draw it cites (statistic 723.2) exists only in prose.
 
@@ -462,9 +462,9 @@ Where: `crates/before-fuelscape/src/plan/tests.rs:153-178`. Nit row (the full re
 
 Resolution (nit row): Delete the reachability test; build the biased draw in the uniformity test and assert its statistic exceeds the threshold.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### fuelscape-render-11 (nit, documentation): roster: pending Finch's approval
+### fuelscape-render-11 (nit, documentation): roster: approved (ruling 104)
 
 nit: `expect` messages that name a hope, not the proof
 
@@ -472,9 +472,9 @@ Where: `crates/before-fuelscape/src/compact.rs:208-212`. Nit row (the full recor
 
 Resolution (nit row): "hi >= k0: max and min of the same nonempty list" and "k >= k0 by construction"
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### fuelscape-render-16 (nit, documentation): roster: pending Finch's approval
+### fuelscape-render-16 (nit, documentation): roster: approved (ruling 104)
 
 nit: `write_atomic`'s crash claim outruns its mechanism
 
@@ -482,9 +482,9 @@ Where: `crates/before-fuelscape/src/dump.rs:168-175`. Nit row (the full record i
 
 Resolution (nit row): narrow the doc to "a dying process" (matching dump.rs:16-18), or add `File::create` + `write_all` + `sync_all` before the rename (or use `tempfile::Na ...
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### fuelscape-render-2 (nit, simplification): roster: pending Finch's approval
+### fuelscape-render-2 (nit, simplification): roster: approved (ruling 104)
 
 nit: long qualified paths at use sites, and a `use` block split by the allocator static
 
@@ -492,9 +492,9 @@ Where: `crates/before-fuelscape/src/render.rs:137-138`. Nit row (the full record
 
 Resolution (nit row): Import at file top; one contiguous `use` block
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### fuelscape-render-20 (nit, simplification): roster: pending Finch's approval
+### fuelscape-render-20 (nit, simplification): roster: approved (ruling 104)
 
 nit: stringly-typed table callback with a catch-all arm; allocator rationale duplicated with the manifest
 
@@ -502,9 +502,9 @@ Where: `crates/before-fuelscape/src/bin/fuelscape.rs:180-187`. Nit row (the full
 
 Resolution (nit row): A `Table` enum for the callback; one allocator rationale
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### fuelscape-render-24 (nit, simplification): roster: pending Finch's approval
+### fuelscape-render-24 (nit, simplification): roster: approved (ruling 104)
 
 nit: the pointer-to-viewBox conversion, the quantile-step handler, and the guide-tip scan are each written twice
 
@@ -512,9 +512,9 @@ Where: `crates/before/docs/fuelscape.js:568-569`. Nit row (the full record is in
 
 Resolution (nit row): `svgPoint(e)`; route the slider through `quantKey`; derive `tip` from `vals`
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### fuelscape-render-28 (nit, simplification): roster: pending Finch's approval
+### fuelscape-render-28 (nit, simplification): roster: approved (ruling 104)
 
 nit: one sans-serif font stack spelled five times where the stylesheet already uses a token
 
@@ -522,9 +522,9 @@ Where: `crates/before/docs/fuelscape.css:54`. Nit row (the full record is in `ev
 
 Resolution (nit row): Add `--fs-sans` beside `--fs-mono`
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### fuelscape-render-32 (nit, documentation): roster: pending Finch's approval
+### fuelscape-render-32 (nit, documentation): roster: approved (ruling 104)
 
 nit: `fuelscape-claims` describes an acceptance rule the widget does not implement
 
@@ -532,9 +532,9 @@ Where: `tools/fuelscape-claims:36-38`. Nit row (the full record is in `evidence/
 
 Resolution (nit row): replace both passages with the rule by name: "the rule is `Fuelscape.accepts`: every measured size must give >= 1 after the smallest constant argument ...
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### fuelscape-render-4 (nit, simplification): roster: pending Finch's approval
+### fuelscape-render-4 (nit, simplification): roster: approved (ruling 104)
 
 nit: dead defaults and clamps in `aggregate` and the reference curves, palette hex repeated in the gallery CSS, and consequential drops with no comment
 
@@ -542,5 +542,5 @@ Where: `crates/before-fuelscape/src/render.rs:226-239`. Nit row (the full record
 
 Resolution (nit row): Drop the dead defaults and clamps; derive gallery colors from the constants; comment the drops
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 

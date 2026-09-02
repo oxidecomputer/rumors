@@ -328,39 +328,39 @@ Ruled (79, decision 78): the tool is deleted; this entry's gate-role question is
 
 Ledger note: tool deleted
 
-## Roster members pending Finch's approval
+## Roster members approved (ruling 104)
 
-Lows and nits no ruling has reached, placed here by the files they touch and the kind of dissolution. Land only after the coordinator confirms the roster is approved.
+Lows and nits approved as this lane's roster by ruling 104, placed here by the files they touch and the kind of dissolution. Land each per its quoted Resolution and Acceptance, swept with the ruled members; report rather than choose if a Resolution conflicts with a ruling or offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89).
 
-### fuelscape-pipeline-13 (low, simplification): roster: pending Finch's approval
+### fuelscape-pipeline-13 (low, simplification): roster: approved (ruling 104)
 
 Dead accessors: counts() on both samplers, max_bits() on both tables, BitSink::len and is_empty
 
 Resolution: Delete the six methods. If a plan-time feasibility check is intended (a plan whose span exceeds the table), write it and keep `counts()` with that caller. Acceptance: `cargo check` in crates/before-fuelscape is clean with the methods removed.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names and the retirement discipline. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names and the retirement discipline. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### fuelscape-render-26 (low, simplification): roster: pending Finch's approval
+### fuelscape-render-26 (low, simplification): roster: approved (ruling 104)
 
 `__FS_NO_ANIM` and the `Fuelscape.parse` export have no consumer
 
 Resolution: delete the `noAnim` branch (keeping the `prefers-reduced-motion` path) and the `parse` export; or land the DOM or node test that uses them and cite it at the hook. Acceptance: grep for `__FS_NO_ANIM` across the tree returns nothing or returns a test; `Fuelscape`'s exports are exactly what tools/fuelscape-claims and the page use.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names and the retirement discipline. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names and the retirement discipline. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### fuzz-guests-pins-19 (low, simplification): roster: pending Finch's approval
+### fuzz-guests-pins-19 (low, simplification): roster: approved (ruling 104)
 
 `ff_reset` has no caller
 
 Resolution: Delete it. Acceptance: `grep -rn ff_reset crates` returns nothing.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names and the retirement discipline. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names and the retirement discipline. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### fuzzfit-bands-18 (low, simplification): roster: pending Finch's approval
+### fuzzfit-bands-18 (low, simplification): roster: approved (ruling 104)
 
 Generated data and hand-written prose share one file, which is what the splice marker, the column-zero template, and the duplicated rustdoc exist to manage
 
 Resolution: Keep the constant declarations and their rustdoc in `bands.rs` and have calibrate emit only the array bodies and the rustc literal into data files (`src/bands/pinned_bands.rs`, `pinned_small_bands.rs`, `pinned_refit_coverage.rs`, `pinned_rustc.rs`, each `include!`d as an expression, since `include!` cannot carry item docs), plus the `PIN_EVIDENCE` value from finding 2. The marker search, its expect, the column-zero literal, the template prose, and the whole-file rewrite of a hand-edited file all dissolve; calibrate's row rendering becomes one `fn` over `Band`. Acceptance: calibrate writes no file containing `///` lines; `bands.rs` is never rewritten by a tool; `just fuzzfit-calibrate` on unchanged code yields no diff; `just fuzzfit`'s fmt and clippy legs stay clean.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names and the retirement discipline. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names and the retirement discipline. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 

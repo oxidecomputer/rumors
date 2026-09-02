@@ -368,7 +368,7 @@ committed test drives each public shape iterator over a depth-100k structure.
 Ruled (37): as stated; a depth-100k drive of each public shape
 iterator with item counts asserted against their closed forms.
 
-### envelopes-b-20 (low, claim): roster: pending Finch's approval
+### envelopes-b-20 (low, claim): roster: approved (ruling 104)
 
 Resolution: for the `/8` floors, restate the premise so it yields the constant (for example: every consumed code costs at least one touch, a code spans at most eight input bytes per touch it costs, and the payload is the whole input) or lower the constant to what the stated premises support (`input / 64`); for the per-byte rank floors, derive them per family from the code structure (leaf count plus the wide codes' digit counts) or relabel them as measured-basis tripwires. Acceptance: each floor's doc reproduces its constant from its premises; a hand computation of PP(500, 500)'s irreducible touches is at or above its asserted floor.
 Construction: not a runtime failure today. Demonstration for the composition: `(input / 8) / 8 = input / 64`. For the rank floor, a settle that delegates the whole wide × dense product to the backend and touches each of x's ~500 digits once plus ~500 leaf folds reads roughly 1,000-2,000 touches on a ~4.6 KB PP(500, 500) operand and trips `touches >= bytes` at 5720 while being strictly cheaper.
@@ -379,7 +379,7 @@ premises or the constant drops to what the premises support, and the
 per-byte rank floors derive per family or are relabeled measured-basis
 tripwires. Lands with the row work if Finch approves the roster.
 
-### envelopes-b-28 (nit, correctness): roster: pending Finch's approval
+### envelopes-b-28 (nit, correctness): roster: approved (ruling 104)
 
 Resolution: rewrite as `fused < met + joined + cmp` and print all four readings (or assert `fused >= cmp` first with its own message). Acceptance: no bare `-` between counter readings in the range.
 Construction: any hypothetical `span` fast path that skips the classifying `partial_cmp` yields `fused` below `cmp`'s early-exiting prefix; the current line panics on overflow before reaching the assertion.
@@ -388,7 +388,7 @@ Roster note: an unchecked counter subtraction that panics on overflow
 before its assertion; rewritten as `fused < met + joined + cmp` with all
 four readings printed. Lands if approved.
 
-### version-core-1 (nit, claim): roster: pending Finch's approval
+### version-core-1 (nit, claim): roster: approved (ruling 104)
 
 Resolution: one test-only assertion, `assert!(Version::new().view().ptr_eq(Version::new().view()))`, with the `Party::seed()` twin; or drop the parenthetical and let the `static` speak for itself. Acceptance: a committed test reads red when `EMPTY_STREAM` becomes a `const`, or the comment no longer claims cross-call sharing.
 
@@ -396,7 +396,7 @@ Roster note: a cross-call clone-identity claim with no pin; one
 test-only `ptr_eq` assertion for `Version::new()` and the `Party::seed()`
 twin, or the parenthetical dropped. Lands if approved.
 
-### board-families-floors-judge-14 (low, claim): roster: pending Finch's approval
+### board-families-floors-judge-14 (low, claim): roster: approved (ruling 104)
 
 Resolution: Drop the universal clause and state the conditional ("positive wherever either operand stores a nonzero delta; a delta-free pair such as the single-leaf hugeleaf column declares NA"), or, if every pair family is meant to carry a live touch floor, pin it with a test over `FamilyId::board()`'s version pairs and give hugeleaf a counterpart that stores a delta. Acceptance: the doc asserts no property of every committed family, or a committed test iterating the board's version pairs asserts `touch_pair_fold` is `Liveness::Floor` on each and passes.
 Construction: Build the hugeleaf bundle (`FamilyData::build(FamilyId::Hugeleaf, 1.0, 0)`), decode `version` and `version2`, and assert `matches!(touch_pair_fold(&v, &w), Liveness::NotApplicable { .. })`: it holds today, contradicting the sentence.
@@ -407,7 +407,7 @@ sentence becomes conditional or a committed test over the board's version
 pairs asserts the floor on each and hugeleaf gains a delta-storing
 counterpart. Lands with the board-family work if approved; say which.
 
-### board-ops-render-31 (nit, correctness): roster: pending Finch's approval
+### board-ops-render-31 (nit, correctness): roster: approved (ruling 104)
 
 Resolution: `assert!(input_bytes > 0, "a board cell charges against at least one byte")` in the three `Cell` constructors (or in `measure` before the fit); optionally `debug_assert!(!slope.is_nan())` at the end of `trend`. Acceptance: a unit test constructing a `Sample` pair with `exp_denom_bytes: 0` through `evaluate` panics at the guard rather than returning a green cell.
 

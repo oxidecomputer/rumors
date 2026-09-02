@@ -6,13 +6,13 @@
 
 The registry's and tier2's entries, landed per their Resolutions inside an approved roster, under ruling 43 (typed references; the rosters made drift-proof and idiomatic: this lane is where that direction bites hardest), 61, 78 (no `decided` dates), 79 (the tier2 prose and formula), and 88.
 
-## Awaiting individual ruling
+## Rulings on this lane's mediums
 
-The coordinator is walking these mediums with Finch; nothing below lands for them until the ruling is appended here: meter-registry-tier2-16.
+Every medium in this lane is ruled (rulings 93 to 103): meter-registry-tier2-16. The decisions stand beside each entry under Members.
 
 ## Roster summary
 
-0 ruled (); 1 medium awaiting ruling; 7 pending roster approval (2 low, 5 nit).
+0 ruled (); 1 medium ruled (93 to 103); 7 roster members approved (ruling 104) (2 low, 5 nit).
 
 ## Ground rules
 
@@ -110,13 +110,13 @@ never relax them.
 
 ## Ordering
 
-Every P6 lane runs after the P1 to P5 and P7 lanes that touch its files have landed on main, or rebases onto them before its final gate run; the coordinator names the base SHA at launch. Lows and nits inside this lane's approved roster are swept without a question to Finch; every high and medium has, or awaits, an individual ruling. A change that would alter a rendered `before` doc panel is a stop (ruling 89). Follows `p2-surface` (meter-registry-tier2-10), `p4-rosters`, `p5-buffers`. Owns `src/meter/{registry,tier2}.rs` and their tests.
+Every P6 lane runs after the P1 to P5 and P7 lanes that touch its files have landed on main, or rebases onto them before its final gate run; the coordinator names the base SHA at launch. Lows and nits inside this lane's approved roster are swept without a question to Finch; every high and medium has an individual ruling. A change that would alter a rendered `before` doc panel is a stop (ruling 89). Follows `p2-surface` (meter-registry-tier2-10), `p4-rosters`, `p5-buffers`. Owns `src/meter/{registry,tier2}.rs` and their tests.
 
-## Mediums awaiting individual ruling
+## Mediums ruled 93 to 103
 
-Listed with their Resolution so the lane knows the files they touch; not landed until ruled.
+Each medium below now carries its ruling and any amendment beside its quoted Resolution; land per the ruling.
 
-### meter-registry-tier2-16 (medium, simplification): awaiting individual ruling
+### meter-registry-tier2-16 (medium, simplification): ruling 97
 
 The 1-Lipschitz coding pin is implied pointwise by the subadditivity pin over the same emitters and populations; its leaf clause asserts a count, not containment
 
@@ -124,13 +124,13 @@ The 1-Lipschitz coding pin is implied pointwise by the subadditivity pin over th
 
 Resolution: move the leaf clause into `check_subadditive` and state it as what it is (a leaf-count bound; or check containment by comparing boundary positions through the oracle's dyadic intervals if containment is the claim the board's denomination rests on); rename the merged helper to state both clauses; delete `JOIN_MEET_BOUNDARY_SLACK_BITS`, its derivation, `check_join_meet_lipschitz`, and the four Lipschitz tests; carry the Lipschitz grid's larger operands (dense(512), bigroot(200, 100), hugeleaf(500), cliff_comb(64, 64)) into `adversarial_crosses_hold_subadditivity`; move the sentence "the statement the board's input denomination of the packed-output mutators rests on" onto the subadditivity constant's doc; re-point cell.rs:72-75 and this file's module doc (1-3) to the subadditivity pin; fix the two emitter docs. Acceptance: one coding-lemma helper and one constant; four fewer tests; `grep -n Lipschitz crates/before/src` finds no referent in meter or board; the leaf clause survives inside the merged check and its doc matches its assertion. Construction: dominance needs no run. To confirm the moved leaf clause is live, weaken it to `<=` in a scratch build and observe `empty_pair_is_the_subadditivity_equality_case`'s operands (1 + 1 leaves, output 1 leaf) still pass while `so.leaves == sa.leaves + sb.leaves - 1` cases distinguish `<` from `<=`; restore.
 
-Awaiting individual ruling: the coordinator is walking the P6 mediums with Finch now. Do not land this entry and do not choose among its alternatives; when the ruling arrives it is appended to this brief by the coordinator.
+Ruled (97): Fold the leaf clause into the subadditivity check as a leaf-count bound; delete the Lipschitz helper, its constant, and its four tests; carry its larger operands into the subadditivity grid; re-point the two docs. The containment-check alternative is struck. See ../rulings.md.
 
-## Roster members pending Finch's approval
+## Roster members approved (ruling 104)
 
-Lows and nits no ruling has reached, placed here by the files they touch. Land only after the coordinator confirms the roster is approved.
+Lows and nits approved as this lane's roster by ruling 104. Land each per its quoted Resolution and Acceptance, swept with the ruled members; report rather than choose if a Resolution conflicts with a ruling or offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89).
 
-### meter-registry-tier2-15 (low, simplification): roster: pending Finch's approval
+### meter-registry-tier2-15 (low, simplification): roster: approved (ruling 104)
 
 The sizer suite builds shapes through the raw generators, bypassing the registry door
 
@@ -138,9 +138,9 @@ The sizer suite builds shapes through the raw generators, bypassing the registry
 
 Resolution: route both suites through `Shape` (`Shape::Dense.packed1(512)`, `Shape::Bigroot.packed2(200, 100)`, `Shape::Hugeleaf.packed1(500)`, `Shape::CliffComb.packed2(64, 64)`, and so on), after which registry.rs:14-15 is exactly true; or name the child suites in the registry doc as the sanctioned exception. Acceptance: no generator name is imported into tier2/tests.rs or board/tests.rs, or the registry doc names them.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### meter-registry-tier2-21 (low, documentation): roster: pending Finch's approval
+### meter-registry-tier2-21 (low, documentation): roster: approved (ruling 104)
 
 `grid_version::build` recurses on depth outside the `recurse.rs` inventory of test-local recursive witnesses
 
@@ -148,9 +148,9 @@ Roster note: lands only once the coordinator confirms this lane's roster is appr
 
 Resolution: build the grid iteratively by pairing bottom-up (which removes the recursion and the inventory question), or route the two recursive calls through `descend!` and add the site to recurse.rs's inventory with the bounded-depth note. Acceptance: recurse.rs's inventory names every test-local recursive fn, or `build` is iterative.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### meter-registry-tier2-18 (nit, verification): roster: pending Finch's approval
+### meter-registry-tier2-18 (nit, verification): roster: approved (ruling 104)
 
 The tier-2 ratio-floor loop divides two closed-form literals already asserted; no measured quantity enters.
 
@@ -158,9 +158,9 @@ Where: `crates/before/src/meter/tier2/tests.rs:213-220`. Nit row (the full recor
 
 Resolution (nit row): Delete the loop and the three hand-computed ratios.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### meter-registry-tier2-2 (nit, documentation): roster: pending Finch's approval
+### meter-registry-tier2-2 (nit, documentation): roster: approved (ruling 104)
 
 The module doc calls the band-to-family link compiler-checked; the compiler checks only band-to-Shape
 
@@ -168,9 +168,9 @@ Where: `crates/before/src/meter/registry.rs:46-50`. Nit row (the full record is 
 
 Resolution (nit row): reword to "the band-to-shape link is a compiler-checked construction site; the band-to-family link is the spec's `Bands` roster ...
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### meter-registry-tier2-20 (nit, verification): roster: pending Finch's approval
+### meter-registry-tier2-20 (nit, verification): roster: approved (ruling 104)
 
 The plain-sweep witness's `>= 1.8` floor is underived and sits 0.04 above the deterministic 1.841 reading; `closing` is built inside the metered region.
 
@@ -178,9 +178,9 @@ Where: `crates/before/src/meter/tier2/tests.rs:261-268`. Nit row (the full recor
 
 Resolution (nit row): State or compute the expected ratio; hoist `closing` above the reset.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### meter-registry-tier2-4 (nit, documentation): roster: pending Finch's approval
+### meter-registry-tier2-4 (nit, documentation): roster: approved (ruling 104)
 
 Shape notation letters collide: B, F, W, A each name two shapes
 
@@ -188,9 +188,9 @@ Where: `crates/before/src/meter/registry.rs:100-174`. Nit row (the full record i
 
 Resolution (nit row): give the later coinages distinct abbreviations (the two-letter style the newer families already use: `MB`, `MF`, `DR` ...
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### meter-registry-tier2-5 (nit, documentation): roster: pending Finch's approval
+### meter-registry-tier2-5 (nit, documentation): roster: approved (ruling 104)
 
 `wrong_door` points at the variant doc instead of naming the accessor; the door argument is stated twice
 
@@ -198,5 +198,5 @@ Where: `crates/before/src/meter/registry.rs:384-386`. Nit row (the full record i
 
 Resolution (nit row): give `Builder` an `fn accessor(&self) -> &'static str` and have `wrong_door` print "{self:?} builds through {right}, not {called}" ...
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 

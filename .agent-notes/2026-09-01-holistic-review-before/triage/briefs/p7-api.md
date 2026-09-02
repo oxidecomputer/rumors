@@ -142,6 +142,7 @@ never relax them.
   once the typed checker exists; this lane only reports any `rumors`
   public rustdoc that cites a `before` law name as a rumors-ledger
   finding (never edit `rumors` prose for it).
+- Ruling 94's suanpan API change lands in this lane after `p8-performance`'s rank-22 (see the section below Hazards).
 - This lane owns: `src/{clock,party}.rs` and `src/{clock,party}/forks.rs`,
   `src/iter.rs`, `src/version/{ticks,rank,ranked}.rs`, `src/span.rs` and
   `span/wire.rs`, `src/shape.rs`, `src/error.rs`, `src/serde_impls.rs`
@@ -150,6 +151,14 @@ never relax them.
   `Ceiling`, and `Query` docs, `src/laws.rs` (the pair law),
   `tests/forks_max.rs`, `crates/suanpan/src/{limbs,accumulator}.rs`,
   and `crates/before/Cargo.toml`.
+
+## suanpan drops dashu (ruling 94; no finding id)
+
+Finch's words: "Does suanpan need dashu? I am wondering if we can simplify things here along the way."
+
+Inside suanpan `UBig` is only a boundary type, never arithmetic: inputs arrive as a word view (`Limbs::new` reads `as_words`; `Magnitude::to_word` is the word-fit dispatch) and readouts leave as a `UBig` built from bytes (`sign_magnitude`, `sign_magnitude_shl`, `magnitude_from_digits`). Ruling 94: suanpan's public API takes limb slices and returns limb vectors (or a small magnitude newtype); the `Magnitude` trait stays generic and `before` implements it for `Base`; `before` converts at the seam at the linear cost it pays today (its `Signed::from_sign_magnitude` callers build the `UBig` from the limbs); `dashu-int` leaves suanpan's manifest; the `UBig` re-export and the `Magnitude for UBig` rows leave suanpan's claims roster. `before` keeps dashu for multiplication in the rank integrator, `Base`'s decimal conversion, and the codecs' bit operations.
+
+An owner-directed suanpan public API change, named as such in its commit. Order: after ruling 90's limbs-only `Num` (`p8-performance`, rank-22) so `Num` never round-trips through `UBig`; before `p6-suanpan`. Acceptance: `grep -rn dashu crates/suanpan` returns nothing; suanpan's tests and `before`'s pass unchanged; every touch pin holds (ceilings, ruling 88).
 
 ## Hazards and stops
 
@@ -507,11 +516,11 @@ Resolution: either state under `Span::at`'s `# Complexity` that the coincident s
 
 Ruled (87, decision 18): the coincident span's single-comparison cost stated at `Span::at` and the verdict methods.
 
-## Roster members pending Finch's approval
+## Roster members approved (ruling 104)
 
-Nits no ruling has reached, placed here because they touch the API surface or its docs. Land only after the coordinator confirms the roster is approved.
+Nits approved as this lane's roster by ruling 104, placed here because they touch the API surface or its docs. Land each per its quoted Resolution and Acceptance, swept with the ruled members; report rather than choose if a Resolution conflicts with a ruling or offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89).
 
-### api-audit-5 (nit, documentation): roster: pending Finch's approval
+### api-audit-5 (nit, documentation): roster: approved (ruling 104)
 
 iter module doc has an unclosed code span; the Clock::forks link text carries a literal backtick
 
@@ -519,17 +528,17 @@ Where: `crates/before/src/iter.rs:9-10`. Nit row (the full record is in `evidenc
 
 Resolution (nit row): add the missing backtick
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or touches a public signature the rulings did not name.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or touches a public signature the rulings did not name.
 
-### codec-bits-11 (nit, api): roster: pending Finch's approval
+### codec-bits-11 (nit, api): roster: approved (ruling 104)
 
 BitsBuf::get panics where BitsView::get returns Option
 
 Resolution: Rename `BitsBuf::get` to `bit` (callers: literal.rs:44, buf.rs internals, test files). Acceptance: both storage forms spell the asserting read `bit` and the bounded read `get`.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or touches a public signature the rulings did not name.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or touches a public signature the rulings did not name.
 
-### fresh-eyes-11 (nit, documentation): roster: pending Finch's approval
+### fresh-eyes-11 (nit, documentation): roster: approved (ruling 104)
 
 Typos and wrong link targets in public rustdoc
 
@@ -537,15 +546,15 @@ Where: `crates/before/src/version.rs:603-604`. Nit row (the full record is in `e
 
 Resolution (nit row): version.rs:603 link to `Version::span`; forms.rs:232 `t` for `e`, forms.rs:234 `after(s) & until(t)`; clock.rs:341 "iteratively" ...
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or touches a public signature the rulings did not name.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or touches a public signature the rulings did not name.
 
-### fuelscape-pipeline-14 (nit, api): roster: pending Finch's approval
+### fuelscape-pipeline-14 (nit, api): roster: approved (ruling 104)
 
 Preconditions unstated where the arithmetic relies on them: bit_window(0), sample_bytes past the table, ClockSlice at one byte
 
 Resolution: `assert!(bytes >= 1, "a packed encoding has at least one byte")` at the head of `bit_window`; have `sample_bytes` return the draw directly with a `# Panics` section stating `1 <= bytes <= span` (or check the span and make that the `None`), removing the seven `.expect` sites in plan.rs; at plan.rs:316 either assert `size >= 2` naming the `ClockSlice` minimum or route the cap through `Inputs::min_bytes`. Also use the `RangeInclusive` import already at count.rs:41 in the return type. Acceptance: no `.expect` on `sample_bytes` remains in plan.rs; `bit_window(0, _)` panics with the named message in both profiles.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or touches a public signature the rulings did not name.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or touches a public signature the rulings did not name.
 
 ## Held members
 

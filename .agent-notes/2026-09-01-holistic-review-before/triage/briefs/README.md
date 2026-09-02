@@ -17,16 +17,7 @@ Acceptance verbatim from the class documents and names the ruling that
 governs each, with any amendment stated beside the quote. A lane agent
 reads only its brief; the brief carries the ground rules in full.
 
-Rulings 1 to 92 have individually ruled every high and medium in the P1
-to P5, P7, and P8 lanes; the P6 mediums without a ruling are marked
-"awaiting individual ruling" in their briefs while the coordinator walks
-them with Finch, and nothing lands for them until the ruling is appended. Lows and nits inside a roster are swept per their entries under the
-same rulings; members marked "roster: pending Finch's approval" are lows
-and nits no ruling has reached yet, placed here so the roster can be
-approved as a block (rumors precedent T28) and struck by exception. A lane
-agent lands a pending member only once the coordinator confirms the
-roster is approved, and reports a low or nit whose stated resolution
-conflicts with a ruling or a sibling entry rather than choosing.
+Rulings 1 to 103 have individually ruled every high and medium in every lane, P6 included; each P6 brief's former "awaiting individual ruling" entries now carry their ruling (93 to 103) and any amendment beside the quoted Resolution. Ruling 104 approved every lane roster of lows and nits: members marked "roster: approved (ruling 104)" land per their entries, swept with the ruled members, and a lane agent reports rather than chooses when a Resolution conflicts with a ruling, offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89). Ruling 98 dissolves the surface roster's citations in favor of coverage totality; `p6-surface.md` carries that regime and re-reads its rows under it. Ruling 94 (suanpan drops dashu) is in `p7-api.md`; ruling 93's headline tightening is `p2-cures.md`'s final commit.
 
 Two ground rules are new since the first draft and stand in every P6 and
 P8 brief (the first in every brief):
@@ -90,7 +81,7 @@ are liveness floors derived from a mechanism's irreducible work.
   lane**, so `fuzzfit/harness/src/bands.rs` has one owner and the rank
   band's pin comes from the lane's single calibration run.
 - **The six pattern-placed P1 lows and nits with no ruling** are placed
-  as pending roster members: board-families-floors-judge-19 and
+  as roster members (approved, ruling 104): board-families-floors-judge-19 and
   board-frame-23 in the board lane; meter-adequacy-9 in the gate lane
   (its wasm-guest clause coordinated with the fuzz lane);
   meter-adequacy-10 and skyline-sweep-place-masked-4 in the suites lane;
@@ -161,7 +152,7 @@ sequences them (ruling 5).
 - **`memo.rs` is edited by both `p2-widths` (ruling 33) and `p2-cures`
   (ruling 2).** The widening lands first; the memo-heap representation
   rebases onto it.
-- **The pending P2 lows and nits** are placed by the files they touch:
+- **The P2 lows and nits** (roster approved, ruling 104) are placed by the files they touch:
   rows and judge entries in `p2-rows` (envelopes-b-20, envelopes-b-28,
   version-core-1, board-families-floors-judge-14, board-ops-render-31);
   width and production-correctness entries in `p2-widths` (clock-17 and
@@ -204,15 +195,15 @@ Based on `10cdd255` (the commit recording ruling 78; the tree outside
 `.agent-notes/` is still byte-identical to `9e5784fb`). Rulings 52 to 77
 govern them. Each carries its ruled members with the ruling's choice
 stated beside the quoted Resolution, then the P3 or P4 lows and nits no
-ruling has reached as a roster pending Finch's approval, placed by the
+ruling had reached as a roster, approved by ruling 104, placed by the
 files they touch.
 
 | Brief | Rulings | Members | Touches | Size |
 |---|---|---|---|---|
-| `p3-vocabulary.md` | 52, 53, 54, 55, 56, 57 | 27 ruled, 62 pending (3 medium, 37 low, 49 nit) | prose in nearly every file of `crates/before/src`, `tools/`, the detached workspaces; `Cargo.toml` editions; `results/benchmarks` | large, mechanical |
-| `p4-ghosts.md` | 58, 59, 60, 66, 68, 69, 70, 71, 72 (prose), 73, 74 (prose) | 47 ruled, 105 pending (5 high, 21 medium, 84 low, 42 nit) | rustdoc and comments across the crate, `tests/meter.rs` header and row docs, `crates/before/AGENTS.md`, `examples/`, `tools/citecheck`, `fuzzfit/harness/src/bands.rs` docs, the fuelscape render docs | large |
-| `p4-structure.md` | 72 (operand walk), 74 (idbits helpers), 75, 76, 77 | 13 ruled, 22 pending (13 medium, 16 low, 6 nit) | `src/meter/board/{operand,defect}.rs`, the fill walks, `place.rs`, `filter.rs`, `overlay.rs`, `admit.rs`, `shape.rs`, `validate.rs`, `watermark.rs`, `span/algebra.rs`, `idbits.rs`, the party ops, `fuzz/framing.rs`, `tests/fuzz_seeds.rs` | large |
-| `p4-rosters.md` | 61, 62, 63, 64, 65, 67 | 29 ruled, 25 pending (5 medium, 43 low, 6 nit) | `src/meter/board/**`, `registry.rs`, the validation index, the guard sites, `Cargo.toml` features, the relocated test files, `tools/doclint` | medium |
+| `p3-vocabulary.md` | 52, 53, 54, 55, 56, 57 | 27 ruled, 62 roster approved by ruling 104 (3 medium, 37 low, 49 nit) | prose in nearly every file of `crates/before/src`, `tools/`, the detached workspaces; `Cargo.toml` editions; `results/benchmarks` | large, mechanical |
+| `p4-ghosts.md` | 58, 59, 60, 66, 68, 69, 70, 71, 72 (prose), 73, 74 (prose) | 47 ruled, 105 roster approved by ruling 104 (5 high, 21 medium, 84 low, 42 nit) | rustdoc and comments across the crate, `tests/meter.rs` header and row docs, `crates/before/AGENTS.md`, `examples/`, `tools/citecheck`, `fuzzfit/harness/src/bands.rs` docs, the fuelscape render docs | large |
+| `p4-structure.md` | 72 (operand walk), 74 (idbits helpers), 75, 76, 77 | 13 ruled, 22 roster approved by ruling 104 (13 medium, 16 low, 6 nit) | `src/meter/board/{operand,defect}.rs`, the fill walks, `place.rs`, `filter.rs`, `overlay.rs`, `admit.rs`, `shape.rs`, `validate.rs`, `watermark.rs`, `span/algebra.rs`, `idbits.rs`, the party ops, `fuzz/framing.rs`, `tests/fuzz_seeds.rs` | large |
+| `p4-rosters.md` | 61, 62, 63, 64, 65, 67 | 29 ruled, 25 roster approved by ruling 104 (5 medium, 43 low, 6 nit) | `src/meter/board/**`, `registry.rs`, the validation index, the guard sites, `Cargo.toml` features, the relocated test files, `tools/doclint` | medium |
 
 ### Placement decisions
 
@@ -274,9 +265,9 @@ retirement, no trace left in code.
 
 | Brief | Rulings | Members | Touches | Size |
 |---|---|---|---|---|
-| `p5-scanners.md` | 78 (decision 44), 80 (decision 79) | 13 ruled (5 medium, 8 low), 1 pending | `tools/citecheck*` (rewritten in Rust), `tools/doclint*`, the superlinear, twin, and band roster tests, `src/surface.rs`'s scan half, the justfile legs | large |
-| `p5-judge.md` | 78 (decision 77), 79 (decisions 49 and 78) | 19 ruled (8 medium, 10 low, 1 nit), 4 pending | `tools/benchjudge*`, `tools/digestshare*`, `benches/{amplify,emit_probe,perf_probe,tripwire}.rs` and sidecars, `tests/bench_judge_roster.rs`, the A/B arms, `fuelscape/spanbands`, the cliff-fan family, the render `overlay` field, `just all` and `ci` | large |
-| `p5-buffers.md` | 78 (decisions 46, 47), 79 (decisions 48, 50), 80 (fuzzfit-strategies-19, version-core-11) | 17 ruled (1 high, 6 medium, 9 low, 1 nit), 7 pending | `tools/covcheck*`, the `EXEMPTIONS` and `ITEM_EXCEPTIONS` sites, `registry.rs` and `surface.rs` date fields, `src/oracle/**` and `fold.rs`, `tier2.rs` and `testing/compactness.rs`, `fuzzfit/harness/src/strategies.rs`, `version.rs`'s `_view` doors | large |
+| `p5-scanners.md` | 78 (decision 44), 80 (decision 79) | 13 ruled (5 medium, 8 low), 1 roster approved by ruling 104 | `tools/citecheck*` (rewritten in Rust), `tools/doclint*`, the superlinear, twin, and band roster tests, `src/surface.rs`'s scan half, the justfile legs | large |
+| `p5-judge.md` | 78 (decision 77), 79 (decisions 49 and 78) | 19 ruled (8 medium, 10 low, 1 nit), 4 roster approved by ruling 104 | `tools/benchjudge*`, `tools/digestshare*`, `benches/{amplify,emit_probe,perf_probe,tripwire}.rs` and sidecars, `tests/bench_judge_roster.rs`, the A/B arms, `fuelscape/spanbands`, the cliff-fan family, the render `overlay` field, `just all` and `ci` | large |
+| `p5-buffers.md` | 78 (decisions 46, 47), 79 (decisions 48, 50), 80 (fuzzfit-strategies-19, version-core-11) | 17 ruled (1 high, 6 medium, 9 low, 1 nit), 7 roster approved by ruling 104 | `tools/covcheck*`, the `EXEMPTIONS` and `ITEM_EXCEPTIONS` sites, `registry.rs` and `surface.rs` date fields, `src/oracle/**` and `fold.rs`, `tier2.rs` and `testing/compactness.rs`, `fuzzfit/harness/src/strategies.rs`, `version.rs`'s `_view` doors | large |
 
 ### Placement decisions
 
@@ -359,7 +350,7 @@ restates ruling 35 at `usize::MAX`; ruling 85 completes ruling 84's item
   then the `suanpan` items, then packaging.
 - **The `forks(k: usize)` change moves out of `p2-widths`.** Ruling 82
   supersedes the ruling 35 entries there (clock-3, tests-other-17,
-  party-14, api-audit-10) and the two pending decision-4 entries
+  party-14, api-audit-10) and the two decision-4 entries
   (clock-17, party-13); each of those six entries in `p2-widths.md` now
   carries a "Superseded by ruling 82" paragraph pointing here. If
   `p2-widths` lands first with a `u64` count, `p7-api` rebases and
@@ -376,7 +367,7 @@ restates ruling 35 at `usize::MAX`; ruling 85 completes ruling 84's item
   decision 25's zero-operand row have been read; the lane reports the
   readings so Finch can rule.
 - **Pending nits**: api-audit-5, codec-bits-11, fresh-eyes-11,
-  fuelscape-pipeline-14 (the P7 rows with no ruling), pending roster
+  fuelscape-pipeline-14 (the P7 rows with no ruling), roster approved by ruling 104
   approval.
 - **citecheck's rumors root** (ruling 87, item 19) belongs to
   `p5-scanners` once the typed checker exists; `p7-api` only reports any
@@ -405,7 +396,7 @@ the measure-first trades), 89 (decisions 45 and 71; party-25), 90
 
 | Brief | Rulings | Members | Touches | Size |
 |---|---|---|---|---|
-| `p8-performance.md` | 88, 89, 90, 92 | 28 ruled (4 medium, 17 low, 7 nit); no pending | `crates/suanpan/src/accumulator.rs` and its metered tests, `src/party/ops/index.rs`, `src/codec/{build,buf,stack}.rs`, `src/version/rank/num.rs`, `src/version/skyline/sweep.rs`, `src/causally/**`'s `le`/`lt` routing, the batch's kernels, the re-pinned rows in `tests/meter.rs` | large; strict resource discipline |
+| `p8-performance.md` | 88, 89, 90, 92 | 28 ruled (4 medium, 17 low, 7 nit); no roster rows | `crates/suanpan/src/accumulator.rs` and its metered tests, `src/party/ops/index.rs`, `src/codec/{build,buf,stack}.rs`, `src/version/rank/num.rs`, `src/version/skyline/sweep.rs`, `src/causally/**`'s `le`/`lt` routing, the batch's kernels, the re-pinned rows in `tests/meter.rs` | large; strict resource discipline |
 
 ### Placement decisions
 
@@ -439,12 +430,12 @@ the consolidation; the remaining trades; `sweep::le`; rank-22 last.
 
 ## P6 lanes
 
-Based on `5328537c`. The 544 module-lane rows, placed by the files they
+Based on `5328537c` for placement; rulings 93 to 104 (through `3ca52603`) are folded in. The 544 module-lane rows, placed by the files they
 touch. The board lane is split six ways per ruling 6. Every P6 row is in
 exactly one brief; 571 rows are placed across P6 and P8 in total (the
 544 P6 rows plus the P8 phase and the three rows moved into P8).
 
-| Brief | Ruled | Awaiting ruling (mediums) | Pending roster | Follows |
+| Brief | Ruled | Mediums ruled 93 to 103 | Roster approved (ruling 104) | Follows |
 |---|---|---|---|---|
 | `p6-core.md` | 5 | 4 (clock-22, clock-28, deps-3, module-graph-2) | 99 (49 low, 50 nit) | p2-widths, p2-cures, p4-ghosts, p4-structure, p4-rosters, p7-api |
 | `p6-skyline.md` | 5 | 6 (skyline-coding-6, -23, skyline-fill-grow-12, -24, skyline-sweep-place-masked-19, skyline-watermark-21) | 76 (26 low, 50 nit) | p2-rows, p2-cures, p2-widths, p4-structure, p4-ghosts, p8 |
@@ -455,7 +446,7 @@ exactly one brief; 571 rows are placed across P6 and P8 in total (the
 | `p6-fuzz.md` | 1 | 4 (fuzz-guests-pins-29, fuzzfit-bands-19, fuzzfit-strategies-11, -16) | 37 (23 low, 14 nit) | p1-fuzz, p2-widths |
 | `p6-fuelscape.md` | 6 | 2 (fuelscape-render-18, -19) | 34 (16 low, 18 nit) | p1-fuzz, p2-surface, p7-api; the dataset survey is the coordinator's run |
 | `p6-benches.md` | 1 | 0 | 15 (8 low, 7 nit) | p5-judge |
-| `p6-surface.md` | 0 | 1 (surface-roster-4) | 11 (3 low, 8 nit) | p2-surface, p5-scanners |
+| `p6-surface.md` | 0 | 1 (surface-roster-4, ruling 98's regime) | 11 (3 low, 8 nit), re-read under ruling 98 | p2-surface, p5-scanners, p6-tools |
 | `p6-board-frame.md` | 0 | 0 | 9 (4 low, 5 nit) | p1-board, p1-harness, p4-rosters |
 | `p6-board-families.md` | 2 | 0 | 9 (6 low, 3 nit) | p1-board, p4-rosters, p4-structure |
 | `p6-board-ops.md` | 1 | 0 | 12 (8 low, 4 nit) | p1-board, p2-rows, p4-ghosts |
@@ -463,9 +454,7 @@ exactly one brief; 571 rows are placed across P6 and P8 in total (the
 | `p6-board-oracle.md` | 2 | 1 (oracle-laws-13) | 18 (8 low, 10 nit) | p5-buffers, p7-api |
 | `p6-board-meter-core.md` | 0 | 1 (meter-core-2) | 6 (5 low, 1 nit) | p1-suites, p2-surface, p4-ghosts, p4-rosters |
 
-The "ruled" and "pending" columns count rows; the mediums awaiting a
-ruling are listed by id because each becomes a ruling the coordinator
-appends to its brief.
+The "ruled" and "approved" columns count rows; the mediums are listed by id, each now carrying its ruling in its brief.
 
 ### Placement decisions
 
@@ -484,13 +473,8 @@ appends to its brief.
   `tools` to tools. The ledger's `lane` column is unchanged (this fork
   changes no ledger row); the coordinator may reseed it from this map
   with a `phase!` note if the split is approved.
-- **Mediums awaiting ruling** (42 in total) are listed at the top of
-  each brief and in the table above, with their Resolution quoted so the
-  lane knows the files, and a standing instruction not to land them or
-  choose among their alternatives.
-- **Pending lows and nits** (474) are roster members pending approval,
-  each with its Resolution quoted (nit rows quote the table row and point
-  at `evidence/`).
+- **The 42 P6 mediums** are ruled (93 to 103); each brief states the decision and any amendment beside the entry (board-ops-render-26's own counter site; envelopes-b-21 ceilings only; envelopes-b-7 deleted; fuzzfit-bands-19's probe deleted with no test; tools-33's interpreter recognizer deleted, uses-pinning kept; testing-diff-gen-14's floors derived from arm weights; benches-examples-19, tools-4, tools-28, envelopes-a-15 as dups; surface-roster-4 under ruling 98's regime).
+- **The 474 P6 lows and nits** are approved rosters (ruling 104), each with its Resolution quoted (nit rows quote the table row and point at `evidence/`); the surface lane's are re-read under ruling 98.
 - **Rendering stop.** Ruling 89's rule stands in every P6 brief: a change
   that would alter a rendered `before` doc panel is a stop for a
   deliberate ruling; the two ruled rendering changes (fuelscape-render-23
@@ -519,6 +503,6 @@ the ruling; the sha is what makes it terminal). Entries reported as
 stopped stay pending and go to Finch as a numbered block. Merge is by
 reported sha, never by branch name. Every re-pin in a landed lane is
 checked for the attribution the rulings demand: the movement named in the
-commit, measured at the parent. Pending roster members are landed only
-after Finch approves the roster and are then ruled `fix` by that approval
-ruling, with the sha written the same way.
+commit, measured at the parent. Roster members (ruling 104) are ruled `fix` as their lanes land them,
+with the sha written the same way; a surface-lane row reported moot
+under ruling 98 is ruled `dup` against it.

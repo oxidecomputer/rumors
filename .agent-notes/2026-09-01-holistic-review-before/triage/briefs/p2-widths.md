@@ -311,7 +311,7 @@ party-13) is separate and below.
 
 Superseded by ruling 82 (`p7-api.md`): `Clock::forks` and `Party::forks` take the count as `usize`, `ExactSizeIterator` is unconditional, and ruling 35's boundary reads at `usize::MAX`. Do not land this entry from this brief; `p7-api` owns the forks change (this lane's `p2-widths` members clock-3, tests-other-17, party-14, api-audit-10, clock-17, and party-13 all move there).
 
-### clock-17 (medium, correctness): roster: pending Finch's approval
+### clock-17 (medium, correctness): roster: approved (ruling 104)
 
 Resolution: Owner's call among (a) dropping `ExactSizeIterator` from `Forks`/`party::Forks`/`Split` and keeping the accurate `size_hint` (`len()` disappears; iter.rs:16's doc example uses it); (b) taking the count as `usize`; (c) documenting under `# Panics` that `len()` panics past `usize` on narrow targets, or clamping the reserved count at construction and documenting the saturation beside the existing `u64::MAX` one. Whichever is chosen, add a red-first pin to `wasm32-pins` calling `.len()` and `size_hint()` on `forks(1u64 << 32)`. Acceptance: a committed wasm32 pin exercises the boundary under the chosen contract; the rustdoc of `Clock::forks`, `Forks`, `Party::forks`, and `party::Forks` states what happens past `usize`.
 Construction: on any 32-bit target (the pinned wasm32 guest): `let mut c = before::Clock::seed(); let it = c.forks(1u64 << 32); let _ = it.len();`. `usize::try_from(4294967297).ok()` is `None`, so `size_hint` is `(usize::MAX, None)` and the default `len` panics on `assert_eq!(None, Some(usize::MAX))`. On 64-bit the same call returns `4294967296`.
@@ -327,7 +327,7 @@ step 1 only if Finch approves; edit no public doc or impl until decision
 
 Superseded by ruling 82 (`p7-api.md`): `Clock::forks` and `Party::forks` take the count as `usize`, `ExactSizeIterator` is unconditional, and ruling 35's boundary reads at `usize::MAX`. Do not land this entry from this brief; `p7-api` owns the forks change (this lane's `p2-widths` members clock-3, tests-other-17, party-14, api-audit-10, clock-17, and party-13 all move there).
 
-### party-13 (medium, correctness): roster: pending Finch's approval
+### party-13 (medium, correctness): roster: approved (ruling 104)
 
 Resolution: Owner's choice among: document a `# Panics` on `Forks`/`clock::Forks` for `len()` past `usize::MAX` shares on 32-bit targets; override `len()` to saturate at `usize::MAX` (documented as the one place the count is inexact); or stop implementing `ExactSizeIterator` (an API removal, least attractive). Whichever is chosen, add a wasm32 pin. Nit alongside: `size_hint` converts `remaining` twice; compute `usize::try_from(self.remaining)` once. Acceptance: a committed wasm32-pins test exercises `len()` on `forks(u64::from(u32::MAX) + 1)` under the chosen contract; tests/forks_max.rs loses its `64-bit test host` caveat or states why it remains.
 Construction: on any 32-bit target: `let mut p = Party::seed(); let it = p.forks(u64::from(u32::MAX) + 1); let _ = it.len();`. After the residual is drawn, `remaining` is `2^32 + 1`, `size_hint` is `(usize::MAX, None)`, and the default `len()`'s `assert_eq!(upper, Some(lower))` fails.
@@ -338,7 +338,7 @@ land with the pin if approved.
 
 Superseded by ruling 82 (`p7-api.md`): `Clock::forks` and `Party::forks` take the count as `usize`, `ExactSizeIterator` is unconditional, and ruling 35's boundary reads at `usize::MAX`. Do not land this entry from this brief; `p7-api` owns the forks change (this lane's `p2-widths` members clock-3, tests-other-17, party-14, api-audit-10, clock-17, and party-13 all move there).
 
-### clippy-pedantic-2 (low, correctness): roster: pending Finch's approval
+### clippy-pedantic-2 (low, correctness): roster: approved (ruling 104)
 
 Resolution: assert on the untruncated position before the cast: `assert!(at < self.len(), "patch position {at} is past the output");` and then `let offset = (at - committed) as u32;` is exact because `at - committed < staged_len`. Apply the same reorder to `bit_at`'s `debug_assert!` (321-322). Acceptance: the construction below panics with the documented message.
 Construction: in a codec unit test, `let mut b = PackedBuilder::with_capacity(0); b.push_bit(false); b.patch_bit(1u64 << 32, true);`. Today `committed == 0`, `offset == 0 < staged_len == 1`, no panic, and `finish()` carries a set bit the caller never wrote; after the fix the call panics as documented.
@@ -348,7 +348,7 @@ assert that implements its documented panic, so a position past 2^32
 silently patches the wrong bit; assert on the untruncated position first.
 The same reorder for `bit_at`. Lands with the width work if approved.
 
-### inventory-7 (nit, correctness): roster: pending Finch's approval
+### inventory-7 (nit, correctness): roster: approved (ruling 104)
 
 Resolution: compare at u64 width first (`assert!(at - committed < u64::from(self.staged_len), ...)`) and cast after; `bit_at` (321-322) and `read_bits` (302) can take the same shape. Acceptance: the assert's operand is never narrowed before the comparison.
 
@@ -356,7 +356,7 @@ Roster note: the same site as clippy-pedantic-2 (compare at `u64`
 width first, cast after; `read_bits` and `bit_at` take the same shape);
 one change with it if approved.
 
-### codec-bits-8 (nit, correctness): roster: pending Finch's approval
+### codec-bits-8 (nit, correctness): roster: approved (ruling 104)
 
 Resolution: Either add an arm rejecting the corner (`pos == 0 && !bytes.is_empty()` is `TrailingBits`, with the doc sentence "the empty stream's only spelling is the empty buffer"), or narrow the contract to `pos >= 1 || bytes.is_empty()` under `# Panics` with a `debug_assert!`. Either way add the totality law to `codec/tests.rs`: for random `(bytes, pos)`, `require_marker_padding(b, p).is_ok()` implies `padding_is_canonical(&Bits::from_canonical(b))`. Acceptance: `require_marker_padding(&[0x80], 0)` is no longer `Ok(())`, and the proptest is committed.
 Construction: `assert!(require_marker_padding(&[0x80], 0).is_ok())` passes today; `padding_is_canonical(&Bits::from_canonical(Bytes::from_static(&[0x80])))` trips the debug assertion, and in release yields a `Bits` with `len() == 0` that is byte-unequal to `Bits::empty()`.
@@ -365,7 +365,7 @@ Roster note: `require_marker_padding(&[0x80], 0)` accepts a spelling
 of the empty stream that `padding_is_canonical` rejects; add the
 rejecting arm and the committed totality proptest. Lands if approved.
 
-### fuzz-guests-pins-27 (low, correctness): roster: pending Finch's approval
+### fuzz-guests-pins-27 (low, correctness): roster: approved (ruling 104)
 
 Resolution: Take `n_bytes: u64`, compute `k` in `u64`, place the bits with the existing `set_bit` helper (lines 54-56 and `synth_rank:172` hand-roll the `0x80 >> (pos % 8)` it names; move `set_bit` and `fill_ones` above their first use), and convert to `usize` only for the allocation via `usize::try_from`. Make synthesis fallible in-band: `Vec::try_reserve_exact` and `checked_mul`/`checked_add` returning distinct negative codes, so a trap is a `before` trap by construction and the pins' "the probe backtrace attributes..." sentences become unnecessary. Acceptance: `call1("pin_version_decode", 1 << 30)` returns a negative synthesis code, never a synthesizer trap; `grep -c '0x80 >>' guest/src/lib.rs` is 1.
 Construction: `call1("pin_version_decode", 1_073_741_824)`: `4 * n` overflows at line 52 under `overflow-checks = true`; the harness reports `Trapped(UnreachableCodeReached)`, indistinguishable from the pinned terminal.
@@ -376,7 +376,7 @@ trap channel with the pins' own terminals; positions in `u64`, fallible
 synthesis with distinct negative codes. The guest is this lane's file in
 step 1; lands with the pins if approved.
 
-### fuzz-guests-pins-15 (low, correctness): roster: pending Finch's approval
+### fuzz-guests-pins-15 (low, correctness): roster: approved (ruling 104)
 
 Resolution: Read `let base = HEAP.current_usage();` before the reset and assert on `HEAP.peak_usage().saturating_sub(base)`, the transient quantity the doc names. Acceptance: the asserted quantity is zero for an empty body regardless of process baseline; the doc sentence and the arithmetic agree.
 Construction: Hold 900 MiB before the fuzz loop (or grow the live corpus to that size), then run an input whose body allocates 200 MiB: the cap trips with no amplification present.
@@ -386,7 +386,7 @@ transient peak its doc names; read the baseline before the reset and
 assert on the difference. The cap itself stays flat (ruling 15). Lands
 if approved.
 
-### testing-oracles-4 (low, correctness): roster: pending Finch's approval
+### testing-oracles-4 (low, correctness): roster: approved (ruling 104)
 
 Resolution: Add `debug_assert!(t.is_normal(), …)` at `from_oracle_version` and `from_oracle_party`, plus `debug_assert!(!t.is_empty(), …)` on the party door (both oracle types expose `is_normal`; `oracle::Party::is_empty` exists at oracle/party.rs:30), and reword lines 10 and 23-24 to state the precondition as the caller's. Acceptance: a test lowering `oracle::Party::Node(Arc::new(Leaf(false)), Arc::new(Leaf(false)))` panics at the door instead of yielding a `Party` equal to the seed's.
 Construction: In any unit test with `pub(crate)` access: `from_oracle_party(&oracle::Party::Node(Arc::new(oracle::Party::Leaf(false)), Arc::new(oracle::Party::Leaf(false))))` returns bits `00`, equal to `from_oracle_party(&oracle::Party::Leaf(true))`. For versions: take the left-descent candidate of `all_inflations(&oracle::Party::Leaf(true), &oracle::Version::node(0u64, oracle::Version::leaf(1u64), oracle::Version::leaf(2u64)))` (a non-normal `Node(0, Leaf 2, Leaf 2)`), lower it with `from_oracle_version`, and observe it is not equal to `from_oracle_version(&that.normalized_for_test())`.
@@ -396,7 +396,7 @@ oracle tree to a wrong `Party` with no check; `debug_assert!` on
 normality and non-emptiness at both doors, the precondition stated as the
 caller's. Lands if approved.
 
-### skyline-sweep-place-masked-3 (low, correctness): roster: pending Finch's approval
+### skyline-sweep-place-masked-3 (low, correctness): roster: approved (ruling 104)
 
 Resolution: delete the two `debug_assert_ne!` lines (249 and 258) and keep the contract as written. If the owner prefers the guard, amend the Panics section to say a negative running height trips a debug assertion, and either way extend `collapsible_sibling_pair_sweeps_without_panicking` (or add a sibling) with the negative-height witness so the sentence's second case is pinned. Acceptance: a debug-profile test feeding the witness below through `masked::causal_cmp` and `masked::eq`, in both operand positions, returns without panicking.
 
@@ -407,7 +407,7 @@ land until that decision is ruled, then delete the two lines and extend
 the collapsible-pair test with the negative-height witness, or amend the
 Panics section, per the ruling.
 
-### skyline-query-13 (low, claim): roster: pending Finch's approval
+### skyline-query-13 (low, claim): roster: approved (ruling 104)
 
 Resolution: Restate the premise at both sites in the codec's terms: the shift is bounded by the stream's bit length, itself bounded by allocatable memory, under 2^35 bits on a 32-bit target, so a digit position stays under 2^30; on 64-bit targets the documented panic is unreachable. Drop "multiple". Acceptance: the grep returns nothing and both comments name the bound bits.rs states.
 Construction: Textual: the premise is contradicted by bits.rs:117-119 and buf.rs:25-31 as written. For the runtime side, on a 64-bit target a right spine of 2^31 unit leaves (about 1.6 GiB of stream) passes `Version::from_bits` and every shift in `rank` and `min_ticks` still fits, which is the correct argument the comment should carry.

@@ -6,13 +6,13 @@
 
 The oracle's and laws' entries, landed per their Resolutions inside an approved roster, under rulings 78 (the sequential `join_all`), 92 (the compile-time law-group tie, the bundled laws), 87 (the pair law), and 43.
 
-## Awaiting individual ruling
+## Rulings on this lane's mediums
 
-The coordinator is walking these mediums with Finch; nothing below lands for them until the ruling is appended here: oracle-laws-13.
+Every medium in this lane is ruled (rulings 93 to 103): oracle-laws-13. The decisions stand beside each entry under Members.
 
 ## Roster summary
 
-2 ruled (2 low); 1 medium awaiting ruling; 18 pending roster approval (8 low, 10 nit).
+2 ruled (2 low); 1 medium ruled (93 to 103); 18 roster members approved (ruling 104) (8 low, 10 nit).
 
 ## Ground rules
 
@@ -110,7 +110,7 @@ never relax them.
 
 ## Ordering
 
-Every P6 lane runs after the P1 to P5 and P7 lanes that touch its files have landed on main, or rebases onto them before its final gate run; the coordinator names the base SHA at launch. Lows and nits inside this lane's approved roster are swept without a question to Finch; every high and medium has, or awaits, an individual ruling. A change that would alter a rendered `before` doc panel is a stop (ruling 89). Follows `p5-buffers` and `p7-api`. Owns `src/oracle/**`, `src/laws.rs`, `reference/`.
+Every P6 lane runs after the P1 to P5 and P7 lanes that touch its files have landed on main, or rebases onto them before its final gate run; the coordinator names the base SHA at launch. Lows and nits inside this lane's approved roster are swept without a question to Finch; every high and medium has an individual ruling. A change that would alter a rendered `before` doc panel is a stop (ruling 89). Follows `p5-buffers` and `p7-api`. Owns `src/oracle/**`, `src/laws.rs`, `reference/`.
 
 ## Members
 
@@ -134,11 +134,11 @@ Resolution: Have `emit_registration` (already expanded from the roster, `#[cfg(t
 
 Approved roster (92, decision 72): lands per the quoted Resolution inside this lane. Under ruling 43: the law-group tie is a compile-time, typed reference, never a source scan.
 
-## Mediums awaiting individual ruling
+## Mediums ruled 93 to 103
 
-Listed with their Resolution so the lane knows the files they touch; not landed until ruled.
+Each medium below now carries its ruling and any amendment beside its quoted Resolution; land per the ruling.
 
-### oracle-laws-13 (medium, verification): awaiting individual ruling
+### oracle-laws-13 (medium, verification): ruling 97
 
 Two oracle test doc comments claim invariants their bodies never assert
 
@@ -146,13 +146,13 @@ Two oracle test doc comments claim invariants their bodies never assert
 
 Resolution: Assert the claims or trim the docs. Additivity is constructible on every call: fork a trace member's party into `keep`/`give`, take `x = v / &keep` and `y = v / &give`, assert `(x | y).min_ticks() == x.min_ticks() + y.min_ticks()` and `(x | y).min_ticks() >= x.min_ticks().max(y.min_ticks())`. For `clock_own_version`, tick a clone and assert `own_version` strictly rises under `leq`. Delete the redundant line 809 either way. Acceptance: each sentence of both doc comments corresponds to an assertion in its body.
 
-Awaiting individual ruling: the coordinator is walking the P6 mediums with Finch now. Do not land this entry and do not choose among its alternatives; when the ruling arrives it is appended to this brief by the coordinator.
+Ruled (97): Assert the claims in both bodies (additivity via a fork's two halves; own_version strictly rises under a tick); delete the redundant line. See ../rulings.md.
 
-## Roster members pending Finch's approval
+## Roster members approved (ruling 104)
 
-Lows and nits no ruling has reached, placed here by the files they touch. Land only after the coordinator confirms the roster is approved.
+Lows and nits approved as this lane's roster by ruling 104. Land each per its quoted Resolution and Acceptance, swept with the ruled members; report rather than choose if a Resolution conflicts with a ruling or offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89).
 
-### oracle-laws-1 (low, simplification): roster: pending Finch's approval
+### oracle-laws-1 (low, simplification): roster: approved (ruling 104)
 
 The oracle Clock's one-to-one mirror claim is false: `has_seen` has no caller, the observer trio and `receive` mirror deleted or renamed production methods, and the module doc claims a single omission
 
@@ -160,9 +160,9 @@ The oracle Clock's one-to-one mirror claim is false: `has_seen` has no caller, t
 
 Resolution: Delete `has_seen` (then `Version::leq` at oracle/version.rs:99 can drop from `pub(super)` to private; its only other caller is `PartialOrd for Version`). Either rename `receive` to `recv` and replace `happens_before`/`concurrent_with` at their four call sites (oracle/tests.rs:386-387, 401; clock/tests.rs:188) with `partial_cmp`-based spellings, or keep them and rewrite oracle/clock.rs:9-11 to say the oracle mirrors the paper's operations under its own names, listing the divergences (owned-`Version` messages, `receive` for `recv`, no n-ary or absorb entries). Rewrite oracle.rs:9-12 to name what the oracle mirrors (the paper's operations) rather than claim one omission. Reword clock/tests.rs:172-174 to name the comparisons the body performs (`>=`, `<`, `concurrent`); that site belongs to the clock partition and should be carried there. `Default for oracle::Version` stays. Acceptance: `grep -rn has_seen crates/before` returns nothing; both mirror sentences are true of the code beneath them; `just gate` clean.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### oracle-laws-10 (low, verification): roster: pending Finch's approval
+### oracle-laws-10 (low, verification): roster: approved (ruling 104)
 
 The arbitrary generators' normal-form claim has no direct pin
 
@@ -170,9 +170,9 @@ The arbitrary generators' normal-form claim has no direct pin
 
 Resolution: Add one proptest beside `normal_form` (or in `testing/generators/tests.rs`) asserting `arb_oracle_party()` and `arb_oracle_version()` outputs satisfy `is_normal()`. Acceptance: removing the `debase` step from `Version::node` (version.rs:82-84) or the collapse arm from `Party::node` (party.rs:24-25) fails the new test by name.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### oracle-laws-14 (low, verification): roster: pending Finch's approval
+### oracle-laws-14 (low, verification): roster: approved (ruling 104)
 
 Two incidental-only laws lack a constructed arm, and nothing measures antecedent liveness
 
@@ -180,9 +180,9 @@ Two incidental-only laws lack a constructed arm, and nothing measures antecedent
 
 Resolution: Add a constructed arm to each (the `constructed && incidental` shape at 933-937): `disjoint_projections_share_nothing` on `(keep, give)` from `p.dangerously_alias().fork()`; the eq/hash trio on `(a, decode(encode(a)))`. Optionally one deterministic test asserting each incidental antecedent is satisfiable on a small fixed population, as a liveness pin. Acceptance: every conditional law either runs a constructed arm on every call or carries a comment naming why none is constructible; law names unchanged.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### oracle-laws-17 (low, simplification): roster: pending Finch's approval
+### oracle-laws-17 (low, simplification): roster: approved (ruling 104)
 
 Law predicates that `unwrap` lose the failure's name
 
@@ -190,9 +190,9 @@ Law predicates that `unwrap` lose the failure's name
 
 Resolution: Use the let-else `return false` idiom at 699, 713, 725, 726, 1219, 1222, 1314, 1426, 1491, 1848 (a small `fn ordered(lo, hi) -> Option<Span<'_>>` beside `within` keeps the bodies short); `operand_spans` at 1705 may keep its `expect` or return `Option`. Acceptance: `grep -n 'unwrap()\|expect(' crates/before/src/laws.rs` returns only the two infallible `split_last` sites (and optionally 1705).
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### oracle-laws-21 (low, verification): roster: pending Finch's approval
+### oracle-laws-21 (low, verification): roster: approved (ruling 104)
 
 The acceptance laws' `Err` arms assert less than their docs say, and the clock group has no best-effort law
 
@@ -200,9 +200,9 @@ The acceptance laws' `Err` arms assert less than their docs say, and the clock g
 
 Resolution: Weaken both docs to what the clause checks (the accumulator is never corrupted on refusal), and add `clock_join_all_is_best_effort_at_any_width` as the twin of the party law (fork `width` children, tick them apart, plant an alias of the keeper mid-stream, expect exactly the alias back and the keeper's party restored with the join of every line's version). Acceptance: each `Err`-arm sentence maps to a clause; a fail-fast `Clock::join_all` fails a `CLOCK_AND_LIST` law by name.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### oracle-laws-9 (low, documentation): roster: pending Finch's approval
+### oracle-laws-9 (low, documentation): roster: approved (ruling 104)
 
 The oracle test module doc says trees are never fabricated directly; three suites draw generated or literal trees
 
@@ -210,9 +210,9 @@ The oracle test module doc says trees are never fabricated directly; three suite
 
 Resolution: Restate the header: values come from seed-derived op traces (pairwise party-disjoint populations), from the normalizing arbitrary generators, or from paper literals whose normality the test asserts or which are already normal. Acceptance: the module doc names all three input sources the file uses.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### paper-fidelity-6 (low, documentation): roster: pending Finch's approval
+### paper-fidelity-6 (low, documentation): roster: approved (ruling 104)
 
 laws.rs header attributes the crate's extensions to the paper and cites §2-§4
 
@@ -220,9 +220,9 @@ laws.rs header attributes the crate's extensions to the paper and cites §2-§4
 
 Resolution: cite §3-§4 (and §5 for the trees) and split the sentence into the paper's algebra (join semilattice whose order is causality; ids under disjoint sum with fork as split; event as strict inflation within the id) and the crate's extensions (meet and the distributive lattice, rank as valuation and metric, projection, span, causally); fix `semantic_oracle.rs:11` to §4. Acceptance: every property the header attributes to the paper appears in §3-§5 of the transcription.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### paper-fidelity-8 (low, documentation): roster: pending Finch's approval
+### paper-fidelity-8 (low, documentation): roster: approved (ruling 104)
 
 the oracle's grow defines two arms the paper does not, undocumented at the oracle
 
@@ -230,9 +230,9 @@ the oracle's grow defines two arms the paper does not, undocumented at the oracl
 
 Resolution: a short paragraph on `grow` naming both extensions: the `1`-over-node arm is the paper's `(il, ir)` rule read on the unnormalized `(1, 1)`, present so the optimality proptests can quantify over arbitrary pairs; the empty-id arm is the infeasible sentinel; `event` reaches neither. Acceptance: a paper-reader diffing the oracle against §5.3.4 finds every untranscribed arm named with its reason.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### oracle-laws-11 (nit, simplification): roster: pending Finch's approval
+### oracle-laws-11 (nit, simplification): roster: approved (ruling 104)
 
 Pool indices are drawn as `0..64` and reduced modulo the population at fourteen sites where the crate elsewhere uses `prop::sample::Index`
 
@@ -240,9 +240,9 @@ Where: `crates/before/src/oracle/tests.rs:46-55`. Nit row (the full record is in
 
 Resolution (nit row): `prop::sample::Index` at the fourteen sites
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### oracle-laws-12 (nit, verification): roster: pending Finch's approval
+### oracle-laws-12 (nit, verification): roster: approved (ruling 104)
 
 A `prop_assume!(!cands.is_empty())` that never rejects (the party is drawn nonempty), beside siblings that spell the premise as `.expect(..)`.
 
@@ -250,9 +250,9 @@ Where: `crates/before/src/oracle/tests.rs:597-600`. Nit row (the full record is 
 
 Resolution (nit row): Drop the assume; use the siblings' `expect`.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### oracle-laws-15 (nit, simplification): roster: pending Finch's approval
+### oracle-laws-15 (nit, simplification): roster: approved (ruling 104)
 
 `le` is `le_by` at one type
 
@@ -260,9 +260,9 @@ Where: `crates/before/src/laws.rs:248-258`. Nit row (the full record is in `evid
 
 Resolution (nit row): Keep `le`; delete `le_by`
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### oracle-laws-18 (nit, verification): roster: pending Finch's approval
+### oracle-laws-18 (nit, verification): roster: approved (ruling 104)
 
 `merge_is_least_upper_bound` and its meet dual check only a join-built bound; the clause that means "least" (an arbitrary `c` above both implies above the join) is absent.
 
@@ -270,9 +270,9 @@ Where: `crates/before/src/laws.rs:861-877`. Nit row (the full record is in `evid
 
 Resolution (nit row): Conjoin the incidental implication clause, here and in oracle/tests.rs.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### oracle-laws-20 (nit, verification): roster: pending Finch's approval
+### oracle-laws-20 (nit, verification): roster: approved (ruling 104)
 
 `span_all_is_the_family_hull`'s containment clause admits `Concurrent` placements its own argument rules out.
 
@@ -280,9 +280,9 @@ Where: `crates/before/src/laws.rs:1850-1851`. Nit row (the full record is in `ev
 
 Resolution (nit row): Use the existing `within` helper.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### oracle-laws-23 (nit, verification): roster: pending Finch's approval
+### oracle-laws-23 (nit, verification): roster: approved (ruling 104)
 
 `clock_ticks_matches_version_ticks` pins a hard-coded count of 3 where the version-level twin draws `a.min_ticks()`.
 
@@ -290,9 +290,9 @@ Where: `crates/before/src/laws.rs:3033-3033`. Nit row (the full record is in `ev
 
 Resolution (nit row): Use the operand's count.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### oracle-laws-3 (nit, simplification): roster: pending Finch's approval
+### oracle-laws-3 (nit, simplification): roster: approved (ruling 104)
 
 `unreachable!("party overlap")` is a label, not a proof, and a denormal literal reaches the arm
 
@@ -300,9 +300,9 @@ Where: `crates/before/src/oracle/party.rs:82-82`. Nit row (the full record is in
 
 Resolution (nit row): State the premise in the message, or make `sum` total
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### oracle-laws-5 (nit, simplification): roster: pending Finch's approval
+### oracle-laws-5 (nit, simplification): roster: approved (ruling 104)
 
 Three spellings of the grow-cost tuple with a hand-maintained "matches" comment
 
@@ -310,9 +310,9 @@ Where: `crates/before/src/oracle/version.rs:12-12`. Nit row (the full record is 
 
 Resolution (nit row): `pub(crate) Cost` returned from `grow_for_test`; drop `GrowCost`
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### oracle-laws-6 (nit, simplification): roster: pending Finch's approval
+### oracle-laws-6 (nit, simplification): roster: approved (ruling 104)
 
 `join_off` and `meet_off` are one recursion differing only in the leaf combiner
 
@@ -320,9 +320,9 @@ Where: `crates/before/src/oracle/version.rs:114-154`. Nit row (the full record i
 
 Resolution (nit row): One `lattice_off` helper taking the leaf combiner
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### oracle-laws-8 (nit, simplification): roster: pending Finch's approval
+### oracle-laws-8 (nit, simplification): roster: approved (ruling 104)
 
 Em-dashes in `//` line comments at ten sites
 
@@ -330,5 +330,5 @@ Where: `crates/before/src/oracle/version.rs:449-453`. Nit row (the full record i
 
 Resolution (nit row): Colons or ` -- `; batch with the crate-wide sweep
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 

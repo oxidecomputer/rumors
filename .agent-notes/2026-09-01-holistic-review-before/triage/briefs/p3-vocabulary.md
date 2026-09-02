@@ -386,219 +386,219 @@ Resolution (nit row): Migrate the editions together, or state the reason at the 
 
 Ruled (57): migrate all five edition-2021 crates in one commit; `manifestlint` holds the workspace edition thereafter (a committed fixture with a 2021 member fails it).
 
-## Roster members pending Finch's approval
+## Roster members approved (ruling 104)
 
-Lows and nits no ruling has reached, placed here by the files they touch. Land only after the coordinator confirms the roster is approved.
+Lows and nits approved as this lane's roster by ruling 104. Land each per its quoted Resolution and Acceptance, swept with the ruled members; report rather than choose if a Resolution conflicts with a ruling or offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89).
 
-### board-frame-11 (low, documentation): roster: pending Finch's approval
+### board-frame-11 (low, documentation): roster: approved (ruling 104)
 
 Escaped-bracket citation tags (`\[derived\]`, `\[the ... in the test suite\]`) are an undefined convention that names no test
 
 Resolution: Delete the `\[derived\]` tags; replace each test citation with the test's function name in backticks (the chunked-schoolbook, schoolbook, delegating-parser, and sub-scaling tests in board/tests.rs). Acceptance: `grep -rn -F '\[' crates/before/src/meter/board/` returns nothing; every test cited in ceilings.rs and cell.rs prose is a function `grep -n 'fn <name>'` finds.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### crate-root-26 (low, documentation): roster: pending Finch's approval
+### crate-root-26 (low, documentation): roster: approved (ruling 104)
 
 "mint" for constructing a value, in the Quickstart and crate-wide
 
 Resolution: lib.rs:49 "// New participants fork off a live clock; nothing creates a second seed."; serde_impls/tests.rs:111 "every rejection genre the raw decodes produce"; sweep the remaining sites (party.rs:15 "which create a second holder", :872 "Creates identity exactly as ..."; rename `Reign::mint` if the owner wants the rule to reach identifiers). Acceptance: `grep -rni '\bmint' crates/before/src` is empty, or lists only identifiers the owner exempts.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### deps-11 (low, documentation): roster: pending Finch's approval
+### deps-11 (low, documentation): roster: approved (ruling 104)
 
 the fuzz workspace manifest and README carry opaque roster IDs (PROG-5 / COV-7) and restate build commands the justfile supersedes
 
 Resolution: drop the IDs and name the property ("the decode round-trip invariant: an accepted value re-encodes stably and decodes back to itself"); replace the command listings in Cargo.toml:3-9 and README:50-64 with a pointer to the two recipes; let the README's prerequisites name the pinned nightly via the justfile rather than `rustup toolchain install nightly`; drop the justfile:51-52 cross-reference once the manifest no longer carries the number. Acceptance: grep of `(PROG|COV)-[0-9]+` over the tree is empty; the fuzz workspace's prose names no cargo-fuzz command line.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### envelopes-a-18 (low, documentation): roster: pending Finch's approval
+### envelopes-a-18 (low, documentation): roster: approved (ruling 104)
 
 Unanchored coinages and significance refrains at maintainer altitude
 
 Resolution: "genre" outside 37-46 to "kind" or "family"; "freight" to "per-leaf register work"; "daylight" to "digit clearance" (matching `SEAM_CLEARANCE`); "funded width" to "the width its own code paid for" or "priced by" per overlay.rs; "honest improvement" to "an improvement", "honest stand-in" to "the stand-in"; delete the "never decoration" and "Semantics first:" sentences or fold their fact into the preceding clause. Acceptance: `grep -c 'honest\|freight\|daylight\|never decoration\|Semantics first\|truing'` over lines 1-5305 is 0; "genre" appears only in the file doc's contrast definition; "funded" is gone or defined once beside "priced by".
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### envelopes-b-3 (low, documentation): roster: pending Finch's approval
+### envelopes-b-3 (low, documentation): roster: approved (ruling 104)
 
 Coined labels and register transplants: `GREEN PIN`, `mandate`, `mint`, two senses of `genre`, moralized and economic vocabulary
 
 Resolution: delete the `GREEN PIN:` prefixes (each sentence already states the invariant); replace `genre` outside the file doc's floor/tripwire contrast with `class` or define the second sense once; `mandate` to `lower bound`; `consume-minted` to `consume-time`, `mints` to `produces`; drop "not a vibe", "is the point", "kills"; "honest improvement" to "improvement" where the dead-meter contrast is already stated. Acceptance: `grep -c 'GREEN PIN' crates/before/tests/meter.rs` reads 0; `grep -n 'mint' crates/before/tests/meter.rs` is empty; `genre` appears only in its defined sense.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### fuelscape-pipeline-2 (low, simplification): roster: pending Finch's approval
+### fuelscape-pipeline-2 (low, simplification): roster: approved (ruling 104)
 
 Vocabulary and register sweep: "mint" for constructing values, "honest" and "real" for properties, em-dashes in line comments
 
 Resolution: "derived" (lib.rs:19); "split in the guest" / "guest-split" (plan.rs:19, 168; ops.rs:105, 800); "builds" (ops.rs:185); "O(1) hole construction" (ops.rs:2448); "produce" (ops.rs:2507); "no size axis" (ops.rs:2168); "rejects a uniform draw" (sample/tests.rs:99); "the shipping decoder(s)" for "real" and rename `real` to `decoded` in sample/tests.rs:73, 88; swap the five line-comment em-dashes for ` -- ` or a colon. Acceptance: `grep -n -i -w 'mint\|minted\|mints\|honest' crates/before-fuelscape/src` returns nothing; `grep -n -E '^\s*//[^/!].*—'` over the partition returns nothing.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### fuelscape-render-1 (low, documentation): roster: pending Finch's approval
+### fuelscape-render-1 (low, documentation): roster: approved (ruling 104)
 
 Vocabulary: "guest-minted", "two-ways seam", "Honesty rule"/"honest", "backstop"
 
 Resolution: "guest-minted" to "produced in the guest" (and the other mint forms in plan.rs, ops.rs, lib.rs to construct/produce/derive); "the two-ways seam" to a sentence that defines the check ("the grid is recomputed from the samples and must equal the stored one"), and "two-ways pin" likewise where it appears; "Honesty rule" to "Presentation rule", "honest linear density" to "linear density", "most honest clicks" to "most ordinary clicks"; "blur is the backstop" to "blur ends any drag the browser never releases". Acceptance: no "mint" in before-fuelscape prose; "two-ways" appears only in a sentence that defines it; fuelscape.js contains neither "honest" nor "backstop".
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### fuzz-guests-pins-2 (low, documentation): roster: pending Finch's approval
+### fuzz-guests-pins-2 (low, documentation): roster: approved (ruling 104)
 
 Opaque roster IDs and a ghost test name in the fuzz manifest and README
 
 Resolution: Delete the three parenthetical tags (the surrounding sentences already name the invariant in plain words) and cite `clock::tests::decode_never_panics`. Acceptance: `grep -rnE 'PROG-[0-9]|COV-[0-9]|h34_' crates/before` is empty and the cited test name resolves to a `fn`.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### fuzz-guests-pins-21 (low, documentation): roster: pending Finch's approval
+### fuzz-guests-pins-21 (low, documentation): roster: approved (ruling 104)
 
 "mint" for constructing values at five sites
 
 Resolution: 454-456: "The text door constructs the clock's party from the literal; ... so no such party ever meets a live handle." 881, 899, 1592, 1657: "the operands are read in place and the endpoints are freshly allocated (owned)". Acceptance: `grep -in '\bmint' crates/before/fuzzfit/guest/src/lib.rs` returns nothing.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### fuzzfit-strategies-15 (low, documentation): roster: pending Finch's approval
+### fuzzfit-strategies-15 (low, documentation): roster: approved (ruling 104)
 
 Vocabulary: a moralized bound, unanchored coinages, and four words carrying two meanings
 
 Resolution: 34-37: "and bounds a composed case's total denominated work to `max_ops` times a constant fixed by the tick, fork, and fold caps"; "decoration-wide" to "too wide to catch a regression"; 1880: "a clock assembled from two universes"; 87: "the enforcement suite's case count"; 48: "this instrument's scope is the region..."; keep "rung" in ops.rs (before's own term) and say "snapshot" or "step" for the ladder in strategies.rs; rename the escalation arm's "cadence battery" or fold it into a named function; cite `FamilyId` variants by identifier at 172-174 or per `Family` variant. Acceptance: each listed term names an identifier, is defined once by contrast where introduced, or is replaced by its mechanism; no word has two referents in the fuzzfit harness. (The same "honest" qualifier recurs in sanity.rs:54, enforce.rs:201, and bands.rs:52, 116-119, 170, 187-190, outside this partition; noted for those reviewers.)
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### gate-legs-11 (low, documentation): roster: pending Finch's approval
+### gate-legs-11 (low, documentation): roster: approved (ruling 104)
 
 The fuzz workspace's prose carries opaque roster tags, floating-nightly instructions, a ghost test name, and a hand-duplicated duration
 
 Resolution: Delete the tags; fix the test name to `clock::tests::decode_never_panics`; replace the manual command lists with `just fuzz-build` / `just fuzz` (keeping the seed-corpus explanation); drop the duration duplication from the justfile comment or make the manifest defer to the recipe. Acceptance: no `PROG-`/`COV-` tag remains in the in-scope tree, every test name in the fuzz README resolves against `cargo nextest list -p before --all-features`, and the fuzz prose names the dated toolchain or the recipe rather than `+nightly`.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### meter-registry-tier2-1 (low, documentation): roster: pending Finch's approval
+### meter-registry-tier2-1 (low, documentation): roster: approved (ruling 104)
 
 Vocabulary tells in the registry prose: "mint" for construction, "earns", "sentinel", "honest", "luck", "mandate", "tombstone"
 
 Resolution: "build"/"built" for mint; "has a column"/"gets no column" for earns; "probe" for sentinel; "minimal-work witness" and "never a requirement" at 883/887; name the mechanism at 920 ("the shape that retires every live-anchored follower"); "otherwise unchecked" at 572 and "the adjacent-slot coalescing that index order would allow" at 636; a straight apostrophe at tests.rs:163. Acceptance: `grep -nwiE 'mint|minted|earns?|sentinel|honest|luck|mandate|tombstone' crates/before/src/meter/registry.rs` returns nothing, and `grep -n "’" crates/before/src/meter/tier2/tests.rs` is empty.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### module-graph-6 (low, documentation): roster: pending Finch's approval
+### module-graph-6 (low, documentation): roster: approved (ruling 104)
 
 The fuzz workspace's manifest and README carry opaque roster IDs and a stale gate claim
 
 Resolution: Rewrite both headers in the surfacecheck manifest's form: detached so workspace-wide cargo invocations never compile it; the gate reaches it through `just fuzz-build` (and `just fuzz` at `all` cadence); drop the ID tags and keep the invariant in words (line 48 already spells it out). Acceptance: no roster ID remains in the tree; the header names the recipes that reach it.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### oracle-laws-22 (low, documentation): roster: pending Finch's approval
+### oracle-laws-22 (low, documentation): roster: approved (ruling 104)
 
 Prose tells: the banned "minted", "THE LAW", moralized "real"/"honest", significance adverbs, the undefined "under mass" and "faces", and temporal "still works"/"survive here"
 
 Resolution: "no event minted" -> "without marking an event" (production's phrasing at clock.rs:494) at 2956, 3236, 3473; "THE LAW of the rank wire form" -> "The rank wire form's defining law"; "is real *within*" -> "is strict within"; "the definitionally honest loop" -> "the literal loop"; drop "genuinely" at laws.rs:1036, 2354, laws/tests.rs:74, oracle/tests.rs:544; "under mass" -> "on most samples" or define it once in testing/generators.rs where it originates; "faces" -> "the party and clock instances"; "still works" -> "works"; "survive here for" -> "exist for"; "not real public API" (oracle.rs:40) -> "a test and bench reference, not supported API"; rewrite laws/tests.rs:67-76 as mechanism ("This feed order makes the closing drain hand back a coalesced group; the conservation laws hold on it, and a fold that dropped that group would fail them while passing the acceptance laws' `Err` clauses"). Acceptance: `grep -n -i 'minted\|THE LAW\|honest\|genuinely\|under mass\|survive here\|still works\|red the day\|police' crates/before/src/laws.rs crates/before/src/laws/tests.rs crates/before/src/oracle crates/before/src/oracle.rs` returns nothing.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### party-5 (low, documentation): roster: pending Finch's approval
+### party-5 (low, documentation): roster: approved (ruling 104)
 
 Register and vocabulary sweep items: `mint`, em-dashes in `//` comments, `honest`, `tripwire`, a `d_` prefix, a dependent first sentence
 
 Resolution: party.rs:15 "create a second holder", party.rs:872 "Creates identity exactly as", sum_split.rs:166 "the inline pair reads better than a coined name" (party-6 removes the allow anyway), tests.rs:1042 "add more than its one tree level"; ` -- ` at the 24 `//` sites; "the original" / "the defect-free transcription" / "the sublinear arm" for `honest`; "The deterministic companion to" (430) and "witnesses and floors" (584) for `tripwire`; rename `d_fork_join_roundtrip` to `fork_join_roundtrip_matches_oracle`; tests.rs:993 "`as_bytes` equals `encode` for both halves produced by `fork`". Acceptance: `grep -rni '\bmint' crates/before/src/party.rs crates/before/src/party/ crates/before/src/idbits.rs` empty; `grep -n '^\s*//[^/!].*—'` over the partition empty; every `tripwire` in tests.rs names a committed known-bad artifact.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### prose-hygiene-6 (low, documentation): roster: pending Finch's approval
+### prose-hygiene-6 (low, documentation): roster: approved (ruling 104)
 
 Prose still describes owner rationales and re-pin annotations as dated after the dated-notes excision
 
 Resolution: in board.rs:171 and ceilings.rs:234 write "with the owner ratification stated at the declaring constant"; in calibrate.rs:373-374 and 384-385 (the source of bands.rs:325-326 and 924-925) and in bands.rs:7-8 write "commit with the movement and its attribution in the commit message", then run `just fuzzfit-calibrate` so the generated copies follow. Acceptance: `grep -rn -w dated crates/before/src/meter/board crates/before/fuzzfit` returns nothing.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### prose-hygiene-8 (low, documentation): roster: pending Finch's approval
+### prose-hygiene-8 (low, documentation): roster: approved (ruling 104)
 
 Historical narration at declaration sites ("retired", "the old", "before this binding existed")
 
 Resolution: name each known-bad kernel by mechanism ("the per-digit schoolbook charge", "the frozen-width-per-tooth kernel", "quadratic re-walks") and describe each current check without its predecessor; delete "the table was twice found wrong in review before this binding existed" (the bullet already states the binding's purpose). Acceptance: `grep -rn -E '\bretired\b|\bthe old\b|\bit replaces\b|before this binding'` over the listed files returns nothing.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### prose-hygiene-9 (low, documentation): roster: pending Finch's approval
+### prose-hygiene-9 (low, documentation): roster: approved (ruling 104)
 
 "today"/"currently"/"none at this tip" as relative-time naming of the present implementation
 
 Resolution: delete "today" in the six floors.rs strings, currency.rs:139, strategies.rs:117, compact.rs:42 and AGENTS.md:34; in the three empty-roster docs keep only the sentence stating what an entry means and let the empty literal speak. Acceptance: `grep -rn -i -E '\btoday\b|currently empty|none at this tip'` over the listed files returns nothing.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### skyline-query-16 (low, documentation): roster: pending Finch's approval
+### skyline-query-16 (low, documentation): roster: approved (ruling 104)
 
 `Arming` (a ledger entry) collides with the watermark web's "arming" of a range, with no contrast drawn
 
 Resolution: Either one sentence of contrast at `Arming`'s definition ("an arming here is a ledger entry; the watermark web's arming of a pending range is unrelated") and the mirror sentence in web.rs's module doc, or rename the struct to `Promotion` (its own doc's noun; the field is already `promotions: Vec<Arming>`), leaving the registry family names untouched. Acceptance: each module's first use of "arming" is unambiguous to a reader of that module alone.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### skyline-query-23 (low, simplification): roster: pending Finch's approval
+### skyline-query-23 (low, simplification): roster: approved (ruling 104)
 
 `Reign::mint` and "mint" prose for constructing a value
 
 Resolution: Rename to `Reign::new` (or `Reign::at_leaf`); reword query.rs:56 "defines and derives", web.rs:64 "a reign record's creation", 66 "between creation and death", 176 "since the record was created", 306 "created or moved". Acceptance: the grep over the partition returns nothing.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### span-causally-27 (low, documentation): roster: pending Finch's approval
+### span-causally-27 (low, documentation): roster: approved (ruling 104)
 
 Banned vocabulary: "mint"/"minting" for constructing a hole
 
 Resolution: line 30: "(constructors add at most one hole; ...)"; line 37: "rather than introducing a corner case here." Acceptance: `grep -rni '\bmint' crates/before/src/causally crates/before/src/span` returns nothing (party.rs is outside this partition).
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### surface-roster-15 (low, documentation): roster: pending Finch's approval
+### surface-roster-15 (low, documentation): roster: approved (ruling 104)
 
 `d1_seeds_stay_committed` carries an opaque prefix defined nowhere
 
 Resolution: rename to `fold_seeds_stay_committed` and update surface_coverage.rs:77 and 115. Acceptance: `grep -rn 'd1_' crates/before/src` returns nothing; the coverage tests pass.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### testing-diff-gen-5 (low, documentation): roster: pending Finch's approval
+### testing-diff-gen-5 (low, documentation): roster: approved (ruling 104)
 
 Prose sweep: em-dashes in line comments and one assert message, "mint", "honest", temporal and anticipatory phrasing
 
 Resolution: Mechanical sweep: colons or semicolons for the listed em-dashes (`///` and `//!` doc comments keep theirs); "coin" or "add" for "mint"; "states" for "states honestly" and "the measured constant" for "the honest constant"; "a cure that removes the merge flips this pin" for the anticipatory sentence; drop "Currently"; drop the "three independent spellings" count. Acceptance: `grep -nE '^\s*//[^/!].*—'` over the partition returns nothing; no `mint`, `honest`, or `Currently` in the partition.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### testing-oracles-29 (low, documentation): roster: pending Finch's approval
+### testing-oracles-29 (low, documentation): roster: approved (ruling 104)
 
 Validation index prose: a ghost reference to replaced bodies, "mint", "honest", a self-description hedge, and a hand count
 
 Resolution: 42-45: state the property positively ("A body that chose its own population would make coverage a product nobody enumerated; here the population belongs to the driver and the operation to the descriptor, so the two meet by construction."). 5-6: "This module is documentation only: it holds no code." 75: "guarded by a deliberate layering of instruments". 142: "never set a threshold". 178: "a legitimate input did less work than the floor's premise". 182: "whichever direction the code supports". Acceptance: none of "replaced", "mint", "honest", "in the spirit of", or "four instruments" remains in the file.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### tests-other-12 (low, documentation): roster: pending Finch's approval
+### tests-other-12 (low, documentation): roster: approved (ruling 104)
 
 "pincer" and "jaw" are an unanchored metaphor used as jargon across four roster pins
 
 Resolution: Replace each use with the mechanism ("invisible to both totality checks: the rustdoc-JSON census omits hidden items and the roster scan reads only named files"), or define the term once where the two checks are described and cite that site. Acceptance: `grep -rn 'pincer\|\bjaw' crates/before` returns nothing, or every hit follows one definition site.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### tests-other-23 (low, simplification): roster: pending Finch's approval
+### tests-other-23 (low, simplification): roster: approved (ruling 104)
 
 "mint" for constructing a value, including two test names
 
 Resolution: Rename to `same_party_ticks_on_divergent_clones_produce_equal_versions` and `from_parts_over_an_earlier_version_reproduces_its_successor`; "produces"/"yields"/"re-derives" at lines 6, 22, 79, 93; "build its operands" at amp_board_smoke.rs:354. Acceptance: `grep -rn -i mint crates/before/tests` is empty.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### api-audit-19 (nit, documentation): roster: pending Finch's approval
+### api-audit-19 (nit, documentation): roster: approved (ruling 104)
 
 Vocabulary tells in public rustdoc: "mint" for constructing values, "honest" for exact
 
@@ -606,9 +606,9 @@ Where: `crates/before/src/lib.rs:49-49`. Nit row (the full record is in `evidenc
 
 Resolution (nit row): "create"/"build" for mint; "exact"/"the price of exactness" for honest, at the public sites first
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### board-ops-render-5 (nit, documentation): roster: pending Finch's approval
+### board-ops-render-5 (nit, documentation): roster: approved (ruling 104)
 
 Em-dashes in plain `//` comments at twenty sites
 
@@ -616,9 +616,9 @@ Where: `crates/before/src/meter/board/ops.rs:327-327`. Nit row (the full record 
 
 Resolution (nit row): Replace with colons, semicolons, or spaced `--` in those twenty lines
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### board-ops-render-8 (nit, documentation): roster: pending Finch's approval
+### board-ops-render-8 (nit, documentation): roster: approved (ruling 104)
 
 Moralized and overloaded vocabulary: unanchored "honest", two meanings of "diagonal", three referents for "seam", and "mints"
 
@@ -626,9 +626,9 @@ Where: `crates/before/src/meter/board/ops.rs:701-702`. Nit row (the full record 
 
 Resolution (nit row): Replace unanchored "honest" with the mechanism ("the input-byte denominator, which the output-honesty assertion makes the smaller of the two" ...
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### clock-24 (nit, documentation): roster: pending Finch's approval
+### clock-24 (nit, documentation): roster: approved (ruling 104)
 
 Unanchored coinages and significance adverbs in maintainer prose
 
@@ -636,9 +636,9 @@ Where: `crates/before/src/clock/tests.rs:612`. Nit row (the full record is in `e
 
 Resolution (nit row): "keystone invariant" → "the invariant `Eq`/`Hash` rest on"; "text mirror" → "the text round-trip"; drop "genuinely", "really", and the " ...
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### clock-27 (nit, documentation): roster: pending Finch's approval
+### clock-27 (nit, documentation): roster: approved (ruling 104)
 
 Banned "mints" in an orbit test doc
 
@@ -646,9 +646,9 @@ Where: `crates/before/src/clock/tests.rs:1257-1259`. Nit row (the full record is
 
 Resolution (nit row): "iterated re-partitioning of an idle region adds no bytes, with no transient and no ratchet"
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### codec-base-text-tree-25 (nit, documentation): roster: pending Finch's approval
+### codec-base-text-tree-25 (nit, documentation): roster: approved (ruling 104)
 
 Register words: "honest", "genre", "keystone", "real", "major finding", a caps `WITNESS` label, and a "Test-only" mislabel
 
@@ -656,9 +656,9 @@ Where: `crates/before/src/codec/tests.rs:1225-1238`. Nit row (the full record is
 
 Resolution (nit row): "so the recorded cost counts exactly the window pairs the scan compared"; "class" or "kind" for "genre" ...
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### codec-bits-3 (nit, documentation): roster: pending Finch's approval
+### codec-bits-3 (nit, documentation): roster: approved (ruling 104)
 
 Register tells: "honest", "genuinely", and "real" where the anchored term is "live"
 
@@ -666,9 +666,9 @@ Where: `crates/before/src/codec/bits.rs:50-50`. Nit row (the full record is in `
 
 Resolution (nit row): "Two instruments pin the ladder"; "a consumer with wide arithmetic"; "live stream" / "live input" / "allocated memory" at the "real" sites
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### codec-bits-4 (nit, documentation): roster: pending Finch's approval
+### codec-bits-4 (nit, documentation): roster: approved (ruling 104)
 
 Em-dashes in `//` comments, and a doc line broken mid-clause
 
@@ -676,9 +676,9 @@ Where: `crates/before/src/codec/bits.rs:60-60`. Nit row (the full record is in `
 
 Resolution (nit row): Replace the em-dashes in `//` comments with ` -- `; reflow dsi.rs:295-298
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### fuelscape-render-25 (nit, documentation): roster: pending Finch's approval
+### fuelscape-render-25 (nit, documentation): roster: approved (ruling 104)
 
 nit: literal `\u2014` escapes inside JavaScript comments, and em-dashes in `//` comments across the partition
 
@@ -686,9 +686,9 @@ Where: `crates/before/docs/fuelscape.js:1055`. Nit row (the full record is in `e
 
 Resolution (nit row): replace `\u2014` with an em-dash or a colon at 1055, 1538, 1540; sweep the listed `//` lines to colons, semicolons, or spaced double-hyphens
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### fuzz-guests-pins-17 (nit, documentation): roster: pending Finch's approval
+### fuzz-guests-pins-17 (nit, documentation): roster: approved (ruling 104)
 
 Moralized qualifiers ("honest", "real") at ten sites
 
@@ -696,9 +696,9 @@ Where: `crates/before/fuzzfit/guest/src/lib.rs:84-87`. Nit row (the full record 
 
 Resolution (nit row): Batch with the crate-wide prose pass; substitute the property at each site
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### fuzz-guests-pins-7 (nit, documentation): roster: pending Finch's approval
+### fuzz-guests-pins-7 (nit, documentation): roster: approved (ruling 104)
 
 Em-dashes inside `//` comments at six sites
 
@@ -706,9 +706,9 @@ Where: `crates/before/fuzz/fuzz_targets/fuzz_decode_differential.rs:296-296`. Ni
 
 Resolution (nit row): Batch into a crate-wide sweep rather than fixing these six alone; per site, a colon, semicolon, or parenthetical
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### fuzzfit-bands-1 (nit, documentation): roster: pending Finch's approval
+### fuzzfit-bands-1 (nit, documentation): roster: approved (ruling 104)
 
 "honest" as a moral adjective and "sentry" as an unanchored coinage
 
@@ -716,9 +716,9 @@ Where: `crates/before/fuzzfit/harness/src/bands.rs:66-70`. Nit row (the full rec
 
 Resolution (nit row): Replace each "honest" with the mechanism it names ("pre-drift divergence", "in-band work", "the tail of legitimately cheap draws" ...
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### paper-fidelity-13 (nit, simplification): roster: pending Finch's approval
+### paper-fidelity-13 (nit, simplification): roster: approved (ruling 104)
 
 "mint" used for constructing values across the crate
 
@@ -726,9 +726,9 @@ Where: `crates/before/src/lib.rs:49`. Nit row (the full record is in `evidence/`
 
 Resolution (nit row): One pass replacing "mint" at the 56 sites
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### prose-hygiene-15 (nit, documentation): roster: pending Finch's approval
+### prose-hygiene-15 (nit, documentation): roster: approved (ruling 104)
 
 Hand-maintained counts in doc comments
 
@@ -736,9 +736,9 @@ Where: `crates/before/fuzzfit/harness/src/bands.rs:76-77`. Nit row (the full rec
 
 Resolution (nit row): bands.rs: state the structure (one key per kernel plus one per
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### prose-hygiene-16 (nit, documentation): roster: pending Finch's approval
+### prose-hygiene-16 (nit, documentation): roster: approved (ruling 104)
 
 Residual dialect tells: load-bearing, earns, backstop, surface-as-verb, flavour, story, dial
 
@@ -746,9 +746,9 @@ Where: `crates/before/src/meter/board/floors.rs:136-136`. Nit row (the full reco
 
 Resolution (nit row): replace per the style tables in one sweep: load-bearing to "the
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### rank-15 (nit, documentation): roster: pending Finch's approval
+### rank-15 (nit, documentation): roster: approved (ruling 104)
 
 Em-dashes in // comments (19 lines); none in assert or expect messages
 
@@ -756,9 +756,9 @@ Where: `crates/before/src/version/rank.rs:621`. Nit row (the full record is in `
 
 Resolution (nit row): Replace with colons, semicolons, or parentheses at the listed lines, as part of a crate-wide pass
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### recursion-9 (nit, simplification): roster: pending Finch's approval
+### recursion-9 (nit, simplification): roster: approved (ruling 104)
 
 "mint" for constructing values and coining terms is a crate-wide idiom
 
@@ -766,9 +766,9 @@ Where: `crates/before/src/meter.rs:18-19`. Nit row (the full record is in `evide
 
 Resolution (nit row): Sweep the 57 sites with the vocabulary pass
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### skyline-coding-5 (nit, documentation): roster: pending Finch's approval
+### skyline-coding-5 (nit, documentation): roster: approved (ruling 104)
 
 em-dashes in 24 line comments and one assert message
 
@@ -776,9 +776,9 @@ Where: `crates/before/src/version/skyline.rs:239-239`. Nit row (the full record 
 
 Resolution (nit row): replace each with a colon, semicolon, or restructured sentence; the assert message becomes "the adequacy witness went green: the kernel no longer demo ...
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### skyline-coding-7 (nit, documentation): roster: pending Finch's approval
+### skyline-coding-7 (nit, documentation): roster: approved (ruling 104)
 
 "mints" for constructing an error value
 
@@ -786,9 +786,9 @@ Where: `crates/before/src/version/skyline/admit.rs:256-257`. Nit row (the full r
 
 Resolution (nit row): "and returns [`Decode::NotCanonical`] for a [`Refuted`] verdict only after they pass"
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### skyline-fill-grow-10 (nit, documentation): roster: pending Finch's approval
+### skyline-fill-grow-10 (nit, documentation): roster: approved (ruling 104)
 
 Em-dashes in `//` comments (62 sites in the partition)
 
@@ -796,9 +796,9 @@ Where: `crates/before/src/version/skyline/fill.rs:456-459`. Nit row (the full re
 
 Resolution (nit row): If the owner rules for the double-hyphen in this crate, one mechanical pass over `//` (not `///`/`//!`) lines replacing ` — ` with ` -- ` or a colon ...
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### skyline-fill-grow-14 (nit, documentation): roster: pending Finch's approval
+### skyline-fill-grow-14 (nit, documentation): roster: approved (ruling 104)
 
 Register texture that names no mechanism
 
@@ -806,9 +806,9 @@ Where: `crates/before/src/version/skyline/fill.rs:895-897`. Nit row (the full re
 
 Resolution (nit row): 897 drop "genuinely"; 1018 "their size"; memo.rs:88 "charge the heap meter for"; fuse.rs:36 "the route fold's cost"; grow.rs:36 drop "simply" ...
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### skyline-fill-grow-22 (nit, documentation): roster: pending Finch's approval
+### skyline-fill-grow-22 (nit, documentation): roster: approved (ruling 104)
 
 "forest parent" and "site forest" are used as terms without a definition
 
@@ -816,9 +816,9 @@ Where: `crates/before/src/version/skyline/fill/memo.rs:21-25`. Nit row (the full
 
 Resolution (nit row): One sentence before the bullets at memo.rs:17: the sites a scan records nest (a site can sit inside another's sibling range) ...
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### skyline-query-1 (nit, documentation): roster: pending Finch's approval
+### skyline-query-1 (nit, documentation): roster: approved (ruling 104)
 
 Unanchored crate-dialect terms "seam" and "genre" in this partition's prose
 
@@ -826,9 +826,9 @@ Where: `crates/before/src/version/skyline/query.rs:121-123`. Nit row (the full r
 
 Resolution (nit row): Rule once at crate scope. If the words stay, define each once by contrast at one home (the crate's vocabulary section or the first use) and link to it ...
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### skyline-query-4 (nit, documentation): roster: pending Finch's approval
+### skyline-query-4 (nit, documentation): roster: approved (ruling 104)
 
 Em-dashes in `//` comments and in one assert message
 
@@ -836,9 +836,9 @@ Where: `crates/before/src/version/skyline/query.rs:388-390`. Nit row (the full r
 
 Resolution (nit row): Rule once at crate scope; if the doctrine applies, sweep `//` comments to ` -- ` or restructure with a colon ...
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### skyline-sweep-place-masked-16 (nit, documentation): roster: pending Finch's approval
+### skyline-sweep-place-masked-16 (nit, documentation): roster: approved (ruling 104)
 
 Em-dashes in `//` comments at 25 sites
 
@@ -846,9 +846,9 @@ Where: `crates/before/src/version/skyline/place.rs:258-260`. Nit row (the full r
 
 Resolution (nit row): rewrite the 25 sites with colons, semicolons, parentheses, or spaced double-hyphens; the grep above enumerates them
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### skyline-sweep-place-masked-29 (nit, documentation): roster: pending Finch's approval
+### skyline-sweep-place-masked-29 (nit, documentation): roster: approved (ruling 104)
 
 Texture coinages used as jargon: currency, face, genre, "block consume", "real", point "tripwire"
 
@@ -856,9 +856,9 @@ Where: `crates/before/src/version/skyline/signed.rs:1-3`. Nit row (the full reco
 
 Resolution (nit row): currency to "representation" or "exchange form" (signed.rs already anchors "exchange pair/shape" to `Signed`); face to "form" or "entry point" ...
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### skyline-watermark-1 (nit, documentation): roster: pending Finch's approval
+### skyline-watermark-1 (nit, documentation): roster: approved (ruling 104)
 
 Vocabulary sweep: 'mint' for constructing a value, moralized 'honest', shouted 'MOVES', 'genuinely'
 
@@ -866,9 +866,9 @@ Where: `crates/before/src/version/skyline/watermark.rs:44-1144`. Nit row (the fu
 
 Resolution (nit row): 66 "defines"; 129, 553, 628 "constructs"; 303 "creating it"; 350 "the fresh-latent move"; 361 "a fresh latent finds them `m`-exact" ...
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### skyline-watermark-10 (nit, documentation): roster: pending Finch's approval
+### skyline-watermark-10 (nit, documentation): roster: approved (ruling 104)
 
 Em-dashes in // line comments at eight sites
 
@@ -876,9 +876,9 @@ Where: `crates/before/src/version/skyline/watermark.rs:491-811`. Nit row (the fu
 
 Resolution (nit row): replace each with a colon, semicolon, or sentence break. Seven of the eight sit above line 790 ...
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### skyline-watermark-25 (nit, documentation): roster: pending Finch's approval
+### skyline-watermark-25 (nit, documentation): roster: approved (ruling 104)
 
 Vocabulary collisions: 're-arm' for lease and 'fill phase' beside the fill walk
 
@@ -886,9 +886,9 @@ Where: `crates/before/src/version/skyline/pool_traffic.rs:4-18`. Nit row (the fu
 
 Resolution (nit row): watermark.rs:82 "return to a pool and are leased again cleared"; pool_traffic.rs:5 "and leases from it (`MinWeb::lease`)" ...
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### span-causally-2 (nit, documentation): roster: pending Finch's approval
+### span-causally-2 (nit, documentation): roster: approved (ruling 104)
 
 Em-dashes inside `//` comments at fifteen partition sites
 
@@ -896,9 +896,9 @@ Where: `crates/before/src/span.rs:176-179`. Nit row (the full record is in `evid
 
 Resolution (nit row): recast each with a colon, semicolon, or parentheses. The crate-wide sweep (374 lines) is a separate prose-pass decision; see the open questions
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### suanpan-13 (nit, documentation): roster: pending Finch's approval
+### suanpan-13 (nit, documentation): roster: approved (ruling 104)
 
 Em-dashes in `//` comments, a TOML comment, and panic/error strings
 
@@ -906,9 +906,9 @@ Where: `crates/suanpan/src/accumulator.rs:603-603`. Nit row (the full record is 
 
 Resolution (nit row): a colon or semicolon at each site (e.g. 603 "keeps both free: no rebuild of a"; tests.rs:291 "no longer holds the #[test] fn `{witness}` ...
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### suanpan-19 (nit, documentation): roster: pending Finch's approval
+### suanpan-19 (nit, documentation): roster: approved (ruling 104)
 
 Vocabulary tells: moralized code, a significance adverb, a mechanism-less "silently", three spellings of one term, colon-fronted labels and antitheses
 
@@ -916,9 +916,9 @@ Where: `crates/suanpan/src/accumulator.rs:992-992`. Nit row (the full record is 
 
 Resolution (nit row): drop "honest" at 992 ("one spelling of the value, not a normal form" already says it) and "genuinely" at tests.rs:321 ...
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### suanpan-3 (nit, documentation): roster: pending Finch's approval
+### suanpan-3 (nit, documentation): roster: approved (ruling 104)
 
 Opaque `\[derived\]` tags in the crate page
 
@@ -926,9 +926,9 @@ Where: `crates/suanpan/src/lib.rs:72-72`. Nit row (the full record is in `eviden
 
 Resolution (nit row): delete both; if the intent is to mark which paragraphs the table's "derived above" (line 200) points at, say it in words
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### suanpan-tests-17 (nit, documentation): roster: pending Finch's approval
+### suanpan-tests-17 (nit, documentation): roster: approved (ruling 104)
 
 moralized and register-transplant vocabulary: "honest" (5), "real fold", "minted", and "tripwire" for criteria with no committed known-bad
 
@@ -936,9 +936,9 @@ Where: `crates/suanpan/src/accumulator/tests/metered.rs:337-337`. Nit row (the f
 
 Resolution (nit row): metered.rs:337 "the difference is operand − receiver"; :678-679 drop the comment (the `#[allow]` says why) or "a named alias would only add a name to  ...
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### surface-roster-25 (nit, documentation): roster: pending Finch's approval
+### surface-roster-25 (nit, documentation): roster: approved (ruling 104)
 
 Metaphors promoted to jargon without an anchor: "jaw"/"pincer", "honest reading", "earns", "the seal", "keystone", "a real roster row"
 
@@ -946,9 +946,9 @@ Where: `crates/before/surfacecheck/src/main.rs:19-20`. Nit row (the full record 
 
 Resolution (nit row): rewrite as mechanism: "the census that pins each impl `FAMILY_SURFACE` disposes"; "two public spellings are two rows of surface" (drop "honest") ...
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### testing-oracles-12 (nit, documentation): roster: pending Finch's approval
+### testing-oracles-12 (nit, documentation): roster: approved (ruling 104)
 
 "keystone" is used six times before any definition and as a first sentence that says nothing; "honest" and "genuine" moralize the correct reference
 
@@ -956,9 +956,9 @@ Where: `crates/before/src/testing/semantic_oracle/tests.rs:157-157`. Nit row (th
 
 Resolution (nit row): Open the keystone doc with the invariant ("After one op trace, every ordered pair of final clocks has the same comparison descriptor under all three r ...
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### tests-other-8 (nit, documentation): roster: pending Finch's approval
+### tests-other-8 (nit, documentation): roster: approved (ruling 104)
 
 Register transplants and dash register across the partition
 
@@ -966,5 +966,5 @@ Where: `crates/before/tests/bench_judge_roster.rs:7-8`. Nit row (the full record
 
 Resolution (nit row): "launder" -> "misclassify as expected"; `honest` -> `untampered`/`intact`; drop "genuine(ly)/real(ly)" or state the mechanism ...
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 

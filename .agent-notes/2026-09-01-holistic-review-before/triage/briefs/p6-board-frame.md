@@ -8,7 +8,7 @@ The amplification board's frame entries, landed per their Resolutions inside an 
 
 ## Roster summary
 
-0 ruled (); 0 medium awaiting ruling; 9 pending roster approval (4 low, 5 nit).
+0 ruled (); 0 medium ruled (93 to 103); 9 roster members approved (ruling 104) (4 low, 5 nit).
 
 ## Ground rules
 
@@ -106,13 +106,13 @@ never relax them.
 
 ## Ordering
 
-Every P6 lane runs after the P1 to P5 and P7 lanes that touch its files have landed on main, or rebases onto them before its final gate run; the coordinator names the base SHA at launch. Lows and nits inside this lane's approved roster are swept without a question to Finch; every high and medium has, or awaits, an individual ruling. A change that would alter a rendered `before` doc panel is a stop (ruling 89). Follows `p1-board`, `p1-harness`, `p4-rosters`. Owns `src/meter/board/{board,ceilings,cell,coverage,currency,defect,export}.rs` and their tests.
+Every P6 lane runs after the P1 to P5 and P7 lanes that touch its files have landed on main, or rebases onto them before its final gate run; the coordinator names the base SHA at launch. Lows and nits inside this lane's approved roster are swept without a question to Finch; every high and medium has an individual ruling. A change that would alter a rendered `before` doc panel is a stop (ruling 89). Follows `p1-board`, `p1-harness`, `p4-rosters`. Owns `src/meter/board/{board,ceilings,cell,coverage,currency,defect,export}.rs` and their tests.
 
-## Roster members pending Finch's approval
+## Roster members approved (ruling 104)
 
-Lows and nits no ruling has reached, placed here by the files they touch. Land only after the coordinator confirms the roster is approved.
+Lows and nits approved as this lane's roster by ruling 104. Land each per its quoted Resolution and Acceptance, swept with the ruled members; report rather than choose if a Resolution conflicts with a ruling or offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89).
 
-### board-frame-10 (low, documentation): roster: pending Finch's approval
+### board-frame-10 (low, documentation): roster: approved (ruling 104)
 
 `TICKS_BOARD_COUNT`'s one-line proof names the wrong leg
 
@@ -120,9 +120,9 @@ Lows and nits no ruling has reached, placed here by the files they touch. Land o
 
 Resolution: "...an implementation iterating even a fraction of the count multiplies every per-byte constant by that fraction of 512, far over the scan, limb, and touch ceilings, so it cannot hide in headroom." Acceptance: the sentence names the constant ceilings as the leg that fires.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### board-frame-17 (low, documentation): roster: pending Finch's approval
+### board-frame-17 (low, documentation): roster: approved (ruling 104)
 
 The heterogeneous `clock | version` joins cite `clock_hash`, a row that prices a byte compare
 
@@ -130,9 +130,9 @@ The heterogeneous `clock | version` joins cite `clock_hash`, a row that prices a
 
 Resolution: Replace `clock_hash` with `version_join_assign` (the `|=` the impls run) or `version_join` as the `Clock::absorb` entry does; `clock_recv` may stay as the module doc's stated mechanism (recv is absorb plus tick). Acceptance: the entry cites only rows whose mechanism the impls execute; `board_coverage_tiles_the_public_surface` stays green. Construction: Change `clock_hash` here to any other live row name (e.g. `rank_decode`) and run the coverage tests: the tiling test still passes, showing it cannot distinguish a right citation from a wrong one.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### board-frame-24 (low, simplification): roster: pending Finch's approval
+### board-frame-24 (low, simplification): roster: approved (ruling 104)
 
 `BenchCell::denominator_bytes` re-implements `measure`'s denominator rule by hand and runs the body when the denominator does not need it
 
@@ -140,9 +140,9 @@ Roster note: lands only once the coordinator confirms this lane's roster is appr
 
 Resolution: One method on `Cell` (or `Denom`), e.g. `fn exponent_denominator(&self, op: &str, content: Option<usize>, result: impl FnOnce() -> Box<dyn Any>) -> usize`, that performs the content-or-input choice, the lazy output read-back, and the honesty assertion; `measure` derives `exp_denom_bytes` from it and `export` returns it; lift the repeated `.expect` into one private `fn cell(&self) -> Cell`. Acceptance: exactly one `match` over `Denom` computes a denominator in the board module; for a `Denom::Input` cell, `denominator_bytes` does not invoke the body (a counting body in a unit test); the bench sidecar's denominator file is byte-identical before and after at the record scales.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### board-frame-9 (low, documentation): roster: pending Finch's approval
+### board-frame-9 (low, documentation): roster: approved (ruling 104)
 
 `MAX_HEAP_BYTES_PER_INPUT_BYTE` carries no derivation
 
@@ -150,9 +150,9 @@ Roster note: lands only once the coordinator confirms this lane's roster is appr
 
 Resolution: State the derivation: the calibrating reader at the release profile and the margin convention, or that the constant operationalizes the crate-level "small constant multiple" promise at a stated multiple, with the reading left to the pin commit. Acceptance: the constant's doc names its calibrating reader or its derivation from the crate-level promise.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### board-frame-13 (nit, simplification): roster: pending Finch's approval
+### board-frame-13 (nit, simplification): roster: approved (ruling 104)
 
 `both_present_nodes` is an operand-content walk living in the constants module
 
@@ -160,9 +160,9 @@ Where: `crates/before/src/meter/board/ceilings.rs:286-298`. Nit row (the full re
 
 Resolution (nit row): Move `both_present_nodes` to operand.rs
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### board-frame-14 (nit, documentation): roster: pending Finch's approval
+### board-frame-14 (nit, documentation): roster: approved (ruling 104)
 
 "The tripwire pair below" points at tests that live in another file
 
@@ -170,9 +170,9 @@ Where: `crates/before/src/meter/board/cell.rs:45-48`. Nit row (the full record i
 
 Resolution (nit row): Name the two tests in backticks
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### board-frame-16 (nit, simplification): roster: pending Finch's approval
+### board-frame-16 (nit, simplification): roster: approved (ruling 104)
 
 `Cell`'s three constructors repeat the same struct literal, and its two mutually exclusive heap models are flat fields whose precedence lives in the judge
 
@@ -180,9 +180,9 @@ Where: `crates/before/src/meter/board/cell.rs:204-308`. Nit row (the full record
 
 Resolution (nit row): One private `with_denom` constructor; consider a `HeapModel` enum
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### board-frame-19 (nit, verification): roster: pending Finch's approval
+### board-frame-19 (nit, verification): roster: approved (ruling 104)
 
 The tiling test derives the board's operation axis by building every family at a bare `0.02`, twice, instead of from `ops()`, and guards NA reasons with `reason.len() >= 20`.
 
@@ -190,9 +190,9 @@ Where: `crates/before/src/meter/board/coverage/tests.rs:9-16`. Nit row (the full
 
 Resolution (nit row): Derive the axis from `ops()`; name or drop the length guard.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### board-frame-20 (nit, simplification): roster: pending Finch's approval
+### board-frame-20 (nit, simplification): roster: approved (ruling 104)
 
 Em-dashes in two `//` comments and one assert message
 
@@ -200,5 +200,5 @@ Where: `crates/before/src/meter/board/coverage/tests.rs:78-79`. Nit row (the ful
 
 Resolution (nit row): Decide crate-wide, then `; ` and ` -- `
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 

@@ -8,7 +8,7 @@ The board's family, floor, and judge entries, landed per their Resolutions insid
 
 ## Roster summary
 
-2 ruled (2 medium); 0 medium awaiting ruling; 9 pending roster approval (6 low, 3 nit).
+2 ruled (2 medium); 0 medium ruled (93 to 103); 9 roster members approved (ruling 104) (6 low, 3 nit).
 
 ## Ground rules
 
@@ -106,7 +106,7 @@ never relax them.
 
 ## Ordering
 
-Every P6 lane runs after the P1 to P5 and P7 lanes that touch its files have landed on main, or rebases onto them before its final gate run; the coordinator names the base SHA at launch. Lows and nits inside this lane's approved roster are swept without a question to Finch; every high and medium has, or awaits, an individual ruling. A change that would alter a rendered `before` doc panel is a stop (ruling 89). Follows `p1-board`, `p4-rosters`, `p4-structure` (operand.rs). Owns `src/meter/board/{family,floors,judge,measure,operand}.rs` and their tests.
+Every P6 lane runs after the P1 to P5 and P7 lanes that touch its files have landed on main, or rebases onto them before its final gate run; the coordinator names the base SHA at launch. Lows and nits inside this lane's approved roster are swept without a question to Finch; every high and medium has an individual ruling. A change that would alter a rendered `before` doc panel is a stop (ruling 89). Follows `p1-board`, `p4-rosters`, `p4-structure` (operand.rs). Owns `src/meter/board/{family,floors,judge,measure,operand}.rs` and their tests.
 
 ## Members
 
@@ -130,11 +130,11 @@ Resolution: Commit a tamper-evident roster of the cells whose exponent legs are 
 
 Ruled (93): lands per the quoted Resolution under that ruling; see ../rulings.md.
 
-## Roster members pending Finch's approval
+## Roster members approved (ruling 104)
 
-Lows and nits no ruling has reached, placed here by the files they touch. Land only after the coordinator confirms the roster is approved.
+Lows and nits approved as this lane's roster by ruling 104. Land each per its quoted Resolution and Acceptance, swept with the ruled members; report rather than choose if a Resolution conflicts with a ruling or offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89).
 
-### board-families-floors-judge-13 (low, simplification): roster: pending Finch's approval
+### board-families-floors-judge-13 (low, simplification): roster: approved (ruling 104)
 
 floors.rs re-inlines its own helpers: five scan-floor casts, twin limb constructors, eight near-identical `Floors` literals, six zero-or-NA shapes, two rate types for one dimension
 
@@ -142,9 +142,9 @@ floors.rs re-inlines its own helpers: five scan-floor casts, twin limb construct
 
 Resolution: `fn scan_floor(bytes: usize, why: &'static str) -> Liveness` routing `scan_examines` and the three rejection constructors and `sync_floors`; `fn floor_or_na(min: u64, why, na_reason) -> Liveness` for the six zero-or-NA sites, with `limb_stream`/`limb_wide` collapsing into it; `fn in_place(scan: Liveness, touch: Liveness) -> Floors`, `fn equal_pair() -> Floors`, and `fn witness(touch_na: &'static str) -> Floors` for the literals; make `SCAN_FLOOR_BITS_PER_INPUT_BYTE` a `u64` multiplied with `saturating_mul` as the tick floor does (owner's call: the constant is `pub`); `usize::try_from` at operand.rs:124. Acceptance: one occurrence of `SCAN_FLOOR_BITS_PER_INPUT_BYTE` in an expression; `grep -c 'Liveness::NotApplicable {' floors.rs` is 1 (inside `na`); no site constructs `Liveness::Floor` with a possibly-zero `min` directly; the smoke board's rendered legend is byte-identical before and after.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### board-families-floors-judge-18 (low, documentation): roster: pending Finch's approval
+### board-families-floors-judge-18 (low, documentation): roster: approved (ruling 104)
 
 `trend`'s docstring claims a lumpy counter "errs red, never green"; a counter dark at the larger point reads green
 
@@ -152,9 +152,9 @@ Roster note: lands only once the coordinator confirms this lane's roster is appr
 
 Resolution: State the direction-dependence: a zero at a smaller point steepens the fit (a conservative false red); a zero at a larger point flattens it and reads green, which is why every judged column carries a liveness declaration. Optionally pin `trend(&[(100, 5), (200, 0)]) < 0.0` in a one-line judge test. Acceptance: the docstring states the direction-dependence. Construction: `assert!(trend(&[(100, 5), (200, 0)]) < 0.0)`; through `evaluate` with all-NA floors and `limb: Some(60)` then `Some(0)` over denominators 100 -> 200, `red` is empty.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### board-families-floors-judge-22 (low, documentation): roster: pending Finch's approval
+### board-families-floors-judge-22 (low, documentation): roster: approved (ruling 104)
 
 Constants are judged at each window's larger size only; board.rs says "per size across the ladder"
 
@@ -162,9 +162,9 @@ Constants are judged at each window's larger size only; board.rs says "per size 
 
 Resolution: Correct board.rs:222-224 to "constants at each window's larger size; bands and floors at every size" and state the reason the smaller size is excluded; or (owner's call) judge `per_unit` at both samples of each window. Acceptance: board.rs and judge.rs agree on which sizes carry the constant legs. Construction: Through `evaluate`, `sample(n, limb = 10*128*n)` (over the 128/B ceiling) paired with `sample(2n, limb = 2n)` reads no "limb constant" red today, since only `s2` is judged.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### board-families-floors-judge-23 (low, simplification): roster: pending Finch's approval
+### board-families-floors-judge-23 (low, simplification): roster: approved (ruling 104)
 
 `judge_window`'s ceiling resolution is a match split across four statements; `Score` duplicates `Fit`; the span test is written twice
 
@@ -172,9 +172,9 @@ Roster note: lands only once the coordinator confirms this lane's roster is appr
 
 Resolution: Fold the overrides into the match arms (the capacity-model `continue` can precede the match); `Score { fit: Fit, per_unit: Option<f64> }`; hoist `fn denominators_span(first: usize, last: usize) -> bool` to module level; `== Some(true)` and an `over_ceiling`/`under_floor` pair in place of `banded`; `fn floor_trip(c: Currency) -> &'static str` (tests.rs:409 imports `SCAN_FLOOR_TRIP`; the test can call the fn). Trim `trend`'s doc to the estimator's mechanics with a pointer to board.rs's exponent-policy section only if the owner wants the policy stated once. Acceptance: `judge_window` reads each currency's ceiling from a single match arm; one span helper; `acceptance_trend_absorbs_lumps_and_keeps_amplifiers_red`, `exponent_guards_skip_noise_and_keep_real_amplifiers_red`, `declared_capacity_model_bands_the_projection_peak`, and the smoke board pass unchanged.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### board-families-floors-judge-25 (low, verification): roster: pending Finch's approval
+### board-families-floors-judge-25 (low, verification): roster: approved (ruling 104)
 
 The touch floor's sole basis and the flat-denominator axis have no differential pin against the public shape iterator
 
@@ -182,9 +182,9 @@ The touch floor's sole basis and the flat-denominator axis have no differential 
 
 Resolution: A proptest over the crate's version generators (and a sweep over `study_family_versions`) asserting `stored_nonzero_deltas(v) == v.shape().skip(1).filter(|p| p.rise.is_some()).count()` and that `value_content_bytes(v)` equals the byte-rounded sum over `shape()` of `bits(height).max(1)` with heights accumulated from the rises; optionally implement `stored_nonzero_deltas` through `shape()` and dissolve one decoder (finding 24). Acceptance: the committed differential test passes; flipping the `!bits.bit(pos)` polarity or the odd/even zigzag arm in either walk fails it. Construction: proptest over `crate::testing::generators`' `Version` strategy: compute both counts and assert equality; the identity follows from shape.rs:89-95.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### board-families-floors-judge-7 (low, simplification): roster: pending Finch's approval
+### board-families-floors-judge-7 (low, simplification): roster: approved (ruling 104)
 
 `scatter` and `weave` hand-roll the balanced fork expansion `Party::forks` provides
 
@@ -192,9 +192,9 @@ Roster note: lands only once the coordinator confirms this lane's roster is appr
 
 Resolution: One `pub(crate) fn balanced_leaves(n: usize) -> Vec<Party>` in `meter` (or `[Party::seed()].into_iter().chain(first.forks(n as u64 - 1))` directly), used by family.rs, meter.rs, and the tests. Acceptance: one balanced-expansion implementation in the instrument code; `scatter` and `weave` produce byte-identical bundles at power-of-two `n` (compare `study_family_versions(1.0)` before and after).
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### board-families-floors-judge-26 (nit, simplification): roster: pending Finch's approval
+### board-families-floors-judge-26 (nit, simplification): roster: approved (ruling 104)
 
 `radix_units_party` carries a branch for a value `Party` cannot hold
 
@@ -202,9 +202,9 @@ Where: `crates/before/src/meter/board/operand.rs:261-263`. Nit row (the full rec
 
 Resolution (nit row): Delete the empty-stream branch
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### board-families-floors-judge-3 (nit, simplification): roster: pending Finch's approval
+### board-families-floors-judge-3 (nit, simplification): roster: approved (ruling 104)
 
 Idiom slips in family.rs and two floors.rs signatures
 
@@ -212,9 +212,9 @@ Where: `crates/before/src/meter/board/family.rs:547-548`. Nit row (the full reco
 
 Resolution (nit row): Bind the cross pair; rename the shadow; name the operand bytes; import `skip_subtree`
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### board-families-floors-judge-4 (nit, simplification): roster: pending Finch's approval
+### board-families-floors-judge-4 (nit, simplification): roster: approved (ruling 104)
 
 Em-dashes in `//` comments and in rendered legend strings
 
@@ -222,5 +222,5 @@ Where: `crates/before/src/meter/board/family.rs:614-615`. Nit row (the full reco
 
 Resolution (nit row): ` -- ` in seven comments; colon or semicolon in three legend strings
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 

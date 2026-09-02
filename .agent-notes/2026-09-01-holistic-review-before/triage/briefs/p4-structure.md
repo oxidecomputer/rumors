@@ -250,131 +250,131 @@ Resolution: Move the framing (`ARITY_SPAN`, the three pool sizes, `chunk`, `pick
 
 Ruled (77): one `fuzz/framing.rs` included by `#[path]` from the targets, the seed writer, and the checker. The fuzz targets are the fuzz lane's files; land after `p1-fuzz` (which regenerates the seeds under ruling 50) and rebase onto it.
 
-## Roster members pending Finch's approval
+## Roster members approved (ruling 104)
 
-Lows and nits no ruling has reached, placed here by the files they touch. Land only after the coordinator confirms the roster is approved.
+Lows and nits approved as this lane's roster by ruling 104. Land each per its quoted Resolution and Acceptance, swept with the ruled members; report rather than choose if a Resolution conflicts with a ruling or offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89).
 
-### board-families-floors-judge-5 (low, simplification): roster: pending Finch's approval
+### board-families-floors-judge-5 (low, simplification): roster: approved (ruling 104)
 
 Generator minimum widths duplicated as bare literals at the family call sites
 
 Resolution: Have each generator export its minimum as a named `pub(crate) const` used by both its `assert!` and the family arm's clamp, or move the clamp into the `Shape` constructor so the board never needs to know it. Acceptance: no bare `.max(<literal>)` remains in `FamilyData::build`.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### board-ops-render-23 (low, simplification): roster: pending Finch's approval
+### board-ops-render-23 (low, simplification): roster: approved (ruling 104)
 
 `check_with` re-validates the pin table's structure at runtime; the committed test already does
 
 Resolution: Drop the loop and the corresponding `# Panics` clauses, or keep it with a one-line comment naming the reason it must hold without the test suite (the pin recipe running standalone). Acceptance: either the loop is gone and the two `# Panics` sections no longer mention a malformed pin, or the loop carries its standalone justification.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### board-ops-render-28 (low, simplification): roster: pending Finch's approval
+### board-ops-render-28 (low, simplification): roster: approved (ruling 104)
 
 Six probe tests hand-build `Sample`s with per-test `PROBE_NA` constants and repeated in-function imports; the radix-work formula and a trivial wrapper are duplicated
 
 Resolution: One module-level `fn probe(reason: &'static str, denom: usize, readings: ByCurrency<Option<u64>>) -> Sample` with all-NA floors and defaults, and per-test one-line tweaks; hoist the shared imports to the top (keeping only the limb-meter names gated); replace `version_of(&x)` with `x.version()`; expose measure's radix-work computation as a small `pub(super) fn` or add one test-local helper. Acceptance: one `Sample {` literal in tests.rs; no `use super::` inside test bodies except cfg-gated ones; `version_of` gone.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### codec-bits-28 (low, simplification): roster: pending Finch's approval
+### codec-bits-28 (low, simplification): roster: approved (ruling 104)
 
 Dead `len == 64` arm in BitStack::push_bits, the sibling of the disjunct 35a09c5b swept from PackedBuilder::append_bits
 
 Resolution: Mirror 35a09c5b: `debug_assert!(len <= 63 && value >> len == 0);` and `self.top = (self.top << len) | value;`. (The larger alternative, making `push_bits`/`pop_bits` total on `1..=64` and deleting `PopStack`'s four `width == 64` splits, is an open question below.) Acceptance: no `len == 64` text remains in `push_bits`; `bit_stack_matches_a_vec_of_bools` and `pop_stack_matches_a_vec_model_across_all_widths` pass.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### envelopes-b-26 (low, simplification): roster: pending Finch's approval
+### envelopes-b-26 (low, simplification): roster: approved (ruling 104)
 
 Derived liveness floors are hand-computed literals beside inline scale literals
 
 Resolution: name each family's large-run scales (`PURE_COMB_SITES`, `PURE_COMB_WIDTH_BITS`, and so on), use them in the bodies, and write each floor as a `const` expression over them (`2 * (K - 1) + B / 64`, `4 * (K - 1) + B / 64`, `(K - 1) + B / 64`, `K * (3 * B / 64 + 2)`) with the premise in the doc and the numbers gone. Acceptance: every touch liveness floor in `width_circulation_cost` and `dominated_undercut_cost` is a const expression over named scale constants the body uses; the "At (k, b) = ..." numeric restatements are gone. Construction: change `tick_run(..., packed2(2_000, 4_096), ...)` at 9054 to `(2_000, 8_192)`: the derivation says the floor should read 4·1,999 + 128 = 8,124; the literal stays 8,060; the test still passes with the floor 64 touches under irreducible work and nothing announces it.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### fuelscape-render-13 (low, simplification): roster: pending Finch's approval
+### fuelscape-render-13 (low, simplification): roster: approved (ruling 104)
 
 Test fixtures duplicated verbatim, and hand-rolled temp dirs that leak on failure
 
 Resolution: move `synthetic_atlas` (and a JSON `tamper` helper, see finding 14) into one `#[cfg(test)]` module both suites import; add `tempfile` as a dev-dependency and replace the four temp-dir idioms with `TempDir::new()`, dropping the trailing `remove_dir_all` calls. Acceptance: one `synthetic_atlas` definition; no `std::env::temp_dir()` in the crate's tests; a deliberately failing assertion leaves nothing behind.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### skyline-coding-11 (low, simplification): roster: pending Finch's approval
+### skyline-coding-11 (low, simplification): roster: approved (ruling 104)
 
 `held_at` outlived the runtime gate it was introduced for
 
 Resolution: inline the conjunction into the `debug_assert!` (`self.held.is_some() && self.path.len() == root_depth + first_rel_depth`), delete `held_at` and the two `held_at_*` tests, and let the tick/fill/grow differentials carry the precondition. Acceptance: `just gate` clean; no reference to `held_at` remains; the grow/fill differential suites are unchanged.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### skyline-fill-grow-34 (low, simplification): roster: pending Finch's approval
+### skyline-fill-grow-34 (low, simplification): roster: approved (ruling 104)
 
 grow.rs re-spells `IdReader`'s cursor as `id_tag`/`id_skip` over a bare position
 
 Resolution: Have `emit` and grow/tests.rs's `rec` take an `IdReader`: `let key = id.pos(); match id.read() { IdNode::Full => .., IdNode::Internal { left, right } => .., IdNode::Empty => unreachable!(..) }` and `id.skip()` in place of `id_pos = id_skip(id_bits, id_pos)`; delete `id_tag` and `id_skip`. The expansion-chain loop's `current = (key, left_present, right_present)` tuple threading (577-602) collapses to reading the tag at the loop head. Acceptance: `id_tag`/`id_skip` gone; the route differential and both grids green with `FAMILY_GROW_PAIRS`/`EXHAUSTIVE_GROW_PAIRS` unchanged; scan-meter tick envelopes unchanged (both spellings record 2 bits per tag).
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### suanpan-9 (low, simplification): roster: pending Finch's approval
+### suanpan-9 (low, simplification): roster: approved (ruling 104)
 
 The register-or-digit-0 dispatch is spelled out at five sites
 
 Resolution: `#[inline] fn add_word_scale(&mut self, delta: i128) { if !self.quick_add(delta) { self.add_at(0, delta); } }` called from the four entries and `fold_accum`; optionally `fn spill_value(&mut self, value: i128, shift: u64)` for the four enter-then-deposit pairs (`spill` generalized by a shift). Acceptance: one `self.add_at(0,` site; the metered pins unchanged.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### suanpan-tests-6 (low, simplification): roster: pending Finch's approval
+### suanpan-tests-6 (low, simplification): roster: approved (ruling 104)
 
 the stream-replay loop is copied at eleven sites and the run-forming arm bodies are copied across two files
 
 Resolution: add `fn replay(ops: &[Op], engine: bool) -> (Accumulator, IBig)` to tests.rs (the body of `build_held`'s `Stream` arm) and use it at every plain-replay site. Lift the run-forming arm into tests.rs as `enum RunFormingOp` with `arb_run_forming_op()` and `apply_run_forming(acc, oracle, &op)`; either keep two properties drawing from that one definition, or fold the differential one into the ledger proptest with a `sign_every_step: bool` parameter so both sign-read schedules survive under the checker. Acceptance: one definition of the replay loop and one of the run-forming arms; both suites green; the per-step-sign schedule still runs.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### suanpan-tests-9 (low, simplification): roster: pending Finch's approval
+### suanpan-tests-9 (low, simplification): roster: approved (ruling 104)
 
 the ledger alphabet is a u8 matched against literals, with a hand-maintained cardinality and a catch-all arm
 
 Resolution: introduce `#[derive(Clone, Copy, Debug)] enum LedgerOp { AddOne, SubOne, AddMax, SubMax, AddAt96, SubAt96, AddAt224, SubAt224, SubWord32At192, AddWord32At192, SignRead }`, a `const ALL: [LedgerOp; 11]` (or derive the list), an exhaustive `match`, and `schedule: Vec<LedgerOp>`. Acceptance: `ledger_op` has no `_` arm; `LEDGER_OPS` is gone; the sweep explores the same state count (check once in a scratch run that the number of `assert_ledger_invariants` calls is unchanged).
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### testing-diff-gen-16 (low, simplification): roster: pending Finch's approval
+### testing-diff-gen-16 (low, simplification): roster: approved (ruling 104)
 
 The op applier is spelled twice in `optrace.rs` and twice more elsewhere; the module doc's op list omits `Ticks` at three sites
 
 Resolution: A small `pub(crate) trait Member` (`tick`, `ticks`, `fork`, `send`/`recv`, `sync`, `join`) implemented for `oracle::Clock` (with `ticks` as the literal loop and its comment) and `Clock`; one `step<M: Member>(pop: &mut Vec<M>, op: &Op)`; `run` as the fold from `vec![M::seed()]`; `master_differential` calls `step` per population. `replay` keeps its copy with a one-line reason at the site. State the op inventory as "the variants of [`Op`]" at all three sites. Acceptance: one applier body in optrace.rs; adding an `Op` variant fails to compile in exactly one place; no prose lists the op variants.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### testing-oracles-11 (low, simplification): roster: pending Finch's approval
+### testing-oracles-11 (low, simplification): roster: approved (ruling 104)
 
 `replay` carries a `seeds` parameter every caller fixes at 1 and re-spells the optrace steppers; `FunctionClock`'s `Err` arms are unreachable
 
 Resolution: Drop `seeds` and start each population from one seed. Extract the oracle arm of `optrace::run` into a `step_oracle(&mut Vec<oracle::Clock>, &Op)` so `run` folds over it, write a `step_fs(&mut Vec<FunctionClock>, &Op, &mut StdRng)` beside it, and reduce `replay` to the pre-op disjointness-agreement assert followed by three step calls. Make `FunctionClock::join`/`sync` infallible operations that assert disjointness, since no caller wants the `Err`. Acceptance: `replay` contains no `match *op` arm that mutates `im` or `or` directly; the `Join`/`Sync` index arithmetic exists in optrace only (plus the fs stepper); `replay(1, …)` call sites become `replay(…)`; `replay_matches_across_references` and the sweep pass unchanged.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### version-core-26 (low, simplification): roster: pending Finch's approval
+### version-core-26 (low, simplification): roster: approved (ruling 104)
 
 `hull_traffic`'s `snapshot` and `reset` enumerate the `Rung` variants by hand; `web_traffic` is a shape-for-shape copy
 
 Resolution: store the cells as `static CELLS: [AtomicU64; N]` indexed by a `Rung::index()` (or `#[repr(usize)]`), so `reset` is a loop over `&CELLS` and `snapshot` reads by index; or lift a small `Tally<const N: usize>` (record/snapshot/reset over an atomic array) into `codec`/`meter` and have both classified counters use it. Apply the same to web_traffic.rs. Acceptance: no per-variant array literal in either `reset`; adding a `Rung` variant requires touching exactly the enum and the snapshot struct, with a compile error naming the second.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### version-core-8 (low, simplification): roster: pending Finch's approval
+### version-core-8 (low, simplification): roster: approved (ruling 104)
 
 `span_all` re-implements `balanced_fold`'s counter dispatch; a third copy lives in span algebra
 
 Resolution: generalize `balanced_fold` over the accumulator `M` with a small ops record (`lone: fn(&Version) -> M`, `leaf: fn(&Version, &Version) -> M`, `absorb: fn(&mut M, &Version)`, `merge: fn(&mut M, M)`), instantiated with `M = Version` by `join_all`/`meet_all`/`Sum` and with the `(lo, hi)` pair by `span_all`; `Hull` dissolves into `Group<B, M>`; `DedupRuns<I>` drops `F` for `I::Item: Borrow<Version>`. Span algebra can adopt the same fold with a `points` pre-check hook. Acceptance: the weight-discipline comment appears once in version.rs; `fold_clone_collapse_is_value_invisible`, `boundary_arity_fan_folds_match_the_sequential_fold`, and the `VERSION_LIST` fold laws stay green; `DedupRuns` has no function-typed field.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### fuzz-guests-pins-22 (nit, simplification): roster: pending Finch's approval
+### fuzz-guests-pins-22 (nit, simplification): roster: approved (ruling 104)
 
 `COMBINE_ARITY_CAP` and the `dispatch!` arm list are hand-parallel
 
@@ -382,9 +382,9 @@ Where: `crates/before/fuzzfit/guest/src/lib.rs:791-831`. Nit row (the full recor
 
 Resolution (nit row): Derive the arm list from the cap, or tie them with a `const _` assert
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### inventory-9 (nit, simplification): roster: pending Finch's approval
+### inventory-9 (nit, simplification): roster: approved (ruling 104)
 
 Dead `len == 64` arm under a `len <= 63` assert in `BitStack::push_bits`
 
@@ -392,9 +392,9 @@ Where: `crates/before/src/codec/stack.rs:61-71`. Nit row (the full record is in 
 
 Resolution (nit row): Two asserts and `(top << len) \
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### meter-registry-tier2-17 (nit, simplification): roster: pending Finch's approval
+### meter-registry-tier2-17 (nit, simplification): roster: approved (ruling 104)
 
 The sizer-of-a-Version idiom is copied fifteen times; `built_view` and `dense` are fully qualified beside imported siblings; the two kernel wrappers are a copy-paste pair
 
@@ -402,9 +402,9 @@ Where: `crates/before/src/meter/tier2/tests.rs:48-58`. Nit row (the full record 
 
 Resolution (nit row): A `size_of(v)` helper; imports; one `kernel_emit`
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### recursion-8 (nit, simplification): roster: pending Finch's approval
+### recursion-8 (nit, simplification): roster: approved (ruling 104)
 
 BitStack::push_bits carries a dead len == 64 arm; pop_bits's one-level recursion is undocumented
 
@@ -412,9 +412,9 @@ Where: `crates/before/src/codec/stack.rs:58-102`. Nit row (the full record is in
 
 Resolution (nit row): Drop the dead arm; note or inline `pop_bits`'s one-level self-call
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### skyline-watermark-23 (nit, simplification): roster: pending Finch's approval
+### skyline-watermark-23 (nit, simplification): roster: approved (ruling 104)
 
 The three-probe minimum read is written seven times
 
@@ -422,9 +422,9 @@ Where: `crates/before/src/version/skyline/watermark/tests.rs:91-105`. Nit row (t
 
 Resolution (nit row): `assert_minimum_at` helpers
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### testing-diff-gen-4 (nit, simplification): roster: pending Finch's approval
+### testing-diff-gen-4 (nit, simplification): roster: approved (ruling 104)
 
 `BespokeGenre::GENRES` and `name()` restate the variant list twice
 
@@ -432,5 +432,5 @@ Where: `crates/before/src/testing/diff_ops.rs:848-870`. Nit row (the full record
 
 Resolution (nit row): Derive the roster from an exhaustive match, or `strum::EnumIter`
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 

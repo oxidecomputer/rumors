@@ -122,8 +122,12 @@ never relax them.
 6. The render merge (skyline-coding-29), retiring the declared model, its
    liveness pin, and `p2-rows`' closed-form witness together once the
    mirror-wide cells read linear.
-7. crate-root-40's list emptied and the headline question (crate-root-25,
-   paper-fidelity-3) reported to Finch, last.
+7. crate-root-40's list emptied and, last, the headline tightened per
+   ruling 93 (crate-root-25, paper-fidelity-3): `lib.rs`'s sentence names
+   the per-operation classes (linear for the core operations, near-linear
+   for the n-ary folds, multiplication-bound where the answer is a wide
+   integer), every operation's `# Complexity` section carrying its own
+   bound. This is the lane's final commit.
 
 Every cure: measure at the parent (the same `just test-all` MEASURED
 lines and `just amp-board-acceptance` output kept under
@@ -278,25 +282,19 @@ the class prose in `ops.rs`, the island, and `text.rs`'s render doc
 states the derived bound with the "genuinely quadratic still reads red"
 sentence deleted. The "Accept" branch of the resolution is not taken.
 
-### crate-root-25 (medium, claim): roster: pending Finch's approval
+### crate-root-25 (medium, claim): ruling 93
 
 Resolution: Reword to the bound the crate guarantees, for example "while every operation carries a documented, guaranteed time bound: linear in the encoded input for the core operations (tick, fork, join, comparison, the codecs), near-linear for the n-ary folds, and multiplication-bound only where the answer itself is a wide integer (rank and its relatives)"; then `just readme`. Acceptance: the opening paragraph names no bound any `# Complexity` section exceeds; the words "asymptotically linear" do not stand as a crate-wide promise while `fuelscape/version_rank.json` carries contract `O(M(|self|) · log |self|)`.
 Construction: Textual: the rendered docs for `Version::rank` state `O(n (log n)^2)` in total input bytes on the same page set whose front page states "asymptotically linear"; the instruments that would fail a literal linear claim are already committed and green (`render_merge_superlinearity_is_alive`, `version_join_all_log_factor_is_alive`).
 
-Roster note: decision 21's remaining question, which ruling 1 left
-open: whether the front-page headline tightens to the per-operation
-contracts ("linear for the core operations, near-linear for the n-ary
-folds, multiplication-bound where the answer is a wide integer") once
-the five rows above are green. Not owner-ruled yet; this lane reports
-the five green and hands the wording to Finch, editing nothing in
-`lib.rs:5-6` until a ruling lands.
+Ruled (93): once the five rows above are green, tighten the headline to the per-operation classes (linear for the core operations, near-linear for the n-ary folds, multiplication-bound where the answer is a wide integer) in this lane's final commit; every operation's `# Complexity` section carries its own bound.
 
-### paper-fidelity-3 (medium, claim): roster: pending Finch's approval
+### paper-fidelity-3 (medium, claim): ruling 93
 
 Resolution: qualify the headline to what the roster supports: linear on the core operations (tick, join, meet, compare, fork, codec), a `log k` factor on the n-ary folds, `M(n) · log n` on the rank family, quadratic output on projection materialization, with each operation's `# Complexity` section as the contract of record. Acceptance: no sentence on the front page states a bound that any `contract:` row in the roster exceeds.
 
-Roster note: the same headline question as crate-root-25, filed from
-the paper-fidelity sweep; one ruling disposes both.
+Ruled (93): the same headline change as crate-root-25, filed from
+the paper-fidelity sweep; one commit lands both.
 
 ## Hazards and stops
 

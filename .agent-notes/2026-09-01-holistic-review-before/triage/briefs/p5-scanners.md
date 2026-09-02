@@ -255,15 +255,15 @@ Resolution: owner check: enable `-W clippy::too_long_first_doc_paragraph` on the
 
 Ruled (80, decision 79): rule 1 is replaced by clippy's `too_long_first_doc_paragraph`, the fixtures confirming the lint fires first; rule 2 stays.
 
-## Roster members pending Finch's approval
+## Roster members approved (ruling 104)
 
-Lows and nits no ruling has reached, placed here by the files they touch and the kind of dissolution. Land only after the coordinator confirms the roster is approved.
+Lows and nits approved as this lane's roster by ruling 104, placed here by the files they touch and the kind of dissolution. Land each per its quoted Resolution and Acceptance, swept with the ruled members; report rather than choose if a Resolution conflicts with a ruling or offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89).
 
-### gate-legs-10 (low, simplification): roster: pending Finch's approval
+### gate-legs-10 (low, simplification): roster: approved (ruling 104)
 
 doclint sweeps in-tree build outputs; only two of five detached workspaces redirect their target dirs to dodge it
 
 Resolution: Exclude `target`, `.git`, and `node_modules` in doclint's walk exactly as testdoc does, with a self-test fixture for the skip; then the two `.cargo/config.toml` redirects lose their stated reason and can be dissolved or re-justified at the file. Acceptance: doclint's self-test pins that a `.rs` under a `target/` directory is not visited, and no `.cargo/config.toml` cites doclint as its reason.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names and the retirement discipline. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names and the retirement discipline. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 

@@ -376,7 +376,7 @@ judge; the acceptance's median-scaling clause is the coordinator's to
 observe on a quiet machine. Your evidence is `cargo bench --no-run` for
 the binary and the diff.
 
-### board-families-floors-judge-19 (low, verification-gap): roster: pending Finch's approval
+### board-families-floors-judge-19 (low, verification-gap): roster: approved (ruling 104)
 
 Resolution: Extend the probe pattern at tests.rs:430-457 with one `Sample` pair per remaining floored currency: `touch: Some(0)` under `touch_pair_fold(v, w)` on a dense pair -> `red == [TOUCH_FLOOR_TRIP]`; `limb: Some(0)` under `limb_stream(mandatory_limbs_stream(&hugeleaf(256)))` -> `[LIMB_FLOOR_TRIP]`; `heap: Some(0)` under `heap_materializes(n)` -> `[HEAP_FLOOR_TRIP]`. Acceptance: each of the four live `*_FLOOR_TRIP` constants is asserted by name in a committed test that feeds a zero reading against a floor the floors.rs constructors derived.
 Construction: Reuse the tests.rs:430-457 `sample` closure with `touch: Some(0)` and `floors: walk_floors(n, touch_pair_fold(&v, &w))` where `v = version_of(&dense(1_000))` and `w` is `v` ticked at the seed; `evaluate` on two such samples must give `red == vec![TOUCH_FLOOR_TRIP]`. Repeat with `limb: Some(0)` and `floors.limb = limb_stream(mandatory_limbs_stream(&hugeleaf(256)))` (4 limbs per tests.rs:55), expecting LIMB_FLOOR_TRIP.
@@ -387,7 +387,7 @@ its `*_FLOOR_TRIP` by name; lands with step 2's judge tests if Finch
 approves the roster. Under ruling 43 the trip constants are asserted as
 the values the judge returns, not re-spelled strings.
 
-### board-frame-23 (low, correctness): roster: pending Finch's approval
+### board-frame-23 (low, correctness): roster: approved (ruling 104)
 
 Resolution: Target the last leaf token whichever it is, `rfind(|c: char| c == '0' || c == '1')`, and re-spell `t` as `(t, t)`; the parser rejects `(0, 0)` and `(1, 1)` identically at the `)`, so the row's `Parse::NotCanonical` assertion holds and only closing parens follow the defect. Re-word the doc ("its last leaf token `t` re-spelled `(t, t)`, the non-normal pair judged at the node's close, the text's last token"). Acceptance: a unit test beside the builder: for the mounted `id-pair` operand, the produced text's `(t, t)` closes at the last non-paren byte and `parse::<Party>()` returns `Parse::NotCanonical`; the row's heap readings on the left-mounted families do not fall.
 Construction: `Party` text `(((((1, 0), 0), 0), 0), 0)` (the `id_spine(4, false)` shape mounted left, 26 bytes) becomes `((((((1, 1), 0), 0), 0), 0), 0)`; `parse_id_tree` returns `NotCanonical` after consuming the 12 bytes `((((((1, 1)`, leaving 19 unparsed. A test asserting `d.len() - d.find("(1, 1)").unwrap() <= 8` fails on the current placer.

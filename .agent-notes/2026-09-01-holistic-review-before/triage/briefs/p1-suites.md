@@ -384,7 +384,7 @@ premise stated. The negative control is the acceptance's own: the
 always-changing `fill_for_test` mutant turns `exhaustive_small` red on
 the floor; record the run in the commit message.
 
-### meter-adequacy-10 (nit, (table)): roster: pending Finch's approval
+### meter-adequacy-10 (nit, (table)): roster: approved (ruling 104)
 
 Table row: `crates/before/tests/meter.rs:8168-8197`; The meet-fold band's `touches >= bytes` is labelled a liveness floor with no mechanism for one touch per operand byte. Resolution: Derive from nonzero deltas times first-level merges, or relabel it a measured band (the suite's own "improvement tripwire" class).
 
@@ -393,7 +393,7 @@ derives from nonzero deltas times first-level merges or is relabeled a
 measured band. Lands with the band-doc work if Finch approves the
 roster; say which way you took and why.
 
-### skyline-sweep-place-masked-4 (nit, claim): roster: pending Finch's approval
+### skyline-sweep-place-masked-4 (nit, claim): roster: approved (ruling 104)
 
 Resolution: state the pinned mechanism as "no per-interval sign read inside an unowned run" at masked.rs:313-316 and at the generator (src/meter.rs:3506-3515) and band (tests/meter.rs:7515-7517), and name the zero-delta premise at the generator. Optionally add a nonzero-delta spine variant whose reading is expected linear, as the fold floor. Acceptance: the prose names sign reads and the zero-delta premise; the band is unchanged.
 

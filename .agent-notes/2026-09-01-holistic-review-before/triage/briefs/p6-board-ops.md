@@ -8,7 +8,7 @@ The board's ops and render entries, landed per their Resolutions inside an appro
 
 ## Roster summary
 
-1 ruled (1 medium); 0 medium awaiting ruling; 12 pending roster approval (8 low, 4 nit).
+1 ruled (1 medium); 0 medium ruled (93 to 103); 12 roster members approved (ruling 104) (8 low, 4 nit).
 
 ## Ground rules
 
@@ -106,7 +106,7 @@ never relax them.
 
 ## Ordering
 
-Every P6 lane runs after the P1 to P5 and P7 lanes that touch its files have landed on main, or rebases onto them before its final gate run; the coordinator names the base SHA at launch. Lows and nits inside this lane's approved roster are swept without a question to Finch; every high and medium has, or awaits, an individual ruling. A change that would alter a rendered `before` doc panel is a stop (ruling 89). Follows `p1-board`, `p2-rows` (the shape-walk rows), `p4-ghosts`. Owns `src/meter/board/{ops,render,shard,worst}.rs` and `board/tests.rs`.
+Every P6 lane runs after the P1 to P5 and P7 lanes that touch its files have landed on main, or rebases onto them before its final gate run; the coordinator names the base SHA at launch. Lows and nits inside this lane's approved roster are swept without a question to Finch; every high and medium has an individual ruling. A change that would alter a rendered `before` doc panel is a stop (ruling 89). Follows `p1-board`, `p2-rows` (the shape-walk rows), `p4-ghosts`. Owns `src/meter/board/{ops,render,shard,worst}.rs` and `board/tests.rs`.
 
 ## Members
 
@@ -118,13 +118,13 @@ The delegating-parser pinned floors' separation from the bypass reading is prose
 
 Resolution: Make the separation a per-run check inside `delegating_parser_stays_under_the_text_limb_ceiling`: compute the radix site's contribution outside measurement (the hypothesis is `stored_bases(&v).iter().map(|b| b.bits().div_ceil(64).max(1)).sum::<u64>()`, since `parse_decimal` records exactly that per spelled value; measure it rather than transcribe it), and assert `ops - radix < pinned_floor && pinned_floor <= ops`, so the floor is proven to sit strictly between the bypass reading and the live reading on every run. Delete the "roughly half" clause. Re-label the constant's doc to the genre it is (a measured tripwire with a per-run separation witness), or, structurally, give the radix delegation its own counter site and floor it at `mandatory_limbs_version(&v)`, which dissolves the table. Acceptance: setting a pinned floor to `radix - 1` fails the separation leg; the doc claims no separation it does not check and no reading it does not measure.
 
-Ruled (93): lands per the quoted Resolution under that ruling; see ../rulings.md.
+Amendment (ruling 93): take the structural branch: give the radix delegation its own counter site floored from the derived mandatory limb count, dissolving the measured pinned-floor table and its quoted readings (ruling 88: a measured floor is not a floor). The per-run separation check is struck. See ../rulings.md.
 
-## Roster members pending Finch's approval
+## Roster members approved (ruling 104)
 
-Lows and nits no ruling has reached, placed here by the files they touch. Land only after the coordinator confirms the roster is approved.
+Lows and nits approved as this lane's roster by ruling 104. Land each per its quoted Resolution and Acceptance, swept with the ruled members; report rather than choose if a Resolution conflicts with a ruling or offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89).
 
-### board-ops-render-1 (low, documentation): roster: pending Finch's approval
+### board-ops-render-1 (low, documentation): roster: approved (ruling 104)
 
 The row table's module doc states an absolute the declared-model attachments break
 
@@ -132,9 +132,9 @@ The row table's module doc states an absolute the declared-model attachments bre
 
 Resolution: Name the exception where the rule is stated: "...never from the shape's identity, except to attach an owner-declared per-cell judgment model (the `ceilings` module's declared-models section), which by construction is a statement about one named cell and never about reach." Apply the same amendment to board.rs:25-29. Relocating the declarations onto the bundle (a `declared` slot the family builder fills, as `output_dominated` is) is an optional design proposal; the declared constants differ per operation (the tick trio versus `version_min_ticks`), so a per-family slot is not obviously cleaner. Acceptance: the two docs and the code agree; a reader of ops.rs:3-5 is told where identity is consulted and why.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### board-ops-render-14 (low, simplification): roster: pending Finch's approval
+### board-ops-render-14 (low, simplification): roster: approved (ruling 104)
 
 render.rs houses the measurement seam beside the renderer, and its "one scale guard" has two verbatim copies
 
@@ -142,9 +142,9 @@ render.rs houses the measurement seam beside the renderer, and its "one scale gu
 
 Resolution: Call `assert_scale` from `merge_samples` and `bench_cells`; move `assert_scale`, `build_pair`, and `measure_cell` into measure.rs beside `measure` (shard.rs already imports from both modules), leaving render.rs with `Summary`, `row`, and `render_results`, and rewrite its first sentence to name the one responsibility. Acceptance: one `scale > 0.0 && scale.is_finite()` in the board; render.rs imports nothing from `measure`, `ops`, or `family`.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### board-ops-render-16 (low, verification): roster: pending Finch's approval
+### board-ops-render-16 (low, verification): roster: approved (ruling 104)
 
 Six of the seven shard-merge refusals have no committed known-bad demonstration, and the round-trip test's doc claims coverage of guards it only exercises on the accept path
 
@@ -152,9 +152,9 @@ Six of the seven shard-merge refusals have no committed known-bad demonstration,
 
 Resolution: Extend the smoke suite's tamper test into a table over the untampered capture: flip one hex digit of the header's scale bits (stamp mismatch); rename one cell's op or family (unknown operation/family); in a two- or three-shard deal move one cell line into another shard's capture and restate both counts (outside its slice); duplicate a cell line and bump the end count (duplicate); drop the end line (truncated); leave the count unchanged after dropping a line (count disagreement); append a field (trailing fields). Assert each is refused with the documented message fragment. Re-word `shard_protocol_round_trips`'s doc to claim the accept path only. Acceptance: one test per refusal in the module doc's list, each failing if its assert is deleted.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### board-ops-render-20 (low, simplification): roster: pending Finch's approval
+### board-ops-render-20 (low, simplification): roster: approved (ruling 104)
 
 Literals shadow named constants: `1.0` for `DEFAULT_SCALE`, `/ 64` for `OVERLAP_FOLD_INPUT_DIVISOR`, `0.02` for the smoke scale, and the seed and empty-version packed sizes as arithmetic
 
@@ -162,9 +162,9 @@ Literals shadow named constants: `1.0` for `DEFAULT_SCALE`, `/ 64` for `OVERLAP_
 
 Resolution: `("default", DEFAULT_SCALE)` with the import, and one label pair for both renderers; `(a_bytes.len() / OVERLAP_FOLD_INPUT_DIVISOR).max(MIN_SIZE_PARAM)` in the test; a lib-side `PROBE_SCALE` constant for the `0.02` sites; `SEED_PARTY_BYTES`/`EMPTY_VERSION_BYTES` constants in family.rs (or compute `Party::seed().encode().len()` once) used by both files; name the `% 7` modulus. Acceptance: no `"default", 1.0` in worst.rs; no `/ 64` in tests.rs; no bare `n + 1`/`n + 2` denominators in ops.rs.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### board-ops-render-22 (low, verification): roster: pending Finch's approval
+### board-ops-render-22 (low, verification): roster: approved (ruling 104)
 
 The two verdict-of-record entry points have no committed wrong-artifact demonstration
 
@@ -172,9 +172,9 @@ The two verdict-of-record entry points have no committed wrong-artifact demonstr
 
 Resolution: In tests.rs, (a) feed `check_with` a one-operation synthetic sweep (built from `Sample`s through `evaluate`) whose argmax disagrees with `WORST_RANKINGS` on one currency and assert `Ok(false)` plus a drift line naming op, currency, and both worsts; and a sweep missing a pinned op, asserting the stale-entry line. (b) For `run_acceptance`, restamp an untampered smoke capture to the two ladder scales, raise one cell's top-window heap reading over its ceiling, and assert `Summary.red == 1` counted once. Acceptance: both tests fail under a mutated `check_with` that never clears `clean` and under a `run_acceptance` that unions only `lo_cells`.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### board-ops-render-24 (low, documentation): roster: pending Finch's approval
+### board-ops-render-24 (low, documentation): roster: approved (ruling 104)
 
 tests.rs prose carries a partial hand-maintained inventory and two counts its bodies contradict
 
@@ -182,9 +182,9 @@ tests.rs prose carries a partial hand-maintained inventory and two counts its bo
 
 Resolution: Rewrite the header as the file's structure, not a tally: derivation pins (radix units, mandatory limbs, output honesty), known-bad probes through `evaluate`/`evaluate_acceptance` that must read red on exactly one leg, pins that tie tables to live axes (bench riders, the ranking pin), and the argmax kernel and near-tie rendering tests. Rewrite 860 to name the probes without a numeral; rewrite 104 as "Four representative shapes render under the ceiling", pointing at the per-cell assertion. Acceptance: no numeral count of probes in a test doc; the header names genres, not tests; adding a probe test requires no header edit.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### board-ops-render-4 (low, simplification): roster: pending Finch's approval
+### board-ops-render-4 (low, simplification): roster: approved (ruling 104)
 
 The operation table is a two-thousand-line function under a clippy allow, with its row templates repeated verbatim
 
@@ -192,9 +192,9 @@ The operation table is a two-thousand-line function under a clippy allow, with i
 
 Resolution: Two independent levers, either or both. (a) Make the table data: `pub(super) static OPS: &[Op] = &[ .. ]` (or split into `version_rows()`, `party_rows()`, `clock_rows()`, `rejection_rows()` at the existing section headers), removing the allow and the per-call construction. (b) Add row-builder helpers beside the table: a generic `decode_rejection(fed, floors, decode: fn(&[u8]) -> Result<R, Decode>, expected: fn(&Decode) -> bool, defect_name)` (Version, Span, Party, and Clock all decode `&[u8]` to `Result<_, Decode>`), a `placement_row(span, probe, method)`, a `hash_row(value)`, and a `declared_for(kind, cell)` step. Weigh the greppability trade the owner prefers. Acceptance: no `too_many_lines` allow in ops.rs; the `matches!(err, Decode::..)` assertion appears once per defect kind; the smoke suite's per-family cell counts and the rendered row names are unchanged.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### board-ops-render-7 (low, simplification): roster: pending Finch's approval
+### board-ops-render-7 (low, simplification): roster: approved (ruling 104)
 
 Rows reach around `party_pair()` for one side's length or bytes at thirteen sites
 
@@ -202,9 +202,9 @@ Rows reach around `party_pair()` for one side's length or bytes at thirteen site
 
 Resolution: Add per-side accessors on `FamilyData` (`party_a(&self) -> Option<(Party, usize)>`, `party_b`, and `party_a_bytes(&self) -> Option<&[u8]>` for the rejection rows), or have `party_pair` return per-side lengths; use them at every site, including `clock()`. Acceptance: `grep -c 'parties.as_ref().map' ops.rs family.rs` is zero outside the accessors.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### board-ops-render-11 (nit, documentation): roster: pending Finch's approval
+### board-ops-render-11 (nit, documentation): roster: approved (ruling 104)
 
 `Summary.red`'s doc calls every red an amplification finding
 
@@ -212,9 +212,9 @@ Where: `crates/before/src/meter/board/render.rs:26-29`. Nit row (the full record
 
 Resolution (nit row): "Cells with at least one red leg: an exponent or constant over its bound, a reading outside a declared model's band ...
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### board-ops-render-13 (nit, simplification): roster: pending Finch's approval
+### board-ops-render-13 (nit, simplification): roster: approved (ruling 104)
 
 render.rs idiom nits: guard-then-`expect` match arms, an inline `std::collections::` path, and an em-dash in one printed legend line
 
@@ -222,9 +222,9 @@ Where: `crates/before/src/meter/board/render.rs:118-126`. Nit row (the full reco
 
 Resolution (nit row): `if let` chains; import `BTreeSet`; replace the em-dash
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### board-ops-render-21 (nit, simplification): roster: pending Finch's approval
+### board-ops-render-21 (nit, simplification): roster: approved (ruling 104)
 
 Hand-rolled run grouping in `worst::fold` where `slice::chunk_by` expresses it
 
@@ -232,9 +232,9 @@ Where: `crates/before/src/meter/board/worst.rs:176-183`. Nit row (the full recor
 
 Resolution (nit row): `results.chunk_by(\
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### board-ops-render-25 (nit, verification): roster: pending Finch's approval
+### board-ops-render-25 (nit, verification): roster: approved (ruling 104)
 
 An assertion message at board/tests.rs:73 carries a run of ten spaces mid-sentence.
 
@@ -242,5 +242,5 @@ Where: `crates/before/src/meter/board/tests.rs:73-73`. Nit row (the full record 
 
 Resolution (nit row): Collapse to one space.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 

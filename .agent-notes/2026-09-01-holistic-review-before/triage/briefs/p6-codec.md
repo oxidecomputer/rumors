@@ -6,13 +6,13 @@
 
 The codec's per-module entries, landed per their Resolutions inside an approved roster, under rulings 41 (the width threshold), 43, 64, 84 (the text entries' precedence rule), and 88.
 
-## Awaiting individual ruling
+## Rulings on this lane's mediums
 
-The coordinator is walking these mediums with Finch; nothing below lands for them until the ruling is appended here: codec-bits-30.
+Every medium in this lane is ruled (rulings 93 to 103): codec-bits-30. The decisions stand beside each entry under Members.
 
 ## Roster summary
 
-0 ruled (); 1 medium awaiting ruling; 22 pending roster approval (6 low, 16 nit).
+0 ruled (); 1 medium ruled (93 to 103); 22 roster members approved (ruling 104) (6 low, 16 nit).
 
 ## Ground rules
 
@@ -110,13 +110,13 @@ never relax them.
 
 ## Ordering
 
-Every P6 lane runs after the P1 to P5 and P7 lanes that touch its files have landed on main, or rebases onto them before its final gate run; the coordinator names the base SHA at launch. Lows and nits inside this lane's approved roster are swept without a question to Finch; every high and medium has, or awaits, an individual ruling. A change that would alter a rendered `before` doc panel is a stop (ruling 89). Follows `p2-widths` (the dashu threshold), `p7-api` (the three text entries), `p8-performance` (the bit-buffer consolidation), and `p4-rosters`. Owns `src/codec/**`.
+Every P6 lane runs after the P1 to P5 and P7 lanes that touch its files have landed on main, or rebases onto them before its final gate run; the coordinator names the base SHA at launch. Lows and nits inside this lane's approved roster are swept without a question to Finch; every high and medium has an individual ruling. A change that would alter a rendered `before` doc panel is a stop (ruling 89). Follows `p2-widths` (the dashu threshold), `p7-api` (the three text entries), `p8-performance` (the bit-buffer consolidation), and `p4-rosters`. Owns `src/codec/**`.
 
-## Mediums awaiting individual ruling
+## Mediums ruled 93 to 103
 
-Listed with their Resolution so the lane knows the files they touch; not landed until ruled.
+Each medium below now carries its ruling and any amendment beside its quoted Resolution; land per the ruling.
 
-### codec-bits-30 (medium, verification): awaiting individual ruling
+### codec-bits-30 (medium, verification): ruling 100
 
 The BitStack model test names a method that does not exist, omits set_last and trailing_ones, and reaches the spill it advertises about once in a hundred runs
 
@@ -124,13 +124,13 @@ The BitStack model test names a method that does not exist, omits set_last and t
 
 Resolution: Drop `is_empty` from the doc. Make the spill reachable by construction (bias pushes, e.g. `prop::bool::weighted(0.75)`, or prefix each case with a deterministic ramp of at least 65 pushes) and pin the reach with `prop_assert!(max_height >= 65)` per case. Add `set_last` as a third op kind (model: overwrite `model.last_mut()`) and assert `stack.trailing_ones() == model.iter().rev().take_while(|b| **b).count() as u64` at every step, with runs long enough to cross two spilled words. Acceptance: the extended test is red under each of: stack.rs:118 `if w < 64` to `if w <= 64` (caps the run at one spilled word); 117 `run += u64::from(w)` to `run = u64::from(w)`; 162-163's `words.last_mut()` arm replaced with a no-op; and the testdoc names only methods the body checks. Construction: for the multi-word loop specifically, `let mut s = BitStack::new(); for _ in 0..70 { s.push(true); } assert_eq!(s.trailing_ones(), 70); s.push(false); for _ in 0..3 { s.push(true); } assert_eq!(s.trailing_ones(), 3);` is exercised by no committed test; the `w <= 64` mutation above passes every current suite unless some walk builds a right run deeper than 64 and checks its value.
 
-Awaiting individual ruling: the coordinator is walking the P6 mediums with Finch now. Do not land this entry and do not choose among its alternatives; when the ruling arrives it is appended to this brief by the coordinator.
+Ruled (100): Make the spill reachable by construction and pin the reach per case; model `set_last`; check `trailing_ones` against the model over two spilled words; the doc names only what the body checks; the four named mutations each read red. See ../rulings.md.
 
-## Roster members pending Finch's approval
+## Roster members approved (ruling 104)
 
-Lows and nits no ruling has reached, placed here by the files they touch. Land only after the coordinator confirms the roster is approved.
+Lows and nits approved as this lane's roster by ruling 104. Land each per its quoted Resolution and Acceptance, swept with the ruled members; report rather than choose if a Resolution conflicts with a ruling or offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89).
 
-### codec-base-text-tree-23 (low, verification): roster: pending Finch's approval
+### codec-base-text-tree-23 (low, verification): roster: approved (ruling 104)
 
 Three test docs describe mechanisms the code does not have: a recursive validator, a test-only entry as the decode path, and an inline spill at `u64`
 
@@ -138,9 +138,9 @@ Three test docs describe mechanisms the code does not have: a recursive validato
 
 Resolution: Reword 884-890 in terms of what is: the validator completes each node's collapsible check on its explicit frame stack, so `(1, 1)` buried under deep nesting is caught at that node's close, not only at the root, and the left spine keeps many ancestors open so the frame stack, not a single tag read, carries the check. At 1626 name `parse_id_core` (the body every id decode entry drives, reached here through `parse_id`). At 85-86 name the boundary crossed: "`u64::MAX + 1` is the first value `to_u64` cannot answer; the integer code and its rendering are unchanged across that word-dispatch boundary". Acceptance: `grep -n recurs src/codec/tests.rs` returns only the deliberately recursive reference parser's passages (1636-1642, 1687); `grep -n parse_id_from src/codec/tests.rs` is empty; the gamma testdoc names the `to_u64` boundary, not inline storage.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### codec-base-text-tree-5 (low, documentation): roster: pending Finch's approval
+### codec-base-text-tree-5 (low, documentation): roster: approved (ruling 104)
 
 `msb_cmp_windows` documents a stronger premise than `Rank` holds; the argument that makes the tail rule sound is unwritten
 
@@ -148,9 +148,9 @@ Roster note: lands only once the coordinator confirms this lane's roster is appr
 
 Resolution: Restate the premise at base.rs:155-157 as "the longer string ends in a set bit", and at rank.rs:889-891 write the one-line derivation: on a class tie, more numerator bits means a larger exponent, so `exp > 0` and the numerator is odd by normalization. Widen the differential to OR only the wider operand with 1 so an even shorter operand is exercised. Acceptance: base.rs and rank.rs carry the class-tie argument; the differential covers an even shorter operand and stays green.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### codec-bits-19 (low, verification): roster: pending Finch's approval
+### codec-bits-19 (low, verification): roster: approved (ruling 104)
 
 The claimed k = 65 gamma witness is a second k = 64 row
 
@@ -158,9 +158,9 @@ The claimed k = 65 gamma witness is a second k = 64 row
 
 Resolution: Use `wide(65)` (`m = 2^65 + 1`, `k = 65`) and fix the comment and the testdoc at 15-17; drop the parameter list from dsi.rs:23-25 ("at and across the word seam", letting the test carry the values). Acceptance: for every row comment `k = N`, `(value + 1).bits() - 1 == N`; dsi.rs's module doc names no specific `k`. Construction: `(UBig::ONE << 64) + 1u32` has bit length 65, so `k = 64`; `(UBig::ONE << 65) + 1u32` has bit length 66, so `k = 65`.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### codec-bits-22 (low, simplification): roster: pending Finch's approval
+### codec-bits-22 (low, simplification): roster: approved (ruling 104)
 
 gamma::load_window duplicates BitsView::load_be behind a raw-parts indirection with one caller
 
@@ -168,9 +168,9 @@ gamma::load_window duplicates BitsView::load_be behind a raw-parts indirection w
 
 Resolution: Fold `window_int` and `load_window` into `decode_int_window`: `let proven = bits.len().checked_sub(pos)?.min(WINDOW_BITS); if proven == 0 { return None; } let window = bits.load_be(pos, proven as u32) << (WINDOW_BITS - proven); let k = u64::from(window.leading_zeros()); let code_len = 2 * k + 1; if code_len > proven { return None; } let m = window >> (WINDOW_BITS - code_len); Some((m - 1, pos + code_len))`. `load_be`'s debug assert holds because `pos + proven <= len`; `body_tail` keeps its one remaining caller. Acceptance: gamma.rs has one window function; `gamma_window_edge`, `gamma_window_declines_conservatively`, `gamma_word_decode_matches_bit_loop`, `gamma_word_paths_match_on_arbitrary_bytes`, and the borsh differentials pass unchanged.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### codec-bits-7 (low, documentation): roster: pending Finch's approval
+### codec-bits-7 (low, documentation): roster: approved (ruling 104)
 
 ptr_eq's doc misstates why independently frozen empty streams alias
 
@@ -178,9 +178,9 @@ ptr_eq's doc misstates why independently frozen empty streams alias
 
 Resolution: Rewrite both sites: `Bytes::new()` (which `Bytes::from` of a capacity-free empty vector reaches) shares one static empty slice, so independently frozen empty streams *may* read `ptr_eq` true; clone provenance is therefore not what the predicate certifies, only value equality. Acceptance: both sentences use "may" and name the shared static; no claim about dangling pointers remains. Construction: in `codec/tests.rs`, `let e1 = Bits::freeze(BitsBuf::with_capacity(8)); let e2 = Bits::freeze(BitsBuf::with_capacity(8)); assert!(e1.ptr_eq(&e2));` fails under `bytes` 1.11.1 (two live one-byte allocations have distinct pointers), while the committed test's `BitsBuf::new()` pair passes.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### codec-bits-9 (low, documentation): roster: pending Finch's approval
+### codec-bits-9 (low, documentation): roster: approved (ruling 104)
 
 BitsBuf's type doc says the packed-stream builder wraps a BitsBuf; it does not
 
@@ -188,9 +188,9 @@ BitsBuf's type doc says the packed-stream builder wraps a BitsBuf; it does not
 
 Resolution: If codec-bits-12 lands, the sentence becomes true as written. Otherwise re-state: "the packed-stream builder hands its finished bytes to one at `finish`", or delete the parenthetical. Acceptance: the sentence describes the builder's actual relationship to `BitsBuf`.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### codec-base-text-tree-1 (nit, documentation): roster: pending Finch's approval
+### codec-base-text-tree-1 (nit, documentation): roster: approved (ruling 104)
 
 Small inaccuracies in `Base`'s prose: "every operation records", an ambiguous shift clause, an undocumented `bit`, a ragged wrap
 
@@ -198,9 +198,9 @@ Where: `crates/before/src/codec/base.rs:16-26`. Nit row (the full record is in `
 
 Resolution (nit row): Narrow the quantifier to "every arithmetic, comparison, equality, and hashing operation" and say the O(1) reads and `Display` do not record ...
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### codec-base-text-tree-10 (nit, simplification): roster: pending Finch's approval
+### codec-base-text-tree-10 (nit, simplification): roster: approved (ruling 104)
 
 `meter_limbs1` and `meter_limbs_solo` are both one-`Base` recorders whose difference lives only in their doc comments
 
@@ -208,9 +208,9 @@ Where: `crates/before/src/codec/base/limb_metered.rs:15-25`. Nit row (the full r
 
 Resolution (nit row): Rename `meter_limbs1` to `meter_limbs_scalar`
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### codec-base-text-tree-11 (nit, simplification): roster: pending Finch's approval
+### codec-base-text-tree-11 (nit, simplification): roster: approved (ruling 104)
 
 `write_id`'s `sep` parameter has one caller and one value; the separator is already a named constant elsewhere
 
@@ -218,9 +218,9 @@ Where: `crates/before/src/codec/display.rs:16-28`. Nit row (the full record is i
 
 Resolution (nit row): Drop `sep`; one `SEP` constant in `codec::text`
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### codec-base-text-tree-14 (nit, documentation): roster: pending Finch's approval
+### codec-base-text-tree-14 (nit, documentation): roster: approved (ruling 104)
 
 `parse_base`'s doc restates the conversion rules `parse_decimal` owns and defines the grammar by an unnamed comparison
 
@@ -228,9 +228,9 @@ Where: `crates/before/src/codec/text.rs:46-54`. Nit row (the full record is in `
 
 Resolution (nit row): At `parse_base`, keep the grammar only (maximal ASCII digit run after a leading whitespace skip, ended by the first non-digit ...
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### codec-base-text-tree-17 (nit, simplification): roster: pending Finch's approval
+### codec-base-text-tree-17 (nit, simplification): roster: approved (ruling 104)
 
 Prose texture in the parsers: two private `IdFrame` enums, the stack discipline restated five times, fragment heads, the "X, never Y" figure, and "exactly" as intensifier
 
@@ -238,9 +238,9 @@ Where: `crates/before/src/codec/text.rs:98-120`. Nit row (the full record is in 
 
 Resolution (nit row): Rename the text frame; state the stack discipline once per file; recast the fragments
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### codec-base-text-tree-2 (nit, simplification): roster: pending Finch's approval
+### codec-base-text-tree-2 (nit, simplification): roster: approved (ruling 104)
 
 The limb denomination `bits.div_ceil(64).max(1)` is spelled independently at several sites, and two `cfg` blocks exist only because `record_wide` takes a raw `UBig`
 
@@ -248,9 +248,9 @@ Where: `crates/before/src/codec/base.rs:64-69`. Nit row (the full record is in `
 
 Resolution (nit row): One `limbs_of_bits` in `limb_meter`; drop the two `cfg` blocks
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### codec-base-text-tree-21 (nit, simplification): roster: pending Finch's approval
+### codec-base-text-tree-21 (nit, simplification): roster: approved (ruling 104)
 
 `parse_id`'s `pos` parameter is always 0, and three named layers wrap one grammar body
 
@@ -258,9 +258,9 @@ Where: `crates/before/src/codec/tree.rs:35-60`. Nit row (the full record is in `
 
 Resolution (nit row): One always-compiled `parse_id_from`; shrink the re-exports
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### codec-base-text-tree-22 (nit, simplification): roster: pending Finch's approval
+### codec-base-text-tree-22 (nit, simplification): roster: approved (ruling 104)
 
 Long qualified paths beside existing imports, and two `DefaultHasher` helpers, in the codec test suite
 
@@ -268,9 +268,9 @@ Where: `crates/before/src/codec/tests.rs:14-17`. Nit row (the full record is in 
 
 Resolution (nit row): Extend the imports; one hasher helper
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### codec-base-text-tree-24 (nit, simplification): roster: pending Finch's approval
+### codec-base-text-tree-24 (nit, simplification): roster: approved (ruling 104)
 
 Em-dashes in `//` code comments across the partition
 
@@ -278,9 +278,9 @@ Where: `crates/before/src/codec/tests.rs:214-222`. Nit row (the full record is i
 
 Resolution (nit row): Recast each em-dash; batch with the crate-wide sweep
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### codec-base-text-tree-27 (nit, verification): roster: pending Finch's approval
+### codec-base-text-tree-27 (nit, verification): roster: approved (ruling 104)
 
 The reference id parser's `RefCur`/`RefIdKind` duplicate `text::Cur`/`IdKind` byte for byte without saying why (the tokenizer freeze is unstated and only a space exercises whitespace).
 
@@ -288,9 +288,9 @@ Where: `crates/before/src/codec/tests.rs:1656-1683`. Nit row (the full record is
 
 Resolution (nit row): State the freeze at the header and add a second whitespace byte, or reuse `Cur`.
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### codec-base-text-tree-28 (nit, simplification): roster: pending Finch's approval
+### codec-base-text-tree-28 (nit, simplification): roster: approved (ruling 104)
 
 Dead `continue` at the end of the exhaustive odometer's outer loop
 
@@ -298,9 +298,9 @@ Where: `crates/before/src/codec/tests.rs:1794-1797`. Nit row (the full record is
 
 Resolution (nit row): Delete the trailing `continue`
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### codec-base-text-tree-4 (nit, simplification): roster: pending Finch's approval
+### codec-base-text-tree-4 (nit, simplification): roster: approved (ruling 104)
 
 `Base::msb_cmp` is a one-caller wrapper whose body the sibling match arms already spell inline
 
@@ -308,9 +308,9 @@ Where: `crates/before/src/codec/base.rs:97-106`. Nit row (the full record is in 
 
 Resolution (nit row): Delete `Base::msb_cmp`; spell the four arms uniformly; reword the doc
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### codec-bits-14 (nit, simplification): roster: pending Finch's approval
+### codec-bits-14 (nit, simplification): roster: approved (ruling 104)
 
 reserve loops over 32-bit chunks for a width that is always 2
 
@@ -318,9 +318,9 @@ Where: `crates/before/src/codec/build.rs:127-137`. Nit row (the full record is i
 
 Resolution (nit row): `reserve(width: u32)` with one `append_bits`
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### codec-bits-17 (nit, simplification): roster: pending Finch's approval
+### codec-bits-17 (nit, simplification): roster: approved (ruling 104)
 
 Idiom nits in the word-parallel cursor and the padding judge
 
@@ -328,9 +328,9 @@ Where: `crates/before/src/codec/dsi.rs:227-227`. Nit row (the full record is in 
 
 Resolution (nit row): Use the `From<Truncated>` impl; `read_word` via `read_word_opt`; the listed one-liners
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### codec-bits-21 (nit, simplification): roster: pending Finch's approval
+### codec-bits-21 (nit, simplification): roster: approved (ruling 104)
 
 code_int and code_int_small share a body
 
@@ -338,9 +338,9 @@ Where: `crates/before/src/codec/gamma.rs:69-101`. Nit row (the full record is in
 
 Resolution (nit row): `code_int` dispatches to `code_int_small` on `to_u64()`
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
-### codec-bits-24 (nit, documentation): roster: pending Finch's approval
+### codec-bits-24 (nit, documentation): roster: approved (ruling 104)
 
 literal.rs is the one production module in the partition without a module doc
 
@@ -348,5 +348,5 @@ Where: `crates/before/src/codec/literal.rs:1-3`. Nit row (the full record is in 
 
 Resolution (nit row): Add a one- or two-sentence `//!` doc: the id tree's in-memory constructors (`id_leaf` ...
 
-Roster note: lands only once the coordinator confirms this lane's roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 

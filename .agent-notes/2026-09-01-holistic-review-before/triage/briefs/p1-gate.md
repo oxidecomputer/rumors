@@ -319,7 +319,7 @@ name and report that the roster's typing is the p2-surface lane's
 delete-the-doctest construction, run as a reversible mutation and
 recorded in the commit message.
 
-### meter-adequacy-9 (low, verification-gap): roster: pending Finch's approval
+### meter-adequacy-9 (low, verification-gap): roster: approved (ruling 104)
 
 Resolution: write the sidecar after `wide.bench(c)` returns (the directory
 argument at sidecar.rs:149-152 holds either way, since `write_denoms`

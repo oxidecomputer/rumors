@@ -292,43 +292,43 @@ Resolution: make `join_view`/`meet_view` take `&Version` and be one-liners (`*se
 
 Ruled (80): collapse the `_view` duality: `join_view`/`meet_view` become one-liners over the `_refs` ladders (or go), `binop_matrix!` collapses to one value arm and one assign arm, `balanced_fold` loses its `view` parameter, `SpanFoldOps` loses `lo_view`/`hi_view`, the lockstep sentences go, the meter rows are renamed with their pins unchanged. This lands before span-causally-9 (ruling 76, `p4-structure`), which it shrinks.
 
-## Roster members pending Finch's approval
+## Roster members approved (ruling 104)
 
-Lows and nits no ruling has reached, placed here by the files they touch and the kind of dissolution. Land only after the coordinator confirms the roster is approved.
+Lows and nits approved as this lane's roster by ruling 104, placed here by the files they touch and the kind of dissolution. Land each per its quoted Resolution and Acceptance, swept with the ruled members; report rather than choose if a Resolution conflicts with a ruling or offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89).
 
-### envelopes-b-17 (low, simplification): roster: pending Finch's approval
+### envelopes-b-17 (low, simplification): roster: approved (ruling 104)
 
 `scatter_population` re-implements the board's private scatter constructor
 
 Resolution: expose the board's scatter builder through the registry as the stagger and shade populations are exposed (a `Shape::Scatter.population(n)` door or a `FamilyId::Scatter` accessor on the `meter` instrument surface) and call it from `fold_version_scatter_envelope` and `fold_party_scatter_envelope`; delete `scatter_population`. Acceptance: one scatter constructor under crates/before, reachable from both the board and tests/meter.rs.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names and the retirement discipline. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names and the retirement discipline. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### rank-26 (low, simplification): roster: pending Finch's approval
+### rank-26 (low, simplification): roster: approved (ruling 104)
 
 Wide-arm limb metering has no observer: sixteen meter_wide hooks feed a counter no committed check reads while the arm is engaged
 
 Resolution: Either make the hooks live: one `#[cfg(all(test, feature = "limb-meter"))]` unit pin under `ceiling::force(TEST_CEILING_BITS)` that resets the meter, decodes a stream whose numerator crosses the ceiling, and asserts `limb_ops() >= bits.div_ceil(64)` (the floor derived from irreducible work: every limb of the value is materialized), plus the same for one `+` on the accumulate route; or remove `meter_wide` and its call sites and state in the Metering section that wide-arm cost is priced by memory and suanpan's digit-touch meter. Acceptance: a committed test fails when any `meter_wide` call is deleted, or `meter_wide` is gone and the module doc's Metering section describes what remains.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names and the retirement discipline. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names and the retirement discipline. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### skyline-watermark-28 (low, simplification): roster: pending Finch's approval
+### skyline-watermark-28 (low, simplification): roster: approved (ruling 104)
 
 Two of three emit-traffic counters are recorded but never read, and the snapshot doc overstates what they sum to
 
 Resolution: either (a) pin `dominated_above` on a committed family that provably routes emissions through the return-early arm (the dominated-undercut family's own sites may yield a derivable count; state the derivation in the floor doc) and fold `Undecided` into a single fallback cell, or (b) reduce `EmitTraffic` to the one enforced cell. In both cases reword 44-45 to "the emission-path domination reads". Acceptance: every field of `EmitTraffic` is read by at least one committed floor or band, or the struct has one field; the doc names the emission path. Construction: delete the `record(Decision::DominatedAbove)` call at watermark.rs:966 and run the full suite: nothing turns red.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names and the retirement discipline. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names and the retirement discipline. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### testing-oracles-9 (low, simplification): roster: pending Finch's approval
+### testing-oracles-9 (low, simplification): roster: approved (ruling 104)
 
 `Dyadic`'s hand-written `PartialEq`/`Eq`/`PartialOrd`/`Ord` are dead code, and the `Ord` doc's overflow premise names the wrong bound
 
 Resolution: Delete the four impls, keeping `#[derive(Clone, Copy, Debug)]`. If an ordering is wanted later, state the bound as `fs_grid`'s `g < 64` (exponent at most 64 after `center`). Acceptance: `grep -n 'impl .* for Dyadic' crates/before/src/testing/semantic_oracle.rs` is empty and the test target compiles.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names and the retirement discipline. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names and the retirement discipline. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### crate-root-22 (nit, simplification): roster: pending Finch's approval
+### crate-root-22 (nit, simplification): roster: approved (ruling 104)
 
 `balanced_reduce`'s `debug_assert` checks a property its own closures make impossible
 
@@ -336,9 +336,9 @@ Where: `crates/before/src/fold.rs:97-100`. Nit row (the full record is in `evide
 
 Resolution (nit row): Nothing: the two literal closures above the assert make the asserted property impossible. Delete the assert.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names and the retirement discipline. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names and the retirement discipline. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### oracle-laws-24 (nit, simplification): roster: pending Finch's approval
+### oracle-laws-24 (nit, simplification): roster: approved (ruling 104)
 
 `law_names_are_unique_across_groups` restates a guarantee `laws!` gives at compile time, and its doc overstates its role
 
@@ -346,9 +346,9 @@ Where: `crates/before/src/laws/tests.rs:9-21`. Nit row (the full record is in `e
 
 Resolution (nit row): Only a hand-written group bypassing `laws!` that registers a foreign fn under another law's name; `laws!` makes registered names unique at compile time. Dissolve the test, or re-document the one door it guards.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names and the retirement discipline. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names and the retirement discipline. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### skyline-fill-grow-32 (nit, simplification): roster: pending Finch's approval
+### skyline-fill-grow-32 (nit, simplification): roster: approved (ruling 104)
 
 `Cost::deepen`'s test-seam parameter is spelled three ways across its callers
 
@@ -356,5 +356,5 @@ Where: `crates/before/src/version/skyline/grow.rs:131-149`. Nit row (the full re
 
 Resolution (nit row): A sanctioned, documented test seam (`Cost::deepen`'s `ceiling`), spelled three ways across its callers. One spelling: delete the oracle's one-argument wrapper so every caller shows the seam.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names and the retirement discipline. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names and the retirement discipline. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 

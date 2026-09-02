@@ -430,175 +430,175 @@ Resolution: keep the O(1) conjunct (`self.top == 0 || self.digits[self.top] != 0
 
 Ruled (64, decision 70): delete `add_at`'s exit `debug_assert!`, superseding commit 9f68c475's keep; the commit message names the covering differential test; no trace in code. Listed in this P4 lane because ruling 64 owns it; its ledger phase is P5.
 
-## Roster members pending Finch's approval
+## Roster members approved (ruling 104)
 
-Lows and nits no ruling has reached, placed here by the files they touch. Land only after the coordinator confirms the roster is approved.
+Lows and nits approved as this lane's roster by ruling 104. Land each per its quoted Resolution and Acceptance, swept with the ruled members; report rather than choose if a Resolution conflicts with a ruling or offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89).
 
-### api-audit-7 (low, verification): roster: pending Finch's approval
+### api-audit-7 (low, verification): roster: approved (ruling 104)
 
 auto_traits.rs claims to pin every public API type but omits Limbs, TooWide, the shape types, and the polarity markers
 
 Resolution: add the missing `assert_impl_all!` lines (`shape::Cell<1>` and `shape::Cells<'static, 1>` for the const-generic pair), or derive the roster from the surface census so it cannot drift; otherwise narrow the module doc and the two surfacecheck comments to what is pinned. Acceptance: every struct and enum in rustdoc's `all.html` for the default feature set appears in an `assert_impl_all!` line, or a committed check compares the two lists.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### benches-examples-8 (low, correctness): roster: pending Finch's approval
+### benches-examples-8 (low, correctness): roster: approved (ruling 104)
 
 `scale_from_env` says "positive number" but accepts zero, negatives, NaN, infinity, and saturating magnitudes; the tripwire has no downstream guard
 
 Resolution: after parsing, require `scale > 0.0 && scale.is_finite()` inside `scale_from_env` (one site, both bench targets) and at amp_board.rs:195-197, keeping the existing messages. Acceptance: `BOARD_BENCH_SCALE=nan cargo bench -p before --bench tripwire` panics at the parameter naming `BOARD_BENCH_SCALE`; likewise for `0`, `-1`, `inf`; `cargo run --example amp_board ... -- -1` panics at the parse site. Construction: `BOARD_BENCH_SCALE=nan BOARD_BENCH_DENOMS=<scratch>/d.json cargo bench -p before --bench tripwire -- --sample-size 10 --measurement-time 1` completes, and d.json carries `"scale": NaN` and `"denominator_bytes": 0`.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### board-families-floors-judge-11 (low, verification): roster: pending Finch's approval
+### board-families-floors-judge-11 (low, verification): roster: approved (ruling 104)
 
 The "four cells watched by neither leg" disclosure is a hand count with no pin on either side, already stale, and its 10 µs restates a benchjudge constant
 
 Resolution: Add a test beside the board tests that builds every board bundle, collects every cell whose `Floors` are all `NotApplicable`, and asserts the set equals a committed roster (the four named, the five text-rejection rows, and the `clock_fork` cells finding 10 leaves all-NA until it is fixed, or the smaller set once it is); have the disclosure here and at board.rs:99-100 state the class and cite that roster and `MIN_JUDGED_MEDIAN_NANOS` by name instead of "four" and "10 µs". If the wall-time half matters, have tools/benchjudge emit its sub-floor cell set and pin it in tests/bench_judge_roster.rs. Acceptance: a committed test fails when a new op declares NA on every floored currency without joining the roster; floors.rs:99-112 and board.rs:99-100 carry no cell count and no duration literal. Construction: Add a row to ops.rs whose `prepare` returns `Floors` with `na(..)` on heap, limb, scan, and touch, or observe that `clock_fork` on the dense family already does: nothing in the gate changes and floors.rs still reads "Four cells".
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### board-families-floors-judge-27 (low, correctness): roster: pending Finch's approval
+### board-families-floors-judge-27 (low, correctness): roster: approved (ruling 104)
 
 `version_output_bytes` and the sibling ops.rs sites omit the marker bit and under-report the packed size by one byte on byte-aligned streams
 
 Resolution: `v.as_bytes().len()` (O(1), public) and delete the `try_from` dance; at the ops.rs sites use `as_bytes().len()` / `encode().len()` for party and clock (1316 included, which also removes the NA collapse on tiny children). Acceptance: a committed test sweeping `study_family_versions(DEFAULT_SCALE)` plus one version with `encoded_bits() % 8 == 0` asserts `version_output_bytes(&v) == v.encode().len()` and passes. Construction: Tick a fresh `Version` with `Party::seed()` until `v.encoded_bits() % 8 == 0` (or pick one such stream from the family corpus), then `assert_eq!(version_output_bytes(&v), v.encode().len())`: the left side is one less today.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### board-frame-15 (low, correctness): roster: pending Finch's approval
+### board-frame-15 (low, correctness): roster: approved (ruling 104)
 
 The version output reader undercounts a flush stream by its marker byte
 
 Resolution: `v.as_bytes().len()` in `version_output_bytes`. Acceptance: for a version whose `encode()` ends in `0x80`, `version_output_bytes(&v) == v.encode().len()`; a unit test beside the reader pins it. Construction: Any version with 8k live bits (`encoded_bits() == 8k`): `div_ceil(8) == k` while `encode().len() == k + 1`; `Version::new().encoded_bits()` is 2, so tick a seeded version until `encoded_bits() % 8 == 0` and compare.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### board-frame-21 (low, correctness): roster: pending Finch's approval
+### board-frame-21 (low, correctness): roster: approved (ruling 104)
 
 `truncated_bytes` argues its two-byte cut from a decoder verdict the decoder no longer produces, and the one-byte cut is both correct and more deferred
 
 Resolution: Always cut one byte and re-state the doc: on a non-flush stream the cut removes the last live bits and the marker, and the tree walk runs out of input; on a flush stream it removes the marker byte alone, the whole tree parses, and the padding judge reports `Truncated` at the end, the most deferred placement byte granularity allows. Relax the guard to `bytes.len() > 1`. Acceptance: a unit test beside the builders: for a version whose `encode()` ends in `0x80`, `truncated_bytes(&bytes).len() == bytes.len() - 1` and `Version::decode(&truncated_bytes(&bytes)[..])` is `Err(Decode::Truncated)`; the truncation rows' `matches!(err, Decode::Truncated)` assertions stay green; scan readings on flush-stream families rise, never fall. Construction: Take any version whose live bits are a multiple of 8 (its `encode()` ends in `0x80`); drop only the final byte; `Version::decode` walks the complete tree, reaches `pos == total`, and `require_marker_padding` returns `Decode::Truncated` (remainder 0), not `TrailingBits`.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### board-frame-3 (low, verification): roster: pending Finch's approval
+### board-frame-3 (low, verification): roster: approved (ruling 104)
 
 The "four cells no deterministic leg watches" disclosure is a prose-only roster; nothing pins the all-NA cell set
 
 Resolution: Add a board/tests.rs test that prepares `ops()` × `FamilyId::board()` at the smoke scale, collects the cells whose `floors.each()` are all `NotApplicable`, and asserts the sorted `(op, family)` set equals a committed list (the hash rows on each family plus `version_eq` on the benign family, or whatever the enumeration shows); have board.rs:99-100 and floors.rs:99 cite the test by name and drop the count, noting which listed cells the time leg's 10 µs floor also excludes. Acceptance: changing any one cell's floor to NA, or adding an all-NA row, fails exactly one named test; the prose carries no count. Construction: Change `version_encode`'s heap floor in floors.rs to `na(...)`; the board's unit suite stays green while floors.rs:99 names four cells and five (or more) are all-NA.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### crate-root-7 (low, verification): roster: pending Finch's approval
+### crate-root-7 (low, verification): roster: approved (ruling 104)
 
 auto_traits.rs claims every public API type but omits `Limbs`, `TooWide`, and the whole `shape` module, and surfacecheck defers totality to it
 
 Resolution: Add pins for `crate::Limbs<'static>`, `crate::error::TooWide`, and each `crate::shape` type (`Plateau`, `Rise`, `Region`, `Cell<1>`, `Plateaus<'static>`, `Regions<'static>`, `Overlay<'static>`, `Cells<'static, 1>`). Then close the drift path mechanically: have surfacecheck's census compare the set of public struct and enum paths it already extracts against the names pinned in this file (a text scan suffices), so an unpinned public type fails `just surface-totality`; the exclusion rationale at extract.rs:21-26 and 267-269 then names that check. Acceptance: deleting one `assert_impl_all!` line fails a gate leg naming the type; the added pins compile. Construction: On a branch, add a `PhantomData<*const ()>` field to `shape::Plateaus` and run `just gate`: no pin names `Plateaus` and surfacecheck skips auto-trait rows by design, so a `!Send` public type ships with every instrument green.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### deps-5 (low, correctness): roster: pending Finch's approval
+### deps-5 (low, correctness): roster: approved (ruling 104)
 
 build.rs `expect("validated")` on `meta.base_seed` names a proof that does not exist
 
 Resolution: validate the index's `meta` once (`base_seed` and `samples_per_column` as u64, `commit` as a non-empty string) in a `validate_meta(file, meta)` beside `validate`, after which the expect message is true; or replace the expect with `unwrap_or_else(|| panic!("{file}: meta.base_seed must be an integer"))`. Acceptance: the construction below panics naming fuelscape/index.json and the field.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### fuelscape-render-31 (low, correctness): roster: pending Finch's approval
+### fuelscape-render-31 (low, correctness): roster: approved (ruling 104)
 
 `build.rs`'s re-validation compares untyped JSON values, so non-integer sizes and counts pass, and an `expect("validated")` names a check that never ran
 
 Resolution: demand the types before comparing: collect `sizes` and each `c` into `Vec<u64>`, panicking with the file name on any non-integer entry, then compare plain integers; validate `base_seed` and `samples_per_column` as `u64` in the meta loop so the `expect` at 216 becomes true or dissolves into a checked value (or deserialize `meta`, `sizes`, `cols` into small typed structs with `deny_unknown_fields`, mirroring the compactor's). Acceptance: a committed document with `"sizes":[null,2,...]` or `"c":["x",1]` fails `cargo build -p before` naming the file and check; `"base_seed":"7"` in both files fails naming the parameter rather than panicking with `validated`. Construction: in a scratch copy of `crates/before/fuelscape/`, set `op.sizes[0]` to `null` in one document: line 304's `all(...)` returns true (`None < Some(2)`) and the emitted island carries the null. Delete `meta.base_seed` from both `index.json` and that document: lines 58-63 pass (`Null == Null`), then line 216 panics with `validated`.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### fuelscape-render-6 (low, correctness): roster: pending Finch's approval
+### fuelscape-render-6 (low, correctness): roster: approved (ruling 104)
 
 Positivity of log-scaled quantities is enforced three ways for fuel and not at all for the size axis
 
 Resolution: reject zero fuel (samples and overlay points) and zero size once at the format's strict gate, `dump::read` (and `DumpWriter::append`), and add a positivity check on `sizes[0]` to `compact::validate` and `build.rs`'s validator; then either drop the floor in `lg` or document it as unreachable given the gate, and extend the smoke assertion at render/tests.rs:39-43 to overlay points. Acceptance: a dump tamper case setting a sample's fuel to 0 is refused by `read` naming the check; a compact tamper case setting `sizes[0] = 0` is refused; `compact`'s own zero check is then a second line and says so, or goes. Construction: build an `AtlasData` with one `fuel: 0` sample, `DumpWriter::append` it, `dump::read` it back (accepted), `render_op` it (renders, the point at `log2(1) = 0`), then `compact` it (refused). Separately, in `compact/tests.rs`'s tamper closure set `doc["op"]["sizes"][0] = 0`: `read` accepts today.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### fuzz-guests-pins-10 (low, verification): roster: pending Finch's approval
+### fuzz-guests-pins-10 (low, verification): roster: approved (ruling 104)
 
 The fuzz framing is a prose wire contract duplicated across the detached boundary
 
 Resolution: Extract the framing (`ARITY_SPAN`, `chunk`, `byte`/`picks`, the decode-ops flavour/length carve) into one file `#[path]`-included by the targets, `tests/fuzz_seeds.rs`, and `tests/support/fuzz_seed_set.rs` (the seed set already shares by `#[path]` between the example and the test). Acceptance: `ARITY_SPAN` has one definition; the seed test's in-band assertion reads the constant the target folds with. Construction: Set `ARITY_SPAN` to 16 in fuzz_laws.rs only: the seed test still passes (its copy asserts `< 18`), while the target now folds the seed's arity-17 script to 1 and never crosses the second octave it was written to cross.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### fuzzfit-bands-30 (low, verification): roster: pending Finch's approval
+### fuzzfit-bands-30 (low, verification): roster: approved (ruling 104)
 
 The kernel roster in `sanity.rs` is a hand-maintained one-per-variant list nothing ties to `Op`
 
 Resolution: Make totality a compile error without a new dependency: an exhaustive `match op { Op::ClockSeed { .. } => (), ... }` over the roster's variants in the test (or a `fn representative(op: &Op) -> Op` the test walks), so a new variant fails to compile until rostered; or colocate the roster beside `Op::kernel` in `ops.rs` as `pub const REPRESENTATIVES` so both edits land in one diff. Acceptance: adding an `Op` variant without a roster entry fails to compile or fails a test by name; the convention sentence is gone. Construction: Add `Op::VersionNoop { src: Reg }` with `kernel() => "ff_version_noop"`, omit it from the roster and from every strategy: `bands_and_op_roster_name_the_same_kernels` stays green and no test names the unpriced kernel.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### fuzzfit-bands-6 (low, verification): roster: pending Finch's approval
+### fuzzfit-bands-6 (low, verification): roster: approved (ruling 104)
 
 The wasmtime-bump-is-a-re-pin sentence is a convention with no mechanism, contradicted at both patch bumps
 
 Resolution: Either enforce it (build.rs parses the workspace Cargo.lock's `wasmtime` version into `FUZZFIT_WASMTIME_VERSION`; calibrate emits `PINNED_WASMTIME`; a sibling of `building_toolchain_matches_the_pin` asserts equality) or soften the sentence to what holds ("a wasmtime bump that moves the fuel schedule reads red through the staleness leg past `REFIT_TOLERANCE`; a bump that leaves the schedule alone stays green and is not a re-pin event"). Acceptance: a lockfile wasmtime bump without re-pin turns `just fuzzfit` red by name, or the sentence names the mechanism (`REFIT_TOLERANCE`) that actually bounds it. Construction: The two historical bumps are the demonstration: `git show --stat 8490af3f` and `git show --stat 4e64a4fb` touch only lockfiles, `bands.rs` is unchanged since e7a4b7b0, and 4e64a4fb's message records a clean gate; `grep -n wasmtime tests/enforce.rs` returns nothing.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### fuzzfit-bands-7 (low, correctness): roster: pending Finch's approval
+### fuzzfit-bands-7 (low, correctness): roster: approved (ruling 104)
 
 `fit()`'s floor fallback contradicts `FIT_FLOOR_BITS`'s doc, and "classifies constant" is not guaranteed
 
 Resolution: Either state the actual rule at both docs ("when at least two floored samples exist"; drop "and classifies constant") or make the fallback classify constant by rule (the sub-floor law of record, as `fit_constant` does), so a size-law slope is never fitted through sub-floor points. Acceptance: a unit test in `fit/tests.rs` with sub-floor samples over 8..127 bits plus one at 128 either yields `constant == true` or the docs name the two-sample condition; the test's doc comment states which. Construction: `samples = [(8,f),(12,f),(16,f),(24,f),(32,f),(48,f),(64,f),(96,f),(100,f),(110,f),(120,f),(127,f),(128,f)]` with `f` constant: `floored.len() == 1`, so all thirteen are fitted; `decades = log10(128/8) = 1.204 >= 1.0`; populated buckets {1, 2, 3, 4} >= 3; `constant` is false and `min_denom` is 8.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### fuzzfit-strategies-5 (low, verification): roster: pending Finch's approval
+### fuzzfit-strategies-5 (low, verification): roster: approved (ruling 104)
 
 The pinned bands are not bound to the corpus that produced them
 
 Resolution: have `calibrate` write a corpus digest beside `PINNED_RUSTC` (the harness already has an FNV; hash the ops of the first `REFIT_PREFIX_PROGRAMS` deterministic programs plus the bootstrap stream into `pub const CORPUS_DIGEST: u64`), and add an enforce.rs test beside `building_toolchain_matches_the_pin` that recomputes it from `for_each_deterministic_program`/`for_each_bootstrap_program` and names `just fuzzfit-calibrate` on mismatch; state in harness/Cargo.toml that proptest and rand_chacha are pin provenance. Acceptance: changing any draw range, weight, or family body, or bumping proptest/rand_chacha in Cargo.lock, fails `just fuzzfit` by name before any fuel is judged; a re-pin restores green and the diff shows the digest move.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### fuzzfit-strategies-8 (low, verification): roster: pending Finch's approval
+### fuzzfit-strategies-8 (low, verification): roster: approved (ruling 104)
 
 The roster test's hand list is a convention against a variant added without a roster entry; a derived variant list is a check
 
 Resolution: derive a variant count or discriminant array on `Op` and have `bands_and_op_roster_name_the_same_kernels` iterate it (or assert the hand roster's length against the derived count so an omission fails by name). Acceptance: adding an `Op` variant with a kernel string but no roster entry fails the sanity suite before any generator emits it.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### rumors-dependence-3 (low, verification): roster: pending Finch's approval
+### rumors-dependence-3 (low, verification): roster: approved (ruling 104)
 
 The `as_bytes == encode` laws, tests, and the roster pin they anchor are tautological: `encode` is `as_bytes().to_vec()`
 
 Resolution: re-denominate each body against the independent judge while keeping the names, so the roster and the duplicate-name table stay untouched: in `laws.rs`, `Version::decode(a.as_bytes()).is_ok_and(|d| d.as_bytes() == a.as_bytes())` (and the party twin; `laws.rs` has no field access); in the party and version test modules, `codec::padding_is_canonical(&v.0)` or the same decode form, so `after_fork` and `after_ticks` assert what their docs say without relying on the debug assertion. Re-state `clock/tests.rs:300-305` in the present tense (what it protects: stored padding after impl-driven `fork`/`join`/`sync`, judged by strict decode). Alternatively delete the two laws and drop the pin from `CODEC_PINS`, since the roundtrip laws already cover it. Acceptance: with the `debug_assert!` in `as_bytes` disabled and an unsealed tail introduced after `join` (the historical seam), the re-denominated tests fail; today they cannot.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### suanpan-28 (low, verification): roster: pending Finch's approval
+### suanpan-28 (low, verification): roster: approved (ruling 104)
 
 `SOURCES` is a hand-kept file roster; a new module with `pub` items escapes the totality test
 
 Resolution: a binding test that parses `src/lib.rs` for its `mod name;` / `pub mod name;` declarations and asserts each (except `claims`) has a `SourceSpec`, so an unlisted module fails by name. Acceptance and construction: add `mod scratch;` with a `pub fn` to lib.rs unlisted: the claims tests are green today and must fail afterwards; listing it then fails totality until a claim row exists.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### surface-roster-3 (low, verification): roster: pending Finch's approval
+### surface-roster-3 (low, verification): roster: approved (ruling 104)
 
 `Exclusion::FAMILIES` is a hand-maintained twin of the enum, and a variant missing from it escapes the inhabitation census
 
 Resolution: derive the list from the enum. Dependency-free: a small `macro_rules!` that takes the variant list once and emits the `enum`, `FAMILIES`, and `family()`. With a dependency (owner's call): `strum::VariantNames` for `FAMILIES` and `strum::IntoStaticStr` for `family()`, `strum` optional under `meter`. Acceptance: adding a variant to `Exclusion` without an inhabitant fails `every_exclusion_family_is_inhabited` (or fails to compile). Construction: add `Probe { pins: &'static [&'static str] }` to `Exclusion`, add `Exclusion::Probe { .. } => "Probe"` to `family()`, leave `FAMILIES` unchanged, use the variant in no row; `cargo nextest run -p before every_exclusion_family_is_inhabited` stays green.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
-### tests-other-20 (low, verification): roster: pending Finch's approval
+### tests-other-20 (low, verification): roster: approved (ruling 104)
 
 Nothing pins that every fuzz target has a seed directory
 
 Resolution: Assert the file stems under `fuzz/fuzz_targets/` equal `expected_targets`, so a new target must gain seeds or a documented exemption. Acceptance: adding `fuzz/fuzz_targets/fuzz_new.rs` with no seed directory reads red. Construction: Create an empty sixth target file under `fuzz/fuzz_targets/`; `seed_directories_hold_exactly_the_set_of_record` stays green.
 
-Roster note: lands only once the coordinator confirms the roster is approved; then per the quoted Resolution, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
+Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 

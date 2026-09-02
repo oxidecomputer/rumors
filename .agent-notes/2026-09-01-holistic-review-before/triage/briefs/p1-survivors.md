@@ -177,7 +177,7 @@ own: `touch()` stubbed to a no-op under the feature, a reversible
 mutation, recorded in the commit message. Same file family as suanpan-40;
 land after it so the pins read the restructured `read_digits`.
 
-### suanpan-39 (low, verification-gap): roster: pending Finch's approval
+### suanpan-39 (low, verification-gap): roster: approved (ruling 104)
 
 Resolution: a per-cell floor from irreducible work (two one-limb writes and two sign reads per round: `s1(n, d) >= 6 * n`); better, pin the exact total `16 * n + 2` at all four cells, which subsumes the floor and the no-product bound. Treat `16n + 2` as a hypothesis until one run confirms it. Acceptance: with `touch_meter::record` stubbed to a no-op the test fails; unmodified, the pinned counts hold at all four cells. Construction: stub `record` and run `cargo nextest run -p suanpan --features touch-meter sign_flip_oscillation_has_no_width_product`: it passes today.
 
