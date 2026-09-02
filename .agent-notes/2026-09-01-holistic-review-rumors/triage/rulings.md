@@ -551,3 +551,101 @@ Home: code.
 Disposes: owner decision 93; fresh-eyes-1, session-bookmark-35 (fix)
 Decision: The stream-bound derivation on the public reconciliation page states the structure (data streams per direction beside one control stream) and cites `STREAM_COUNT` by name, with no literal counts.
 Home: code.
+
+## T105 (2026-09-02): Ruling B2 is reopened; the version atom is hand-parsed
+Disposes: owner decision 62; remote-codec-24 (fix); supersedes ruling B2's decline of enforcement
+Decision: Every supplied record's version atom is parsed with the head primitive the greeting already uses, deleting the per-leaf 4 KiB stack zero and `Vec` allocation and judging the head spelling (the canonicality gap closes). The commit names ruling B2 as reopened on the cost B2 did not have before it and names the two pins it flips. Measured with the decode allocation meters at the parent commit before crediting.
+Home: code.
+
+## T106 (2026-09-02): The decode channel's liveness claim is constructed, then the comments state amortization
+Disposes: owner decision 63; remote-adapter-streams-6, remote-proxy-27 (fix-amended)
+Decision: A committed sub-FAN run constructs the case first. `FAN` is required for liveness in the assembler; it is not believed required at the decode channel, where its value is amortization. If the construction completes, both comments are rewritten to state that: the assembler's requirement and the channel's amortization rationale, distinctly. The pull-based reader stays a measure-first experiment gated on a persistent backend; the walk-side allocation meter (decision 68) is the instrument for remote-proxy-27's per-reply cost.
+Home: code.
+Reasoning: Finch: "FAN is required for liveness in the assembler; I don't think it's required here, but amortizing it helps efficiency."
+
+## T107 (2026-09-02): The slice-recursion redesign of `act` lands now
+Disposes: owner decision 64; tree-core-27 (the redesign tier; T39 landed the single sort), tree-core-29 (fix)
+Decision: `act` recurses on slices of the one sorted action list rather than re-materializing per height, and the no-op commit keeps its root spine and memos (tree-core-29). Measured with `benches/in_memory.rs` and the per-commit allocation count at the parent before crediting; the send_all-under-lock figure is taken once after T34 and this land, and recorded in the commit.
+Home: code.
+
+## T108 (2026-09-02): `multi_peer` fuses its implied checks; `sanity`'s subsumed test goes
+Disposes: owner decision 65; tests-lifecycle-9, tests-lifecycle-29, suite-economics-5 (fix)
+Decision: The two implied checks fuse into the canonical-map test with distinct messages; `sanity.rs`'s panic-freedom property, strictly subsumed by `multi_peer`, is deleted; the module doc states the one-test-per-invariant policy and the sampling-breadth trade. The `window_corners` and `window_census` halves of suite-economics-5 ride with the P1 conformance lane's entries.
+Home: code.
+
+## T109 (2026-09-02): The capacity test's width is measured once at four parents
+Disposes: owner decision 67; suite-economics-7 (fix-amended)
+Decision: After the P1 harness lane makes the stall verdict honest (streaming-tests-11), one measured run at four parents decides: the width shrinks if the verdict holds, or the test's doc gains the sentence stating why 32 parents are needed. One run, load reported.
+Home: code.
+
+## T110 (2026-09-02): No new allocation meters; the message residency slack is fixed
+Disposes: owner decision 68; materialized-30 (model: no walk-side meter), api-core-10 (fix), the commit-path meter half of tree-core-27 (model)
+Decision: No walk-side, residency, or commit-path allocation meter is added now. The message residency slack itself (each stored message retaining its encoding vector's power-of-two spare capacity plus a shared header) is fixed per api-core-10's resolution. Owner decision 68's acceptance instrument for remote-proxy-27 and streaming-backend-window-9 is therefore the existing benches, measured at the parent.
+Home: this file for the declined meters; code for the fix.
+Reasoning: Finch: "None now. I would like to fix the message residency slack, though."
+
+## T111 (2026-09-02): Typed-tree trades are constructed and measured; the leaf preimage's heap vector goes now
+Disposes: owner decision 69; tree-typed-6 (fix: the leaf half now, the branch half measured), tree-typed-23 (fix-amended: measure first), the tree-typed open question on `Leaf::into_node` (measure first)
+Decision: The leaf hash preimage's heap `Vec` is deleted outright. The inline-prefix `ArrayVec`, the branch preimage buffer, and the supply path's per-leaf `Leaf::into_node` allocation are each constructed and measured with `benches/in_memory.rs`, `benches/branch_hash.rs`, `benches/gossip_fixed.rs`, and the node census before landing; each lands only on a measured improvement with its committed baseline updated, and a regression is a finding.
+Home: code.
+
+## T112 (2026-09-02): The geometry search takes a checked hint
+Disposes: owner decision 66; suite-economics-2, suite-economics-3, tree-core-24 (fix)
+Decision: `HINT_ATTEMPT`, measured once by running the search under SHA3-256, is tried first: the fixture hashes only that window's leaves and evaluates the geometry predicate, falling back to the full scan (with its loud exhaustion failure) if the hint fails. A committed test pins that the hint satisfies the predicate and that a wrong hint falls through to the scan. The prose number in `ATTEMPTS`'s doc is deleted; the guard's description matches its spelling.
+Home: code.
+
+## T113 (2026-09-02): api-core-10's acceptance is a direct assertion, not a meter
+Disposes: api-core-10 (fix-amended); amends T110
+Decision: The encoding is stored at exact length with no header allocation (`into_boxed_slice` or equivalent). Acceptance: a committed test asserts every stored message's serialized cache has zero spare capacity, and `benches/in_memory.rs` `batch_insert` is neutral or better at the parent. No standing residency meter.
+Home: code.
+
+## T114 (2026-09-02): Bench economics, all three
+Disposes: owner decision 70; the benches-envelope open questions (fix)
+Decision: The gossip benches report `Throughput::Bytes` from `Gossiped.stats` beside elements; `just all` runs a short smoke of every bench binary; the comment at `CAPACITY` states why `Wire` and `DelayedWire` use different pipe sizes.
+Home: code.
+
+## T115 (2026-09-02): `tests/common` and `benches/support` become a path dev-dependency crate
+Disposes: owner decision 71; suite-economics-8, tests-common-8, tests-disruption-handshake-28, benches-envelope-22 (fix-amended)
+Decision: The shared test harness and bench support move into a workspace crate consumed as a path dev-dependency, so they compile once; the window family and the five single-test binaries fold into fewer binaries with their committed seeds re-homed (T59); the schedule-engine suites keep their binaries. `cargo build --tests --timings` is measured once at the parent and once after, and the two figures are recorded in the commit, as the measurement of a change already decided rather than its gate.
+Home: code.
+
+## T116 (2026-09-02): The schedule-executor properties get an explicit, larger case budget
+Disposes: owner decision 72; the tests-lifecycle partition's case-budget item (fix-amended)
+Decision: The schedule-executor binaries set a `ProptestConfig` explicitly, with a case count above proptest's default; the lane measures the per-binary wall time at the default and at the proposed count on a quiet machine, and the count lands with that measurement and its reason in the module doc. The number is proposed by the lane and approved by Finch before it is committed.
+Home: code.
+Reasoning: Finch: "And probably make it more cases!"
+
+## T117 (2026-09-02): Height-indexed chain traits for `define_peer!`, one experiment
+Disposes: owner decision 96; the mirror-common open question (fix-amended: an experiment)
+Decision: One branch derives the 16-deep and 15-deep bound chains from height-indexed chain traits; it is abandoned only on measured compile-time or diagnostic-quality evidence, reported with the figures, never on anticipated complexity.
+Home: code (or this file, if abandoned with its evidence).
+
+## T118 (2026-09-02): One instrumentation shape: the proxy's `Progress`
+Disposes: owner decision 97; the remote-proxy and materialized open questions (fix)
+Decision: The walk adopts the proxy's zero-sized `Progress` passed by value; its `cfg(test)` parameters and `trace_id` field are removed.
+Home: code.
+
+## T119 (2026-09-02): The greeting-derived premises become a named bundle after the hand-off collapses
+Disposes: owner decision 98; remote-proxy-4, remote-adapter-streams-4, remote-adapter-tests-2, remote-proxy-24 (fix)
+Decision: After remote-proxy-7 collapses the proxy's handshake-to-session hand-off, the set length, version bytes, and digest travel as one named struct with documented fields, replacing the loose parameters and the forty test re-spellings; the inline "one premise per argument" rationale is superseded by the field list.
+Home: code.
+
+## T120 (2026-09-02): `MAX_QUERY_CHILDREN` is defined from `FAN`
+Disposes: owner decision 99; remote-codec-3 (the fan half) (fix)
+Decision: One constant is defined from the other, with a sentence stating why the wire keeps its own name for the radix fan.
+Home: code.
+
+## T121 (2026-09-02): The `streaming` path level is flattened into `mirror`
+Disposes: owner decision 100; module-graph-9 (fix-amended)
+Decision: `tree::mirror::streaming::*` moves up into `tree::mirror`; the level and its name go, and `mirror.rs`'s module doc describes the mechanism. A mechanical move, landed as its own commit so the diff is a rename.
+Home: code.
+
+## T122 (2026-09-02): The focused conformance checks loosen their bounds; the eightfold shape stays
+Disposes: owner decision 101; conformance-7 (fix-amended)
+Decision: The focused checks take the looser bounds they need (non-breaking); the eight public signatures keep their shape, and one comment at the module states why (the reason f5039abb recorded in its message).
+Home: code.
+
+## T123 (2026-09-02): Two wall times recorded; `sha3` at opt-level 2 in the dev profile
+Disposes: owner decision 102; the tests-observation overlap-sweep item and remote-capture-atlas-28 (fix)
+Decision: The total overlap sweep and the bounded corpus manifest each get one measured wall time stated as a band in the test's module doc, load reported in the commit. `Cargo.toml` sets `[profile.dev.package.sha3] opt-level = 2`, which serves the corpus test and the geometry fixture.
+Home: code.
