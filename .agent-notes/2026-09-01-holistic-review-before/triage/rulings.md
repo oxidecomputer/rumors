@@ -627,3 +627,11 @@ Decision. suanpan drops its dashu dependency: `UBig` is only a boundary type the
 Disposes: envelopes-b-21, envelopes-b-7, fuelscape-render-18, fuelscape-render-19.
 
 Decision. The `memo_resolution_cost` bands each gain an absolute touch ceiling at the larger run and normalize their ratios per byte (ceilings only, per ruling 88). `accum_fan_touches_flat` is deleted, one sentence in the comb test's doc stating why no fan row exists (the cliff-fan family retires under ruling 79). The fuelscape render binary's width-1 panel pool becomes a plain sequential loop with its constant and the overlap prose gone. The survey's commit stamp is bound: a dirty tree under `crates/before` or `crates/suanpan` refuses the survey (or stamps `--dirty` visibly), `--dump` refuses without the tip variable, and compact's validator and `build.rs` require exactly forty lowercase hex characters.
+
+## Ruling 96 (2026-09-02): P6 fuzz mediums; two tools items carried elsewhere
+
+Disposes: fuzz-guests-pins-29, fuzzfit-bands-19, fuzzfit-strategies-11, fuzzfit-strategies-16; tools-4 (the same defect as gate-legs-4, ruling 50); tools-28 (moot: mutantcheck retires under ruling 18).
+
+Finch's words (fuzzfit-bands-19): "Delete the probe, don't build the test. We know things are deterministic."
+
+Decision. Every wasm32 rank pin gets a seam-bit witness (a second stream differing only in the deep bit with strict order asserted, the algebraic inverse for add and checked subtraction, tight brackets for the version rank, clone checks on encodings), coordinated with the API lane's binary text form. `probe.rs` is deleted; no fuel-determinism test is added, fuel determinism being taken as known. The fuzz-fit mirror models the empty-operand identity rungs for join and meet, pins the predicate on the four pair kinds, and re-pins the bands with the movement annotated. The builder counts refusals, and sanity tests assert zero on both escalation replays and every bootstrap program, with the bootstrap stream's sub-floor coverage asserted.
