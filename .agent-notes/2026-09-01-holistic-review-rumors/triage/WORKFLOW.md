@@ -242,6 +242,23 @@ Fresh-eyes rounds are reads, not builds; they do not run the suite.
 Timing measurements a brief asks for are made once, load reported, never
 iterated.
 
+## Two machines
+
+The illumos box (`ox-east-1`, per the `building-on-illumos` skill) takes
+a lane's iteration: test-binary builds, suite and proptest runs, repeated
+runs. The wrapper syncs the Mac worktree to `~/src/<worktree basename>`
+on the box and runs one command there with its own target directory, so
+lanes do not collide; cargo runs `--locked` there; nothing is edited or
+committed on the box. The `just gate` of record before each commit runs
+on the Mac, where the toolchain-derived pins are calibrated, and
+benchmarks run on the Mac, whose committed baselines they update. Clock
+guard, checked before every box run: rsync preserves mtimes and cargo's
+rebuild detection is mtime-based, so a box clock ahead of the Mac by
+more than a couple of seconds means a green build of stale code; on
+skew, the lane builds on the Mac and says so. Stepping the box's clock
+is admin work on a shared machine and is Finch's, never a lane's. The
+Mac's builder cap counts gates and benchmarks, not iteration on the box.
+
 ## Effort and orchestration
 
 Lane agents that touch a harness or production code (all of P1 and P2,
