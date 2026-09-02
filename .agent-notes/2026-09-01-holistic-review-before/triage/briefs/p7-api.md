@@ -48,6 +48,7 @@ never relax them.
   stated under the quote and wins. Where a quoted Resolution and the lane
   goal come apart, the goal wins, and the discrepancy is reported.
 - **Typed references, never strings (ruling 43).** Wherever this lane
+- **Prose (ruling 105).** Every paragraph you touch passes the three tests in `PROSE.md` (altitude, concision, legibility); the reviewer applies its checks; the diff is net shorter in prose unless your report says what the additions buy.
   touches `meter/registry.rs`, a family roster, `TRIPWIRE_ROSTER`, the
   surface rosters, or any test that names another test, file, or line:
   reasons, pins, and enforcement homes are expressed as references the

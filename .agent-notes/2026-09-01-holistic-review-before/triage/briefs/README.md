@@ -506,3 +506,7 @@ checked for the attribution the rulings demand: the movement named in the
 commit, measured at the parent. Roster members (ruling 104) are ruled `fix` as their lanes land them,
 with the sha written the same way; a surface-lane row reported moot
 under ruling 98 is ruled `dup` against it.
+
+## Prose
+
+`PROSE.md` is the statement of intent for prose in `before` (ruling 105); every lane's ground rules point at it, and one dedicated fresh-eyes prose pass per crate follows the code lanes.
