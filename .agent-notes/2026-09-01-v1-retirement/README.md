@@ -4,8 +4,10 @@ Status: implemented on the `v1-retirement` branch, gate-clean at every
 commit. Base surveyed at 4e64a4fb. Rulings (2026-09-01): decision 1 —
 drop the legacy-magic recognition (done; a legacy opening now reports
 `MagicMismatch`, whose hex preview still shows the old magic bytes);
-decision 2 — remove the `.protocol()` builders (done; the `Protocol`
-enum and the config plumbing's dialect parameters went with them);
+decision 2 — remove the `.protocol()` builders (done; the config
+plumbing's dialect parameters went with them, while the `Protocol` enum
+stays public as wire vocabulary, `#[non_exhaustive]`, with its single
+`V2` variant);
 decision 3 — the scoped mutants A/B is deferred (the seed corpora for
 the streaming suites were kept in place and keep replaying through the
 renamed join-oracle differential). Premise confirmed by Finch: the crate
@@ -39,12 +41,6 @@ fresh seed centrally. One caveat recorded: a future top-level `src/<x>.rs`
 proptest suite would share a seed file with a `tests/<x>.rs` suite of the
 same name; seeds are harmless replayed cross-suite, but the sharing is
 worth noticing if it ever happens.
-
-Status: in progress. Base surveyed at 4e64a4fb. Rulings (2026-09-01):
-decision 1 — drop the legacy-magic recognition; decision 2 — remove the
-`.protocol()` builders; decision 3 — the scoped mutants A/B is deferred
-(the seed-corpus replay check still applies). Premise confirmed by Finch:
-the crate is pre-release and nothing uses V1.
 
 ## Goal
 
