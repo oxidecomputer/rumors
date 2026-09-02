@@ -127,8 +127,10 @@ impl Measure for Local {
 /// ([`SUPPLY_DECODE_ENVELOPE_BYTES`], the in-memory pricing of that
 /// term) with room left for dispute scopes; a budget at or below the
 /// pre-charge resolves to the serialization floor, and `check`'s
-/// liveness floor fails it by name.
-const LOCAL_BUDGET: usize = 64 * 1024;
+/// liveness floor fails it by name. The 64 KiB above the pre-charge
+/// widens the suite's corpora to a few scopes per stage (a widest
+/// capacity of four), so the window binds and is seen to.
+const LOCAL_BUDGET: usize = SUPPLY_DECODE_ENVELOPE_BYTES + 64 * 1024;
 
 /// The in-memory backend's pointer-priced account holds end to end.
 ///
@@ -210,8 +212,13 @@ const ROW_HEADER: usize = 64;
 /// The bytes one child entry occupies in a materialized row.
 const ROW_ENTRY: usize = 24;
 
-/// The stated budget every materializing check runs under: the rows
-/// make it genuinely binding at the suite's corpus scale.
+/// The stated budget every materializing check runs under.
+///
+/// The rows make this backend's flat decode-fan pre-charge several
+/// times the in-memory one (each fan slot carries a header and bounds,
+/// not a pointer); 4 MiB clears it with room for a window tens of
+/// scopes wide per stage, which `check`'s liveness floor holds it to,
+/// while the rows keep the admitted bytes a real fraction of the budget.
 const MATERIALIZING_BUDGET: usize = 4 * 1024 * 1024;
 
 /// A node value that owns its simulated row.
