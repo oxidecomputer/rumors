@@ -29,10 +29,13 @@ coordinator sessions agreed:
    other session has nothing staged. Any rewrite of `main` (an identity
    repair, say) happens at Finch's word with the other session paused,
    and is announced here first.
-6. Each session runs at most four concurrently building lanes on the
-   illumos box, and at most one wall-time measurement at a time under
-   `pset-run`, announced here first. Before builds nothing on the Mac;
-   rumors benches run on the Mac against their committed baselines.
+6. No per-session lane cap on the illumos box (Finch's ruling, relayed
+   by the rumors session on 2026-09-02): each session keeps its
+   concurrently building lanes to what the load bears, holding a launch
+   while the box's one-minute load average is above about 150 on its 192
+   threads. Wall-time measurements under `pset-run` stay one at a time,
+   announced here first. Before builds nothing on the Mac; rumors benches
+   run on the Mac against their committed baselines.
 7. The two coordinator sessions message each other (Finch's
    authorization; he sees every exchange) for three events: a merge to
    `main` landed, a lane launching that edits a shared root file, a
