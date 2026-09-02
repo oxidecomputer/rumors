@@ -52,9 +52,7 @@
 //! meter is the bypass the column exists to catch, since a ceiling passes
 //! vacuously once a counter stops counting. The tripwire detects total
 //! bypass, not partial rerouting: work routed around the metered
-//! primitives in part still reads green. A column a row does not yet pin
-//! is `None` in its table: the harness prints the reading and asserts
-//! nothing there.
+//! primitives in part still reads green. Every row pins every column.
 //!
 //! The measurements of record, and every re-pin's movement and
 //! attribution, live in the pin commits (`git log -S` the constant). Re-pin
@@ -210,19 +208,16 @@ const RANK_SUM_EXP_DEPTH: usize = 250_000;
 
 /// One scenario's pins: a peak-heap ceiling and one [`Bound`] per counter
 /// column, per the file doc's convention.
-///
-/// A column the row does not yet pin is `None`: the harness prints its
-/// reading and asserts nothing.
 #[derive(Clone, Copy)]
 struct Envelope {
     /// Peak heap delta over the scenario body, in bytes.
     peak_heap: usize,
     /// Big-integer limb operations.
-    limb: Option<Bound>,
+    limb: Bound,
     /// Accumulator digit touches.
-    touch: Option<Bound>,
+    touch: Bound,
     /// Packed-stream bits scanned.
-    scan: Option<Bound>,
+    scan: Bound,
 }
 
 /// One counter column's pin: its ceiling and the improvement tripwire under
@@ -242,12 +237,7 @@ const fn band(ceiling: u64, floor: u64) -> Bound {
 }
 
 /// Build an [`Envelope`] from a row's columns.
-const fn envelope(
-    peak_heap: usize,
-    limb: Option<Bound>,
-    touch: Option<Bound>,
-    scan: Option<Bound>,
-) -> Envelope {
+const fn envelope(peak_heap: usize, limb: Bound, touch: Bound, scan: Bound) -> Envelope {
     Envelope {
         peak_heap,
         limb,
@@ -261,21 +251,21 @@ const fn envelope(
 #[rustfmt::skip]
 mod envelope {
     use super::{band, envelope, Envelope};
-    pub const DECODE_DENSE: Envelope                = envelope(120_035,           Some(band(0, 0)), None,                     None); // wire decode is validate + wrap on the skyline kernels; decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
-    pub const CMP_DENSE: Envelope                   = envelope( 30_720,           Some(band(0, 0)), None,                     None); // the iterative sweep over the Bytes-backed at-rest form (OpenedPair states the pair walk's opening move once); word-valued payloads keep the limb column at zero
-    pub const JOIN_DENSE: Envelope                  = envelope(130_277,           Some(band(0, 0)), None,                     None); // the emit kernel's peak alone: the value-operator cell's lhs clone is a refcount bump, not a byte copy of the operand; word-valued payloads keep the limb column at zero
-    pub const DECODE_BIGROOT: Envelope              = envelope( 60_090,       Some(band(783, 469)), None,                     None); // wire decode is validate + wrap; the one wide root magnitude keeps a linear limb record while the word-valued form carries the narrow codes
-    pub const CMP_BIGROOT: Envelope                 = envelope( 40_340,       Some(band(783, 469)), None,                     None); // the iterative sweep over the Bytes-backed at-rest form; the wide root's decode is the limb record
-    pub const JOIN_BIGROOT: Envelope                = envelope( 85_060,     Some(band(1_565, 939)), None,                     None); // the emit kernel's peak alone (the lhs clone is a refcount bump); the wide root decodes on both sides carry the limb record
-    pub const DECODE_HUGELEAF: Envelope             = envelope(122_504,   Some(band(2_443, 1_465)), None,                     None); // the validating wire decode holds the running height; one wide gamma code's linear limb work
-    pub const JOIN_HUGELEAF: Envelope               = envelope(185_494,   Some(band(4_887, 2_931)), None,                     None); // the emit kernel holds both payload buffers, and the lhs clone is a refcount bump, so the public join's peak is the emit kernel's alone
-    pub const ID_JOIN: Envelope                     = envelope(279_132,           Some(band(0, 0)), None,                     None); // iterative id walks: frame bits on the heap
-    pub const ID_COVERS: Envelope                   = envelope(     10,           Some(band(0, 0)), None,                     None); // iterative id walks
-    pub const ID_DISJOINT: Envelope                 = envelope(     10,           Some(band(0, 0)), None,                     None); // iterative id walks
-    pub const ID_WITHOUT: Envelope                  = envelope(521_110,           Some(band(0, 0)), None,                     None); // iterative complement over the Bytes-backed at-rest form; dev builds run no shadow re-parse of the diff emission (the differential suites carry the normal-form check)
-    pub const DECODE_CLIFF: Envelope                = envelope(  4_052,         Some(band(88, 52)), None,                     None); // wire decode is validate + wrap; each cliff crossing's limb work is paid by its own wide stored code
-    pub const CMP_CLIFF: Envelope                   = envelope(  1_330,         Some(band(88, 52)), None,                     None); // the cliff-free sweep (two accumulators, opened once) over the Bytes-backed at-rest form
-    pub const JOIN_CLIFF: Envelope                  = envelope(  5_362,       Some(band(308, 184)), None,                     None); // the emit kernel's peak alone (the lhs clone is a refcount bump); each re-coded tooth's limb work is paid by its comparably-wide input code
+    pub const DECODE_DENSE: Envelope                = envelope(120_035,           band(0, 0),            band(4, 2),     band(468_758, 281_254)); // wire decode is validate + wrap on the skyline kernels; decoded payloads ride the word-valued form, so narrow-value work leaves the limb denomination (touch and scan floors stay the liveness signal)
+    pub const CMP_DENSE: Envelope                   = envelope( 30_720,           band(0, 0), band(156_254, 93_752),     band(468_760, 281_256)); // the iterative sweep over the Bytes-backed at-rest form (OpenedPair states the pair walk's opening move once); word-valued payloads keep the limb column at zero
+    pub const JOIN_DENSE: Envelope                  = envelope(130_277,           band(0, 0), band(156_255, 93_753),     band(625_018, 375_010)); // the emit kernel's peak alone: the value-operator cell's lhs clone is a refcount bump, not a byte copy of the operand; word-valued payloads keep the limb column at zero
+    pub const DECODE_BIGROOT: Envelope              = envelope( 60_090,       band(783, 469),    band(2_348, 1_408),      band(137_512, 82_506)); // wire decode is validate + wrap; the one wide root magnitude keeps a linear limb record while the word-valued form carries the narrow codes
+    pub const CMP_BIGROOT: Envelope                 = envelope( 40_340,       band(783, 469),   band(14_849, 8_909),      band(137_514, 82_508)); // the iterative sweep over the Bytes-backed at-rest form; the wide root's decode is the limb record
+    pub const JOIN_BIGROOT: Envelope                = envelope( 85_060,     band(1_565, 939),   band(14_850, 8_910),     band(275_028, 165_016)); // the emit kernel's peak alone (the lhs clone is a refcount bump); the wide root decodes on both sides carry the limb record
+    pub const DECODE_HUGELEAF: Envelope             = envelope(122_504,   band(2_443, 1_465),    band(7_327, 4_395),     band(312_503, 187_501)); // the validating wire decode holds the running height; one wide gamma code's linear limb work
+    pub const JOIN_HUGELEAF: Envelope               = envelope(185_494,   band(4_887, 2_931),    band(7_329, 4_397),     band(625_010, 375_006)); // the emit kernel holds both payload buffers, and the lhs clone is a refcount bump, so the public join's peak is the emit kernel's alone
+    pub const ID_JOIN: Envelope                     = envelope(279_132,           band(0, 0),            band(0, 0), band(3_125_023, 1_875_013)); // iterative id walks: frame bits on the heap
+    pub const ID_COVERS: Envelope                   = envelope(     10,           band(0, 0),            band(0, 0),   band(1_250_005, 750_003)); // iterative id walks
+    pub const ID_DISJOINT: Envelope                 = envelope(     10,           band(0, 0),            band(0, 0),   band(1_250_005, 750_003)); // iterative id walks
+    pub const ID_WITHOUT: Envelope                  = envelope(521_110,           band(0, 0),            band(0, 0), band(2_500_005, 1_500_003)); // iterative complement over the Bytes-backed at-rest form; dev builds run no shadow re-parse of the diff emission (the differential suites carry the normal-form check)
+    pub const DECODE_CLIFF: Envelope                = envelope(  4_052,         band(88, 52),    band(4_003, 2_401),       band(17_923, 10_753)); // wire decode is validate + wrap; each cliff crossing's limb work is paid by its own wide stored code
+    pub const CMP_CLIFF: Envelope                   = envelope(  1_330,         band(88, 52),    band(5_284, 3_170),       band(17_925, 10_755)); // the cliff-free sweep (two accumulators, opened once) over the Bytes-backed at-rest form
+    pub const JOIN_CLIFF: Envelope                  = envelope(  5_362,       band(308, 184),    band(5_289, 3_173),       band(35_848, 21_508)); // the emit kernel's peak alone (the lhs clone is a refcount bump); each re-coded tooth's limb work is paid by its comparably-wide input code
     // Skyline validator rows: the validator's transient is the
     // open-ancestor bit stack plus reallocation growth, bits per level,
     // not frames. Its work is cursor reads end to end (it allocates
@@ -283,19 +273,19 @@ mod envelope {
     // so scan is the column that sees a re-read the others cannot.
     // Decode is validate plus the wrap, so each shape's scan reading
     // equals its validate row's.
-    pub const SKYLINE_VALIDATE_DENSE: Envelope      = envelope( 61_440,           Some(band(0, 0)), None,   Some(band(468_758, 0))); // the open-ancestor bit stack; word-valued payloads keep the limb column at zero
-    pub const SKYLINE_VALIDATE_CLIFF: Envelope      = envelope(  1_770,         Some(band(88, 52)), None,    Some(band(17_923, 0))); // the cliff-free accumulator: amortized O(1) per delta
-    pub const SKYLINE_VALIDATE_WIDE_TOOTH: Envelope = envelope(  1_520, Some(band(29_509, 17_705)), None, Some(band(1_000_480, 0))); // each wide delta's limb work is paid by its own zigzag code; heap stays at the bit stack plus the zero-run ledger's map node
-    pub const SKYLINE_VALIDATE_HUGELEAF: Envelope   = envelope( 80_980,   Some(band(2_443, 1_465)), None,   Some(band(312_503, 0))); // one wide decode and one wide accumulator load, both linear in the code's width
-    pub const SKYLINE_VALIDATE_ALT_SPINE: Envelope  = envelope( 61_440,           Some(band(0, 0)), None,   Some(band(468_758, 0))); // per-level state stays two bits however the descent direction flips
+    pub const SKYLINE_VALIDATE_DENSE: Envelope      = envelope( 61_440,           band(0, 0),            band(4, 2),           band(468_758, 0)); // the open-ancestor bit stack; word-valued payloads keep the limb column at zero
+    pub const SKYLINE_VALIDATE_CLIFF: Envelope      = envelope(  1_770,         band(88, 52),    band(4_003, 2_401),            band(17_923, 0)); // the cliff-free accumulator: amortized O(1) per delta
+    pub const SKYLINE_VALIDATE_WIDE_TOOTH: Envelope = envelope(  1_520, band(29_509, 17_705),   band(14_218, 8_530),         band(1_000_480, 0)); // each wide delta's limb work is paid by its own zigzag code; heap stays at the bit stack plus the zero-run ledger's map node
+    pub const SKYLINE_VALIDATE_HUGELEAF: Envelope   = envelope( 80_980,   band(2_443, 1_465),    band(7_327, 4_395),           band(312_503, 0)); // one wide decode and one wide accumulator load, both linear in the code's width
+    pub const SKYLINE_VALIDATE_ALT_SPINE: Envelope  = envelope( 61_440,           band(0, 0),            band(4, 2),           band(468_758, 0)); // per-level state stays two bits however the descent direction flips
     // Skyline decoder rows: validation plus the wrap into storage — the
     // stored coding is the skyline stream itself, so decode materializes
     // nothing beyond the copy and stays priced by the wire input.
-    pub const SKYLINE_DECODE_DENSE: Envelope        = envelope( 61_440,           Some(band(0, 0)), None,   Some(band(468_758, 0))); // decode is validate + wrap: the wrap allocates the copy once, exactly sized
-    pub const SKYLINE_DECODE_CLIFF: Envelope        = envelope(  2_250,         Some(band(88, 52)), None,    Some(band(17_923, 0))); // decode is validate + wrap: the wrap allocates the copy once, exactly sized
-    pub const SKYLINE_DECODE_WIDE_TOOTH: Envelope   = envelope(125_100, Some(band(29_509, 17_705)), None, Some(band(1_000_480, 0))); // decode is validate + wrap; the once-allocated copy prices the wide payloads
-    pub const SKYLINE_DECODE_HUGELEAF: Envelope     = envelope( 83_440,   Some(band(2_443, 1_465)), None,   Some(band(312_503, 0))); // decode is validate + wrap
-    pub const SKYLINE_DECODE_ALT_SPINE: Envelope    = envelope( 61_440,           Some(band(0, 0)), None,   Some(band(468_758, 0))); // decode is validate + wrap: the wrap allocates the copy once, exactly sized
+    pub const SKYLINE_DECODE_DENSE: Envelope        = envelope( 61_440,           band(0, 0),            band(4, 2),           band(468_758, 0)); // decode is validate + wrap: the wrap allocates the copy once, exactly sized
+    pub const SKYLINE_DECODE_CLIFF: Envelope        = envelope(  2_250,         band(88, 52),    band(4_003, 2_401),            band(17_923, 0)); // decode is validate + wrap: the wrap allocates the copy once, exactly sized
+    pub const SKYLINE_DECODE_WIDE_TOOTH: Envelope   = envelope(125_100, band(29_509, 17_705),   band(14_218, 8_530),         band(1_000_480, 0)); // decode is validate + wrap; the once-allocated copy prices the wide payloads
+    pub const SKYLINE_DECODE_HUGELEAF: Envelope     = envelope( 83_440,   band(2_443, 1_465),    band(7_327, 4_395),           band(312_503, 0)); // decode is validate + wrap
+    pub const SKYLINE_DECODE_ALT_SPINE: Envelope    = envelope( 61_440,           band(0, 0),            band(4, 2),           band(468_758, 0)); // decode is validate + wrap: the wrap allocates the copy once, exactly sized
 }
 
 // ─── meter liveness canaries ────────────────────────────────────────────────
@@ -366,10 +356,10 @@ struct Column {
     /// compiled in.
     read: fn() -> Option<u64>,
     /// The row's pin for this column.
-    pin: fn(&Envelope) -> Option<Bound>,
+    pin: fn(&Envelope) -> Bound,
     /// The row's pin for this column, writable (the harness self-test's
     /// probe).
-    pin_mut: fn(&mut Envelope) -> &mut Option<Bound>,
+    pin_mut: fn(&mut Envelope) -> &mut Bound,
 }
 
 /// The counter columns, in MEASURED-line order.
@@ -486,9 +476,10 @@ fn metered<R>(name: &str, input_bytes: usize, env: &Envelope, f: impl FnOnce() -
         env.peak_heap,
     );
     for (column, reading) in COLUMNS.iter().zip(readings) {
-        let (Some(reading), Some(bound)) = (reading, (column.pin)(env)) else {
+        let Some(reading) = reading else {
             continue;
         };
+        let bound = (column.pin)(env);
         assert!(
             reading <= bound.ceiling,
             "{name}: {reading} {} exceed the pinned envelope {}: {ISOLATION_NOTE}",
@@ -526,9 +517,9 @@ fn harness_judges_every_column() {
     let input = v.encode().len();
     let open = Envelope {
         peak_heap: usize::MAX,
-        limb: None,
-        touch: None,
-        scan: None,
+        limb: band(u64::MAX, 0),
+        touch: band(u64::MAX, 0),
+        scan: band(u64::MAX, 0),
     };
     HEAP.reset_peak_usage();
     let baseline = HEAP.current_usage();
@@ -559,14 +550,14 @@ fn harness_judges_every_column() {
             column.key
         );
         let mut over = open;
-        *(column.pin_mut)(&mut over) = Some(band(reading - 1, 0));
+        *(column.pin_mut)(&mut over) = band(reading - 1, 0);
         assert!(
             fails(&over),
             "{}: a ceiling under the reading must fail the probe",
             column.key
         );
         let mut under = open;
-        *(column.pin_mut)(&mut under) = Some(band(u64::MAX, reading + 1));
+        *(column.pin_mut)(&mut under) = band(u64::MAX, reading + 1);
         assert!(
             fails(&under),
             "{}: a floor over the reading must fail the probe",
@@ -1284,11 +1275,11 @@ fn join_cliff_envelope() {
 #[rustfmt::skip]
 mod rank_env {
     use super::{band, envelope, Envelope};
-    pub const RANK_DENSE: Envelope         = envelope( 30_720,           Some(band(4, 2)),             Some(band(7, 3)), None); // the depth control: word-scale numerators fold in the accumulator's quick register, so the work columns sit near zero and the heap is the at-rest form
-    pub const RANK_BIGROOT: Envelope       = envelope( 72_005,   Some(band(2_739, 1_643)),     Some(band(8_993, 5_395)), None); // the wide-magnitude control: one root-wide decode and one root-wide fold; the segment feed opens only at the first freeze
-    pub const RANK_HARMONIC: Envelope      = envelope( 52_500,   Some(band(2_562, 1_536)), Some(band(248_285, 148_971)), None); // the separating family: each level's one-leaf sibling lands at the exponent gap, so touches stay linear in depth and no accumulated numerator is re-shifted
-    pub const RANK_PAIR_MISMATCH: Envelope = envelope(234_400, Some(band(87_910, 52_746)),             Some(band(0, 0)), None); // class-first cmp decides order in O(1); the limb record is checked_sub's and add's mandatory output content plus the metered exponent-alignment shifts
-    pub const RANK_SUM_MIXED: Envelope     = envelope( 78_140,   Some(band(9_769, 5_861)),   Some(band(22_268, 13_360)), None); // the raw accumulator: digit-routed summands, one normalization at the end
+    pub const RANK_DENSE: Envelope         = envelope( 30_720,           band(4, 2),             band(7, 3), band(937_515, 562_509)); // the depth control: word-scale numerators fold in the accumulator's quick register, so the work columns sit near zero and the heap is the at-rest form
+    pub const RANK_BIGROOT: Envelope       = envelope( 72_005,   band(2_739, 1_643),     band(8_993, 5_395), band(275_023, 165_013)); // the wide-magnitude control: one root-wide decode and one root-wide fold; the segment feed opens only at the first freeze
+    pub const RANK_HARMONIC: Envelope      = envelope( 52_500,   band(2_562, 1_536), band(248_285, 148_971), band(491_530, 294_918)); // the separating family: each level's one-leaf sibling lands at the exponent gap, so touches stay linear in depth and no accumulated numerator is re-shifted
+    pub const RANK_PAIR_MISMATCH: Envelope = envelope(234_400, band(87_910, 52_746),             band(0, 0),             band(0, 0)); // class-first cmp decides order in O(1); the limb record is checked_sub's and add's mandatory output content plus the metered exponent-alignment shifts
+    pub const RANK_SUM_MIXED: Envelope     = envelope( 78_140,   band(9_769, 5_861),   band(22_268, 13_360),             band(0, 0)); // the raw accumulator: digit-routed summands, one normalization at the end
 }
 
 /// The rank fold on the dense spine stays within its envelope (the
@@ -1610,16 +1601,16 @@ fn skyline_decode_alt_spine_envelope() {
 #[rustfmt::skip]
 mod sweep_env {
     use super::{band, envelope, Envelope};
-    pub const SKYLINE_CMP_DENSE: Envelope      = envelope(30_720,           Some(band(0, 0)), None,   Some(band(468_760, 0))); // path-bit stacks and one accumulator; word-valued payloads keep the limb column at zero
-    pub const SKYLINE_CMP_DENSE_SELF: Envelope = envelope(51_200,           Some(band(0, 0)), None,   Some(band(937_515, 0))); // aligned ties in lockstep to full depth: both streams' bits scanned whole
-    pub const SKYLINE_CMP_BIGROOT: Envelope    = envelope(39_540,       Some(band(783, 469)), None,   Some(band(137_514, 0))); // the wide first height absorbed once, paid by its own code
-    pub const SKYLINE_CMP_CLIFF: Envelope      = envelope( 1_330,         Some(band(88, 52)), None,    Some(band(17_925, 0))); // the cliff-free accumulator: amortized O(1) per crossing (the shared emission-sweep step holds each consumed delta; OpenedPair states the opening move once)
+    pub const SKYLINE_CMP_DENSE: Envelope      = envelope(30_720,           band(0, 0), band(156_254, 93_752),   band(468_760, 0)); // path-bit stacks and one accumulator; word-valued payloads keep the limb column at zero
+    pub const SKYLINE_CMP_DENSE_SELF: Envelope = envelope(51_200,           band(0, 0), band(156_257, 93_753),   band(937_515, 0)); // aligned ties in lockstep to full depth: both streams' bits scanned whole
+    pub const SKYLINE_CMP_BIGROOT: Envelope    = envelope(39_540,       band(783, 469),   band(14_849, 8_909),   band(137_514, 0)); // the wide first height absorbed once, paid by its own code
+    pub const SKYLINE_CMP_CLIFF: Envelope      = envelope( 1_330,         band(88, 52),    band(5_284, 3_170),    band(17_925, 0)); // the cliff-free accumulator: amortized O(1) per crossing (the shared emission-sweep step holds each consumed delta; OpenedPair states the opening move once)
     // SKYLINE_CMP_WIDE_TOOTH's deliberately thin heap margin is a
     // change-detector on the backend's and the accumulator's allocation
     // policies: the committed Cargo.lock (dashu-int 0.5.0 exact) is what
     // makes the measurement deterministic, and a cargo update to any other
     // 0.5.x is a deliberate re-measure event, not noise.
-    pub const SKYLINE_CMP_WIDE_TOOTH: Envelope = envelope( 1_250, Some(band(29_509, 17_705)), None, Some(band(1_000_483, 0))); // each wide delta's limb work paid by its own zigzag code; heap stays at the stacks, the accumulator, and the zero-run ledger's map node
+    pub const SKYLINE_CMP_WIDE_TOOTH: Envelope = envelope( 1_250, band(29_509, 17_705),   band(15_499, 9_299), band(1_000_483, 0)); // each wide delta's limb work paid by its own zigzag code; heap stays at the stacks, the accumulator, and the zero-run ledger's map node
 }
 
 /// The empty version's two-bit skyline stream: the shallow operand of
@@ -1758,13 +1749,13 @@ fn skyline_cmp_wide_tooth_envelope() {
 #[rustfmt::skip]
 mod emit_env {
     use super::{band, envelope, Envelope};
-    pub const SKYLINE_JOIN_DENSE: Envelope      = envelope(130_277,           Some(band(0, 0)), None,   Some(band(625_018, 0))); // the peak is the emitted stream itself; word-valued payloads keep the limb column at zero
-    pub const SKYLINE_JOIN_ABSORB: Envelope     = envelope(270_798,   Some(band(4_887, 2_931)), None, Some(band(1_250_013, 0))); // the collapse-heavy extreme: one truncation per level around a held wide code, which absorb never moves
-    pub const SKYLINE_JOIN_BIGROOT: Envelope    = envelope( 85_060,     Some(band(1_565, 939)), None,   Some(band(275_028, 0))); // the wide first height absorbed once, paid by its own code
-    pub const SKYLINE_JOIN_CLIFF: Envelope      = envelope(  5_362,       Some(band(308, 184)), None,    Some(band(35_848, 0))); // every crossing re-emitted at amortized O(1) through the accumulator
-    pub const SKYLINE_JOIN_WIDE_TOOTH: Envelope = envelope(128_312, Some(band(74_477, 44_685)), None, Some(band(2_000_963, 0))); // each wide delta re-coded into the output, paid by its own zigzag code
-    pub const SKYLINE_MEET_CLIFF: Envelope      = envelope(  4_422,         Some(band(88, 52)), None,    Some(band(23_055, 0))); // the absorb cascade collapses to the flat leaf while every delta still crosses the carry boundary in the accumulator
-    pub const SKYLINE_MEET_WIDE_TOOTH: Envelope = envelope(127_732, Some(band(29_512, 17_706)), None, Some(band(1_005_613, 0))); // wide deltas folded but never re-emitted: the collapse discipline at spilled operand widths
+    pub const SKYLINE_JOIN_DENSE: Envelope      = envelope(130_277,           band(0, 0), band(156_255, 93_753),   band(625_018, 0)); // the peak is the emitted stream itself; word-valued payloads keep the limb column at zero
+    pub const SKYLINE_JOIN_ABSORB: Envelope     = envelope(270_798,   band(4_887, 2_931), band(163_580, 98_148), band(1_250_013, 0)); // the collapse-heavy extreme: one truncation per level around a held wide code, which absorb never moves
+    pub const SKYLINE_JOIN_BIGROOT: Envelope    = envelope( 85_060,     band(1_565, 939),   band(14_850, 8_910),   band(275_028, 0)); // the wide first height absorbed once, paid by its own code
+    pub const SKYLINE_JOIN_CLIFF: Envelope      = envelope(  5_362,       band(308, 184),    band(5_289, 3_173),    band(35_848, 0)); // every crossing re-emitted at amortized O(1) through the accumulator
+    pub const SKYLINE_JOIN_WIDE_TOOTH: Envelope = envelope(128_312, band(74_477, 44_685),   band(15_504, 9_302), band(2_000_963, 0)); // each wide delta re-coded into the output, paid by its own zigzag code
+    pub const SKYLINE_MEET_CLIFF: Envelope      = envelope(  4_422,         band(88, 52),    band(5_289, 3_173),    band(23_055, 0)); // the absorb cascade collapses to the flat leaf while every delta still crosses the carry boundary in the accumulator
+    pub const SKYLINE_MEET_WIDE_TOOTH: Envelope = envelope(127_732, band(29_512, 17_706),   band(15_504, 9_302), band(1_005_613, 0)); // wide deltas folded but never re-emitted: the collapse discipline at spilled operand widths
 }
 
 /// The one-tick version's skyline stream: the shallow operand of the
@@ -2021,14 +2012,14 @@ fn tick_expand_cross_envelope() {
 #[rustfmt::skip]
 mod text_env {
     use super::{band, envelope, Envelope};
-    pub const SKYLINE_RENDER_DENSE: Envelope    = envelope(1_996_800, Some(band(1_562_513, 937_507)), None, Some(band(468_758, 0))); // word-sized finalize summaries per open node; the output sized exactly before one byte is written
-    pub const SKYLINE_RENDER_BIGROOT: Envelope  = envelope(  249_600,    Some(band(127_368, 76_420)), None, Some(band(137_512, 0))); // leaf-delta-sized summaries: no per-level copy of the wide root value
-    pub const SKYLINE_RENDER_HUGELEAF: Envelope = envelope(  171_310,       Some(band(7_330, 4_398)), None, Some(band(312_503, 0))); // one delegated decimal rendering plus the exact-sized output, no tree state
-    pub const SKYLINE_RENDER_CLIFF: Envelope    = envelope(1_113_202,   Some(band(243_385, 146_031)), None,  Some(band(17_923, 0))); // each tooth's printed base re-derived from its 3-bit deltas, paid by its own rendered digits
-    pub const SKYLINE_PARSE_DENSE: Envelope     = envelope(4_041_052,   Some(band(625_007, 375_003)), None, Some(band(468_758, 0))); // parallel chunked open-node stacks; the parse pipeline ends at the builder — the built stream's canonicality rides the committed render↔parse inverse pair and transcoder differential — so the scan column is the build pass's own, and word-valued payloads keep narrow-value work out of the limb denomination
-    pub const SKYLINE_PARSE_BIGROOT: Envelope   = envelope(  377_944,     Some(band(51_574, 30_944)), None, Some(band(137_512, 0))); // the wide root base converts once through the backend's divide-and-conquer parser; the scan column is the build pass's own
-    pub const SKYLINE_PARSE_HUGELEAF: Envelope  = envelope(  152_480,       Some(band(4_887, 2_931)), None, Some(band(312_503, 0))); // one delegated conversion, one absolute payload out; no accumulator re-walks the built stream's wide payloads
-    pub const SKYLINE_PARSE_CLIFF: Envelope     = envelope(  344_152,     Some(band(56_475, 33_885)), None,  Some(band(17_923, 0))); // every tooth's base enters and leaves the cliff-free accumulator paid by its own digit run; the scan column is the build pass's own
+    pub const SKYLINE_RENDER_DENSE: Envelope    = envelope(1_996_800, band(1_562_513, 937_507),             band(0, 0), band(468_758, 0)); // word-sized finalize summaries per open node; the output sized exactly before one byte is written
+    pub const SKYLINE_RENDER_BIGROOT: Envelope  = envelope(  249_600,    band(127_368, 76_420),             band(0, 0), band(137_512, 0)); // leaf-delta-sized summaries: no per-level copy of the wide root value
+    pub const SKYLINE_RENDER_HUGELEAF: Envelope = envelope(  171_310,       band(7_330, 4_398),             band(0, 0), band(312_503, 0)); // one delegated decimal rendering plus the exact-sized output, no tree state
+    pub const SKYLINE_RENDER_CLIFF: Envelope    = envelope(1_113_202,   band(243_385, 146_031),             band(0, 0),  band(17_923, 0)); // each tooth's printed base re-derived from its 3-bit deltas, paid by its own rendered digits
+    pub const SKYLINE_PARSE_DENSE: Envelope     = envelope(4_041_052,   band(625_007, 375_003),  band(156_254, 93_752), band(468_758, 0)); // parallel chunked open-node stacks; the parse pipeline ends at the builder — the built stream's canonicality rides the committed render↔parse inverse pair and transcoder differential — so the scan column is the build pass's own, and word-valued payloads keep narrow-value work out of the limb denomination
+    pub const SKYLINE_PARSE_BIGROOT: Envelope   = envelope(  377_944,     band(51_574, 30_944),   band(18_754, 11_252), band(137_512, 0)); // the wide root base converts once through the backend's divide-and-conquer parser; the scan column is the build pass's own
+    pub const SKYLINE_PARSE_HUGELEAF: Envelope  = envelope(  152_480,       band(4_887, 2_931),   band(19_537, 11_721), band(312_503, 0)); // one delegated conversion, one absolute payload out; no accumulator re-walks the built stream's wide payloads
+    pub const SKYLINE_PARSE_CLIFF: Envelope     = envelope(  344_152,     band(56_475, 33_885), band(172_839, 103_703),  band(17_923, 0)); // every tooth's base enters and leaves the cliff-free accumulator paid by its own digit run; the scan column is the build pass's own
 }
 
 /// Rendering the dense spine's skyline stays within its envelope.
@@ -6275,7 +6266,7 @@ mod id_walk_scan_cost {
 #[rustfmt::skip]
 mod fork_env {
     use super::{band, envelope, Envelope};
-    pub const ID_FORK: Envelope = envelope(156_253, Some(band(0, 0)), None, Some(band(3, 0))); // the heap column prices both halves' materialization (~2x the packed input); the scan ceiling pins the raw split path's near-zero reading
+    pub const ID_FORK: Envelope = envelope(156_253, band(0, 0), band(0, 0), band(3, 0)); // the heap column prices both halves' materialization (~2x the packed input); the scan ceiling pins the raw split path's near-zero reading
 }
 
 /// Forking the deep id spine stays within its envelope, and the halves
@@ -6611,43 +6602,43 @@ mod accum_streams {
 #[rustfmt::skip]
 mod query_env {
     use super::{band, envelope, Envelope};
-    pub const SKYLINE_RANK_DENSE: Envelope           = envelope( 30_720,            Some(band(4, 2)),             Some(band(7, 3)),   Some(band(937_515, 0))); // the depth control: path bits and near-zero arithmetic; the max_depth pre-scan records each payload skip once, and word-valued payloads keep the work columns near zero
-    pub const SKYLINE_RANK_BIGROOT: Envelope         = envelope( 67_145,    Some(band(2_739, 1_643)),     Some(band(8_993, 5_395)),   Some(band(275_023, 0))); // the wide-magnitude control: the first leaf's magnitude seeds the frozen component and is read once, in the closing shifted add
-    pub const SKYLINE_RANK_HARMONIC: Envelope        = envelope( 52_500,    Some(band(2_562, 1_536)), Some(band(248_285, 148_971)),   Some(band(491_530, 0))); // the separating family: each level's one-leaf delta lands at its own weight; the segment feed opens only at the first freeze
-    pub const SKYLINE_RANK_CLIFF: Envelope           = envelope(  2_855,        Some(band(172, 102)),     Some(band(6_688, 4_012)),    Some(band(35_845, 0))); // the live component absorbs the oscillation at O(1) digits per fold; the terminal borrow rides it into one wide add, no freeze
-    pub const SKYLINE_RANK_WIDE_TOOTH: Envelope      = envelope(  3_635,  Some(band(29_552, 17_755)),   Some(band(24_585, 14_751)), Some(band(2_000_960, 0))); // the no-freeze pin: every fold paid by its tooth's own code; certificate skips replace zero-run walks, and the pre-scan records each payload skip once on this payload-dominated comb
+    pub const SKYLINE_RANK_DENSE: Envelope           = envelope( 30_720,            band(4, 2),             band(7, 3),   band(937_515, 0)); // the depth control: path bits and near-zero arithmetic; the max_depth pre-scan records each payload skip once, and word-valued payloads keep the work columns near zero
+    pub const SKYLINE_RANK_BIGROOT: Envelope         = envelope( 67_145,    band(2_739, 1_643),     band(8_993, 5_395),   band(275_023, 0)); // the wide-magnitude control: the first leaf's magnitude seeds the frozen component and is read once, in the closing shifted add
+    pub const SKYLINE_RANK_HARMONIC: Envelope        = envelope( 52_500,    band(2_562, 1_536), band(248_285, 148_971),   band(491_530, 0)); // the separating family: each level's one-leaf delta lands at its own weight; the segment feed opens only at the first freeze
+    pub const SKYLINE_RANK_CLIFF: Envelope           = envelope(  2_855,        band(172, 102),     band(6_688, 4_012),    band(35_845, 0)); // the live component absorbs the oscillation at O(1) digits per fold; the terminal borrow rides it into one wide add, no freeze
+    pub const SKYLINE_RANK_WIDE_TOOTH: Envelope      = envelope(  3_635,  band(29_552, 17_755),   band(24_585, 14_751), band(2_000_960, 0)); // the no-freeze pin: every fold paid by its tooth's own code; certificate skips replace zero-run walks, and the pre-scan records each payload skip once on this payload-dominated comb
     // The practical-regime gauge: `Version::rank`
     // on one concurrent-pair operand — word-scale heights over organic
     // forks, no freeze, no arming. The row pins the benign path's
     // constants so the adversarial machinery's price on common inputs is
     // a committed number, not a vibe.
-    pub const RANK_CONCURRENT: Envelope              = envelope(      0,            Some(band(4, 2)),    Some(band(11_099, 6_659)),    Some(band(61_448, 0))); // word-scale heights: zero heap, near-zero limb work, one walk's scan and touches
-    pub const TICKS_DENSE: Envelope                  = envelope( 58_815,            Some(band(8, 4)),  Some(band(156_270, 93_762)),   Some(band(468_809, 0))); // the tick row's cost plus the count's gamma codes
-    pub const TICKS_NESTED_WIDE: Envelope            = envelope( 14_107,        Some(band(323, 193)),   Some(band(31_125, 18_675)),   Some(band(150_072, 0))); // the fill branch pays its documented second walk: scan ~2x the tick row's one walk
-    pub const TICKS_MIRROR_WIDE: Envelope            = envelope( 39_506,        Some(band(723, 433)),   Some(band(72_582, 43_548)),   Some(band(220_048, 0))); // second-walk fill branch, as the nested-wide row; the pre-scan records minima only, so the per-site collapse re-read and raise-mirror folds stay out of the scan and touch columns
-    pub const SKYLINE_MIN_TICKS_DENSE: Envelope      = envelope( 30_720,            Some(band(5, 3)), Some(band(312_508, 187_504)),   Some(band(468_758, 0))); // every delta folds into two accumulators — the live height and the web's gap — so touches run ~2x the rank row's with no minima circulation
-    pub const SKYLINE_MIN_TICKS_CLIFF: Envelope      = envelope(  3_530,        Some(band(180, 108)),    Some(band(12_000, 7_200)),    Some(band(17_923, 0))); // the comb's wide F-relative pending offsets are epoch-ledger counts, and the wide first height enters the exact total once, through the counting term
-    pub const SKYLINE_MIN_TICKS_ASCEND: Envelope     = envelope(553_660,          Some(band(33, 19)),   Some(band(20_044, 12_026)),    Some(band(12_823, 0))); // the boundary-stacking row: the anchor web's per-boundary word compaction's measured basis — with compaction deleted the same body reads well over both the heap and touch ceilings
-    pub const SKYLINE_PROJECT_COMB_SCATTER: Envelope = envelope(525_700, Some(band(115_265, 69_159)),   Some(band(44_924, 26_954)), Some(band(2_652_165, 0))); // output-dominated: the pinned ceilings price input + output bytes; id tags are single records
-    pub const FOLD_VERSION_SCATTER: Envelope         = envelope(    323,            Some(band(0, 0)),   Some(band(61_429, 36_857)),   Some(band(330_913, 0))); // the balanced reduction: near-linear in the population's packed bytes where a left fold re-scans its whole accumulator per input; the at-rest form is a length-carrying container of the wire bytes, cloned by refcount in the fold's lone-group settle and adoption arms, and the counter stack's entries carry the operand-form tag (~8 B per level)
-    pub const FOLD_PARTY_SCATTER: Envelope           = envelope(    780,            Some(band(0, 0)),             Some(band(0, 0)),   Some(band(322_068, 0))); // pure stream scanning: join_all answers its up-front tests through a per-call id index, the id walk does no arithmetic, and one refcount control block per frozen stream lives in the fold's groups
+    pub const RANK_CONCURRENT: Envelope              = envelope(      0,            band(4, 2),    band(11_099, 6_659),    band(61_448, 0)); // word-scale heights: zero heap, near-zero limb work, one walk's scan and touches
+    pub const TICKS_DENSE: Envelope                  = envelope( 58_815,            band(8, 4),  band(156_270, 93_762),   band(468_809, 0)); // the tick row's cost plus the count's gamma codes
+    pub const TICKS_NESTED_WIDE: Envelope            = envelope( 14_107,        band(323, 193),   band(31_125, 18_675),   band(150_072, 0)); // the fill branch pays its documented second walk: scan ~2x the tick row's one walk
+    pub const TICKS_MIRROR_WIDE: Envelope            = envelope( 39_506,        band(723, 433),   band(72_582, 43_548),   band(220_048, 0)); // second-walk fill branch, as the nested-wide row; the pre-scan records minima only, so the per-site collapse re-read and raise-mirror folds stay out of the scan and touch columns
+    pub const SKYLINE_MIN_TICKS_DENSE: Envelope      = envelope( 30_720,            band(5, 3), band(312_508, 187_504),   band(468_758, 0)); // every delta folds into two accumulators — the live height and the web's gap — so touches run ~2x the rank row's with no minima circulation
+    pub const SKYLINE_MIN_TICKS_CLIFF: Envelope      = envelope(  3_530,        band(180, 108),    band(12_000, 7_200),    band(17_923, 0)); // the comb's wide F-relative pending offsets are epoch-ledger counts, and the wide first height enters the exact total once, through the counting term
+    pub const SKYLINE_MIN_TICKS_ASCEND: Envelope     = envelope(553_660,          band(33, 19),   band(20_044, 12_026),    band(12_823, 0)); // the boundary-stacking row: the anchor web's per-boundary word compaction's measured basis — with compaction deleted the same body reads well over both the heap and touch ceilings
+    pub const SKYLINE_PROJECT_COMB_SCATTER: Envelope = envelope(525_700, band(115_265, 69_159),   band(44_924, 26_954), band(2_652_165, 0)); // output-dominated: the pinned ceilings price input + output bytes; id tags are single records
+    pub const FOLD_VERSION_SCATTER: Envelope         = envelope(    323,            band(0, 0),   band(61_429, 36_857),   band(330_913, 0)); // the balanced reduction: near-linear in the population's packed bytes where a left fold re-scans its whole accumulator per input; the at-rest form is a length-carrying container of the wire bytes, cloned by refcount in the fold's lone-group settle and adoption arms, and the counter stack's entries carry the operand-form tag (~8 B per level)
+    pub const FOLD_PARTY_SCATTER: Envelope           = envelope(    780,            band(0, 0),             band(0, 0),   band(322_068, 0)); // pure stream scanning: join_all answers its up-front tests through a per-call id index, the id walk does no arithmetic, and one refcount control block per frozen stream lives in the fold's groups
     // The tick rows: the tick walk's cost currency is accumulator digit
     // touches, with scanned bits beside it.
-    pub const TICK_DENSE: Envelope                   = envelope( 58_815,            Some(band(0, 0)),  Some(band(156_265, 93_759)),   Some(band(468_765, 0))); // the fused tick: copy-on-first-divergence defers the output buffer past the collapse scan, so the scan path and the builder never coexist at peak
-    pub const TICK_NESTED_WIDE: Envelope             = envelope( 14_108,        Some(band(239, 143)),   Some(band(30_808, 18_484)),    Some(band(80_028, 0))); // the explicit-stack walk: suspended ancestors ride metered frame bits; the anchor web reads the wide first payload O(1) times
-    pub const TICK_MIRROR_WIDE: Envelope             = envelope( 32_467,        Some(band(398, 238)),   Some(band(71_955, 43_173)),   Some(band(160_003, 0))); // the frame ledger stores no link for the shared wide minimum (heap parity with one queue word per site); the pre-scan records minima only, so the per-site collapse re-read and raise-mirror folds stay out of the scan and touch columns
+    pub const TICK_DENSE: Envelope                   = envelope( 58_815,            band(0, 0),  band(156_265, 93_759),   band(468_765, 0)); // the fused tick: copy-on-first-divergence defers the output buffer past the collapse scan, so the scan path and the builder never coexist at peak
+    pub const TICK_NESTED_WIDE: Envelope             = envelope( 14_108,        band(239, 143),   band(30_808, 18_484),    band(80_028, 0)); // the explicit-stack walk: suspended ancestors ride metered frame bits; the anchor web reads the wide first payload O(1) times
+    pub const TICK_MIRROR_WIDE: Envelope             = envelope( 32_467,        band(398, 238),   band(71_955, 43_173),   band(160_003, 0)); // the frame ledger stores no link for the shared wide minimum (heap parity with one queue word per site); the pre-scan records minima only, so the per-site collapse re-read and raise-mirror folds stay out of the scan and touch columns
     // The expansion rows: grow-branch deep
     // ticks measuring the whole public tick — walk, route fold, and
     // splice — in one fused pass.
-    pub const TICK_OWNERSHIP_HOLE: Envelope          = envelope(  3_647,            Some(band(0, 0)),     Some(band(7_563, 4_537)),    Some(band(37_585, 0))); // the ownership-gated block scan: unowned staircase runs fold as one net-and-minimum summary each; the touch ceiling sits below the leaf-by-leaf mechanism's reading, so the skip must engage for the pin to hold, and the scan column holds every skipped bit still read
-    pub const TICK_OWNERSHIP_COMB: Envelope          = envelope( 59_575,            Some(band(0, 0)),  Some(band(156_275, 93_765)),   Some(band(498_774, 0))); // readings identical to the ungated per-leaf walk's on this family (single-leaf regions everywhere, so the block gate never opens and may cost nothing when closed)
-    pub const TICK_COLLAPSE_HOLE: Envelope           = envelope(  2_748,            Some(band(0, 0)),     Some(band(8_125, 4_875)),    Some(band(14_368, 0))); // the descend-arm consuming max scan rides the block summary over each deep collapse range, its only crossing; rerouting either lead's ranges to the per-leaf fold reads touches over the ceiling, and the scan column holds every folded bit still read
-    pub const TICK_COPY_HOLE: Envelope               = envelope(  1_733,          Some(band(18, 10)),    Some(band(15_615, 9_369)),    Some(band(53_302, 0))); // the pre-scan copies each untouched range as one net movement and one watermark emission; rerouting either lead's ranges to per-leaf virtual emissions reads touches over the ceiling, and the scan column holds every folded bit still read
-    pub const TICK_RAISE_HOLE: Envelope              = envelope(  2_660,            Some(band(0, 0)),     Some(band(8_030, 4_818)),    Some(band(13_543, 0))); // the ascend-arm consuming max scan rides the block summary over each deep raised range, its only crossing; rerouting either lead's ranges to the per-leaf fold reads touches over the ceiling, and the scan column holds every folded bit still read
-    pub const TICK_SITE_HOLE: Envelope               = envelope(  2_768,            Some(band(0, 0)),    Some(band(10_779, 6_467)),    Some(band(27_962, 0))); // the pre-scan's collapse skip and the walk's consuming max scan each cross every deep range once as one block fold, and the collapse skip's fold accumulates the net movement alone; a block fold that also streams the range's unread minimum reads touches over the ceiling, and the scan column holds every folded bit still read
-    pub const MASKED_CMP_HOLE: Envelope              = envelope(    480,            Some(band(0, 0)),           Some(band(18, 10)),     Some(band(7_535, 0))); // the block skip consumes the spine's unowned continuation whole: the touch reading is a function of the mask depth alone; a per-boundary walk reads ~one touch per spine boundary, orders over the ceiling — the depth band beside this row holds the reading flat across a spine-depth doubling
-    pub const TICK_EXPAND_SPINE: Envelope            = envelope(435_435,            Some(band(5, 3)),             Some(band(0, 0)), Some(band(2_187_519, 0))); // an empty version's tick folds one word-scale payload: near-zero accumulator work; the emit codes the whole expansion chain as fresh one-bit deltas
-    pub const TICK_EXPAND_CROSS: Envelope            = envelope(611_210,            Some(band(5, 3)),  Some(band(156_260, 93_756)), Some(band(3_593_782, 0))); // the mixed regimes: the fused walk down the shared spine plus the id-only expansion fold, spliced in one pass
+    pub const TICK_OWNERSHIP_HOLE: Envelope          = envelope(  3_647,            band(0, 0),     band(7_563, 4_537),    band(37_585, 0)); // the ownership-gated block scan: unowned staircase runs fold as one net-and-minimum summary each; the touch ceiling sits below the leaf-by-leaf mechanism's reading, so the skip must engage for the pin to hold, and the scan column holds every skipped bit still read
+    pub const TICK_OWNERSHIP_COMB: Envelope          = envelope( 59_575,            band(0, 0),  band(156_275, 93_765),   band(498_774, 0)); // readings identical to the ungated per-leaf walk's on this family (single-leaf regions everywhere, so the block gate never opens and may cost nothing when closed)
+    pub const TICK_COLLAPSE_HOLE: Envelope           = envelope(  2_748,            band(0, 0),     band(8_125, 4_875),    band(14_368, 0)); // the descend-arm consuming max scan rides the block summary over each deep collapse range, its only crossing; rerouting either lead's ranges to the per-leaf fold reads touches over the ceiling, and the scan column holds every folded bit still read
+    pub const TICK_COPY_HOLE: Envelope               = envelope(  1_733,          band(18, 10),    band(15_615, 9_369),    band(53_302, 0)); // the pre-scan copies each untouched range as one net movement and one watermark emission; rerouting either lead's ranges to per-leaf virtual emissions reads touches over the ceiling, and the scan column holds every folded bit still read
+    pub const TICK_RAISE_HOLE: Envelope              = envelope(  2_660,            band(0, 0),     band(8_030, 4_818),    band(13_543, 0)); // the ascend-arm consuming max scan rides the block summary over each deep raised range, its only crossing; rerouting either lead's ranges to the per-leaf fold reads touches over the ceiling, and the scan column holds every folded bit still read
+    pub const TICK_SITE_HOLE: Envelope               = envelope(  2_768,            band(0, 0),    band(10_779, 6_467),    band(27_962, 0)); // the pre-scan's collapse skip and the walk's consuming max scan each cross every deep range once as one block fold, and the collapse skip's fold accumulates the net movement alone; a block fold that also streams the range's unread minimum reads touches over the ceiling, and the scan column holds every folded bit still read
+    pub const MASKED_CMP_HOLE: Envelope              = envelope(    480,            band(0, 0),           band(18, 10),     band(7_535, 0)); // the block skip consumes the spine's unowned continuation whole: the touch reading is a function of the mask depth alone; a per-boundary walk reads ~one touch per spine boundary, orders over the ceiling — the depth band beside this row holds the reading flat across a spine-depth doubling
+    pub const TICK_EXPAND_SPINE: Envelope            = envelope(435_435,            band(5, 3),             band(0, 0), band(2_187_519, 0)); // an empty version's tick folds one word-scale payload: near-zero accumulator work; the emit codes the whole expansion chain as fresh one-bit deltas
+    pub const TICK_EXPAND_CROSS: Envelope            = envelope(611_210,            band(5, 3),  band(156_260, 93_756), band(3_593_782, 0)); // the mixed regimes: the fused walk down the shared spine plus the id-only expansion fold, spliced in one pass
     // The version-pair rows: the public
     // two-operand queries on the pair families (the corpus pairing
     // `w = v + one seed tick` collapses the second operand onto a
@@ -6660,16 +6651,16 @@ mod query_env {
     // accumulator instead of skipping the meet leg, which is what buys
     // its heap, limb, and scan columns down to the distance row's
     // neighborhood.
-    pub const DISTANCE_JUMP_PAIR: Envelope           = envelope(  5_750,  Some(band(48_714, 29_228)), Some(band(208_749, 125_249)), Some(band(2_694_095, 0))); // the fused co-sweep with cluster-delegated settle products and certificate skips; this pair freezes early, so the segment feed's deposits are the pre-freeze prefix alone, and the max_depth pre-scan records each payload skip once, twice per pair walk
-    pub const LAG_JUMP_PAIR: Envelope                = envelope(  5_750,  Some(band(45_420, 27_252)), Some(band(173_492, 104_094)), Some(band(2_694_095, 0))); // the one-sided functional over the same fused co-sweep as the distance row
-    pub const DISTANCE_CONCURRENT: Envelope          = envelope(      0,            Some(band(4, 2)),   Some(band(32_429, 19_457)),   Some(band(117_753, 0))); // orientation-switch density on word-scale heights: the pair never freezes, so no segment feed deposits
-    pub const LAG_CONCURRENT: Envelope               = envelope(      0,            Some(band(4, 2)),   Some(band(33_278, 19_966)),   Some(band(117_753, 0))); // the one-sided functional over the same switch-dense overlay
+    pub const DISTANCE_JUMP_PAIR: Envelope           = envelope(  5_750,  band(48_714, 29_228), band(208_749, 125_249), band(2_694_095, 0)); // the fused co-sweep with cluster-delegated settle products and certificate skips; this pair freezes early, so the segment feed's deposits are the pre-freeze prefix alone, and the max_depth pre-scan records each payload skip once, twice per pair walk
+    pub const LAG_JUMP_PAIR: Envelope                = envelope(  5_750,  band(45_420, 27_252), band(173_492, 104_094), band(2_694_095, 0)); // the one-sided functional over the same fused co-sweep as the distance row
+    pub const DISTANCE_CONCURRENT: Envelope          = envelope(      0,            band(4, 2),   band(32_429, 19_457),   band(117_753, 0)); // orientation-switch density on word-scale heights: the pair never freezes, so no segment feed deposits
+    pub const LAG_CONCURRENT: Envelope               = envelope(      0,            band(4, 2),   band(33_278, 19_966),   band(117_753, 0)); // the one-sided functional over the same switch-dense overlay
     // The masked-comparison rows:
     // the fused projected comparisons on the correlated mask-drift
     // families, priced input-only on shapes whose *materialization* is
     // product-growth — the laziness the view exists for.
-    pub const MASKED_CMP_DRIFT_TRIPLE: Envelope      = envelope(  1_570,          Some(band(59, 35)),     Some(band(5_240, 3_144)),    Some(band(20_488, 0))); // one pass over the overlay, ~2 touches per stored delta
-    pub const MASKED_CMP_DRIFT_QUAD: Envelope        = envelope(  2_720,  Some(band(39_722, 23_833)),   Some(band(83_946, 50_367)), Some(band(1_342_092, 0))); // the sparse comb's wide climb/drop codes dominate the input; scan ~8 bits per input byte
+    pub const MASKED_CMP_DRIFT_TRIPLE: Envelope      = envelope(  1_570,          band(59, 35),     band(5_240, 3_144),    band(20_488, 0)); // one pass over the overlay, ~2 touches per stored delta
+    pub const MASKED_CMP_DRIFT_QUAD: Envelope        = envelope(  2_720,  band(39_722, 23_833),   band(83_946, 50_367), band(1_342_092, 0)); // the sparse comb's wide climb/drop codes dominate the input; scan ~8 bits per input byte
 }
 
 /// The rank kernel on the dense spine's skyline stays within its
