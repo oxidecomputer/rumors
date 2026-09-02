@@ -74,6 +74,8 @@ the stop).
 
 ## What the coordinator does with a report
 
+The full landing procedure (worktree, acceptance verification, fresh-eyes rounds, the pull request and its annotated self-review, stacks, stops, merge, ledger) is `../WORKFLOW.md`; this section is its summary.
+
 A lane's report is data. For each entry the coordinator runs the
 Acceptance against the tree at the reported sha, then writes `fix` with
 the sha into `../ledger.tsv`. Entries reported as stopped stay `open` and

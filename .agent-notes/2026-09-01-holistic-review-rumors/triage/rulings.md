@@ -694,3 +694,8 @@ Home: code.
 Disposes: api-core-18 (fix); every open low and nit row in P4, P5, P6, and P7 (fix)
 Decision: Each open low and nit entry lands per its own Resolution and Acceptance inside its pattern sweep (P4), module lane (P5), the error pass (the two P6 nits), or the performance lane (P7). Finch reviews each lane's diff; a lane agent that must deviate from a stated resolution stops and reports, and the entry stays open until ruled.
 Home: code.
+
+## T133 (2026-09-02): Lanes land through pull requests under a separate Claude identity
+Disposes: the landing workflow for every `fix` row
+Decision: Every lane lands as a GitHub pull request opened by a separate Claude identity (a GitHub App or machine user Finch provisions; `GITHUB-APP-SETUP.md`), never under Finch's account. The pull request body carries the CAVEAT LECTOR header, the goal, the rulings, and an acceptance table; a single `COMMENT` review annotates every changed region, nits included, from the implementing agent's own annotation file, in its own words. Fresh-eyes reviewers read each diff cold before the pull request opens, and their findings return to the implementer as repairs; their reports are never the annotations. Pull requests are capped at one logical unit of review and stacked where the briefs name a dependency; a pull request with an open stop stays a draft under the `triage:stop` label. Merges are Finch's, by rebase-merge, and the ledger's `sha` column is written only from merged commits whose acceptance the coordinator ran. No lane pushes or opens a pull request until the identity exists. The procedure is `WORKFLOW.md`.
+Home: `triage/WORKFLOW.md`, `triage/GITHUB-APP-SETUP.md`.
