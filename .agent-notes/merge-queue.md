@@ -1,0 +1,64 @@
+<!-- CAVEAT LECTOR: written by Claude (the two triage coordinator sessions of 2026-09-02) for Finch as the shared merge queue of the before and rumors triages; not authored, audited, or endorsed by Finch. -->
+
+# Merge queue for the before and rumors triage lanes
+
+Both triages land lanes into `main` from the same primary worktree, and
+their lanes meet at the workspace root (the justfile, `.github/`, the
+manifests and lockfile, root `AGENTS.md`, `deny.toml`,
+`rust-toolchain.toml`, `.cargo/`, `tools/`). This file is the order
+Finch merges in and the record of what merged. The rules the two
+coordinator sessions agreed:
+
+1. One owner per shared root file per wave; the other plan's lane stacks
+   on the owner's branch tip or waits for its merge.
+2. A lane that touches a shared root file incidentally (a dependency
+   pin, the lockfile) makes that edit its own last commit, so a
+   cross-plan rebase conflicts in one small commit a coordinator
+   resolves. A lane whose whole surface is root files (a gate lane)
+   commits per entry as usual; stacking is the rule for it.
+3. When one plan hardens an instrument the other retires, the retiring
+   lane goes second.
+4. A lane is appended below when its packet is ready for Finch, in
+   declaration order: lane, branch, base, root files touched. Finch
+   merges in that order. The merging session appends the merge SHA on
+   the same line; the other session rebases its stacks the same day.
+5. Primary-worktree hygiene in `/Users/oxide/src/rumors`: commits with
+   explicit pathspecs only, never a bare `git add -A`; no rebase,
+   checkout, stash, or reset there; lane work happens in lane
+   worktrees; `main` is fast-forwarded only when `git status` shows the
+   other session has nothing staged. Any rewrite of `main` (an identity
+   repair, say) happens at Finch's word with the other session paused,
+   and is announced here first.
+6. Each session runs at most four concurrently building lanes on the
+   illumos box, and at most one wall-time measurement at a time under
+   `pset-run`, announced here first. Before builds nothing on the Mac;
+   rumors benches run on the Mac against their committed baselines.
+7. The two coordinator sessions message each other (Finch's
+   authorization; he sees every exchange) for three events: a merge to
+   `main` landed, a lane launching that edits a shared root file, a
+   ruling that changes a shared instrument.
+
+Joint work at the end: publication prep (rumors T79: license headers on
+every file in the workspace, `publish = false`, crate metadata) touches
+both plans' trees and runs last, as one lane, after both triages' code
+lanes have closed.
+
+## Merged (root files touched)
+
+- rumors: `2cb24d45` swarm example deleted; root `Cargo.toml`
+  dev-dependencies and `Cargo.lock` pruned.
+- rumors: the conformance lane (`c1477615` and its series); no root
+  files.
+- `27ac8d92` (Finch): illumos-scoped clippy allow at
+  `crates/before/src/lib.rs`.
+
+## Ready for Finch, in merge order
+
+(none yet)
+
+## Announcements
+
+- before: `before/p1-harness` launched from `27ac8d92`; edits
+  `crates/before/tests/meter.rs` and, as its own last commit, one line of
+  the justfile's `test` recipe (which the rumors memwatch lane is also
+  rewriting; that lane owns the line and this lane rebases over it).
