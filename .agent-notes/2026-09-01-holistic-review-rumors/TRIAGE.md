@@ -360,7 +360,7 @@ roster rather than getting a session of their own.
 
 ## How the two of us work it
 
-The landing procedure of record is `triage/WORKFLOW.md` (ruling T133): lanes land as pull requests under a separate Claude identity, annotated by the implementing agent and reviewed cold by fresh-eyes agents before they open. The numbered points below are the principles that procedure implements.
+The landing procedure of record is `triage/WORKFLOW.md` (ruling T134): lanes land through local review packets on their branches, annotated by the implementing agent and reviewed cold by fresh-eyes agents before Finch reads them; nothing touches a remote. The numbered points below are the principles that procedure implements.
 
 Finch's attention is the scarce resource, so it goes to rulings and diffs
 and nothing else; the coordinator (Claude) carries everything between,
