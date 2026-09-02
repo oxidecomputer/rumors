@@ -145,11 +145,12 @@ fn local_backend_conforms() {
     pollster::block_on(check(Local, LOCAL_BUDGET));
 }
 
-/// A budget that covers only the flat decode-fan pre-charge leaves
-/// nothing for dispute scopes: the solve floors every capacity at one,
-/// the budgeted run is the floor run, and the census reads one peak
-/// twice. The liveness floor fails that by name, where the admittance
-/// ceiling alone would pass it vacuously.
+/// A budget that covers only the flat decode-fan pre-charge fails the
+/// liveness floor by name.
+///
+/// It leaves nothing for dispute scopes: the solve floors every capacity
+/// at one, the budgeted run is the floor run, and the census reads one
+/// peak twice, which the admittance ceiling alone would pass vacuously.
 #[test]
 #[should_panic(expected = "admitted nothing above the floor")]
 fn a_pre_charge_only_budget_fails_the_liveness_floor() {
