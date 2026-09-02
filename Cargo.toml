@@ -15,7 +15,6 @@ members = [
 # a version, path, or other source of its own; the gate's manifestlint leg
 # holds every member manifest to this.
 [workspace.dependencies]
-arc-swap = "1"
 async-stream = "0.3"
 base64 = "0.22"
 before = { path = "crates/before" }
@@ -44,7 +43,6 @@ cbor-diag = { git = "https://github.com/oxidecomputer/cbor-diag-rs", branch = "d
 # the handshake; and a verdict-strictening bump additionally requires
 # re-validating stored payloads before gossiping.
 ciborium = "=0.2.2"
-clap = { version = "4", features = ["derive"] }
 console_error_panic_hook = "0.1"
 criterion = "0.5"
 dashu-int = { version = "0.5", default-features = false, features = ["std"] }
@@ -61,7 +59,6 @@ postcard = { version = "1", default-features = false, features = ["use-std"] }
 proptest = "1"
 rand = "0.8"
 rand_chacha = "0.3"
-ratatui = "0.30"
 rayon = "1"
 rumors = { path = "." }
 seq-macro = "0.3"
@@ -161,11 +158,8 @@ tokio = { workspace = true, default-features = true, features = [
     # delay to virtual time so sweeps cost wall-clock compute only.
     "test-util",
 ] }
-clap = { workspace = true }
 rand = { workspace = true, features = ["small_rng"] }
-arc-swap = { workspace = true }
 pollster = { workspace = true }
-ratatui = { workspace = true }
 # Counting global allocator for the decoder allocation meter
 # (`tests/decode_alloc.rs`): prices decodes in bytes requested from the
 # allocator, so a declared-length pre-allocation is observable.
@@ -190,12 +184,6 @@ opt-level = 2
 # for samply/Instruments without the compile-time cost of full debug info.
 [profile.bench]
 debug = "line-tables-only"
-
-[[example]]
-name = "swarm"
-path = "examples/swarm.rs"
-# The steady-state controller's convergence tests live in the example.
-test = true
 
 [[bench]]
 name = "branch_hash"
