@@ -655,3 +655,9 @@ Decision. The per-row test citations, the `Trans` legs' "anchors the reduction" 
 Disposes: testing-diff-gen-14, testing-oracles-3, tests-other-10, tests-other-16.
 
 Decision. The generator census gains classes each fed by exactly one `arb_base` arm, with floors derived from the arms' `prop_oneof` weights and the derivation stated beside each. All four bridge walks thread a depth and route every recursive call through `descend!(depth + 1, ...)`. The precedence and contains-receiver clone-identity rungs get their scan-parity pins and the module doc enumerates the rungs it holds. Foreign re-exports, foreign-target type aliases, and extern crates become surfacecheck census rows reconciled against a committed empty set, and `tests/foreign_reexport.rs` is deleted once the census demonstrably catches `pub use bytes;`.
+
+## Ruling 100 (2026-09-02): P6 harness, codec, and core mediums, fourth group
+
+Disposes: tests-other-30, codec-bits-30, clock-22, clock-28.
+
+Decision. The verdict matrix's legs are rostered as typed data, the polarity twin asserted per strict-order leg, the union of fired legs asserted equal to the roster, and `flag` refusing an unrostered leg. The `BitStack` model test reaches the word spill by construction, models `set_last`, checks `trailing_ones` against the model over two spilled words, and names only what it checks. `deep_tree_stack_safety` extends to right-spine and both-present families at depth 100k with its operation set enumerated in the doc. The static-orbit pin gets a schedule covering every ordered peer pair, a re-measured octave array, a mechanism sentence derived from the coding, and no dead branch.
