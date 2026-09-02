@@ -673,3 +673,11 @@ Decision. `build.rs`'s `rerun-if-changed` list is derived from the one enumerati
 Disposes: skyline-coding-6, skyline-fill-grow-12, skyline-fill-grow-24, skyline-sweep-place-masked-19.
 
 Decision. The mid-stream collapsible-pair composite is committed as a span test through both `Span::decode` and the borsh leg, and the planted-pair proptest drives the admission entry (with or before ruling 75's unification). `Memo` and `PreScan` own their lifetime methods and every `pub(super)` field becomes private. Walk-surface depth widths have one rationale at `codec/stack.rs`, cited elsewhere, the false `usize` contrast deleted. The placement rows gain touch-identity legs on a carry-boundary fixture, and the three docs name them.
+
+## Ruling 103 (2026-09-02): the last P6 mediums; every high and medium in the ledger is ruled
+
+Disposes: skyline-watermark-21, suanpan-tests-7, gate-legs-5, tools-33.
+
+Finch's words (tools-33): "Get rid of this entirely."
+
+Decision. A directed `min_ticks` witness lands beside the query differentials and the watermark test module's reachability sentence is restated. `size_probe_covers_the_value` tightens to `32·D + 2` with the derivation in its doc. CI installs exactly the toolchains the recipes name, sourced from the justfile's pin, the floating steps dropped and the three prose sites rewritten for the pinned regime. workflowlint's interpreter recognizer (the pipe-to-shell detection) is deleted entirely with its docstring claims and self-test cases; the tool's `uses:` pinning role is untouched (read as the scope of "this"; a stop if Finch meant the whole tool). With this ruling every high and medium entry in the ledger carries an individual disposition; the lows and nits await lane roster approval.
