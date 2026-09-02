@@ -493,3 +493,9 @@ Decision. Each lands per its entry: the comb rationales rewritten to the stored 
 Disposes: skyline-coding-33, skyline-fill-grow-27, skyline-sweep-place-masked-15, skyline-sweep-place-masked-7.
 
 Decision. Each lands per its entry: `CheckedCursor` becomes the one strict skyline parser with `validate_from` a height fold over it and the planted-pair proptest driving both entries; the suspended-ancestor control bits become one `FrameBits` type and one `Frame` enum shared by the fill and prescan walks; one `Pair` type with one seeding constructor serves place, filter, overlay, and admit; `advance_refinement` routes through `advance_set`. Every re-pin any layout change causes is measured at the parent and attributed.
+
+## Ruling 76 (2026-09-02): walked mediums, fifth group
+
+Disposes: skyline-sweep-place-masked-33, skyline-watermark-18, skyline-watermark-19, span-causally-9.
+
+Decision. Each lands per its entry: sweep.rs names the recursive oracle reached through the bridge as its verdict witness; watermark.rs gets one undercut tail with the lease-after order documented and one `cmp_min` ladder; the receiver-seeded two-sided fold has one home shared by `fold_endpoints` and `Version::span_all`, its envelopes re-measured at the parent and unchanged.
