@@ -63,6 +63,7 @@ use crate::{
             self, Backend, BoxNodeStream, ErasedNode, Leaf, Node, NodeStream, Root,
             convert::Convert,
             materialized,
+            stats::{Recorder, SessionStats},
             window::{FAN, WindowConfig},
         },
         typed::{
@@ -641,6 +642,9 @@ const DIVERGENT: usize = 1_024;
 ///   grid;
 /// - any constructed, walked, or assembled node was underpriced;
 /// - a bulk seam mis-answered an aggregate;
+/// - the stated budget resolves to the serialization floor, or the
+///   budgeted run's census peak does not exceed the floor run's (the
+///   admittance ceiling would otherwise compare two identical runs);
 /// - the window's measured byte admittance exceeded the budget; or
 /// - the session failed to converge the corpora.
 pub(crate) async fn check<B>(backend: B, budget_bytes: usize)
@@ -650,8 +654,13 @@ where
 {
     node_bytes_monotone::<B>();
 
-    let floor_peak = run(backend.clone(), WindowConfig::Budget(0)).await;
-    let budget_peak = run(backend, WindowConfig::Budget(budget_bytes)).await;
+    let (floor_peak, floor_stats) = run(backend.clone(), WindowConfig::Budget(0)).await;
+    let (budget_peak, budget_stats) = run(backend, WindowConfig::Budget(budget_bytes)).await;
+    eprintln!(
+        "conformance census at budget {budget_bytes} B: floor run peaked at {floor_peak} B \
+         (widest capacity {}), budgeted run at {budget_peak} B (widest capacity {})",
+        floor_stats.window_granted, budget_stats.window_granted,
+    );
 
     let violations = ledger::take_violations();
     assert!(
@@ -660,7 +669,25 @@ where
         violations.join("\n"),
     );
 
-    let admitted = budget_peak.saturating_sub(floor_peak);
+    // The liveness floor under the admittance ceiling. A budget that
+    // binds widens some stage past the one-scope serialization floor, and
+    // a wider stage holds more node values in flight at the session's
+    // peak instant than the floor does, so the least the census can read
+    // is one node value more: equal peaks mean the two runs were one run
+    // and the ceiling below could not fail.
+    assert!(
+        budget_peak > floor_peak,
+        "the budgeted window admitted nothing above the floor: both runs peaked at \
+         {floor_peak} B, so the budget does not bind at this corpus scale",
+    );
+    assert!(
+        budget_stats.window_granted > 1,
+        "the budget resolves to the serialization floor (widest capacity {}) yet the \
+         census moved: the peak difference is not the window's",
+        budget_stats.window_granted,
+    );
+
+    let admitted = budget_peak - floor_peak;
     assert!(
         admitted <= budget_bytes,
         "widening the window from the floor admitted {admitted} measured \
@@ -669,8 +696,9 @@ where
 }
 
 /// One controlled-divergence reconciliation; returns the ledger's peak
-/// measured bytes above the resting corpora.
-async fn run<B>(backend: B, window: WindowConfig) -> usize
+/// measured bytes above the resting corpora, with the session's own
+/// account of itself (the window it resolved, above all).
+async fn run<B>(backend: B, window: WindowConfig) -> (usize, SessionStats)
 where
     B: Measure + Clone,
     B::Error: std::fmt::Debug,
@@ -707,7 +735,12 @@ where
     // stating: they are the roots' own aggregates.
     ledger::reset_peak();
 
-    let client = materialized::Handshaking::start(charged.clone(), left).window(window);
+    // The client's recorder is read afterwards: the two sides exchange
+    // the same pair of sizes, so both resolve the same window.
+    let stats = Recorder::default();
+    let client = materialized::Handshaking::start(charged.clone(), left)
+        .window(window)
+        .stats(stats.clone());
     let server = materialized::Handshaking::start(charged, right).window(window);
     let (ours, theirs) = streaming::mirror(client, server)
         .await
@@ -722,7 +755,7 @@ where
         converged,
         "the conformance session must converge both corpora to one root",
     );
-    peak
+    (peak, stats.snapshot())
 }
 
 /// Drain one corpus's bulk leaf walk so the walk seam's checks run.

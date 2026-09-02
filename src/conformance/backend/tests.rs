@@ -18,6 +18,7 @@ use crate::{
     tree::{
         mirror::streaming::{
             Backend, BoxNodeStream, ErasedNode, Leaf, Local, Node, NodeStream, convert::Convert,
+            window::SUPPLY_DECODE_ENVELOPE_BYTES,
         },
         typed::{
             self, Hash, Prefix,
@@ -119,16 +120,39 @@ impl Measure for Local {
     }
 }
 
+/// The stated budget the in-memory check runs under.
+///
+/// It must clear the flat decode-fan pre-charge the window solve takes
+/// off every budget before widening any stage
+/// ([`SUPPLY_DECODE_ENVELOPE_BYTES`], the in-memory pricing of that
+/// term) with room left for dispute scopes; a budget at or below the
+/// pre-charge resolves to the serialization floor, and `check`'s
+/// liveness floor fails it by name.
+const LOCAL_BUDGET: usize = 64 * 1024;
+
 /// The in-memory backend's pointer-priced account holds end to end.
 ///
-/// `Local` is the trivial case — handles into a resident tree — so the
+/// `Local` is the trivial case -- handles into a resident tree -- so the
 /// suite's pointwise check reduces to the pointer-size constant, and the
-/// end-to-end census confirms the window's byte admittance under a tight
-/// budget that genuinely binds at this scale.
+/// end-to-end census confirms the window's byte admittance under
+/// [`LOCAL_BUDGET`]: the budgeted run widens the window past the floor
+/// and its census peak exceeds the floor run's.
 #[test]
 fn local_backend_conforms() {
     let _serial = serialized();
-    pollster::block_on(check(Local, 64 * 1024));
+    pollster::block_on(check(Local, LOCAL_BUDGET));
+}
+
+/// A budget that covers only the flat decode-fan pre-charge leaves
+/// nothing for dispute scopes: the solve floors every capacity at one,
+/// the budgeted run is the floor run, and the census reads one peak
+/// twice. The liveness floor fails that by name, where the admittance
+/// ceiling alone would pass it vacuously.
+#[test]
+#[should_panic(expected = "admitted nothing above the floor")]
+fn a_pre_charge_only_budget_fails_the_liveness_floor() {
+    let _serial = serialized();
+    pollster::block_on(check(Local, SUPPLY_DECODE_ENVELOPE_BYTES));
 }
 
 /// A materializing reference backend, shaped like a database row store.
