@@ -236,28 +236,33 @@ The concurrent-builder cap is Finch's setting: four by default, raised
 to six at his word on 2026-09-02 (memory is not the constraint on this
 machine; CPU contention only slows gates). Check the disk before each
 wave. One
-`just gate` run per lane commit series, backgrounded to a log under the
-lane's scratchpad directory and polled, never a foreground demand.
+`just gate` run per lane commit series, on the box, captured to a log
+under the lane's scratchpad directory and polled, never a foreground
+demand.
 Fresh-eyes rounds are reads, not builds; they do not run the suite.
 Timing measurements a brief asks for are made once, load reported, never
 iterated.
 
 ## Two machines
 
-The illumos box (`ox-east-1`, per the `building-on-illumos` skill) takes
-a lane's iteration: test-binary builds, suite and proptest runs, repeated
-runs. The wrapper syncs the Mac worktree to `~/src/<worktree basename>`
-on the box and runs one command there with its own target directory, so
-lanes do not collide; cargo runs `--locked` there; nothing is edited or
-committed on the box. The `just gate` of record before each commit runs
-on the Mac, where the toolchain-derived pins are calibrated, and
-benchmarks run on the Mac, whose committed baselines they update. Clock
-guard, checked before every box run: rsync preserves mtimes and cargo's
-rebuild detection is mtime-based, so a box clock ahead of the Mac by
-more than a couple of seconds means a green build of stale code; on
-skew, the lane builds on the Mac and says so. Stepping the box's clock
-is admin work on a shared machine and is Finch's, never a lane's. The
-Mac's builder cap counts gates and benchmarks, not iteration on the box.
+The illumos box (`ox-east-1`, per the `building-on-illumos` skill) is
+where a lane builds, tests, and gates. The wrapper syncs the Mac
+worktree to `~/src/<worktree basename>` on the box and runs one command
+there with its own target directory, so lanes do not collide; cargo
+runs `--locked` there; nothing is edited or committed on the box. A
+clean `just gate` on the box is the gate of record for a commit; the
+Mac runs no gate (Finch's ruling). Two legs that pin toolchain-derived
+numbers may fire on the box if its toolchains differ from the pinned
+ones; a lane reports such a leg with both numbers rather than re-pinning
+anything. Benchmarks whose committed baselines are the Mac's run on the
+Mac, once, on a quiet machine. Clock guard, checked before every box
+run: rsync preserves mtimes and cargo's rebuild detection is
+mtime-based, so a box clock ahead of the Mac by more than a couple of
+seconds means a green build of stale code; on skew, a lane either runs
+with a fresh target directory on the box (a cold build, no stale
+artifact to trust) or waits, and says which. Stepping the box's clock is
+admin work on a shared machine and is Finch's, never a lane's. The
+builder cap counts Mac builders only.
 
 ## Effort and orchestration
 
