@@ -55,8 +55,8 @@ const LINK_CAPACITY: usize = 8 * 1024 * 1024;
 /// in-memory pricing, [`supply_decode_envelope_bytes`]), so that some
 /// stage resolves wider than one scope: [`fixture_capacities`] holds
 /// that of the derived capacities, and the widening test holds it of
-/// the session's own report. At [`DIVERGENT_WIDE`] the solve lands
-/// stages between a dozen and a hundred scopes wide.
+/// the session's own report. Neither pins a width; the 2 MiB is a
+/// calibration observed to widen at [`DIVERGENT_WIDE`], not a bound.
 const TIGHT_BUDGET: usize = 2 * 1024 * 1024;
 
 /// Messages each side originates beyond the common prefix.
@@ -120,6 +120,12 @@ struct Overhead {
 
 /// Reconcile a fresh `divergent`-message divergence under `budget` and
 /// difference the census peak against the two resting generations.
+///
+/// The differencing rests on both old generations being alive when the
+/// last side commits its fresh output, so the peak covers both resting
+/// generations at once; a session that dropped one side's old
+/// generation before the other's output finished assembling would read
+/// a peak below their sum and fail here visibly, not vacuously.
 fn overhead(budget: usize, divergent: usize) -> Overhead {
     let (left, right) = diverged(budget, divergent);
     let before = node_census().live;

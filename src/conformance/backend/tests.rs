@@ -151,9 +151,10 @@ impl Measure for Local {
 /// ([`SUPPLY_DECODE_ENVELOPE_BYTES`], the in-memory pricing of that
 /// term) with room left for dispute scopes; a budget at or below the
 /// pre-charge resolves to the serialization floor, and `check`'s
-/// liveness floor fails it by name. The 64 KiB above the pre-charge
-/// widens the suite's corpora to a few scopes per stage (a widest
-/// capacity of four), so the window binds and is seen to.
+/// liveness floor fails it by name. The 64 KiB above the pre-charge is
+/// what widens the suite's corpora past the floor: the floor holds
+/// only that the window is wider than the floor's and that the census
+/// peak moved, never a particular width.
 const LOCAL_BUDGET: usize = SUPPLY_DECODE_ENVELOPE_BYTES + 64 * 1024;
 
 /// The in-memory backend's pointer-priced account holds end to end.
@@ -353,9 +354,10 @@ const ROW_ENTRY: usize = 24;
 ///
 /// The rows make this backend's flat decode-fan pre-charge several
 /// times the in-memory one (each fan slot carries a header and bounds,
-/// not a pointer); 4 MiB clears it with room for a window tens of
-/// scopes wide per stage, which `check`'s liveness floor holds it to,
-/// while the rows keep the admitted bytes a real fraction of the budget.
+/// not a pointer); 4 MiB clears it with room for dispute scopes, and
+/// `check`'s liveness floor holds the window to being wider than the
+/// floor's, never to a particular width, while the rows keep the
+/// admitted bytes a real fraction of the budget.
 const MATERIALIZING_BUDGET: usize = 4 * 1024 * 1024;
 
 /// A node value that owns its simulated row.
@@ -836,7 +838,14 @@ fn a_swallowed_assembled_node_fails_the_run_check() {
 }
 
 /// Bulk assembly that yields a node at a prefix other than its own run's
-/// is convicted by name: a node arrives at a prefix no run supplied.
+/// is convicted by name.
+///
+/// When no run supplied the re-tagged prefix, the re-tagged node itself
+/// arrives unsupplied. When the neighbor has a run (the case at this
+/// corpus, where nearly every one-byte prefix does), the re-tagged node
+/// consumes that run and is convicted as a `bulk-assembled len`
+/// mismatch, and the honest neighbor that follows finds its run gone:
+/// `unsupplied assembly` fires either way.
 #[test]
 #[should_panic(expected = "unsupplied assembly")]
 fn a_re_tagged_assembled_node_fails_the_run_check() {

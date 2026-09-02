@@ -34,9 +34,9 @@ const LINK_CAPACITY: usize = 8 * 1024 * 1024;
 /// The window solve takes a flat decode-fan pre-charge (about 210 KB
 /// under the in-memory pricing) off every budget before widening any
 /// stage, so a budget below it derives the floor whatever the sizes
-/// say; 512 KiB clears it with room for stages a few dozen scopes wide
-/// at the growth test's population, and the test holds the session to
-/// having widened.
+/// say; 512 KiB clears it with room for dispute scopes at the growth
+/// test's population, and the test holds the session to having widened
+/// past the floor, never to a particular width.
 const GROWTH_BUDGET: usize = 512 * 1024;
 
 /// Build a bootstrapped pair, then commit `left_extra`/`right_extra`
