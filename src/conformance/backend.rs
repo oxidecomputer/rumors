@@ -13,7 +13,7 @@
 //!   upper bound.
 //! - **Pointwise**: every node the session constructs, assembles, walks,
 //!   or explodes is measured (via [`Measure`]) against the cost function
-//!   at that node's actual fan and version bounds -- or, where the fan
+//!   at that node's actual fan and version bounds, or, where the fan
 //!   is invisible, at the widest fan the node can have, which
 //!   monotonicity makes an upper bound on the price at its own. The
 //!   measurement carries the slot padding the window's own constants

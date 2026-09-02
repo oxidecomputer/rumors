@@ -155,7 +155,7 @@ const LOCAL_BUDGET: usize = SUPPLY_DECODE_ENVELOPE_BYTES + 64 * 1024;
 
 /// The in-memory backend's pointer-priced account holds end to end.
 ///
-/// `Local` is the trivial case -- handles into a resident tree -- so the
+/// `Local` is the trivial case — handles into a resident tree — so the
 /// suite's pointwise check reduces to the pointer-size constant, and the
 /// end-to-end census confirms the window's byte admittance under
 /// [`LOCAL_BUDGET`]: the budgeted run widens the window past the floor

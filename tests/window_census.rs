@@ -183,7 +183,7 @@ fn a_pre_charge_only_budget_fails_the_fixture_liveness() {
 /// The identical divergence runs once at the zero-budget floor and once
 /// at a budget that binds at test scale; the content components (both
 /// generations and the output tree) are the same trees in both runs, so
-/// the peak difference is the window's own buffering -- which must stay
+/// the peak difference is the window's own buffering — which must stay
 /// inside what the derived capacities admit: each scope a full fan of
 /// handles, plus the assembly fans and bounded per-session slack. The
 /// admittance is denominated in the same capacities `sync_memory_budget`
@@ -223,12 +223,12 @@ fn window_attributable_residency_stays_inside_admittance() {
 /// The lemma-slack pin: measured version bounds stay inside the priced
 /// pair bound.
 ///
-/// The window prices every version a session can hold -- including the
+/// The window prices every version a session can hold — including the
 /// bounds the merged tree assembles from *both* replicas' surviving
-/// leaves -- at `local_max + remote_max`, the sum of the exchanged
+/// leaves — at `local_max + remote_max`, the sum of the exchanged
 /// per-node aggregates. Each aggregate covers the bounds its own
 /// replica materializes, and a cross-side assembly is priced by the
-/// pairwise join/meet lemmas -- but deletion-honoring can recompute a
+/// pairwise join/meet lemmas — but deletion-honoring can recompute a
 /// merged bound over a survivor subset neither input materialized, so
 /// this is where the model could silently under-price; measuring a
 /// reconciled tree's every bound against the pre-session exchange pins
@@ -296,7 +296,7 @@ fn bootstrap_from(provider: &Rumors<u64>) -> Rumors<u64> {
 /// interior ceilings and floors, not just leaf stamps. This corpus is
 /// the shape that separates the two: parties forked in doubling
 /// generations (so each interval sits shallow) each stamp one message
-/// concurrently, and one replica gathers all of them -- every leaf
+/// concurrently, and one replica gathers all of them — every leaf
 /// version is a small single-spike stamp, while the gathered tree's
 /// interior ceilings join *all* the frontiers and encode several times
 /// larger than any leaf. A leaf-denominated exchange under-prices
@@ -305,7 +305,7 @@ fn bootstrap_from(provider: &Rumors<u64>) -> Rumors<u64> {
 fn wide_concurrent_frontiers_stay_inside_the_exchanged_bound() {
     let _census = census_locked();
     // Doubling generations: every fork halves a *different* interval, so
-    // party intervals stay shallow and stamps stay small -- the many
+    // party intervals stay shallow and stamps stay small — the many
     // frontiers accumulate in the join, not in any one leaf.
     let seed = Peer::seed().sync_window_floor().into_rumors();
     let mut rng = SmallRng::seed_from_u64(0x0b05_2026_f207_713a);
@@ -319,7 +319,7 @@ fn wide_concurrent_frontiers_stay_inside_the_exchanged_bound() {
     // Every member stamps concurrently, each a *different* number of
     // times: no cross-sync, so the stamps are mutually concurrent, and
     // the ragged counts keep the joined frontier from saturating into a
-    // uniform plateau -- the join must carry one distinct count per
+    // uniform plateau — the join must carry one distinct count per
     // interval, while each member's own stamps refine only its own.
     for (ticks, member) in swarm.iter().enumerate() {
         member
@@ -354,7 +354,7 @@ fn wide_concurrent_frontiers_stay_inside_the_exchanged_bound() {
 /// At the one-slot floor the window holds almost nothing, so a session's
 /// peak above its generations is the commit's double-existence: the
 /// output tree alive beside the joining result. That is bounded by the
-/// reconciled content itself -- it cannot silently grow into a multiple
+/// reconciled content itself — it cannot silently grow into a multiple
 /// of it.
 #[test]
 fn floor_overhead_is_bounded_by_content() {
