@@ -276,7 +276,10 @@ elsewhere (Finch's ruling: fuzzing is CI's). clippy's
 `thread_local!` expands through the OS-keyed path; `before` carries an
 illumos-scoped crate-level allow, so a lane based before that landed
 either rebases or passes `RUSTFLAGS="-A clippy::missing_const_for_thread_local"`
-in the remote command for that one run. Two legs that
+in the remote command for that one run. `just ci` cannot complete on
+the box (no `node`, no `wasm-pack`; it stops at `fuelscape-claims`), so
+`ci` is GitHub's to run and a lane that must exercise a recipe `ci`
+reaches and the gate does not runs that recipe alone on the box. Two legs that
 pin toolchain-derived numbers may fire on the box if its toolchains
 differ from the pinned ones; a lane reports such a leg with both numbers
 rather than re-pinning anything. `tools/memwatch` is deleted by the
