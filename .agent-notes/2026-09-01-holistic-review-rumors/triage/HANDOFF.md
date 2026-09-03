@@ -249,3 +249,17 @@ items, two from the verifier: the memory routed pin's schedule and a
 lost box seed), then the runner (`a622615e162d51b98`, one invocation
 left) re-checks and the packet builds against `9c8ce16c`. Envelope's
 packet builds after its verification and read; generators' after its.
+
+## State at 2026-09-03 16:00 UTC
+
+Packets ready, in merge order: `p1-collision-mode` (`f6d9a0af`, after
+before's `p1-fuzz`), `p2-link` (`95c429e2`), `p2-vanish-liveness`
+(`c9e7465b`, after `p2-deep-geometry`), `p1-generators` (`f21541da`,
+whole, after before's `p2-generators`), beside the earlier
+`p2-commit-path` and `p2-deep-geometry`. Running: the envelope lane
+(`ad8747469f2495256`) on the grid's round 2 at `89d83c77` (the elected
+role pinned per cell, dual and baseline cells, the (2, 0) shape and the
+2¹⁶ edge, floors, a harness-owned redaction order, cell tests bound by
+body); then a verification runner and a light read, then its packet
+against `0fad870c`. Every other lane agent and runner is idle with its
+worktree clean; the verifier worktrees stay for the merges' re-checks.
