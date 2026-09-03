@@ -796,6 +796,6 @@ Decision: The demonstration completes later streams rather than a later gossip s
 Home: lane `p2-link`.
 
 ## T153 (2026-09-02): Two pooling-seam findings join the P5 link lane's roster
-Disposes: two coordinator findings from reading the p2-link branch (recorded in `triage/new-findings.md`), now ledger rows `link-pool-1` and `link-pool-2`
+Disposes: two coordinator findings from reading the p2-link branch, recorded in `triage/new-findings.md` (the ledger admits only the review documents' entries, so they live there)
 Decision: The P5 link lane lands a small pooling `Dial` in the routed link's conformance suite (reuse only after the peer's router writes its `READY` byte, fresh dial otherwise, with a control that reuses before the byte and must fail), so the one rule at the seam between the router's admission and a transport's pool is tested in both directions; and states at `Dial::recycle`'s doc that a transport pool need never exceed the router's `recovered_connections` bound, which caps what it can be offered.
-Home: the P5 link lane; its brief carries both rows.
+Home: the P5 link lane; its brief carries both findings from `new-findings.md`, which the P5 brief drafter reads.
