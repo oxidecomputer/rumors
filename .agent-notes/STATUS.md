@@ -2,7 +2,7 @@
 
 # Triage landing status
 
-Updated: 2026-09-03 03:23 UTC by the rumors session.
+Updated: 2026-09-03 03:30 UTC by the before session (rumors-74), pausing for the night.
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
 
