@@ -168,3 +168,13 @@ sweeps (P3, the prose halves of P4) may run at medium. Lanes are
 launched with the Agent tool, one at a time or in waves, never as a
 scripted workflow: a lane's defining event is a stop that needs Finch's
 ruling, which the coordinator relays and a script cannot pause for.
+
+## Continuity
+
+The coordinator's context compacts without warning. Its durable state is
+`HANDOFF.md`, a live journal rewritten before the next action at every
+event, with a recovery procedure at its top; the map from subagent id to
+lane and last instruction is `<scratchpad>/coordinator/agents.tsv`. A
+coordinator that cannot remember what an agent was told reads the
+journal, never guesses; a lane whose state the journal does not carry is
+resumed from its branch and its brief.

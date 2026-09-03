@@ -1,6 +1,65 @@
 <!-- CAVEAT LECTOR: written by Claude (Fable 5.1) for Finch and for the next before-triage coordinator session, at the end of the 2026-09-02/03 session; not authored, audited, or endorsed by Finch. Read with `WORKFLOW.md` (the procedure), `rulings.md` (the authority, rulings 1 to 114), `../../STATUS.md` (the dashboard), and `../../merge-queue.md` (the ordered record and the cross-plan rules). -->
 
-# Handoff: the before triage's landing, end of the first session
+# The coordinator's live journal (the before triage's landing)
+
+This file is the coordinator's durable state, rewritten at every event
+(a launch, an agent's report, a review round, a packet, a stop, a merge)
+before the next action is taken. A coordinator session that has just
+compacted, or a fresh one, reads it first and resumes from it; nothing
+that matters lives only in a transcript.
+
+## Recovery procedure (read first after a compaction or a restart)
+
+1. Read `WORKFLOW.md`, then `rulings.md` from ruling 107 on, then this
+   file whole, then `../../STATUS.md` and `../../merge-queue.md`.
+2. Find the running agents: `ListAgents` lists this session's subagents
+   by id; the map from id to lane and last instruction is
+   `<scratchpad>/coordinator/agents.tsv` (the scratchpad is
+   `/private/tmp/claude-506/-Users-oxide-src-rumors/836822ce-635e-48a7-b2e5-196967bded33/scratchpad`).
+   An agent that is `running` is working; one that has completed with a
+   "waiting on the monitor" sign-off is parked on a background run and
+   needs waking: find its wrapper with `pgrep -f "on-illumos.sh
+   /Users/oxide/src/before-<lane>"`, arm a background wait on that pid
+   (`while kill -0 $P; do sleep 20; done`), and when it exits send the
+   agent the verdict lines from its log under `<scratchpad>/<lane>/`.
+3. Every lane's branch state is in git: `git -C /Users/oxide/src/before-<lane>
+   log --oneline main..HEAD` and `git status`. The per-lane table below
+   says what each is awaiting; the agent's own report, if it landed, is
+   the last message in its task output file
+   (`<scratchpad>/../tasks/<agent id>.output`, a JSONL transcript: read
+   only its last entry, never the whole file).
+4. The rumors coordinator session is `rumors-6e` (`ListAgents` peers);
+   the cross-plan rules are the queue header; message it only for the
+   three events rule 7 names.
+5. Then continue the per-lane "next" column below. When in doubt, a stop
+   goes into the morning brief rather than a guess.
+
+## Overnight rules (Finch's authorization of 2026-09-03, evening)
+
+- No merge to `main`, no push, no snapshot re-accept, no re-pin outside a
+  ruling's explicit sanction, no root-file edit beyond what a brief names.
+- Any deviation from a stated Resolution is a stop, never a coordinator
+  acceptance; any moved pin, snapshot, rendered panel, or public
+  contract is a stop. A stop halts its lane only; it goes into the
+  morning brief as a numbered item with a recommendation.
+- Three review rounds per lane, then the lane is a finding. At most four
+  lanes building at once; the box load watched (hold above ~150).
+- Lanes in scope tonight: `p1-board` (from `main`), `p1-fuzz` and
+  `p1-survivors` (stacked on the gate lane's final tip), plus review
+  rounds, repairs, and packets for those and for the gate lane. Nothing
+  else launches.
+- This journal, `STATUS.md`, `agents.tsv`, and the queue are updated
+  before the next action at every event.
+
+## Morning brief for Finch
+
+(rewritten as the night proceeds: packets ready in merge order; stops as
+a numbered block with recommendations; findings routed; judgment calls
+flagged)
+
+- Packets ready, in merge order: `p2-widths`, `p2-surface` (one stop:
+  the `fuelscape.js` caption), `p2-generators` (any order).
+- Stops: none new yet.
 
 ## What to read first
 
