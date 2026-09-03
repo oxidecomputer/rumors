@@ -100,19 +100,17 @@ lanes have closed.
 - rumors: `44a26d70` the causality lane (seven code commits, packet `44a26d70`); root
   files: `Cargo.toml` (`rand_chacha` dev-dependency), `Cargo.lock`.
 
+- before: `5b0a17d4` the harness lane (31 code commits from `5a6be5c0`, packet and
+  queue notes); root files: justfile (the `test` recipe line and two
+  recipe comments); `crates/before/Cargo.toml` (`[[test]] meter` with
+  `required-features`).
+
 ## Ready for Finch, in merge order
 
 - rumors `p1-gate`: branch `triage/p1-gate`, packet head `5cd25b55`, last
   code commit `b06000df`, base `d631cda6` (main). Root files: justfile,
   `.github/workflows/ci.yml`, `Cargo.toml` (`bytes` dev-dependency),
   `Cargo.lock`, `tools/testdoc`. `before/p1-gate` stacks on this.
-
-- before `p1-harness`: branch `before/p1-harness`, packet head `d1979bf6`,
-  last code commit `e9a1fd6d`, base `main`. Root files: justfile (the
-  `test` recipe line and two recipe comments). Also
-  `crates/before/Cargo.toml` (a `[[test]]` entry). Packet:
-  `.agent-notes/2026-09-01-holistic-review-before/triage/reviews/p1-harness.md`.
-  Children: `before/p2-widths` stacks on it next.
 
 ## Announcements
 
