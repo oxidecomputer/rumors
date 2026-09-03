@@ -15,9 +15,11 @@
 # exactly one definition (the justfile) and the two can't drift.
 #
 # What the runner has to supply that a dev machine already has:
-#   - a current stable toolchain (edition 2024 needs 1.85+), with clippy + rustfmt
-#     and the wasm32-unknown-unknown target (wasm-check, viz),
-#   - a nightly toolchain for merged doctests and cargo-fuzz's target build,
+#   - the two pinned toolchains, each installed by the name its one in-tree
+#     site gives it: stable from rust-toolchain.toml's `channel` (with
+#     clippy, rustfmt, and the wasm32-unknown-unknown target for wasm-check
+#     and viz), and the dated nightly from the justfile's `nightly_toolchain`
+#     (merged doctests, the docs.rs rustdoc leg, cargo-fuzz's target build),
 #   - `just`, `cargo-nextest` (just test), `cargo-rdme` (readme-check), and
 #     `wasm-pack` (viz),
 #   - node + npm for the viz TypeScript typecheck and bundle,
@@ -48,39 +50,57 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # Install nightly *first* so the stable install below wins the default:
-      # each dtolnay/rust-toolchain step runs `rustup default`, last one sticks.
-      # The doctest and fuzz recipes invoke `cargo +nightly`, so nightly only
-      # needs to exist, not be the default — whereas the gate's bare
-      # `cargo fmt`/`clippy`/`check` must hit stable.
-      #
-      # A SHA ref names no channel: every dtolnay step carries an explicit
-      # `toolchain:` input, and the pin rides the action's v1 tag, which
-      # Dependabot resolves like any other (the channel branches publish
-      # no tags).
-      - name: Install nightly toolchain (merged doctests and fuzz build)
-        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
-        with:
-          toolchain: nightly
+      # Both toolchains are pinned in the tree, each in exactly one place:
+      # stable in rust-toolchain.toml, which rustup applies to every bare
+      # `cargo` under this checkout whatever the default is; nightly in the
+      # justfile's `nightly_toolchain`, which every nightly recipe names
+      # with `cargo +<toolchain>`. This step reads both pins so the workflow
+      # cannot drift from either, and the install steps below provision them
+      # by name (the dtolnay action takes an explicit `toolchain:` input and
+      # reads no toolchain file). A floating channel here would install a
+      # toolchain nothing runs.
+      - name: Read the toolchain pins
+        id: pins
+        run: |
+          stable=$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)
+          nightly=$(sed -n 's/^nightly_toolchain := "\(.*\)"$/\1/p' justfile)
+          if [ -z "$stable" ] || [ -z "$nightly" ]; then
+            echo "pins: toolchain pin not found (stable='$stable', nightly='$nightly')" >&2
+            exit 1
+          fi
+          echo "stable=$stable" >> "$GITHUB_OUTPUT"
+          echo "nightly=$nightly" >> "$GITHUB_OUTPUT"
 
-      - name: Install stable toolchain (default)
+      # Nightly first, stable last: each dtolnay/rust-toolchain step runs
+      # `rustup default`, and the default is what a bare `cargo` outside
+      # the checkout's toolchain-file scope would use.
+      - name: Install the pinned nightly toolchain (merged doctests, docs.rs rustdoc, fuzz build)
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
         with:
-          toolchain: stable
+          toolchain: ${{ steps.pins.outputs.nightly }}
+
+      - name: Install the pinned stable toolchain (default)
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
+        with:
+          toolchain: ${{ steps.pins.outputs.stable }}
           components: clippy, rustfmt
           targets: wasm32-unknown-unknown
 
-      # cargo-rdme carries a version because it is the only tool here whose
-      # output is a committed artifact compared byte for byte: readme-check
-      # holds the READMEs against what it emits. Tracking the newest release
-      # would let an upstream change redefine that expectation with no commit
-      # in the repo, turning the sweep red on a tree nobody touched. The others
+      # Two tools carry versions because two committed artifacts depend on
+      # them: readme-check holds the READMEs byte for byte against what
+      # cargo-rdme emits, and mutants-list holds the exclusion roster's
+      # counts (tools/mutantcheck-expected.json) to the cargo-mutants
+      # release that listed them, refusing any other. Tracking the newest
+      # release of either would let an upstream change redefine a committed
+      # expectation with no commit in the repo, turning the sweep red on a
+      # tree nobody touched; bumping either is a reviewed diff that re-pins
+      # the expected file or the READMEs in the same commit. The other tools
       # report findings rather than generate bytes, so they ride the pinned
       # action's own tool manifest, moving when Dependabot bumps the pin.
       - name: Install just, cargo-nextest, cargo-rdme, cargo-fuzz, cargo-mutants, and wasm-pack
         uses: taiki-e/install-action@37f7c5781271959fb65b6b35224e28652ff2b63d # v2.87.0
         with:
-          tool: just,cargo-nextest,cargo-rdme@2.1.0,cargo-fuzz,cargo-mutants,wasm-pack
+          tool: just,cargo-nextest,cargo-rdme@2.1.0,cargo-fuzz,cargo-mutants@27.1.0,wasm-pack
 
       # The viz bundle (`just viz`) runs the dependency install (`npm ci`
       # here, where CI=true), a strict TypeScript typecheck, and an esbuild
@@ -117,36 +137,47 @@ jobs:
   #     of record — the gate keeps the second jaw.
   #
   # Runner fit: every step here builds `before` alone (release profile,
-  # counter features) plus the small detached surfacecheck workspace —
-  # never the rumors bench/release tier, whose lib-as-bench compile is
-  # known to exceed 16 GiB; that build lives in `ci`'s bench-build leg,
+  # counter features) plus the small detached surfacecheck workspace;
+  # rumors' release-profile bench builds live in `ci`'s bench-build leg,
   # not in this job.
   #
   # Toolchain coupling: surface-totality parses nightly rustdoc JSON
-  # through a `rustdoc-types` pin matched to the installed nightly's
-  # format_version. This job tracks nightly, so a format bump upstream can
-  # turn the leg red on an untouched tree — the checker refuses loudly,
+  # through a `rustdoc-types` pin matched to the pinned nightly's
+  # format_version. The nightly is dated, so the format moves only when
+  # the pin is bumped deliberately; the checker refuses a mismatch loudly,
   # naming both version numbers, and the justfile's surface-totality
-  # comment documents the re-pin procedure.
+  # comment documents the paired re-pin procedure.
   instruments:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # Nightly first, stable last (each dtolnay/rust-toolchain step runs
-      # `rustup default`, last one sticks): only the surface-json recipe
-      # invokes `cargo +nightly`; every other step must hit stable.
-      - name: Install nightly toolchain (surface-totality rustdoc JSON)
+      # The pins, read as in `ci`: only surface-json names the nightly
+      # (`cargo +<nightly_toolchain>` for the rustdoc JSON); every other
+      # step runs bare `cargo` under rust-toolchain.toml's stable.
+      - name: Read the toolchain pins
+        id: pins
+        run: |
+          stable=$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)
+          nightly=$(sed -n 's/^nightly_toolchain := "\(.*\)"$/\1/p' justfile)
+          if [ -z "$stable" ] || [ -z "$nightly" ]; then
+            echo "pins: toolchain pin not found (stable='$stable', nightly='$nightly')" >&2
+            exit 1
+          fi
+          echo "stable=$stable" >> "$GITHUB_OUTPUT"
+          echo "nightly=$nightly" >> "$GITHUB_OUTPUT"
+
+      - name: Install the pinned nightly toolchain (surface-totality rustdoc JSON)
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
         with:
-          toolchain: nightly
+          toolchain: ${{ steps.pins.outputs.nightly }}
 
       # clippy and rustfmt are for the surfacecheck workspace's own lint
       # legs, which the surface-totality recipe carries.
-      - name: Install stable toolchain (default)
+      - name: Install the pinned stable toolchain (default)
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
         with:
-          toolchain: stable
+          toolchain: ${{ steps.pins.outputs.stable }}
           components: clippy, rustfmt
 
       - name: Install just, cargo-nextest, cargo-audit, and cargo-deny
@@ -185,31 +216,44 @@ jobs:
   # pinned expectation (tools/covcheck-expected.json) by tools/covcheck —
   # tamper-evident in both directions, so a new uncovered kernel line or a
   # stale pin entry fails by name. The justfile's coverage section carries
-  # the design and why these are CI legs, never gate legs: each run is a
+  # the design and why these are sweep legs, never gate legs: each run is a
   # full instrumented rebuild plus the whole suite under instrumentation.
   #
   # Runner fit: both legs build the workspace test tier (debug profile,
   # instrumented) — the same shape as `ci`'s test-all leg, well inside the
-  # runner's memory; the known-heavy bench/release tier is never built here.
+  # runner's memory; the bench/release tier is never built here.
   coverage:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # Nightly first, stable last (each dtolnay/rust-toolchain step runs
-      # `rustup default`, last one sticks): only the branch leg invokes
-      # `cargo +nightly`; the line leg must hit stable. llvm-tools is the
-      # coverage instrumentation's profdata component, needed on both.
-      - name: Install nightly toolchain (branch coverage)
+      # The pins, read as in `ci`: the branch leg runs
+      # `cargo +<nightly_toolchain> llvm-cov`, the line leg runs bare
+      # `cargo` under rust-toolchain.toml's stable. llvm-tools is the
+      # coverage instrumentation's profdata component, installed on both
+      # pinned toolchains so cargo-llvm-cov finds it on whichever it drives.
+      - name: Read the toolchain pins
+        id: pins
+        run: |
+          stable=$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)
+          nightly=$(sed -n 's/^nightly_toolchain := "\(.*\)"$/\1/p' justfile)
+          if [ -z "$stable" ] || [ -z "$nightly" ]; then
+            echo "pins: toolchain pin not found (stable='$stable', nightly='$nightly')" >&2
+            exit 1
+          fi
+          echo "stable=$stable" >> "$GITHUB_OUTPUT"
+          echo "nightly=$nightly" >> "$GITHUB_OUTPUT"
+
+      - name: Install the pinned nightly toolchain (branch coverage)
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
         with:
-          toolchain: nightly
+          toolchain: ${{ steps.pins.outputs.nightly }}
           components: llvm-tools
 
-      - name: Install stable toolchain (default)
+      - name: Install the pinned stable toolchain (default)
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
         with:
-          toolchain: stable
+          toolchain: ${{ steps.pins.outputs.stable }}
           components: llvm-tools
 
       - name: Install just, cargo-nextest, and cargo-llvm-cov
