@@ -270,7 +270,7 @@ Nothing is running. Packets waiting on Finch, in merge order:
 `p2-commit-path` (`14d0d5fb`), `p1-collision-mode` (`f6d9a0af`, after
 before's `p1-fuzz`), `p2-deep-geometry` (`f74324a7`, after
 collision-mode), `p2-link` (`95c429e2`), `p2-vanish-liveness`
-(`c9e7465b`, after deep-geometry), `p1-envelope` (`890e68ab`),
+(`c9e7465b`, after deep-geometry), `p1-envelope` (`10f4bb6f`),
 `p1-generators` (`f21541da`, whole, after before's `p2-generators`, and
 after `p1-proptest-ci`). Rulings through T169. Every lane worktree is at
 its packet head; every verifier worktree (`rumors-verify-*`) is

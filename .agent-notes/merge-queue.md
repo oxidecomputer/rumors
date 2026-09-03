@@ -210,7 +210,7 @@ lanes have closed.
   `.agent-notes/2026-09-01-holistic-review-rumors/triage/reviews/p2-vanish-liveness.md`.
 
 - rumors `p1-envelope`: branch `triage/p1-envelope`, packet head
-  `890e68ab`, last code commit `e02d0aee`, base `0fad870c` (main). Root
+  `10f4bb6f`, last code commit `e02d0aee`, base `0fad870c` (main). Root
   files: `Cargo.toml` (T169: `sha3` and `keccak` at opt-level 2 in the
   dev profile), `AGENTS.md` (the pin roster names `dispute_wire` and
   `protocol_overhead`), `README.md` (regenerated), `.config/nextest.toml`
