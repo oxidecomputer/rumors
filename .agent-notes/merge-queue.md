@@ -82,6 +82,9 @@ lanes have closed.
   (one snapshot re-accept class); all 22 wire snapshots re-accepted
   under T138.
 
+- before: `e27ba5e6` the proptest-cases lane (`7892c60c` through `f60734bb`,
+  packet `e27ba5e6`); no root files.
+
 ## Ready for Finch, in merge order
 
 - rumors `p1-gate`: branch `triage/p1-gate`, packet head `5cd25b55`, last
@@ -98,10 +101,6 @@ lanes have closed.
 - rumors `p1-causality`: `triage/p1-causality`, packet `aa3e2aa1`, code
   `f1b4859c`, base `4f796995`. Root files: `Cargo.toml` (`rand_chacha`
   dev-dependency), `Cargo.lock`.
-
-- before `p1-proptest-cases`: branch `before/p1-proptest-cases`, packet
-  head `779c59e0`, last code commit `82250f59`, base `main`. No root files.
-  Packet: `.agent-notes/2026-09-01-holistic-review-before/triage/reviews/p1-proptest-cases.md`.
 
 ## Announcements
 

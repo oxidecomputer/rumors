@@ -735,6 +735,8 @@ Decision. No `ProptestConfig` anywhere in the workspace sets `cases`; every prop
 
 Also recorded: surface-roster-7 (ruling 40's `FAMILY_SURFACE` binding) is disposed by ruling 98, which says its binding work and prose sites go with the roster to the P6 surface lane; the `p2-surface` lane lands nothing for it and the ledger row reads `dup` of surface-roster-4 under ruling 98.
 
+Outcome. Landed on `main` at `e27ba5e6` (lane `p1-proptest-cases`: `7892c60c`, `632c29f3`, `f60734bb`), merged at Finch's word after his review of the packet.
+
 ## Ruling 110 (2026-09-03): the island panels state each dataset's measure in uniform words; the memo widening commits its bad numbers; the sealed version composer; the bridge's two doors
 
 Disposes: crate-root-6; the widths lane's three stops (the memo widening's red rows and board cells under ruling 33; the version composer's public bound under ruling 34, for clock-14, skyline-coding-20, version-core-16; testing-oracles-4); records the lane's party-23 choice.
