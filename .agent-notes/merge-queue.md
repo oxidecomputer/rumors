@@ -181,6 +181,20 @@ lanes have closed.
   applied by Claude. Commits unsigned (the lock protocol). Packet:
   `.agent-notes/2026-09-01-holistic-review-rumors/triage/reviews/p2-link.md`.
 
+- rumors `p1-generators`: branch `triage/p1-generators`, packet head
+  `f21541da`, last code commit `8adc330a`, base `a34859ed` (the
+  `p1-proptest-ci` tip; a child, merges after it). Root files:
+  `.cargo/config.toml` (new: the zero rejection budgets, `force = true`),
+  `Cargo.toml` (the `reject_tripwire` test table), `justfile`
+  (`tripwire`, `caselint` over `crates/`, `proptest_ci_cases` 4000),
+  `AGENTS.md`. Merges as a whole after before's `p2-generators` sweep;
+  its gate is red by construction until then (caselint on before's
+  fourteen sites; before's properties aborting at zero budgets) and
+  green on every rumors leg. Six stops (merge order; `force = true`;
+  fail-fast; the partition population; the chunk bound; the 16,000-case
+  rerun). Commits unsigned (the lock protocol). Packet:
+  `.agent-notes/2026-09-01-holistic-review-rumors/triage/reviews/p1-generators.md`.
+
 - before `p2-widths`: branch `before/p2-widths`, packet head `ba36e970`,
   last code commit `d5e63e93`, base `main`. Root files: justfile (one
   recipe, `fuzz-test`, and its line in `all`). Merges before

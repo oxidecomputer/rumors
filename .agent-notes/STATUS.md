@@ -2,7 +2,7 @@
 
 # Triage landing status
 
-Updated: 2026-09-03 14:41 UTC by the rumors session.
+Updated: 2026-09-03 14:49 UTC by the rumors session.
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
 
@@ -65,10 +65,10 @@ Maintained by the rumors session.
 | p2-link | waiting on Finch | packet `95c429e2` (code `a956bdb3`, base `7aa2b9a1`), five verification passes, five rounds; three stops; root file `Cargo.toml` (`tokio/rt`); the sush patch beside it |
 | p2-commit-path | packet ready | packet `14d0d5fb` on `triage/p2-commit-path` (code tip `5a4559e1`, base `1336daa0`, lane diff identical across the rebase); every acceptance and control run by the verifier; three fresh-eyes rounds; T166 landed; no open stop; commits unsigned by the lock protocol, re-signed at merge |
 | p1-proptest-ci | in review | landed at `a34859ed` (sweep, caselint, release recipe and nextest profile, meter excluded, T157 rewrite); gate clean; the CI number is a stop (recommendation 4000 after p1-generators); verification and packet after p1-generators lands, since the number is set on that tree |
-| p2-vanish-liveness | in review | round 3 landed at `aef53cdf` (marker-past bytes a typed post-commit violation; the flush-poll departure and violation tests; a mechanism-derived floor; a routed departure over the memory network; T165 prose); final verification (with the two controls the lane did not run) and a light read running; packet after; two stops for Finch (a conformance-suite check for the two `link.rs` obligations; a lookahead cap needing a hand-off length limit) |
+| p2-vanish-liveness | in review | round 4 landed at `31324e42` (the `Unexpected` rule stated and pinned; the TCP band tightened; a hold making the memory routed pin deterministic; the lost seed recovered); the runner's final invocation running; packet next against `9c8ce16c`; stops: a conformance check for the two `link.rs` obligations, a lookahead cap |
 | p1-collision-mode | waiting on Finch | packet `f6d9a0af` (code `35d134fd`, base `d0dcb9f5`), four verification passes, three rounds; three stops; merges after before's `p1-fuzz` refit |
 | p2-deep-geometry | packet ready | packet `f74324a7` on `triage/p2-deep-geometry` (code tip `7e7bae71`, base `7858b35e`, stacked on the collision branch; merges after it); three fresh-eyes rounds, every item verified; its gate runs under the mutex and the verdict is appended when it lands; stops: the shared predicate at integration with vanish-liveness, the conformance floor under the schedule, the residual precedence window, the duplicated-reply stall queued |
-| p1-generators | in review | round 2 at `c6f291f2` verified in full (`[env]` the single site, the tripwire green with zero counts and red without the entries, caselint exactly the fourteen before sites); round 3 (two ghosts, the commit message, `force = true`, a rewrap) with the lane; packet after, against `a34859ed`; merges whole after before's `p2-generators` |
+| p1-generators | waiting on Finch | packet `f21541da` (code `8adc330a`, base `a34859ed`), four verification passes, three rounds; six stops; merges whole after before's `p2-generators`; root files `.cargo/config.toml`, `Cargo.toml`, `justfile`, `AGENTS.md` |
 | p1-envelope | in review | the grid at `89d83c77` verified in full (59 tests, 52 exact cells, three controls fire by name); its read found the direction columns denominated by identity while the protocol's asymmetry is by elected role (the smaller set initiates, the responder writes the listings and supplies): grid round 2 with the lane (pin the role per cell, dual and baseline cells, the (2,0) shape and the 2¹⁶ edge, floors, a harness-owned redaction order); packet after |
 | p2-peer | not started | after p2-commit-path |
 | p3-dashes, p3-imports, p3-lints, p3-modules, p3-prose-pass, p3-seeds, p3-vocabulary | not started | after every P1 and P2 lane merges; seven open questions for Finch |
