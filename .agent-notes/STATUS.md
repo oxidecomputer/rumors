@@ -2,7 +2,7 @@
 
 # Triage landing status
 
-Updated: 2026-09-03 13:42 UTC by the rumors session.
+Updated: 2026-09-03 13:55 UTC by the rumors session.
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
 
@@ -69,7 +69,7 @@ Maintained by the rumors session.
 | p1-collision-mode | waiting on Finch | packet `f6d9a0af` (code `35d134fd`, base `d0dcb9f5`), four verification passes, three rounds; three stops; merges after before's `p1-fuzz` refit |
 | p2-deep-geometry | packet ready | packet `f74324a7` on `triage/p2-deep-geometry` (code tip `7e7bae71`, base `7858b35e`, stacked on the collision branch; merges after it); three fresh-eyes rounds, every item verified; its gate runs under the mutex and the verdict is appended when it lands; stops: the shared predicate at integration with vanish-liveness, the conformance floor under the schedule, the residual precedence window, the duplicated-reply stall queued |
 | p1-generators | in review | round 1 at `763d45b3` verified: holds but for the tripwire, which passes with the budgets removed (default budgets print the same abort strings), and the gate red by construction until before's sweep merges; round 2 (the `[env]` budgets, a zero-reject assertion in the tripwire, seed-coupling honesty with three seeds under replay, `crates/` under the full rules in the budgets commit, T164's 4000 folded in) with the lane |
-| p1-envelope | in review | round 2 with the lane; then the T168 follow-on (the protocol-overhead grid, `briefs/p1-envelope-grid.md`) as further commits on the lane; packet after |
+| p1-envelope | in review | round 2 landed at `4e405174` (the regime sentence qualified toward the sweep as a draft for Finch; a per-binary slow-timeout for the 2^16 cell; the pin roster; the disputed-slot argument restated), under verification; the T168 grid building on it with cells built fresh (no byte-preserving cache exists: a fork donates identity, a clone shares the replica), about sixty cells to 10^5 shared at zero payload; packet after the grid |
 | p2-peer | not started | after p2-commit-path |
 | p3-dashes, p3-imports, p3-lints, p3-modules, p3-prose-pass, p3-seeds, p3-vocabulary | not started | after every P1 and P2 lane merges; seven open questions for Finch |
 | fifteen P4 lanes (`briefs/p4-*.md`) | not started | briefs committed at `46fb2cb6`; after P3; twelve open items for Finch |
