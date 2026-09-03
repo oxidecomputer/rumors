@@ -100,3 +100,11 @@ Each entry: where it came from, what it is, which lane's brief carries it
   366`, `codec/build.rs:185`, `version/skyline/encode.rs:34`,
   `version/skyline/fill.rs:1090`. Each is a fixed-sign candidate for
   the same measure-at-parent discipline. Route: `p8-performance`.
+- **suanpan's crate doc misprices the sign fold's certified skip.**
+  The zero-run ledger section says the skip costs one touch instead of
+  one per digit; `fold_and_collapse`'s skip through `consume_run_at`
+  records no touch (only `settle_top`'s does) and three digits are
+  zeroed with a touch each, which the existing pin
+  `sign_fold_skips_certified_runs` (6) already reflects. Route:
+  `p6-suanpan` (the doc restated from the code; the wholesale exact-pin
+  conversion under ruling 88 lands beside it).
