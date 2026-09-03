@@ -2,7 +2,7 @@
 
 # Triage landing status
 
-Updated: 2026-09-03 13:15 UTC by the rumors session.
+Updated: 2026-09-03 13:17 UTC by the rumors session.
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
 
@@ -62,7 +62,7 @@ Maintained by the rumors session.
 | Lane | State | Note |
 |---|---|---|
 | p1-swarm, p1-conformance, p1-memwatch, p1-gate, p2-codec, p1-renderer, p1-harness-tests, p1-harness-crate, p2-walk, p1-causality | merged | see the queue's Merged section for shas and root files |
-| p2-link | in review | shape (d) at `398b77f2` verified in full; round 4 (the pool probe under tokio's spent budget, coverage, prose) with the lane; the sush patch is drafted and probe-verified (`coordinator/sush-eval/`), with a premise finding for Finch: sush's whole crate cannot compile against current rumors for reasons outside the link (the payload API's serde move, 610 commits of drift) |
+| p2-link | in review | shape (d) at `398b77f2` verified in full; round 4 (the pool probe under tokio's spent budget, coverage, prose) with the lane; the sush patch (main-based, probe-verified) is being re-targeted onto sush's `origin/locker`, the serde-swapped development chain Finch pointed at, with the compile premise re-checked there |
 | p2-commit-path | packet ready | packet `14d0d5fb` on `triage/p2-commit-path` (code tip `5a4559e1`, base `1336daa0`, lane diff identical across the rebase); every acceptance and control run by the verifier; three fresh-eyes rounds; T166 landed; no open stop; commits unsigned by the lock protocol, re-signed at merge |
 | p1-proptest-ci | in review | landed at `a34859ed` (sweep, caselint, release recipe and nextest profile, meter excluded, T157 rewrite); gate clean; the CI number is a stop (recommendation 4000 after p1-generators); verification and packet after p1-generators lands, since the number is set on that tree |
 | p2-vanish-liveness | in review | round 2 at `86cde61c` (accept-only race, O(1) lookahead probe, T165's shared precedence shape, T166's `link.rs` paragraph); verification (62 lane tests pass so far; controls running) and the round-3 read running; packet after |
