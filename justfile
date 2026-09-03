@@ -101,9 +101,13 @@ default:
 check:
     cargo check --workspace --all-targets
 
-# Run the test suites; pass a filter to narrow (`just test mirror`).
+# Run the test suites; pass a filter to narrow (`just test mirror`). The
+# envelope suite (crates/before/tests/meter.rs) builds only with its limb
+# and scan meters (`required-features` on its test target), so the inner
+# loop lights them for that package; every other package builds under
+# default features.
 test *args:
-    cargo nextest run --workspace {{ args }}
+    cargo nextest run --workspace --features before/limb-meter,before/scan-meter {{ args }}
 
 # Every feature is lit here and nowhere else in the gate: the meter suites
 # and the conformance module build only under `--all-features`.
