@@ -127,3 +127,36 @@ convergence while H1 is true for redaction.
 Related but separate: campaign survivor #49 (`recv_msg_with`'s EOF arm
 in `remote.rs`, diagnostic-prose-only) is analyzed in the campaign's
 triage record and is not part of this handoff.
+
+## Disposition (2026-09-02, triage entry materialized-27, ruling T26)
+
+H3 held, and H1 with it: the suites never built a mixed-knowledge
+leaf-parent that only one side occupies, and under the inversion the
+redacted leaf is re-supplied and absorbed. Reading the reachability
+explains the shadow: a leaf reached from any height above is a
+path-compressed spine whose span is a point, so `knowledge()` answers
+`Before` or `After` and the recursion never descends to height 0. The arm
+runs only when a real height-1 branch (two or more leaves sharing 31 path
+bytes) classifies `Between` and the counterparty lacks the parent; every
+committed fixture avoided that shape.
+
+Committed kills, each failing with the `!` removed and passing on HEAD:
+
+- `materialized::unknown::tests::leaf_height_verdicts_agree_with_materialized_oracle`:
+  sibling leaves under one 31-byte prefix, each on its own party, with
+  per-leaf known flags, held to the materialized `Unknown` oracle.
+- `streaming::tests::stats::forgotten_sibling_is_judged_at_leaf_height`
+  and `forgotten_siblings_match_the_join_oracle`: a holder of concurrent
+  sibling leaves against a peer that forgot a subset and never held the
+  rest (`arb::forgotten_sibling_pair`, `arb::arb_forgotten_siblings`),
+  held to `Tree::join` in both orientations, with the holder shedding
+  exactly the forgotten leaves and the peer gaining exactly the rest.
+
+The survival is now measured, not agent-reported: with the `!` removed,
+the whole workspace suite (`cargo nextest run --workspace --all-features`,
+1838 tests, on ox-east-1) fails exactly those three tests and nothing
+else. That is the expected result and the reason the tests exist: the
+filter's contribution is behavioral (the redaction contract), and every
+other observable the suites pin is blind to it.
+
+This note is closed; the tests above are the instrument of record.

@@ -10,7 +10,7 @@ use crate::{
     Version,
     message::Message,
     tree::{
-        arb::nth_party,
+        arb::{leaf_sibling_path, nth_party},
         mirror::streaming::{Backend, Local, materialized::unknown::unknown},
         traverse::{Action, act, unknown::Unknown},
         typed::{self, Path, Prefix, height::Root},
@@ -47,6 +47,32 @@ fn tree_and_known(flags_a: &[bool], flags_b: &[bool]) -> (Option<typed::node::Ro
     (act(None, actions, &mut |_| ()), known)
 }
 
+/// Build a root of `flags.len()` sibling leaves under one 31-byte prefix,
+/// each on its own party, plus a `known` version that is the join of the
+/// leaf versions flagged `true`.
+///
+/// The leaves are mutually concurrent, so with both flag values present
+/// the parent's span classifies as mixed and the prune descends to judge
+/// each leaf on its own: the one shape in which the leaf-height verdict
+/// decides.
+fn sibling_tree_and_known(flags: &[bool]) -> (Option<typed::node::Root>, Version) {
+    let mut actions: Vec<(Path, Version, Action)> = Vec::new();
+    let mut known = Version::new();
+    for (index, &flagged) in flags.iter().enumerate() {
+        let mut version = Version::new();
+        version.tick(&nth_party(index));
+        actions.push((
+            leaf_sibling_path(index as u8),
+            version.clone(),
+            Action::Insert(Message::new(())),
+        ));
+        if flagged {
+            known |= version;
+        }
+    }
+    (act(None, actions, &mut |_| ()), known)
+}
+
 /// Prune an optional root through the single-node streaming filter, driving
 /// the future to completion with a trivial executor.
 fn stream_prune(root: Option<typed::node::Root>, known: &Version) -> Option<typed::node::Root> {
@@ -72,6 +98,24 @@ proptest! {
         flags_b in vec(any::<bool>(), 0..=8),
     ) {
         let (root, known) = tree_and_known(&flags_a, &flags_b);
+
+        let oracle = Unknown::unknown(root.clone(), &known);
+        let streamed = stream_prune(root, &known);
+
+        prop_assert_eq!(
+            typed::Node::root_hash(&oracle),
+            typed::Node::root_hash(&streamed),
+        );
+    }
+
+    /// Sibling leaves under one leaf-parent prefix are judged one at a
+    /// time, and each leaf-height verdict agrees with the materialized
+    /// prune: the flagged leaves drop and the concurrent ones survive.
+    #[test]
+    fn leaf_height_verdicts_agree_with_materialized_oracle(
+        flags in vec(any::<bool>(), 1..=8),
+    ) {
+        let (root, known) = sibling_tree_and_known(&flags);
 
         let oracle = Unknown::unknown(root.clone(), &known);
         let streamed = stream_prune(root, &known);

@@ -506,7 +506,7 @@ pub fn uncontained_supply_pair() -> (crate::tree::Root, crate::tree::Root, Path,
 /// Real leaves are version-addressed, so two distinct messages share a
 /// 31-byte prefix only under a hash-prefix collision; these hand-picked
 /// paths let a test construct that shape deliberately.
-fn leaf_sibling_path(last: u8) -> Path {
+pub fn leaf_sibling_path(last: u8) -> Path {
     let mut bytes = [0u8; 32];
     bytes[31] = last;
     Path::from(bytes)
@@ -667,6 +667,92 @@ pub fn leaf_parent_redaction_pair() -> (crate::tree::Root, crate::tree::Root, cr
         root_with_ceiling(b_node, b_ceiling),
         expected,
     )
+}
+
+/// A pair where `a` holds two concurrent leaves under one leaf-parent
+/// (`S<Z>`) prefix and `b` has forgotten one of them and never held the
+/// other, plus the tree both sides must converge to.
+///
+/// `b` holds nothing under the parent, so the parent is never disputed:
+/// the streaming filter judges `a`'s leaves one at a time, at leaf height,
+/// against `b`'s ceiling, which dominates the forgotten leaf's version and
+/// is concurrent with the other's. The survivor is the concurrent leaf
+/// alone.
+pub fn forgotten_sibling_pair() -> (crate::tree::Root, crate::tree::Root, crate::tree::Root) {
+    let mut forgotten_version = Version::new();
+    forgotten_version.tick(&nth_party(0));
+    let mut survivor_version = Version::new();
+    survivor_version.tick(&nth_party(1));
+    let survivor = (
+        leaf_sibling_path(0x01),
+        survivor_version.clone(),
+        Action::Insert(Message::new(())),
+    );
+    let a_node = act(
+        None,
+        vec![
+            (
+                leaf_sibling_path(0x00),
+                forgotten_version.clone(),
+                Action::Insert(Message::new(())),
+            ),
+            survivor.clone(),
+        ],
+        &mut |_| (),
+    );
+
+    // b remembers the forgotten leaf only through its ceiling: a forget
+    // tick on its own party, joined with the leaf's version.
+    let mut forget_version = Version::new();
+    forget_version.tick(&nth_party(2));
+    let b_ceiling = forgotten_version.clone() | forget_version;
+
+    let a_ceiling = forgotten_version | survivor_version;
+    let expected = root_with_ceiling(
+        act(None, vec![survivor], &mut |_| ()),
+        a_ceiling.clone() | b_ceiling.clone(),
+    );
+    (
+        root_with_ceiling(a_node, a_ceiling),
+        root_with_ceiling(None, b_ceiling),
+        expected,
+    )
+}
+
+/// Generate a pair where `a` holds concurrent sibling leaves under one
+/// leaf-parent prefix and `b` has forgotten a drawn subset of them and
+/// never held the rest, plus the count of forgotten leaves.
+///
+/// Each leaf sits on its own party. The general form of
+/// [`forgotten_sibling_pair`]: every subset, the empty one (nothing to
+/// shed) and the full one (the whole parent sheds without a leaf-height
+/// verdict) included.
+pub fn arb_forgotten_siblings() -> BoxedStrategy<(crate::tree::Root, crate::tree::Root, usize)> {
+    vec(any::<bool>(), 1..=8)
+        .prop_map(|forgotten| {
+            let mut leaves = Vec::new();
+            let mut a_ceiling = Version::new();
+            let mut b_ceiling = Version::new();
+            for (index, &forget) in forgotten.iter().enumerate() {
+                let mut version = Version::new();
+                version.tick(&nth_party(index));
+                a_ceiling |= version.clone();
+                if forget {
+                    b_ceiling |= version.clone();
+                }
+                leaves.push((
+                    leaf_sibling_path(index as u8),
+                    version,
+                    Action::Insert(Message::new(())),
+                ));
+            }
+            let mut forget_version = Version::new();
+            forget_version.tick(&nth_party(forgotten.len()));
+            let a = root_with_ceiling(act(None, leaves, &mut |_| ()), a_ceiling);
+            let b = root_with_ceiling(None, b_ceiling | forget_version);
+            (a, b, forgotten.iter().filter(|&&forget| forget).count())
+        })
+        .boxed()
 }
 
 #[cfg(test)]

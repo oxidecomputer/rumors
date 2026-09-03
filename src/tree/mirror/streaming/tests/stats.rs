@@ -19,10 +19,12 @@ use std::collections::BTreeSet;
 
 use proptest::prelude::*;
 
-use super::LocalSession;
 use super::fixtures::{LeafOrder, divergent_cells_pair, grown, path_at, rooted};
+use super::{LocalSession, join_oracle};
 use crate::tree::Root;
-use crate::tree::arb::leaf_parent_redaction_pair;
+use crate::tree::arb::{
+    arb_forgotten_siblings, forgotten_sibling_pair, leaf_parent_redaction_pair,
+};
 use crate::tree::mirror::streaming::message::initiates;
 use crate::tree::mirror::streaming::stats::SessionStats;
 use crate::tree::mirror::streaming::{Local, Root as StreamingRoot};
@@ -198,8 +200,80 @@ fn honored_redaction_counts_as_shed() {
     assert_eq!(b_stats.disputed_scopes, 16);
 }
 
+/// A leaf-parent only the holder occupies is judged leaf by leaf: the
+/// forgotten sibling sheds, the concurrent one crosses, and both sides
+/// hold the join oracle's tree in either orientation.
+///
+/// The counterparty holds nothing under the parent, so no leaf-parent
+/// dispute answers for the leaves; the verdict is the streaming filter's
+/// own, at leaf height.
+#[test]
+fn forgotten_sibling_is_judged_at_leaf_height() {
+    let (holder, forgetter, expected) = forgotten_sibling_pair();
+    assert_eq!(
+        join_oracle(holder.clone(), forgetter.clone()),
+        expected,
+        "the fixture's expectation is the join oracle's"
+    );
+    for holder_first in [true, false] {
+        let (left, right) = if holder_first {
+            (holder.clone(), forgetter.clone())
+        } else {
+            (forgetter.clone(), holder.clone())
+        };
+        let (ours, theirs, left_stats, right_stats) = mirror_with_stats(left, right);
+        assert_eq!(ours, expected, "left side holds the join oracle's tree");
+        assert_eq!(theirs, expected, "right side holds the join oracle's tree");
+        let (holder_stats, forgetter_stats) = if holder_first {
+            (left_stats, right_stats)
+        } else {
+            (right_stats, left_stats)
+        };
+        assert_eq!(
+            holder_stats.messages_shed, 1,
+            "the holder sheds the forgotten leaf"
+        );
+        assert_eq!(holder_stats.messages_gained, 0);
+        assert_eq!(forgetter_stats.messages_shed, 0);
+        assert_eq!(
+            forgetter_stats.messages_gained, 1,
+            "the forgetter gains the concurrent leaf"
+        );
+    }
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(64))]
+
+    /// For any forgotten subset of a holder's sibling leaves, both sides
+    /// hold the join oracle's tree in either orientation; the holder sheds
+    /// exactly the forgotten leaves and the forgetter gains exactly the
+    /// rest.
+    #[test]
+    fn forgotten_siblings_match_the_join_oracle(
+        (holder, forgetter, forgotten) in arb_forgotten_siblings(),
+        holder_first in any::<bool>(),
+    ) {
+        let expected = join_oracle(holder.clone(), forgetter.clone());
+        let total = live(&holder);
+        let (left, right) = if holder_first {
+            (holder, forgetter)
+        } else {
+            (forgetter, holder)
+        };
+        let (ours, theirs, left_stats, right_stats) = mirror_with_stats(left, right);
+        prop_assert_eq!(&ours, &expected);
+        prop_assert_eq!(&theirs, &expected);
+        let (holder_stats, forgetter_stats) = if holder_first {
+            (left_stats, right_stats)
+        } else {
+            (right_stats, left_stats)
+        };
+        prop_assert_eq!(holder_stats.messages_shed, forgotten as u64);
+        prop_assert_eq!(holder_stats.messages_gained, 0);
+        prop_assert_eq!(forgetter_stats.messages_shed, 0);
+        prop_assert_eq!(forgetter_stats.messages_gained, total - forgotten as u64);
+    }
 
     /// Across generated antichain corpora, both sides' counters match
     /// the oracle exactly.
