@@ -15,14 +15,22 @@
 //! sessions open, park, and close at generated points.
 //!
 //! The alphabet extends [`schedule::events::Event`] with three session
-//! events over a small set of *slots*: [`OverlapEvent::Open`] captures
-//! both endpoints' fork-time state and parks, [`OverlapEvent::Step`]
-//! polls the parked session a bounded number of times, and
-//! [`OverlapEvent::Close`] drives it to completion and installs. The
-//! generator keeps the schedule valid by construction the same way
-//! [`schedule::arb`] does — a shadow simulator tracks what every peer has
-//! observed, with open sessions modeled by their fork-time snapshots so a
-//! `Redact` is only ever emitted against a message its peer really holds.
+//! events over a small set of *slots*: [`OverlapEvent::Open`] builds a
+//! session and parks it unpolled, [`OverlapEvent::Step`] polls the parked
+//! session a bounded number of times, and [`OverlapEvent::Close`] drives
+//! it to completion and installs. The generator keeps the schedule valid
+//! by construction the same way [`schedule::arb`] does — a shadow
+//! simulator tracks what every peer has observed — but its model of an
+//! open session is deliberately coarser than the protocol. The shadow
+//! snapshots both endpoints at `Open` and treats that snapshot as the
+//! session's fork-time state; the live session forks only once its
+//! preamble exchange completes, some polls later, so an event at either
+//! endpoint between `Open` and that fork rides the live session and not
+//! the modeled one. A `Redact` the shadow emits may therefore name a
+//! message its live peer never observed. That is why the executor guards
+//! every `Redact` on the live observation log and skips the ones the
+//! model got wrong, on both sides of the oracle comparison, rather than
+//! issuing a `redact` no application could have made.
 
 use std::collections::BTreeMap;
 use std::fmt::Debug;
@@ -175,8 +183,15 @@ pub enum OverlapEvent<T> {
     /// One whole (non-overlapped) session between `a` and `b`, as the
     /// serial executor runs them.
     Gossip { a: usize, b: usize },
-    /// Open a session between `a` and `b` in `slot`, forking both sides'
-    /// working state here; it installs only at its `Close`.
+    /// Open a session between `a` and `b` in `slot` without polling it;
+    /// it installs at its `Close`, or at a `Step` that completes it.
+    ///
+    /// The generator's shadow models the session as forking both sides'
+    /// working state here. The live session forks later, once its
+    /// preamble exchange completes under `Step` or `Close` polls, so an
+    /// event at either endpoint in between belongs to the live fork and
+    /// not to the modeled one; the executor's `Redact` guard absorbs that
+    /// difference.
     Open { slot: usize, a: usize, b: usize },
     /// Poll the session in `slot` at most `polls` times.
     Step { slot: usize, polls: usize },
@@ -230,10 +245,14 @@ where
                 target_event_idx,
             } => {
                 let version = &resolved_versions[target_event_idx];
-                // The generator's shadow makes this always-observed; the
-                // guard mirrors the serial executor's, so a shadow
-                // imprecision degrades to a skipped event on both sides
-                // of the comparison rather than an invalid `redact`.
+                // The generator's shadow emits a `Redact` only against a
+                // message its model says the peer holds, but the model
+                // forks an open session at `Open` while the live session
+                // forks after its preamble exchange, so a message that
+                // crossed (or failed to cross) a session in that gap can
+                // leave the shadow and the live peer disagreeing. Skip
+                // the event on both sides of the comparison rather than
+                // issue a `redact` the live peer could never have made.
                 let observed = peers[*peer].observations.iter().any(|(v, _)| v == version);
                 if observed {
                     peers[*peer].redact_one(version);
@@ -559,9 +578,14 @@ impl Knowledge {
     }
 }
 
-/// Build a valid overlap schedule by driving the shadow in lockstep with
-/// the emitted events, with each open session modeled by the fork-time
-/// snapshot its `Open` captured.
+/// Build an overlap schedule by driving the shadow in lockstep with the
+/// emitted events, with each open session modeled by the snapshot its
+/// `Open` captured.
+///
+/// The model forks at `Open`; the live session forks after its preamble
+/// exchange. The schedule is valid up to that imprecision: every emitted
+/// `Redact` names a message its peer holds in the model, and the executor
+/// guards the ones the live peer never observed.
 fn build_overlap_schedule<T: Clone>(
     n_peers: usize,
     fork_parents: Vec<usize>,
