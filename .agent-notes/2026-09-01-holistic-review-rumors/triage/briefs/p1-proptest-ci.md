@@ -1,3 +1,5 @@
+<!-- AMENDED under ruling T151 (2026-09-02): no helper lands. Wherever this brief says a `ProptestConfig` routes its count through a helper, read: the explicit `cases` field is removed and the config takes proptest's default, so `PROPTEST_CASES` reaches it as proptest already provides; a site whose count was raised or lowered for a stated reason is reported at removal. The committed check fails on any explicit `cases` in a `ProptestConfig`, scoped to rumors until `before/p1-proptest-cases` merges, then workspace-wide. Everything about the CI job, the release profile, and the measured number stands. -->
+
 <!-- CAVEAT LECTOR: written by Claude (Fable 5.1) for Finch as a lane brief derived from ruling T148 in ../rulings.md; not authored, audited, or endorsed by Finch. Read with the ground rules in ../../README.md. -->
 
 # P1 lane: fast proptest counts in the gate, many in CI under release

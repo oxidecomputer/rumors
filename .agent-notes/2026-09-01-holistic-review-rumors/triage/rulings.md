@@ -784,3 +784,8 @@ Home: lane `p1-causality`; the module doc states the invariant in those terms.
 Disposes: the tests-bookmark-11 clause moving `bootstrap_unbookmarked` onto the shared driver
 Decision: The clause rides with the lane that lands tests-bookmark-3 (the shared `bootstrap_fork` made generic over the bookmark type). That lane's acceptance gains one mechanical clause: `tests/bookmark_attach.rs` holds no local session driver afterward (`grep -n 'join!' tests/bookmark_attach.rs` empty, the helper driving through `common::wire`), and the ledger row for tests-bookmark-11 is complete only when that grep is empty on `main`.
 Home: the P5 tests lane carrying tests-bookmark-3; tests-bookmark-11 stays `fix` with this clause noted.
+
+## T151 (2026-09-02): No `ProptestConfig` sets `cases`; the environment is the only knob
+Disposes: the mechanism clause of T148 (amending it); the `before` triage's ruling 109 states the same for its crates
+Decision: No `ProptestConfig` anywhere in the workspace sets `cases`. Every suite takes proptest's default count and honors `PROPTEST_CASES` from the environment as proptest already does; no helper, no per-suite committed count. The committed check is the absence of an explicit `cases` in any `ProptestConfig`, workspace-wide; it lands in the rumors lane and is scoped to rumors until the `before` lane removing that crate's explicit sites merges, then widened. A site whose count had been raised or lowered for a stated reason is reported at removal, never silently defaulted. The rest of T148 stands: the gate runs at the default count; CI's test job runs under the release profile with `PROPTEST_CASES` set to a measured number Finch rules.
+Home: lane `p1-proptest-ci`, brief amended; `before/p1-proptest-cases` for the other crates.
