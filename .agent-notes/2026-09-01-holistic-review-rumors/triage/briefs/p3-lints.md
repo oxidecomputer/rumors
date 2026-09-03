@@ -1,3 +1,5 @@
+<!-- AMENDED under ruling T155 (2026-09-02): this lane gains one member beyond its roster rows: every `cargo` invocation in the justfile's gate and `ci` recipes takes `--locked`, and a committed check in the lint tier fails on any that lacks it (allow list: recipes that legitimately update the lock, named). Acceptance: `git grep -n 'cargo ' justfile` shows `--locked` on every invocation outside the allow list; the check's self-test; a negative control removing one flag fails the check by naming the recipe; and a demonstration that a lagging lock fails the gate by name (add a dev-dependency without updating the lock in a scratch tree; `just check` refuses). -->
+
 <!-- CAVEAT LECTOR: written by Claude (Fable 5.1) for Finch as a lane brief derived from rulings T47, T54, and T55 in ../rulings.md; not authored, audited, or endorsed by Finch. -->
 
 # P3 lane: the `[lints]` table, the allow layers, and the open-enum rule
