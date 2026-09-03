@@ -27,10 +27,15 @@ hash geometry never showed. Both are correctness-class until explained:
    31-byte prefix, every path memoized beforehand) within one process.
    The premise it breaks: under the closed-world poller with in-memory
    links, a session's schedule is a function of its input. The
-   streaming session holds no `HashMap` and every production
-   `tokio::select!` is `biased`, so those are not the source; candidates
-   are the `FuturesUnordered` in `streaming/tasks.rs` (its poll order
-   follows wake order) and anything ordered by an address.
+   streaming session holds no `HashMap`, so a map's iteration order is
+   not the source. The first candidate is `tokio::select!` without
+   `biased;`, whose branch order is randomized on every poll: the
+   session's own sites are `streaming/tasks.rs:26` (the race of the task
+   set against the terminal operation), `streaming/materialized.rs:840`,
+   and `peer/gossip.rs:966` (the driver's and the proxy work's `select!`
+   are biased). The second is the `FuturesUnordered` in
+   `streaming/tasks.rs`, whose poll order follows wake order. Anything
+   ordered by an address is the third.
 
 The invariant this lane restores or refutes, for each: the typed error
 reaches its endpoint under every geometry; the schedule is a function of
