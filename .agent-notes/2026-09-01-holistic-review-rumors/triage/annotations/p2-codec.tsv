@@ -1,4 +1,4 @@
-# Lane p2-codec, rulings T33 and T41. Line numbers are new-side lines of `git diff 70acb940...HEAD`.
+# Lane p2-codec, rulings T33 and T41. Line numbers are new-side lines of `git diff a6a79c39...HEAD`.
 # Entry ids: mirror-common-8 and remote-codec-14 (one clamp, T33); remote-codec-11 (T41).
 proptest-regressions/tree/mirror/framing/tests.txt	0	mirror-common-8	T33	Negative control. The seed the differential proptest wrote when it ran against the parent tree, before the clamp: it shrinks to an empty prefix in a buffer with two bytes of spare capacity and a two-byte read schedule, the smallest over-read there is (`read_payload` itself is exact because `Vec::new()` has no capacity; any caller-supplied capacity was enough). Committed as the brief requires; it replays before fresh generation from now on.
 src/tree/mirror/framing.rs	26	mirror-common-8	T33	The import the clamp needs: `BufMut::limit` on the `Vec<u8>` borrow. `bytes` is already a direct dependency.
