@@ -2,9 +2,11 @@
 
 # Triage landing status
 
-Updated: 2026-09-03 07:36 UTC by the before session.
+Updated: 2026-09-03 13:01 UTC by the rumors session.
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
+
+Note: every rumors subagent died at 07:30 UTC on an account-level credits 429; all were resumed at their last step at 13:00 UTC after Finch's login. Judge any report against its log, not its timestamp.
 
 ## At a glance
 
@@ -60,11 +62,11 @@ Maintained by the rumors session.
 | Lane | State | Note |
 |---|---|---|
 | p1-swarm, p1-conformance, p1-memwatch, p1-gate, p2-codec, p1-renderer, p1-harness-tests, p1-harness-crate, p2-walk, p1-causality | merged | see the queue's Merged section for shas and root files |
-| p2-link | in review | shape (d) at `398b77f2` verified in full (every pin, both controls, the harness poolless, `link.rs` untouched); the final read and the sush patch draft running; packet after; one stop (the bound's wording) |
+| p2-link | in review | shape (d) at `398b77f2` verified in full; the round-3 read found one design defect (the pool probe misreads tokio's spent cooperative budget as idle), one coverage hole, a ghost sentence; sent as round 4; verification, a light final read, then the packet |
 | p2-commit-path | packet ready | packet `14d0d5fb` on `triage/p2-commit-path` (code tip `5a4559e1`, base `1336daa0`, lane diff identical across the rebase); every acceptance and control run by the verifier; three fresh-eyes rounds; T166 landed; no open stop; commits unsigned by the lock protocol, re-signed at merge |
 | p1-proptest-ci | in review | landed at `a34859ed` (sweep, caselint, release recipe and nextest profile, meter excluded, T157 rewrite); gate clean; the CI number is a stop (recommendation 4000 after p1-generators); verification and packet after p1-generators lands, since the number is set on that tree |
 | p2-vanish-liveness | in review | round 1 landed at `e3c5f986` (the watch keeps every control byte and reads on; deadline aborts; the floor measured against the donor too), gate clean; `e3c5f986` verified; fresh-eyes round 2 found one behavioral regression (a delivered stream dropped mid-label under the departure race) and gaps, sent as repairs; packet after; seven stops in the meta, the precedence rule the one that matters |
-| p1-collision-mode | in review | `71d7a498` under its third verification; the final read (no bugs; a census floor made a fraction of the run's count; the self-check judged by the search's own simulation; prose) sent as the last round; packet after; its `wasm` stream red on before's fuel band until before's refit merges |
+| p1-collision-mode | in review | `71d7a498` verified in a third pass (all ten items hold; the recipe fails exactly the lane's three); the final legibility round is with the lane; packet after; its `wasm` stream red on before's fuel band until before's refit merges |
 | p2-deep-geometry | packet ready | packet `f74324a7` on `triage/p2-deep-geometry` (code tip `7e7bae71`, base `7858b35e`, stacked on the collision branch; merges after it); three fresh-eyes rounds, every item verified; its gate runs under the mutex and the verdict is appended when it lands; stops: the shared predicate at integration with vanish-liveness, the conformance floor under the schedule, the residual precedence window, the duplicated-reply stall queued |
 | p1-generators | in review | `9903be30` verified so far (552 passed under zero budgets; checks clean); fresh-eyes round 1 found committed seeds decoupled from their counterexamples and a lint-roots regression, sent as repairs; packet after; its last commit merges after `before/p2-generators` |
 | p1-envelope | in review | `147993bd` verified in full (oracle independent of the shipped code; both tests fail on lowered tail constants; the deletion complete; the derivation tests hold 8,103 and 8,180 B); fresh-eyes round 1 (no bugs) sent a per-scale sweep of the 8 KB figure, a string pin of the doc's figures, the lone-message cell, and prose as repairs; packet after; stops: the `src/lib.rs` sentence and the figure's set size, both Finch's |
