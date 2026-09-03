@@ -54,8 +54,10 @@ Each entry: where it came from, what it is, which lane's brief carries it
   since committing them reads `just fuzzfit` red until the band is
   refit. Route: `p1-fuzz` (ruling 14's calibration: the family joins the
   vocabulary, the law is refit, the seeds land with the refit in one
-  series). The gate lane's mechanism report on `bytes` is still owed and
-  is read against this.
+  series). The gate lane's replay settled the dependency question: one fuel
+  unit between bytes 1.11.1 and 1.12.1 on the shrunk program; the
+  gate lane committed that seed (its wasm stream reads red until the
+  refit); the generators lane's two seed files join it in `p1-fuzz`.
 - **Two `before` proptests exceed nextest's 180 s limit at 4000 cases**
   (`version_triple_laws`, `ranked_composite_bit_flip_rejects_or_decodes_canonically`);
   not rejections. Route: `p1-suites` (a per-case cost question: the

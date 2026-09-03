@@ -69,13 +69,13 @@ that matters lives only in a transcript.
 
 ## Morning brief for Finch
 
-(rewritten as the night proceeds: packets ready in merge order; stops as
-a numbered block with recommendations; findings routed; judgment calls
-flagged)
+(rewritten as the night proceeds)
 
 - Packets ready, in merge order: `p2-widths`, `p2-surface` (one stop:
   the `fuelscape.js` caption), `p2-generators` (any order).
 - Stops: none new yet.
+- Finding settled (for your question "what would have changed it?"): the fuzzfit breach is the `ff_party_decode` band's law, not bytes; the dependency moved the kernel by one fuel unit under replay. The gate lane's wasm stream reads red on its branch by the committed seed until `p1-fuzz` refits the band; the upward convergence of the locks stands under ruling 114's coda.
+- Watch item: the gate lane's audit stream failed with a `cargo deny` diagnostic after the upward moves; the lane is diagnosing (last updated 2026-09-03 04:15 UTC).
 
 ## What to read first
 
@@ -99,7 +99,7 @@ Worktrees under `/Users/oxide/src/before-<lane>`, branches `before/<lane>`, all 
 | Lane | Branch tip | Agent state | Awaiting | Next |
 |---|---|---|---|---|
 | p1-board | `2fe750ac` (base main, launched 2026-09-03 03:55 UTC) | running (launch message sent) | its report | acceptance re-runs, fresh-eyes round 1, repairs, gate, packet |
-| p1-gate | see above | parked on its final verification chain (a background wait is armed in this session; after a compaction, re-arm per the recovery procedure) | its final report: upward convergence, four legs, one gate, the bytes mechanism | rebase, second fresh-eyes round, coordinator gate, packet |
+| p1-gate | `fdd47747` (24 commits on main; the upward convergence landed: root bytes 1.12.1 and the rest newest; the seed committed at 47544320) | woken with the chain's verdict; diagnosing the audit stream's `cargo deny` exit 2 (a root-lock diagnostic at line 151 after the upward moves), then its full report | its report | rebase, second fresh-eyes round, coordinator gate (wasm red by the committed seed until p1-fuzz refits the band; audit must be green), packet |
 | p1-fuzz | not created | not launched | the gate lane's final tip (stacks on it) | worktree from that tip; launch with the brief plus the handoffs in its brief and the band refit (new-findings.md) |
 | p1-survivors | not created | not launched | the gate lane's final tip (stacks on it) | worktree from that tip; launch |
 | p2-widths, p2-surface, p2-generators | packets ready | done | Finch's word | merge in the morning |
@@ -113,7 +113,7 @@ Worktrees under `/Users/oxide/src/before-<lane>`, branches `before/<lane>`, all 
 
 ## Open questions and stops for Finch
 
-- The mechanism behind the fuel movement (`bytes` 1.11.1 vs 1.12.1 on the party decode path): owed by the gate lane's report, and read against the generators lane's finding that the `ff_party_decode` band breaches on main's own tree at 4000 cases (the band, not the dependency, is the root cause; the dependency shifted the constant).
+- The fuel movement is settled: the gate lane replayed the shrunk program under bytes 1.11.1 (13603 to 13743 fuel) and 1.12.1 (13602 to 13742); the dependency moves the kernel by one fuel unit, and the shape (a chain of forks from a common root with sparse ticks, a 136-bit party id) is out of band. Root cause: the `ff_party_decode` band's law does not hold for that family; the refit is `p1-fuzz`'s calibration (ruling 14), with the seeds from both lanes. Ruling 114's upward convergence stands on its own merits (Finch's general rule), not as the fix.
 - `fuelscape.js`'s x-axis caption under ruling 110 (the surface packet's stop).
 - Twenty-two unsigned note-only commits on `main` ahead of `origin/main` (both sessions', signing outages); a re-signing rewrite of `main` before any push, announced in the queue with the other session paused.
 - gate-legs-1 (ruling 24's coverage reproduction) waits for CI's next red (ruling 112).
