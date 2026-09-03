@@ -2,7 +2,7 @@
 
 # Triage landing status
 
-Updated: 2026-09-03 02:56 UTC by the before session (rumors-74).
+Updated: 2026-09-03 02:58 UTC by the before session (rumors-74).
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
 
@@ -32,7 +32,7 @@ Lanes run in the order `triage/briefs/README.md` gives; every lane builds and ga
 | p1-proptest-cases | merged | `e27ba5e6` (ruling 109) |
 | p1-harness | merged | `5b0a17d4` (rulings 4, 38, 50, 51, 108); the meter suite's one harness |
 | p1-gate | in review | nine commits on main; first review round's repairs landing (the lock check walks versioned edges; untracked locks enumerated; prose); the box now syncs as a checkout (ruling 112) so its audit leg runs there; then a second review and its packet |
-| p2-widths | in review | two repair rounds landed (39 commits), stacked on the merged harness; the two memo-row re-pins landing; then a second fresh-eyes round and its packet |
+| p2-widths | in review | complete (41 commits, gate green but for the fuzz leg); second fresh-eyes round reading and the coordinator's acceptance run; packet next |
 | p2-surface | in review | repair round landing (rulings 40, 42, 44, 46, 47, 48, 49, 98, 110); registry step held for a second launch after p1-suites; next: second fresh-eyes round, packet |
 | p1-fuzz | not started | stacks on p1-gate when it lands |
 | p1-survivors | not started | stacks on p1-gate after the roster retirement |
