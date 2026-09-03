@@ -5,6 +5,7 @@
 //! [`fixtures`].
 
 use std::{
+    cell::Cell,
     convert::Infallible,
     future::{self, Future},
     pin::pin,
@@ -14,7 +15,7 @@ use std::{
 use proptest::prelude::*;
 
 use super::driver::try_join_mapped;
-use crate::testing::{Quiescence, node_census, run_to_quiescence};
+use crate::testing::{Quiescence, node_census, node_census_reset, run_to_quiescence};
 use crate::tree::arb::{
     arb_divergent_pair, arb_tree_root, leaf_parent_dispute_pair, leaf_parent_redaction_pair,
     uncontained_supply_pair,
@@ -253,8 +254,9 @@ impl Outcome {
     }
 }
 
-/// A `Local` endpoint at the floor window, for the sites that wrap one in a
-/// fault or failure decorator before driving it.
+/// A `Local` endpoint at the floor window, for the sites that hold the
+/// undriven session: the ones that wrap it in a fault or failure decorator,
+/// and the ones that poll it themselves.
 fn floor_start(root: Root) -> Handshaking<Local, Start> {
     Handshaking::start(Local, root.into()).window(WindowConfig::FLOOR)
 }
@@ -371,6 +373,84 @@ fn cancel_after<F: Future>(future: F, polls: usize) -> Option<F::Output> {
     None
 }
 
+/// The polls a session between `a` and `b` takes to complete under the
+/// same polling `cancel_after` applies: the length every drawn
+/// cancellation point stays below.
+fn session_length(a: Root, b: Root) -> usize {
+    const MAX_POLLS: usize = 1_000_000;
+    let mut session = pin!(tokio::task::coop::unconstrained(drive_streaming(
+        floor_start(a),
+        floor_start(b),
+    )));
+    let mut cx = Context::from_waker(Waker::noop());
+    (1..=MAX_POLLS)
+        .find(|_| session.as_mut().poll(&mut cx).is_ready())
+        .expect("a local session completes within the poll budget")
+}
+
+/// A generated pair with its measured session length and a cancellation
+/// point drawn strictly before it, so every case cancels mid-session.
+fn arb_cancellation() -> impl Strategy<Value = ((Root, Root), usize, usize)> {
+    arb_oracle_pair().prop_flat_map(|(a, b)| {
+        let length = session_length(a.clone(), b.clone());
+        (Just((a, b)), Just(length), 1..length.max(2))
+    })
+}
+
+/// Cancelling a session at a drawn poll before its measured completion
+/// leaves nothing behind.
+///
+/// Every node handle the session built is released (the census returns
+/// to its baseline), and a fresh session over the same inputs reaches the
+/// join oracle.
+/// The poll count is drawn in `1..length`, `length` being the session's
+/// measured poll count, so every case with a session longer than one poll
+/// cancels; the run asserts that some case cancelled after the walk had
+/// built node handles, which is where a cancellation could leak.
+#[test]
+fn cancelled_session_leaves_no_residue() {
+    let mut runner = proptest::test_runner::TestRunner::new(ProptestConfig {
+        source_file: Some(file!()),
+        ..ProptestConfig::default()
+    });
+    let cancelled_after_building = Cell::new(0usize);
+    let cases = runner.run(&arb_cancellation(), |((a, b), length, polls)| {
+        let expected = join_oracle(a.clone(), b.clone());
+        let baseline = node_census().live;
+        let session = drive_streaming(floor_start(a.clone()), floor_start(b.clone()));
+        node_census_reset();
+        let before_polling = node_census().live;
+        let completed = cancel_after(session, polls);
+        let cancelled = completed.is_none();
+        drop(completed);
+        let census = node_census();
+        prop_assert_eq!(
+            cancelled,
+            polls < length,
+            "the measured session length is not reproducible"
+        );
+        prop_assert_eq!(
+            census.live,
+            baseline,
+            "a cancelled session must release every node handle it built"
+        );
+        if cancelled && census.peak > before_polling {
+            cancelled_after_building.set(cancelled_after_building.get() + 1);
+        }
+        let (ours, theirs) = streaming_mirror_sides(a, b);
+        prop_assert_eq!(&ours, &expected);
+        prop_assert_eq!(&theirs, &expected);
+        Ok(())
+    });
+    if let Err(failure) = cases {
+        panic!("{failure}\n{runner}");
+    }
+    assert!(
+        cancelled_after_building.get() > 0,
+        "no case cancelled a session after it had built node handles: the pin exercised nothing"
+    );
+}
+
 /// A dispute that survives to leaf-parent height — both sides hold the same
 /// `S<Z>` prefix with different leaf sets — converges to the union.
 ///
@@ -452,10 +532,12 @@ proptest! {
     /// Across every generated causal relationship, both wire endpoints
     /// converge to exactly `Tree::join` of the two inputs. This ties the
     /// wire reconciliation to the in-memory merge the convergence suites
-    /// are stated over: join and mirror delegate deletion honoring to the
-    /// same filter, so any divergence here is a protocol bug. The wide arm
-    /// runs the pipeline window's real behavior, and each session reports
-    /// the width it was granted so the arm cannot silently run at the floor.
+    /// are stated over: join prunes through `traverse::unknown` and the
+    /// session through `materialized::unknown`, two implementations of one
+    /// deletion-honoring contract, so a divergence here is a bug in one of
+    /// them. The wide arm runs the pipeline window's real behavior, and
+    /// each session reports the width it was granted so the arm cannot
+    /// silently run at the floor.
     #[test]
     fn streaming_matches_join_oracle((a, b) in arb_oracle_pair(), wide in any::<bool>()) {
         let expected = join_oracle(a.clone(), b.clone());
@@ -477,27 +559,4 @@ proptest! {
         }
     }
 
-    /// Cancelling a session at any poll leaves nothing behind: both inputs
-    /// are untouched, every node handle the session built is released, and
-    /// a fresh session over the same inputs still reaches the join oracle.
-    #[test]
-    fn cancelled_session_leaves_no_residue((a, b) in arb_oracle_pair(), polls in 0usize..=256) {
-        let expected = join_oracle(a.clone(), b.clone());
-        let before = (a.clone(), b.clone());
-        let live = node_census().live;
-        let completed = cancel_after(
-            drive_streaming(floor_start(a.clone()), floor_start(b.clone())),
-            polls,
-        );
-        drop(completed);
-        prop_assert_eq!(
-            node_census().live,
-            live,
-            "a cancelled session must release every node handle it built",
-        );
-        prop_assert_eq!(&(a.clone(), b.clone()), &before);
-        let (ours, theirs) = streaming_mirror_sides(a, b);
-        prop_assert_eq!(&ours, &expected);
-        prop_assert_eq!(&theirs, &expected);
-    }
 }
