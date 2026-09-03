@@ -6,22 +6,44 @@ Usage:
     testdoc --self-test
 
 The checker is deliberately lexical. Rust test entry points advertise
-themselves with an attribute, so recognizing those attributes and the item
-preamble is both faster and less brittle than depending on a Rust parser.
+themselves in two forms this tool recognizes without a Rust parser: a
+test attribute (`#[test]`, any attribute path ending in `::test` such as
+`#[tokio::test]` or `#[pollster::test]`, `#[rstest]`, `#[test_case]`),
+and a function declared directly inside a `proptest! { .. }` block, which
+the macro turns into a test whether or not the author wrote `#[test]`
+above it. Recognizing those forms and the item preamble is both faster
+and less brittle than depending on a Rust parser.
+
+Directories named in `IGNORED_DIRECTORIES` are never descended into, under
+any root: build output and vendored trees are not this repository's tests,
+and `.claude` may hold other agents' worktrees, whose uncommitted state
+must not move this tree's verdict. The gate names its roots explicitly
+(the same roots as doclint) as the first guard; the ignore set is the
+second, for a root that grows an ignored subtree.
 """
 
 import os
 import re
 import sys
+import tempfile
 from pathlib import Path
 
 
-IGNORED_DIRECTORIES = {".git", "node_modules", "target"}
+IGNORED_DIRECTORIES = {".git", ".claude", "node_modules", "target"}
 TEST_ATTRIBUTE = re.compile(
-    r"^\s*#\[\s*(?:test|tokio::test|async_std::test|rstest|test_case)"
+    r"^\s*#\[\s*(?:(?:[A-Za-z_][A-Za-z0-9_]*::)*test|rstest|test_case)"
     r"\s*(?:\([^]]*\))?\s*\]\s*$"
 )
+# The block form's opener; the closure form `proptest!(|..| { .. })` sits
+# inside a function body and declares no test of its own.
+PROPTEST_BLOCK = re.compile(r"^\s*(?:[A-Za-z_][A-Za-z0-9_]*::)*proptest!\s*\{")
 FUNCTION = re.compile(r"\b(?:async\s+)?fn\s+([A-Za-z_][A-Za-z0-9_]*)")
+FUNCTION_DECL = re.compile(
+    r"^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([A-Za-z_][A-Za-z0-9_]*)"
+)
+CHAR_LITERAL = re.compile(r"'(?:[^'\\]|\\.)'")
+STRING_LITERAL = re.compile(r'"(?:[^"\\]|\\.)*"')
+LINE_COMMENT = re.compile(r"//.*$")
 
 
 def is_outer_doc(line):
@@ -30,9 +52,13 @@ def is_outer_doc(line):
     return stripped.startswith("///") and not stripped.startswith("////")
 
 
-def has_attached_doc(lines, attribute):
-    """Whether the attribute block containing `attribute` is led by `///`."""
-    line = attribute - 1
+def has_attached_doc(lines, item):
+    """Whether the attribute block ending at line `item` is led by `///`.
+
+    `item` may be an attribute line or the function line itself: the walk
+    upward skips attributes and ordinary comments either way.
+    """
+    line = item - 1
     while line >= 0:
         stripped = lines[line].strip()
         if is_outer_doc(lines[line]):
@@ -47,24 +73,68 @@ def has_attached_doc(lines, attribute):
     return False
 
 
-def test_name(lines, attribute):
-    """Find the function named by a test attribute for a useful diagnostic."""
-    for line in lines[attribute : attribute + 16]:
+def function_after(lines, attribute):
+    """The `(line_index, name)` of the function a test attribute names.
+
+    Returns `(None, "<unknown>")` when no function follows within the item
+    preamble, so the diagnostic still names the attribute's line.
+    """
+    for offset, line in enumerate(lines[attribute : attribute + 16]):
         match = FUNCTION.search(line)
         if match:
-            return match.group(1)
-    return "<unknown>"
+            return attribute + offset, match.group(1)
+    return None, "<unknown>"
+
+
+def brace_delta(line):
+    """Net `{` minus `}` on a line, with literals and line comments removed.
+
+    Lexical, like the rest of the tool: a brace inside a block comment or a
+    raw string still counts. The self-test pins the forms the tree uses.
+    """
+    code = CHAR_LITERAL.sub("", line)
+    code = STRING_LITERAL.sub("", code)
+    code = LINE_COMMENT.sub("", code)
+    return code.count("{") - code.count("}")
 
 
 def missing_test_docs(lines):
-    """Yield `(line_number, test_name)` for undocumented test attributes."""
+    """Yield `(line_number, test_name)` for undocumented test entry points.
+
+    A function is reported at most once, whichever form announced it: a
+    `proptest!` block function carrying an explicit `#[test]` is found by
+    both scans and reported by the first.
+    """
+    reported = set()
+    # Brace depth inside the enclosing `proptest!` block; 0 outside one. A
+    # function declared at depth 1 is the block's direct child, and so a test.
+    depth = 0
     for index, line in enumerate(lines):
-        if TEST_ATTRIBUTE.match(line) and not has_attached_doc(lines, index):
-            yield index + 1, test_name(lines, index)
+        if TEST_ATTRIBUTE.match(line):
+            function, name = function_after(lines, index)
+            key = index if function is None else function
+            if key not in reported and not has_attached_doc(lines, index):
+                reported.add(key)
+                yield index + 1, name
+            continue
+        if depth == 0:
+            if PROPTEST_BLOCK.match(line):
+                depth = brace_delta(line)
+            continue
+        if depth == 1:
+            declaration = FUNCTION_DECL.match(line)
+            if (
+                declaration
+                and index not in reported
+                and not has_attached_doc(lines, index)
+            ):
+                reported.add(index)
+                yield index + 1, declaration.group(1)
+        depth += brace_delta(line)
 
 
 def rust_files(root):
-    """Yield repository source files without descending into generated trees."""
+    """Yield repository source files without descending into ignored trees."""
     if root.is_file():
         if root.suffix == ".rs":
             yield root
@@ -79,7 +149,7 @@ def rust_files(root):
 
 
 def self_test():
-    """Pin the lexical forms the gate relies on."""
+    """Pin the lexical forms the gate relies on, and the directory walk."""
     cases = [
         ("/// significance\n#[test]\nfn documented() {}", []),
         ("#[test]\nfn missing() {}", [(1, "missing")]),
@@ -97,14 +167,87 @@ def self_test():
             "async fn asynchronous() {}",
             [],
         ),
+        ("/// significance\n#[pollster::test]\nasync fn blocking() {}", []),
+        ("#[pollster::test]\nasync fn blocking() {}", [(1, "blocking")]),
+        ("#[async_std::test]\nasync fn other_runtime() {}", [(1, "other_runtime")]),
+        ("#[rstest]\nfn fixtures() {}", [(1, "fixtures")]),
         ("// ordinary comment\n#[test]\nfn ordinary() {}", [(2, "ordinary")]),
         ("//! module docs\n#[test]\nfn module_only() {}", [(2, "module_only")]),
         ("//// separator\n#[test]\nfn separator() {}", [(2, "separator")]),
+        # The `proptest!` block form: each direct-child `fn` is a test, with
+        # or without an explicit `#[test]`.
+        (
+            "proptest! {\n    fn property(x in 0..1u8) {\n        assert!(x < 2);\n"
+            "    }\n}",
+            [(2, "property")],
+        ),
+        (
+            "proptest! {\n    /// significance\n    fn property(x in 0..1u8) {}\n}",
+            [],
+        ),
+        (
+            "proptest! {\n    /// significance\n    #[test]\n"
+            "    fn property(x in 0..1u8) {}\n}",
+            [],
+        ),
+        # An explicit `#[test]` on an undocumented block function is one
+        # finding, not two.
+        (
+            "proptest! {\n    #[test]\n    fn property(x in 0..1u8) {}\n}",
+            [(2, "property")],
+        ),
+        # A block-level `#![proptest_config(..)]`, its braces split across
+        # lines, does not hide the functions after it.
+        (
+            "proptest! {\n    #![proptest_config(ProptestConfig {\n"
+            "        cases: 8,\n        ..ProptestConfig::default()\n    })]\n"
+            "    fn configured(x in 0..1u8) {}\n}",
+            [(6, "configured")],
+        ),
+        # Braces inside string and char literals and line comments do not
+        # move the depth: the second function is still the block's child.
+        (
+            "proptest! {\n    /// significance\n    fn first(x in 0..1u8) {\n"
+            "        let _ = \"{\"; let _ = '}'; // {\n    }\n"
+            "    fn second(y in 0..1u8) {}\n}",
+            [(6, "second")],
+        ),
+        # A function nested inside a block function's body is not a test.
+        (
+            "proptest! {\n    /// significance\n    fn outer(x in 0..1u8) {\n"
+            "        fn helper() {}\n    }\n}",
+            [],
+        ),
+        # The closure form declares no test.
+        ("fn body() {\n    proptest!(|(x in 0..1u8)| {\n        assert!(x < 2);\n    });\n}", []),
     ]
     for source, expected in cases:
         actual = list(missing_test_docs(source.splitlines()))
         if actual != expected:
             raise AssertionError(f"expected {expected}, got {actual} for:\n{source}")
+
+    # The walk: an explicitly named root is scanned; the ignored directory
+    # names are pruned wherever they appear beneath it.
+    with tempfile.TemporaryDirectory() as scratch:
+        root = Path(scratch)
+        expected = [root / "src" / "kept.rs", root / "src" / "nested" / "kept.rs"]
+        pruned = [
+            root / ".claude" / "worktrees" / "agent" / "src" / "pruned.rs",
+            root / "target" / "debug" / "pruned.rs",
+            root / "src" / "target" / "pruned.rs",
+            root / "src" / ".git" / "pruned.rs",
+            root / "src" / "node_modules" / "pruned.rs",
+            root / "src" / "not_rust.txt",
+        ]
+        for path in expected + pruned:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("#[test]\nfn undocumented() {}\n", encoding="utf-8")
+        walked = sorted(rust_files(root))
+        if walked != sorted(expected):
+            raise AssertionError(f"expected {sorted(expected)}, walked {walked}")
+        # A file named directly is scanned regardless of its directory.
+        if list(rust_files(pruned[0])) != [pruned[0]]:
+            raise AssertionError(f"explicit file {pruned[0]} was not yielded")
 
 
 def main(argv):

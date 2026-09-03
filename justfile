@@ -174,10 +174,15 @@ doclint:
     ./tools/doclint --self-test
     ./tools/doclint benches crates examples src tests
 
+# tools/testdoc walks the same explicit roots as doclint, never `.`: the
+# repository root can hold untracked trees (other agents' worktrees under
+# `.claude/`), and a walk from `.` would make this verdict a function of
+# their uncommitted state. The tool's own ignore set is the second guard.
+
 # Require every Rust test to document the behavior and invariant it protects.
 testdoc:
     ./tools/testdoc --self-test
-    ./tools/testdoc .
+    ./tools/testdoc benches crates examples src tests
 
 # No other gate leg polices what the CI workflows themselves execute:
 # tools/workflowlint holds every workflow step to committed or
