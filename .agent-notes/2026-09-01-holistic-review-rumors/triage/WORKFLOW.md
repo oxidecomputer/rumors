@@ -283,7 +283,11 @@ either rebases or passes `RUSTFLAGS="-A clippy::missing_const_for_thread_local"`
 in the remote command for that one run. `just ci` cannot complete on
 the box (no `node`, no `wasm-pack`; it stops at `fuelscape-claims`), so
 `ci` is GitHub's to run and a lane that must exercise a recipe `ci`
-reaches and the gate does not runs that recipe alone on the box. Two legs that
+reaches and the gate does not runs that recipe alone on the box. A gate leg that fails only by nextest's 180 s per-test
+limit under box load (`bounded_corpus_manifest_snapshot` runs in 2 s
+quiet and past 170 s at a load near 200) is rerun alone when the load
+is down, and the rerun's verdict joins the gate's; a lane waits for the
+load rather than launching a second whole gate. Two legs that
 pin toolchain-derived numbers may fire on the box if its toolchains
 differ from the pinned ones; a lane reports such a leg with both numbers
 rather than re-pinning anything. `tools/memwatch` is deleted by the
