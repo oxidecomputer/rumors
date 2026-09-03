@@ -23,7 +23,12 @@ plans share the workspace, and where its lanes build.
 - Annotations: `annotations/<lane>.tsv`, written by the lane agent in its
   worktree, one row per changed region, committed with the lane.
 - Packets: `reviews/<lane>.md`, built by the coordinator, committed on the
-  lane branch, read by Finch in Zed, answered with `>> finch:` lines.
+  lane branch, answered by Finch with `>> finch:` lines in the Markdown.
+  For reading, the coordinator renders the packet to HTML with pandoc
+  (`pandoc -s -f gfm -t html5 -H <stylesheet> --metadata title=...`), the
+  stylesheet being the one the rumors session's packets use (annotation
+  blocks as amber quotes, diff lines colored), and opens it in the
+  browser; the Markdown on the branch stays the record.
 
 ## Names
 
