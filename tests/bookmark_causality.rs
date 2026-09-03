@@ -27,6 +27,19 @@
 //! incomparable, never `<=`). The id-region need not enter the comparison at all
 //! — it would only rule out collisions the version order already forbids.
 //!
+//! A recycle is also checked by its consequence. A rebooted peer that
+//! re-owns a region below a frontier some replica durably holds emits
+//! versions the causal sieve reads as *already seen and deleted* wherever
+//! the message they collide with is held, and the fleet converges without
+//! it. Such an emission compares `Greater` or incomparable to the message it
+//! destroys whenever the reclaimer's frontier carries any other region's
+//! progress, so the version order alone cannot see it. The [`World`] keeps a
+//! per-network ledger of every redaction, and after the heal every message
+//! that was live at some live peer of the winning network at heal start and
+//! never redacted must be live at every peer: under a correct bookmark a
+//! frontier dominates a durable emission only by having merged it or a
+//! redacter's frontier.
+//!
 //! Durability is the load-bearing qualifier. A plain `send` neither persists
 //! (only sessions do) nor propagates, so a local emission lost to a crash before
 //! it is ever persisted *or* reaches another peer was never known to the
@@ -344,6 +357,21 @@ struct World {
     /// The path this world took through every place a network identifier
     /// decides the outcome, which a reconstructed counterexample pins.
     path: Vec<PathEvent>,
+    /// Every redaction, by the network it was performed in: the messages the
+    /// heal may legitimately end without.
+    redacted: BTreeMap<Network, Vec<Redacted>>,
+    /// The winning network's live content when the heal began, and the
+    /// network itself: what [`assert_healed`](World::assert_healed) holds the
+    /// converged fleet to, less the ledger. `None` until a heal has run.
+    heal_start: Option<(Network, BTreeSet<u64>)>,
+}
+
+/// One redaction as the harness performed it: the message's id and the
+/// version the application handed to `redact`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Redacted {
+    seq: u64,
+    version: Version,
 }
 
 /// One step of the path a plan takes through the places where a universe's
@@ -373,6 +401,8 @@ impl World {
             rng: SmallRng::seed_from_u64(NETWORK_SEED),
             networks: BTreeSet::new(),
             path: Vec::new(),
+            redacted: BTreeMap::new(),
+            heal_start: None,
         }
     }
 
@@ -476,6 +506,25 @@ impl World {
         self.nodes.len()
     }
 
+    /// Whether live node `who` holds the message `seq`.
+    fn holds(&self, who: usize, seq: u64) -> bool {
+        self.nodes[who]
+            .live()
+            .is_some_and(|rumors| rumors.snapshot().iter().any(|(_, value)| *value == seq))
+    }
+
+    /// The version stamped on message `seq` at live node `who`.
+    fn leaf_version(&self, who: usize, seq: u64) -> Version {
+        self.nodes[who]
+            .live()
+            .expect("a live node")
+            .snapshot()
+            .iter()
+            .find(|(_, value)| **value == seq)
+            .map(|(version, _)| version.clone())
+            .expect("the node holds the message")
+    }
+
     /// Whether some peer *other than* `who` is live in `who`'s network: a peer
     /// `who` could reboot from.
     ///
@@ -537,19 +586,33 @@ impl World {
         });
     }
 
-    /// Redact one of `who`'s live messages, indexed mod the live count. Pure
-    /// adversarial pressure: it advances the clock without a tracked emission.
+    /// Redact one of `who`'s live messages, indexed mod the live count, and
+    /// record it in the network's ledger.
+    ///
+    /// Adversarial pressure for the version order (it advances the clock
+    /// without a tracked emission), and the one legitimate way a message
+    /// leaves the fleet, which the post-heal survival check must not count
+    /// as destruction.
     fn redact(&mut self, who: usize, which: usize) {
         self.revive(who);
         let Some(rumors) = self.nodes[who].live() else {
             return;
         };
+        let network = rumors.network();
         let snapshot = rumors.snapshot();
-        let versions: Vec<Version> = snapshot.iter().map(|(v, _)| v.clone()).collect();
-        if versions.is_empty() {
+        let leaves: Vec<(Version, u64)> = snapshot
+            .iter()
+            .map(|(version, value)| (version.clone(), *value))
+            .collect();
+        if leaves.is_empty() {
             return;
         }
-        rumors.redact(&versions[which % versions.len()]);
+        let (version, seq) = leaves[which % leaves.len()].clone();
+        rumors.redact(&version);
+        self.redacted
+            .entry(network)
+            .or_default()
+            .push(Redacted { seq, version });
     }
 
     /// Promote every pending emission of `who` that has become **known to the
@@ -956,6 +1019,22 @@ impl World {
             .max_by_key(|&k| self.tuple(k))
             .expect("a non-empty fleet");
         let winning_network = self.nodes[winner].network;
+        // What the winning network holds as the heal begins: every message
+        // live at any of its live members. The other networks' content is
+        // discarded by the collapse below, so only the winner's is held to
+        // survive.
+        let live_at_start: BTreeSet<u64> = (0..self.n())
+            .filter(|&k| self.nodes[k].network == winning_network)
+            .filter_map(|k| self.nodes[k].live())
+            .flat_map(|rumors| {
+                rumors
+                    .snapshot()
+                    .iter()
+                    .map(|(_, value)| *value)
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        self.heal_start = Some((winning_network, live_at_start));
         for who in 0..self.n() {
             if who != winner && self.nodes[who].network != winning_network {
                 assert!(
@@ -1024,8 +1103,9 @@ impl World {
             .collect()
     }
 
-    /// After a clean heal: every live peer holds identical content (equal hash
-    /// and frontier), and their live parties are pairwise disjoint.
+    /// After a clean heal: every live peer holds identical content, their live
+    /// parties are pairwise disjoint, and every unredacted message the winning
+    /// network held at heal start is live at every peer.
     fn assert_healed(&self) {
         let live: Vec<usize> = (0..self.n()).filter(|&k| self.nodes[k].is_live()).collect();
 
@@ -1064,6 +1144,53 @@ impl World {
         }
 
         self.assert_live_content_is_durable(&live);
+        self.assert_durable_content_survived(&live);
+    }
+
+    /// Every message live at some live peer of the winning network when the
+    /// heal began, and never redacted in that network, is live at every peer
+    /// after it.
+    ///
+    /// This is the recycle check by consequence: a rebooted peer re-owning a
+    /// region below a frontier a replica durably holds emits versions the
+    /// causal sieve reads as already deleted wherever the colliding message
+    /// is held, and the fleet converges without it. Its emissions compare
+    /// `Greater` or incomparable to what they destroy whenever the reclaimer
+    /// carries any other region's progress, which the version order in
+    /// [`EmissionLog::promote`] cannot see. Under a correct bookmark a
+    /// frontier dominates a durable emission only by having merged it or a
+    /// redacter's frontier, so the only legitimate losses are the ledger's.
+    fn assert_durable_content_survived(&self, live: &[usize]) {
+        let (network, live_at_start) = self
+            .heal_start
+            .as_ref()
+            .expect("assert_healed runs after a heal");
+        let redacted: BTreeSet<u64> = self
+            .redacted
+            .get(network)
+            .map(|entries| entries.iter().map(|entry| entry.seq).collect())
+            .unwrap_or_default();
+        for &k in live {
+            let held: BTreeSet<u64> = self.nodes[k]
+                .live()
+                .unwrap()
+                .snapshot()
+                .iter()
+                .map(|(_, value)| *value)
+                .collect();
+            let destroyed: Vec<u64> = live_at_start
+                .iter()
+                .filter(|seq| !redacted.contains(seq) && !held.contains(seq))
+                .copied()
+                .collect();
+            assert!(
+                destroyed.is_empty(),
+                "messages {destroyed:?} were live in network {network:?} when the heal began \
+                 and never redacted there, but node {k} does not hold them after it: a \
+                 rebooted peer re-issued versions below a frontier the fleet durably held, \
+                 and the causal sieve read them as deletions",
+            );
+        }
     }
 
     /// Verify the recycle assertion is not passing vacuously: after the
@@ -1490,6 +1617,86 @@ fn negative_control_classifier_rejects_codec_bugs() {
     }
 }
 
+/// The recycle that destroys content, as a fixed plan: a message made
+/// durable by propagation must survive a crash of its emitter, a rejoin
+/// from a peer that never saw it, and the emitter's reclaim and later sends.
+///
+/// Nodes A, B, C share one network. A sends `m` and gossips it to B, so
+/// `m` is durable and B holds it. C sends three times without ever meeting
+/// `m`. A crashes and is revived from C (the lowest-index live member),
+/// gossips with C so its bookmark update runs, and sends again. A correct
+/// bookmark reclaims A's old region only once C's frontier dominates the
+/// recorded version, which carries `m`'s tick, so A' stays on a fresh
+/// region and `m` survives the heal everywhere. A bookmark that re-admits
+/// every stored region on reboot has A' re-issue coordinates below `m`'s,
+/// compared `Greater` to `m`'s full version because A' carries C's three
+/// ticks, and the heal's sieve then deletes `m` fleet-wide: the shape the
+/// survival check exists to catch and the version order cannot.
+#[test]
+fn reconstructed_reclaim_after_crash_keeps_durable_content() {
+    let (a, b, c) = (2, 1, 0);
+    let mut world = World::single_network(3);
+    world.send(a);
+    world.gossip(a, b, FaultPlan::NONE, FaultPlan::NONE);
+    let network = world.nodes[b].network;
+    assert!(
+        world
+            .emissions
+            .contains_exact(network, 0, &world.leaf_version(b, 0)),
+        "m is durable: it propagated to B",
+    );
+    for _ in 0..3 {
+        world.send(c);
+    }
+    world.crash(a);
+    world.gossip(a, c, FaultPlan::NONE, FaultPlan::NONE);
+    for _ in 0..4 {
+        world.send(a);
+    }
+    world.heal();
+    world.assert_healed();
+    for k in [a, b, c] {
+        assert!(
+            world.holds(k, 0),
+            "the never-redacted durable message m must survive the heal at node {k}",
+        );
+    }
+}
+
+/// Negative control for the survival check: a message that genuinely left
+/// the fleet must be caught unless the ledger accounts for it.
+///
+/// One peer redacts a propagated message and the heal carries the
+/// redaction everywhere; with the redaction in the ledger the check
+/// passes, and with the ledger emptied the same converged fleet fails it,
+/// naming the message. A suppressed ledger entry is the shape a redaction
+/// the harness forgot to record would take, and a destroyed message looks
+/// exactly like one.
+#[test]
+fn negative_control_unledgered_loss_fails_the_survival_check() {
+    let mut world = World::single_network(2);
+    world.send(0);
+    world.gossip(0, 1, FaultPlan::NONE, FaultPlan::NONE);
+    world.redact(0, 0);
+    world.heal();
+    world.assert_healed();
+    assert!(
+        !world.holds(0, 0) && !world.holds(1, 0),
+        "the redaction reached every peer",
+    );
+    world.redacted.clear();
+    let unledgered =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| world.assert_healed()));
+    let message = unledgered
+        .expect_err("with the ledger emptied, the redacted message reads as destroyed")
+        .downcast::<String>()
+        .expect("a formatted assertion message");
+    assert!(
+        message.contains("messages [0] were live"),
+        "the survival check must name the missing message: {message}",
+    );
+}
+
 proptest! {
     /// Under arbitrary interleavings of sends, redactions, faulted gossip,
     /// crashes, and retirements, the identity bookmark never recycles a
@@ -1500,7 +1707,12 @@ proptest! {
     ///    (checked as the durable set grows in [`EmissionLog::promote`], a
     ///    message becoming durable once it is persisted or reaches another peer);
     /// 2. after a clean heal, all surviving peers converge to identical content
-    ///    and their live parties are pairwise disjoint.
+    ///    and their live parties are pairwise disjoint;
+    /// 3. every message the winning network held when the heal began, and
+    ///    never redacted, survives at every peer: the recycle checked by its
+    ///    consequence, since a reclaimed region's re-issued versions compare
+    ///    `Greater` or incomparable to the message they destroy
+    ///    ([`World::assert_durable_content_survived`]).
     ///
     /// The fleet starts fragmented into per-peer networks and converges by
     /// the `(min_ticks, network)` tie-break, with each peer's bookmark reads
