@@ -121,7 +121,13 @@ to schedule, on a quiet machine, once.
 A lane's final gate run is backgrounded on the Mac side with its output
 redirected to a log under the lane's scratchpad directory, polled with
 short checks, and its verdict read from the log; never a foreground
-demand, never piped through a filter. The lane retires its box build
+demand, never piped through a filter. The polling happens inside the
+lane's turn: a `sleep` loop in the foreground that exits when the log's
+exit line appears. A lane never ends its turn to wait for a background
+run's notification, because re-invocation on that notification is
+unreliable and the coordinator is then the only thing that can wake it;
+every launch prompt says so, and a lane that ends a turn waiting is
+woken by the coordinator with the verdict's location. The lane retires its box build
 directory after its final commit (`rm -rf ~/build/<basename>` over ssh);
 the worktree stays for the coordinator.
 
