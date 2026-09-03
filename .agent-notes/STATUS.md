@@ -2,7 +2,7 @@
 
 # Triage landing status
 
-Updated: 2026-09-03 14:25 UTC by the rumors session.
+Updated: 2026-09-03 14:28 UTC by the rumors session.
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
 
@@ -68,7 +68,7 @@ Maintained by the rumors session.
 | p2-vanish-liveness | in review | round 3 landed at `aef53cdf` (marker-past bytes a typed post-commit violation; the flush-poll departure and violation tests; a mechanism-derived floor; a routed departure over the memory network; T165 prose); final verification (with the two controls the lane did not run) and a light read running; packet after; two stops for Finch (a conformance-suite check for the two `link.rs` obligations; a lookahead cap needing a hand-off length limit) |
 | p1-collision-mode | waiting on Finch | packet `f6d9a0af` (code `35d134fd`, base `d0dcb9f5`), four verification passes, three rounds; three stops; merges after before's `p1-fuzz` refit |
 | p2-deep-geometry | packet ready | packet `f74324a7` on `triage/p2-deep-geometry` (code tip `7e7bae71`, base `7858b35e`, stacked on the collision branch; merges after it); three fresh-eyes rounds, every item verified; its gate runs under the mutex and the verdict is appended when it lands; stops: the shared predicate at integration with vanish-liveness, the conformance floor under the schedule, the residual precedence window, the duplicated-reply stall queued |
-| p1-generators | in review | round 1 at `763d45b3` verified: holds but for the tripwire, which passes with the budgets removed (default budgets print the same abort strings), and the gate red by construction until before's sweep merges; round 2 (the `[env]` budgets, a zero-reject assertion in the tripwire, seed-coupling honesty with three seeds under replay, `crates/` under the full rules in the budgets commit, T164's 4000 folded in) with the lane |
+| p1-generators | in review | round 2 landed at `c6f291f2` (budgets in `.cargo/config.toml` `[env]`, prefixes and CI env gone; the tripwire requires zero rejects, its control red; the budgets commit rebuilt last with `crates` under caselint's full rules and `proptest_ci_cases` 4000, merging after before's sweep); verification and a light read running; packet after, against stack parent `a34859ed` |
 | p1-envelope | in review | the T168 grid landed at `89d83c77` (about sixty exact per-direction cells to 10⁴ shared, the 10⁵ row measured and unpinned; three trends asserted, four refused with counterexample cells; the crate-doc draft re-derived at zero payload); verification and a fresh-eyes read running; packet after |
 | p2-peer | not started | after p2-commit-path |
 | p3-dashes, p3-imports, p3-lints, p3-modules, p3-prose-pass, p3-seeds, p3-vocabulary | not started | after every P1 and P2 lane merges; seven open questions for Finch |

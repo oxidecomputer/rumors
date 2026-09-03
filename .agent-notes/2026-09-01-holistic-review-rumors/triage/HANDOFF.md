@@ -236,3 +236,16 @@ its packet against `a34859ed`. Done: p2-link round-4 verification
 (`a35b83f0afbba6837`) and light read (`a81280fa719d14fe7`); the sush
 patch at `locker` (`sush-eval/sush-shape-d-locker.patch`). Rulings
 through T168.
+
+## State at 2026-09-03 15:05 UTC
+
+Packets ready: `p1-collision-mode` (`f6d9a0af`), `p2-link` (`95c429e2`).
+Running: envelope grid verification (`a4ba5a4360f1bcdac`,
+`verify-envelope/r4/`) and read (`ab7aea5178c548f50`) at `89d83c77`;
+generators round-2 verification (`aa2221154ddae81fd`,
+`verify-generators/r3/`) and light read (`ae3f0fd91909e09b8`) at
+`c6f291f2`; vanish round 4 on the lane (`a29e1e87156b5a036`; six
+items, two from the verifier: the memory routed pin's schedule and a
+lost box seed), then the runner (`a622615e162d51b98`, one invocation
+left) re-checks and the packet builds against `9c8ce16c`. Envelope's
+packet builds after its verification and read; generators' after its.
