@@ -80,8 +80,11 @@ the fast-forward (WORKFLOW.md's merge step).
    on `a34859ed`): T161; running at handoff (agent
    `a15e73d787b3d0171`, scratchpad `p1-generators/`).
 8. **p1-envelope** (`/Users/oxide/src/rumors-p1-envelope`, from main
-   `0fad870c`): T10 then T43; running at handoff (launched at Finch's
-   word; agent `ad8747469f2495256`; scratchpad `p1-envelope/`).
+   `0fad870c`): landed at `147993bd` (T10's exact-Chernoff differential
+   tests, T43's deletion, T17's derivation tests; unsigned); verification
+   and fresh-eyes round 1 running; packet meta drafted. Stops: the
+   `src/lib.rs` sentence (Finch's paragraph) and the lone-message cost
+   above the doc's line (`new-findings.md`).
 7. **p2-deep-geometry** (`/Users/oxide/src/rumors-p2-deep-geometry`,
    stacked on the collision tip `7858b35e`): T162 items 8 and 9;
    round 2 landed at `648a2441` (agent `a2af8c0d37b66646f`; the
