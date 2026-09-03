@@ -127,3 +127,9 @@ Each entry: where it came from, what it is, which lane's brief carries it
   relabel (the caption it selected is gone); removing it is a dump-format
   change (`FORMAT_VERSION`, `deny_unknown_fields`). Route: the fuelscape
   owner's next format bump, named in the re-accepting commit.
+- **`p5-scanners`' brief assumes `tools/citecheck` exists to grow into
+  ruling 78's typed checker; `p2-census` deletes it** (it read only the
+  dissolved surface roster, the descriptor citations, and the coverage
+  suite's tripwires, never the superlinear, twin, or band rosters). Route:
+  `p5-scanners` builds the typed Rust checker fresh over ruling 78's
+  rosters; its brief's citecheck references are re-denominated at launch.
