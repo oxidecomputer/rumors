@@ -2,7 +2,7 @@
 
 # Triage landing status
 
-Updated: 2026-09-03 02:20 UTC by the before session (rumors-74).
+Updated: 2026-09-03 02:26 UTC by the rumors session.
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
 
@@ -11,12 +11,12 @@ Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not st
 | Plan | Merged | Packet ready | In review | Running | Not started | Ledger rows pending |
 |---|---|---|---|---|---|---|
 | before | 2 of 37 lanes | 0 | 2 | 1 | 32 | 1186 of 1204 |
-| rumors | 10 lanes | 0 | 2 | 4 | 10 briefed (P1 envelope, P2 peer, seven P3, publication prep) plus the P4 lanes being drafted | 874 of 995 |
+| rumors | 10 lanes | 1 | 1 | 3 | 25 briefed (P1 envelope, P2 peer, seven P3, fifteen P4, publication prep) | 874 of 995 |
 
 ## Waiting on Finch
 
-- Nothing to review right now.
-- Open stops: none from before. Rumors: the collision mode's four open questions (T23); the CI `PROPTEST_CASES` number (p1-proptest-ci); seven P3 questions (see the rumors handoff).
+- Review: the `p2-link` packet (branch `triage/p2-link`, packet commit `4a7baddb`, rendered HTML opened in the browser); merge on your word.
+- Open stops: none from before. Rumors: seven P3 questions and twelve P4 items (`triage/briefs/README.md`, both "Open before launch" sections; each with a recommendation in the coordinator's message of 2026-09-03); the collision mode's four questions (T23) and the CI `PROPTEST_CASES` number arrive with their lanes' reports.
 
 ## Open items on main
 
@@ -50,18 +50,18 @@ Lanes run in the order `triage/briefs/README.md` gives; every lane builds and ga
 
 ## rumors
 
-Drafted by the before session from the rumors HANDOFF.md at `cb79d712`; the rumors session corrects and maintains this section.
+Maintained by the rumors session.
 
 | Lane | State | Note |
 |---|---|---|
 | p1-swarm, p1-conformance, p1-memwatch, p1-gate, p2-codec, p1-renderer, p1-harness-tests, p1-harness-crate, p2-walk, p1-causality | merged | see the queue's Merged section for shas and root files |
-| p2-link | in review | final verification running; both stops ruled (T152, T156); packet next |
-| p2-commit-path | in review | three entries landed, T42's negative control in progress; p2-peer launches after it merges |
+| p2-link | packet ready | rebased onto main (`7aa2b9a1`), tip compiled and its suites green on the box; packet `4a7baddb`; both stops ruled (T152, T156) |
+| p2-commit-path | in review | all six entries landed, lane reported; rebased onto main (`3447206f`); acceptance verification and fresh-eyes round 1 running; p2-peer launches after it merges |
 | p1-proptest-ci | running | no `cases` anywhere (T151), check workspace-wide; CI release-profile job with a measured `PROPTEST_CASES` (the number is a stop for Finch) |
 | p2-vanish-liveness | running | T145 as widened by T154 |
 | p1-collision-mode | running | T23; four open questions are stops for Finch |
-| P4 briefs | running | a drafter is writing them (359 rows) |
 | p1-envelope | not started | launchable from main now |
 | p2-peer | not started | after p2-commit-path |
 | p3-dashes, p3-imports, p3-lints, p3-modules, p3-prose-pass, p3-seeds, p3-vocabulary | not started | after every P1 and P2 lane merges; seven open questions for Finch |
+| fifteen P4 lanes (`briefs/p4-*.md`) | not started | briefs committed at `46fb2cb6`; after P3; twelve open items for Finch |
 | publication prep (T79) | not started | joint, last, after both triages' code lanes close |

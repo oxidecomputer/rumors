@@ -114,7 +114,8 @@ lanes have closed.
 
 ## Ready for Finch, in merge order
 
-(none)
+- rumors `p2-link`: branch `triage/p2-link`, packet head `4a7baddb`, last
+  code commit `17220c69`, base `7aa2b9a1` (main). No root files.
 
 ## Announcements
 
