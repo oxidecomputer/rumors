@@ -33,9 +33,15 @@ coordinator sessions agreed:
    by the rumors session on 2026-09-02): each session keeps its
    concurrently building lanes to what the load bears, holding a launch
    while the box's one-minute load average is above about 150 on its 192
-   threads. Wall-time measurements under `pset-run` stay one at a time,
-   announced here first. Before builds nothing on the Mac; rumors benches
-   run on the Mac against their committed baselines.
+   threads. Every gate runs inside an exclusive processor set,
+   `pset-run -n 40 -- just gate` through the skill's wrapper, at most two
+   concurrent psets per session, so a gate's tests cannot be starved into
+   nextest's per-test limit by another build; non-gate builds run unbound
+   in the general pool. A leg that still fails only by the 180 s limit
+   inside a pset is a finding about the test, not about load, and is
+   reported as such. Wall-time measurements under `pset-run` stay one at
+   a time, announced here first. Before builds nothing on the Mac; rumors
+   benches run on the Mac against their committed baselines.
 7. The two coordinator sessions message each other (Finch's
    authorization; he sees every exchange) for three events: a merge to
    `main` landed, a lane launching that edits a shared root file, a
