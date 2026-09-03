@@ -94,6 +94,12 @@ impl ByteMeter {
     pub fn written(&self) -> usize {
         usize::MAX - *self.write.lock().expect("write budget lock")
     }
+
+    /// Total bytes the endpoint has read, across the control half and
+    /// every data stream: the counter a `read_cut` spends.
+    pub fn read(&self) -> usize {
+        usize::MAX - *self.read.lock().expect("read budget lock")
+    }
 }
 
 /// Wrap one clean in-memory link endpoint with byte metering: no fault

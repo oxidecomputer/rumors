@@ -45,7 +45,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::time::timeout;
 
 use crate::common::action::created_version;
-use crate::common::fault::{FaultPlan, faulty};
+use crate::common::fault::{self, FaultPlan, faulty};
 use crate::common::wire::{bootstrap_fork_async, tokio_block_on as block_on, wire_gossip_async};
 
 /// Generous wall-clock bound: everything here is in-memory and finishes in
@@ -687,10 +687,230 @@ async fn a_dropped_driver_does_not_block_peer_reclaim() {
     assert!(rumors.try_into_peer().await.is_some());
 }
 
+/// Upper bound on the byte offset at which a severed connection's cut
+/// can land.
+///
+/// Derived from measurement, not transcribed: the severed-connection
+/// fixture (the [`pair`] with one send on each side, driven as
+/// [`severed_connections_fail_loudly_and_recover`] drives it) moves fewer
+/// bytes per endpoint than this bound on a clean run, and the bound stays
+/// within twice that measurement, so generated cuts reach every byte of
+/// the session and keep landing inside it. The two-sided pin is
+/// [`max_sever_cut_spans_the_fixture_session`]; re-measure there before
+/// touching this number.
+const MAX_SEVER_CUT: usize = 256;
+
+/// What one severed-connection run of the fixture leaves behind: each
+/// driver's items in order, and the two replicas for the checks.
+struct Severed {
+    a_items: Vec<Result<Gossiped, Error>>,
+    b_items: Vec<Result<Gossiped, Error>>,
+    a: Rumors<u64>,
+    b: Rumors<u64>,
+}
+
+/// Run the severed-connection fixture: the [`pair`] with one send on each
+/// side, A driven by a single tick and B by remote-led serving, over one
+/// in-memory connection with `a_fault` and `b_fault` applied to the two
+/// ends.
+///
+/// Each side's link is owned by its future, so the failing side's drop
+/// surfaces as EOF to the other rather than deadlocking the join.
+async fn run_severed(a_fault: FaultPlan, b_fault: FaultPlan) -> Severed {
+    let (a, b) = pair().await;
+    a.send(1).unwrap();
+    b.send(2).unwrap();
+
+    let (a_side, b_side) = links();
+    let a_link = faulty(a_side, a_fault);
+    let b_link = faulty(b_side, b_fault);
+    let a_task = async {
+        let mut a_link = a_link;
+        let once = stream::once(std::future::ready(()));
+        a.gossip_when(once, &mut a_link).collect::<Vec<_>>().await
+    };
+    let b_task = async {
+        let mut b_link = b_link;
+        b.gossip_when(stream::pending::<()>(), &mut b_link)
+            .collect::<Vec<_>>()
+            .await
+    };
+    let (a_items, b_items) = timeout(DEADLINE, futures::future::join(a_task, b_task))
+        .await
+        .expect("a severed connection wedged a driver");
+    Severed {
+        a_items,
+        b_items,
+        a,
+        b,
+    }
+}
+
+/// The severed-connection contract, checked on one run's outcome:
+/// terminal shape, atomicity, the epilogue's certification, and recovery
+/// over a fresh clean connection.
+async fn check_severed(run: &Severed) {
+    let Severed {
+        a_items,
+        b_items,
+        a,
+        b,
+    } = run;
+
+    // Terminal shape: zero or more Ok items, then at most one Err.
+    for items in [a_items, b_items] {
+        if let Some(err_at) = items.iter().position(|i| i.is_err()) {
+            assert_eq!(err_at, items.len() - 1, "Err must be terminal");
+        }
+    }
+
+    // Atomicity: whatever happened, each side holds its own send,
+    // nothing beyond the union, and never a torn intermediate.
+    let (a_snapshot, b_snapshot) = (a.snapshot(), b.snapshot());
+    assert!(a_snapshot.iter().any(|(_, m)| *m == 1));
+    assert!(b_snapshot.iter().any(|(_, m)| *m == 2));
+    assert!(a_snapshot.len() <= 2);
+    assert!(b_snapshot.len() <= 2);
+
+    // Certification: the epilogue's central promise, under a cut at
+    // an arbitrary offset. A driver yields `Ok` only after reading
+    // the peer's completion marker, which the peer writes only
+    // after its own commit — so any `Ok` on either side means both
+    // replicas already hold the session's full union, here, before
+    // the recovery gossip has run.
+    if a_items.iter().any(|i| i.is_ok()) || b_items.iter().any(|i| i.is_ok()) {
+        assert_eq!(
+            a_snapshot.hash(),
+            b_snapshot.hash(),
+            "a session Ok certifies the peer committed: the pair must already be converged",
+        );
+        assert_eq!(
+            a_snapshot.len(),
+            2,
+            "the certified session moved both sends"
+        );
+    }
+
+    // Recovery: a fresh, clean connection converges the pair.
+    wire_gossip_async(a, b).await;
+    let (a_snapshot, b_snapshot) = (a.snapshot(), b.snapshot());
+    assert_eq!(a_snapshot.hash(), b_snapshot.hash());
+    assert_eq!(a_snapshot.len(), 2);
+}
+
+/// Byte extent of the severed-connection fixture on a clean run, per
+/// endpoint: `(a_written, b_written, b_read)`.
+///
+/// The same pair, sends, drivers, and link capacity as
+/// [`run_severed`], metered with the counters the fault cuts spend, so
+/// the numbers are directly comparable to cut offsets. The in-memory
+/// link and the single-threaded driver make the run byte-identical
+/// across invocations, which is what lets [`a_lost_marker_certifies_one_side`]
+/// place a cut one byte short of a clean session.
+async fn fixture_session_bytes() -> (usize, usize, usize) {
+    let (a, b) = pair().await;
+    a.send(1).unwrap();
+    b.send(2).unwrap();
+
+    let (a_side, b_side) = links();
+    let (a_link, a_meter) = fault::metered(a_side);
+    let (b_link, b_meter) = fault::metered(b_side);
+    let a_task = async {
+        let mut a_link = a_link;
+        let once = stream::once(std::future::ready(()));
+        a.gossip_when(once, &mut a_link).collect::<Vec<_>>().await
+    };
+    let b_task = async {
+        let mut b_link = b_link;
+        b.gossip_when(stream::pending::<()>(), &mut b_link)
+            .collect::<Vec<_>>()
+            .await
+    };
+    let (a_items, b_items) = timeout(DEADLINE, futures::future::join(a_task, b_task))
+        .await
+        .expect("the clean fixture session wedged a driver");
+    for items in [&a_items, &b_items] {
+        assert!(
+            items.iter().all(|i| i.is_ok()),
+            "the clean fixture session must end without error: {items:?}"
+        );
+    }
+    assert_eq!(a.snapshot().hash(), b.snapshot().hash());
+    (a_meter.written(), b_meter.written(), b_meter.read())
+}
+
+/// Pins `MAX_SEVER_CUT` to the fixture session's measured byte extent,
+/// from both sides.
+///
+/// Every byte of the clean session is a reachable cut offset
+/// (`measured <= MAX_SEVER_CUT`), and the cut range is not vacuously wide
+/// (`MAX_SEVER_CUT <= 2 * measured`), so generated cuts keep landing
+/// inside the session rather than past its end.
+#[test]
+fn max_sever_cut_spans_the_fixture_session() {
+    let (a_written, b_written, b_read) = block_on(fixture_session_bytes());
+    println!("fixture session bytes: A wrote {a_written}, B wrote {b_written}, B read {b_read}");
+    let measured = a_written.max(b_written);
+    assert!(
+        measured <= MAX_SEVER_CUT,
+        "the fixture session moves {measured} bytes per endpoint, beyond \
+         MAX_SEVER_CUT ({MAX_SEVER_CUT}): deep cut offsets are unreachable"
+    );
+    assert!(
+        MAX_SEVER_CUT <= 2 * measured,
+        "MAX_SEVER_CUT ({MAX_SEVER_CUT}) is more than twice the fixture \
+         session's {measured} bytes: most generated cuts would land past the \
+         end of the session and never fire"
+    );
+}
+
+/// The certification's asymmetric case: one driver `Ok`, the other
+/// `Err`, both replicas converged.
+///
+/// B's read budget is one byte short of a clean session (measured from a
+/// byte-identical metered run), so the one byte B never reads is A's
+/// completion marker: A, having read B's marker, yields `Ok`; B yields no
+/// `Ok` and fails with the post-commit [`Error::Epilogue`] residue, never
+/// a pre-commit class. The error class is what places the cut: a budget
+/// one byte larger lets B complete the session and fail only on its next
+/// control read, a different class after an `Ok`; a budget landing
+/// earlier fails pre-commit with missing content. The write-only cuts of
+/// the generated family cannot reach this case (a cut on either side's
+/// marker write fails that side, and its drop surfaces as EOF on the
+/// other), so this deterministic witness is what holds the certification
+/// assertions to the case they exist for.
+#[test]
+fn a_lost_marker_certifies_one_side() {
+    let (_, _, b_read) = block_on(fixture_session_bytes());
+    let run = block_on(run_severed(
+        FaultPlan::NONE,
+        FaultPlan {
+            write_cut: None,
+            read_cut: Some(b_read - 1),
+        },
+    ));
+    assert!(
+        run.a_items.iter().any(|i| i.is_ok()),
+        "A read B's marker and certifies the session: {:?}",
+        run.a_items
+    );
+    assert!(
+        run.b_items.iter().all(|i| i.is_err()),
+        "B never read A's marker, so it certifies nothing: {:?}",
+        run.b_items
+    );
+    assert!(
+        matches!(run.b_items.last(), Some(Err(Error::Epilogue(_)))),
+        "B's lost marker must surface as the post-commit Epilogue: {:?}",
+        run.b_items
+    );
+    block_on(check_severed(&run));
+}
+
 proptest! {
-    /// A connection severed at an arbitrary byte offset — either side's
-    /// write direction, any budget, including zero — fails loudly and
-    /// recoverably.
+    /// A connection severed at arbitrary byte offsets — both sides' write
+    /// directions, any budget including zero, and either side's read
+    /// direction as well — fails loudly and recoverably.
     ///
     /// That is: no hang, each driver ends after at most one terminal
     /// `Err`, each replica still holds its own sends and nothing beyond
@@ -699,81 +919,28 @@ proptest! {
     /// already converged before any recovery (the epilogue's certification,
     /// held under arbitrary cut geometry rather than only at pinned byte
     /// boundaries), and a fresh clean connection converges the pair fully.
+    /// The one-`Ok`-one-`Err` case that certification exists for has its
+    /// deterministic witness in [`a_lost_marker_certifies_one_side`].
     #[test]
     fn severed_connections_fail_loudly_and_recover(
-        a_write_cut in 0usize..400,
-        b_write_cut in 0usize..400,
+        a_write_cut in 0..MAX_SEVER_CUT,
+        b_write_cut in 0..MAX_SEVER_CUT,
+        a_read_cut in prop::option::of(0..MAX_SEVER_CUT),
+        b_read_cut in prop::option::of(0..MAX_SEVER_CUT),
     ) {
         block_on(async {
-            let (a, b) = pair().await;
-            a.send(1).unwrap();
-            b.send(2).unwrap();
-
-            let (a_side, b_side) = rumors::link::memory_with_capacity(LINK_BUF);
-            let a_link = faulty(a_side, FaultPlan {
-                write_cut: Some(a_write_cut),
-                read_cut: None,
-            });
-            let b_link = faulty(b_side, FaultPlan {
-                write_cut: Some(b_write_cut),
-                read_cut: None,
-            });
-
-            // Each side's link is owned by its future, so the failing
-            // side's drop surfaces as EOF to the other rather than
-            // deadlocking the join.
-            let a_task = async {
-                let mut a_link = a_link;
-                let once = stream::once(std::future::ready(()));
-                a.gossip_when(once, &mut a_link)
-                    .collect::<Vec<_>>()
-                    .await
-            };
-            let b_task = async {
-                let mut b_link = b_link;
-                b.gossip_when(stream::pending::<()>(), &mut b_link)
-                    .collect::<Vec<_>>()
-                    .await
-            };
-            let (a_items, b_items) = timeout(DEADLINE, futures::future::join(a_task, b_task))
-                .await
-                .expect("a severed connection wedged a driver");
-
-            // Terminal shape: zero or more Ok items, then at most one Err.
-            for items in [&a_items, &b_items] {
-                if let Some(err_at) = items.iter().position(|i| i.is_err()) {
-                    assert_eq!(err_at, items.len() - 1, "Err must be terminal");
-                }
-            }
-
-            // Atomicity: whatever happened, each side holds its own send,
-            // nothing beyond the union, and never a torn intermediate.
-            let (a_snapshot, b_snapshot) = (a.snapshot(), b.snapshot());
-            assert!(a_snapshot.iter().any(|(_, m)| *m == 1));
-            assert!(b_snapshot.iter().any(|(_, m)| *m == 2));
-            assert!(a_snapshot.len() <= 2);
-            assert!(b_snapshot.len() <= 2);
-
-            // Certification: the epilogue's central promise, under a cut at
-            // an arbitrary offset. A driver yields `Ok` only after reading
-            // the peer's completion marker, which the peer writes only
-            // after its own commit — so any `Ok` on either side means both
-            // replicas already hold the session's full union, here, before
-            // the recovery gossip has run.
-            if a_items.iter().any(|i| i.is_ok()) || b_items.iter().any(|i| i.is_ok()) {
-                assert_eq!(
-                    a_snapshot.hash(),
-                    b_snapshot.hash(),
-                    "a session Ok certifies the peer committed: the pair must already be converged",
-                );
-                assert_eq!(a_snapshot.len(), 2, "the certified session moved both sends");
-            }
-
-            // Recovery: a fresh, clean connection converges the pair.
-            wire_gossip_async(&a, &b).await;
-            let (a_snapshot, b_snapshot) = (a.snapshot(), b.snapshot());
-            assert_eq!(a_snapshot.hash(), b_snapshot.hash());
-            assert_eq!(a_snapshot.len(), 2);
+            let run = run_severed(
+                FaultPlan {
+                    write_cut: Some(a_write_cut),
+                    read_cut: a_read_cut,
+                },
+                FaultPlan {
+                    write_cut: Some(b_write_cut),
+                    read_cut: b_read_cut,
+                },
+            )
+            .await;
+            check_severed(&run).await;
         });
     }
 }
