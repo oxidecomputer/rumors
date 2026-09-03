@@ -60,10 +60,6 @@ lanes have closed.
   `bench-build`, `fuzzfit-build`, `fuzzfit`, `fuelscape-test`,
   `surface-totality`, `coverage-kernel`, `coverage-kernel-branch`),
   `ci.yml` and root `Cargo.toml` comments only.
-- rumors: `d631cda6` memwatch retired (`6b258a5f`, `34eb563e`,
-  `d631cda6`); `tools/memwatch` deleted; justfile (twelve recipes
-  unwrapped, two comment blocks); `.github/workflows/ci.yml` and
-  `Cargo.toml` comments; `design/rumors-frame-fuzz.md` one bullet.
 
 ## Ready for Finch, in merge order
 
