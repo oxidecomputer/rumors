@@ -103,6 +103,44 @@ The clean-file precondition for `STATUS.md` and `merge-queue.md`.
 Signing: `--no-gpg-sign` when the agent refuses; the merge rebase
 re-signs.
 
+## Resume protocol (for a successor with no memory of this session)
+
+The coordinator runs unattended overnight and auto-compacts; this file
+and `STATUS.md` are the memory. On resume, in order:
+
+1. Read `WORKFLOW.md`, `rulings.md` from T157, `../../STATUS.md`, this
+   file, `new-findings.md`. Then `git -C /Users/oxide/src/rumors log
+   --oneline -15` and `git worktree list`: a worktree that exists is a
+   lane in flight or awaiting review; never create a second for the
+   same lane, and never launch a lane whose brief the "Not launched"
+   list holds without Finch's word.
+2. For each agent named above, judge liveness by the line count of
+   `/private/tmp/claude-506/-Users-oxide-src-rumors/3b30c9cc-2928-4cc5-ba62-14f8147fa4c3/tasks/<id>.output`
+   across two samples a minute apart, never by mtime; a report that
+   has already landed is in the transcript's task notifications and,
+   once captured, in `STATUS.md`. An agent parked on its own watcher is
+   woken by `SendMessage` after the log it awaits has landed (its logs
+   are under the scratchpad directory its brief names).
+3. Capture before acting: every report goes into `STATUS.md` (the
+   lane's row), `new-findings.md` (findings without an entry), the
+   packet meta (acceptance rows only from a runner's own output), and
+   this file's lane entry, in one pathspec commit, before any
+   follow-up is issued. Follow-ups allowed unattended: a verification
+   runner, a fresh-eyes round (at most three per lane), a repair round
+   to the lane agent. Never unattended: a merge, a rewrite of `main`, a
+   new lane, a ruling, a snapshot or pin re-accept, a public-surface
+   change no ruling names, a shared root-file edit outside a lane's
+   last commit.
+4. The scratchpad directory is session-local and may be gone; every
+   packet meta is reconstructible from the brief, the lane's report in
+   the transcript, and the runner logs; every verdict that matters is
+   also in the commit messages on the lane branches.
+5. The `before` session runs the same way overnight; its address is
+   `uds:/tmp/cc-socks/90998.sock` (or its successor's, in
+   `merge-queue.md`'s header); message it on any root-file edit or
+   shared-instrument change, and read `STATUS.md`'s before section
+   before touching a shared file.
+
 ## Open for Finch, in one list
 
 The p2-link merge after its packet; the CI case count; the stops
