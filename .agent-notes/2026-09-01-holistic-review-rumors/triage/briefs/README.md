@@ -23,6 +23,7 @@ carries the ground rules in full.
 | `p1-harness-crate.md` | T19, T22, T24, T26 (streaming-tests-11, materialized-27, remote-proxy-19) | in-crate suites under `src/tree/mirror/streaming/` | large |
 | `p1-harness-tests.md` | T13, T21, T26 (tests-disruption-handshake-7, tests-lifecycle-15), T28 (disruption ranges, PollBudget) | `tests/`, `src/testing/transport.rs`, `src/conformance/link/tests.rs` | medium |
 | `p1-swarm.md` | T27 | `examples/swarm*`, `Cargo.toml` | small |
+| `p1-proptest-ci.md` | T148 | `src/testing.rs`, every explicit `ProptestConfig` under `src` and `tests`, `tools/caselint`, the justfile, `.github/workflows/ci.yml` | medium |
 
 ## Grouping decisions
 
@@ -69,6 +70,11 @@ checked before each wave:
 3. `p1-collision-mode` (after harness-crate lands; it is the longest and
    its first-sweep triage produces the most stops)
 
+`p1-proptest-ci` launches last, from `main` after every P1 and P2 lane
+that touches test files has merged (its sweep routes every explicit
+`ProptestConfig`, and its justfile and `ci.yml` edits stack on `p1-gate`
+until that lane merges).
+
 Cross-lane ordering from TRIAGE.md that these lanes must honor: the
 conformance census floor before any resize of `LOCAL_BUDGET`;
 `tests-bookmark-12` before `tests-bookmark-9`; `streaming-tests-11` before
@@ -99,6 +105,7 @@ fix) is in `p1-gate.md` and is not repeated.
 | `p2-link.md` | T31, T44, T45 | `src/link/routed/` and its tests, `tests/common/{routed_tcp,tcp}.rs`, `tests/routed_link.rs` | medium |
 | `p2-peer.md` | T37, T32, T35 | `src/peer.rs`, `src/peer/gossip.rs`, `src/bookmark.rs`, `src/rumors/changes.rs`, `src/batch.rs` (no-party arm) | medium |
 | `p2-walk.md` | T40 | `src/tree/mirror/streaming/materialized/` and its tests; one prose sweep across `src/` | medium |
+| `p2-vanish-liveness.md` | T145 | `src/tree/mirror/streaming/remote/proxy/{work.rs,error.rs,work/tests.rs}`, `remote/streams.rs`, `src/peer/gossip.rs` (the post-descent control readers), `tests/common/{fault,sim}.rs`, `tests/disruption.rs` | medium |
 
 ## Grouping decisions
 
@@ -127,6 +134,11 @@ prose-only and that lane is the one T40 governs; it touches test files in
 Order: `p2-codec`, `p2-link`, `p2-walk`, `p2-commit-path` as one wave of
 four (with P1 wave 1 already running, check the disk and cap concurrent
 builders at four total); `p2-peer` after `p2-commit-path` lands.
+`p2-vanish-liveness` stacks on `triage/p1-harness-tests` (its base is
+that lane's final sha, which carries the vanish fault and the ignored
+test) and launches once that branch is complete; it shares
+`src/tree/mirror/streaming/remote/proxy/` with `p1-harness-crate`'s test
+edits, so whichever of the two lands second rebases.
 
 # P3 lane briefs
 
