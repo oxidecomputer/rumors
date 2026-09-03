@@ -73,6 +73,9 @@ lanes have closed.
   the `before` mutants lane), `Cargo.toml` (`bytes` serde to
   dev-dependencies), `Cargo.lock` (one line), `tools/testdoc`.
 
+- rumors: `12aa9a8d` the codec lane (`1b7f3de4`, `28055b77`, packet
+  `12aa9a8d`); no root files.
+
 ## Ready for Finch, in merge order
 
 - rumors `p1-gate`: branch `triage/p1-gate`, packet head `5cd25b55`, last
@@ -82,8 +85,6 @@ lanes have closed.
 - rumors `p1-renderer`: `triage/p1-renderer`, packet `ae3d9fc4`, code
   `fff43de9`, base `b8401660`. Root files: `Cargo.toml` (`cbor-diag`
   rev pin), `Cargo.lock`, `tools/digestshare`, `AGENTS.md`.
-- rumors `p2-codec`: `triage/p2-codec`, packet `610d6108`, code
-  `86f65f8f`, base `a6a79c39`. No root files.
 - rumors `p1-harness-crate`: `triage/p1-harness-crate`, packet `5e2f3cde`,
   code `f6f3a0b6`, stacked on `p2-codec`. No root files.
 - rumors `p1-harness-tests`: `triage/p1-harness-tests`, packet `9c8ce16c`,
