@@ -157,6 +157,18 @@ lanes have closed.
   per T165; this lane reports the symptom first) and `pump` diverges;
   the vanish rebase resolves toward the vanish tail.
 
+- rumors `p1-collision-mode`: branch `triage/p1-collision-mode`, packet
+  head `f6d9a0af`, last code commit `35d134fd`, base `d0dcb9f5` (main).
+  Root files: justfile (`test-collision`, `test-collision-sweep`, the
+  header and width comments), AGENTS.md (the collision-schedule
+  paragraph and the mark roster). Three stops (a mark kept with an
+  argument; the conformance meter's floor under the schedule; the
+  one-band geometry as a P5 follow-up). Merges after before's `p1-fuzz`
+  refit (its `wasm` stream replays before's fuel-band seed red until
+  then); `p2-deep-geometry` follows it. Commits unsigned (the lock
+  protocol). Packet:
+  `.agent-notes/2026-09-01-holistic-review-rumors/triage/reviews/p1-collision-mode.md`.
+
 - before `p2-widths`: branch `before/p2-widths`, packet head `ba36e970`,
   last code commit `d5e63e93`, base `main`. Root files: justfile (one
   recipe, `fuzz-test`, and its line in `all`). Merges before
