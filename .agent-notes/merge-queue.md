@@ -96,6 +96,10 @@ lanes have closed.
   `f1b4859c`, base `4f796995`. Root files: `Cargo.toml` (`rand_chacha`
   dev-dependency), `Cargo.lock`.
 
+- before `p1-proptest-cases`: branch `before/p1-proptest-cases`, packet
+  head `97591f5a`, last code commit `82250f59`, base `main`. No root files.
+  Packet: `.agent-notes/2026-09-01-holistic-review-before/triage/reviews/p1-proptest-cases.md`.
+
 ## Announcements
 
 - before: `before/p1-gate` launched, stacked on rumors `triage/p1-gate` at
