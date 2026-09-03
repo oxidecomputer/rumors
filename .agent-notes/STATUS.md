@@ -2,7 +2,7 @@
 
 # Triage landing status
 
-Updated: 2026-09-03 04:32 UTC by the rumors session.
+Updated: 2026-09-03 04:34 UTC by the rumors session.
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
 
@@ -60,7 +60,7 @@ Maintained by the rumors session.
 | Lane | State | Note |
 |---|---|---|
 | p1-swarm, p1-conformance, p1-memwatch, p1-gate, p2-codec, p1-renderer, p1-harness-tests, p1-harness-crate, p2-walk, p1-causality | merged | see the queue's Merged section for shas and root files |
-| p2-link | in review | `7a31b673` verified; round-1 repairs and T164's `recycle` token (pools key by link) with the lane; packet from its sha; one wording question left for Finch |
+| p2-link | in review | round 1 landed at `db616f70` (slot returned at one site; two tests; unbiased selects explained), gate clean; final verification and read running; packet after; two stops: T164 item 1 needs `dial` to take the token too (the lane's argument on the branch), and the bound's wording |
 | p2-commit-path | in review | round-2 repairs landed at `71797970` (warmed pins 78/601/325, `#[must_use]` sink, meter lock, nested-branch probe, two-actions-per-key proptest), gate clean; `71797970` re-verified; round-3 read found no bugs, its legibility and prose items sent as the last repair round; packet builds from that sha; one stop (the all-skipped ceiling) |
 | p1-proptest-ci | in review | landed at `a34859ed` (sweep, caselint, release recipe and nextest profile, meter excluded, T157 rewrite); gate clean; the CI number is a stop (recommendation 4000 after p1-generators); verification and packet after p1-generators lands, since the number is set on that tree |
 | p2-vanish-liveness | in review | round 1 landed at `e3c5f986` (the watch keeps every control byte and reads on; deadline aborts; the floor measured against the donor too), gate clean; second verification and fresh-eyes round 2 running; six stops in the meta |
