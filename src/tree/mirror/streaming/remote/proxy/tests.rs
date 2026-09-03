@@ -511,8 +511,10 @@ proptest! {
 /// empirically: zero batches across the run, at any patience budget and at
 /// one-byte and 37-byte windows alike), so as exercised this property pins
 /// no more than [`reconcile_symmetric_accepts`]; the decorator's inversion
-/// genuinely firing is proven instead by the conformance suite's
-/// `ReversingAcceptor` tests, whose probes connect streams concurrently.
+/// genuinely firing is proven instead by its unit witness in
+/// `testing::transport` (a batch of two formed by the patient wait) and by
+/// the link conformance suite, which runs under the same decorator with
+/// its probes connecting streams concurrently.
 ///
 /// The final assertion is the tripwire keeping this caveat honest: if the
 /// topology ever admits a genuine inversion, it fails, and this doc's
