@@ -34,9 +34,17 @@ coordinator sessions agreed:
    explicit pathspecs only, never a bare `git add -A`; no rebase,
    checkout, stash, or reset there; lane work happens in lane
    worktrees; `main` is fast-forwarded only when `git status` shows the
-   other session has nothing staged. Any rewrite of `main` (an identity
-   repair, say) happens at Finch's word with the other session paused,
-   and is announced here first. This file and `STATUS.md` are edited by
+   other session has nothing staged. Every edit-and-commit of this
+   file or `STATUS.md` runs under one mutex shared by both sessions,
+   since the clean check and the commit are seconds apart and a commit
+   by the other session in between sweeps the edit into it: in one
+   command, `mkdir .agent-notes/.editlock` in a retry loop (a lock older
+   than five minutes is stale and removed), the clean check (no
+   uncommitted or staged change to the file), the edit, the commit with
+   the pathspec (`--no-gpg-sign` when the agent refuses), and `rmdir` on
+   exit; the directory is untracked and never added. Any rewrite of
+   `main` (an identity repair, say) happens at Finch's word with the
+   other session paused, and is announced here first. This file and `STATUS.md` are edited by
    both sessions in the primary worktree: before editing either, check
    it carries no uncommitted change from anyone (`git diff --quiet` and
    `git diff --cached --quiet` on the path), wait and retry if it does,
