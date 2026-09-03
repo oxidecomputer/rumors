@@ -104,8 +104,11 @@ check:
 # Run the test suites; pass a filter to narrow (`just test mirror`). The
 # envelope suite (crates/before/tests/meter.rs) builds only with its limb
 # and scan meters (`required-features` on its test target), so the inner
-# loop lights them for that package; every other package builds under
-# default features.
+# loop lights them for that package. One `--workspace` build unifies
+# features, so this compiles the before lib with both meters for every
+# dependent and runs every before suite gated on them (the envelope
+# suite, the fold and coincident-span suites, the limb-meter unit tests);
+# the other packages' own features stay default.
 test *args:
     cargo nextest run --workspace --features before/limb-meter,before/scan-meter {{ args }}
 
