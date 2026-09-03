@@ -31,7 +31,12 @@ coordinator sessions agreed:
    worktrees; `main` is fast-forwarded only when `git status` shows the
    other session has nothing staged. Any rewrite of `main` (an identity
    repair, say) happens at Finch's word with the other session paused,
-   and is announced here first.
+   and is announced here first. This file and `STATUS.md` are edited by
+   both sessions in the primary worktree: before editing either, check
+   it carries no uncommitted change from anyone (`git diff --quiet` and
+   `git diff --cached --quiet` on the path), wait and retry if it does,
+   then edit and commit in one command, so neither session's commit
+   carries the other's hunks.
 6. No per-session lane cap on the illumos box (Finch's ruling, relayed
    by the rumors session on 2026-09-02): each session keeps its
    concurrently building lanes to what the load bears, holding a launch
