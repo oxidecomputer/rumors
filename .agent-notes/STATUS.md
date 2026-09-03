@@ -2,7 +2,7 @@
 
 # Triage landing status
 
-Updated: 2026-09-03 03:05 UTC by the before session (rumors-74).
+Updated: 2026-09-03 02:05 UTC by the before session (rumors-74).
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
 
@@ -20,7 +20,7 @@ Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not st
 
 ## Open items on main
 
-- `cargo check --locked --workspace --all-targets` (`just check`, default features) fails in `src/tree/mirror/streaming/remote/proxy/tests.rs`: two imports dropped at the walk lane's rebase. Rumors owns the repair (recorded in its HANDOFF.md and new-findings.md); held unrepaired at Finch's instruction until that session compacted. Workspace-wide `just check` and `just test` read red until it lands; before's lanes verify with before-only invocations meanwhile.
+- `cargo check --locked --workspace --all-targets` (`just check`, default features) fails on main in two places: `src/tree/mirror/streaming/remote/proxy/tests.rs` (the walk lane's rebase over the harness-crate rewrite dropped its imports, its `failing_root` helper, and its failure aliases) and `tests/bookmark_causality.rs` (calls `FaultPlan::is_clean`, deleted by the harness-tests lane before the causality lane rebased). Rumors owns the repair, verifying on the box now; the sha is announced when it lands. Both plans' merge steps now compile the rebased tip (default and all features) before any fast-forward. Workspace-wide `just check` and `just test` read red until the repair lands; before's lanes verify with before-only invocations meanwhile.
 
 ## before
 

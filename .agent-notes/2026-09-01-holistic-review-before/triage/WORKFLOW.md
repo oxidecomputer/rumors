@@ -67,6 +67,21 @@ stacks, from `briefs/README.md`'s launch orders:
   P7, P8, and remaining P6 lanes each base on `main` once every lane in
   its Follows column has merged.
 
+## The merge step's last check
+
+A rebase can drop a line silently: a `use` block rewritten by the other
+plan, a helper deleted under a test that still calls it. Neither shows
+in a range-diff that reads "identical" for every commit, because the
+range-diff compares the lane's commits to themselves, not the merged tree
+to a compiler. So the coordinator's merge step, after the final rebase
+onto `main` and before the fast-forward, compiles the rebased tip on the
+box: `cargo check --locked --workspace --all-targets` under default
+features and under `--all-features`. A red tip is never fast-forwarded,
+even when the red file is the other plan's: it is reported to that
+session and to Finch, and the merge waits for the repair. A tip that
+moved since the packet Finch read is compiled again; the packet's
+range-diff against the reviewed head shows him the difference.
+
 ## Sharing the workspace with the rumors plan
 
 The two plans' code never overlaps: no rumors lane touches
