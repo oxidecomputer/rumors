@@ -29,16 +29,15 @@
 //!
 //! A recycle is also checked by its consequence. A rebooted peer that
 //! re-owns a region below a frontier some replica durably holds emits
-//! versions the causal sieve reads as *already seen and deleted* wherever
-//! the message they collide with is held, and the fleet converges without
-//! it. Such an emission compares `Greater` or incomparable to the message it
-//! destroys whenever the reclaimer's frontier carries any other region's
-//! progress, so the version order alone cannot see it. The [`World`] keeps a
+//! versions the causal sieve reads as already deleted wherever the message
+//! they collide with is held, and the fleet converges without it. Such an
+//! emission compares `Greater` or incomparable to the message it destroys
+//! whenever the reclaimer's frontier carries any other region's progress,
+//! so the version order alone cannot see it. The [`World`] keeps a
 //! per-network ledger of every redaction, and after the heal every message
-//! that was live at some live peer of the winning network at heal start and
-//! never redacted must be live at every peer: under a correct bookmark a
-//! frontier dominates a durable emission only by having merged it or a
-//! redacter's frontier.
+//! that was live in the winning network at heal start and never redacted
+//! must be live at every peer: a correct bookmark's frontier dominates a
+//! durable emission only by having merged it or a redacter's frontier.
 //!
 //! Durability is the load-bearing qualifier. A plain `send` neither persists
 //! (only sessions do) nor propagates, so a local emission lost to a crash before
@@ -61,21 +60,18 @@
 //! Unlike `disruption.rs`, this simulation runs single-threaded under the
 //! closed-world poller ([`common::wire::block_on`]) with a plan-driven
 //! schedule: each session is its own `block_on`, and a session that stops
-//! making progress fails at its source instead of hanging the case until
-//! the test runner kills it. The bug class is about the *ordering* of
-//! emit/gossip/crash/retire/persist-fail events and the persistence-fault
-//! sequence, not watch-channel thread races. Every input the plan does not
-//! carry is fixed by the [`World`]:
+//! making progress fails at its source instead of hanging the case. The bug
+//! class is about the *ordering* of emit/gossip/crash/retire/persist-fail
+//! events and the persistence-fault sequence, not watch-channel thread
+//! races. Every input the plan does not carry is fixed by the [`World`]:
 //! message ids and emission sequence numbers come from a per-world counter,
-//! and every universe's [`Network`] identifier (the tie-break that decides
-//! which of two fresh peers re-bootstraps into the other) comes from a
-//! per-world RNG seeded with [`NETWORK_SEED`], never from the OS. The
-//! schedule is therefore deterministic up to tokio's `select!` branch order
+//! and every universe's [`Network`] identifier, the tie-break between two
+//! fresh peers, comes from a per-world RNG seeded with [`NETWORK_SEED`].
+//! The schedule is deterministic up to tokio's `select!` branch order
 //! inside the session internals, whose thread-local RNG is seeded per
-//! process: that order decides which of two ready streams a session polls
-//! first, so a wire cut at a fixed byte offset can land on a different
-//! frame across runs. Everything else replays byte-for-byte, shrinking is
-//! sound, and capturing each message's emitted version is race-free.
+//! process: a wire cut at a fixed byte offset can land on a different frame
+//! across runs. Everything else replays byte-for-byte, so shrinking is
+//! sound and each message's emitted version is captured race-free.
 
 mod common;
 
@@ -263,12 +259,11 @@ fn store_parties(store: &DurableStore, network: Network) -> Vec<Party> {
 ///
 /// Four errors are unconditionally bugs: a fully received frame that does not
 /// decode (`Io` with `InvalidData`, or `HandOffMalformed`), a bookmark file
-/// that does not parse when the crate itself wrote every byte the store
-/// holds (`Bookmark(Format(_))`), and a retiring party overlapping its
-/// absorber's (`PartyOverlap`). Every other error is an honest disruption
-/// this harness injects or provokes: a severed wire, an injected bookmark
-/// fault, the counterparty closing the wire after its own fault, or a
-/// network mismatch.
+/// that does not parse when the crate wrote every byte the store holds
+/// (`Bookmark(Format(_))`), and a retiring party overlapping its absorber's
+/// (`PartyOverlap`). Every other error is a disruption this harness injects
+/// or provokes: a severed wire, an injected bookmark fault, the counterparty
+/// closing the wire after its own fault, or a network mismatch.
 fn assert_not_codec_bug<B>(step: &str, error: &Error<B>)
 where
     B: BookmarkError + std::fmt::Debug,
@@ -280,7 +275,7 @@ where
         || matches!(error, Error::PartyOverlap);
     assert!(
         !codec_bug,
-        "{step}: a protocol, codec, or bookmark-format bug, not an honest disruption: {error:?}",
+        "{step}: a protocol, codec, or bookmark-format bug, not an injected disruption: {error:?}",
     );
 }
 
@@ -375,8 +370,8 @@ struct Redacted {
 }
 
 /// One step of the path a plan takes through the places where a universe's
-/// identifier decides what happens: the seeded RNG's choice is asserted by
-/// the reconstructed counterexamples, never assumed.
+/// identifier decides what happens; the reconstructed counterexamples pin
+/// the whole path.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum PathEvent {
     /// A cross-network session resolved: `loser` re-bootstraps into `winner`.
@@ -589,10 +584,9 @@ impl World {
     /// Redact one of `who`'s live messages, indexed mod the live count, and
     /// record it in the network's ledger.
     ///
-    /// Adversarial pressure for the version order (it advances the clock
-    /// without a tracked emission), and the one legitimate way a message
-    /// leaves the fleet, which the post-heal survival check must not count
-    /// as destruction.
+    /// Adversarial pressure on the version order (a clock advance with no
+    /// tracked emission), and the one legitimate way a message leaves the
+    /// fleet.
     fn redact(&mut self, who: usize, which: usize) {
         self.revive(who);
         let Some(rumors) = self.nodes[who].live() else {
@@ -684,9 +678,9 @@ impl World {
     /// A cross-network pair surfaces
     /// [`Error::NetworkMismatch`] on at least one side; the loser of the
     /// `(min_ticks, network)` tie-break re-bootstraps into the winner. Any other
-    /// error is an honest disruption that leaves both replicas unchanged, and
-    /// is admitted only when the step scheduled a fault or met a mismatch;
-    /// a step that cannot legitimately fail must succeed on both sides.
+    /// error is a disruption that leaves both replicas unchanged, admitted
+    /// only when the step scheduled a fault or met a mismatch; a step that
+    /// cannot fail must succeed on both sides.
     fn gossip(&mut self, a: usize, b: usize, fault_a: FaultPlan, fault_b: FaultPlan) {
         if a == b {
             return;
@@ -963,14 +957,13 @@ impl World {
                 },
             )
         });
-        // Never swallow the absorber's result: a retirement's whole point is the
-        // hand-off, and silently dropping a failed absorption is exactly what hid
-        // the codec leak this test was written to catch. The retire session runs
-        // over a *clean* wire, so the absorber can only fail honestly by an
-        // injected bookmark fault (`Error::Bookmark`) or by the retiree safely
-        // aborting its own bookmark fault and closing the wire (the typed
-        // `HandOffTruncated`, or `UnexpectedEof` elsewhere in the session);
-        // over reliable bookmarks it cannot fail at all.
+        // Never swallow the absorber's result: a retirement's whole point is
+        // the hand-off, and a silently dropped failed absorption is what hid
+        // the codec leak this test was written to catch. The wire is clean,
+        // so the absorber fails only by an injected bookmark fault
+        // (`Error::Bookmark`) or by the retiree aborting on its own bookmark
+        // fault and closing the wire (`HandOffTruncated`, or `UnexpectedEof`
+        // elsewhere in the session); over reliable bookmarks it cannot fail.
         let step = format!("retire of {retiree} into {absorber}");
         if let Err(error) = &absorbed {
             assert_not_codec_bug(&format!("{step}, absorber"), error);
@@ -1147,19 +1140,15 @@ impl World {
         self.assert_durable_content_survived(&live);
     }
 
-    /// Every message live at some live peer of the winning network when the
-    /// heal began, and never redacted in that network, is live at every peer
-    /// after it.
+    /// Every message live in the winning network when the heal began, and
+    /// never redacted there, is live at every peer after it.
     ///
-    /// This is the recycle check by consequence: a rebooted peer re-owning a
-    /// region below a frontier a replica durably holds emits versions the
-    /// causal sieve reads as already deleted wherever the colliding message
-    /// is held, and the fleet converges without it. Its emissions compare
-    /// `Greater` or incomparable to what they destroy whenever the reclaimer
-    /// carries any other region's progress, which the version order in
-    /// [`EmissionLog::promote`] cannot see. Under a correct bookmark a
-    /// frontier dominates a durable emission only by having merged it or a
-    /// redacter's frontier, so the only legitimate losses are the ledger's.
+    /// The recycle check by consequence: a reclaimed region's re-issued
+    /// versions compare `Greater` or incomparable to the message they
+    /// destroy, so [`EmissionLog::promote`] cannot see the destruction and
+    /// this check can. A correct bookmark's frontier dominates a durable
+    /// emission only by having merged it or a redacter's frontier, so the
+    /// ledger's entries are the only legitimate losses.
     fn assert_durable_content_survived(&self, live: &[usize]) {
         let (network, live_at_start) = self
             .heal_start
@@ -1576,11 +1565,7 @@ fn negative_control_recycled_durable_emission_panics() {
 
 /// Negative control for the session error classifier: each error the
 /// harness deems an unconditional crate bug fails the step it is reported
-/// on, and an honest disruption does not.
-///
-/// The classifier is what makes a decode failure, a foreign bookmark
-/// frame, or an overlapping retiring party visible at the offending step
-/// instead of at a heal that only catches persistent failures.
+/// on, and an injected disruption does not.
 #[test]
 fn negative_control_classifier_rejects_codec_bugs() {
     fn fires(error: Error<FlakyInMemoryBookmark>) -> bool {
@@ -1612,26 +1597,22 @@ fn negative_control_classifier_rejects_codec_bugs() {
     ] {
         assert!(
             !fires(disruption),
-            "an honest disruption must pass the step to the outcome classifier",
+            "an injected disruption must not fail the step",
         );
     }
 }
 
-/// The recycle that destroys content, as a fixed plan: a message made
-/// durable by propagation must survive a crash of its emitter, a rejoin
-/// from a peer that never saw it, and the emitter's reclaim and later sends.
+/// A message made durable by propagation survives its emitter's crash, a
+/// rejoin from a peer that never saw it, and the emitter's reclaim and later
+/// sends.
 ///
-/// Nodes A, B, C share one network. A sends `m` and gossips it to B, so
-/// `m` is durable and B holds it. C sends three times without ever meeting
-/// `m`. A crashes and is revived from C (the lowest-index live member),
-/// gossips with C so its bookmark update runs, and sends again. A correct
-/// bookmark reclaims A's old region only once C's frontier dominates the
-/// recorded version, which carries `m`'s tick, so A' stays on a fresh
-/// region and `m` survives the heal everywhere. A bookmark that re-admits
+/// A sends `m` and gossips it to B; C sends three times without meeting `m`;
+/// A crashes, revives from C (the lowest-index live member), gossips with C
+/// so its bookmark update runs, and sends again. A bookmark that re-admits
 /// every stored region on reboot has A' re-issue coordinates below `m`'s,
-/// compared `Greater` to `m`'s full version because A' carries C's three
-/// ticks, and the heal's sieve then deletes `m` fleet-wide: the shape the
-/// survival check exists to catch and the version order cannot.
+/// compared `Greater` to `m`'s version because A' carries C's ticks, and the
+/// heal's sieve deletes `m` fleet-wide: the survival check catches that and
+/// the version order cannot.
 #[test]
 fn reconstructed_reclaim_after_crash_keeps_durable_content() {
     let (a, b, c) = (2, 1, 0);
@@ -1663,15 +1644,13 @@ fn reconstructed_reclaim_after_crash_keeps_durable_content() {
     }
 }
 
-/// Negative control for the survival check: a message that genuinely left
-/// the fleet must be caught unless the ledger accounts for it.
+/// Negative control for the survival check: a message that left the fleet
+/// fails the check unless the ledger accounts for it.
 ///
 /// One peer redacts a propagated message and the heal carries the
-/// redaction everywhere; with the redaction in the ledger the check
-/// passes, and with the ledger emptied the same converged fleet fails it,
-/// naming the message. A suppressed ledger entry is the shape a redaction
-/// the harness forgot to record would take, and a destroyed message looks
-/// exactly like one.
+/// redaction everywhere; with the ledger emptied the same converged fleet
+/// fails the check naming the message, which is what a destroyed message or
+/// an unrecorded redaction looks like.
 #[test]
 fn negative_control_unledgered_loss_fails_the_survival_check() {
     let mut world = World::single_network(2);
@@ -1710,9 +1689,7 @@ proptest! {
     ///    and their live parties are pairwise disjoint;
     /// 3. every message the winning network held when the heal began, and
     ///    never redacted, survives at every peer: the recycle checked by its
-    ///    consequence, since a reclaimed region's re-issued versions compare
-    ///    `Greater` or incomparable to the message they destroy
-    ///    ([`World::assert_durable_content_survived`]).
+    ///    consequence ([`World::assert_durable_content_survived`]).
     ///
     /// The fleet starts fragmented into per-peer networks and converges by
     /// the `(min_ticks, network)` tie-break, with each peer's bookmark reads
