@@ -107,6 +107,13 @@ lanes have closed.
   `.github/workflows/ci.yml`, `Cargo.toml` (`bytes` dev-dependency),
   `Cargo.lock`, `tools/testdoc`. `before/p1-gate` stacks on this.
 
+- before `p1-harness`: branch `before/p1-harness`, packet head `d1979bf6`,
+  last code commit `e9a1fd6d`, base `main`. Root files: justfile (the
+  `test` recipe line and two recipe comments). Also
+  `crates/before/Cargo.toml` (a `[[test]]` entry). Packet:
+  `.agent-notes/2026-09-01-holistic-review-before/triage/reviews/p1-harness.md`.
+  Children: `before/p2-widths` stacks on it next.
+
 ## Announcements
 
 - OPEN on `main` (found 2026-09-03 by the before session, relayed to the
