@@ -59,7 +59,10 @@ makes the change: what the entry claimed, what it did about it, and
 anything it would tell a reviewer standing at that line (a judgment call,
 an alternative it rejected, a nit it swept and why the sweep was the
 right shape). One row per nit too; a nit without a row is a change with
-no justification. The file is written for Finch: plain English, no
+no justification. The packet renders `git diff` at its default
+three-line context, so a row counts for a hunk only when its line lies
+inside that hunk's new-side range at `-U3`; a lane's final recheck
+walks `git diff -U3 <base>...HEAD` hunk by hunk, not `-U0` anchors. The file is written for Finch: plain English, no
 roster tags beyond the entry id and ruling. A note may span lines only
 as one TSV field (use `\n` literally; the tool unescapes it).
 
