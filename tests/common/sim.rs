@@ -18,7 +18,8 @@
 //! 1. **Fleet**: one seed and its clean bootstrap forks.
 //! 2. **Chaos**: every session, every activity script, and every extra
 //!    bootstrap attempt runs concurrently; channel cuts land at arbitrary
-//!    byte offsets via [`FaultPlan`]s. Serving a bootstrap mid-chaos puts
+//!    byte offsets, and endpoints vanish mid-stream, via [`FaultPlan`]s.
+//!    Serving a bootstrap mid-chaos puts
 //!    the snapshot-and-fork critical section under concurrent sends from
 //!    sibling handles (see [`run_boot`]); a failed attempt may orphan the
 //!    served fork's id-region — counted, see below. Each peer also carries
@@ -53,8 +54,9 @@
 //! # Loss accounting
 //!
 //! Party id-regions can leave the live universe *legitimately* when a wire
-//! drops mid-hand-off: a bootstrap fork lost in flight, or a retiree's
-//! [`Retire::Uncertain`] whose absorber also failed. The engine counts
+//! drops mid-hand-off: a bootstrap fork lost in flight, a retiree's
+//! [`Retire::Uncertain`] whose absorber also failed, or a peer that
+//! vanished while bootstrapping or retiring. The engine counts
 //! every such *possible* loss conservatively in
 //! [`SimOutcome::possible_losses`]. Disjointness must hold regardless;
 //! the sharper invariants — the surviving parties fold-join back to exactly
@@ -72,17 +74,20 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::convert::Infallible;
+use std::future::Future;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use before::Party;
 use proptest::prelude::*;
 use rumors::error::{
     CodecDecodeErrorKind, CodecEncodeErrorKind, RemoteError, SendError, StreamError,
 };
-use rumors::{Error, MirrorError, Peer, Retire, Rumors, Version};
+use rumors::link::STREAM_COUNT;
+use rumors::{Error, Gossiped, MirrorError, Peer, Retire, Rumors, Version};
 
-use crate::common::fault::{self, FaultPlan};
+use crate::common::fault::{self, FaultPlan, Vanish};
 use crate::common::oracle::{readout, readout_multiset, version_key};
 use crate::common::window::{WindowAssignment, WindowChoice, arb_window_choice};
 use crate::common::wire::wire_gossip_async;
@@ -105,6 +110,16 @@ pub const MAX_CUT: usize = 3072;
 
 /// Headroom on the heal loop, as in `peer::quiesce`.
 const MAX_QUIESCE_ROUNDS_PER_PEER: usize = 16;
+
+/// Bound on one faulted session, bootstrap, or retirement.
+///
+/// Over in-memory wires these complete in milliseconds, so the bound is
+/// headroom over scheduling, not protocol work. A session still running
+/// at the deadline is parked: after a vanish, the survivor waiting on a
+/// stream its dead peer never opens (a wait the link contract leaves to
+/// the caller's timeout, which this is); otherwise a protocol deadlock.
+/// Either fails by name instead of hanging the run.
+const SESSION_DEADLINE: Duration = Duration::from_secs(30);
 
 /// One concurrently-executed simulation plan. See the module docs for how
 /// the pieces are scheduled.
@@ -273,11 +288,12 @@ pub const MAX_PLAN_SEED_MESSAGES: usize = 7;
 /// Most operations one founder's activity script can carry.
 pub const MAX_PLAN_SCRIPT_OPS: usize = 7;
 
-/// Strategy for one endpoint's fault plan.
+/// Strategy for one endpoint's fault plan: cuts only.
 ///
 /// With `faults` disabled it is always clean, so a whole plan generated
 /// under `false` is loss-free by construction; enabled, each direction
-/// independently stays clean or cuts at an arbitrary offset.
+/// independently stays clean or cuts at an arbitrary offset. For harnesses
+/// that drive sessions through [`fault::faulty`], which admits no vanish.
 pub fn arb_fault(faults: bool) -> BoxedStrategy<FaultPlan> {
     if !faults {
         return Just(FaultPlan::NONE).boxed();
@@ -287,7 +303,32 @@ pub fn arb_fault(faults: bool) -> BoxedStrategy<FaultPlan> {
         .prop_map(|(write_cut, read_cut)| FaultPlan {
             write_cut,
             read_cut,
+            vanish: None,
         })
+        .boxed()
+}
+
+/// [`arb_fault`] for this engine's plans, whose endpoints may also vanish
+/// mid-stream: on any of their data streams, at an arbitrary offset into
+/// it. Without a vanish an endpoint runs exactly as [`arb_fault`]'s
+/// would.
+///
+/// A vanish between the handshake and the first data stream is not drawn:
+/// a survivor of one parks on its first accept, the open item the ignored
+/// `survivor_notices_a_peer_vanished_before_its_first_stream` holds, and
+/// this family must stay green; that point joins the family when the
+/// item closes.
+fn arb_fault_or_vanish(faults: bool) -> BoxedStrategy<FaultPlan> {
+    if !faults {
+        return Just(FaultPlan::NONE).boxed();
+    }
+    let vanish = prop_oneof![
+        3 => Just(None),
+        1 => (0..STREAM_COUNT, 0..MAX_CUT)
+            .prop_map(|(index, offset)| Some(Vanish::OnStream { index, offset })),
+    ];
+    (arb_fault(faults), vanish)
+        .prop_map(|(cuts, vanish)| FaultPlan { vanish, ..cuts })
         .boxed()
 }
 
@@ -301,18 +342,22 @@ fn arb_activity() -> impl Strategy<Value = Activity> {
 /// `a` and `b` are kept distinct by construction (offset in `1..n`), so the
 /// shrinker can never collapse a session onto a single peer.
 fn arb_session(n: usize, faults: bool) -> impl Strategy<Value = Session> {
-    (0..n, 1..n, arb_fault(faults), arb_fault(faults)).prop_map(
-        move |(a, off, fault_a, fault_b)| Session {
+    (
+        0..n,
+        1..n,
+        arb_fault_or_vanish(faults),
+        arb_fault_or_vanish(faults),
+    )
+        .prop_map(move |(a, off, fault_a, fault_b)| Session {
             a,
             b: (a + off) % n,
             fault_a,
             fault_b,
-        },
-    )
+        })
 }
 
 fn arb_retire(n: usize, faults: bool) -> impl Strategy<Value = RetireOp> {
-    (0..n, 1..n, arb_fault(faults)).prop_map(move |(retiree, off, fault)| RetireOp {
+    (0..n, 1..n, arb_fault_or_vanish(faults)).prop_map(move |(retiree, off, fault)| RetireOp {
         retiree,
         absorber: (retiree + off) % n,
         fault,
@@ -332,7 +377,7 @@ pub fn arb_plan() -> impl Strategy<Value = Plan> {
     (any::<bool>(), 2usize..=MAX_PLAN_PEERS).prop_flat_map(|(faults, n)| {
         (
             prop::collection::vec(any::<u64>(), 0..=MAX_PLAN_SEED_MESSAGES),
-            prop::collection::vec(arb_fault(faults), 0..=3),
+            prop::collection::vec(arb_fault_or_vanish(faults), 0..=3),
             prop::collection::vec(
                 prop::collection::vec(arb_activity(), 0..=MAX_PLAN_SCRIPT_OPS),
                 n,
@@ -443,9 +488,31 @@ fn honest_remote(error: &RemoteError<Infallible>) -> bool {
 }
 
 /// [`assert_honest_error`] over a session outcome.
-pub fn assert_honest_gossip(out: &Result<rumors::Gossiped, Error>) {
+pub fn assert_honest_gossip(out: &Result<Gossiped, Error>) {
     if let Err(e) = out {
         assert_honest_error(e);
+    }
+}
+
+/// The survivor of a vanished counterparty ends with an honest error,
+/// never `Ok`: a vanish trips at a write or a stream open, so the
+/// counterparty's completion marker, its last write, never lands.
+pub fn assert_survivor(out: &Result<Gossiped, Error>) {
+    assert!(
+        out.is_err(),
+        "the survivor of a vanished peer certified the session: {out:?}"
+    );
+    assert_honest_gossip(out);
+}
+
+/// Await `work` under [`SESSION_DEADLINE`], naming `what` on expiry.
+async fn bounded<F: Future>(what: &str, work: F) -> F::Output {
+    match tokio::time::timeout(SESSION_DEADLINE, work).await {
+        Ok(output) => output,
+        Err(_) => panic!(
+            "{what} parked past SESSION_DEADLINE ({SESSION_DEADLINE:?}): a survivor \
+             waiting on a vanished peer, or a protocol deadlock"
+        ),
     }
 }
 
@@ -455,19 +522,28 @@ pub fn assert_honest_gossip(out: &Result<rumors::Gossiped, Error>) {
 /// in-memory wire.
 ///
 /// Each side's halves are owned by its own task, so the failing side's
-/// drop surfaces as EOF to its counterparty instead of wedging the session.
+/// drop surfaces as EOF to its counterparty instead of wedging the
+/// session. A side that vanishes leaves its counterparty to end alone,
+/// with an honest error or at the deadline.
 async fn run_session(a: Rumors<u64>, b: Rumors<u64>, fault_a: FaultPlan, fault_b: FaultPlan) {
     let (link_a, link_b) = rumors::link::memory();
-    let task_a = tokio::spawn(async move {
-        let mut link = fault::faulty(link_a, fault_a);
-        a.gossip(&mut link).await
-    });
-    let task_b = tokio::spawn(async move {
-        let mut link = fault::faulty(link_b, fault_b);
-        b.gossip(&mut link).await
-    });
-    assert_honest_gossip(&task_a.await.expect("session task A"));
-    assert_honest_gossip(&task_b.await.expect("session task B"));
+    let task_a = tokio::spawn(fault::drive(link_a, fault_a, async move |link| {
+        a.gossip(link).await
+    }));
+    let task_b = tokio::spawn(fault::drive(link_b, fault_b, async move |link| {
+        b.gossip(link).await
+    }));
+    let (driven_a, driven_b) = bounded("a session", async { tokio::join!(task_a, task_b) }).await;
+    let driven_a = driven_a.expect("session task A");
+    let driven_b = driven_b.expect("session task B");
+    match (&driven_a.outcome, &driven_b.outcome) {
+        (Some(out_a), Some(out_b)) => {
+            assert_honest_gossip(out_a);
+            assert_honest_gossip(out_b);
+        }
+        (Some(survivor), None) | (None, Some(survivor)) => assert_survivor(survivor),
+        (None, None) => {}
+    }
 }
 
 /// Serve one bootstrap from `server` mid-chaos, the joiner's endpoint
@@ -483,9 +559,9 @@ async fn run_session(a: Rumors<u64>, b: Rumors<u64>, fault_a: FaultPlan, fault_b
 ///
 /// The serving side stays clean; the joiner's fault plan covers both
 /// observable directions of a duplex (its read cut models the server's
-/// frames dying in flight). A joiner that fails may or may not have cost
-/// the server its donated fork, so it conservatively counts as a possible
-/// loss either way.
+/// frames dying in flight). A joiner that fails or vanishes may or may
+/// not have cost the server its donated fork, so it conservatively counts
+/// as a possible loss either way.
 async fn run_boot(
     server: Rumors<u64>,
     fault: FaultPlan,
@@ -496,12 +572,17 @@ async fn run_boot(
         let mut link = fault::faulty(serve_side, FaultPlan::NONE);
         server.gossip(&mut link).await
     });
-    let boot = tokio::spawn(async move {
-        let mut link = fault::faulty(boot_side, fault);
-        Peer::<u64>::bootstrap().join(&mut link).await
-    });
-    assert_honest_gossip(&serve.await.expect("bootstrap serve task"));
-    match boot.await.expect("bootstrap join task") {
+    let boot = tokio::spawn(fault::drive(boot_side, fault, async move |link| {
+        Peer::<u64>::bootstrap().join(link).await
+    }));
+    let (served, driven) = bounded("a bootstrap", async { tokio::join!(serve, boot) }).await;
+    let served = served.expect("bootstrap serve task");
+    let Some(joined) = driven.expect("bootstrap join task").outcome else {
+        assert_survivor(&served);
+        return None;
+    };
+    assert_honest_gossip(&served);
+    match joined {
         Ok(Some(newcomer)) => Some(window.apply(newcomer)),
         Ok(None) => unreachable!("the serving peer is never itself bootstrapping"),
         Err(e) => {
@@ -781,17 +862,33 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
         // on `Rumors`; it converts back the moment the session ends.
         let absorber = absorber.into_rumors();
         let (retiree_side, absorber_side) = rumors::link::memory();
-        let fault = op.fault;
-        let (outcome, absorbed) = tokio::join!(
-            async move {
-                let mut link = fault::faulty(retiree_side, fault);
-                retiree.retire(&mut link).await
-            },
-            async {
-                let mut link = fault::faulty(absorber_side, FaultPlan::NONE);
-                absorber.gossip(&mut link).await
-            },
-        );
+        let (driven, absorbed) = bounded("a retirement", async {
+            tokio::join!(
+                fault::drive(retiree_side, op.fault, async move |link| {
+                    retiree.retire(link).await
+                }),
+                async {
+                    let mut link = fault::faulty(absorber_side, FaultPlan::NONE);
+                    absorber.gossip(&mut link).await
+                },
+            )
+        })
+        .await;
+        // A retiree that vanished mid-retirement is gone with its party:
+        // dropping a retire future destroys the consumed peer, and the
+        // absorber, which cannot have committed, holds nothing of it.
+        let Some(outcome) = driven.outcome else {
+            assert_survivor(&absorbed);
+            possible_losses += 1;
+            transfers.push((op.retiree, op.absorber, Transfer::Lost));
+            slots[op.absorber] = Some(
+                absorber
+                    .try_into_peer()
+                    .await
+                    .expect("the absorber's sole handle reclaims the Peer"),
+            );
+            continue;
+        };
         assert_honest_gossip(&absorbed);
         match outcome {
             // The retiree believes its party was delivered; if the absorber

@@ -1304,10 +1304,12 @@ fn reconstructed_cut_gossip_then_retire_under_bookmark_faults() {
                 FaultPlan {
                     write_cut: Some(1324),
                     read_cut: None,
+                    vanish: None,
                 },
                 FaultPlan {
                     write_cut: None,
                     read_cut: Some(134),
+                    vanish: None,
                 },
             ),
             Step::Retire(1, 2),

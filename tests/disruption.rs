@@ -13,16 +13,20 @@ mod common;
 use std::collections::BTreeSet;
 
 use proptest::prelude::*;
-use rumors::Peer;
+use proptest::strategy::ValueTree;
+use proptest::test_runner::TestRunner;
+use rumors::testing::run_to_quiescence;
+use rumors::{Peer, Rumors};
 
-use crate::common::fault::{self, FaultPlan};
+use crate::common::fault::{self, FaultPlan, Vanish};
 use crate::common::sim::{
     Activity, MAX_PLAN_PEERS, MAX_PLAN_SCRIPT_OPS, MAX_PLAN_SEED_MESSAGES, Plan, Redaction,
     RetireOp, Session, Transfer, arb_plan, assert_converged, assert_deletion_honored,
-    assert_party_invariants, assert_value_oracle, lost_custody, quiesce, run_plan,
+    assert_party_invariants, assert_survivor, assert_value_oracle, lost_custody, quiesce, run_plan,
     survivor_readouts,
 };
 use crate::common::window::{WindowAssignment, WindowChoice};
+use crate::common::wire::bootstrap_fork;
 
 /// A fresh multi-thread runtime per simulation, so tasks interleave with
 /// real parallelism rather than cooperative scheduling alone.
@@ -37,10 +41,12 @@ fn mt_runtime() -> tokio::runtime::Runtime {
 
 proptest! {
     /// Under arbitrary concurrent gossip over wires cut at arbitrary byte
-    /// offsets, the global party invariants hold:
+    /// offsets, with peers vanishing mid-stream, the global party
+    /// invariants hold:
     ///
-    /// 1. every session failure is an injected I/O fault, never
-    ///    `PartyOverlap` or a protocol violation;
+    /// 1. every session failure is an injected I/O fault or the honest
+    ///    severance a vanished peer leaves behind, never `PartyOverlap`
+    ///    or a protocol violation;
     /// 2. at every probed instant the live parties are pairwise disjoint;
     /// 3. after a clean heal, all survivors converge to identical content;
     /// 4. when no hand-off was lost in flight, the surviving parties
@@ -64,8 +70,11 @@ proptest! {
     ///
     /// The chaos: overlapping sessions through
     /// cloned [`Rumors`] handles, concurrent sends and redactions,
-    /// bootstraps served mid-chaos against the same shared state, and
-    /// retirements.
+    /// bootstraps served mid-chaos against the same shared state,
+    /// retirements, and endpoints that vanish mid-protocol (their session
+    /// dropped with its link, promised streams never opened); a survivor
+    /// that parks on a vanished peer fails by name at the session
+    /// deadline.
     #[test]
     fn disrupted_concurrent_gossip_upholds_party_invariants(plan in arb_plan()) {
         mt_runtime().block_on(check_plan(plan));
@@ -105,6 +114,146 @@ async fn check_plan(plan: Plan) {
         &outcome.inserted,
         &outcome.redactions,
     );
+}
+
+/// The vanish dimension is live in the generated plan population: among
+/// 64 deterministic samples of `arb_plan`, some endpoint's fault plan
+/// vanishes.
+#[test]
+fn plan_population_contains_vanishes() {
+    let mut runner = TestRunner::deterministic();
+    let strategy = arb_plan();
+    let mut vanishes = 0usize;
+    for _ in 0..64 {
+        let plan = strategy
+            .new_tree(&mut runner)
+            .expect("plan strategy always generates")
+            .current();
+        let faults = plan
+            .faulty_boots
+            .iter()
+            .copied()
+            .chain(plan.sessions.iter().flat_map(|s| [s.fault_a, s.fault_b]))
+            .chain(plan.retires.iter().map(|r| r.fault));
+        vanishes += faults.filter(|f| f.vanish.is_some()).count();
+    }
+    assert!(
+        vanishes > 0,
+        "no sampled plan vanishes an endpoint: the vanish dimension has \
+         silently left the population"
+    );
+}
+
+/// Run one session under the closed-world poller in which `a`, holding
+/// the only new content, vanishes at `point`, and `b` survives with
+/// nothing to send: `b`'s outcome, or the poller's name for `b` parking.
+fn survive_a_vanish(
+    point: Vanish,
+) -> Result<Result<rumors::Gossiped, rumors::Error>, rumors::testing::Quiescence> {
+    let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+    a.send_all(0..8).unwrap();
+    let b = bootstrap_fork(&a);
+    a.send_all(8..16).unwrap();
+    let (a_link, b_link) = rumors::link::memory();
+    let vanishing = FaultPlan {
+        vanish: Some(point),
+        ..FaultPlan::NONE
+    };
+    run_to_quiescence(async {
+        let (driven, survivor) = futures::join!(
+            fault::drive(a_link, vanishing, async move |link| a.gossip(link).await),
+            async {
+                let mut link = fault::faulty(b_link, FaultPlan::NONE);
+                b.gossip(&mut link).await
+            },
+        );
+        assert!(
+            driven.outcome.is_none(),
+            "the vanishing peer never reached its point: {:?}",
+            driven.outcome
+        );
+        survivor
+    })
+}
+
+/// A peer whose counterparty vanishes mid-stream ends its session with
+/// an honest error: the vanish fires, and the survivor reads end-of-stream
+/// inside a frame.
+#[test]
+fn survivor_notices_a_peer_vanished_mid_stream() {
+    match survive_a_vanish(Vanish::OnStream {
+        index: 0,
+        offset: 8,
+    }) {
+        Ok(survivor) => assert_survivor(&survivor),
+        Err(quiescence) => {
+            panic!("the survivor parked after its peer vanished mid-stream: {quiescence:?}")
+        }
+    }
+}
+
+/// A peer whose counterparty vanishes after their handshake, before
+/// opening the first data stream, ends its session with an honest error
+/// instead of parking on the stream that never comes.
+///
+/// The closed-world poller names a park: a survivor that never wakes is
+/// `Stalled`, one that spins is `PollBudget`.
+#[test]
+#[ignore = "open item of ruling T143: a responder whose peer vanishes after their handshake parks on its first accept without consulting the control stream's EOF"]
+fn survivor_notices_a_peer_vanished_before_its_first_stream() {
+    match survive_a_vanish(Vanish::AtFirstConnect) {
+        Ok(survivor) => assert_survivor(&survivor),
+        Err(quiescence) => panic!(
+            "the survivor parked after its peer vanished before opening a stream: {quiescence:?}"
+        ),
+    }
+}
+
+/// A retiree that vanishes mid-retirement is a recorded loss: its party
+/// left with it, so the run counts one possible loss, its slot stays
+/// empty, and the relaxed party check holds over the survivor.
+///
+/// The retiree holds content the absorber lacks, so its retirement opens
+/// a stream and the mid-stream vanish fires.
+#[test]
+fn vanished_retiree_is_a_recorded_loss() {
+    mt_runtime().block_on(async {
+        let plan = Plan {
+            n_peers: 2,
+            seed_messages: vec![10],
+            faulty_boots: vec![],
+            scripts: vec![vec![], vec![Activity::Send(20), Activity::Send(30)]],
+            sessions: vec![],
+            retires: vec![RetireOp {
+                retiree: 1,
+                absorber: 0,
+                fault: FaultPlan {
+                    vanish: Some(Vanish::OnStream {
+                        index: 0,
+                        offset: 0,
+                    }),
+                    ..FaultPlan::NONE
+                },
+            }],
+            windows: WindowAssignment::floor(),
+        };
+        let outcome = run_plan(plan).await;
+        quiesce(&outcome.peers).await;
+        let readouts = survivor_readouts(&outcome.peers);
+        assert_converged(&outcome.peers, &readouts);
+        // The party check first: an accounting that missed the vanish
+        // would run it sharply and fail on the party that left.
+        assert_party_invariants(&outcome.peers, outcome.possible_losses);
+        assert_eq!(
+            outcome.possible_losses, 1,
+            "a vanished retiree is exactly one possible loss"
+        );
+        assert_eq!(
+            outcome.peers.len(),
+            1,
+            "the vanished retiree's slot is empty"
+        );
+    });
 }
 
 // ---- value-oracle adequacy tripwires -----------------------------------------

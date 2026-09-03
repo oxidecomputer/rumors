@@ -881,6 +881,7 @@ fn a_lost_marker_certifies_one_side() {
         FaultPlan {
             write_cut: None,
             read_cut: Some(b_read - 1),
+            vanish: None,
         },
     ));
     assert!(
@@ -927,10 +928,12 @@ proptest! {
                 FaultPlan {
                     write_cut: Some(a_write_cut),
                     read_cut: a_read_cut,
+                    vanish: None,
                 },
                 FaultPlan {
                     write_cut: Some(b_write_cut),
                     read_cut: b_read_cut,
+                    vanish: None,
                 },
             )
             .await;
@@ -1109,6 +1112,7 @@ async fn a_control_read_error_on_the_idle_boundary_poisons_the_link() {
         FaultPlan {
             write_cut: None,
             read_cut: Some(0),
+            vanish: None,
         },
     );
 
