@@ -350,7 +350,7 @@ mod envelope {
     pub const ID_JOIN: Envelope                     = envelope(279_132,           band(0, 0),            band(0, 0),    whole_input(3_125_023, 2)); // iterative id walks: frame bits on the heap
     pub const ID_COVERS: Envelope                   = envelope(     10,           band(0, 0),            band(0, 0), to_decision(1_250_005, 2, 4)); // iterative id walks; the diverted pair is decided at the last unary node's tag pair, so the scan floor leaves each stream's terminal unread
     pub const ID_DISJOINT: Envelope                 = envelope(     10,           band(0, 0),            band(0, 0), to_decision(1_250_005, 2, 4)); // iterative id walks; the diverted pair is decided at the last unary node's tag pair, so the scan floor leaves each stream's terminal unread
-    pub const ID_WITHOUT: Envelope                  = envelope(521_110,           band(0, 0),            band(0, 0),    whole_input(2_500_005, 1)); // iterative complement over the Bytes-backed at-rest form; dev builds run no shadow re-parse of the diff emission (the differential suites carry the normal-form check)
+    pub const ID_WITHOUT: Envelope                  = envelope(521_110,           band(0, 0),            band(0, 0),    whole_input(2_500_005, 1)); // iterative complement over the Bytes-backed at-rest form; `input_bytes` counts the subtrahend alone, not the seed's two-bit stream, so the floor errs on the low side; dev builds run no shadow re-parse of the diff emission (the differential suites carry the normal-form check)
     pub const DECODE_CLIFF: Envelope                = envelope(  4_052,         band(88, 52),    band(4_003, 2_401),       whole_input(17_923, 1)); // wire decode is validate + wrap; each cliff crossing's limb work is paid by its own wide stored code
     pub const CMP_CLIFF: Envelope                   = envelope(  1_330,         band(88, 52),    band(5_284, 3_170),         band(17_925, 10_755)); // the cliff-free sweep (two accumulators, opened once) over the Bytes-backed at-rest form
     pub const JOIN_CLIFF: Envelope                  = envelope(  5_362,       band(308, 184),    band(5_289, 3_173),         band(35_848, 21_508)); // the emit kernel's peak alone (the lhs clone is a refcount bump); each re-coded tooth's limb work is paid by its comparably-wide input code
@@ -526,9 +526,9 @@ fn metered<R>(name: &str, input_bytes: usize, env: &Envelope, f: impl FnOnce() -
                 let floor = (8 * input_bytes as u64).saturating_sub(streams * (8 + tail_bits));
                 assert!(
                     reading >= floor,
-                    "{name}: the {} counter reads {reading}, under the {floor}-bit whole-input \
-                     liveness floor over {input_bytes} input bytes: the walk left the \
-                     metered primitives",
+                    "{name}: the {} counter reads {reading}, under the {floor}-bit liveness floor \
+                     over {input_bytes} input bytes: the walk left the metered \
+                     primitives",
                     column.key,
                 );
             }
@@ -1565,7 +1565,7 @@ fn stopped_validator_fails_the_validate_row() {
     };
     let stubbed = failure("validate_stub_probe", &|| ());
     assert!(
-        stubbed.contains("whole-input liveness floor"),
+        stubbed.contains("liveness floor"),
         "a stubbed validator must fail the scan floor, not: {stubbed}"
     );
     let stopped = failure("validate_stopped_probe", &|| {
@@ -1573,7 +1573,7 @@ fn stopped_validator_fails_the_validate_row() {
             .expect("the half-depth spine is canonical");
     });
     assert!(
-        stopped.contains("whole-input liveness floor"),
+        stopped.contains("liveness floor"),
         "a validator that reads half its input must fail the scan floor, not: {stopped}"
     );
 }
