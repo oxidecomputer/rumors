@@ -2,7 +2,7 @@
 
 # Triage landing status
 
-Updated: 2026-09-03 03:22 UTC by the before session (rumors-74).
+Updated: 2026-09-03 03:23 UTC by the rumors session.
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
 
@@ -20,7 +20,7 @@ Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not st
 
 ## Open items on main
 
-- **Priority one (rumors):** a possible party-disjointness violation. The deleted inter-process disruption property reported two live peers with overlapping parties in a fault-free plan (two parents, one child, three sends) once at 16000 release-profile cases, not reproduced on replay. Either a real linearity window in fork/retire or a torn read by the dissolved harness; an investigation agent is replaying it on the box, constructing the plan in-process on main, and reading the fork and retire paths. Record: `triage/new-findings.md`.
+- Resolved (rumors): the reported party overlap was a torn sequential read by the dissolved harness's prober, not a library window; the exact plan is disjoint at every replica-observed instant (200 in-process runs) and the report's message is reproduced by construction. Record and follow-up: `triage/new-findings.md`.
 - The default-features `just check` failure (proxy tests, bookmark_causality) is repaired at `9a7e898e`; `just check` reads green workspace-wide.
 - The rumors CI job that runs the suites under the release profile with a large `PROPTEST_CASES` (T148) finds `before::meter tick_expand_cross_envelope` failing under release at any case count: the meter suite's pins are measured under the dev profile (debug assertions and overflow checks are part of the observer), so that job must not run the meter binary, or the suite must state and check the profile its pins hold under. Rumors' job excludes the meter binary with the reason stated; before's `p2-rows` makes the suite state and check its profile. Seven rows fail there, all on the limb tripwire (debug assertions are metered limb work); details in before's `triage/new-findings.md`.
 
