@@ -23,6 +23,7 @@
 //! buffering is safe because it outlives a session and rides into the
 //! next one.
 
+use bytes::BufMut;
 use tokio::io::{AsyncRead, AsyncReadExt};
 
 /// The initial reservation granule for framed payload buffers.
@@ -82,8 +83,8 @@ pub(crate) async fn read_payload<R: AsyncRead + Unpin>(
 }
 
 /// Continue an exact `len`-byte payload read into `payload`, whose
-/// existing bytes — a prefix the caller already consumed from the same
-/// source — count toward `len`.
+/// existing bytes -- a prefix the caller already consumed from the same
+/// source -- count toward `len`.
 ///
 /// The single-buffer continuation for a caller that had to inspect a
 /// payload's leading bytes before deciding to accept the rest (the
@@ -91,18 +92,28 @@ pub(crate) async fn read_payload<R: AsyncRead + Unpin>(
 /// buffer keeps the whole read at one allocation of the payload's bytes,
 /// where a read-then-splice would briefly hold the payload twice. Growth,
 /// exactness, and error behavior are [`read_payload`]'s (it is this
-/// function from an empty buffer).
+/// function from an empty buffer): every read is bounded by the bytes
+/// still owed, whatever spare capacity `payload` carries. A prefix
+/// longer than `len` is a caller error, reported as
+/// [`InvalidData`](std::io::ErrorKind::InvalidData) before any read.
 pub(crate) async fn resume_payload<R: AsyncRead + Unpin>(
     read: &mut R,
     mut payload: Vec<u8>,
     len: usize,
 ) -> std::io::Result<Vec<u8>> {
+    if payload.len() > len {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "payload prefix exceeds the declared length",
+        ));
+    }
     while payload.len() < len {
         if payload.len() == payload.capacity() {
             let target = (payload.capacity() * 2).max(PAYLOAD_CHUNK_LEN).min(len);
             payload.reserve_exact(target - payload.len());
         }
-        if read.read_buf(&mut payload).await? == 0 {
+        let owed = len - payload.len();
+        if read.read_buf(&mut (&mut payload).limit(owed)).await? == 0 {
             return Err(std::io::ErrorKind::UnexpectedEof.into());
         }
     }

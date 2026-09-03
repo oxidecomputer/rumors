@@ -1,5 +1,9 @@
+use std::pin::Pin;
+use std::task::{Context, Poll};
+
 use crate::message::{PayloadCodec, PayloadDepthLimit};
 use proptest::prelude::*;
+use tokio::io::{AsyncRead, ReadBuf};
 
 use super::*;
 use crate::Version;
@@ -1054,6 +1058,76 @@ fn overbatched_corners_classify_exactly() {
                 "cut at {cut}: {:?}",
                 error.kind
             );
+        }
+    }
+}
+
+/// An in-memory `AsyncRead` delivering at most `chunk` bytes per read, so
+/// a body read runs under partial delivery.
+struct ChunkedRead<'a> {
+    bytes: &'a [u8],
+    chunk: usize,
+}
+
+impl AsyncRead for ChunkedRead<'_> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        let granted = self.chunk.min(buf.remaining()).min(self.bytes.len());
+        let (now, later) = self.bytes.split_at(granted);
+        buf.put_slice(now);
+        self.bytes = later;
+        Poll::Ready(Ok(()))
+    }
+}
+
+/// The over-budget lone-record body read consumes no byte beyond the
+/// declared run: the frame after it stays intact in the transport and
+/// decodes next, whatever the delivery chunking.
+///
+/// Stream 9, `Supply(End)` declaring a four-byte run that is exactly one
+/// record of one content byte, then `End(Stream)` on the same stream,
+/// under a zero budget so the lone-record path is taken. Both decoders
+/// accept the record; the async reader then decodes the second frame and
+/// reports the clean close after it.
+#[test]
+fn over_budget_lone_record_read_stays_within_its_frame() {
+    let stream = stream(9);
+    let zero = RunBudget::from_bytes(0);
+    let lone = raw_record(&[0x00]);
+    assert_eq!(lone, [0xd8, 0x3f, 0x41, 0x00]);
+    let mut encoded = supply(stream, Flow::End, &lone);
+    assert_eq!(&encoded[..6], [0x83, 0x09, 0x07, 0xd8, 0x3f, 0x44]);
+    let trailing = bare_frame(stream, Signal::End(End::Stream));
+    assert_eq!(trailing, [0x82, 0x09, 0x09]);
+    encoded.extend_from_slice(&trailing);
+    let run = LeafRun::from_encoded(lone).unwrap();
+
+    for speaker in SPEAKERS {
+        let first = (
+            stream,
+            Frame::Reaction(Reaction::Supply(run.clone()), Flow::End),
+        );
+        assert_eq!(
+            decode_both(speaker, zero, &encoded).expect("both decoders accept the lone record"),
+            first
+        );
+        for chunk in 1..=encoded.len() {
+            let read = ChunkedRead {
+                bytes: &encoded,
+                chunk,
+            };
+            let mut reader = FrameRead::new(speaker, zero, read);
+            let mut next = || pollster::block_on(reader.frame()).unwrap();
+            assert_eq!(next(), Some(first.clone()), "chunk {chunk}");
+            assert_eq!(
+                next(),
+                Some((stream, Frame::End(End::Stream))),
+                "chunk {chunk}"
+            );
+            assert_eq!(next(), None, "chunk {chunk}");
         }
     }
 }

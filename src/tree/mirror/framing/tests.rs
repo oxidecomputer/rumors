@@ -33,6 +33,11 @@ impl ChunkedRead {
             step: 0,
         }
     }
+
+    /// The bytes no read has taken yet.
+    fn unread(&self) -> &[u8] {
+        &self.data[self.at..]
+    }
 }
 
 impl AsyncRead for ChunkedRead {
@@ -101,6 +106,57 @@ proptest! {
             }
         }
     }
+
+    /// Resuming a payload read behind a prefix is observably identical to
+    /// reading the whole payload from its start, whatever spare capacity
+    /// the prefix's buffer carries and however the rest is chunked.
+    ///
+    /// Full delivery yields the byte-identical payload and leaves the
+    /// following bytes unread, and any truncation surfaces as
+    /// `UnexpectedEof` on both.
+    #[test]
+    fn resumed_read_matches_whole_read(
+        (len, prefix_len) in (0usize..=2 * PAYLOAD_CHUNK_LEN + 130)
+            .prop_flat_map(|len| (Just(len), 0..=len)),
+        spare in 0usize..=PAYLOAD_CHUNK_LEN + 7,
+        seed in any::<u8>(),
+        schedule in prop::collection::vec(1usize..=PAYLOAD_CHUNK_LEN + 7, 1..8),
+        cut in proptest::option::of(0f64..1f64),
+    ) {
+        let payload = pattern(len, seed);
+        let trailing = b"next-frame-bytes";
+        let delivered = match cut {
+            None => len,
+            Some(fraction) => prefix_len + (fraction * (len - prefix_len) as f64) as usize,
+        };
+        let mut transcript = payload[..delivered].to_vec();
+        if delivered == len {
+            transcript.extend_from_slice(trailing);
+        }
+
+        let mut prefix = Vec::with_capacity(prefix_len + spare);
+        prefix.extend_from_slice(&payload[..prefix_len]);
+        let mut chunked = ChunkedRead::new(transcript[prefix_len..].to_vec(), schedule);
+        let via_resume = pollster::block_on(resume_payload(&mut chunked, prefix, len));
+        let mut cursor: &[u8] = &transcript;
+        let via_whole = pollster::block_on(read_payload(&mut cursor, len));
+
+        match (via_resume, via_whole) {
+            (Ok(resumed), Ok(whole)) => {
+                prop_assert_eq!(&resumed, &whole);
+                prop_assert_eq!(resumed, payload);
+                prop_assert_eq!(chunked.unread(), trailing.as_slice());
+                prop_assert_eq!(cursor, trailing.as_slice());
+            }
+            (Err(resumed), Err(whole)) => {
+                prop_assert_eq!(resumed.kind(), std::io::ErrorKind::UnexpectedEof);
+                prop_assert_eq!(whole.kind(), std::io::ErrorKind::UnexpectedEof);
+            }
+            (resumed, whole) => {
+                prop_assert!(false, "readers disagree: {:?} vs {:?}", resumed, whole);
+            }
+        }
+    }
 }
 
 /// Truncation cuts landing one byte short of, exactly on, and one byte
@@ -135,4 +191,32 @@ fn payload_read_never_consumes_beyond_the_declared_length() {
     let decoded = pollster::block_on(read_payload(&mut cursor, len)).unwrap();
     assert_eq!(decoded, payload);
     assert_eq!(cursor, trailing.as_slice());
+}
+
+/// A resumed payload read consumes exactly the bytes still owed: spare
+/// capacity on the caller's buffer never draws in the following bytes,
+/// which stay untouched in the transport.
+#[test]
+fn resumed_read_never_consumes_beyond_the_declared_length() {
+    let len = 9;
+    let mut transcript = pattern(len, 5);
+    let trailing = *b"next-frame-bytes";
+    transcript.extend_from_slice(&trailing);
+    let mut prefix = Vec::with_capacity(64);
+    prefix.extend_from_slice(&transcript[..3]);
+
+    let mut cursor: &[u8] = &transcript[3..];
+    let decoded = pollster::block_on(resume_payload(&mut cursor, prefix, len)).unwrap();
+    assert_eq!(decoded, &transcript[..len]);
+    assert_eq!(cursor, trailing.as_slice());
+}
+
+/// A prefix longer than the declared length is a caller error: reported
+/// as `InvalidData`, with nothing read from the transport.
+#[test]
+fn a_prefix_longer_than_the_declared_length_is_invalid_data() {
+    let mut cursor: &[u8] = b"unused";
+    let error = pollster::block_on(resume_payload(&mut cursor, vec![0u8; 12], 9)).unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+    assert_eq!(cursor, b"unused");
 }
