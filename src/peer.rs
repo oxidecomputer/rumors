@@ -411,10 +411,6 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// few percent past ~300 MB. It also prices no population ceiling,
     /// so where windows reach corpus scale, the exact solve's numbers
     /// (the table below, and the pinned crossover) replace it.
-    /// Measured: sessions whose serialized one-way trips are counted
-    /// exactly on a virtual clock, at 8–26 MB budgets on the minimal
-    /// and design corpora, ran 1.35–1.96× the form's figure
-    /// (`tests/tradeoff_probe.rs`).
     ///
     /// The ballpark answers, at the specification BDP:
     ///

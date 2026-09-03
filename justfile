@@ -1,6 +1,8 @@
 # rumors workspace: the source of truth for verification. Every artifact in
 # the workspace has a recipe here, tiered by feedback speed, and `just --list`
-# is the tour.
+# is the tour. The one exception class is the hand-run instrument: an
+# `#[ignore]`-gated test whose module doc states the cost that keeps it out
+# of every recipe and the command that runs it (tests/tradeoff_probe.rs).
 #
 #   inner loop   just check / just test <filter>     seconds to a minute
 #   commit gate  just gate                           fully clean before every commit
