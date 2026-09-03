@@ -263,9 +263,8 @@ pub struct SimOutcome {
 // ---- strategies ------------------------------------------------------------
 
 /// Most peers a plan's founding fleet can hold. Every bound here is
-/// public so dominance arguments (the envelope session pin in
-/// `tests/disruption.rs`) derive from the generator instead of
-/// transcribing it.
+/// public so the envelope session pin in `tests/disruption.rs` derives
+/// from the generator instead of transcribing it.
 pub const MAX_PLAN_PEERS: usize = 5;
 
 /// Most messages a plan can insert at the seed before forking.
@@ -274,23 +273,16 @@ pub const MAX_PLAN_SEED_MESSAGES: usize = 7;
 /// Most operations one founder's activity script can carry.
 pub const MAX_PLAN_SCRIPT_OPS: usize = 7;
 
-/// Strategy for one endpoint's fault plan, with cuts drawn from
-/// `0..MAX_CUT`: the intra-process family's bound.
+/// Strategy for one endpoint's fault plan.
 ///
 /// With `faults` disabled it is always clean, so a whole plan generated
 /// under `false` is loss-free by construction; enabled, each direction
 /// independently stays clean or cuts at an arbitrary offset.
 pub fn arb_fault(faults: bool) -> BoxedStrategy<FaultPlan> {
-    arb_fault_within(faults, MAX_CUT)
-}
-
-/// [`arb_fault`] with cuts drawn from `0..max_cut`, so a family whose
-/// connections were metered separately draws from its own bound.
-pub fn arb_fault_within(faults: bool, max_cut: usize) -> BoxedStrategy<FaultPlan> {
     if !faults {
         return Just(FaultPlan::NONE).boxed();
     }
-    let cut = prop_oneof![2 => Just(None), 3 => (0..max_cut).prop_map(Some)];
+    let cut = prop_oneof![2 => Just(None), 3 => (0..MAX_CUT).prop_map(Some)];
     (cut.clone(), cut)
         .prop_map(|(write_cut, read_cut)| FaultPlan {
             write_cut,
@@ -411,17 +403,11 @@ pub fn is_honest_error(error: &Error) -> bool {
 }
 
 /// Whether an I/O source is one of the fault harness's severed-wire outcomes.
-///
-/// `ConnectionRefused` belongs here because of how a dead peer manifests to
-/// a stream *open*: on a per-connection transport (the inter-process TCP
-/// link), a peer that died mid-session takes its stream listener with it,
-/// and the next `connect` is refused rather than reset.
 fn honest_io(error: &std::io::Error) -> bool {
     matches!(
         error.kind(),
         std::io::ErrorKind::BrokenPipe
             | std::io::ErrorKind::ConnectionReset
-            | std::io::ErrorKind::ConnectionRefused
             | std::io::ErrorKind::UnexpectedEof
     )
 }

@@ -1,7 +1,6 @@
-//! A per-session TCP [`Link`] for the inter-process simulations.
+//! A per-session TCP [`Link`]: the one-connection-per-stream instantiation.
 //!
-//! This is the "one connection per stream" instantiation of the link
-//! contract at its simplest: every session gets its own dedicated listener
+//! The link contract at its simplest: every session gets its own dedicated listener
 //! on each side, so no routing header or connection table is needed — a
 //! connection arriving at a session's listener *is* one of that session's
 //! streams. The caller supplies the initial TCP connection; [`link`] turns

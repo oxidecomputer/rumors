@@ -1,7 +1,7 @@
-//! Wire-fault injection for the disruption simulations: deterministic,
+//! Wire-fault injection for the disruption simulation: deterministic,
 //! byte-budgeted severing of either direction of a gossip link.
 //!
-//! A "dropped connection" in the simulations is one or both directions of a
+//! A "dropped connection" in the simulation is one or both directions of a
 //! [`rumors::Link`] tripping at an arbitrary byte offset mid-session:
 //!
 //! - [`Fuse`] forwards writes until its budget is exhausted, then fails
@@ -20,7 +20,7 @@
 //! counterparty observes it as end-of-stream (and a truncated frame) once
 //! the failing side's link drops, or as its own write error against the
 //! closed transport. Either way the session dies somewhere the protocol did
-//! not choose, which is exactly the disruption the simulations are after.
+//! not choose, which is exactly the disruption the simulation is after.
 //!
 //! [`BrokenPipe`]: std::io::ErrorKind::BrokenPipe
 //! [`ConnectionReset`]: std::io::ErrorKind::ConnectionReset
@@ -130,7 +130,7 @@ pub fn metered(link: MemoryLink) -> (FaultyLink, ByteMeter) {
     (link, meter)
 }
 
-/// [`faulty`] for any link shape, e.g. the inter-process TCP link.
+/// [`faulty`] for any link shape.
 pub fn faulty_link<CR, CW, C, A>(
     link: Link<CR, CW, C, A>,
     plan: FaultPlan,
