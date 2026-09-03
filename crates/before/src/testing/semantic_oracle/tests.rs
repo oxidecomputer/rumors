@@ -551,14 +551,7 @@ fn worked_value_anchor_convicts_the_mirrored_embedding() {
 fn grid_cap_is_never_reached() {
     use proptest::test_runner::{Config, TestRunner};
     use std::sync::atomic::{AtomicU32, Ordering as AOrd};
-    // Fewer cases than a typical canary sweep: each case probes the function
-    // space's grid to read its resolution, and the bound it guards is
-    // structural (`fork` only deepens by bisecting an indivisible piece, the
-    // paper's rate), so a modest sweep is an ample canary.
-    let mut runner = TestRunner::new(Config {
-        cases: 400,
-        ..Config::default()
-    });
+    let mut runner = TestRunner::new(Config::default());
     let max_d = AtomicU32::new(0);
     runner
         .run(&(world_strategy(), any::<u64>()), |(ops, seed)| {
