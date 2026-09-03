@@ -116,10 +116,6 @@ lanes have closed.
 
 (none)
 
-- before `p2-generators`: branch `before/p2-generators`, packet head `8d7b3175`,
-  last code commit `19d03d97`, base `main`. No root files. Packet:
-  `.agent-notes/2026-09-01-holistic-review-before/triage/reviews/p2-generators.md`.
-
 ## Announcements
 
 - REPAIRED at `9a7e898e` (rumors; the walk's dropped imports, helper, and

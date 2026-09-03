@@ -53,3 +53,20 @@ generator's doc says what it draws.
   weaker test; the doc states the family the generator covers, and a
   narrowing the coordinator cannot see from the doc is a finding.
 - No public signature moves; no pin moves.
+
+## Widened by ruling 113
+
+No strategy rejects at all: `prop_filter` and `prop_filter_map` go the
+same way as `prop_assume!` (the constraint is generated, never
+filtered), and no collection strategy carries a nonzero minimum size.
+The seven `prop_filter` sites: `fuzzfit/harness/src/strategies.rs`
+(non-empty program: draw at least one op), `src/codec/tests.rs` and
+`src/borsh_impls/tests.rs` (two each: live bits ending on a byte
+boundary, drawn by construction from a byte count), `src/testing/
+generators.rs` (`arb_oracle_party_nonempty`: draw a party with at least
+one owned leaf), `src/version/skyline/query/tests.rs` (the filtered
+range: draw the admitted values directly). Acceptance per site: the
+suite runs at `PROPTEST_CASES=4000` with
+`PROPTEST_MAX_GLOBAL_REJECTS=0 PROPTEST_MAX_LOCAL_REJECTS=0` exported,
+and a grep for the four spellings finds nothing under `crates/before`
+and `crates/suanpan`.
