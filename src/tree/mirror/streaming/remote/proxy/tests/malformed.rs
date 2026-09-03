@@ -1,14 +1,11 @@
 //! Full-stack rejection of peer-controlled malformed frames.
 
-use super::harness::{self, FrameMutation, FrameSelector, Script};
+use super::harness::{self, EndpointError, EndpointFailure, FrameMutation, FrameSelector, Script};
 use crate::testing::run_to_quiescence;
 use crate::tree::{
     arb::early_first_child_dispute_pair,
-    mirror::{
-        Error as MirrorError,
-        streaming::remote::{
-            CodecDecodeErrorKind, DecodeSignalError, Error as RemoteError, StreamError,
-        },
+    mirror::streaming::remote::{
+        CodecDecodeErrorKind, DecodeSignalError, Error as RemoteError, StreamError,
     },
 };
 
@@ -42,19 +39,17 @@ fn reserved_state(error: &RemoteError<std::convert::Infallible>) -> Option<u64> 
 /// Borrow the remote error detected opposite the corrupt writer.
 fn receiving_error<'a>(
     corrupt_left: bool,
-    left: &'a Result<crate::tree::Root, harness::LeftError>,
-    right: &'a Result<crate::tree::Root, harness::RightError>,
+    left: &'a Result<crate::tree::Root, EndpointFailure>,
+    right: &'a Result<crate::tree::Root, EndpointFailure>,
 ) -> &'a RemoteError<std::convert::Infallible> {
-    if corrupt_left {
-        match right {
-            Err(MirrorError::Client(error)) => error,
-            other => panic!("receiving right proxy did not report the fault: {other:?}"),
-        }
+    let (side, receiving) = if corrupt_left {
+        ("right", right)
     } else {
-        match left {
-            Err(MirrorError::Server(error)) => error,
-            other => panic!("receiving left proxy did not report the fault: {other:?}"),
-        }
+        ("left", left)
+    };
+    match receiving {
+        Err(EndpointError::Proxy(error)) => error,
+        other => panic!("receiving {side} proxy did not report the fault: {other:?}"),
     }
 }
 

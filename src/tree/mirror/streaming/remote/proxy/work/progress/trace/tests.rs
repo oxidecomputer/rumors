@@ -65,6 +65,33 @@ fn rejects_next_decoded_reply_before_scopes() {
     trace.assert_valid();
 }
 
+/// An empty trace, which both ordering assertions accept, fails the
+/// divergent-session floor by name.
+#[test]
+#[should_panic(expected = "exactly one greeting-seeded opening reply, found 0")]
+fn empty_trace_fails_the_divergent_session_floor() {
+    let (_, trace) = with_trace(|| ());
+    trace.assert_valid();
+    trace.assert_registration_causality();
+    trace.assert_covers_divergent_session();
+}
+
+/// The least a divergent session records meets the floor: the responder
+/// proxy's opening wire reply and question, and the initiator proxy's
+/// greeting-seeded opening reply.
+#[test]
+fn minimal_divergent_session_meets_the_floor() {
+    let (_, trace) = with_trace(|| {
+        record(0, Kind::WireReply { questions: 1 }, UnderRoot::HEIGHT);
+        record(0, Kind::LocalQuestion, UnderRoot::HEIGHT);
+        record(1, Kind::DecodedReply { scopes: 1 }, UnderRoot::HEIGHT);
+        record(1, Kind::NextScope, UnderRoot::HEIGHT);
+    });
+    trace.assert_valid();
+    trace.assert_registration_causality();
+    trace.assert_covers_divergent_session();
+}
+
 /// A decode following its flushed question satisfies registration causality.
 #[test]
 fn accepts_decode_after_flushed_question() {

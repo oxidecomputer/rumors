@@ -15,16 +15,19 @@ use tokio::io::{AsyncRead, AsyncWrite};
 
 use tokio::io::ReadBuf;
 
+use serde::{Serialize, de::DeserializeOwned};
+
 use crate::link::{Acceptor, Connector, Done, Link, MemoryLink, memory_with_capacity};
 use crate::testing::{IoPlan, IoReportHandle, IoSide, wrap_link};
 use crate::tree::mirror::cbor;
 use crate::tree::mirror::streaming::window::WindowConfig;
+use crate::tree::typed::height::Z;
 use crate::tree::{
     Root as TreeRoot,
     mirror::{
         Error as MirrorError,
         streaming::{
-            Local, Root,
+            Backend, Failing, FailingNode, Leaf, Local, Root,
             materialized::{Error as MaterializedError, Handshaking},
             mirror,
             remote::{Error as RemoteError, Handshaking as RemoteHandshaking},
@@ -41,18 +44,108 @@ const QUERY_STATES: RangeInclusive<u8> = 4..=5;
 /// Dense states below this boundary carry reactions rather than bare ends.
 const REACTION_STATE_COUNT: u8 = 8;
 
-/// Failure returned by the materialized-left/proxy-right driver.
-pub type LeftError = MirrorError<MaterializedError<Infallible>, RemoteError<Infallible>>;
+/// One endpoint's session failure, named by the participant that raised
+/// it.
+///
+/// `MirrorError` names protocol positions; which position a participant
+/// holds is the [`Topology`]'s choice, so the harness reports by
+/// participant and the topology alone says who was client and who was
+/// server.
+#[derive(Debug)]
+pub enum EndpointError<E> {
+    /// The endpoint's materialized participant failed.
+    Local(MaterializedError<E>),
+    /// The endpoint's proxy failed.
+    Proxy(RemoteError<E>),
+}
 
-/// Failure returned by the proxy-left/materialized-right driver.
-pub type RightError = MirrorError<RemoteError<Infallible>, MaterializedError<Infallible>>;
+/// An endpoint failure over the infallible `Local` backend.
+pub type EndpointFailure = EndpointError<Infallible>;
+
+/// How each endpoint pairs its materialized participant with its proxy.
+#[derive(Clone, Copy)]
+pub enum Topology {
+    /// What `Peer` runs: each materialized participant is the client of
+    /// its own proxy, so both proxies accept and exchange greetings
+    /// concurrently.
+    Production,
+    /// The right endpoint's proxy connects and its materialized
+    /// participant accepts: the arrangement that pins the materialized
+    /// participant's behavior in the server position.
+    RightProxyConnects,
+}
+
+/// A backend whose roots convert to and from `tree::Root`: `Local`, and
+/// the failing wrapper over it.
+pub trait TreeBackend: Backend<Node<Z>: Leaf> + Clone + Send + Sync + 'static {
+    /// Wrap a tree root in this backend's node type.
+    fn lift(root: TreeRoot) -> Root<Self>;
+    /// Unwrap a reconciled root back to the tree's.
+    fn lower(root: Root<Self>) -> TreeRoot;
+}
+
+impl TreeBackend for Local {
+    fn lift(root: TreeRoot) -> Root<Self> {
+        root.into()
+    }
+
+    fn lower(root: Root<Self>) -> TreeRoot {
+        root.into()
+    }
+}
+
+impl TreeBackend for Failing<Local> {
+    fn lift(root: TreeRoot) -> Root<Self> {
+        Root {
+            ceiling: root.ceiling,
+            root: root.root.map(FailingNode::new),
+        }
+    }
+
+    fn lower(root: Root<Self>) -> TreeRoot {
+        TreeRoot {
+            ceiling: root.ceiling,
+            root: root.root.map(FailingNode::into_inner),
+        }
+    }
+}
+
+/// The four participants' backends: each endpoint's materialized
+/// participant and the proxy beside it.
+pub struct Backends<B> {
+    pub left: B,
+    pub left_proxy: B,
+    pub right: B,
+    pub right_proxy: B,
+}
+
+impl Backends<Local> {
+    /// Every participant on the infallible in-memory backend.
+    pub fn local() -> Self {
+        Self {
+            left: Local,
+            left_proxy: Local,
+            right: Local,
+            right_proxy: Local,
+        }
+    }
+}
+
+/// The payload codec for `T` at the default depth limit: the one every
+/// proxy in the partition decodes through.
+pub fn codec<T>() -> PayloadCodec
+where
+    T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
+{
+    PayloadCodec::new::<T>(PayloadDepthLimit::default())
+}
 
 /// Both endpoint results and their physical-I/O observations.
 pub struct Outcome {
     /// The first materialized tree, or its session failure.
-    pub left: Result<TreeRoot, LeftError>,
+    pub left: Result<TreeRoot, EndpointFailure>,
     /// The second materialized tree, or its session failure.
-    pub right: Result<TreeRoot, RightError>,
+    pub right: Result<TreeRoot, EndpointFailure>,
     /// I/O performed by the first proxy endpoint.
     pub left_io: IoReportHandle,
     /// I/O performed by the second proxy endpoint.
@@ -457,7 +550,17 @@ pub async fn reconcile(
     let (left_link, left_io) = wrap_link(IoSide::Left, left_plan, left_link);
     let (right_link, right_io) = wrap_link(IoSide::Right, right_plan, right_link);
 
-    let (left, right) = drive(left, right, left_link, right_link, WindowConfig::FLOOR).await;
+    let (left, right) = drive(
+        Topology::Production,
+        Backends::local(),
+        left,
+        right,
+        left_link,
+        right_link,
+        codec::<()>(),
+        WindowConfig::FLOOR,
+    )
+    .await;
 
     Outcome {
         left,
@@ -476,13 +579,19 @@ pub async fn reconcile_rewritten_greetings(
     right: TreeRoot,
     left_hears: Option<GreetingRewrite>,
     right_hears: Option<GreetingRewrite>,
-) -> (Result<TreeRoot, LeftError>, Result<TreeRoot, RightError>) {
+) -> (
+    Result<TreeRoot, EndpointFailure>,
+    Result<TreeRoot, EndpointFailure>,
+) {
     let (left_link, right_link) = memory_with_capacity(TRANSPORT_CAPACITY);
     drive(
+        Topology::Production,
+        Backends::local(),
         left,
         right,
         rewritten(left_link, left_hears),
         rewritten(right_link, right_hears),
+        codec::<()>(),
         WindowConfig::default(),
     )
     .await
@@ -539,13 +648,19 @@ pub async fn reconcile_scripted(
     right: TreeRoot,
     left_script: Option<Script>,
     right_script: Option<Script>,
-) -> (Result<TreeRoot, LeftError>, Result<TreeRoot, RightError>) {
+) -> (
+    Result<TreeRoot, EndpointFailure>,
+    Result<TreeRoot, EndpointFailure>,
+) {
     let (left_link, right_link) = memory_with_capacity(TRANSPORT_CAPACITY);
     drive(
+        Topology::Production,
+        Backends::local(),
         left,
         right,
         scripted(left_link, left_script),
         scripted(right_link, right_script),
+        codec::<()>(),
         WindowConfig::FLOOR,
     )
     .await
@@ -575,15 +690,31 @@ fn scripted(
     .into_link()
 }
 
-/// Drive the shared two-mirror topology over already-wrapped links.
-async fn drive<LR, LW, LC, LA, RR, RW, RC, RA>(
+/// Drive one two-proxy session over already-wrapped links: the one place
+/// the four participants are constructed.
+///
+/// `left_link` carries the left endpoint, whose proxy represents the right
+/// peer; `right_link` the reverse. Every result is the endpoint's
+/// materialized tree or the failure of whichever of its two participants
+/// raised one.
+#[allow(clippy::too_many_arguments)] // One premise per argument: the
+// topology, the four backends, the two roots, the two links, the codec,
+// and the window.
+pub async fn drive<B, LR, LW, LC, LA, RR, RW, RC, RA>(
+    topology: Topology,
+    backends: Backends<B>,
     left: TreeRoot,
     right: TreeRoot,
     left_link: Link<LR, LW, LC, LA>,
     right_link: Link<RR, RW, RC, RA>,
+    codec: PayloadCodec,
     window: WindowConfig,
-) -> (Result<TreeRoot, LeftError>, Result<TreeRoot, RightError>)
+) -> (
+    Result<TreeRoot, EndpointError<B::Error>>,
+    Result<TreeRoot, EndpointError<B::Error>>,
+)
 where
+    B: TreeBackend,
     LR: AsyncRead + Unpin + Send,
     LW: AsyncWrite + Unpin + Send,
     LC: Connector,
@@ -593,26 +724,50 @@ where
     RC: Connector,
     RA: Acceptor,
 {
-    let left = Handshaking::start(Local, Root::<Local>::from(left)).window(window);
-    let right = Handshaking::start(Local, Root::<Local>::from(right)).window(window);
-    let remote_right = RemoteHandshaking::start(
-        Local,
-        left_link,
-        PayloadCodec::new::<()>(PayloadDepthLimit::default()),
-    )
-    .window(window);
-    let remote_left = RemoteHandshaking::start(
-        Local,
-        right_link,
-        PayloadCodec::new::<()>(PayloadDepthLimit::default()),
-    )
-    .window(window);
-    let (left, right) = join!(
-        Box::pin(mirror(left, remote_right)),
-        Box::pin(mirror(remote_left, right)),
-    );
-    (
-        left.map(|(root, _control)| root.into()),
-        right.map(|(_control, root)| root.into()),
-    )
+    let Backends {
+        left: left_backend,
+        left_proxy,
+        right: right_backend,
+        right_proxy,
+    } = backends;
+    let left = Handshaking::start(left_backend, B::lift(left)).window(window);
+    let right = Handshaking::start(right_backend, B::lift(right)).window(window);
+    let remote_right = RemoteHandshaking::start(left_proxy, left_link, codec).window(window);
+    let remote_left = RemoteHandshaking::start(right_proxy, right_link, codec).window(window);
+
+    // The left endpoint's materialized participant is the client of its
+    // proxy in both arrangements; the topology decides the right one.
+    let left = mirror(left, remote_right);
+    match topology {
+        Topology::Production => {
+            let (left, right) = join!(Box::pin(left), Box::pin(mirror(right, remote_left)));
+            (local_client(left), local_client(right))
+        }
+        Topology::RightProxyConnects => {
+            let (left, right) = join!(Box::pin(left), Box::pin(mirror(remote_left, right)));
+            (local_client(left), local_server(right))
+        }
+    }
+}
+
+/// Name an endpoint result whose materialized participant was the client.
+fn local_client<B: TreeBackend, W>(
+    result: Result<(Root<B>, W), MirrorError<MaterializedError<B::Error>, RemoteError<B::Error>>>,
+) -> Result<TreeRoot, EndpointError<B::Error>> {
+    match result {
+        Ok((root, _control)) => Ok(B::lower(root)),
+        Err(MirrorError::Client(error)) => Err(EndpointError::Local(error)),
+        Err(MirrorError::Server(error)) => Err(EndpointError::Proxy(error)),
+    }
+}
+
+/// Name an endpoint result whose materialized participant was the server.
+fn local_server<B: TreeBackend, W>(
+    result: Result<(W, Root<B>), MirrorError<RemoteError<B::Error>, MaterializedError<B::Error>>>,
+) -> Result<TreeRoot, EndpointError<B::Error>> {
+    match result {
+        Ok((_control, root)) => Ok(B::lower(root)),
+        Err(MirrorError::Client(error)) => Err(EndpointError::Proxy(error)),
+        Err(MirrorError::Server(error)) => Err(EndpointError::Local(error)),
+    }
 }

@@ -13,17 +13,16 @@ use crate::tree::{
     Action, Tree,
     arb::arb_divergent_pair,
     arb::nth_party,
-    mirror::{
-        Error as MirrorError,
-        streaming::{
-            Failing, Local,
-            remote::{
-                CodecDecodeErrorKind, CodecEncodeErrorKind, Error as RemoteError, SendError,
-                StreamError,
-            },
+    mirror::streaming::{
+        Failing, Local,
+        remote::{
+            CodecDecodeErrorKind, CodecEncodeErrorKind, Error as RemoteError, SendError,
+            StreamError,
         },
     },
 };
+
+use super::harness::EndpointError;
 
 /// Find the typed injected source retained anywhere below a remote failure.
 fn injected<E>(error: &RemoteError<E>) -> Option<InjectedIo> {
@@ -131,20 +130,16 @@ fn endpoint_error(
     outcome: &harness::Outcome,
     fail_left: bool,
 ) -> Result<&RemoteError<Infallible>, TestCaseError> {
-    if fail_left {
-        match &outcome.left {
-            Err(MirrorError::Server(error)) => Ok(error),
-            other => Err(TestCaseError::fail(format!(
-                "left transport fault was masked: {other:?}",
-            ))),
-        }
+    let (side, faulted) = if fail_left {
+        ("left", &outcome.left)
     } else {
-        match &outcome.right {
-            Err(MirrorError::Client(error)) => Ok(error),
-            other => Err(TestCaseError::fail(format!(
-                "right transport fault was masked: {other:?}",
-            ))),
-        }
+        ("right", &outcome.right)
+    };
+    match faulted {
+        Err(EndpointError::Proxy(error)) => Ok(error),
+        other => Err(TestCaseError::fail(format!(
+            "{side} transport fault was masked: {other:?}",
+        ))),
     }
 }
 
@@ -351,7 +346,7 @@ fn stacked_backend_and_transport_failures_remain_distinct() {
     ))
     .expect("backend-first stacked failure should terminate");
     let backend_error = match &left_result {
-        Err(MirrorError::Server(error)) => error,
+        Err(EndpointError::Proxy(error)) => error,
         other => panic!("backend error was masked: {other:?}"),
     };
     assert_eq!(
@@ -378,7 +373,7 @@ fn stacked_backend_and_transport_failures_remain_distinct() {
     ))
     .expect("transport-first stacked failure should terminate");
     let transport_error = match &left_result {
-        Err(MirrorError::Server(error)) => error,
+        Err(EndpointError::Proxy(error)) => error,
         other => panic!("transport error was masked: {other:?}"),
     };
     assert_eq!(injected(transport_error), io.snapshot().injected);

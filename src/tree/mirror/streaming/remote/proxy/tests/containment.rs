@@ -1,56 +1,39 @@
 //! Version-containment enforcement over the full wire stack.
 
-use crate::message::{PayloadCodec, PayloadDepthLimit};
-use futures::join;
-
 use crate::link::memory_with_capacity;
 use crate::testing::run_to_quiescence;
 use crate::tree::arb::uncontained_supply_pair;
 use crate::tree::mirror::streaming::window::WindowConfig;
 use crate::tree::{
     Root as TreeRoot,
-    mirror::{
-        Error as MirrorError,
-        streaming::{
-            Local, Root,
-            materialized::{Error as MaterializedError, Handshaking, Violation},
-            mirror,
-            remote::Handshaking as RemoteHandshaking,
-        },
-    },
+    mirror::streaming::materialized::{Error as MaterializedError, Violation},
 };
 
 use super::TRANSPORT_CAPACITY;
-use super::harness::{LeftError, RightError};
+use super::harness::{Backends, EndpointError, EndpointFailure, Topology, codec, drive};
 
-/// Drive the two-proxy topology, returning each endpoint's result instead
-/// of asserting success.
+/// Drive the two-proxy topology in which the right endpoint's materialized
+/// participant is the protocol server, returning each endpoint's result
+/// instead of asserting success.
 async fn reconcile_results(
     a: TreeRoot,
     b: TreeRoot,
-) -> (Result<TreeRoot, LeftError>, Result<TreeRoot, RightError>) {
-    let a = Handshaking::start(Local, Root::<Local>::from(a)).window(WindowConfig::FLOOR);
-    let b = Handshaking::start(Local, Root::<Local>::from(b)).window(WindowConfig::FLOOR);
-
+) -> (
+    Result<TreeRoot, EndpointFailure>,
+    Result<TreeRoot, EndpointFailure>,
+) {
     let (a_link, b_link) = memory_with_capacity(TRANSPORT_CAPACITY);
-    let remote_b = RemoteHandshaking::start(
-        Local,
+    drive(
+        Topology::RightProxyConnects,
+        Backends::local(),
+        a,
+        b,
         a_link,
-        PayloadCodec::new::<()>(PayloadDepthLimit::default()),
-    )
-    .window(WindowConfig::FLOOR);
-    let remote_a = RemoteHandshaking::start(
-        Local,
         b_link,
-        PayloadCodec::new::<()>(PayloadDepthLimit::default()),
+        codec::<()>(),
+        WindowConfig::FLOOR,
     )
-    .window(WindowConfig::FLOOR);
-
-    let (a, b) = join!(Box::pin(mirror(a, remote_b)), Box::pin(mirror(remote_a, b)));
-    (
-        a.map(|(root, _control)| root.into()),
-        b.map(|(_control, root)| root.into()),
-    )
+    .await
 }
 
 /// A supplied leaf whose version escapes the sender's declared greeting
@@ -58,10 +41,11 @@ async fn reconcile_results(
 /// link.
 ///
 /// The enforcement holds through the frame codec and supply decoder, not
-/// only in process. The receiving endpoint reports the violation from its own materialized
-/// participant in either endpoint position; the sender's endpoint is left
-/// to whatever its aborted transport surfaces, which is not this
-/// tripwire's concern. The in-process twin is
+/// only in process. The receiving endpoint reports the violation from its
+/// own materialized participant in either protocol position (the topology
+/// makes the left one the client and the right one the server); the
+/// sender's endpoint is left to whatever its aborted transport surfaces,
+/// which is not this tripwire's concern. The in-process twin is
 /// `uncontained_supply_is_rejected_by_streaming`.
 #[test]
 fn uncontained_supply_is_rejected_at_the_wire() {
@@ -75,7 +59,7 @@ fn uncontained_supply_is_rejected_at_the_wire() {
         assert!(
             matches!(
                 receiver_out,
-                Err(MirrorError::Client(MaterializedError::Violation(
+                Err(EndpointError::Local(MaterializedError::Violation(
                     Violation::UncontainedSupply
                 ))),
             ),
@@ -93,7 +77,7 @@ fn uncontained_supply_is_rejected_at_the_wire() {
         assert!(
             matches!(
                 receiver_out,
-                Err(MirrorError::Server(MaterializedError::Violation(
+                Err(EndpointError::Local(MaterializedError::Violation(
                     Violation::UncontainedSupply
                 ))),
             ),

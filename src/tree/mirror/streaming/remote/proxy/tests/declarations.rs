@@ -15,20 +15,37 @@ use crate::testing::run_to_quiescence;
 use crate::tree::{
     Action, Tree,
     arb::{early_first_child_dispute_pair, nth_party},
-    mirror::{
-        Error as MirrorError,
-        streaming::{
-            remote::{
-                CodecDecodeError, CodecDecodeErrorKind, Error as RemoteError, ReplyDecodeError,
-                StreamError,
-            },
-            window::FAN,
+    mirror::streaming::{
+        remote::{
+            CodecDecodeError, CodecDecodeErrorKind, Error as RemoteError, ReplyDecodeError,
+            StreamError,
         },
+        window::FAN,
     },
     typed::hash::MERKLE_HASH_LEN,
 };
 
-use super::harness::{self, GreetingRewrite};
+use super::harness::{self, EndpointError, EndpointFailure, GreetingRewrite};
+
+/// Borrow the proxy error the receiving side reported.
+fn receiver_error<'a>(
+    receiver_left: bool,
+    left: &'a Result<crate::tree::Root, EndpointFailure>,
+    right: &'a Result<crate::tree::Root, EndpointFailure>,
+    lie: &str,
+) -> &'a RemoteError<std::convert::Infallible> {
+    let (side, receiving) = if receiver_left {
+        ("left", left)
+    } else {
+        ("right", right)
+    };
+    match receiving {
+        Err(EndpointError::Proxy(error)) => error,
+        other => {
+            panic!("undetected {lie} lie: the {side} proxy did not report the violation: {other:?}")
+        }
+    }
+}
 
 /// The observable root hash of a reconciled `tree::Root`.
 fn hash_of(root: &crate::tree::Root) -> [u8; MERKLE_HASH_LEN] {
@@ -106,23 +123,7 @@ fn understated_target_message_size_fails_the_session() {
             left, right, hears.0, hears.1,
         ))
         .expect("an overbatched supply run must terminate both sessions, not stall them");
-        let receiver_error = if receiver_left {
-            match &left {
-                Err(MirrorError::Server(error)) => error,
-                other => panic!(
-                    "undetected target_message_size lie: the left proxy did not \
-                     report the violation: {other:?}"
-                ),
-            }
-        } else {
-            match &right {
-                Err(MirrorError::Client(error)) => error,
-                other => panic!(
-                    "undetected target_message_size lie: the right proxy did not \
-                     report the violation: {other:?}"
-                ),
-            }
-        };
+        let receiver_error = receiver_error(receiver_left, &left, &right, "target_message_size");
         assert!(
             matches!(
                 receiver_error,
@@ -185,17 +186,7 @@ fn understated_version_bytes_fail_the_session() {
             (!receiver_left).then_some(rewrite),
         ))
         .expect("an oversized supplied version must terminate both sessions");
-        let receiver_error = if receiver_left {
-            match &left {
-                Err(MirrorError::Server(error)) => error,
-                other => panic!("the left proxy did not report the violation: {other:?}"),
-            }
-        } else {
-            match &right {
-                Err(MirrorError::Client(error)) => error,
-                other => panic!("the right proxy did not report the violation: {other:?}"),
-            }
-        };
+        let receiver_error = receiver_error(receiver_left, &left, &right, "max_version_bytes");
         assert!(matches!(
             receiver_error,
             RemoteError::Decode(ReplyDecodeError::OversizedVersion { declared: 0, .. })
@@ -242,23 +233,7 @@ fn understated_set_len_fails_the_session() {
             left, right, hears.0, hears.1,
         ))
         .expect("an overdrawn supply stream must terminate both sessions");
-        let receiver_error = if receiver_left {
-            match &left {
-                Err(MirrorError::Server(error)) => error,
-                other => panic!(
-                    "undetected set_len lie: the left proxy did not report \
-                     the violation: {other:?}"
-                ),
-            }
-        } else {
-            match &right {
-                Err(MirrorError::Client(error)) => error,
-                other => panic!(
-                    "undetected set_len lie: the right proxy did not report \
-                     the violation: {other:?}"
-                ),
-            }
-        };
+        let receiver_error = receiver_error(receiver_left, &left, &right, "set_len");
         assert!(
             matches!(
                 receiver_error,
@@ -314,23 +289,8 @@ fn set_len_overrun_within_one_reply_fails_at_ingress() {
             left, right, hears.0, hears.1,
         ))
         .expect("a mid-reply overdrawn supply must terminate both sessions, not stall them");
-        let receiver_error = if receiver_left {
-            match &left {
-                Err(MirrorError::Server(error)) => error,
-                other => panic!(
-                    "undetected within-one-reply set_len lie: the left proxy \
-                     did not report the violation: {other:?}"
-                ),
-            }
-        } else {
-            match &right {
-                Err(MirrorError::Client(error)) => error,
-                other => panic!(
-                    "undetected within-one-reply set_len lie: the right proxy \
-                     did not report the violation: {other:?}"
-                ),
-            }
-        };
+        let receiver_error =
+            receiver_error(receiver_left, &left, &right, "within-one-reply set_len");
         assert!(
             matches!(
                 receiver_error,

@@ -109,6 +109,10 @@ where
 pub struct Start;
 
 /// The peer greeting received before the local server produces its response.
+///
+/// Reached only through the [`Connect`] impl below: the client-position
+/// wire participant, which the test harness's alternative arrangement
+/// runs and production never does.
 pub struct Connecting {
     remote: Greeting,
 }
@@ -127,6 +131,14 @@ where
     type Output = (R, W);
 }
 
+/// The wire participant in the protocol's client position.
+///
+/// Production pairs every materialized participant as the client of its
+/// own proxy, so the proxy always accepts; this impl and its
+/// [`CompleteConnect`] continuation exist for the test harness's
+/// alternative arrangement, in which the right endpoint's proxy connects
+/// and its materialized participant accepts. No production caller reaches
+/// them.
 impl<B, R, W, C, A> Connect<B> for Handshaking<B, R, W, C, A>
 where
     B: Backend<Node<Z>: Leaf>,
@@ -154,6 +166,8 @@ where
     }
 }
 
+/// The client-position continuation of [`Connect`]: harness-only, with no
+/// production caller.
 impl<B, R, W, C, A> CompleteConnect<B> for Handshaking<B, R, W, C, A, Connecting>
 where
     B: Backend<Node<Z>: Leaf>,

@@ -54,6 +54,42 @@ impl Trace {
         );
     }
 
+    /// Assert the floor every divergent two-proxy session meets: exactly one
+    /// greeting-seeded opening reply and exactly one opening question at the
+    /// under-root height, and at least one wire reply.
+    ///
+    /// A divergent session elects one initiator and one responder. The
+    /// initiator-side proxy seeds exactly one under-root reply from the
+    /// greeting (`Work::initiator`), and the responder-side proxy publishes
+    /// exactly one under-root question after flushing its opening wire
+    /// reply (`encode::opening`); nothing else records at that height. The
+    /// ordering assertions quantify over whatever was recorded and pass on
+    /// an empty trace; this floor is what makes them bite.
+    pub fn assert_covers_divergent_session(&self) {
+        let at_under_root = |kind: fn(Kind) -> bool| {
+            self.0
+                .iter()
+                .filter(|event| event.height == UnderRoot::HEIGHT && kind(event.kind))
+                .count()
+        };
+        let openings = at_under_root(|kind| matches!(kind, Kind::DecodedReply { .. }));
+        assert_eq!(
+            openings, 1,
+            "a divergent session records exactly one greeting-seeded opening reply, found {openings}",
+        );
+        let questions = at_under_root(|kind| matches!(kind, Kind::LocalQuestion));
+        assert_eq!(
+            questions, 1,
+            "a divergent session records exactly one opening question, found {questions}",
+        );
+        assert!(
+            self.0
+                .iter()
+                .any(|event| matches!(event.kind, Kind::WireReply { .. })),
+            "a divergent session records at least one wire reply, found none",
+        );
+    }
+
     /// Assert context-registration causality: no decoded reply overtakes
     /// the flushed local question whose scope interprets it.
     ///
