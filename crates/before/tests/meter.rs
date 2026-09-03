@@ -210,6 +210,10 @@ const MASK_DRIFT_MAGNITUDE_BITS: usize = 512;
 /// Tooth count of the mask-drift families' envelope scenarios.
 const MASK_DRIFT_TEETH: usize = 1_024;
 
+/// Scale (magnitude bits and trail length) of the wide-arming render
+/// scenario: the parse direction's band shape at its small point.
+const WIDE_ARMING_RENDER_SCALE: usize = 512;
+
 /// Depth of the harmonic spine `H(d)` rank scenario: deep enough that the
 /// fold's per-level numerator re-shifts dominate every constant.
 const RANK_HARMONIC_DEPTH: usize = 65_536;
@@ -1610,14 +1614,15 @@ fn skyline_decode_round_trips_the_families() {
 #[rustfmt::skip]
 mod text_env {
     use super::{band, envelope, Envelope};
-    pub const SKYLINE_RENDER_DENSE: Envelope    = envelope(1_996_800, band(1_562_513, 937_507),             band(0, 0), band(468_758, 281_254)); // word-sized finalize summaries per open node; the output sized exactly before one byte is written
-    pub const SKYLINE_RENDER_BIGROOT: Envelope  = envelope(  249_600,    band(127_368, 76_420),             band(0, 0),  band(137_512, 82_506)); // leaf-delta-sized summaries: no per-level copy of the wide root value
-    pub const SKYLINE_RENDER_HUGELEAF: Envelope = envelope(  171_310,       band(7_330, 4_398),             band(0, 0), band(312_503, 187_501)); // one delegated decimal rendering plus the exact-sized output, no tree state
-    pub const SKYLINE_RENDER_CLIFF: Envelope    = envelope(1_113_202,   band(243_385, 146_031),             band(0, 0),   band(17_923, 10_753)); // each tooth's printed base re-derived from its 3-bit deltas, paid by its own rendered digits
-    pub const SKYLINE_PARSE_DENSE: Envelope     = envelope(4_041_052,   band(625_007, 375_003),  band(156_254, 93_752), band(468_758, 281_254)); // parallel chunked open-node stacks; the parse pipeline ends at the builder — the built stream's canonicality rides the committed render↔parse inverse pair and transcoder differential — so the scan column is the build pass's own, and word-valued payloads keep narrow-value work out of the limb denomination
-    pub const SKYLINE_PARSE_BIGROOT: Envelope   = envelope(  377_944,     band(51_574, 30_944),   band(18_754, 11_252),  band(137_512, 82_506)); // the wide root base converts once through the backend's divide-and-conquer parser; the scan column is the build pass's own
-    pub const SKYLINE_PARSE_HUGELEAF: Envelope  = envelope(  152_480,       band(4_887, 2_931),   band(19_537, 11_721), band(312_503, 187_501)); // one delegated conversion, one absolute payload out; no accumulator re-walks the built stream's wide payloads
-    pub const SKYLINE_PARSE_CLIFF: Envelope     = envelope(  344_152,     band(56_475, 33_885), band(172_839, 103_703),   band(17_923, 10_753)); // every tooth's base enters and leaves the cliff-free accumulator paid by its own digit run; the scan column is the build pass's own
+    pub const SKYLINE_RENDER_DENSE: Envelope       = envelope(1_996_800, band(1_562_513, 937_507),             band(0, 0), band(468_758, 281_254)); // word-sized finalize summaries per open node; the output sized exactly before one byte is written
+    pub const SKYLINE_RENDER_BIGROOT: Envelope     = envelope(  249_600,    band(127_368, 76_420),             band(0, 0),  band(137_512, 82_506)); // leaf-delta-sized summaries: no per-level copy of the wide root value
+    pub const SKYLINE_RENDER_HUGELEAF: Envelope    = envelope(  171_310,       band(7_330, 4_398),             band(0, 0), band(312_503, 187_501)); // one delegated decimal rendering plus the exact-sized output, no tree state
+    pub const SKYLINE_RENDER_WIDE_ARMING: Envelope = envelope(  558_320,   band(482_700, 289_620),             band(0, 0),  band(146_033, 87_619)); // the parse direction's dual: the wide swing then the dense trail walked through the summary merges, no accumulator work
+    pub const SKYLINE_RENDER_CLIFF: Envelope       = envelope(1_113_202,   band(243_385, 146_031),             band(0, 0),   band(17_923, 10_753)); // each tooth's printed base re-derived from its 3-bit deltas, paid by its own rendered digits
+    pub const SKYLINE_PARSE_DENSE: Envelope        = envelope(4_041_052,   band(625_007, 375_003),  band(156_254, 93_752), band(468_758, 281_254)); // parallel chunked open-node stacks; the parse pipeline ends at the builder — the built stream's canonicality rides the committed render↔parse inverse pair and transcoder differential — so the scan column is the build pass's own, and word-valued payloads keep narrow-value work out of the limb denomination
+    pub const SKYLINE_PARSE_BIGROOT: Envelope      = envelope(  377_944,     band(51_574, 30_944),   band(18_754, 11_252),  band(137_512, 82_506)); // the wide root base converts once through the backend's divide-and-conquer parser; the scan column is the build pass's own
+    pub const SKYLINE_PARSE_HUGELEAF: Envelope     = envelope(  152_480,       band(4_887, 2_931),   band(19_537, 11_721), band(312_503, 187_501)); // one delegated conversion, one absolute payload out; no accumulator re-walks the built stream's wide payloads
+    pub const SKYLINE_PARSE_CLIFF: Envelope        = envelope(  344_152,     band(56_475, 33_885), band(172_839, 103_703),   band(17_923, 10_753)); // every tooth's base enters and leaves the cliff-free accumulator paid by its own digit run; the scan column is the build pass's own
 }
 
 /// Rendering the dense spine's skyline stays within its envelope.
@@ -1690,6 +1695,26 @@ fn skyline_render_cliff_envelope() {
         "skyline_render_cliff",
         a.as_raw_slice().len(),
         &text_env::SKYLINE_RENDER_CLIFF,
+        || meter::skyline::text::render(meter::skyline::view(&a)),
+    );
+    assert_eq!(out, expected, "the kernel must render Display's bytes");
+}
+
+/// Rendering the wide-arming stream's skyline stays within its envelope.
+///
+/// The wide swing and then the dense trail walk through the summary
+/// merges, and the touch cell pins the zero accumulator work doing it (the
+/// parse direction's dual).
+#[test]
+fn skyline_render_wide_arming_envelope() {
+    let v =
+        version_of(&Shape::WideArming.packed2(WIDE_ARMING_RENDER_SCALE, WIDE_ARMING_RENDER_SCALE));
+    let a = meter::skyline::encode(&v);
+    let expected = v.to_string();
+    let out = metered(
+        "skyline_render_wide_arming",
+        a.as_raw_slice().len(),
+        &text_env::SKYLINE_RENDER_WIDE_ARMING,
         || meter::skyline::text::render(meter::skyline::view(&a)),
     );
     assert_eq!(out, expected, "the kernel must render Display's bytes");
