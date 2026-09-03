@@ -115,8 +115,12 @@ box runs chrony and Finch owns its clock. Two legs pin toolchain-derived
 numbers and may fire on the box if its toolchains differ from the
 pinned ones (`1.97.1` and `nightly-2026-06-30` are both installed there);
 a lane reports such a leg with both numbers and re-pins nothing.
-Benchmarks whose committed baselines are the Mac's are the coordinator's
-to schedule, on a quiet machine, once.
+One leg is expected red on the box and counts as clean when it is the
+only failure: `fuzz`, because libFuzzer has no illumos port
+(`FuzzerPlatform.h` refuses the target); a lane quotes that line and
+runs no fuzz build elsewhere (Finch's ruling, recorded in the rumors
+workflow: fuzzing is CI's). Benchmarks whose committed baselines are the
+Mac's are the coordinator's to schedule, on a quiet machine, once.
 
 A lane's final gate run is backgrounded on the Mac side with its output
 redirected to a log under the lane's scratchpad directory, polled with
