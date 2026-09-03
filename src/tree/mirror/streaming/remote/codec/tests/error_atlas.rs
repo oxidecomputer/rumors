@@ -122,7 +122,7 @@ fn one_record_run<T: Serialize + Send + Sync + 'static>(version: Version, value:
     run
 }
 
-/// Every feasible typed failure pins its fields and source chain, and its
+/// Every feasible failure pins its fields and source chain, and its
 /// origin where one exists (the record-level witnesses carry none;
 /// `record_errors` says why).
 #[test]

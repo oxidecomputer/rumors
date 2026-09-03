@@ -96,7 +96,7 @@ fn batched_uneven_pair() -> (crate::tree::Root, crate::tree::Root) {
     (small.root, large.root)
 }
 
-/// A peer batching supply runs past the session minimum fails the session typed.
+/// A peer batching supply runs past the session minimum fails the session.
 ///
 /// The deceived side hears the bulk peer's `target_message_size` as zero,
 /// so it negotiates a zero session run budget while the peer keeps
@@ -167,7 +167,7 @@ fn overstated_target_message_size_still_converges() {
     }
 }
 
-/// A supplied version over the declared `max_version_bytes` fails the session typed.
+/// A supplied version over the declared `max_version_bytes` fails the session.
 ///
 /// The receiving side reports `OversizedVersion` at the first offending
 /// record — the declared aggregate covers every version the peer's tree
@@ -196,7 +196,7 @@ fn understated_version_bytes_fail_the_session() {
     }
 }
 
-/// A supply stream past the declared `set_len` fails the session typed.
+/// A supply stream past the declared `set_len` fails the session.
 ///
 /// The dual of the oversized-version guard, completing the declaration
 /// matrix: the declared set length is a premise of the window solve's

@@ -104,8 +104,8 @@ fn arb_flow() -> impl Strategy<Value = Flow> {
     prop_oneof![Just(Flow::Continue), Just(Flow::End)]
 }
 
-/// The stream constructor rejects an index past the stream range with a
-/// typed error naming the index.
+/// The stream constructor rejects an index past the stream range with an
+/// error naming the index.
 #[test]
 fn out_of_range_stream_index_is_rejected() {
     assert_eq!(
@@ -1200,8 +1200,8 @@ proptest! {
     /// record's heads.
     ///
     /// A multi-record supply frame decodes when its charged wire size is
-    /// within the budget and fails typed as `OverbatchedRun` — carrying
-    /// that wire size and the budget — when it is past it. The rejection
+    /// within the budget and returns `OverbatchedRun`, carrying
+    /// that wire size and the budget, when it is past it. The rejection
     /// is decided ahead of the rest of the body: a stream ending right
     /// after the first record's heads still classifies as the budget
     /// violation, never as a truncation. Both decoders (the async reader
@@ -1246,7 +1246,7 @@ proptest! {
         let over = RunBudget::from_bytes(wire_size.saturating_sub(deficit));
         let error = decode_both(speaker, over, &encoded).expect_err(
             "undetected over-budget batching: a multi-record frame past the \
-             budget must fail typed",
+             budget must return an error",
         );
         prop_assert_eq!(error.origin, Origin::stream(speaker, stream));
         let typed = matches!(

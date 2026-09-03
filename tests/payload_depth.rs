@@ -10,8 +10,8 @@
 //! versioning-`enum` shape, whose decode recursion is type-dependent),
 //! reject one step past the limit at its author, reject a lossy value
 //! (`Some(None)`) at its author, and carry deep content across a fleet
-//! whose limit was raised in concert; the last pin holds the sender's
-//! exit typed when a counterparty aborts mid-session on a decode
+//! whose limit was raised in concert; the last pin holds that the sender
+//! exits with an error when a counterparty aborts mid-session on a decode
 //! failure.
 
 mod common;
@@ -313,7 +313,7 @@ fn mismatched_limits_abort_both_sides_at_the_handshake() {
 
 /// When a counterparty aborts mid-session on a payload decode failure
 /// and discards its poisoned link, the sender's own `gossip` completes
-/// with a typed error rather than hanging.
+/// with an error rather than hanging.
 ///
 /// The sender's error is [`rumors::Error::Epilogue`]: its local session
 /// work committed, and only the peer's confirmation was lost. The

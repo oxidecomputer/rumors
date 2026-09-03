@@ -182,7 +182,7 @@ impl State {
         delay
     }
 
-    /// Return a typed failure once its configured prefix has completed.
+    /// Return an error once its configured prefix has completed.
     fn failure(&mut self, operation: Operation) -> Option<io::Error> {
         let fault = self.plan.fault?;
         if fault.operation != operation {

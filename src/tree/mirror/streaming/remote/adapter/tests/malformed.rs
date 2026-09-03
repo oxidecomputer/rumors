@@ -594,7 +594,7 @@ fn whole_root_supply_reply(cases: &[LeafCase]) -> Vec<Frame> {
     )]
 }
 
-/// A reply streaming past the declared `set_len` fails typed at its first
+/// A reply streaming past the declared `set_len` returns an error at its first
 /// over-declaration record, under node residency independent of the
 /// overrun; a declaration exactly covering the stream admits it whole.
 ///

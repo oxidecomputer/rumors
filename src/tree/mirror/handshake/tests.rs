@@ -211,7 +211,7 @@ proptest! {
     /// Any complete V2 preamble whose fields are canonically spelled
     /// decodes exactly as the field-by-field oracle predicts.
     ///
-    /// The prediction: a typed error naming the first invalid field in
+    /// The prediction: an error naming the first invalid field in
     /// diagnostic order, or the valid preamble — never a panic.
     #[test]
     fn arbitrary_preamble_decodes_by_the_oracle(
@@ -254,7 +254,7 @@ proptest! {
         prop_assert!(as_oracle, "decode disagreed with the oracle: {:?}", result);
     }
 
-    /// Arbitrary bytes in the preamble's place decode to a typed error or
+    /// Arbitrary bytes in the preamble's place decode to an error or
     /// a valid preamble, never a panic: the parser is total over its
     /// fixed-width input.
     #[test]

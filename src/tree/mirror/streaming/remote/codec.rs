@@ -158,7 +158,7 @@ pub(crate) fn lone_record_run(len: usize) -> Vec<u8> {
 ///
 /// The allocator meter (`tests/decode_alloc.rs`) drives the supply read path
 /// through this to price a supply body in bytes requested from the
-/// allocator; the decoded value is noise to that meter, but the typed error
+/// allocator; the decoded value is noise to that meter, but the error
 /// passes through so the meter can also assert how a failure classified.
 /// The budget is the meter's to choose: the framing ceiling keeps every
 /// well-framed declaration on the body-read path being priced, while a

@@ -162,8 +162,8 @@ fn deposited_supply_failure_outranks_a_racing_consequence() {
     }
 }
 
-/// A typed backend failure racing a dead stream supply surfaces as itself:
-/// the supply-outranking terminal exempts backend-typed errors.
+/// A backend failure racing a dead stream supply surfaces as itself:
+/// the supply-outranking terminal exempts backend errors.
 ///
 /// The terminal outranks protocol errors with a deposited supply failure
 /// because a consequence of the dead transport is a symptom, not a cause —

@@ -171,7 +171,7 @@ where
     }
 }
 
-/// Divert one producer's typed errors while forwarding its responses.
+/// Divert one producer's errors while forwarding its responses.
 ///
 /// On error the stream parks rather than ending, because EOF means successful
 /// phase completion to its consumer. [`race_session`] observes the routed

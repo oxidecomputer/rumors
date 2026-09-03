@@ -3,7 +3,7 @@
 //! Drives [`rumors::Rumors::gossip`] against a counterparty whose control
 //! halves are driven by hand over an in-memory [`rumors::link`] pair,
 //! asserting that a mismatched magic, version, or intent surfaces as the
-//! typed error variant rather than corrupting the local rumor set. The V2
+//! error variant rather than corrupting the local rumor set. The V2
 //! preamble is one self-described CBOR item of exactly 30 bytes with no
 //! redundant length:
 //! `55799(["rumors", version: uint, network: bstr(16), intent: uint])`.

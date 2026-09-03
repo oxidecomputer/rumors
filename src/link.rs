@@ -118,7 +118,7 @@
 //! peers and securing the transport to the application. It is worth
 //! being concrete about that division, because the protocol's own
 //! validation can look like security and is not. The protocol does
-//! reject malformed and mismatched sessions with typed errors, trusts
+//! reject malformed and mismatched sessions with an error, trusts
 //! nothing peer-declared before the fixed preamble validates, and leaves
 //! the caller's timeout as the sole liveness backstop against a silent
 //! peer; all of that machinery exists to catch nonconforming peers, and

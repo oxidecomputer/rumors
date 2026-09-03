@@ -176,7 +176,7 @@ fn opening_supplies_decode_by_radix_group() {
 }
 
 /// The opening-supply reply is held to the declared set length record by
-/// record: the first record past the allowance fails the decode typed,
+/// record: the first record past the allowance fails the decode,
 /// while the one opening reply is still open.
 ///
 /// The same fixture as the radix-group decode above, under an allowance

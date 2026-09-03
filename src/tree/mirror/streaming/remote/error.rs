@@ -1,4 +1,4 @@
-//! Typed failures surfaced by a wire-bound streaming participant.
+//! Errors surfaced by a wire-bound streaming participant.
 //!
 //! [`RemoteError`] is the protocol-facing sum. Its variants retain the typed
 //! adapter, stream-layer, and codec failures below, all of which are

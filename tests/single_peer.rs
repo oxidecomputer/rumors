@@ -253,7 +253,7 @@ impl Arr {
 /// the whole batch: earlier-queued actions included — the
 /// cancel-on-error pin.
 ///
-/// The typed error carries the configured limit, and the tree is
+/// The error carries the configured limit, and the tree is
 /// untouched.
 #[test]
 fn a_depth_error_cancels_the_whole_batch() {
