@@ -288,8 +288,11 @@ iterated.
 
 The illumos box (`ox-east-1`, per the `building-on-illumos` skill) is
 where a lane builds, tests, and gates. The wrapper syncs the Mac
-worktree to `~/src/<worktree basename>` on the box and runs one command
-there with its own target directory, so lanes do not collide; cargo
+worktree to `~/src/<worktree basename>` on the box (a real checkout:
+it pushes the local HEAD into a repository there, checks it out
+detached, and rsyncs the working tree over it, so `git ls-files` and
+`git rev-parse HEAD` answer on the box as on the Mac) and runs one
+command there with its own target directory, so lanes do not collide; cargo
 runs `--locked` there; nothing is edited or committed on the box. A
 clean gate on the box is the gate of record for a commit; the Mac runs
 no gate (Finch's ruling). Every build, test run, and gate runs in the
