@@ -544,12 +544,15 @@ fn harness_judges_every_column() {
     };
     HEAP.reset_peak_usage();
     let baseline = HEAP.current_usage();
-    consumed(metered("harness_probe", input, &open, || v.rank()));
+    let r = metered("harness_probe", input, &open, || v.rank());
+    // Read the counters before anything formats the result: the readings
+    // must be the probe body's alone.
+    let readings = COLUMNS.map(|column| (column.read)());
     assert!(
         HEAP.peak_usage().saturating_sub(baseline) > 0,
         "the probe body must allocate"
     );
-    let readings = COLUMNS.map(|column| (column.read)());
+    consumed(r);
     let fails_over = |env: &Envelope, input: usize| {
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             consumed(metered("harness_probe", input, env, || v.rank()))
