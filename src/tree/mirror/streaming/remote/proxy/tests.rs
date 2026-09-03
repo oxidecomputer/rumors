@@ -24,22 +24,29 @@ use crate::tree::{
     Action, Root as TreeRoot, Tree,
     arb::{arb_divergent_pair, arb_wide_divergent_pair, early_first_child_dispute_pair, nth_party},
     mirror::streaming::{
-        Failing, Failure, Local, Operation, Root,
-        materialized::Handshaking,
+        Failing, FailingNode, Failure, Local, Operation, Root,
+        materialized::{Error as MaterializedError, Handshaking},
         mirror,
         remote::{
-            Error as RemoteError,
+            Error as RemoteError, Handshaking as RemoteHandshaking,
             proxy::work::progress::{Trace, with_trace},
         },
     },
 };
-use crate::{Version, message::Message};
+use crate::{
+    Version,
+    message::{Message, PayloadCodec, PayloadDepthLimit},
+    tree::mirror::Error as MirrorError,
+};
 
 use harness::{Backends, EndpointError, Topology, codec, drive};
 
 type BackendFailure = Failure<Infallible>;
+type LocalFailure = MaterializedError<BackendFailure>;
 type ProxyFailure = RemoteError<BackendFailure>;
 type EndpointFailure = EndpointError<BackendFailure>;
+type LeftFailure = MirrorError<LocalFailure, ProxyFailure>;
+type RightFailure = MirrorError<ProxyFailure, LocalFailure>;
 
 mod containment;
 mod declarations;
@@ -239,6 +246,14 @@ async fn reconcile_with_stacked_failures(
     )
     .await;
     (results, if fail_left { a_io } else { b_io })
+}
+
+/// Translate a local root into the composable failing backend's node type.
+fn failing_root(root: TreeRoot) -> Root<Failing<Local>> {
+    Root {
+        ceiling: root.ceiling,
+        root: root.root.map(FailingNode::new),
+    }
 }
 
 /// Reconcile with exactly one materialized participant using the supplied

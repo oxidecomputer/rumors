@@ -670,8 +670,8 @@ impl World {
     ///
     /// Decided before the session, since the session consumes the schedule.
     fn session_may_fail(&self, a: usize, b: usize, fault_a: FaultPlan, fault_b: FaultPlan) -> bool {
-        !fault_a.is_clean()
-            || !fault_b.is_clean()
+        fault_a != FaultPlan::NONE
+            || fault_b != FaultPlan::NONE
             || self.bookmark_may_fail(a)
             || self.bookmark_may_fail(b)
     }
