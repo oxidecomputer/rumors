@@ -280,8 +280,8 @@ grows organically thereafter.
   does.
 - **Justfile wiring, mirroring the before recipes:** `fuzz-build`
   gains (or is joined by a sibling for) the rumors workspace built
-  under `tools/memwatch` with the nightly toolchain; the `fuzz` smoke
-  recipe gains one line running `fuzz_session` for `fuzz_smoke_secs`
+  with the nightly toolchain; the `fuzz` smoke recipe gains one line
+  running `fuzz_session` for `fuzz_smoke_secs`
   (20s default) with `corpus/fuzz_session seeds/fuzz_session` named in
   that order. `ci` keeps building fuzz targets without running them;
   `all` inherits the smoke through the existing `(fuzz

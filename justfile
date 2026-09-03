@@ -98,20 +98,14 @@ default:
 check:
     cargo check --workspace --all-targets
 
-# Codegen-running recipes go through tools/memwatch: a runaway rustc (e.g. a
-# monomorphization bomb — see src/tree/traverse/act.rs) or a runaway test
-# fails the build with the offender named instead of wedging the machine.
-# `check`/`clippy` skip codegen, so they can't detonate one and run bare.
-# Override the limits per-invocation: `PROC_LIMIT_GB=64 just test`.
-
 # Run the test suites; pass a filter to narrow (`just test mirror`).
 test *args:
-    {{ justfile_directory() }}/tools/memwatch cargo nextest run --workspace {{ args }}
+    cargo nextest run --workspace {{ args }}
 
 # The gate's test run: every feature (the meter suites and the conformance
 # module build only here).
 test-all *args:
-    {{ justfile_directory() }}/tools/memwatch cargo nextest run --workspace --all-features {{ args }}
+    cargo nextest run --workspace --all-features {{ args }}
 
 # Stable rustdoc compiles one executable per example; `before` has nearly 100,
 # and their macOS link work dominates the gate. Nightly's merged mode compiles
@@ -120,7 +114,7 @@ test-all *args:
 
 # Run the doctests (nightly), which nextest does not run.
 doctest:
-    RUSTDOCFLAGS="-Z unstable-options --merge-doctests yes" {{ justfile_directory() }}/tools/memwatch cargo +{{ nightly_toolchain }} test --workspace --doc --all-features --target-dir target/doctest-nightly
+    RUSTDOCFLAGS="-Z unstable-options --merge-doctests yes" cargo +{{ nightly_toolchain }} test --workspace --doc --all-features --target-dir target/doctest-nightly
 
 # Lint every target, warnings denied (the commit-gate setting).
 clippy:
@@ -288,7 +282,7 @@ docs-internal:
 # collected test inventory.
 citecheck:
     ./tools/citecheck --self-test
-    mkdir -p target && {{ justfile_directory() }}/tools/memwatch bash -c 'cargo nextest list -p before --all-features --message-format json > target/citecheck-tests.json'
+    mkdir -p target && cargo nextest list -p before --all-features --message-format json > target/citecheck-tests.json
     ./tools/citecheck --tests target/citecheck-tests.json --root crates/before
 
 # The mutants exclusion roster (.cargo/mutants.toml) names every mutant
@@ -365,7 +359,7 @@ supply-chain:
 [working-directory("crates/before/fuzz")]
 fuzz-build:
     cargo fmt --check
-    {{ justfile_directory() }}/tools/memwatch cargo +{{ nightly_toolchain }} fuzz build --target {{ host_triple }}
+    cargo +{{ nightly_toolchain }} fuzz build --target {{ host_triple }}
 
 # The gate runs in two tiers. First `gate-lints`, sequential and
 # build-free, because a formatting slip must not cost four minutes to
@@ -391,10 +385,8 @@ fuzz-build:
 # lets them overlap. `fuzzfit` and `fuelscape-test` share one stream
 # because both build the same wasm guest.
 #
-# Concurrency multiplies peak memory, not just cores: every build-heavy
-# leg runs under tools/memwatch, whose per-process ceiling and global swap
-# backstop are scoped so concurrent instances never kill each other's
-# compiles. A stream that trips it fails loudly and names the crate.
+# Concurrency multiplies peak memory, not just cores. Nothing here caps
+# memory; how many gates share a machine is the operator's call.
 
 # Run the pre-commit gate; it must come up fully clean before every commit.
 gate: gate-lints gate-streams
@@ -535,7 +527,7 @@ viz:
 
 # Compile (don't run) the criterion benches.
 bench-build:
-    {{ justfile_directory() }}/tools/memwatch cargo bench --workspace --no-run
+    cargo bench --workspace --no-run
 
 # The decode invariant (accepted input re-encodes stably and decodes back to
 # itself) and the `before::laws` law collection are asserted inline in the
@@ -574,7 +566,7 @@ fuzz secs=fuzz_smoke_secs:
 [working-directory("crates/before/fuzzfit")]
 fuzzfit-build:
     cargo build -p fuzzfit-guest --release --target wasm32-unknown-unknown --target-dir {{ fuzzfit_target }}
-    {{ justfile_directory() }}/tools/memwatch cargo build -p fuzzfit-harness --tests --release
+    cargo build -p fuzzfit-harness --tests --release
 
 # Run the fuzz-fit suites: generator sanity, meter liveness, the judgment
 # and shape-leg tripwires, the quadratic-burner adequacy check, the
@@ -594,7 +586,7 @@ fuzzfit-build:
 fuzzfit: fuzzfit-build
     cargo fmt --check
     cargo clippy --all-targets -- -D warnings
-    FUZZFIT_GUEST_WASM={{ fuzzfit_guest_wasm }} {{ justfile_directory() }}/tools/memwatch cargo nextest run --cargo-profile release
+    FUZZFIT_GUEST_WASM={{ fuzzfit_guest_wasm }} cargo nextest run --cargo-profile release
 
 # Re-fit the pinned bands from the committed deterministic corpus (4096
 # programs; byte-reproducible, so any diff is a real change). Rewrites
@@ -660,7 +652,7 @@ wasm32-pins: wasm32-pins-build
 fuelscape-test: fuzzfit-build
     cargo fmt --check
     cargo clippy --all-targets -- -D warnings
-    FUZZFIT_GUEST_WASM={{ fuzzfit_guest_wasm }} {{ justfile_directory() }}/tools/memwatch cargo nextest run
+    FUZZFIT_GUEST_WASM={{ fuzzfit_guest_wasm }} cargo nextest run
 
 # Renders one log-log heatmap per public operation into target/fuelscape
 # (SVG per op plus a gallery index.html): p(fuel | size) from uniform
@@ -941,7 +933,7 @@ surface-json:
 surface-totality: surface-json
     cargo fmt --check
     cargo clippy --all-targets -- -D warnings
-    {{ justfile_directory() }}/tools/memwatch cargo nextest run
+    cargo nextest run
     cargo run -q -- {{ justfile_directory() }}/target/surface-json/doc/before.json
 
 # The worst-case map answers "which committed shape is worst for operation
@@ -1031,12 +1023,12 @@ covcheck_expected := justfile_directory() + "/tools/covcheck-expected.json"
 coverage-kernel:
     ./tools/covcheck --self-test
     @mkdir -p target/llvm-cov
-    {{ justfile_directory() }}/tools/memwatch cargo llvm-cov nextest --workspace --all-features --lcov --output-path target/llvm-cov/workspace.lcov
+    cargo llvm-cov nextest --workspace --all-features --lcov --output-path target/llvm-cov/workspace.lcov
     ./tools/covcheck --lcov target/llvm-cov/workspace.lcov --expected {{ covcheck_expected }} --root {{ justfile_directory() }}
 
 # Run the instrumented suite (pinned nightly, --branch) and hold kernel branch coverage to the pin.
 coverage-kernel-branch:
     ./tools/covcheck --self-test
     @mkdir -p target/llvm-cov
-    {{ justfile_directory() }}/tools/memwatch cargo +{{ nightly_toolchain }} llvm-cov nextest --branch --workspace --all-features --lcov --output-path target/llvm-cov/workspace-branch.lcov
+    cargo +{{ nightly_toolchain }} llvm-cov nextest --branch --workspace --all-features --lcov --output-path target/llvm-cov/workspace-branch.lcov
     ./tools/covcheck --branch --lcov target/llvm-cov/workspace-branch.lcov --expected {{ covcheck_expected }} --root {{ justfile_directory() }}

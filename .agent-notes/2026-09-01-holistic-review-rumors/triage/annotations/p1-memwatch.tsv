@@ -1,0 +1,21 @@
+# p1-memwatch lane annotations: path, line (new side of `git diff 51ccf03c...HEAD`), entry id, ruling, note.
+# Written by Claude (Fable 5.1) as the lane implementer for Finch's review; not authored or endorsed by Finch.
+tools/memwatch	0	memwatch-retirement	T136	The script itself, deleted whole. Its swap check reads a figure the kernel drains lazily and kills healthy legs; its per-process ceiling never caught a demonstrated runaway. Replacement: nothing, by owner decision; the builder cap per machine is the resource control of record.
+justfile	101	memwatch-retirement	T136	The comment block above `test` went whole: every sentence explained the wrapper, its trigger, or its env override. The monomorphization-bomb pointer to `src/tree/traverse/act.rs` went with it because it existed to justify the watchdog, not to document `test`.
+justfile	103	memwatch-retirement	T136	`test`: wrapper prefix removed; command, arguments, and exit status unchanged.
+justfile	108	memwatch-retirement	T136	`test-all`: wrapper prefix removed; nothing else on the line moved.
+justfile	117	memwatch-retirement	T136	`doctest`: wrapper removed between the RUSTDOCFLAGS assignment and the cargo invocation; the assignment still scopes the same command.
+justfile	285	memwatch-retirement	T136	`citecheck`: the `bash -c` existed only to carry the redirect through the wrapper, so it went with the wrapper; the redirect now sits directly on the command under the same `mkdir -p target &&` guard, same exit-status semantics.
+justfile	362	memwatch-retirement	T136	`fuzz-build`: wrapper removed; the `[working-directory]` attribute and the nightly `fuzz build` line are untouched.
+justfile	388	memwatch-retirement	T136	The `gate-streams` paragraph keeps its one surviving fact (concurrency multiplies peak memory) and drops the three watchdog sentences. The replacement sentence states what is true now: the justfile caps nothing, and the operator chooses how many gates share a machine. Four lines became two.
+justfile	530	memwatch-retirement	T136	`bench-build`: wrapper prefix removed.
+justfile	569	memwatch-retirement	T136	`fuzzfit-build`: wrapper removed from the harness build line only; the guest build line was never wrapped.
+justfile	589	memwatch-retirement	T136	`fuzzfit`: wrapper removed between the FUZZFIT_GUEST_WASM assignment and the nextest run; the assignment still scopes the same command.
+justfile	655	memwatch-retirement	T136	`fuelscape-test`: same shape as `fuzzfit`; wrapper removed, assignment kept.
+justfile	936	memwatch-retirement	T136	`surface-totality`: wrapper removed from the nextest line; the surrounding fmt, clippy, and run lines are untouched.
+justfile	1026	memwatch-retirement	T136	`coverage-kernel`: wrapper removed from the llvm-cov line; covcheck lines untouched.
+justfile	1033	memwatch-retirement	T136	`coverage-kernel-branch`: wrapper removed from the nightly llvm-cov line; covcheck lines untouched.
+.github/workflows/ci.yml	24	memwatch-retirement	T136	The prerequisites bullet now names python3 for the linters and bash for the shell recipes: bash stays a real prerequisite because `gate-streams` is a `#!/usr/bin/env bash` recipe, so dropping it would have made the list false. Named by kind, not by recipe, so the sentence cannot rot when a recipe is renamed.
+.github/workflows/ci.yml	26	memwatch-retirement	T136	The paragraph arguing the wrapper was harmless off macOS is deleted: it argued for something that no longer runs, and its 8 GiB figure was a hypothesis the script itself contradicted (the script defaulted to 32).
+Cargo.toml	97	memwatch-retirement	T136	The `bench = false` rationale keeps its claim (the auto-target is the heaviest compile in the workspace) and loses the parenthetical that measured it against the wrapper. No figure replaces it: an unmeasured number is a hypothesis. The rest of the paragraph is re-wrapped, words unchanged.
+design/rumors-frame-fuzz.md	283	memwatch-retirement	T136	The justfile-wiring bullet loses only its wrapper clause; the toolchain clause it was attached to stays. Lines re-wrapped, words otherwise unchanged.
