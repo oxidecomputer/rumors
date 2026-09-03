@@ -2,7 +2,7 @@
 
 # Triage landing status
 
-Updated: 2026-09-03 02:32 UTC by the before session (rumors-74).
+Updated: 2026-09-03 02:41 UTC by the before session (rumors-74).
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
 
@@ -10,7 +10,7 @@ Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not st
 
 | Plan | Merged | Packet ready | In review | Running | Not started | Ledger rows pending |
 |---|---|---|---|---|---|---|
-| before | 2 of 38 lanes | 0 | 2 | 2 | 32 | 1185 of 1204 |
+| before | 2 of 38 lanes | 0 | 3 | 1 | 32 | 1185 of 1204 |
 | rumors | 10 lanes | 1 | 1 | 3 | 25 briefed (P1 envelope, P2 peer, seven P3, fifteen P4, publication prep) | 874 of 995 |
 
 ## Waiting on Finch
@@ -31,8 +31,8 @@ Lanes run in the order `triage/briefs/README.md` gives; every lane builds and ga
 |---|---|---|
 | p1-proptest-cases | merged | `e27ba5e6` (ruling 109) |
 | p1-harness | merged | `5b0a17d4` (rulings 4, 38, 50, 51, 108); the meter suite's one harness |
-| p1-gate | running | nine commits on the merged rumors gate tip (retirements, lockfile audit and convergence, wasm32 leg in CI, writer-door law); the moot bench-judge commit dropped; final gate running, then its report, fresh-eyes rounds, and packet |
-| p2-widths | in review | two repair rounds landing (rulings 33, 34, 39, 41, 110); next: stack on main for its two memo-row re-pins, second fresh-eyes round, packet |
+| p1-gate | in review | nine commits; final gate done (fuzz red as expected; the audit leg cannot run on the box because ruling 16's `git ls-files` derivation needs a checkout: a stop for Finch, coming with its report); then fresh-eyes rounds and its packet |
+| p2-widths | in review | two repair rounds landed (39 commits), stacked on the merged harness; the two memo-row re-pins landing; then a second fresh-eyes round and its packet |
 | p2-surface | in review | repair round landing (rulings 40, 42, 44, 46, 47, 48, 49, 98, 110); registry step held for a second launch after p1-suites; next: second fresh-eyes round, packet |
 | p1-fuzz | not started | stacks on p1-gate when it lands |
 | p1-survivors | not started | stacks on p1-gate after the roster retirement |
