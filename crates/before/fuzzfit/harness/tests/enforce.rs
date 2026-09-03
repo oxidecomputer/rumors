@@ -18,7 +18,7 @@
 //! program, every run: the random draws probe novelty, and the prefix
 //! leg makes every kernel × size-decade region the corpus reaches an
 //! enforced verdict rather than a sampled one (a region a random case
-//! draws with probability `q` slips a 48-case run at `(1 − q)^48`; the
+//! draws with probability `q` slips an `n`-case run at `(1 − q)^n`; the
 //! prefix leg reads it red deterministically).
 //!
 //! Standing self-checks ride along: the meter's liveness (`ff_nop`), the
@@ -32,8 +32,8 @@
 //! at-scale rejection arms — never rides on the sentry's rare escalation
 //! draws alone).
 //!
-//! Case count: 48 by default (the calibration corpus is the big sweep; this
-//! is the sentry); override with `PROPTEST_CASES`.
+//! The sentry runs proptest's default case count, raised with
+//! `PROPTEST_CASES`; the calibration corpus is the big sweep.
 
 use std::collections::BTreeMap;
 
@@ -335,10 +335,9 @@ fn building_toolchain_matches_the_pin() {
 /// the random draws keep probing novel shapes, while this leg makes
 /// every kernel × size-decade region the deterministic corpus reaches
 /// an enforced verdict rather than a sampled one. A region of per-case
-/// draw measure `q` survives a 48-case sentry at `(1 − q)^48` — about
-/// 38% per gate at `q ≈ 2%`, the measure of a kernel × decade region —
-/// so an out-of-band region could pass consecutive gates on luck; under
-/// this leg the same region reads red deterministically. The programs
+/// draw measure `q` survives an `n`-case sentry at `(1 − q)^n`, never
+/// zero, so an out-of-band region can pass consecutive gates on luck;
+/// under this leg the same region reads red deterministically. The programs
 /// already execute for the refit, so the leg's cost is the verdict,
 /// not the runtime.
 ///
@@ -400,14 +399,14 @@ fn the_deterministic_prefix_is_judged_total_and_matches_the_pin() {
 /// slope, deterministically.
 ///
 /// The sentry's random draws pick the escalation family about once in 137
-/// cases, so a 48-case run usually never leaves the small-operand regime —
-/// and an instrument whose deep reach is exercised only by rare draws has
-/// no standing proof its at-scale bands (the seven single-operand rows,
-/// the rejection arms, the deep-overlap scans) still bite. This replay is
-/// that proof: one escalation program at fixed depth and seed, judged on
-/// both legs like any sentry case. (The cross-universe rejection arms
-/// need no fixed replay: the sentry's family roster draws the independent
-/// regime nearly three times per default run.)
+/// cases, so a run at the default case count can leave the small-operand
+/// regime untouched — and an instrument whose deep reach rides on rare
+/// draws has no standing proof its at-scale bands (the seven single-operand
+/// rows, the rejection arms, the deep-overlap scans) still bite. This
+/// replay is that proof: one escalation program at fixed depth and seed,
+/// judged on both legs like any sentry case. (The cross-universe rejection
+/// arms need no fixed replay: the sentry's family roster draws the
+/// independent regime at a shape family's full weight, eight cases in 137.)
 #[test]
 fn the_escalated_regime_stays_in_the_pinned_bands() {
     let (depth, seed) = ESCALATION_REPLAYS[0];
@@ -422,8 +421,8 @@ fn the_escalated_regime_stays_in_the_pinned_bands() {
 /// its band and every trend under its slope, deterministically.
 ///
 /// The depth-1024 replay alone would leave the family's upper depth range
-/// (1025..=1792) riding on sentry draws that arrive about once in five
-/// runs, and would hang the whole deterministic reach proof on a single
+/// (1025..=1792) riding on sentry draws that land there about once in 274
+/// cases, and would hang the whole deterministic reach proof on a single
 /// (depth, seed) point. This replay pins the other end of the reach: the
 /// deepest constructible spine, a different seed, the same judgment.
 #[test]
@@ -436,8 +435,6 @@ fn the_escalation_depth_cap_stays_in_the_pinned_bands() {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(48))]
-
     /// Every public operation stays inside its pinned fuel band on
     /// shapes nobody chose, and no band key's within-case cost trend
     /// out-climbs its pinned slope.
