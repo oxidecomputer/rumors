@@ -1,99 +1,110 @@
-<!-- CAVEAT LECTOR: written by Claude (Fable 5.1) for Finch and for the next coordinating session at the end of the 2026-09-02 session, as the state of the rumors triage's landing; not authored, audited, or endorsed by Finch. Read with the ground rules in ../../README.md. Everything here is also in git history, the ledger, the rulings, and the merge queue; this file is the map. -->
+<!-- CAVEAT LECTOR: written by Claude (Fable 5.1) for Finch and for the next coordinating session at the end of the 2026-09-03 session, as the state of the rumors triage's landing; not authored, audited, or endorsed by Finch. Read with the ground rules in ../../README.md. Current state lives in ../../STATUS.md; this file is the map of what to do next and where the evidence is. -->
 
 # Handoff: where the rumors triage stands
 
-Read `WORKFLOW.md` first (the procedure), then `rulings.md` T135 and
-later (this session's rulings), then this file.
+Read `WORKFLOW.md` first (the procedure), then `rulings.md` T157 and
+later (this session's rulings), then `.agent-notes/STATUS.md`, then
+this file.
 
-## Merged to main (in order), each with ledger shas written
+## Merged to main this session
 
-swarm (T27, T135), conformance (T6, T18, T139, T142), memwatch (T136),
-gate (T7, T15, T16, T20, T26, T28, T29, T30, T147), codec (T33, T41),
-renderer (T5, T9, T138, T140), harness-tests (T13, T21, T26, T28, T143,
-T144, T146), harness-crate (T19, T22, T24, T26, T127), walk (T40),
-causality (T8, T149). Ledger: 874 rows pending, 0 defects. The
-`before` triage merged its proptest-cases and other lanes to the same
-main; `.agent-notes/merge-queue.md` records every merge from both
-sides with root files.
+The merge-integration repair `9a7e898e` (the walk's dropped helpers,
+the causality suite's deleted `is_clean`), the prober-doc correction
+`41129172`, and notes. No lane merged: Finch wound down before the
+packets were ready. Ledger: 874 rows pending, 0 defects.
 
-One check was in flight at handoff: a streaming-suite run on merged
-main after the walk merge (four lanes rewrote the same files under
-it; every added line of the walk's edits is present on main, verified;
-the run confirms the merged tree passes). Its log:
-`<scratchpad>/coordinator/verify-main-after-walk.log`; if it did not
-complete, rerun `pset-run -n 40 -- cargo nextest run -p rumors
---all-features --locked -E 'test(tree::mirror::streaming) |
-test(testing::) | binary(seed_liveness)'` on the box from a detached
-scratch worktree at main.
+## Lanes with code landed, in the review order for tomorrow
 
-## Lanes in flight (worktrees under /Users/oxide/src/, branches triage/*)
+Each has a packet meta under `<scratchpad>/coordinator/<lane>-meta.md`
+(the scratchpad is session-local; if it is gone, the metas are
+rebuilt from the briefs, the lane reports in the transcripts, and the
+runner logs named below). Every tip compiled at both feature sets on
+the box before it was offered. Build each packet with
+`review.py packet --base <base> --head <tip>` from the lane worktree,
+render with pandoc and `packet.css`, and open it for Finch; merge only
+at his word, by rebase and sign, then compile the rebased tip before
+the fast-forward (WORKFLOW.md's merge step).
 
-- `p2-link` (tip `81e7d822` on `32a1fa24`): final verification running
-  in `rumors-verify-p2-link-2` (logs `coordinator/verify-link-2/`);
-  both stops ruled (T152, T156); packet meta at
-  `<scratchpad>/coordinator/p2-link-meta.md`, acceptance table filled,
-  rounds filled. Next: fill the final-pass rows from the verifier's
-  report, build the packet (`review.py packet --base 32a1fa24 --head
-  81e7d822`), render, hand to Finch, merge on his word.
-- `p2-commit-path`: three entries landed (T38, T39, api-core-10),
-  T42's negative control in progress; status requested; verify,
-  fresh-eyes, packet as WORKFLOW.md says. `p2-peer` launches after it
-  merges (brief exists).
-- `p1-proptest-ci` (on main after the gate merge): T148 as amended by
-  T151 (no `cases` anywhere; check keys on `cases`/`with_cases` only,
-  workspace-wide from the start since `before`'s sites are gone; CI
-  release-profile job with a measured `PROPTEST_CASES`, the number a
-  stop for Finch).
-- `p2-vanish-liveness` (on the harness-tests tip `9c8ce16c`, now
-  merged): T145 as widened by T154; the harness's `parked` count is
-  its oracle. After its report, rebase its branch onto main
-  (history-only; the trees match).
-- `p1-collision-mode` (on main `d0dcb9f5`): T23; four open questions
-  are stops for Finch.
-- A drafter is writing the P4 lane briefs (359 rows) into `briefs/`
-  and the README; commit them with explicit pathspecs when it reports.
+1. **p2-link** (`/Users/oxide/src/rumors-p2-link`, `triage/p2-link`,
+   base `7aa2b9a1`): T44, T45, T156, T160 (per-link admission of
+   recovered connections, no configurable pool bound). Verification of
+   `7a31b673` was running (`coordinator/verify-link-3/`); fresh-eyes
+   round 1 found no bugs and one accounting defect, sent as repairs
+   (decrement at header arrival; two tests; prose); a repair sha is
+   expected. Stops for Finch: the release-on-link-end shape against
+   per-peer pools (document; drop the release; or key pools by link),
+   and the bound's justification wording.
+2. **p2-commit-path** (`/Users/oxide/src/rumors-p2-commit-path`,
+   base `main` at `030e1b5c`): T34, T36, T38, T39, T42; tip
+   `71797970` after two repair rounds; re-verification and a light
+   round-3 read were running (`coordinator/verify-commit-path/`,
+   `fresh-eyes-commit-path-r3/`). Stop: the ceiling on an all-skipped
+   key (recommendation: accept, pin whichever direction).
+3. **p2-vanish-liveness** (`/Users/oxide/src/rumors-p2-vanish-liveness`,
+   base `9c8ce16c`, rebase onto main is history-only): T145, T154;
+   tip `28ef4341` verified (`coordinator/verify-vanish/`); round-1
+   repairs sent (the watch kept alive after a control byte, abort on
+   deadline, the floor's scope, prose); a repair sha and a second
+   verification pass are expected. Six stops in the meta, including a
+   `link.rs` sentence drafted for Finch's words.
+4. **p1-collision-mode** (`/Users/oxide/src/rumors-p1-collision-mode`,
+   base `d0dcb9f5`): T23, ruled by T162 and re-shaped by T163 (28-byte
+   prefixes); tip `7858b35e` verified (`coordinator/verify-collision/`);
+   round-1 repairs sent (T163, recipe liveness, `--no-fail-fast`,
+   unmarking tests whose claims hold at any geometry, prose); a repair
+   sha and a second verification pass are expected.
+5. **p1-proptest-ci** (`/Users/oxide/src/rumors-p1-proptest-ci`, base
+   `a07827ed`): T148, T151, T157; tip `a34859ed`; not yet verified by a
+   runner. Stop: the CI case count (recommendation 4000 once
+   `p1-generators` lands; 256 meanwhile).
+6. **p1-generators** (`/Users/oxide/src/rumors-p1-generators`, stacked
+   on `a34859ed`): T161; running at handoff (agent
+   `a15e73d787b3d0171`, scratchpad `p1-generators/`).
+7. **p2-deep-geometry** (`/Users/oxide/src/rumors-p2-deep-geometry`,
+   stacked on the collision tip `7858b35e`): T162 items 8 and 9;
+   running at handoff (agent `a2af8c0d37b66646f`). Its fix to the
+   unbiased `select!` sites is production code; a change to error
+   precedence or a contract is a stop.
 
-## Not yet launched
+## Running agents at handoff (their reports reach the successor)
 
-`p1-envelope` (brief exists; after gate, which merged: launchable from
-main now), `p2-peer` (after commit-path), the seven P3 lanes (briefs
-committed; after every P1 and P2 lane merges; seven open questions in
-`briefs/README.md`'s P3 section need Finch's rulings first), P4 through
-P9 (P4 briefs in progress; P9 runs last and jointly with the `before`
-triage, since it touches `crates/before`).
+p2-link successor (`a6b0b486905b78c33`, repairs), commit-path lane
+(`aee05d3d797a0b84f`, idle after round 2), commit-path runner
+(`a33b8f771988b88df`, re-verifying `71797970`), commit-path round-3
+reader (`a7e6027188e6fd76c`), collision lane (`a47adb39f65478064`,
+repairs), vanish lane (`a29e1e87156b5a036`, repairs), generators,
+deep-geometry. Agent liveness is judged by transcript line count; a
+parked agent is woken by SendMessage after its awaited log lands.
 
-## Machine rules in force (also in WORKFLOW.md)
+## Not launched
 
-Gate of record on ox-east-1 under `pset-run -n 40 -- just gate`, at
-most two psets per session; `fuzz` red alone is clean; no `just all`,
-no `just ci`, no Mac gate; `before` carries an illumos-scoped clippy
-allow; memwatch is gone; the box clock is stepped (chrony
-`makestep 1.0 3`); verification runs in detached scratch worktrees,
-never the lane's; annotation rows are checked at `-U3`; findings
-without an entry go to `new-findings.md`. Liveness of an agent is
-judged by transcript line count, never file mtime. Signing: the
-1Password agent refuses while Finch is on the other account; commit
-`--no-gpg-sign` then, and the merge rebase re-signs.
+`p1-envelope` (T43; launchable from main; disjoint from every branch
+in flight; asked of Finch for the overnight run), `p2-peer` (after
+commit-path merges), the seven P3 lanes (after every P1 and P2 merge;
+T158 rules their questions), the fifteen P4 lanes (T159), P5 on, P9
+last with the `before` triage.
 
-## Cross-session
+## Worktrees to retire (resolve the forge dir from inside first)
 
-The `before` triage's coordinator is reachable at
-`uds:/tmp/cc-socks/90998.sock` (name rumors-74); rules in
-`.agent-notes/merge-queue.md`'s header. Message it on every merge
-(sha and root files) and on any ruling touching a shared instrument.
-Its `before/p1-gate` stacks on the merged rumors gate.
+`rumors-verify-p2-commit-path`, `rumors-verify-collision`,
+`rumors-verify-vanish`, `rumors-verify-link-3`,
+`rumors-verify-overlap-main` (branch `triage/party-overlap`, evidence,
+keep the branch), and `rumors-verify-overlap` (carries uncommitted
+instrumentation edits saved as `coordinator/party-overlap/instrumentation-84c6b5c6.diff`;
+commit or discard at Finch's word, never force-remove).
 
-## Defect on main: repaired
+## Machine rules in force
 
-The default-features check failure this handoff recorded was repaired
-at `9a7e898e` (wider than recorded: `new-findings.md` has the full row);
-`WORKFLOW.md`'s merge step now compiles the rebased tip before any
-fast-forward. Current state of every lane lives in
-`.agent-notes/STATUS.md`, which supersedes the lane lists above.
+Queue rule 6 as rewritten: every build and gate unbound with
+`CARGO_BUILD_JOBS=32 NEXTEST_TEST_THREADS=32`; `pset-run` only for a
+wall-time measurement, one at a time, announced; hold launches above
+load 150. The box sync is a real checkout. `fuzz` red alone is clean.
+The clean-file precondition for `STATUS.md` and `merge-queue.md`.
+Signing: `--no-gpg-sign` when the agent refuses; the merge rebase
+re-signs.
 
-## Open items for Finch
+## Open for Finch, in one list
 
-None in the decision queue at handoff. Stops will come from
-`p1-collision-mode` (four questions), `p1-proptest-ci` (the CI case
-count), and `p2-vanish-liveness` (the `PeerDeparted` error variant's
-shape).
+The p2-link merge after its packet; the CI case count; the stops
+named per lane above; the `link.rs` sentence; whether a starved pool's
+liveness is a contract claim (`new-findings.md`); the overnight scope.
