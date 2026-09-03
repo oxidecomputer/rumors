@@ -54,7 +54,7 @@ Each entry: where it came from, what it is, which lane's brief carries it
   since committing them reads `just fuzzfit` red until the band is
   refit. Route: `p1-fuzz` (ruling 14's calibration: the family joins the
   vocabulary, the law is refit, the seeds land with the refit in one
-  series). The gate lane's replay settled the dependency question: one fuel
+  series). A rumors gate (`triage/p2-link` at `575bcc63`) drew the same class at 144 bits (14460 fuel against about 10^3.882); its seed line is saved beside the others (`fuzzfit-enforce-seed-from-rumors-p2-link.txt` in the generators lane's scratchpad). The gate lane's replay settled the dependency question: one fuel
   unit between bytes 1.11.1 and 1.12.1 on the shrunk program; the
   gate lane committed that seed (its wasm stream reads red until the
   refit); the generators lane's two seed files join it in `p1-fuzz`.
