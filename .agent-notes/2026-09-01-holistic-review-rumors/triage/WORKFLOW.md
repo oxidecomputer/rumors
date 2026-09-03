@@ -304,7 +304,7 @@ cores a gate leaves idle through its serial phases. `pset-run` is for
 wall-time measurements only, one at a time, announced in the queue
 first. Gates serialize through a mutex held on the box, since a load
 poll before launch cannot close the race between two lanes launching
-in the same second: in one remote command, `mkdir ~/gate.lock` in a
+in the same second: in one remote command, `mkdir ~/gate.lock` (then `echo $$ > ~/gate.lock/pid`: a holder whose pid is gone is dead, and the next taker may `rm -r` the lock at once instead of waiting out the 45 minutes) in a
 retry loop (a lock older than 45 minutes is a dead gate's and is
 removed), then `just gate`, then `rmdir` on exit; targeted runs and
 builds stay outside the lock. The two shared note files

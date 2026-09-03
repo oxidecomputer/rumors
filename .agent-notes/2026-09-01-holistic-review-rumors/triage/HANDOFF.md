@@ -201,3 +201,20 @@ and `STATUS.md` are the memory. On resume, in order:
 The p2-link merge after its packet; the CI case count; the stops
 named per lane above; the `link.rs` sentence; whether a starved pool's
 liveness is a contract claim (`new-findings.md`); the overnight scope.
+
+## Resumed 2026-09-03 13:00 UTC after the credits outage
+
+Every subagent died at 07:30 UTC on an account-level 429; all were resumed
+at their last step. Since then: envelope round 1 landed (`efbf5338`,
+gate 4 of record green but for the illumos fuzz leg) and vanish round 2
+landed (`86cde61c`, gate green likewise); the p2-link round-3 read found
+one design defect (the pool probe reads tokio's spent cooperative budget
+as idle) and went to the lane as round 4 (`a6b0b486905b78c33`); the
+collision final round is with its lane (`a47adb39f65478064`) with an
+addendum (the fixture-window count is an exact pin, not a floor).
+Running now: envelope verification (`abba4f7abb43f0d84`,
+`coordinator/verify-envelope/r2/`) and read (`abf9c1f5e858939da`);
+vanish verification (`aa22f906227c78b72`, `coordinator/verify-vanish/r3/`)
+and read (`a62d194c21c91e85d`); the sush patch (`a4e36f261a9b926d5`);
+generators' round-1 commit B and annotations (`a15e73d787b3d0171`). The
+before session holds a third fuel-band seed (`cc a072497c…`).
