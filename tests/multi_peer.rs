@@ -12,9 +12,12 @@ mod common;
 use std::collections::BTreeMap;
 
 use proptest::prelude::*;
+use proptest::strategy::ValueTree;
+use proptest::test_runner::TestRunner;
 
 use crate::common::oracle::{readout, readout_multiset, version_key};
 use crate::common::peer::gossip_step;
+use crate::common::schedule::events::Event;
 use crate::common::schedule::{Schedule, arb_schedule, execute_and_quiesce};
 use crate::common::window::{WindowAssignment, arb_window_assignment};
 
@@ -198,4 +201,38 @@ proptest! {
             );
         }
     }
+}
+
+/// The redaction dimension is live in the generated schedule population.
+///
+/// Sampled under proptest's deterministic runner, `arb_schedule` emits
+/// schedules containing a `Redact` event (the generator's shadow emits
+/// one only against a message its peer has observed, so every emitted
+/// redaction is effectual when the executor runs it).
+///
+/// Without this pin a weight edit in the choice strategy, or a validity
+/// rule that drops every redaction choice, would leave every
+/// schedule-driven property here and in the partition and sanity suites
+/// green while testing insert-only convergence.
+#[test]
+fn schedule_population_contains_redactions() {
+    let mut runner = TestRunner::deterministic();
+    let strategy = schedule_u64();
+    let mut redactions = 0usize;
+    for _ in 0..64 {
+        let schedule = strategy
+            .new_tree(&mut runner)
+            .expect("schedule strategy always generates")
+            .current();
+        redactions += schedule
+            .events
+            .iter()
+            .filter(|event| matches!(event, Event::Redact { .. }))
+            .count();
+    }
+    assert!(
+        redactions > 0,
+        "no sampled schedule redacts a message: the redaction dimension \
+         has silently left the population"
+    );
 }

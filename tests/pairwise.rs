@@ -19,9 +19,11 @@
 mod common;
 
 use proptest::prelude::*;
+use proptest::strategy::ValueTree;
+use proptest::test_runner::TestRunner;
 use rumors::{Rumors, Version, causally};
 
-use crate::common::action::{arb_local_actions, build_local};
+use crate::common::action::{LocalAction, arb_local_actions, build_local};
 use crate::common::oracle::readout;
 use crate::common::wire::{bootstrap_fork, wire_gossip};
 
@@ -235,4 +237,40 @@ proptest! {
         prop_assert_eq!(readout(&a.snapshot()), expected.clone());
         prop_assert_eq!(readout(&b.snapshot()), expected);
     }
+}
+
+/// The redaction dimension is live in the generated action population.
+///
+/// Sampled under proptest's deterministic runner, `arb_local_actions`
+/// emits sequences in which a `Redact` follows at least one `Insert`,
+/// the only position where `build_local` applies it (a `Redact` before
+/// any insert is dropped at build time).
+///
+/// Without this pin a weight edit in the action strategy would leave
+/// every redaction-bearing property here and in the bootstrap, retire,
+/// and async-wire suites green while exercising insert-only merges.
+#[test]
+fn action_population_contains_effectual_redactions() {
+    let mut runner = TestRunner::deterministic();
+    let strategy = arb_local_actions();
+    let mut effectual = 0usize;
+    for _ in 0..64 {
+        let actions = strategy
+            .new_tree(&mut runner)
+            .expect("action strategy always generates")
+            .current();
+        let mut inserted = false;
+        for action in &actions {
+            match action {
+                LocalAction::Insert(_) => inserted = true,
+                LocalAction::Redact(_) if inserted => effectual += 1,
+                LocalAction::Redact(_) => {}
+            }
+        }
+    }
+    assert!(
+        effectual > 0,
+        "no sampled action sequence redacts after an insert: the redaction \
+         dimension has silently left the population"
+    );
 }
