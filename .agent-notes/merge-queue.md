@@ -91,14 +91,15 @@ lanes have closed.
   inter-process disruption family is deleted (T143); `tests/common/tcp.rs`
   stays for the TCP link suites.
 
+- rumors: `59608589` the harness-crate lane (twelve commits over the codec merge;
+  packet `59608589`); no root files.
+
 ## Ready for Finch, in merge order
 
 - rumors `p1-gate`: branch `triage/p1-gate`, packet head `5cd25b55`, last
   code commit `b06000df`, base `d631cda6` (main). Root files: justfile,
   `.github/workflows/ci.yml`, `Cargo.toml` (`bytes` dev-dependency),
   `Cargo.lock`, `tools/testdoc`. `before/p1-gate` stacks on this.
-- rumors `p1-harness-crate`: `triage/p1-harness-crate`, packet `5e2f3cde`,
-  code `f6f3a0b6`, stacked on `p2-codec`. No root files.
 - rumors `p2-walk`: `triage/p2-walk`, packet `ca5c3290`, code `eb97720b`,
   base `b1e8a397`. No root files.
 - rumors `p1-causality`: `triage/p1-causality`, packet `aa3e2aa1`, code
