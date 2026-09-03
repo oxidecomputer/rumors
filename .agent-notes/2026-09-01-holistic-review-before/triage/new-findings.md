@@ -63,8 +63,9 @@ Each entry: where it came from, what it is, which lane's brief carries it
   not rejections. Route: `p1-suites` (a per-case cost question: the
   suite's cost per draw, or the CI job's case count for those two, is
   the lane's to weigh and report).
+- **Corrected: the decode kernel does not run `IdReader`.** `Party::decode` parses through `DsiCursor::read_bit` (two per node) and an `IdFrame` stack, on both sides of `5d167a63`; the tag-pair change below moved `ff_party_decode` by zero. What inside `5d167a63` moved the decode kernel (the bisect stands: in band before, 13633 at that commit) is still unnamed; candidates are the frame stack, the buffered reader's construction, and the frame `Vec`'s growth on deep chains. Route: `p8-performance` (measure `DsiCursor::read_bits(2)` per node and the frame allocation on the seeded program).
 - **`BitsView::bit` on the id walk costs about twice the fuel per bit
-  of the bit slice it replaced.** The gate lane's bisect over the
+  of the bit slice it replaced.** (Landed as `p8-tagwalk`: a real win on fork, covers, disjoint, and join; not the decode cause.) The gate lane's bisect over the
   fuzzfit guest names `5d167a63` (the crate-owned `BitsView`): each id
   tag bit is read through an assert, a bounds-checked byte index, and
   a shift in `u64`, which a wasm32 guest lowers to several
