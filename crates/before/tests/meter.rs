@@ -258,11 +258,11 @@ enum Floor {
     /// it.
     Tripwire(u64),
     /// The liveness floor of a walk that must read every live input bit,
-    /// less a stated tail: `8 × input_bytes` minus, per operand stream, at
-    /// most one byte of padding and `tail_bits` the walk may leave unread
-    /// once its verdict is decided.
+    /// less a stated tail.
     ///
-    /// A trip means the work left the metered primitives. Only for a row
+    /// The floor is `8 × input_bytes` minus, per operand stream, at most
+    /// one byte of padding and `tail_bits` the walk may leave unread once
+    /// its verdict is decided. A trip means the work left the metered primitives. Only for a row
     /// whose `input_bytes` is the byte length of exactly the streams the
     /// walk reads, and whose walk must read them by contract (a strict
     /// validator or decoder: `tail_bits` 0), by construction (an id walk
@@ -1296,9 +1296,10 @@ mod rank_env {
     pub const RANK_SUM_MIXED: Envelope     = envelope( 78_140,   band(9_769, 5_861),   band(22_268, 13_360),             band(0, 0)); // the raw accumulator: digit-routed summands, one normalization at the end
 }
 
-/// The rank fold on the dense spine stays within its envelope (the
-/// control: the spine's numerator stays one bit wide, so the fold's
-/// per-level shifts are word-scale and the walk is linear). The rank is
+/// The rank fold on the dense spine stays within its envelope.
+///
+/// The control: the spine's numerator stays one bit wide, so the fold's
+/// per-level shifts are word-scale and the walk is linear. The rank is
 /// the skyline kernel's, exactly.
 #[test]
 fn rank_dense_envelope() {
@@ -1310,10 +1311,11 @@ fn rank_dense_envelope() {
     assert_eq!(r, kernel_rank(&v), "the public rank must be the kernel's");
 }
 
-/// The rank fold on the bigroot spine stays within its envelope (the
-/// wide-magnitude control: the first leaf's magnitude seeds the frozen
-/// component and is read once, in the closing shifted add). The rank is
-/// the skyline kernel's, exactly.
+/// The rank fold on the bigroot spine stays within its envelope.
+///
+/// The wide-magnitude control: the first leaf's magnitude seeds the
+/// frozen component and is read once, in the closing shifted add. The
+/// rank is the skyline kernel's, exactly.
 #[test]
 fn rank_bigroot_envelope() {
     let p = Shape::Bigroot.packed2(BIGROOT_MAGNITUDE_BITS, BIGROOT_DEPTH);
