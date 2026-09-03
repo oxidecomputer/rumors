@@ -51,6 +51,22 @@ that matters lives only in a transcript.
 - This journal, `STATUS.md`, `agents.tsv`, and the queue are updated
   before the next action at every event.
 
+## Rumors' root-file lines tonight (from its session, for rebases)
+
+- `p1-proptest-ci` (on its branch): justfile `proptest_ci_cases`,
+  `test-release`, `all`'s line; `.config/nextest.toml` release profile;
+  ci.yml proptest job; `tools/caselint` (new).
+- `p1-generators` (running): justfile `test`, `test-all`, `test-release`
+  recipe lines gain the two zero-reject variables; ci.yml test jobs
+  likewise; `tools/caselint` extended. Note: before's gate lane touched
+  the `test` recipe's comment (a blank line for `just --list`), so that
+  rebase may conflict on adjacent lines; the coordinator resolves it.
+- `p1-collision-mode`: a `test-collision` recipe and one `ci` line; a
+  root `AGENTS.md` paragraph.
+- `p2-commit-path`: README.md regenerated. None touch the fuzz or
+  fuzzfit workspaces, their lockfiles, or the `fuzz-build`/`fuzzfit`
+  recipe lines.
+
 ## Morning brief for Finch
 
 (rewritten as the night proceeds: packets ready in merge order; stops as
