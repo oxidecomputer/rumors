@@ -54,9 +54,9 @@ doc makes about that cost is asserted as a trend over the pinned grid.
   doc is Finch's to word) and annotate it as a draft for him; the
   existing envelope cells become the first rows of the grid rather than
   a second table.
-- **Payload.** The zero-length byte string the suite already encodes
-  (a two-byte CBOR header); say in the module doc why it, and not a
-  unit payload, is the protocol-overhead measurement.
+- **Payload.** The zero-length byte string (the one-byte CBOR string
+  `0x40`); say in the module doc why it, and not a unit payload, is the
+  protocol-overhead measurement.
 
 ## Rulings and rules
 
