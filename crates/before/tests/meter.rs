@@ -1563,9 +1563,8 @@ fn stopped_validator_fails_the_validate_row() {
     );
 }
 
-/// The skyline decoder round-trips every envelope family:
-/// `decode(encode(v)) == v` on the dense spine, the boundary comb, the
-/// wide-tooth comb, hugeleaf, and the alternating spine.
+/// The skyline decoder round-trips every envelope family the loop lists:
+/// `decode(encode(v)) == v`.
 #[test]
 fn skyline_decode_round_trips_the_families() {
     for p in [
@@ -6589,7 +6588,7 @@ fn tick_raise_hole_envelope() {
 }
 
 /// The fused multi-tick on the dense spine stays within its envelope:
-/// registering 512 events costs the single tick's walk and splice plus
+/// registering [`TICKS_POINT_LO`] events costs the single tick's walk and splice plus
 /// only the count's gamma-width boundary codes.
 #[test]
 fn ticks_dense_envelope() {
