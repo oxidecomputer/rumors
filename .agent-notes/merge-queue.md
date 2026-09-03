@@ -54,6 +54,10 @@ lanes have closed.
   files.
 - `27ac8d92` (Finch): illumos-scoped clippy allow at
   `crates/before/src/lib.rs`.
+- rumors: `d631cda6` memwatch retired (`6b258a5f`, `34eb563e`,
+  `d631cda6`); `tools/memwatch` deleted; justfile (twelve recipes
+  unwrapped, two comment blocks); `.github/workflows/ci.yml` and
+  `Cargo.toml` comments; `design/rumors-frame-fuzz.md` one bullet.
 
 ## Ready for Finch, in merge order
 
