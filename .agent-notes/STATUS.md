@@ -2,7 +2,7 @@
 
 # Triage landing status
 
-Updated: 2026-09-03 04:18 UTC by the before session (rumors-74), running overnight.
+Updated: 2026-09-03 04:27 UTC by the rumors session.
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
 
@@ -16,7 +16,7 @@ Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not st
 ## Waiting on Finch
 
 - Nothing to review right now: the `p2-link` packet was withdrawn for re-scoping under T160 (per-link admission of recovered connections, no configurable pool bound).
-- Open stops from before: the gate lane's syn 2/3 holdout roster and the four lowered crates (its journal's morning brief). Rumors: the P3 and P4 launch questions are ruled (T158, T159); the collision mode's four questions (T23) and the CI `PROPTEST_CASES` number arrive with their lanes' reports; the commit-path packet will carry three judgment calls from its fresh-eyes round (the ceiling on an all-skipped key, the unwind-path wording, one pin of a non-contract); the collision-mode lane's ten stops (variable name, one seed, `ci` tier, cluster weighting, the mark's name, the unreachable production-cfg test, three findings, and whether `test-collision` joins `ci` while red on the findings) are in the coordinator's message of 2026-09-03 and its packet.
+- Open stops from before: the gate lane's syn 2/3 holdout roster and the four lowered crates (its journal's morning brief). Rumors: T158, T159, T162, T163, T164 rule the launch questions, the collision mode's stops, and the CI count (256 until generators, then 4000); the commit-path packet will carry three judgment calls from its fresh-eyes round (the ceiling on an all-skipped key, the unwind-path wording, one pin of a non-contract); the collision-mode lane's ten stops (variable name, one seed, `ci` tier, cluster weighting, the mark's name, the unreachable production-cfg test, three findings, and whether `test-collision` joins `ci` while red on the findings) are in the coordinator's message of 2026-09-03 and its packet.
 
 ## Open items on main
 
@@ -59,11 +59,11 @@ Maintained by the rumors session.
 | Lane | State | Note |
 |---|---|---|
 | p1-swarm, p1-conformance, p1-memwatch, p1-gate, p2-codec, p1-renderer, p1-harness-tests, p1-harness-crate, p2-walk, p1-causality | merged | see the queue's Merged section for shas and root files |
-| p2-link | in review | `7a31b673` verified (suites, three controls, the pre-fix hang); fresh-eyes round 1 (no bugs) sent one accounting defect and tests back as repairs, packet builds from the repair sha; two stops for Finch: the release-on-link-end shape against per-peer pools (document, drop the release, or key pools by link), and the bound's justification wording |
+| p2-link | in review | `7a31b673` verified; round-1 repairs and T164's `recycle` token (pools key by link) with the lane; packet from its sha; one wording question left for Finch |
 | p2-commit-path | in review | round-2 repairs landed at `71797970` (warmed pins 78/601/325, `#[must_use]` sink, meter lock, nested-branch probe, two-actions-per-key proptest), gate clean; `71797970` re-verified; round-3 read found no bugs, its legibility and prose items sent as the last repair round; packet builds from that sha; one stop (the all-skipped ceiling) |
 | p1-proptest-ci | in review | landed at `a34859ed` (sweep, caselint, release recipe and nextest profile, meter excluded, T157 rewrite); gate clean; the CI number is a stop (recommendation 4000 after p1-generators); verification and packet after p1-generators lands, since the number is set on that tree |
-| p2-vanish-liveness | in review | landed at `28ef4341` (departure watch; vanish draw at every point; zero parks asserted), gate clean; six stops for Finch (`PeerDeparted` shape, a `link.rs` sentence, the dissolved park count, the deferred-watch deviation, two files outside its list, the point test's fixture); verification and fresh-eyes round 1 running |
-| p1-collision-mode | in review | round 1 landed at `e951b81e` (T163 width, recipe liveness, fixtures routed through the crate's derivation, marks re-justified at 28 bytes), gate clean; second verification and read running; two stops for Finch: the census reach dropping from 16 to 15/14 at 28 bytes, and whether a 31-byte seed stays in a sweep recipe so T162's findings 8 and 9 (which no longer reproduce at 28) stay covered |
+| p2-vanish-liveness | in review | round 1 landed at `e3c5f986` (the watch keeps every control byte and reads on; deadline aborts; the floor measured against the donor too), gate clean; second verification and fresh-eyes round 2 running; six stops in the meta |
+| p1-collision-mode | in review | round 1 landed at `e951b81e` (T163 width, recipe liveness, fixtures routed through the crate's derivation, marks re-justified at 28 bytes), gate clean; `e951b81e` verified in full (sweep: exactly the two known findings); fresh-eyes round 2 running; T164 adds a hand-run sweep recipe with a 31-byte seed (with the lane); packet after |
 | p2-deep-geometry | running | T162 items 8 and 9: the masked typed error and the non-reproducible poll count under deep geometry; stacked on the collision branch |
 | p1-generators | running | T161: no rejecting strategies, zero reject budgets in the gate; stacked on p1-proptest-ci at `a34859ed` |
 | p1-envelope | running | T10's certificate proptest first, then T43's deletion of the envelope simulation, the crate-doc figures derived, `results/` cleaned; from main `0fad870c`, launched at Finch's word for the overnight run |
