@@ -181,6 +181,11 @@ lanes have closed.
   after the gate lane. No root files. Packet:
   `.agent-notes/2026-09-01-holistic-review-before/triage/reviews/p8-tagwalk.md`.
 
+- before `p1-survivors`: branch `before/p1-survivors`, packet head `f9ec31d7`,
+  last code commit `8abb75da`, base `before/p1-gate` (`90f7dd9c`): a child,
+  merges after the gate lane. No root files. Packet:
+  `.agent-notes/2026-09-01-holistic-review-before/triage/reviews/p1-survivors.md`.
+
 ## Announcements
 
 - rumors: `p1-envelope` launched from `0fad870c` (Finch's word,
