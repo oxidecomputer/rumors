@@ -19,7 +19,10 @@ under, as a numbered list the coordinator hands to the lane agent.
 Annotation TSV columns: path, line, entry, ruling, note. The note may carry
 literal `\\n` sequences, unescaped on render. A row whose line is 0 annotates
 every hunk of its file (a deleted file, a regenerated lockfile). Hunks of the
-annotation file and the packet itself are never flagged.
+annotation file and the packet itself are never flagged. A binary change
+(`Binary files ... differ`, which `git diff` gives no hunk) renders as a
+hunk of its own at line 0, so a line-0 row attaches to it and an
+unannotated binary change is flagged.
 """
 
 import argparse
@@ -87,6 +90,13 @@ def parse_diff(text):
             new_start = int(m.group(3))
             new_len = int(m.group(4) or "1")
             hunk = dict(path=path, header=line, lines=[], new_start=new_start, new_len=max(new_len, 1))
+        elif line.startswith("Binary files "):
+            # A binary change has no hunk of its own; give it one, at line
+            # 0, so a whole-file annotation row can attach and an
+            # unannotated binary change is flagged rather than invisible.
+            if hunk:
+                yield hunk
+            hunk = dict(path=path, header=line, lines=[], new_start=0, new_len=1)
         elif hunk is not None:
             hunk["lines"].append(line)
     if hunk:
