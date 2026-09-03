@@ -1,8 +1,8 @@
 # rumors workspace: the source of truth for verification. Every artifact in
 # the workspace has a recipe here, tiered by feedback speed, and `just --list`
-# is the tour. The one exception is the hand-run instrument, an
-# `#[ignore]`-gated test whose module doc states its cost and its command
-# (tests/tradeoff_probe.rs).
+# is the tour. The one exception class is the hand-run instrument: an
+# `#[ignore]`-gated test no recipe runs, whose own doc states the cost that
+# keeps it out and the command that runs it.
 #
 #   inner loop   just check / just test <filter>     seconds to a minute
 #   commit gate  just gate                           fully clean before every commit
@@ -180,9 +180,9 @@ doclint:
     ./tools/doclint benches crates examples src tests
 
 # tools/testdoc checks the Rust files under the five roots doclint walks,
-# minus the directory names its ignore set prunes; it never walks `.`, whose
-# untracked trees (other agents' worktrees under `.claude/`) would otherwise
-# enter the verdict.
+# minus the directory names testdoc's ignore set prunes; it never walks `.`,
+# whose untracked trees (other agents' worktrees under `.claude/`) would
+# otherwise enter the verdict.
 
 # Require every Rust test to document the behavior and invariant it protects.
 testdoc:
@@ -301,11 +301,13 @@ docs-docsrs:
 # tests/future_size.rs pins the public futures' sizes, and a `cfg` that
 # compiles it empty would read as a pass. This leg reruns that binary from
 # test-all's build set (same features, so no rebuild) with
-# `--no-tests=fail`, so an empty binary fails the gate.
+# `--no-tests=fail`, so an empty binary fails the gate. The filter names
+# the binary by its package-scoped id, so a same-named binary in another
+# member cannot keep the leg green while rumors' collects nothing.
 
 # Fail unless the future-size pins were collected and pass (liveness for tests/future_size.rs).
 future-size:
-    {{ justfile_directory() }}/tools/memwatch cargo nextest run --workspace --all-features -E 'binary(future_size)' --no-tests=fail
+    {{ justfile_directory() }}/tools/memwatch cargo nextest run --workspace --all-features -E 'binary_id(rumors::future_size)' --no-tests=fail
 
 # Resolve every roster, bespoke, and tripwire citation against the collected test inventory.
 citecheck:
