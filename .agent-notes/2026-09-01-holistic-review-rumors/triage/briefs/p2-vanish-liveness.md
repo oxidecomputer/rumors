@@ -1,3 +1,5 @@
+<!-- AMENDED under ruling T154 (2026-09-02): the scope is every await at which a session can wait on a departed peer, not the first-stream accept alone; the harness-tests branch (this lane's base) parks survivors after mid-stream vanishes too and counts them in the disruption outcome's `parked` field. Acceptance becomes: that count is zero over the weighted vanish draw at every committed sample, asserted by the arm; the first-connect pin flips from `Stalled` to an error; the located park below is the first site, not the only one. Everything else stands. -->
+
 <!-- CAVEAT LECTOR: written by Claude (Fable 5.1) for Finch as a lane brief derived from the rulings in ../rulings.md; not authored, audited, or endorsed by Finch. Read with the ground rules in ../../README.md. -->
 
 # P2 lane: a session never parks on a peer that has died
