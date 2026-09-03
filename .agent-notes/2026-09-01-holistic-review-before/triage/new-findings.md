@@ -82,3 +82,11 @@ Each entry: where it came from, what it is, which lane's brief carries it
   than 0.05 dex.** Route: `p1-fuzz` (its one calibration run under
   ruling 14 refits every band with the movement attributed; the
   staleness tolerance is a question for that lane's report).
+- **`PackedBuilder::read_bits`'s committed-byte chunk arm is
+  unreachable through `extract_code`**, which always reads to the
+  output's end, so the mutation campaign's surviving operator swap is
+  equivalent on every input a caller can produce; the survivors lane
+  killed it with a documented internal-entry differential over
+  `read_bits(pos, n)`. The alternative is to narrow `read_bits` to
+  "read to the end", dissolving the arm and the internal-entry test.
+  Route: `p6-codec`.
