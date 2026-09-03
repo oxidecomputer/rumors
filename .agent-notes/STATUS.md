@@ -2,7 +2,7 @@
 
 # Triage landing status
 
-Updated: 2026-09-03 03:37 UTC by the before session (rumors-74), pausing for the night.
+Updated: 2026-09-03 03:39 UTC by the rumors session.
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
 
@@ -60,10 +60,11 @@ Maintained by the rumors session.
 |---|---|---|
 | p1-swarm, p1-conformance, p1-memwatch, p1-gate, p2-codec, p1-renderer, p1-harness-tests, p1-harness-crate, p2-walk, p1-causality | merged | see the queue's Merged section for shas and root files |
 | p2-link | in review | re-scoped under T160: a successor agent replaces the endpoint-wide pool bound with per-link admission (one session complement per link); T44, T45, T156 commits stand; packet rebuilt after |
-| p2-commit-path | in review | rebased tip `3447206f` failed the pre-merge compile (five call sites from main at the old `act` arity); repair and round-1 fresh-eyes items with the lane agent, one gate to follow; p2-peer launches after it merges |
+| p2-commit-path | in review | `9ca5e959` verified (every acceptance and control); fresh-eyes round 2 found platform-dependent allocation pins and test gaps, repair round 2 with the lane; packet after; p2-peer launches after it merges |
 | p1-proptest-ci | in review | landed at `a34859ed` (sweep, caselint, release recipe and nextest profile, meter excluded, T157 rewrite); gate clean; the CI number is a stop (recommendation 4000 after p1-generators); verification and packet after p1-generators lands, since the number is set on that tree |
-| p2-vanish-liveness | running | T145 as widened by T154 |
-| p1-collision-mode | in review | landed at `7858b35e` (schedule, marks, recipe), gate clean; ten stops for Finch (the four questions plus findings); verification and fresh-eyes round 1 running |
+| p2-vanish-liveness | in review | landed at `28ef4341` (departure watch; vanish draw at every point; zero parks asserted), gate clean; six stops for Finch (`PeerDeparted` shape, a `link.rs` sentence, the dissolved park count, the deferred-watch deviation, two files outside its list, the point test's fixture); verification and fresh-eyes round 1 running |
+| p1-collision-mode | in review | `7858b35e` verified; stops ruled (T162) and the schedule re-shaped to 28-byte prefixes (T163); fresh-eyes round 1 repairs with the lane |
+| p2-deep-geometry | running | T162 items 8 and 9: the masked typed error and the non-reproducible poll count under deep geometry; stacked on the collision branch |
 | p1-generators | running | T161: no rejecting strategies, zero reject budgets in the gate; stacked on p1-proptest-ci at `a34859ed` |
 | p1-envelope | not started | launchable from main now |
 | p2-peer | not started | after p2-commit-path |
