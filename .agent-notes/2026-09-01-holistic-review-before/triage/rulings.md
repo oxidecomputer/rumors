@@ -808,3 +808,11 @@ Disposes: the board lane's stop on the `span_dominance` `WORST_RANKINGS` drift (
 Finch's words: "You can re-pin it; it's a liveness floor change, not an algorithm one, is what you mean?"
 
 Decision. The dominance kernel is unchanged on the branch; the old pin was taken through a probe (the decoded version itself) that the kernel refuted on its first comparison, dropping the end cursor before the sweep, so the pinned worst cases described an incomplete walk. The corrected probe (the span's ceiling) forces the full sweep, and the same code reads touch 2.39 to 5.33 per byte (argmax staircase to dense at both scales), scan 8.00 per byte on every family (argmax promo-rearm to dense-suffix at the default scale, a tie), heap hugeleaf 1.06 and 1.19 to 1.00 per byte (argmax unchanged). A measurement correction, not an algorithm change: the board lane re-pins the three rankings with this attribution in the commit, and the board stream reads green at the tip but for nothing.
+
+## Ruling 117 (2026-09-03, afternoon): the tick rows' scan ceiling is per row
+
+Disposes: the board lane's stop on the shape of the tick calibration (per row versus per (row, family)).
+
+Finch's words: "Per-row ceiling seems fine."
+
+Decision. One ceiling per tick row (`version_tick` and `clock_tick` share one; `version_ticks` has its own), each a multiple of the row's exact live-bits scan floor derived from the worst governed cell of the row at the parent's readings, applied to every cell of the row; the constant's doc says the ceiling binds on the worst family and that the quieter families rest on the global scan constant between the floor and the ceiling. A per-cell pin in the `WORST_RANKINGS` shape is not taken.
