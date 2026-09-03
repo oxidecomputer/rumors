@@ -142,16 +142,21 @@ async fn read_frame<R: AsyncRead + Unpin>(
     listing: &mut Vec<u8>,
 ) -> Result<Option<WireFrame>, DecodeError> {
     let direction = |kind| DecodeError::direction(speaker, kind);
-    let mut exact = Exact { read };
+    let mut exact = Exact {
+        read,
+        failure: None,
+    };
     // Every frame opens with its array head, its stream item, and its
     // state item, each a one-byte head when canonical, so one read may
     // take all three. A close before the first byte is the clean end of
     // the direction; anything shorter after it is judged in wire order
-    // below, each item taking what the read fetched ahead of it.
+    // below, each item taking what the read fetched ahead of it, and a
+    // failure the read met is reported at the first item that needs
+    // more bytes than it fetched.
     let mut opener = [0u8; OPENER_LEN];
-    let arrived = exact.fill(&mut opener).await;
-    if arrived.filled == 0 {
-        return match arrived.failure {
+    let Arrived { filled, failure } = exact.fill(&mut opener).await;
+    if filled == 0 {
+        return match failure {
             None => Ok(None),
             Some(source) => Err(direction(DecodeErrorKind::Read {
                 part: FramePart::FrameHead,
@@ -159,9 +164,10 @@ async fn read_frame<R: AsyncRead + Unpin>(
             })),
         };
     }
+    exact.failure = failure;
     let (arity, index, state) = {
         let mut head = Pending::new(FramePart::FrameHead);
-        head.take(&opener[..arrived.filled]);
+        head.take(&opener[..filled]);
         let (head, rest) = exact.head(&mut head).await.map_err(direction)?;
         let arity = frame_arity(head).map_err(direction)?;
         let mut stream = Pending::new(FramePart::Signal);
@@ -240,13 +246,27 @@ impl Pending {
 /// guarantees to exist given what has already been parsed.
 struct Exact<'a, R> {
     read: &'a mut R,
+    /// A transport failure met by a bulk read that delivered some bytes
+    /// ahead of it.
+    ///
+    /// The next read reports it instead of touching the transport, so
+    /// the failure lands at the item it interrupted in wire order, not
+    /// at whatever the transport does after failing.
+    failure: Option<std::io::Error>,
 }
 
 impl<'a, R: AsyncRead + Unpin> Exact<'a, R> {
     /// Read into `buf` until it is full, the transport closes, or it
     /// fails, reporting what arrived. The caller judges the bytes in wire
-    /// order.
+    /// order. A failure recorded by an earlier read is reported first,
+    /// with nothing read.
     async fn fill(&mut self, buf: &mut [u8]) -> Arrived {
+        if let Some(source) = self.failure.take() {
+            return Arrived {
+                filled: 0,
+                failure: Some(source),
+            };
+        }
         let mut filled = 0;
         while filled < buf.len() {
             match self.read.read(&mut buf[filled..]).await {

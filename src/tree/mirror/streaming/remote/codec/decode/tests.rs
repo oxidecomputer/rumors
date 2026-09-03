@@ -799,6 +799,129 @@ fn reader_errors_are_contextual() {
     }
 }
 
+/// A transport that delivers the first `remaining` bytes of `bytes`,
+/// fails with `Other`, and then either closes cleanly or keeps failing.
+///
+/// One fixture serves both decoders: it reads synchronously for the
+/// oracle and asynchronously for `FrameRead`.
+struct FailAfter {
+    bytes: Vec<u8>,
+    position: usize,
+    remaining: usize,
+    then_eof: bool,
+    failed: bool,
+}
+
+impl FailAfter {
+    fn new(bytes: &[u8], remaining: usize, then_eof: bool) -> Self {
+        Self {
+            bytes: bytes.to_vec(),
+            position: 0,
+            remaining,
+            then_eof,
+            failed: false,
+        }
+    }
+
+    /// The bytes one read of up to `want` bytes delivers, or its failure.
+    fn serve(&mut self, want: usize) -> std::io::Result<&[u8]> {
+        if self.remaining == 0 {
+            if self.failed && self.then_eof {
+                return Ok(&[]);
+            }
+            self.failed = true;
+            return Err(std::io::ErrorKind::Other.into());
+        }
+        let available = self.bytes.len() - self.position;
+        let served = self.remaining.min(available).min(want);
+        let start = self.position;
+        self.position += served;
+        self.remaining -= served;
+        Ok(&self.bytes[start..start + served])
+    }
+}
+
+impl std::io::Read for FailAfter {
+    fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+        let served = self.serve(out.len())?;
+        out[..served.len()].copy_from_slice(served);
+        Ok(served.len())
+    }
+}
+
+impl AsyncRead for FailAfter {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        let served = self.serve(buf.remaining())?;
+        buf.put_slice(served);
+        Poll::Ready(Ok(()))
+    }
+}
+
+/// A transport failure inside a frame's opener is reported at the item
+/// it interrupted, identically by both decoders, whether the transport
+/// then closes cleanly or keeps failing.
+///
+/// The bytes delivered ahead of the failure are judged first. The opener
+/// is `End(Stream)` on stream 9, three one-byte items: a failure before
+/// the first byte is a read error at the frame head; after one or two
+/// bytes, at the signal; after all three, unseen, and the frame decodes.
+#[test]
+fn opener_read_failures_are_reported_in_wire_order() {
+    let stream = stream(9);
+    let encoded = bare_frame(stream, Signal::End(End::Stream));
+    assert_eq!(encoded, [0x82, 0x09, 0x09]);
+    for speaker in SPEAKERS {
+        for then_eof in [false, true] {
+            for remaining in 0..=encoded.len() {
+                let budget = RunBudget::default();
+                let from_sync = decode(
+                    speaker,
+                    budget,
+                    &mut FailAfter::new(&encoded, remaining, then_eof),
+                );
+                let mut reader = FrameRead::new(
+                    speaker,
+                    budget,
+                    FailAfter::new(&encoded, remaining, then_eof),
+                );
+                let from_async = pollster::block_on(reader.frame());
+                let case = format!(
+                    "{speaker:?}, {remaining} bytes then {}",
+                    if then_eof { "a close" } else { "failures" }
+                );
+                let interrupted = match remaining {
+                    0 => FramePart::FrameHead,
+                    1 | 2 => FramePart::Signal,
+                    _ => {
+                        let frame = (stream, Frame::End(End::Stream));
+                        assert_eq!(from_sync.expect(&case), frame, "{case}");
+                        assert_eq!(from_async.expect(&case), Some(frame), "{case}");
+                        continue;
+                    }
+                };
+                let from_sync = from_sync.expect_err(&case);
+                let from_async = from_async.expect_err(&case);
+                assert_eq!(from_async.origin, from_sync.origin, "{case}");
+                for error in [&from_sync, &from_async] {
+                    assert!(
+                        matches!(
+                            &error.kind,
+                            DecodeErrorKind::Read { part, source }
+                                if *part == interrupted && source.kind() == std::io::ErrorKind::Other
+                        ),
+                        "{case}: {:?}",
+                        error.kind
+                    );
+                }
+            }
+        }
+    }
+}
+
 /// Supply-body truncation cuts at every seeded offset all classify as a
 /// truncated `SupplyRun` with an `UnexpectedEof` source.
 ///
