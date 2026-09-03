@@ -147,7 +147,11 @@ runs no fuzz build elsewhere (Finch's ruling, recorded in the rumors
 workflow: fuzzing is CI's). Benchmarks whose committed baselines are the
 Mac's are the coordinator's to schedule, on a quiet machine, once.
 
-A lane's final gate run is backgrounded on the Mac side with its output
+A lane's final gate run holds the box's gate mutex (`~/gate.lock`, made
+with `mkdir` in a retry loop, removed on exit, a lock older than 45
+minutes treated as a dead gate's), so at most one gate runs at a time
+across both triages; targeted runs and builds stay outside it. It is
+backgrounded on the Mac side with its output
 redirected to a log under the lane's scratchpad directory, polled with
 short checks, and its verdict read from the log; never a foreground
 demand, never piped through a filter. The polling happens inside the
