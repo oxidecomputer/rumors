@@ -2,6 +2,9 @@
 
 # Merge queue for the before and rumors triage lanes
 
+The current-state dashboard of both triages is `STATUS.md` beside this
+file; this file is the ordered record it links to.
+
 Both triages land lanes into `main` from the same primary worktree, and
 their lanes meet at the workspace root (the justfile, `.github/`, the
 manifests and lockfile, root `AGENTS.md`, `deny.toml`,

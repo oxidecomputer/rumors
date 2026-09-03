@@ -16,6 +16,11 @@ plans share the workspace, and where its lanes build.
 
 ## The record
 
+- The dashboard: `.agent-notes/STATUS.md`, shared with the rumors triage,
+  current state only, rewritten in place at every lane state change
+  (launch, review round, packet, merge, stop) by the session whose lane
+  changed; the merge queue stays the ordered record.
+
 - Rulings: `rulings.md`; the ledger: `ledger.tsv` with `ledger.py`.
 - Briefs: `briefs/`, one per lane; `briefs/README.md` maps lanes to
   rulings, files, and launch order; `briefs/PROSE.md` is the prose
