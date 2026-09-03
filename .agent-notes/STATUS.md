@@ -2,7 +2,7 @@
 
 # Triage landing status
 
-Updated: 2026-09-03 20:12 UTC by the before session.
+Updated: 2026-09-03 21:01 UTC by the before session.
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
 
@@ -39,9 +39,9 @@ Lanes run in the order `triage/briefs/README.md` gives; every lane builds and ga
 | p1-gate | packet ready | `75e0bc91` (37 commits; one stop inside: the syn 2/3 holdout roster; its gate red on audit and wasm by construction until the stop is ruled and p1-fuzz refits) |
 | p2-widths | packet ready | `ba36e970` (51 code commits; two items for Finch's eye inside, no stop) |
 | p2-surface | packet ready | `cad0b75d` (44 code commits; one stop inside: the fuelscape.js caption) |
-| p1-fuzz | in review | `d0c14638` (child of p8-tagwalk): coordinator acceptance green at the tip (both compiles, fuzzfit 28 with eleven seeds, fuelscape 43, wasm32-pins 50; both fuzz-leg plants red on the Mac); packet meta drafted; fresh-eyes round 1 running (resumed after the credit outage); stops: `REFIT_TOLERANCE`, the bimodal `ff_party_without` arm, the `ff_version_eq` routing, skyline-query-9 |
+| p1-fuzz | in review | `8073fada` (child of p8-tagwalk): twelve sentry seeds (the twelfth from the rumors vanish-liveness gate replays green inside the refit band); coordinator acceptance green at the tip; packet meta drafted; fresh-eyes round 1 running; stops: `REFIT_TOLERANCE`, the bimodal `ff_party_without` arm, the `ff_version_eq` routing, skyline-query-9 |
 | p1-survivors | packet ready | `f9ec31d7` (child of p1-gate; rulings 18, 50, 88) |
-| p1-board | in review | third round landed at `00948f7b` (37 commits on main): the board reads 2096 green / 0 red at both scales under the reshaped tick calibration; the only red is the span_dominance worst-case pin drift, deliberately not re-pinned (a stop); its report pending after the credit outage; coordinator acceptance and packet after; stops: ruling 11's residual fit, the dominance re-pin |
+| p1-board | in review | `00948f7b` (37 commits on main): coordinator acceptance at the tip green but for the span_dominance worst-case pin drift (a stop, deliberately not re-pinned); fresh-eyes round 3 running; packet after; stops: ruling 11's residual fit, the dominance re-pin, the shard tag bump v5 to v6 |
 | p1-suites | not started | after p1-board |
 | p2-rows | not started | after p1-suites; carries two handoffs from the harness review |
 | p2-cures | not started | after p2-rows and p2-widths |
