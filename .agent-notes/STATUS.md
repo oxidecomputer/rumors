@@ -2,7 +2,7 @@
 
 # Triage landing status
 
-Updated: 2026-09-03 06:57 UTC by the rumors session.
+Updated: 2026-09-03 07:00 UTC by the rumors session.
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
 
@@ -15,7 +15,7 @@ Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not st
 
 ## Waiting on Finch
 
-- Review: the `p2-commit-path` packet (branch `triage/p2-commit-path`, packet commit `14d0d5fb`); no open stop; merge on your word.
+- Review: the `p2-commit-path` packet (branch `triage/p2-commit-path`, packet `14d0d5fb`; no open stop) and the `p2-deep-geometry` packet (branch `triage/p2-deep-geometry`, packet `f74324a7`; stacked on collision-mode, so it merges after that lane; four stops in its packet).
 - Open stops from before: the gate lane's syn 2/3 holdout roster (in its packet); the surface lane's fuelscape.js caption (in its packet); the board lane's ruling-11 residual fit (its journal's morning brief, stop 3). Rumors: T158, T159, T162, T163, T164 rule the launch questions, the collision mode's stops, and the CI count (256 until generators, then 4000); the commit-path packet will carry three judgment calls from its fresh-eyes round (the ceiling on an all-skipped key, the unwind-path wording, one pin of a non-contract); the collision-mode lane's ten stops (variable name, one seed, `ci` tier, cluster weighting, the mark's name, the unreachable production-cfg test, three findings, and whether `test-collision` joins `ci` while red on the findings) are in the coordinator's message of 2026-09-03 and its packet.
 
 ## Open items on main
@@ -65,7 +65,7 @@ Maintained by the rumors session.
 | p1-proptest-ci | in review | landed at `a34859ed` (sweep, caselint, release recipe and nextest profile, meter excluded, T157 rewrite); gate clean; the CI number is a stop (recommendation 4000 after p1-generators); verification and packet after p1-generators lands, since the number is set on that tree |
 | p2-vanish-liveness | in review | round 1 landed at `e3c5f986` (the watch keeps every control byte and reads on; deadline aborts; the floor measured against the donor too), gate clean; `e3c5f986` verified; fresh-eyes round 2 found one behavioral regression (a delivered stream dropped mid-label under the departure race) and gaps, sent as repairs; packet after; seven stops in the meta, the precedence rule the one that matters |
 | p1-collision-mode | in review | round 1 landed at `e951b81e` (T163 width, recipe liveness, fixtures routed through the crate's derivation, marks re-justified at 28 bytes), gate clean; `e951b81e` verified in full; fresh-eyes round 2 found one bug (a marked test bypassing the harness check) and instrument gaps, sent as repairs with T164's sweep recipe; packet after; two design stops (`ci` membership, a wider root fan) |
-| p2-deep-geometry | in review | round 3 landed at `2c0fa56d` (public docs without private links; exhaustive predicates; the residual window pinned; the trace pin); final verification running, packet after; its gate waits on the mutex; stops: the conformance meter's floor under the schedule, and the residual precedence window (recommendation: close it) |
+| p2-deep-geometry | packet ready | packet `f74324a7` on `triage/p2-deep-geometry` (code tip `7e7bae71`, base `7858b35e`, stacked on the collision branch; merges after it); three fresh-eyes rounds, every item verified; its gate runs under the mutex and the verdict is appended when it lands; stops: the shared predicate at integration with vanish-liveness, the conformance floor under the schedule, the residual precedence window, the duplicated-reply stall queued |
 | p1-generators | in review | landed at `9903be30` (every rejecting strategy total; caselint widened; zero budgets in the recipes and CI; 16000-case release run with zero rumors aborts); verification and fresh-eyes round 1 running; packet after; its last commit merges only after `before/p2-generators` (56 before properties abort under zero budgets) |
 | p1-envelope | in review | `147993bd` verified in full (oracle independent of the shipped code; both tests fail on lowered tail constants; the deletion complete; the derivation tests hold 8,103 and 8,180 B); fresh-eyes round 1 (no bugs) sent a per-scale sweep of the 8 KB figure, a string pin of the doc's figures, the lone-message cell, and prose as repairs; packet after; stops: the `src/lib.rs` sentence and the figure's set size, both Finch's |
 | p2-peer | not started | after p2-commit-path |

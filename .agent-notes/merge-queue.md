@@ -145,6 +145,11 @@ lanes have closed.
   `14d0d5fb`, last code commit `5a4559e1`, base `1336daa0` (main). Root
   files: README.md (regenerated from the crate doc). Its commits are
   unsigned (the lock protocol); the merge rebase re-signs.
+- rumors `p2-deep-geometry`: branch `triage/p2-deep-geometry`, packet
+  head `f74324a7`, last code commit `7e7bae71`, base `7858b35e` (the
+  `p1-collision-mode` branch); merges after `p1-collision-mode`, rebased
+  onto its merged tip. No root files. Commits unsigned (the lock
+  protocol).
 
 - before `p2-widths`: branch `before/p2-widths`, packet head `ba36e970`,
   last code commit `d5e63e93`, base `main`. Root files: justfile (one

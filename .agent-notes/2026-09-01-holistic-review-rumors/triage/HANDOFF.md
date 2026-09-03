@@ -96,12 +96,14 @@ the fast-forward (WORKFLOW.md's merge step).
    (Finch's paragraph) and the figure's set size (`new-findings.md`).
 7. **p2-deep-geometry** (`/Users/oxide/src/rumors-p2-deep-geometry`,
    stacked on the collision tip `7858b35e`): T162 items 8 and 9;
-   round 3 landed at `2c0fa56d` (agent `a2af8c0d37b66646f`; every
-   round verified; the predicate exhaustive; the residual window pinned);
-   the runner's final pass (`a6483291f13d44eb4`, `coordinator/verify-deep/`)
-   is the last step before the packet (base `7858b35e`); its watcher
-   runs `test-collision` and the gate under the mutex and retires its
-   box caches on `ALLDONE`. Packet meta drafted with four stops (the
+   packet ready: `f74324a7` on the branch, code tip `7e7bae71`, base
+   `7858b35e` (the collision branch; at merge, rebase onto the merged
+   collision tip and compile); three rounds, every item verified
+   (runner `a6483291f13d44eb4`, `coordinator/verify-deep/`); its watcher
+   runs `test-collision` and the gate under the mutex
+   (`scratchpad/p2-deep-geometry/finalverify.status`, `ALLDONE`) and
+   retires its box caches; append the gate verdict to the meta when it
+   lands. Packet meta drafted with four stops (the
    shared predicate at integration; the duplicated-reply stall; the
    `materializing_backend_conforms` floor under the schedule; the
    residual precedence window, recommendation: close it).
