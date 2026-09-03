@@ -123,6 +123,13 @@ lanes have closed.
 
 (none)
 
+- before `p2-surface`: branch `before/p2-surface`, packet head `5315266a`,
+  last code commit `8a2aa4d7`, base `main`. Root files: `Cargo.toml`
+  (workspace `proc-macro2` and `syn`), `Cargo.lock` (surface-scan's
+  entries), justfile (one comment paragraph). One stop (the
+  `fuelscape.js` caption). Packet:
+  `.agent-notes/2026-09-01-holistic-review-before/triage/reviews/p2-surface.md`.
+
 ## Announcements
 
 - before: `before/p1-gate` now also touches the root `Cargo.lock` (`bytes`
