@@ -118,3 +118,12 @@ Each entry: where it came from, what it is, which lane's brief carries it
   `fuzz-replay` now derives them from `cargo fuzz list`, so a sixth
   target replays at gate cadence but is never smoked. Route: the same
   justfile owner (drive the smoke loop from the same list).
+- **"packed bytes" and "packed input" survive as a term in about
+  twenty-five sites of `crates/before/src`** (meter, board, registry,
+  skyline) after ruling 119 made the fuelscape pipeline say `input bytes`
+  and ruling 110 ruled there is no separate packed representation. Route:
+  the prose pass (ruling 105's sweep), restated as the bytes of the input.
+- **`AtlasData.unary` is written and never read** since the size-measure
+  relabel (the caption it selected is gone); removing it is a dump-format
+  change (`FORMAT_VERSION`, `deny_unknown_fields`). Route: the fuelscape
+  owner's next format bump, named in the re-accepting commit.
