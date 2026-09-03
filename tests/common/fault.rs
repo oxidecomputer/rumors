@@ -9,8 +9,8 @@
 //! - [`Cut`] forwards reads until its budget is exhausted, then fails every
 //!   read with [`ConnectionReset`] — the connection died under our eyes.
 //!
-//! Each budget is shared across every stream of its direction — the control
-//! half and each data stream draw on one counter — so the cut lands at a
+//! Each budget is shared across every stream of its direction -- the control
+//! half and each data stream draw on one counter -- so the cut lands at a
 //! chosen offset in the endpoint's total traffic, wherever that byte
 //! happens to travel. A severed direction also refuses new streams: once
 //! its budget is exhausted, [`FaultConnector::connect`] fails alongside the
@@ -68,8 +68,8 @@ pub enum Vanish {
     /// into that stream.
     ///
     /// The next write there is where the endpoint dies, mid-frame like a
-    /// cut. An endpoint that opens fewer streams, or writes fewer bytes on
-    /// that one, never reaches the point.
+    /// cut. An endpoint that opens fewer streams, or writes no more than
+    /// `offset` bytes on that one, never reaches the point.
     OnStream { index: usize, offset: usize },
     /// At its first outgoing stream open: after the handshake, which rides
     /// the control half, and before its first data stream.
@@ -84,11 +84,6 @@ impl FaultPlan {
         read_cut: None,
         vanish: None,
     };
-
-    /// Whether this plan injects any fault at all.
-    pub fn is_clean(&self) -> bool {
-        *self == Self::NONE
-    }
 }
 
 /// The faulted shape of one in-memory link endpoint.
@@ -126,6 +121,13 @@ pub struct Driven<Out> {
     /// The session's outcome, or `None` if the endpoint vanished first.
     pub outcome: Option<Out>,
     _supply: Option<MemoryConnector>,
+}
+
+impl<Out> Driven<Out> {
+    /// Whether the endpoint reached its vanish point.
+    pub fn vanished(&self) -> bool {
+        self.outcome.is_none()
+    }
 }
 
 /// Run `session` over `link` under `plan`, vanishing at the plan's point.
@@ -172,6 +174,7 @@ pub async fn drive<Out>(
 pub struct ByteMeter {
     write: Budget,
     read: Budget,
+    streams: Streams,
 }
 
 impl ByteMeter {
@@ -186,18 +189,37 @@ impl ByteMeter {
     pub fn read(&self) -> usize {
         usize::MAX - *self.read.lock().expect("read budget lock")
     }
+
+    /// Data streams the endpoint has opened: the ordinals a
+    /// [`Vanish::OnStream`] can name.
+    pub fn streams_opened(&self) -> usize {
+        self.streams.lock().expect("stream ledger lock").len()
+    }
+
+    /// Most bytes the endpoint wrote on any one data stream: the offsets
+    /// a [`Vanish::OnStream`] can reach.
+    pub fn widest_stream(&self) -> usize {
+        self.streams
+            .lock()
+            .expect("stream ledger lock")
+            .iter()
+            .copied()
+            .max()
+            .unwrap_or(0)
+    }
 }
 
 /// Wrap one clean in-memory link endpoint with byte metering: no fault
 /// ever fires (the budgets are effectively infinite), and the returned
 /// [`ByteMeter`] reads out the endpoint's cumulative traffic.
 pub fn metered(link: MemoryLink) -> (FaultyLink, ByteMeter) {
-    let (link, budgets, _) = wrap_with(link, budget(None), budget(None), None);
+    let (link, (write, read, streams), _) = wrap_with(link, budget(None), budget(None), None);
     (
         link,
         ByteMeter {
-            write: budgets.0,
-            read: budgets.1,
+            write,
+            read,
+            streams,
         },
     )
 }
@@ -223,9 +245,10 @@ fn wrap_with(
     write: Budget,
     read: Budget,
     vanish: Option<Arc<VanishState>>,
-) -> (FaultyLink, (Budget, Budget), MemoryConnector) {
+) -> (FaultyLink, (Budget, Budget, Streams), MemoryConnector) {
     let parts = link.into_parts();
     let supply = parts.connector.clone();
+    let streams: Streams = Arc::new(Mutex::new(Vec::new()));
     let link = LinkParts {
         control_read: Cut::new(parts.control_read, read.clone(), vanish.clone()),
         control_write: Fuse::new(parts.control_write, write.clone(), vanish.clone(), None),
@@ -233,6 +256,7 @@ fn wrap_with(
             inner: parts.connector,
             budget: write.clone(),
             vanish: vanish.clone(),
+            streams: streams.clone(),
         },
         acceptor: FaultAcceptor {
             inner: parts.acceptor,
@@ -242,8 +266,13 @@ fn wrap_with(
         session: parts.session,
     }
     .into_link();
-    (link, (write, read), supply)
+    (link, (write, read, streams), supply)
 }
+
+/// One endpoint's data streams in open order, each with the bytes written
+/// on it: the ledger a [`Vanish::OnStream`] indexes and a [`ByteMeter`]
+/// reads out.
+type Streams = Arc<Mutex<Vec<usize>>>;
 
 /// A direction's shared byte budget.
 type Budget = Arc<Mutex<usize>>;
@@ -264,8 +293,6 @@ struct VanishState {
     /// Bytes still to write on the named stream before an
     /// [`Vanish::OnStream`] trips.
     remaining: Mutex<usize>,
-    /// Data streams this endpoint has opened.
-    opened: Mutex<usize>,
     tripped: AtomicBool,
     notify: Notify,
 }
@@ -278,7 +305,6 @@ impl VanishState {
                 Vanish::OnStream { offset, .. } => offset,
                 Vanish::AtFirstConnect => usize::MAX,
             }),
-            opened: Mutex::new(0),
             tripped: AtomicBool::new(false),
             notify: Notify::new(),
         })
@@ -333,21 +359,17 @@ impl VanishState {
         }
     }
 
-    /// The ordinal of the data stream an open is about to create, or
-    /// `None` once the endpoint has vanished (tripping it if the open is
-    /// the point).
-    fn connect(&self) -> Option<usize> {
+    /// Whether a stream open may proceed (tripping if the open is the
+    /// point).
+    fn may_connect(&self) -> bool {
         if self.tripped() {
-            return None;
+            return false;
         }
         if let Vanish::AtFirstConnect = self.point {
             self.trip();
-            return None;
+            return false;
         }
-        let mut opened = self.opened.lock().expect("vanish stream count lock");
-        let ordinal = *opened;
-        *opened += 1;
-        Some(ordinal)
+        true
     }
 }
 
@@ -381,6 +403,7 @@ pub struct FaultConnector<C> {
     inner: C,
     budget: Budget,
     vanish: Option<Arc<VanishState>>,
+    streams: Streams,
 }
 
 impl<C: Clone> Clone for FaultConnector<C> {
@@ -389,6 +412,7 @@ impl<C: Clone> Clone for FaultConnector<C> {
             inner: self.inner.clone(),
             budget: self.budget.clone(),
             vanish: self.vanish.clone(),
+            streams: self.streams.clone(),
         }
     }
 }
@@ -397,16 +421,12 @@ impl<C: Connector> Connector for FaultConnector<C> {
     type Tx = Fuse<C::Tx>;
 
     async fn connect(&self) -> io::Result<(Self::Tx, Done<Self::Tx>)> {
-        let stream = match &self.vanish {
-            Some(vanish) => match vanish.connect() {
-                Some(ordinal) => Some(ordinal),
-                None => {
-                    std::future::pending::<()>().await;
-                    unreachable!("a vanished endpoint never resumes");
-                }
-            },
-            None => None,
-        };
+        if let Some(vanish) = &self.vanish
+            && !vanish.may_connect()
+        {
+            std::future::pending::<()>().await;
+            unreachable!("a vanished endpoint never resumes");
+        }
         // A dead write direction cannot open new streams either; this is
         // what lets a cut exercise `SendError::Connect` deterministically
         // instead of only through real-transport races.
@@ -414,9 +434,19 @@ impl<C: Connector> Connector for FaultConnector<C> {
             return Err(write_severed());
         }
         let (tx, done) = self.inner.connect().await?;
+        let ordinal = {
+            let mut streams = self.streams.lock().expect("stream ledger lock");
+            streams.push(0);
+            streams.len() - 1
+        };
         // Completion unwraps the fuse and passes the half through.
         Ok((
-            Fuse::new(tx, self.budget.clone(), self.vanish.clone(), stream),
+            Fuse::new(
+                tx,
+                self.budget.clone(),
+                self.vanish.clone(),
+                Some((ordinal, self.streams.clone())),
+            ),
             Done::new(move |fuse: Fuse<C::Tx>| done.complete(fuse.inner)),
         ))
     }
@@ -462,9 +492,9 @@ pub struct Fuse<W> {
     inner: W,
     remaining: Budget,
     vanish: Option<Arc<VanishState>>,
-    /// Which data stream this writer is, for the vanish point; `None` is
-    /// the control half.
-    stream: Option<usize>,
+    /// Which data stream this writer is and the ledger it reports to;
+    /// `None` is the control half.
+    stream: Option<(usize, Streams)>,
 }
 
 impl<W> Fuse<W> {
@@ -472,7 +502,7 @@ impl<W> Fuse<W> {
         inner: W,
         remaining: Budget,
         vanish: Option<Arc<VanishState>>,
-        stream: Option<usize>,
+        stream: Option<(usize, Streams)>,
     ) -> Self {
         Self {
             inner,
@@ -480,6 +510,10 @@ impl<W> Fuse<W> {
             vanish,
             stream,
         }
+    }
+
+    fn ordinal(&self) -> Option<usize> {
+        self.stream.as_ref().map(|(ordinal, _)| *ordinal)
     }
 }
 
@@ -493,7 +527,7 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for Fuse<W> {
         // A vanish point inside this write parks it (and every later
         // operation) with no wake; the driver drops the session.
         let before_vanish = match &this.vanish {
-            Some(vanish) => match vanish.admit(this.stream, buf.len()) {
+            Some(vanish) => match vanish.admit(this.ordinal(), buf.len()) {
                 Some(admitted) => admitted,
                 None => return Poll::Pending,
             },
@@ -510,7 +544,10 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for Fuse<W> {
             Poll::Ready(Ok(n)) => {
                 *remaining -= n;
                 if let Some(vanish) = &this.vanish {
-                    vanish.wrote(this.stream, n);
+                    vanish.wrote(this.ordinal(), n);
+                }
+                if let Some((ordinal, streams)) = &this.stream {
+                    streams.lock().expect("stream ledger lock")[*ordinal] += n;
                 }
                 Poll::Ready(Ok(n))
             }

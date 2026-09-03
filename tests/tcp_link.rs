@@ -1,10 +1,9 @@
-//! The simulations' TCP link satisfies the link contract.
+//! The per-session TCP link satisfies the link contract.
 //!
 //! `common::tcp` is the workspace's one [`Link`](rumors::link::Link)
-//! instantiation over real sockets, and `tests/disruption.rs` trusts it
-//! under process kills; these tests run it through the public
-//! [`rumors::conformance::link`] suite so a disruption failure indicts the
-//! protocol, never an accidentally nonconforming transport. Real sockets
+//! instantiation over real sockets; these tests run it through the public
+//! [`rumors::conformance::link`] suite so the contract is known to hold on
+//! a real transport, not only in memory. Real sockets
 //! need real time: a paused clock's auto-advance would fire the harness
 //! timeout while socket I/O is genuinely pending. Every check runs under an
 //! explicit timeout because the contract's liveness clauses fail as hangs,

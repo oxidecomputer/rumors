@@ -242,8 +242,8 @@ grows organically thereafter.
 ## 5. What this deliberately does not cover
 
 - **Fault injection on honest traffic.** `tests/disruption.rs` with
-  `tests/common/fault.rs` (byte-budgeted `Fuse`/`Cut` severing, intra-
-  and inter-process, real TCP included) and the `rumors::testing`
+  `tests/common/fault.rs` (byte-budgeted `Fuse`/`Cut` severing and
+  endpoints vanishing mid-stream) and the `rumors::testing`
   transport adversity (`IoPlan`/`IoFault`: chunking, delays,
   hold-until-flush, typed injected failures at every surface) already
   sweep sessions whose *content* is honest while the transport
