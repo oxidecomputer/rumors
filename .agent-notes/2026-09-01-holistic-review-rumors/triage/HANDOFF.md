@@ -30,22 +30,31 @@ the fast-forward (WORKFLOW.md's merge step).
    recovered connections, no configurable pool bound). Verification of
    `7a31b673` holds in full (`coordinator/verify-link-3/`); fresh-eyes
    round 1 found no bugs and one accounting defect, sent as repairs
-   (decrement at header arrival; two tests; prose) together with T164
-   item 1 (`Dial::recycle` takes the token; the two-links test); a
-   repair sha is expected, then a second verification pass and the
-   packet. One stop left: the bound's justification wording.
+   (decrement at header arrival; two tests; prose); landed at
+   `db616f70` (unsigned from `f3105224` on); final verification (runner
+   `ad7cb42de7506727b`) and fresh-eyes round 2 (`a8b49e3a5d4f5745c`)
+   running; packet after. Stops: T164 item 1 is back to Finch (the lane
+   showed `recycle`'s token alone cannot key a pool's draw, since `dial`
+   has no token; shapes in `triage/stops/p2-link/README.md`), and the
+   bound's justification wording.
 2. **p2-commit-path** (`/Users/oxide/src/rumors-p2-commit-path`,
    base `main` at `030e1b5c`): T34, T36, T38, T39, T42; tip
-   `71797970` after two repair rounds; re-verification and a light
-   round-3 read were running (`coordinator/verify-commit-path/`,
-   `fresh-eyes-commit-path-r3/`). Stop: the ceiling on an all-skipped
-   key (recommendation: accept, pin whichever direction).
+   `c8d03f54` after three repair rounds, verified in full (runner
+   `a33b8f771988b88df`, `coordinator/verify-commit-path/`); two last
+   items with the lane (one leftover fixture spelling; a pin for the
+   overlap early-return sink path); packet from its sha. Stop: the
+   ceiling on an all-skipped key (recommendation: accept, pin whichever
+   direction).
 3. **p2-vanish-liveness** (`/Users/oxide/src/rumors-p2-vanish-liveness`,
    base `9c8ce16c`, rebase onto main is history-only): T145, T154;
    tip `28ef4341` verified (`coordinator/verify-vanish/`); round 1
    landed at `e3c5f986` (three of its five commits unsigned by the lock
-   protocol); second verification (runner `a66751731e0dde371`) and
-   fresh-eyes round 2 (`a65349f3b7a1537d6`) running. Six stops in the meta, including a
+   protocol), verified in full; fresh-eyes round 2 found one behavioral
+   regression (the departure race dropped a delivered stream mid-label)
+   and gaps, sent as the round-2 repairs (lane `a29e1e87156b5a036`); a
+   repair sha, a third verification pass, and a light round-3 read are
+   expected; packet after. The precedence rule is the stop that
+   matters (meta stop 7). Six stops in the meta, including a
    `link.rs` sentence drafted for Finch's words.
 4. **p1-collision-mode** (`/Users/oxide/src/rumors-p1-collision-mode`,
    base `d0dcb9f5`): T23, ruled by T162 and re-shaped by T163 (28-byte
