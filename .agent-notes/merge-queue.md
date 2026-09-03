@@ -109,6 +109,19 @@ lanes have closed.
 
 ## Announcements
 
+- OPEN on `main` (found 2026-09-03 by the before session, relayed to the
+  rumors session as it handed off; absent from its HANDOFF.md): merged
+  `main` fails `cargo check --locked --workspace --all-targets` (the
+  `just check` recipe, default features) in
+  `src/tree/mirror/streaming/remote/proxy/tests.rs`: `LeftFailure`,
+  `RightFailure` (line 251), `PayloadCodec`, `PayloadDepthLimit` (265,
+  271) are used without a `use` in that file. Last touched by the
+  rumors p2-walk commit `bed0eeb1`, merged over the harness-crate
+  lane's rewrite. The gate's all-features legs do not see it; `just
+  check` does. The rumors successor session owns the repair; the before
+  lanes' packets note it where their own `just check` reads red for
+  this reason alone.
+
 - before: `before/p1-gate` launched, stacked on rumors `triage/p1-gate` at
   `b06000df`; it edits the justfile (the mutants-list and workflowlint
   legs go; the wasm32-pins leg joins CI; the lockfile audit derives its
