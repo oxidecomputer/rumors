@@ -1,0 +1,5 @@
+# p1-renderer lane annotations: path, line (final tree), entry id, ruling, note.
+Cargo.toml	29	remote-capture-atlas-13	T138	T138 pins the fork by revision so a fork change cannot reflow the wire snapshots without a commit here; the manifest comment states that argument beside the existing depth-limit rationale.
+Cargo.toml	38	remote-capture-atlas-13	T138	The rev is the commit Cargo.lock already resolved under the branch, so the lock's source string changes and nothing else; verified with an offline metadata run.
+Cargo.toml	148	remote-capture-atlas-13	T138	rumors gains cbor-diag as an optional dependency: the capture renderer is compiled under `test` or the `test-internals` feature, so the crate must be available under that feature, not only as a dev-dependency.
+Cargo.toml	115	remote-capture-atlas-13	T138	The feature enables the optional dependency; an application never enables test-internals (the feature comment says so), so cbor-diag never reaches a production build.

@@ -190,7 +190,7 @@ checksum = "37b2a672a2cb129a2e41c10b1224bb368f9f37a2b16b612598138befd7b37eb5"
 [[package]]
 name = "cbor-diag"
 version = "0.1.12"
-source = "git+https://github.com/oxidecomputer/cbor-diag-rs?branch=depth-limit#a6a713671f92526b921bc926173266257379d609"
+source = "git+https://github.com/oxidecomputer/cbor-diag-rs?rev=a6a713671f92526b921bc926173266257379d609#a6a713671f92526b921bc926173266257379d609"
 dependencies = [
  "bs58",
  "chrono",
@@ -1256,6 +1256,7 @@ dependencies = [
  "async-stream",
  "before",
  "bytes",
+ "cbor-diag",
  "ciborium",
  "criterion",
  "futures",

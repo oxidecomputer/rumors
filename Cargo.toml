@@ -25,13 +25,16 @@ bytes = "1"
 # Oxide's fork of cbor-diag: nesting depth is bounded by default in every
 # input-driven parse and print (upstream recurses on input-controlled
 # depth), so wire-derived bytes can be rendered without a guard in front.
+# Pinned by revision, not branch: the wire snapshots under `tests/snapshots`
+# are rendered through this crate, so a change on the fork's branch must
+# not reflow them without a commit here that names the new revision.
 # Its `url` dependency reaches idna, whose unicode backend is selected by
 # `idna_adapter`: the lock pins idna_adapter to 1.1 (the unicode-rs
 # backend), because the icu backend behind later versions carries derive
 # macros on a second `syn` major, which the bans check rejects. If a
 # `cargo update` resurfaces a duplicate `syn`, re-pin with
 # `cargo update -p idna_adapter --precise 1.1.0`.
-cbor-diag = { git = "https://github.com/oxidecomputer/cbor-diag-rs", branch = "depth-limit" }
+cbor-diag = { git = "https://github.com/oxidecomputer/cbor-diag-rs", rev = "a6a713671f92526b921bc926173266257379d609" }
 # Pinned exactly: depth admission and wire ingress run the same compiled
 # deserializer, so decode-recursion accounting is symmetric within a binary,
 # and across a mixed-version fleet it holds only if every build shares one
@@ -106,7 +109,7 @@ bench = false
 # Test-only introspection and deterministic scheduling infrastructure.
 # Enabled for this crate's own tests via the self-referential dev-dependency
 # below; never enable it in an application.
-test-internals = ["tokio/rt"]
+test-internals = ["tokio/rt", "dep:cbor-diag"]
 # The public conformance suite for caller-built `Link` implementations:
 # enable from a dev-dependency to validate a custom transport against the
 # link contract. Documented; safe (though pointless) in an application.
@@ -136,6 +139,9 @@ futures = { workspace = true }
 futures-util = { workspace = true }
 async-stream = { workspace = true }
 rand = { workspace = true }
+# The wire-capture renderer behind `test-internals` renders every captured
+# item in diagnostic notation through this crate.
+cbor-diag = { workspace = true, optional = true }
 
 [dev-dependencies]
 rumors = { workspace = true, features = ["test-internals", "conformance"] }
