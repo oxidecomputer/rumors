@@ -2,7 +2,7 @@
 
 # Triage landing status
 
-Updated: 2026-09-04 04:15 UTC by the before session.
+Updated: 2026-09-04 06:20 UTC by the before session.
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
 
@@ -38,7 +38,7 @@ Lanes run in the order `triage/briefs/README.md` gives; every lane builds and ga
 | p1-harness | merged | `5b0a17d4` (rulings 4, 38, 50, 51, 108); the meter suite's one harness |
 | p1-gate | packet ready | `75e0bc91` (37 commits; one stop inside: the syn 2/3 holdout roster; its gate red on audit and wasm by construction until the stop is ruled and p1-fuzz refits) |
 | p2-widths | in review (reopened) | ruling 118 (Finch, 2026-09-04): the narrow-or-wide fold table is dissolved into one `Vec<u64>` and the log-factor liveness floor re-derived under 64-bit probes; the lane is audited for code shaped to keep a pin from moving; a lane agent is on it; the packet `ba36e970` is superseded and rebuilt after |
-| p2-surface | in review (reopened) | ruling 119 (Finch, 2026-09-04): every size measure becomes the unit label `input bytes` (roster, datasets, x-axis caption, island summary); the sampling prose moves to rustdoc; a lane agent is on it; the packet `cad0b75d` is superseded and rebuilt after |
+| p2-surface | packet ready | `49cc1466` (code `99c9be09`; rebuilt over the ruling-119 relabel: one label `input bytes` in the roster, all 104 datasets and dumps, the axis caption, summaries, readouts; a roster test holds it); the caption stop resolved; one item for Finch (the dump format's dead `unary` field) |
 | p1-fuzz | packet ready | `0df4aa4b` (code `1b6df6fd`, child of p8-tagwalk; three fresh-eyes rounds; coordinator acceptance green at the tip on both machines; twelve sentry seeds); six stops inside; merges after p1-gate and p8-tagwalk, before the rumors p1-collision-mode |
 | p1-survivors | packet ready | `f9ec31d7` (child of p1-gate; rulings 18, 50, 88) |
 | p1-board | packet ready | `cc0e365d` (code `67a454cf`, 60 commits on main; six review rounds; the board 2096 green / 0 red at both scales and the worst-case pin clean at the tip; coordinator's gate clean but for the fuzz port); two stops inside (ruling 11's fit; the shard tag bump). The before session is PAUSED at Finch's word until the packets are reviewed interactively |

@@ -228,11 +228,14 @@ lanes have closed.
   `p2-surface`. Packet:
   `.agent-notes/2026-09-01-holistic-review-before/triage/reviews/p2-widths.md`.
 
-- before `p2-surface`: branch `before/p2-surface`, packet head `cad0b75d`,
-  last code commit `8a2aa4d7`, base `main`. Root files: `Cargo.toml`
-  (workspace `proc-macro2` and `syn`), `Cargo.lock` (surface-scan's
-  entries), justfile (one comment paragraph). One stop (the
-  `fuelscape.js` caption). Packet:
+- before `p2-surface`: branch `before/p2-surface`, packet head `49cc1466`
+  (rebuilt 2026-09-04 over the ruling-119 relabel), last code commit
+  `99c9be09`, base `d5085a58` (main). Root files: `Cargo.toml` and
+  `Cargo.lock` (the crate's dependency touches; rebase over the gate lane's
+  lockfile edits). The x-axis caption stop is resolved by ruling 119 (every
+  denominator reads `input bytes` from one field). One item for Finch inside:
+  the dump format's dead `unary` field (a format bump to remove). Commits
+  unsigned (the signing outage); the merge rebase re-signs. Packet:
   `.agent-notes/2026-09-01-holistic-review-before/triage/reviews/p2-surface.md`.
 
 - before `p2-generators`: branch `before/p2-generators`, packet head `e84a74a3`,
