@@ -2,7 +2,7 @@
 
 # Triage landing status
 
-Updated: 2026-09-03 03:03 UTC by the before session (rumors-74).
+Updated: 2026-09-03 03:03 UTC by the rumors session.
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
 
@@ -11,15 +11,16 @@ Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not st
 | Plan | Merged | Packet ready | In review | Running | Not started | Ledger rows pending |
 |---|---|---|---|---|---|---|
 | before | 2 of 38 lanes | 1 | 3 | 0 | 32 | 1185 of 1204 |
-| rumors | 10 lanes | 1 | 1 | 3 | 25 briefed (P1 envelope, P2 peer, seven P3, fifteen P4, publication prep) | 874 of 995 |
+| rumors | 10 lanes | 0 | 3 | 2 | 25 briefed (P1 envelope, P2 peer, seven P3, fifteen P4, publication prep) | 874 of 995 |
 
 ## Waiting on Finch
 
-- Review: the `p2-link` packet (branch `triage/p2-link`, packet commit `4a7baddb`, rendered HTML opened in the browser); merge on your word.
+- Nothing to review right now: the `p2-link` packet was withdrawn for re-scoping under T160 (per-link admission of recovered connections, no configurable pool bound).
 - Open stops: none from before. Rumors: the P3 and P4 launch questions are ruled (T158, T159); the collision mode's four questions (T23) and the CI `PROPTEST_CASES` number arrive with their lanes' reports; the commit-path packet will carry three judgment calls from its fresh-eyes round (the ceiling on an all-skipped key, the unwind-path wording, one pin of a non-contract).
 
 ## Open items on main
 
+- **Priority one (rumors):** a possible party-disjointness violation. The deleted inter-process disruption property reported two live peers with overlapping parties in a fault-free plan (two parents, one child, three sends) once at 16000 release-profile cases, not reproduced on replay. Either a real linearity window in fork/retire or a torn read by the dissolved harness; an investigation agent is replaying it on the box, constructing the plan in-process on main, and reading the fork and retire paths. Record: `triage/new-findings.md`.
 - The default-features `just check` failure (proxy tests, bookmark_causality) is repaired at `9a7e898e`; `just check` reads green workspace-wide.
 - The rumors CI job that runs the suites under the release profile with a large `PROPTEST_CASES` (T148) finds `before::meter tick_expand_cross_envelope` failing under release at any case count: the meter suite's pins are measured under the dev profile (debug assertions and overflow checks are part of the observer), so that job must not run the meter binary, or the suite must state and check the profile its pins hold under. Rumors' job excludes the meter binary with the reason stated; before's `p2-rows` makes the suite state and check its profile. Seven rows fail there, all on the limb tripwire (debug assertions are metered limb work); details in before's `triage/new-findings.md`.
 
@@ -56,7 +57,7 @@ Maintained by the rumors session.
 | Lane | State | Note |
 |---|---|---|
 | p1-swarm, p1-conformance, p1-memwatch, p1-gate, p2-codec, p1-renderer, p1-harness-tests, p1-harness-crate, p2-walk, p1-causality | merged | see the queue's Merged section for shas and root files |
-| p2-link | packet ready | rebased onto main (`7aa2b9a1`), tip compiled and its suites green on the box; packet `4a7baddb`; both stops ruled (T152, T156) |
+| p2-link | in review | re-scoped under T160: a successor agent replaces the endpoint-wide pool bound with per-link admission (one session complement per link); T44, T45, T156 commits stand; packet rebuilt after |
 | p2-commit-path | in review | rebased tip `3447206f` failed the pre-merge compile (five call sites from main at the old `act` arity); repair and round-1 fresh-eyes items with the lane agent, one gate to follow; p2-peer launches after it merges |
 | p1-proptest-ci | running | no `cases` anywhere (T151), check workspace-wide; CI release-profile job with a measured `PROPTEST_CASES` (the number is a stop for Finch) |
 | p2-vanish-liveness | running | T145 as widened by T154 |
