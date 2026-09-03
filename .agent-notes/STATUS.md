@@ -2,7 +2,7 @@
 
 # Triage landing status
 
-Updated: 2026-09-03 06:24 UTC by the rumors session.
+Updated: 2026-09-03 06:27 UTC by the rumors session.
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
 
@@ -67,7 +67,7 @@ Maintained by the rumors session.
 | p1-collision-mode | in review | round 1 landed at `e951b81e` (T163 width, recipe liveness, fixtures routed through the crate's derivation, marks re-justified at 28 bytes), gate clean; `e951b81e` verified in full; fresh-eyes round 2 found one bug (a marked test bypassing the harness check) and instrument gaps, sent as repairs with T164's sweep recipe; packet after; two design stops (`ci` membership, a wider root fan) |
 | p2-deep-geometry | in review | `648a2441` verified in full; round-3 read (no bugs) sent legibility items as the final round, one of which the doc gate would have refused (a public link to a crate-private method); packet from its sha; stops: the conformance meter's floor under the schedule, and a residual precedence window (a terminal-operation violation losing a wave to a send failure; recommendation: close it) |
 | p1-generators | running | T161: no rejecting strategies, zero reject budgets in the gate; stacked on p1-proptest-ci at `a34859ed` |
-| p1-envelope | running | T10's certificate proptest first, then T43's deletion of the envelope simulation, the crate-doc figures derived, `results/` cleaned; from main `0fad870c`, launched at Finch's word for the overnight run |
+| p1-envelope | in review | landed at `147993bd` (T10's exact-Chernoff differential tests, T43's deletion, T17's derivation tests), gate clean under the mutex; verification and fresh-eyes round 1 running; packet after; stops: the `src/lib.rs` sentence (Finch's paragraph) and a lone message's cost above the doc's line |
 | p2-peer | not started | after p2-commit-path |
 | p3-dashes, p3-imports, p3-lints, p3-modules, p3-prose-pass, p3-seeds, p3-vocabulary | not started | after every P1 and P2 lane merges; seven open questions for Finch |
 | fifteen P4 lanes (`briefs/p4-*.md`) | not started | briefs committed at `46fb2cb6`; after P3; twelve open items for Finch |
