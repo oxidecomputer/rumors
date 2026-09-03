@@ -11,8 +11,6 @@ use fuzzfit_harness::ops::{Mirror, Op};
 use fuzzfit_harness::strategies::{any_family, budget_for, build};
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(64))]
-
     /// Every generated program respects its family's budget: op count,
     /// total ticks, total forks, and fold width never exceed
     /// [`budget_for`]'s caps, whatever the dimensions drawn.
