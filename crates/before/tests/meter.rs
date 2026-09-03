@@ -57,11 +57,14 @@
 //!   dead meter is the bypass the column exists to catch, since a ceiling
 //!   passes vacuously once a counter stops counting.
 //! - A **liveness floor** ([`Floor::LiveBits`]) states a mechanism's
-//!   irreducible work, never a measured basis: a walk that reads its whole
-//!   input by contract (a strict validator, a decoder, the id walks on the
-//!   diverted pair) scans every live input bit at least once. An
-//!   improvement can approach but never cross it, so a trip means the work
-//!   left the metered primitives.
+//!   irreducible work, never a measured basis: a walk that must read every
+//!   live input bit, by contract (a strict validator, a decoder) or by
+//!   construction (`ID_JOIN` and `ID_WITHOUT`, whose output depends on
+//!   every tag; `ID_COVERS` and `ID_DISJOINT`, whose diverted pair is
+//!   decided only at the last unary node), scans each at least once, less
+//!   the tail the floor's definition allows past a decision. An improvement
+//!   can approach but never cross it, so a trip means the work left the
+//!   metered primitives.
 //!
 //! Both genres detect total bypass, not partial rerouting: work routed
 //! around the metered primitives in part still reads green.
