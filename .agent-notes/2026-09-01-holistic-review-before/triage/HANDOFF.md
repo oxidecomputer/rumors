@@ -45,9 +45,11 @@ that matters lives only in a transcript.
 - Three review rounds per lane, then the lane is a finding. At most four
   lanes building at once; the box load watched (hold above ~150).
 - Lanes in scope tonight: `p1-board` (from `main`), `p1-fuzz` and
-  `p1-survivors` (stacked on the gate lane's final tip), plus review
-  rounds, repairs, and packets for those and for the gate lane. Nothing
-  else launches.
+  `p1-survivors` (stacked on the gate lane's final tip), and, at Finch's
+  word in the night (ruling 115), `p8-tagwalk` (stacked on the same tip;
+  the fuzz lane holds its calibration until it has rebased onto the
+  tagwalk tip), plus review rounds, repairs, and packets for those and
+  for the gate lane. Nothing else launches.
 - This journal, `STATUS.md`, `agents.tsv`, and the queue are updated
   before the next action at every event.
 
@@ -96,14 +98,15 @@ Worktrees under `/Users/oxide/src/before-<lane>`, branches `before/<lane>`, all 
 3. **`p1-gate`** (tip `0335b7fd`, 21 commits on the merged rumors gate lane, rulings 16, 18, 24, 25, 28, 50, 106, 107, 112, 114): the agent was mid-task when the session paused, on ruling 114: bisecting the fuzzfit lock's sweep to confirm `bytes` alone moved the guest's fuel, converging every swept crate upward (root `Cargo.lock` brought to the newest version any lock resolved: bytes 1.12.1 and the rest), explaining the mechanism Finch asked for ("what would have changed it?"), then its gate. Its first review round's repairs are landed. Next: read its report; run a second fresh-eyes round; the coordinator's gate at its tip; the packet. Detached scratch worktrees of its own sit under `<scratchpad>/p1-gate/` (`before-p1-gate-presweep`, `before-p1-gate-calib`, `before-p1-gate-precodec`, `bisect`): remove each with `git worktree remove` (or `git worktree prune` after deleting the directories) and delete their `~/src/` and `~/build/` twins on the box. Its last instruction (sent as the session paused) was to finish the upward convergence, the four verification legs, and the one gate, then report; the generators lane's band finding is to be read into its mechanism paragraph. If its report did not land, resume it with that message's content.
 4. **`p2-generators`** (tip `41eb5857`, 11 commits, rulings 111, 113): complete; the four spellings return nothing; the whole before crate runs at 4000 cases under zero reject budgets with no failure; packet built over the widening and listed in the queue (packet head `e84a74a3`, rendered at the coordinator scratchpad's `p2-generators.html`). Its runs surfaced the `ff_party_decode` band finding (in `new-findings.md`, routed to `p1-fuzz`), which reframes the gate lane's fuel stop: the band is too tight for the family, and the bytes downgrade only exposed it at the default count.
 
-## Live state of the overnight run (rewritten at every event; last 2026-09-03 04:23 UTC)
+## Live state of the overnight run (rewritten at every event; last 2026-09-03 04:30 UTC)
 
 | Lane | Branch tip | Agent state | Awaiting | Next |
 |---|---|---|---|---|
 | p1-board | `2fe750ac` (base main, launched 2026-09-03 03:55 UTC) | running (launch message sent) | its report | acceptance re-runs, fresh-eyes round 1, repairs, gate, packet |
 | p1-gate | `fdd47747` (24 commits on main; ten from the coordinator's rebase unsigned, re-signed at merge) | report landed; idle | Finch: the syn 2/3 holdout roster (stop) and the four lowered crates outside the fuzzfit lock (question) | fresh-eyes round 2 on the repair and convergence commits (launched), then the packet; the gate reads red on audit (the stop) and wasm (the committed seed, until p1-fuzz refits) by construction |
-| p1-fuzz | `/Users/oxide/src/before-p1-fuzz` at `fdd47747` (stacked on p1-gate) | running (launched 2026-09-03 04:23 UTC with the brief plus the band refit under ruling 14, the guest-closure provenance pin, the discriminator channel, the build identifier; the widths lane's `fuzz-test` recipe noted) | its report | acceptance, rounds, packet; child of p1-gate |
+| p1-fuzz | `/Users/oxide/src/before-p1-fuzz` at `fdd47747` (stacked on p1-gate) | running, told to stop before its calibration until rebased onto p8-tagwalk's tip (launched 2026-09-03 04:23 UTC with the brief plus the band refit under ruling 14, the guest-closure provenance pin, the discriminator channel, the build identifier; the widths lane's `fuzz-test` recipe noted) | its report | acceptance, rounds, packet; child of p1-gate |
 | p1-survivors | `/Users/oxide/src/before-p1-survivors` at `fdd47747` (stacked on p1-gate) | running (launched 2026-09-03 04:23 UTC) | its report | acceptance, rounds, packet; child of p1-gate |
+| p8-tagwalk | `/Users/oxide/src/before-p8-tagwalk` at `fdd47747` (stacked on p1-gate, beside p1-fuzz) | running (launched 2026-09-03 04:30 UTC, ruling 115: the id reader's usize tag cursor, measured before and after on fuel per bit and the seeded program) | its report | acceptance re-runs, one fresh-eyes round (small), packet; then p1-fuzz rebases onto its tip and calibrates |
 | p2-widths, p2-surface, p2-generators | packets ready | done | Finch's word | merge in the morning |
 
 ## What comes next, in order
