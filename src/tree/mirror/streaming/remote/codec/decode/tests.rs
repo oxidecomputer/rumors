@@ -877,9 +877,10 @@ enum AfterFailure {
 
 /// A transport that delivers the first `remaining` bytes of `bytes`,
 /// A transport that delivers the first `remaining` bytes of `bytes`,
-/// fails with its `kind` (`Other` from `new`, chosen by `failing_with`),
-/// and then does what `after` says.
+/// fails, and then does what `after` says.
 ///
+/// The failing read reports the fixture's `kind`: `Other` from `new`,
+/// chosen by `failing_with`.
 /// One fixture serves both decoders: it reads synchronously for the
 /// oracle and asynchronously for `FrameRead`. It counts the reads made
 /// after its failure, so a test can hold a decoder to reporting the

@@ -101,17 +101,18 @@ src/tree/mirror/streaming/remote/codec/decode.rs	348	remote-codec-8	T24	classify
 src/tree/mirror/streaming/remote/codec/decode/async_io.rs	16	remote-codec-8	T24	classify imported from decode.rs.
 src/tree/mirror/streaming/remote/codec/decode/async_io.rs	212	remote-codec-8	T24	Arrived::short classifies a close as a fresh UnexpectedEof through classify, as the resolution suggested.
 src/tree/mirror/streaming/remote/codec/decode/async_io.rs	463	remote-codec-8	T24	The async over-budget gate calls overbatched and MIN_RECORD_HEADS_LEN.
-src/tree/mirror/streaming/remote/codec/decode/async_io.rs	553	remote-codec-8	T24	The local classify is deleted (annotated at the line after it).
+src/tree/mirror/streaming/remote/codec/decode/async_io.rs	555	remote-codec-8	T24	The local classify is deleted (annotated at the line after it).
 src/tree/mirror/streaming/remote/codec/decode/tests.rs	14	remote-codec-8	T24	MIN_RECORD_HEADS_LEN imported for the corner loop.
 src/tree/mirror/streaming/remote/codec/decode/tests.rs	582	remote-codec-10	T24	unordered_query_is_rejected runs through decode_both.
 src/tree/mirror/streaming/remote/codec/decode/tests.rs	600	remote-codec-10	T24	The listing-head spelling proptest over the four defects the resolution named, through decode_both, asserting the named detail. Negative control: see decode.rs:318.
 src/tree/mirror/streaming/remote/codec/decode/tests.rs	660	remote-codec-10	T24	arb_listing_head_defect builds each entry with a full digest behind the defect, so only the head is wrong; empty_query_listing_is_rejected runs through decode_both.
-src/tree/mirror/streaming/remote/codec/decode/tests.rs	1268	remote-codec-8	T24	The corner loop's bound is the named constant.
+src/tree/mirror/streaming/remote/codec/decode/tests.rs	1321	remote-codec-8	T24	The corner loop's bound is the named constant.
 
 src/tree/mirror/streaming/tests.rs	390	Decision 56	T19	Fresh-eyes repair: session_length measures a pair's poll count under the same polling cancel_after applies, and arb_cancellation draws the cancellation point strictly below it, so every case with a session longer than one poll cancels by construction rather than by luck.
-src/tree/mirror/streaming/remote/codec/decode/tests.rs	885	remote-codec-8	T24	Fresh-eyes repair (round 1, item 2): FailAfter carries the kind its failing read reports; failing_with is the constructor, new keeps Other.
-src/tree/mirror/streaming/remote/codec/decode/tests.rs	912	remote-codec-8	T24	Fresh-eyes repair: the failing read reports the fixture's kind.
-src/tree/mirror/streaming/remote/codec/decode/tests.rs	1010	remote-codec-8	T24	Fresh-eyes repair: names and tests the classification the classify routing changed, an UnexpectedEof-kind transport failure inside a supply body and inside a listing entry is Truncated at the interrupted part in both decoders (it was Read on the async side); the commit message says so.
+src/tree/mirror/streaming/remote/codec/decode/tests.rs	900	remote-codec-8	T24	Fresh-eyes repair (round 1, item 2): FailAfter carries the kind its failing read reports; failing_with is the constructor, new keeps Other. Rebase onto main: layered on the codec repair's AfterFailure mode and read counter, both kept.
+src/tree/mirror/streaming/remote/codec/decode/tests.rs	932	remote-codec-8	T24	Fresh-eyes repair: the failing read reports the fixture's kind.
+src/tree/mirror/streaming/remote/codec/decode/tests.rs	1062	remote-codec-8	T24	Fresh-eyes repair: names and tests the classification the classify routing changed, an UnexpectedEof-kind transport failure inside a supply body and inside a listing entry is Truncated at the interrupted part in both decoders (it was Read on the async side); the commit message says so.
 src/tree/mirror/streaming/remote/codec/decode/async_io.rs	209	remote-codec-8	T24	Fresh-eyes repair, round 2: Arrived::short's doc says what classify does with an UnexpectedEof-kind failure (a truncation), which body_eof_failures_are_truncations_in_both_decoders pins.
-src/tree/mirror/streaming/remote/codec/decode/tests.rs	870	remote-codec-8	T24	Fresh-eyes repair, round 2: FailAfter's doc names the kind it carries and which constructor sets it.
+src/tree/mirror/streaming/remote/codec/decode/tests.rs	880	remote-codec-8	T24	Fresh-eyes repair, round 2: FailAfter's doc names the kind it carries and which constructor sets it; after the rebase onto main it also says the codec repair's `after` mode decides what follows the failure.
 src/tree/mirror/streaming/tests.rs	392	Decision 56	T19	Fresh-eyes repair, round 2: arb_cancellation's doc uses the accurate form (a length-1 session completes; the pin asserts that), and the pin doc keeps the clauses, the drawn range, and the run assertion in separate paragraphs.
+src/tree/mirror/streaming/remote/codec/decode/tests.rs	918	remote-codec-8	T24	Rebase onto main: failing_with initializes the kind beside the codec repair's read counter; both fields kept.
