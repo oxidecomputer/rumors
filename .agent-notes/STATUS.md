@@ -2,7 +2,7 @@
 
 # Triage landing status
 
-Updated: 2026-09-03 03:54 UTC by the rumors session.
+Updated: 2026-09-03 03:55 UTC by the before session (rumors-74), running overnight.
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
 
@@ -10,7 +10,7 @@ Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not st
 
 | Plan | Merged | Packet ready | In review | Running | Not started | Ledger rows pending |
 |---|---|---|---|---|---|---|
-| before | 2 of 38 lanes | 3 | 1 | 0 | 32 | 1185 of 1204 |
+| before | 2 of 38 lanes | 3 | 1 | 1 | 31 | 1185 of 1204 |
 | rumors | 10 lanes | 0 | 3 | 2 | 25 briefed (P1 envelope, P2 peer, seven P3, fifteen P4, publication prep) | 874 of 995 |
 
 ## Waiting on Finch
@@ -39,7 +39,7 @@ Lanes run in the order `triage/briefs/README.md` gives; every lane builds and ga
 | p2-surface | packet ready | `cad0b75d` (44 code commits; one stop inside: the fuelscape.js caption) |
 | p1-fuzz | not started | stacks on p1-gate when it lands |
 | p1-survivors | not started | stacks on p1-gate after the roster retirement |
-| p1-board | not started | after p1-harness (merged); next launch on the harness stack |
+| p1-board | running | overnight, from main `2fe750ac` (rulings 9, 11, 12, 13, 38, 50) |
 | p1-suites | not started | after p1-board |
 | p2-rows | not started | after p1-suites; carries two handoffs from the harness review |
 | p2-cures | not started | after p2-rows and p2-widths |
