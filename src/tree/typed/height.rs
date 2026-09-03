@@ -165,12 +165,16 @@ alias_heights!(
 /// denotes its own number's height.
 const _: () = assert!(H0::HEIGHT == 0 && H32::HEIGHT == 32);
 
+/// Heights exist only at the type level: every height type, the full
+/// `Root` chain included, is zero-sized with alignment 1, so a phantom
+/// height neither costs nor pads the struct that carries it.
+const _: () = assert!(size_of::<Z>() == 0 && align_of::<Z>() == 1);
+const _: () = assert!(size_of::<S<Z>>() == 0 && align_of::<S<Z>>() == 1);
+const _: () = assert!(size_of::<Root>() == 0 && align_of::<Root>() == 1);
+
 mod sealed {
     use super::*;
     pub trait Sealed {}
     impl Sealed for Z {}
     impl<H: Sealed> Sealed for S<H> {}
 }
-
-#[cfg(test)]
-mod tests;

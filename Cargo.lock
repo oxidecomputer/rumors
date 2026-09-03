@@ -1271,7 +1271,6 @@ dependencies = [
  "serde",
  "sha3",
  "smallvec",
- "static_assertions",
  "stats_alloc",
  "thiserror",
  "tinyvec",

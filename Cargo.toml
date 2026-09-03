@@ -121,7 +121,6 @@ meter = ["before/limb-meter", "before/scan-meter"]
 before = { workspace = true, features = ["serde"] }
 bytes = { workspace = true, features = ["serde"] }
 sha3 = { workspace = true }
-static_assertions = { workspace = true }
 itertools = { workspace = true }
 serde = { workspace = true, default-features = true, features = ["derive"] }
 ciborium = { workspace = true }

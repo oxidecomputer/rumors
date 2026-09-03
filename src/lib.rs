@@ -292,8 +292,7 @@
 //! soundness) and by the wire-format snapshots. Found a gap? An issue or a
 //! test is very welcome.
 
-// Static assertions uses #[allow(unsafe_code)], so we allow it only in tests
-#![cfg_attr(not(test), forbid(unsafe_code))]
+#![forbid(unsafe_code)]
 // docs.rs builds pass `--cfg docsrs` (see Cargo.toml's docs.rs metadata), so
 // every feature-gated item self-labels its gate there; inert on stable builds.
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
