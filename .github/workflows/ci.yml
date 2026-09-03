@@ -21,8 +21,8 @@
 #   - `just`, `cargo-nextest` (just test), `cargo-rdme` (readme-check), and
 #     `wasm-pack` (viz),
 #   - node + npm for the viz TypeScript typecheck and bundle,
-#   - python3 for the tools/ linters and bash for the shell recipes (both
-#     preinstalled).
+#   - python3 for the tools/ linters and bash, the justfile's recipe shell
+#     (both preinstalled).
 #
 # Actions are pinned to full commit SHAs with the source ref in a trailing
 # comment (tools/workflowlint enforces the shape; .github/dependabot.yml

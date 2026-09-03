@@ -281,9 +281,9 @@ grows organically thereafter.
 - **Justfile wiring, mirroring the before recipes:** `fuzz-build`
   gains (or is joined by a sibling for) the rumors workspace built
   with the nightly toolchain; the `fuzz` smoke recipe gains one line
-  running `fuzz_session` for `fuzz_smoke_secs`
-  (20s default) with `corpus/fuzz_session seeds/fuzz_session` named in
-  that order. `ci` keeps building fuzz targets without running them;
+  running `fuzz_session` for `fuzz_smoke_secs` (20s default) with
+  `corpus/fuzz_session seeds/fuzz_session` named in that order. `ci`
+  keeps building fuzz targets without running them;
   `all` inherits the smoke through the existing `(fuzz
   fuzz_smoke_secs)` dependency. The gate is untouched.
 - **Landing obligations:** committed seed corpus plus its derivation
