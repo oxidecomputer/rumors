@@ -303,6 +303,17 @@ docs-docsrs:
 # invocation builds test binaries in the root target/, which is why this leg
 # rides the workspace stream, after test-all has warmed those artifacts.
 
+# tests/future_size.rs pins the public futures' sizes. The failure mode
+# that suite exists to catch is invisible to an ordinary run: a `cfg` that
+# compiles the binary empty makes it read as a pass. This leg re-runs that
+# one binary from the same build set as test-all (same features, so no
+# rebuild) with nextest's `--no-tests=fail`, so an empty binary is a gate
+# failure, never a silent pass.
+
+# Fail unless the future-size pins were collected and pass (liveness for tests/future_size.rs).
+future-size:
+    {{ justfile_directory() }}/tools/memwatch cargo nextest run --workspace --all-features -E 'binary(future_size)' --no-tests=fail
+
 # Resolve every roster, bespoke, and tripwire citation against the collected test inventory.
 citecheck:
     ./tools/citecheck --self-test
@@ -478,7 +489,7 @@ gate-streams:
     # tests keep first call on the cores, and the shorter streams fill
     # what the tests leave idle instead of competing for it.
     began=$SECONDS
-    start_stream workspace     0 clippy clippy-default docs test-all citecheck
+    start_stream workspace     0 clippy clippy-default docs test-all future-size citecheck
     start_stream doctest      10 doctest
     start_stream board        10 amp-board-acceptance worst-cases-pin
     start_stream wasm         10 fuzzfit fuelscape-test wasm32-pins
@@ -1022,7 +1033,7 @@ worst-cases-pin:
 # tripwire, so the judge's red path rides every sweep.
 
 # Build everything (no fuzz run): the no-rot sweep as CI runs it.
-ci: fmt-check doclint testdoc workflowlint manifestlint digestshare readme-check fuelscape-claims mutants-list clippy clippy-default features wasm-check docs docs-internal docs-docsrs test-all citecheck doctest bench-build fuzz-build fuelscape-verify viz
+ci: fmt-check doclint testdoc workflowlint manifestlint digestshare readme-check fuelscape-claims mutants-list clippy clippy-default features wasm-check docs docs-internal docs-docsrs test-all future-size citecheck doctest bench-build fuzz-build fuelscape-verify viz
 
 # Everything: the no-rot sweep, the coverage legs, the fuzz smoke, the formal tier, and the bench judge.
 all: ci coverage-kernel coverage-kernel-branch (fuzz fuzz_smoke_secs) lean eventdag muxprobe bench-judge bench-judge-tripwire
