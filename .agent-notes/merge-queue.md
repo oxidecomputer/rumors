@@ -59,7 +59,14 @@ coordinator sessions agreed:
    time, announced here first. A leg that fails only by nextest's 180 s
    per-test limit at a one-minute load under about 150 is a finding
    about the test, reported as such; above that, the stream is re-run
-   once the load is down. Before builds nothing on the Mac; rumors
+   once the load is down. Gates serialize across both sessions through
+   one mutex on the box, because a load or `pgrep` check before a
+   launch cannot close the race between two lanes launching in the
+   same second: in one remote command, `mkdir ~/gate.lock` in a retry
+   loop (a lock older than 45 minutes is a dead gate's and is removed),
+   then `just gate` (or any whole-suite run), then `rmdir` on exit;
+   targeted runs and builds stay outside the lock, so at most one gate
+   runs on the box at a time. Before builds nothing on the Mac; rumors
    benches run on the Mac against their committed baselines.
 7. The two coordinator sessions message each other (Finch's
    authorization; he sees every exchange) for three events: a merge to
@@ -160,6 +167,11 @@ lanes have closed.
   seed until `p1-fuzz` refits. Merges after the three P2 packets; its
   children `p1-fuzz`, `p8-tagwalk`, `p1-survivors` follow. Packet:
   `.agent-notes/2026-09-01-holistic-review-before/triage/reviews/p1-gate.md`.
+
+- before `p8-tagwalk`: branch `before/p8-tagwalk`, packet head `3316c4ed`, last
+  code commit `ddd5684d`, base `before/p1-gate` (`90f7dd9c`): a child, merges
+  after the gate lane. No root files. Packet:
+  `.agent-notes/2026-09-01-holistic-review-before/triage/reviews/p8-tagwalk.md`.
 
 ## Announcements
 

@@ -2,7 +2,7 @@
 
 # Triage landing status
 
-Updated: 2026-09-03 05:28 UTC by the rumors session.
+Updated: 2026-09-03 05:32 UTC by the before session (rumors-74), running overnight.
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
 
@@ -10,7 +10,7 @@ Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not st
 
 | Plan | Merged | Packet ready | In review | Running | Not started | Ledger rows pending |
 |---|---|---|---|---|---|---|
-| before | 2 of 39 lanes | 4 | 0 | 4 | 29 | 1185 of 1204 |
+| before | 2 of 39 lanes | 5 | 0 | 3 | 29 | 1185 of 1204 |
 | rumors | 10 lanes | 0 | 3 | 2 | 25 briefed (P1 envelope, P2 peer, seven P3, fifteen P4, publication prep) | 874 of 995 |
 
 ## Waiting on Finch
@@ -49,7 +49,7 @@ Lanes run in the order `triage/briefs/README.md` gives; every lane builds and ga
 | p4-ghosts, p4-structure, p4-rosters | not started | after the P1 and P2 lanes they follow |
 | p5-scanners, p5-judge, p5-buffers | not started | after p1-gate, p1-fuzz, p2-surface |
 | p7-api | not started | after p3 and p4 |
-| p8-tagwalk | running | overnight at Finch's word (ruling 115): the id reader's tag cursor, before the band refit |
+| p8-tagwalk | packet ready | `3316c4ed` (child of p1-gate; fork kernels about 18% less fuel per bit, no reading moved) |
 | p8-performance | not started | after p7 and the P2 lanes |
 | p6 (16 module lanes) | not started | last; p6-harness first among them |
 
