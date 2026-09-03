@@ -61,6 +61,10 @@ that matters lives only in a transcript.
   `timeout`, and all of them join the re-signing rewrite of `main` the
   morning brief lists. Lane commits are re-signed at their merge rebase.
 
+## Pause point (Finch, 2026-09-04 morning)
+
+Finch's words: "Can you pause after this lane of work is complete, so I can review the outstanding packets and work with you interactively to establish our next steps and decisions?" So: after the board lane's last set lands, the coordinator reads the diff, runs acceptance at the final tip, builds and queues the board packet, then pauses. No new lane, review round, or repair launches after that; the next steps and decisions are set interactively with Finch over the packets in the queue (`p2-widths`, `p2-surface`, `p2-generators`, `p1-gate`, `p8-tagwalk`, `p1-survivors`, `p1-fuzz`, `p1-board`).
+
 ## Rumors' root-file lines tonight (from its session, for rebases)
 
 - `p1-proptest-ci` (on its branch): justfile `proptest_ci_cases`,
@@ -115,7 +119,7 @@ Worktrees under `/Users/oxide/src/before-<lane>`, branches `before/<lane>`, all 
 3. **`p1-gate`** (tip `0335b7fd`, 21 commits on the merged rumors gate lane, rulings 16, 18, 24, 25, 28, 50, 106, 107, 112, 114): the agent was mid-task when the session paused, on ruling 114: bisecting the fuzzfit lock's sweep to confirm `bytes` alone moved the guest's fuel, converging every swept crate upward (root `Cargo.lock` brought to the newest version any lock resolved: bytes 1.12.1 and the rest), explaining the mechanism Finch asked for ("what would have changed it?"), then its gate. Its first review round's repairs are landed. Next: read its report; run a second fresh-eyes round; the coordinator's gate at its tip; the packet. Detached scratch worktrees of its own sit under `<scratchpad>/p1-gate/` (`before-p1-gate-presweep`, `before-p1-gate-calib`, `before-p1-gate-precodec`, `bisect`): remove each with `git worktree remove` (or `git worktree prune` after deleting the directories) and delete their `~/src/` and `~/build/` twins on the box. Its last instruction (sent as the session paused) was to finish the upward convergence, the four verification legs, and the one gate, then report; the generators lane's band finding is to be read into its mechanism paragraph. If its report did not land, resume it with that message's content.
 4. **`p2-generators`** (tip `41eb5857`, 11 commits, rulings 111, 113): complete; the four spellings return nothing; the whole before crate runs at 4000 cases under zero reject budgets with no failure; packet built over the widening and listed in the queue (packet head `e84a74a3`, rendered at the coordinator scratchpad's `p2-generators.html`). Its runs surfaced the `ff_party_decode` band finding (in `new-findings.md`, routed to `p1-fuzz`), which reframes the gate lane's fuel stop: the band is too tight for the family, and the bytes downgrade only exposed it at the default count.
 
-## Live state of the overnight run (rewritten at every event; last 2026-09-04 01:37 UTC)
+## Live state of the overnight run (rewritten at every event; last 2026-09-04 01:45 UTC)
 
 | Lane | Branch tip | Agent state | Awaiting | Next |
 |---|---|---|---|---|
