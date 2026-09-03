@@ -794,3 +794,8 @@ Home: lane `p1-proptest-ci`, brief amended; `before/p1-proptest-cases` for the o
 Disposes: the p2-link lane's stop 1 (`link-28`, amending T31's demonstration clause)
 Decision: The demonstration completes later streams rather than a later gossip session: a session's concurrent fresh dials at a small pool bound displace each other mid-header for a reason unrelated to the fix, so a session-level shape is flaky by design, and the stream-level shape reaches the same router state deterministically and shows the goal (an admitted recovered connection is never closed by count), with the TCP variant reproducing the original hang before the fix. The mechanism, the defect, and the fix are the router's; TCP is the demonstration transport only, and the packet says so.
 Home: lane `p2-link`.
+
+## T153 (2026-09-02): Two pooling-seam findings join the P5 link lane's roster
+Disposes: two coordinator findings from reading the p2-link branch (recorded in `triage/new-findings.md`), now ledger rows `link-pool-1` and `link-pool-2`
+Decision: The P5 link lane lands a small pooling `Dial` in the routed link's conformance suite (reuse only after the peer's router writes its `READY` byte, fresh dial otherwise, with a control that reuses before the byte and must fail), so the one rule at the seam between the router's admission and a transport's pool is tested in both directions; and states at `Dial::recycle`'s doc that a transport pool need never exceed the router's `recovered_connections` bound, which caps what it can be offered.
+Home: the P5 link lane; its brief carries both rows.
