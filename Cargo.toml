@@ -166,6 +166,10 @@ tokio = { workspace = true, features = [
     "test-util",
 ] }
 rand = { workspace = true, features = ["small_rng"] }
+# The bookmark causality simulation seeds its network ids from ChaCha8: its
+# output is fixed across platforms and rand versions, which SmallRng's is not,
+# and the suite pins paths derived from those ids.
+rand_chacha = { workspace = true }
 pollster = { workspace = true }
 # Counting global allocator for the decoder allocation meter
 # (`tests/decode_alloc.rs`): prices decodes in bytes requested from the

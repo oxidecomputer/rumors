@@ -24,8 +24,13 @@
 //! is stated and checked per network; within a network every party is a fork of
 //! one seed, so all versions are comparable, and a later version can be `<=` an
 //! earlier one only by rolling backwards (concurrent versions compare
-//! incomparable, never `<=`). The id-region need not enter the comparison at all
-//! — it would only rule out collisions the version order already forbids.
+//! incomparable, never `<=`). The invariant is observable non-recycling: a
+//! recycle re-issues coordinates without knowing whether durable content
+//! occupies them, so any bookkeeping able to recycle at all does so
+//! observably on the plans that place durable content there (the
+//! reconstructed test and the known-bad artifact construct such plans, and
+//! the survival checks catch the loss), and the emitter's id-region
+//! therefore enters no comparison.
 //!
 //! A recycle is also checked by its consequence. A rebooted peer that
 //! re-owns a region below a frontier some replica durably holds emits
@@ -34,14 +39,16 @@
 //! emission compares `Greater` or incomparable to the message it destroys
 //! whenever the reclaimer's frontier carries any other region's progress,
 //! so the version order alone cannot see it. The [`World`] keeps a
-//! per-network ledger of every redaction and checks survival at every
-//! session: after a session both sides complete, each holds every message
-//! either held before it and never redacted in their network, and after the
-//! heal every message the winning network held at heal start and never
-//! redacted is live at every peer. A correct bookmark's frontier dominates
-//! a durable emission only by having merged it or a redacter's frontier,
-//! and a failed session leaves content unchanged or commits it whole, so
-//! the ledger's entries are the only legitimate losses.
+//! per-network ledger of every redaction the network has learned of and
+//! checks survival at every session: after a session both sides complete,
+//! each holds every message either held before it and never redacted in
+//! their network, and after the heal every message the winning network held
+//! at heal start and never redacted is live at every peer. The checks are
+//! sound because a correct bookmark's frontier dominates a durable emission
+//! only by having merged it or a redacter's frontier, so the ledger's
+//! entries are the only legitimate losses; they are complete because a
+//! failed session leaves content unchanged or commits it whole, so a
+//! destruction cannot hide inside an unchecked failed session.
 //!
 //! Durability is the load-bearing qualifier. A plain `send` neither persists
 //! (only sessions do) nor propagates, so a local emission lost to a crash before
@@ -72,9 +79,10 @@
 //! and every universe's [`Network`] identifier, the tie-break between two
 //! fresh peers, comes from a per-world RNG seeded with [`NETWORK_SEED`].
 //! The schedule is deterministic up to tokio's `select!` branch order
-//! inside the session internals: that RNG is per-thread state advanced by
-//! every `select!`, so a wire cut at a fixed byte offset can land on a
-//! different frame across runs and across the cases of one run. Shrinking
+//! inside the session internals: the RNG behind that order is per-thread
+//! state advanced by every `select!`, so a wire cut at a fixed byte offset
+//! can land on a different frame across runs and across the cases of one
+//! run. Shrinking
 //! and replay are therefore exact for clean plans, and for faulted plans
 //! exact up to which frame a cut lands on. Each message's emitted version
 //! is captured race-free.
@@ -88,9 +96,11 @@ use std::sync::{Arc, Mutex};
 use before::Party;
 use proptest::prelude::*;
 use rand::SeedableRng;
-use rand::rngs::SmallRng;
+use rand_chacha::ChaCha8Rng;
+use rumors::error::{RemoteError, ReplyDecodeError};
 use rumors::{
-    BookmarkError, BookmarkIo, Error, MERKLE_HASH_LEN, Network, Peer, Retire, Rumors, Version,
+    BookmarkError, BookmarkIo, Error, MERKLE_HASH_LEN, MirrorError, Network, Peer, Retire, Rumors,
+    Version,
 };
 
 use crate::common::fault::{self, FaultPlan};
@@ -109,7 +119,9 @@ type Msg = u64;
 ///
 /// Each universe the simulation creates draws its [`Network`] identifier
 /// from this stream, so the `(min_ticks, network)` tie-break between fresh
-/// peers is the same on every run and every replay of a plan.
+/// peers is the same on every run and every replay of a plan. The stream is
+/// ChaCha8, whose output for a seed is fixed across platforms and `rand`
+/// versions; the reconstructed tests pin paths derived from it.
 const NETWORK_SEED: u64 = 0;
 
 /// Capacity for every in-memory link stream; the mirror protocol alternates
@@ -131,8 +143,8 @@ const MAX_HEAL_ROUNDS_PER_PEER: usize = 16;
 /// seed; concurrent pairs compare [`None`]), so a later emission can be `<=`
 /// an earlier one only by rolling backwards over a version the network
 /// already durably held — exactly a recycle. The emitting party's identity
-/// is deliberately *not* recorded: as the module docs argue, it would only
-/// rule out collisions the version order already forbids.
+/// is deliberately *not* recorded: the module docs state the invariant as
+/// observable non-recycling, which the survival checks judge.
 struct Emission {
     network: Network,
     seq: u64,
@@ -268,7 +280,11 @@ fn store_parties(store: &DurableStore, network: Network) -> Vec<Party> {
 /// a network mismatch can produce: a transport failure (`Io` or `Epilogue`
 /// carrying an I/O error other than `InvalidData`, or a `Mirror` error
 /// whose source chain bottoms out in one), a truncated preamble or
-/// hand-off, an injected bookmark fault, or the mismatch itself. Every
+/// hand-off, an injected bookmark fault, or the mismatch itself. One
+/// `Mirror` error is excluded before its chain is consulted: a supplied
+/// record that does not decode (`ReplyDecodeError::Record`) wraps the
+/// short read as an `UnexpectedEof` I/O error, though the run's bytes were
+/// received whole, so it is a decode failure whatever its chain says. Every
 /// other error is a bug: a fully received frame that does not decode, a
 /// bookmark file that does not parse when the crate wrote every byte the
 /// store holds, an overlapping retiring party, a poisoned link (every
@@ -289,6 +305,9 @@ where
         | Error::HandOffTruncated
         | Error::NetworkMismatch { .. }
         | Error::Bookmark(BookmarkIo::Io(_)) => true,
+        Error::Mirror(MirrorError::Server(RemoteError::Decode(ReplyDecodeError::Record(_)))) => {
+            false
+        }
         Error::Mirror(mirror) => io_source(mirror).is_some_and(transport),
         _ => false,
     };
@@ -342,6 +361,13 @@ struct Node {
     /// neither persisted nor seen by another peer, so still erasable by a crash.
     /// Promoted to the durable [`EmissionLog`] once persisted or propagated.
     pending: Vec<Emission>,
+    /// Redactions made by this incarnation that no other peer has seen.
+    ///
+    /// A crash discards them with the incarnation, and the message they
+    /// deleted stays owed to the fleet. Promoted to the network's ledger
+    /// ([`World::redacted`]) once another live peer's frontier dominates the
+    /// redacter's.
+    pending_redactions: Vec<Redacted>,
     label: usize,
 }
 
@@ -377,7 +403,7 @@ struct World {
     next_seq: u64,
     /// The source of every universe's [`Network`] identifier, seeded with
     /// [`NETWORK_SEED`] so the tie-break between fresh peers replays.
-    rng: SmallRng,
+    rng: ChaCha8Rng,
     /// Every network this world has seeded, to assert they are pairwise
     /// distinct: two universes sharing an identifier would gossip as one
     /// network while holding incomparable histories.
@@ -385,8 +411,14 @@ struct World {
     /// The path this world took through every place a network identifier
     /// decides the outcome, which a reconstructed counterexample pins.
     path: Vec<PathEvent>,
-    /// Every redaction, by the network it was performed in: the messages the
-    /// heal may legitimately end without.
+    /// Every redaction the network has learned of, by network: the messages
+    /// a session or the heal may legitimately end without.
+    ///
+    /// A redaction is modeled like an emission: it waits in its redacter's
+    /// [`pending_redactions`](Node::pending_redactions) until some other live
+    /// peer's frontier dominates the redacter's (the deletion propagated),
+    /// and a crash before then discards it, so a message whose only
+    /// redaction died with its redacter stays owed to the fleet.
     redacted: BTreeMap<Network, Vec<Redacted>>,
     /// The winning network's live content when the heal began, and the
     /// network itself: what [`assert_healed`](World::assert_healed) holds the
@@ -394,12 +426,17 @@ struct World {
     heal_start: Option<(Network, BTreeSet<u64>)>,
 }
 
-/// One redaction as the harness performed it: the message's id and the
-/// version the application handed to `redact`.
+/// One redaction as the harness performed it.
+///
+/// The network, the message's id, the version the application handed to
+/// `redact`, and the redacter's frontier afterwards, which another peer must
+/// dominate to have learned of the deletion.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Redacted {
+    network: Network,
     seq: u64,
     version: Version,
+    frontier: Version,
 }
 
 /// One step of the path a plan takes through the places where a universe's
@@ -426,7 +463,7 @@ impl World {
             nodes: Vec::new(),
             emissions: EmissionLog::default(),
             next_seq: 0,
-            rng: SmallRng::seed_from_u64(NETWORK_SEED),
+            rng: ChaCha8Rng::seed_from_u64(NETWORK_SEED),
             networks: BTreeSet::new(),
             path: Vec::new(),
             redacted: BTreeMap::new(),
@@ -472,6 +509,7 @@ impl World {
                 faults,
                 network,
                 pending: Vec::new(),
+                pending_redactions: Vec::new(),
                 label,
             });
         }
@@ -508,6 +546,7 @@ impl World {
             faults,
             network,
             pending: Vec::new(),
+            pending_redactions: Vec::new(),
             label: 0,
         });
         // The rest start dormant in node 0's network; the bootstraps below make
@@ -518,6 +557,7 @@ impl World {
             faults: reliable(),
             network,
             pending: Vec::new(),
+            pending_redactions: Vec::new(),
             label,
         }));
 
@@ -589,13 +629,16 @@ impl World {
     /// The recycle check by consequence at session granularity: a reclaimed
     /// region's re-issued versions make the causal sieve delete the message
     /// they collide with at whichever session first meets them, which may be
-    /// long before the heal. A correct bookmark's frontier dominates a
-    /// durable emission only by having merged it or a redacter's frontier,
-    /// so the ledger's entries are the only legitimate losses; and the
-    /// session contract makes the check sound across failures: on `Err` the
-    /// replica's content is unchanged, and the exceptions (`Epilogue`, and a
-    /// `Bookmark` error after absorbing a retiree) commit the session whole,
-    /// so an unchecked failed session never applies content in part.
+    /// long before the heal. Sound because a correct bookmark's frontier
+    /// dominates a durable emission only by having merged it or a redacter's
+    /// frontier, so the ledger's entries are the only legitimate losses.
+    /// Complete because the session contract commits whole or not at all:
+    /// on `Err` the replica's content is unchanged, and the exceptions
+    /// (`Epilogue`, and a `Bookmark` error after absorbing a retiree) commit
+    /// the session whole, so a destruction cannot hide inside an unchecked
+    /// failed session; `expected` is recomputed from live content before
+    /// every session, so a partial commit could never have produced a false
+    /// positive either way.
     fn assert_session_preserved(
         &self,
         step: &str,
@@ -665,7 +708,7 @@ impl World {
     }
 
     /// Redact one of `who`'s live messages, indexed mod the live count, and
-    /// record it in the network's ledger.
+    /// hold it pending until another peer learns of it.
     ///
     /// Adversarial pressure on the version order (a clock advance with no
     /// tracked emission), and the one legitimate way a message leaves the
@@ -686,10 +729,13 @@ impl World {
         }
         let (version, seq) = leaves[which % leaves.len()].clone();
         rumors.redact(&version);
-        self.redacted
-            .entry(network)
-            .or_default()
-            .push(Redacted { seq, version });
+        let frontier = rumors.snapshot().latest().clone();
+        self.nodes[who].pending_redactions.push(Redacted {
+            network,
+            seq,
+            version,
+            frontier,
+        });
     }
 
     /// Promote every pending emission of `who` that has become **known to the
@@ -707,6 +753,10 @@ impl World {
     /// Either way the network can no longer forget the version, so reusing it
     /// would be a recycle. Only an emission that is *neither* persisted *nor*
     /// propagated remains pending, erasable by a crash with no recycle.
+    ///
+    /// A pending redaction is promoted to the network's ledger by the second
+    /// route only: a persisted frontier carries no deletion to anyone, so
+    /// only propagation makes a redaction one the fleet has learned of.
     fn secure(&mut self, who: usize) {
         let record = decompose_store(&self.nodes[who].store);
         // Every other live peer's `(network, frontier)`: a peer knows `who`'s
@@ -734,6 +784,23 @@ impl World {
             }
         }
         self.nodes[who].pending = still_pending;
+
+        let pending_redactions = std::mem::take(&mut self.nodes[who].pending_redactions);
+        let mut still_pending = Vec::new();
+        for redaction in pending_redactions {
+            let propagated = observers.iter().any(|(network, frontier)| {
+                *network == redaction.network && redaction.frontier <= *frontier
+            });
+            if propagated {
+                self.redacted
+                    .entry(redaction.network)
+                    .or_default()
+                    .push(redaction);
+            } else {
+                still_pending.push(redaction);
+            }
+        }
+        self.nodes[who].pending_redactions = still_pending;
     }
 
     /// Secure what is now known to the network, then discard the rest.
@@ -746,6 +813,7 @@ impl World {
     fn secure_and_lose(&mut self, who: usize) {
         self.secure(who);
         self.nodes[who].pending.clear();
+        self.nodes[who].pending_redactions.clear();
     }
 
     /// Drop `who`'s in-memory state, keeping its durable store and schedule: a
@@ -964,13 +1032,13 @@ impl World {
             Some(peer) => {
                 self.nodes[who].network = peer.network();
                 self.nodes[who].state = NodeState::Live(Box::new(peer.into_rumors()));
-                // A bootstrap copies the server's content whole.
-                let expected = &served - &self.ledger(network);
-                self.assert_session_preserved(&step, network, &expected, &[who]);
                 // The eager bootstrap persist secures `who`'s reclaimed identity;
                 // the server's donating persist secures its emissions too.
                 self.secure(who);
                 self.secure(server);
+                // A bootstrap copies the server's content whole.
+                let expected = &served - &self.ledger(network);
+                self.assert_session_preserved(&step, network, &expected, &[who]);
                 true
             }
             None => false,
@@ -1086,10 +1154,7 @@ impl World {
              `Retired`, not {outcome:?}",
         );
 
-        if matches!(outcome, Retire::Retired) && absorbed.is_ok() {
-            let expected = &held_before - &self.ledger(network);
-            self.assert_session_preserved(&step, network, &expected, &[absorber]);
-        }
+        let retired = matches!(outcome, Retire::Retired) && absorbed.is_ok();
         match outcome {
             // Donated: the retiree's memory is consumed, so secure what it
             // persisted and lose the rest.
@@ -1106,6 +1171,21 @@ impl World {
             }
         }
         self.secure(absorber);
+        if retired {
+            // The retiree reconciled with the absorber before donating and
+            // then vanished, so every redaction the absorber held pending
+            // reached a peer that is no longer live to witness it: promote
+            // them all, since `secure`'s observer rule cannot see them.
+            let learned = std::mem::take(&mut self.nodes[absorber].pending_redactions);
+            for redaction in learned {
+                self.redacted
+                    .entry(redaction.network)
+                    .or_default()
+                    .push(redaction);
+            }
+            let expected = &held_before - &self.ledger(network);
+            self.assert_session_preserved(&step, network, &expected, &[absorber]);
+        }
     }
 
     /// Drive the fleet to a single network and a content fixed point over clean
@@ -1195,6 +1275,8 @@ impl World {
         });
         out_a.expect("clean heal gossip A");
         out_b.expect("clean heal gossip B");
+        self.secure(a);
+        self.secure(b);
         let expected = &held_before - &self.ledger(network);
         self.assert_session_preserved(
             &format!("heal gossip {a}<->{b}"),
@@ -1202,8 +1284,6 @@ impl World {
             &expected,
             &[a, b],
         );
-        self.secure(a);
-        self.secure(b);
     }
 
     /// Each live peer's `(hash, latest)` fingerprint, for fixed-point detection.
@@ -1547,7 +1627,7 @@ fn retire_into_rebooted_absorber_absorbs_cleanly() {
     block_on(async move {
         // A seeds, B bootstraps from A. Then each reboots once, reclaiming its
         // region from its bookmark (drop = crash; re-bootstrap = revive).
-        let a = Peer::<Msg>::seed_rng(&mut SmallRng::seed_from_u64(NETWORK_SEED))
+        let a = Peer::<Msg>::seed_rng(&mut ChaCha8Rng::seed_from_u64(NETWORK_SEED))
             .sync_window_floor()
             .bookmark(bm_a())
             .await
@@ -1667,7 +1747,7 @@ fn run_reliable_plan(plan: Plan) -> World {
 #[should_panic(expected = "recycled version identifier")]
 fn negative_control_recycled_durable_emission_panics() {
     let log = EmissionLog::default();
-    let network = Peer::<Msg>::seed_rng(&mut SmallRng::seed_from_u64(NETWORK_SEED))
+    let network = Peer::<Msg>::seed_rng(&mut ChaCha8Rng::seed_from_u64(NETWORK_SEED))
         .sync_window_floor()
         .network();
     let mut version = Version::new();
@@ -1718,6 +1798,16 @@ fn negative_control_classifier_rejects_codec_bugs() {
         Error::LinkPoisoned,
         Error::IntentInvalid { byte: 0xff },
         Error::BootstrapRetireConflict,
+        Error::Mirror(MirrorError::Client(
+            rumors::error::MaterializedError::Violation(
+                rumors::error::MaterializedViolation::UnaskedReply,
+            ),
+        )),
+        Error::Mirror(MirrorError::Server(RemoteError::Decode(
+            ReplyDecodeError::Record(rumors::error::DecodeLeafError::Version(
+                std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "a short record"),
+            )),
+        ))),
     ] {
         assert!(fires(bug), "an unconditional crate bug must fail the step");
     }
@@ -1733,6 +1823,9 @@ fn negative_control_classifier_rejects_codec_bugs() {
         },
         Error::HandOffTruncated,
         Error::Bookmark(BookmarkIo::Io(FlakyError::injected_write())),
+        Error::Mirror(MirrorError::Server(RemoteError::HandshakeRead(
+            std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "a severed wire"),
+        ))),
     ] {
         assert!(
             !fires(disruption),
@@ -1798,10 +1891,13 @@ fn reconstructed_reclaim_after_crash_keeps_durable_content() {
 /// and put back after A's crash, so A' reboots from a record that predates
 /// `m` (the lost-write hazard the bookmark's own docs describe). C's
 /// frontier dominates that stale record, so A''s first update reclaims A's
-/// old region, its sends re-issue coordinates below `m`'s, and the first
-/// session that meets them sieves `m` out of a replica that held it.
+/// old region, its sends re-issue coordinates below `m`'s, and the next
+/// session with B sieves `m` out of it. That session is the one the
+/// per-session check names, so the pin is on that check alone: without it,
+/// `m` is live nowhere when the heal begins and the heal-window check would
+/// pass.
 #[test]
-#[should_panic(expected = "were live in network")]
+#[should_panic(expected = "before gossip 2<->1")]
 fn known_bad_stale_record_destroys_durable_content() {
     let (a, b, c) = (2, 1, 0);
     let mut world = World::single_network(3);
@@ -1821,6 +1917,7 @@ fn known_bad_stale_record_destroys_durable_content() {
     for _ in 0..4 {
         world.send(a);
     }
+    world.gossip(a, b, FaultPlan::NONE, FaultPlan::NONE);
     world.heal();
     world.assert_healed();
 }
@@ -1935,10 +2032,10 @@ fn reconstructed_crash_pair_then_retire() {
 /// Versions must survive the faulted persistence without recycling. The
 /// path is pinned: the cut session still exchanges greetings, so the
 /// mismatch between the two fresh peers resolves by network identifier
-/// with node 2 the winner; node 1's re-bootstrap into it fails on the
-/// scheduled bookmark faults, so the retire finds node 1 dormant and
-/// re-seeds it; the heal then collapses both into node 0, whose send
-/// outranks every fresh universe.
+/// with node 1 the winner and node 2 re-bootstrapping into it; the retire
+/// of 1 into 2 fails on the scheduled bookmark faults and hands node 1 back
+/// intact, so nothing is re-seeded; the heal then collapses both into node
+/// 0, whose send outranks every fresh universe.
 #[test]
 fn reconstructed_cut_gossip_then_retire_under_bookmark_faults() {
     let world = run_plan(Plan {
@@ -1976,15 +2073,14 @@ fn reconstructed_cut_gossip_then_retire_under_bookmark_faults() {
         world.path,
         vec![
             PathEvent::Mismatch {
-                winner: 2,
-                loser: 1
+                winner: 1,
+                loser: 2
             },
             PathEvent::Bootstrap {
-                newcomer: 1,
-                server: 2,
-                booted: false,
+                newcomer: 2,
+                server: 1,
+                booted: true,
             },
-            PathEvent::Reseeded(1),
             PathEvent::Bootstrap {
                 newcomer: 1,
                 server: 0,
