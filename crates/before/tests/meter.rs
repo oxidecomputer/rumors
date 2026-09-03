@@ -29,14 +29,17 @@
 //!   nothing, and does no arithmetic.
 //!
 //! No column meters stack depth: library traversals are iterative by
-//! construction. `clock::tests::deep_tree_stack_safety` proves it at depth
-//! 100k for tick, fork, join, meet, the comparisons, encode, decode,
-//! send/recv, sync, `is_disjoint`, and Debug; the rows here on 125k-level
-//! spines (decode, cmp, join, rank, tick, the min_ticks kernel, validate,
-//! render, parse) and 250k-level id spines (join, covers, disjoint,
-//! without, fork) overflow the stack on a traversal regressed to recursion
-//! instead of moving a number. Project, distance, lag, and the masked
-//! comparisons have no deep-input witness in either place.
+//! construction, and three tests in `clock::tests` prove it at depth 100k.
+//! `deep_tree_stack_safety` drives tick, fork, join, meet, the
+//! comparisons, encode, decode, send/recv, sync, `is_disjoint`, and
+//! Debug; `deep_tree_query_and_causal_stack_safety` drives rank,
+//! distance, lag, `Ranked` ordering, the span hulls, algebra, and
+//! quotient view (the masked co-walks), query membership and coverage,
+//! and projection through a deep id; and
+//! `deep_tree_text_and_min_ticks_stack_safety` drives render, parse, and
+//! `min_ticks`. The rows here on 125k-level spines and 250k-level id
+//! spines overflow the stack on a traversal regressed to recursion
+//! instead of moving a number.
 //!
 //! The counters are process-global, so per-scenario readings are meaningful
 //! only under nextest's process-per-test isolation, this workspace's
