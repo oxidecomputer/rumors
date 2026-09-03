@@ -2,7 +2,7 @@
 
 # Triage landing status
 
-Updated: 2026-09-03 04:35 UTC by the rumors session.
+Updated: 2026-09-03 04:38 UTC by the rumors session.
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
 
@@ -63,7 +63,7 @@ Maintained by the rumors session.
 | p2-link | in review | round 1 landed at `db616f70` (slot returned at one site; two tests; unbiased selects explained), gate clean; final verification and read running; packet after; two stops: T164 item 1 needs `dial` to take the token too (the lane's argument on the branch), and the bound's wording |
 | p2-commit-path | in review | round-2 repairs landed at `71797970` (warmed pins 78/601/325, `#[must_use]` sink, meter lock, nested-branch probe, two-actions-per-key proptest), gate clean; `71797970` re-verified; round-3 read found no bugs, its legibility and prose items sent as the last repair round; packet builds from that sha; one stop (the all-skipped ceiling) |
 | p1-proptest-ci | in review | landed at `a34859ed` (sweep, caselint, release recipe and nextest profile, meter excluded, T157 rewrite); gate clean; the CI number is a stop (recommendation 4000 after p1-generators); verification and packet after p1-generators lands, since the number is set on that tree |
-| p2-vanish-liveness | in review | round 1 landed at `e3c5f986` (the watch keeps every control byte and reads on; deadline aborts; the floor measured against the donor too), gate clean; `e3c5f986` verified in full; fresh-eyes round 2 running; packet after; six stops in the meta |
+| p2-vanish-liveness | in review | round 1 landed at `e3c5f986` (the watch keeps every control byte and reads on; deadline aborts; the floor measured against the donor too), gate clean; `e3c5f986` verified; fresh-eyes round 2 found one behavioral regression (a delivered stream dropped mid-label under the departure race) and gaps, sent as repairs; packet after; seven stops in the meta, the precedence rule the one that matters |
 | p1-collision-mode | in review | round 1 landed at `e951b81e` (T163 width, recipe liveness, fixtures routed through the crate's derivation, marks re-justified at 28 bytes), gate clean; `e951b81e` verified in full; fresh-eyes round 2 found one bug (a marked test bypassing the harness check) and instrument gaps, sent as repairs with T164's sweep recipe; packet after; two design stops (`ci` membership, a wider root fan) |
 | p2-deep-geometry | running | T162 items 8 and 9: the masked typed error and the non-reproducible poll count under deep geometry; stacked on the collision branch |
 | p1-generators | running | T161: no rejecting strategies, zero reject budgets in the gate; stacked on p1-proptest-ci at `a34859ed` |
