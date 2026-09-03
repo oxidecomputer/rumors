@@ -106,8 +106,11 @@ check:
 test *args:
     cargo nextest run --workspace {{ args }}
 
-# The gate's test run: every feature (the meter suites and the conformance
-# module build only here).
+# The gate's test run. Every feature is lit here and nowhere else in the
+# gate: the meter suites and the conformance module build only under
+# `--all-features`.
+
+# Run the test suites under every feature (the gate's test run).
 test-all *args:
     cargo nextest run --workspace --all-features {{ args }}
 
@@ -300,8 +303,7 @@ docs-docsrs:
 # invocation builds test binaries in the root target/, which is why this leg
 # rides the workspace stream, after test-all has warmed those artifacts.
 
-# Resolve every roster, bespoke, and adequacy-tripwire citation against the
-# collected test inventory.
+# Resolve every roster, bespoke, and tripwire citation against the collected test inventory.
 citecheck:
     ./tools/citecheck --self-test
     mkdir -p target && cargo nextest list -p before --all-features --message-format json > target/citecheck-tests.json
@@ -324,16 +326,15 @@ citecheck:
 # recipe holds only the count seam. The counts derive
 # from the installed cargo-mutants release, so the pin of record
 # (tools/mutantcheck-expected.json) carries the tool version and a bump
-# re-pins in the same reviewed diff.
+# re-pins in the same reviewed diff. `--colors=never` pins the captures
+# byte-deterministic: cargo-mutants honors CARGO_TERM_COLOR=always even
+# when piped (CI toolchain actions export it job-wide), and escapes land
+# inside the operator and function fields the roster patterns match — the
+# checker refuses a colored capture, and this flag is what keeps that
+# refusal from ever firing.
 # Needs cargo-mutants: `cargo install cargo-mutants`.
 
 # Hold the mutants exclusion roster to its pinned counts (list-only, never a campaign).
-#
-# `--colors=never` pins the captures byte-deterministic: cargo-mutants
-# honors CARGO_TERM_COLOR=always even when piped (CI toolchain actions
-# export it job-wide), and escapes land inside the operator and function
-# fields the roster patterns match — the checker refuses a colored
-# capture, and this flag is what keeps that refusal from ever firing.
 mutants-list:
     ./tools/mutantcheck --self-test
     @mkdir -p target
@@ -373,11 +374,12 @@ supply-chain:
 # because the drift it catches is caused by ordinary refactors — a rename in
 # `before` breaks a fuzz target in the same commit that lands it, and a
 # compile is seconds of gate time. Only the build: the libFuzzer smoke is
-# poor per-commit spend and runs at `just all` cadence.
+# poor per-commit spend and runs at `just all` cadence. The fmt line is
+# the detached workspace's formatting leg: the root `cargo fmt --all`
+# cannot reach it.
 # Needs cargo-fuzz: `cargo install cargo-fuzz`.
 
-# Build the libFuzzer targets (nightly). The fmt line is the detached
-# workspace's formatting leg: the root `cargo fmt --all` cannot reach it.
+# Build the libFuzzer targets (nightly), with the detached workspace's fmt check.
 [working-directory("crates/before/fuzz")]
 fuzz-build:
     cargo fmt --check
@@ -599,13 +601,13 @@ fuzzfit-build:
 # plus the whole 256-program deterministic prefix judged step by step:
 # the random draws probe novelty, the prefix leg is total). A failure
 # shrinks to a minimal out-of-band shape and writes a proptest seed
-# file — commit any seed that appears.
+# file — commit any seed that appears. The fmt/clippy lines are the
+# detached workspace's own lint leg (the root `cargo fmt --all`/clippy
+# cannot reach a detached workspace, so without them its source rots
+# invisibly through green gates — the fuelscape and surfacecheck recipes
+# carry the same discipline).
 
-# Run the fuzz-fit asymptotics suites against the pinned fuel bands. The
-# fmt/clippy lines are the detached workspace's own lint leg (the root
-# `cargo fmt --all`/clippy cannot reach a detached workspace, so without
-# them its source rots invisibly through green gates — the fuelscape and
-# surfacecheck recipes carry the same discipline).
+# Run the fuzz-fit asymptotics suites against the pinned fuel bands.
 [working-directory("crates/before/fuzzfit")]
 fuzzfit: fuzzfit-build
     cargo fmt --check
@@ -646,13 +648,14 @@ wasm32-pins-build:
     cargo build -p wasm32-pins-guest --release --target wasm32-unknown-unknown --target-dir {{ wasm32pins_target }}
     cargo build -p wasm32-pins-harness --tests --release
 
-# Run the 32-bit boundary pins under wasmtime. The deep pins walk
-# hundreds of megabytes inside a 32-bit guest, so this leg costs minutes
-# of wall time and peaks at a few GiB of host memory across nextest's
-# parallel workers. The fmt/clippy lines are the detached workspace's own
-# lint leg (the root `cargo fmt --all`/clippy cannot reach a detached
-# workspace, so without them its source rots invisibly through green
-# gates — the fuzzfit recipes carry the same discipline).
+# The deep pins walk hundreds of megabytes inside a 32-bit guest, so the
+# run costs minutes of wall time and peaks at a few GiB of host memory
+# across nextest's parallel workers. The fmt/clippy lines are the detached
+# workspace's own lint leg (the root `cargo fmt --all`/clippy cannot reach
+# a detached workspace, so without them its source rots invisibly through
+# green gates — the fuzzfit recipes carry the same discipline).
+
+# Run the 32-bit boundary pins under wasmtime (minutes; a few GiB of host memory).
 [working-directory("crates/before/wasm32-pins")]
 wasm32-pins: wasm32-pins-build
     cargo fmt --check
@@ -723,6 +726,8 @@ fuelscape-verify:
 # README references it by URL, so it must exist in the tree — and
 # before's build.rs holds it fresh; the env var is the explicit opt-in
 # that lets the build write into the source tree.
+
+# Regenerate the README's space-consumption figure from the measurement artifact.
 doc-figure:
     BEFORE_REGEN_DOC_FIGURE=1 cargo build -p before
 
@@ -820,6 +825,8 @@ bench-quick target *filter:
 # crates/before/Cargo.toml, whose `deny` keeps roster and seams in sync.
 # Reduced-sampling smoke: append `--sample-size 10 --measurement-time 1`
 # (never quoted).
+
+# Run one allocation-strategy A/B arm of a bench target, saving its criterion baseline.
 bench-alloc-ab target arm="shipped" *filter:
     @case "{{ arm }}" in (shipped|projection_growth|projection_shrink|display_growth) ;; (*) echo 'bench-alloc-ab: unknown arm "{{ arm }}"' >&2; exit 2;; esac
     RUSTFLAGS='{{ if arm == "shipped" { "" } else { '--cfg before_alloc_ab="' + arm + '"' } }}' cargo bench -p before --bench {{ target }} -- --save-baseline {{ target }}-{{ arm }} {{ filter }}
