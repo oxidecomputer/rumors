@@ -1511,9 +1511,10 @@ fn skyline_validate_alt_spine_envelope() {
 
 /// The validator rows' scan floor is live.
 ///
-/// Judged against `SKYLINE_VALIDATE_DENSE` over the whole dense stream's
-/// length, a validator that reads only half the stream fails on the
-/// whole-input floor, and one stubbed to `Ok(())` fails the row too.
+/// Judged against `SKYLINE_VALIDATE_DENSE` with its limb and touch bands
+/// opened, over the whole dense stream's length, a validator stubbed to
+/// `Ok(())` and one that reads only half the stream each fail on the scan
+/// floor and nothing else.
 ///
 /// The known-bad validators do less work than the row, so every ceiling
 /// passes them and only a floor can catch them.
@@ -1522,9 +1523,16 @@ fn stopped_validator_fails_the_validate_row() {
     let whole = skyline_of(&Shape::Dense.packed1(DENSE_DEPTH));
     let half = skyline_of(&Shape::Dense.packed1(DENSE_DEPTH / 2));
     let input = whole.as_raw_slice().len();
+    // The row with its limb and touch bands opened, so the scan floor is
+    // the one judge either known-bad validator can fail.
+    let scan_only = Envelope {
+        limb: band(u64::MAX, 0),
+        touch: band(u64::MAX, 0),
+        ..envelope::SKYLINE_VALIDATE_DENSE
+    };
     let failure = |name: &str, body: &dyn Fn()| {
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            metered(name, input, &envelope::SKYLINE_VALIDATE_DENSE, body)
+            metered(name, input, &scan_only, body)
         }))
         .err()
         .and_then(|payload| payload.downcast_ref::<String>().cloned())
@@ -1532,8 +1540,8 @@ fn stopped_validator_fails_the_validate_row() {
     };
     let stubbed = failure("validate_stub_probe", &|| ());
     assert!(
-        stubbed.contains("floor") || stubbed.contains("tripwire"),
-        "a stubbed validator must fail a floor, not: {stubbed}"
+        stubbed.contains("whole-input liveness floor"),
+        "a stubbed validator must fail the scan floor, not: {stubbed}"
     );
     let stopped = failure("validate_stopped_probe", &|| {
         meter::skyline::validate(meter::skyline::view(&half))
