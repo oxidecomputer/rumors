@@ -343,6 +343,14 @@ builder cap counts Mac builders only; on the box (96 cores, 1 TiB) there
 is no lane cap, only the load: hold a launch while the one-minute load
 average sits above about 150 on 192 threads.
 
+Box runs and seeds: the wrapper's sync is one-way, so a seed proptest
+writes on the box (a `minimal failing input:` line in a box log) lands
+only in the box's synced tree and is lost at the next sync. A lane whose
+box run prints that line copies the seed file back
+(`scp ox-east-1-agent:~/src/<worktree>/proptest-regressions/... <worktree>/proptest-regressions/`)
+and commits it before anything else; a verifier who sees the line in a
+lane's log and no seed in the range reports it as a finding.
+
 ## Effort and orchestration
 
 Lane agents that touch a harness or production code (all of P1 and P2,
