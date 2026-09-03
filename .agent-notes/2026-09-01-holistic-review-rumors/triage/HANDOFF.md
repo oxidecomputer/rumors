@@ -84,11 +84,13 @@ the fast-forward (WORKFLOW.md's merge step).
    word; agent `ad8747469f2495256`; scratchpad `p1-envelope/`).
 7. **p2-deep-geometry** (`/Users/oxide/src/rumors-p2-deep-geometry`,
    stacked on the collision tip `7858b35e`): T162 items 8 and 9;
-   round 1 landed at `005bd86e` (agent `a2af8c0d37b66646f`; both
-   anomalies closed with mechanisms; every decode error surfaces; two
-   same-wave tests; the bias orders argued); verification (runner
-   `a6483291f13d44eb4`, `coordinator/verify-deep/`) and fresh-eyes
-   round 2 (`af2c60311410ae869`) running; packet meta drafted.
+   round 2 landed at `648a2441` (agent `a2af8c0d37b66646f`; the
+   predicate `is_supply_symptom` at both precedence sites, five same-wave
+   tests, the return-not-park invariant stated); third verification
+   (runner `a6483291f13d44eb4`, `coordinator/verify-deep/`) and a light
+   round-3 read (`a44855aff31a2c820`) running; packet meta drafted with
+   three stops (the shared predicate at integration; the duplicated-reply
+   stall; the `materializing_backend_conforms` floor under the schedule).
    Its `execute` edit and the vanish lane's T165 predicate meet at merge
    in `remote/proxy/work.rs`; integrate toward one predicate (only
    supply-caused symptoms are outranked). Its watcher (local pid 74988)
