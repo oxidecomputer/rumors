@@ -164,6 +164,15 @@ woken by the coordinator with the verdict's location. The lane retires its box b
 directory after its final commit (`rm -rf ~/build/<basename>` over ssh);
 the worktree stays for the coordinator.
 
+A red-first demonstration that mutates a source file on the box (a
+reversible swap, then a build, then the swap restored) must be followed
+by a rebuild or a `touch` of the restored file before the next sync: the
+sync preserves modification times, so a restored file older than the
+swapped build leaves cargo judging the swapped binary fresh, and the next
+verification reruns the planted failure. The tell is a red whose
+message names the swapped form on a tree that carries the original;
+the check is a `Compiling` line in the verification log.
+
 ## Effort
 
 Lane agents that touch a harness, an instrument, or production code run
