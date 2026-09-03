@@ -27,7 +27,9 @@
 //!
 //! [`GatedBookmark`] makes the write's in-flight window a deterministic
 //! interleaving point: the test parks the session inside the persist, commits
-//! a send, and releases.
+//! a send, and releases. Every session runs under the closed-world poller
+//! ([`common::wire::block_on`]), so a session that stops making progress
+//! fails at its source rather than hanging the test.
 
 mod common;
 
@@ -39,7 +41,7 @@ use rumors::{Bookmark, BookmarkError, Peer, Rumors, Serialized};
 use tokio::sync::Notify;
 
 use crate::common::flaky::{DurableStore, persisted_record};
-use crate::common::wire::tokio_block_on as block_on;
+use crate::common::wire::block_on;
 
 /// The message payload: a test-unique id.
 type Msg = u64;
@@ -60,7 +62,8 @@ const MAX_HEAL_ROUNDS: usize = 16;
 /// Disarmed (the default) it persists synchronously, like the sibling suites'
 /// in-memory bookmarks. Armed, the next `store` signals `entered`, then parks
 /// until `release` is notified; the test body runs in that window, on the
-/// same current-thread runtime, so the interleaving is exact and replayable.
+/// same thread under the same poller, so the interleaving is exact and
+/// replayable.
 #[derive(Clone, Debug)]
 struct GatedBookmark {
     store: DurableStore,
@@ -153,39 +156,41 @@ async fn boot_from(
 ) -> Rumors<Msg, GatedBookmark> {
     let server = server.clone();
     let (boot_side, serve_side) = rumors::link::memory_with_capacity(LINK_BUF);
-    let boot = tokio::spawn(async move {
-        let mut link = boot_side;
-        let peer = Peer::<Msg>::bootstrap()
-            .join(&mut link)
-            .await
-            .expect("bootstrap ok")
-            .expect("the server is established");
-        peer.bookmark(bm).await.expect("in-memory persist")
-    });
-    let serve = tokio::spawn(async move {
-        let mut link = serve_side;
-        server.gossip(&mut link).await
-    });
-    let (boot_out, serve_out) = tokio::join!(boot, serve);
-    serve_out.unwrap().expect("serve bootstrap");
-    boot_out.unwrap().into_rumors()
+    let (boot_out, serve_out) = tokio::join!(
+        async move {
+            let mut link = boot_side;
+            let peer = Peer::<Msg>::bootstrap()
+                .join(&mut link)
+                .await
+                .expect("bootstrap ok")
+                .expect("the server is established");
+            peer.bookmark(bm).await.expect("in-memory persist")
+        },
+        async move {
+            let mut link = serve_side;
+            server.gossip(&mut link).await
+        },
+    );
+    serve_out.expect("serve bootstrap");
+    boot_out.into_rumors()
 }
 
 /// One clean gossip session between two peers, both sides required to succeed.
 async fn gossip(a: &Rumors<Msg, GatedBookmark>, b: &Rumors<Msg, GatedBookmark>) {
     let (a, b) = (a.clone(), b.clone());
     let (side_a, side_b) = rumors::link::memory_with_capacity(LINK_BUF);
-    let task_a = tokio::spawn(async move {
-        let mut link = side_a;
-        a.gossip(&mut link).await
-    });
-    let task_b = tokio::spawn(async move {
-        let mut link = side_b;
-        b.gossip(&mut link).await
-    });
-    let (out_a, out_b) = tokio::join!(task_a, task_b);
-    out_a.unwrap().expect("gossip side a");
-    out_b.unwrap().expect("gossip side b");
+    let (out_a, out_b) = tokio::join!(
+        async move {
+            let mut link = side_a;
+            a.gossip(&mut link).await
+        },
+        async move {
+            let mut link = side_b;
+            b.gossip(&mut link).await
+        },
+    );
+    out_a.expect("gossip side a");
+    out_b.expect("gossip side b");
 }
 
 /// The version stamped on the live leaf carrying `payload`, if present.
@@ -241,24 +246,25 @@ async fn transmit_during_persist() -> Scene {
     let (side_a, side_b) = rumors::link::memory_with_capacity(LINK_BUF);
     let ga = {
         let a = a.clone();
-        tokio::spawn(async move {
+        async move {
             let mut link = side_a;
             a.gossip(&mut link).await
-        })
+        }
     };
     let gb = {
         let b = b.clone();
-        tokio::spawn(async move {
+        async move {
             let mut link = side_b;
             b.gossip(&mut link).await
-        })
+        }
     };
-    bm_a.entered().await;
-    a.send(M1).unwrap();
-    bm_a.release();
-    let (out_a, out_b) = tokio::join!(ga, gb);
-    out_a.unwrap().expect("gated gossip side a");
-    out_b.unwrap().expect("gated gossip side b");
+    let (out_a, out_b, ()) = tokio::join!(ga, gb, async {
+        bm_a.entered().await;
+        a.send(M1).unwrap();
+        bm_a.release();
+    });
+    out_a.expect("gated gossip side a");
+    out_b.expect("gated gossip side b");
 
     Scene {
         a,
@@ -342,28 +348,23 @@ fn cancelled_persist_never_suppresses_the_next_update() {
         a.send(M1).unwrap();
         bm_a.arm();
         let (side_a, side_b) = rumors::link::memory_with_capacity(LINK_BUF);
-        let ga = {
-            let a = a.clone();
-            tokio::spawn(async move {
-                let mut link = side_a;
-                a.gossip(&mut link).await
-            })
-        };
-        let gb = {
-            let b = b.clone();
-            tokio::spawn(async move {
-                let mut link = side_b;
-                b.gossip(&mut link).await
-            })
-        };
-        bm_a.entered().await;
-        ga.abort();
-        gb.abort();
-        let (out_a, out_b) = tokio::join!(ga, gb);
-        assert!(
-            out_a.is_err() && out_b.is_err(),
-            "both session futures were dropped mid-persist",
-        );
+        // Drive the session until A's persist parks, then drop both session
+        // futures there (the block ends): the cancellation lands inside the
+        // durable write.
+        {
+            let (a, b) = (a.clone(), b.clone());
+            let mut session = std::pin::pin!(async move {
+                let (mut side_a, mut side_b) = (side_a, side_b);
+                tokio::join!(a.gossip(&mut side_a), b.gossip(&mut side_b))
+            });
+            tokio::select! {
+                biased;
+                () = bm_a.entered() => {}
+                _ = &mut session => {
+                    panic!("the gated session cannot complete while its persist is parked")
+                }
+            }
+        }
 
         // The next session runs on a fresh link. It must persist M1's
         // frontier before transmitting M1: a suppression token surviving
@@ -524,24 +525,26 @@ fn donation_persist_failure_aborts_before_the_wire() {
         // slice's write is the next store call.
         bm_a.fail_at(1);
         let (boot_side, serve_side) = rumors::link::memory_with_capacity(LINK_BUF);
-        let boot = tokio::spawn(async move {
-            let mut link = boot_side;
-            Peer::<Msg>::bootstrap().join(&mut link).await
-        });
         let serve = {
             let a = a.clone();
-            tokio::spawn(async move {
+            async move {
                 let mut link = serve_side;
                 a.gossip(&mut link).await
-            })
+            }
         };
-        let (boot_out, serve_out) = tokio::join!(boot, serve);
+        let (boot_out, serve_out) = tokio::join!(
+            async move {
+                let mut link = boot_side;
+                Peer::<Msg>::bootstrap().join(&mut link).await
+            },
+            serve,
+        );
         assert!(
-            matches!(serve_out.unwrap(), Err(rumors::Error::Bookmark(_))),
+            matches!(serve_out, Err(rumors::Error::Bookmark(_))),
             "the serve must surface the failed donation persist",
         );
         assert!(
-            !matches!(boot_out.unwrap(), Ok(Some(_))),
+            !matches!(boot_out, Ok(Some(_))),
             "the newcomer must not receive a party the donor could not persist away",
         );
 
@@ -600,24 +603,26 @@ fn repeated_donation_aborts_normalize() {
             // donation slice's write (the second): fail the second.
             bm_a.fail_at(2);
             let (boot_side, serve_side) = rumors::link::memory_with_capacity(LINK_BUF);
-            let boot = tokio::spawn(async move {
-                let mut link = boot_side;
-                Peer::<Msg>::bootstrap().join(&mut link).await
-            });
             let serve = {
                 let a = a.clone();
-                tokio::spawn(async move {
+                async move {
                     let mut link = serve_side;
                     a.gossip(&mut link).await
-                })
+                }
             };
-            let (boot_out, serve_out) = tokio::join!(boot, serve);
+            let (boot_out, serve_out) = tokio::join!(
+                async move {
+                    let mut link = boot_side;
+                    Peer::<Msg>::bootstrap().join(&mut link).await
+                },
+                serve,
+            );
             assert!(
-                matches!(serve_out.unwrap(), Err(rumors::Error::Bookmark(_))),
+                matches!(serve_out, Err(rumors::Error::Bookmark(_))),
                 "round {round}: the serve must surface the failed donation persist",
             );
             assert!(
-                !matches!(boot_out.unwrap(), Ok(Some(_))),
+                !matches!(boot_out, Ok(Some(_))),
                 "round {round}: the newcomer must not receive a party",
             );
             assert_eq!(

@@ -14,29 +14,30 @@ use std::sync::{Arc, Mutex};
 use rumors::{Peer, Rumors, Unbookmarked};
 
 use crate::common::flaky::{FaultFeed, FlakyInMemoryBookmark, persisted_record};
-use crate::common::wire::tokio_block_on as block_on;
+use crate::common::wire::block_on;
 
 /// Capacity for each in-memory link stream carrying a bootstrap session.
 const LINK_BUF: usize = 64 * 1024;
 
 /// Bootstrap a fresh, still-unbookmarked peer from `server` over a clean
-/// in-memory link. Both sides run as spawned tasks so a finished one drops
-/// its end; the wires are reliable, so the bootstrap succeeds.
+/// in-memory link. Each side owns its end inside its own block, so a
+/// finished side drops it; the wires are reliable, so the bootstrap
+/// succeeds.
 async fn bootstrap_unbookmarked(server: &Rumors<String, FlakyInMemoryBookmark>) -> Peer<String> {
     let server = server.clone();
     let (boot_link, serve_link) = rumors::link::memory_with_capacity(LINK_BUF);
-    let boot = tokio::spawn(async move {
-        let mut link = boot_link;
-        Peer::<String>::bootstrap().join(&mut link).await
-    });
-    let serve = tokio::spawn(async move {
-        let mut link = serve_link;
-        server.gossip(&mut link).await
-    });
-    let (boot_out, serve_out) = tokio::join!(boot, serve);
-    serve_out.unwrap().expect("serve the bootstrap");
+    let (boot_out, serve_out) = tokio::join!(
+        async move {
+            let mut link = boot_link;
+            Peer::<String>::bootstrap().join(&mut link).await
+        },
+        async move {
+            let mut link = serve_link;
+            server.gossip(&mut link).await
+        },
+    );
+    serve_out.expect("serve the bootstrap");
     boot_out
-        .unwrap()
         .expect("bootstrap ok")
         .expect("got a peer")
         .sync_window_floor()

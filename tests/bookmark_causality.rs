@@ -45,11 +45,14 @@
 //!
 //! # Determinism
 //!
-//! Unlike `disruption.rs`, this simulation runs on a *current-thread* runtime
-//! with a plan-driven schedule (each session is its own `block_on`). The bug
-//! class is about the *ordering* of emit/gossip/crash/retire/persist-fail
-//! events and the persistence-fault sequence, not watch-channel thread
-//! races. Every input the plan does not carry is fixed by the [`World`]:
+//! Unlike `disruption.rs`, this simulation runs single-threaded under the
+//! closed-world poller ([`common::wire::block_on`]) with a plan-driven
+//! schedule: each session is its own `block_on`, and a session that stops
+//! making progress fails at its source instead of hanging the case until
+//! the test runner kills it. The bug class is about the *ordering* of
+//! emit/gossip/crash/retire/persist-fail events and the persistence-fault
+//! sequence, not watch-channel thread races. Every input the plan does not
+//! carry is fixed by the [`World`]:
 //! message ids and emission sequence numbers come from a per-world counter,
 //! and every universe's [`Network`] identifier (the tie-break that decides
 //! which of two fresh peers re-bootstraps into the other) comes from a
@@ -76,7 +79,7 @@ use rumors::{Error, MERKLE_HASH_LEN, Network, Peer, Retire, Rumors, Version};
 use crate::common::fault::{self, FaultPlan};
 use crate::common::flaky::{DurableStore, FaultFeed, FlakyInMemoryBookmark, persisted_record};
 use crate::common::sim::arb_fault;
-use crate::common::wire::tokio_block_on as block_on;
+use crate::common::wire::block_on;
 
 /// The message payload: a simulation-unique id that is also the message's
 /// emission sequence number, so a single per-[`World`] counter assigns both at
@@ -453,9 +456,10 @@ impl World {
         };
         let network = rumors.network();
         rumors.send(id).unwrap(); // one commit per send
-        // Read back the leaf's version. Under the current-thread schedule no
-        // other task runs between the commit and here, so the lookup is
-        // race-free and the just-sent unique id is present exactly once.
+        // Read back the leaf's version. Nothing else runs between the commit
+        // and here (every session is its own single-threaded `block_on`), so
+        // the lookup is race-free and the just-sent unique id is present
+        // exactly once.
         let snapshot = rumors.snapshot();
         let mut version = None;
         for (leaf_version, value) in snapshot.iter() {
@@ -567,23 +571,24 @@ impl World {
             return;
         };
         let (ra, rb) = (ra.clone(), rb.clone());
-        // Each side owns its faulted link inside its own task, so when a wire
-        // fault kills one side it returns and *drops* its link, surfacing EOF
-        // to the counterparty. A bare `join!` would instead hold both sides'
-        // links until both finished, deadlocking the survivor on a read that
-        // never completes.
+        // Each side owns its faulted link inside its own `async move` block,
+        // so when a wire fault kills one side its block completes and
+        // `join!` drops the block, link included, surfacing EOF to the
+        // counterparty. Links declared outside the blocks would live until
+        // both sides finished, deadlocking the survivor on a read that never
+        // completes.
         let (out_a, out_b) = block_on(async {
             let (side_a, side_b) = rumors::link::memory_with_capacity(LINK_BUF);
-            let task_a = tokio::spawn(async move {
-                let mut link = fault::faulty(side_a, fault_a);
-                ra.gossip(&mut link).await
-            });
-            let task_b = tokio::spawn(async move {
-                let mut link = fault::faulty(side_b, fault_b);
-                rb.gossip(&mut link).await
-            });
-            let (out_a, out_b) = tokio::join!(task_a, task_b);
-            (out_a.expect("gossip task a"), out_b.expect("gossip task b"))
+            tokio::join!(
+                async move {
+                    let mut link = fault::faulty(side_a, fault_a);
+                    ra.gossip(&mut link).await
+                },
+                async move {
+                    let mut link = fault::faulty(side_b, fault_b);
+                    rb.gossip(&mut link).await
+                },
+            )
         });
 
         // The session ran each side's bookmark update before any mismatch, so
@@ -644,26 +649,28 @@ impl World {
 
         let booted = block_on(async {
             let (boot_side, serve_side) = rumors::link::memory_with_capacity(LINK_BUF);
-            // Spawn both sides so a failing one drops its link (see `gossip`).
-            let boot = tokio::spawn(async move {
-                let mut link = boot_side;
-                // `Ok(None)` cannot happen (the server is gossiping, not
-                // bootstrapping); a wire fault drops us to `None`, as does an
-                // injected persistence failure in the eager bookmark attach.
-                let peer = Peer::<Msg>::bootstrap()
-                    .join(&mut link)
-                    .await
-                    .ok()
-                    .flatten()?;
-                peer.sync_window_floor().bookmark(bookmark).await.ok()
-            });
-            let serve = tokio::spawn(async move {
-                let mut link = serve_side;
-                server_rumors.gossip(&mut link).await
-            });
-            let (boot_out, serve_out) = tokio::join!(boot, serve);
+            // Each side owns its link inside its block so a failing one drops
+            // it (see `gossip`).
+            let (boot_out, serve_out) = tokio::join!(
+                async move {
+                    let mut link = boot_side;
+                    // `Ok(None)` cannot happen (the server is gossiping, not
+                    // bootstrapping); a wire fault drops us to `None`, as does an
+                    // injected persistence failure in the eager bookmark attach.
+                    let peer = Peer::<Msg>::bootstrap()
+                        .join(&mut link)
+                        .await
+                        .ok()
+                        .flatten()?;
+                    peer.sync_window_floor().bookmark(bookmark).await.ok()
+                },
+                async move {
+                    let mut link = serve_side;
+                    server_rumors.gossip(&mut link).await
+                },
+            );
             let _ = serve_out;
-            boot_out.expect("bootstrap task")
+            boot_out
         });
 
         self.path.push(PathEvent::Bootstrap {
@@ -739,30 +746,27 @@ impl World {
             return;
         };
 
-        let outcome = block_on(async {
+        let (outcome, absorbed) = block_on(async {
             let (ret_side, abs_side) = rumors::link::memory_with_capacity(LINK_BUF);
-            // Spawn both sides so a failing one drops its link (see `gossip`).
-            // The retiree becomes a `Peer` inside its task: it holds the sole
-            // handle to its set, so `try_into_peer` resolves at once.
-            let retire = tokio::spawn(async move {
-                let mut link = ret_side;
-                let peer = retiree_rumors
-                    .try_into_peer()
-                    .await
-                    .expect("the node holds the sole handle to its set");
-                peer.retire(&mut link).await
-            });
-            let absorb = tokio::spawn(async move {
-                let mut link = abs_side;
-                absorber_rumors.gossip(&mut link).await
-            });
-            let (retire_out, gossip_out) = tokio::join!(retire, absorb);
-            (
-                retire_out.expect("retire task"),
-                gossip_out.expect("absorb task"),
+            // Each side owns its link inside its block so a failing one drops
+            // it (see `gossip`). The retiree becomes a `Peer` inside its
+            // block: it holds the sole handle to its set, so `try_into_peer`
+            // resolves at once.
+            tokio::join!(
+                async move {
+                    let mut link = ret_side;
+                    let peer = retiree_rumors
+                        .try_into_peer()
+                        .await
+                        .expect("the node holds the sole handle to its set");
+                    peer.retire(&mut link).await
+                },
+                async move {
+                    let mut link = abs_side;
+                    absorber_rumors.gossip(&mut link).await
+                },
             )
         });
-        let (outcome, absorbed) = outcome;
         // Never swallow the absorber's result: a retirement's whole point is the
         // hand-off, and silently dropping a failed absorption is exactly what hid
         // the codec leak this test was written to catch. The retire session runs
@@ -855,18 +859,15 @@ impl World {
         let (ra, rb) = (ra.clone(), rb.clone());
         let (out_a, out_b) = block_on(async {
             let (side_a, side_b) = rumors::link::memory_with_capacity(LINK_BUF);
-            let task_a = tokio::spawn(async move {
-                let mut link = side_a;
-                ra.gossip(&mut link).await
-            });
-            let task_b = tokio::spawn(async move {
-                let mut link = side_b;
-                rb.gossip(&mut link).await
-            });
-            let (out_a, out_b) = tokio::join!(task_a, task_b);
-            (
-                out_a.expect("heal gossip task A"),
-                out_b.expect("heal gossip task B"),
+            tokio::join!(
+                async move {
+                    let mut link = side_a;
+                    ra.gossip(&mut link).await
+                },
+                async move {
+                    let mut link = side_b;
+                    rb.gossip(&mut link).await
+                },
             )
         });
         out_a.expect("clean heal gossip A");
@@ -1197,24 +1198,23 @@ fn retire_into_rebooted_absorber_absorbs_cleanly() {
         // holding the whole seed identity.
         let (ret_side, abs_side) = rumors::link::memory_with_capacity(LINK_BUF);
         let absorber = a.clone();
-        let retire = tokio::spawn(async move {
-            let mut link = ret_side;
-            let peer = b.try_into_peer().await.expect("sole handle");
-            peer.retire(&mut link).await
-        });
-        let absorb = tokio::spawn(async move {
-            let mut link = abs_side;
-            absorber.gossip(&mut link).await
-        });
-        let (retire_out, absorb_out) = tokio::join!(retire, absorb);
+        let (retire_out, absorb_out) = tokio::join!(
+            async move {
+                let mut link = ret_side;
+                let peer = b.try_into_peer().await.expect("sole handle");
+                peer.retire(&mut link).await
+            },
+            async move {
+                let mut link = abs_side;
+                absorber.gossip(&mut link).await
+            },
+        );
 
         assert!(
-            matches!(retire_out.expect("retire task"), Retire::Retired),
+            matches!(retire_out, Retire::Retired),
             "the retiree should have retired",
         );
-        absorb_out
-            .expect("absorb task")
-            .expect("the absorber's gossip must not fail while taking a retirement");
+        absorb_out.expect("the absorber's gossip must not fail while taking a retirement");
         assert_eq!(
             a.dangerously_alias_party().expect("A live"),
             Party::seed(),
@@ -1231,28 +1231,29 @@ async fn boot_from_async(
 ) -> Rumors<Msg, FlakyInMemoryBookmark> {
     let server = server.clone();
     let (boot_side, serve_side) = rumors::link::memory_with_capacity(LINK_BUF);
-    let boot = tokio::spawn(async move {
-        let mut link = boot_side;
-        let peer = Peer::<Msg>::bootstrap()
-            .join(&mut link)
-            .await
-            .expect("bootstrap ok")
-            .expect("got a peer")
-            .sync_window_floor();
-        // Clean wires, reliable store: the eager persist of the reclaimed
-        // identity must succeed.
-        match peer.bookmark(bm).await {
-            Ok(peer) => peer,
-            Err(_) => panic!("bookmark ok"),
-        }
-    });
-    let serve = tokio::spawn(async move {
-        let mut link = serve_side;
-        server.gossip(&mut link).await
-    });
-    let (boot_out, serve_out) = tokio::join!(boot, serve);
-    serve_out.unwrap().expect("serve bootstrap");
-    boot_out.unwrap().into_rumors()
+    let (boot_out, serve_out) = tokio::join!(
+        async move {
+            let mut link = boot_side;
+            let peer = Peer::<Msg>::bootstrap()
+                .join(&mut link)
+                .await
+                .expect("bootstrap ok")
+                .expect("got a peer")
+                .sync_window_floor();
+            // Clean wires, reliable store: the eager persist of the reclaimed
+            // identity must succeed.
+            match peer.bookmark(bm).await {
+                Ok(peer) => peer,
+                Err(_) => panic!("bookmark ok"),
+            }
+        },
+        async move {
+            let mut link = serve_side;
+            server.gossip(&mut link).await
+        },
+    );
+    serve_out.expect("serve bootstrap");
+    boot_out.into_rumors()
 }
 
 /// Execute a reliable-recovery plan to its post-heal end state.
