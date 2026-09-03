@@ -237,6 +237,15 @@ lanes have closed.
 
 ## Announcements
 
+- rumors: `p1-generators` (in its final round at `c6f291f2`, stacked
+  on `p1-proptest-ci` at `a34859ed`) merges as a whole after before's
+  `p2-generators` sweep: its last commit puts proptest's zero rejection
+  budgets in `.cargo/config.toml` `[env]` for the workspace, brings
+  `crates/` under caselint's full rules, and sets `proptest_ci_cases`
+  to 4000 (T164 item 3), all of which abort or fail on before's
+  fourteen rejecting sites until the sweep lands; no earlier commit of
+  the range is a standalone merge point.
+
 - rumors: `p1-collision-mode` (in its final review round at `71d7a498`)
   merges after before's `p1-fuzz` (refit tip `d0c14638`; calibration
   landed, its three review rounds and packet outstanding; before orders
