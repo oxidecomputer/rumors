@@ -94,14 +94,15 @@ lanes have closed.
 - rumors: `59608589` the harness-crate lane (twelve commits over the codec merge;
   packet `59608589`); no root files.
 
+- rumors: `9fbd9c16` the walk lane (`bed0eeb1` through `302c1f82`, packet
+  `9fbd9c16`); no root files.
+
 ## Ready for Finch, in merge order
 
 - rumors `p1-gate`: branch `triage/p1-gate`, packet head `5cd25b55`, last
   code commit `b06000df`, base `d631cda6` (main). Root files: justfile,
   `.github/workflows/ci.yml`, `Cargo.toml` (`bytes` dev-dependency),
   `Cargo.lock`, `tools/testdoc`. `before/p1-gate` stacks on this.
-- rumors `p2-walk`: `triage/p2-walk`, packet `ca5c3290`, code `eb97720b`,
-  base `b1e8a397`. No root files.
 - rumors `p1-causality`: `triage/p1-causality`, packet `aa3e2aa1`, code
   `f1b4859c`, base `4f796995`. Root files: `Cargo.toml` (`rand_chacha`
   dev-dependency), `Cargo.lock`.
