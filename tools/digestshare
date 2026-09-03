@@ -20,16 +20,14 @@ is double-counted: `control item N (B bytes)` lines (one per control-
 stream item) and stream headers ending `..., B wire bytes` (whose total
 includes the stream's open label and every frame).
 
-V1 side-by-side timelines (renders containing the `│` column separator)
-are skipped and reported as such: their transcripts show each byte twice
-(sent and received), so totaling them would double-count; the V1 digest
-atom is the same `Hash` the V2 corpus measures.
-
-Liveness: a corpus with V2 captures but zero wire bytes or zero digests
+Liveness: a corpus with captures but zero wire bytes or zero digests
 means the renderer's vocabulary moved out from under these patterns; the
 tool exits nonzero rather than reporting a silent zero. The self-test
-holds the patterns to a listing laid out on one line and to a Supply
-payload that must not count.
+holds the patterns to a listing laid out on one line, to a Supply
+payload that must not count, and to a payload text carrying U+2028 (a
+line separator the renderer prints raw; lines are split on the
+renderer's own terminator, the line feed, so such text cannot open a
+section or end one).
 
 Usage: tools/digestshare [snapshot-dir ...]
        tools/digestshare --self-test
@@ -56,13 +54,10 @@ HEADER = re.compile(
 
 
 def measure(path: Path):
-    """Return (total_bytes, digest_bytes, digest_count) for one V2 snap,
-    or None for a V1 side-by-side render."""
+    """Return (total_bytes, digest_bytes, digest_count) for one snapshot."""
     text = path.read_text()
     # Strip insta's YAML header: content starts after the second `---`.
     body = text.split("---", 2)[2]
-    if "│" in body:
-        return None
     return measure_text(body)
 
 
@@ -72,7 +67,9 @@ def measure_text(body: str):
     digest_bytes = 0
     digests = 0
     in_listing_section = False
-    for line in body.splitlines():
+    # The renderer's line terminator is the line feed alone; splitlines()
+    # would also break on U+2028 and U+2029, which a text string may hold.
+    for line in body.split("\n"):
         if HEADER.match(line):
             in_listing_section = bool(GREETING_HEADER.match(line) or QUERY_HEADER.match(line))
         control = CONTROL_ITEM.match(line)
@@ -109,6 +106,8 @@ Responder stream 0 (height 31), epoch 0, 90 wire bytes
 [0, 5, {1: h'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 2: h'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'}]
   frame 1 (40 bytes) / Supply(End) /
 [0, 6, 63_0(<<63_0(<<53846_1(h'e0'), {7: h'cccccccccccccccccccccccccccccccccccccccccccccc'}>>)>>)]
+  frame 2 (50 bytes) / Supply(End) /
+[0, 6, 63_0(<<63_0(<<53846_1(h'e0'), "x\u2028  frame 3 (9 bytes) / Query(Continue) /\u2028{1: h'dddddddddddddddddddddddddddddddddddddddddddddd'}">>)>>)]
 """
 
 
@@ -120,7 +119,8 @@ def self_test() -> int:
         print(
             f"digestshare: self-test FAILED: measured {(total, digest_bytes, digests)}, "
             f"expected {expected} (greeting listing, one-line Query listing of two, "
-            "and no digest from the Supply payload)",
+            "no digest from the Supply payloads, and no section opened by the "
+            "U+2028-separated header text inside a payload)",
             file=sys.stderr,
         )
         return 1
@@ -133,14 +133,11 @@ def main() -> int:
         return self_test()
     root = Path(__file__).resolve().parent.parent
     dirs = [Path(arg) for arg in sys.argv[1:]] or [root / "tests" / "snapshots"]
-    grand_total = grand_digest = grand_count = v2_files = 0
+    grand_total = grand_digest = grand_count = files = 0
     for directory in dirs:
         for path in sorted(directory.glob("*.snap")):
             measured = measure(path)
-            if measured is None:
-                print(f"{path.name}: skipped (V1 side-by-side timeline)")
-                continue
-            v2_files += 1
+            files += 1
             total, digest, count = measured
             share = (100.0 * digest / total) if total else 0.0
             print(
@@ -150,9 +147,9 @@ def main() -> int:
             grand_total += total
             grand_digest += digest
             grand_count += count
-    if v2_files and (not grand_total or not grand_digest):
+    if files and (not grand_total or not grand_digest):
         print(
-            "digestshare: LIVENESS FAILURE: the corpus has V2 captures but "
+            "digestshare: LIVENESS FAILURE: the corpus has captures but "
             f"{grand_total} wire B / {grand_digest} digest B were parsed; "
             "the renderer's vocabulary has moved out from under this tool.",
             file=sys.stderr,

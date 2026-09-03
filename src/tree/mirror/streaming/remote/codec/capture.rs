@@ -11,18 +11,18 @@
 //! # Why a rendering with no hexdump is still a byte pin
 //!
 //! The harness holds every item to canonical form before rendering it:
-//! shortest heads, definite lengths, text free of control characters,
-//! and a re-encoding equal to the bytes (which rejects an ill-formed
-//! simple value and any float bits beyond the canonical NaN), checked
-//! down through embedded CBOR to the printer's depth limit. On a
-//! canonical item, diagnostic notation with encoding indicators spells
-//! the value exactly, so two different canonical byte streams cannot
-//! render identically; any other item renders as an explicit failure
-//! line carrying the reason above its exact hex. The rendering is
-//! therefore injective on wire bytes. A NaN's sign and payload bits are
-//! among what the notation cannot spell; such a float falls back to hex,
-//! and none occurs on the wire, since the protocol emits no floats and
-//! the payload contract's `Eq` bound excludes float fields (see
+//! every head at its shortest width, definite lengths, well-formed
+//! simple values, no NaN, text free of control characters, and a
+//! re-encoding equal to the bytes, checked down through embedded CBOR
+//! to the printer's depth limit. On a canonical item, diagnostic
+//! notation with encoding indicators spells the value exactly, so two
+//! different canonical byte streams cannot render identically; any other
+//! item renders as an explicit failure line carrying the reason above
+//! its exact hex. The rendering is therefore injective on wire bytes. A
+//! NaN's sign and payload bits are what the notation cannot spell, which
+//! is why every NaN is rejected; none occurs on the wire, since the
+//! protocol emits no floats and the payload contract's `Eq` bound
+//! excludes float fields (see
 //! [choosing a payload type](crate#choosing-a-payload-type)); a
 //! hand-written `Eq` admitting NaN has declared its NaNs equal. A control
 //! item's or frame's byte count is the observed item's length and a
@@ -46,7 +46,7 @@
 use std::{collections::BTreeMap, fmt::Write as _};
 
 use crate::observe::Role;
-use cbor_diag::{DataItem, IntegerWidth};
+use cbor_diag::{DataItem, IntegerWidth, Simple};
 
 use crate::tree::mirror::cbor::{
     self, MAJOR_ARRAY, MAJOR_TAG, MAJOR_TEXT, MAJOR_UINT, TAG_CBOR_SEQUENCE, TAG_EMBEDDED_ITEM,
@@ -275,11 +275,7 @@ fn render_item(item: &[u8], out: &mut String) {
         Err(error) => return fallback(item, &error.to_string(), out),
     };
     if parsed.to_bytes() != item {
-        return fallback(
-            item,
-            "re-encodes differently: an ill-formed simple value or non-canonical float bits",
-            out,
-        );
+        return fallback(item, "re-encodes differently", out);
     }
     match canonical(&parsed, cbor_diag::DEFAULT_DEPTH_LIMIT) {
         Ok(()) => writeln!(out, "{}", parsed.to_diag_pretty()).unwrap(),
@@ -290,11 +286,12 @@ fn render_item(item: &[u8], out: &mut String) {
 /// Check that a parsed item is canonical wherever the notation would
 /// not show a difference.
 ///
-/// Every head the printer spells without a width indicator (string
-/// lengths, container counts) must be at its shortest width, every
-/// container definite, text free of control characters, and every
-/// embedded item (tags 24 and 63) canonical and re-encoding to its
-/// bytes.
+/// Every head must be at its shortest width (only string and container
+/// heads need it for injectivity, since the printer spells the others
+/// with a width indicator), every container definite, every simple
+/// value well-formed, no float a NaN, text free of control characters,
+/// and every embedded item (tags 24 and 63) canonical and re-encoding
+/// to its bytes.
 ///
 /// The walk mirrors the printer's depth budget: `remaining` counts down
 /// one per level, embedded content is parsed with what is left, and a
@@ -347,9 +344,17 @@ fn canonical(item: &DataItem, remaining: usize) -> Result<(), String> {
             }
             canonical(value, remaining)
         }
-        // Floats carry their width indicator and simple values their
-        // number; the re-encoding check covers what the notation cannot.
-        DataItem::Float { .. } | DataItem::Simple(_) => Ok(()),
+        // The parser and encoder are bit-exact on floats, so a NaN's
+        // sign and payload bits survive re-encoding while the printer
+        // writes a bare `NaN`; every NaN is rejected outright.
+        DataItem::Float { value, .. } if value.is_nan() => {
+            Err("NaN, whose sign and payload bits the notation cannot spell".into())
+        }
+        DataItem::Float { .. } => Ok(()),
+        // Simple values 24 through 31 have no well-formed spelling; the
+        // parser accepts their two-byte form and re-encodes it verbatim.
+        DataItem::Simple(Simple(24..=31)) => Err("ill-formed simple value".into()),
+        DataItem::Simple(_) => Ok(()),
     }
 }
 

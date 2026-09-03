@@ -118,6 +118,32 @@ fn ill_formed_simple_values_fall_back() {
     assert_eq!(first[1], "h'82f814f4'");
 }
 
+/// Every NaN falls back to hex, so two NaNs differing only in the sign
+/// bit render distinctly, while a finite float renders in notation.
+///
+/// The parser and encoder are bit-exact on floats, so the re-encoding
+/// check alone would pass both.
+#[test]
+fn nans_fall_back() {
+    let positive = rendered(&[0xfb, 0x7f, 0xf8, 0, 0, 0, 0, 0, 0]);
+    let negative = rendered(&[0xfb, 0xff, 0xf8, 0, 0, 0, 0, 0, 0]);
+    assert!(positive[0].contains("NaN"), "{positive:?}");
+    assert_eq!(positive[1], "h'fb7ff8000000000000'");
+    assert_eq!(negative[1], "h'fbfff8000000000000'");
+    assert_eq!(rendered(&[0xf9, 0x3c, 0x00]), ["1.0_1"]);
+}
+
+/// The two-byte spelling of a simple value in 24 through 31 (`f8 18`)
+/// is not well-formed CBOR and falls back to hex; the parser accepts it
+/// and re-encodes it verbatim, so the walk rejects it by value.
+#[test]
+fn simple_values_without_a_well_formed_spelling_fall_back() {
+    let out = rendered(&[0xf8, 0x18]);
+    assert!(out[0].contains("ill-formed simple value"), "{out:?}");
+    assert_eq!(out[1], "h'f818'");
+    assert_eq!(rendered(&[0xf8, 0x20]), ["simple(32)"]);
+}
+
 /// A text string holding a control character falls back to hex, so a
 /// payload cannot forge a header.
 ///
