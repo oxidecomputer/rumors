@@ -91,3 +91,12 @@ Each entry: where it came from, what it is, which lane's brief carries it
   `read_bits(pos, n)`. The alternative is to narrow `read_bits` to
   "read to the end", dissolving the arm and the internal-entry test.
   Route: `p6-codec`.
+- **The tag-pair read has siblings the tagwalk lane did not convert**:
+  the same two-bit tag is read as two `bit` calls at
+  `party/ops/index.rs:81, 101, 201`, `party/ops/diff.rs:313, 353`,
+  `party/ops/split.rs:48`, `version/skyline/grow.rs:296`, and the skip
+  probe closure has verbatim siblings at `diff.rs:364` and
+  `grow.rs:303`; single-bit sequential loops at `codec/buf.rs:354,
+  366`, `codec/build.rs:185`, `version/skyline/encode.rs:34`,
+  `version/skyline/fill.rs:1090`. Each is a fixed-sign candidate for
+  the same measure-at-parent discipline. Route: `p8-performance`.
