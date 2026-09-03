@@ -36,8 +36,9 @@
 //!
 //! The counters are process-global, so per-scenario readings are meaningful
 //! only under nextest's process-per-test isolation, this workspace's
-//! runner. Without a counter's feature the scenarios still run and assert
-//! the columns that are compiled in.
+//! runner. The binary builds only with the `limb-meter` and `scan-meter`
+//! features (`required-features` in the crate manifest), so every column
+//! is always compiled in.
 //!
 //! # The pin convention
 //!
@@ -401,9 +402,8 @@ struct Column {
     unit: &'static str,
     /// Reset the counter before the scenario body.
     reset: fn(),
-    /// Read the counter after the body, or `None` when its feature is not
-    /// compiled in.
-    read: fn() -> Option<u64>,
+    /// Read the counter after the body.
+    read: fn() -> u64,
     /// The row's pin for this column.
     pin: fn(&Envelope) -> Bound,
     /// The row's pin for this column, writable (the harness self-test's
@@ -416,86 +416,28 @@ const COLUMNS: [Column; 3] = [
     Column {
         key: "limb_ops",
         unit: "limb operations",
-        reset: reset_limb_ops,
-        read: limb_ops,
+        reset: meter::reset_limb_ops,
+        read: meter::limb_ops,
         pin: |env| env.limb,
         pin_mut: |env| &mut env.limb,
     },
     Column {
         key: "touches",
         unit: "accumulator digit touches",
-        reset: reset_touches,
-        read: touches,
+        reset: suanpan::touch_meter::reset,
+        read: suanpan::touch_meter::touches,
         pin: |env| env.touch,
         pin_mut: |env| &mut env.touch,
     },
     Column {
         key: "scan_bits",
         unit: "scanned bits",
-        reset: reset_scan_bits,
-        read: scan_bits,
+        reset: meter::reset_scan_bits,
+        read: meter::scan_bits,
         pin: |env| env.scan,
         pin_mut: |env| &mut env.scan,
     },
 ];
-
-/// Reset the limb counter; nothing to reset without the `limb-meter`
-/// feature.
-fn reset_limb_ops() {
-    #[cfg(feature = "limb-meter")]
-    meter::reset_limb_ops();
-}
-
-/// The limb counter, or `None` without the `limb-meter` feature.
-fn limb_ops() -> Option<u64> {
-    #[cfg(feature = "limb-meter")]
-    {
-        Some(meter::limb_ops())
-    }
-    #[cfg(not(feature = "limb-meter"))]
-    {
-        None
-    }
-}
-
-/// Reset the accumulator touch counter; nothing to reset without the
-/// `limb-meter` feature.
-fn reset_touches() {
-    #[cfg(feature = "limb-meter")]
-    suanpan::touch_meter::reset();
-}
-
-/// The accumulator touch counter, or `None` without the `limb-meter`
-/// feature.
-fn touches() -> Option<u64> {
-    #[cfg(feature = "limb-meter")]
-    {
-        Some(suanpan::touch_meter::touches())
-    }
-    #[cfg(not(feature = "limb-meter"))]
-    {
-        None
-    }
-}
-
-/// Reset the scan counter; nothing to reset without the `scan-meter`
-/// feature.
-fn reset_scan_bits() {
-    #[cfg(feature = "scan-meter")]
-    meter::reset_scan_bits();
-}
-
-/// The scan counter, or `None` without the `scan-meter` feature.
-fn scan_bits() -> Option<u64> {
-    #[cfg(feature = "scan-meter")]
-    {
-        Some(meter::scan_bits())
-    }
-    #[cfg(not(feature = "scan-meter"))]
-    {
-        None
-    }
-}
 
 /// Run one scenario body under every meter and assert its envelope.
 ///
@@ -514,9 +456,7 @@ fn metered<R>(name: &str, input_bytes: usize, env: &Envelope, f: impl FnOnce() -
     let readings = COLUMNS.map(|column| (column.read)());
     let mut line = format!("MEASURED {name}: input_bytes={input_bytes} peak_heap={peak_heap}");
     for (column, reading) in COLUMNS.iter().zip(readings) {
-        if let Some(reading) = reading {
-            write!(line, " {}={reading}", column.key).expect("a String write cannot fail");
-        }
+        write!(line, " {}={reading}", column.key).expect("a String write cannot fail");
     }
     eprintln!("{line}");
     assert!(
@@ -525,9 +465,6 @@ fn metered<R>(name: &str, input_bytes: usize, env: &Envelope, f: impl FnOnce() -
         env.peak_heap,
     );
     for (column, reading) in COLUMNS.iter().zip(readings) {
-        let Some(reading) = reading else {
-            continue;
-        };
         let bound = (column.pin)(env);
         assert!(
             reading <= bound.ceiling,
@@ -604,9 +541,6 @@ fn harness_judges_every_column() {
     };
     assert!(fails(&closed), "a zero heap ceiling must fail the probe");
     for (column, reading) in COLUMNS.iter().zip(readings) {
-        let Some(reading) = reading else {
-            continue;
-        };
         assert!(
             reading > 0,
             "the probe body must move the {} counter",
@@ -1551,7 +1485,6 @@ fn skyline_validate_alt_spine_envelope() {
 ///
 /// The known-bad validators do less work than the row, so every ceiling
 /// passes them and only a floor can catch them.
-#[cfg(feature = "scan-meter")]
 #[test]
 fn stopped_validator_fails_the_validate_row() {
     let whole = skyline_of(&Shape::Dense.packed1(DENSE_DEPTH));

@@ -124,6 +124,16 @@ required-features = ["limb-meter", "scan-meter"]
 name = "code_study"
 required-features = ["meter"]
 
+# The envelope suite pins limb, touch, and scan columns; built without the
+# counter features every one of those cells would judge nothing. Requiring
+# the features makes an explicit `--test meter` without them a loud cargo
+# error naming them, while blanket `check`, `clippy --tests`, and
+# `nextest --workspace` runs skip the target; `just test` passes the
+# features for the package so the inner loop runs the suite.
+[[test]]
+name = "meter"
+required-features = ["limb-meter", "scan-meter"]
+
 [[bench]]
 name = "party"
 harness = false
