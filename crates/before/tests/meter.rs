@@ -71,7 +71,8 @@
 //!   decided only at the last unary node), scans each at least once, less
 //!   the tail the floor's definition allows past a decision. An improvement
 //!   can approach but never cross it, so a trip means the work left the
-//!   metered primitives.
+//!   metered primitives; on a row whose walk also writes, the counter
+//!   holds those writes too, and the floor attests total bypass alone.
 //!
 //! Both genres detect total bypass, not partial rerouting: work routed
 //! around the metered primitives in part still reads green.
@@ -269,7 +270,12 @@ enum Floor {
     ///
     /// The floor is `8 × input_bytes` minus, per operand stream, at most
     /// one byte of padding and `tail_bits` the walk may leave unread once
-    /// its verdict is decided. A trip means the work left the metered primitives. Only for a row
+    /// its verdict is decided. A trip means the work left the metered
+    /// primitives. The scan counter counts the builder's writes and splices
+    /// as well as reads, so on a row whose walk also writes (`ID_JOIN`,
+    /// `ID_WITHOUT`) the floor attests total bypass, not that the reads
+    /// stayed metered; on a read-only row (the validators, the decoders,
+    /// `ID_COVERS`, `ID_DISJOINT`) it attests the reads. Only for a row
     /// whose `input_bytes` is the byte length of exactly the streams the
     /// walk reads, and whose walk must read them by contract (a strict
     /// validator or decoder: `tail_bits` 0), by construction (an id walk
