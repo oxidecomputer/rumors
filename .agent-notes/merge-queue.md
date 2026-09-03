@@ -193,6 +193,14 @@ lanes have closed.
 
 ## Announcements
 
+- rumors: `p1-collision-mode` (in its final review round at `71d7a498`)
+  merges after before's `p1-fuzz` (refit tip `d0c14638`; calibration
+  landed, its three review rounds and packet outstanding; before orders
+  it after `p1-gate` and `p8-tagwalk`), since the collision recipe's
+  `wasm` stream reads red on the fuel band until the refit lands. The
+  twelfth fuel-band seed (`cc a072497c…`, from the vanish lane's gate)
+  is in before's sentry set.
+
 - before: `before/p1-fuzz` (child of p1-gate, via p8-tagwalk) adds a
   `fuzz-replay` recipe to the justfile, to the gate's `fuzz` stream and
   to `ci`, and a clippy line in `fuzz-build`; no other root file.
