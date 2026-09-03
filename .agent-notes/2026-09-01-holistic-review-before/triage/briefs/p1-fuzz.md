@@ -354,3 +354,18 @@ the contract.
   meaning. Any pin whose outcome changes for a reason other than the
   planted construction is a stop.
 - No `just fuzz` smoke, no bench, no wall-time measurement in this lane.
+
+## Coordinator handoffs (recorded during the P2 lanes)
+
+- The fuzz crate's unit tests (`crates/before/fuzz/src/tests.rs`, the
+  heap-cap judge added by `p2-widths` under fuzz-guests-pins-15) are run
+  by no recipe, and libFuzzer has no illumos port, so they cannot run on
+  the box. This lane's ruling-15 legs (the seed-replay leg and the clippy
+  leg) gain a third: the fuzz crate's unit tests under nextest, one
+  process per test (the tests read the process-global peak allocator),
+  declared local-only beside the fuzz build with the same platform
+  reason, and shown red-first on a planted failure like the other two.
+- `p2-widths` added `call1_with_panic` to the `wasm32-pins` harness (a
+  guest hook and two accessors reading a recorded panic message after a
+  trap). Ruling 17's discriminator is the same mechanism: fold it in
+  rather than adding a second channel.
