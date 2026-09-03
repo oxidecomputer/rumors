@@ -273,7 +273,7 @@ fn a_depth_error_cancels_the_whole_batch() {
         .expect_err("the second send exceeds the limit");
     assert!(
         matches!(error, rumors::EncodeError::Depth { limit: l } if l == limit),
-        "the rejection is the typed depth case naming the limit: {error:?}"
+        "the rejection is the depth case naming the limit: {error:?}"
     );
     assert_eq!(
         rumors.snapshot().len(),
@@ -332,7 +332,7 @@ fn send_all_commits_nothing_when_a_message_is_rejected() {
         .expect_err("the third message exceeds the limit");
     assert!(
         matches!(error, rumors::EncodeError::Depth { limit: l } if l == limit),
-        "the rejection is the typed depth case naming the limit: {error:?}"
+        "the rejection is the depth case naming the limit: {error:?}"
     );
     assert_eq!(
         rumors.snapshot().len(),

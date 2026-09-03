@@ -7,7 +7,7 @@ use super::{
     floor_start, streaming_mirror_sides,
 };
 use crate::testing::run_to_quiescence;
-use crate::tree::arb::arb_divergent_pair;
+use crate::tree::arb::arb_wide_divergent_pair;
 use crate::tree::mirror::streaming::window::WindowConfig;
 use crate::tree::mirror::{
     Error as MirrorError,
@@ -205,9 +205,13 @@ proptest! {
 
     /// Every reached materialized backend failure terminates the session and
     /// survives sibling cancellation with its exact operation identity.
+    ///
+    /// The wide generator is what puts failures on the response-stream
+    /// path: a stage loop explodes nodes only under disputed scopes, and
+    /// the small generator's few leaves rarely collide into one.
     #[test]
     fn materialized_backend_failures_are_fail_fast(
-        (client_root, server_root) in arb_divergent_pair(),
+        (client_root, server_root) in arb_wide_divergent_pair(),
         operations in 0usize..32,
         fail_client in any::<bool>(),
         schedule in proptest::collection::vec(0_u8..=2, 0..128),

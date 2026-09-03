@@ -51,8 +51,8 @@ fn a_payload_at_the_default_depth_round_trips() {
     );
 }
 
-/// One step past the limit is rejected at send with the typed depth
-/// error — at the author, at the moment of choice — and nothing is
+/// One step past the limit is rejected at send with the depth
+/// error, at the author, at the moment of choice, and nothing is
 /// stored, so no session can ever wedge on it.
 #[test]
 fn one_step_past_the_limit_is_rejected_at_send() {
@@ -62,7 +62,7 @@ fn one_step_past_the_limit_is_rejected_at_send() {
         .expect_err("one step past the limit is rejected");
     assert!(
         matches!(error, rumors::EncodeError::Depth { limit } if limit == DEFAULT_PAYLOAD_DEPTH_LIMIT),
-        "the rejection is the typed depth case naming the limit: {error:?}"
+        "the rejection is the depth case naming the limit: {error:?}"
     );
     assert_eq!(rumors.snapshot().len(), 0, "a rejected send stores nothing");
 }
@@ -109,7 +109,7 @@ fn the_deepest_admissible_enum_round_trips() {
 }
 
 /// An enum payload whose own decode needs one step past the limit is
-/// rejected at send with the typed depth error, and nothing is stored:
+/// rejected at send with the depth error, and nothing is stored:
 /// the author learns at the moment of choice, and no receiver can ever
 /// see the value.
 #[test]
@@ -120,7 +120,7 @@ fn an_enum_needing_one_step_past_the_limit_is_rejected_at_send() {
         .expect_err("a decode needing limit + 1 is rejected");
     assert!(
         matches!(error, rumors::EncodeError::Depth { limit } if limit == DEFAULT_PAYLOAD_DEPTH_LIMIT),
-        "the rejection is the typed depth case naming the limit: {error:?}"
+        "the rejection is the depth case naming the limit: {error:?}"
     );
     assert_eq!(rumors.snapshot().len(), 0, "a rejected send stores nothing");
 }

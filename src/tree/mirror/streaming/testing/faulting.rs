@@ -221,6 +221,13 @@ where
                 reply.replies.push(message::Reaction::Query(Vec::new()));
             }
             Violation::UnexpectedSupply => {
+                // Ahead of the honest reply, at radix 0, which assumes the
+                // fan the corrupted reply answers holds radix 0 as its
+                // first child: `full_depth_comb_pair`'s spine does at
+                // every scope the connected suite's step range reaches.
+                // At a fan whose first child is higher, a radix-0 supply
+                // is a legal sibling mid-walk, and at the opening it is
+                // out of order (`InvalidSupply`) rather than held.
                 reply.replies.insert(0, message::Reaction::Supply(0, B::node::<H>()));
             }
             Violation::InvalidSupply => {
@@ -228,7 +235,12 @@ where
                 // assumes no fixture holds that child (as the escape below
                 // does): at the opening, where no honest reaction precedes
                 // the corruption to place it out of order, a held radix
-                // would be rejected as `UnexpectedSupply` instead.
+                // would be rejected as `UnexpectedSupply` instead. The
+                // first copy is absorbed before the duplicate fires, so
+                // the receiver's ledger must have one leaf of slack under
+                // the corrupting side's declared set length: every fixture
+                // declares its true length, and the receiver absorbs at
+                // most that side's exclusive leaves ahead of this one.
                 let node = B::node::<H>();
                 reply.replies.push(message::Reaction::Supply(0xff, node.clone()));
                 reply.replies.push(message::Reaction::Supply(0xff, node));

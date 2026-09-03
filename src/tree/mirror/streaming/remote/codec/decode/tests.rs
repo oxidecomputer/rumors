@@ -1242,7 +1242,7 @@ proptest! {
             (stream, Frame::Reaction(Reaction::Supply(expected), flow))
         );
 
-        // Past the budget: typed rejection naming the frame and the budget.
+        // Past the budget: a rejection naming the frame and the budget.
         let over = RunBudget::from_bytes(wire_size.saturating_sub(deficit));
         let error = decode_both(speaker, over, &encoded).expect_err(
             "undetected over-budget batching: a multi-record frame past the \
@@ -1474,7 +1474,7 @@ fn an_over_deep_supplied_payload_dies_typed_at_ingress() {
     };
     let codec = PayloadCodec::new::<Arr>(limit);
 
-    // One scope past the limit: typed rejection at the record iterator.
+    // One scope past the limit: a rejection at the record iterator.
     let over = record_with_payload(&deep_payload(limit.get() as usize + 1));
     let run = LeafRun::from_encoded(raw_record(&over)).unwrap();
     let error = run.records(codec).next().unwrap().unwrap_err();

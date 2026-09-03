@@ -290,7 +290,7 @@ fn positional_reaction_in_opening_supplies_is_rejected() {
 }
 
 /// Every semantic opening shape is either the canonical query-then-supplies
-/// form or its exact typed rejection.
+/// form or its exact rejection.
 #[test]
 fn opening_rejections_are_exhaustive() {
     let empty = Reply::<<Local as Backend>::Erased> {

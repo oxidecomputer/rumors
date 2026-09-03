@@ -95,7 +95,7 @@ fn fragmented_exchange_is_symmetric() {
 /// place.
 ///
 /// The two defined values are accepted, other small uint items are the
-/// typed intent rejection, and bytes that are no one-byte uint item at
+/// intent rejection, and bytes that are no one-byte uint item at
 /// all are the malformed-preamble class.
 #[test]
 fn intent_byte_space_is_exhaustive() {
@@ -120,7 +120,7 @@ fn intent_byte_space_is_exhaustive() {
 }
 
 /// A peer that closes the connection at any point inside the preamble
-/// surfaces a typed truncation, never a hang and never a partial decode.
+/// surfaces the truncation error, never a hang and never a partial decode.
 ///
 /// Every strict prefix of the fixed item is a structurally distinct
 /// truncation, so the whole prefix space is swept, each cut resolving to
@@ -156,7 +156,7 @@ fn every_truncation_boundary_is_typed() {
                 );
             }
             other => {
-                panic!("cut after {cut} bytes must be a typed truncation, got {other:?}")
+                panic!("cut after {cut} bytes must be the truncation error, got {other:?}")
             }
         }
     }
@@ -179,14 +179,14 @@ fn magic_mismatch_is_diagnosed_first() {
             &result,
             Err(Error::MagicMismatch { remote_magic }) if remote_magic == b"SROMUR",
         ),
-        "expected the magic's typed rejection, got {result:?}",
+        "expected the magic's rejection, got {result:?}",
     );
 }
 
 /// A wrong wire version is diagnosed before the semantic fields.
 ///
 /// With a correct opening but a foreign version, the item's (invalid)
-/// intent must never be reached: the typed rejection is
+/// intent must never be reached: the rejection is
 /// [`Error::VersionMismatch`] carrying the remote's declared version, so a
 /// dialect skew is reported as such rather than as a garbled body.
 #[test]
@@ -203,7 +203,7 @@ fn version_mismatch_is_diagnosed_before_intent() {
                 local_protocol: Protocol::V2,
             }),
         ),
-        "expected the version's typed rejection",
+        "expected the version's rejection",
     );
 }
 
@@ -333,7 +333,7 @@ fn widened_version_spelling_is_the_version_defect() {
     );
 }
 
-/// A network item that is not a 16-byte byte string is the typed network
+/// A network item that is not a 16-byte byte string is the network
 /// defect: a byte-string head declaring 17 bytes fails the length filter,
 /// and the defect names the network field.
 #[test]
