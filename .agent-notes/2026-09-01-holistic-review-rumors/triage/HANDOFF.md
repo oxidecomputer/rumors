@@ -33,14 +33,14 @@ the fast-forward (WORKFLOW.md's merge step).
    (decrement at header arrival; two tests; prose); landed at
    `db616f70` (unsigned from `f3105224` on); final verification (runner
    `ad7cb42de7506727b`) and fresh-eyes round 2 (`a8b49e3a5d4f5745c`)
-   done; round-2 repairs with the lane, then T167's re-scope on top
-   (adapter-owned per-link pooling; `Dial` is `dial` alone; evidence in
-   `triage/notes/pooling-shape-d.md`). When that sha lands: launch the
-   commissioned sush patch agent (a draft diff against
-   `oxidecomputer/sush` compiled on the box against the branch, with
-   the reasoning versus qorb and tests; delivered beside the packet,
-   never applied to sush), then the final verification and the packet.
-   One stop left: the bound's justification wording.
+   done; round 2 and T167's shape (d) landed at `398b77f2` (adapter-owned
+   per-link pooling; `Dial` is `dial` alone; `Config::pooling`; gate
+   clean under the mutex; evidence `triage/notes/pooling-shape-d.md`).
+   Final verification (runner `ad7cb42de7506727b`, `coordinator/verify-link-3/`)
+   and the third fresh-eyes read (`af556f9cc68298f4f`) running; the
+   commissioned sush patch agent (`a4e36f261a9b926d5`) drafts the diff
+   and report under `coordinator/sush-eval/` (never applied to sush).
+   Packet after; one stop left: the bound's justification wording.
 2. **p2-commit-path** (`/Users/oxide/src/rumors-p2-commit-path`,
    base `main` at `030e1b5c`): T34, T36, T38, T39, T42; tip
    packet ready: `14d0d5fb` on the branch, code tip `5a4559e1` (T166
@@ -67,11 +67,14 @@ the fast-forward (WORKFLOW.md's merge step).
    prefixes); round 1 landed at `e951b81e` (commits unsigned: the
    signing agent was locked; the merge rebase re-signs); second
    verification (runner `a5dbbd85bcd91a070`) and fresh-eyes round 2
-   (`ab9be4c4467ec3094`) running; the second pass verified in full
-   (`coordinator/verify-collision/r2/`). T164 item 2 (a hand-run sweep
-   recipe with a 31-byte seed) is with the lane; a new stall
-   (`duplicated_reply_is_rejected_as_unasked`) joins the deep-geometry
-   lane's roster (that lane was told).
+   done; round 2 and T164's sweep recipe landed at `71d7a498` (unsigned;
+   the gate's `wasm` stream red on before's fuel band with a committed
+   seed, `75b17b36`, which merges after before's fuzz refit); third
+   verification (runner `a5dbbd85bcd91a070`, `coordinator/verify-collision/`)
+   and the final read (`a8a6207f6d25e4d01`) running; packet after. New
+   findings: the pipelining hop budget fails under deep geometry (347
+   hops against 24), a load-dependent residue seed (deep-geometry's fix),
+   mutex fairness.
 5. **p1-proptest-ci** (`/Users/oxide/src/rumors-p1-proptest-ci`, base
    `a07827ed`): T148, T151, T157; tip `a34859ed`; not yet verified by a
    runner. The CI count is ruled (T164 item 3): 256 until `p1-generators`
@@ -80,7 +83,11 @@ the fast-forward (WORKFLOW.md's merge step).
    on `a34859ed`): T161; landed at `9903be30` (six commits, unsigned;
    agent `a15e73d787b3d0171`, scratchpad `p1-generators/`); verification
    (runner `afb3290efc3f7875e`, `coordinator/verify-generators/`) and
-   fresh-eyes round 1 (`a7cabd3f0b98e19ef`) running; packet meta drafted.
+   fresh-eyes round 1 (`a7cabd3f0b98e19ef`) done: repairs sent (per-rule
+   lint roots, decoupled seeds promoted to unit regressions, the fold
+   construction at minimum-1 sets, a tripwire liveness leg, three more
+   spellings, prose); a repair sha and a second pass are expected;
+   packet meta drafted.
    Merge order: its last commit (the zero budgets, `9903be30`) waits for
    `before/p2-generators`; the five sweep commits do not. Stops in the
    meta (fail-fast; the widened `partition.rs` population; the asserted
