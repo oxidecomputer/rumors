@@ -2,7 +2,7 @@
 
 # Triage landing status
 
-Updated: 2026-09-03 02:41 UTC by the before session (rumors-74).
+Updated: 2026-09-03 02:45 UTC by the rumors session.
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
 
@@ -16,7 +16,7 @@ Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not st
 ## Waiting on Finch
 
 - Review: the `p2-link` packet (branch `triage/p2-link`, packet commit `4a7baddb`, rendered HTML opened in the browser); merge on your word.
-- Open stops: none from before. Rumors: seven P3 questions and twelve P4 items (`triage/briefs/README.md`, both "Open before launch" sections; each with a recommendation in the coordinator's message of 2026-09-03); the collision mode's four questions (T23) and the CI `PROPTEST_CASES` number arrive with their lanes' reports.
+- Open stops: none from before. Rumors: the P3 and P4 launch questions are ruled (T158, T159); the collision mode's four questions (T23) and the CI `PROPTEST_CASES` number arrive with their lanes' reports; the commit-path packet will carry three judgment calls from its fresh-eyes round (the ceiling on an all-skipped key, the unwind-path wording, one pin of a non-contract).
 
 ## Open items on main
 
@@ -57,7 +57,7 @@ Maintained by the rumors session.
 |---|---|---|
 | p1-swarm, p1-conformance, p1-memwatch, p1-gate, p2-codec, p1-renderer, p1-harness-tests, p1-harness-crate, p2-walk, p1-causality | merged | see the queue's Merged section for shas and root files |
 | p2-link | packet ready | rebased onto main (`7aa2b9a1`), tip compiled and its suites green on the box; packet `4a7baddb`; both stops ruled (T152, T156) |
-| p2-commit-path | in review | all six entries landed, lane reported; rebased onto main (`3447206f`); acceptance verification and fresh-eyes round 1 running; p2-peer launches after it merges |
+| p2-commit-path | in review | rebased tip `3447206f` failed the pre-merge compile (five call sites from main at the old `act` arity); repair and round-1 fresh-eyes items with the lane agent, one gate to follow; p2-peer launches after it merges |
 | p1-proptest-ci | running | no `cases` anywhere (T151), check workspace-wide; CI release-profile job with a measured `PROPTEST_CASES` (the number is a stop for Finch) |
 | p2-vanish-liveness | running | T145 as widened by T154 |
 | p1-collision-mode | running | T23; four open questions are stops for Finch |
