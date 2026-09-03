@@ -373,6 +373,11 @@ impl Wake for WakeFlag {
 /// this detector from within a Tokio task cannot turn a scheduler yield into a
 /// false deadlock report.
 pub fn run_to_quiescence<F: Future>(future: F) -> Result<F::Output, Quiescence> {
+    // Sized from the deepest closed-world run the suites drive, the whole
+    // link conformance suite at one-byte windows, which completes in about
+    // forty thousand polls (the next deepest runs in about fifteen
+    // thousand): over twenty times that, so a legitimate long session is
+    // never misreported as a runaway. Re-measure before lowering it.
     const MAX_POLLS: usize = 1_000_000;
 
     let wake = Arc::new(WakeFlag(AtomicBool::new(true)));
@@ -414,6 +419,21 @@ mod tests {
             run_to_quiescence(std::future::pending::<()>()),
             Err(Quiescence::Stalled),
         );
+    }
+
+    /// A future that self-wakes on every poll without ever completing
+    /// exhausts the poll budget and is reported as such, not as a stall.
+    ///
+    /// The budget is the poller's second failure signal: without this
+    /// demonstration, a loop made unbounded, or a guard returning
+    /// `Stalled`, would pass every test that never runs away.
+    #[test]
+    fn runaway_self_waking_exhausts_the_poll_budget() {
+        let runaway = std::future::poll_fn(|cx: &mut Context<'_>| {
+            cx.waker().wake_by_ref();
+            Poll::<()>::Pending
+        });
+        assert_eq!(run_to_quiescence(runaway), Err(Quiescence::PollBudget));
     }
 
     /// An inherited Tokio task budget cannot masquerade as protocol quiescence.
