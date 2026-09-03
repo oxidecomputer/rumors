@@ -60,6 +60,9 @@ the fast-forward (WORKFLOW.md's merge step).
 6. **p1-generators** (`/Users/oxide/src/rumors-p1-generators`, stacked
    on `a34859ed`): T161; running at handoff (agent
    `a15e73d787b3d0171`, scratchpad `p1-generators/`).
+8. **p1-envelope** (`/Users/oxide/src/rumors-p1-envelope`, from main
+   `0fad870c`): T10 then T43; running at handoff (launched at Finch's
+   word; agent `ad8747469f2495256`; scratchpad `p1-envelope/`).
 7. **p2-deep-geometry** (`/Users/oxide/src/rumors-p2-deep-geometry`,
    stacked on the collision tip `7858b35e`): T162 items 8 and 9;
    running at handoff (agent `a2af8c0d37b66646f`). Its fix to the
@@ -78,8 +81,7 @@ parked agent is woken by SendMessage after its awaited log lands.
 
 ## Not launched
 
-`p1-envelope` (T43; launchable from main; disjoint from every branch
-in flight; asked of Finch for the overnight run), `p2-peer` (after
+`p2-peer` (after
 commit-path merges), the seven P3 lanes (after every P1 and P2 merge;
 T158 rules their questions), the fifteen P4 lanes (T159), P5 on, P9
 last with the `before` triage.

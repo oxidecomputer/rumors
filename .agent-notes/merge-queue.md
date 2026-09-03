@@ -149,6 +149,11 @@ lanes have closed.
 
 ## Announcements
 
+- rumors: `p1-envelope` launched from `0fad870c` (Finch's word,
+  2026-09-03 night); root files: `examples/envelope_sim.rs` deleted,
+  `results/` cleaned, README.md regenerated if the crate doc's envelope
+  figures move; no justfile or ci.yml line (no recipe names the example).
+
 - before: `before/p1-gate` now also touches the root `Cargo.lock` (`bytes`
   1.11.1 to 1.12.1, ruling 114: the lock convergence goes upward to the
   release the fuel bands were calibrated against); one line beyond the
