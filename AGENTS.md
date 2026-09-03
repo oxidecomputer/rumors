@@ -148,17 +148,11 @@ You can leave durable notes and other artifacts of exploration and ideation in
 - `tests/gossip_snapshot.rs` and the `insta` snapshots pin the wire format
   byte-for-byte; re-accept them only after a deliberate protocol change,
   never as an accommodation of drift. Pre-release (no shipped version
-  exists to hold compatible), that means a deliberate, owner-ruled format
-  change, named explicitly in the re-accepting commit. Once the first
+  exists to hold compatible), that means a deliberate, owner-ruled change
+  to the wire format or to the capture renderer's vocabulary, named
+  explicitly in the re-accepting commit. Once the first
   release ships, a format change means a new protocol version, never a
   mutation of a released one.
-  One further sanctioned re-accept class: a renderer-vocabulary change
-  (the capture renderer's decoded annotations gained or reworded, the
-  wire untouched), permitted only with the hex-line-preservation
-  witness — every hexdump line sequence identical to the parent commit,
-  the diff pure annotation additions or rewordings — and the re-accepting
-  commit stating that witness and the renderer-change attribution
-  explicitly.
   To re-accept deliberately: `just test-all`, then `cargo insta review`
   (install: `cargo install cargo-insta`), then commit the updated
   `tests/snapshots/*.snap`. For the bookmark pins (`src/bookmark/format/`),
