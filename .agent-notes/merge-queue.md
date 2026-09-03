@@ -188,6 +188,10 @@ lanes have closed.
 
 ## Announcements
 
+- before: `before/p1-fuzz` (child of p1-gate, via p8-tagwalk) adds a
+  `fuzz-replay` recipe to the justfile, to the gate's `fuzz` stream and
+  to `ci`, and a clippy line in `fuzz-build`; no other root file.
+
 - rumors: `p1-envelope` launched from `0fad870c` (Finch's word,
   2026-09-03 night); root files: `examples/envelope_sim.rs` deleted,
   `results/` cleaned, README.md regenerated if the crate doc's envelope
