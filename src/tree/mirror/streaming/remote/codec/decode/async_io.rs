@@ -206,8 +206,9 @@ struct Arrived {
 }
 
 impl Arrived {
-    /// Type a short delivery by the part left incomplete: a close is a
-    /// truncation, a failure a read error.
+    /// Type a short delivery by the part left incomplete: a close, or a
+    /// failure of kind `UnexpectedEof`, is a truncation; any other failure
+    /// is a read error.
     fn short(self, part: FramePart) -> DecodeErrorKind {
         classify(
             part,

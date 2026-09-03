@@ -389,7 +389,8 @@ fn session_length(a: Root, b: Root) -> usize {
 }
 
 /// A generated pair with its measured session length and a cancellation
-/// point drawn strictly before it, so every case cancels mid-session.
+/// point drawn below it, so every case with a session longer than one
+/// poll cancels mid-session.
 fn arb_cancellation() -> impl Strategy<Value = ((Root, Root), usize, usize)> {
     arb_oracle_pair().prop_flat_map(|(a, b)| {
         let length = session_length(a.clone(), b.clone());
@@ -405,8 +406,10 @@ fn arb_cancellation() -> impl Strategy<Value = ((Root, Root), usize, usize)> {
 /// join oracle.
 /// The poll count is drawn in `1..length`, `length` being the session's
 /// measured poll count, so every case with a session longer than one poll
-/// cancels; the run asserts that some case cancelled after the walk had
-/// built node handles, which is where a cancellation could leak.
+/// cancels.
+///
+/// The run asserts that some case cancelled after the walk had built node
+/// handles, which is where a cancellation could leak.
 #[test]
 fn cancelled_session_leaves_no_residue() {
     let mut runner = proptest::test_runner::TestRunner::new(ProptestConfig {
