@@ -532,3 +532,5 @@ under ruling 98 is ruled `dup` against it.
 ## Ruling 106
 
 `tools/workflowlint` is deleted entirely (the `p1-gate` lane lands it with the roster retirement); the identity-ladder essay in `codec/bits.rs` is deleted once each rung decision is stated at its owning site (`p4-ghosts`).
+
+- `p2-census.md` (ruling 120): the surface census and hand roster dissolve into a `cargo public-api` snapshot; stacked on `p1-fuzz`'s code tip; merges after `p1-fuzz` and `p2-surface`, rebased over both (conflicts resolve toward deletion).
