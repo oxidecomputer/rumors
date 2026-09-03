@@ -28,12 +28,12 @@ the fast-forward (WORKFLOW.md's merge step).
 1. **p2-link** (`/Users/oxide/src/rumors-p2-link`, `triage/p2-link`,
    base `7aa2b9a1`): T44, T45, T156, T160 (per-link admission of
    recovered connections, no configurable pool bound). Verification of
-   `7a31b673` was running (`coordinator/verify-link-3/`); fresh-eyes
+   `7a31b673` holds in full (`coordinator/verify-link-3/`); fresh-eyes
    round 1 found no bugs and one accounting defect, sent as repairs
-   (decrement at header arrival; two tests; prose); a repair sha is
-   expected. Stops for Finch: the release-on-link-end shape against
-   per-peer pools (document; drop the release; or key pools by link),
-   and the bound's justification wording.
+   (decrement at header arrival; two tests; prose) together with T164
+   item 1 (`Dial::recycle` takes the token; the two-links test); a
+   repair sha is expected, then a second verification pass and the
+   packet. One stop left: the bound's justification wording.
 2. **p2-commit-path** (`/Users/oxide/src/rumors-p2-commit-path`,
    base `main` at `030e1b5c`): T34, T36, T38, T39, T42; tip
    `71797970` after two repair rounds; re-verification and a light
@@ -42,25 +42,25 @@ the fast-forward (WORKFLOW.md's merge step).
    key (recommendation: accept, pin whichever direction).
 3. **p2-vanish-liveness** (`/Users/oxide/src/rumors-p2-vanish-liveness`,
    base `9c8ce16c`, rebase onto main is history-only): T145, T154;
-   tip `28ef4341` verified (`coordinator/verify-vanish/`); round-1
-   repairs sent (the watch kept alive after a control byte, abort on
-   deadline, the floor's scope, prose); a repair sha and a second
-   verification pass are expected. Six stops in the meta, including a
+   tip `28ef4341` verified (`coordinator/verify-vanish/`); round 1
+   landed at `e3c5f986` (three of its five commits unsigned by the lock
+   protocol); second verification (runner `a66751731e0dde371`) and
+   fresh-eyes round 2 (`a65349f3b7a1537d6`) running. Six stops in the meta, including a
    `link.rs` sentence drafted for Finch's words.
 4. **p1-collision-mode** (`/Users/oxide/src/rumors-p1-collision-mode`,
    base `d0dcb9f5`): T23, ruled by T162 and re-shaped by T163 (28-byte
    prefixes); round 1 landed at `e951b81e` (commits unsigned: the
    signing agent was locked; the merge rebase re-signs); second
    verification (runner `a5dbbd85bcd91a070`) and fresh-eyes round 2
-   (`ab9be4c4467ec3094`) running. Stops: the census reach (16 at 31
-   bytes, 15/14 at 28), and whether a 31-byte seed stays in a sweep
-   recipe so T162's findings 8 and 9 (which no longer reproduce at 28)
-   stay covered; a new stall (`duplicated_reply_is_rejected_as_unasked`)
-   joins the deep-geometry lane's roster (that lane was told).
+   (`ab9be4c4467ec3094`) running; the second pass verified in full
+   (`coordinator/verify-collision/r2/`). T164 item 2 (a hand-run sweep
+   recipe with a 31-byte seed) is with the lane; a new stall
+   (`duplicated_reply_is_rejected_as_unasked`) joins the deep-geometry
+   lane's roster (that lane was told).
 5. **p1-proptest-ci** (`/Users/oxide/src/rumors-p1-proptest-ci`, base
    `a07827ed`): T148, T151, T157; tip `a34859ed`; not yet verified by a
-   runner. Stop: the CI case count (recommendation 4000 once
-   `p1-generators` lands; 256 meanwhile).
+   runner. The CI count is ruled (T164 item 3): 256 until `p1-generators`
+   merges, then 4000 as a one-line follow-up.
 6. **p1-generators** (`/Users/oxide/src/rumors-p1-generators`, stacked
    on `a34859ed`): T161; running at handoff (agent
    `a15e73d787b3d0171`, scratchpad `p1-generators/`).
