@@ -15,12 +15,11 @@
 # plus the artifacts the gate doesn't reach (the feature matrix, wasm, bench
 # builds, the viz bundle). `all` adds the coverage legs (CI's `coverage`
 # job) and what CI cannot run (the fuzz smoke, the formal tier, the bench
-# judge). Neither sweep repeats the gate's instrument legs — the fuel
-# bands, the board verdicts
-# and pins, and surface totality run in `just gate`, and GitHub CI's
-# `instruments` job re-runs the counter-based subset (the workflow file
-# says which legs stay local and why). The comment above each recipe states
-# what it verifies and why.
+# judge). Neither sweep repeats the gate's instrument legs -- the fuel
+# bands, the board verdicts and pins, and surface totality run in
+# `just gate`, and GitHub CI's `instruments` job re-runs the counter-based
+# subset (the workflow file says which legs stay local and why). The
+# comment above each recipe states what it verifies and why.
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
@@ -180,10 +179,10 @@ doclint:
     ./tools/doclint --self-test
     ./tools/doclint benches crates examples src tests
 
-# tools/testdoc walks the same explicit roots as doclint, never `.`: the
-# repository root can hold untracked trees (other agents' worktrees under
-# `.claude/`) whose state must not move this verdict. The tool's ignore
-# set is the second guard.
+# tools/testdoc checks the Rust files under the five roots doclint walks,
+# minus the directory names its ignore set prunes; it never walks `.`, whose
+# untracked trees (other agents' worktrees under `.claude/`) would otherwise
+# enter the verdict.
 
 # Require every Rust test to document the behavior and invariant it protects.
 testdoc:
@@ -334,7 +333,7 @@ citecheck:
 # re-pins in the same reviewed diff. `--colors=never` pins the captures
 # byte-deterministic: cargo-mutants honors CARGO_TERM_COLOR=always even
 # when piped (CI toolchain actions export it job-wide), and escapes land
-# inside the operator and function fields the roster patterns match — the
+# inside the operator and function fields the roster patterns match -- the
 # checker refuses a colored capture, and this flag is what keeps that
 # refusal from ever firing.
 # Needs cargo-mutants: `cargo install cargo-mutants`.
@@ -411,9 +410,8 @@ fuzz-build:
 # writes a directory nothing else touches — the nightly doctest target,
 # the private-items doc target, the docs.rs doc target, the rustdoc-JSON
 # target, and the detached fuzz/fuzzfit/fuelscape/surfacecheck workspaces
-# — and that is exactly what
-# lets them overlap. `fuzzfit` and `fuelscape-test` share one stream
-# because both build the same wasm guest.
+# -- and that is exactly what lets them overlap. `fuzzfit` and
+# `fuelscape-test` share one stream because both build the same wasm guest.
 #
 # Concurrency multiplies peak memory, not just cores. Nothing here caps
 # memory; how many gates share a machine is the operator's call.
@@ -606,10 +604,10 @@ fuzzfit-build:
 # plus the whole 256-program deterministic prefix judged step by step:
 # the random draws probe novelty, the prefix leg is total). A failure
 # shrinks to a minimal out-of-band shape and writes a proptest seed
-# file — commit any seed that appears. The fmt/clippy lines are the
+# file -- commit any seed that appears. The fmt/clippy lines are the
 # detached workspace's own lint leg (the root `cargo fmt --all`/clippy
 # cannot reach a detached workspace, so without them its source rots
-# invisibly through green gates — the fuelscape and surfacecheck recipes
+# invisibly through green gates -- the fuelscape and surfacecheck recipes
 # carry the same discipline).
 
 # Run the fuzz-fit asymptotics suites against the pinned fuel bands.
@@ -658,7 +656,7 @@ wasm32-pins-build:
 # across nextest's parallel workers. The fmt/clippy lines are the detached
 # workspace's own lint leg (the root `cargo fmt --all`/clippy cannot reach
 # a detached workspace, so without them its source rots invisibly through
-# green gates — the fuzzfit recipes carry the same discipline).
+# green gates -- the fuzzfit recipes carry the same discipline).
 
 # Run the 32-bit boundary pins under wasmtime (minutes; a few GiB of host memory).
 [working-directory("crates/before/wasm32-pins")]
@@ -1005,27 +1003,26 @@ worst-cases-pin:
 # wasm, docs, the full test+doctest run, bench builds, the fuzz-target *build*,
 # and the viz bundle, ordered cheap-first so failures surface early. GitHub
 # CI's `ci` job runs exactly this. Neither `ci` nor `all` runs the gate's
-# instrument legs — the fuel bands, the fuelscape pins, the board's
-# acceptance verdicts and
-# ranking pin, and surface
-# totality run in `just gate` (its recipe line is the
-# roster of record), pre-commit on a developer machine; GitHub CI's
-# `instruments` job re-runs the counter-based subset (board verdicts, the
-# ranking pin, surface totality, and the supply-chain leg) beside
-# the `ci` sweep, leaving the wall-time judge and the wasm fuel tier local.
+# instrument legs -- the fuel bands, the fuelscape pins, the board's
+# acceptance verdicts and ranking pin, and surface totality run in
+# `just gate` (its recipe line is the roster of record), pre-commit on a
+# developer machine; GitHub CI's `instruments` job re-runs the counter-based
+# subset (board verdicts, the ranking pin, surface totality, and the
+# supply-chain leg) beside the `ci` sweep, leaving the wall-time judge and
+# the wasm fuel tier local.
 # CI's `coverage` job carries the two instrumented-coverage legs (the
 # coverage section below): too slow for the gate, judged against the
 # curated kernel pin.
 #
 # `all` is `ci` plus the coverage legs (so the local ladder cannot pass
 # while CI's `coverage` job fails) and what CI cannot run: a short
-# libFuzzer smoke (poor
-# per-commit spend), the formal tier (the runner has no Lean toolchain) —
-# the kernel-checked proofs, the eventdag oracle/schedule gate, and the
-# muxprobe matrix gate — and the bench judge's two legs: the roster-mode
-# judgment (minutes of criterion runs at two scales; quick mode, so its
-# exponents are judged but never quoted) and the seconds-scale live
-# tripwire, so the judge's red path rides every sweep.
+# libFuzzer smoke (poor per-commit spend), the formal tier (the runner has
+# no Lean toolchain) -- the kernel-checked proofs, the eventdag
+# oracle/schedule gate, and the muxprobe matrix gate -- and the bench
+# judge's two legs: the roster-mode judgment (minutes of criterion runs at
+# two scales; quick mode, so its exponents are judged but never quoted)
+# and the seconds-scale live tripwire, so the judge's red path rides every
+# sweep.
 
 # Build everything (no fuzz run): the no-rot sweep as CI runs it.
 ci: fmt-check doclint testdoc workflowlint manifestlint digestshare readme-check fuelscape-claims mutants-list clippy clippy-default features wasm-check docs docs-internal docs-docsrs test-all future-size citecheck doctest bench-build fuzz-build fuelscape-verify viz
@@ -1046,9 +1043,9 @@ all: ci coverage-kernel coverage-kernel-branch (fuzz fuzz_smoke_secs) lean event
 # threshold is a suite that pads covered lines elsewhere; the pin names lines.
 #
 # Sweep legs (`all` and CI's `coverage` job), never gate legs: each run is a
-# full instrumented rebuild plus the whole suite under instrumentation —
-# minutes, not gate seconds. The line leg
-# runs on stable; branch instrumentation needs the pinned nightly (the same
+# full instrumented rebuild plus the whole suite under instrumentation --
+# minutes, not gate seconds. The line leg runs on stable; branch
+# instrumentation needs the pinned nightly (the same
 # toolchain-pin argument as the other nightly legs, and each leg judges only
 # its own toolchain's records — the two map a few regions to different
 # lines). One residual to know when a red arrives: proptest populations draw

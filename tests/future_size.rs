@@ -8,10 +8,10 @@
 //! body as a `Pin<Box<dyn Future>>` (with `Handshaken::reconcile`'s boxed
 //! descent below it) and `Rumors::gossip` and `Peer::retire` await through
 //! it; `bootstrap_reconcile` does the same for `Bootstrap::join`; and
-//! `gossip_when` boxes its unfold, so its stream carries the driver's
-//! in-flight session the same way. Each public future therefore holds one
-//! pointer plus its own locals, in either profile, so the budget is pinned
-//! under the dev profile the gate runs.
+//! `gossip_when`'s stream drives each session through the same boxed
+//! `reconcile`. Each public future therefore holds one pointer plus its
+//! own locals, in either profile, so the budget is pinned under the dev
+//! profile the gate runs.
 //!
 //! Removing one of those outer boxes, or adding a public future that drives
 //! the protocol without one, trips the budget here before downstream crates
@@ -94,8 +94,11 @@ fn bootstrap_future_fits_budget() {
 }
 
 /// `Rumors::gossip_when` returns a stream whose driver keeps a session in
-/// flight between cues; the boxed unfold keeps that session, and the
-/// schedule behind it, off the caller's layout.
+/// flight between cues; that session awaits through
+/// `Reconciliation::reconcile`, so the stream stays flat.
+///
+/// The unfold's own box makes the stream `Unpin` and is not a boundary
+/// this budget protects.
 #[test]
 fn gossip_when_stream_fits_budget() {
     let (mut link, peer) = rumors::link::memory();
@@ -108,8 +111,6 @@ fn gossip_when_stream_fits_budget() {
     assert!(
         size <= PUBLIC_FUTURE_BUDGET,
         "gossip_when stream is {size} bytes, exceeds budget {PUBLIC_FUTURE_BUDGET}; \
-         if a recent change removed the `Box::pin` around `gossip_when`'s \
-         unfold, restore it; otherwise downstream crates will hit \
-         `recursion_limit` overflow",
+         see gossip_future_fits_budget: the erasure is `Reconciliation::reconcile`",
     );
 }

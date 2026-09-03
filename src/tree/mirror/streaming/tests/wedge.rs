@@ -35,8 +35,8 @@ const LEAN_WEDGE_FAN: usize = 7;
 /// satisfies (`Mux.wedge`: `capLevel := 1`; the theorem `Mux.wedge_margin0`).
 const LEAN_WEDGE_CAP_LEVEL: usize = 1;
 
-/// The Lean wedge literal, transcribed scope-for-scope from the Lean
-/// definition `Mux.wedge`, the source of truth.
+/// Transcribes the Lean definition `Mux.wedge`, the source of truth, scope
+/// for scope.
 ///
 /// The transcription is human-checked: whenever either side changes, the
 /// editor reads the twelve scopes here against `Mux.wedge` in

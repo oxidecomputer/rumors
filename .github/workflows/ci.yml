@@ -20,7 +20,8 @@
 #     wasm32-unknown-unknown target for wasm-check and viz) and the dated
 #     nightly per the justfile's `nightly_toolchain` (merged doctests, the
 #     docs.rs rustdoc leg, cargo-fuzz's target build),
-#   - `just`, `cargo-nextest` (just test), `cargo-rdme` (readme-check), and
+#   - `just`, `cargo-nextest` (just test), `cargo-rdme` (readme-check),
+#     `cargo-fuzz` (fuzz-build), `cargo-mutants` (mutants-list), and
 #     `wasm-pack` (viz),
 #   - node + npm for the viz TypeScript typecheck and bundle,
 #   - python3 for the tools/ linters and bash, the justfile's recipe shell
@@ -51,50 +52,54 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Tools first: they are prebuilt binaries needing no toolchain, and
-      # `just` reads the nightly pin below. cargo-rdme carries a version
-      # because it is the only tool here whose output is a committed
-      # artifact compared byte for byte (readme-check holds the READMEs
-      # against what it emits); a floating release could redefine that
-      # expectation with no commit in the repo, so bumping it is a reviewed
-      # diff that re-derives the READMEs in the same commit. The other tools
-      # report findings rather than generate bytes, so they ride the pinned
-      # action's own tool manifest, moving when Dependabot bumps the pin.
-      - name: Install just, cargo-nextest, cargo-rdme, cargo-fuzz, and wasm-pack
+      # `just` reads the nightly pin below. Two tools carry versions because
+      # two committed artifacts depend on them: readme-check holds the
+      # READMEs byte for byte against what cargo-rdme emits, and
+      # mutants-list holds tools/mutantcheck-expected.json to the
+      # cargo-mutants release that listed its counts. A floating release
+      # could redefine either expectation with no commit in the repo;
+      # bumping a pin is a reviewed diff that re-pins its artifact in the
+      # same commit. The other tools report findings rather than generate
+      # bytes, so they ride the pinned action's own tool manifest, moving
+      # when Dependabot bumps the pin.
+      - name: Install just, cargo-nextest, cargo-rdme, cargo-fuzz, cargo-mutants, and wasm-pack
         uses: taiki-e/install-action@37f7c5781271959fb65b6b35224e28652ff2b63d # v2.87.0
         with:
-          tool: just,cargo-nextest,cargo-rdme@2.1.0,cargo-fuzz,wasm-pack
+          tool: just,cargo-nextest,cargo-rdme@2.1.0,cargo-fuzz,cargo-mutants@27.1.0,wasm-pack
 
-      # Each toolchain is pinned in one place: stable in rust-toolchain.toml,
-      # which rustup applies to every bare `cargo` under this checkout;
-      # nightly in the justfile's `nightly_toolchain`, which every nightly
-      # recipe names. This step reads both, and the install steps provision
-      # them by name (the action takes an explicit `toolchain:` input and
-      # reads no toolchain file).
-      - name: Read the toolchain pins
-        id: pins
+      # Stable first, read from rust-toolchain.toml's `channel` (the one site
+      # of that pin) because `just` may evaluate the justfile's `rustc`
+      # backtick before it prints the nightly pin; rustup applies this
+      # toolchain to every bare `cargo` under the checkout whatever the
+      # default is, and the dtolnay action takes an explicit `toolchain:`
+      # input and reads no toolchain file.
+      - name: Read the stable pin
+        id: stable
         run: |
-          stable=$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)
-          nightly=$(just --evaluate nightly_toolchain)
-          if [ -z "$stable" ] || [ -z "$nightly" ]; then
-            echo "pins: toolchain pin not found (stable='$stable', nightly='$nightly')" >&2
-            exit 1
-          fi
-          echo "stable=$stable" >> "$GITHUB_OUTPUT"
-          echo "nightly=$nightly" >> "$GITHUB_OUTPUT"
+          channel=$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)
+          if [ -z "$channel" ]; then echo "stable pin not found in rust-toolchain.toml" >&2; exit 1; fi
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
 
-      # Nightly first, stable last: each step runs `rustup default`, and the
-      # default serves any `cargo` outside the toolchain file's scope.
+      - name: Install the pinned stable toolchain
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
+        with:
+          toolchain: ${{ steps.stable.outputs.channel }}
+          components: clippy, rustfmt
+          targets: wasm32-unknown-unknown
+
+      # The nightly's one site is the justfile's `nightly_toolchain`, which
+      # every nightly recipe names; `just` prints it.
+      - name: Read the nightly pin
+        id: nightly
+        run: |
+          channel=$(just --evaluate nightly_toolchain)
+          if [ -z "$channel" ]; then echo "nightly pin not found in the justfile" >&2; exit 1; fi
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+
       - name: Install the pinned nightly toolchain (merged doctests, docs.rs rustdoc, fuzz build)
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
         with:
-          toolchain: ${{ steps.pins.outputs.nightly }}
-
-      - name: Install the pinned stable toolchain (default)
-        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
-        with:
-          toolchain: ${{ steps.pins.outputs.stable }}
-          components: clippy, rustfmt
-          targets: wasm32-unknown-unknown
+          toolchain: ${{ steps.nightly.outputs.channel }}
 
       # The viz bundle (`just viz`) runs the dependency install (`npm ci`
       # here, where CI=true), a strict TypeScript typecheck, and an esbuild
@@ -151,32 +156,34 @@ jobs:
         with:
           tool: just,cargo-nextest,cargo-audit,cargo-deny
 
-      # The pins, read as in `ci`: only surface-json names the nightly; every
-      # other step runs bare `cargo` under the pinned stable.
-      - name: Read the toolchain pins
-        id: pins
+      # The pins, read as in `ci`, stable first: only surface-json names the
+      # nightly; every other step runs bare `cargo` under the pinned stable.
+      # clippy and rustfmt are for the surfacecheck workspace's own lint
+      # legs, which the surface-totality recipe carries.
+      - name: Read the stable pin
+        id: stable
         run: |
-          stable=$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)
-          nightly=$(just --evaluate nightly_toolchain)
-          if [ -z "$stable" ] || [ -z "$nightly" ]; then
-            echo "pins: toolchain pin not found (stable='$stable', nightly='$nightly')" >&2
-            exit 1
-          fi
-          echo "stable=$stable" >> "$GITHUB_OUTPUT"
-          echo "nightly=$nightly" >> "$GITHUB_OUTPUT"
+          channel=$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)
+          if [ -z "$channel" ]; then echo "stable pin not found in rust-toolchain.toml" >&2; exit 1; fi
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+
+      - name: Install the pinned stable toolchain
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
+        with:
+          toolchain: ${{ steps.stable.outputs.channel }}
+          components: clippy, rustfmt
+
+      - name: Read the nightly pin
+        id: nightly
+        run: |
+          channel=$(just --evaluate nightly_toolchain)
+          if [ -z "$channel" ]; then echo "nightly pin not found in the justfile" >&2; exit 1; fi
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
 
       - name: Install the pinned nightly toolchain (surface-totality rustdoc JSON)
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
         with:
-          toolchain: ${{ steps.pins.outputs.nightly }}
-
-      # clippy and rustfmt are for the surfacecheck workspace's own lint
-      # legs, which the surface-totality recipe carries.
-      - name: Install the pinned stable toolchain (default)
-        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
-        with:
-          toolchain: ${{ steps.pins.outputs.stable }}
-          components: clippy, rustfmt
+          toolchain: ${{ steps.nightly.outputs.channel }}
 
       - name: Cache cargo build artifacts
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -225,31 +232,34 @@ jobs:
         with:
           tool: just,cargo-nextest,cargo-llvm-cov
 
-      # The pins, read as in `ci`: the branch leg names the nightly, the line
-      # leg runs bare `cargo` under the pinned stable. llvm-tools, the
-      # coverage instrumentation's profdata component, is installed on both.
-      - name: Read the toolchain pins
-        id: pins
+      # The pins, read as in `ci`, stable first: the branch leg names the
+      # nightly, the line leg runs bare `cargo` under the pinned stable.
+      # llvm-tools, the coverage instrumentation's profdata component, is
+      # installed on both.
+      - name: Read the stable pin
+        id: stable
         run: |
-          stable=$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)
-          nightly=$(just --evaluate nightly_toolchain)
-          if [ -z "$stable" ] || [ -z "$nightly" ]; then
-            echo "pins: toolchain pin not found (stable='$stable', nightly='$nightly')" >&2
-            exit 1
-          fi
-          echo "stable=$stable" >> "$GITHUB_OUTPUT"
-          echo "nightly=$nightly" >> "$GITHUB_OUTPUT"
+          channel=$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)
+          if [ -z "$channel" ]; then echo "stable pin not found in rust-toolchain.toml" >&2; exit 1; fi
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+
+      - name: Install the pinned stable toolchain
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
+        with:
+          toolchain: ${{ steps.stable.outputs.channel }}
+          components: llvm-tools
+
+      - name: Read the nightly pin
+        id: nightly
+        run: |
+          channel=$(just --evaluate nightly_toolchain)
+          if [ -z "$channel" ]; then echo "nightly pin not found in the justfile" >&2; exit 1; fi
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
 
       - name: Install the pinned nightly toolchain (branch coverage)
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
         with:
-          toolchain: ${{ steps.pins.outputs.nightly }}
-          components: llvm-tools
-
-      - name: Install the pinned stable toolchain (default)
-        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
-        with:
-          toolchain: ${{ steps.pins.outputs.stable }}
+          toolchain: ${{ steps.nightly.outputs.channel }}
           components: llvm-tools
 
       - name: Cache cargo build artifacts

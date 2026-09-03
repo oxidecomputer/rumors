@@ -3,12 +3,12 @@
 //!
 //! It validates, deterministically, that measured slowdowns stay at or
 //! inside the wave form evaluated at the window the real derivation
-//! grants — the quantity the committed trade-off table tabulates.
+//! grants -- the quantity the committed trade-off table tabulates.
 //!
 //! It is a hand-run instrument, in no recipe: every cell drives whole
-//! sessions over the design corpus, seconds per cell in release and several
-//! times that under the gate's dev profile, for a claim that moves only
-//! with the derivation or the wire law. Run it after either moves:
+//! sessions over the design corpus, too slow for the gate, for a claim
+//! that moves only with the derivation or the wire law. Run it after
+//! either moves:
 //!
 //!     cargo nextest run --release --test tradeoff_probe \
 //!         --run-ignored all --no-capture
@@ -188,7 +188,7 @@ fn run_cells<T>(
 /// assertion of record holds the observation at or inside the
 /// solve-derived wave form, in hops.
 #[test]
-#[ignore = "hand-run validation instrument (seconds per cell in release): run explicitly with --run-ignored"]
+#[ignore = "hand-run validation instrument, too slow for the gate: run explicitly with --run-ignored"]
 fn tradeoff_closed_form_validation_run() {
     // m = 9: minimal u64 records (the table's first column; a random
     // u64's CBOR encoding is nine bytes). Targets (denominated in the
