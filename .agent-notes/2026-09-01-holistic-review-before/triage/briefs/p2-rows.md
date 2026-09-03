@@ -452,3 +452,11 @@ board-family work if approved.
   tests drive them at depth, but no cost row does. Add rows on the
   dense spine at the suite's deep scale for each, pinned from a parent
   measurement like every other new row.
+- The meter suite's pins are dev-profile numbers (debug assertions and
+  overflow checks are part of the observer), and the rumors CI job that
+  runs the workspace suites under the release profile found
+  `tick_expand_cross_envelope` red there at any case count. The suite's
+  file doc states the profile its pins hold under, and the suite checks
+  it at entry (`cfg!(debug_assertions)` is the cheapest witness of the
+  dev profile) with a message naming the profile, so a release run fails
+  by name rather than by a moved reading.

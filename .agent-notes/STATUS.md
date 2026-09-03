@@ -2,7 +2,7 @@
 
 # Triage landing status
 
-Updated: 2026-09-03 02:05 UTC by the before session (rumors-74).
+Updated: 2026-09-03 02:16 UTC by the before session (rumors-74).
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
 
@@ -20,7 +20,8 @@ Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not st
 
 ## Open items on main
 
-- `cargo check --locked --workspace --all-targets` (`just check`, default features) fails on main in two places: `src/tree/mirror/streaming/remote/proxy/tests.rs` (the walk lane's rebase over the harness-crate rewrite dropped its imports, its `failing_root` helper, and its failure aliases) and `tests/bookmark_causality.rs` (calls `FaultPlan::is_clean`, deleted by the harness-tests lane before the causality lane rebased). Rumors owns the repair, verifying on the box now; the sha is announced when it lands. Both plans' merge steps now compile the rebased tip (default and all features) before any fast-forward. Workspace-wide `just check` and `just test` read red until the repair lands; before's lanes verify with before-only invocations meanwhile.
+- The default-features `just check` failure (proxy tests, bookmark_causality) is repaired at `9a7e898e`; `just check` reads green workspace-wide.
+- The rumors CI job that runs the suites under the release profile with a large `PROPTEST_CASES` (T148) finds `before::meter tick_expand_cross_envelope` failing under release at any case count: the meter suite's pins are measured under the dev profile (debug assertions and overflow checks are part of the observer), so that job must not run the meter binary, or the suite must state and check the profile its pins hold under. Rumors owns the job's filter; before owns the suite's statement of its profile (carried to `p2-rows`). Failure text pending from the rumors lane.
 
 ## before
 
