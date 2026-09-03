@@ -597,6 +597,12 @@ fn emitted(
     kernel(meter::skyline::view(&a), meter::skyline::view(&b))
 }
 
+/// The rank kernel's answer on a version's skyline stream, built outside
+/// measurement: the identity leg of the public rank rows.
+fn kernel_rank(v: &Version) -> before::Rank {
+    meter::skyline::query::rank(meter::skyline::view(&meter::skyline::encode(v)))
+}
+
 /// Assert a scenario result is consumed, so the operation cannot be
 /// dead-code-eliminated and the walk provably ran to completion.
 fn consumed<T: Debug>(v: T) -> String {
@@ -1252,7 +1258,7 @@ fn decode_alt_spine_envelope() {
 mod rank_env {
     use super::{band, envelope, Envelope};
     pub const RANK_DENSE: Envelope         = envelope( 30_720,           band(4, 2),             band(7, 3), band(937_515, 562_509)); // the depth control: word-scale numerators fold in the accumulator's quick register, so the work columns sit near zero and the heap is the at-rest form
-    pub const RANK_BIGROOT: Envelope       = envelope( 72_005,   band(2_739, 1_643),     band(8_993, 5_395), band(275_023, 165_013)); // the wide-magnitude control: one root-wide decode and one root-wide fold; the segment feed opens only at the first freeze
+    pub const RANK_BIGROOT: Envelope       = envelope( 67_145,   band(2_739, 1_643),     band(8_993, 5_395), band(275_023, 165_013)); // the wide-magnitude control: one root-wide decode and one root-wide fold; the segment feed opens only at the first freeze
     pub const RANK_HARMONIC: Envelope      = envelope( 52_500,   band(2_562, 1_536), band(248_285, 148_971), band(491_530, 294_918)); // the separating family: each level's one-leaf sibling lands at the exponent gap, so touches stay linear in depth and no accumulated numerator is re-shifted
     pub const RANK_PAIR_MISMATCH: Envelope = envelope(234_400, band(87_910, 52_746),             band(0, 0),             band(0, 0)); // class-first cmp decides order in O(1); the limb record is checked_sub's and add's mandatory output content plus the metered exponent-alignment shifts
     pub const RANK_SUM_MIXED: Envelope     = envelope( 78_140,   band(9_769, 5_861),   band(22_268, 13_360),             band(0, 0)); // the raw accumulator: digit-routed summands, one normalization at the end
@@ -1260,7 +1266,8 @@ mod rank_env {
 
 /// The rank fold on the dense spine stays within its envelope (the
 /// control: the spine's numerator stays one bit wide, so the fold's
-/// per-level shifts are word-scale and the walk is linear).
+/// per-level shifts are word-scale and the walk is linear). The rank is
+/// the skyline kernel's, exactly.
 #[test]
 fn rank_dense_envelope() {
     let p = Shape::Dense.packed1(DENSE_DEPTH);
@@ -1268,11 +1275,13 @@ fn rank_dense_envelope() {
     let r = metered("rank_dense", p.bytes.len(), &rank_env::RANK_DENSE, || {
         v.rank()
     });
-    consumed(r);
+    assert_eq!(r, kernel_rank(&v), "the public rank must be the kernel's");
 }
 
 /// The rank fold on the bigroot spine stays within its envelope (the
-/// wide-magnitude control: one root-wide shift, then word-scale work).
+/// wide-magnitude control: the first leaf's magnitude seeds the frozen
+/// component and is read once, in the closing shifted add). The rank is
+/// the skyline kernel's, exactly.
 #[test]
 fn rank_bigroot_envelope() {
     let p = Shape::Bigroot.packed2(BIGROOT_MAGNITUDE_BITS, BIGROOT_DEPTH);
@@ -1283,11 +1292,12 @@ fn rank_bigroot_envelope() {
         &rank_env::RANK_BIGROOT,
         || v.rank(),
     );
-    consumed(r);
+    assert_eq!(r, kernel_rank(&v), "the public rank must be the kernel's");
 }
 
 /// The rank fold on the harmonic spine stays within its envelope — the
-/// fold's separating family, pinned linear.
+/// fold's separating family, pinned linear. The rank is the skyline
+/// kernel's, exactly.
 ///
 /// The accumulated numerator is as wide as the depth already walked at
 /// every level, and the digit-routed merge folds each level's one-leaf
@@ -1302,7 +1312,7 @@ fn rank_harmonic_envelope() {
         &rank_env::RANK_HARMONIC,
         || v.rank(),
     );
-    consumed(r);
+    assert_eq!(r, kernel_rank(&v), "the public rank must be the kernel's");
 }
 
 /// `Rank::cmp` + `checked_sub` + `+` on the mismatched-exponent pair stay
@@ -6112,9 +6122,6 @@ mod accum_streams {
 #[rustfmt::skip]
 mod query_env {
     use super::{band, envelope, Envelope};
-    pub const SKYLINE_RANK_DENSE: Envelope           = envelope( 30_720,            band(4, 2),             band(7, 3),     band(937_515, 562_509)); // the depth control: path bits and near-zero arithmetic; the max_depth pre-scan records each payload skip once, and word-valued payloads keep the work columns near zero
-    pub const SKYLINE_RANK_BIGROOT: Envelope         = envelope( 67_145,    band(2_739, 1_643),     band(8_993, 5_395),     band(275_023, 165_013)); // the wide-magnitude control: the first leaf's magnitude seeds the frozen component and is read once, in the closing shifted add
-    pub const SKYLINE_RANK_HARMONIC: Envelope        = envelope( 52_500,    band(2_562, 1_536), band(248_285, 148_971),     band(491_530, 294_918)); // the separating family: each level's one-leaf delta lands at its own weight; the segment feed opens only at the first freeze
     pub const SKYLINE_RANK_CLIFF: Envelope           = envelope(  2_855,        band(172, 102),     band(6_688, 4_012),       band(35_845, 21_507)); // the live component absorbs the oscillation at O(1) digits per fold; the terminal borrow rides it into one wide add, no freeze
     pub const SKYLINE_RANK_WIDE_TOOTH: Envelope      = envelope(  3_635,  band(29_552, 17_755),   band(24_585, 14_751), band(2_000_960, 1_200_576)); // the no-freeze pin: every fold paid by its tooth's own code; certificate skips replace zero-run walks, and the pre-scan records each payload skip once on this payload-dominated comb
     // The practical-regime gauge: `Version::rank`
@@ -6171,62 +6178,6 @@ mod query_env {
     // product-growth — the laziness the view exists for.
     pub const MASKED_CMP_DRIFT_TRIPLE: Envelope      = envelope(  1_570,          band(59, 35),     band(5_240, 3_144),       band(20_488, 12_292)); // one pass over the overlay, ~2 touches per stored delta
     pub const MASKED_CMP_DRIFT_QUAD: Envelope        = envelope(  2_720,  band(39_722, 23_833),   band(83_946, 50_367),   band(1_342_092, 805_255)); // the sparse comb's wide climb/drop codes dominate the input; scan ~8 bits per input byte
-}
-
-/// The rank kernel on the dense spine's skyline stays within its
-/// envelope (the depth control: 125k levels of path bits, near-zero
-/// arithmetic).
-#[test]
-fn skyline_rank_dense_envelope() {
-    let p = Shape::Dense.packed1(DENSE_DEPTH);
-    let v = version_of(&p);
-    let enc = skyline_of(&p);
-    let r = metered(
-        "skyline_rank_dense",
-        enc.as_raw_slice().len(),
-        &query_env::SKYLINE_RANK_DENSE,
-        || meter::skyline::query::rank(meter::skyline::view(&enc)),
-    );
-    assert_eq!(r, v.rank(), "the kernel must match the packed rank");
-}
-
-/// The rank kernel on the bigroot skyline stays within its envelope (the
-/// wide-magnitude control).
-///
-/// The first leaf's magnitude seeds the frozen component and is read
-/// exactly once, in the closing shifted add against the whole interval.
-#[test]
-fn skyline_rank_bigroot_envelope() {
-    let p = Shape::Bigroot.packed2(BIGROOT_MAGNITUDE_BITS, BIGROOT_DEPTH);
-    let v = version_of(&p);
-    let enc = skyline_of(&p);
-    let r = metered(
-        "skyline_rank_bigroot",
-        enc.as_raw_slice().len(),
-        &query_env::SKYLINE_RANK_BIGROOT,
-        || meter::skyline::query::rank(meter::skyline::view(&enc)),
-    );
-    assert_eq!(r, v.rank(), "the kernel must match the packed rank");
-}
-
-/// The rank kernel on the harmonic spine stays within its envelope — the
-/// rank fold's separating family.
-///
-/// The fold is linear here because each level's one-leaf delta lands in
-/// the accumulator at its own weight instead of re-shifting an
-/// accumulated numerator.
-#[test]
-fn skyline_rank_harmonic_envelope() {
-    let p = Shape::Harmonic.packed1(RANK_HARMONIC_DEPTH);
-    let v = version_of(&p);
-    let enc = skyline_of(&p);
-    let r = metered(
-        "skyline_rank_harmonic",
-        enc.as_raw_slice().len(),
-        &query_env::SKYLINE_RANK_HARMONIC,
-        || meter::skyline::query::rank(meter::skyline::view(&enc)),
-    );
-    assert_eq!(r, v.rank(), "the kernel must match the packed rank");
 }
 
 /// The rank kernel on the boundary comb's skyline stays within its
