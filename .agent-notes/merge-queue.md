@@ -209,6 +209,19 @@ lanes have closed.
   Packet:
   `.agent-notes/2026-09-01-holistic-review-rumors/triage/reviews/p2-vanish-liveness.md`.
 
+- rumors `p1-envelope`: branch `triage/p1-envelope`, packet head
+  `890e68ab`, last code commit `e02d0aee`, base `0fad870c` (main). Root
+  files: `Cargo.toml` (T169: `sha3` and `keccak` at opt-level 2 in the
+  dev profile), `AGENTS.md` (the pin roster names `dispute_wire` and
+  `protocol_overhead`), `README.md` (regenerated), `.config/nextest.toml`
+  (the header sentence), `.gitignore`; `examples/envelope_sim.rs` and
+  `results/` deleted whole (T43). Five stops (the regime paragraph,
+  Finch's; whether it names the heavy direction; the unpinned 10⁵ row;
+  the `- 1` demonstrations; no byte-preserving corpus cache). Merges in
+  any order among the rumors packets (no shared files with the others
+  beyond `AGENTS.md`). Commits unsigned (the lock protocol). Packet:
+  `.agent-notes/2026-09-01-holistic-review-rumors/triage/reviews/p1-envelope.md`.
+
 - before `p2-widths`: branch `before/p2-widths`, packet head `ba36e970`,
   last code commit `d5e63e93`, base `main`. Root files: justfile (one
   recipe, `fuzz-test`, and its line in `all`). Merges before

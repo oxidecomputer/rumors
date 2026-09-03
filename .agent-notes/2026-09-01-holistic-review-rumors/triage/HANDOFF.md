@@ -263,3 +263,22 @@ role pinned per cell, dual and baseline cells, the (2, 0) shape and the
 body); then a verification runner and a light read, then its packet
 against `0fad870c`. Every other lane agent and runner is idle with its
 worktree clean; the verifier worktrees stay for the merges' re-checks.
+
+## Paused 2026-09-03 (Finch's word), after the envelope lane closed
+
+Nothing is running. Packets waiting on Finch, in merge order:
+`p2-commit-path` (`14d0d5fb`), `p1-collision-mode` (`f6d9a0af`, after
+before's `p1-fuzz`), `p2-deep-geometry` (`f74324a7`, after
+collision-mode), `p2-link` (`95c429e2`), `p2-vanish-liveness`
+(`c9e7465b`, after deep-geometry), `p1-envelope` (`890e68ab`),
+`p1-generators` (`f21541da`, whole, after before's `p2-generators`, and
+after `p1-proptest-ci`). Rulings through T169. Every lane worktree is at
+its packet head; every verifier worktree (`rumors-verify-*`) is
+detached at its lane's code tip and clean; the gate mutex is free. On
+resume: read this file, `WORKFLOW.md`, `STATUS.md`, the merge queue, and
+`new-findings.md`; act on Finch's packet replies through `review.py
+replies` per WORKFLOW step 6; merges at his word only. Open for Finch
+beyond the packets' stops: the two probe findings (the session's
+about-linear term in the shared set; the dev-profile send cost), the
+conformance-floor stop from collision-mode, and the sim's wall-clock
+deadline finding.

@@ -2,7 +2,7 @@
 
 # Triage landing status
 
-Updated: 2026-09-04 02:40 UTC by the before session.
+Updated: 2026-09-03 15:37 UTC by the rumors session.
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
 
@@ -69,7 +69,7 @@ Maintained by the rumors session.
 | p1-collision-mode | waiting on Finch | packet `f6d9a0af` (code `35d134fd`, base `d0dcb9f5`), four verification passes, three rounds; three stops; merges after before's `p1-fuzz` refit |
 | p2-deep-geometry | packet ready | packet `f74324a7` on `triage/p2-deep-geometry` (code tip `7e7bae71`, base `7858b35e`, stacked on the collision branch; merges after it); three fresh-eyes rounds, every item verified; its gate runs under the mutex and the verdict is appended when it lands; stops: the shared predicate at integration with vanish-liveness, the conformance floor under the schedule, the residual precedence window, the duplicated-reply stall queued |
 | p1-generators | waiting on Finch | packet `f21541da` (code `8adc330a`, base `a34859ed`), four verification passes, three rounds; six stops; merges whole after before's `p2-generators`; root files `.cargo/config.toml`, `Cargo.toml`, `justfile`, `AGENTS.md` |
-| p1-envelope | in review | the grid at `89d83c77` verified in full (59 tests, 52 exact cells, three controls fire by name); its read found the direction columns denominated by identity while the protocol's asymmetry is by elected role (the smaller set initiates, the responder writes the listings and supplies): grid round 2 with the lane (pin the role per cell, dual and baseline cells, the (2,0) shape and the 2¹⁶ edge, floors, a harness-owned redaction order); packet after |
+| p1-envelope | waiting on Finch | packet `890e68ab` (code `e02d0aee`, base `0fad870c`), five verification passes, four rounds plus the grid's two; five stops; root files `Cargo.toml` (T169), `AGENTS.md`, `README.md`, `.config/nextest.toml`, `.gitignore` |
 | p2-peer | not started | after p2-commit-path |
 | p3-dashes, p3-imports, p3-lints, p3-modules, p3-prose-pass, p3-seeds, p3-vocabulary | not started | after every P1 and P2 lane merges; seven open questions for Finch |
 | fifteen P4 lanes (`briefs/p4-*.md`) | not started | briefs committed at `46fb2cb6`; after P3; twelve open items for Finch |
