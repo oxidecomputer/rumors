@@ -889,10 +889,22 @@ struct FailAfter {
     after: AfterFailure,
     failed: bool,
     reads_after_failure: usize,
+    /// The kind the failing read reports.
+    kind: std::io::ErrorKind,
 }
 
 impl FailAfter {
     fn new(bytes: &[u8], remaining: usize, after: AfterFailure) -> Self {
+        Self::failing_with(bytes, remaining, after, std::io::ErrorKind::Other)
+    }
+
+    /// Like [`new`](Self::new), with the failing read reporting `kind`.
+    fn failing_with(
+        bytes: &[u8],
+        remaining: usize,
+        after: AfterFailure,
+        kind: std::io::ErrorKind,
+    ) -> Self {
         Self {
             bytes: bytes.to_vec(),
             position: 0,
@@ -900,6 +912,7 @@ impl FailAfter {
             after,
             failed: false,
             reads_after_failure: 0,
+            kind,
         }
     }
 
@@ -914,7 +927,7 @@ impl FailAfter {
             }
         } else if self.remaining == 0 {
             self.failed = true;
-            return Err(std::io::ErrorKind::Other.into());
+            return Err(self.kind.into());
         }
         let available = self.bytes.len() - self.position;
         let served = if self.failed {
@@ -1035,6 +1048,60 @@ fn opener_read_failures_are_reported_in_wire_order() {
                         error.kind
                     );
                 }
+            }
+        }
+    }
+}
+
+/// A transport failure of kind `UnexpectedEof` inside a body is a
+/// truncation of that body in both decoders, not a read error.
+///
+/// The kind alone decides, whether a bulk read met it after delivering
+/// some bytes or a whole-body read met it outright.
+#[test]
+fn body_eof_failures_are_truncations_in_both_decoders() {
+    let stream = stream(6);
+    let body = record(&Version::new(), &Message::new(1u64));
+    let supply_frame = supply(stream, Flow::Continue, &body);
+    let listing_frame = query(stream, Flow::Continue, &[(3, Hash::default())]);
+    let cases = [
+        // Two body bytes short of the run.
+        (supply_frame.len() - 2, supply_frame, FramePart::SupplyRun),
+        // Inside the listing's one entry.
+        (
+            listing_frame.len() - 8,
+            listing_frame,
+            FramePart::QueryChildren,
+        ),
+    ];
+    for speaker in SPEAKERS {
+        for (remaining, encoded, missing) in &cases {
+            let budget = RunBudget::default();
+            let eof = std::io::ErrorKind::UnexpectedEof;
+            let from_sync = decode(
+                speaker,
+                budget,
+                &mut FailAfter::failing_with(encoded, *remaining, AfterFailure::Fail, eof),
+            )
+            .expect_err("a body cut by a failing read cannot decode");
+            let mut reader = FrameRead::new(
+                speaker,
+                budget,
+                FailAfter::failing_with(encoded, *remaining, AfterFailure::Fail, eof),
+            );
+            let from_async = pollster::block_on(reader.frame())
+                .expect_err("a body cut by a failing read cannot decode");
+            assert_eq!(from_async.origin, from_sync.origin);
+            for error in [&from_sync, &from_async] {
+                assert!(
+                    matches!(
+                        &error.kind,
+                        DecodeErrorKind::Truncated { missing: actual, source }
+                            if actual == missing && source.kind() == eof
+                    ),
+                    "{speaker:?}, {missing:?}: {:?}",
+                    error.kind
+                );
             }
         }
     }
