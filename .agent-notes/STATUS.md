@@ -2,7 +2,7 @@
 
 # Triage landing status
 
-Updated: 2026-09-03 02:30 UTC by the before session (rumors-74).
+Updated: 2026-09-03 02:31 UTC by the before session (rumors-74).
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
 
@@ -10,7 +10,7 @@ Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not st
 
 | Plan | Merged | Packet ready | In review | Running | Not started | Ledger rows pending |
 |---|---|---|---|---|---|---|
-| before | 2 of 37 lanes | 0 | 2 | 1 | 32 | 1186 of 1204 |
+| before | 2 of 38 lanes | 0 | 2 | 1 | 32 | 1186 of 1204 |
 | rumors | 10 lanes | 1 | 1 | 3 | 25 briefed (P1 envelope, P2 peer, seven P3, fifteen P4, publication prep) | 874 of 995 |
 
 ## Waiting on Finch
@@ -41,6 +41,7 @@ Lanes run in the order `triage/briefs/README.md` gives; every lane builds and ga
 | p2-rows | not started | after p1-suites; carries two handoffs from the harness review |
 | p2-cures | not started | after p2-rows and p2-widths |
 | p2-surface (registry) | not started | the held step 3 of p2-surface, after p1-suites |
+| p2-generators | not started | seven prop_assume sites become generators (ruling 111); launchable from main now |
 | p3-vocabulary | not started | last of the sweeps |
 | p4-ghosts, p4-structure, p4-rosters | not started | after the P1 and P2 lanes they follow |
 | p5-scanners, p5-judge, p5-buffers | not started | after p1-gate, p1-fuzz, p2-surface |

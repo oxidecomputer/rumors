@@ -200,6 +200,13 @@ Every P2 cure is measured at the parent with its re-pin named in the
 commit; no cure lands before its row is red in the tree (rulings 1 and
 2). The P2 lanes precede the rumors plan's performance phase (ruling 5).
 
+### A small P2 lane added by ruling 111
+
+`p2-generators.md`: the seven `prop_assume!` sites in `crates/before`
+become generators that draw their constraints, or keep the assumption
+with its reason stated (ruling 111). Base `main`; test files only; no
+dependency on any other lane.
+
 ## P3 and P4 lanes
 
 Based on `10cdd255` (the commit recording ruling 78; the tree outside
