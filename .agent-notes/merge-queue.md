@@ -169,6 +169,18 @@ lanes have closed.
   protocol). Packet:
   `.agent-notes/2026-09-01-holistic-review-rumors/triage/reviews/p1-collision-mode.md`.
 
+- rumors `p2-link`: branch `triage/p2-link`, packet head `95c429e2`,
+  last code commit `a956bdb3`, base `7aa2b9a1` (main). Root files:
+  `Cargo.toml` (the library's tokio features gain `rt`; `test-internals`
+  drops its own `tokio/rt`); `Cargo.lock` unchanged; `src/link.rs`
+  untouched. Three stops (the per-link bound's wording and the unbounded
+  return mailbox; `tokio/rt` on the library; the sush patch's two owner
+  decisions). `fuzz-build` is a Mac run at merge (the box cannot build
+  libFuzzer). Beside it, for Finch: the sush patch against `origin/locker`
+  (`scratchpad/coordinator/sush-eval/sush-shape-d-locker.patch`), never
+  applied by Claude. Commits unsigned (the lock protocol). Packet:
+  `.agent-notes/2026-09-01-holistic-review-rumors/triage/reviews/p2-link.md`.
+
 - before `p2-widths`: branch `before/p2-widths`, packet head `ba36e970`,
   last code commit `d5e63e93`, base `main`. Root files: justfile (one
   recipe, `fuzz-test`, and its line in `all`). Merges before
