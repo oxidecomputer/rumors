@@ -697,9 +697,9 @@ fn scripted(
 /// peer; `right_link` the reverse. Every result is the endpoint's
 /// materialized tree or the failure of whichever of its two participants
 /// raised one.
-#[allow(clippy::too_many_arguments)] // One premise per argument: the
-// topology, the four backends, the two roots, the two links, the codec,
-// and the window.
+// One premise per argument: the topology, the four backends, the two
+// roots, the two links, the codec, and the window.
+#[allow(clippy::too_many_arguments)]
 pub async fn drive<B, LR, LW, LC, LA, RR, RW, RC, RA>(
     topology: Topology,
     backends: Backends<B>,
