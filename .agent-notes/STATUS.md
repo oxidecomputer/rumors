@@ -2,7 +2,7 @@
 
 # Triage landing status
 
-Updated: 2026-09-03 15:37 UTC by the rumors session.
+Updated: 2026-09-04 03:25 UTC by the before session.
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
 
@@ -37,7 +37,7 @@ Lanes run in the order `triage/briefs/README.md` gives; every lane builds and ga
 | p1-proptest-cases | merged | `e27ba5e6` (ruling 109) |
 | p1-harness | merged | `5b0a17d4` (rulings 4, 38, 50, 51, 108); the meter suite's one harness |
 | p1-gate | packet ready | `75e0bc91` (37 commits; one stop inside: the syn 2/3 holdout roster; its gate red on audit and wasm by construction until the stop is ruled and p1-fuzz refits) |
-| p2-widths | packet ready | `ba36e970` (51 code commits; two items for Finch's eye inside, no stop) |
+| p2-widths | in review (reopened) | ruling 118 (Finch, 2026-09-04): the narrow-or-wide fold table is dissolved into one `Vec<u64>` and the log-factor liveness floor re-derived under 64-bit probes; the lane is audited for code shaped to keep a pin from moving; a lane agent is on it; the packet `ba36e970` is superseded and rebuilt after |
 | p2-surface | packet ready | `cad0b75d` (44 code commits; one stop inside: the fuelscape.js caption) |
 | p1-fuzz | packet ready | `0df4aa4b` (code `1b6df6fd`, child of p8-tagwalk; three fresh-eyes rounds; coordinator acceptance green at the tip on both machines; twelve sentry seeds); six stops inside; merges after p1-gate and p8-tagwalk, before the rumors p1-collision-mode |
 | p1-survivors | packet ready | `f9ec31d7` (child of p1-gate; rulings 18, 50, 88) |
