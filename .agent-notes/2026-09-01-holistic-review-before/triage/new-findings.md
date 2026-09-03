@@ -71,8 +71,12 @@ Each entry: where it came from, what it is, which lane's brief carries it
   instructions each; `ff_party_decode` reads about 101 fuel per bit
   against its law's 53 on deep fork chains. The band refit is
   `p1-fuzz`'s (above); the cost itself is a measured trade for
-  `p8-performance` (a byte cursor for `IdReader::tag`, measured at the
-  parent, ceilings tightened with attribution; ruling 88).
+  `p8-performance` (a `usize` byte-and-offset cursor for `IdReader::tag`: both tag
+  bits read with one shift and mask per node, one bounds check per
+  node against `live`, the same access pattern bitvec's slice had on
+  the owned representation; measured at the parent, ceilings tightened
+  with attribution; ruling 88; the version walk's tag reads checked for
+  the same shape).
 - **The fuel bands were pinned on 2026-08-04 and never refit; the
   staleness leg's 0.7 dex tolerance hides 36 kernels moving by more
   than 0.05 dex.** Route: `p1-fuzz` (its one calibration run under
