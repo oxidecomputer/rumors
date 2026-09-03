@@ -2,7 +2,7 @@
 
 # Triage landing status
 
-Updated: 2026-09-03 05:17 UTC by the rumors session.
+Updated: 2026-09-03 05:28 UTC by the rumors session.
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
 
@@ -15,7 +15,7 @@ Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not st
 
 ## Waiting on Finch
 
-- Review: the `p2-commit-path` packet rebuilds after T166's one commit lands (its stop is ruled); read `dfa10453` meanwhile if you like, the diff grows by one small commit.
+- Review: the `p2-commit-path` packet (branch `triage/p2-commit-path`, packet commit `14d0d5fb`); no open stop; merge on your word.
 - Open stops from before: the gate lane's syn 2/3 holdout roster (in its packet); the surface lane's fuelscape.js caption (in its packet). Rumors: T158, T159, T162, T163, T164 rule the launch questions, the collision mode's stops, and the CI count (256 until generators, then 4000); the commit-path packet will carry three judgment calls from its fresh-eyes round (the ceiling on an all-skipped key, the unwind-path wording, one pin of a non-contract); the collision-mode lane's ten stops (variable name, one seed, `ci` tier, cluster weighting, the mark's name, the unreachable production-cfg test, three findings, and whether `test-collision` joins `ci` while red on the findings) are in the coordinator's message of 2026-09-03 and its packet.
 
 ## Open items on main
@@ -61,7 +61,7 @@ Maintained by the rumors session.
 |---|---|---|
 | p1-swarm, p1-conformance, p1-memwatch, p1-gate, p2-codec, p1-renderer, p1-harness-tests, p1-harness-crate, p2-walk, p1-causality | merged | see the queue's Merged section for shas and root files |
 | p2-link | in review | round-2 repairs with the lane, then T167's re-scope (adapter-owned per-link pooling, `Dial` is `dial` alone) on top; a sush patch against the new interface is commissioned as a draft once that sha lands; packet after; one stop left (the bound's wording) |
-| p2-commit-path | in review | packet `dfa10453` built and verified; T166 rules the all-skipped ceiling (moves nothing): one further commit with the lane, then the packet is rebuilt and ready |
+| p2-commit-path | packet ready | packet `14d0d5fb` on `triage/p2-commit-path` (code tip `5a4559e1`, base `1336daa0`, lane diff identical across the rebase); every acceptance and control run by the verifier; three fresh-eyes rounds; T166 landed; no open stop; commits unsigned by the lock protocol, re-signed at merge |
 | p1-proptest-ci | in review | landed at `a34859ed` (sweep, caselint, release recipe and nextest profile, meter excluded, T157 rewrite); gate clean; the CI number is a stop (recommendation 4000 after p1-generators); verification and packet after p1-generators lands, since the number is set on that tree |
 | p2-vanish-liveness | in review | round 1 landed at `e3c5f986` (the watch keeps every control byte and reads on; deadline aborts; the floor measured against the donor too), gate clean; `e3c5f986` verified; fresh-eyes round 2 found one behavioral regression (a delivered stream dropped mid-label under the departure race) and gaps, sent as repairs; packet after; seven stops in the meta, the precedence rule the one that matters |
 | p1-collision-mode | in review | round 1 landed at `e951b81e` (T163 width, recipe liveness, fixtures routed through the crate's derivation, marks re-justified at 28 bytes), gate clean; `e951b81e` verified in full; fresh-eyes round 2 found one bug (a marked test bypassing the harness check) and instrument gaps, sent as repairs with T164's sweep recipe; packet after; two design stops (`ci` membership, a wider root fan) |

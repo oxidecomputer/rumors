@@ -43,13 +43,13 @@ the fast-forward (WORKFLOW.md's merge step).
    One stop left: the bound's justification wording.
 2. **p2-commit-path** (`/Users/oxide/src/rumors-p2-commit-path`,
    base `main` at `030e1b5c`): T34, T36, T38, T39, T42; tip
-   packet ready: `dfa10453` on the branch, code tip `63066627`, rebased
+   packet ready: `14d0d5fb` on the branch, code tip `5a4559e1` (T166
+   landed on top of the first packet build), rebased
    onto main `1336daa0` (lane diff identical by patch-id), compiled and
    spot-tested on the box (`coordinator/verify-commit-path/41-*`); three
    fresh-eyes rounds, every item landed and verified (runner
-   `a33b8f771988b88df`). Stop: the ceiling on an all-skipped key
-   (recommendation: accept, pin whichever direction). Merge at Finch's
-   word: rebase-and-sign, compile the tip, fast-forward, ledger shas
+   `a33b8f771988b88df`); the ceiling stop is ruled (T166) and landed.
+   Merge at Finch's word: rebase-and-sign, compile the tip, fast-forward, ledger shas
    for T34, T36, T38, T39, T42's entries.
 3. **p2-vanish-liveness** (`/Users/oxide/src/rumors-p2-vanish-liveness`,
    base `9c8ce16c`, rebase onto main is history-only): T145, T154;

@@ -127,7 +127,7 @@ lanes have closed.
 ## Ready for Finch, in merge order
 
 - rumors `p2-commit-path`: branch `triage/p2-commit-path`, packet head
-  `dfa10453`, last code commit `63066627`, base `1336daa0` (main). Root
+  `14d0d5fb`, last code commit `5a4559e1`, base `1336daa0` (main). Root
   files: README.md (regenerated from the crate doc). Its commits are
   unsigned (the lock protocol); the merge rebase re-signs.
 
