@@ -76,15 +76,18 @@ lanes have closed.
 - rumors: `12aa9a8d` the codec lane (`1b7f3de4`, `28055b77`, packet
   `12aa9a8d`); no root files.
 
+- rumors: `a3200a2e` the renderer lane (`f0d829a2` through `896705ce`, packet
+  `a3200a2e`); root files: `Cargo.toml` (`cbor-diag` pinned by rev),
+  `Cargo.lock` (source string only), `tools/digestshare`, `AGENTS.md`
+  (one snapshot re-accept class); all 22 wire snapshots re-accepted
+  under T138.
+
 ## Ready for Finch, in merge order
 
 - rumors `p1-gate`: branch `triage/p1-gate`, packet head `5cd25b55`, last
   code commit `b06000df`, base `d631cda6` (main). Root files: justfile,
   `.github/workflows/ci.yml`, `Cargo.toml` (`bytes` dev-dependency),
   `Cargo.lock`, `tools/testdoc`. `before/p1-gate` stacks on this.
-- rumors `p1-renderer`: `triage/p1-renderer`, packet `ae3d9fc4`, code
-  `fff43de9`, base `b8401660`. Root files: `Cargo.toml` (`cbor-diag`
-  rev pin), `Cargo.lock`, `tools/digestshare`, `AGENTS.md`.
 - rumors `p1-harness-crate`: `triage/p1-harness-crate`, packet `5e2f3cde`,
   code `f6f3a0b6`, stacked on `p2-codec`. No root files.
 - rumors `p1-harness-tests`: `triage/p1-harness-tests`, packet `9c8ce16c`,
