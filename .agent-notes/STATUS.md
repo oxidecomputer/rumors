@@ -2,7 +2,7 @@
 
 # Triage landing status
 
-Updated: 2026-09-03 03:32 UTC by the before session (rumors-74), pausing for the night.
+Updated: 2026-09-03 03:33 UTC by the before session (rumors-74), pausing for the night.
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
 
@@ -10,7 +10,7 @@ Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not st
 
 | Plan | Merged | Packet ready | In review | Running | Not started | Ledger rows pending |
 |---|---|---|---|---|---|---|
-| before | 2 of 38 lanes | 1 | 2 | 1 | 32 | 1185 of 1204 |
+| before | 2 of 38 lanes | 0 | 3 | 1 | 32 | 1185 of 1204 |
 | rumors | 10 lanes | 0 | 3 | 2 | 25 briefed (P1 envelope, P2 peer, seven P3, fifteen P4, publication prep) | 874 of 995 |
 
 ## Waiting on Finch
@@ -36,7 +36,7 @@ Lanes run in the order `triage/briefs/README.md` gives; every lane builds and ga
 | p1-harness | merged | `5b0a17d4` (rulings 4, 38, 50, 51, 108); the meter suite's one harness |
 | p1-gate | in review | repairs landed; the fuzzfit breach root-caused to the sweep lowering the guest's `bytes` (ruling 114: the convergence goes upward, root brought to 1.12.1 and the other swept crates likewise); the lane is bisecting to confirm, upgrading, and explaining the mechanism; then its gate and packet |
 | p2-widths | in review | second review's repairs landing (a fuzz-test recipe, the asserting door restored where the population is non-empty, a trap pin); then the coordinator's gate and its packet |
-| p2-surface | packet ready | `5315266a` (44 commits; one stop: the fuelscape.js caption) |
+| p2-surface | in review | complete and gated green but for the fuzz leg (44 commits, tip `8a2aa4d7`); its packet is withheld: 215 of 282 hunks lack an annotation row (the 101 datasets, the fuelscape roster's measure rewordings, the board judge, surfacecheck); the lane agent completes coverage first thing next session, then the packet |
 | p1-fuzz | not started | stacks on p1-gate when it lands |
 | p1-survivors | not started | stacks on p1-gate after the roster retirement |
 | p1-board | not started | after p1-harness (merged); next launch on the harness stack |
