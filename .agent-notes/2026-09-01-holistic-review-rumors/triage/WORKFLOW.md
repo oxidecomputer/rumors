@@ -206,6 +206,16 @@ P2 codec on harness-crate; P2 peer on commit-path). Rules:
   size cap is one logical unit of review, roughly a change Finch can read
   in one sitting.
 
+## Findings without an entry
+
+A finding a lane or reviewer surfaces that no roster entry covers goes
+into `triage/new-findings.md` the day it is found, with its evidence
+and a disposition (a ruling, a lane, or a stated reason it changes
+nothing). The ledger admits only the review documents' entries, so
+such findings never become ledger rows; every later phase's brief
+drafter reads `new-findings.md` and carries the rows routed to its
+lane.
+
 ## Stops
 
 A stop is anything a ruling reserves for Finch: a moved `insta` snapshot
