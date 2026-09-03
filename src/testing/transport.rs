@@ -663,10 +663,13 @@ const REORDER_PATIENCE: u8 = 32;
 /// decorator that only drains arrivals already `Ready` never sees a second
 /// arrival under the deterministic scheduler and silently degenerates to
 /// pass-through — which is exactly what the asserted counter makes loud.
+/// The unit witness `reordering_acceptor_inverts_a_patient_batch` in this
+/// module's tests demonstrates the wait forming a batch of two from an
+/// arrival that lands only after the first has been held and yielded on.
 ///
-/// A sibling of the conformance suite's `ReversingAcceptor`
-/// (`src/conformance/link/tests.rs`), duplicated so this crate-internal seam
-/// does not depend on the public `conformance` feature.
+/// This is the crate's one reordering adversity: the link conformance
+/// suite decorates its memory ends with it too, so a conformance pass under
+/// reordering certifies this implementation.
 pub struct ReorderingAcceptor<A: crate::link::Acceptor> {
     inner: A,
     held: VecDeque<(A::Rx, Done<A::Rx>)>,
@@ -724,9 +727,9 @@ impl<A: crate::link::Acceptor> crate::link::Acceptor for ReorderingAcceptor<A> {
 /// self-wake.
 ///
 /// Runtime-agnostic (the deterministic driver is no runtime at all), unlike
-/// `tokio::task::yield_now`; a copy of `conformance`'s helper, on the same
-/// feature seam that keeps [`ReorderingAcceptor`] separate from its
-/// `ReversingAcceptor` sibling.
+/// `tokio::task::yield_now`. The `conformance` module carries its own copy:
+/// this crate-internal seam must not depend on the public `conformance`
+/// feature, while the conformance tests may depend on this one.
 async fn yield_once() {
     let mut yielded = false;
     std::future::poll_fn(|cx| {
@@ -800,11 +803,69 @@ fn suspend(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
     use futures::{pin_mut, poll};
     use tokio::io::{AsyncReadExt, AsyncWriteExt, duplex, split};
 
-    use super::{IoPlan, Side, wrap_io};
+    use super::{IoPlan, Side, reorder_accepts, wrap_io, yield_once};
+    use crate::link::{Acceptor, Connector, memory};
     use crate::testing::run_to_quiescence;
+
+    /// The patient wait forms a batch of two and releases it newest-first.
+    ///
+    /// The second stream is connected only after the acceptor has taken
+    /// the first arrival and begun yielding for company, so the batch
+    /// exists because of the wait and not because both arrivals were
+    /// already queued: a drain of only-`Ready` arrivals would release the
+    /// first stream alone and count nothing. One batch of two is exactly
+    /// one recorded inversion.
+    #[test]
+    fn reordering_acceptor_inverts_a_patient_batch() {
+        let reordered = Arc::new(AtomicUsize::new(0));
+        let (a, b) = memory();
+        let mut acceptor = reorder_accepts(a, 2, reordered.clone())
+            .into_parts()
+            .acceptor;
+        let connector = b.into_parts().connector;
+        let released = run_to_quiescence(async {
+            let (_streams, released) = futures::join!(
+                async {
+                    let (mut first, _done) = connector.connect().await.unwrap();
+                    first.write_all(b"1").await.unwrap();
+                    // Let the acceptor take the first arrival and start
+                    // waiting before the second exists.
+                    for _ in 0..4 {
+                        yield_once().await;
+                    }
+                    let (mut second, _done) = connector.connect().await.unwrap();
+                    second.write_all(b"2").await.unwrap();
+                    (first, second)
+                },
+                async {
+                    let mut released = Vec::new();
+                    for _ in 0..2 {
+                        let (mut rx, _done) = acceptor.accept().await.unwrap();
+                        let mut tag = [0u8; 1];
+                        rx.read_exact(&mut tag).await.unwrap();
+                        released.push(tag[0]);
+                    }
+                    released
+                },
+            );
+            released
+        })
+        .expect("the batch releases and the harness stays live");
+        assert_eq!(released, b"21", "the batch of two releases newest-first");
+        assert_eq!(
+            reordered.load(Ordering::Relaxed),
+            1,
+            "one batch of two is one recorded inversion"
+        );
+    }
 
     /// Flush buffering keeps completed writes invisible to the peer until the
     /// corresponding flush is polled.

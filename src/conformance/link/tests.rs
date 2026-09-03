@@ -7,7 +7,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::io;
-use std::pin::{Pin, pin};
+use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
@@ -21,7 +21,7 @@ use crate::link::{
     Acceptor, Connector, Done, Link, LinkParts, MemoryAcceptor, MemoryConnector, MemoryLink,
     STREAM_COUNT, memory, memory_with_capacity,
 };
-use crate::testing::{Quiescence, run_to_quiescence};
+use crate::testing::{Quiescence, reorder_accepts, run_to_quiescence};
 
 /// The reference instantiation passes the whole suite under the
 /// deterministic closed-world driver.
@@ -36,58 +36,6 @@ fn memory_link_conforms() {
 fn one_byte_windows_conform() {
     run_to_quiescence(super::check(async || memory_with_capacity(1)))
         .expect("the suite stays live at one-byte windows");
-}
-
-/// An acceptor that delivers arrivals in batches of reversed order.
-///
-/// Legal under the contract — arrival order is the transport's own, and
-/// no cross-stream ordering may be assumed — so the protocol must
-/// tolerate it: the session's claim table pairs streams by label, not
-/// position. Each released batch of two or more is a genuine inversion,
-/// counted into the shared `reordered` counter; tests assert it is
-/// nonzero, so degeneration to pass-through (reordering nothing) fails
-/// loudly instead of silently.
-struct ReversingAcceptor<A: Acceptor> {
-    inner: A,
-    held: VecDeque<(A::Rx, Done<A::Rx>)>,
-    /// Arrivals buffered before each reversed release.
-    batch: usize,
-    /// Batches of two or more released: genuine inversions.
-    reordered: Arc<AtomicUsize>,
-}
-
-impl<A: Acceptor> Acceptor for ReversingAcceptor<A> {
-    type Rx = A::Rx;
-
-    async fn accept(&mut self) -> io::Result<(Self::Rx, Done<Self::Rx>)> {
-        if let Some(held) = self.held.pop_front() {
-            return Ok(held);
-        }
-        // Await one arrival, then swallow whatever else is immediately
-        // ready — without blocking, so a lone stream still flows — and
-        // release the accumulated batch newest-first.
-        let first = self.inner.accept().await?;
-        self.held.push_front(first);
-        for _ in 1..self.batch {
-            let mut next = pin!(self.inner.accept());
-            let waker = futures::task::noop_waker();
-            let mut cx = Context::from_waker(&waker);
-            match next.as_mut().poll(&mut cx) {
-                Poll::Ready(Ok(rx)) => self.held.push_front(rx),
-                // Pending or errored: stop batching and release what is
-                // held. Swallowing an error here is sound for the wrapped
-                // `MemoryAcceptor`, whose errors are persistent (a closed
-                // channel errors on every later recv, so the next accept
-                // resurfaces it); the fixture is not built for acceptors
-                // with one-shot errors.
-                _ => break,
-            }
-        }
-        if self.held.len() > 1 {
-            self.reordered.fetch_add(1, Ordering::Relaxed);
-        }
-        Ok(self.held.pop_front().expect("at least one arrival is held"))
-    }
 }
 
 /// Decorate one memory end's acceptor, preserving every other part — the
@@ -108,29 +56,22 @@ fn with_acceptor<A: Acceptor>(
     .into_link()
 }
 
-/// Reorder one memory end's arrivals in reversed batches, counting genuine
-/// inversions into `reordered`.
-fn reversing(
-    link: MemoryLink,
-    batch: usize,
-    reordered: Arc<AtomicUsize>,
-) -> Link<DuplexStream, DuplexStream, MemoryConnector, ReversingAcceptor<MemoryAcceptor>> {
-    with_acceptor(link, |inner| ReversingAcceptor {
-        inner,
-        held: VecDeque::new(),
-        batch,
-        reordered,
-    })
-}
+/// Arrivals the reordering acceptor holds before each newest-first
+/// release: deep enough to invert bursts, small enough never to starve a
+/// lone stream.
+const REORDER_BATCH: usize = 3;
 
 /// Worst-case accept reordering is adversarial but legal: streams are
 /// anonymous and arrival order is the transport's own, so the whole suite
 /// — the focused probes included — must stay live and convergent under it.
 ///
-/// The final assertion proves the adversity fired: at least one batch was
-/// genuinely released in inverted order somewhere across the suite, so a
-/// pass certifies tolerance of real reordering, not of a decorator that
-/// silently degenerated to pass-through.
+/// The adversity is the crate's shared `ReorderingAcceptor`, which holds
+/// each arrival and genuinely waits (a bounded budget of yields) for
+/// company before releasing the batch newest-first. The final assertion
+/// proves it fired: at least one batch was genuinely released in inverted
+/// order somewhere across the suite, so a pass certifies tolerance of
+/// real reordering, not of a decorator that silently degenerated to
+/// pass-through.
 #[test]
 fn reordered_accepts_conform() {
     let reordered = Arc::new(AtomicUsize::new(0));
@@ -138,8 +79,8 @@ fn reordered_accepts_conform() {
     run_to_quiescence(super::check(async || {
         let (a, b) = memory();
         (
-            reversing(a, 3, counter.clone()),
-            reversing(b, 3, counter.clone()),
+            reorder_accepts(a, REORDER_BATCH, counter.clone()),
+            reorder_accepts(b, REORDER_BATCH, counter.clone()),
         )
     }))
     .expect("the suite stays live under reordered accepts");
@@ -909,8 +850,8 @@ fn reordering_acceptor_passes_independence() {
     let reordered = Arc::new(AtomicUsize::new(0));
     let (a, b) = memory();
     run_to_quiescence(super::check_independence(
-        reversing(a, 3, reordered.clone()),
-        reversing(b, 3, reordered.clone()),
+        reorder_accepts(a, REORDER_BATCH, reordered.clone()),
+        reorder_accepts(b, REORDER_BATCH, reordered.clone()),
     ))
     .expect("independence stays live under reordered accepts");
     assert!(
