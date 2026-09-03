@@ -69,7 +69,25 @@ lanes have closed.
 
 ## Ready for Finch, in merge order
 
-(none yet)
+- rumors `p1-gate`: branch `triage/p1-gate`, packet head `5cd25b55`, last
+  code commit `b06000df`, base `d631cda6` (main). Root files: justfile,
+  `.github/workflows/ci.yml`, `Cargo.toml` (`bytes` dev-dependency),
+  `Cargo.lock`, `tools/testdoc`. `before/p1-gate` stacks on this.
+- rumors `p1-renderer`: `triage/p1-renderer`, packet `ae3d9fc4`, code
+  `fff43de9`, base `b8401660`. Root files: `Cargo.toml` (`cbor-diag`
+  rev pin), `Cargo.lock`, `tools/digestshare`, `AGENTS.md`.
+- rumors `p2-codec`: `triage/p2-codec`, packet `610d6108`, code
+  `86f65f8f`, base `a6a79c39`. No root files.
+- rumors `p1-harness-crate`: `triage/p1-harness-crate`, packet `5e2f3cde`,
+  code `f6f3a0b6`, stacked on `p2-codec`. No root files.
+- rumors `p1-harness-tests`: `triage/p1-harness-tests`, packet `9c8ce16c`,
+  code `82cc0257`, base `51ccf03c`. Root files: `.config/nextest.toml`
+  (one comment), `design/rumors-frame-fuzz.md`, `Cargo.lock`.
+- rumors `p2-walk`: `triage/p2-walk`, packet `ca5c3290`, code `eb97720b`,
+  base `b1e8a397`. No root files.
+- rumors `p1-causality`: `triage/p1-causality`, packet `aa3e2aa1`, code
+  `f1b4859c`, base `4f796995`. Root files: `Cargo.toml` (`rand_chacha`
+  dev-dependency), `Cargo.lock`.
 
 ## Announcements
 
