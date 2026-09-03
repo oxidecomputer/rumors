@@ -195,7 +195,11 @@ where
         }
 
         if violation == Violation::UnaskedReply {
-            if let Some(item) = responses.next().await {
+            // Every honest reply passes, then one nobody asked for: the
+            // consumer's trailing check is what must catch it, so no
+            // honest reply is dropped ahead of it (a dropped one would
+            // pair the extra reply with a live query instead).
+            while let Some(item) = responses.next().await {
                 yield item;
             }
             yield Ok(message::Reply { replies: Vec::new() });
@@ -220,9 +224,14 @@ where
                 reply.replies.insert(0, message::Reaction::Supply(0, B::node::<H>()));
             }
             Violation::InvalidSupply => {
+                // A duplicated radix, past the honest reply. Radix 0xff
+                // assumes no fixture holds that child (as the escape below
+                // does): at the opening, where no honest reaction precedes
+                // the corruption to place it out of order, a held radix
+                // would be rejected as `UnexpectedSupply` instead.
                 let node = B::node::<H>();
-                reply.replies.push(message::Reaction::Supply(0, node.clone()));
-                reply.replies.push(message::Reaction::Supply(0, node));
+                reply.replies.push(message::Reaction::Supply(0xff, node.clone()));
+                reply.replies.push(message::Reaction::Supply(0xff, node));
             }
             Violation::UncontainedSupply => {
                 // Appended past the honest reply, which covers the whole

@@ -162,15 +162,14 @@ where
     /// the root's children, so this stage starts from that listing rather
     /// than exploding the root itself.
     ///
-    /// The opening request may trail *early supplies* behind its query: the
-    /// initiator's exclusive root children, shipped whole without waiting to
-    /// be asked. The merge-join below still emits its Right-arm empty
-    /// queries for them — the reply/question pairing on every stream is
-    /// untouched — and the supplied nodes are exploded into their children
-    /// here (this stage's one reply is the only thing a failure can strand)
-    /// and handed to the next level through the returned channel, where
-    /// they resolve those queries' now-empty answers without touching the
-    /// backend mid-loop.
+    /// The opening reply is the root question followed by the initiator's
+    /// *early supplies*: its exclusive root children, shipped whole without
+    /// waiting to be asked. They pass the checks every solicited supply
+    /// passes (ascending radices this side does not hold, containment, the
+    /// ledger), are exploded into their children here, ahead of the yield,
+    /// and are handed to the next level through the returned channel,
+    /// where they answer the merge-join's now-empty queries for those
+    /// radices without touching the backend mid-loop.
     #[allow(clippy::type_complexity)]
     pub fn responder_level(
         &mut self,
@@ -207,28 +206,56 @@ where
             let Some(Reply { replies }) = requests.next().await else {
                 return violation(Violation::UnansweredQuery)?;
             };
-            let mut reactions = replies.into_iter();
-            let Some(Reaction::Query(theirs)) = reactions.next() else {
-                return violation(Violation::UnexpectedQuery)?;
-            };
+            // The opening reply is not paired positionally against the
+            // held fan, so the resolver cannot classify it; its arms are
+            // its own, and the first offending reaction names the fault.
+            // A supply is judged as an early supply wherever it sits,
+            // with the resolver's structural checks first (ascending
+            // radices, none this side holds), and one ahead of the root
+            // question is out of order.
+            let mut theirs = None;
+            let mut last = None;
             let mut early = Vec::new();
-            for reaction in reactions {
-                let Reaction::Supply(radix, node) = reaction else {
-                    return violation(Violation::UnexpectedQuery)?;
-                };
-                // Early supplies are absorbed here, ahead of the descent's
-                // resolver, so they pass the same containment and ledger
-                // checks every other supply does. The ledger charges at
-                // this wire ingestion, never at the claim downstream: the
-                // claim consumes nodes already counted here.
-                if !contained(node.span().hi(), &their_version) {
-                    return violation(Violation::UncontainedSupply)?;
+            for reaction in replies {
+                match reaction {
+                    Reaction::Query(listing) => {
+                        if theirs.is_some() {
+                            return violation(Violation::UnexpectedQuery)?;
+                        }
+                        theirs = Some(listing);
+                    }
+                    Reaction::Match => return violation(Violation::UnexpectedMatch)?,
+                    Reaction::Supply(radix, node) => {
+                        if last.is_some_and(|last| radix <= last) {
+                            return violation(Violation::InvalidSupply)?;
+                        }
+                        if fan.iter().any(|(held, _)| *held == radix) {
+                            return violation(Violation::UnexpectedSupply)?;
+                        }
+                        if theirs.is_none() {
+                            return violation(Violation::InvalidSupply)?;
+                        }
+                        // Early supplies are absorbed here, ahead of the
+                        // descent's resolver, so they pass the same
+                        // containment and ledger checks every other supply
+                        // does. The ledger charges at this wire ingestion,
+                        // never at the claim downstream: the claim consumes
+                        // nodes already counted here.
+                        if !contained(node.span().hi(), &their_version) {
+                            return violation(Violation::UncontainedSupply)?;
+                        }
+                        ledger.absorb(node.len() as u64)?;
+                        let children =
+                            erased::ops::children_of(&backend, root_scope.push(radix), node)
+                                .await?;
+                        last = Some(radix);
+                        early.push((radix, children));
+                    }
                 }
-                ledger.absorb(node.len() as u64)?;
-                let children =
-                    erased::ops::children_of(&backend, root_scope.push(radix), node).await?;
-                early.push((radix, children));
             }
+            let Some(theirs) = theirs else {
+                return violation(Violation::UnfinishedReply)?;
+            };
             // Filled before this reply yields, so the level consuming it
             // never waits: its first query cannot arrive earlier.
             let _ = early_tx.send(early);
@@ -245,6 +272,10 @@ where
                 };
                 asked => next_queries;
             );
+
+            if requests.next().await.is_some() {
+                return violation(Violation::UnaskedReply)?;
+            }
         };
 
         let (returns, returns_rx) = responder_root_returns::<B>();

@@ -23,6 +23,8 @@ mod levels;
 mod queues;
 mod resolver;
 
+pub(super) use resolver::Resolver;
+
 #[cfg(test)]
 use super::{progress, transcript};
 use crate::tree::{

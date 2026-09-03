@@ -104,11 +104,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::message::PayloadDepthLimit;
 use crate::tree::{
-    mirror::contained,
     mirror::streaming::{
         Backend, ErasedNode, Leaf, Root,
         erased::{self, Reaction, Reply},
-        materialized::work::Work,
+        materialized::work::{Resolver, Work},
         message::Greeting,
         protocol::{self, BoxResponses, Requests},
         remote::DEFAULT_TARGET_MESSAGE_SIZE,
@@ -856,9 +855,14 @@ where
 /// final [`Reply`] and pass its provision up, prefix-less, like every
 /// return.
 ///
-/// Each absorbed leaf is content this replica just learned, credited as
-/// [`messages_gained`](crate::SessionStats::messages_gained) exactly like
-/// the resolver's supply arm.
+/// The reply is classified by the [`Resolver`] every descending stage
+/// uses, over a request that holds nothing. One rule is the terminal
+/// leg's own: a leaf request names a single radix where a scope request
+/// names a subtree, so a supply at any other radix is out of order
+/// ([`Violation::InvalidSupply`]). Each absorbed leaf is content this
+/// replica just learned, credited as
+/// [`messages_gained`](crate::SessionStats::messages_gained) by the
+/// resolver's supply arm.
 async fn absorb<B>(
     their_version: Version,
     ledger: SupplyLedger,
@@ -876,24 +880,38 @@ where
             return violation(Violation::UnansweredQuery);
         };
 
-        // The last radix of the prefix is the one we expect to be supplied.
-        let (_, expected) = prefix.pop();
-
-        // Only if we received exactly that radix paired with a leaf whose
-        // version the sender's declared version contains, do we absorb it.
-        let supply = match replies.as_slice() {
-            [] => None,
-            [Reaction::Supply(radix, leaf)] if *radix == expected => {
-                if !contained(leaf.span().hi(), &their_version) {
-                    return violation(Violation::UncontainedSupply);
-                }
-                ledger.absorb(leaf.len() as u64)?;
-                stats.gained(1);
-                Some(leaf.clone())
-            }
-            [Reaction::Supply(_, _)] => return violation(Violation::InvalidSupply),
-            _ => return violation(Violation::UnfinishedReply),
+        // The request names one leaf: its scope is the parent, and the
+        // radix it asks for is the path's last byte.
+        let (scope, expected) = prefix.pop();
+        let request = Query {
+            prefix: scope.erase(),
+            ours: Vec::new(),
         };
+        let mut resolver = Resolver::<B>::new(request, &their_version, &ledger, stats.clone());
+        for reaction in replies {
+            if let Reaction::Supply(radix, _) = &reaction
+                && *radix != expected
+            {
+                return violation(Violation::InvalidSupply);
+            }
+            let routed = resolver.react(reaction)?;
+            debug_assert!(
+                routed.is_none(),
+                "a request that holds nothing routes no query"
+            );
+        }
+        let Resolution { mut resolved, .. } = resolver.finish()?;
+        let supply = match resolved.pop() {
+            None => None,
+            Some((_, Resolve::Ready(leaf))) => leaf,
+            Some((_, Resolve::Pending)) => {
+                unreachable!("a request that holds nothing routes no query, so no slot is pending")
+            }
+        };
+        debug_assert!(
+            resolved.is_empty(),
+            "one radix is admitted, and the resolver rejects its duplicate"
+        );
 
         // Then we send that (optional) leaf upwards.
         if returns.send(supply).await.is_err() {

@@ -34,19 +34,25 @@ fn failing_start(
     Handshaking::start(backend, root).window(WindowConfig::FLOOR)
 }
 
-/// The connected abort suite's injected faults: one structural shape
-/// (a reply reaction the pairing never asked for) and one content shape
-/// (a structurally legal supply whose version escapes the declared
-/// greeting version).
+/// The connected abort suite's injected faults: every reply-shaped
+/// violation [`Faulting`] can script.
 ///
-/// The escape rides a party no fixture ticks
-/// ([`Faulting`]'s injection machinery), so the supplied ceiling is
-/// *incomparable* with the declared version: the containment
-/// predicate's hard case crosses the connected driver end to end, not
-/// only the dominating regime the deterministic tripwires build.
+/// All but one are structural. The content shape is a structurally legal
+/// supply whose version escapes the declared greeting version; the escape
+/// rides a party no fixture ticks ([`Faulting`]'s injection machinery),
+/// so the supplied ceiling is *incomparable* with the declared version:
+/// the containment predicate's hard case crosses the connected driver end
+/// to end, not only the dominating regime the deterministic tripwires
+/// build.
 fn arb_connected_violation() -> impl Strategy<Value = Violation> {
     prop_oneof![
+        Just(Violation::UnaskedReply),
+        Just(Violation::UnansweredQuery),
+        Just(Violation::UnfinishedReply),
+        Just(Violation::UnexpectedMatch),
         Just(Violation::UnexpectedQuery),
+        Just(Violation::UnexpectedSupply),
+        Just(Violation::InvalidSupply),
         Just(Violation::UncontainedSupply),
     ]
 }
