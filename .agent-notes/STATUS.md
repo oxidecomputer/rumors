@@ -2,7 +2,7 @@
 
 # Triage landing status
 
-Updated: 2026-09-03 05:46 UTC by the rumors session.
+Updated: 2026-09-03 05:57 UTC by the rumors session.
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
 
@@ -65,7 +65,7 @@ Maintained by the rumors session.
 | p1-proptest-ci | in review | landed at `a34859ed` (sweep, caselint, release recipe and nextest profile, meter excluded, T157 rewrite); gate clean; the CI number is a stop (recommendation 4000 after p1-generators); verification and packet after p1-generators lands, since the number is set on that tree |
 | p2-vanish-liveness | in review | round 1 landed at `e3c5f986` (the watch keeps every control byte and reads on; deadline aborts; the floor measured against the donor too), gate clean; `e3c5f986` verified; fresh-eyes round 2 found one behavioral regression (a delivered stream dropped mid-label under the departure race) and gaps, sent as repairs; packet after; seven stops in the meta, the precedence rule the one that matters |
 | p1-collision-mode | in review | round 1 landed at `e951b81e` (T163 width, recipe liveness, fixtures routed through the crate's derivation, marks re-justified at 28 bytes), gate clean; `e951b81e` verified in full; fresh-eyes round 2 found one bug (a marked test bypassing the harness check) and instrument gaps, sent as repairs with T164's sweep recipe; packet after; two design stops (`ci` membership, a wider root fan) |
-| p2-deep-geometry | in review | round 1 landed at `005bd86e` (every decode error surfaces; two same-wave tests; the bias orders argued; the pump fix's before/after evidence recorded); verification and fresh-eyes round 2 running; its full-suite runs wait on the gate mutex; packet after; the duplicated-reply stall at 28 bytes is queued as the next investigation |
+| p2-deep-geometry | in review | `005bd86e` under verification; fresh-eyes round 2 found the precedence still a two-entry exemption in code (the docs' allowlist of supply symptoms is now the predicate, shared with vanish-liveness) and two docs calling a select unbiased; repairs with the lane; packet after; the duplicated-reply stall and the materialized pump's stranding are queued follow-ups |
 | p1-generators | running | T161: no rejecting strategies, zero reject budgets in the gate; stacked on p1-proptest-ci at `a34859ed` |
 | p1-envelope | running | T10's certificate proptest first, then T43's deletion of the envelope simulation, the crate-doc figures derived, `results/` cleaned; from main `0fad870c`, launched at Finch's word for the overnight run |
 | p2-peer | not started | after p2-commit-path |
