@@ -49,10 +49,14 @@ the fast-forward (WORKFLOW.md's merge step).
    `link.rs` sentence drafted for Finch's words.
 4. **p1-collision-mode** (`/Users/oxide/src/rumors-p1-collision-mode`,
    base `d0dcb9f5`): T23, ruled by T162 and re-shaped by T163 (28-byte
-   prefixes); tip `7858b35e` verified (`coordinator/verify-collision/`);
-   round-1 repairs sent (T163, recipe liveness, `--no-fail-fast`,
-   unmarking tests whose claims hold at any geometry, prose); a repair
-   sha and a second verification pass are expected.
+   prefixes); round 1 landed at `e951b81e` (commits unsigned: the
+   signing agent was locked; the merge rebase re-signs); second
+   verification (runner `a5dbbd85bcd91a070`) and fresh-eyes round 2
+   (`ab9be4c4467ec3094`) running. Stops: the census reach (16 at 31
+   bytes, 15/14 at 28), and whether a 31-byte seed stays in a sweep
+   recipe so T162's findings 8 and 9 (which no longer reproduce at 28)
+   stay covered; a new stall (`duplicated_reply_is_rejected_as_unasked`)
+   joins the deep-geometry lane's roster (that lane was told).
 5. **p1-proptest-ci** (`/Users/oxide/src/rumors-p1-proptest-ci`, base
    `a07827ed`): T148, T151, T157; tip `a34859ed`; not yet verified by a
    runner. Stop: the CI case count (recommendation 4000 once
