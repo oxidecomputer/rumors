@@ -241,6 +241,58 @@ async fn reconcile_with_stacked_failures(
     (results, if fail_left { a_io } else { b_io })
 }
 
+/// Reconcile with exactly one materialized participant using the supplied
+/// failing backend; both proxies keep whole backends.
+async fn reconcile_with_failing_walk(
+    a: TreeRoot,
+    b: TreeRoot,
+    failing: Failing<Local>,
+    fail_left: bool,
+) -> (Result<(), LeftFailure>, Result<(), RightFailure>) {
+    let whole = || Failing::after(Local, usize::MAX);
+    let (left_backend, right_backend) = if fail_left {
+        (failing, whole())
+    } else {
+        (whole(), failing)
+    };
+    let a = Handshaking::start(left_backend, failing_root(a)).window(WindowConfig::FLOOR);
+    let b = Handshaking::start(right_backend, failing_root(b)).window(WindowConfig::FLOOR);
+
+    let (a_link, b_link) = memory_with_capacity(TRANSPORT_CAPACITY);
+    let remote_b = RemoteHandshaking::start(
+        whole(),
+        a_link,
+        PayloadCodec::new::<()>(PayloadDepthLimit::default()),
+    )
+    .window(WindowConfig::FLOOR);
+    let remote_a = RemoteHandshaking::start(
+        whole(),
+        b_link,
+        PayloadCodec::new::<()>(PayloadDepthLimit::default()),
+    )
+    .window(WindowConfig::FLOOR);
+
+    let (left, right) = join!(Box::pin(mirror(a, remote_b)), Box::pin(mirror(remote_a, b)));
+    (left.map(|_| ()), right.map(|_| ()))
+}
+
+/// The operation a failing materialized participant reported, read from the
+/// endpoint that holds it.
+fn walk_injected_operation(
+    fail_left: bool,
+    (left, right): &(Result<(), LeftFailure>, Result<(), RightFailure>),
+) -> Result<Operation, TestCaseError> {
+    match (fail_left, left, right) {
+        (true, Err(MirrorError::Client(MaterializedError::Backend(Failure::Injected(op)))), _)
+        | (false, _, Err(MirrorError::Server(MaterializedError::Backend(Failure::Injected(op))))) => {
+            Ok(*op)
+        }
+        (_, left, right) => Err(TestCaseError::fail(format!(
+            "materialized failure was masked: left {left:?}, right {right:?}",
+        ))),
+    }
+}
+
 /// Extract the injected backend operation from a proxy conversion failure.
 fn injected_operation(error: &ProxyFailure) -> Option<Operation> {
     use crate::tree::mirror::streaming::remote::{ReplyDecodeError, ReplyEncodeError};
@@ -438,6 +490,88 @@ proptest! {
             prop_assert!(result.1.is_ok(), "right endpoint failed without injection: {:?}", result.1);
         }
     }
+
+    /// Every reached materialized backend failure terminates both wire
+    /// endpoints and surfaces from the failing walk with its exact
+    /// operation identity; every unreached failure is inert.
+    ///
+    /// The wire twin of `materialized_backend_failures_are_fail_fast`: a
+    /// walk's error item reaches the session through the proxy pump that
+    /// carries its response stream, wherever in the walk it is raised. The
+    /// wide generator is what puts failures on that path: a stage loop
+    /// explodes nodes only under disputed scopes, and the small generator's
+    /// few leaves rarely collide into one.
+    #[test]
+    fn materialized_backend_failures_are_fail_fast_over_the_wire(
+        (a, b) in arb_wide_divergent_pair(),
+        operations in 0usize..32,
+        fail_left in any::<bool>(),
+        schedule in vec(0_u8..=2, 0..128),
+    ) {
+        let failing = Failing::after(Local, operations);
+        let result = with_schedule(schedule, || {
+            run_to_quiescence(reconcile_with_failing_walk(
+                a,
+                b,
+                failing.clone(),
+                fail_left,
+            ))
+        })
+        .map_err(|stopped| TestCaseError::fail(format!(
+            "materialized backend failure left the wire session quiescent: {stopped:?}",
+        )))?;
+        let history = failing.history();
+
+        if let Some(expected) = history.get(operations).copied() {
+            let actual = walk_injected_operation(fail_left, &result)?;
+            prop_assert_eq!(actual, expected);
+        } else {
+            prop_assert!(result.0.is_ok(), "left endpoint failed without injection: {:?}", result.0);
+            prop_assert!(result.1.is_ok(), "right endpoint failed without injection: {:?}", result.1);
+        }
+    }
+}
+
+/// A materialized error raised before the responder's opening reply yields
+/// returns over a wire instead of stalling the joint session.
+///
+/// The responder's opening explodes every disputed root child before it
+/// yields its one reply, so a backend failure there is an error item ahead
+/// of any reply on the walk's response stream. The proxy carrying that
+/// stream must observe the item without waiting on wire progress the
+/// missing reply would have unlocked: the faulted endpoint reports the
+/// injected operation, and its counterparty terminates on the cut.
+#[test]
+fn opening_failure_before_the_first_yield_returns_over_the_wire() {
+    let (a, b) = early_first_child_dispute_pair();
+    // The failing walk is the elected responder, whose opening explodes
+    // the disputed first root child.
+    let fail_left = !harness::left_initiates(&a, &b);
+    // Operation 0 is the greeting's root explosion; operation 1 is the
+    // opening's, at the root child's height.
+    let failing = Failing::after(Local, 1);
+    let result = run_to_quiescence(reconcile_with_failing_walk(
+        a,
+        b,
+        failing.clone(),
+        fail_left,
+    ))
+    .expect("an opening failure must terminate both sessions, not stall them");
+    let expected = Operation::Children { height: 31 };
+    assert_eq!(
+        failing.history().get(1).copied(),
+        Some(expected),
+        "the failure lands in the responder's opening: {:?}",
+        failing.history(),
+    );
+    assert_eq!(
+        walk_injected_operation(fail_left, &result).unwrap_or_else(|masked| panic!("{masked}")),
+        expected,
+    );
+    assert!(
+        result.0.is_err() && result.1.is_err(),
+        "the counterparty must terminate on the cut: {result:?}",
+    );
 }
 
 /// Wide-budget divergence still matches the materialized oracle with both
