@@ -151,10 +151,6 @@ const SCAN_HOLE_STEPS: usize = 128;
 
 /// Spine-depth pair of the masked-hole scenarios: the depth band holds
 /// the fused comparison's accumulator readings flat across this doubling.
-///
-/// The band needs the touch meter, so the smaller point is read only
-/// when the `limb-meter` feature compiles it in.
-#[cfg(feature = "limb-meter")]
 const MASK_HOLE_DEPTH_LO: usize = 1_000;
 
 /// The masked-hole depth pair's larger point (the envelope row's scale).
@@ -738,7 +734,6 @@ fn join_dense_envelope() {
 /// hide in a constant; a dead meter reads zero movement AND a zero
 /// point, which the envelope rows' improvement tripwires already reject.
 #[test]
-#[cfg(all(feature = "limb-meter", feature = "scan-meter"))]
 fn ticks_flatness_holds_the_log_band() {
     let cases: Vec<(&str, Version, Party)> = vec![
         (
@@ -780,7 +775,6 @@ fn ticks_flatness_holds_the_log_band() {
 
 /// One `ticks(n)` run's `(scan bits, limb ops, touches)` on fresh
 /// counters — the flatness pin's probe.
-#[cfg(all(feature = "limb-meter", feature = "scan-meter"))]
 fn ticks_counters(v: &Version, p: &Party, n: u64) -> (u64, u64, u64) {
     let mut v = v.clone();
     meter::reset_scan_bits();
@@ -806,7 +800,6 @@ fn ticks_counters(v: &Version, p: &Party, n: u64) -> (u64, u64, u64) {
 /// collapses owned structure and moves `min_ticks` by a
 /// shape-dependent amount, which the committed small-count
 /// differentials pin byte-for-byte against iterated ticks.
-#[cfg(all(feature = "limb-meter", feature = "scan-meter"))]
 fn ticks_counters_wide(v: &Version, p: &Party, n: &before::Ticks) -> (u64, u64, u64) {
     let mut v = v.clone();
     v.tick(p);
@@ -844,7 +837,6 @@ fn ticks_counters_wide(v: &Version, p: &Party, n: &before::Ticks) -> (u64, u64, 
 /// law the wide points' scan spans track). Judging two points in one
 /// regime keeps the ratio band tight; a probe straddling the knee
 /// legitimately reads up to ×3 without any superlinearity.
-#[cfg(all(feature = "limb-meter", feature = "scan-meter"))]
 const TICKS_WIDE_COUNT_BITS: usize = 8_192;
 
 /// The count-attributable growth bound: doubling the count's width may
@@ -866,11 +858,9 @@ const TICKS_WIDE_COUNT_BITS: usize = 8_192;
 /// regimes are width-linear, so the ratio band holds across all
 /// three. The touch span carries no count dependence anywhere: the
 /// count's arithmetic lives on `Base`, never the accumulator.
-#[cfg(all(feature = "limb-meter", feature = "scan-meter"))]
 const TICKS_WIDE_GROWTH_NUM: u64 = 5;
 
 /// See [`TICKS_WIDE_GROWTH_NUM`]: the ratio denominator.
-#[cfg(all(feature = "limb-meter", feature = "scan-meter"))]
 const TICKS_WIDE_GROWTH_DEN: u64 = 2;
 
 /// The wide-count flatness pin: `ticks(n)` stays width-linear in the
@@ -888,7 +878,6 @@ const TICKS_WIDE_GROWTH_DEN: u64 = 2;
 /// equal to `n` at every point, so the wide registration is proven to
 /// have happened before any cost is judged.
 #[test]
-#[cfg(all(feature = "limb-meter", feature = "scan-meter"))]
 fn ticks_wide_count_flatness_holds_the_width_band() {
     use dashu_int::UBig;
     let wide = |bits: usize| -> before::Ticks {
@@ -957,7 +946,6 @@ fn ticks_wide_count_flatness_holds_the_width_band() {
 /// legible against the band.
 const TICKS_POINT_LO: u64 = 512;
 /// See [`TICKS_POINT_LO`].
-#[cfg(all(feature = "limb-meter", feature = "scan-meter"))]
 const TICKS_POINT_HI: u64 = 4_096;
 /// The scan movement band: up to two count-carrying codes x 2 bits per
 /// doubling x 3 doublings.
@@ -965,16 +953,13 @@ const TICKS_POINT_HI: u64 = 4_096;
 /// One code carries the count on the committed families; the second
 /// code's budget covers operand shapes where the successor repair
 /// carries it too.
-#[cfg(all(feature = "limb-meter", feature = "scan-meter"))]
 const TICKS_FLATNESS_SCAN_BAND: u64 = 12;
 /// The limb movement band: the count's arithmetic stays inside one
 /// digit across the band; a word of slack covers a digit-boundary
 /// crossing.
-#[cfg(all(feature = "limb-meter", feature = "scan-meter"))]
 const TICKS_FLATNESS_LIMB_BAND: u64 = 8;
 /// The touch movement band: see the limb band (the count's arithmetic
 /// never lands on the accumulator).
-#[cfg(all(feature = "limb-meter", feature = "scan-meter"))]
 const TICKS_FLATNESS_TOUCH_BAND: u64 = 8;
 
 // ─── bigroot scenarios ──────────────────────────────────────────────────────
@@ -7288,7 +7273,6 @@ fn fold_party_scatter_envelope() {
 // with arity (the demonstration readings live in the pin commit); the
 // per-door `*_log_factor_is_alive` pins (the asymptotics suite) keep
 // the model's log factor itself honest.
-#[cfg(all(feature = "limb-meter", feature = "scan-meter"))]
 mod fold_stagger {
     use before::meter::registry::Shape;
     use before::{meter, Version};
