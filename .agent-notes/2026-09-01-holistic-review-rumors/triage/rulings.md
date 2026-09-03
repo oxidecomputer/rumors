@@ -809,3 +809,8 @@ Home: lane `p2-vanish-liveness`, brief amended; the harness-tests lane as landed
 Disposes: the lockfile finding in `triage/new-findings.md` (from the causality lane)
 Decision: Every `cargo` invocation in the justfile's gate and `ci` recipes passes `--locked`, so a tree whose `Cargo.lock` lags its manifest fails by name (`cargo` refuses with "the lock file needs to be updated") instead of updating the lock in the build directory and passing. A committed check in the lint tier fails on any `cargo` invocation in the justfile that lacks the flag, with the recipes that legitimately update the lock (an explicit `cargo update` recipe, if any) named as its allow list. The box wrapper's rsync excludes nothing that changes this; the flag is what makes the box's lock copy irrelevant.
 Home: lane `p3-lints` (it owns the justfile's lint tier); the brief gains this member.
+
+## T156 (2026-09-02): `TCP_NODELAY` stays in the routed link's TCP transports
+Disposes: the p2-link lane's stop 2 (`link-14`, T31's demonstration clause against the entry's conditional acceptance)
+Decision: The code stands. The option's sign is fixed for a small-frame protocol, loopback is the one transport on which the stall cannot appear (so a null measurement there is not evidence against it), and the crate's own guidance to transport implementers is what its example and test transports should follow. The entry's conditional acceptance is superseded by T31 as the lane read it.
+Home: lane `p2-link`.
