@@ -10,20 +10,24 @@
 //!
 //! # Why a rendering with no hexdump is still a byte pin
 //!
-//! Encoding indicators spell every head at its wire width and the
-//! notation spells every value exactly, so two different byte streams
-//! cannot render identically: the rendering is injective on wire bytes.
-//! That property is `cbor-diag`'s, and this module adds nothing that
-//! could collapse it. The one value the notation cannot spell is a
-//! NaN's payload bits, written as `NaN` at the float's width; no
-//! captured item holds one, because the protocol emits no floats and
-//! the payload contract's `Eq` bound excludes float fields (the crate
-//! docs, "Choosing a payload type"), and a hand-written `Eq` admitting
-//! NaN has declared its NaNs equal. Bytes that are not one parseable
-//! item (malformed, trailing bytes, nested past the depth limit) render
-//! as a failure line carrying the parse error above their exact hex.
-//! Byte counts on item and stream headers come from the transport
-//! capture.
+//! The harness holds every item to canonical form before rendering it:
+//! shortest heads, definite lengths, text free of control characters,
+//! and a re-encoding equal to the bytes (which rejects an ill-formed
+//! simple value and any float bits beyond the canonical NaN), checked
+//! down through embedded CBOR to the printer's depth limit. On a
+//! canonical item, diagnostic notation with encoding indicators spells
+//! the value exactly, so two different canonical byte streams cannot
+//! render identically; any other item renders as an explicit failure
+//! line carrying the reason above its exact hex. The rendering is
+//! therefore injective on wire bytes. A NaN's sign and payload bits are
+//! among what the notation cannot spell; such a float falls back to hex,
+//! and none occurs on the wire, since the protocol emits no floats and
+//! the payload contract's `Eq` bound excludes float fields (see
+//! [choosing a payload type](crate#choosing-a-payload-type)); a
+//! hand-written `Eq` admitting NaN has declared its NaNs equal. A control
+//! item's or frame's byte count is the observed item's length and a
+//! stream's is the transport's; the totality witness
+//! ([`assert_items_account_for`]) holds the two accounts equal.
 //!
 //! # Where the bytes come from
 //!
@@ -42,8 +46,10 @@
 use std::{collections::BTreeMap, fmt::Write as _};
 
 use crate::observe::Role;
+use cbor_diag::{DataItem, IntegerWidth};
+
 use crate::tree::mirror::cbor::{
-    self, MAJOR_ARRAY, MAJOR_TAG, MAJOR_TEXT, MAJOR_UINT, TAG_EMBEDDED_ITEM,
+    self, MAJOR_ARRAY, MAJOR_TAG, MAJOR_TEXT, MAJOR_UINT, TAG_CBOR_SEQUENCE, TAG_EMBEDDED_ITEM,
 };
 
 use super::{Speaker, Stream, signal::WireSignal};
@@ -261,16 +267,146 @@ fn render_frame(speaker: Speaker, stream: Stream, index: usize, item: &[u8], out
 }
 
 /// Render one captured item under its header: cbor-diag's pretty
-/// diagnostic notation, verbatim, or the explicit fallback when the
-/// bytes are not one parseable CBOR item.
+/// diagnostic notation, verbatim, when the item is canonical, or the
+/// explicit fallback with the reason it is not.
 fn render_item(item: &[u8], out: &mut String) {
-    match cbor_diag::parse_bytes(item) {
-        Ok(parsed) => writeln!(out, "{}", parsed.to_diag_pretty()).unwrap(),
-        Err(error) => fallback(item, &error.to_string(), out),
+    let parsed = match cbor_diag::parse_bytes(item) {
+        Ok(parsed) => parsed,
+        Err(error) => return fallback(item, &error.to_string(), out),
+    };
+    if parsed.to_bytes() != item {
+        return fallback(
+            item,
+            "re-encodes differently: an ill-formed simple value or non-canonical float bits",
+            out,
+        );
+    }
+    match canonical(&parsed, cbor_diag::DEFAULT_DEPTH_LIMIT) {
+        Ok(()) => writeln!(out, "{}", parsed.to_diag_pretty()).unwrap(),
+        Err(reason) => fallback(item, &reason, out),
     }
 }
 
-/// Render a parse failure and its reason above the exact bytes.
+/// Check that a parsed item is canonical wherever the notation would
+/// not show a difference.
+///
+/// Every head the printer spells without a width indicator (string
+/// lengths, container counts) must be at its shortest width, every
+/// container definite, text free of control characters, and every
+/// embedded item (tags 24 and 63) canonical and re-encoding to its
+/// bytes.
+///
+/// The walk mirrors the printer's depth budget: `remaining` counts down
+/// one per level, embedded content is parsed with what is left, and a
+/// level past the budget is accepted unchecked because the printer shows
+/// it as hex. Recursion is therefore bounded by the parser's depth limit.
+fn canonical(item: &DataItem, remaining: usize) -> Result<(), String> {
+    let Some(remaining) = remaining.checked_sub(1) else {
+        return Ok(());
+    };
+    match item {
+        DataItem::Integer { value, bitwidth } | DataItem::Negative { value, bitwidth } => {
+            shortest(*value, *bitwidth, "integer")
+        }
+        DataItem::ByteString(string) => {
+            shortest(string.data.len() as u64, string.bitwidth, "byte string")
+        }
+        DataItem::TextString(string) => {
+            shortest(string.data.len() as u64, string.bitwidth, "text string")?;
+            if string.data.chars().any(char::is_control) {
+                return Err("control character in a text string".into());
+            }
+            Ok(())
+        }
+        DataItem::IndefiniteByteString(_) | DataItem::IndefiniteTextString(_) => {
+            Err("indefinite-length string".into())
+        }
+        DataItem::Array { data, bitwidth } => {
+            definite(*bitwidth, data.len(), "array")?;
+            data.iter().try_for_each(|item| canonical(item, remaining))
+        }
+        DataItem::Map { data, bitwidth } => {
+            definite(*bitwidth, data.len(), "map")?;
+            data.iter().try_for_each(|(key, value)| {
+                canonical(key, remaining)?;
+                canonical(value, remaining)
+            })
+        }
+        DataItem::Tag {
+            tag,
+            bitwidth,
+            value,
+        } => {
+            shortest(tag.0, *bitwidth, "tag")?;
+            if let DataItem::ByteString(string) = &**value {
+                match tag.0 {
+                    TAG_EMBEDDED_ITEM => embedded_item(&string.data, remaining)?,
+                    TAG_CBOR_SEQUENCE => embedded_sequence(&string.data, remaining)?,
+                    _ => {}
+                }
+            }
+            canonical(value, remaining)
+        }
+        // Floats carry their width indicator and simple values their
+        // number; the re-encoding check covers what the notation cannot.
+        DataItem::Float { .. } | DataItem::Simple(_) => Ok(()),
+    }
+}
+
+/// The embedded item the printer unfolds under tag 24 must be canonical
+/// and fill its byte string exactly; content that does not parse stays a
+/// byte string, which the printer shows as hex.
+fn embedded_item(data: &[u8], remaining: usize) -> Result<(), String> {
+    match cbor_diag::parse_bytes_with_limit(data, remaining) {
+        Ok(item) if item.to_bytes() != data => Err("embedded item re-encodes differently".into()),
+        Ok(item) => {
+            canonical(&item, remaining).map_err(|why| format!("in an embedded item, {why}"))
+        }
+        Err(_) => Ok(()),
+    }
+}
+
+/// Every item the printer unfolds from a tag-63 sequence must be
+/// canonical and re-encode to its span; the unparsed remainder, if any,
+/// stays a byte string.
+fn embedded_sequence(data: &[u8], remaining: usize) -> Result<(), String> {
+    let mut rest = data;
+    while let Ok(Some((item, len))) = cbor_diag::parse_bytes_partial_with_limit(rest, remaining) {
+        if item.to_bytes() != rest[..len] {
+            return Err("an embedded sequence item re-encodes differently".into());
+        }
+        canonical(&item, remaining).map_err(|why| format!("in an embedded sequence, {why}"))?;
+        rest = &rest[len..];
+    }
+    Ok(())
+}
+
+/// The recorded width of a head must be the shortest that holds `value`.
+fn shortest(value: u64, width: IntegerWidth, what: &str) -> Result<(), String> {
+    let expected = match value {
+        0..=23 => IntegerWidth::Zero,
+        24..=0xff => IntegerWidth::Eight,
+        0x100..=0xffff => IntegerWidth::Sixteen,
+        0x1_0000..=0xffff_ffff => IntegerWidth::ThirtyTwo,
+        _ => IntegerWidth::SixtyFour,
+    };
+    if width == expected {
+        Ok(())
+    } else {
+        Err(format!("non-shortest {what} head"))
+    }
+}
+
+/// A container must be definite-length, with its count at the shortest
+/// width.
+fn definite(width: Option<IntegerWidth>, len: usize, what: &str) -> Result<(), String> {
+    match width {
+        Some(width) => shortest(len as u64, width, what),
+        None => Err(format!("indefinite-length {what}")),
+    }
+}
+
+/// Render a failure and its reason above the exact bytes.
 fn fallback(bytes: &[u8], reason: &str, out: &mut String) {
     writeln!(
         out,

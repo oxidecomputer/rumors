@@ -221,6 +221,7 @@ manifestlint:
 
 # Check the wire-capture renderer vocabulary via the digest-share meter.
 digestshare:
+    ./tools/digestshare --self-test
     ./tools/digestshare
 
 # tools/readme mirrors each crate's crate-level rustdoc into its README via

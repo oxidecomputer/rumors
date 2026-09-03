@@ -43,8 +43,8 @@ const BALLAST_POOL: (u64, u64) = (10_000, 16);
 /// wire capture, across both directions.
 ///
 /// A frame's semantic is the comment on its header line
-/// (`frame <n> (<b> bytes) / <semantic> /`); the `frame` prefix
-/// identifies the header.
+/// (`frame <n> (<b> bytes) / <semantic> /`); the renderer guarantees no
+/// body line begins with `frame `, so the prefix identifies the header.
 fn frames_labeled(capture: &str, label: &str) -> usize {
     capture
         .lines()

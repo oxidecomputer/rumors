@@ -123,7 +123,7 @@ fn supply_frames(capture: &str) -> usize {
 /// `frame N (B bytes)` line whose label comment names a `Supply` signal.
 ///
 /// The `frame` prefix and the comment distinguish it from every other
-/// line, including any text inside a rendered item.
+/// line: the renderer guarantees no body line begins with `frame `.
 fn is_supply_signal(line: &str) -> bool {
     let Some((head, rest)) = line.trim_start().split_once(" / ") else {
         return false;

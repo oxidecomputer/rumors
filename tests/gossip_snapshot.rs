@@ -161,8 +161,8 @@ fn asymmetric_message_targets_unbatch_the_run() {
 /// Extract one frame header's semantic.
 ///
 /// A frame header has the form `frame <n> (<b> bytes) / <Semantic> /`.
-/// Oracle assumption: no rendered item in the corpus starts a line with
-/// `frame `, so the prefix identifies the header.
+/// The renderer guarantees no body line begins with `frame ` (text with
+/// a control character renders as hex), so the prefix identifies it.
 fn signal_semantic(line: &str) -> Option<&str> {
     let (head, rest) = line.trim_start().split_once(" / ")?;
     if !head.starts_with("frame ") {
@@ -176,10 +176,10 @@ fn signal_semantic(line: &str) -> Option<&str> {
 
 /// The child count of every nonempty-Query frame body in a capture.
 ///
-/// A `Query(…)` frame's listing is a map from radix to digest, laid out
-/// one entry per line when nonempty. The scan counts such entries from
-/// the Query header to the next frame or capture header, so the
-/// greeting's listing (under a control item) is never counted.
+/// A `Query(…)` frame's listing is a map from radix to digest. The scan
+/// counts its entries, however the layout places them, from the Query
+/// header to the next frame or capture header, so the greeting's listing
+/// (under a control item) is never counted.
 fn nonempty_query_listings(capture: &str) -> Vec<usize> {
     let mut counts = Vec::new();
     let mut in_query: Option<usize> = None;
@@ -193,10 +193,8 @@ fn nonempty_query_listings(capture: &str) -> Vec<usize> {
             if let Some(n) = in_query.take().filter(|n| *n > 0) {
                 counts.push(n);
             }
-        } else if let Some(n) = in_query.as_mut()
-            && is_listing_entry(line)
-        {
-            *n += 1;
+        } else if let Some(n) = in_query.as_mut() {
+            *n += listing_entries(line);
         }
     }
     if let Some(n) = in_query.filter(|n| *n > 0) {
@@ -206,8 +204,11 @@ fn nonempty_query_listings(capture: &str) -> Vec<usize> {
 }
 
 /// Whether one rendered line is a capture header: a direction, role,
-/// control-item, or stream header, which the capture writes at column
-/// zero in a fixed vocabulary no rendered item shares.
+/// control-item, or stream header.
+///
+/// The capture writes these at column zero in a fixed vocabulary, and a
+/// rendered item cannot start a line with any of it: its text is quoted
+/// and holds no control character.
 fn is_capture_header(line: &str) -> bool {
     line.starts_with("direction ")
         || line.starts_with("role: ")
@@ -215,17 +216,30 @@ fn is_capture_header(line: &str) -> bool {
         || (line.contains(" stream ") && line.ends_with(" wire bytes"))
 }
 
-/// Whether one rendered line is a listing entry: an unsigned-integer
-/// key with an optional encoding indicator, a colon, and a byte-string
-/// value, with or without the layout's trailing comma.
-fn is_listing_entry(line: &str) -> bool {
-    let Some((key, value)) = line.trim().split_once(": ") else {
-        return false;
-    };
-    let key = key.split_once('_').map_or(key, |(digits, _)| digits);
-    !key.is_empty()
-        && key.bytes().all(|b| b.is_ascii_digit())
-        && value.strip_suffix(',').unwrap_or(value).starts_with("h'")
+/// The listing entries on one rendered line, wherever the layout puts
+/// them: each an unsigned-integer key with an optional encoding
+/// indicator, a colon, and a byte-string value, preceded by a line
+/// start, a brace, or a comma.
+fn listing_entries(line: &str) -> usize {
+    let bytes = line.as_bytes();
+    line.match_indices(": h'")
+        .filter(|(at, _)| {
+            let mut key = *at;
+            if let Some(mark) = line[..key].rfind('_')
+                && line[mark + 1..key].len() == 1
+                && bytes[mark + 1].is_ascii_digit()
+            {
+                key = mark;
+            }
+            let digits = line[..key]
+                .bytes()
+                .rev()
+                .take_while(u8::is_ascii_digit)
+                .count();
+            let before = line[..key - digits].trim_end();
+            digits > 0 && (before.is_empty() || before.ends_with(['{', ',']))
+        })
+        .count()
 }
 
 /// Count the frames rendered under one stream header of a wire capture.

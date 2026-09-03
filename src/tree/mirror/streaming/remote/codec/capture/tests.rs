@@ -2,9 +2,10 @@
 //!
 //! The framing the harness owns (item index, exact byte count,
 //! protocol-phase label) is stated on each header line; every item body
-//! is cbor-diag's diagnostic notation, verbatim; bytes that are not one
-//! parseable item fall back to an explicit failure above their exact
-//! hex; and the totality witness ([`assert_items_account_for`]) refuses
+//! is cbor-diag's diagnostic notation, verbatim, when the item is
+//! canonical, and otherwise an explicit failure above its exact hex, so
+//! two different byte strings never share a rendering and no body line
+//! begins with `frame `; and the totality witness ([`assert_items_account_for`]) refuses
 //! any gap between observed items and wire bytes.
 
 use super::*;
@@ -70,6 +71,71 @@ fn unparseable_items_fall_back_explicitly_to_hex() {
         out.contains(&format!("h'{}'", hex::encode(truncated))),
         "the exact bytes stand: {out}"
     );
+}
+
+/// Render `bytes` as one item, returning the rendering's lines.
+fn rendered(bytes: &[u8]) -> Vec<String> {
+    let mut out = String::new();
+    render_item(bytes, &mut out);
+    out.lines().map(str::to_string).collect()
+}
+
+/// A length head wider than its value needs falls back to hex, so two
+/// arrays differing only in which empty string has the wide head render
+/// distinctly.
+///
+/// The notation spells a byte string's length without a width
+/// indicator, which is why the canonical `[h'', h'']` alone renders in
+/// notation. The same holds inside an embedded item.
+#[test]
+fn non_shortest_length_heads_fall_back() {
+    let canonical = rendered(&[0x82, 0x40, 0x40]);
+    let wide_second = rendered(&[0x82, 0x40, 0x58, 0x00]);
+    let wide_first = rendered(&[0x82, 0x58, 0x00, 0x40]);
+    assert_eq!(canonical, ["[h'', h'']"]);
+    assert!(
+        wide_second[0].contains("non-shortest byte string head"),
+        "{wide_second:?}"
+    );
+    assert_eq!(wide_second[1], "h'82405800'");
+    assert_eq!(wide_first[1], "h'82580040'");
+    let embedded = rendered(&[0xd8, 0x18, 0x44, 0x82, 0x40, 0x58, 0x00]);
+    assert!(embedded[0].contains("in an embedded item"), "{embedded:?}");
+}
+
+/// The ill-formed two-byte spelling of a simple value (`f8 14` for
+/// `false`) falls back to hex, so arrays differing only in which `false`
+/// is ill-formed render distinctly.
+///
+/// The re-encoding check catches it: re-encoding uses the one-byte form.
+#[test]
+fn ill_formed_simple_values_fall_back() {
+    assert_eq!(rendered(&[0x82, 0xf4, 0xf4]), ["[false, false]"]);
+    let second = rendered(&[0x82, 0xf4, 0xf8, 0x14]);
+    let first = rendered(&[0x82, 0xf8, 0x14, 0xf4]);
+    assert!(second[0].contains("re-encodes differently"), "{second:?}");
+    assert_eq!(second[1], "h'82f4f814'");
+    assert_eq!(first[1], "h'82f814f4'");
+}
+
+/// A text string holding a control character falls back to hex, so a
+/// payload cannot forge a header.
+///
+/// A string carrying a newline followed by a frame header's text renders
+/// under its real header as hex, and the only line beginning with
+/// `frame ` is the header.
+#[test]
+fn text_with_control_characters_falls_back() {
+    let forged = "a\nframe 9 (1 bytes) / Supply(End) /";
+    let (stream, bytes) = supply_frame(&Message::new(forged.to_string()));
+    let mut out = String::new();
+    render_frame(Speaker::Initiator, stream, 0, &bytes, &mut out);
+    let headers: Vec<_> = out
+        .lines()
+        .filter(|line| line.trim_start().starts_with("frame "))
+        .collect();
+    assert_eq!(headers.len(), 1, "{out}");
+    assert!(out.contains("control character in a text string"), "{out}");
 }
 
 /// An item followed by trailing bytes is not one item: the whole buffer

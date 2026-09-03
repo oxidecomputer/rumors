@@ -5,10 +5,11 @@ Reads the V2 capture snapshots (`tests/snapshots/*.snap`) and totals, per
 file and overall: every captured wire byte (each direction's outgoing
 bytes, counted once, from the renderer's exact byte-count headers), the
 bytes spent on Merkle digests (a listing renders as a map from radix to
-digest, `<radix>: h'<digest hex>'`, and no other wire map has
-unsigned-integer keys and byte-string values, so every such entry is a
-digest; the width is read from the corpus, never assumed), and their
-ratio.
+digest, `<radix>: h'<digest hex>'`; the scan reads such entries only
+inside the greeting control item and Query frame bodies, the two places
+a listing appears and neither of which carries a payload, so a payload
+map of the same shape inside a Supply frame is never counted; the width
+is read from the corpus, never assumed), and their ratio.
 This is the denominator for any claim about what a digest width costs on
 the wire: dispute-listing metadata is digest-dominated, and this meter
 says by exactly how much, over the corpus the snapshot suite already pins
@@ -26,9 +27,12 @@ atom is the same `Hash` the V2 corpus measures.
 
 Liveness: a corpus with V2 captures but zero wire bytes or zero digests
 means the renderer's vocabulary moved out from under these patterns; the
-tool exits nonzero rather than reporting a silent zero.
+tool exits nonzero rather than reporting a silent zero. The self-test
+holds the patterns to a listing laid out on one line and to a Supply
+payload that must not count.
 
 Usage: tools/digestshare [snapshot-dir ...]
+       tools/digestshare --self-test
 Defaults to tests/snapshots relative to the repository root.
 """
 
@@ -38,10 +42,17 @@ from pathlib import Path
 
 CONTROL_ITEM = re.compile(r"^control item \d+ \((\d+) bytes\)")
 STREAM_HEADER = re.compile(r"^\S+ stream \d+ \(height \d+\), epoch \d+, (\d+) wire bytes$")
-# A map entry with an unsigned-integer key (its encoding indicator, if
-# any, included) and a byte-string value, with or without the trailing
-# comma the pretty layout puts between entries.
-DIGEST_LINE = re.compile(r"^\s*\d+(?:_\d)?: h'([0-9a-f]+)',?$")
+# A listing entry wherever the layout puts it: an unsigned-integer key
+# (its encoding indicator, if any, included) and a byte-string value,
+# preceded by the line start, a brace, or a comma.
+DIGEST_ENTRY = re.compile(r"(?:^|[{,])\s*\d+(?:_\d)?: h'([0-9a-f]+)'")
+# The two sections whose bodies hold listings.
+GREETING_HEADER = re.compile(r"^control item \d+ \(\d+ bytes\) / greeting /$")
+QUERY_HEADER = re.compile(r"^\s+frame \d+ \(\d+ bytes\) / Query\(")
+# Any header line: it ends the section before it.
+HEADER = re.compile(
+    r"^(?:direction |role: |control item |\S+ stream \d+ \(height |\s+frame \d+ \()"
+)
 
 
 def measure(path: Path):
@@ -52,10 +63,18 @@ def measure(path: Path):
     body = text.split("---", 2)[2]
     if "│" in body:
         return None
+    return measure_text(body)
+
+
+def measure_text(body: str):
+    """Total the wire bytes and the digests of one rendered capture."""
     total = 0
     digest_bytes = 0
     digests = 0
+    in_listing_section = False
     for line in body.splitlines():
+        if HEADER.match(line):
+            in_listing_section = bool(GREETING_HEADER.match(line) or QUERY_HEADER.match(line))
         control = CONTROL_ITEM.match(line)
         if control:
             total += int(control.group(1))
@@ -64,14 +83,54 @@ def measure(path: Path):
         if stream:
             total += int(stream.group(1))
             continue
-        digest = DIGEST_LINE.search(line)
-        if digest:
-            digest_bytes += len(digest.group(1)) // 2
-            digests += 1
+        if in_listing_section:
+            for digest in DIGEST_ENTRY.findall(line):
+                digest_bytes += len(digest) // 2
+                digests += 1
     return total, digest_bytes, digests
 
 
+SELF_TEST_CAPTURE = """direction A -> B
+role: Responder
+control item 0 (30 bytes) / preamble /
+55799_1([
+    "rumors",
+    2,
+])
+control item 1 (60 bytes) / greeting /
+24_0(<<{
+    "listing": {
+        82_0: h'010203040506070809101112131415161718192021222324',
+    },
+    "set_len": 1,
+}>>)
+Responder stream 0 (height 31), epoch 0, 90 wire bytes
+  frame 0 (20 bytes) / Query(Continue) /
+[0, 5, {1: h'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 2: h'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'}]
+  frame 1 (40 bytes) / Supply(End) /
+[0, 6, 63_0(<<63_0(<<53846_1(h'e0'), {7: h'cccccccccccccccccccccccccccccccccccccccccccccc'}>>)>>)]
+"""
+
+
+def self_test() -> int:
+    """Hold the patterns to their claims on a hand-written capture."""
+    total, digest_bytes, digests = measure_text(SELF_TEST_CAPTURE)
+    expected = (30 + 60 + 90, 24 + 23 + 23, 3)
+    if (total, digest_bytes, digests) != expected:
+        print(
+            f"digestshare: self-test FAILED: measured {(total, digest_bytes, digests)}, "
+            f"expected {expected} (greeting listing, one-line Query listing of two, "
+            "and no digest from the Supply payload)",
+            file=sys.stderr,
+        )
+        return 1
+    print("digestshare: self-test ok")
+    return 0
+
+
 def main() -> int:
+    if sys.argv[1:] == ["--self-test"]:
+        return self_test()
     root = Path(__file__).resolve().parent.parent
     dirs = [Path(arg) for arg in sys.argv[1:]] or [root / "tests" / "snapshots"]
     grand_total = grand_digest = grand_count = v2_files = 0
