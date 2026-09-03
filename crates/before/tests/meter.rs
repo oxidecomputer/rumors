@@ -277,9 +277,10 @@ enum Floor {
     /// validator or decoder: `tail_bits` 0), by construction (an id walk
     /// whose output depends on every tag: `tail_bits` 0), or to a decision
     /// point (the diverted id pair, decided at the last unary node's tag
-    /// pair, leaving each stream's 2-bit terminal below it: `tail_bits` 4,
-    /// one node's tag pair plus its terminal, so an early exit at the
-    /// decision is an improvement the floor admits).
+    /// pair, leaving exactly each stream's 2-bit terminal below it:
+    /// `tail_bits` 2, so an early exit at the decision is an improvement
+    /// the floor admits, while a walk that skipped the deciding tag pair
+    /// is not).
     LiveBits {
         /// The operand streams `input_bytes` counts.
         streams: u64,
@@ -344,8 +345,8 @@ mod envelope {
     pub const JOIN_HUGELEAF: Envelope               = envelope(185_494,   band(4_887, 2_931),    band(7_329, 4_397),       band(625_010, 375_006)); // the emit kernel holds both payload buffers, and the lhs clone is a refcount bump, so the public join's peak is the emit kernel's alone
     pub const JOIN_ABSORB: Envelope                 = envelope(270_798,   band(4_887, 2_931), band(163_580, 98_148),     band(1_250_013, 750_007)); // the collapse-heavy extreme: one truncation per level around a held wide code, which absorb never moves
     pub const ID_JOIN: Envelope                     = envelope(279_132,           band(0, 0),            band(0, 0),    whole_input(3_125_023, 2)); // iterative id walks: frame bits on the heap
-    pub const ID_COVERS: Envelope                   = envelope(     10,           band(0, 0),            band(0, 0), to_decision(1_250_005, 2, 4)); // iterative id walks; the diverted pair is decided at the last unary node's tag pair, so the scan floor leaves each stream's terminal unread
-    pub const ID_DISJOINT: Envelope                 = envelope(     10,           band(0, 0),            band(0, 0), to_decision(1_250_005, 2, 4)); // iterative id walks; the diverted pair is decided at the last unary node's tag pair, so the scan floor leaves each stream's terminal unread
+    pub const ID_COVERS: Envelope                   = envelope(     10,           band(0, 0),            band(0, 0), to_decision(1_250_005, 2, 2)); // iterative id walks; the diverted pair is decided at the last unary node's tag pair, so the scan floor leaves each stream's terminal unread
+    pub const ID_DISJOINT: Envelope                 = envelope(     10,           band(0, 0),            band(0, 0), to_decision(1_250_005, 2, 2)); // iterative id walks; the diverted pair is decided at the last unary node's tag pair, so the scan floor leaves each stream's terminal unread
     pub const ID_WITHOUT: Envelope                  = envelope(521_110,           band(0, 0),            band(0, 0),    whole_input(2_500_005, 1)); // iterative complement over the Bytes-backed at-rest form; `input_bytes` counts the subtrahend alone, not the seed's two-bit stream, so the floor errs on the low side; dev builds run no shadow re-parse of the diff emission (the differential suites carry the normal-form check)
     pub const DECODE_CLIFF: Envelope                = envelope(  4_052,         band(88, 52),    band(4_003, 2_401),       whole_input(17_923, 1)); // wire decode is validate + wrap; each cliff crossing's limb work is paid by its own wide stored code
     pub const CMP_CLIFF: Envelope                   = envelope(  1_330,         band(88, 52),    band(5_284, 3_170),         band(17_925, 10_755)); // the cliff-free sweep (two accumulators, opened once) over the Bytes-backed at-rest form
