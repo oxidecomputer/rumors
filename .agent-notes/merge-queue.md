@@ -150,6 +150,12 @@ lanes have closed.
   `p1-collision-mode` branch); merges after `p1-collision-mode`, rebased
   onto its merged tip. No root files. Commits unsigned (the lock
   protocol).
+  Merge hazard with `p2-vanish-liveness` (which merges later): both
+  lanes carry `Error::is_supply_symptom` and `queued_cause` with
+  identical bodies, but their terminal tails in `proxy/work.rs` differ
+  (vanish reports a queued violation ahead of a selected supply symptom,
+  per T165; this lane reports the symptom first) and `pump` diverges;
+  the vanish rebase resolves toward the vanish tail.
 
 - before `p2-widths`: branch `before/p2-widths`, packet head `ba36e970`,
   last code commit `d5e63e93`, base `main`. Root files: justfile (one
