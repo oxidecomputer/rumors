@@ -195,6 +195,20 @@ lanes have closed.
   rerun). Commits unsigned (the lock protocol). Packet:
   `.agent-notes/2026-09-01-holistic-review-rumors/triage/reviews/p1-generators.md`.
 
+- rumors `p2-vanish-liveness`: branch `triage/p2-vanish-liveness`, packet
+  head `c9e7465b`, last code commit `31324e42`, base `9c8ce16c` (the
+  `p1-harness-tests` tip, merged as `3fab5759`). No root files;
+  `src/link.rs` gains the Completion clause's obligation sentence and
+  the `Link` paragraph (T166 item 3). Merges after `p2-deep-geometry`:
+  the two lanes' terminal tails in `proxy/work.rs` differ (this lane's
+  is T165's ruled order) and `pump` diverges; the rebase resolves toward
+  this lane's tail. One public change (`RemoteError::PeerDeparted`).
+  Seven stops (the conformance check for the two `link.rs` obligations;
+  a lookahead cap needing a hand-off length limit; the rest judgment
+  calls recommended as landed). Commits unsigned (the lock protocol).
+  Packet:
+  `.agent-notes/2026-09-01-holistic-review-rumors/triage/reviews/p2-vanish-liveness.md`.
+
 - before `p2-widths`: branch `before/p2-widths`, packet head `ba36e970`,
   last code commit `d5e63e93`, base `main`. Root files: justfile (one
   recipe, `fuzz-test`, and its line in `all`). Merges before
