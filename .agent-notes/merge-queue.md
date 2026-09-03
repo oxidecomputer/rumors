@@ -85,6 +85,12 @@ lanes have closed.
 - before: `e27ba5e6` the proptest-cases lane (`7892c60c` through `f60734bb`,
   packet `e27ba5e6`); no root files.
 
+- rumors: `3fab5759` the harness-tests lane (`7d978fcf` through `2d3906cf`,
+  packet `3fab5759`); root files: `.config/nextest.toml` (one comment),
+  `design/rumors-frame-fuzz.md` (one paragraph), `Cargo.lock`. The
+  inter-process disruption family is deleted (T143); `tests/common/tcp.rs`
+  stays for the TCP link suites.
+
 ## Ready for Finch, in merge order
 
 - rumors `p1-gate`: branch `triage/p1-gate`, packet head `5cd25b55`, last
@@ -93,9 +99,6 @@ lanes have closed.
   `Cargo.lock`, `tools/testdoc`. `before/p1-gate` stacks on this.
 - rumors `p1-harness-crate`: `triage/p1-harness-crate`, packet `5e2f3cde`,
   code `f6f3a0b6`, stacked on `p2-codec`. No root files.
-- rumors `p1-harness-tests`: `triage/p1-harness-tests`, packet `9c8ce16c`,
-  code `82cc0257`, base `51ccf03c`. Root files: `.config/nextest.toml`
-  (one comment), `design/rumors-frame-fuzz.md`, `Cargo.lock`.
 - rumors `p2-walk`: `triage/p2-walk`, packet `ca5c3290`, code `eb97720b`,
   base `b1e8a397`. No root files.
 - rumors `p1-causality`: `triage/p1-causality`, packet `aa3e2aa1`, code
