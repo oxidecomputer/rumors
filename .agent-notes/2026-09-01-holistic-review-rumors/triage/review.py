@@ -19,7 +19,8 @@ under, as a numbered list the coordinator hands to the lane agent.
 Annotation TSV columns: path, line, entry, ruling, note. The note may carry
 literal `\\n` sequences, unescaped on render. A row whose line is 0 annotates
 every hunk of its file (a deleted file, a regenerated lockfile). Hunks of the
-annotation file and the packet itself are never flagged. A binary change
+annotation file, the packet itself, and a lane's stop artifacts under
+`triage/stops/` are never flagged. A binary change
 (`Binary files ... differ`, which `git diff` gives no hunk) renders as a
 hunk of its own at line 0, so a line-0 row attaches to it and an
 unannotated binary change is flagged.
@@ -36,7 +37,7 @@ REPLY = ">> finch:"
 COMMENT_START = "<!-- annotation -->"
 
 HUNK_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
-SELF_DESCRIBING = re.compile(r"/triage/(annotations|reviews)/")
+SELF_DESCRIBING = re.compile(r"/triage/(annotations|reviews|stops)/")
 
 
 def run(args, cwd):
