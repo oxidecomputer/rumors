@@ -2,7 +2,7 @@
 
 # Triage landing status
 
-Updated: 2026-09-03 05:12 UTC by the rumors session.
+Updated: 2026-09-03 05:15 UTC by the rumors session.
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
 
@@ -60,7 +60,7 @@ Maintained by the rumors session.
 | Lane | State | Note |
 |---|---|---|
 | p1-swarm, p1-conformance, p1-memwatch, p1-gate, p2-codec, p1-renderer, p1-harness-tests, p1-harness-crate, p2-walk, p1-causality | merged | see the queue's Merged section for shas and root files |
-| p2-link | in review | round 1 landed at `db616f70` (slot returned at one site; two tests; unbiased selects explained), gate clean; `db616f70` verified in full; fresh-eyes round 2 (no bugs) sent exactness items and three test strengthenings as repairs; packet after; stops: the pool-keying shape (four options now, including adapter-owned pooling) and the bound's wording |
+| p2-link | in review | round-2 repairs with the lane, then T167's re-scope (adapter-owned per-link pooling, `Dial` is `dial` alone) on top; a sush patch against the new interface is commissioned as a draft once that sha lands; packet after; one stop left (the bound's wording) |
 | p2-commit-path | in review | packet `dfa10453` built and verified; T166 rules the all-skipped ceiling (moves nothing): one further commit with the lane, then the packet is rebuilt and ready |
 | p1-proptest-ci | in review | landed at `a34859ed` (sweep, caselint, release recipe and nextest profile, meter excluded, T157 rewrite); gate clean; the CI number is a stop (recommendation 4000 after p1-generators); verification and packet after p1-generators lands, since the number is set on that tree |
 | p2-vanish-liveness | in review | round 1 landed at `e3c5f986` (the watch keeps every control byte and reads on; deadline aborts; the floor measured against the donor too), gate clean; `e3c5f986` verified; fresh-eyes round 2 found one behavioral regression (a delivered stream dropped mid-label under the departure race) and gaps, sent as repairs; packet after; seven stops in the meta, the precedence rule the one that matters |

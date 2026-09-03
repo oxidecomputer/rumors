@@ -33,10 +33,14 @@ the fast-forward (WORKFLOW.md's merge step).
    (decrement at header arrival; two tests; prose); landed at
    `db616f70` (unsigned from `f3105224` on); final verification (runner
    `ad7cb42de7506727b`) and fresh-eyes round 2 (`a8b49e3a5d4f5745c`)
-   running; packet after. Stops: T164 item 1 is back to Finch (the lane
-   showed `recycle`'s token alone cannot key a pool's draw, since `dial`
-   has no token; shapes in `triage/stops/p2-link/README.md`), and the
-   bound's justification wording.
+   done; round-2 repairs with the lane, then T167's re-scope on top
+   (adapter-owned per-link pooling; `Dial` is `dial` alone; evidence in
+   `triage/notes/pooling-shape-d.md`). When that sha lands: launch the
+   commissioned sush patch agent (a draft diff against
+   `oxidecomputer/sush` compiled on the box against the branch, with
+   the reasoning versus qorb and tests; delivered beside the packet,
+   never applied to sush), then the final verification and the packet.
+   One stop left: the bound's justification wording.
 2. **p2-commit-path** (`/Users/oxide/src/rumors-p2-commit-path`,
    base `main` at `030e1b5c`): T34, T36, T38, T39, T42; tip
    packet ready: `dfa10453` on the branch, code tip `63066627`, rebased
