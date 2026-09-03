@@ -271,3 +271,14 @@ Resolution: Exclude `target`, `.git`, and `node_modules` in doclint's walk exact
 
 Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names and the retirement discipline. Report rather than choose if the Resolution offers alternatives or conflicts with a ruling.
 
+
+## Coordinator handoffs (recorded during the P2 surface lane's review)
+
+- Three line scanners remain in `crates/before/tests` after the surface
+  lane routed before's and suanpan's censuses through `surface-scan`'s
+  parser: `amp_board_smoke.rs`'s `band_test_names` (a `#[test]` census by
+  line), `superlinear_tripwires.rs`'s witness scan, and
+  `verdict_matrix.rs`'s local `fn_name`. Under ruling 80's typed
+  collection authority they go the same way: `surface_scan::test_fns`
+  (and `fn_calls` where a call census is what the roster reads), no
+  brace balancing or line matching left in any test.

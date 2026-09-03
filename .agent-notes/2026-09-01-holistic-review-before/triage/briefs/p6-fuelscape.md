@@ -548,3 +548,17 @@ Resolution (nit row): Drop the dead defaults and clamps; derive gallery colors f
 
 Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
+
+## Coordinator handoffs (recorded during the P2 surface lane's review)
+
+- Compaction holds each dump's recorded `size_measure` to the roster
+  row, so rewording the measures' vocabulary (ruling 110) required
+  re-stamping every committed dump; the cheapest artifact that passes
+  `fuelscape-verify` is therefore a re-stamped dump, and the mechanism
+  cannot tell a vocabulary re-stamp from a re-stamp hiding a plan
+  change (the coordinator verified this change's dumps moved only in
+  that string, by decompressing each). The dump should carry the
+  sampling plan's identity separately from its prose (the `Inputs`
+  variant, the operand list, and the declared constants, serialized),
+  so compaction pins the plan mechanically and the prose can be
+  reworded without touching artifacts of record.
