@@ -307,7 +307,7 @@ docs-docsrs:
 
 # Fail unless the future-size pins were collected and pass (liveness for tests/future_size.rs).
 future-size:
-    {{ justfile_directory() }}/tools/memwatch cargo nextest run --workspace --all-features -E 'binary_id(rumors::future_size)' --no-tests=fail
+    cargo nextest run --workspace --all-features -E 'binary_id(rumors::future_size)' --no-tests=fail
 
 # Resolve every roster, bespoke, and tripwire citation against the collected test inventory.
 citecheck:
