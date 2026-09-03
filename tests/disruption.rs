@@ -474,6 +474,18 @@ const EXIT_ANOMALY: i32 = 4;
 /// Wall-clock bound on each child process.
 const CHILD_DEADLINE: Duration = Duration::from_secs(60);
 
+/// Grace the parent grants its serving sessions after every child has
+/// exited, before aborting the ones still parked.
+///
+/// A session that is going to end does so within milliseconds of its
+/// peer's exit (the bytes it needs are already buffered, or its socket is
+/// closed), so this is headroom over scheduling latency, not over
+/// protocol work. A session still parked afterward is waiting on a stream
+/// its dead peer never opened, a wait the link contract leaves to the
+/// caller's timeout; expiring costs only sharpness (the aborted session
+/// counts as a possible loss), never a false failure.
+const SERVE_GRACE: Duration = Duration::from_secs(2);
+
 /// The value of child `index`'s `s`-th send: distinct per child and per
 /// send, so the parent can assert that a cleanly-retired child's content
 /// all made it home.
@@ -700,7 +712,45 @@ fn reconstructed_three_children_deep_cuts() {
     }));
 }
 
+/// Adequacy tripwire for the inter-process harness: a panic on the
+/// parent's serving path fails the test.
+///
+/// The probe lands on the fourth accepted connection of
+/// [`reconstructed_child_retire_cut_at_first_byte`]'s plan: the child's
+/// faulted retirement, which the child attributes to its own injected cut
+/// and retries cleanly. The child therefore exits clean, the loss
+/// accounting stays consistent, and no post-run invariant can see the
+/// panic; only the parent's drain of its serving tasks surfaces it. A
+/// parent that aborted its serving tasks instead of draining them would
+/// pass this plan with the panic in captured stderr alone.
+#[test]
+#[should_panic(expected = "serving session task")]
+fn serving_task_panics_fail_the_parent() {
+    mt_runtime().block_on(run_proc_plan_probed(
+        ProcPlan {
+            n_parent_peers: 1,
+            seed_messages: vec![],
+            children: vec![ChildPlan {
+                n_sends: 0,
+                boot: FaultPlan::NONE,
+                sessions: vec![FaultPlan::NONE],
+                retire: fp(Some(0), None),
+            }],
+        },
+        Some(3),
+    ));
+}
+
 async fn run_proc_plan(plan: ProcPlan) {
+    run_proc_plan_probed(plan, None).await
+}
+
+/// [`run_proc_plan`] with an optional defect on the parent's serving path.
+///
+/// The serving task for the connection accepted at ordinal `serve_probe`
+/// panics instead of gossiping. Only the harness's own adequacy tripwire
+/// ([`serving_task_panics_fail_the_parent`]) sets it.
+async fn run_proc_plan_probed(plan: ProcPlan, serve_probe: Option<usize>) {
     // Parent fleet: the seed and its clean forks, as shared-state handles
     // so inbound sessions can overlap arbitrarily.
     let seed = Peer::<u64>::seed().sync_window_floor().into_rumors();
@@ -724,8 +774,12 @@ async fn run_proc_plan(plan: ProcPlan) {
     // final assertion rather than panicking inside a detached task, and
     // every error conservatively counts as a possible in-flight loss (a
     // dying session may have been a bootstrap holding a donated fork).
+    // Panics are not errors: a serving task that panics unwinds into the
+    // `JoinSet`, which the accept task hands back so the wind-down below
+    // can join every task and fail on any panic it holds.
     let serve_errors = Arc::new(AtomicUsize::new(0));
     let dishonest = Arc::new(Mutex::new(Vec::<String>::new()));
+    let (stop_accepting, mut stopped) = tokio::sync::oneshot::channel::<()>();
     let accept = {
         let casts = casts.clone();
         let serve_errors = Arc::clone(&serve_errors);
@@ -734,10 +788,19 @@ async fn run_proc_plan(plan: ProcPlan) {
             let mut sessions = tokio::task::JoinSet::new();
             let mut next = 0usize;
             loop {
-                let Ok((socket, _)) = listener.accept().await else {
-                    break;
+                // The loop ends on the stop signal (or the parent dropping
+                // its sender), never by abort: returning drops the
+                // listener and carries the serving tasks out intact.
+                let socket = tokio::select! {
+                    biased;
+                    _ = &mut stopped => break,
+                    accepted = listener.accept() => match accepted {
+                        Ok((socket, _)) => socket,
+                        Err(_) => break,
+                    },
                 };
                 let handle = casts[next % casts.len()].clone();
+                let ordinal = next;
                 next += 1;
                 let serve_errors = Arc::clone(&serve_errors);
                 let dishonest = Arc::clone(&dishonest);
@@ -751,6 +814,12 @@ async fn run_proc_plan(plan: ProcPlan) {
                             return;
                         }
                     };
+                    if serve_probe == Some(ordinal) {
+                        panic!(
+                            "serving-path probe: the task serving connection \
+                             {ordinal} panics instead of gossiping"
+                        );
+                    }
                     if let Err(e) = handle.gossip(&mut link).await {
                         serve_errors.fetch_add(1, Ordering::Relaxed);
                         if !is_honest_error(&e) {
@@ -762,6 +831,7 @@ async fn run_proc_plan(plan: ProcPlan) {
                     }
                 });
             }
+            sessions
         })
     };
 
@@ -814,18 +884,42 @@ async fn run_proc_plan(plan: ProcPlan) {
             ),
         }
     }
-    possible_losses += serve_errors.load(Ordering::Relaxed);
 
-    // Wind down: stop the prober and the accept loop (dropping its
-    // `JoinSet` aborts any straggling serve task), then reclaim the
-    // parent's `Peer`s — `try_into_peer` resolves once every serving clone
-    // is gone, so this is the synchronization point proving quiescence.
-    // The heal phase below runs on the data plane, so each reclaimed
-    // `Peer` converts straight back out.
+    // Wind down: stop the prober and the accept loop, then settle the
+    // serving tasks. Every child has exited, so a serving session either
+    // ends on its own within moments (its peer's final bytes are already
+    // buffered, or its socket is closed) or is parked on a stream its dead
+    // peer never opened, which the link contract leaves to the caller's
+    // timeout. So: a bounded grace for the former, then the latter are
+    // aborted and counted as possible losses (a session cut mid-flight is
+    // at least as uncertain as one that errored). Joining every task is
+    // where a panic in a serving task surfaces as a test failure instead
+    // of a line in captured stderr: an abort cannot mask a panic that has
+    // already happened, and nothing a serving task does after its session
+    // returns can panic. Only then are the parent's `Peer`s reclaimed —
+    // `try_into_peer` resolves once every serving clone is gone, so this
+    // is the synchronization point proving quiescence. The heal phase
+    // below runs on the data plane, so each reclaimed `Peer` converts
+    // straight back out.
     done.store(true, Ordering::Release);
     prober.await.expect("prober task");
-    accept.abort();
-    let _ = accept.await;
+    let _ = stop_accepting.send(());
+    let mut sessions = accept.await.expect("accept task");
+    let _ = tokio::time::timeout(SERVE_GRACE, async {
+        while let Some(result) = sessions.join_next().await {
+            result.expect("serving session task");
+        }
+    })
+    .await;
+    sessions.abort_all();
+    while let Some(result) = sessions.join_next().await {
+        match result {
+            Ok(()) => {}
+            Err(cancelled) if cancelled.is_cancelled() => possible_losses += 1,
+            Err(panicked) => panic!("serving session task: {panicked}"),
+        }
+    }
+    possible_losses += serve_errors.load(Ordering::Relaxed);
     let mut survivors = Vec::new();
     for cast in casts {
         survivors.push(
