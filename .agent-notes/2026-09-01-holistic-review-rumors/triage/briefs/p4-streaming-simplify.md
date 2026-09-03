@@ -2,6 +2,8 @@
 
 # P4 lane: one home per mechanism in the streaming core
 
+> **Ruled after drafting.** T159 item 8: `analyze.py` runs once from `evidence/`, quoted in the commit; nothing lands under `tools/`.
+
 ## Goal
 
 The streaming core (mirror common, the materialized walk, the backend

@@ -2,6 +2,8 @@
 
 # P4 lane: hazard headings, module docs, rewraps, and one home per argument
 
+> **Ruled after drafting.** T159 item 9: no doclint heading-vocabulary rule; rename the one `# Cancellation` and align the remaining headings by hand, listing them in the report.
+
 ## Goal
 
 Rustdoc has one shape: hazards sit under the crate's named sections

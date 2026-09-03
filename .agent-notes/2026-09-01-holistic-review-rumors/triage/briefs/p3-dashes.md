@@ -2,6 +2,8 @@
 
 # P3 lane: em-dashes out of line comments, held by a gate check
 
+> **Ruled after drafting.** T158 item 7: the workspace em-dash check is the `before` triage's to ship first; adopt it.
+
 ## Goal
 
 The doctrine assigns the spaced double-hyphen to code comments and the

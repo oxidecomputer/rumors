@@ -2,6 +2,8 @@
 
 # P4 lane: public rustdoc at its reader's altitude, and the owner's placement rulings
 
+> **Ruled after drafting.** T159 item 4: T97 and T99 ride whichever of this lane and the P6 API lane launches first.
+
 ## Goal
 
 Every public page names only what its reader can reach and sits at

@@ -819,3 +819,32 @@ Home: lane `p2-link`.
 Disposes: the release-profile finding in `triage/new-findings.md` (`unordered_query_is_rejected` aborting on proptest's global-reject cap); the class crate-wide
 Decision: A proptest whose input carries a constraint draws a value that satisfies it (draw the ordered pair by drawing two values and sorting, draw `radix` then `previous` in `radix..`, build the structure the property needs) rather than drawing freely and rejecting with `prop_assume!`. A rejection budget is a hidden ceiling on the case count: with a constant rejection fraction the run aborts at proptest's global-reject cap long before a large `PROPTEST_CASES` is reached, so a CI job that raises the count silently loses the suite. `prop_assume!` remains only where the constraint cannot be generated directly, and every surviving site says at the site why. The P5 tests lane sweeps every site (`grep -rn prop_assume src tests benches`), rewriting each generator or recording its necessity, and adds a lint-tier check holding the count to the named survivors.
 Home: the P5 tests lane; `triage/new-findings.md` row updated.
+
+## T158 (2026-09-03): The seven P3 launch questions
+Disposes: `briefs/README.md`'s P3 "Open before launch" items 1 through 7
+Decision:
+1. `module-graph-14`: the five inline production modules move to sibling files eventually; when is immaterial. The P3 modules lane moves test modules only and the row is re-phased to the P5 module lane, which lands it.
+2. `tests-lifecycle-18`: the `String`-payload union property in `tests/async_wire.rs` is redundant with `pairwise.rs`'s and the binary is deleted, in the P5 tests lane's commit under T131, with its four seeds re-homed into `pairwise.txt` there (T59). The P3 seeds lane touches neither the binary nor `async_wire.txt`; the row is re-phased to P5.
+3. `api-core-17`, amending T51: one mood per item kind. Method docs open in the imperative; type and module docs open as noun phrases, as the tree already has them. The vocabulary lane sweeps method docs only and rewrites no type or module opener.
+4. T47's "warn, sweep, promote" is read as: each lint enters the manifest table only at a zero remainder, in the commit that reaches zero (under `-D warnings` a `warn` entry already fails the gate). The lints lane lands the P6 mechanical halves whose shape is ruled (T84's twelve `Debug` impls; docs for public items no P6 ruling reshapes) and adds those lints at zero; `unnameable_types` enters the table with T60 in P6, since its one remaining item is `typed::Iter`.
+5. T53's check reads by module name: a violation is a brace-bodied module named `tests` or `test`; a `cfg(test)`-gated production-support module such as `tree::meter` is not one. The check's doc states this reading.
+6. `inventory-18` and the `header.rs` site of `clippy-pedantic-1` are landed by `p2-link` under T44; the lints lane verifies them at base and the ledger marks both dup of link-25.
+7. Cross-triage: the workspace em-dash check is the `before` triage's to ship first (its rulings 7 and 54); the dash lane adopts it. `p3-imports` lands the `rustfmt.toml` option and the reflow of this crate's own files; the reflow of `crates/` lands as a separate final commit after the `before` triage's open lanes merge, announced in `.agent-notes/merge-queue.md` before it merges.
+Home: the P3 briefs (banners cite this ruling); the ledger at P3 merge time.
+
+## T159 (2026-09-03): The twelve P4 launch items
+Disposes: `briefs/README.md`'s P4 "Open before launch" items 1 through 12
+Decision:
+1. The ledger's `ruling` column reads T82 for module-graph-4, prose-hygiene-2, and mirror-common-12.
+2. The nine P4-phase rows landed by other rulings' lanes are re-phased to the lane that lands each, so `ledger.py check` counts them where they land.
+3. `p4-bookmark-example` (T94) launches with or after the P6 bookmark lane; its base is main after T62 and T69 merge.
+4. T97 and T99 ride whichever of `p4-placement` and the P6 API lane launches first; the other verifies at base.
+5. T87 stands over link-3's and remote-codec-3's contrary Resolutions: the codec derives the stream count, the link cites it.
+6. streaming-tests-23 takes proptest's default count (T151).
+7. api-core-33's shared `Channel` lands alone if T74 is absent at base; T74 builds on it.
+8. module-graph-2: no standing instrument. `analyze.py` is run once from the review's `evidence/` tree, its output quoted in the commit, and nothing is committed under `tools/`.
+9. No doclint heading-vocabulary rule: custom sections stay allowed. The one deviance (`# Cancellation` at `src/rumors.rs:563`) is renamed to `# Cancel safety`, and the lane aligns the remaining headings by hand, listing them in its report.
+10. `pollster` leaves `[dev-dependencies]` when no site survives; a surviving site is named with its reason.
+11. tests-disruption-handshake-10: one hop instrument, not two pinned equal. `latency::session_hops` is the measured quantity; the floor leg (`sync_window_floor()` both sides, `floor_measured > HOP_BUDGET`) lands on it, and `HOP_BUDGET`'s doc quotes the measured floor in place of the hand-derived ratios. `tests/hop_trace.rs` stays a diagnostic rendering; its own count is asserted nowhere, and the equality clause is dropped. The shared fixture (tests-disruption-handshake-31) is no longer a prerequisite.
+12. Rows whose sites were deleted by an earlier ruling are not recreated; each becomes dup of the deleting ruling when the lane reports the absence.
+Home: the P4 briefs (banners cite this ruling); the ledger at P4 merge time.

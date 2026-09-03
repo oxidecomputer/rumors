@@ -194,6 +194,9 @@ The rows sum to 138; every P3 id sits in exactly one brief.
 
 ## Open before launch
 
+Ruled: T158 disposes every item below, by number; the briefs' banners
+cite it and a lane follows the ruling where an item's text differs.
+
 Places where a ruling and a row's disposition disagree, or where a
 ruling's mechanism cannot be executed as worded; each brief marks its
 item as a stop, and none is resolved in the briefs.
@@ -353,6 +356,9 @@ exactly one brief or in that terminal list.
   T94 builds against T62's trait shape and T69's suite, both P6.
 
 ## Open before launch
+
+Ruled: T159 disposes every item below, by number; the briefs' banners
+cite it and a lane follows the ruling where an item's text differs.
 
 Places where a ruling and a row's disposition disagree, where a
 ruling's mechanism cannot be executed as worded, or where a brief adds

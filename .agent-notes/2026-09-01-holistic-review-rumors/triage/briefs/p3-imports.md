@@ -2,6 +2,8 @@
 
 # P3 lane: import grouping on the pinned nightly
 
+> **Ruled after drafting.** T158 item 7: land the option and this crate's reflow; the `crates/` reflow is a separate final commit after the `before` triage's open lanes merge, announced in the merge queue first.
+
 ## Goal
 
 Every file's imports sit in one layout, std, then external crates, then

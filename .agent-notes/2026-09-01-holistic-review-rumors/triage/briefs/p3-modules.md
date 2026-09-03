@@ -2,6 +2,8 @@
 
 # P3 lane: the pub-in-private convention and test-module placement
 
+> **Ruled after drafting.** T158 items 1 and 5: the check reads by module name (`tests`/`test` with a brace body); the five inline production modules are the P5 module lane's, so this lane moves test modules only.
+
 ## Goal
 
 Two module conventions the review found unstated or unenforced become one

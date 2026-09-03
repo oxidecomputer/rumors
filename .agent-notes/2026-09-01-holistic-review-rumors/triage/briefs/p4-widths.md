@@ -2,6 +2,8 @@
 
 # P4 lane: one definition per width, count, and transcribed constant
 
+> **Ruled after drafting.** T159 item 5: T87 stands over link-3's and remote-codec-3's Resolutions.
+
 ## Goal
 
 Every width, count, and constant the code relies on has one

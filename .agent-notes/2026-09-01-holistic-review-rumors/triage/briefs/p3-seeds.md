@@ -2,6 +2,8 @@
 
 # P3 lane: orphaned seeds and the seed-liveness parameter match
 
+> **Ruled after drafting.** T158 item 2: `tests/async_wire.rs` and its seeds are the P5 tests lane's (T131); this lane touches neither.
+
 ## Goal
 
 Every committed proptest seed replays a case a live property can generate,

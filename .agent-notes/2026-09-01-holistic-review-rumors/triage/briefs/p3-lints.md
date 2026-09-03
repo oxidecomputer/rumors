@@ -4,6 +4,8 @@
 
 # P3 lane: the `[lints]` table, the allow layers, and the open-enum rule
 
+> **Ruled after drafting.** T158 items 4 and 6: each lint enters the table only at zero, in the commit that reaches zero; land T84's `Debug` impls and the uncontested docs here, add `unnameable_types` in P6 with T60; `inventory-18` and the `header.rs` site are verified at base (dup of link-25).
+
 ## Goal
 
 One place says which lints the crate holds itself to, and the gate holds

@@ -2,6 +2,8 @@
 
 # P4 lane: the closed-world poller everywhere, and families where the claim is a family
 
+> **Ruled after drafting.** T159 items 6 and 10: streaming-tests-23 takes the default count; `pollster` leaves the manifest when no site survives.
+
 ## Goal
 
 Every session-driving test runs under the closed-world poller, so a

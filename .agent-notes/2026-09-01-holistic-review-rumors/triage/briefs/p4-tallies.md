@@ -2,6 +2,8 @@
 
 # P4 lane: counts, tallies, and measurements out of prose
 
+> **Ruled after drafting.** T159 item 1: the ledger's ruling column reads T82 for module-graph-4, prose-hygiene-2, and mirror-common-12.
+
 ## Goal
 
 Prose states the structure, never the tally: no rustdoc, comment, or

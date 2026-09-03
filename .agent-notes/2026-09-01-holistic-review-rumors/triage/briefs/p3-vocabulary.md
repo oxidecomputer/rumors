@@ -2,6 +2,8 @@
 
 # P3 lane: vocabulary and register
 
+> **Ruled after drafting.** T158 item 3, amending T51: method docs open in the imperative, type and module docs as noun phrases; sweep method docs only, rewrite no type or module opener.
+
 ## Goal
 
 The crate's prose uses established terms only: no coinage stands for a

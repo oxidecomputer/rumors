@@ -2,6 +2,8 @@
 
 # P4 lane: a file-backed `Bookmark` behind a feature
 
+> **Ruled after drafting.** T159 item 3: launches with or after the P6 bookmark lane.
+
 ## Goal
 
 The crate ships a minimal atomic file-backed `Bookmark` implementation

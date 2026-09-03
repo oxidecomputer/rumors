@@ -2,6 +2,8 @@
 
 # P4 lane: whole-root convergence witnesses and redaction in every generated population
 
+> **Ruled after drafting.** T159 item 11: one hop instrument. The floor leg lands on `latency::session_hops` now, `HOP_BUDGET`'s doc quotes the measured floor, the equality with `hop_trace` is dropped, and the shared fixture is not a prerequisite.
+
 ## Goal
 
 Every convergence witness compares whole roots, content and ceiling,

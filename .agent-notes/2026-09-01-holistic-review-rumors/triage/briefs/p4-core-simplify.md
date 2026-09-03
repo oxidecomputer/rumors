@@ -2,6 +2,8 @@
 
 # P4 lane: one spelling per mechanism in the crate root, session, tree, link, and scaffolding
 
+> **Ruled after drafting.** T159 item 7: api-core-33 lands alone if T74 is absent at base.
+
 ## Goal
 
 In the crate root, the session and bookmark code, the message codec,
