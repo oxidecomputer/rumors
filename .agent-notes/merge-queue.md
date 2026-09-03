@@ -123,6 +123,12 @@ lanes have closed.
 
 (none)
 
+- before `p2-widths`: branch `before/p2-widths`, packet head `ba36e970`,
+  last code commit `d5e63e93`, base `main`. Root files: justfile (one
+  recipe, `fuzz-test`, and its line in `all`). Merges before
+  `p2-surface`. Packet:
+  `.agent-notes/2026-09-01-holistic-review-before/triage/reviews/p2-widths.md`.
+
 - before `p2-surface`: branch `before/p2-surface`, packet head `cad0b75d`,
   last code commit `8a2aa4d7`, base `main`. Root files: `Cargo.toml`
   (workspace `proc-macro2` and `syn`), `Cargo.lock` (surface-scan's

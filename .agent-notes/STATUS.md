@@ -10,7 +10,7 @@ Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not st
 
 | Plan | Merged | Packet ready | In review | Running | Not started | Ledger rows pending |
 |---|---|---|---|---|---|---|
-| before | 2 of 38 lanes | 1 | 2 | 1 | 32 | 1185 of 1204 |
+| before | 2 of 38 lanes | 2 | 1 | 1 | 32 | 1185 of 1204 |
 | rumors | 10 lanes | 0 | 3 | 2 | 25 briefed (P1 envelope, P2 peer, seven P3, fifteen P4, publication prep) | 874 of 995 |
 
 ## Waiting on Finch
@@ -35,7 +35,7 @@ Lanes run in the order `triage/briefs/README.md` gives; every lane builds and ga
 | p1-proptest-cases | merged | `e27ba5e6` (ruling 109) |
 | p1-harness | merged | `5b0a17d4` (rulings 4, 38, 50, 51, 108); the meter suite's one harness |
 | p1-gate | in review | repairs landed; the fuzzfit breach root-caused to the sweep lowering the guest's `bytes` (ruling 114: the convergence goes upward, root brought to 1.12.1 and the other swept crates likewise); the lane is bisecting to confirm, upgrading, and explaining the mechanism; then its gate and packet |
-| p2-widths | in review | complete and gated green but for the fuzz leg (51 commits, rebased onto main); its packet waits on annotation coverage (85 of 163 hunks lacked a row), which the lane agent is completing now at Finch's word; then the packet |
+| p2-widths | packet ready | `ba36e970` (51 code commits; two items for Finch's eye inside, no stop) |
 | p2-surface | packet ready | `cad0b75d` (44 code commits; one stop inside: the fuelscape.js caption) |
 | p1-fuzz | not started | stacks on p1-gate when it lands |
 | p1-survivors | not started | stacks on p1-gate after the roster retirement |
