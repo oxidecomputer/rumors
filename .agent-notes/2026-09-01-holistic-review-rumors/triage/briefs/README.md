@@ -92,6 +92,16 @@ the sha into `../ledger.tsv`. Entries reported as stopped stay `open` and
 go to Finch as a numbered block. Merge is by reported sha, never by
 branch name.
 
+## Added after the P1 launch: `p1-generators`
+
+`briefs/p1-generators.md` (T161): no proptest strategy rejects; the
+check in `tools/caselint`, the sweep of nine rejecting sites and ten
+minimum-size set strategies, the zero reject budgets in the gate's test
+recipes and the CI jobs, one 16000-case release run. Stacked on
+`p1-proptest-ci` (its check and its release recipe); the CI number under
+T148 is set on this lane's tree. Effort: high (generator rewrites must
+preserve each property's population).
+
 # P2 lane briefs
 
 Production correctness. Every lane is based on `62b30e1f` (main at the

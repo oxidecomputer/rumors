@@ -62,6 +62,7 @@ Maintained by the rumors session.
 | p1-proptest-ci | running | no `cases` anywhere (T151), check workspace-wide; CI release-profile job with a measured `PROPTEST_CASES` (the number is a stop for Finch) |
 | p2-vanish-liveness | running | T145 as widened by T154 |
 | p1-collision-mode | running | T23; four open questions are stops for Finch |
+| p1-generators | not started | T161: no rejecting strategies, zero reject budgets in the gate; stacked on p1-proptest-ci, launches when its repair round reports |
 | p1-envelope | not started | launchable from main now |
 | p2-peer | not started | after p2-commit-path |
 | p3-dashes, p3-imports, p3-lints, p3-modules, p3-prose-pass, p3-seeds, p3-vocabulary | not started | after every P1 and P2 lane merges; seven open questions for Finch |
