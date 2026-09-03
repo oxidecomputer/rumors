@@ -817,10 +817,16 @@ async fn run_observers(handle: Rumors<u64>, done: Arc<AtomicBool>) {
 
 /// Concurrently re-assert global pairwise party disjointness until `done`.
 ///
-/// Sound mid-flight: a region is removed from its holder's shared state
-/// *before* it rides the wire and joined into the recipient *after* it
-/// arrives, so no interleaving of these per-peer aliases can witness one
-/// region twice unless linearity is actually broken.
+/// The handles are read one after another, each under its own lock, so
+/// the samples are not one instant: a region that leaves one sampled
+/// handle after that handle is read and arrives at a later-sampled
+/// handle before that one is read would be witnessed twice with no
+/// linearity broken. The check is therefore sound only while no region
+/// moves between two sampled handles, which `run_plan` guarantees: the
+/// bootstraps it probes move regions from sampled founders to newcomers
+/// this loop never samples, and retirements begin only after `done`. A
+/// prober over a phase with founder-to-founder transfers needs a
+/// consistent snapshot, or a re-read that confirms an overlap persists.
 async fn probe_disjointness(handles: Vec<Rumors<u64>>, done: Arc<AtomicBool>) {
     loop {
         let finished = done.load(Ordering::Acquire);
