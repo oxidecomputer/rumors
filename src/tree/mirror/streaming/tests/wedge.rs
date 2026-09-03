@@ -38,15 +38,12 @@ const LEAN_WEDGE_CAP_LEVEL: usize = 1;
 /// The Lean wedge literal, transcribed scope-for-scope from the Lean
 /// definition `Mux.wedge`, the source of truth.
 ///
-/// The transcription is human-checked, not machine-compared: whenever
-/// either side changes, the editor reads the twelve scopes here against
-/// `Mux.wedge` in `Instances.lean` and keeps them equal. No gate leg
-/// compares the two, and that discipline suffices because the literal is
-/// twelve scopes; the generator pin
-/// (`wedge_generator_matches_the_lean_literal`) and the session pin
-/// (`session_realizes_the_wedge_shape`) hold the Rust side rigid against
-/// drift; and a Lean edit to the witness is itself an owner-level change
-/// to the subject of the kernel-checked theorems, never an incidental one.
+/// The transcription is human-checked: whenever either side changes, the
+/// editor reads the twelve scopes here against `Mux.wedge` in
+/// `Instances.lean`. No gate leg compares them, and that suffices: the
+/// literal is twelve scopes; the generator pin and the session pin below
+/// hold the Rust side rigid; and a Lean edit to the witness is an
+/// owner-level change to the theorems' subject, never an incidental one.
 fn lean_wedge_literal() -> Skel {
     let sc = |kind, height, kids: &[usize], leaf_reqs| Scope {
         kind,

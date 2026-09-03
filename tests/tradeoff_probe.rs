@@ -5,12 +5,10 @@
 //! inside the wave form evaluated at the window the real derivation
 //! grants — the quantity the committed trade-off table tabulates.
 //!
-//! It is a hand-run instrument: no recipe invokes it, and it runs only by
-//! explicit request. The cost is why: every cell drives whole sessions
-//! over the design corpus (62,500 divergent messages a side), seconds per
-//! cell in release and several times that under the dev profile the gate
-//! uses, for a claim that changes only when the derivation or the wire
-//! law does. Run it, and read its printed cells, after either moves:
+//! It is a hand-run instrument, in no recipe: every cell drives whole
+//! sessions over the design corpus, seconds per cell in release and several
+//! times that under the gate's dev profile, for a claim that moves only
+//! with the derivation or the wire law. Run it after either moves:
 //!
 //!     cargo nextest run --release --test tradeoff_probe \
 //!         --run-ignored all --no-capture

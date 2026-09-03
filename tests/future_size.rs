@@ -3,28 +3,21 @@
 //! The streaming mirror's typed phase schedule (`streaming::protocol`) is a
 //! deep generic type: a layout query that traverses it inline blows past
 //! the default `recursion_limit = 128` and forces downstream crates to
-//! bump their own limit. Two erasure boundaries keep it out of the public
-//! futures. `Reconciliation::reconcile` (`src/peer/gossip.rs`) returns its
-//! `#[inline(never)]` body as a `Pin<Box<dyn Future>>`, with
-//! `Handshaken::reconcile`'s boxed descent below it, and every public
-//! session future (`Rumors::gossip`, `Peer::retire`, `Bootstrap::join`)
-//! awaits through it; `gossip_when` boxes its unfold, so its stream carries
-//! the driver's in-flight session the same way. Each public future therefore
-//! holds one pointer plus its own locals: a layout fact in either profile,
-//! which is why the budget is pinned under the dev profile the gate runs.
+//! bump their own limit. Boxed boundaries keep it out of the public
+//! futures: `Reconciliation::reconcile` returns its `#[inline(never)]`
+//! body as a `Pin<Box<dyn Future>>` (with `Handshaken::reconcile`'s boxed
+//! descent below it) and `Rumors::gossip` and `Peer::retire` await through
+//! it; `bootstrap_reconcile` does the same for `Bootstrap::join`; and
+//! `gossip_when` boxes its unfold, so its stream carries the driver's
+//! in-flight session the same way. Each public future therefore holds one
+//! pointer plus its own locals, in either profile, so the budget is pinned
+//! under the dev profile the gate runs.
 //!
-//! If a boundary is reintroduced inline (a `Box::pin` removed, or a new
-//! public future driving the protocol directly), the budget trips here,
-//! before downstream crates discover the `recursion_limit` regression.
-//! Measured on this tree: unboxing `Reconciliation::reconcile` alone
-//! roughly quadruples `gossip` and `retire` (the handshake state comes
-//! inline; the descent stays behind `Handshaken::reconcile`'s box), and
-//! unboxing every layer down to the descent puts the whole schedule inline
-//! at about 95 KiB. `Bootstrap::join` has its own boxed boundary,
-//! `bootstrap_reconcile`. The pin has a liveness leg too: the justfile's
-//! `future-size` recipe reruns this binary with `--no-tests=fail`, so a
-//! `cfg` that compiles it empty fails the gate instead of reading as a
-//! pass.
+//! Removing one of those outer boxes, or adding a public future that drives
+//! the protocol without one, trips the budget here before downstream crates
+//! discover the `recursion_limit` regression. The justfile's `future-size`
+//! recipe reruns this binary with `--no-tests=fail`, so a `cfg` that
+//! compiles it empty fails the gate instead of reading as a pass.
 
 use std::mem::size_of_val;
 
@@ -33,13 +26,11 @@ use rumors::{Peer, Rumors};
 
 /// Upper bound for the unawaited public futures and the `gossip_when` stream.
 ///
-/// Measured under both profiles, with identical results: the stream is 8
-/// bytes (one boxed pointer), `Bootstrap::join` 336, `Rumors::gossip`
-/// 960, and `Peer::retire` 2000. The budget sits half again above the
-/// largest, so legitimate growth (an extra captured local, a slightly
-/// fatter error type) does not fail the test, and below the roughly 4 KiB
-/// that removing `Reconciliation::reconcile`'s box alone produces, so the
-/// cheapest boundary regression still trips it.
+/// Measured identically under both profiles, the largest is `Peer::retire`
+/// at 2000 bytes. The budget sits half again above it, so an extra captured
+/// local or a fatter error type passes, and below what removing
+/// `Reconciliation::reconcile`'s box alone produces, so the cheapest
+/// boundary regression fails.
 const PUBLIC_FUTURE_BUDGET: usize = 3072;
 
 /// `Rumors::gossip` drives the full mirror protocol against a peer; the
@@ -102,9 +93,9 @@ fn bootstrap_future_fits_budget() {
     );
 }
 
-/// `Rumors::gossip_when` hands back a stream, not a future, and its driver
-/// keeps a whole session in flight between cues: the boxed unfold is what
-/// keeps that session, and the schedule behind it, off the caller's layout.
+/// `Rumors::gossip_when` returns a stream whose driver keeps a session in
+/// flight between cues; the boxed unfold keeps that session, and the
+/// schedule behind it, off the caller's layout.
 #[test]
 fn gossip_when_stream_fits_budget() {
     let (mut link, peer) = rumors::link::memory();

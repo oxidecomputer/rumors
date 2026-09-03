@@ -1,8 +1,8 @@
 # rumors workspace: the source of truth for verification. Every artifact in
 # the workspace has a recipe here, tiered by feedback speed, and `just --list`
-# is the tour. The one exception class is the hand-run instrument: an
-# `#[ignore]`-gated test whose module doc states the cost that keeps it out
-# of every recipe and the command that runs it (tests/tradeoff_probe.rs).
+# is the tour. The one exception is the hand-run instrument, an
+# `#[ignore]`-gated test whose module doc states its cost and its command
+# (tests/tradeoff_probe.rs).
 #
 #   inner loop   just check / just test <filter>     seconds to a minute
 #   commit gate  just gate                           fully clean before every commit
@@ -15,8 +15,8 @@
 # plus the artifacts the gate doesn't reach (the feature matrix, wasm, bench
 # builds, the viz bundle). `all` adds the coverage legs (CI's `coverage`
 # job) and what CI cannot run (the fuzz smoke, the formal tier, the bench
-# judge). Neither sweep
-# repeats the gate's instrument legs — the fuel bands, the board verdicts
+# judge). Neither sweep repeats the gate's instrument legs — the fuel
+# bands, the board verdicts
 # and pins, and surface totality run in `just gate`, and GitHub CI's
 # `instruments` job re-runs the counter-based subset (the workflow file
 # says which legs stay local and why). The comment above each recipe states
@@ -106,9 +106,8 @@ check:
 test *args:
     cargo nextest run --workspace {{ args }}
 
-# The gate's test run. Every feature is lit here and nowhere else in the
-# gate: the meter suites and the conformance module build only under
-# `--all-features`.
+# Every feature is lit here and nowhere else in the gate: the meter suites
+# and the conformance module build only under `--all-features`.
 
 # Run the test suites under every feature (the gate's test run).
 test-all *args:
@@ -183,8 +182,8 @@ doclint:
 
 # tools/testdoc walks the same explicit roots as doclint, never `.`: the
 # repository root can hold untracked trees (other agents' worktrees under
-# `.claude/`), and a walk from `.` would make this verdict a function of
-# their uncommitted state. The tool's own ignore set is the second guard.
+# `.claude/`) whose state must not move this verdict. The tool's ignore
+# set is the second guard.
 
 # Require every Rust test to document the behavior and invariant it protects.
 testdoc:
@@ -276,13 +275,10 @@ docs-internal:
     RUSTDOCFLAGS="-D warnings --html-in-header {{ justfile_directory() }}/crates/before/docs/fuelscape-header.html" cargo doc --workspace --all-features --no-deps --document-private-items --target-dir target/doc-internal
 
 # docs.rs builds rumors under nightly with `--cfg docsrs` (Cargo.toml's
-# docs.rs metadata), the one configuration in which lib.rs's `doc_cfg`
-# feature gate is live. `docs` and `docs-internal` run stable rustdoc
-# without that cfg, so nothing else compiles the path docs.rs takes, and a
-# rustdoc feature the nightly has removed or renamed would surface only on
-# docs.rs itself, after publication. This leg is that build: one crate,
-# no deps, warnings denied, under the pinned nightly, in its own target
-# dir so the nightly artifacts never invalidate the stable doc passes.
+# docs.rs metadata), the one configuration where lib.rs's `doc_cfg` gate is
+# live; `docs` and `docs-internal` run stable rustdoc without it, so only
+# this leg compiles the path docs.rs takes. One crate, no deps, warnings
+# denied, under the pinned nightly, in its own target dir.
 
 # Build rumors' rustdoc as docs.rs does (pinned nightly, `--cfg docsrs`), warnings denied.
 docs-docsrs:
@@ -303,12 +299,10 @@ docs-docsrs:
 # invocation builds test binaries in the root target/, which is why this leg
 # rides the workspace stream, after test-all has warmed those artifacts.
 
-# tests/future_size.rs pins the public futures' sizes. The failure mode
-# that suite exists to catch is invisible to an ordinary run: a `cfg` that
-# compiles the binary empty makes it read as a pass. This leg re-runs that
-# one binary from the same build set as test-all (same features, so no
-# rebuild) with nextest's `--no-tests=fail`, so an empty binary is a gate
-# failure, never a silent pass.
+# tests/future_size.rs pins the public futures' sizes, and a `cfg` that
+# compiles it empty would read as a pass. This leg reruns that binary from
+# test-all's build set (same features, so no rebuild) with
+# `--no-tests=fail`, so an empty binary fails the gate.
 
 # Fail unless the future-size pins were collected and pass (liveness for tests/future_size.rs).
 future-size:
@@ -416,8 +410,8 @@ fuzz-build:
 # preserving the fail-fast ordering within it. Every other leg already
 # writes a directory nothing else touches — the nightly doctest target,
 # the private-items doc target, the docs.rs doc target, the rustdoc-JSON
-# target, and the detached
-# fuzz/fuzzfit/fuelscape/surfacecheck workspaces — and that is exactly what
+# target, and the detached fuzz/fuzzfit/fuelscape/surfacecheck workspaces
+# — and that is exactly what
 # lets them overlap. `fuzzfit` and `fuelscape-test` share one stream
 # because both build the same wasm guest.
 #
@@ -1011,8 +1005,8 @@ worst-cases-pin:
 # wasm, docs, the full test+doctest run, bench builds, the fuzz-target *build*,
 # and the viz bundle, ordered cheap-first so failures surface early. GitHub
 # CI's `ci` job runs exactly this. Neither `ci` nor `all` runs the gate's
-# instrument legs —
-# the fuel bands, the fuelscape pins, the board's acceptance verdicts and
+# instrument legs — the fuel bands, the fuelscape pins, the board's
+# acceptance verdicts and
 # ranking pin, and surface
 # totality run in `just gate` (its recipe line is the
 # roster of record), pre-commit on a developer machine; GitHub CI's
@@ -1023,8 +1017,9 @@ worst-cases-pin:
 # coverage section below): too slow for the gate, judged against the
 # curated kernel pin.
 #
-# `all` is `ci` plus the coverage legs, so the local ladder cannot pass
-# while CI's `coverage` job fails, plus what CI cannot run: a short libFuzzer smoke (poor
+# `all` is `ci` plus the coverage legs (so the local ladder cannot pass
+# while CI's `coverage` job fails) and what CI cannot run: a short
+# libFuzzer smoke (poor
 # per-commit spend), the formal tier (the runner has no Lean toolchain) —
 # the kernel-checked proofs, the eventdag oracle/schedule gate, and the
 # muxprobe matrix gate — and the bench judge's two legs: the roster-mode
@@ -1051,8 +1046,8 @@ all: ci coverage-kernel coverage-kernel-branch (fuzz fuzz_smoke_secs) lean event
 # threshold is a suite that pads covered lines elsewhere; the pin names lines.
 #
 # Sweep legs (`all` and CI's `coverage` job), never gate legs: each run is a
-# full instrumented rebuild plus the
-# whole suite under instrumentation — minutes, not gate seconds. The line leg
+# full instrumented rebuild plus the whole suite under instrumentation —
+# minutes, not gate seconds. The line leg
 # runs on stable; branch instrumentation needs the pinned nightly (the same
 # toolchain-pin argument as the other nightly legs, and each leg judges only
 # its own toolchain's records — the two map a few regions to different

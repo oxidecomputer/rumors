@@ -293,10 +293,9 @@
 //! test is very welcome.
 
 #![forbid(unsafe_code)]
-// docs.rs builds pass `--cfg docsrs` (Cargo.toml's docs.rs metadata), which
-// enables rustdoc's `doc_cfg` feature there: every feature-gated item then
-// labels its gate automatically. Inert on stable builds; the justfile's
-// `docs-docsrs` leg is the same build under the pinned nightly.
+// docs.rs passes `--cfg docsrs` (Cargo.toml's docs.rs metadata), enabling
+// rustdoc's `doc_cfg` feature so feature-gated items label their gate;
+// inert on stable builds. The justfile's `docs-docsrs` leg is the same build.
 #![cfg_attr(docsrs, feature(doc_cfg))]
 // Programmer error in recursive async traits can create large futures, so we
 // check to make sure it's not an issue

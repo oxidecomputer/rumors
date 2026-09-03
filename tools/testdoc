@@ -6,20 +6,18 @@ Usage:
     testdoc --self-test
 
 The checker is deliberately lexical. Rust test entry points advertise
-themselves in two forms this tool recognizes without a Rust parser: a
-test attribute (`#[test]`, any attribute path ending in `::test` such as
-`#[tokio::test]` or `#[pollster::test]`, `#[rstest]`, `#[test_case]`),
+themselves in two forms: a test attribute (`#[test]`, any attribute path
+ending in `::test` such as `#[tokio::test]`, `#[rstest]`, `#[test_case]`),
 and a function declared directly inside a `proptest! { .. }` block, which
-the macro turns into a test whether or not the author wrote `#[test]`
-above it. Recognizing those forms and the item preamble is both faster
-and less brittle than depending on a Rust parser.
+the macro makes a test whether or not `#[test]` is written above it.
+Recognizing those forms and the item preamble is faster and less brittle
+than depending on a Rust parser.
 
-Directories named in `IGNORED_DIRECTORIES` are never descended into, under
-any root: build output and vendored trees are not this repository's tests,
-and `.claude` may hold other agents' worktrees, whose uncommitted state
-must not move this tree's verdict. The gate names its roots explicitly
-(the same roots as doclint) as the first guard; the ignore set is the
-second, for a root that grows an ignored subtree.
+Directories named in `IGNORED_DIRECTORIES` are never entered under any
+root: build output and vendored trees hold none of this repository's
+tests, and `.claude` may hold other agents' worktrees, whose state must
+not move this tree's verdict. The gate's explicit roots are the first
+guard; this set is the second.
 """
 
 import os
