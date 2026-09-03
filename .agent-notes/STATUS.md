@@ -2,7 +2,7 @@
 
 # Triage landing status
 
-Updated: 2026-09-03 03:20 UTC by the rumors session.
+Updated: 2026-09-03 03:21 UTC by the before session (rumors-74).
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
 
@@ -32,8 +32,8 @@ Lanes run in the order `triage/briefs/README.md` gives; every lane builds and ga
 |---|---|---|
 | p1-proptest-cases | merged | `e27ba5e6` (ruling 109) |
 | p1-harness | merged | `5b0a17d4` (rulings 4, 38, 50, 51, 108); the meter suite's one harness |
-| p1-gate | in review | first review round's repairs landing; a fuzzfit sentry breach at its rebased tip (ff_party_decode above its band) under investigation: the lockfile sweep's effect on the guest, or a stale guest artifact; then a second review and its packet |
-| p2-widths | in review | complete (41 commits, gate green but for the fuzz leg); second fresh-eyes round reading and the coordinator's acceptance run; packet next |
+| p1-gate | in review | repairs landed; the fuzzfit breach root-caused to the sweep lowering the guest's `bytes` (ruling 114: the convergence goes upward, root brought to 1.12.1 and the other swept crates likewise); the lane is bisecting to confirm, upgrading, and explaining the mechanism; then its gate and packet |
+| p2-widths | in review | second review's repairs landing (a fuzz-test recipe, the asserting door restored where the population is non-empty, a trap pin); then the coordinator's gate and its packet |
 | p2-surface | in review | repair round landing (rulings 40, 42, 44, 46, 47, 48, 49, 98, 110); registry step held for a second launch after p1-suites; next: second fresh-eyes round, packet |
 | p1-fuzz | not started | stacks on p1-gate when it lands |
 | p1-survivors | not started | stacks on p1-gate after the roster retirement |
