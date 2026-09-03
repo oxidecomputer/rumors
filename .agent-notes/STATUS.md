@@ -2,7 +2,7 @@
 
 # Triage landing status
 
-Updated: 2026-09-03 13:21 UTC by the rumors session.
+Updated: 2026-09-03 13:25 UTC by the rumors session.
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
 
@@ -68,7 +68,7 @@ Maintained by the rumors session.
 | p2-vanish-liveness | in review | round 2 at `86cde61c` under verification; round 3 (marker-past bytes as a typed violation instead of a debug assert, the flush-poll departure test, a mechanism-derived floor, a routed-link departure test, T165 prose) with the lane; one stop for Finch (a conformance-suite check for the two `link.rs` obligations) |
 | p1-collision-mode | in review | final round landed at `35d134fd` (no disputes; the 31-byte sweep re-measured at 6456 B per endpoint); light final verification running; packet next; `wasm` red on before's fuel band until before's `p1-fuzz` refit merges (merge order recorded) |
 | p2-deep-geometry | packet ready | packet `f74324a7` on `triage/p2-deep-geometry` (code tip `7e7bae71`, base `7858b35e`, stacked on the collision branch; merges after it); three fresh-eyes rounds, every item verified; its gate runs under the mutex and the verdict is appended when it lands; stops: the shared predicate at integration with vanish-liveness, the conformance floor under the schedule, the residual precedence window, the duplicated-reply stall queued |
-| p1-generators | in review | `9903be30` verified so far (552 passed under zero budgets; checks clean); fresh-eyes round 1 found committed seeds decoupled from their counterexamples and a lint-roots regression, sent as repairs; packet after; its last commit merges after `before/p2-generators` |
+| p1-generators | in review | round 1 landed at `763d45b3` (caselint per-rule roots with `--counts` over `crates/`, RNG-preserving total constructions keeping every seed coupled, `arb_radixes` folded, the `tripwire` recipe in `ci` and the gate, new refused spellings); verification and the round-2 read running; packet after; the budgets commit merges after before's `p2-generators` |
 | p1-envelope | in review | round 1 at `efbf5338` verified in full; round 2 (the crate-doc sentence qualified toward the sweep, the 2^16 cell's timeout margin, the pin roster in AGENTS.md, premise phrase pinned, cell coverage, the joint-occupancy argument restated) with the lane; packet after |
 | p2-peer | not started | after p2-commit-path |
 | p3-dashes, p3-imports, p3-lints, p3-modules, p3-prose-pass, p3-seeds, p3-vocabulary | not started | after every P1 and P2 lane merges; seven open questions for Finch |
