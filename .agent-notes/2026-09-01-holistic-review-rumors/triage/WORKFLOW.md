@@ -271,7 +271,13 @@ worktree to `~/src/<worktree basename>` on the box and runs one command
 there with its own target directory, so lanes do not collide; cargo
 runs `--locked` there; nothing is edited or committed on the box. A
 clean gate on the box is the gate of record for a commit; the Mac runs
-no gate (Finch's ruling). The box gate is `on-illumos.sh <worktree> 'just gate'`. One leg is
+no gate (Finch's ruling). The box gate is `on-illumos.sh <worktree> 'pset-run -n 40 -- just gate'`:
+an exclusive processor set of 40 threads, at most two at once per
+session (agreed with the `before` session in `.agent-notes/merge-queue.md`,
+rule 6), so no other build can starve a gate's tests into nextest's
+180 s limit; a leg that still fails only by that limit inside a pset is
+a finding about the test, not load. Non-gate builds and targeted test
+runs stay unbound in the general pool. One leg is
 expected red there and counts as clean when it is the only failure:
 `fuzz`, because libFuzzer has no illumos port (`FuzzerPlatform.h`
 refuses the target); a lane quotes that line and runs no fuzz build
@@ -283,11 +289,10 @@ either rebases or passes `RUSTFLAGS="-A clippy::missing_const_for_thread_local"`
 in the remote command for that one run. `just ci` cannot complete on
 the box (no `node`, no `wasm-pack`; it stops at `fuelscape-claims`), so
 `ci` is GitHub's to run and a lane that must exercise a recipe `ci`
-reaches and the gate does not runs that recipe alone on the box. A gate leg that fails only by nextest's 180 s per-test
-limit under box load (`bounded_corpus_manifest_snapshot` runs in 2 s
-quiet and past 170 s at a load near 200) is rerun alone when the load
-is down, and the rerun's verdict joins the gate's; a lane waits for the
-load rather than launching a second whole gate. Two legs that
+reaches and the gate does not runs that recipe alone on the box. A gate leg that failed only by nextest's 180 s per-test
+limit before psets were in use (`bounded_corpus_manifest_snapshot` runs
+in 2 s quiet and past 170 s at a load near 200) is rerun alone inside a
+pset, and the rerun's verdict joins the gate's. Two legs that
 pin toolchain-derived numbers may fire on the box if its toolchains
 differ from the pinned ones; a lane reports such a leg with both numbers
 rather than re-pinning anything. `tools/memwatch` is deleted by the
