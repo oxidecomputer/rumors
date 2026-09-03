@@ -438,3 +438,17 @@ board-family work if approved.
   describes for its own case.
 - No bench judge, no wall-time measurement; the deterministic counters
   are the readings of record.
+
+## Coordinator handoffs (recorded during the P1 harness lane's review)
+
+- `JOIN_WIDE_TOOTH`'s limb ceiling (74_477) derives from a pin-time
+  reading of 59_581 while its floor derives from the parent's 64_713: an
+  unattributed pre-existing rise of about 8.6% under the standing
+  ceiling. This lane, which measures every row, attributes the rise
+  (which commit moved it, and why) or re-pins both bounds from one
+  reading with the movement named.
+- The envelope suite has no deep-input row for `project`, `distance`,
+  `lag`, or the masked comparisons; the clock crate's stack-safety
+  tests drive them at depth, but no cost row does. Add rows on the
+  dense spine at the suite's deep scale for each, pinned from a parent
+  measurement like every other new row.

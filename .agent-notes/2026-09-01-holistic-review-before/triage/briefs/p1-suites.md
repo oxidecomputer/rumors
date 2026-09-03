@@ -426,3 +426,13 @@ taken unless Finch's roster approval says so. Lands only if approved.
   the band; that re-pin is the one this lane makes by design, measured
   at the parent and named in the commit. Any other band pin moving is a
   stop.
+
+## Coordinator handoffs (recorded during the P1 harness lane's review)
+
+- The `id_walk_scan_cost` band's own liveness floor (one bit per packed
+  operand byte) now sits under the envelope rows' `LiveBits` floor
+  (eight bits per input byte less a per-stream tail) with a different
+  stated premise. Either retire the band's floor in favor of the
+  envelope's or state at the band why one bit per byte is its own
+  premise; the two must not read as two derivations of the same
+  irreducible work.
