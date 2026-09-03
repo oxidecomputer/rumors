@@ -2,7 +2,7 @@
 
 # Triage landing status
 
-Updated: 2026-09-03 04:06 UTC by the rumors session.
+Updated: 2026-09-03 04:17 UTC by the rumors session.
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
 
@@ -63,7 +63,7 @@ Maintained by the rumors session.
 | p2-commit-path | in review | round-2 repairs landed at `71797970` (warmed pins 78/601/325, `#[must_use]` sink, meter lock, nested-branch probe, two-actions-per-key proptest), gate clean; `71797970` re-verified; round-3 read found no bugs, its legibility and prose items sent as the last repair round; packet builds from that sha; one stop (the all-skipped ceiling) |
 | p1-proptest-ci | in review | landed at `a34859ed` (sweep, caselint, release recipe and nextest profile, meter excluded, T157 rewrite); gate clean; the CI number is a stop (recommendation 4000 after p1-generators); verification and packet after p1-generators lands, since the number is set on that tree |
 | p2-vanish-liveness | in review | landed at `28ef4341` (departure watch; vanish draw at every point; zero parks asserted), gate clean; six stops for Finch (`PeerDeparted` shape, a `link.rs` sentence, the dissolved park count, the deferred-watch deviation, two files outside its list, the point test's fixture); verification and fresh-eyes round 1 running |
-| p1-collision-mode | in review | `7858b35e` verified; stops ruled (T162) and the schedule re-shaped to 28-byte prefixes (T163); fresh-eyes round 1 repairs with the lane |
+| p1-collision-mode | in review | round 1 landed at `e951b81e` (T163 width, recipe liveness, fixtures routed through the crate's derivation, marks re-justified at 28 bytes), gate clean; second verification and read running; two stops for Finch: the census reach dropping from 16 to 15/14 at 28 bytes, and whether a 31-byte seed stays in a sweep recipe so T162's findings 8 and 9 (which no longer reproduce at 28) stay covered |
 | p2-deep-geometry | running | T162 items 8 and 9: the masked typed error and the non-reproducible poll count under deep geometry; stacked on the collision branch |
 | p1-generators | running | T161: no rejecting strategies, zero reject budgets in the gate; stacked on p1-proptest-ci at `a34859ed` |
 | p1-envelope | running | T10's certificate proptest first, then T43's deletion of the envelope simulation, the crate-doc figures derived, `results/` cleaned; from main `0fad870c`, launched at Finch's word for the overnight run |
