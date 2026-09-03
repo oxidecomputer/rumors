@@ -19,18 +19,13 @@ use std::collections::BTreeSet;
 
 use proptest::prelude::*;
 
-use super::fixtures::{divergent_cells_pair, grown, path_at, rooted};
-use crate::testing::run_to_quiescence;
+use super::LocalSession;
+use super::fixtures::{LeafOrder, divergent_cells_pair, grown, path_at, rooted};
 use crate::tree::Root;
 use crate::tree::arb::leaf_parent_redaction_pair;
 use crate::tree::mirror::streaming::message::initiates;
-use crate::tree::mirror::streaming::stats::{Recorder, SessionStats};
-use crate::tree::mirror::streaming::window::WindowConfig;
-use crate::tree::mirror::streaming::{
-    Local, Root as StreamingRoot, materialized::Handshaking, mirror as drive_streaming,
-};
-
-use super::fixtures::LeafOrder;
+use crate::tree::mirror::streaming::stats::SessionStats;
+use crate::tree::mirror::streaming::{Local, Root as StreamingRoot};
 
 /// Reconcile `a` and `b` through the streaming local backend with a
 /// recorder on each side, returning both reconciled roots and both
@@ -40,24 +35,10 @@ use super::fixtures::LeafOrder;
 /// harness pins the walk's counters (disputes, gains, sheds) and the
 /// window grant.
 fn mirror_with_stats(a: Root, b: Root) -> (Root, Root, SessionStats, SessionStats) {
-    let (a, b): (StreamingRoot<Local>, StreamingRoot<Local>) = (a.into(), b.into());
-    let a_recorder = Recorder::default();
-    let b_recorder = Recorder::default();
-    let client = Handshaking::start(Local, a)
-        .window(WindowConfig::FLOOR)
-        .stats(a_recorder.clone());
-    let server = Handshaking::start(Local, b)
-        .window(WindowConfig::FLOOR)
-        .stats(b_recorder.clone());
-    let (ours, theirs) = run_to_quiescence(drive_streaming(client, server))
-        .expect("streaming mirror became quiescent before completion")
-        .expect("local mirror speaks no violations");
-    (
-        ours.into(),
-        theirs.into(),
-        a_recorder.snapshot(),
-        b_recorder.snapshot(),
-    )
+    let outcome = LocalSession::new(a, b).stats().run();
+    let (a_stats, b_stats) = *outcome.stats();
+    let (ours, theirs) = outcome.sides();
+    (ours, theirs, a_stats, b_stats)
 }
 
 /// The live-leaf count of a tree root, for conservation checks.

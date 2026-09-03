@@ -4,7 +4,7 @@ use proptest::prelude::*;
 
 use super::{
     fixtures::{LeafOrder, full_depth_comb_pair, one_sided_pair},
-    streaming_mirror_sides,
+    floor_start, streaming_mirror_sides,
 };
 use crate::testing::run_to_quiescence;
 use crate::tree::arb::arb_divergent_pair;
@@ -14,18 +14,24 @@ use crate::tree::mirror::{
     streaming::{
         Failing, FailingNode, Failure, Fault, Faulting, GreetingLie, Local, Root as StreamingRoot,
         materialized::{
-            Error as MaterializedError, Handshaking, Violation,
+            Error as MaterializedError, Handshaking, Start, Violation,
             channel::{with_observation, with_schedule},
         },
         mirror as drive_streaming,
     },
 };
 
-fn failing_root(root: crate::tree::Root) -> StreamingRoot<Failing<Local>> {
-    StreamingRoot {
+/// A `Failing<Local>` endpoint at the floor window over `root`, its nodes
+/// wrapped for the failing backend.
+fn failing_start(
+    backend: Failing<Local>,
+    root: crate::tree::Root,
+) -> Handshaking<Failing<Local>, Start> {
+    let root = StreamingRoot {
         ceiling: root.ceiling,
         root: root.root.map(FailingNode::new),
-    }
+    };
+    Handshaking::start(backend, root).window(WindowConfig::FLOOR)
 }
 
 /// The connected abort suite's injected faults: one structural shape
@@ -69,9 +75,10 @@ proptest! {
         let (client_root, server_root) =
             full_depth_comb_pair(2, LeafOrder::Interleaved);
         let before = (client_root.clone(), server_root.clone());
-        let local = Handshaking::start(Local, StreamingRoot::from(client_root.clone())).window(WindowConfig::FLOOR);
-        let honest_server = Handshaking::start(Local, StreamingRoot::from(server_root.clone())).window(WindowConfig::FLOOR);
-        let faulting_server = Faulting::new(honest_server, server_steps, Some(Fault::Reply(violation)));
+        let local = floor_start(client_root.clone());
+        let honest_server = floor_start(server_root.clone());
+        let faulting_server =
+            Faulting::new(honest_server, server_steps, Some(Fault::Reply(violation)));
         let result = run_to_quiescence(drive_streaming(local, faulting_server))
             .expect("the connected driver must surface the fault, not stall");
         match result {
@@ -84,9 +91,10 @@ proptest! {
 
         // Reversing the handshake sides also reverses initiator order: the
         // driver's frame-relative error is flipped back to the original client.
-        let honest_client = Handshaking::start(Local, StreamingRoot::from(client_root.clone())).window(WindowConfig::FLOOR);
-        let faulting_client = Faulting::new(honest_client, client_steps, Some(Fault::Reply(violation)));
-        let local = Handshaking::start(Local, StreamingRoot::from(server_root.clone())).window(WindowConfig::FLOOR);
+        let honest_client = floor_start(client_root.clone());
+        let faulting_client =
+            Faulting::new(honest_client, client_steps, Some(Fault::Reply(violation)));
+        let local = floor_start(server_root.clone());
         let result = run_to_quiescence(drive_streaming(faulting_client, local))
             .expect("the reversed connected driver must surface the fault, not stall");
         match result {
@@ -94,7 +102,10 @@ proptest! {
                 prop_assert_eq!(actual, violation);
             }
             Err(other) => prop_assert!(false, "unexpected reversed driver error: {other:?}"),
-            Ok(_) => prop_assert!(false, "the reversed faulting counterparty unexpectedly completed"),
+            Ok(_) => prop_assert!(
+                false,
+                "the reversed faulting counterparty unexpectedly completed"
+            ),
         }
 
         prop_assert_eq!((client_root, server_root), before);
@@ -132,10 +143,8 @@ proptest! {
             GreetingLie::InflatedSetLen | GreetingLie::InflatedVersion => None,
         };
 
-        let client = Handshaking::start(Local, StreamingRoot::from(client_root.clone()))
-            .window(WindowConfig::FLOOR);
-        let server = Handshaking::start(Local, StreamingRoot::from(server_root.clone()))
-            .window(WindowConfig::FLOOR);
+        let client = floor_start(client_root.clone());
+        let server = floor_start(server_root.clone());
         let result = if fault_client {
             let faulting = Faulting::new(client, 0, Some(Fault::Greeting(lie)));
             run_to_quiescence(drive_streaming(faulting, server))
@@ -208,8 +217,8 @@ proptest! {
         } else {
             failing.clone()
         };
-        let client = Handshaking::start(client_backend, failing_root(client_root)).window(WindowConfig::FLOOR);
-        let server = Handshaking::start(server_backend, failing_root(server_root)).window(WindowConfig::FLOOR);
+        let client = failing_start(client_backend, client_root);
+        let server = failing_start(server_backend, server_root);
         let result = with_schedule(schedule, || {
             run_to_quiescence(drive_streaming(client, server))
         })
@@ -260,9 +269,8 @@ fn equal_versions_return_outputs_without_descent() {
 fn semantic_and_backend_failure_layers_compose() {
     let (client_root, server_root) = one_sided_pair(&[(0x20, 1, 1)]);
     let backend = Failing::after(Local, usize::MAX);
-    let client =
-        Handshaking::start(backend.clone(), failing_root(client_root)).window(WindowConfig::FLOOR);
-    let server = Handshaking::start(backend, failing_root(server_root)).window(WindowConfig::FLOOR);
+    let client = failing_start(backend.clone(), client_root);
+    let server = failing_start(backend, server_root);
     let server = Faulting::new(server, 0, Some(Fault::Reply(Violation::UnexpectedQuery)));
     let error = run_to_quiescence(drive_streaming(client, server))
         .expect("the stacked session must terminate")
@@ -274,9 +282,8 @@ fn semantic_and_backend_failure_layers_compose() {
 
     let (client_root, server_root) = one_sided_pair(&[(0x20, 1, 1)]);
     let backend = Failing::after(Local, 0);
-    let client =
-        Handshaking::start(backend.clone(), failing_root(client_root)).window(WindowConfig::FLOOR);
-    let server = Handshaking::start(backend, failing_root(server_root)).window(WindowConfig::FLOOR);
+    let client = failing_start(backend.clone(), client_root);
+    let server = failing_start(backend, server_root);
     let server = Faulting::new(server, 0, None);
     let error = run_to_quiescence(drive_streaming(client, server))
         .expect("the stacked session must terminate")

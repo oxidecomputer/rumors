@@ -5,34 +5,74 @@ use proptest::prelude::*;
 use super::fixtures::{
     LeafOrder, divergent_cells_pair, full_depth_comb_pair, one_sided_pair, pyramid_pair,
 };
-use super::{fully_scheduled_streaming_mirror, join_oracle, scheduled_streaming_mirror};
+use super::{LocalSession, Verdict, floor_start, fully_scheduled_streaming_mirror, join_oracle};
 use crate::testing::{Quiescence, run_to_quiescence};
-use crate::tree::mirror::streaming::window::WindowConfig;
 use crate::tree::{
     Root,
     arb::leaf_parent_dispute_pair,
     mirror::streaming::{
-        Local, Root as StreamingRoot,
-        backend::with_local_schedule,
+        Fault, Faulting,
         materialized::{
-            Handshaking,
-            channel::{QueueKind, with_kind_capacity, with_observation, with_schedule},
+            Violation,
+            channel::{QueueKind, with_kind_capacity, with_observation},
         },
         mirror as drive_streaming,
     },
 };
 
-/// Whether the session stalls at a selected capacity for the fan return queue.
-fn underbuffered_mirror_stalls(a: Root, b: Root, capacity: usize) -> bool {
-    let (a, b): (StreamingRoot<Local>, StreamingRoot<Local>) = (a.into(), b.into());
-    let client = Handshaking::start(Local, a).window(WindowConfig::FLOOR);
-    let server = Handshaking::start(Local, b).window(WindowConfig::FLOOR);
-    with_kind_capacity(QueueKind::AssemblyLevelReturns, capacity, || {
-        matches!(
-            run_to_quiescence(drive_streaming(client, server)),
-            Err(Quiescence::Stalled)
-        )
-    })
+/// How one probed session ended: the two outcomes the capacity laws are
+/// stated over.
+#[derive(Debug, PartialEq, Eq)]
+enum Probe {
+    /// Both sides completed holding the join oracle's tree.
+    Completed,
+    /// The session parked with no wake arranged.
+    Stalled,
+}
+
+/// Classify a probed session's verdict.
+///
+/// A completion is held to the join oracle. A violation and an exhausted
+/// poll budget are neither outcome the laws speak of, so each fails by
+/// name instead of being read as "did not stall".
+fn classify(verdict: Verdict, expected: &Root) -> Probe {
+    match verdict {
+        Ok(Ok((ours, theirs))) => {
+            assert_eq!(
+                &ours, expected,
+                "a completed probe's initiating side must hold the join oracle's tree"
+            );
+            assert_eq!(
+                &theirs, expected,
+                "a completed probe's responding side must hold the join oracle's tree"
+            );
+            Probe::Completed
+        }
+        Ok(Err(error)) => panic!(
+            "the probed session died with a violation, neither completing nor stalling: {error:?}"
+        ),
+        Err(Quiescence::Stalled) => Probe::Stalled,
+        Err(Quiescence::PollBudget) => {
+            panic!("the probed session exhausted its poll budget, neither completing nor stalling")
+        }
+    }
+}
+
+/// Probe one shape at a capacity for the fan return queue under explicit
+/// channel and Local-backend poll schedules.
+fn probe(
+    pair: &(Root, Root),
+    capacity: usize,
+    channel_schedule: Vec<u8>,
+    backend_schedule: Vec<u8>,
+) -> Probe {
+    let expected = join_oracle(pair.0.clone(), pair.1.clone());
+    let outcome = LocalSession::new(pair.0.clone(), pair.1.clone())
+        .kind_capacity(QueueKind::AssemblyLevelReturns, capacity)
+        .channel_schedule(channel_schedule)
+        .backend_schedule(backend_schedule)
+        .run();
+    classify(outcome.verdict, &expected)
 }
 
 /// Check one structural stress case under endpoint and poll-order variations.
@@ -115,9 +155,9 @@ fn capacity_stress_matrix() {
 fn capacity_stress_covers_every_queue_role() {
     let (pair, report) = with_observation(|| {
         let (a, b) = pyramid_pair(&[4, 4, 2], 2, LeafOrder::Interleaved);
-        let pair = scheduled_streaming_mirror(a, b, vec![2; 16_384]);
+        let pair = fully_scheduled_streaming_mirror(a, b, vec![2; 16_384], Vec::new());
         let (a, b, _) = leaf_parent_dispute_pair();
-        scheduled_streaming_mirror(a, b, vec![2; 16_384]);
+        fully_scheduled_streaming_mirror(a, b, vec![2; 16_384], Vec::new());
         pair
     });
     drop(pair);
@@ -173,8 +213,9 @@ fn capacity_stress_covers_every_queue_role() {
 fn capacity_stress_witness_requires_inter_level_fan() {
     let (a, b) = pyramid_pair(&[32, 256], 1, LeafOrder::Reversed);
     let expected = join_oracle(a.clone(), b.clone());
-    let (actual, report) =
-        with_observation(|| scheduled_streaming_mirror(a.clone(), b.clone(), vec![2; 16_384]));
+    let (actual, report) = with_observation(|| {
+        fully_scheduled_streaming_mirror(a.clone(), b.clone(), vec![2; 16_384], Vec::new())
+    });
     assert_eq!(
         actual, expected,
         "the full-fan witness must complete at the documented capacities",
@@ -184,37 +225,17 @@ fn capacity_stress_witness_requires_inter_level_fan() {
         "the witness did not create its expected near-fan return backlog: {:?}",
         report.kind(QueueKind::AssemblyLevelReturns),
     );
-    assert!(
-        underbuffered_mirror_stalls(a.clone(), b.clone(), 253),
+    let pair = (a, b);
+    assert_eq!(
+        probe(&pair, 253, Vec::new(), Vec::new()),
+        Probe::Stalled,
         "the stress witness must stall just below its required return capacity",
     );
-    assert!(
-        !underbuffered_mirror_stalls(a, b, 254),
+    assert_eq!(
+        probe(&pair, 254, Vec::new(), Vec::new()),
+        Probe::Completed,
         "the stress witness should complete once its near-fan return backlog fits",
     );
-}
-
-/// Whether one shape stalls at a return capacity under explicit poll schedules.
-fn shape_stalls(
-    pair: &(Root, Root),
-    capacity: usize,
-    channel_schedule: Vec<u8>,
-    backend_schedule: Vec<u8>,
-) -> bool {
-    let (a, b): (StreamingRoot<Local>, StreamingRoot<Local>) =
-        (pair.0.clone().into(), pair.1.clone().into());
-    let client = Handshaking::start(Local, a).window(WindowConfig::FLOOR);
-    let server = Handshaking::start(Local, b).window(WindowConfig::FLOOR);
-    with_kind_capacity(QueueKind::AssemblyLevelReturns, capacity, || {
-        with_schedule(channel_schedule, || {
-            with_local_schedule(backend_schedule, || {
-                matches!(
-                    run_to_quiescence(drive_streaming(client, server)),
-                    Err(Quiescence::Stalled)
-                )
-            })
-        })
-    })
 }
 
 /// The poll-order variations each parent-delay probe shape runs under.
@@ -238,7 +259,46 @@ fn probe_schedules() -> [(Vec<u8>, Vec<u8>); 5] {
 fn stalls_under_any_schedule(pair: &(Root, Root), capacity: usize) -> bool {
     probe_schedules()
         .into_iter()
-        .any(|(chan, back)| shape_stalls(pair, capacity, chan, back))
+        .any(|(chan, back)| probe(pair, capacity, chan, back) == Probe::Stalled)
+}
+
+/// Whether a shape completes, holding the join oracle's tree, under every
+/// probe schedule at the given capacity.
+fn completes_under_every_schedule(pair: &(Root, Root), capacity: usize) -> bool {
+    probe_schedules()
+        .into_iter()
+        .all(|(chan, back)| probe(pair, capacity, chan, back) == Probe::Completed)
+}
+
+/// An internal scope with `n` disputed children, each carrying leaf-level
+/// grandchildren, so dependent queries follow the final child resolution
+/// while the enclosing parent resolution waits in the scope epilogue.
+fn internal_fan(n: u8) -> (Root, Root) {
+    let cells: Vec<Vec<u8>> = (0..n).map(|radix| vec![0, radix]).collect();
+    divergent_cells_pair(&cells, 1, LeafOrder::Outside)
+}
+
+/// A probed session that dies with a protocol violation is neither a
+/// completion nor a stall: the classifier fails by name rather than
+/// reading the violation as "did not stall".
+#[test]
+#[should_panic(expected = "died with a violation")]
+fn probe_classifier_rejects_a_violation() {
+    let (a, b) = internal_fan(3);
+    let expected = join_oracle(a.clone(), b.clone());
+    let client = floor_start(a);
+    let server = Faulting::new(
+        floor_start(b),
+        0,
+        Some(Fault::Reply(Violation::UnexpectedQuery)),
+    );
+    let verdict = with_kind_capacity(QueueKind::AssemblyLevelReturns, 1, || {
+        run_to_quiescence(drive_streaming(client, server))
+    });
+    classify(
+        verdict.map(|session| session.map(|(ours, theirs)| (ours.into(), theirs.into()))),
+        &expected,
+    );
 }
 
 /// Probe (model finding #7): a lone parent scope stalls the real encoder
@@ -254,16 +314,8 @@ fn stalls_under_any_schedule(pair: &(Root, Root), capacity: usize) -> bool {
 /// pinned here from both sides at cap 1.
 #[test]
 fn parent_delay_single_parent_boundary() {
-    // An internal scope with n disputed children, each carrying leaf-level
-    // grandchildren, so dependent queries follow the final child resolution
-    // while the enclosing parent resolution waits in the scope epilogue.
-    let internal_fan = |n: u8| {
-        let cells: Vec<Vec<u8>> = (0..n).map(|radix| vec![0, radix]).collect();
-        divergent_cells_pair(&cells, 1, LeafOrder::Outside)
-    };
-
     assert!(
-        !stalls_under_any_schedule(&internal_fan(3), 1),
+        completes_under_every_schedule(&internal_fan(3), 1),
         "fan = cap + 2 must complete: the model's tighter pdelay boundary \
          is not realizable in the sequential encoder"
     );
@@ -272,7 +324,7 @@ fn parent_delay_single_parent_boundary() {
         "fan = cap + 3 must stall: the tightness law's boundary has moved"
     );
     assert!(
-        !stalls_under_any_schedule(&internal_fan(4), 2),
+        completes_under_every_schedule(&internal_fan(4), 2),
         "fan = cap + 2 must complete at the wider capacity too"
     );
 }
@@ -306,7 +358,7 @@ fn parent_delay_no_cross_parent_backlog() {
          per-scope tightness law"
     );
     assert!(
-        !stalls_under_any_schedule(&parents_of_three(4), 2),
+        completes_under_every_schedule(&parents_of_three(4), 2),
         "a fan-4 root over fan-3 parents must complete at cap 2 per the \
          per-scope tightness law"
     );
@@ -321,7 +373,7 @@ fn parent_delay_no_cross_parent_backlog() {
         let widths = vec![3usize; depth];
         let pair = pyramid_pair(&widths, 1, LeafOrder::Outside);
         assert!(
-            !stalls_under_any_schedule(&pair, 1),
+            completes_under_every_schedule(&pair, 1),
             "a width-{} stage of fan-3 scopes must complete at cap 1: \
              return backlog must not span sibling parents",
             3usize.pow(depth as u32),
