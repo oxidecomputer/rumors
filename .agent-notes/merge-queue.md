@@ -67,6 +67,12 @@ lanes have closed.
   `surface-totality`, `coverage-kernel`, `coverage-kernel-branch`),
   `ci.yml` and root `Cargo.toml` comments only.
 
+- rumors: `c4d1778c` the gate lane (`f1d7773c` through `9f19d098`, packet
+  `c4d1778c`); root files: justfile (recipes, `ci` and `all`, header),
+  `.github/workflows/ci.yml` (pin order; cargo-mutants@27.1.0 kept for
+  the `before` mutants lane), `Cargo.toml` (`bytes` serde to
+  dev-dependencies), `Cargo.lock` (one line), `tools/testdoc`.
+
 ## Ready for Finch, in merge order
 
 - rumors `p1-gate`: branch `triage/p1-gate`, packet head `5cd25b55`, last
