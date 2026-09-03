@@ -240,7 +240,9 @@ The formal tier (`lean`, `eventdag`, `muxprobe`, everything under
 `formal/`) and `before`'s bench judge (`bench-judge`,
 `bench-judge-tripwire`) are never run or edited by a rumors lane; a
 recipe that composes them (`all`) is exercised by its other legs
-individually. A rustdoc on a Rust-side literal derived from the Lean
+individually. No lane runs `just all` or `just ci`: the brief clause
+asking for each once at the end is superseded; the box gate is the
+record, and `ci` is GitHub's. A rustdoc on a Rust-side literal derived from the Lean
 artifact is Rust prose and may be edited where a ruling names it.
 
 ## Resource discipline for the coordinator
