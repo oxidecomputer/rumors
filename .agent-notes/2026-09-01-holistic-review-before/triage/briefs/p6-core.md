@@ -1206,3 +1206,13 @@ Resolution (nit row): Plain paths in `//` comments
 
 Roster note: approved by ruling 104; lands per the quoted Resolution and Acceptance, under the rulings this brief names. Report rather than choose if the Resolution offers alternatives, would move a public signature, or would change a rendered `before` doc panel (ruling 89: a deliberate ruling is required for that).
 
+
+
+## Coordinator handoffs (recorded from the rumors CI campaign)
+
+- `version::tests::grow_matches_brute_force` and `grow_minimal` abort at
+  `PROPTEST_CASES` of 1000 and above with proptest's global-reject cap:
+  the `prop_assume!` at `src/version/tests.rs:560` (`ov.fill_for_test(&op)
+  == ov`) rejects most draws. Draw the constrained value directly (a
+  strategy that yields only overlays the fill fixes) so the suite scales
+  with the case count; no `cases` literal anywhere (ruling 109).

@@ -454,8 +454,12 @@ board-family work if approved.
   measurement like every other new row.
 - The meter suite's pins are dev-profile numbers (debug assertions and
   overflow checks are part of the observer), and the rumors CI job that
-  runs the workspace suites under the release profile found
-  `tick_expand_cross_envelope` red there at any case count. The suite's
+  runs the workspace suites under the release profile found seven
+  rows red there at any case count (`join_cliff`, `skyline_join_cliff`,
+  `skyline_project_comb_scatter`, `skyline_render_cliff`,
+  `skyline_render_hugeleaf`, `tick_expand_cross`, `tick_expand_spine`),
+  each on the limb column's improvement tripwire: debug-assertion
+  comparisons are metered limb work that vanishes under release. The suite's
   file doc states the profile its pins hold under, and the suite checks
   it at entry (`cfg!(debug_assertions)` is the cheapest witness of the
   dev profile) with a message naming the profile, so a release run fails
