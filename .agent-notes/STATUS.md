@@ -2,7 +2,7 @@
 
 # Triage landing status
 
-Updated: 2026-09-03 13:01 UTC by the rumors session.
+Updated: 2026-09-03 20:12 UTC by the before session.
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
 
@@ -39,9 +39,9 @@ Lanes run in the order `triage/briefs/README.md` gives; every lane builds and ga
 | p1-gate | packet ready | `75e0bc91` (37 commits; one stop inside: the syn 2/3 holdout roster; its gate red on audit and wasm by construction until the stop is ruled and p1-fuzz refits) |
 | p2-widths | packet ready | `ba36e970` (51 code commits; two items for Finch's eye inside, no stop) |
 | p2-surface | packet ready | `cad0b75d` (44 code commits; one stop inside: the fuelscape.js caption) |
-| p1-fuzz | in review | calibration landed at `d0c14638` (child of p8-tagwalk; 75 band keys re-pinned on one run, the eleventh seed from the rumors gate in the sentry set, the cold sentry green on all eleven); coordinator acceptance and fresh-eyes round 1 running; packet after; stops: `REFIT_TOLERANCE`'s value, one arm (`ff_party_without`) bimodal under the new family, the `ff_version_eq` sampling routing, skyline-query-9 |
+| p1-fuzz | in review | `d0c14638` (child of p8-tagwalk): coordinator acceptance green at the tip (both compiles, fuzzfit 28 with eleven seeds, fuelscape 43, wasm32-pins 50; both fuzz-leg plants red on the Mac); packet meta drafted; fresh-eyes round 1 running (resumed after the credit outage); stops: `REFIT_TOLERANCE`, the bimodal `ff_party_without` arm, the `ff_version_eq` routing, skyline-query-9 |
 | p1-survivors | packet ready | `f9ec31d7` (child of p1-gate; rulings 18, 50, 88) |
-| p1-board | in review | complete (18 commits; board 2096 green; gate green but for fuzz); one stop for Finch: ruling 11's residual fit turns 588 heap cells red as ruled (the affine leg of ruling 73 recommended instead); fresh-eyes round reading; packet next |
+| p1-board | in review | third round landed at `00948f7b` (37 commits on main): the board reads 2096 green / 0 red at both scales under the reshaped tick calibration; the only red is the span_dominance worst-case pin drift, deliberately not re-pinned (a stop); its report pending after the credit outage; coordinator acceptance and packet after; stops: ruling 11's residual fit, the dominance re-pin |
 | p1-suites | not started | after p1-board |
 | p2-rows | not started | after p1-suites; carries two handoffs from the harness review |
 | p2-cures | not started | after p2-rows and p2-widths |
