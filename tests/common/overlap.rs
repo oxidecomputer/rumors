@@ -19,15 +19,13 @@
 //! session and parks it unpolled, [`OverlapEvent::Step`] polls the parked
 //! session a bounded number of times, and [`OverlapEvent::Close`] drives
 //! it to completion and installs. As in [`schedule::arb`], a shadow
-//! simulator keeps the schedule valid by construction, but it models an
-//! open session more coarsely than the protocol: it snapshots both
-//! endpoints at `Open` as the session's fork-time state, while the live
-//! session forks only once its preamble exchange completes, some polls
-//! later. An event at either endpoint in that gap rides the live session
-//! and not the modeled one, so a `Redact` the shadow emits may name a
-//! message its live peer never observed; the executor therefore guards
-//! every `Redact` on the live observation log and skips the ones the
-//! model got wrong, on both sides of the oracle comparison.
+//! simulator keeps the schedule valid by construction; it models an open
+//! session by each side's view at the moment the live side forks it,
+//! after that side's preamble exchange (see [`FORK_ROUNDS`]), so a
+//! `Redact` the shadow emits names a message its live peer holds. The
+//! executor still guards every `Redact` on the live observation log: a
+//! skip there is the model drifting from the protocol, which the
+//! shadow-validity meta-test catches.
 
 use std::collections::BTreeMap;
 use std::fmt::Debug;
@@ -183,9 +181,9 @@ pub enum OverlapEvent<T> {
     /// Open a session between `a` and `b` in `slot` without polling it;
     /// it installs at its `Close`, or at a `Step` that completes it.
     ///
-    /// The shadow models the fork here; the live session forks once its
-    /// preamble exchange completes under later polls, and the executor's
-    /// `Redact` guard absorbs the difference.
+    /// Nothing forks here: each side forks its view under the polls that
+    /// complete its preamble exchange ([`FORK_ROUNDS`]), and the shadow
+    /// models exactly that.
     Open { slot: usize, a: usize, b: usize },
     /// Poll the session in `slot` at most `polls` times.
     Step { slot: usize, polls: usize },
@@ -209,6 +207,31 @@ pub struct OverlapSchedule<T> {
 /// Returns the fleet and the spec-shaped oracle; the caller asserts the
 /// two agree.
 pub fn execute_overlap_and_quiesce<T>(schedule: &OverlapSchedule<T>) -> (Vec<Peer<T>>, Oracle<T>)
+where
+    T: Clone + Eq + Ord + Serialize + DeserializeOwned + Send + Sync + 'static,
+{
+    let OverlapRun {
+        mut peers, oracle, ..
+    } = execute_overlap(schedule);
+    quiesce(&mut peers);
+    (peers, oracle)
+}
+
+/// The fleet after an overlap schedule has run, before any quiescence.
+pub struct OverlapRun<T> {
+    pub peers: Vec<Peer<T>>,
+    pub oracle: Oracle<T>,
+    /// The [`Version`] each `Insert` event created, by event index.
+    pub resolved_versions: BTreeMap<EventIdx, Version>,
+}
+
+/// Run an overlap schedule against a fresh fleet and close every session
+/// still open (in ascending slot order), leaving the fleet as the schedule
+/// left it.
+///
+/// No quiescence: the observation logs and live sets are those the
+/// schedule alone produced.
+pub fn execute_overlap<T>(schedule: &OverlapSchedule<T>) -> OverlapRun<T>
 where
     T: Clone + Eq + Ord + Serialize + DeserializeOwned + Send + Sync + 'static,
 {
@@ -239,12 +262,12 @@ where
                 target_event_idx,
             } => {
                 let version = &resolved_versions[target_event_idx];
-                // The shadow forks an open session at `Open`; the live
-                // session forks after its preamble exchange, so a message
-                // that crossed (or failed to cross) a session in that gap
-                // can leave the two disagreeing. Skip the event on both
-                // sides of the comparison rather than issue a `redact` the
-                // live peer could never have made.
+                // The shadow's premise is that each side forks where the
+                // live session does, so the target is observed here; if
+                // the model has drifted from the protocol, skip the event
+                // on both sides of the comparison rather than issue a
+                // `redact` the live peer could never have made. The
+                // shadow-validity meta-test is what makes such drift fail.
                 let observed = peers[*peer].observations.iter().any(|(v, _)| v == version);
                 if observed {
                     peers[*peer].redact_one(version);
@@ -295,14 +318,27 @@ where
         peers[a].drain();
         peers[b].drain();
     }
-    quiesce(&mut peers);
-    (peers, oracle)
+    OverlapRun {
+        peers,
+        oracle,
+        resolved_versions,
+    }
 }
 
 /// How many session slots a generated schedule may hold open at once.
 /// Two suffices to overlap a session with a whole other session; a third
 /// lets overlaps themselves overlap.
 const SLOTS: usize = 3;
+
+/// Polling rounds after which each side of an open session has forked
+/// its working state, indexed like [`Session`]'s sides (`a`, then `b`).
+///
+/// A side forks once its preamble exchange completes. [`Session::step`]
+/// polls `a` then `b` each round: in the first round `a` writes its
+/// preamble and parks on the read, then `b` writes its own, reads `a`'s,
+/// and forks; `a` reads `b`'s preamble and forks in the second round. A
+/// `Close` polls to completion, so it forks whichever side has not.
+const FORK_ROUNDS: [usize; 2] = [2, 1];
 
 /// Strategy: overlap schedules that are valid by construction.
 ///
@@ -322,6 +358,22 @@ pub fn arb_overlap_schedule<T, S>(
     n_peers_range: RangeInclusive<usize>,
     max_events: usize,
 ) -> impl Strategy<Value = OverlapSchedule<T>>
+where
+    T: Clone + Debug + 'static,
+    S: Strategy<Value = T> + Clone + 'static,
+{
+    arb_overlap_schedule_with_shadow(value_strategy, n_peers_range, max_events)
+        .prop_map(|(schedule, _shadow)| schedule)
+}
+
+/// Variant of [`arb_overlap_schedule`] that also yields the shadow's
+/// final [`Knowledge`], for the shadow-validity meta-test that checks the
+/// generator's model against the live executor.
+pub fn arb_overlap_schedule_with_shadow<T, S>(
+    value_strategy: S,
+    n_peers_range: RangeInclusive<usize>,
+    max_events: usize,
+) -> impl Strategy<Value = (OverlapSchedule<T>, Knowledge)>
 where
     T: Clone + Debug + 'static,
     S: Strategy<Value = T> + Clone + 'static,
@@ -512,14 +564,54 @@ impl<T: Clone> Pincer<T> {
     }
 }
 
+/// An open session in the model: its endpoints, the polling rounds it
+/// has received, and each side's view at the round it forked
+/// ([`FORK_ROUNDS`]), taken once that round is reached.
+struct OpenSession {
+    a: usize,
+    b: usize,
+    rounds: usize,
+    forks: [Option<Knowledge>; 2],
+}
+
+impl OpenSession {
+    /// Advance the session by `rounds` polling rounds, forking any side
+    /// whose round is reached at the current `sim`.
+    fn poll(&mut self, rounds: usize, sim: &Knowledge) {
+        self.rounds += rounds;
+        for (side, fork) in self.forks.iter_mut().enumerate() {
+            if fork.is_none() && self.rounds >= FORK_ROUNDS[side] {
+                *fork = Some(sim.clone());
+            }
+        }
+    }
+
+    /// Drive the session to completion (as a `Close` does), forking any
+    /// side that has not, and deliver it into `sim`.
+    fn close(mut self, sim: &mut Knowledge) {
+        self.poll(FORK_ROUNDS[0].max(FORK_ROUNDS[1]), sim);
+        let [fork_a, fork_b] = self.forks;
+        sim.merge_session(
+            &fork_a.expect("closed sessions have forked"),
+            &fork_b.expect("closed sessions have forked"),
+            self.a,
+            self.b,
+        );
+    }
+}
+
 /// Per-peer knowledge sets, as in `schedule::arb`'s shadow: everything
 /// the peer has ever held, the subset currently live, and the exact
 /// observation order.
-#[derive(Clone)]
-struct Knowledge {
-    ever_known: Vec<std::collections::BTreeSet<EventIdx>>,
-    live: Vec<std::collections::BTreeSet<EventIdx>>,
-    observed_log: Vec<Vec<EventIdx>>,
+#[derive(Clone, Debug)]
+pub struct Knowledge {
+    /// Per-peer set of `EventIdx`s whose message the peer has ever held.
+    pub ever_known: Vec<std::collections::BTreeSet<EventIdx>>,
+    /// Per-peer set of `EventIdx`s the model predicts the peer holds live.
+    pub live: Vec<std::collections::BTreeSet<EventIdx>>,
+    /// Per-peer sequence of `EventIdx`s the model predicts the peer's
+    /// observation log would have appended.
+    pub observed_log: Vec<Vec<EventIdx>>,
 }
 
 impl Knowledge {
@@ -531,27 +623,28 @@ impl Knowledge {
         }
     }
 
-    /// Merge what a session forked at `snapshot` delivers between `a`
-    /// and `b` into the *current* state.
+    /// Merge what a session delivers between `a` and `b` into the
+    /// *current* state, given each side's view at its fork (`fork_a` for
+    /// `a`, `fork_b` for `b`).
     ///
     /// The session carries each side's fork-time content only: messages
     /// one fork-time side held live propagate to a counterparty that has
     /// never known them; messages either fork-time side had redacted die
     /// on both current sides (deletion honoring, tombstone-free). A
-    /// message redacted *after* the fork stays dead locally —
-    /// `ever_known` guards resurrection — and its counterparty learns
+    /// message redacted *after* the fork stays dead locally --
+    /// `ever_known` guards resurrection -- and its counterparty learns
     /// that deletion only from a later session, exactly as the wire
     /// behaves.
-    fn merge_session(&mut self, snapshot: &Knowledge, a: usize, b: usize) {
-        let combined: std::collections::BTreeSet<EventIdx> = snapshot.ever_known[a]
-            .union(&snapshot.ever_known[b])
+    fn merge_session(&mut self, fork_a: &Knowledge, fork_b: &Knowledge, a: usize, b: usize) {
+        let combined: std::collections::BTreeSet<EventIdx> = fork_a.ever_known[a]
+            .union(&fork_b.ever_known[b])
             .copied()
             .collect();
         for k in combined {
-            let a_had = snapshot.ever_known[a].contains(&k);
-            let b_had = snapshot.ever_known[b].contains(&k);
-            let redacted_at_fork = (a_had && !snapshot.live[a].contains(&k))
-                || (b_had && !snapshot.live[b].contains(&k));
+            let a_had = fork_a.ever_known[a].contains(&k);
+            let b_had = fork_b.ever_known[b].contains(&k);
+            let redacted_at_fork =
+                (a_had && !fork_a.live[a].contains(&k)) || (b_had && !fork_b.live[b].contains(&k));
             if redacted_at_fork {
                 for p in [a, b] {
                     self.ever_known[p].insert(k);
@@ -571,20 +664,20 @@ impl Knowledge {
 }
 
 /// Build an overlap schedule by driving the shadow in lockstep with the
-/// emitted events, with each open session modeled by the snapshot its
-/// `Open` captured.
+/// emitted events, each open session modeled by its sides' views at the
+/// rounds they fork, returning the schedule with the shadow's final
+/// state.
 ///
-/// The schedule is valid up to the model's fork imprecision: every
-/// emitted `Redact` names a message its peer holds in the model, and the
-/// executor guards the rest.
+/// Every emitted `Redact` names a message its peer holds in the model,
+/// and the model forks where the live session does.
 fn build_overlap_schedule<T: Clone>(
     n_peers: usize,
     fork_parents: Vec<usize>,
     preamble: &[T],
     choices: Vec<Choice<T>>,
-) -> OverlapSchedule<T> {
+) -> (OverlapSchedule<T>, Knowledge) {
     let mut sim = Knowledge::new(n_peers);
-    let mut open: BTreeMap<usize, (usize, usize, Knowledge)> = BTreeMap::new();
+    let mut open: BTreeMap<usize, OpenSession> = BTreeMap::new();
     let mut events: Vec<OverlapEvent<T>> = Vec::new();
 
     // Converged preamble: populate the seed peer, then one sequential
@@ -603,7 +696,7 @@ fn build_overlap_schedule<T: Clone>(
     for a in 0..n_peers {
         for b in (a + 1)..n_peers {
             let frozen = sim.clone();
-            sim.merge_session(&frozen, a, b);
+            sim.merge_session(&frozen, &frozen, a, b);
             events.push(OverlapEvent::Gossip { a, b });
         }
     }
@@ -640,7 +733,7 @@ fn build_overlap_schedule<T: Clone>(
                     continue;
                 }
                 let frozen = sim.clone();
-                sim.merge_session(&frozen, a, b);
+                sim.merge_session(&frozen, &frozen, a, b);
                 events.push(OverlapEvent::Gossip { a, b });
             }
             Choice::Open { slot, a, b } => {
@@ -648,22 +741,31 @@ fn build_overlap_schedule<T: Clone>(
                 if a == b || open.contains_key(&slot) {
                     continue;
                 }
-                open.insert(slot, (a, b, sim.clone()));
+                open.insert(
+                    slot,
+                    OpenSession {
+                        a,
+                        b,
+                        rounds: 0,
+                        forks: [None, None],
+                    },
+                );
                 events.push(OverlapEvent::Open { slot, a, b });
             }
             Choice::Step { slot, polls } => {
                 let slot = slot % SLOTS;
-                if !open.contains_key(&slot) {
+                let Some(session) = open.get_mut(&slot) else {
                     continue;
-                }
+                };
+                session.poll(polls, &sim);
                 events.push(OverlapEvent::Step { slot, polls });
             }
             Choice::Close { slot } => {
                 let slot = slot % SLOTS;
-                let Some((a, b, snapshot)) = open.remove(&slot) else {
+                let Some(session) = open.remove(&slot) else {
                     continue;
                 };
-                sim.merge_session(&snapshot, a, b);
+                session.close(&mut sim);
                 events.push(OverlapEvent::Close { slot });
             }
         }
@@ -671,13 +773,16 @@ fn build_overlap_schedule<T: Clone>(
 
     // The executor closes leftover sessions in ascending slot order;
     // mirror that so redact validity extends through the implicit tail.
-    for (_, (a, b, snapshot)) in open.into_iter() {
-        sim.merge_session(&snapshot, a, b);
+    for (_, session) in open.into_iter() {
+        session.close(&mut sim);
     }
 
-    OverlapSchedule {
-        n_peers,
-        fork_parents,
-        events,
-    }
+    (
+        OverlapSchedule {
+            n_peers,
+            fork_parents,
+            events,
+        },
+        sim,
+    )
 }
