@@ -2,7 +2,7 @@
 
 # Triage landing status
 
-Updated: 2026-09-03 07:23 UTC by the rumors session.
+Updated: 2026-09-03 07:36 UTC by the before session.
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
 
@@ -37,7 +37,7 @@ Lanes run in the order `triage/briefs/README.md` gives; every lane builds and ga
 | p1-gate | packet ready | `75e0bc91` (37 commits; one stop inside: the syn 2/3 holdout roster; its gate red on audit and wasm by construction until the stop is ruled and p1-fuzz refits) |
 | p2-widths | packet ready | `ba36e970` (51 code commits; two items for Finch's eye inside, no stop) |
 | p2-surface | packet ready | `cad0b75d` (44 code commits; one stop inside: the fuelscape.js caption) |
-| p1-fuzz | running | overnight, stacked on p1-gate's tip; carries the band refit |
+| p1-fuzz | in review | calibration landed at `d0c14638` (child of p8-tagwalk; 75 band keys re-pinned on one run, the eleventh seed from the rumors gate in the sentry set, the cold sentry green on all eleven); coordinator acceptance and fresh-eyes round 1 running; packet after; stops: `REFIT_TOLERANCE`'s value, one arm (`ff_party_without`) bimodal under the new family, the `ff_version_eq` sampling routing, skyline-query-9 |
 | p1-survivors | packet ready | `f9ec31d7` (child of p1-gate; rulings 18, 50, 88) |
 | p1-board | in review | complete (18 commits; board 2096 green; gate green but for fuzz); one stop for Finch: ruling 11's residual fit turns 588 heap cells red as ruled (the affine leg of ruling 73 recommended instead); fresh-eyes round reading; packet next |
 | p1-suites | not started | after p1-board |
