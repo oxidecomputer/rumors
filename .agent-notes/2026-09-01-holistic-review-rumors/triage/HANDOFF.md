@@ -84,9 +84,11 @@ the fast-forward (WORKFLOW.md's merge step).
    word; agent `ad8747469f2495256`; scratchpad `p1-envelope/`).
 7. **p2-deep-geometry** (`/Users/oxide/src/rumors-p2-deep-geometry`,
    stacked on the collision tip `7858b35e`): T162 items 8 and 9;
-   landed at `4c3051ed` (agent `a2af8c0d37b66646f`; both anomalies
-   closed with mechanisms; round-1 repairs with the lane: every decode
-   error exempt from `SupplyClosed`'s precedence, two tests, prose).
+   round 1 landed at `005bd86e` (agent `a2af8c0d37b66646f`; both
+   anomalies closed with mechanisms; every decode error surfaces; two
+   same-wave tests; the bias orders argued); verification (runner
+   `a6483291f13d44eb4`, `coordinator/verify-deep/`) and fresh-eyes
+   round 2 (`af2c60311410ae869`) running; packet meta drafted.
    Its `execute` edit and the vanish lane's T165 predicate meet at merge
    in `remote/proxy/work.rs`; integrate toward one predicate (only
    supply-caused symptoms are outranked). Its watcher (local pid 74988)
