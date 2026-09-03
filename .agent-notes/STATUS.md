@@ -2,7 +2,7 @@
 
 # Triage landing status
 
-Updated: 2026-09-03 21:01 UTC by the before session.
+Updated: 2026-09-03 13:13 UTC by the rumors session.
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
 
@@ -62,7 +62,7 @@ Maintained by the rumors session.
 | Lane | State | Note |
 |---|---|---|
 | p1-swarm, p1-conformance, p1-memwatch, p1-gate, p2-codec, p1-renderer, p1-harness-tests, p1-harness-crate, p2-walk, p1-causality | merged | see the queue's Merged section for shas and root files |
-| p2-link | in review | shape (d) at `398b77f2` verified in full; the round-3 read found one design defect (the pool probe misreads tokio's spent cooperative budget as idle), one coverage hole, a ghost sentence; sent as round 4; verification, a light final read, then the packet |
+| p2-link | in review | shape (d) at `398b77f2` verified in full; round 4 (the pool probe under tokio's spent budget, coverage, prose) with the lane; the sush patch is drafted and probe-verified (`coordinator/sush-eval/`), with a premise finding for Finch: sush's whole crate cannot compile against current rumors for reasons outside the link (the payload API's serde move, 610 commits of drift) |
 | p2-commit-path | packet ready | packet `14d0d5fb` on `triage/p2-commit-path` (code tip `5a4559e1`, base `1336daa0`, lane diff identical across the rebase); every acceptance and control run by the verifier; three fresh-eyes rounds; T166 landed; no open stop; commits unsigned by the lock protocol, re-signed at merge |
 | p1-proptest-ci | in review | landed at `a34859ed` (sweep, caselint, release recipe and nextest profile, meter excluded, T157 rewrite); gate clean; the CI number is a stop (recommendation 4000 after p1-generators); verification and packet after p1-generators lands, since the number is set on that tree |
 | p2-vanish-liveness | in review | round 1 landed at `e3c5f986` (the watch keeps every control byte and reads on; deadline aborts; the floor measured against the donor too), gate clean; `e3c5f986` verified; fresh-eyes round 2 found one behavioral regression (a delivered stream dropped mid-label under the departure race) and gaps, sent as repairs; packet after; seven stops in the meta, the precedence rule the one that matters |
