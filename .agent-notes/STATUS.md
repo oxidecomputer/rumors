@@ -2,7 +2,7 @@
 
 # Triage landing status
 
-Updated: 2026-09-03 05:57 UTC by the rumors session.
+Updated: 2026-09-03 06:10 UTC by the before session (rumors-74), running overnight.
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
 
@@ -10,13 +10,13 @@ Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not st
 
 | Plan | Merged | Packet ready | In review | Running | Not started | Ledger rows pending |
 |---|---|---|---|---|---|---|
-| before | 2 of 39 lanes | 6 | 0 | 2 | 29 | 1185 of 1204 |
+| before | 2 of 39 lanes | 6 | 1 | 1 | 29 | 1185 of 1204 |
 | rumors | 10 lanes | 0 | 3 | 2 | 25 briefed (P1 envelope, P2 peer, seven P3, fifteen P4, publication prep) | 874 of 995 |
 
 ## Waiting on Finch
 
 - Review: the `p2-commit-path` packet (branch `triage/p2-commit-path`, packet commit `14d0d5fb`); no open stop; merge on your word.
-- Open stops from before: the gate lane's syn 2/3 holdout roster (in its packet); the surface lane's fuelscape.js caption (in its packet). Rumors: T158, T159, T162, T163, T164 rule the launch questions, the collision mode's stops, and the CI count (256 until generators, then 4000); the commit-path packet will carry three judgment calls from its fresh-eyes round (the ceiling on an all-skipped key, the unwind-path wording, one pin of a non-contract); the collision-mode lane's ten stops (variable name, one seed, `ci` tier, cluster weighting, the mark's name, the unreachable production-cfg test, three findings, and whether `test-collision` joins `ci` while red on the findings) are in the coordinator's message of 2026-09-03 and its packet.
+- Open stops from before: the gate lane's syn 2/3 holdout roster (in its packet); the surface lane's fuelscape.js caption (in its packet); the board lane's ruling-11 residual fit (its journal's morning brief, stop 3). Rumors: T158, T159, T162, T163, T164 rule the launch questions, the collision mode's stops, and the CI count (256 until generators, then 4000); the commit-path packet will carry three judgment calls from its fresh-eyes round (the ceiling on an all-skipped key, the unwind-path wording, one pin of a non-contract); the collision-mode lane's ten stops (variable name, one seed, `ci` tier, cluster weighting, the mark's name, the unreachable production-cfg test, three findings, and whether `test-collision` joins `ci` while red on the findings) are in the coordinator's message of 2026-09-03 and its packet.
 
 ## Open items on main
 
@@ -39,7 +39,7 @@ Lanes run in the order `triage/briefs/README.md` gives; every lane builds and ga
 | p2-surface | packet ready | `cad0b75d` (44 code commits; one stop inside: the fuelscape.js caption) |
 | p1-fuzz | running | overnight, stacked on p1-gate's tip; carries the band refit |
 | p1-survivors | packet ready | `f9ec31d7` (child of p1-gate; rulings 18, 50, 88) |
-| p1-board | running | overnight, from main `2fe750ac` (rulings 9, 11, 12, 13, 38, 50) |
+| p1-board | in review | complete (18 commits; board 2096 green; gate green but for fuzz); one stop for Finch: ruling 11's residual fit turns 588 heap cells red as ruled (the affine leg of ruling 73 recommended instead); fresh-eyes round reading; packet next |
 | p1-suites | not started | after p1-board |
 | p2-rows | not started | after p1-suites; carries two handoffs from the harness review |
 | p2-cures | not started | after p2-rows and p2-widths |
