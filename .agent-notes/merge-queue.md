@@ -5,6 +5,11 @@
 The current-state dashboard of both triages is `STATUS.md` beside this
 file; this file is the ordered record it links to.
 
+Coordinator sessions (the names `ListAgents` shows and `SendMessage`
+takes): before is `rumors-74`, rumors is `rumors-6e`. A session whose
+address changes writes the new one here. Each session's live journal is
+its triage's `triage/HANDOFF.md`, with a recovery procedure at the top.
+
 Both triages land lanes into `main` from the same primary worktree, and
 their lanes meet at the workspace root (the justfile, `.github/`, the
 manifests and lockfile, root `AGENTS.md`, `deny.toml`,
