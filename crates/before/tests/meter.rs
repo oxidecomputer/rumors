@@ -251,10 +251,11 @@ enum Floor {
     Tripwire(u64),
     /// The liveness floor of a walk that reads its whole input by contract:
     /// every live input bit scanned at least once, `8 × input_bytes` less
-    /// at most one byte of padding per operand stream. A trip means the
-    /// work left the metered primitives. Only for a row whose
-    /// `input_bytes` is the byte length of exactly the streams the walk
-    /// reads.
+    /// at most one byte of padding per operand stream.
+    ///
+    /// A trip means the work left the metered primitives. Only for a row
+    /// whose `input_bytes` is the byte length of exactly the streams the
+    /// walk reads.
     WholeInput {
         /// The operand streams `input_bytes` counts.
         streams: u64,
@@ -563,10 +564,11 @@ const HARNESS_PROBE_MAGNITUDE_BITS: usize = 1_024;
 /// Depth of the harness self-test's probe operand.
 const HARNESS_PROBE_DEPTH: usize = 64;
 
-/// The harness judges every column: a body that moves every counter fails
-/// under a ceiling below its reading on any one column, under a floor of
-/// either genre above its reading on any one column, and under a zero
-/// heap ceiling.
+/// The harness judges every column.
+///
+/// A body that moves every counter fails under a ceiling below its
+/// reading on any one column, under a floor of either genre above its
+/// reading on any one column, and under a zero heap ceiling.
 ///
 /// The harness's own negative control: a column whose assert is skipped, a
 /// reset that leaves a stale reading, or a read wired to a counter the body
@@ -699,9 +701,11 @@ fn cmp_dense_envelope() {
 }
 
 /// Comparing the dense spine against a byte-equal, buffer-distinct copy
-/// stays within its envelope: every boundary is an aligned tie, both
-/// cursors advance in lockstep to full depth, and the verdict is Equal
-/// only after both streams are wholly consumed.
+/// stays within its envelope.
+///
+/// Every boundary is an aligned tie, both cursors advance in lockstep to
+/// full depth, and the verdict is Equal only after both streams are
+/// wholly consumed.
 #[test]
 fn cmp_dense_self_envelope() {
     let p = Shape::Dense.packed1(DENSE_DEPTH);
@@ -717,9 +721,11 @@ fn cmp_dense_self_envelope() {
 }
 
 /// Joining the dense spine with a one-tick version stays within its
-/// envelope: the 125k-level walk emits and collapses on path-bit stacks
-/// and one accumulator, with the peak in the emitted stream itself. The
-/// join is the emit kernel's stream, byte for byte.
+/// envelope.
+///
+/// The 125k-level walk emits and collapses on path-bit stacks and one
+/// accumulator, with the peak in the emitted stream itself. The join is
+/// the emit kernel's stream, byte for byte.
 #[test]
 fn join_dense_envelope() {
     let p = Shape::Dense.packed1(DENSE_DEPTH);
@@ -1080,9 +1086,11 @@ fn join_hugeleaf_envelope() {
 }
 
 /// Joining the dense spine with a dominating flat operand stays within its
-/// envelope: the whole output collapses to one leaf through 125k absorb
-/// steps around a held 125k-bit code, linear only because absorb never
-/// moves the held code. The join is the flat operand, byte for byte.
+/// envelope.
+///
+/// The whole output collapses to one leaf through 125k absorb steps
+/// around a held 125k-bit code, linear only because absorb never moves
+/// the held code. The join is the flat operand, byte for byte.
 #[test]
 fn join_absorb_envelope() {
     let p = Shape::Dense.packed1(DENSE_DEPTH);
@@ -1135,8 +1143,10 @@ fn cmp_cliff_envelope() {
 }
 
 /// Joining the boundary comb with a one-tick version stays within its
-/// envelope: the emit path re-codes every tooth magnitude, each paid for
-/// by a comparably-wide input code, and every 3-bit `±1` delta re-emits
+/// envelope.
+///
+/// The emit path re-codes every tooth magnitude, each paid for by a
+/// comparably-wide input code, and every 3-bit `±1` delta re-emits
 /// across the `2^k` carry boundary at amortized O(1). The join is the
 /// emit kernel's stream, byte for byte.
 #[test]
@@ -1155,8 +1165,10 @@ fn join_cliff_envelope() {
 }
 
 /// Meeting the boundary comb with a one-tick version stays within its
-/// envelope: the pointwise minimum clamps every tooth to the flat operand's
-/// height while every comb delta still crosses the carry boundary in the
+/// envelope.
+///
+/// The pointwise minimum clamps every tooth to the flat operand's height
+/// while every comb delta still crosses the carry boundary in the
 /// accumulator. The meet is the emit kernel's stream, byte for byte.
 #[test]
 fn meet_cliff_envelope() {
@@ -1216,9 +1228,11 @@ fn cmp_wide_tooth_envelope() {
 }
 
 /// Joining the wide-tooth comb with a one-tick version stays within its
-/// envelope: each `±2^w` delta is a wide operand re-coded into the
-/// output, paid by its own zigzag code. The join is the emit kernel's
-/// stream, byte for byte.
+/// envelope.
+///
+/// Each `±2^w` delta is a wide operand re-coded into the output, paid by
+/// its own zigzag code. The join is the emit kernel's stream, byte for
+/// byte.
 #[test]
 fn join_wide_tooth_envelope() {
     let p = Shape::WideToothComb.packed3(CLIFF_SCALE, WIDE_TOOTH_WIDTH_BITS, CLIFF_SCALE);
@@ -1238,8 +1252,10 @@ fn join_wide_tooth_envelope() {
 }
 
 /// Meeting the wide-tooth comb with a one-tick version stays within its
-/// envelope: wide deltas are folded but never re-emitted (the flat side
-/// wins everywhere), so the collapse discipline runs at spilled operand
+/// envelope.
+///
+/// Wide deltas are folded but never re-emitted (the flat side wins
+/// everywhere), so the collapse discipline runs at spilled operand
 /// widths. The meet is the emit kernel's stream, byte for byte.
 #[test]
 fn meet_wide_tooth_envelope() {
@@ -1527,10 +1543,11 @@ fn skyline_validate_alt_spine_envelope() {
     assert!(r.is_ok(), "the transcoded alternating spine is canonical");
 }
 
-/// The validator rows' scan floor is live: judged against
-/// `SKYLINE_VALIDATE_DENSE` over the whole dense stream's length, a
-/// validator that reads only half the stream fails on the whole-input
-/// floor, and one stubbed to `Ok(())` fails the row too.
+/// The validator rows' scan floor is live.
+///
+/// Judged against `SKYLINE_VALIDATE_DENSE` over the whole dense stream's
+/// length, a validator that reads only half the stream fails on the
+/// whole-input floor, and one stubbed to `Ok(())` fails the row too.
 ///
 /// The known-bad validators do less work than the row, so every ceiling
 /// passes them and only a floor can catch them.
