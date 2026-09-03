@@ -97,7 +97,9 @@ default:
 
 # ── inner loop ───────────────────────────────────────────────────────────────
 
-# Type-check every host target: libs, tests, benches, examples.
+# Type-check every host target: libs, tests, benches, examples. A target
+# with `required-features` (the before envelope suite) is skipped here and
+# type-checked by `just test` and the gate's all-features legs instead.
 check:
     cargo check --workspace --all-targets
 
