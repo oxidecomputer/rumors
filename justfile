@@ -215,7 +215,7 @@ manifestlint:
 # tools/digestshare reads the committed V2 wire captures and totals digest
 # vs non-digest bytes. As a gate leg it checks the renderer-vocabulary
 # contract, not a threshold: the tool exits nonzero when the corpus's
-# byte-count headers or digest annotations stop matching its patterns (the
+# byte-count headers or listing entries stop matching its patterns (the
 # renderer's vocabulary moved out from under the meter), never on the
 # measured ratio. Build-free, so it rides the lint tier.
 

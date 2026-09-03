@@ -119,14 +119,16 @@ fn supply_frames(capture: &str) -> usize {
         .count()
 }
 
-/// Whether one rendered line is a supply frame's state line: a bare
-/// state code followed by a `/ Supply… /` comment. The bare-digit code
-/// and the comment distinguish it from every other annotated line.
+/// Whether one rendered line is a supply frame's header: the
+/// `frame N (B bytes)` line whose label comment names a `Supply` signal.
+///
+/// The `frame` prefix and the comment distinguish it from every other
+/// line, including any text inside a rendered item.
 fn is_supply_signal(line: &str) -> bool {
-    let Some((code, rest)) = line.trim_start().split_once(" / ") else {
+    let Some((head, rest)) = line.trim_start().split_once(" / ") else {
         return false;
     };
-    !code.is_empty() && code.bytes().all(|b| b.is_ascii_digit()) && rest.starts_with("Supply")
+    head.starts_with("frame ") && rest.starts_with("Supply")
 }
 
 /// Count the supply frames in each direction of a rendered wire capture:

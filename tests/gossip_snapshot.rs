@@ -10,8 +10,8 @@
 //! its procedure (`cargo insta review`) are in `AGENTS.md`.
 //!
 //! The payload type is `u64` throughout: a small integer is one CBOR byte
-//! (`01`, `02`, …), which keeps the dumps short and lets distinct payloads
-//! be spotted directly in the hex.
+//! and renders as itself (`1`, `2`, …), which keeps the captures short and
+//! lets distinct payloads be spotted directly in the rendering.
 
 mod common;
 
@@ -158,17 +158,14 @@ fn asymmetric_message_targets_unbatch_the_run() {
     insta::assert_snapshot!(capture_gossip(a, b));
 }
 
-/// Extract one rendered signal line's semantic.
+/// Extract one frame header's semantic.
 ///
-/// A signal line has the form `<state code> / <Semantic> /`. The
-/// bare-digit code distinguishes it from every other annotated line
-/// (tagged atoms carry parentheses, listings carry `=>`, payloads carry
-/// no comment) except the frame's stream line, `<index> / stream /`,
-/// whose lowercase comment tells it apart from the capitalized
-/// semantics, so the extraction cannot misfire inside a frame.
+/// A frame header has the form `frame <n> (<b> bytes) / <Semantic> /`.
+/// Oracle assumption: no rendered item in the corpus starts a line with
+/// `frame `, so the prefix identifies the header.
 fn signal_semantic(line: &str) -> Option<&str> {
-    let (code, rest) = line.trim_start().split_once(" / ")?;
-    if code.is_empty() || !code.bytes().all(|b| b.is_ascii_digit()) {
+    let (head, rest) = line.trim_start().split_once(" / ")?;
+    if !head.starts_with("frame ") {
         return None;
     }
     let semantic = rest.strip_suffix(" /")?;
@@ -179,27 +176,56 @@ fn signal_semantic(line: &str) -> Option<&str> {
 
 /// The child count of every nonempty-Query frame body in a capture.
 ///
-/// A `Query(…)` signal line is followed by its frame's listing body,
-/// which opens with `{ / listing: <n> child(ren) /`. Greeting listings
-/// render the same annotation, so the scan keys on the Query signal
-/// and reads only until the next signal or column-zero header.
+/// A `Query(…)` frame's listing is a map from radix to digest, laid out
+/// one entry per line when nonempty. The scan counts such entries from
+/// the Query header to the next frame or capture header, so the
+/// greeting's listing (under a control item) is never counted.
 fn nonempty_query_listings(capture: &str) -> Vec<usize> {
     let mut counts = Vec::new();
-    let mut in_query = false;
+    let mut in_query: Option<usize> = None;
     for line in capture.lines() {
         if let Some(semantic) = signal_semantic(line) {
-            in_query = semantic.starts_with("Query(");
-        } else if !line.starts_with(char::is_whitespace) {
-            in_query = false;
-        } else if in_query
-            && let Some(rest) = line.trim_start().strip_prefix("{ / listing: ")
-            && let Some(n) = rest.split_whitespace().next().and_then(|n| n.parse().ok())
+            if let Some(n) = in_query.take().filter(|n| *n > 0) {
+                counts.push(n);
+            }
+            in_query = semantic.starts_with("Query(").then_some(0);
+        } else if is_capture_header(line) {
+            if let Some(n) = in_query.take().filter(|n| *n > 0) {
+                counts.push(n);
+            }
+        } else if let Some(n) = in_query.as_mut()
+            && is_listing_entry(line)
         {
-            counts.push(n);
-            in_query = false;
+            *n += 1;
         }
     }
+    if let Some(n) = in_query.filter(|n| *n > 0) {
+        counts.push(n);
+    }
     counts
+}
+
+/// Whether one rendered line is a capture header: a direction, role,
+/// control-item, or stream header, which the capture writes at column
+/// zero in a fixed vocabulary no rendered item shares.
+fn is_capture_header(line: &str) -> bool {
+    line.starts_with("direction ")
+        || line.starts_with("role: ")
+        || line.starts_with("control item ")
+        || (line.contains(" stream ") && line.ends_with(" wire bytes"))
+}
+
+/// Whether one rendered line is a listing entry: an unsigned-integer
+/// key with an optional encoding indicator, a colon, and a byte-string
+/// value, with or without the layout's trailing comma.
+fn is_listing_entry(line: &str) -> bool {
+    let Some((key, value)) = line.trim().split_once(": ") else {
+        return false;
+    };
+    let key = key.split_once('_').map_or(key, |(digits, _)| digits);
+    !key.is_empty()
+        && key.bytes().all(|b| b.is_ascii_digit())
+        && value.strip_suffix(',').unwrap_or(value).starts_with("h'")
 }
 
 /// Count the frames rendered under one stream header of a wire capture.
@@ -207,11 +233,10 @@ fn nonempty_query_listings(capture: &str) -> Vec<usize> {
 /// Returns `None` when the header never appears; the header must be a
 /// prefix of the capture's
 /// `"{Speaker} stream {index} (height {height}), epoch {e}, {n} wire bytes"`
-/// header line. A stream's body lines — frame headers, rendered value
-/// trees — are all indented, so the section ends at the next column-zero
-/// line (the following stream or direction header, or a control-item
-/// label); within the section each frame contributes exactly one signal
-/// line, whose comment is the frame's semantic.
+/// header line. The section ends at the next capture header (the
+/// following stream or direction header, or a control-item label);
+/// within the section each frame contributes exactly one header line,
+/// whose comment is the frame's semantic.
 fn stream_frames(capture: &str, header: &str) -> Option<Vec<String>> {
     let mut frames = None;
     for line in capture.lines() {
@@ -220,7 +245,7 @@ fn stream_frames(capture: &str, header: &str) -> Option<Vec<String>> {
         } else if let Some(frames) = frames.as_mut() {
             if let Some(semantic) = signal_semantic(line) {
                 frames.push(semantic.to_string());
-            } else if !line.starts_with(char::is_whitespace) {
+            } else if is_capture_header(line) {
                 break;
             }
         }

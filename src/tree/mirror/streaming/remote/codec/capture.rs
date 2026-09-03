@@ -1,64 +1,52 @@
-//! CBOR reflection rendering of captured V2 traffic.
+//! Rendering of captured V2 traffic in CBOR diagnostic notation.
 //!
 //! The snapshot suites pin every wire byte of a captured session, and
-//! this module is the form that pin takes: each observed item — one
-//! CBOR item per line of the hook's contract — renders as a fully
-//! unfolded value tree in extended-diagnostic-style notation, with a
-//! rumors naming layer as `/ comment /` annotations (signal names,
-//! listing children, tagged-atom meanings). A reviewer reading a
-//! re-accept diff sees the semantic field that moved; a generic CBOR
-//! reader sees plain diagnostic notation.
+//! this module is the form that pin takes: the harness's framing (each
+//! direction, each control item and data frame with its index, exact
+//! byte count, and protocol-phase label) over each item rendered by
+//! `cbor-diag` in extended diagnostic notation with encoding
+//! indicators, embedded CBOR (tags 24 and 63) unfolded, verbatim under
+//! its header.
 //!
 //! # Why a rendering with no hexdump is still a byte pin
 //!
-//! The wire is deterministic-encoding CBOR as a stated contract: one
-//! spelling per value, shortest-form heads only. The renderer walks
-//! each item with the codec's own canonical head grammar
-//! ([`cbor::read_head`]) and shows the item's *complete* content —
-//! every integer exactly, every byte string as full hex, every text
-//! string escaped, every tag number, and structure in wire order. Under
-//! the determinism contract a complete value tree has exactly one
-//! encoding, so the rendering is injective on wire bytes: two different
-//! byte streams cannot render identically. Wherever the walk cannot
-//! vouch for that inversion — non-canonical heads, invalid UTF-8,
-//! embedded content that does not fill its byte string, or nesting past
-//! the renderer's depth bound (one budget spanning the whole walk:
-//! structural descent and embedded-byte-string unfolds draw it down
-//! together) — the subtree falls back to an explicit failure line above
-//! its exact bytes as hex, which is injective trivially. Byte counts on
-//! item and stream headers come from the transport capture, so totals
-//! stay exact.
+//! Encoding indicators spell every head at its wire width and the
+//! notation spells every value exactly, so two different byte streams
+//! cannot render identically: the rendering is injective on wire bytes.
+//! That property is `cbor-diag`'s, and this module adds nothing that
+//! could collapse it. The one value the notation cannot spell is a
+//! NaN's payload bits, written as `NaN` at the float's width; no
+//! captured item holds one, because the protocol emits no floats and
+//! the payload contract's `Eq` bound excludes float fields (the crate
+//! docs, "Choosing a payload type"), and a hand-written `Eq` admitting
+//! NaN has declared its NaNs equal. Bytes that are not one parseable
+//! item (malformed, trailing bytes, nested past the depth limit) render
+//! as a failure line carrying the parse error above their exact hex.
+//! Byte counts on item and stream headers come from the transport
+//! capture.
 //!
 //! # Where the bytes come from
 //!
-//! Capture enters through the public observation hook
-//! ([`crate::observe`]): the harness records each directed stream's
-//! items and hands them here as a [`HookCapture`]. The transport-level
-//! byte capture ([`LinkCapture`]) remains the totality oracle: the
-//! harness asserts, per directed stream, that the stream's on-wire open
-//! label followed by the concatenated observed items reproduces the
-//! transport bytes exactly ([`assert_items_account_for`],
-//! [`stream_label`]) — that assertion is what licenses a rendering of
-//! *items* as a pin of *wire bytes*. Structural violations of the
-//! capture itself (an item that is not one canonical CBOR item where
-//! the wire grammar requires one, a frame contradicting its stream, a
-//! label that does not parse) are panics: they mean the capture
-//! harness, not the peer, is broken. Application payload bytes are the
-//! application's own CBOR and only ever fall back explicitly.
+//! Capture enters through the observation hook ([`crate::observe`]):
+//! the harness records each directed stream's items as a
+//! [`HookCapture`]. The transport-level bytes ([`LinkCapture`]) are the
+//! totality oracle: per directed stream, the on-wire open label followed
+//! by the observed items must reproduce the transport bytes exactly
+//! ([`assert_items_account_for`], [`stream_label`]), which is what lets
+//! a rendering of items pin wire bytes. Structural violations of the
+//! capture itself (a control item whose opening head is not canonical,
+//! a frame whose opener is not the codec's or contradicts its stream, a
+//! label that does not parse) are panics: the harness, not the peer, is
+//! broken.
 
 use std::{collections::BTreeMap, fmt::Write as _};
 
-use crate::Version;
 use crate::observe::Role;
 use crate::tree::mirror::cbor::{
-    self, MAJOR_ARRAY, MAJOR_BSTR, MAJOR_MAP, MAJOR_TAG, MAJOR_TEXT, MAJOR_UINT, TAG_CBOR_SEQUENCE,
-    TAG_EMBEDDED_ITEM,
+    self, MAJOR_ARRAY, MAJOR_TAG, MAJOR_TEXT, MAJOR_UINT, TAG_EMBEDDED_ITEM,
 };
 
-use super::{
-    Speaker, Stream,
-    signal::{Signal, WireSignal},
-};
+use super::{Speaker, Stream, signal::WireSignal};
 
 #[cfg(test)]
 mod tests;
@@ -157,8 +145,8 @@ pub fn assert_items_account_for(items: &[Vec<u8>], wire: &[u8]) {
 /// Render both endpoints' hook captures without retaining cross-stream
 /// order.
 ///
-/// Data streams are keyed by their labeled stream index — exact items
-/// and order within each stream, stream groups sorted — discarding the
+/// Data streams are keyed by their labeled stream index (exact items
+/// and order within each stream, stream groups sorted), discarding the
 /// incidental order in which independent streams were opened.
 pub fn render_hook_capture(a: &HookCapture, b: &HookCapture) -> String {
     let mut rendered = String::new();
@@ -183,7 +171,7 @@ fn render_direction(label: &str, capture: &HookCapture, out: &mut String) {
             item.len()
         )
         .unwrap();
-        render_item(item, "  ", out);
+        render_item(item, out);
     }
 
     let mut streams = BTreeMap::new();
@@ -205,8 +193,7 @@ fn render_direction(label: &str, capture: &HookCapture, out: &mut String) {
         )
         .unwrap();
         for (index, item) in stream.items.iter().enumerate() {
-            writeln!(out, "  frame {index} ({} bytes)", item.len()).unwrap();
-            render_frame(speaker, wire_stream, item, out);
+            render_frame(speaker, wire_stream, index, item, out);
         }
     }
 }
@@ -239,21 +226,19 @@ fn control_item_name(item: &[u8]) -> &'static str {
     }
 }
 
-/// Render one data frame.
+/// Render one data frame: a header line with the frame's index, exact
+/// byte count, and the signal its opener names, then the frame item in
+/// diagnostic notation.
 ///
-/// The codec's frame grammar (the array head and the opener's stream and
-/// state items) is held to panics — a violation means the capture is
-/// broken — while the body renders through the generic walk, falling
-/// back explicitly where it cannot vouch for inversion. The opener's two
-/// items render one per line, the stream index annotated `stream` and
-/// the state code annotated with the signal it names.
-fn render_frame(speaker: Speaker, stream: Stream, item: &[u8], out: &mut String) {
+/// The frame grammar (the array head, the opener's stream and state
+/// items) is held to panics: a violation means the capture is broken.
+fn render_frame(speaker: Speaker, stream: Stream, index: usize, item: &[u8], out: &mut String) {
     let mut probe = item;
     let head = cbor::read_head(&mut probe).expect("captured frame head is canonical");
     assert_eq!(head.major, MAJOR_ARRAY, "captured frame is an array");
-    let index = cbor::read_head(&mut probe).expect("captured stream item is canonical");
+    let stream_item = cbor::read_head(&mut probe).expect("captured stream item is canonical");
     assert_eq!(
-        index.major, MAJOR_UINT,
+        stream_item.major, MAJOR_UINT,
         "captured stream item is an unsigned int"
     );
     let state = cbor::read_head(&mut probe).expect("captured state item is canonical");
@@ -261,471 +246,36 @@ fn render_frame(speaker: Speaker, stream: Stream, item: &[u8], out: &mut String)
         state.major, MAJOR_UINT,
         "captured state item is an unsigned int"
     );
-    let (framed, semantic) = WireSignal::decode(speaker, index.value, state.value)
+    let (framed, semantic) = WireSignal::decode(speaker, stream_item.value, state.value)
         .expect("captured frame opener is valid")
         .into_parts();
     assert_eq!(framed, stream, "captured frame contradicts its label");
 
-    writeln!(out, "    [").unwrap();
-    writeln!(out, "      {} / stream /", framed.index()).unwrap();
-    writeln!(out, "      {} / {semantic:?} /", semantic.state()).unwrap();
-    let naming = match semantic {
-        Signal::Query(_) => Naming::Listing,
-        Signal::Supply(_) => Naming::Run,
-        _ => Naming::Plain,
-    };
-    let mut rest = probe;
-    while !rest.is_empty() {
-        let remaining = rest;
-        match parse_node(&mut rest, 0) {
-            Ok(node) => render_node(&node, naming, "      ", 0, out),
-            Err(reason) => {
-                fallback(remaining, &reason, "      ", out);
-                rest = &[];
-            }
-        }
-    }
-    writeln!(out, "    ]").unwrap();
-}
-
-/// Render one whole captured item (a control item) as a value tree.
-fn render_item(item: &[u8], indent: &str, out: &mut String) {
-    let mut rest = item;
-    match parse_node(&mut rest, 0) {
-        Ok(node) if rest.is_empty() => render_node(&node, Naming::Plain, indent, 0, out),
-        Ok(_) => panic!("captured control item carries trailing bytes"),
-        Err(reason) => panic!("captured control item is not canonical CBOR: {reason}"),
-    }
-}
-
-/// The naming context a subtree renders under.
-///
-/// `Listing` annotates a map as a `{radix => digest}` listing (hex
-/// radix keys, `/ digest /` value comments, an order check in the
-/// block comment); `Run` names a supply body's embedded sequence a
-/// *supply run* and `Record` names the run's items *records*, so a
-/// re-accept diff speaks the protocol's own vocabulary.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Naming {
-    Plain,
-    Listing,
-    Run,
-    Record,
-}
-
-/// One parsed CBOR value, canonical-head-checked, structure preserved
-/// in wire order.
-#[derive(Debug)]
-enum Node {
-    Uint(u64),
-    /// A major-1 negative integer holding `n`, meaning `-(n + 1)`.
-    Nint(u64),
-    Bytes(Vec<u8>),
-    Text(String),
-    Array(Vec<Node>),
-    Map(Vec<(Node, Node)>),
-    Tag(u64, Box<Node>),
-    /// A major-7 simple value.
-    Simple(u8),
-    /// A major-7 float: its width byte (25, 26, or 27) and raw bits.
-    Float(u8, u64),
-}
-
-/// Nesting past this bound falls back to exact hex: the walk never
-/// recurses on unbounded input-controlled depth.
-///
-/// One budget spans the whole walk — an embedded byte string's content
-/// re-parses at the depth already consumed above it, never at a fresh
-/// zero — so structural descent and embedded unfolds are bounded
-/// together.
-const MAX_DEPTH: usize = 64;
-
-/// Parse one canonical item off the front of `input`.
-///
-/// Head canonicality comes from the codec's own grammar; major-7 items
-/// are handled here because float widths are semantic, not
-/// shortest-form arithmetic. Any violation is a typed reason for the
-/// caller's explicit fallback.
-fn parse_node(input: &mut &[u8], depth: usize) -> Result<Node, String> {
-    if depth >= MAX_DEPTH {
-        return Err(format!("nested deeper than {MAX_DEPTH}"));
-    }
-    let Some(&initial) = input.first() else {
-        return Err("input ends before an item".into());
-    };
-    if initial >> 5 == 7 {
-        return parse_major_seven(input);
-    }
-    let head = cbor::read_head(input).map_err(|e| e.to_string())?;
-    match head.major {
-        MAJOR_UINT => Ok(Node::Uint(head.value)),
-        1 => Ok(Node::Nint(head.value)),
-        MAJOR_BSTR => {
-            let bytes = take(input, head.value)?;
-            Ok(Node::Bytes(bytes.to_vec()))
-        }
-        MAJOR_TEXT => {
-            let bytes = take(input, head.value)?;
-            let text = std::str::from_utf8(bytes).map_err(|_| "invalid UTF-8".to_string())?;
-            Ok(Node::Text(text.to_string()))
-        }
-        MAJOR_ARRAY => {
-            let mut items = Vec::new();
-            for _ in 0..head.value {
-                items.push(parse_node(input, depth + 1)?);
-            }
-            Ok(Node::Array(items))
-        }
-        MAJOR_MAP => {
-            let mut entries = Vec::new();
-            for _ in 0..head.value {
-                let key = parse_node(input, depth + 1)?;
-                let value = parse_node(input, depth + 1)?;
-                entries.push((key, value));
-            }
-            Ok(Node::Map(entries))
-        }
-        MAJOR_TAG => Ok(Node::Tag(
-            head.value,
-            Box::new(parse_node(input, depth + 1)?),
-        )),
-        _ => unreachable!("majors 0 through 6 handled; 7 split off above"),
-    }
-}
-
-/// Parse one major-7 item: simple values inline, one-byte simples with
-/// their canonical floor, floats by width with exact bits.
-fn parse_major_seven(input: &mut &[u8]) -> Result<Node, String> {
-    let (&initial, rest) = input.split_first().expect("caller peeked the initial byte");
-    let info = initial & 0x1f;
-    match info {
-        0..=23 => {
-            *input = rest;
-            Ok(Node::Simple(info))
-        }
-        24 => {
-            let (&value, rest) = rest
-                .split_first()
-                .ok_or("input ends inside a simple value")?;
-            if value < 32 {
-                return Err("one-byte simple value below 32 is not canonical".into());
-            }
-            *input = rest;
-            Ok(Node::Simple(value))
-        }
-        25..=27 => {
-            let width = 1usize << (info - 24);
-            if rest.len() < width {
-                return Err("input ends inside a float".into());
-            }
-            let (bytes, rest) = rest.split_at(width);
-            let mut bits = 0u64;
-            for &byte in bytes {
-                bits = bits << 8 | u64::from(byte);
-            }
-            *input = rest;
-            Ok(Node::Float(info, bits))
-        }
-        28..=30 => Err("reserved additional-information value".into()),
-        _ => Err("indefinite-length CBOR is not canonical".into()),
-    }
-}
-
-/// Split `len` payload bytes off `input`.
-fn take<'a>(input: &mut &'a [u8], len: u64) -> Result<&'a [u8], String> {
-    let len = usize::try_from(len).map_err(|_| "length exceeds memory".to_string())?;
-    if input.len() < len {
-        return Err("input ends inside a string".into());
-    }
-    let (bytes, rest) = input.split_at(len);
-    *input = rest;
-    Ok(bytes)
-}
-
-/// Render one node at `indent`, one line per scalar or bracket.
-///
-/// `depth` is the walk's one nesting budget, shared with
-/// [`parse_node`]: it counts structural levels descended since the
-/// walk's entry point, and an embedded byte string's content re-parses
-/// at the depth already consumed above it, so structural descent and
-/// embedded unfolds are bounded by [`MAX_DEPTH`] together. Invariant
-/// every `render_*` call site preserves: the `depth` passed is no
-/// greater than the depth its node was parsed at — so a node in hand
-/// always fits the remaining budget, and only [`parse_node`] need
-/// check the bound.
-fn render_node(node: &Node, naming: Naming, indent: &str, depth: usize, out: &mut String) {
-    match node {
-        Node::Map(entries) if naming == Naming::Listing => {
-            render_listing(entries, indent, depth, out);
-        }
-        Node::Map(entries) => {
-            writeln!(out, "{indent}{{").unwrap();
-            for (key, value) in entries {
-                // The one context-sensitive key: a map value under the
-                // text key "listing" is a `{radix => digest}` listing.
-                let value_naming = match key {
-                    Node::Text(text) if text == "listing" => Naming::Listing,
-                    _ => Naming::Plain,
-                };
-                let key = scalar(key).unwrap_or_else(|| "…".into());
-                match scalar(value) {
-                    Some(value) => writeln!(out, "{indent}  {key} => {value}").unwrap(),
-                    None => {
-                        writeln!(out, "{indent}  {key} =>").unwrap();
-                        let deeper = format!("{indent}    ");
-                        render_node(value, value_naming, &deeper, depth + 1, out);
-                    }
-                }
-            }
-            writeln!(out, "{indent}}}").unwrap();
-        }
-        Node::Array(items) => {
-            writeln!(out, "{indent}[").unwrap();
-            let deeper = format!("{indent}  ");
-            for item in items {
-                render_node(item, Naming::Plain, &deeper, depth + 1, out);
-            }
-            writeln!(out, "{indent}]").unwrap();
-        }
-        Node::Tag(number, content) => render_tag(*number, content, naming, indent, depth + 1, out),
-        scalar_node => {
-            let text = scalar(scalar_node).expect("non-container nodes render inline");
-            writeln!(out, "{indent}{text}").unwrap();
-        }
-    }
-}
-
-/// Render a `{radix => digest}` listing map: hex radix keys, digest
-/// annotations, and an explicit order verdict when the wire's
-/// strictly-ascending canonical form is violated.
-fn render_listing(entries: &[(Node, Node)], indent: &str, depth: usize, out: &mut String) {
-    let ascending = entries
-        .windows(2)
-        .all(|pair| match (&pair[0].0, &pair[1].0) {
-            (Node::Uint(a), Node::Uint(b)) => a < b,
-            _ => false,
-        })
-        || entries.len() < 2;
-    let order = if ascending {
-        ""
-    } else {
-        ", NON-CANONICAL ORDER"
-    };
     writeln!(
         out,
-        "{indent}{{ / listing: {} child(ren){order} /",
-        entries.len()
+        "  frame {index} ({} bytes) / {semantic:?} /",
+        item.len()
     )
     .unwrap();
-    for (key, value) in entries {
-        let key = match key {
-            Node::Uint(radix) => format!("0x{radix:x}"),
-            other => scalar(other).unwrap_or_else(|| "…".into()),
-        };
-        match value {
-            Node::Bytes(bytes) => {
-                writeln!(
-                    out,
-                    "{indent}  {key} => h'{}' / digest /",
-                    hex::encode(bytes)
-                )
-                .unwrap();
-            }
-            other => match scalar(other) {
-                Some(text) => writeln!(out, "{indent}  {key} => {text}").unwrap(),
-                None => {
-                    writeln!(out, "{indent}  {key} =>").unwrap();
-                    let deeper = format!("{indent}    ");
-                    render_node(other, Naming::Plain, &deeper, depth + 1, out);
-                }
-            },
-        }
-    }
-    writeln!(out, "{indent}}}").unwrap();
+    render_item(item, out);
 }
 
-/// Render one tagged node, unfolding embedded byte strings and
-/// annotating the tags the protocol names.
-///
-/// `depth` is the tag's *content* depth — the caller already counted
-/// the tag's own structural level — and passes through unchanged.
-fn render_tag(
-    number: u64,
-    content: &Node,
-    naming: Naming,
-    indent: &str,
-    depth: usize,
-    out: &mut String,
-) {
-    match (number, content) {
-        (TAG_CBOR_SEQUENCE, Node::Bytes(bytes)) => {
-            let (name, inner) = match naming {
-                Naming::Run => ("supply run", Naming::Record),
-                Naming::Record => ("record", Naming::Plain),
-                _ => ("embedded sequence", Naming::Plain),
-            };
-            render_embedded_as(number, name, inner, bytes, indent, depth, out);
-        }
-        (TAG_EMBEDDED_ITEM, Node::Bytes(bytes)) => {
-            render_embedded(number, "embedded item", bytes, indent, depth, out);
-        }
-        (crate::tags::VERSION_TAG, Node::Bytes(bytes)) => {
-            let meaning = match Version::decode(&bytes[..]) {
-                // The rendering is the version's whole ITC event tree in
-                // paper notation, never a scalar: a flat tree renders as
-                // its single uniform height (e.g. `3`), a forked one as
-                // the nested `(n, e1, e2)` form.
-                Ok(version) => format!("causal version, event tree: {version}"),
-                Err(e) => format!("causal version undecodable: {e}"),
-            };
-            writeln!(
-                out,
-                "{indent}{number}(h'{}') / {meaning} /",
-                hex::encode(bytes)
-            )
-            .unwrap();
-        }
-        (crate::tags::PARTY_TAG, Node::Bytes(bytes)) => {
-            writeln!(out, "{indent}{number}(h'{}') / party /", hex::encode(bytes)).unwrap();
-        }
-        (crate::tags::CLOCK_TAG, Node::Bytes(bytes)) => {
-            writeln!(out, "{indent}{number}(h'{}') / clock /", hex::encode(bytes)).unwrap();
-        }
-        (cbor::TAG_SELF_DESCRIBED, _) => {
-            writeln!(out, "{indent}{number}( / self-described CBOR /").unwrap();
-            let deeper = format!("{indent}  ");
-            render_node(content, naming, &deeper, depth, out);
-            writeln!(out, "{indent})").unwrap();
-        }
-        (_, scalar_content) if scalar(scalar_content).is_some() => {
-            let text = scalar(scalar_content).expect("checked by the guard");
-            writeln!(out, "{indent}{number}({text})").unwrap();
-        }
-        _ => {
-            writeln!(out, "{indent}{number}(").unwrap();
-            let deeper = format!("{indent}  ");
-            render_node(content, naming, &deeper, depth, out);
-            writeln!(out, "{indent})").unwrap();
-        }
+/// Render one captured item under its header: cbor-diag's pretty
+/// diagnostic notation, verbatim, or the explicit fallback when the
+/// bytes are not one parseable CBOR item.
+fn render_item(item: &[u8], out: &mut String) {
+    match cbor_diag::parse_bytes(item) {
+        Ok(parsed) => writeln!(out, "{}", parsed.to_diag_pretty()).unwrap(),
+        Err(error) => fallback(item, &error.to_string(), out),
     }
 }
 
-/// Unfold one embedded byte string (tag 24 or 63) as its parsed
-/// item sequence, falling back to exact hex when the content is not
-/// wholly canonical CBOR or when the walk's depth budget is spent.
-fn render_embedded(
-    number: u64,
-    name: &str,
-    bytes: &[u8],
-    indent: &str,
-    depth: usize,
-    out: &mut String,
-) {
-    render_embedded_as(number, name, Naming::Plain, bytes, indent, depth, out);
-}
-
-/// [`render_embedded`], with the naming context the unfolded items
-/// render under (a supply run's items are records).
-///
-/// The content re-parses at `depth` — the budget already consumed
-/// above this byte string — so a chain of embedded byte strings draws
-/// down the same [`MAX_DEPTH`] bound as structural nesting, and spends
-/// it here as the too-deep fallback.
-fn render_embedded_as(
-    number: u64,
-    name: &str,
-    inner: Naming,
-    bytes: &[u8],
-    indent: &str,
-    depth: usize,
-    out: &mut String,
-) {
-    let mut items = Vec::new();
-    let mut rest = bytes;
-    let mut failure = None;
-    while !rest.is_empty() {
-        match parse_node(&mut rest, depth) {
-            Ok(node) => items.push(node),
-            Err(reason) => {
-                failure = Some(reason);
-                break;
-            }
-        }
-    }
-    if let Some(reason) = failure {
-        writeln!(out, "{indent}{number}( / {name}, {} bytes /", bytes.len()).unwrap();
-        fallback(bytes, &reason, &format!("{indent}  "), out);
-        writeln!(out, "{indent})").unwrap();
-        return;
-    }
-    if number == TAG_EMBEDDED_ITEM && items.len() != 1 {
-        writeln!(out, "{indent}{number}( / {name}, {} bytes /", bytes.len()).unwrap();
-        fallback(
-            bytes,
-            &format!("embedded item holds {} items", items.len()),
-            &format!("{indent}  "),
-            out,
-        );
-        writeln!(out, "{indent})").unwrap();
-        return;
-    }
-    let count = match (number, inner) {
-        (TAG_CBOR_SEQUENCE, Naming::Record) => format!(", {} record(s)", items.len()),
-        (TAG_CBOR_SEQUENCE, _) => format!(", {} item(s)", items.len()),
-        _ => String::new(),
-    };
+/// Render a parse failure and its reason above the exact bytes.
+fn fallback(bytes: &[u8], reason: &str, out: &mut String) {
     writeln!(
         out,
-        "{indent}{number}(<< / {name}{count}, {} bytes /",
-        bytes.len()
+        "!! not rendered as CBOR ({reason}); the exact bytes stand here:"
     )
     .unwrap();
-    let deeper = format!("{indent}  ");
-    for item in &items {
-        render_node(item, inner, &deeper, depth, out);
-    }
-    writeln!(out, "{indent}>>)").unwrap();
-}
-
-/// Render one scalar node inline, or `None` for containers.
-fn scalar(node: &Node) -> Option<String> {
-    Some(match node {
-        Node::Uint(value) => format!("{value}"),
-        Node::Nint(value) => format!("-{}", u128::from(*value) + 1),
-        Node::Bytes(bytes) => format!("h'{}'", hex::encode(bytes)),
-        Node::Text(text) => format!("{text:?}"),
-        Node::Simple(20) => "false".into(),
-        Node::Simple(21) => "true".into(),
-        Node::Simple(22) => "null".into(),
-        Node::Simple(23) => "undefined".into(),
-        Node::Simple(value) => format!("simple({value})"),
-        Node::Float(25, bits) => format!("float16'{bits:04x}'"),
-        Node::Float(26, bits) => format!("float32'{bits:08x}'"),
-        Node::Float(_, bits) => format!("float64'{bits:016x}'"),
-        Node::Array(_) | Node::Map(_) => return None,
-        // Tags the protocol names always render through the block path,
-        // so their annotations cannot be skipped by an inline rendering.
-        Node::Tag(
-            TAG_CBOR_SEQUENCE
-            | TAG_EMBEDDED_ITEM
-            | cbor::TAG_SELF_DESCRIBED
-            | crate::tags::PARTY_TAG
-            | crate::tags::VERSION_TAG
-            | crate::tags::CLOCK_TAG,
-            _,
-        ) => return None,
-        Node::Tag(number, content) => format!("{number}({})", scalar(content)?),
-    })
-}
-
-/// Render an explicit walk failure above the exact bytes it convicts:
-/// the fallback that keeps the rendering injective where the generic
-/// walk cannot vouch for inversion.
-fn fallback(bytes: &[u8], reason: &str, indent: &str, out: &mut String) {
-    writeln!(
-        out,
-        "{indent}!! not rendered as CBOR ({reason}); the exact bytes stand here:"
-    )
-    .unwrap();
-    writeln!(out, "{indent}h'{}'", hex::encode(bytes)).unwrap();
+    writeln!(out, "h'{}'", hex::encode(bytes)).unwrap();
 }

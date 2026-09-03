@@ -5,111 +5,72 @@ expression: capture
 direction A -> B
 role: Responder
 control item 0 (30 bytes) / preamble /
-  55799( / self-described CBOR /
-    [
-      "rumors"
-      2
-      h'8c189668c9e4837237bf31e02d7f6b70'
-      0
-    ]
-  )
+55799_1([
+    "rumors",
+    2,
+    h'8c189668c9e4837237bf31e02d7f6b70',
+    0,
+])
 control item 1 (137 bytes) / greeting /
-  24(<< / embedded item, 133 bytes /
-    {
-      "listing" =>
-        { / listing: 1 child(ren) /
-          0xb8 => h'78de0c248cc1ab42a1fe3e70e760f0ea747f209e524f32c7' / digest /
-        }
-      "set_len" => 3
-      "version" =>
-        53846(h'40020fd000fff4') / causal version, event tree: (126, 4095, 0) /
-      "max_version_bytes" => 5
-      "payload_depth_limit" => 256
-      "target_message_size" => 1830400
-    }
-  >>)
+24_0(<<{
+    "listing": {
+        184_0: h'78de0c248cc1ab42a1fe3e70e760f0ea747f209e524f32c7',
+    },
+    "set_len": 3,
+    "version": 53846_1(h'40020fd000fff4'),
+    "max_version_bytes": 5,
+    "payload_depth_limit": 256_1,
+    "target_message_size": 1830400_2,
+}>>)
 control item 2 (2 bytes) / epilogue /
-  "."
+"."
 Responder stream 0 (height 31), epoch 0, 93 wire bytes
-  frame 0 (88 bytes)
-    [
-      0 / stream /
-      5 / Query(End) /
-      { / listing: 3 child(ren) /
-        0x56 => h'1faf8fb07589a94097c9fa09c5bebb255e91d14a1abbf9df' / digest /
-        0x93 => h'038cec0d20f5d63d0164683a443bf231d8c9bf9c3c22178a' / digest /
-        0x9b => h'b8ff09282ace2f376e1bb6c511455a2161893a7dc46345ea' / digest /
-      }
-    ]
-  frame 1 (3 bytes)
-    [
-      0 / stream /
-      9 / End(Stream) /
-    ]
+  frame 0 (88 bytes) / Query(End) /
+[
+    0,
+    5,
+    {
+        86_0: h'1faf8fb07589a94097c9fa09c5bebb255e91d14a1abbf9df',
+        147_0: h'038cec0d20f5d63d0164683a443bf231d8c9bf9c3c22178a',
+        155_0: h'b8ff09282ace2f376e1bb6c511455a2161893a7dc46345ea',
+    },
+]
+  frame 1 (3 bytes) / End(Stream) /
+[0, 9]
 Responder stream 1 (height 29), epoch 0, 26 wire bytes
-  frame 0 (21 bytes)
-    [
-      1 / stream /
-      7 / Supply(End) /
-      63(<< / supply run, 1 record(s), 15 bytes /
-        63(<< / record, 2 item(s), 12 bytes /
-          53846(h'4038d0051d') / causal version, event tree: (126, 327, 0) /
-          426
-        >>)
-      >>)
-    ]
-  frame 1 (3 bytes)
-    [
-      1 / stream /
-      9 / End(Stream) /
-    ]
+  frame 0 (21 bytes) / Supply(End) /
+[1, 7, 63_0(<<63_0(<<53846_1(h'4038d0051d'), 426_1>>)>>)]
+  frame 1 (3 bytes) / End(Stream) /
+[1, 9]
 
 direction B -> A
 role: Initiator
 control item 0 (30 bytes) / preamble /
-  55799( / self-described CBOR /
-    [
-      "rumors"
-      2
-      h'8c189668c9e4837237bf31e02d7f6b70'
-      0
-    ]
-  )
+55799_1([
+    "rumors",
+    2,
+    h'8c189668c9e4837237bf31e02d7f6b70',
+    0,
+])
 control item 1 (132 bytes) / greeting /
-  24(<< / embedded item, 128 bytes /
-    {
-      "listing" =>
-        { / listing: 1 child(ren) /
-          0xb8 => h'637f3315fe244bda1d9b0c308c4a16ea93e7df24699aa713' / digest /
-        }
-      "set_len" => 2
-      "version" =>
-        53846(h'81fe') / causal version, event tree: 126 /
-      "max_version_bytes" => 2
-      "payload_depth_limit" => 256
-      "target_message_size" => 1830400
-    }
-  >>)
+24_0(<<{
+    "listing": {
+        184_0: h'637f3315fe244bda1d9b0c308c4a16ea93e7df24699aa713',
+    },
+    "set_len": 2,
+    "version": 53846_1(h'81fe'),
+    "max_version_bytes": 2,
+    "payload_depth_limit": 256_1,
+    "target_message_size": 1830400_2,
+}>>)
 control item 2 (2 bytes) / epilogue /
-  "."
+"."
 Initiator stream 1 (height 30), epoch 0, 14 wire bytes
-  frame 0 (3 bytes)
-    [
-      1 / stream /
-      0 / Match(Continue) /
-    ]
-  frame 1 (3 bytes)
-    [
-      1 / stream /
-      2 / QueryEmpty(Continue) /
-    ]
-  frame 2 (3 bytes)
-    [
-      1 / stream /
-      1 / Match(End) /
-    ]
-  frame 3 (3 bytes)
-    [
-      1 / stream /
-      9 / End(Stream) /
-    ]
+  frame 0 (3 bytes) / Match(Continue) /
+[1, 0]
+  frame 1 (3 bytes) / QueryEmpty(Continue) /
+[1, 2]
+  frame 2 (3 bytes) / Match(End) /
+[1, 1]
+  frame 3 (3 bytes) / End(Stream) /
+[1, 9]

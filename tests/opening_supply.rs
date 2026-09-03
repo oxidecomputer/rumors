@@ -42,19 +42,16 @@ const BALLAST_POOL: (u64, u64) = (10_000, 16);
 /// Count the frames whose semantic label starts with `label` in a rendered
 /// wire capture, across both directions.
 ///
-/// A frame's semantic is the comment on its state line
-/// (`<state code> / <semantic> /`); the bare-digit code and the label
-/// prefix distinguish it from every other annotated line in the
-/// rendering, the frame's `<index> / stream /` line included.
+/// A frame's semantic is the comment on its header line
+/// (`frame <n> (<b> bytes) / <semantic> /`); the `frame` prefix
+/// identifies the header.
 fn frames_labeled(capture: &str, label: &str) -> usize {
     capture
         .lines()
         .filter_map(|line| {
-            let (code, rest) = line.trim_start().split_once(" / ")?;
-            if code.is_empty() || !code.bytes().all(|b| b.is_ascii_digit()) {
-                return None;
-            }
-            rest.strip_suffix(" /")
+            let (head, rest) = line.trim_start().split_once(" / ")?;
+            head.starts_with("frame ")
+                .then(|| rest.strip_suffix(" /"))?
         })
         .filter(|semantic| semantic.starts_with(label))
         .count()

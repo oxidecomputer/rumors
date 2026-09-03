@@ -4,9 +4,11 @@
 Reads the V2 capture snapshots (`tests/snapshots/*.snap`) and totals, per
 file and overall: every captured wire byte (each direction's outgoing
 bytes, counted once, from the renderer's exact byte-count headers), the
-bytes spent on Merkle digests (the renderer annotates every listing and
-query child as `0x<radix> => h'<digest hex>' / digest /`, so the digest
-width is read from the corpus itself, never assumed), and their ratio.
+bytes spent on Merkle digests (a listing renders as a map from radix to
+digest, `<radix>: h'<digest hex>'`, and no other wire map has
+unsigned-integer keys and byte-string values, so every such entry is a
+digest; the width is read from the corpus, never assumed), and their
+ratio.
 This is the denominator for any claim about what a digest width costs on
 the wire: dispute-listing metadata is digest-dominated, and this meter
 says by exactly how much, over the corpus the snapshot suite already pins
@@ -35,8 +37,11 @@ import sys
 from pathlib import Path
 
 CONTROL_ITEM = re.compile(r"^control item \d+ \((\d+) bytes\)")
-STREAM_HEADER = re.compile(r"^\S.*, (\d+) wire bytes$")
-DIGEST_LINE = re.compile(r"=> h'([0-9a-f]+)' / digest /$")
+STREAM_HEADER = re.compile(r"^\S+ stream \d+ \(height \d+\), epoch \d+, (\d+) wire bytes$")
+# A map entry with an unsigned-integer key (its encoding indicator, if
+# any, included) and a byte-string value, with or without the trailing
+# comma the pretty layout puts between entries.
+DIGEST_LINE = re.compile(r"^\s*\d+(?:_\d)?: h'([0-9a-f]+)',?$")
 
 
 def measure(path: Path):
