@@ -111,9 +111,11 @@ proptest! {
     /// reading the whole payload from its start, whatever spare capacity
     /// the prefix's buffer carries and however the rest is chunked.
     ///
-    /// Full delivery yields the byte-identical payload and leaves the
-    /// following bytes unread, and any truncation surfaces as
-    /// `UnexpectedEof` on both.
+    /// The reference, `read_payload`, is `resume_payload` from an empty
+    /// prefix, so the comparison alone would be a self-check; the
+    /// absolute clauses carry the test: full delivery recovers exactly
+    /// the payload and leaves the following bytes unread on both sides,
+    /// and any truncation surfaces as `UnexpectedEof` on both.
     #[test]
     fn resumed_read_matches_whole_read(
         (len, prefix_len) in (0usize..=2 * PAYLOAD_CHUNK_LEN + 130)

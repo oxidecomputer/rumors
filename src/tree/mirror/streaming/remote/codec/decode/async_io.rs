@@ -152,7 +152,7 @@ async fn read_frame<R: AsyncRead + Unpin>(
     // the direction; anything shorter after it is judged in wire order
     // below, each item taking what the read fetched ahead of it, and a
     // failure the read met is reported at the first item that needs
-    // more bytes than it fetched.
+    // more bytes than arrived.
     let mut opener = [0u8; OPENER_LEN];
     let Arrived { filled, failure } = exact.fill(&mut opener).await;
     if filled == 0 {
@@ -196,7 +196,8 @@ async fn read_frame<R: AsyncRead + Unpin>(
 }
 
 /// What one transport read attempt delivered: the bytes filled before the
-/// buffer was full, the transport closed, or it failed.
+/// buffer was full, the transport closed, or it failed; a read that
+/// replays a recorded failure delivers nothing.
 struct Arrived {
     filled: usize,
     /// The transport's failure, if the read ended in one rather than in a
@@ -246,8 +247,8 @@ impl Pending {
 /// guarantees to exist given what has already been parsed.
 struct Exact<'a, R> {
     read: &'a mut R,
-    /// A transport failure met by a bulk read that delivered some bytes
-    /// ahead of it.
+    /// A transport failure met by the opener read, which delivered some
+    /// bytes ahead of it.
     ///
     /// The next read reports it instead of touching the transport, so
     /// the failure lands at the item it interrupted in wire order, not

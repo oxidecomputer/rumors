@@ -799,45 +799,74 @@ fn reader_errors_are_contextual() {
     }
 }
 
+/// What a `FailAfter` transport does once it has failed: keep failing,
+/// close cleanly, or resume delivering the rest of its bytes.
+#[derive(Debug, Clone, Copy)]
+enum AfterFailure {
+    Fail,
+    Close,
+    Resume,
+}
+
 /// A transport that delivers the first `remaining` bytes of `bytes`,
-/// fails with `Other`, and then either closes cleanly or keeps failing.
+/// fails with `Other`, and then does what `after` says.
 ///
 /// One fixture serves both decoders: it reads synchronously for the
-/// oracle and asynchronously for `FrameRead`.
+/// oracle and asynchronously for `FrameRead`. It counts the reads made
+/// after its failure, so a test can hold a decoder to reporting the
+/// failure without touching the transport again.
 struct FailAfter {
     bytes: Vec<u8>,
     position: usize,
     remaining: usize,
-    then_eof: bool,
+    after: AfterFailure,
     failed: bool,
+    reads_after_failure: usize,
 }
 
 impl FailAfter {
-    fn new(bytes: &[u8], remaining: usize, then_eof: bool) -> Self {
+    fn new(bytes: &[u8], remaining: usize, after: AfterFailure) -> Self {
         Self {
             bytes: bytes.to_vec(),
             position: 0,
             remaining,
-            then_eof,
+            after,
             failed: false,
+            reads_after_failure: 0,
         }
     }
 
     /// The bytes one read of up to `want` bytes delivers, or its failure.
     fn serve(&mut self, want: usize) -> std::io::Result<&[u8]> {
-        if self.remaining == 0 {
-            if self.failed && self.then_eof {
-                return Ok(&[]);
+        if self.failed {
+            self.reads_after_failure += 1;
+            match self.after {
+                AfterFailure::Fail => return Err(std::io::ErrorKind::Other.into()),
+                AfterFailure::Close => return Ok(&[]),
+                AfterFailure::Resume => {}
             }
+        } else if self.remaining == 0 {
             self.failed = true;
             return Err(std::io::ErrorKind::Other.into());
         }
         let available = self.bytes.len() - self.position;
-        let served = self.remaining.min(available).min(want);
+        let served = if self.failed {
+            available
+        } else {
+            self.remaining.min(available)
+        }
+        .min(want);
         let start = self.position;
         self.position += served;
-        self.remaining -= served;
+        if !self.failed {
+            self.remaining -= served;
+        }
         Ok(&self.bytes[start..start + served])
+    }
+
+    /// The bytes no read has taken.
+    fn unread(&self) -> &[u8] {
+        &self.bytes[self.position..]
     }
 }
 
@@ -862,46 +891,68 @@ impl AsyncRead for FailAfter {
 }
 
 /// A transport failure inside a frame's opener is reported at the item
-/// it interrupted, identically by both decoders, whether the transport
-/// then closes cleanly or keeps failing.
+/// it interrupted, identically by both decoders and without another read
+/// of the transport, whatever the transport would do next.
 ///
-/// The bytes delivered ahead of the failure are judged first. The opener
-/// is `End(Stream)` on stream 9, three one-byte items: a failure before
-/// the first byte is a read error at the frame head; after one or two
-/// bytes, at the signal; after all three, unseen, and the frame decodes.
+/// Each row delivers a prefix of an opener and then fails. The canonical
+/// `End(Stream)` opener on stream 9 is three one-byte items: a failure
+/// before the first byte is a read error at the frame head; after one or
+/// two bytes, at the signal; after all three, unseen, and the frame
+/// decodes. Two non-canonical openers fail inside a head's extension
+/// bytes: a stream item `0x18` owed its one-byte extension, and an array
+/// head `0x9b` owed eight. Every row runs against a transport that then
+/// keeps failing, closes, or resumes delivering; in every case no read
+/// follows the failure, so a resuming transport still holds the bytes
+/// it would have delivered.
 #[test]
 fn opener_read_failures_are_reported_in_wire_order() {
     let stream = stream(9);
-    let encoded = bare_frame(stream, Signal::End(End::Stream));
-    assert_eq!(encoded, [0x82, 0x09, 0x09]);
+    let canonical = bare_frame(stream, Signal::End(End::Stream));
+    assert_eq!(canonical, [0x82, 0x09, 0x09]);
+    let rows: Vec<(&[u8], usize, Option<FramePart>)> = vec![
+        (&canonical, 0, Some(FramePart::FrameHead)),
+        (&canonical, 1, Some(FramePart::Signal)),
+        (&canonical, 2, Some(FramePart::Signal)),
+        (&canonical, 3, None),
+        (&[0x82, 0x18, 0x09, 0x09], 2, Some(FramePart::Signal)),
+        (
+            &[0x9b, 0, 0, 0, 0, 0, 0, 0, 2, 0x09, 0x09],
+            1,
+            Some(FramePart::FrameHead),
+        ),
+    ];
     for speaker in SPEAKERS {
-        for then_eof in [false, true] {
-            for remaining in 0..=encoded.len() {
+        for after in [
+            AfterFailure::Fail,
+            AfterFailure::Close,
+            AfterFailure::Resume,
+        ] {
+            for &(bytes, remaining, interrupted) in &rows {
+                let case =
+                    format!("{speaker:?}, {bytes:02x?} cut after {remaining}, then {after:?}");
                 let budget = RunBudget::default();
-                let from_sync = decode(
-                    speaker,
-                    budget,
-                    &mut FailAfter::new(&encoded, remaining, then_eof),
-                );
-                let mut reader = FrameRead::new(
-                    speaker,
-                    budget,
-                    FailAfter::new(&encoded, remaining, then_eof),
-                );
+                let mut sync = FailAfter::new(bytes, remaining, after);
+                let from_sync = decode(speaker, budget, &mut sync);
+                let mut reader =
+                    FrameRead::new(speaker, budget, FailAfter::new(bytes, remaining, after));
                 let from_async = pollster::block_on(reader.frame());
-                let case = format!(
-                    "{speaker:?}, {remaining} bytes then {}",
-                    if then_eof { "a close" } else { "failures" }
-                );
-                let interrupted = match remaining {
-                    0 => FramePart::FrameHead,
-                    1 | 2 => FramePart::Signal,
-                    _ => {
-                        let frame = (stream, Frame::End(End::Stream));
-                        assert_eq!(from_sync.expect(&case), frame, "{case}");
-                        assert_eq!(from_async.expect(&case), Some(frame), "{case}");
-                        continue;
-                    }
+                let r#async = reader.into_inner();
+                for transport in [&sync, &r#async] {
+                    assert_eq!(
+                        transport.reads_after_failure, 0,
+                        "{case}: the transport was read after it failed"
+                    );
+                    assert_eq!(
+                        transport.unread(),
+                        &bytes[remaining..],
+                        "{case}: the transport does not rest where the failure struck"
+                    );
+                }
+                let Some(interrupted) = interrupted else {
+                    let frame = (stream, Frame::End(End::Stream));
+                    assert_eq!(from_sync.expect(&case), frame, "{case}");
+                    assert_eq!(from_async.expect(&case), Some(frame), "{case}");
+                    continue;
                 };
                 let from_sync = from_sync.expect_err(&case);
                 let from_async = from_async.expect_err(&case);
