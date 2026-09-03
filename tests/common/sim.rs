@@ -274,16 +274,23 @@ pub const MAX_PLAN_SEED_MESSAGES: usize = 7;
 /// Most operations one founder's activity script can carry.
 pub const MAX_PLAN_SCRIPT_OPS: usize = 7;
 
-/// Strategy for one endpoint's fault plan.
+/// Strategy for one endpoint's fault plan, with cuts drawn from
+/// `0..MAX_CUT`: the intra-process family's bound.
 ///
 /// With `faults` disabled it is always clean, so a whole plan generated
 /// under `false` is loss-free by construction; enabled, each direction
 /// independently stays clean or cuts at an arbitrary offset.
 pub fn arb_fault(faults: bool) -> BoxedStrategy<FaultPlan> {
+    arb_fault_within(faults, MAX_CUT)
+}
+
+/// [`arb_fault`] with cuts drawn from `0..max_cut`, so a family whose
+/// connections were metered separately draws from its own bound.
+pub fn arb_fault_within(faults: bool, max_cut: usize) -> BoxedStrategy<FaultPlan> {
     if !faults {
         return Just(FaultPlan::NONE).boxed();
     }
-    let cut = prop_oneof![2 => Just(None), 3 => (0..MAX_CUT).prop_map(Some)];
+    let cut = prop_oneof![2 => Just(None), 3 => (0..max_cut).prop_map(Some)];
     (cut.clone(), cut)
         .prop_map(|(write_cut, read_cut)| FaultPlan {
             write_cut,

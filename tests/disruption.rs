@@ -31,13 +31,14 @@ use tokio::net::{TcpListener, TcpStream};
 use crate::common::fault::{self, FaultPlan};
 use crate::common::sim::{
     Activity, MAX_PLAN_PEERS, MAX_PLAN_SCRIPT_OPS, MAX_PLAN_SEED_MESSAGES, Plan, Redaction,
-    RetireOp, Session, Transfer, arb_fault, arb_plan, assert_converged, assert_deletion_honored,
-    assert_honest_error, assert_honest_gossip, assert_party_invariants, assert_value_oracle,
-    is_honest_error, lost_custody, probe_disjointness, quiesce, run_plan, survivor_readouts,
+    RetireOp, Session, Transfer, arb_fault_within, arb_plan, assert_converged,
+    assert_deletion_honored, assert_honest_error, assert_honest_gossip, assert_party_invariants,
+    assert_value_oracle, is_honest_error, lost_custody, probe_disjointness, quiesce, run_plan,
+    survivor_readouts,
 };
 use crate::common::tcp;
 use crate::common::window::{WindowAssignment, WindowChoice};
-use crate::common::wire::bootstrap_fork_async;
+use crate::common::wire::{bootstrap_fork_async, wire_gossip_async};
 
 /// A fresh multi-thread runtime per simulation, so tasks interleave with
 /// real parallelism rather than cooperative scheduling alone.
@@ -535,12 +536,40 @@ struct ProcPlan {
     children: Vec<ChildPlan>,
 }
 
+/// Most messages a plan seeds the parent with before any child joins.
+const MAX_PROC_SEED_MESSAGES: usize = 3;
+/// Most peers in the parent fleet.
+const MAX_PROC_PARENT_PEERS: usize = 2;
+/// Most children a plan spawns.
+const MAX_PROC_CHILDREN: usize = 3;
+/// Most sends one child performs.
+const MAX_CHILD_SENDS: usize = 5;
+/// Most gossip sessions one child runs before its final gossip.
+const MAX_CHILD_SESSIONS: usize = 3;
+
+/// Upper bound on the byte offset at which a child's cut can land.
+///
+/// Every child connection (a bootstrap attempt, a session, the final
+/// gossip, a retirement) is its own link, so a cut's budget counts that
+/// connection's bytes alone and the bound is per connection. Derived
+/// from measurement, not transcribed: the envelope child cycle
+/// ([`child_cycle_bytes`]) moves fewer bytes per endpoint on its widest
+/// connection than this bound, and the bound stays within twice that
+/// measurement, so generated cuts reach every byte of the widest
+/// connection and keep landing inside real ones. The two-sided pin is
+/// [`max_child_cut_spans_the_child_cycle`]; re-measure there before
+/// touching this number.
+const MAX_CHILD_CUT: usize = 2048;
+
 fn arb_child_plan(faults: bool) -> impl Strategy<Value = ChildPlan> {
     (
-        0usize..6,
-        arb_fault(faults),
-        prop::collection::vec(arb_fault(faults), 1..4),
-        arb_fault(faults),
+        0..=MAX_CHILD_SENDS,
+        arb_fault_within(faults, MAX_CHILD_CUT),
+        prop::collection::vec(
+            arb_fault_within(faults, MAX_CHILD_CUT),
+            1..=MAX_CHILD_SESSIONS,
+        ),
+        arb_fault_within(faults, MAX_CHILD_CUT),
     )
         .prop_map(|(n_sends, boot, sessions, retire)| ChildPlan {
             n_sends,
@@ -555,9 +584,9 @@ fn arb_child_plan(faults: bool) -> impl Strategy<Value = ChildPlan> {
 fn arb_proc_plan() -> impl Strategy<Value = ProcPlan> {
     any::<bool>().prop_flat_map(|faults| {
         (
-            1usize..=2,
-            prop::collection::vec(any::<u64>(), 0..4),
-            prop::collection::vec(arb_child_plan(faults), 1..=3),
+            1..=MAX_PROC_PARENT_PEERS,
+            prop::collection::vec(any::<u64>(), 0..=MAX_PROC_SEED_MESSAGES),
+            prop::collection::vec(arb_child_plan(faults), 1..=MAX_PROC_CHILDREN),
         )
             .prop_map(|(n_parent_peers, seed_messages, children)| ProcPlan {
                 n_parent_peers,
@@ -565,6 +594,162 @@ fn arb_proc_plan() -> impl Strategy<Value = ProcPlan> {
                 children,
             })
     })
+}
+
+// ---- MAX_CHILD_CUT derivation pin --------------------------------------------
+
+/// One connection of the envelope child cycle.
+///
+/// `child` drives its side of a fresh metered in-memory link while
+/// `parent` serves the other with plain gossip, as the inter-process
+/// parent does. Returns the child side's outcome and the wider of the two
+/// endpoints' written bytes.
+async fn metered_connection<Fut, Out>(
+    parent: &Rumors<u64>,
+    child: impl FnOnce(fault::FaultyLink) -> Fut,
+) -> (Out, usize)
+where
+    Fut: std::future::Future<Output = Out>,
+{
+    let (child_link, parent_link) = rumors::link::memory();
+    let (child_link, child_meter) = fault::metered(child_link);
+    let (mut parent_link, parent_meter) = fault::metered(parent_link);
+    let (outcome, served) = tokio::join!(child(child_link), parent.gossip(&mut parent_link));
+    served.expect("the parent serves the envelope connection cleanly");
+    (outcome, child_meter.written().max(parent_meter.written()))
+}
+
+/// One full complement of other-child sends, gossiped home.
+///
+/// Every other child sends `MAX_CHILD_SENDS` fresh values and runs a clean
+/// session with the parent, so the parent gains that much content the
+/// metered child has never seen.
+async fn send_complement(others: &[Rumors<u64>], parent: &Rumors<u64>, fresh: &mut u64) {
+    for other in others {
+        for _ in 0..MAX_CHILD_SENDS {
+            other.send(*fresh).unwrap();
+            *fresh += 1;
+        }
+        wire_gossip_async(other, parent).await;
+    }
+}
+
+/// Byte extent of the envelope child cycle, per endpoint, for each of its
+/// four connections in order: bootstrap, session, final gossip, retire.
+///
+/// The cycle mirrors `child_main`'s clean path against an in-process
+/// parent over metered in-memory links, with every connection run at the
+/// most content the family can put on the wire. The parent fleet sits at
+/// its maximal size and seed count on the same window the harness uses;
+/// the other children (the maximal count) have sent their maximal sends
+/// home before the metered child bootstraps, so the bootstrap copies
+/// everything a real parent could hold; and before each later
+/// connection the parent gains one full complement of other-child sends
+/// again, so the session, the final gossip, and the retirement each face
+/// at least as much unknown parent content as any real connection can (a
+/// real run's other children produce that complement once, across the
+/// whole run, not before every connection), while the child carries its
+/// maximal sends into its session. Byte extent is not proven maximal
+/// over version shapes; the two-sided band in
+/// [`max_child_cut_spans_the_child_cycle`] is what keeps the constant
+/// tracking reality. Metered with the counters the fault cuts spend, on
+/// both endpoints, so the result is directly comparable to cut offsets.
+async fn child_cycle_bytes() -> [usize; 4] {
+    let parent = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    parent
+        .send_all((0..MAX_PROC_SEED_MESSAGES as u64).map(|i| 3_000_000 + i))
+        .unwrap();
+    // The rest of the parent fleet and the other children: forks of the
+    // seed, so the party lattice matches a maximal plan's.
+    let mut parent_fleet = vec![parent.clone()];
+    for _ in 1..MAX_PROC_PARENT_PEERS {
+        parent_fleet.push(bootstrap_fork_async(&parent).await);
+    }
+    let mut others = Vec::new();
+    for _ in 1..MAX_PROC_CHILDREN {
+        others.push(bootstrap_fork_async(&parent).await);
+    }
+    let mut fresh = 4_000_000u64;
+
+    send_complement(&others, &parent, &mut fresh).await;
+    let (joined, boot) = metered_connection(&parent, |mut link| async move {
+        Peer::<u64>::bootstrap().join(&mut link).await
+    })
+    .await;
+    let child = joined
+        .expect("envelope bootstrap")
+        .expect("the parent serves every bootstrap")
+        .sync_window_floor()
+        .into_rumors();
+
+    for s in 0..MAX_CHILD_SENDS {
+        child.send(child_value(0, s)).unwrap();
+    }
+    send_complement(&others, &parent, &mut fresh).await;
+    let (_, session) = metered_connection(&parent, |mut link| {
+        let child = child.clone();
+        async move {
+            child.gossip(&mut link).await.expect("envelope session");
+        }
+    })
+    .await;
+
+    send_complement(&others, &parent, &mut fresh).await;
+    let (_, final_gossip) = metered_connection(&parent, |mut link| {
+        let child = child.clone();
+        async move {
+            child
+                .gossip(&mut link)
+                .await
+                .expect("envelope final gossip");
+        }
+    })
+    .await;
+
+    send_complement(&others, &parent, &mut fresh).await;
+    let known = child.try_into_peer().await.expect("sole handle");
+    let (outcome, retire) =
+        metered_connection(
+            &parent,
+            |mut link| async move { known.retire(&mut link).await },
+        )
+        .await;
+    assert!(
+        matches!(outcome, Retire::Retired),
+        "the envelope retirement commits over a clean link"
+    );
+    [boot, session, final_gossip, retire]
+}
+
+/// Pins `MAX_CHILD_CUT` to the envelope child cycle's measured byte
+/// extent, from both sides.
+///
+/// Every byte of the cycle's widest connection is a reachable cut offset
+/// (`measured <= MAX_CHILD_CUT`), and the cut range is not vacuously wide
+/// (`MAX_CHILD_CUT <= 2 * measured`), so generated cuts keep landing
+/// inside real connections rather than past their end. The envelope's
+/// dominance premise (content per connection, representative on version
+/// shapes) is stated at [`child_cycle_bytes`].
+#[test]
+fn max_child_cut_spans_the_child_cycle() {
+    let phases = mt_runtime().block_on(child_cycle_bytes());
+    let [boot, session, final_gossip, retire] = phases;
+    println!(
+        "child cycle bytes per endpoint: bootstrap {boot}, session {session}, \
+         final gossip {final_gossip}, retire {retire}"
+    );
+    let measured = phases.into_iter().max().expect("four connections");
+    assert!(
+        measured <= MAX_CHILD_CUT,
+        "the child cycle's widest connection moves {measured} bytes per endpoint, \
+         beyond MAX_CHILD_CUT ({MAX_CHILD_CUT}): deep cut offsets are unreachable"
+    );
+    assert!(
+        MAX_CHILD_CUT <= 2 * measured,
+        "MAX_CHILD_CUT ({MAX_CHILD_CUT}) is more than twice the child cycle's \
+         {measured} bytes: most generated cuts would land past the end of every \
+         connection and never fire"
+    );
 }
 
 /// Kill (and reap) a child process if the parent unwinds before it exits.
