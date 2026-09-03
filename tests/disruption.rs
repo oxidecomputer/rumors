@@ -479,12 +479,13 @@ const CHILD_DEADLINE: Duration = Duration::from_secs(60);
 /// exited, before aborting the ones still parked.
 ///
 /// A session that is going to end does so within milliseconds of its
-/// peer's exit (the bytes it needs are already buffered, or its socket is
-/// closed), so this is headroom over scheduling latency, not over
-/// protocol work. A session still parked afterward is waiting on a stream
-/// its dead peer never opened, a wait the link contract leaves to the
-/// caller's timeout; expiring costs only sharpness (the aborted session
-/// counts as a possible loss), never a false failure.
+/// peer's exit (its remaining bytes are buffered, or its socket is
+/// closed): the grace is headroom over scheduling latency, not over
+/// protocol work. A session still parked afterward waits on a stream its
+/// dead peer never opened, which the link contract leaves to the caller's
+/// timeout. Aborted sessions count as possible losses; a fault-free plan
+/// pins that count to zero, so a grace too short for the machine fails
+/// loudly there.
 const SERVE_GRACE: Duration = Duration::from_secs(2);
 
 /// The value of child `index`'s `s`-th send: distinct per child and per
@@ -536,6 +537,18 @@ struct ProcPlan {
     children: Vec<ChildPlan>,
 }
 
+impl ProcPlan {
+    /// Whether no child injects any fault, so the run is loss-free by
+    /// construction.
+    fn is_fault_free(&self) -> bool {
+        self.children.iter().all(|child| {
+            child.boot.is_clean()
+                && child.sessions.iter().all(FaultPlan::is_clean)
+                && child.retire.is_clean()
+        })
+    }
+}
+
 /// Most messages a plan seeds the parent with before any child joins.
 const MAX_PROC_SEED_MESSAGES: usize = 3;
 /// Most peers in the parent fleet.
@@ -549,17 +562,16 @@ const MAX_CHILD_SESSIONS: usize = 3;
 
 /// Upper bound on the byte offset at which a child's cut can land.
 ///
-/// Every child connection (a bootstrap attempt, a session, the final
-/// gossip, a retirement) is its own link, so a cut's budget counts that
-/// connection's bytes alone and the bound is per connection. Derived
-/// from measurement, not transcribed: the envelope child cycle
-/// ([`child_cycle_bytes`]) moves fewer bytes per endpoint on its widest
-/// connection than this bound, and the bound stays within twice that
-/// measurement, so generated cuts reach every byte of the widest
+/// Per connection: each child connection (a bootstrap attempt, a session,
+/// the final gossip, a retirement) is its own link, so a cut's budget
+/// counts that connection's bytes alone. Derived from measurement: the
+/// envelope child cycle ([`child_cycle_bytes`]) moves fewer bytes per
+/// endpoint on its widest connection than this bound, and the bound stays
+/// within twice that, so generated cuts reach every byte of the widest
 /// connection and keep landing inside real ones. The two-sided pin is
 /// [`max_child_cut_spans_the_child_cycle`]; re-measure there before
 /// touching this number.
-const MAX_CHILD_CUT: usize = 2048;
+const MAX_CHILD_CUT: usize = 3072;
 
 fn arb_child_plan(faults: bool) -> impl Strategy<Value = ChildPlan> {
     (
@@ -598,12 +610,11 @@ fn arb_proc_plan() -> impl Strategy<Value = ProcPlan> {
 
 // ---- MAX_CHILD_CUT derivation pin --------------------------------------------
 
-/// One connection of the envelope child cycle.
+/// One metered connection, returning the child side's outcome and the
+/// wider endpoint's written bytes.
 ///
-/// `child` drives its side of a fresh metered in-memory link while
-/// `parent` serves the other with plain gossip, as the inter-process
-/// parent does. Returns the child side's outcome and the wider of the two
-/// endpoints' written bytes.
+/// `child` drives its side of a fresh in-memory link while `parent`
+/// serves the other with plain gossip, as the inter-process parent does.
 async fn metered_connection<Fut, Out>(
     parent: &Rumors<u64>,
     child: impl FnOnce(fault::FaultyLink) -> Fut,
@@ -619,11 +630,9 @@ where
     (outcome, child_meter.written().max(parent_meter.written()))
 }
 
-/// One full complement of other-child sends, gossiped home.
-///
-/// Every other child sends `MAX_CHILD_SENDS` fresh values and runs a clean
-/// session with the parent, so the parent gains that much content the
-/// metered child has never seen.
+/// One full complement of other-child sends, gossiped into `parent`:
+/// every other child sends `MAX_CHILD_SENDS` fresh values and runs a
+/// clean session with `parent`.
 async fn send_complement(others: &[Rumors<u64>], parent: &Rumors<u64>, fresh: &mut u64) {
     for other in others {
         for _ in 0..MAX_CHILD_SENDS {
@@ -634,45 +643,74 @@ async fn send_complement(others: &[Rumors<u64>], parent: &Rumors<u64>, fresh: &m
     }
 }
 
-/// Byte extent of the envelope child cycle, per endpoint, for each of its
-/// four connections in order: bootstrap, session, final gossip, retire.
+/// The envelope child cycle's per-connection supply of divergence.
+struct Envelope {
+    /// The parent peer every metered connection is served by.
+    served: Rumors<u64>,
+    /// The other parent peer, from which the child relays content.
+    relay: Rumors<u64>,
+    others: Vec<Rumors<u64>>,
+    fresh: u64,
+    own_sends: usize,
+}
+
+impl Envelope {
+    /// Give the next connection at least a real connection's content in
+    /// each direction.
+    ///
+    /// The child sends `MAX_CHILD_SENDS` fresh values and relays a full
+    /// complement of other-child sends from `relay`; `served` gains a
+    /// second full complement.
+    async fn stock(&mut self, child: &Rumors<u64>) {
+        for _ in 0..MAX_CHILD_SENDS {
+            child.send(child_value(0, self.own_sends)).unwrap();
+            self.own_sends += 1;
+        }
+        send_complement(&self.others, &self.relay, &mut self.fresh).await;
+        wire_gossip_async(child, &self.relay).await;
+        send_complement(&self.others, &self.served, &mut self.fresh).await;
+    }
+}
+
+/// Byte extent of the envelope child cycle, per connection in order
+/// (bootstrap, session, final gossip, retire), each the wider of its two
+/// endpoints.
 ///
-/// The cycle mirrors `child_main`'s clean path against an in-process
-/// parent over metered in-memory links, with every connection run at the
-/// most content the family can put on the wire. The parent fleet sits at
-/// its maximal size and seed count on the same window the harness uses;
-/// the other children (the maximal count) have sent their maximal sends
-/// home before the metered child bootstraps, so the bootstrap copies
-/// everything a real parent could hold; and before each later
-/// connection the parent gains one full complement of other-child sends
-/// again, so the session, the final gossip, and the retirement each face
-/// at least as much unknown parent content as any real connection can (a
-/// real run's other children produce that complement once, across the
-/// whole run, not before every connection), while the child carries its
-/// maximal sends into its session. Byte extent is not proven maximal
-/// over version shapes; the two-sided band in
-/// [`max_child_cut_spans_the_child_cycle`] is what keeps the constant
-/// tracking reality. Metered with the counters the fault cuts spend, on
-/// both endpoints, so the result is directly comparable to cut offsets.
+/// The cycle is `child_main`'s clean path against an in-process parent
+/// fleet over metered in-memory links. It dominates a real plan's
+/// connections by set size, per direction: a connection moves in one
+/// direction at most the content its sender holds and its receiver
+/// lacks. In a real plan, child to parent carries at most the child's own
+/// sends plus what it relayed from the other parent peer,
+/// `MAX_CHILD_SENDS + (MAX_PROC_CHILDREN - 1) * MAX_CHILD_SENDS` values;
+/// parent to child at most the seeds plus the other children's sends,
+/// `MAX_PROC_SEED_MESSAGES + (MAX_PROC_CHILDREN - 1) * MAX_CHILD_SENDS`.
+/// The bootstrap, where the child holds nothing, is served by a parent
+/// holding the seeds and a full complement; every later connection is
+/// preceded by [`Envelope::stock`], so each direction carries at least
+/// its ceiling. Byte extent is not proven maximal over version shapes;
+/// the band in [`max_child_cut_spans_the_child_cycle`] keeps the
+/// constant tracking reality.
 async fn child_cycle_bytes() -> [usize; 4] {
-    let parent = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    parent
+    let served = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    served
         .send_all((0..MAX_PROC_SEED_MESSAGES as u64).map(|i| 3_000_000 + i))
         .unwrap();
-    // The rest of the parent fleet and the other children: forks of the
-    // seed, so the party lattice matches a maximal plan's.
-    let mut parent_fleet = vec![parent.clone()];
-    for _ in 1..MAX_PROC_PARENT_PEERS {
-        parent_fleet.push(bootstrap_fork_async(&parent).await);
-    }
+    let relay = bootstrap_fork_async(&served).await;
     let mut others = Vec::new();
     for _ in 1..MAX_PROC_CHILDREN {
-        others.push(bootstrap_fork_async(&parent).await);
+        others.push(bootstrap_fork_async(&served).await);
     }
-    let mut fresh = 4_000_000u64;
+    let mut envelope = Envelope {
+        served,
+        relay,
+        others,
+        fresh: 4_000_000,
+        own_sends: 0,
+    };
 
-    send_complement(&others, &parent, &mut fresh).await;
-    let (joined, boot) = metered_connection(&parent, |mut link| async move {
+    send_complement(&envelope.others, &envelope.served, &mut envelope.fresh).await;
+    let (joined, boot) = metered_connection(&envelope.served, |mut link| async move {
         Peer::<u64>::bootstrap().join(&mut link).await
     })
     .await;
@@ -682,11 +720,8 @@ async fn child_cycle_bytes() -> [usize; 4] {
         .sync_window_floor()
         .into_rumors();
 
-    for s in 0..MAX_CHILD_SENDS {
-        child.send(child_value(0, s)).unwrap();
-    }
-    send_complement(&others, &parent, &mut fresh).await;
-    let (_, session) = metered_connection(&parent, |mut link| {
+    envelope.stock(&child).await;
+    let (_, session) = metered_connection(&envelope.served, |mut link| {
         let child = child.clone();
         async move {
             child.gossip(&mut link).await.expect("envelope session");
@@ -694,8 +729,8 @@ async fn child_cycle_bytes() -> [usize; 4] {
     })
     .await;
 
-    send_complement(&others, &parent, &mut fresh).await;
-    let (_, final_gossip) = metered_connection(&parent, |mut link| {
+    envelope.stock(&child).await;
+    let (_, final_gossip) = metered_connection(&envelope.served, |mut link| {
         let child = child.clone();
         async move {
             child
@@ -706,14 +741,12 @@ async fn child_cycle_bytes() -> [usize; 4] {
     })
     .await;
 
-    send_complement(&others, &parent, &mut fresh).await;
+    envelope.stock(&child).await;
     let known = child.try_into_peer().await.expect("sole handle");
-    let (outcome, retire) =
-        metered_connection(
-            &parent,
-            |mut link| async move { known.retire(&mut link).await },
-        )
-        .await;
+    let (outcome, retire) = metered_connection(&envelope.served, |mut link| async move {
+        known.retire(&mut link).await
+    })
+    .await;
     assert!(
         matches!(outcome, Retire::Retired),
         "the envelope retirement commits over a clean link"
@@ -727,9 +760,7 @@ async fn child_cycle_bytes() -> [usize; 4] {
 /// Every byte of the cycle's widest connection is a reachable cut offset
 /// (`measured <= MAX_CHILD_CUT`), and the cut range is not vacuously wide
 /// (`MAX_CHILD_CUT <= 2 * measured`), so generated cuts keep landing
-/// inside real connections rather than past their end. The envelope's
-/// dominance premise (content per connection, representative on version
-/// shapes) is stated at [`child_cycle_bytes`].
+/// inside real connections rather than past their end.
 #[test]
 fn max_child_cut_spans_the_child_cycle() {
     let phases = mt_runtime().block_on(child_cycle_bytes());
@@ -897,17 +928,14 @@ fn reconstructed_three_children_deep_cuts() {
     }));
 }
 
-/// Adequacy tripwire for the inter-process harness: a panic on the
-/// parent's serving path fails the test.
+/// A panic on the parent's serving path fails the test.
 ///
 /// The probe lands on the fourth accepted connection of
-/// [`reconstructed_child_retire_cut_at_first_byte`]'s plan: the child's
-/// faulted retirement, which the child attributes to its own injected cut
-/// and retries cleanly. The child therefore exits clean, the loss
-/// accounting stays consistent, and no post-run invariant can see the
-/// panic; only the parent's drain of its serving tasks surfaces it. A
-/// parent that aborted its serving tasks instead of draining them would
-/// pass this plan with the panic in captured stderr alone.
+/// [`reconstructed_child_retire_cut_at_first_byte`]'s plan, the child's
+/// faulted retirement, which the child attributes to its own cut and
+/// retries cleanly: the child exits clean and no post-run invariant can
+/// see the panic, so only the parent's join of its serving tasks surfaces
+/// it.
 #[test]
 #[should_panic(expected = "serving session task")]
 fn serving_task_panics_fail_the_parent() {
@@ -959,9 +987,9 @@ async fn run_proc_plan_probed(plan: ProcPlan, serve_probe: Option<usize>) {
     // final assertion rather than panicking inside a detached task, and
     // every error conservatively counts as a possible in-flight loss (a
     // dying session may have been a bootstrap holding a donated fork).
-    // Panics are not errors: a serving task that panics unwinds into the
-    // `JoinSet`, which the accept task hands back so the wind-down below
-    // can join every task and fail on any panic it holds.
+    // A serving task that panics unwinds into the `JoinSet`, which the
+    // accept task hands back so the wind-down can join every task and
+    // fail on any panic.
     let serve_errors = Arc::new(AtomicUsize::new(0));
     let dishonest = Arc::new(Mutex::new(Vec::<String>::new()));
     let (stop_accepting, mut stopped) = tokio::sync::oneshot::channel::<()>();
@@ -1072,20 +1100,17 @@ async fn run_proc_plan_probed(plan: ProcPlan, serve_probe: Option<usize>) {
 
     // Wind down: stop the prober and the accept loop, then settle the
     // serving tasks. Every child has exited, so a serving session either
-    // ends on its own within moments (its peer's final bytes are already
-    // buffered, or its socket is closed) or is parked on a stream its dead
-    // peer never opened, which the link contract leaves to the caller's
-    // timeout. So: a bounded grace for the former, then the latter are
-    // aborted and counted as possible losses (a session cut mid-flight is
-    // at least as uncertain as one that errored). Joining every task is
-    // where a panic in a serving task surfaces as a test failure instead
-    // of a line in captured stderr: an abort cannot mask a panic that has
-    // already happened, and nothing a serving task does after its session
-    // returns can panic. Only then are the parent's `Peer`s reclaimed —
-    // `try_into_peer` resolves once every serving clone is gone, so this
-    // is the synchronization point proving quiescence. The heal phase
-    // below runs on the data plane, so each reclaimed `Peer` converts
-    // straight back out.
+    // ends within moments (its remaining bytes are buffered, or its socket
+    // is closed) or is parked on a stream its dead peer never opened,
+    // which the link contract leaves to the caller's timeout: a bounded
+    // grace for the former, then the latter are aborted and counted as
+    // possible losses. Joining every task is where a panic in a serving
+    // task fails the test; an abort cannot mask a panic that already
+    // happened, and a serving task has no panic site after its session
+    // returns. Only then are the parent's `Peer`s reclaimed --
+    // `try_into_peer` resolves once every serving clone is gone, the
+    // synchronization point proving quiescence -- and the heal phase below
+    // runs on the data plane, so each converts straight back out.
     done.store(true, Ordering::Release);
     prober.await.expect("prober task");
     let _ = stop_accepting.send(());
@@ -1105,6 +1130,17 @@ async fn run_proc_plan_probed(plan: ProcPlan, serve_probe: Option<usize>) {
         }
     }
     possible_losses += serve_errors.load(Ordering::Relaxed);
+    // Liveness floor for the sharp party check below: a fault-free plan
+    // is loss-free, so every serving session ended clean within the
+    // grace. Without this, a grace expiring on a loaded machine would
+    // silently downgrade clean plans to the relaxed check.
+    if plan.is_fault_free() {
+        assert_eq!(
+            possible_losses, 0,
+            "a fault-free plan is loss-free: every serving session must end \
+             clean within SERVE_GRACE"
+        );
+    }
     let mut survivors = Vec::new();
     for cast in casts {
         survivors.push(
