@@ -261,6 +261,18 @@ lanes have closed.
   runs at merge (no libFuzzer port on the box). Commits unsigned (the
   signing outage); the merge rebase re-signs. Packet:
   `.agent-notes/2026-09-01-holistic-review-before/triage/reviews/p1-fuzz.md`.
+- before `p1-board`: branch `before/p1-board`, packet head `cc0e365d`,
+  last code commit `67a454cf`, base `2fe750ac` (main). No root files (the
+  justfile and CI half of board-ops-render-19 is handed to the justfile
+  owner, named in the packet). Independent of the gate lane's stack;
+  merges after the three P2 packets (the meter suite's cells rebase
+  cleanly either way). Two stops for Finch inside (ruling 11's residual
+  fit, which does not work as ruled, with the affine model recommended;
+  the shard tag `PROTOCOL` v5 to v6, confirmed the right mechanism by
+  review). Six review rounds; the coordinator's gate of record at the
+  code tip is clean but for the fuzz port. Commits unsigned (the signing
+  outage); the merge rebase re-signs. Packet:
+  `.agent-notes/2026-09-01-holistic-review-before/triage/reviews/p1-board.md`.
 
 
 ## Announcements

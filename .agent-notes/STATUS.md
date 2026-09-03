@@ -2,7 +2,7 @@
 
 # Triage landing status
 
-Updated: 2026-09-03 14:51 UTC by the rumors session.
+Updated: 2026-09-04 02:40 UTC by the before session.
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
 
@@ -41,7 +41,7 @@ Lanes run in the order `triage/briefs/README.md` gives; every lane builds and ga
 | p2-surface | packet ready | `cad0b75d` (44 code commits; one stop inside: the fuelscape.js caption) |
 | p1-fuzz | packet ready | `0df4aa4b` (code `1b6df6fd`, child of p8-tagwalk; three fresh-eyes rounds; coordinator acceptance green at the tip on both machines; twelve sentry seeds); six stops inside; merges after p1-gate and p8-tagwalk, before the rumors p1-collision-mode |
 | p1-survivors | packet ready | `f9ec31d7` (child of p1-gate; rulings 18, 50, 88) |
-| p1-board | in review | `00948f7b` (37 commits on main): coordinator acceptance at the tip green but for the span_dominance worst-case pin drift (a stop, deliberately not re-pinned); fresh-eyes round 3 running; packet after; stops: ruling 11's residual fit, the dominance re-pin, the shard tag bump v5 to v6 |
+| p1-board | packet ready | `cc0e365d` (code `67a454cf`, 60 commits on main; six review rounds; the board 2096 green / 0 red at both scales and the worst-case pin clean at the tip; coordinator's gate clean but for the fuzz port); two stops inside (ruling 11's fit; the shard tag bump). The before session is PAUSED at Finch's word until the packets are reviewed interactively |
 | p1-suites | not started | after p1-board |
 | p2-rows | not started | after p1-suites; carries two handoffs from the harness review |
 | p2-cures | not started | after p2-rows and p2-widths |
