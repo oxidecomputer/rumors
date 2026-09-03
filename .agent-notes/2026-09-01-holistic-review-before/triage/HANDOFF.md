@@ -53,6 +53,7 @@ that matters lives only in a transcript.
 - This journal, `STATUS.md`, `agents.tsv`, and the queue are updated
   before the next action at every event.
 - Every `just gate` on the box runs under a shared mutex directory (`mkdir ~/gate.lock` in a retry loop, a lock older than 45 minutes removed as a dead gate's, `rmdir` on exit, all in one remote command), agreed with the rumors session after three gates launched into one second and drove the load to 460; targeted runs and builds stay outside it. The rumors session writes it into queue rule 6.
+- Shared note files (`merge-queue.md`, `STATUS.md`) are edited and committed under a mutex directory `.agent-notes/.editlock` (`mkdir` in a retry loop, a lock older than five minutes removed, `rmdir` on exit, all in one command with the clean check inside), agreed with the rumors session after a clean-check race carried its hunk in a before commit; on macOS the lock's age is `stat -f %m`.
 - The 1Password signing agent hangs rather than refuses tonight (a
   `git commit -S` blocks until the command timeout), so every note commit
   for the rest of the night is made with `--no-gpg-sign` under a
@@ -106,7 +107,7 @@ Worktrees under `/Users/oxide/src/before-<lane>`, branches `before/<lane>`, all 
 3. **`p1-gate`** (tip `0335b7fd`, 21 commits on the merged rumors gate lane, rulings 16, 18, 24, 25, 28, 50, 106, 107, 112, 114): the agent was mid-task when the session paused, on ruling 114: bisecting the fuzzfit lock's sweep to confirm `bytes` alone moved the guest's fuel, converging every swept crate upward (root `Cargo.lock` brought to the newest version any lock resolved: bytes 1.12.1 and the rest), explaining the mechanism Finch asked for ("what would have changed it?"), then its gate. Its first review round's repairs are landed. Next: read its report; run a second fresh-eyes round; the coordinator's gate at its tip; the packet. Detached scratch worktrees of its own sit under `<scratchpad>/p1-gate/` (`before-p1-gate-presweep`, `before-p1-gate-calib`, `before-p1-gate-precodec`, `bisect`): remove each with `git worktree remove` (or `git worktree prune` after deleting the directories) and delete their `~/src/` and `~/build/` twins on the box. Its last instruction (sent as the session paused) was to finish the upward convergence, the four verification legs, and the one gate, then report; the generators lane's band finding is to be read into its mechanism paragraph. If its report did not land, resume it with that message's content.
 4. **`p2-generators`** (tip `41eb5857`, 11 commits, rulings 111, 113): complete; the four spellings return nothing; the whole before crate runs at 4000 cases under zero reject budgets with no failure; packet built over the widening and listed in the queue (packet head `e84a74a3`, rendered at the coordinator scratchpad's `p2-generators.html`). Its runs surfaced the `ff_party_decode` band finding (in `new-findings.md`, routed to `p1-fuzz`), which reframes the gate lane's fuel stop: the band is too tight for the family, and the bytes downgrade only exposed it at the default count.
 
-## Live state of the overnight run (rewritten at every event; last 2026-09-03 05:32 UTC)
+## Live state of the overnight run (rewritten at every event; last 2026-09-03 05:35 UTC)
 
 | Lane | Branch tip | Agent state | Awaiting | Next |
 |---|---|---|---|---|
