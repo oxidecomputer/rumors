@@ -108,3 +108,13 @@ Each entry: where it came from, what it is, which lane's brief carries it
   `sign_fold_skips_certified_runs` (6) already reflects. Route:
   `p6-suanpan` (the doc restated from the code; the wholesale exact-pin
   conversion under ruling 88 lands beside it).
+- **The justfile's fuzzfit comment says "48 fuzzed programs"** while
+  `enforce.rs` runs proptest's default count raised by `PROPTEST_CASES`
+  and nothing in the fuzzfit workspace sets 48: a hand-maintained count
+  in a root file. Route: the next justfile owner (the gate lane's
+  follow-up commit or `p1-gate`'s successor); state the mechanism, not
+  the tally.
+- **The fuzz smoke recipe hardcodes the five targets** while
+  `fuzz-replay` now derives them from `cargo fuzz list`, so a sixth
+  target replays at gate cadence but is never smoked. Route: the same
+  justfile owner (drive the smoke loop from the same list).
