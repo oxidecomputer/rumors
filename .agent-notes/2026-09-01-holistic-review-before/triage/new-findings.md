@@ -42,3 +42,22 @@ Each entry: where it came from, what it is, which lane's brief carries it
 - **The `fuzzfit` recipe comment says "48 fuzzed programs"**, stale
   under ruling 109. From the proptest-cases lane. Route: `p1-gate`
   (the justfile's owner this wave).
+- **The `ff_party_decode` fuel band is too tight for deep fork chains
+  with tick runs.** At 4000 cases with zero reject budgets, the fuzzfit
+  sentry breaches that band on main's own tree (bytes 1.12.1): 136 and
+  144 bits at about 1.9x the pinned law, on programs the 48-case
+  calibration never drew. The gate lane's `bytes` downgrade (ruling 114
+  reverses it) only shifted the constant so the default count and the
+  committed seed hit the same wall. The shrunk seeds are saved at the
+  generators lane's scratchpad (`fuzzfit-enforce-seed-at-base.txt`,
+  `fuzzfit-enforce-seed-after.txt`, seven `cc` lines) and not committed,
+  since committing them reads `just fuzzfit` red until the band is
+  refit. Route: `p1-fuzz` (ruling 14's calibration: the family joins the
+  vocabulary, the law is refit, the seeds land with the refit in one
+  series). The gate lane's mechanism report on `bytes` is still owed and
+  is read against this.
+- **Two `before` proptests exceed nextest's 180 s limit at 4000 cases**
+  (`version_triple_laws`, `ranked_composite_bit_flip_rejects_or_decodes_canonically`);
+  not rejections. Route: `p1-suites` (a per-case cost question: the
+  suite's cost per draw, or the CI job's case count for those two, is
+  the lane's to weigh and report).

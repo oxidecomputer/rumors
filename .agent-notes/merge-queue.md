@@ -136,6 +136,12 @@ lanes have closed.
   `fuelscape.js` caption). Packet:
   `.agent-notes/2026-09-01-holistic-review-before/triage/reviews/p2-surface.md`.
 
+- before `p2-generators`: branch `before/p2-generators`, packet head `e84a74a3`,
+  last code commit `3cb24804`, base `main`. No root files. Test files
+  only; merges in any order among the before packets (the rumors
+  caselint roots widen after it). Packet:
+  `.agent-notes/2026-09-01-holistic-review-before/triage/reviews/p2-generators.md`.
+
 ## Announcements
 
 - before: `before/p1-gate` now also touches the root `Cargo.lock` (`bytes`
