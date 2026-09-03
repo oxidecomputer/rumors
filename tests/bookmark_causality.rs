@@ -46,23 +46,31 @@
 //! # Determinism
 //!
 //! Unlike `disruption.rs`, this simulation runs on a *current-thread* runtime
-//! with a fully deterministic, plan-driven schedule (each session is its own
-//! `block_on`). The bug class is about the *ordering* of
-//! emit/gossip/crash/retire/persist-fail events and the persistence-fault
-//! sequence, not watch-channel thread races; determinism makes counterexamples
-//! replay byte-for-byte, makes shrinking sound, and makes capturing each
-//! message's emitted version race-free. Message ids and emission sequence
-//! numbers are assigned by the [`World`], so replay does not depend on any
-//! process-global counter shared with other proptest cases.
+//! with a plan-driven schedule (each session is its own `block_on`). The bug
+//! class is about the *ordering* of emit/gossip/crash/retire/persist-fail
+//! events and the persistence-fault sequence, not watch-channel thread
+//! races. Every input the plan does not carry is fixed by the [`World`]:
+//! message ids and emission sequence numbers come from a per-world counter,
+//! and every universe's [`Network`] identifier (the tie-break that decides
+//! which of two fresh peers re-bootstraps into the other) comes from a
+//! per-world RNG seeded with [`NETWORK_SEED`], never from the OS. The
+//! schedule is therefore deterministic up to tokio's `select!` branch order
+//! inside the session internals, whose thread-local RNG is seeded per
+//! process: that order decides which of two ready streams a session polls
+//! first, so a wire cut at a fixed byte offset can land on a different
+//! frame across runs. Everything else replays byte-for-byte, shrinking is
+//! sound, and capturing each message's emitted version is race-free.
 
 mod common;
 
 use std::cmp::Ordering;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 
 use before::Party;
 use proptest::prelude::*;
+use rand::SeedableRng;
+use rand::rngs::SmallRng;
 use rumors::{Error, MERKLE_HASH_LEN, Network, Peer, Retire, Rumors, Version};
 
 use crate::common::fault::{self, FaultPlan};
@@ -74,6 +82,13 @@ use crate::common::wire::tokio_block_on as block_on;
 /// emission sequence number, so a single per-[`World`] counter assigns both at
 /// once.
 type Msg = u64;
+
+/// The seed of every [`World`]'s network RNG.
+///
+/// Each universe the simulation creates draws its [`Network`] identifier
+/// from this stream, so the `(min_ticks, network)` tie-break between fresh
+/// peers is the same on every run and every replay of a plan.
+const NETWORK_SEED: u64 = 0;
 
 /// Capacity for every in-memory link stream; the mirror protocol alternates
 /// within a session, so a modest buffer suffices and exercises backpressure.
@@ -266,42 +281,96 @@ impl Node {
     }
 }
 
-/// The whole simulated world: the fleet and the shared emission log.
+/// The whole simulated world: the fleet, the shared emission log, and the
+/// per-world sources of every input the plan does not carry.
 struct World {
     nodes: Vec<Node>,
     emissions: EmissionLog,
     next_seq: u64,
+    /// The source of every universe's [`Network`] identifier, seeded with
+    /// [`NETWORK_SEED`] so the tie-break between fresh peers replays.
+    rng: SmallRng,
+    /// Every network this world has seeded, to assert they are pairwise
+    /// distinct: two universes sharing an identifier would gossip as one
+    /// network while holding incomparable histories.
+    networks: BTreeSet<Network>,
+    /// The path this world took through every place a network identifier
+    /// decides the outcome, which a reconstructed counterexample pins.
+    path: Vec<PathEvent>,
+}
+
+/// One step of the path a plan takes through the places where a universe's
+/// identifier decides what happens: the seeded RNG's choice is asserted by
+/// the reconstructed counterexamples, never assumed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum PathEvent {
+    /// A cross-network session resolved: `loser` re-bootstraps into `winner`.
+    Mismatch { winner: usize, loser: usize },
+    /// `newcomer` bootstrapped from `server`, or stayed dormant on failure.
+    Bootstrap {
+        newcomer: usize,
+        server: usize,
+        booted: bool,
+    },
+    /// `who` seeded a fresh universe: no live member of its network remained.
+    Reseeded(usize),
 }
 
 impl World {
-    /// Build `n` nodes, each its own freshly-seeded universe.
-    fn seed(n: usize, read_faults: Vec<Vec<bool>>, write_faults: Vec<Vec<bool>>) -> Self {
-        let nodes = (0..n)
-            .map(|label| {
-                let store = Arc::new(Mutex::new(None));
-                let faults = Arc::new(Mutex::new(FaultFeed::new(
-                    read_faults[label].clone(),
-                    write_faults[label].clone(),
-                )));
-                let bookmark = FlakyInMemoryBookmark::new(store.clone(), faults.clone(), label);
-                let peer = block_on(Peer::<Msg>::seed().sync_window_floor().bookmark(bookmark))
-                    .expect("a pristine seed attaches its bookmark without touching storage");
-                let network = peer.network();
-                Node {
-                    state: NodeState::Live(Box::new(peer.into_rumors())),
-                    store,
-                    faults,
-                    network,
-                    pending: Vec::new(),
-                    label,
-                }
-            })
-            .collect();
+    /// A world with no nodes yet and fresh per-world sources.
+    fn empty() -> Self {
         World {
-            nodes,
+            nodes: Vec::new(),
             emissions: EmissionLog::default(),
             next_seq: 0,
+            rng: SmallRng::seed_from_u64(NETWORK_SEED),
+            networks: BTreeSet::new(),
+            path: Vec::new(),
         }
+    }
+
+    /// Seed a fresh universe for `bookmark`'s node, drawing its network from
+    /// the world's RNG and asserting the identifier is new to this world.
+    fn seed_universe(
+        &mut self,
+        bookmark: FlakyInMemoryBookmark,
+    ) -> Peer<Msg, FlakyInMemoryBookmark> {
+        let peer = block_on(
+            Peer::<Msg>::seed_rng(&mut self.rng)
+                .sync_window_floor()
+                .bookmark(bookmark),
+        )
+        .expect("a pristine seed attaches its bookmark without touching storage");
+        assert!(
+            self.networks.insert(peer.network()),
+            "the network RNG handed out {:?} twice: two universes would share an identifier",
+            peer.network(),
+        );
+        peer
+    }
+
+    /// Build `n` nodes, each its own freshly-seeded universe.
+    fn seed(n: usize, read_faults: Vec<Vec<bool>>, write_faults: Vec<Vec<bool>>) -> Self {
+        let mut world = World::empty();
+        for label in 0..n {
+            let store = Arc::new(Mutex::new(None));
+            let faults = Arc::new(Mutex::new(FaultFeed::new(
+                read_faults[label].clone(),
+                write_faults[label].clone(),
+            )));
+            let bookmark = FlakyInMemoryBookmark::new(store.clone(), faults.clone(), label);
+            let peer = world.seed_universe(bookmark);
+            let network = peer.network();
+            world.nodes.push(Node {
+                state: NodeState::Live(Box::new(peer.into_rumors())),
+                store,
+                faults,
+                network,
+                pending: Vec::new(),
+                label,
+            });
+        }
+        world
     }
 
     /// Build `n` nodes that all share *one* network: node 0 seeds it, and nodes
@@ -322,23 +391,23 @@ impl World {
         assert!(n >= 1, "a fleet needs at least one node");
         let reliable = || Arc::new(Mutex::new(FaultFeed::new(Vec::new(), Vec::new())));
 
+        let mut world = World::empty();
         let store = Arc::new(Mutex::new(None));
         let faults = reliable();
         let bookmark = FlakyInMemoryBookmark::new(store.clone(), faults.clone(), 0);
-        let peer = block_on(Peer::<Msg>::seed().sync_window_floor().bookmark(bookmark))
-            .expect("a pristine seed attaches its bookmark without touching storage");
+        let peer = world.seed_universe(bookmark);
         let network = peer.network();
-        let mut nodes = vec![Node {
+        world.nodes.push(Node {
             state: NodeState::Live(Box::new(peer.into_rumors())),
             store,
             faults,
             network,
             pending: Vec::new(),
             label: 0,
-        }];
+        });
         // The rest start dormant in node 0's network; the bootstraps below make
         // them live forks of its identity.
-        nodes.extend((1..n).map(|label| Node {
+        world.nodes.extend((1..n).map(|label| Node {
             state: NodeState::Dormant,
             store: Arc::new(Mutex::new(None)),
             faults: reliable(),
@@ -347,11 +416,6 @@ impl World {
             label,
         }));
 
-        let mut world = World {
-            nodes,
-            emissions: EmissionLog::default(),
-            next_seq: 0,
-        };
         for who in 1..n {
             assert!(
                 world.bootstrap_into(who, 0),
@@ -543,6 +607,7 @@ impl World {
             return;
         };
         let (winner, loser) = if ta >= tb { (a, b) } else { (b, a) };
+        self.path.push(PathEvent::Mismatch { winner, loser });
         self.bootstrap_into(loser, winner);
     }
 
@@ -601,6 +666,11 @@ impl World {
             boot_out.expect("bootstrap task")
         });
 
+        self.path.push(PathEvent::Bootstrap {
+            newcomer: who,
+            server,
+            booted: booted.is_some(),
+        });
         match booted {
             Some(peer) => {
                 self.nodes[who].network = peer.network();
@@ -635,9 +705,9 @@ impl World {
         // a harmless leak, never a corruption. The old incarnation's memory
         // vanishes, so secure what was persisted and lose the rest.
         self.secure_and_lose(who);
+        self.path.push(PathEvent::Reseeded(who));
         let bookmark = self.nodes[who].bookmark();
-        let peer = block_on(Peer::<Msg>::seed().sync_window_floor().bookmark(bookmark))
-            .expect("a pristine seed attaches its bookmark without touching storage");
+        let peer = self.seed_universe(bookmark);
         self.nodes[who].network = peer.network();
         self.nodes[who].state = NodeState::Live(Box::new(peer.into_rumors()));
     }
@@ -1102,7 +1172,7 @@ fn retire_into_rebooted_absorber_absorbs_cleanly() {
     block_on(async move {
         // A seeds, B bootstraps from A. Then each reboots once, reclaiming its
         // region from its bookmark (drop = crash; re-bootstrap = revive).
-        let a = Peer::<Msg>::seed()
+        let a = Peer::<Msg>::seed_rng(&mut SmallRng::seed_from_u64(NETWORK_SEED))
             .sync_window_floor()
             .bookmark(bm_a())
             .await
@@ -1222,7 +1292,9 @@ fn run_reliable_plan(plan: Plan) -> World {
 #[should_panic(expected = "recycled version identifier")]
 fn negative_control_recycled_durable_emission_panics() {
     let log = EmissionLog::default();
-    let network = Peer::<Msg>::seed().sync_window_floor().network();
+    let network = Peer::<Msg>::seed_rng(&mut SmallRng::seed_from_u64(NETWORK_SEED))
+        .sync_window_floor()
+        .network();
     let mut version = Version::new();
     version.tick(&Party::seed());
 
@@ -1270,7 +1342,10 @@ proptest! {
 /// crashed-and-rebooted peer retires into the sender.
 ///
 /// The bookmark must not recycle a version across the crash/retire
-/// pair, and the heal must still converge.
+/// pair, and the heal must still converge. The path is pinned: each crash
+/// re-seeds its node (neither has a live member to reboot from), the
+/// cross-network retire is skipped, and the heal collapses node 1 into
+/// node 0, whose one send outranks a fresh universe.
 #[test]
 fn reconstructed_crash_pair_then_retire() {
     let world = run_plan(Plan {
@@ -1284,6 +1359,19 @@ fn reconstructed_crash_pair_then_retire() {
         read_faults: vec![vec![], vec![]],
         write_faults: vec![vec![], vec![]],
     });
+    assert_eq!(
+        world.path,
+        vec![
+            PathEvent::Reseeded(0),
+            PathEvent::Reseeded(1),
+            PathEvent::Bootstrap {
+                newcomer: 1,
+                server: 0,
+                booted: true,
+            },
+        ],
+        "the plan's path through revival and heal",
+    );
     world.assert_healed();
 }
 
@@ -1291,7 +1379,13 @@ fn reconstructed_crash_pair_then_retire() {
 /// mid-frame, then a retirement, under bookmark read/write fail
 /// schedules on every node.
 ///
-/// Versions must survive the faulted persistence without recycling.
+/// Versions must survive the faulted persistence without recycling. The
+/// path is pinned: the cut session still exchanges greetings, so the
+/// mismatch between the two fresh peers resolves by network identifier
+/// with node 2 the winner; node 1's re-bootstrap into it fails on the
+/// scheduled bookmark faults, so the retire finds node 1 dormant and
+/// re-seeds it; the heal then collapses both into node 0, whose send
+/// outranks every fresh universe.
 #[test]
 fn reconstructed_cut_gossip_then_retire_under_bookmark_faults() {
     let world = run_plan(Plan {
@@ -1325,6 +1419,32 @@ fn reconstructed_cut_gossip_then_retire_under_bookmark_faults() {
             vec![false, false, false, false, true, false],
         ],
     });
+    assert_eq!(
+        world.path,
+        vec![
+            PathEvent::Mismatch {
+                winner: 2,
+                loser: 1
+            },
+            PathEvent::Bootstrap {
+                newcomer: 1,
+                server: 2,
+                booted: false,
+            },
+            PathEvent::Reseeded(1),
+            PathEvent::Bootstrap {
+                newcomer: 1,
+                server: 0,
+                booted: true,
+            },
+            PathEvent::Bootstrap {
+                newcomer: 2,
+                server: 0,
+                booted: true,
+            },
+        ],
+        "the plan's path through mismatch resolution, revival, and heal",
+    );
     world.assert_healed();
 }
 
