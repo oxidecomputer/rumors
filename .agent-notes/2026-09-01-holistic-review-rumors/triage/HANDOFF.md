@@ -77,8 +77,14 @@ the fast-forward (WORKFLOW.md's merge step).
    runner. The CI count is ruled (T164 item 3): 256 until `p1-generators`
    merges, then 4000 as a one-line follow-up.
 6. **p1-generators** (`/Users/oxide/src/rumors-p1-generators`, stacked
-   on `a34859ed`): T161; running at handoff (agent
-   `a15e73d787b3d0171`, scratchpad `p1-generators/`).
+   on `a34859ed`): T161; landed at `9903be30` (six commits, unsigned;
+   agent `a15e73d787b3d0171`, scratchpad `p1-generators/`); verification
+   (runner `afb3290efc3f7875e`, `coordinator/verify-generators/`) and
+   fresh-eyes round 1 (`a7cabd3f0b98e19ef`) running; packet meta drafted.
+   Merge order: its last commit (the zero budgets, `9903be30`) waits for
+   `before/p2-generators`; the five sweep commits do not. Stops in the
+   meta (fail-fast; the widened `partition.rs` population; the asserted
+   chunk premise).
 8. **p1-envelope** (`/Users/oxide/src/rumors-p1-envelope`, from main
    `0fad870c`): landed at `147993bd` (T10's exact-Chernoff differential
    tests, T43's deletion, T17's derivation tests; unsigned); verified in
