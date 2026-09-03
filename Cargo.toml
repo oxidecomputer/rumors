@@ -120,7 +120,7 @@ meter = ["before/limb-meter", "before/scan-meter"]
 
 [dependencies]
 before = { workspace = true, features = ["serde"] }
-bytes = { workspace = true, features = ["serde"] }
+bytes = { workspace = true }
 sha3 = { workspace = true }
 itertools = { workspace = true }
 serde = { workspace = true, default-features = true, features = ["derive"] }
@@ -146,6 +146,8 @@ before = { workspace = true, features = ["serde", "meter"] }
 proptest = { workspace = true }
 criterion = { workspace = true, features = ["html_reports"] }
 insta = { workspace = true }
+# The suites use `Bytes` as a payload type, which must serialize.
+bytes = { workspace = true, features = ["serde"] }
 tokio = { workspace = true, features = [
     "rt",
     "rt-multi-thread",
