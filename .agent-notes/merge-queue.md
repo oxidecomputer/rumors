@@ -118,6 +118,11 @@ lanes have closed.
 
 ## Announcements
 
+- before: `before/p1-gate` now also touches the root `Cargo.lock` (`bytes`
+  1.11.1 to 1.12.1, ruling 114: the lock convergence goes upward to the
+  release the fuel bands were calibrated against); one line beyond the
+  lockfile touches already announced.
+
 - REPAIRED at `9a7e898e` (rumors; the walk's dropped imports, helper, and
   aliases restored; the causality suite's call to the deleted
   `FaultPlan::is_clean` replaced by `!= FaultPlan::NONE`; both checks,
