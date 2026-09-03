@@ -97,7 +97,7 @@ lanes have closed.
   dev-dependency), `Cargo.lock`.
 
 - before `p1-proptest-cases`: branch `before/p1-proptest-cases`, packet
-  head `97591f5a`, last code commit `82250f59`, base `main`. No root files.
+  head `779c59e0`, last code commit `82250f59`, base `main`. No root files.
   Packet: `.agent-notes/2026-09-01-holistic-review-before/triage/reviews/p1-proptest-cases.md`.
 
 ## Announcements
