@@ -186,6 +186,14 @@ not converged by then is a finding about the lane, reported to Finch.
   survive. Never a squash. A lane commit that lacks a signature or
   carries a stray identity is amended in the same rebase
   (`--exec 'git commit --amend --no-edit --reset-author -S'`).
+- The rebased tip is compiled before `main` moves: `cargo check --locked
+  --workspace --all-targets` at default features and again with
+  `--all-features`, on the box, unbound. A textual rebase cannot see a
+  semantic conflict (a helper another lane deleted, an import another
+  lane's rewrite of the same `use` block dropped), and the lane's gate
+  ran on the tree before the rebase. When the rebase touched a file
+  another merged lane changed, the lane's acceptance suite runs on the
+  rebased tip too, before the fast-forward.
 - After the merge: the coordinator writes each entry's `sha` into the
   ledger (the sha on `main`), runs `ledger.py check`, commits the ledger,
   rebases every child of the merged branch (see "Stacks"), and retires
@@ -284,13 +292,17 @@ worktree to `~/src/<worktree basename>` on the box and runs one command
 there with its own target directory, so lanes do not collide; cargo
 runs `--locked` there; nothing is edited or committed on the box. A
 clean gate on the box is the gate of record for a commit; the Mac runs
-no gate (Finch's ruling). The box gate is `on-illumos.sh <worktree> 'pset-run -n 40 -- just gate'`:
-an exclusive processor set of 40 threads, at most two at once per
-session (agreed with the `before` session in `.agent-notes/merge-queue.md`,
-rule 6), so no other build can starve a gate's tests into nextest's
-180 s limit; a leg that still fails only by that limit inside a pset is
-a finding about the test, not load. Non-gate builds and targeted test
-runs stay unbound in the general pool. One leg is
+no gate (Finch's ruling). Every build, test run, and gate runs in the
+general pool with the lane's parallelism bounded in the remote command,
+`CARGO_BUILD_JOBS=32 NEXTEST_TEST_THREADS=32 just gate`, so a few lanes
+cannot oversubscribe the box (`.agent-notes/merge-queue.md`, rule 6);
+no exclusive processor set for a gate or a build, because a set holds
+cores a gate leaves idle through its serial phases. `pset-run` is for
+wall-time measurements only, one at a time, announced in the queue
+first. A leg that fails only by nextest's 180 s per-test limit at a
+one-minute load under about 150 is a finding about the test, reported
+as such; above that load the stream is re-run once the load is down.
+One leg is
 expected red there and counts as clean when it is the only failure:
 `fuzz`, because libFuzzer has no illumos port (`FuzzerPlatform.h`
 refuses the target); a lane quotes that line and runs no fuzz build
@@ -302,10 +314,7 @@ either rebases or passes `RUSTFLAGS="-A clippy::missing_const_for_thread_local"`
 in the remote command for that one run. `just ci` cannot complete on
 the box (no `node`, no `wasm-pack`; it stops at `fuelscape-claims`), so
 `ci` is GitHub's to run and a lane that must exercise a recipe `ci`
-reaches and the gate does not runs that recipe alone on the box. A gate leg that failed only by nextest's 180 s per-test
-limit before psets were in use (`bounded_corpus_manifest_snapshot` runs
-in 2 s quiet and past 170 s at a load near 200) is rerun alone inside a
-pset, and the rerun's verdict joins the gate's. Two legs that
+reaches and the gate does not runs that recipe alone on the box. Two legs that
 pin toolchain-derived numbers may fire on the box if its toolchains
 differ from the pinned ones; a lane reports such a leg with both numbers
 rather than re-pinning anything. `tools/memwatch` is deleted by the
@@ -320,9 +329,7 @@ artifact to trust) or waits, and says which. Stepping the box's clock is
 admin work on a shared machine and is Finch's, never a lane's. The
 builder cap counts Mac builders only; on the box (96 cores, 1 TiB) there
 is no lane cap, only the load: hold a launch while the one-minute load
-average sits above about 150 on 192 threads, and keep wall-time
-measurements under `pset-run` to one at a time, announced in the merge
-queue first.
+average sits above about 150 on 192 threads.
 
 ## Effort and orchestration
 

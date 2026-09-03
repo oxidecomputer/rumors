@@ -114,14 +114,16 @@ lanes have closed.
 
 ## Ready for Finch, in merge order
 
-- rumors `p1-gate`: branch `triage/p1-gate`, packet head `5cd25b55`, last
-  code commit `b06000df`, base `d631cda6` (main). Root files: justfile,
-  `.github/workflows/ci.yml`, `Cargo.toml` (`bytes` dev-dependency),
-  `Cargo.lock`, `tools/testdoc`. `before/p1-gate` stacks on this.
+(none)
 
 ## Announcements
 
-- OPEN on `main` (found 2026-09-03 by the before session, relayed to the
+- REPAIRED at `9a7e898e` (rumors; the walk's dropped imports, helper, and
+  aliases restored; the causality suite's call to the deleted
+  `FaultPlan::is_clean` replaced by `!= FaultPlan::NONE`; both checks,
+  clippy, and the affected suites green on the box). Both merge steps now
+  compile the rebased tip before any fast-forward. The original report:
+  OPEN on `main` (found 2026-09-03 by the before session, relayed to the
   rumors session as it handed off; absent from its HANDOFF.md): merged
   `main` fails `cargo check --locked --workspace --all-targets` (the
   `just check` recipe, default features) in

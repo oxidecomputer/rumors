@@ -83,28 +83,13 @@ The `before` triage's coordinator is reachable at
 (sha and root files) and on any ruling touching a shared instrument.
 Its `before/p1-gate` stacks on the merged rumors gate.
 
-## Defect on main, unrepaired at handoff (report first; Finch said no repair before compaction)
+## Defect on main: repaired
 
-`cargo check --locked --workspace --all-targets` (default features, the
-`just check` recipe) fails on main at
-`src/tree/mirror/streaming/remote/proxy/tests.rs`: `LeftFailure`,
-`RightFailure` (line 251), `PayloadCodec`, `PayloadDepthLimit` (265,
-271) are used without imports. Found by the `before` coordinator on a
-tree rebased onto main; confirmed by reading main: the walk lane's tip
-`eb97720b` had `use crate::message::{PayloadCodec, PayloadDepthLimit};`
-at line 3 of that file, and the merged file does not, so the walk's
-rebase over the harness-crate rewrite (which replaced the file's `use`
-block) dropped the walk's imports while keeping its code. The gate's
-all-features legs passed on the merged tree because those names arrive
-under a feature there. Repair: restore the two `use` lines the walk
-tip carried (and the failure-type imports the harness-crate tip used
-for `LeftFailure`/`RightFailure`, from its `harness` module), run `just
-check` on the box, then the proxy suite under a pset, commit as a
-merge-integration fix naming both lanes. Then add `cargo check
---workspace --all-targets` at default features to the gate's lint tier
-if it is not there, so a default-feature import loss fails the gate
-(`just check` is not a gate leg today). Record it in
-`new-findings.md` with T-number when ruled.
+The default-features check failure this handoff recorded was repaired
+at `9a7e898e` (wider than recorded: `new-findings.md` has the full row);
+`WORKFLOW.md`'s merge step now compiles the rebased tip before any
+fast-forward. Current state of every lane lives in
+`.agent-notes/STATUS.md`, which supersedes the lane lists above.
 
 ## Open items for Finch
 
