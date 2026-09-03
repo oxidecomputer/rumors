@@ -690,14 +690,12 @@ async fn a_dropped_driver_does_not_block_peer_reclaim() {
 /// Upper bound on the byte offset at which a severed connection's cut
 /// can land.
 ///
-/// Derived from measurement, not transcribed: the severed-connection
-/// fixture (the [`pair`] with one send on each side, driven as
-/// [`severed_connections_fail_loudly_and_recover`] drives it) moves fewer
-/// bytes per endpoint than this bound on a clean run, and the bound stays
-/// within twice that measurement, so generated cuts reach every byte of
-/// the session and keep landing inside it. The two-sided pin is
-/// [`max_sever_cut_spans_the_fixture_session`]; re-measure there before
-/// touching this number.
+/// Derived from measurement: a clean run of the severed-connection
+/// fixture ([`run_severed`]) moves fewer bytes per endpoint than this
+/// bound, and the bound stays within twice that, so generated cuts reach
+/// every byte of the session and keep landing inside it. The two-sided
+/// pin is [`max_sever_cut_spans_the_fixture_session`]; re-measure there
+/// before touching this number.
 const MAX_SEVER_CUT: usize = 256;
 
 /// What one severed-connection run of the fixture leaves behind: each
@@ -775,7 +773,7 @@ async fn check_severed(run: &Severed) {
     // Certification: the epilogue's central promise, under a cut at
     // an arbitrary offset. A driver yields `Ok` only after reading
     // the peer's completion marker, which the peer writes only
-    // after its own commit — so any `Ok` on either side means both
+    // after its own commit -- so any `Ok` on either side means both
     // replicas already hold the session's full union, here, before
     // the recovery gossip has run.
     if a_items.iter().any(|i| i.is_ok()) || b_items.iter().any(|i| i.is_ok()) {
@@ -801,12 +799,11 @@ async fn check_severed(run: &Severed) {
 /// Byte extent of the severed-connection fixture on a clean run, per
 /// endpoint: `(a_written, b_written, b_read)`.
 ///
-/// The same pair, sends, drivers, and link capacity as
-/// [`run_severed`], metered with the counters the fault cuts spend, so
-/// the numbers are directly comparable to cut offsets. The in-memory
-/// link and the single-threaded driver make the run byte-identical
-/// across invocations, which is what lets [`a_lost_marker_certifies_one_side`]
-/// place a cut one byte short of a clean session.
+/// The same pair, sends, drivers, and link capacity as [`run_severed`],
+/// metered with the counters the fault cuts spend. The in-memory link and
+/// the single-threaded driver make the run byte-identical across
+/// invocations, which lets [`a_lost_marker_certifies_one_side`] place a
+/// cut one byte short of a clean session.
 async fn fixture_session_bytes() -> (usize, usize, usize) {
     let (a, b) = pair().await;
     a.send(1).unwrap();
@@ -864,21 +861,18 @@ fn max_sever_cut_spans_the_fixture_session() {
     );
 }
 
-/// The certification's asymmetric case: one driver `Ok`, the other
-/// `Err`, both replicas converged.
+/// The certification's asymmetric case: A `Ok`, B `Err`, both replicas
+/// converged.
 ///
 /// B's read budget is one byte short of a clean session (measured from a
-/// byte-identical metered run), so the one byte B never reads is A's
-/// completion marker: A, having read B's marker, yields `Ok`; B yields no
-/// `Ok` and fails with the post-commit [`Error::Epilogue`] residue, never
-/// a pre-commit class. The error class is what places the cut: a budget
-/// one byte larger lets B complete the session and fail only on its next
-/// control read, a different class after an `Ok`; a budget landing
-/// earlier fails pre-commit with missing content. The write-only cuts of
-/// the generated family cannot reach this case (a cut on either side's
-/// marker write fails that side, and its drop surfaces as EOF on the
-/// other), so this deterministic witness is what holds the certification
-/// assertions to the case they exist for.
+/// byte-identical metered run), so the byte B never reads is A's
+/// completion marker: A yields `Ok`; B yields no `Ok` and fails with the
+/// post-commit [`Error::Epilogue`] residue. The class places the cut: one
+/// byte more and B completes the session, failing only on its next
+/// control read after an `Ok`; any earlier and B fails pre-commit. A
+/// generated read cut reaches this case only by landing exactly here, so
+/// this deterministic witness holds the certification assertions to the
+/// case they exist for.
 #[test]
 fn a_lost_marker_certifies_one_side() {
     let (_, _, b_read) = block_on(fixture_session_bytes());
@@ -908,9 +902,9 @@ fn a_lost_marker_certifies_one_side() {
 }
 
 proptest! {
-    /// A connection severed at arbitrary byte offsets — both sides' write
+    /// A connection severed at arbitrary byte offsets -- both sides' write
     /// directions, any budget including zero, and either side's read
-    /// direction as well — fails loudly and recoverably.
+    /// direction as well -- fails loudly and recoverably.
     ///
     /// That is: no hang, each driver ends after at most one terminal
     /// `Err`, each replica still holds its own sends and nothing beyond

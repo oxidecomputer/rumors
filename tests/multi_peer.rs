@@ -203,17 +203,9 @@ proptest! {
     }
 }
 
-/// The redaction dimension is live in the generated schedule population.
-///
-/// Sampled under proptest's deterministic runner, `arb_schedule` emits
-/// schedules containing a `Redact` event (the generator's shadow emits
-/// one only against a message its peer has observed, so every emitted
-/// redaction is effectual when the executor runs it).
-///
-/// Without this pin a weight edit in the choice strategy, or a validity
-/// rule that drops every redaction choice, would leave every
-/// schedule-driven property here and in the partition and sanity suites
-/// green while testing insert-only convergence.
+/// Among 64 deterministic samples, `arb_schedule` emits a `Redact` event
+/// (always against a message its peer has observed, so every one is
+/// effectual), so the redaction dimension is live in the population.
 #[test]
 fn schedule_population_contains_redactions() {
     let mut runner = TestRunner::deterministic();

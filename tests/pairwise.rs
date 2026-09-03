@@ -239,16 +239,9 @@ proptest! {
     }
 }
 
-/// The redaction dimension is live in the generated action population.
-///
-/// Sampled under proptest's deterministic runner, `arb_local_actions`
-/// emits sequences in which a `Redact` follows at least one `Insert`,
-/// the only position where `build_local` applies it (a `Redact` before
-/// any insert is dropped at build time).
-///
-/// Without this pin a weight edit in the action strategy would leave
-/// every redaction-bearing property here and in the bootstrap, retire,
-/// and async-wire suites green while exercising insert-only merges.
+/// Among 64 deterministic samples, `arb_local_actions` emits a `Redact`
+/// that follows at least one `Insert` (the position where `build_local`
+/// applies it), so the redaction dimension is live in the population.
 #[test]
 fn action_population_contains_effectual_redactions() {
     let mut runner = TestRunner::deterministic();

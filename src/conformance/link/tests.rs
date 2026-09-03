@@ -65,13 +65,11 @@ const REORDER_BATCH: usize = 3;
 /// anonymous and arrival order is the transport's own, so the whole suite
 /// — the focused probes included — must stay live and convergent under it.
 ///
-/// The adversity is the crate's shared `ReorderingAcceptor`, which holds
-/// each arrival and genuinely waits (a bounded budget of yields) for
-/// company before releasing the batch newest-first. The final assertion
-/// proves it fired: at least one batch was genuinely released in inverted
-/// order somewhere across the suite, so a pass certifies tolerance of
-/// real reordering, not of a decorator that silently degenerated to
-/// pass-through.
+/// The adversity is the crate's `ReorderingAcceptor`, which holds each
+/// arrival and waits a bounded budget of yields for company before
+/// releasing the batch newest-first. The final assertion proves it fired
+/// somewhere across the suite, so a pass certifies tolerance of real
+/// reordering, not of a decorator degenerated to pass-through.
 #[test]
 fn reordered_accepts_conform() {
     let reordered = Arc::new(AtomicUsize::new(0));

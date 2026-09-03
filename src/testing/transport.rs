@@ -664,12 +664,11 @@ const REORDER_PATIENCE: u8 = 32;
 /// arrival under the deterministic scheduler and silently degenerates to
 /// pass-through — which is exactly what the asserted counter makes loud.
 /// The unit witness `reordering_acceptor_inverts_a_patient_batch` in this
-/// module's tests demonstrates the wait forming a batch of two from an
-/// arrival that lands only after the first has been held and yielded on.
+/// module's tests shows the wait forming a batch of two from an arrival
+/// that lands only after the first has been held.
 ///
-/// This is the crate's one reordering adversity: the link conformance
-/// suite decorates its memory ends with it too, so a conformance pass under
-/// reordering certifies this implementation.
+/// The link conformance suite decorates its memory ends with this
+/// acceptor too, so a conformance pass under reordering certifies it.
 pub struct ReorderingAcceptor<A: crate::link::Acceptor> {
     inner: A,
     held: VecDeque<(A::Rx, Done<A::Rx>)>,
@@ -727,9 +726,8 @@ impl<A: crate::link::Acceptor> crate::link::Acceptor for ReorderingAcceptor<A> {
 /// self-wake.
 ///
 /// Runtime-agnostic (the deterministic driver is no runtime at all), unlike
-/// `tokio::task::yield_now`. The `conformance` module carries its own copy:
-/// this crate-internal seam must not depend on the public `conformance`
-/// feature, while the conformance tests may depend on this one.
+/// `tokio::task::yield_now`. The `conformance` module keeps its own copy:
+/// this module must not depend on the public `conformance` feature.
 async fn yield_once() {
     let mut yielded = false;
     std::future::poll_fn(|cx| {
@@ -815,14 +813,12 @@ mod tests {
     use crate::link::{Acceptor, Connector, memory};
     use crate::testing::run_to_quiescence;
 
-    /// The patient wait forms a batch of two and releases it newest-first.
+    /// The patient wait forms a batch of two and releases it newest-first,
+    /// counting one inversion.
     ///
-    /// The second stream is connected only after the acceptor has taken
-    /// the first arrival and begun yielding for company, so the batch
-    /// exists because of the wait and not because both arrivals were
-    /// already queued: a drain of only-`Ready` arrivals would release the
-    /// first stream alone and count nothing. One batch of two is exactly
-    /// one recorded inversion.
+    /// The second stream is connected only after the acceptor has held the
+    /// first and begun yielding, so a drain of only-`Ready` arrivals would
+    /// release the first alone and count nothing.
     #[test]
     fn reordering_acceptor_inverts_a_patient_batch() {
         let reordered = Arc::new(AtomicUsize::new(0));
