@@ -14,7 +14,7 @@ use crate::tree::typed::{Hash, hash::MERKLE_HASH_LEN};
 
 use super::super::{
     error::{DecodeLeafError, Origin, QueryOrderError},
-    frame::{LeafRunError, MAX_QUERY_CHILDREN, RECORD_TAG_LEN},
+    frame::{LeafRunError, MAX_QUERY_CHILDREN, MIN_RECORD_HEADS_LEN, RECORD_TAG_LEN},
     signal::{DecodeSignalError, End, Flow, Speaker, Stream, StreamError},
 };
 
@@ -579,7 +579,8 @@ proptest! {
         let stream = stream(index);
         let children = vec![(previous, Hash::default()), (radix, Hash::default())];
         let encoded = query(stream, Flow::Continue, &children);
-        let error = decode_exact(speaker, RunBudget::default(), &encoded).unwrap_err();
+        let error = decode_both(speaker, RunBudget::default(), &encoded)
+            .expect_err("a non-ascending listing cannot decode");
         prop_assert_eq!(error.origin, Origin::stream(speaker, stream));
         let correct = matches!(
             error.kind,
@@ -589,6 +590,32 @@ proptest! {
             }) if actual_previous == previous && actual_radix == radix
         );
         prop_assert!(correct);
+    }
+
+    /// Every non-canonical spelling of a listing entry head is rejected by
+    /// both decoders, naming the head's defect and the query listing it
+    /// sits in.
+    #[test]
+    fn non_canonical_listing_heads_are_rejected(
+        index in 1_u8..Stream::MAX,
+        speaker in arb_speaker(),
+        (entry, detail) in arb_listing_head_defect(),
+    ) {
+        let stream = stream(index);
+        let mut encoded = frame_head(3, stream, Signal::Query(Flow::Continue));
+        cbor::write_head(&mut encoded, MAJOR_MAP, 1);
+        encoded.extend_from_slice(&entry);
+        let error = decode_both(speaker, RunBudget::default(), &encoded)
+            .expect_err("a listing with a non-canonical head cannot decode");
+        prop_assert_eq!(error.origin, Origin::stream(speaker, stream));
+        let named = matches!(
+            error.kind,
+            DecodeErrorKind::Malformed {
+                part: FramePart::QueryChildren,
+                detail: actual,
+            } if actual == detail
+        );
+        prop_assert!(named, "expected a {detail} defect, got {:?}", error.kind);
     }
 
     /// An arbitrary canonical query round-trips through the decoder.
@@ -612,16 +639,56 @@ proptest! {
     }
 }
 
-/// A query body whose listing map is empty is rejected: an empty query
-/// travels as its own signal, so the map spelling requires at least one
-/// child (the upper bound is pinned by
+/// One listing entry with a non-canonical head, and the defect both
+/// decoders must name.
+///
+/// The spellings: a widened key (a radix below 24 spelled with a one-byte
+/// argument), a widened value head (the digest's length spelled with a
+/// two-byte argument), an indefinite-length value head, or a reserved key
+/// head. Each entry carries a full digest behind the defect, so nothing
+/// but the head is wrong.
+fn arb_listing_head_defect() -> impl Strategy<Value = (Vec<u8>, &'static str)> {
+    let digest = [0u8; MERKLE_HASH_LEN];
+    let canonical_value = move |entry: &mut Vec<u8>| {
+        cbor::write_head(entry, MAJOR_BSTR, MERKLE_HASH_LEN as u64);
+        entry.extend_from_slice(&digest);
+    };
+    prop_oneof![
+        (0_u8..24).prop_map(move |radix| {
+            let mut entry = vec![0x18, radix];
+            canonical_value(&mut entry);
+            (entry, "head not in shortest form")
+        }),
+        (0_u8..24).prop_map(move |radix| {
+            let mut entry = vec![radix, 0x59, 0x00, MERKLE_HASH_LEN as u8];
+            entry.extend_from_slice(&digest);
+            (entry, "head not in shortest form")
+        }),
+        (0_u8..24).prop_map(move |radix| {
+            let mut entry = vec![radix, 0x5f];
+            entry.extend_from_slice(&digest);
+            (entry, "indefinite-length head")
+        }),
+        Just({
+            let mut entry = vec![0x1c];
+            canonical_value(&mut entry);
+            (entry, "reserved head")
+        }),
+    ]
+}
+
+/// A query body whose listing map is empty is rejected by both decoders.
+///
+/// An empty query travels as its own signal, so the map spelling requires
+/// at least one child (the upper bound is pinned by
 /// `oversized_query_listing_is_rejected`).
 #[test]
 fn empty_query_listing_is_rejected() {
     let stream = stream(5);
     let encoded = query(stream, Flow::Continue, &[]);
     for speaker in SPEAKERS {
-        let error = decode_exact(speaker, RunBudget::default(), &encoded).unwrap_err();
+        let error = decode_both(speaker, RunBudget::default(), &encoded)
+            .expect_err("an empty listing cannot decode");
         assert!(matches!(
             error.kind,
             DecodeErrorKind::Malformed {
@@ -1182,7 +1249,7 @@ fn overbatched_corners_classify_exactly() {
     let zero = RunBudget::from_bytes(0);
     for speaker in SPEAKERS {
         // Declared bodies too short for a record's heads, none delivered.
-        for declared in 0..RECORD_TAG_LEN + 1 {
+        for declared in 0..MIN_RECORD_HEADS_LEN {
             let encoded = supply_declaring(stream, Flow::End, declared, &[]);
             let error = decode_both(speaker, zero, &encoded)
                 .expect_err("a headless over-budget body cannot decode");

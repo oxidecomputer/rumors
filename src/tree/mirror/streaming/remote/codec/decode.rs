@@ -51,7 +51,13 @@ pub fn decode_exact(
     }
 }
 
-/// Frame reader that adds protocol context as soon as the signal reveals it.
+/// The synchronous oracle of the codec differential: a frame reader over
+/// `std::io::Read` that adds protocol context as soon as the signal
+/// reveals it.
+///
+/// It reads each body whole and one head at a time, the simplest shape
+/// the grammar admits, so the tests can hold the async reader's chunked
+/// reads to the same classification of every frame and every defect.
 #[cfg(test)]
 struct FrameDecoder<'a, R> {
     speaker: Speaker,
@@ -146,13 +152,10 @@ impl<'a, R: Read> FrameDecoder<'a, R> {
         // record's heads alone.
         if !self.budget.covers(len) {
             let budget = self.budget;
-            let overbatched = move || DecodeErrorKind::OverbatchedRun {
-                declared: super::budget::SUPPLY_FRAME_OVERHEAD.saturating_add(len),
-                budget: budget.bytes(),
-            };
+            let overbatched = move || budget.overbatched(len);
             // A body too short to hold a record's heads cannot be a lone
             // record: rejected on the declared length alone.
-            if len < super::frame::RECORD_TAG_LEN + 1 {
+            if len < super::frame::MIN_RECORD_HEADS_LEN {
                 return Err(overbatched());
             }
             let Some((prefix, record)) = self.record_prefix()? else {
@@ -204,13 +207,7 @@ impl<'a, R: Read> FrameDecoder<'a, R> {
     fn read_exact(&mut self, bytes: &mut [u8], part: FramePart) -> Result<(), DecodeErrorKind> {
         self.read
             .read_exact(bytes)
-            .map_err(|source| match source.kind() {
-                ErrorKind::UnexpectedEof => DecodeErrorKind::Truncated {
-                    missing: part,
-                    source,
-                },
-                _ => DecodeErrorKind::Read { part, source },
-            })
+            .map_err(|source| classify(part, source))
     }
 }
 
@@ -317,9 +314,9 @@ pub(super) fn run_head(tag: cbor::Head, body: cbor::Head) -> Result<usize, Decod
 pub(super) fn listing_issue(issue: ListingIssue) -> DecodeErrorKind {
     match issue {
         ListingIssue::Order(order) => DecodeErrorKind::QueryOutOfOrder(order),
-        ListingIssue::Head(_) => DecodeErrorKind::Malformed {
+        ListingIssue::Head(head) => DecodeErrorKind::Malformed {
             part: FramePart::QueryChildren,
-            detail: "listing head is not canonical",
+            detail: head_detail(head),
         },
         ListingIssue::Shape(detail) => DecodeErrorKind::Malformed {
             part: FramePart::QueryChildren,
@@ -335,17 +332,23 @@ pub(super) fn listing_issue(issue: ListingIssue) -> DecodeErrorKind {
 /// Type a head-read failure by the frame part it interrupted.
 pub(super) fn head_error(part: FramePart, error: HeadReadError) -> DecodeErrorKind {
     match error {
-        HeadReadError::Io(source) => match source.kind() {
-            std::io::ErrorKind::UnexpectedEof => DecodeErrorKind::Truncated {
-                missing: part,
-                source,
-            },
-            _ => DecodeErrorKind::Read { part, source },
-        },
+        HeadReadError::Io(source) => classify(part, source),
         HeadReadError::Malformed(head) => DecodeErrorKind::Malformed {
             part,
             detail: head_detail(head),
         },
+    }
+}
+
+/// Type an I/O failure by the frame part it interrupted: end-of-stream is
+/// a contextual truncation, anything else a plain read failure.
+pub(super) fn classify(part: FramePart, source: std::io::Error) -> DecodeErrorKind {
+    match source.kind() {
+        std::io::ErrorKind::UnexpectedEof => DecodeErrorKind::Truncated {
+            missing: part,
+            source,
+        },
+        _ => DecodeErrorKind::Read { part, source },
     }
 }
 

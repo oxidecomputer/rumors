@@ -13,8 +13,8 @@ use super::super::{
     signal::{Signal, Speaker, WireSignal},
 };
 use super::{
-    OpenerItem, check_arity, decode_signal, frame_arity, head_error, listing_issue, opener_item,
-    query_listing, run_head,
+    OpenerItem, check_arity, classify, decode_signal, frame_arity, head_error, listing_issue,
+    opener_item, query_listing, run_head,
 };
 use crate::tree::{
     mirror::cbor::{self, HeadError, HeadReadError},
@@ -209,13 +209,11 @@ impl Arrived {
     /// Type a short delivery by the part left incomplete: a close is a
     /// truncation, a failure a read error.
     fn short(self, part: FramePart) -> DecodeErrorKind {
-        match self.failure {
-            Some(source) => DecodeErrorKind::Read { part, source },
-            None => DecodeErrorKind::Truncated {
-                missing: part,
-                source: ErrorKind::UnexpectedEof.into(),
-            },
-        }
+        classify(
+            part,
+            self.failure
+                .unwrap_or_else(|| ErrorKind::UnexpectedEof.into()),
+        )
     }
 }
 
@@ -463,11 +461,8 @@ impl<'a, R: AsyncRead + Unpin> AsyncFrameDecoder<'a, R> {
             // short to hold a record's heads cannot be a lone record and
             // is rejected on the declared length alone.
             let budget = self.budget;
-            let overbatched = move || DecodeErrorKind::OverbatchedRun {
-                declared: super::super::budget::SUPPLY_FRAME_OVERHEAD.saturating_add(len),
-                budget: budget.bytes(),
-            };
-            if len < super::super::frame::RECORD_TAG_LEN + 1 {
+            let overbatched = move || budget.overbatched(len);
+            if len < super::super::frame::MIN_RECORD_HEADS_LEN {
                 return Err(overbatched());
             }
             let Some((prefix, record)) = self.record_prefix().await? else {
@@ -556,17 +551,5 @@ fn partial_head(input: &mut &[u8]) -> Result<Option<cbor::Head>, DecodeErrorKind
         Err(error) => Err(listing_issue(super::super::frame::ListingIssue::Head(
             error,
         ))),
-    }
-}
-
-/// Type an I/O failure by the frame part it interrupted: end-of-stream is a
-/// contextual truncation, anything else a plain read failure.
-fn classify(part: FramePart, source: std::io::Error) -> DecodeErrorKind {
-    match source.kind() {
-        ErrorKind::UnexpectedEof => DecodeErrorKind::Truncated {
-            missing: part,
-            source,
-        },
-        _ => DecodeErrorKind::Read { part, source },
     }
 }

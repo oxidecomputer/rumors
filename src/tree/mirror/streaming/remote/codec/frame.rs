@@ -32,6 +32,10 @@ pub const fn listing_entry_len(radix: u8) -> usize {
 /// run and every record within one.
 pub(super) const RECORD_TAG_LEN: usize = cbor::head_len(TAG_CBOR_SEQUENCE);
 
+/// The fewest bytes a record's heads can occupy: the tag head plus a
+/// one-byte byte-string head.
+pub(super) const MIN_RECORD_HEADS_LEN: usize = RECORD_TAG_LEN + 1;
+
 /// Head bytes of the version-atom tag ahead of a record's version.
 const VERSION_TAG_LEN: usize = cbor::head_len(crate::tags::VERSION_TAG);
 

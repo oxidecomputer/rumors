@@ -40,6 +40,7 @@
 use crate::tree::mirror::cbor;
 use crate::tree::mirror::streaming::window::FAN;
 
+use super::error::DecodeErrorKind;
 use super::frame::{MAX_QUERY_CHILDREN, listing_entry_len};
 use super::signal::WireSignal;
 
@@ -159,6 +160,16 @@ impl RunBudget {
     /// counterparty conformance bug.
     pub fn covers(self, body: usize) -> bool {
         SUPPLY_FRAME_OVERHEAD.saturating_add(body) <= self.bytes
+    }
+
+    /// The rejection of a supply frame whose `body` run bytes this budget
+    /// does not cover: the frame's charged wire size beside the budget it
+    /// broke.
+    pub(super) fn overbatched(self, body: usize) -> DecodeErrorKind {
+        DecodeErrorKind::OverbatchedRun {
+            declared: SUPPLY_FRAME_OVERHEAD.saturating_add(body),
+            budget: self.bytes,
+        }
     }
 }
 
