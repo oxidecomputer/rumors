@@ -56,7 +56,7 @@
 //!   the pinned reading: attribute it. An improvement re-pins the band; a
 //!   dead meter is the bypass the column exists to catch, since a ceiling
 //!   passes vacuously once a counter stops counting.
-//! - A **liveness floor** ([`Floor::WholeInput`]) states a mechanism's
+//! - A **liveness floor** ([`Floor::LiveBits`]) states a mechanism's
 //!   irreducible work, never a measured basis: a walk that reads its whole
 //!   input by contract (a strict validator, a decoder, the id walks on the
 //!   diverted pair) scans every live input bit at least once. An
@@ -250,16 +250,25 @@ enum Floor {
     /// trip is a drop of more than 25% from the pinned reading: attribute
     /// it.
     Tripwire(u64),
-    /// The liveness floor of a walk that reads its whole input by contract:
-    /// every live input bit scanned at least once, `8 × input_bytes` less
-    /// at most one byte of padding per operand stream.
+    /// The liveness floor of a walk that must read every live input bit,
+    /// less a stated tail: `8 × input_bytes` minus, per operand stream, at
+    /// most one byte of padding and `tail_bits` the walk may leave unread
+    /// once its verdict is decided.
     ///
     /// A trip means the work left the metered primitives. Only for a row
     /// whose `input_bytes` is the byte length of exactly the streams the
-    /// walk reads.
-    WholeInput {
+    /// walk reads, and whose walk must read them by contract (a strict
+    /// validator or decoder: `tail_bits` 0), by construction (an id walk
+    /// whose output depends on every tag: `tail_bits` 0), or to a decision
+    /// point (the diverted id pair, decided at the last unary node's tag
+    /// pair, leaving each stream's 2-bit terminal below it: `tail_bits` 4,
+    /// one node's tag pair plus its terminal, so an early exit at the
+    /// decision is an improvement the floor admits).
+    LiveBits {
         /// The operand streams `input_bytes` counts.
         streams: u64,
+        /// Bits per stream the walk may leave unread.
+        tail_bits: u64,
     },
 }
 
@@ -271,12 +280,25 @@ const fn band(ceiling: u64, floor: u64) -> Bound {
     }
 }
 
-/// A scan column pinned at `ceiling` over the whole-input liveness floor of
-/// a walk over `streams` operand streams.
+/// A scan column pinned at `ceiling` over the liveness floor of a walk that
+/// reads `streams` operand streams whole.
 const fn whole_input(ceiling: u64, streams: u64) -> Bound {
     Bound {
         ceiling,
-        floor: Floor::WholeInput { streams },
+        floor: Floor::LiveBits {
+            streams,
+            tail_bits: 0,
+        },
+    }
+}
+
+/// A scan column pinned at `ceiling` over the liveness floor of a walk that
+/// reads `streams` operand streams to a decision point, leaving at most
+/// `tail_bits` of each unread.
+const fn to_decision(ceiling: u64, streams: u64, tail_bits: u64) -> Bound {
+    Bound {
+        ceiling,
+        floor: Floor::LiveBits { streams, tail_bits },
     }
 }
 
@@ -294,35 +316,35 @@ const fn envelope(peak_heap: usize, limb: Bound, touch: Bound, scan: Bound) -> E
 // the mechanism that prices it.
 #[rustfmt::skip]
 mod envelope {
-    use super::{band, envelope, whole_input, Envelope};
-    pub const DECODE_DENSE: Envelope                = envelope(120_035,           band(0, 0),            band(4, 2),    whole_input(468_758, 1)); // wire decode is validate + wrap; the payloads ride the word-valued form, so the limb column reads zero and the whole-input scan floor is the liveness signal
-    pub const CMP_DENSE: Envelope                   = envelope( 30_720,           band(0, 0), band(156_254, 93_752),     band(468_760, 281_256)); // the iterative sweep over the Bytes-backed at-rest form (OpenedPair states the pair walk's opening move once); word-valued payloads keep the limb column at zero, and the touch and scan tripwires are the liveness signal
-    pub const CMP_DENSE_SELF: Envelope              = envelope( 51_200,           band(0, 0), band(156_257, 93_753),     band(937_515, 562_509)); // aligned ties in lockstep to full depth: both streams' bits scanned whole
-    pub const JOIN_DENSE: Envelope                  = envelope(130_277,           band(0, 0), band(156_255, 93_753),     band(625_018, 375_010)); // the emit kernel's peak alone: the value-operator cell's lhs clone is a refcount bump, not a byte copy of the operand; word-valued payloads keep the limb column at zero, and the touch and scan tripwires are the liveness signal
-    pub const DECODE_BIGROOT: Envelope              = envelope( 60_090,       band(783, 469),    band(2_348, 1_408),    whole_input(137_512, 1)); // wire decode is validate + wrap; the one wide root magnitude keeps a linear limb record while the word-valued form carries the narrow codes
-    pub const CMP_BIGROOT: Envelope                 = envelope( 39_540,       band(783, 469),   band(14_849, 8_909),      band(137_514, 82_508)); // the iterative sweep over the Bytes-backed at-rest form; the wide root's decode is the limb record
-    pub const JOIN_BIGROOT: Envelope                = envelope( 85_060,     band(1_565, 939),   band(14_850, 8_910),     band(275_028, 165_016)); // the emit kernel's peak alone (the lhs clone is a refcount bump); the wide root decodes on both sides carry the limb record
-    pub const DECODE_HUGELEAF: Envelope             = envelope(122_504,   band(2_443, 1_465),    band(7_327, 4_395),    whole_input(312_503, 1)); // the validating wire decode holds the running height; one wide gamma code's linear limb work
-    pub const JOIN_HUGELEAF: Envelope               = envelope(185_494,   band(4_887, 2_931),    band(7_329, 4_397),     band(625_010, 375_006)); // the emit kernel holds both payload buffers, and the lhs clone is a refcount bump, so the public join's peak is the emit kernel's alone
-    pub const JOIN_ABSORB: Envelope                 = envelope(270_798,   band(4_887, 2_931), band(163_580, 98_148),   band(1_250_013, 750_007)); // the collapse-heavy extreme: one truncation per level around a held wide code, which absorb never moves
-    pub const ID_JOIN: Envelope                     = envelope(279_132,           band(0, 0),            band(0, 0),  whole_input(3_125_023, 2)); // iterative id walks: frame bits on the heap
-    pub const ID_COVERS: Envelope                   = envelope(     10,           band(0, 0),            band(0, 0),  whole_input(1_250_005, 2)); // iterative id walks
-    pub const ID_DISJOINT: Envelope                 = envelope(     10,           band(0, 0),            band(0, 0),  whole_input(1_250_005, 2)); // iterative id walks
-    pub const ID_WITHOUT: Envelope                  = envelope(521_110,           band(0, 0),            band(0, 0),  whole_input(2_500_005, 1)); // iterative complement over the Bytes-backed at-rest form; dev builds run no shadow re-parse of the diff emission (the differential suites carry the normal-form check)
-    pub const DECODE_CLIFF: Envelope                = envelope(  4_052,         band(88, 52),    band(4_003, 2_401),     whole_input(17_923, 1)); // wire decode is validate + wrap; each cliff crossing's limb work is paid by its own wide stored code
-    pub const CMP_CLIFF: Envelope                   = envelope(  1_330,         band(88, 52),    band(5_284, 3_170),       band(17_925, 10_755)); // the cliff-free sweep (two accumulators, opened once) over the Bytes-backed at-rest form
-    pub const JOIN_CLIFF: Envelope                  = envelope(  5_362,       band(308, 184),    band(5_289, 3_173),       band(35_848, 21_508)); // the emit kernel's peak alone (the lhs clone is a refcount bump); each re-coded tooth's limb work is paid by its comparably-wide input code
-    pub const MEET_CLIFF: Envelope                  = envelope(  4_422,         band(88, 52),    band(5_289, 3_173),       band(23_055, 13_833)); // the pointwise minimum clamps every tooth to the flat operand's height while every delta still crosses the carry boundary in the accumulator
-    pub const DECODE_WIDE_TOOTH: Envelope           = envelope(125_100, band(29_509, 17_705),   band(14_218, 8_530),  whole_input(1_000_480, 1)); // wire decode is validate + wrap; each wide delta's limb work is paid by its own zigzag code, and the adopted buffer prices the wide payloads
+    use super::{band, envelope, to_decision, whole_input, Envelope};
+    pub const DECODE_DENSE: Envelope                = envelope(120_035,           band(0, 0),            band(4, 2),      whole_input(468_758, 1)); // wire decode is validate + wrap; the payloads ride the word-valued form, so the limb column reads zero and the whole-input scan floor is the liveness signal
+    pub const CMP_DENSE: Envelope                   = envelope( 30_720,           band(0, 0), band(156_254, 93_752),       band(468_760, 281_256)); // the iterative sweep over the Bytes-backed at-rest form (OpenedPair states the pair walk's opening move once); word-valued payloads keep the limb column at zero, and the touch and scan tripwires are the liveness signal
+    pub const CMP_DENSE_SELF: Envelope              = envelope( 51_200,           band(0, 0), band(156_257, 93_753),       band(937_515, 562_509)); // aligned ties in lockstep to full depth: both streams' bits scanned whole
+    pub const JOIN_DENSE: Envelope                  = envelope(130_277,           band(0, 0), band(156_255, 93_753),       band(625_018, 375_010)); // the emit kernel's peak alone: the value-operator cell's lhs clone is a refcount bump, not a byte copy of the operand; word-valued payloads keep the limb column at zero, and the touch and scan tripwires are the liveness signal
+    pub const DECODE_BIGROOT: Envelope              = envelope( 60_090,       band(783, 469),    band(2_348, 1_408),      whole_input(137_512, 1)); // wire decode is validate + wrap; the one wide root magnitude keeps a linear limb record while the word-valued form carries the narrow codes
+    pub const CMP_BIGROOT: Envelope                 = envelope( 39_540,       band(783, 469),   band(14_849, 8_909),        band(137_514, 82_508)); // the iterative sweep over the Bytes-backed at-rest form; the wide root's decode is the limb record
+    pub const JOIN_BIGROOT: Envelope                = envelope( 85_060,     band(1_565, 939),   band(14_850, 8_910),       band(275_028, 165_016)); // the emit kernel's peak alone (the lhs clone is a refcount bump); the wide root decodes on both sides carry the limb record
+    pub const DECODE_HUGELEAF: Envelope             = envelope(122_504,   band(2_443, 1_465),    band(7_327, 4_395),      whole_input(312_503, 1)); // the validating wire decode holds the running height; one wide gamma code's linear limb work
+    pub const JOIN_HUGELEAF: Envelope               = envelope(185_494,   band(4_887, 2_931),    band(7_329, 4_397),       band(625_010, 375_006)); // the emit kernel holds both payload buffers, and the lhs clone is a refcount bump, so the public join's peak is the emit kernel's alone
+    pub const JOIN_ABSORB: Envelope                 = envelope(270_798,   band(4_887, 2_931), band(163_580, 98_148),     band(1_250_013, 750_007)); // the collapse-heavy extreme: one truncation per level around a held wide code, which absorb never moves
+    pub const ID_JOIN: Envelope                     = envelope(279_132,           band(0, 0),            band(0, 0),    whole_input(3_125_023, 2)); // iterative id walks: frame bits on the heap
+    pub const ID_COVERS: Envelope                   = envelope(     10,           band(0, 0),            band(0, 0), to_decision(1_250_005, 2, 4)); // iterative id walks; the diverted pair is decided at the last unary node's tag pair, so the scan floor leaves each stream's terminal unread
+    pub const ID_DISJOINT: Envelope                 = envelope(     10,           band(0, 0),            band(0, 0), to_decision(1_250_005, 2, 4)); // iterative id walks; the diverted pair is decided at the last unary node's tag pair, so the scan floor leaves each stream's terminal unread
+    pub const ID_WITHOUT: Envelope                  = envelope(521_110,           band(0, 0),            band(0, 0),    whole_input(2_500_005, 1)); // iterative complement over the Bytes-backed at-rest form; dev builds run no shadow re-parse of the diff emission (the differential suites carry the normal-form check)
+    pub const DECODE_CLIFF: Envelope                = envelope(  4_052,         band(88, 52),    band(4_003, 2_401),       whole_input(17_923, 1)); // wire decode is validate + wrap; each cliff crossing's limb work is paid by its own wide stored code
+    pub const CMP_CLIFF: Envelope                   = envelope(  1_330,         band(88, 52),    band(5_284, 3_170),         band(17_925, 10_755)); // the cliff-free sweep (two accumulators, opened once) over the Bytes-backed at-rest form
+    pub const JOIN_CLIFF: Envelope                  = envelope(  5_362,       band(308, 184),    band(5_289, 3_173),         band(35_848, 21_508)); // the emit kernel's peak alone (the lhs clone is a refcount bump); each re-coded tooth's limb work is paid by its comparably-wide input code
+    pub const MEET_CLIFF: Envelope                  = envelope(  4_422,         band(88, 52),    band(5_289, 3_173),         band(23_055, 13_833)); // the pointwise minimum clamps every tooth to the flat operand's height while every delta still crosses the carry boundary in the accumulator
+    pub const DECODE_WIDE_TOOTH: Envelope           = envelope(125_100, band(29_509, 17_705),   band(14_218, 8_530),    whole_input(1_000_480, 1)); // wire decode is validate + wrap; each wide delta's limb work is paid by its own zigzag code, and the adopted buffer prices the wide payloads
     // CMP_WIDE_TOOTH's deliberately thin heap margin is a change-detector
     // on the backend's and the accumulator's allocation policies: the
     // committed Cargo.lock (dashu-int 0.5.0 exact) is what makes the
     // measurement deterministic, and a cargo update to any other 0.5.x is
     // a deliberate re-measure event, not noise.
-    pub const CMP_WIDE_TOOTH: Envelope              = envelope(  1_250, band(29_509, 17_705),   band(15_499, 9_299),   band(1_000_483, 600_289)); // each wide delta's limb work paid by its own zigzag code; heap stays at the stacks, the accumulator, and the zero-run ledger's map node
-    pub const JOIN_WIDE_TOOTH: Envelope             = envelope(128_312, band(74_477, 48_534),   band(15_504, 9_302), band(2_000_963, 1_200_577)); // each wide delta re-coded into the output, paid by its own zigzag code
-    pub const MEET_WIDE_TOOTH: Envelope             = envelope(127_087, band(29_509, 17_705),   band(15_504, 9_302),   band(1_005_613, 603_367)); // wide deltas folded but never re-emitted: the collapse discipline at spilled operand widths
-    pub const DECODE_ALT_SPINE: Envelope            = envelope(120_035,           band(0, 0),            band(4, 2),    whole_input(468_758, 1)); // wire decode is validate + wrap; per-level state stays two bits however the descent direction flips
+    pub const CMP_WIDE_TOOTH: Envelope              = envelope(  1_250, band(29_509, 17_705),   band(15_499, 9_299),     band(1_000_483, 600_289)); // each wide delta's limb work paid by its own zigzag code; heap stays at the stacks, the accumulator, and the zero-run ledger's map node
+    pub const JOIN_WIDE_TOOTH: Envelope             = envelope(128_312, band(74_477, 48_534),   band(15_504, 9_302),   band(2_000_963, 1_200_577)); // each wide delta re-coded into the output, paid by its own zigzag code
+    pub const MEET_WIDE_TOOTH: Envelope             = envelope(127_087, band(29_509, 17_705),   band(15_504, 9_302),     band(1_005_613, 603_367)); // wide deltas folded but never re-emitted: the collapse discipline at spilled operand widths
+    pub const DECODE_ALT_SPINE: Envelope            = envelope(120_035,           band(0, 0),            band(4, 2),      whole_input(468_758, 1)); // wire decode is validate + wrap; per-level state stays two bits however the descent direction flips
     // Skyline validator rows: the validator's transient is the
     // open-ancestor bit stack plus reallocation growth, bits per level,
     // not frames. Its work is cursor reads end to end (it allocates
@@ -331,11 +353,11 @@ mod envelope {
     // the whole-input floor under it is what a validator that stops
     // reading fails. Decode is validate plus the wrap, so each shape's
     // scan reading equals its validate row's.
-    pub const SKYLINE_VALIDATE_DENSE: Envelope      = envelope( 61_440,           band(0, 0),            band(4, 2),    whole_input(468_758, 1)); // the open-ancestor bit stack; word-valued payloads keep the limb column at zero
-    pub const SKYLINE_VALIDATE_CLIFF: Envelope      = envelope(  1_770,         band(88, 52),    band(4_003, 2_401),     whole_input(17_923, 1)); // the cliff-free accumulator: amortized O(1) per delta
-    pub const SKYLINE_VALIDATE_WIDE_TOOTH: Envelope = envelope(  1_520, band(29_509, 17_705),   band(14_218, 8_530),  whole_input(1_000_480, 1)); // each wide delta's limb work is paid by its own zigzag code; heap stays at the bit stack plus the zero-run ledger's map node
-    pub const SKYLINE_VALIDATE_HUGELEAF: Envelope   = envelope( 80_980,   band(2_443, 1_465),    band(7_327, 4_395),    whole_input(312_503, 1)); // one wide decode and one wide accumulator load, both linear in the code's width
-    pub const SKYLINE_VALIDATE_ALT_SPINE: Envelope  = envelope( 61_440,           band(0, 0),            band(4, 2),    whole_input(468_758, 1)); // per-level state stays two bits however the descent direction flips
+    pub const SKYLINE_VALIDATE_DENSE: Envelope      = envelope( 61_440,           band(0, 0),            band(4, 2),      whole_input(468_758, 1)); // the open-ancestor bit stack; word-valued payloads keep the limb column at zero
+    pub const SKYLINE_VALIDATE_CLIFF: Envelope      = envelope(  1_770,         band(88, 52),    band(4_003, 2_401),       whole_input(17_923, 1)); // the cliff-free accumulator: amortized O(1) per delta
+    pub const SKYLINE_VALIDATE_WIDE_TOOTH: Envelope = envelope(  1_520, band(29_509, 17_705),   band(14_218, 8_530),    whole_input(1_000_480, 1)); // each wide delta's limb work is paid by its own zigzag code; heap stays at the bit stack plus the zero-run ledger's map node
+    pub const SKYLINE_VALIDATE_HUGELEAF: Envelope   = envelope( 80_980,   band(2_443, 1_465),    band(7_327, 4_395),      whole_input(312_503, 1)); // one wide decode and one wide accumulator load, both linear in the code's width
+    pub const SKYLINE_VALIDATE_ALT_SPINE: Envelope  = envelope( 61_440,           band(0, 0),            band(4, 2),      whole_input(468_758, 1)); // per-level state stays two bits however the descent direction flips
 }
 
 // ─── meter liveness canaries ────────────────────────────────────────────────
@@ -480,8 +502,8 @@ fn metered<R>(name: &str, input_bytes: usize, env: &Envelope, f: impl FnOnce() -
                  the band, and a dead meter is the bypass this column exists to catch",
                 column.key,
             ),
-            Floor::WholeInput { streams } => {
-                let floor = (8 * input_bytes as u64).saturating_sub(8 * streams);
+            Floor::LiveBits { streams, tail_bits } => {
+                let floor = (8 * input_bytes as u64).saturating_sub(streams * (8 + tail_bits));
                 assert!(
                     reading >= floor,
                     "{name}: the {} counter reads {reading}, under the {floor}-bit whole-input \
