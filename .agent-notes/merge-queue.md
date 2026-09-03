@@ -150,6 +150,17 @@ lanes have closed.
   caselint roots widen after it). Packet:
   `.agent-notes/2026-09-01-holistic-review-before/triage/reviews/p2-generators.md`.
 
+- before `p1-gate`: branch `before/p1-gate`, packet head `75e0bc91`, last code
+  commit `6a4d255e`, base `main`. Root files: justfile, `.github/`
+  (ci.yml, dependabot.yml, pages.yml), `deny.toml`, root `AGENTS.md`,
+  `tools/` (lockcheck new; mutantcheck and workflowlint deleted),
+  `.cargo/mutants.toml` deleted, root `Cargo.lock` and the five detached
+  locks (upward convergence). One stop (the `syn` 2/3 roster); its gate
+  reads red on audit for that stop and on wasm for the committed fuel
+  seed until `p1-fuzz` refits. Merges after the three P2 packets; its
+  children `p1-fuzz`, `p8-tagwalk`, `p1-survivors` follow. Packet:
+  `.agent-notes/2026-09-01-holistic-review-before/triage/reviews/p1-gate.md`.
+
 ## Announcements
 
 - rumors: `p1-envelope` launched from `0fad870c` (Finch's word,
