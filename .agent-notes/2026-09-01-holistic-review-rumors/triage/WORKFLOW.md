@@ -302,7 +302,12 @@ cannot oversubscribe the box (`.agent-notes/merge-queue.md`, rule 6);
 no exclusive processor set for a gate or a build, because a set holds
 cores a gate leaves idle through its serial phases. `pset-run` is for
 wall-time measurements only, one at a time, announced in the queue
-first. A leg that fails only by nextest's 180 s per-test limit at a
+first. Gates serialize through a mutex held on the box, since a load
+poll before launch cannot close the race between two lanes launching
+in the same second: in one remote command, `mkdir ~/gate.lock` in a
+retry loop (a lock older than 45 minutes is a dead gate's and is
+removed), then `just gate`, then `rmdir` on exit; targeted runs and
+builds stay outside the lock. A leg that fails only by nextest's 180 s per-test limit at a
 one-minute load under about 150 is a finding about the test, reported
 as such; above that load the stream is re-run once the load is down.
 One leg is
