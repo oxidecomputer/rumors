@@ -91,6 +91,17 @@ lanes have closed.
 
 ## Announcements
 
+- before: `before/p1-gate` launched, stacked on rumors `triage/p1-gate` at
+  `b06000df`; it edits the justfile (the mutants-list and workflowlint
+  legs go; the wasm32-pins leg joins CI; the lockfile audit derives its
+  list), `.github/workflows/ci.yml` (cargo-mutants install removed; the
+  wasm32-pins leg), `deny.toml`, `rust-toolchain.toml`,
+  `.cargo/mutants.toml` (deleted), `tools/mutantcheck*` and
+  `tools/workflowlint` (deleted), root `AGENTS.md` (the mutant-exclusions
+  paragraph), and the six lockfiles. It merges after the rumors gate
+  lane; before's harness packet follows the seven rumors packets in the
+  queue.
+
 - before: `before/p1-harness` launched from `27ac8d92`; edits
   `crates/before/tests/meter.rs` and, as its own last commit, one line of
   the justfile's `test` recipe (which the rumors memwatch lane is also
