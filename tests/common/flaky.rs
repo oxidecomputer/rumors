@@ -105,6 +105,14 @@ pub struct FlakyError {
     op: &'static str,
 }
 
+impl FlakyError {
+    /// The error an injected write failure reports, for tests that need the
+    /// value without a scheduled fault.
+    pub fn injected_write() -> Self {
+        FlakyError { op: "write" }
+    }
+}
+
 impl fmt::Display for FlakyError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "flaky bookmark: injected {} failure", self.op)
@@ -143,6 +151,15 @@ impl FaultFeed {
     /// and called on every feed before the heal phase.
     pub fn disable(&mut self) {
         self.enabled = false;
+    }
+
+    /// Whether a scheduled failure remains: the feed is enabled and a `true`
+    /// decision is still queued for a read or a write.
+    ///
+    /// An exhausted or all-`false` queue never fails, so a session over such
+    /// a feed cannot legitimately report a bookmark error.
+    pub fn may_fail(&self) -> bool {
+        self.enabled && (self.reads.contains(&true) || self.writes.contains(&true))
     }
 
     fn next_read(&mut self) -> bool {

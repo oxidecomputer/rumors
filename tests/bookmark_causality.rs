@@ -74,10 +74,14 @@ use before::Party;
 use proptest::prelude::*;
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
-use rumors::{Error, MERKLE_HASH_LEN, Network, Peer, Retire, Rumors, Version};
+use rumors::{
+    BookmarkError, BookmarkIo, Error, MERKLE_HASH_LEN, Network, Peer, Retire, Rumors, Version,
+};
 
 use crate::common::fault::{self, FaultPlan};
-use crate::common::flaky::{DurableStore, FaultFeed, FlakyInMemoryBookmark, persisted_record};
+use crate::common::flaky::{
+    DurableStore, FaultFeed, FlakyError, FlakyInMemoryBookmark, persisted_record,
+};
 use crate::common::sim::arb_fault;
 use crate::common::wire::block_on;
 
@@ -237,6 +241,46 @@ fn store_parties(store: &DurableStore, network: Network) -> Vec<Party> {
         .filter(|(net, _)| *net == network)
         .flat_map(|(_, clocks)| clocks.into_iter().map(|clock| clock.into_parts().0))
         .collect()
+}
+
+// ---- the session error classifier -------------------------------------------
+
+/// Fail the test if `error` is one no session can report except through a
+/// crate bug, whatever wire faults or bookmark faults the step schedules.
+///
+/// Four errors are unconditionally bugs: a fully received frame that does not
+/// decode (`Io` with `InvalidData`, or `HandOffMalformed`), a bookmark file
+/// that does not parse when the crate itself wrote every byte the store
+/// holds (`Bookmark(Format(_))`), and a retiring party overlapping its
+/// absorber's (`PartyOverlap`). Every other error is an honest disruption
+/// this harness injects or provokes: a severed wire, an injected bookmark
+/// fault, the counterparty closing the wire after its own fault, or a
+/// network mismatch.
+fn assert_not_codec_bug<B>(step: &str, error: &Error<B>)
+where
+    B: BookmarkError + std::fmt::Debug,
+    B::Error: std::fmt::Debug,
+{
+    let codec_bug = matches!(error, Error::Io(io) if io.kind() == std::io::ErrorKind::InvalidData)
+        || matches!(error, Error::HandOffMalformed { .. })
+        || matches!(error, Error::Bookmark(BookmarkIo::Format(_)))
+        || matches!(error, Error::PartyOverlap);
+    assert!(
+        !codec_bug,
+        "{step}: a protocol, codec, or bookmark-format bug, not an honest disruption: {error:?}",
+    );
+}
+
+/// Why a bootstrap's joining side came up without a live peer.
+#[derive(Debug)]
+enum BootFailure {
+    /// The join session failed before any peer existed.
+    Join(Error),
+    /// The join ended without a peer, which only a server that was itself
+    /// bootstrapping could cause.
+    NoPeer,
+    /// The eager attach persist failed; the handed-back peer is dropped.
+    Attach(BookmarkIo<FlakyError>),
 }
 
 // ---- the fleet --------------------------------------------------------------
@@ -445,6 +489,23 @@ impl World {
             .any(|k| k != who && self.nodes[k].is_live() && self.nodes[k].network == network)
     }
 
+    /// Whether `who`'s bookmark still has an injected failure scheduled.
+    fn bookmark_may_fail(&self, who: usize) -> bool {
+        self.nodes[who].faults.lock().unwrap().may_fail()
+    }
+
+    /// Whether a session between `a` and `b` can fail for a reason other
+    /// than a crate bug or a network mismatch: a wire cut scheduled on either
+    /// side, or a bookmark fault still queued on either side's feed.
+    ///
+    /// Decided before the session, since the session consumes the schedule.
+    fn session_may_fail(&self, a: usize, b: usize, fault_a: FaultPlan, fault_b: FaultPlan) -> bool {
+        !fault_a.is_clean()
+            || !fault_b.is_clean()
+            || self.bookmark_may_fail(a)
+            || self.bookmark_may_fail(b)
+    }
+
     /// Emit a fresh unique message from `who`, capturing its full causal
     /// coordinate and holding it *pending* until it is persisted or propagated.
     fn send(&mut self, who: usize) {
@@ -560,7 +621,9 @@ impl World {
     /// A cross-network pair surfaces
     /// [`Error::NetworkMismatch`] on at least one side; the loser of the
     /// `(min_ticks, network)` tie-break re-bootstraps into the winner. Any other
-    /// error is an honest disruption that leaves both replicas unchanged.
+    /// error is an honest disruption that leaves both replicas unchanged, and
+    /// is admitted only when the step scheduled a fault or met a mismatch;
+    /// a step that cannot legitimately fail must succeed on both sides.
     fn gossip(&mut self, a: usize, b: usize, fault_a: FaultPlan, fault_b: FaultPlan) {
         if a == b {
             return;
@@ -571,6 +634,8 @@ impl World {
             return;
         };
         let (ra, rb) = (ra.clone(), rb.clone());
+        let may_fail = self.session_may_fail(a, b, fault_a, fault_b);
+        let same_network = self.nodes[a].network == self.nodes[b].network;
         // Each side owns its faulted link inside its own `async move` block,
         // so when a wire fault kills one side its block completes and
         // `join!` drops the block, link included, surfacing EOF to the
@@ -598,6 +663,27 @@ impl World {
 
         let mismatched = matches!(out_a, Err(Error::NetworkMismatch { .. }))
             || matches!(out_b, Err(Error::NetworkMismatch { .. }));
+        for (side, out) in [(a, &out_a), (b, &out_b)] {
+            match out {
+                Ok(_) => {}
+                Err(Error::NetworkMismatch { .. }) => assert!(
+                    !same_network,
+                    "gossip {a}<->{b}: node {side} reported a network mismatch inside one network",
+                ),
+                Err(error) => {
+                    assert_not_codec_bug(&format!("gossip {a}<->{b}, node {side}"), error);
+                    assert!(
+                        may_fail || mismatched,
+                        "gossip {a}<->{b}: node {side} failed on a clean wire over reliable \
+                         bookmarks with no mismatch: {error:?}",
+                    );
+                }
+            }
+        }
+        assert!(
+            same_network || may_fail || mismatched,
+            "gossip {a}<->{b}: a cross-network session on a clean wire must surface the mismatch",
+        );
         if mismatched {
             self.resolve_mismatch(a, b);
         }
@@ -634,12 +720,14 @@ impl World {
     /// bookmarks on both sides stay flaky: the server's donating `slice`/`write`
     /// and `who`'s eager identity persist can each fail, which is precisely the
     /// adversarial persistence path. On any failure `who` is left dormant for a
-    /// later attempt.
+    /// later attempt. Over reliable bookmarks nothing can fail, and the step
+    /// asserts that both sides succeed.
     fn bootstrap_into(&mut self, who: usize, server: usize) -> bool {
         let Some(server_rumors) = self.nodes[server].live() else {
             return false;
         };
         let server_rumors = server_rumors.clone();
+        let may_fail = self.bookmark_may_fail(who) || self.bookmark_may_fail(server);
         // The prior incarnation's memory is about to vanish: secure what its
         // store persisted, lose the rest.
         self.secure_and_lose(who);
@@ -647,31 +735,68 @@ impl World {
         // Drop any prior incarnation before creating the new one.
         self.nodes[who].state = NodeState::Dormant;
 
-        let booted = block_on(async {
+        let (boot_out, serve_out) = block_on(async {
             let (boot_side, serve_side) = rumors::link::memory_with_capacity(LINK_BUF);
             // Each side owns its link inside its block so a failing one drops
             // it (see `gossip`).
-            let (boot_out, serve_out) = tokio::join!(
+            tokio::join!(
                 async move {
                     let mut link = boot_side;
-                    // `Ok(None)` cannot happen (the server is gossiping, not
-                    // bootstrapping); a wire fault drops us to `None`, as does an
-                    // injected persistence failure in the eager bookmark attach.
-                    let peer = Peer::<Msg>::bootstrap()
-                        .join(&mut link)
+                    let peer = match Peer::<Msg>::bootstrap().join(&mut link).await {
+                        Ok(Some(peer)) => peer,
+                        Ok(None) => return Err(BootFailure::NoPeer),
+                        Err(error) => return Err(BootFailure::Join(error)),
+                    };
+                    peer.sync_window_floor()
+                        .bookmark(bookmark)
                         .await
-                        .ok()
-                        .flatten()?;
-                    peer.sync_window_floor().bookmark(bookmark).await.ok()
+                        .map_err(|unbookmarked| BootFailure::Attach(unbookmarked.error))
                 },
                 async move {
                     let mut link = serve_side;
                     server_rumors.gossip(&mut link).await
                 },
-            );
-            let _ = serve_out;
-            boot_out
+            )
         });
+
+        // The wire is clean, so each side fails only through the bookmarks:
+        // the server through its own donating persist, whose abort closes
+        // the wire on the newcomer (a truncated hand-off), and the newcomer
+        // through its own eager attach persist after the session. Neither
+        // can fail over reliable bookmarks.
+        let step = format!("bootstrap of {who} from {server}");
+        if let Err(error) = &serve_out {
+            assert_not_codec_bug(&format!("{step}, serving side"), error);
+            assert!(
+                may_fail,
+                "{step}: the serve failed on a clean wire over reliable bookmarks: {error:?}",
+            );
+        }
+        let booted = match boot_out {
+            Ok(peer) => Some(peer),
+            Err(BootFailure::NoPeer) => {
+                panic!("{step}: the server was gossiping, so the join cannot end without a peer")
+            }
+            Err(BootFailure::Join(error)) => {
+                assert_not_codec_bug(&format!("{step}, joining side"), &error);
+                assert!(
+                    may_fail,
+                    "{step}: the join failed on a clean wire over reliable bookmarks: {error:?}",
+                );
+                None
+            }
+            Err(BootFailure::Attach(error)) => {
+                assert!(
+                    !matches!(error, BookmarkIo::Format(_)),
+                    "{step}: the attach rejected a bookmark file the crate wrote: {error:?}",
+                );
+                assert!(
+                    may_fail,
+                    "{step}: the attach persist failed over a reliable bookmark: {error:?}",
+                );
+                None
+            }
+        };
 
         self.path.push(PathEvent::Bootstrap {
             newcomer: who,
@@ -710,7 +835,13 @@ impl World {
         // No reachable member of its old network (or the rejoin's persistence
         // failed): start fresh. Its old network's identity is left stranded —
         // a harmless leak, never a corruption. The old incarnation's memory
-        // vanishes, so secure what was persisted and lose the rest.
+        // vanishes, so secure what was persisted and lose the rest. A
+        // single-network world never gets here: its crash guard keeps a live
+        // member, and its reliable bookmarks cannot fail the rejoin.
+        assert!(
+            self.networks.len() > 1,
+            "node {who} of a single-network world found no live member to reboot from",
+        );
         self.secure_and_lose(who);
         self.path.push(PathEvent::Reseeded(who));
         let bookmark = self.nodes[who].bookmark();
@@ -725,7 +856,8 @@ impl World {
     /// only: a cross-network retire cannot be absorbed, so it is skipped. The
     /// retiree's durable store may later resurrect it — exercising party reuse
     /// across a donation, where a failed `slice` would let the donated region
-    /// live twice.
+    /// live twice. Over reliable bookmarks the clean-wire retirement cannot
+    /// fail: the absorber must succeed and the retiree must report `Retired`.
     fn retire(&mut self, retiree: usize, absorber: usize) {
         if retiree == absorber {
             return;
@@ -739,6 +871,7 @@ impl World {
             return;
         };
         let absorber_rumors = absorber_rumors.clone();
+        let may_fail = self.session_may_fail(retiree, absorber, FaultPlan::NONE, FaultPlan::NONE);
         // Take the retiree's sole handle so it can become a `Peer` immediately.
         let NodeState::Live(retiree_rumors) =
             std::mem::replace(&mut self.nodes[retiree].state, NodeState::Dormant)
@@ -773,21 +906,24 @@ impl World {
         // over a *clean* wire, so the absorber can only fail honestly by an
         // injected bookmark fault (`Error::Bookmark`) or by the retiree safely
         // aborting its own bookmark fault and closing the wire (the typed
-        // `HandOffTruncated`, or `UnexpectedEof` elsewhere in the session).
-        // A decode failure (`InvalidData`, `HandOffMalformed`) means a
-        // fully-received frame was malformed — a protocol/codec bug like the
-        // non-canonical party that motivated this check — so surface it loudly.
+        // `HandOffTruncated`, or `UnexpectedEof` elsewhere in the session);
+        // over reliable bookmarks it cannot fail at all.
+        let step = format!("retire of {retiree} into {absorber}");
         if let Err(error) = &absorbed {
-            let codec_bug = matches!(
-                error,
-                Error::Io(io) if io.kind() == std::io::ErrorKind::InvalidData,
-            ) || matches!(error, Error::HandOffMalformed { .. });
+            assert_not_codec_bug(&format!("{step}, absorber"), error);
             assert!(
-                !codec_bug,
-                "retire absorber failed to decode on a clean wire: a protocol/codec bug, \
-                 not an honest disruption: {error:?}",
+                may_fail,
+                "{step}: the absorber failed on a clean wire over reliable bookmarks: {error:?}",
             );
         }
+        if let Retire::Recovered { error, .. } | Retire::Uncertain { error } = &outcome {
+            assert_not_codec_bug(&format!("{step}, retiree"), error);
+        }
+        assert!(
+            may_fail || matches!(outcome, Retire::Retired),
+            "{step}: a clean-wire retirement over reliable bookmarks must land as \
+             `Retired`, not {outcome:?}",
+        );
 
         match outcome {
             // Donated: the retiree's memory is consumed, so secure what it
@@ -1309,6 +1445,49 @@ fn negative_control_recycled_durable_emission_panics() {
         seq: 1,
         version,
     });
+}
+
+/// Negative control for the session error classifier: each error the
+/// harness deems an unconditional crate bug fails the step it is reported
+/// on, and an honest disruption does not.
+///
+/// The classifier is what makes a decode failure, a foreign bookmark
+/// frame, or an overlapping retiring party visible at the offending step
+/// instead of at a heal that only catches persistent failures.
+#[test]
+fn negative_control_classifier_rejects_codec_bugs() {
+    fn fires(error: Error<FlakyInMemoryBookmark>) -> bool {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            assert_not_codec_bug("negative control", &error)
+        }))
+        .is_err()
+    }
+    let io = |kind, text| Error::Io(std::io::Error::new(kind, text));
+    for bug in [
+        io(
+            std::io::ErrorKind::InvalidData,
+            "a fully received frame that does not decode",
+        ),
+        Error::HandOffMalformed {
+            defect: rumors::error::HandOffDefect::NotPartyTagged,
+        },
+        Error::Bookmark(BookmarkIo::Format(rumors::FormatError::Truncated {
+            len: 0,
+        })),
+        Error::PartyOverlap,
+    ] {
+        assert!(fires(bug), "an unconditional crate bug must fail the step");
+    }
+    for disruption in [
+        io(std::io::ErrorKind::UnexpectedEof, "a severed wire"),
+        Error::HandOffTruncated,
+        Error::Bookmark(BookmarkIo::Io(FlakyError::injected_write())),
+    ] {
+        assert!(
+            !fires(disruption),
+            "an honest disruption must pass the step to the outcome classifier",
+        );
+    }
 }
 
 proptest! {
