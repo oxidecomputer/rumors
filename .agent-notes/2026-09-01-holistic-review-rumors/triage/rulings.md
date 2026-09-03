@@ -779,3 +779,8 @@ Home: lane `p1-proptest-ci` (a sweep over every `ProptestConfig` site, the helpe
 Disposes: part 2 of tests-bookmark-9 (amending T8)
 Decision: The optional strengthening of `promote` (recording the emitter's party alias on each emission and comparing projected versions) is dropped as a model. A recycle is a mechanism in the emitter's bookkeeping that re-issues coordinates; the mechanism cannot know whether durable content occupies them, so any mechanism able to recycle at all also recycles observably on the plans that place durable content there, which the reconstructed test and the known-bad artifact construct and the per-session survival check catches. A recycle no peer can observe is not a distinct fault class, only a plan on which the same fault has no consequence, and the harness's invariant is stated as observable non-recycling.
 Home: lane `p1-causality`; the module doc states the invariant in those terms.
+
+## T150 (2026-09-02): The attach helper's local driver dissolves with tests-bookmark-3
+Disposes: the tests-bookmark-11 clause moving `bootstrap_unbookmarked` onto the shared driver
+Decision: The clause rides with the lane that lands tests-bookmark-3 (the shared `bootstrap_fork` made generic over the bookmark type). That lane's acceptance gains one mechanical clause: `tests/bookmark_attach.rs` holds no local session driver afterward (`grep -n 'join!' tests/bookmark_attach.rs` empty, the helper driving through `common::wire`), and the ledger row for tests-bookmark-11 is complete only when that grep is empty on `main`.
+Home: the P5 tests lane carrying tests-bookmark-3; tests-bookmark-11 stays `fix` with this clause noted.
