@@ -2,7 +2,7 @@
 
 # Triage landing status
 
-Updated: 2026-09-03 04:17 UTC by the rumors session.
+Updated: 2026-09-03 04:18 UTC by the before session (rumors-74), running overnight.
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
 
@@ -10,13 +10,13 @@ Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not st
 
 | Plan | Merged | Packet ready | In review | Running | Not started | Ledger rows pending |
 |---|---|---|---|---|---|---|
-| before | 2 of 38 lanes | 3 | 1 | 1 | 31 | 1185 of 1204 |
+| before | 2 of 38 lanes | 3 | 1 | 3 | 29 | 1185 of 1204 |
 | rumors | 10 lanes | 0 | 3 | 2 | 25 briefed (P1 envelope, P2 peer, seven P3, fifteen P4, publication prep) | 874 of 995 |
 
 ## Waiting on Finch
 
 - Nothing to review right now: the `p2-link` packet was withdrawn for re-scoping under T160 (per-link admission of recovered connections, no configurable pool bound).
-- Open stops: none from before. Rumors: the P3 and P4 launch questions are ruled (T158, T159); the collision mode's four questions (T23) and the CI `PROPTEST_CASES` number arrive with their lanes' reports; the commit-path packet will carry three judgment calls from its fresh-eyes round (the ceiling on an all-skipped key, the unwind-path wording, one pin of a non-contract); the collision-mode lane's ten stops (variable name, one seed, `ci` tier, cluster weighting, the mark's name, the unreachable production-cfg test, three findings, and whether `test-collision` joins `ci` while red on the findings) are in the coordinator's message of 2026-09-03 and its packet.
+- Open stops from before: the gate lane's syn 2/3 holdout roster and the four lowered crates (its journal's morning brief). Rumors: the P3 and P4 launch questions are ruled (T158, T159); the collision mode's four questions (T23) and the CI `PROPTEST_CASES` number arrive with their lanes' reports; the commit-path packet will carry three judgment calls from its fresh-eyes round (the ceiling on an all-skipped key, the unwind-path wording, one pin of a non-contract); the collision-mode lane's ten stops (variable name, one seed, `ci` tier, cluster weighting, the mark's name, the unreachable production-cfg test, three findings, and whether `test-collision` joins `ci` while red on the findings) are in the coordinator's message of 2026-09-03 and its packet.
 
 ## Open items on main
 
@@ -34,11 +34,11 @@ Lanes run in the order `triage/briefs/README.md` gives; every lane builds and ga
 |---|---|---|
 | p1-proptest-cases | merged | `e27ba5e6` (ruling 109) |
 | p1-harness | merged | `5b0a17d4` (rulings 4, 38, 50, 51, 108); the meter suite's one harness |
-| p1-gate | in review | repairs landed; the fuzzfit breach root-caused to the sweep lowering the guest's `bytes` (ruling 114: the convergence goes upward, root brought to 1.12.1 and the other swept crates likewise); the lane is bisecting to confirm, upgrading, and explaining the mechanism; then its gate and packet |
+| p1-gate | in review | complete (24 commits); two items for Finch (the syn 2/3 holdout roster; four lowered crates to bring up); second fresh-eyes round reading; its gate reads red on audit (the stop) and wasm (the committed fuel seed, until p1-fuzz refits the band) by construction |
 | p2-widths | packet ready | `ba36e970` (51 code commits; two items for Finch's eye inside, no stop) |
 | p2-surface | packet ready | `cad0b75d` (44 code commits; one stop inside: the fuelscape.js caption) |
-| p1-fuzz | not started | stacks on p1-gate when it lands |
-| p1-survivors | not started | stacks on p1-gate after the roster retirement |
+| p1-fuzz | running | overnight, stacked on p1-gate's tip; carries the band refit |
+| p1-survivors | running | overnight, stacked on p1-gate's tip |
 | p1-board | running | overnight, from main `2fe750ac` (rulings 9, 11, 12, 13, 38, 50) |
 | p1-suites | not started | after p1-board |
 | p2-rows | not started | after p1-suites; carries two handoffs from the harness review |

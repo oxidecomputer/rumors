@@ -63,3 +63,18 @@ Each entry: where it came from, what it is, which lane's brief carries it
   not rejections. Route: `p1-suites` (a per-case cost question: the
   suite's cost per draw, or the CI job's case count for those two, is
   the lane's to weigh and report).
+- **`BitsView::bit` on the id walk costs about twice the fuel per bit
+  of the bit slice it replaced.** The gate lane's bisect over the
+  fuzzfit guest names `5d167a63` (the crate-owned `BitsView`): each id
+  tag bit is read through an assert, a bounds-checked byte index, and
+  a shift in `u64`, which a wasm32 guest lowers to several
+  instructions each; `ff_party_decode` reads about 101 fuel per bit
+  against its law's 53 on deep fork chains. The band refit is
+  `p1-fuzz`'s (above); the cost itself is a measured trade for
+  `p8-performance` (a byte cursor for `IdReader::tag`, measured at the
+  parent, ceilings tightened with attribution; ruling 88).
+- **The fuel bands were pinned on 2026-08-04 and never refit; the
+  staleness leg's 0.7 dex tolerance hides 36 kernels moving by more
+  than 0.05 dex.** Route: `p1-fuzz` (its one calibration run under
+  ruling 14 refits every band with the movement attributed; the
+  staleness tolerance is a question for that lane's report).
