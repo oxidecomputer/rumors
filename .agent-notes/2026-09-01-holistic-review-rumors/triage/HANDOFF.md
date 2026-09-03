@@ -218,3 +218,21 @@ vanish verification (`aa22f906227c78b72`, `coordinator/verify-vanish/r3/`)
 and read (`a62d194c21c91e85d`); the sush patch (`a4e36f261a9b926d5`);
 generators' round-1 commit B and annotations (`a15e73d787b3d0171`). The
 before session holds a third fuel-band seed (`cc a072497c…`).
+
+## State at 2026-09-03 14:20 UTC
+
+Packets: `p1-collision-mode` ready (`f6d9a0af`, three stops). Running:
+p2-link round 5 (lane `a6b0b486905b78c33`; the budget test's inert
+leg, a lost sentence, the `rt` comment; packet from its sha after the
+runner re-checks the control); envelope round-2 verification
+(`ad6bf77487cc23a1e`, `verify-envelope/r3/`) and the T168 grid on the
+lane (`ad8747469f2495256`, cells built fresh); vanish round-3
+verification (`a622615e162d51b98`, `verify-vanish/r4/`) and light read
+(`acd87ebd67dc09435`), then its packet against stack parent `9c8ce16c`;
+generators round 2 (`a15e73d787b3d0171`; budgets into `[env]`, the
+tripwire asserting zero rejects, `crates/` under the full rules in the
+budgets commit, 4000 folded in), then verification and a light read;
+its packet against `a34859ed`. Done: p2-link round-4 verification
+(`a35b83f0afbba6837`) and light read (`a81280fa719d14fe7`); the sush
+patch at `locker` (`sush-eval/sush-shape-d-locker.patch`). Rulings
+through T168.
