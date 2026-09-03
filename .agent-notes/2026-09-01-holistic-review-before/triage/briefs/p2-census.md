@@ -56,7 +56,9 @@ worktree, report what you could not do). Specific to this lane:
 - **Dissolve, do not port.** Delete `crates/before/surfacecheck` (and its
   lockfile, its `cargo audit` line, its entries in the justfile's
   detached-workspace lists and the `lockcheck` roster), the `surface-scan`
-  crate and its workspace dependency, `crates/before/src/surface.rs`,
+  crate (`crates/surface-scan`, a workspace member named in the root
+  `Cargo.toml`'s member list and its `[workspace.dependencies]`) and its
+  dependency line in `crates/before/Cargo.toml`, `crates/before/src/surface.rs`,
   `crates/before/src/testing/surface_coverage.rs` and its tests, the
   `surface-totality` and rustdoc-JSON recipes and their CI steps, the
   `rustdoc-types` pin and the justfile header's paragraph about its
