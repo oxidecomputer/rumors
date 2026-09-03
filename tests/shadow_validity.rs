@@ -32,6 +32,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use proptest::prelude::*;
 
 use crate::common::oracle::{readout, version_key};
+use crate::common::overlap::{arb_overlap_schedule_with_shadow, execute_overlap};
 use crate::common::schedule::{
     EventIdx, arb_membership_schedule_with_shadow, arb_schedule_with_shadow, execute_membership,
     execute_with,
@@ -40,6 +41,11 @@ use crate::common::window::arb_window_assignment;
 
 const N_PEERS: std::ops::RangeInclusive<usize> = 2..=8;
 const MAX_EVENTS: usize = 50;
+
+/// The overlap suite's own fleet and event bounds (`tests/session_overlap.rs`),
+/// so the meta-test samples the population the properties run on.
+const OVERLAP_N_PEERS: std::ops::RangeInclusive<usize> = 2..=4;
+const OVERLAP_MAX_EVENTS: usize = 24;
 
 proptest! {
     /// For every peer, the shadow simulator's `observed_log` and
@@ -145,6 +151,52 @@ proptest! {
                     "peer {} live set disagrees with shadow", p,
                 );
             }
+        }
+    }
+
+    /// The overlap-alphabet twin of `shadow_predicts_live_state`.
+    ///
+    /// For every peer, the overlap generator's `Knowledge` shadow
+    /// predicts the `observed_log` and `live` sets the overlap executor
+    /// produces at the end of the schedule (every leftover session
+    /// closed, no quiescence), translated through `resolved_versions`
+    /// back to event indices.
+    #[test]
+    fn overlap_shadow_predicts_live_state(
+        (schedule, shadow) in arb_overlap_schedule_with_shadow(
+            any::<u64>(),
+            OVERLAP_N_PEERS,
+            OVERLAP_MAX_EVENTS,
+        ),
+    ) {
+        let run = execute_overlap(&schedule);
+        let version_to_event_idx: BTreeMap<Vec<u8>, EventIdx> = run
+            .resolved_versions
+            .iter()
+            .map(|(eid, v)| (version_key(v), *eid))
+            .collect();
+
+        for (p, peer) in run.peers.iter().enumerate() {
+            let live_observed: BTreeSet<EventIdx> = peer
+                .observations
+                .iter()
+                .map(|(v, _)| version_to_event_idx[v.as_bytes()])
+                .collect();
+            let predicted_observed: BTreeSet<EventIdx> =
+                shadow.observed_log[p].iter().copied().collect();
+            prop_assert_eq!(
+                live_observed, predicted_observed,
+                "peer {} observation set disagrees with the overlap shadow", p,
+            );
+
+            let live_held: BTreeSet<EventIdx> = readout(&peer.local.snapshot())
+                .into_keys()
+                .map(|k| version_to_event_idx[&k])
+                .collect();
+            prop_assert_eq!(
+                live_held, shadow.live[p].clone(),
+                "peer {} live set disagrees with the overlap shadow", p,
+            );
         }
     }
 }
