@@ -800,3 +800,11 @@ The `p1-survivors` brief quotes ruling 50's Resolution for suanpan-tests-25 (an 
 
 
 Outcome (same night). The tag-pair read landed (`before/p8-tagwalk`, `9f9263b2`): a fixed-sign win on the id walks (fork kernels about 18% less fuel per bit, covers and disjoint 8 to 10%, join 6%, no kernel higher, every meter reading byte-identical). It did not move `ff_party_decode`: `Party::decode` parses through `DsiCursor::read_bit`, not `IdReader`, on both sides of `5d167a63`, so the attribution in ruling 115's preamble was the coordinator's reading error; the commit `5d167a63` is still where the decode kernel's fuel moved, and what inside it did so is an open finding (new-findings.md). The fuzz lane's refit proceeds on the tree with the tag pair.
+
+## Ruling 116 (2026-09-03, afternoon): the span_dominance worst-case rankings are re-pinned
+
+Disposes: the board lane's stop on the `span_dominance` `WORST_RANKINGS` drift (three rows: scan at the default scale, touch at both scales).
+
+Finch's words: "You can re-pin it; it's a liveness floor change, not an algorithm one, is what you mean?"
+
+Decision. The dominance kernel is unchanged on the branch; the old pin was taken through a probe (the decoded version itself) that the kernel refuted on its first comparison, dropping the end cursor before the sweep, so the pinned worst cases described an incomplete walk. The corrected probe (the span's ceiling) forces the full sweep, and the same code reads touch 2.39 to 5.33 per byte (argmax staircase to dense at both scales), scan 8.00 per byte on every family (argmax promo-rearm to dense-suffix at the default scale, a tie), heap hugeleaf 1.06 and 1.19 to 1.00 per byte (argmax unchanged). A measurement correction, not an algorithm change: the board lane re-pins the three rankings with this attribution in the commit, and the board stream reads green at the tip but for nothing.
