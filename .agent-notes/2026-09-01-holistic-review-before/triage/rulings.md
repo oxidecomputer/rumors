@@ -816,3 +816,7 @@ Disposes: the board lane's stop on the shape of the tick calibration (per row ve
 Finch's words: "Per-row ceiling seems fine."
 
 Decision. One ceiling per tick row (`version_tick` and `clock_tick` share one; `version_ticks` has its own), each a multiple of the row's exact live-bits scan floor derived from the worst governed cell of the row at the parent's readings, applied to every cell of the row; the constant's doc says the ceiling binds on the worst family and that the quieter families rest on the global scan constant between the floor and the ceiling. A per-cell pin in the `WORST_RANKINGS` shape is not taken.
+
+## Coordinator note under ruling 117 (2026-09-03, evening): the doc sentence was the coordinator's, and it is false
+
+Finch's words were "Per-row ceiling seems fine." The sentence in the Decision saying the quieter families "rest on the global scan constant between the floor and the ceiling" was the coordinator's proposal, carried into the record as if ruled, and the board lane's scoped re-read showed it mechanically false: live bits are at most eight per input byte, so a row ceiling of 5x (or 9x) the live-bits floor is at most 40 (72) bits per byte against `MAX_SCAN_BITS_PER_INPUT_BYTE` of 96, and the global constant never binds on the tick rows. What holds, and what the constant's doc says: the ceiling binds within x1.25 on the worst family, and the quieter families have headroom up to the same row ceiling. The ruled part, one ceiling per row, stands.
