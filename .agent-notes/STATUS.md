@@ -10,7 +10,7 @@ Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not st
 
 | Plan | Merged | Packet ready | In review | Running | Not started | Ledger rows pending |
 |---|---|---|---|---|---|---|
-| before | 2 of 38 lanes | 0 | 2 | 2 | 32 | 1186 of 1204 |
+| before | 2 of 38 lanes | 0 | 2 | 2 | 32 | 1185 of 1204 |
 | rumors | 10 lanes | 1 | 1 | 3 | 25 briefed (P1 envelope, P2 peer, seven P3, fifteen P4, publication prep) | 874 of 995 |
 
 ## Waiting on Finch
