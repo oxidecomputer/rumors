@@ -41,7 +41,10 @@ SELF_DESCRIBING = re.compile(r"/triage/(annotations|reviews|stops)/")
 
 
 def run(args, cwd):
-    return subprocess.run(args, cwd=cwd, check=True, capture_output=True, text=True).stdout
+    # A lane may add a non-UTF-8 file (a fuzz seed); its diff is the
+    # "Binary files differ" line, and the bytes around it must not abort
+    # the packet.
+    return subprocess.run(args, cwd=cwd, check=True, capture_output=True, text=True, errors="replace").stdout
 
 
 def read_annotations(path):
