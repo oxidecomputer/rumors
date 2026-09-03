@@ -2,7 +2,7 @@
 
 # Triage landing status
 
-Updated: 2026-09-03 13:34 UTC by the rumors session.
+Updated: 2026-09-03 13:42 UTC by the rumors session.
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
 
@@ -62,13 +62,13 @@ Maintained by the rumors session.
 | Lane | State | Note |
 |---|---|---|
 | p1-swarm, p1-conformance, p1-memwatch, p1-gate, p2-codec, p1-renderer, p1-harness-tests, p1-harness-crate, p2-walk, p1-causality | merged | see the queue's Merged section for shas and root files |
-| p2-link | in review | shape (d) at `398b77f2` verified in full; round 4 with the lane; the sush patch re-targeted onto `origin/locker` and verified there (whole crate builds with one disclosed `+ Eq` fold; 4 of 4 link tests pass): T167's condition met; packet after round 4's verification and a light read |
+| p2-link | in review | round 4 landed at `d4324292` (the probe polls unconstrained, with a budget-spending test; `tokio/rt` on the library; the accepted-side pooling test; prose consolidated); final verification and a light read running; packet after; the sush patch verified at `origin/locker`, T167's condition met |
 | p2-commit-path | packet ready | packet `14d0d5fb` on `triage/p2-commit-path` (code tip `5a4559e1`, base `1336daa0`, lane diff identical across the rebase); every acceptance and control run by the verifier; three fresh-eyes rounds; T166 landed; no open stop; commits unsigned by the lock protocol, re-signed at merge |
 | p1-proptest-ci | in review | landed at `a34859ed` (sweep, caselint, release recipe and nextest profile, meter excluded, T157 rewrite); gate clean; the CI number is a stop (recommendation 4000 after p1-generators); verification and packet after p1-generators lands, since the number is set on that tree |
 | p2-vanish-liveness | in review | round 2 at `86cde61c` under verification; round 3 (marker-past bytes as a typed violation instead of a debug assert, the flush-poll departure test, a mechanism-derived floor, a routed-link departure test, T165 prose) with the lane; one stop for Finch (a conformance-suite check for the two `link.rs` obligations) |
 | p1-collision-mode | waiting on Finch | packet `f6d9a0af` (code `35d134fd`, base `d0dcb9f5`), four verification passes, three rounds; three stops; merges after before's `p1-fuzz` refit |
 | p2-deep-geometry | packet ready | packet `f74324a7` on `triage/p2-deep-geometry` (code tip `7e7bae71`, base `7858b35e`, stacked on the collision branch; merges after it); three fresh-eyes rounds, every item verified; its gate runs under the mutex and the verdict is appended when it lands; stops: the shared predicate at integration with vanish-liveness, the conformance floor under the schedule, the residual precedence window, the duplicated-reply stall queued |
-| p1-generators | in review | round 1 landed at `763d45b3` (caselint per-rule roots with `--counts` over `crates/`, RNG-preserving total constructions keeping every seed coupled, `arb_radixes` folded, the `tripwire` recipe in `ci` and the gate, new refused spellings); verification and the round-2 read running; packet after; the budgets commit merges after before's `p2-generators` |
+| p1-generators | in review | round 1 at `763d45b3` verified: holds but for the tripwire, which passes with the budgets removed (default budgets print the same abort strings), and the gate red by construction until before's sweep merges; round 2 (the `[env]` budgets, a zero-reject assertion in the tripwire, seed-coupling honesty with three seeds under replay, `crates/` under the full rules in the budgets commit, T164's 4000 folded in) with the lane |
 | p1-envelope | in review | round 2 with the lane; then the T168 follow-on (the protocol-overhead grid, `briefs/p1-envelope-grid.md`) as further commits on the lane; packet after |
 | p2-peer | not started | after p2-commit-path |
 | p3-dashes, p3-imports, p3-lints, p3-modules, p3-prose-pass, p3-seeds, p3-vocabulary | not started | after every P1 and P2 lane merges; seven open questions for Finch |
