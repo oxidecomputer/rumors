@@ -293,21 +293,34 @@ const fn envelope(peak_heap: usize, limb: Bound, touch: Bound, scan: Bound) -> E
 #[rustfmt::skip]
 mod envelope {
     use super::{band, envelope, whole_input, Envelope};
-    pub const DECODE_DENSE: Envelope                = envelope(120_035,           band(0, 0),            band(4, 2),   whole_input(468_758, 1)); // wire decode is validate + wrap; the payloads ride the word-valued form, so the limb column reads zero and the whole-input scan floor is the liveness signal
-    pub const CMP_DENSE: Envelope                   = envelope( 30_720,           band(0, 0), band(156_254, 93_752),    band(468_760, 281_256)); // the iterative sweep over the Bytes-backed at-rest form (OpenedPair states the pair walk's opening move once); word-valued payloads keep the limb column at zero, and the touch and scan tripwires are the liveness signal
-    pub const JOIN_DENSE: Envelope                  = envelope(130_277,           band(0, 0), band(156_255, 93_753),    band(625_018, 375_010)); // the emit kernel's peak alone: the value-operator cell's lhs clone is a refcount bump, not a byte copy of the operand; word-valued payloads keep the limb column at zero, and the touch and scan tripwires are the liveness signal
-    pub const DECODE_BIGROOT: Envelope              = envelope( 60_090,       band(783, 469),    band(2_348, 1_408),   whole_input(137_512, 1)); // wire decode is validate + wrap; the one wide root magnitude keeps a linear limb record while the word-valued form carries the narrow codes
-    pub const CMP_BIGROOT: Envelope                 = envelope( 40_340,       band(783, 469),   band(14_849, 8_909),     band(137_514, 82_508)); // the iterative sweep over the Bytes-backed at-rest form; the wide root's decode is the limb record
-    pub const JOIN_BIGROOT: Envelope                = envelope( 85_060,     band(1_565, 939),   band(14_850, 8_910),    band(275_028, 165_016)); // the emit kernel's peak alone (the lhs clone is a refcount bump); the wide root decodes on both sides carry the limb record
-    pub const DECODE_HUGELEAF: Envelope             = envelope(122_504,   band(2_443, 1_465),    band(7_327, 4_395),   whole_input(312_503, 1)); // the validating wire decode holds the running height; one wide gamma code's linear limb work
-    pub const JOIN_HUGELEAF: Envelope               = envelope(185_494,   band(4_887, 2_931),    band(7_329, 4_397),    band(625_010, 375_006)); // the emit kernel holds both payload buffers, and the lhs clone is a refcount bump, so the public join's peak is the emit kernel's alone
-    pub const ID_JOIN: Envelope                     = envelope(279_132,           band(0, 0),            band(0, 0), whole_input(3_125_023, 2)); // iterative id walks: frame bits on the heap
-    pub const ID_COVERS: Envelope                   = envelope(     10,           band(0, 0),            band(0, 0), whole_input(1_250_005, 2)); // iterative id walks
-    pub const ID_DISJOINT: Envelope                 = envelope(     10,           band(0, 0),            band(0, 0), whole_input(1_250_005, 2)); // iterative id walks
-    pub const ID_WITHOUT: Envelope                  = envelope(521_110,           band(0, 0),            band(0, 0), whole_input(2_500_005, 1)); // iterative complement over the Bytes-backed at-rest form; dev builds run no shadow re-parse of the diff emission (the differential suites carry the normal-form check)
-    pub const DECODE_CLIFF: Envelope                = envelope(  4_052,         band(88, 52),    band(4_003, 2_401),    whole_input(17_923, 1)); // wire decode is validate + wrap; each cliff crossing's limb work is paid by its own wide stored code
-    pub const CMP_CLIFF: Envelope                   = envelope(  1_330,         band(88, 52),    band(5_284, 3_170),      band(17_925, 10_755)); // the cliff-free sweep (two accumulators, opened once) over the Bytes-backed at-rest form
-    pub const JOIN_CLIFF: Envelope                  = envelope(  5_362,       band(308, 184),    band(5_289, 3_173),      band(35_848, 21_508)); // the emit kernel's peak alone (the lhs clone is a refcount bump); each re-coded tooth's limb work is paid by its comparably-wide input code
+    pub const DECODE_DENSE: Envelope                = envelope(120_035,           band(0, 0),            band(4, 2),    whole_input(468_758, 1)); // wire decode is validate + wrap; the payloads ride the word-valued form, so the limb column reads zero and the whole-input scan floor is the liveness signal
+    pub const CMP_DENSE: Envelope                   = envelope( 30_720,           band(0, 0), band(156_254, 93_752),     band(468_760, 281_256)); // the iterative sweep over the Bytes-backed at-rest form (OpenedPair states the pair walk's opening move once); word-valued payloads keep the limb column at zero, and the touch and scan tripwires are the liveness signal
+    pub const CMP_DENSE_SELF: Envelope              = envelope( 51_200,           band(0, 0), band(156_257, 93_753),     band(937_515, 562_509)); // aligned ties in lockstep to full depth: both streams' bits scanned whole
+    pub const JOIN_DENSE: Envelope                  = envelope(130_277,           band(0, 0), band(156_255, 93_753),     band(625_018, 375_010)); // the emit kernel's peak alone: the value-operator cell's lhs clone is a refcount bump, not a byte copy of the operand; word-valued payloads keep the limb column at zero, and the touch and scan tripwires are the liveness signal
+    pub const DECODE_BIGROOT: Envelope              = envelope( 60_090,       band(783, 469),    band(2_348, 1_408),    whole_input(137_512, 1)); // wire decode is validate + wrap; the one wide root magnitude keeps a linear limb record while the word-valued form carries the narrow codes
+    pub const CMP_BIGROOT: Envelope                 = envelope( 40_340,       band(783, 469),   band(14_849, 8_909),      band(137_514, 82_508)); // the iterative sweep over the Bytes-backed at-rest form; the wide root's decode is the limb record
+    pub const JOIN_BIGROOT: Envelope                = envelope( 85_060,     band(1_565, 939),   band(14_850, 8_910),     band(275_028, 165_016)); // the emit kernel's peak alone (the lhs clone is a refcount bump); the wide root decodes on both sides carry the limb record
+    pub const DECODE_HUGELEAF: Envelope             = envelope(122_504,   band(2_443, 1_465),    band(7_327, 4_395),    whole_input(312_503, 1)); // the validating wire decode holds the running height; one wide gamma code's linear limb work
+    pub const JOIN_HUGELEAF: Envelope               = envelope(185_494,   band(4_887, 2_931),    band(7_329, 4_397),     band(625_010, 375_006)); // the emit kernel holds both payload buffers, and the lhs clone is a refcount bump, so the public join's peak is the emit kernel's alone
+    pub const JOIN_ABSORB: Envelope                 = envelope(270_798,   band(4_887, 2_931), band(163_580, 98_148),   band(1_250_013, 750_007)); // the collapse-heavy extreme: one truncation per level around a held wide code, which absorb never moves
+    pub const ID_JOIN: Envelope                     = envelope(279_132,           band(0, 0),            band(0, 0),  whole_input(3_125_023, 2)); // iterative id walks: frame bits on the heap
+    pub const ID_COVERS: Envelope                   = envelope(     10,           band(0, 0),            band(0, 0),  whole_input(1_250_005, 2)); // iterative id walks
+    pub const ID_DISJOINT: Envelope                 = envelope(     10,           band(0, 0),            band(0, 0),  whole_input(1_250_005, 2)); // iterative id walks
+    pub const ID_WITHOUT: Envelope                  = envelope(521_110,           band(0, 0),            band(0, 0),  whole_input(2_500_005, 1)); // iterative complement over the Bytes-backed at-rest form; dev builds run no shadow re-parse of the diff emission (the differential suites carry the normal-form check)
+    pub const DECODE_CLIFF: Envelope                = envelope(  4_052,         band(88, 52),    band(4_003, 2_401),     whole_input(17_923, 1)); // wire decode is validate + wrap; each cliff crossing's limb work is paid by its own wide stored code
+    pub const CMP_CLIFF: Envelope                   = envelope(  1_330,         band(88, 52),    band(5_284, 3_170),       band(17_925, 10_755)); // the cliff-free sweep (two accumulators, opened once) over the Bytes-backed at-rest form
+    pub const JOIN_CLIFF: Envelope                  = envelope(  5_362,       band(308, 184),    band(5_289, 3_173),       band(35_848, 21_508)); // the emit kernel's peak alone (the lhs clone is a refcount bump); each re-coded tooth's limb work is paid by its comparably-wide input code
+    pub const MEET_CLIFF: Envelope                  = envelope(  4_422,         band(88, 52),    band(5_289, 3_173),       band(23_055, 13_833)); // the pointwise minimum clamps every tooth to the flat operand's height while every delta still crosses the carry boundary in the accumulator
+    pub const DECODE_WIDE_TOOTH: Envelope           = envelope(125_100, band(29_509, 17_705),   band(14_218, 8_530),  whole_input(1_000_480, 1)); // wire decode is validate + wrap; each wide delta's limb work is paid by its own zigzag code, and the adopted buffer prices the wide payloads
+    // CMP_WIDE_TOOTH's deliberately thin heap margin is a change-detector
+    // on the backend's and the accumulator's allocation policies: the
+    // committed Cargo.lock (dashu-int 0.5.0 exact) is what makes the
+    // measurement deterministic, and a cargo update to any other 0.5.x is
+    // a deliberate re-measure event, not noise.
+    pub const CMP_WIDE_TOOTH: Envelope              = envelope(  1_250, band(29_509, 17_705),   band(15_499, 9_299),   band(1_000_483, 600_289)); // each wide delta's limb work paid by its own zigzag code; heap stays at the stacks, the accumulator, and the zero-run ledger's map node
+    pub const JOIN_WIDE_TOOTH: Envelope             = envelope(128_312, band(74_477, 48_534),   band(15_504, 9_302), band(2_000_963, 1_200_577)); // each wide delta re-coded into the output, paid by its own zigzag code
+    pub const MEET_WIDE_TOOTH: Envelope             = envelope(127_087, band(29_509, 17_705),   band(15_504, 9_302),   band(1_005_613, 603_367)); // wide deltas folded but never re-emitted: the collapse discipline at spilled operand widths
+    pub const DECODE_ALT_SPINE: Envelope            = envelope(120_035,           band(0, 0),            band(4, 2),    whole_input(468_758, 1)); // wire decode is validate + wrap; per-level state stays two bits however the descent direction flips
     // Skyline validator rows: the validator's transient is the
     // open-ancestor bit stack plus reallocation growth, bits per level,
     // not frames. Its work is cursor reads end to end (it allocates
@@ -316,19 +329,11 @@ mod envelope {
     // the whole-input floor under it is what a validator that stops
     // reading fails. Decode is validate plus the wrap, so each shape's
     // scan reading equals its validate row's.
-    pub const SKYLINE_VALIDATE_DENSE: Envelope      = envelope( 61_440,           band(0, 0),            band(4, 2),   whole_input(468_758, 1)); // the open-ancestor bit stack; word-valued payloads keep the limb column at zero
-    pub const SKYLINE_VALIDATE_CLIFF: Envelope      = envelope(  1_770,         band(88, 52),    band(4_003, 2_401),    whole_input(17_923, 1)); // the cliff-free accumulator: amortized O(1) per delta
-    pub const SKYLINE_VALIDATE_WIDE_TOOTH: Envelope = envelope(  1_520, band(29_509, 17_705),   band(14_218, 8_530), whole_input(1_000_480, 1)); // each wide delta's limb work is paid by its own zigzag code; heap stays at the bit stack plus the zero-run ledger's map node
-    pub const SKYLINE_VALIDATE_HUGELEAF: Envelope   = envelope( 80_980,   band(2_443, 1_465),    band(7_327, 4_395),   whole_input(312_503, 1)); // one wide decode and one wide accumulator load, both linear in the code's width
-    pub const SKYLINE_VALIDATE_ALT_SPINE: Envelope  = envelope( 61_440,           band(0, 0),            band(4, 2),   whole_input(468_758, 1)); // per-level state stays two bits however the descent direction flips
-    // Skyline decoder rows: validation plus the wrap into storage — the
-    // stored coding is the skyline stream itself, so decode materializes
-    // nothing beyond the copy and stays priced by the wire input.
-    pub const SKYLINE_DECODE_DENSE: Envelope        = envelope( 61_440,           band(0, 0),            band(4, 2),   whole_input(468_758, 1)); // decode is validate + wrap: the wrap allocates the copy once, exactly sized
-    pub const SKYLINE_DECODE_CLIFF: Envelope        = envelope(  2_250,         band(88, 52),    band(4_003, 2_401),    whole_input(17_923, 1)); // decode is validate + wrap: the wrap allocates the copy once, exactly sized
-    pub const SKYLINE_DECODE_WIDE_TOOTH: Envelope   = envelope(125_100, band(29_509, 17_705),   band(14_218, 8_530), whole_input(1_000_480, 1)); // decode is validate + wrap; the once-allocated copy prices the wide payloads
-    pub const SKYLINE_DECODE_HUGELEAF: Envelope     = envelope( 83_440,   band(2_443, 1_465),    band(7_327, 4_395),   whole_input(312_503, 1)); // decode is validate + wrap
-    pub const SKYLINE_DECODE_ALT_SPINE: Envelope    = envelope( 61_440,           band(0, 0),            band(4, 2),   whole_input(468_758, 1)); // decode is validate + wrap: the wrap allocates the copy once, exactly sized
+    pub const SKYLINE_VALIDATE_DENSE: Envelope      = envelope( 61_440,           band(0, 0),            band(4, 2),    whole_input(468_758, 1)); // the open-ancestor bit stack; word-valued payloads keep the limb column at zero
+    pub const SKYLINE_VALIDATE_CLIFF: Envelope      = envelope(  1_770,         band(88, 52),    band(4_003, 2_401),     whole_input(17_923, 1)); // the cliff-free accumulator: amortized O(1) per delta
+    pub const SKYLINE_VALIDATE_WIDE_TOOTH: Envelope = envelope(  1_520, band(29_509, 17_705),   band(14_218, 8_530),  whole_input(1_000_480, 1)); // each wide delta's limb work is paid by its own zigzag code; heap stays at the bit stack plus the zero-run ledger's map node
+    pub const SKYLINE_VALIDATE_HUGELEAF: Envelope   = envelope( 80_980,   band(2_443, 1_465),    band(7_327, 4_395),    whole_input(312_503, 1)); // one wide decode and one wide accumulator load, both linear in the code's width
+    pub const SKYLINE_VALIDATE_ALT_SPINE: Envelope  = envelope( 61_440,           band(0, 0),            band(4, 2),    whole_input(468_758, 1)); // per-level state stays two bits however the descent direction flips
 }
 
 // ─── meter liveness canaries ────────────────────────────────────────────────
@@ -642,6 +647,20 @@ fn party_of(p: &meter::Packed) -> Party {
     Party::decode(&p.bytes[..]).expect("generated shape is strict normal form")
 }
 
+/// An emit kernel's output on two versions' skyline streams, built outside
+/// measurement: the byte-identity leg of the public join and meet rows.
+fn emitted(
+    kernel: fn(
+        meter::skyline::BitsView<'_>,
+        meter::skyline::BitsView<'_>,
+    ) -> meter::skyline::BitsBuf,
+    a: &Version,
+    b: &Version,
+) -> meter::skyline::BitsBuf {
+    let (a, b) = (meter::skyline::encode(a), meter::skyline::encode(b));
+    kernel(meter::skyline::view(&a), meter::skyline::view(&b))
+}
+
 /// Assert a scenario result is consumed, so the operation cannot be
 /// dead-code-eliminated and the walk provably ran to completion.
 fn consumed<T: Debug>(v: T) -> String {
@@ -663,7 +682,8 @@ fn decode_dense_envelope() {
 }
 
 /// Comparing the dense spine against the empty version stays within its
-/// envelope: the iterative sweep over the at-rest form.
+/// envelope: the iterative sweep over the at-rest form, the whole deep
+/// side consumed against one depth-0 plateau.
 #[test]
 fn cmp_dense_envelope() {
     let p = Shape::Dense.packed1(DENSE_DEPTH);
@@ -671,11 +691,35 @@ fn cmp_dense_envelope() {
     let r = metered("cmp_dense", p.bytes.len(), &envelope::CMP_DENSE, || {
         v.partial_cmp(&Version::new())
     });
-    consumed(r);
+    assert_eq!(
+        r,
+        Some(Ordering::Greater),
+        "the dense spine strictly dominates the empty version"
+    );
 }
 
-/// Joining the dense spine with a one-tick version stays within its envelope
-/// (the emit-path cost, linear in nodes).
+/// Comparing the dense spine against a byte-equal, buffer-distinct copy
+/// stays within its envelope: every boundary is an aligned tie, both
+/// cursors advance in lockstep to full depth, and the verdict is Equal
+/// only after both streams are wholly consumed.
+#[test]
+fn cmp_dense_self_envelope() {
+    let p = Shape::Dense.packed1(DENSE_DEPTH);
+    let v = version_of(&p);
+    let w = version_of(&p);
+    let r = metered(
+        "cmp_dense_self",
+        2 * p.bytes.len(),
+        &envelope::CMP_DENSE_SELF,
+        || v.partial_cmp(&w),
+    );
+    assert_eq!(r, Some(Ordering::Equal), "identical streams read equal");
+}
+
+/// Joining the dense spine with a one-tick version stays within its
+/// envelope: the 125k-level walk emits and collapses on path-bit stacks
+/// and one accumulator, with the peak in the emitted stream itself. The
+/// join is the emit kernel's stream, byte for byte.
 #[test]
 fn join_dense_envelope() {
     let p = Shape::Dense.packed1(DENSE_DEPTH);
@@ -684,7 +728,11 @@ fn join_dense_envelope() {
     let joined = metered("join_dense", p.bytes.len(), &envelope::JOIN_DENSE, || {
         &v | &one
     });
-    drop(joined);
+    assert_eq!(
+        meter::skyline::encode(&joined),
+        emitted(meter::skyline::emit::join, &v, &one),
+        "the public join must be the emit kernel's stream"
+    );
 }
 
 /// The flatness pin: `O(|v| + |p| + log n)` as a committed two-point
@@ -955,9 +1003,9 @@ fn decode_bigroot_envelope() {
     drop(v);
 }
 
-/// Comparing bigroot against the empty version stays within its envelope
-/// (today the worst amplifier: per-frame owned path sums, quadratic in the
-/// root magnitude × depth).
+/// Comparing bigroot against the empty version stays within its envelope:
+/// the difference accumulator absorbs the wide first height once, paid by
+/// its own code, and every later delta is small.
 #[test]
 fn cmp_bigroot_envelope() {
     let p = Shape::Bigroot.packed2(BIGROOT_MAGNITUDE_BITS, BIGROOT_DEPTH);
@@ -965,11 +1013,17 @@ fn cmp_bigroot_envelope() {
     let r = metered("cmp_bigroot", p.bytes.len(), &envelope::CMP_BIGROOT, || {
         v.partial_cmp(&Version::new())
     });
-    consumed(r);
+    assert_eq!(
+        r,
+        Some(Ordering::Greater),
+        "bigroot strictly dominates the empty version"
+    );
 }
 
-/// Joining bigroot with a one-tick version stays within its envelope (the
-/// same per-frame path-sum amplification on the combine path).
+/// Joining bigroot with a one-tick version stays within its envelope: the
+/// wide first height is absorbed once, paid by its own code, and every
+/// later delta is small. The join is the emit kernel's stream, byte for
+/// byte.
 #[test]
 fn join_bigroot_envelope() {
     let p = Shape::Bigroot.packed2(BIGROOT_MAGNITUDE_BITS, BIGROOT_DEPTH);
@@ -981,7 +1035,11 @@ fn join_bigroot_envelope() {
         &envelope::JOIN_BIGROOT,
         || &v | &one,
     );
-    drop(joined);
+    assert_eq!(
+        meter::skyline::encode(&joined),
+        emitted(meter::skyline::emit::join, &v, &one),
+        "the public join must be the emit kernel's stream"
+    );
 }
 
 // ─── hugeleaf scenarios ─────────────────────────────────────────────────────
@@ -1021,6 +1079,25 @@ fn join_hugeleaf_envelope() {
     drop(joined);
 }
 
+/// Joining the dense spine with a dominating flat operand stays within its
+/// envelope: the whole output collapses to one leaf through 125k absorb
+/// steps around a held 125k-bit code, linear only because absorb never
+/// moves the held code. The join is the flat operand, byte for byte.
+#[test]
+fn join_absorb_envelope() {
+    let p = Shape::Dense.packed1(DENSE_DEPTH);
+    let q = Shape::Hugeleaf.packed1(HUGELEAF_MAGNITUDE_BITS);
+    let v = version_of(&p);
+    let flat = version_of(&q);
+    let joined = metered(
+        "join_absorb",
+        p.bytes.len() + q.bytes.len(),
+        &envelope::JOIN_ABSORB,
+        || &v | &flat,
+    );
+    assert_eq!(joined, flat, "a dominating flat operand is the whole join");
+}
+
 // ─── boundary comb scenarios ────────────────────────────────────────────────
 
 /// Decoding the boundary comb stays within its envelope (every carry-cliff
@@ -1050,12 +1127,18 @@ fn cmp_cliff_envelope() {
     let r = metered("cmp_cliff", p.bytes.len(), &envelope::CMP_CLIFF, || {
         v.partial_cmp(&Version::new())
     });
-    consumed(r);
+    assert_eq!(
+        r,
+        Some(Ordering::Greater),
+        "the comb strictly dominates the empty version"
+    );
 }
 
 /// Joining the boundary comb with a one-tick version stays within its
-/// envelope (the emit path re-codes every tooth magnitude, each paid for by
-/// a comparably-wide input code).
+/// envelope: the emit path re-codes every tooth magnitude, each paid for
+/// by a comparably-wide input code, and every 3-bit `±1` delta re-emits
+/// across the `2^k` carry boundary at amortized O(1). The join is the
+/// emit kernel's stream, byte for byte.
 #[test]
 fn join_cliff_envelope() {
     let p = Shape::CliffComb.packed2(CLIFF_SCALE, CLIFF_SCALE);
@@ -1064,7 +1147,134 @@ fn join_cliff_envelope() {
     let joined = metered("join_cliff", p.bytes.len(), &envelope::JOIN_CLIFF, || {
         &v | &one
     });
-    drop(joined);
+    assert_eq!(
+        meter::skyline::encode(&joined),
+        emitted(meter::skyline::emit::join, &v, &one),
+        "the public join must be the emit kernel's stream"
+    );
+}
+
+/// Meeting the boundary comb with a one-tick version stays within its
+/// envelope: the pointwise minimum clamps every tooth to the flat operand's
+/// height while every comb delta still crosses the carry boundary in the
+/// accumulator. The meet is the emit kernel's stream, byte for byte.
+#[test]
+fn meet_cliff_envelope() {
+    let p = Shape::CliffComb.packed2(CLIFF_SCALE, CLIFF_SCALE);
+    let v = version_of(&p);
+    let one = Version::try_from(1u64).expect("a one-tick version is valid");
+    let met = metered("meet_cliff", p.bytes.len(), &envelope::MEET_CLIFF, || {
+        &v & &one
+    });
+    assert_eq!(
+        meter::skyline::encode(&met),
+        emitted(meter::skyline::emit::meet, &v, &one),
+        "the public meet must be the emit kernel's stream"
+    );
+}
+
+// ─── wide-tooth comb scenarios ────────────────────────────────────────────
+//
+// The wide-tooth comb: every skyline delta is a `±2^w` operand wider than
+// any machine word, still oscillating across the `2^k` cliff, so limb
+// work must stay linear per input bit at every tooth width.
+
+/// Decoding the wide-tooth comb stays within its envelope: each wide
+/// delta's limb work is paid by its own zigzag code, and the once-adopted
+/// buffer prices the wide payloads.
+#[test]
+fn decode_wide_tooth_envelope() {
+    let p = Shape::WideToothComb.packed3(CLIFF_SCALE, WIDE_TOOTH_WIDTH_BITS, CLIFF_SCALE);
+    let wire = version_of(&p).encode();
+    let v = metered(
+        "decode_wide_tooth",
+        wire.len(),
+        &envelope::DECODE_WIDE_TOOTH,
+        || Version::decode(&wire[..]).expect("a stored version's wire bytes decode"),
+    );
+    drop(v);
+}
+
+/// Comparing the wide-tooth comb against the empty version stays within
+/// its envelope: each `±2^w` delta is a wide operand paid by its own
+/// zigzag code.
+#[test]
+fn cmp_wide_tooth_envelope() {
+    let p = Shape::WideToothComb.packed3(CLIFF_SCALE, WIDE_TOOTH_WIDTH_BITS, CLIFF_SCALE);
+    let v = version_of(&p);
+    let r = metered(
+        "cmp_wide_tooth",
+        p.bytes.len(),
+        &envelope::CMP_WIDE_TOOTH,
+        || v.partial_cmp(&Version::new()),
+    );
+    assert_eq!(
+        r,
+        Some(Ordering::Greater),
+        "the wide-tooth comb strictly dominates the empty version"
+    );
+}
+
+/// Joining the wide-tooth comb with a one-tick version stays within its
+/// envelope: each `±2^w` delta is a wide operand re-coded into the
+/// output, paid by its own zigzag code. The join is the emit kernel's
+/// stream, byte for byte.
+#[test]
+fn join_wide_tooth_envelope() {
+    let p = Shape::WideToothComb.packed3(CLIFF_SCALE, WIDE_TOOTH_WIDTH_BITS, CLIFF_SCALE);
+    let v = version_of(&p);
+    let one = Version::try_from(1u64).expect("a one-tick version is valid");
+    let joined = metered(
+        "join_wide_tooth",
+        p.bytes.len(),
+        &envelope::JOIN_WIDE_TOOTH,
+        || &v | &one,
+    );
+    assert_eq!(
+        meter::skyline::encode(&joined),
+        emitted(meter::skyline::emit::join, &v, &one),
+        "the public join must be the emit kernel's stream"
+    );
+}
+
+/// Meeting the wide-tooth comb with a one-tick version stays within its
+/// envelope: wide deltas are folded but never re-emitted (the flat side
+/// wins everywhere), so the collapse discipline runs at spilled operand
+/// widths. The meet is the emit kernel's stream, byte for byte.
+#[test]
+fn meet_wide_tooth_envelope() {
+    let p = Shape::WideToothComb.packed3(CLIFF_SCALE, WIDE_TOOTH_WIDTH_BITS, CLIFF_SCALE);
+    let v = version_of(&p);
+    let one = Version::try_from(1u64).expect("a one-tick version is valid");
+    let met = metered(
+        "meet_wide_tooth",
+        p.bytes.len(),
+        &envelope::MEET_WIDE_TOOTH,
+        || &v & &one,
+    );
+    assert_eq!(
+        meter::skyline::encode(&met),
+        emitted(meter::skyline::emit::meet, &v, &one),
+        "the public meet must be the emit kernel's stream"
+    );
+}
+
+// ─── alternating spine scenarios ──────────────────────────────────────────
+
+/// Decoding the alternating-binary spine stays within its envelope: the
+/// direction of descent flips every level, and per-level state stays two
+/// bits, not a frame.
+#[test]
+fn decode_alt_spine_envelope() {
+    let p = Shape::AltSpine.packed1(DENSE_DEPTH);
+    let wire = version_of(&p).encode();
+    let v = metered(
+        "decode_alt_spine",
+        wire.len(),
+        &envelope::DECODE_ALT_SPINE,
+        || Version::decode(&wire[..]).expect("a stored version's wire bytes decode"),
+    );
+    drop(v);
 }
 
 // ─── rank scenarios ─────────────────────────────────────────────────────────
@@ -1221,15 +1431,12 @@ fn rank_sum_mixed_envelope() {
 
 // ─── skyline codec scenarios ────────────────────────────────────────────────
 //
-// The skyline validator and decoder over the adversarial event families,
-// with the stream transcoded outside measurement. The validator rows pin
-// the validator's transient — ~2 bits of open-ancestor stack per
-// level plus the cliff-free accumulator — denominated against skyline
-// input bytes; the decoder rows add the transcode back to the packed
-// form, whose materialized heights and floors are priced by that packed
-// output (on the comb it is quadratically larger than the skyline input,
-// so no transcode can be skyline-linear; the validator is the piece that
-// carries the wire-bit-linear claim).
+// The skyline validator over the adversarial event families, with the
+// stream transcoded outside measurement. The rows pin the validator's
+// transient (~2 bits of open-ancestor stack per level plus the
+// cliff-free accumulator), denominated against skyline input bytes: the
+// validator is the piece that carries the wire-bit-linear claim, and the
+// public decode rows price the wrap beside it.
 
 /// The skyline stream of a packed family shape, built outside measurement.
 fn skyline_of(p: &meter::Packed) -> meter::skyline::BitsBuf {
@@ -1356,411 +1563,26 @@ fn stopped_validator_fails_the_validate_row() {
     );
 }
 
-/// The skyline decoder on the dense spine stays within its envelope (the
-/// transcode materializes per-node floors, priced by the packed output).
+/// The skyline decoder round-trips every envelope family:
+/// `decode(encode(v)) == v` on the dense spine, the boundary comb, the
+/// wide-tooth comb, hugeleaf, and the alternating spine.
 #[test]
-fn skyline_decode_dense_envelope() {
-    let p = Shape::Dense.packed1(DENSE_DEPTH);
-    let enc = skyline_of(&p);
-    let v = metered(
-        "skyline_decode_dense",
-        enc.as_raw_slice().len(),
-        &envelope::SKYLINE_DECODE_DENSE,
-        || meter::skyline::decode(meter::skyline::view(&enc)).expect("canonical"),
-    );
-    assert_eq!(v, version_of(&p), "the transcode round-trips");
-}
-
-/// The skyline decoder on the boundary comb stays within its envelope.
-///
-/// The packed output stores a fresh `gamma(2^k − 1)` per tooth, so the
-/// materialized heights and floors are output-sized — quadratically above
-/// the skyline input, linearly within the packed form being rebuilt.
-#[test]
-fn skyline_decode_cliff_envelope() {
-    let p = Shape::CliffComb.packed2(CLIFF_SCALE, CLIFF_SCALE);
-    let enc = skyline_of(&p);
-    let v = metered(
-        "skyline_decode_cliff",
-        enc.as_raw_slice().len(),
-        &envelope::SKYLINE_DECODE_CLIFF,
-        || meter::skyline::decode(meter::skyline::view(&enc)).expect("canonical"),
-    );
-    assert_eq!(v, version_of(&p), "the transcode round-trips");
-}
-
-/// The skyline decoder on the wide-tooth comb stays within its envelope
-/// (wide heights and floors, output-priced like the boundary comb's).
-#[test]
-fn skyline_decode_wide_tooth_envelope() {
-    let p = Shape::WideToothComb.packed3(CLIFF_SCALE, WIDE_TOOTH_WIDTH_BITS, CLIFF_SCALE);
-    let enc = skyline_of(&p);
-    let v = metered(
-        "skyline_decode_wide_tooth",
-        enc.as_raw_slice().len(),
-        &envelope::SKYLINE_DECODE_WIDE_TOOTH,
-        || meter::skyline::decode(meter::skyline::view(&enc)).expect("canonical"),
-    );
-    assert_eq!(v, version_of(&p), "the transcode round-trips");
-}
-
-/// The skyline decoder on the hugeleaf analog stays within its envelope
-/// (one wide height, one wide floor, one wide re-emitted gamma code).
-#[test]
-fn skyline_decode_hugeleaf_envelope() {
-    let p = Shape::Hugeleaf.packed1(HUGELEAF_MAGNITUDE_BITS);
-    let enc = skyline_of(&p);
-    let v = metered(
-        "skyline_decode_hugeleaf",
-        enc.as_raw_slice().len(),
-        &envelope::SKYLINE_DECODE_HUGELEAF,
-        || meter::skyline::decode(meter::skyline::view(&enc)).expect("canonical"),
-    );
-    assert_eq!(v, version_of(&p), "the transcode round-trips");
-}
-
-/// The skyline decoder on the alternating-binary spine stays within its
-/// envelope (small heights and floors, one per node, output-priced).
-#[test]
-fn skyline_decode_alt_spine_envelope() {
-    let p = Shape::AltSpine.packed1(DENSE_DEPTH);
-    let enc = skyline_of(&p);
-    let v = metered(
-        "skyline_decode_alt_spine",
-        enc.as_raw_slice().len(),
-        &envelope::SKYLINE_DECODE_ALT_SPINE,
-        || meter::skyline::decode(meter::skyline::view(&enc)).expect("canonical"),
-    );
-    assert_eq!(v, version_of(&p), "the transcode round-trips");
-}
-
-// ─── skyline comparison sweep scenarios ─────────────────────────────────────
-//
-// The comparison sweep over skyline streams: one merge of the two leaf
-// sequences on two path-bit stacks and one cliff-free accumulator, no
-// recursion anywhere. Streams are transcoded outside measurement. Each
-// family scenario compares the shape against the empty version — the
-// shallow-operand shape, where the whole deep side is consumed
-// iteratively against a single depth-0 plateau — and the self scenario
-// compares identical dense streams, so every boundary is an aligned tie
-// and both cursors advance in lockstep to full depth. The sweep's work is
-// dominated by stream reads that allocate nothing, recurse nothing, and
-// (off the cliff families) do almost no arithmetic, so the scan column is
-// the one that sees it.
-
-// Pins per the file doc's convention; each row's trailing comment states
-// the mechanism that prices it.
-#[rustfmt::skip]
-mod sweep_env {
-    use super::{band, envelope, Envelope};
-    pub const SKYLINE_CMP_DENSE: Envelope      = envelope(30_720,           band(0, 0), band(156_254, 93_752),   band(468_760, 281_256)); // path-bit stacks and one accumulator; word-valued payloads keep the limb column at zero
-    pub const SKYLINE_CMP_DENSE_SELF: Envelope = envelope(51_200,           band(0, 0), band(156_257, 93_753),   band(937_515, 562_509)); // aligned ties in lockstep to full depth: both streams' bits scanned whole
-    pub const SKYLINE_CMP_BIGROOT: Envelope    = envelope(39_540,       band(783, 469),   band(14_849, 8_909),    band(137_514, 82_508)); // the wide first height absorbed once, paid by its own code
-    pub const SKYLINE_CMP_CLIFF: Envelope      = envelope( 1_330,         band(88, 52),    band(5_284, 3_170),     band(17_925, 10_755)); // the cliff-free accumulator: amortized O(1) per crossing (the shared emission-sweep step holds each consumed delta; OpenedPair states the opening move once)
-    // SKYLINE_CMP_WIDE_TOOTH's deliberately thin heap margin is a
-    // change-detector on the backend's and the accumulator's allocation
-    // policies: the committed Cargo.lock (dashu-int 0.5.0 exact) is what
-    // makes the measurement deterministic, and a cargo update to any other
-    // 0.5.x is a deliberate re-measure event, not noise.
-    pub const SKYLINE_CMP_WIDE_TOOTH: Envelope = envelope( 1_250, band(29_509, 17_705),   band(15_499, 9_299), band(1_000_483, 600_289)); // each wide delta's limb work paid by its own zigzag code; heap stays at the stacks, the accumulator, and the zero-run ledger's map node
-}
-
-/// The empty version's two-bit skyline stream: the shallow operand of
-/// the family cmp scenarios.
-fn skyline_empty() -> meter::skyline::BitsBuf {
-    meter::skyline::encode(&Version::new())
-}
-
-/// The combined operand bytes of a sweep scenario.
-fn sweep_input_bytes(a: &meter::skyline::BitsBuf, b: &meter::skyline::BitsBuf) -> usize {
-    a.as_raw_slice().len() + b.as_raw_slice().len()
-}
-
-/// The sweep on the dense spine against the empty version stays within
-/// its envelope.
-///
-/// The deep side's 125k levels cost path *bits* (heap in the path stack),
-/// consumed iteratively against one depth-0 plateau.
-#[test]
-fn skyline_cmp_dense_envelope() {
-    let a = skyline_of(&Shape::Dense.packed1(DENSE_DEPTH));
-    let b = skyline_empty();
-    let r = metered(
-        "skyline_cmp_dense",
-        sweep_input_bytes(&a, &b),
-        &sweep_env::SKYLINE_CMP_DENSE,
-        || meter::skyline::sweep::causal_cmp(meter::skyline::view(&a), meter::skyline::view(&b)),
-    );
-    assert_eq!(
-        r,
-        Some(Ordering::Greater),
-        "the dense spine strictly dominates the empty version"
-    );
-}
-
-/// The sweep on two identical dense streams stays within its envelope.
-///
-/// Every boundary is an aligned tie, both cursors advance in lockstep to
-/// full depth, and the verdict is Equal only after both streams are
-/// wholly consumed (no early exit anywhere).
-#[test]
-fn skyline_cmp_dense_self_envelope() {
-    let a = skyline_of(&Shape::Dense.packed1(DENSE_DEPTH));
-    let b = a.clone();
-    let r = metered(
-        "skyline_cmp_dense_self",
-        sweep_input_bytes(&a, &b),
-        &sweep_env::SKYLINE_CMP_DENSE_SELF,
-        || meter::skyline::sweep::causal_cmp(meter::skyline::view(&a), meter::skyline::view(&b)),
-    );
-    assert_eq!(r, Some(Ordering::Equal), "identical streams read equal");
-}
-
-/// The sweep on bigroot against the empty version stays within its
-/// envelope: the difference accumulator absorbs the wide first height
-/// once (paid by its own code) and every later delta is small.
-#[test]
-fn skyline_cmp_bigroot_envelope() {
-    let a = skyline_of(&Shape::Bigroot.packed2(BIGROOT_MAGNITUDE_BITS, BIGROOT_DEPTH));
-    let b = skyline_empty();
-    let r = metered(
-        "skyline_cmp_bigroot",
-        sweep_input_bytes(&a, &b),
-        &sweep_env::SKYLINE_CMP_BIGROOT,
-        || meter::skyline::sweep::causal_cmp(meter::skyline::view(&a), meter::skyline::view(&b)),
-    );
-    assert_eq!(
-        r,
-        Some(Ordering::Greater),
-        "bigroot strictly dominates the empty version"
-    );
-}
-
-/// The sweep on the boundary comb against the empty version stays within
-/// its envelope.
-///
-/// Every 3-bit `±1` delta drives the running difference across the `2^k`
-/// carry boundary, and the accumulator keeps each crossing amortized O(1)
-/// (the flatness pin below is the cross-scale witness).
-#[test]
-fn skyline_cmp_cliff_envelope() {
-    let a = skyline_of(&Shape::CliffComb.packed2(CLIFF_SCALE, CLIFF_SCALE));
-    let b = skyline_empty();
-    let r = metered(
-        "skyline_cmp_cliff",
-        sweep_input_bytes(&a, &b),
-        &sweep_env::SKYLINE_CMP_CLIFF,
-        || meter::skyline::sweep::causal_cmp(meter::skyline::view(&a), meter::skyline::view(&b)),
-    );
-    assert_eq!(
-        r,
-        Some(Ordering::Greater),
-        "the comb strictly dominates the empty version"
-    );
-}
-
-/// The sweep on the wide-tooth comb against the empty version stays
-/// within its envelope.
-///
-/// Each `±2^w` delta is a genuinely wide operand paid by its own zigzag
-/// code, so limb work stays linear per input bit at every tooth width.
-#[test]
-fn skyline_cmp_wide_tooth_envelope() {
-    let a =
-        skyline_of(&Shape::WideToothComb.packed3(CLIFF_SCALE, WIDE_TOOTH_WIDTH_BITS, CLIFF_SCALE));
-    let b = skyline_empty();
-    let r = metered(
-        "skyline_cmp_wide_tooth",
-        sweep_input_bytes(&a, &b),
-        &sweep_env::SKYLINE_CMP_WIDE_TOOTH,
-        || meter::skyline::sweep::causal_cmp(meter::skyline::view(&a), meter::skyline::view(&b)),
-    );
-    assert_eq!(
-        r,
-        Some(Ordering::Greater),
-        "the wide-tooth comb strictly dominates the empty version"
-    );
-}
-
-// ─── skyline join/meet emission scenarios ───────────────────────────────────
-//
-// The emission sweep over the same adversarial families: pointwise
-// max/min re-delta-coded through the collapsing output builder, the
-// measured result held alive so every peak includes the emitted stream.
-// The columns carry the emission contract: heap in the cursor paths, the
-// builder's bit stacks, and the output itself; limb work linear per input
-// bit through the accumulator; and scanned-plus-written bits linear in
-// the streams. The absorb row is
-// the builder's collapse-heavy extreme: a flat dominating operand over
-// the dense spine collapses the whole output to one leaf, one truncation
-// per level around a held wide code — the shape whose cost a re-copying
-// collapse discipline would make quadratic in depth times code width.
-
-// Pins per the file doc's convention; each row's trailing comment states
-// the mechanism that prices it.
-#[rustfmt::skip]
-mod emit_env {
-    use super::{band, envelope, Envelope};
-    pub const SKYLINE_JOIN_DENSE: Envelope      = envelope(130_277,           band(0, 0), band(156_255, 93_753),     band(625_018, 375_010)); // the peak is the emitted stream itself; word-valued payloads keep the limb column at zero
-    pub const SKYLINE_JOIN_ABSORB: Envelope     = envelope(270_798,   band(4_887, 2_931), band(163_580, 98_148),   band(1_250_013, 750_007)); // the collapse-heavy extreme: one truncation per level around a held wide code, which absorb never moves
-    pub const SKYLINE_JOIN_BIGROOT: Envelope    = envelope( 85_060,     band(1_565, 939),   band(14_850, 8_910),     band(275_028, 165_016)); // the wide first height absorbed once, paid by its own code
-    pub const SKYLINE_JOIN_CLIFF: Envelope      = envelope(  5_362,       band(308, 184),    band(5_289, 3_173),       band(35_848, 21_508)); // every crossing re-emitted at amortized O(1) through the accumulator
-    pub const SKYLINE_JOIN_WIDE_TOOTH: Envelope = envelope(128_312, band(74_477, 44_685),   band(15_504, 9_302), band(2_000_963, 1_200_577)); // each wide delta re-coded into the output, paid by its own zigzag code
-    pub const SKYLINE_MEET_CLIFF: Envelope      = envelope(  4_422,         band(88, 52),    band(5_289, 3_173),       band(23_055, 13_833)); // the absorb cascade collapses to the flat leaf while every delta still crosses the carry boundary in the accumulator
-    pub const SKYLINE_MEET_WIDE_TOOTH: Envelope = envelope(127_732, band(29_512, 17_706),   band(15_504, 9_302),   band(1_005_613, 603_367)); // wide deltas folded but never re-emitted: the collapse discipline at spilled operand widths
-}
-
-/// The one-tick version's skyline stream: the shallow operand of the
-/// family join/meet scenarios, mirroring the packed-form join rows.
-fn skyline_one_tick() -> meter::skyline::BitsBuf {
-    let one = Version::try_from(1u64).expect("a one-tick version is valid");
-    meter::skyline::encode(&one)
-}
-
-/// One family shape and the packed-form oracle's answer against the
-/// one-tick version, both as skyline streams built outside measurement,
-/// so every scenario asserts byte-identity after its sweep.
-fn skyline_oracle(
-    p: &meter::Packed,
-    join: bool,
-) -> (meter::skyline::BitsBuf, meter::skyline::BitsBuf) {
-    let v = version_of(p);
-    let one = Version::try_from(1u64).expect("a one-tick version is valid");
-    let out = if join { &v | &one } else { &v & &one };
-    (meter::skyline::encode(&v), meter::skyline::encode(&out))
-}
-
-/// Joining the dense spine's skyline with a one-tick stream stays within
-/// its envelope.
-///
-/// The 125k-level walk emits and collapses on path-bit stacks and one
-/// accumulator, with the peak in the emitted stream itself.
-#[test]
-fn skyline_join_dense_envelope() {
-    let p = Shape::Dense.packed1(DENSE_DEPTH);
-    let (a, expected) = skyline_oracle(&p, true);
-    let b = skyline_one_tick();
-    let out = metered(
-        "skyline_join_dense",
-        sweep_input_bytes(&a, &b),
-        &emit_env::SKYLINE_JOIN_DENSE,
-        || meter::skyline::emit::join(meter::skyline::view(&a), meter::skyline::view(&b)),
-    );
-    assert_eq!(out, expected, "the emitted join must match the oracle");
-}
-
-/// Joining the dense spine's skyline with a dominating flat operand
-/// stays within its envelope.
-///
-/// The whole output collapses to one leaf through 125k absorb steps
-/// around a held 125k-bit code, so this row is linear only because absorb
-/// never moves the held code.
-#[test]
-fn skyline_join_absorb_envelope() {
-    let p = Shape::Dense.packed1(DENSE_DEPTH);
-    let flat = version_of(&Shape::Hugeleaf.packed1(HUGELEAF_MAGNITUDE_BITS));
-    let a = skyline_of(&p);
-    let b = meter::skyline::encode(&flat);
-    let expected = b.clone();
-    let out = metered(
-        "skyline_join_absorb",
-        sweep_input_bytes(&a, &b),
-        &emit_env::SKYLINE_JOIN_ABSORB,
-        || meter::skyline::emit::join(meter::skyline::view(&a), meter::skyline::view(&b)),
-    );
-    assert_eq!(out, expected, "a dominating flat operand is the whole join");
-}
-
-/// Joining bigroot's skyline with a one-tick stream stays within its
-/// envelope: the wide first height is absorbed once, paid by its own
-/// code, and every later delta is small.
-#[test]
-fn skyline_join_bigroot_envelope() {
-    let p = Shape::Bigroot.packed2(BIGROOT_MAGNITUDE_BITS, BIGROOT_DEPTH);
-    let (a, expected) = skyline_oracle(&p, true);
-    let b = skyline_one_tick();
-    let out = metered(
-        "skyline_join_bigroot",
-        sweep_input_bytes(&a, &b),
-        &emit_env::SKYLINE_JOIN_BIGROOT,
-        || meter::skyline::emit::join(meter::skyline::view(&a), meter::skyline::view(&b)),
-    );
-    assert_eq!(out, expected, "the emitted join must match the oracle");
-}
-
-/// Joining the boundary comb's skyline with a one-tick stream stays
-/// within its envelope: every 3-bit `±1` delta re-emits across the
-/// `2^k` carry boundary, and the accumulator keeps each crossing
-/// amortized O(1).
-#[test]
-fn skyline_join_cliff_envelope() {
-    let p = Shape::CliffComb.packed2(CLIFF_SCALE, CLIFF_SCALE);
-    let (a, expected) = skyline_oracle(&p, true);
-    let b = skyline_one_tick();
-    let out = metered(
-        "skyline_join_cliff",
-        sweep_input_bytes(&a, &b),
-        &emit_env::SKYLINE_JOIN_CLIFF,
-        || meter::skyline::emit::join(meter::skyline::view(&a), meter::skyline::view(&b)),
-    );
-    assert_eq!(out, expected, "the emitted join must match the oracle");
-}
-
-/// Joining the wide-tooth comb's skyline with a one-tick stream stays
-/// within its envelope: each `±2^w` delta is a genuinely wide operand
-/// re-coded into the output, paid by its own zigzag code.
-#[test]
-fn skyline_join_wide_tooth_envelope() {
-    let p = Shape::WideToothComb.packed3(CLIFF_SCALE, WIDE_TOOTH_WIDTH_BITS, CLIFF_SCALE);
-    let (a, expected) = skyline_oracle(&p, true);
-    let b = skyline_one_tick();
-    let out = metered(
-        "skyline_join_wide_tooth",
-        sweep_input_bytes(&a, &b),
-        &emit_env::SKYLINE_JOIN_WIDE_TOOTH,
-        || meter::skyline::emit::join(meter::skyline::view(&a), meter::skyline::view(&b)),
-    );
-    assert_eq!(out, expected, "the emitted join must match the oracle");
-}
-
-/// Meeting the boundary comb's skyline with a one-tick stream stays
-/// within its envelope.
-///
-/// The output collapses to the flat one-tick leaf through the absorb
-/// cascade while every comb delta still crosses the carry boundary in the
-/// accumulator.
-#[test]
-fn skyline_meet_cliff_envelope() {
-    let p = Shape::CliffComb.packed2(CLIFF_SCALE, CLIFF_SCALE);
-    let (a, expected) = skyline_oracle(&p, false);
-    let b = skyline_one_tick();
-    let out = metered(
-        "skyline_meet_cliff",
-        sweep_input_bytes(&a, &b),
-        &emit_env::SKYLINE_MEET_CLIFF,
-        || meter::skyline::emit::meet(meter::skyline::view(&a), meter::skyline::view(&b)),
-    );
-    assert_eq!(out, expected, "the emitted meet must match the oracle");
-}
-
-/// Meeting the wide-tooth comb's skyline with a one-tick stream stays
-/// within its envelope.
-///
-/// Wide deltas are folded but never re-emitted (the flat side wins
-/// everywhere), so the collapse discipline runs at spilled operand
-/// widths.
-#[test]
-fn skyline_meet_wide_tooth_envelope() {
-    let p = Shape::WideToothComb.packed3(CLIFF_SCALE, WIDE_TOOTH_WIDTH_BITS, CLIFF_SCALE);
-    let (a, expected) = skyline_oracle(&p, false);
-    let b = skyline_one_tick();
-    let out = metered(
-        "skyline_meet_wide_tooth",
-        sweep_input_bytes(&a, &b),
-        &emit_env::SKYLINE_MEET_WIDE_TOOTH,
-        || meter::skyline::emit::meet(meter::skyline::view(&a), meter::skyline::view(&b)),
-    );
-    assert_eq!(out, expected, "the emitted meet must match the oracle");
+fn skyline_decode_round_trips_the_families() {
+    for p in [
+        Shape::Dense.packed1(DENSE_DEPTH),
+        Shape::CliffComb.packed2(CLIFF_SCALE, CLIFF_SCALE),
+        Shape::WideToothComb.packed3(CLIFF_SCALE, WIDE_TOOTH_WIDTH_BITS, CLIFF_SCALE),
+        Shape::Hugeleaf.packed1(HUGELEAF_MAGNITUDE_BITS),
+        Shape::AltSpine.packed1(DENSE_DEPTH),
+    ] {
+        let v = version_of(&p);
+        let enc = meter::skyline::encode(&v);
+        assert_eq!(
+            meter::skyline::decode(meter::skyline::view(&enc)).expect("canonical"),
+            v,
+            "the transcode round-trips"
+        );
+    }
 }
 
 // ─── skyline text kernel scenarios ──────────────────────────────────────────
