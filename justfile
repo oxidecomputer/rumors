@@ -9,9 +9,11 @@
 # The gate runs every check a commit must pass: build-free lints first,
 # then every building leg concurrently (see the comment above `gate` for
 # the stream grouping and why parallelism cannot move a verdict).
-# `ci` builds the artifacts the gate doesn't reach (the feature matrix, wasm,
-# bench builds, the viz bundle), exactly as GitHub CI builds them; `all` adds
-# what CI cannot run (the fuzz smoke and the formal tier). Neither sweep
+# `ci` is the recipe GitHub CI's `ci` job runs: the gate's lints and tests
+# plus the artifacts the gate doesn't reach (the feature matrix, wasm, bench
+# builds, the viz bundle). `all` adds the coverage legs (CI's `coverage`
+# job) and what CI cannot run (the fuzz smoke, the formal tier, the bench
+# judge). Neither sweep
 # repeats the gate's instrument legs — the fuel bands, the board verdicts
 # and pins, and surface totality run in `just gate`, and GitHub CI's
 # `instruments` job re-runs the counter-based subset (the workflow file
@@ -987,8 +989,9 @@ worst-cases-pin:
 # ── the no-rot sweep ─────────────────────────────────────────────────────────
 # `ci` is the build-everything tier: formatting and lints, the feature matrix,
 # wasm, docs, the full test+doctest run, bench builds, the fuzz-target *build*,
-# and the viz bundle, ordered cheap-first so failures surface early. GitHub CI
-# runs exactly this. Neither `ci` nor `all` runs the gate's instrument legs —
+# and the viz bundle, ordered cheap-first so failures surface early. GitHub
+# CI's `ci` job runs exactly this. Neither `ci` nor `all` runs the gate's
+# instrument legs —
 # the fuel bands, the fuelscape pins, the board's acceptance verdicts and
 # ranking pin, and surface
 # totality run in `just gate` (its recipe line is the
@@ -1000,7 +1003,8 @@ worst-cases-pin:
 # coverage section below): too slow for the gate, judged against the
 # curated kernel pin.
 #
-# `all` is `ci` plus what CI cannot run: a short libFuzzer smoke (poor
+# `all` is `ci` plus the coverage legs, so the local ladder cannot pass
+# while CI's `coverage` job fails, plus what CI cannot run: a short libFuzzer smoke (poor
 # per-commit spend), the formal tier (the runner has no Lean toolchain) —
 # the kernel-checked proofs, the eventdag oracle/schedule gate, and the
 # muxprobe matrix gate — and the bench judge's two legs: the roster-mode
@@ -1009,12 +1013,12 @@ worst-cases-pin:
 # tripwire, so the judge's red path rides every sweep.
 
 # Build everything (no fuzz run): the no-rot sweep as CI runs it.
-ci: fmt-check doclint testdoc workflowlint digestshare readme-check fuelscape-claims mutants-list clippy clippy-default features wasm-check docs docs-internal docs-docsrs test-all citecheck doctest bench-build fuzz-build fuelscape-verify viz
+ci: fmt-check doclint testdoc workflowlint manifestlint digestshare readme-check fuelscape-claims mutants-list clippy clippy-default features wasm-check docs docs-internal docs-docsrs test-all citecheck doctest bench-build fuzz-build fuelscape-verify viz
 
-# Everything: the no-rot sweep, plus the fuzz smoke, the formal tier, and the bench judge.
-all: ci (fuzz fuzz_smoke_secs) lean eventdag muxprobe bench-judge bench-judge-tripwire
+# Everything: the no-rot sweep, the coverage legs, the fuzz smoke, the formal tier, and the bench judge.
+all: ci coverage-kernel coverage-kernel-branch (fuzz fuzz_smoke_secs) lean eventdag muxprobe bench-judge bench-judge-tripwire
 
-# ── the coverage legs (CI cadence; the gate never runs them) ─────────────────
+# ── the coverage legs (`all` and CI cadence; the gate never runs them) ───────
 # GOAL: no skyline-kernel arm goes silently unexercised — every uncovered
 # kernel line and every untaken branch direction is either curated (a
 # panic-arm or an unreachable arm, its argument stated at the entry) or a
@@ -1026,7 +1030,8 @@ all: ci (fuzz fuzz_smoke_secs) lean eventdag muxprobe bench-judge bench-judge-tr
 # Deliberately NOT a global coverage threshold: the worst artifact passing a
 # threshold is a suite that pads covered lines elsewhere; the pin names lines.
 #
-# CI legs, never gate legs: each run is a full instrumented rebuild plus the
+# Sweep legs (`all` and CI's `coverage` job), never gate legs: each run is a
+# full instrumented rebuild plus the
 # whole suite under instrumentation — minutes, not gate seconds. The line leg
 # runs on stable; branch instrumentation needs the pinned nightly (the same
 # toolchain-pin argument as the other nightly legs, and each leg judges only
