@@ -36,3 +36,41 @@ crates/before/tests/meter.rs	654	envelopes-a-8	4	The byte-identity leg the retir
 crates/before/tests/meter.rs	690	envelopes-a-8	4	The retired twin's verdict leg (`Some(Greater)`) replaces `consumed(r)`; likewise on `cmp_bigroot` and `cmp_cliff`. `cmp_bigroot`'s doc dropped "today the worst amplifier: ... quadratic", which described a replaced implementation (ruling 45).
 crates/before/tests/meter.rs	1587	envelopes-a-11	4	The round-trip equality the dissolved decoder rows carried stays as a plain unit test, since `skyline::decode` remains in the tests' vocabulary.
 crates/before/tests/meter.rs	1450	envelopes-a-11	4	The codec section no longer describes decoder rows that transcode into "the packed form", a coding the stored form no longer is.
+crates/before/tests/meter.rs	710	envelopes-a-8	4	The dense self-comparison ported from the kernel row to `partial_cmp` on a byte-equal, buffer-distinct copy (the door runs the full sweep; `PartialOrd` has no equality short-circuit). The twelve tick and multi-tick scenarios that followed the dense join here moved whole to the tick section beside `query_env`.
+crates/before/tests/meter.rs	1013	envelopes-a-8	4	`cmp_bigroot`'s doc restated from the row's mechanism; the sentence "today the worst amplifier: per-frame owned path sums, quadratic in the root magnitude × depth" described a replaced implementation (ruling 45).
+crates/before/tests/meter.rs	1025	envelopes-a-8	4	The retired `SKYLINE_CMP_BIGROOT` twin's verdict leg moves onto the door row in place of `consumed(r)`; its doc is restated from the row's mechanism, dropping the "today the worst amplifier" sentence about a replaced implementation.
+crates/before/tests/meter.rs	1041	envelopes-a-8	4	The retired `SKYLINE_JOIN_BIGROOT` twin's byte-identity leg (the public join's stream equals the emit kernel's) moves onto the door row in place of `drop(joined)`.
+crates/before/tests/meter.rs	1095	envelopes-a-8	4	`JOIN_ABSORB` ported to the public join of the dense spine with the flat hugeleaf operand; the closed-form leg (the join is the flat operand) is the retired kernel test's own assertion. Placed in the hugeleaf section, whose operand it shares.
+crates/before/tests/meter.rs	1135	envelopes-a-8	4	The retired `SKYLINE_CMP_CLIFF` twin's verdict leg on the door row, in place of `consumed(r)`.
+crates/before/tests/meter.rs	1174	envelopes-a-8	4	`join_cliff` gains the retired twin's byte-identity leg; `MEET_CLIFF` is ported to the public meet. My first closed-form leg (the meet is the one-tick leaf) was wrong: the comb has zero-height leaves, so the meet keeps the comb's shape clamped to height 1; the leg is the kernel byte-identity the retired twin carried, and the doc says what the meet is.
+crates/before/tests/meter.rs	1188	envelopes-a-8	4	The wide-tooth comb gets a section of its own for the four door rows ported here (`DECODE_WIDE_TOOTH`, `CMP_WIDE_TOOTH`, `JOIN_WIDE_TOOTH`, `MEET_WIDE_TOOTH`) and the alternating spine one for `DECODE_ALT_SPINE`; the kernel sections they came from are gone.
+crates/before/tests/meter.rs	1318	envelopes-b-8	4	`TouchEnvelope`, `touch_envelope`, the rank table's own restatement of the pin convention, and `touch_metered` are deleted; the table cites the file doc and its rows are the unified `envelope(...)` form with the same numbers. The re-denomination sanction that lived only here moved to the file doc.
+crates/before/tests/meter.rs	1334	envelopes-a-4	4	Call site renamed from `touch_metered` to `metered`; no reading moved. The same holds for every `metered(` call-site hunk in this file.
+crates/before/tests/meter.rs	1347	envelopes-a-4	4	Call site renamed from `touch_metered` to `metered`, reflowed by rustfmt; no reading moved.
+crates/before/tests/meter.rs	1366	envelopes-a-4	4	Call site renamed from `touch_metered` to `metered`; no reading moved.
+crates/before/tests/meter.rs	1395	envelopes-a-4	4	Call site renamed from `touch_metered` to `metered`; no reading moved.
+crates/before/tests/meter.rs	1440	envelopes-a-4	4	Call site renamed from `touch_metered` to `metered`; no reading moved.
+crates/before/tests/meter.rs	1455	envelopes-a-11	4	The codec section no longer describes decoder rows transcoding into "the packed form" (a coding the stored form is not); it states what the validate rows pin and that the public decode rows price the wrap.
+crates/before/tests/meter.rs	1470	envelopes-a-4	4	Call site renamed from `sweep_metered` to `metered`; no reading moved.
+crates/before/tests/meter.rs	1488	envelopes-a-4	4	Call site renamed from `sweep_metered` to `metered`; no reading moved.
+crates/before/tests/meter.rs	1504	envelopes-a-4	4	Call site renamed from `sweep_metered` to `metered`; no reading moved.
+crates/before/tests/meter.rs	1522	envelopes-a-4	4	Call site renamed from `sweep_metered` to `metered`; no reading moved.
+crates/before/tests/meter.rs	2112	envelopes-a-4	4	Deletion: `skyline_render_records_zero_touches` stood here; the `SKYLINE_RENDER_*` rows' touch cells pin the zero it asserted, and the text-kernel section carries its rationale. The band module's other tests are untouched.
+crates/before/tests/meter.rs	5572	envelopes-a-2	38	`id_covers`'s doc promised "its iterative frames must grow no stack segments"; the promise is the file doc's now, so the doc keeps only the walk it prices.
+crates/before/tests/meter.rs	5686	envelopes-a-2	38	`id_without`'s doc promised "must grow no stack segments"; restated to what the row prices.
+crates/before/tests/meter.rs	5835	envelopes-a-4	4	The fork table's doc no longer restates the pin convention; the file doc holds it once.
+crates/before/tests/meter.rs	5844	envelopes-b-8	4	`ID_FORK` in the unified form, every column pinned (its touch cell measured 0, its scan cell keeps the raw-path pin of 3 over a tripwire of 1); `id_fork`'s doc drops "(zero segments)".
+crates/before/tests/meter.rs	5862	envelopes-a-4	4	Call site renamed from `sweep_metered` to `metered`; no reading moved.
+crates/before/tests/meter.rs	6165	envelopes-b-8	4	The query section no longer says these rows "carry all five columns" as the reason for a separate harness: every table carries every column now, so the sentence states only where the kernels' work lives.
+crates/before/tests/meter.rs	6180	envelopes-b-8	4	`QueryEnvelope`, `query_envelope`, the table's own preamble, and `query_metered` are deleted; the table cites the file doc, its rows keep their numbers in the unified form (scan floors added in step 4), and the two inner comments that restated the convention or the tables' history are shortened to what the rows are.
+crates/before/tests/meter.rs	6832	envelopes-a-4	4	Call site renamed from `query_metered` to `metered`; no reading moved.
+crates/before/tests/meter.rs	6862	envelopes-a-4	4	Call site renamed from `query_metered` to `metered`; no reading moved.
+crates/before/tests/meter.rs	6887	envelopes-a-4	4	Call site renamed from `query_metered` to `metered`; no reading moved.
+crates/before/tests/meter.rs	6912	envelopes-a-4	4	Call site renamed from `query_metered` to `metered`; no reading moved.
+crates/before/tests/meter.rs	6937	envelopes-a-4	4	Call site renamed from `query_metered` to `metered`; no reading moved.
+crates/before/tests/meter.rs	6976	envelopes-a-4	4	Call site renamed from `query_metered` to `metered`; no reading moved.
+crates/before/tests/meter.rs	7014	envelopes-a-4	4	Call site renamed from `query_metered` to `metered`; no reading moved.
+crates/before/tests/meter.rs	7054	envelopes-a-4	4	Call site renamed from `query_metered` to `metered`; no reading moved, and the row's 480 B heap pin is untouched (ruling 24).
+crates/before/tests/meter.rs	7267	envelopes-a-4	4	Call site renamed from `query_metered` to `metered`; no reading moved.
+crates/before/tests/meter.rs	7289	envelopes-a-4	4	Call site renamed from `query_metered` to `metered`; no reading moved.
+crates/before/tests/meter.rs	1538	envelopes-a-4	4	Call site renamed from `sweep_metered` to `metered`; no reading moved.
