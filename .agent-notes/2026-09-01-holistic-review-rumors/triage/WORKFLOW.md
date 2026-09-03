@@ -307,7 +307,11 @@ poll before launch cannot close the race between two lanes launching
 in the same second: in one remote command, `mkdir ~/gate.lock` in a
 retry loop (a lock older than 45 minutes is a dead gate's and is
 removed), then `just gate`, then `rmdir` on exit; targeted runs and
-builds stay outside the lock. A leg that fails only by nextest's 180 s per-test limit at a
+builds stay outside the lock. The two shared note files
+(`.agent-notes/STATUS.md`, `.agent-notes/merge-queue.md`) are edited
+and committed under a second mutex, `mkdir .agent-notes/.editlock` in
+a retry loop (stale after five minutes), with the clean check, the
+edit, and the pathspec commit in one command (`merge-queue.md`, rule 5). A leg that fails only by nextest's 180 s per-test limit at a
 one-minute load under about 150 is a finding about the test, reported
 as such; above that load the stream is re-run once the load is down.
 One leg is
