@@ -81,8 +81,8 @@
 //! Wall time is never asserted here: it is the one number that is not
 //! deterministic. The pins are dev-profile (limb counts shrink under
 //! release, where `debug_assert!` comparisons vanish, so the dev pin
-//! binds); heap, limb, touch, and scan readings are deterministic and
-//! portable across 64-bit targets.
+//! binds). Every column's reading is deterministic on a given target; a
+//! pin's portability is what CI's run on a second target checks.
 
 use before::meter::registry::Shape;
 use std::cmp::Ordering;
@@ -345,9 +345,9 @@ mod envelope {
     pub const DECODE_WIDE_TOOTH: Envelope           = envelope(125_100, band(29_509, 17_705),   band(14_218, 8_530),    whole_input(1_000_480, 1)); // wire decode is validate + wrap; each wide delta's limb work is paid by its own zigzag code, and the adopted buffer prices the wide payloads
     // CMP_WIDE_TOOTH's deliberately thin heap margin is a change-detector
     // on the backend's and the accumulator's allocation policies: the
-    // committed Cargo.lock (dashu-int 0.5.0 exact) is what makes the
-    // measurement deterministic, and a cargo update to any other 0.5.x is
-    // a deliberate re-measure event, not noise.
+    // measurement depends on the big-integer backend's allocation policy at
+    // the locked version, so a dependency bump is a deliberate re-measure
+    // event, not noise.
     pub const CMP_WIDE_TOOTH: Envelope              = envelope(  1_250, band(29_509, 17_705),   band(15_499, 9_299),     band(1_000_483, 600_289)); // each wide delta's limb work paid by its own zigzag code; heap stays at the stacks, the accumulator, and the zero-run ledger's map node
     pub const JOIN_WIDE_TOOTH: Envelope             = envelope(128_312, band(74_477, 48_534),   band(15_504, 9_302),   band(2_000_963, 1_200_577)); // each wide delta re-coded into the output, paid by its own zigzag code
     pub const MEET_WIDE_TOOTH: Envelope             = envelope(127_087, band(29_509, 17_705),   band(15_504, 9_302),     band(1_005_613, 603_367)); // wide deltas folded but never re-emitted: the collapse discipline at spilled operand widths
