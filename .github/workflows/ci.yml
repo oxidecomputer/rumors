@@ -50,6 +50,20 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # Tools first: they are prebuilt binaries needing no toolchain, and
+      # `just` reads the nightly pin below. cargo-rdme carries a version
+      # because it is the only tool here whose output is a committed
+      # artifact compared byte for byte (readme-check holds the READMEs
+      # against what it emits); a floating release could redefine that
+      # expectation with no commit in the repo, so bumping it is a reviewed
+      # diff that re-derives the READMEs in the same commit. The other tools
+      # report findings rather than generate bytes, so they ride the pinned
+      # action's own tool manifest, moving when Dependabot bumps the pin.
+      - name: Install just, cargo-nextest, cargo-rdme, cargo-fuzz, and wasm-pack
+        uses: taiki-e/install-action@37f7c5781271959fb65b6b35224e28652ff2b63d # v2.87.0
+        with:
+          tool: just,cargo-nextest,cargo-rdme@2.1.0,cargo-fuzz,wasm-pack
+
       # Each toolchain is pinned in one place: stable in rust-toolchain.toml,
       # which rustup applies to every bare `cargo` under this checkout;
       # nightly in the justfile's `nightly_toolchain`, which every nightly
@@ -60,7 +74,7 @@ jobs:
         id: pins
         run: |
           stable=$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)
-          nightly=$(sed -n 's/^nightly_toolchain := "\(.*\)"$/\1/p' justfile)
+          nightly=$(just --evaluate nightly_toolchain)
           if [ -z "$stable" ] || [ -z "$nightly" ]; then
             echo "pins: toolchain pin not found (stable='$stable', nightly='$nightly')" >&2
             exit 1
@@ -81,20 +95,6 @@ jobs:
           toolchain: ${{ steps.pins.outputs.stable }}
           components: clippy, rustfmt
           targets: wasm32-unknown-unknown
-
-      # Two tools carry versions because two committed artifacts depend on
-      # them: readme-check holds the READMEs byte for byte against what
-      # cargo-rdme emits, and mutants-list holds tools/mutantcheck-expected.json
-      # to the cargo-mutants release that listed its counts. A floating
-      # release could redefine either expectation with no commit in the
-      # repo; bumping a pin is a reviewed diff that re-pins its artifact in
-      # the same commit. The other tools report findings rather than generate
-      # bytes, so they ride the pinned action's own tool manifest, moving
-      # when Dependabot bumps the pin.
-      - name: Install just, cargo-nextest, cargo-rdme, cargo-fuzz, cargo-mutants, and wasm-pack
-        uses: taiki-e/install-action@37f7c5781271959fb65b6b35224e28652ff2b63d # v2.87.0
-        with:
-          tool: just,cargo-nextest,cargo-rdme@2.1.0,cargo-fuzz,cargo-mutants@27.1.0,wasm-pack
 
       # The viz bundle (`just viz`) runs the dependency install (`npm ci`
       # here, where CI=true), a strict TypeScript typecheck, and an esbuild
@@ -146,13 +146,18 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Install just, cargo-nextest, cargo-audit, and cargo-deny
+        uses: taiki-e/install-action@37f7c5781271959fb65b6b35224e28652ff2b63d # v2.87.0
+        with:
+          tool: just,cargo-nextest,cargo-audit,cargo-deny
+
       # The pins, read as in `ci`: only surface-json names the nightly; every
       # other step runs bare `cargo` under the pinned stable.
       - name: Read the toolchain pins
         id: pins
         run: |
           stable=$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)
-          nightly=$(sed -n 's/^nightly_toolchain := "\(.*\)"$/\1/p' justfile)
+          nightly=$(just --evaluate nightly_toolchain)
           if [ -z "$stable" ] || [ -z "$nightly" ]; then
             echo "pins: toolchain pin not found (stable='$stable', nightly='$nightly')" >&2
             exit 1
@@ -172,11 +177,6 @@ jobs:
         with:
           toolchain: ${{ steps.pins.outputs.stable }}
           components: clippy, rustfmt
-
-      - name: Install just, cargo-nextest, cargo-audit, and cargo-deny
-        uses: taiki-e/install-action@37f7c5781271959fb65b6b35224e28652ff2b63d # v2.87.0
-        with:
-          tool: just,cargo-nextest,cargo-audit,cargo-deny
 
       - name: Cache cargo build artifacts
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -220,6 +220,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Install just, cargo-nextest, and cargo-llvm-cov
+        uses: taiki-e/install-action@37f7c5781271959fb65b6b35224e28652ff2b63d # v2.87.0
+        with:
+          tool: just,cargo-nextest,cargo-llvm-cov
+
       # The pins, read as in `ci`: the branch leg names the nightly, the line
       # leg runs bare `cargo` under the pinned stable. llvm-tools, the
       # coverage instrumentation's profdata component, is installed on both.
@@ -227,7 +232,7 @@ jobs:
         id: pins
         run: |
           stable=$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)
-          nightly=$(sed -n 's/^nightly_toolchain := "\(.*\)"$/\1/p' justfile)
+          nightly=$(just --evaluate nightly_toolchain)
           if [ -z "$stable" ] || [ -z "$nightly" ]; then
             echo "pins: toolchain pin not found (stable='$stable', nightly='$nightly')" >&2
             exit 1
@@ -246,11 +251,6 @@ jobs:
         with:
           toolchain: ${{ steps.pins.outputs.stable }}
           components: llvm-tools
-
-      - name: Install just, cargo-nextest, and cargo-llvm-cov
-        uses: taiki-e/install-action@37f7c5781271959fb65b6b35224e28652ff2b63d # v2.87.0
-        with:
-          tool: just,cargo-nextest,cargo-llvm-cov
 
       - name: Cache cargo build artifacts
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
