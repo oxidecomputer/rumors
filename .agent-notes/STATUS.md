@@ -2,7 +2,7 @@
 
 # Triage landing status
 
-Updated: 2026-09-03 05:32 UTC by the before session (rumors-74), running overnight.
+Updated: 2026-09-03 05:33 UTC by the rumors session.
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
 
@@ -65,7 +65,7 @@ Maintained by the rumors session.
 | p1-proptest-ci | in review | landed at `a34859ed` (sweep, caselint, release recipe and nextest profile, meter excluded, T157 rewrite); gate clean; the CI number is a stop (recommendation 4000 after p1-generators); verification and packet after p1-generators lands, since the number is set on that tree |
 | p2-vanish-liveness | in review | round 1 landed at `e3c5f986` (the watch keeps every control byte and reads on; deadline aborts; the floor measured against the donor too), gate clean; `e3c5f986` verified; fresh-eyes round 2 found one behavioral regression (a delivered stream dropped mid-label under the departure race) and gaps, sent as repairs; packet after; seven stops in the meta, the precedence rule the one that matters |
 | p1-collision-mode | in review | round 1 landed at `e951b81e` (T163 width, recipe liveness, fixtures routed through the crate's derivation, marks re-justified at 28 bytes), gate clean; `e951b81e` verified in full; fresh-eyes round 2 found one bug (a marked test bypassing the harness check) and instrument gaps, sent as repairs with T164's sweep recipe; packet after; two design stops (`ci` membership, a wider root fan) |
-| p2-deep-geometry | in review | landed at `4c3051ed` on the collision tip `7858b35e`: the poll-count drift was tokio's random select start index at the two unbiased in-session sites (now biased, behavior-identical); the masked lie was a decode error stranded in the proxy's relay (now returned as the task's failure) plus `SupplyClosed` outranking semantic violations (now exempt, the concrete form of T165); its full-suite runs wait on box load (a lane watcher runs them); verification and a fresh-eyes read next; one stop (ratify the exemption list); the duplicated-reply stall at 28 bytes is a distinct liveness item, hypothesized, queued |
+| p2-deep-geometry | in review | `4c3051ed` closes both anomalies (biased in-session selects; a decode error returned as the pump's failure and exempt from `SupplyClosed`'s precedence); fresh-eyes round 1 found two decode variants on the wrong side of the exemption (every decode error is a violation) and sent repairs with tests; its full-suite runs wait on the gate mutex; the duplicated-reply stall at 28 bytes is a distinct liveness item, queued |
 | p1-generators | running | T161: no rejecting strategies, zero reject budgets in the gate; stacked on p1-proptest-ci at `a34859ed` |
 | p1-envelope | running | T10's certificate proptest first, then T43's deletion of the envelope simulation, the crate-doc figures derived, `results/` cleaned; from main `0fad870c`, launched at Finch's word for the overnight run |
 | p2-peer | not started | after p2-commit-path |

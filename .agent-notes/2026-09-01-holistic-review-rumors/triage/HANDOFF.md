@@ -84,9 +84,16 @@ the fast-forward (WORKFLOW.md's merge step).
    word; agent `ad8747469f2495256`; scratchpad `p1-envelope/`).
 7. **p2-deep-geometry** (`/Users/oxide/src/rumors-p2-deep-geometry`,
    stacked on the collision tip `7858b35e`): T162 items 8 and 9;
-   running at handoff (agent `a2af8c0d37b66646f`). Its fix to the
-   unbiased `select!` sites is production code; a change to error
-   precedence or a contract is a stop.
+   landed at `4c3051ed` (agent `a2af8c0d37b66646f`; both anomalies
+   closed with mechanisms; round-1 repairs with the lane: every decode
+   error exempt from `SupplyClosed`'s precedence, two tests, prose).
+   Its `execute` edit and the vanish lane's T165 predicate meet at merge
+   in `remote/proxy/work.rs`; integrate toward one predicate (only
+   supply-caused symptoms are outranked). Its watcher (local pid 74988)
+   runs `just test-collision` then `just gate` under the mutex when the
+   box clears, writing `scratchpad/p2-deep-geometry/finalverify.status`
+   (`ALLDONE` when both finish). The duplicated-reply stall at 28 bytes
+   is the next investigation (`new-findings.md`).
 
 ## Running agents at handoff (their reports reach the successor)
 
