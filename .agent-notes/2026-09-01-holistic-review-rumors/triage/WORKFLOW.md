@@ -124,8 +124,10 @@ every commit.
 ### 3. Acceptance verification
 
 The lane's report is data. For every entry the report claims landed, the
-coordinator runs the entry's Acceptance against the worktree at the
-reported sha (the command and its decisive output, not the agent's
+coordinator runs the entry's Acceptance against a detached scratch
+worktree at the reported sha (`git worktree add --detach
+/Users/oxide/src/rumors-verify-<lane> <sha>`, retired afterwards), never
+the lane's own checkout, which its agent may still be editing (the command and its decisive output, not the agent's
 paraphrase), and records the result for the packet. An entry whose
 acceptance does not hold goes back to the lane agent as a repair item,
 never into the packet's table as landed. The negative controls the briefs

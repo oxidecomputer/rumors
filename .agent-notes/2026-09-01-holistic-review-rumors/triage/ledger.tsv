@@ -578,7 +578,7 @@ link-8	simplification	low	modularity	verified	no	Link				P5	link	`Link` doubles 
 link-9	simplification	low	simplification	verified	yes	Link		33		P6		`LinkParts` is a field-for-field twin of `Link` that exists to publish the fields	fix	T80		
 deps-1	simplification	medium	vestigial	verified	no	Manifest, lints, and verification recipes				P1		static_assertions is a normal dependency for one test module, and one redundant test in it is the sole reason forbid(unsafe_code) is conditional	fix	T26		
 deps-4	simplification	low	simplification	verified	no	Manifest, lints, and verification recipes	simplification: One-caller wrappers, bypassed impls, and shims			P4		futures-util is fully shadowed by futures at all six sites	fix	T132		
-deps-8	simplification	nit	(table)			Manifest, lints, and verification recipes				P1		bytes' `serde` feature is enabled but no serde path touches a `Bytes`	fix	T28		
+deps-8	simplification	nit	(table)			Manifest, lints, and verification recipes				P1		bytes' `serde` feature is enabled but no serde path touches a `Bytes`	fix-amended	T147		serde feature moves to dev-dependencies
 deps-9	simplification	nit	(table)			Manifest, lints, and verification recipes				P1		the tokio dev-dependency's `default-features = true` is vacuous	fix	T28		
 inventory-2	simplification	xref				Manifest, lints, and verification recipes				P1		`static_assertions` is a runtime dependency used only under `cfg(test)`	dup	T26		entry of record: deps-1
 verification-infra-11	simplification	low	vestigial	verified	no	Manifest, lints, and verification recipes	simplification: Retirement and erasure residue			P4		tools/digestshare keeps a V1 side-by-side skip for a render form that no longer exists	fix	T132		

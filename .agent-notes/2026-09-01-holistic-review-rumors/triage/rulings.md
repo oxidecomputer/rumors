@@ -764,3 +764,8 @@ Home: lane `p2-vanish-liveness`, production code in the mirror protocol, stacked
 Disposes: the p1-harness-tests packet's stop 3 (`testing-infra-12`'s proxy-test doc lines; `testing-infra-4`'s verdict in `src/testing.rs`)
 Decision: Both commits stand. A brief's file list states the letter of a lane's mandate; an edit an entry's own resolution requires (the poll-budget verdict lives where the guard lives; deleting an acceptor must take its references with it) is within the mandate's spirit and lands, isolated in its own commit and reported, as these were.
 Home: lane `p1-harness-tests`.
+
+## T147 (2026-09-02): `bytes`' serde feature moves to the dev-dependencies
+Disposes: deps-8 (amending T28)
+Decision: The root manifest's `bytes` dependency loses its `serde` feature and a `[dev-dependencies]` entry carries it (`bytes = { workspace = true, features = ["serde"] }`): the library never serializes a `Bytes`, the test suites use it as a payload type and need the impl. Acceptance: `cargo check -p rumors --lib` and `--all-targets` both pass; the `[dependencies]` line names no feature.
+Home: lane `p1-gate`.
