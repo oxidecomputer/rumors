@@ -2,7 +2,7 @@
 
 # Triage landing status
 
-Updated: 2026-09-03 03:39 UTC by the rumors session.
+Updated: 2026-09-03 03:42 UTC by the rumors session.
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
 
@@ -59,7 +59,7 @@ Maintained by the rumors session.
 | Lane | State | Note |
 |---|---|---|
 | p1-swarm, p1-conformance, p1-memwatch, p1-gate, p2-codec, p1-renderer, p1-harness-tests, p1-harness-crate, p2-walk, p1-causality | merged | see the queue's Merged section for shas and root files |
-| p2-link | in review | re-scoped under T160: a successor agent replaces the endpoint-wide pool bound with per-link admission (one session complement per link); T44, T45, T156 commits stand; packet rebuilt after |
+| p2-link | in review | re-scoped under T160, landed at `7a31b673` (per-link admission, release on link end, knob gone), gate clean; verification and fresh-eyes round 1 running; packet after; one wording question for Finch (the bound's justification: "buys nothing" rather than "proves misbehavior") |
 | p2-commit-path | in review | `9ca5e959` verified (every acceptance and control); fresh-eyes round 2 found platform-dependent allocation pins and test gaps, repair round 2 with the lane; packet after; p2-peer launches after it merges |
 | p1-proptest-ci | in review | landed at `a34859ed` (sweep, caselint, release recipe and nextest profile, meter excluded, T157 rewrite); gate clean; the CI number is a stop (recommendation 4000 after p1-generators); verification and packet after p1-generators lands, since the number is set on that tree |
 | p2-vanish-liveness | in review | landed at `28ef4341` (departure watch; vanish draw at every point; zero parks asserted), gate clean; six stops for Finch (`PeerDeparted` shape, a `link.rs` sentence, the dissolved park count, the deferred-watch deviation, two files outside its list, the point test's fixture); verification and fresh-eyes round 1 running |
