@@ -117,6 +117,10 @@ lanes have closed.
 - rumors `p2-link`: branch `triage/p2-link`, packet head `4a7baddb`, last
   code commit `17220c69`, base `7aa2b9a1` (main). No root files.
 
+- before `p2-generators`: branch `before/p2-generators`, packet head `8d7b3175`,
+  last code commit `19d03d97`, base `main`. No root files. Packet:
+  `.agent-notes/2026-09-01-holistic-review-before/triage/reviews/p2-generators.md`.
+
 ## Announcements
 
 - REPAIRED at `9a7e898e` (rumors; the walk's dropped imports, helper, and
