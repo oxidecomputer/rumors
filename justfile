@@ -268,6 +268,19 @@ docs:
 docs-internal:
     RUSTDOCFLAGS="-D warnings --html-in-header {{ justfile_directory() }}/crates/before/docs/fuelscape-header.html" cargo doc --workspace --all-features --no-deps --document-private-items --target-dir target/doc-internal
 
+# docs.rs builds rumors under nightly with `--cfg docsrs` (Cargo.toml's
+# docs.rs metadata), the one configuration in which lib.rs's `doc_cfg`
+# feature gate is live. `docs` and `docs-internal` run stable rustdoc
+# without that cfg, so nothing else compiles the path docs.rs takes, and a
+# rustdoc feature the nightly has removed or renamed would surface only on
+# docs.rs itself, after publication. This leg is that build: one crate,
+# no deps, warnings denied, under the pinned nightly, in its own target
+# dir so the nightly artifacts never invalidate the stable doc passes.
+
+# Build rumors' rustdoc as docs.rs does (pinned nightly, `--cfg docsrs`), warnings denied.
+docs-docsrs:
+    RUSTDOCFLAGS="--cfg docsrs -D warnings" cargo +{{ nightly_toolchain }} doc -p rumors --all-features --no-deps --target-dir target/doc-docsrs
+
 # The before coverage roster (crates/before/src/surface.rs) and the bespoke
 # half of the pointwise-differential tiling (src/testing/diff_ops.rs) cite
 # their binding checks as bare strings. The in-crate suite holds those names
@@ -385,7 +398,8 @@ fuzz-build:
 # root `target/` sits in one stream and runs in order there, cheap-first,
 # preserving the fail-fast ordering within it. Every other leg already
 # writes a directory nothing else touches — the nightly doctest target,
-# the private-items doc target, the rustdoc-JSON target, and the detached
+# the private-items doc target, the docs.rs doc target, the rustdoc-JSON
+# target, and the detached
 # fuzz/fuzzfit/fuelscape/surfacecheck workspaces — and that is exactly what
 # lets them overlap. `fuzzfit` and `fuelscape-test` share one stream
 # because both build the same wasm guest.
@@ -465,6 +479,7 @@ gate-streams:
     start_stream fuzz         10 fuzz-build
     start_stream surface      10 surface-totality
     start_stream internal-docs 10 docs-internal
+    start_stream docsrs       10 docs-docsrs
     start_stream audit        10 supply-chain
     wait
 
@@ -994,7 +1009,7 @@ worst-cases-pin:
 # tripwire, so the judge's red path rides every sweep.
 
 # Build everything (no fuzz run): the no-rot sweep as CI runs it.
-ci: fmt-check doclint testdoc workflowlint digestshare readme-check fuelscape-claims mutants-list clippy clippy-default features wasm-check docs docs-internal test-all citecheck doctest bench-build fuzz-build fuelscape-verify viz
+ci: fmt-check doclint testdoc workflowlint digestshare readme-check fuelscape-claims mutants-list clippy clippy-default features wasm-check docs docs-internal docs-docsrs test-all citecheck doctest bench-build fuzz-build fuelscape-verify viz
 
 # Everything: the no-rot sweep, plus the fuzz smoke, the formal tier, and the bench judge.
 all: ci (fuzz fuzz_smoke_secs) lean eventdag muxprobe bench-judge bench-judge-tripwire
