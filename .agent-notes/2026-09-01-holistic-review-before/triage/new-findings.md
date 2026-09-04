@@ -142,3 +142,13 @@ Each entry: where it came from, what it is, which lane's brief carries it
   on `before/p1-fuzz` as its thirteenth; the fuzz lane reads the arm's
   mechanism and reports; the resolution (a second calibration, a per-arm
   band, or a kernel fix) is a stop in the fuzz packet for Finch.
+- **`Clock::sync`'s overlap rejection pays a full `sum` before it finds
+  the overlap.** `sum_split` delegates to `sum` at the first both-present
+  branch, which builds the union of both parties' left subtrees before
+  reaching the right children where a full leaf meets a nonempty region;
+  the rejection then costs about a whole successful sum (10201 fuel at 52
+  party bits, roughly 40% of a full sync) and discards it. Route:
+  `p8-performance` (an overlap co-walk that exits without building, or a
+  fused check, measured at the parent); the fuzz lane's committed red seed
+  is the acceptance, and its band's denominator (clock bits) is wrong for
+  the arm (party bits), a per-arm band once the kernel is honest.
