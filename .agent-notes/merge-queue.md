@@ -289,6 +289,21 @@ lanes have closed.
   code tip is clean but for the fuzz port. Commits unsigned (the signing
   outage); the merge rebase re-signs. Packet:
   `.agent-notes/2026-09-01-holistic-review-before/triage/reviews/p1-board.md`.
+- before `p2-census`: branch `before/p2-census`, packet head `a97715c0`,
+  last code commit `6ed3a872`, base `1b6df6fd` (the `p1-fuzz` code tip).
+  Merges after `p1-gate`, `p8-tagwalk`, `p1-fuzz`, and `p2-surface`,
+  rebased over all four (conflicts with the surface lane's edits to the
+  dissolved files resolve toward deletion). Root files: justfile
+  (`public_api_version`, the `public-api*` and `test-inventory*` recipes,
+  the `public-api` gate stream, the detached-workspace lists), `.github/
+  workflows/ci.yml` (the tool install and legs; the census steps removed),
+  `AGENTS.md`, root `Cargo.toml` and `Cargo.lock` (the `surface-scan`
+  member and `surfacecheck` lockfile go). Rulings 120 to 123. One item
+  for Finch's ratification inside (suanpan resolves a cited witness by
+  unique final segment rather than full path). Its `wasm` stream reads
+  red only on the `ff_clock_sync [err]` seed now committed on `p1-fuzz`
+  (that lane's stop). Commits unsigned; the merge rebase re-signs. Packet:
+  `.agent-notes/2026-09-01-holistic-review-before/triage/reviews/p2-census.md`.
 
 
 ## Announcements

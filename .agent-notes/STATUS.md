@@ -2,7 +2,7 @@
 
 # Triage landing status
 
-Updated: 2026-09-04 20:26 UTC by the before session.
+Updated: 2026-09-05 03:40 UTC by the before session.
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
 
@@ -49,7 +49,7 @@ Lanes run in the order `triage/briefs/README.md` gives; every lane builds and ga
 | p2-generators | packet ready | `e84a74a3`; no rejecting strategy remains in before (rulings 111, 113) |
 | p3-vocabulary | not started | last of the sweeps |
 | p4-ghosts, p4-structure, p4-rosters | not started | after the P1 and P2 lanes they follow |
-| p2-census | in review | landed at `c9cf6014` (code `f2dd8d7c`): a committed `cargo public-api` snapshot diffed in the gate, the adapter, the three consumers rewired and red-first, the census/roster/coverage-suite/citecheck dissolved (about 5,800 lines gone); coordinator acceptance and fresh-eyes round 1 running; packet after; merges after p1-fuzz and p2-surface |
+| p2-census | packet ready | `a97715c0` (code `6ed3a872`, 42 commits on the p1-fuzz code tip; rulings 120 to 123: the census, roster, coverage suite, citation checker, and `surface-scan` dissolved into committed `cargo public-api` snapshots for before and suanpan; consumers derive the surface from the snapshot by op name; only exceptions declared; four review rounds); coordinator acceptance green at the tip; merges after p1-gate, p8-tagwalk, p1-fuzz, p2-surface |
 | p5-scanners, p5-judge, p5-buffers | not started | after p1-gate, p1-fuzz, p2-surface |
 | p7-api | not started | after p3 and p4 |
 | p8-tagwalk | packet ready | `3316c4ed` (child of p1-gate; fork kernels about 18% less fuel per bit, no reading moved) |
