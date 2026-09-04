@@ -264,19 +264,24 @@ lanes have closed.
   last code commit `8abb75da`, base `before/p1-gate` (`90f7dd9c`): a child,
   merges after the gate lane. No root files. Packet:
   `.agent-notes/2026-09-01-holistic-review-before/triage/reviews/p1-survivors.md`.
-- before `p1-fuzz`: branch `before/p1-fuzz`, packet head `0df4aa4b`,
-  last code commit `1b6df6fd`, base `47288c3e` (the `p8-tagwalk` tip; a
-  child of `p1-gate` through it). Merges after `p1-gate` and `p8-tagwalk`,
-  rebased onto their merged tips, and before the rumors `p1-collision-mode`
-  (its `wasm` stream reads red on the fork-chain seeds until this refit
-  lands). Root files: justfile (the `fuzz-build` clippy line, the
-  `fuzz-replay` recipe, the gate's `fuzz` stream line). Six stops for
-  Finch inside (`REFIT_TOLERANCE`, the bimodal `ff_party_without` arm,
-  the three calibration sweeps, skyline-query-9, the span/query exemption
-  framing, the `ff_version_eq` sampling routing). The fuzz legs are Mac
-  runs at merge (no libFuzzer port on the box). Commits unsigned (the
-  signing outage); the merge rebase re-signs. Packet:
+- before `p1-fuzz`: branch `before/p1-fuzz`, packet head `a8691860`
+  (rebuilt 2026-09-05 with the thirteenth seed), last code commit
+  `11cc3ba1` (the seed and its annotation over the code tip `1b6df6fd`),
+  base `47288c3e` (the `p8-tagwalk` tip; a child of `p1-gate` through it).
+  Merges after `p1-gate` and `p8-tagwalk`, rebased onto their merged tips,
+  and before the rumors `p1-collision-mode` (its `wasm` stream reads red on
+  the fork-chain seeds until this refit lands). Root files: justfile (the
+  `fuzz-build` clippy line, the `fuzz-replay` recipe, the gate's `fuzz`
+  stream line). Seven stops for Finch inside (`REFIT_TOLERANCE`, the
+  bimodal `ff_party_without` arm, the three calibration sweeps,
+  skyline-query-9, the span/query exemption framing, the `ff_version_eq`
+  sampling routing, and the `ff_clock_sync [err]` band: its thirteenth
+  seed is committed RED, so this lane's `wasm` stream and the gate read red
+  on it until the kernel or the band moves at Finch's word). The fuzz legs
+  are Mac runs at merge (no libFuzzer port on the box). Commits unsigned
+  (the signing outage); the merge rebase re-signs. Packet:
   `.agent-notes/2026-09-01-holistic-review-before/triage/reviews/p1-fuzz.md`.
+
 - before `p1-board`: branch `before/p1-board`, packet head `cc0e365d`,
   last code commit `67a454cf`, base `2fe750ac` (main). No root files (the
   justfile and CI half of board-ops-render-19 is handed to the justfile
