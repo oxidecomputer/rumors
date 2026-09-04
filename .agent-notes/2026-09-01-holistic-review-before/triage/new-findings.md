@@ -133,3 +133,12 @@ Each entry: where it came from, what it is, which lane's brief carries it
   suite's tripwires, never the superlinear, twin, or band rosters). Route:
   `p5-scanners` builds the typed Rust checker fresh over ruling 78's
   rosters; its brief's citecheck references are re-denominated at launch.
+- **`ff_clock_sync`'s error arm reads about nine times its refit band on
+  a three-way fork-then-sync overlap rejection** (163 bits, 10201 fuel
+  against a law of about 10^3.04 with width +0.71; a fresh sentry draw
+  on the census lane, replaying red on the fuzz lane's bands before any
+  census change). The shrunk program forks three clocks off a ticked seed
+  and syncs them into the overlap error. Route: the seed is committed red
+  on `before/p1-fuzz` as its thirteenth; the fuzz lane reads the arm's
+  mechanism and reports; the resolution (a second calibration, a per-arm
+  band, or a kernel fix) is a stop in the fuzz packet for Finch.
