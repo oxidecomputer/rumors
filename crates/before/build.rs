@@ -260,14 +260,13 @@ fn island(meta: &serde_json::Value, op: &serde_json::Value) -> String {
 }
 
 /// The island's summary as plain Markdown: the claim and contract in the
-/// doc comments' own backtick idiom, and where the chart itself lives.
+/// doc comments' own backtick idiom, word for word what the island's
+/// summary shows.
 ///
 /// This is what a reader sees wherever the island cannot render: an IDE
 /// hover, or a dependent crate's page that inlines the item. The
 /// trailing newline ends the paragraph, so stacked twins render as
-/// separate paragraphs rather than one run-on line. The link resolves in
-/// this crate's scope even from an inlined copy, so it lands on before's
-/// own documentation, where the chart is.
+/// separate paragraphs rather than one run-on line.
 fn contract_paragraph(op: &serde_json::Value) -> String {
     let contract = op["contract"].as_str().expect("validated");
     let claim = op["claim"].as_str().expect("validated");
@@ -275,10 +274,7 @@ fn contract_paragraph(op: &serde_json::Value) -> String {
         "" => String::new(),
         label => format!("{label}: "),
     };
-    format!(
-        "{variant}`O({claim})` in total input bytes; {contract}; the measured-growth \
-         chart is in [`before`](crate)'s own documentation.\n"
-    )
+    format!("{variant}`O({claim})` in total input bytes; {contract}\n")
 }
 
 /// Renders a contract string's backticked spans as `<code>`, escaping

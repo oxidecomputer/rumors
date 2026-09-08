@@ -328,6 +328,10 @@ mod tests;
 
 pub use ::before;
 pub use batch::Batch;
+// Linked, not inlined: before's pages carry the measured-growth charts,
+// which an inlined copy cannot (its docs come from compiled metadata, and
+// the widget's assets are attached to rustdoc's own view of before only).
+#[doc(no_inline)]
 pub use before::{Ticks, Version, causally};
 pub use bookmark::{
     BOOKMARK_FORMAT_VERSION, Bookmark, BookmarkError, BookmarkIo, FormatError, FrameDefect,
