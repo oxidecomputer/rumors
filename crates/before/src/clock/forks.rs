@@ -13,10 +13,11 @@ use crate::{party, Clock, Party, Version};
 ///
 /// # Complexity
 ///
-#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_forks.html"))]
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_forks.html")))]
 ///
 /// Each `next` costs its own share's portion of the drain; an early drop
 /// rejoins in `O(|c| log k)`, with `|c|` the borrowed clock's size in bytes.
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-assets.html")))]
 pub struct Forks<'a> {
     /// The lazy partition of party shares; its [`Drop`] folds unconsumed shares
     /// back into the borrowed clock's party.
@@ -82,7 +83,7 @@ impl ExactSizeIterator for Forks<'_> {}
 ///
 /// # Complexity
 ///
-#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_forks.html"))]
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_forks.html")))]
 ///
 /// # Example
 ///

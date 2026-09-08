@@ -361,7 +361,7 @@
 //! API docs; the one below is [`Version::tick`]'s (it may not render if you are
 //! viewing this on a third-party site such as GitHub or crates.io).
 //!
-#![doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_tick.open.html"))]
+#![cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_tick.open.html")))]
 //!
 //! Each chart shows a heatmap of instruction-count required to evaluate the
 //! function, plotted against the total input size in bytes, and sampled over
@@ -408,7 +408,13 @@
 //! recursive implementation as well as a nondeterministic function-space
 //! semantics, alongside exhaustive small-scope enumeration of clock shapes,
 //! algebraic-law property suites, and fuzzed codecs.
-
+// The measured-growth charts' stylesheet and script travel inside the
+// docs of every page that holds a chart: this one, and each type or
+// function with charted operations. Any rustdoc render then carries them,
+// a bare `cargo doc` and docs.rs alike, with no flag to forget. build.rs
+// writes the fragment; tools/fuelscape-assets holds the rendered pages to
+// exactly that placement.
+#![cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-assets.html")))]
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 // Every `thread_local!` initializer in this crate is a `const` block. On

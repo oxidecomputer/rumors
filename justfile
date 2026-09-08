@@ -260,16 +260,21 @@ readme-check:
 # This catches broken intra-doc links. AGENTS.md calls the rustdoc the
 # documentation of record, so it's load-bearing and part of the gate.
 #
-# The header flag injects the fuelscape widget assets (the interactive
-# measured-growth explorers in before's # Complexity sections) into
-# every page's head. RUSTDOCFLAGS is workspace-wide — cargo has no
-# per-crate rustdocflags — so non-before pages carry ~40 KB of inert
-# head weight; the script activates only on .fuelscape elements.
-# docs.rs applies the same flag through before's package metadata.
+# The fuelscape widget (the interactive measured-growth explorers in
+# before's # Complexity sections) needs its stylesheet and script on every
+# page that holds a chart, and a page that lacks them shows each chart as
+# an empty expander and fails nothing else. The assets travel inside the
+# doc comments of the items owning those pages (before's build.rs writes
+# the fragment), so every rustdoc render carries them, a bare `cargo doc`
+# and docs.rs included; tools/fuelscape-assets then holds the rendered
+# pages to that placement: the assets exactly once on every page with a
+# chart, and on no other.
 
-# Build the rustdoc with warnings denied.
+# Build the rustdoc with warnings denied; hold the widget assets to their pages.
 docs:
-    RUSTDOCFLAGS="-D warnings --html-in-header {{ justfile_directory() }}/crates/before/docs/fuelscape-header.html" cargo doc --workspace --all-features --no-deps
+    RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps
+    ./tools/fuelscape-assets --self-test
+    ./tools/fuelscape-assets target/doc
 
 # The public build above never renders private items, so a stale intra-doc
 # link inside a private module sails through it. This pass documents private
@@ -279,19 +284,31 @@ docs:
 # target dir keeps the two from invalidating each other's fingerprints, which
 # would otherwise re-doc the whole workspace twice on every gate.
 
-# Build the rustdoc including private items, warnings denied.
+# Build the rustdoc including private items, warnings denied; hold the widget assets to their pages.
 docs-internal:
-    RUSTDOCFLAGS="-D warnings --html-in-header {{ justfile_directory() }}/crates/before/docs/fuelscape-header.html" cargo doc --workspace --all-features --no-deps --document-private-items --target-dir target/doc-internal
+    RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps --document-private-items --target-dir target/doc-internal
+    ./tools/fuelscape-assets --self-test
+    ./tools/fuelscape-assets target/doc-internal/doc
 
-# docs.rs builds rumors under nightly with `--cfg docsrs` (Cargo.toml's
-# docs.rs metadata), the one configuration where lib.rs's `doc_cfg` gate is
-# live; `docs` and `docs-internal` run stable rustdoc without it, so only
-# this leg compiles the path docs.rs takes. One crate, no deps, warnings
-# denied, under the pinned nightly, in its own target dir.
+# docs.rs builds under nightly with `--cfg docsrs`, the one configuration
+# where rumors' `doc_cfg` gate is live; `docs` and `docs-internal` run
+# stable rustdoc without it, so only this leg compiles the path docs.rs
+# takes. The first line is that build for rumors with warnings denied. The
+# `cargo docs-rs` lines then imitate docs.rs's own invocation for each
+# crate from its `[package.metadata.docs.rs]` (features, cfg, scraped
+# examples, the docs.rs extern map), the faithful check that the metadata
+# builds; the pass over its output holds before's widget assets to their
+# pages under that configuration too. All under the pinned nightly, no
+# deps, in one target dir of its own. What this cannot check is the
+# package: docs.rs builds the published tarball, and `cargo package` on
+# before refuses until its `suanpan` dependency carries a version.
 
-# Build rumors' rustdoc as docs.rs does (pinned nightly, `--cfg docsrs`), warnings denied.
+# Build the rustdoc as docs.rs does (pinned nightly, `--cfg docsrs`, each crate's docs.rs metadata).
 docs-docsrs:
     RUSTDOCFLAGS="--cfg docsrs -D warnings" cargo +{{ nightly_toolchain }} doc -p rumors --all-features --no-deps --target-dir target/doc-docsrs
+    cargo +{{ nightly_toolchain }} docs-rs -p rumors --target-dir target/doc-docsrs
+    cargo +{{ nightly_toolchain }} docs-rs -p before --target-dir target/doc-docsrs
+    ./tools/fuelscape-assets target/doc-docsrs/{{ host_triple }}/doc
 
 # The before coverage roster (crates/before/src/surface.rs) and the bespoke
 # half of the pointwise-differential tiling (src/testing/diff_ops.rs) cite
@@ -745,10 +762,6 @@ fuelscape-verify:
 # Regenerate the README's space-consumption figure from the measurement artifact.
 doc-figure:
     BEFORE_REGEN_DOC_FIGURE=1 cargo build -p before
-
-# Regenerate the rustdoc widget header from the committed stylesheet and script.
-fuelscape-header:
-    { printf '<style>'; cat crates/before/docs/fuelscape.css; printf '</style>\n<script>'; cat crates/before/docs/fuelscape.js; printf '</script>\n'; } > crates/before/docs/fuelscape-header.html
 
 # The widget bundle and the claim strings meet only in the reader's
 # browser, so nothing compiled checks them; this leg loads the bundle

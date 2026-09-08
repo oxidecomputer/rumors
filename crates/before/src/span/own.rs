@@ -29,6 +29,7 @@ use crate::{
 /// assert_eq!(span.dominance(&a1), Dominance::Between);
 /// ```
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-assets.html")))]
 pub struct OwnSpan<'a> {
     /// The party whose owned region gates both endpoints.
     party: &'a Party,
@@ -91,7 +92,7 @@ impl<'a> OwnSpan<'a> {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/own_span_place.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/own_span_place.html")))]
     ///
     /// # Example
     ///
@@ -146,7 +147,7 @@ impl<'a> OwnSpan<'a> {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/own_span_dominance.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/own_span_dominance.html")))]
     ///
     /// # Example
     ///
@@ -196,7 +197,7 @@ impl<'a> OwnSpan<'a> {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/own_span_precedence.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/own_span_precedence.html")))]
     ///
     /// # Example
     ///
@@ -235,7 +236,7 @@ impl<'a> OwnSpan<'a> {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/own_span_contains.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/own_span_contains.html")))]
     ///
     /// # Example
     ///
@@ -271,7 +272,7 @@ impl<'a> OwnSpan<'a> {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_project.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_project.html")))]
     ///
     /// # Example
     ///
@@ -320,7 +321,7 @@ impl<'a> Div<&'a Party> for &'a Span<'a> {
 ///
 /// # Complexity
 ///
-#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_project.html"))]
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_project.html")))]
 ///
 /// # Example
 ///

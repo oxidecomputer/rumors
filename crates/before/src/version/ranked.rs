@@ -76,6 +76,7 @@ use crate::error::Decode;
 /// assert_eq!(Ranked::decode(&kh[..]).unwrap().version(), &half);
 /// ```
 #[derive(Clone)]
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-assets.html")))]
 pub struct Ranked<'a> {
     /// The version whose rank this view denotes; borrowed or owned
     /// ([`into_owned`](Self::into_owned) settles it to owned).
@@ -96,7 +97,7 @@ impl<'a> Ranked<'a> {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_rank.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_rank.html")))]
     ///
     /// Typical inputs run far below the worst case; `M` is the complexity of unbounded-integer multiplication (about `O(n log n)` in this implementation).
     ///
@@ -143,7 +144,7 @@ impl<'a> Ranked<'a> {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_encode.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_encode.html")))]
     ///
     /// Typical inputs run far below the worst case; `M` is the complexity of unbounded-integer multiplication (about `O(n log n)` in this implementation).
     ///
@@ -169,7 +170,7 @@ impl<'a> Ranked<'a> {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_encode.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_encode.html")))]
     ///
     /// Typical inputs run far below the worst case; `M` is the complexity of unbounded-integer multiplication (about `O(n log n)` in this implementation).
     ///
@@ -197,7 +198,7 @@ impl<'a> Ranked<'a> {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_encode_rank.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_encode_rank.html")))]
     ///
     /// Typical inputs run far below the worst case; `M` is the complexity of unbounded-integer multiplication (about `O(n log n)` in this implementation).
     ///
@@ -218,7 +219,7 @@ impl<'a> Ranked<'a> {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_encode_rank.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_encode_rank.html")))]
     ///
     /// Typical inputs run far below the worst case; `M` is the complexity of unbounded-integer multiplication (about `O(n log n)` in this implementation).
     ///
@@ -248,7 +249,7 @@ impl<'a> Ranked<'a> {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_decode.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_decode.html")))]
     ///
     /// Typical inputs run far below the worst case; `M` is the complexity of unbounded-integer multiplication (about `O(n log n)` in this implementation).
     ///
@@ -375,7 +376,7 @@ impl core::hash::Hash for Ranked<'_> {
 ///
 /// One fused signed rank co-sweep over the two viewed versions:
 ///
-#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_cmp.html"))]
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_cmp.html")))]
 impl Ord for Ranked<'_> {
     fn cmp(&self, other: &Self) -> Ordering {
         total_cmp(self, other)

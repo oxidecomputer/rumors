@@ -242,6 +242,7 @@ pub(crate) use num::{ceiling as arm_ceiling, BACKEND_CAPACITY_BITS};
 /// [`Span`]: crate::Span
 /// [`Version`]: crate::Version
 #[derive(Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-assets.html")))]
 pub struct Rank {
     /// The numerator. Normalized: odd, or zero with `exp` zero, so each
     /// value has exactly one representation.
@@ -282,7 +283,7 @@ impl Rank {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_checked_sub.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_checked_sub.html")))]
     ///
     /// A `None` or zero result allocates nothing.
     ///
@@ -338,7 +339,7 @@ impl Rank {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_checked_sub.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_checked_sub.html")))]
     ///
     /// A floored result allocates nothing.
     ///
@@ -377,7 +378,7 @@ impl Rank {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_encode.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_encode.html")))]
     ///
     /// # Example
     ///
@@ -407,7 +408,7 @@ impl Rank {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_encode.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_encode.html")))]
     ///
     /// # Example
     ///
@@ -446,7 +447,7 @@ impl Rank {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_decode.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_decode.html")))]
     ///
     /// # Example
     ///
@@ -878,7 +879,7 @@ impl BitSink {
 ///
 /// Unequal magnitude classes settle in `O(1)`:
 ///
-#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_cmp.html"))]
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_cmp.html")))]
 impl Ord for Rank {
     fn cmp(&self, other: &Self) -> Ordering {
         // Class first: `bits(num) − exp` is `floor(log2 value) + 1`, so unequal
@@ -933,7 +934,7 @@ impl PartialOrd for Rank {
 ///
 /// # Complexity
 ///
-#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_add.html"))]
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_add.html")))]
 impl Add<&Rank> for &Rank {
     type Output = Rank;
     fn add(self, rhs: &Rank) -> Rank {
@@ -1068,7 +1069,7 @@ impl Default for Rank {
 /// exact at any width memory admits, at the honest price of exactness past
 /// the backend's reach.)
 ///
-#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_display.html"))]
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_display.html")))]
 ///
 /// # Example
 ///

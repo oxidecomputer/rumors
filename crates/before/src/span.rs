@@ -102,6 +102,7 @@ mod tests;
 /// assert_eq!(span.dominance(&b1), Dominance::Before);
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-assets.html")))]
 pub struct Span<'a> {
     lo: Cow<'a, Version>,
     hi: Cow<'a, Version>,
@@ -115,7 +116,7 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_cmp.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_cmp.html")))]
     ///
     /// # Errors
     ///
@@ -224,7 +225,7 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_place.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_place.html")))]
     ///
     /// # Example
     ///
@@ -283,7 +284,7 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_dominance.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_dominance.html")))]
     ///
     /// # Example
     ///
@@ -347,7 +348,7 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_precedence.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_precedence.html")))]
     ///
     /// # Example
     ///
@@ -408,13 +409,13 @@ impl<'a> Span<'a> {
     /// A [`Version`] requires only a single fused walk across `lo`, `v`, and
     /// `hi` together:
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_contains.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_contains.html")))]
     ///
     /// A [`Span`] requires two causal comparisons: one to compare the two `lo`
     /// endpoints and a second to compare the two `hi` endpoint, where seach
     /// comparison costs:
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_cmp.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_cmp.html")))]
     ///
     /// # Example
     ///

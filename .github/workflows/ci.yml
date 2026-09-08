@@ -62,10 +62,10 @@ jobs:
       # same commit. The other tools report findings rather than generate
       # bytes, so they ride the pinned action's own tool manifest, moving
       # when Dependabot bumps the pin.
-      - name: Install just, cargo-nextest, cargo-rdme, cargo-fuzz, cargo-mutants, and wasm-pack
+      - name: Install just, cargo-nextest, cargo-rdme, cargo-fuzz, cargo-mutants, cargo-docs-rs, and wasm-pack
         uses: taiki-e/install-action@37f7c5781271959fb65b6b35224e28652ff2b63d # v2.87.0
         with:
-          tool: just,cargo-nextest,cargo-rdme@2.1.0,cargo-fuzz,cargo-mutants@27.1.0,wasm-pack
+          tool: just,cargo-nextest,cargo-rdme@2.1.0,cargo-fuzz,cargo-mutants@27.1.0,cargo-docs-rs,wasm-pack
 
       # Stable first, read from rust-toolchain.toml's `channel` (the one site
       # of that pin) because `just` may evaluate the justfile's `rustc`

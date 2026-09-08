@@ -49,6 +49,7 @@ mod tests;
 /// assert!(a.version().concurrent(b.version()));
 /// ```
 #[derive(PartialEq, Eq, Hash)]
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-assets.html")))]
 pub struct Clock {
     party: Party,
     version: Version,
@@ -90,7 +91,7 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_tick.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_tick.html")))]
     ///
     /// # Example
     ///
@@ -114,7 +115,7 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_ticks.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_ticks.html")))]
     ///
     /// # Example
     ///
@@ -140,7 +141,7 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_fork.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_fork.html")))]
     ///
     /// # Example
     ///
@@ -173,7 +174,7 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_forks.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_forks.html")))]
     ///
     /// Children are built on demand; see [`Forks`] for the per-step and early-drop costs.
     ///
@@ -203,7 +204,7 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_join.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_join.html")))]
     ///
     /// # Example
     ///
@@ -241,7 +242,7 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_join_all.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_join_all.html")))]
     ///
     /// Auxiliary space is `O(|self| + |iter|)`.
     ///
@@ -307,7 +308,7 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_sync.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_sync.html")))]
     ///
     /// # Example
     ///
@@ -352,7 +353,7 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_sync_all.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_sync_all.html")))]
     ///
     /// Auxiliary space is `O(|self| + |iter|)`.
     ///
@@ -433,7 +434,7 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_send.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_send.html")))]
     ///
     /// Exactly as [`tick`](Clock::tick).
     ///
@@ -458,7 +459,7 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_recv.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_recv.html")))]
     ///
     /// # Example
     ///
@@ -482,7 +483,7 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_join.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_join.html")))]
     ///
     /// # Example
     ///
@@ -515,7 +516,7 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_recv_all.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_recv_all.html")))]
     ///
     /// Auxiliary space is `O(|self| + |iter|)`.
     ///
@@ -547,7 +548,7 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_join_all.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_join_all.html")))]
     ///
     /// Auxiliary space is `O(|self| + |iter|)`.
     ///
@@ -577,7 +578,7 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_from_parts.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_from_parts.html")))]
     ///
     /// # Example
     ///
@@ -597,7 +598,7 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_into_parts.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_into_parts.html")))]
     ///
     /// # Example
     ///
@@ -651,7 +652,7 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_own_version.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_own_version.html")))]
     ///
     /// # Example
     ///
@@ -683,7 +684,7 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_shape.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_shape.html")))]
     ///
     /// Draining the iterator is linear in the clock's encoded size: each
     /// fragment costs `O(1)` plus its own rise's encoded width, and the
@@ -720,7 +721,7 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_encode.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_encode.html")))]
     ///
     /// # Example
     ///
@@ -743,7 +744,7 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_encode.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_encode.html")))]
     ///
     /// # Example
     ///
@@ -773,7 +774,7 @@ impl Clock {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_decode.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_decode.html")))]
     ///
     /// # Example
     ///
@@ -900,7 +901,7 @@ impl Clock {
 ///
 /// # Complexity
 ///
-#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_display.html"))]
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_display.html")))]
 ///
 /// # Example
 ///
@@ -930,7 +931,7 @@ impl Debug for Clock {
 ///
 /// # Complexity
 ///
-#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_fromstr.html"))]
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_fromstr.html")))]
 ///
 /// # Example
 ///
@@ -1009,7 +1010,7 @@ macro_rules! clock_join_matrix {
         #[doc = ""]
         #[doc = "# Complexity"]
         #[doc = ""]
-        #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/", $island, ".html"))]
+        #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/", $island, ".html")))]
         impl BitOr<$rhs> for $lhs {
             type Output = Clock;
             fn bitor(mut self, r: $rhs) -> Clock {
@@ -1023,7 +1024,7 @@ macro_rules! clock_join_matrix {
         #[doc = ""]
         #[doc = "# Complexity"]
         #[doc = ""]
-        #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/", $island, ".html"))]
+        #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/", $island, ".html")))]
         impl BitOr<$rhs> for $lhs {
             type Output = Clock;
             fn bitor(self, mut r: $rhs) -> Clock {
@@ -1037,7 +1038,7 @@ macro_rules! clock_join_matrix {
         #[doc = ""]
         #[doc = "# Complexity"]
         #[doc = ""]
-        #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/", $island, ".html"))]
+        #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/", $island, ".html")))]
         impl BitOrAssign<$rhs> for $lhs {
             fn bitor_assign(&mut self, r: $rhs) {
                 self.version |= r.borrow();

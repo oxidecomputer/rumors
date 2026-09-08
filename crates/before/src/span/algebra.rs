@@ -66,7 +66,7 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_union.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_union.html")))]
     ///
     /// # Example
     ///
@@ -97,7 +97,7 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_union_all.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_union_all.html")))]
     ///
     /// Auxiliary space is `O(|self| + |iter|)`.
     ///
@@ -138,7 +138,7 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_intersect.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_intersect.html")))]
     ///
     /// # Example
     ///
@@ -170,7 +170,7 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_intersect_all.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_intersect_all.html")))]
     ///
     /// Auxiliary space is `O(|self| + |iter|)`.
     ///
@@ -211,7 +211,7 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_join.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_join.html")))]
     ///
     /// # Example
     ///
@@ -243,7 +243,7 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_join_all.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_join_all.html")))]
     ///
     /// Auxiliary space is `O(|self| + |iter|)`.
     ///
@@ -279,7 +279,7 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_meet.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_meet.html")))]
     ///
     /// # Example
     ///
@@ -309,7 +309,7 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_meet_all.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_meet_all.html")))]
     ///
     /// Auxiliary space is `O(|self| + |iter|)`.
     ///
@@ -756,7 +756,7 @@ span_total_binop_matrix! {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_join.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_join.html")))]
     ///
     /// # Example
     ///
@@ -787,7 +787,7 @@ span_total_binop_matrix! {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_meet.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_meet.html")))]
     ///
     /// # Example
     ///
@@ -817,7 +817,7 @@ span_total_binop_matrix! {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_union.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_union.html")))]
     ///
     /// # Example
     ///
@@ -847,7 +847,7 @@ span_version_lhs_matrix! {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_join.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_join.html")))]
     ///
     /// # Example
     ///
@@ -873,7 +873,7 @@ span_version_lhs_matrix! {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_meet.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_meet.html")))]
     ///
     /// # Example
     ///
@@ -903,7 +903,7 @@ span_version_lhs_matrix! {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_union.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_union.html")))]
     ///
     /// # Example
     ///
@@ -931,7 +931,7 @@ span_binop_matrix! {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_intersect.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_intersect.html")))]
     ///
     /// # Example
     ///
@@ -979,7 +979,7 @@ span_assign_matrix! {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_join.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_join.html")))]
     BitOrAssign::bitor_assign, join_core
 }
 
@@ -990,7 +990,7 @@ span_assign_matrix! {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_meet.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_meet.html")))]
     BitAndAssign::bitand_assign, meet_core
 }
 
@@ -1001,7 +1001,7 @@ span_assign_matrix! {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_union.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_union.html")))]
     AddAssign::add_assign, union_core
 }
 
@@ -1044,7 +1044,7 @@ span_union_fold! {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_union_all.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_union_all.html")))]
     ///
     /// # Example
     ///
@@ -1073,7 +1073,7 @@ span_union_fold! {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_union_all.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_union_all.html")))]
     ('x, 'a) &'x Span<'a>
 }
 
@@ -1084,7 +1084,7 @@ span_union_fold! {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_union_all.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_union_all.html")))]
     ///
     /// # Example
     ///
@@ -1107,7 +1107,7 @@ span_union_fold! {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_union_all.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_union_all.html")))]
     ('x) &'x Version
 }
 
@@ -1140,7 +1140,7 @@ span_intersect_fold! {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_intersect_all.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_intersect_all.html")))]
     ///
     /// # Example
     ///

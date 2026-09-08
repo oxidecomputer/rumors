@@ -1,8 +1,8 @@
 // fuelscape widget: the interactive measured-growth explorer embedded in
 // the rustdoc's # Complexity islands. Dependency-free single-file source,
-// served verbatim inside every rustdoc page's head via
-// docs/fuelscape-header.html (`just fuelscape-header` regenerates the
-// header; build.rs refuses a stale one).
+// served inline, with the stylesheet, in the docs of every rustdoc page
+// that holds an island (before's build.rs writes the fragment;
+// tools/fuelscape-assets holds the rendered pages to that placement).
 //
 // Honesty rule: instruction counts are WASM operations metered in a
 // sandboxed build, so the widget presents shapes and ratios only — growth
@@ -1571,6 +1571,7 @@ const Fuelscape = {
     });
   },
 };
+// tools/fuelscape-assets finds the assets on a rendered page by this line.
 globalThis.Fuelscape = Fuelscape;
 if (typeof window !== "undefined" && typeof document !== "undefined") {
   if (document.readyState === "loading")

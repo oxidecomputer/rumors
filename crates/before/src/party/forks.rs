@@ -85,11 +85,12 @@ impl ExactSizeIterator for Split {}
 ///
 /// # Complexity
 ///
-#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_forks.html"))]
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_forks.html")))]
 ///
 /// Each `next` costs proportionate to its share of the drain; an early drop
 /// rejoins the unclaimed remainder in `O(|p| log k)`, with `|p|` the borrowed
 /// party's size in bytes.
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-assets.html")))]
 pub struct Forks<'a> {
     /// The borrowed party: keeps the residual share and reabsorbs unconsumed
     /// shares on drop.
@@ -173,7 +174,7 @@ impl Drop for Forks<'_> {
 ///
 /// # Complexity
 ///
-#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_forks.html"))]
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_forks.html")))]
 ///
 /// # Example
 ///

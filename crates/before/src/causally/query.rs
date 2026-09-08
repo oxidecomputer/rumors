@@ -28,6 +28,7 @@ use crate::version::skyline::place::filter::{self, Demand};
 /// NP-complete (non-polynomial). The [`Polarity`] restriction enforced by the
 /// types of [`Query`] ensures that only linear-time decidable queries are
 /// expressible.
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-assets.html")))]
 pub struct Query<'a, P: Polarity = Neutral> {
     pub(super) floor: Option<Cow<'a, Version>>,
     pub(super) ceiling: Option<Cow<'a, Version>>,
@@ -95,13 +96,13 @@ impl<'a, P: Polarity> Query<'a, P> {
     /// One traversal of `version` and the stored bounds (`|self|`, their
     /// total size); one chart per bounds shape:
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_contains_floor.html"))]
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_contains_ceiling.html"))]
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_contains_floor_ceiling.html"))]
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_contains_hole.html"))]
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_contains_floor_hole.html"))]
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_contains_ceiling_hole.html"))]
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_contains_floor_ceiling_hole.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_contains_floor.html")))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_contains_ceiling.html")))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_contains_floor_ceiling.html")))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_contains_hole.html")))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_contains_floor_hole.html")))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_contains_ceiling_hole.html")))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_contains_floor_ceiling_hole.html")))]
     pub fn contains(&self, version: &Version) -> bool {
         filter::admits(version.view().live(), self.demands())
     }
@@ -116,13 +117,13 @@ impl<'a, P: Polarity> Query<'a, P> {
     /// At most two traversals of the span's endpoints and the stored
     /// bounds (`|self|`, their total size); one chart per bounds shape:
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_coverage_floor.html"))]
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_coverage_ceiling.html"))]
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_coverage_floor_ceiling.html"))]
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_coverage_hole.html"))]
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_coverage_floor_hole.html"))]
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_coverage_ceiling_hole.html"))]
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_coverage_floor_ceiling_hole.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_coverage_floor.html")))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_coverage_ceiling.html")))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_coverage_floor_ceiling.html")))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_coverage_hole.html")))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_coverage_floor_hole.html")))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_coverage_ceiling_hole.html")))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_coverage_floor_ceiling_hole.html")))]
     pub fn coverage<'s>(&self, span: impl Into<Span<'s>>) -> Coverage {
         let span = span.into();
         let (lo, hi) = (span.lo(), span.hi());

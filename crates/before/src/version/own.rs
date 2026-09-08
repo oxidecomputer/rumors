@@ -24,8 +24,8 @@ mod tests;
 /// The comparisons never materialize a projection; view construction
 /// itself is `O(1)`:
 ///
-#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/own_version_cmp.html"))]
-#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/own_version_pair_cmp.html"))]
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/own_version_cmp.html")))]
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/own_version_pair_cmp.html")))]
 ///
 /// # Example
 ///
@@ -45,6 +45,7 @@ mod tests;
 /// assert!(owned <= *v);
 /// ```
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-assets.html")))]
 pub struct OwnVersion<'a> {
     /// The party whose owned region gates the version.
     pub(crate) party: &'a Party,
@@ -62,7 +63,7 @@ impl OwnVersion<'_> {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_project.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_project.html")))]
     ///
     /// # Example
     ///
@@ -93,7 +94,7 @@ impl OwnVersion<'_> {
 ///
 /// # Complexity
 ///
-#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_project.html"))]
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_project.html")))]
 ///
 /// # Example
 ///

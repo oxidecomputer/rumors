@@ -21,12 +21,14 @@ use super::{le, Query, Version};
 /// Conjoin it with `&`, negate it with `!`, or widen it with
 /// [`or_concurrent`](Self::or_concurrent).
 #[derive(Clone)]
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-assets.html")))]
 pub struct Floor<'a> {
     pub(super) at: Cow<'a, Version>,
 }
 
 /// Built by [`before`]: keeps the versions at or below its bound, `v <= at`.
 #[derive(Clone)]
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-assets.html")))]
 pub struct Ceiling<'a> {
     pub(super) at: Cow<'a, Version>,
 }
@@ -279,7 +281,7 @@ impl<'a> Floor<'a> {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/floor_contains.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/floor_contains.html")))]
     pub fn contains(&self, version: &Version) -> bool {
         le(&self.at, version)
     }
@@ -303,7 +305,7 @@ impl<'a> Ceiling<'a> {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ceiling_contains.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ceiling_contains.html")))]
     pub fn contains(&self, version: &Version) -> bool {
         le(version, &self.at)
     }

@@ -27,7 +27,7 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_encode.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_encode.html")))]
     ///
     /// # Example
     ///
@@ -55,7 +55,7 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_encode.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_encode.html")))]
     ///
     /// # Example
     ///
@@ -93,7 +93,7 @@ impl<'a> Span<'a> {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_decode.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_decode.html")))]
     ///
     /// # Example
     ///

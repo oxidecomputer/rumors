@@ -63,6 +63,7 @@ mod tests;
 /// whole.join(half).unwrap();         // ... and reunite into the whole
 /// assert!(whole.is_seed());
 /// ```
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-assets.html")))]
 pub struct Party(codec::Bits);
 
 // Identity Linearity (the crate docs' second safety rule) is compiler-enforced
@@ -91,7 +92,7 @@ impl Eq for Party {}
 ///
 /// # Complexity
 ///
-#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_hash.html"))]
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_hash.html")))]
 impl core::hash::Hash for Party {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         codec::canonical_hash(&self.0, state);
@@ -167,7 +168,7 @@ impl Party {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_tick.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_tick.html")))]
     ///
     /// # Example
     ///
@@ -188,7 +189,7 @@ impl Party {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_ticks.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_ticks.html")))]
     ///
     /// # Example
     ///
@@ -219,7 +220,7 @@ impl Party {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_fork.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_fork.html")))]
     ///
     /// # Example
     ///
@@ -253,7 +254,7 @@ impl Party {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_forks.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_forks.html")))]
     ///
     /// Shares are built on demand; see [`Forks`] for the per-step and early-drop costs.
     ///
@@ -284,7 +285,7 @@ impl Party {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_join.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_join.html")))]
     ///
     /// # Example
     ///
@@ -319,7 +320,7 @@ impl Party {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_join_all.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_join_all.html")))]
     ///
     /// Auxiliary space is `O(|self| + |iter|)`.
     ///
@@ -383,7 +384,7 @@ impl Party {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_is_disjoint.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_is_disjoint.html")))]
     ///
     /// # Example
     ///
@@ -407,7 +408,7 @@ impl Party {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_covers.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_covers.html")))]
     ///
     /// # Example
     ///
@@ -439,7 +440,7 @@ impl Party {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_without.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_without.html")))]
     ///
     /// # Example
     ///
@@ -475,7 +476,7 @@ impl Party {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_shape.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_shape.html")))]
     ///
     /// Draining the iterator is linear in the party's encoded size: each
     /// region costs `O(1)`, and nothing allocates.
@@ -542,7 +543,7 @@ impl Party {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_encode.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_encode.html")))]
     ///
     /// # Example
     ///
@@ -559,7 +560,7 @@ impl Party {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_encode.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_encode.html")))]
     ///
     /// # Example
     ///
@@ -611,7 +612,7 @@ impl Party {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_decode.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_decode.html")))]
     ///
     /// # Example
     ///
@@ -736,7 +737,7 @@ impl Party {
 ///
 /// # Complexity
 ///
-#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_display.html"))]
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_display.html")))]
 ///
 /// The text spells `O(1)` bytes per id-tree node, so it is itself `O(|self|)` bytes.
 ///
@@ -769,7 +770,7 @@ impl core::fmt::Debug for Party {
 ///
 /// # Complexity
 ///
-#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_fromstr.html"))]
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_fromstr.html")))]
 ///
 /// The parsed party is itself `O(|s|)` bytes.
 ///

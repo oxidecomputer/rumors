@@ -4,15 +4,26 @@
 //! documents the `before-fuelscape` compactor derives from a measuring
 //! dump; that crate owns the format, the binning, and the two-ways
 //! verification against the dump) and `docs/` (the widget's stylesheet
-//! and script, plus their derived `--html-in-header` concatenation).
+//! and script).
 //!
 //! Outputs: `$OUT_DIR/fuelscapes/<op>.html` — one single-line
 //! `<details>` island per operation, pulled into a `# Complexity`
 //! section via
-//! `#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/<op>.html"))]`
-//! — and `$OUT_DIR/fuelscapes/index`, the emitted operation names one
-//! per line, which the doc-attachment totality test compares against
-//! the sources' include sites.
+//! `#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/<op>.html")))]`
+//! — `$OUT_DIR/fuelscapes/index`, the emitted operation names one per
+//! line, which the doc-attachment totality test compares against the
+//! sources' include sites — and `$OUT_DIR/fuelscape-assets.html`, the
+//! stylesheet and script as one inline fragment, pulled into the docs
+//! of every item whose rendered page holds an island, so that any
+//! rustdoc render (a bare `cargo doc`, docs.rs) carries the widget with
+//! its charts. `tools/fuelscape-assets` holds the rendered pages to that
+//! placement: the fragment exactly once on every page with an island,
+//! and on no other.
+//!
+//! Islands and fragment alike are attached under `cfg(doc)`, so they
+//! exist only in rustdoc's own view of this crate: never in the compiled
+//! metadata that IDE hovers read, and never in the copy a dependent's
+//! re-export inlines, whose pages could not carry the assets.
 //!
 //! This script is a pure formatter: it re-bins nothing, computes no
 //! statistics, and holds no constants the widget or compactor also
@@ -27,10 +38,9 @@ fn main() {
     println!("cargo:rerun-if-changed=fuelscape");
     println!("cargo:rerun-if-changed=docs/fuelscape.css");
     println!("cargo:rerun-if-changed=docs/fuelscape.js");
-    println!("cargo:rerun-if-changed=docs/fuelscape-header.html");
-    check_header_fresh();
 
     let out_dir = std::env::var("OUT_DIR").expect("cargo sets OUT_DIR");
+    write_assets(Path::new(&out_dir));
     let dst = Path::new(&out_dir).join("fuelscapes");
     std::fs::create_dir_all(&dst).expect("island output directory is creatable");
 
@@ -315,20 +325,21 @@ fn validate(file: &str, op: &serde_json::Value) {
     }
 }
 
-/// The committed header must be exactly the concatenation of the
-/// committed stylesheet and script.
+/// Writes the widget's stylesheet and script as one inline doc fragment.
 ///
-/// rustdoc flags cannot point into `$OUT_DIR`, so the header is a
-/// derived committed file, and this check is what keeps it from rotting.
-fn check_header_fresh() {
+/// The fragment opens with a blank line. rustdoc joins an item's doc
+/// fragments with single newlines, and a `<style>` line that directly
+/// follows another HTML block (an island's `<details>`) would continue
+/// that block, which ends at the first blank line, handing the rest of
+/// the script to the Markdown pass. Opening on a blank line makes
+/// `<style>` and `<script>` begin HTML blocks of their own, the kind
+/// that run to their closing tag and tolerate blank lines inside.
+fn write_assets(out_dir: &Path) {
     let css = std::fs::read_to_string("docs/fuelscape.css").expect("docs/fuelscape.css");
     let js = std::fs::read_to_string("docs/fuelscape.js").expect("docs/fuelscape.js");
-    let header =
-        std::fs::read_to_string("docs/fuelscape-header.html").expect("docs/fuelscape-header.html");
-    assert_eq!(
-        header,
-        format!("<style>{css}</style>\n<script>{js}</script>\n"),
-        "docs/fuelscape-header.html is stale relative to fuelscape.css/fuelscape.js: \
-         run `just fuelscape-header`"
-    );
+    std::fs::write(
+        out_dir.join("fuelscape-assets.html"),
+        format!("\n<style>{css}</style>\n<script>{js}</script>\n"),
+    )
+    .expect("the assets fragment is writable");
 }

@@ -313,7 +313,7 @@ impl FusedIterator for Overlay<'_> {}
 ///
 /// # Complexity
 ///
-#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/shape_combine.html"))]
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/shape_combine.html")))]
 ///
 /// # Example
 ///
@@ -330,6 +330,7 @@ impl FusedIterator for Overlay<'_> {}
 /// assert!(cells[0].rises[1].is_some()); // b's absolute height, once
 /// assert!(cells[1].rises[1].is_none()); // b continues level
 /// ```
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-assets.html")))]
 pub fn combine<'a, const N: usize>(versions: [&'a Version; N]) -> Cells<'a, N> {
     Cells {
         walks: versions.map(|version| VersionWalk::open(version.view().live())),

@@ -1,0 +1,149 @@
+#!/usr/bin/env python3
+"""Hold rendered rustdoc pages to the fuelscape widget's asset placement.
+
+Usage:
+    fuelscape-assets DOC_ROOT...
+    fuelscape-assets --self-test
+
+The measured-growth charts in before's docs are HTML islands that hydrate
+only when the widget's stylesheet and script are on the same page. Those
+assets travel inside the doc comments of every item whose page holds an
+island (before's build.rs writes the fragment), and this checker is what
+holds that placement, on the rendered output rather than the sources:
+which items share a page is rustdoc's decision, so only the pages can be
+total. Every page under the roots must carry the assets exactly once if
+it holds an island and never otherwise, so a chart is never an empty
+expander and a page without charts never carries dead weight.
+
+Markers: an island is the `<div class="fuelscape">` build.rs's island
+formatter emits; the assets are found by the widget's export line in
+docs/fuelscape.js, which carries a comment naming this coupling.
+
+A run that finds no island at all fails: the roots then hold no before
+page, and a clean verdict would be vacuous.
+"""
+
+import os
+import sys
+import tempfile
+from pathlib import Path
+
+
+ISLAND = '<div class="fuelscape">'
+ASSETS = "globalThis.Fuelscape = Fuelscape;"
+
+
+def html_files(root):
+    """Every .html file under `root`, or `root` itself when it is a file."""
+    if root.is_file():
+        yield root
+        return
+    for dirpath, _, filenames in os.walk(root):
+        for name in sorted(filenames):
+            if name.endswith(".html"):
+                yield Path(dirpath) / name
+
+
+def page_problem(islands, assets):
+    """The rule for one page, or None when the page satisfies it."""
+    if islands and assets != 1:
+        return (
+            f"holds {islands} chart island(s) but carries the widget assets "
+            f"{assets} time(s), not once"
+        )
+    if not islands and assets:
+        return f"holds no chart island but carries the widget assets {assets} time(s)"
+    return None
+
+
+def check(roots):
+    """Problems as (path, message) pairs, plus the number of island pages seen."""
+    problems = []
+    island_pages = 0
+    for root in roots:
+        for path in html_files(root):
+            text = path.read_text(encoding="utf-8", errors="replace")
+            islands = text.count(ISLAND)
+            assets = text.count(ASSETS)
+            if islands:
+                island_pages += 1
+            problem = page_problem(islands, assets)
+            if problem is not None:
+                problems.append((path, problem))
+    return problems, island_pages
+
+
+def self_test():
+    """Each arm of the rule fires on a synthetic page shaped to break it."""
+    island = f"<p>doc</p>{ISLAND}<script type=\"application/json\">{{}}</script></div>"
+    assets = f"<style>.fs-details {{}}</style><script>{ASSETS}</script>"
+    cases = {
+        "ok-island.html": (island + assets, None),
+        "ok-plain.html": ("<p>no charts here</p>", None),
+        "bad-missing.html": (island, "carries the widget assets 0 time(s)"),
+        "bad-doubled.html": (island + assets + assets, "carries the widget assets 2 time(s)"),
+        "bad-stray.html": ("<p>no charts</p>" + assets, "holds no chart island but carries"),
+    }
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "doc" / "crate"
+        root.mkdir(parents=True)
+        for name, (text, _) in cases.items():
+            (root / name).write_text(text, encoding="utf-8")
+        problems, island_pages = check([Path(tmp)])
+        if island_pages != 3:
+            raise AssertionError(f"expected 3 island pages, counted {island_pages}")
+        found = {path.name: message for path, message in problems}
+        for name, (_, expected) in cases.items():
+            if expected is None and name in found:
+                raise AssertionError(f"{name} should pass, got: {found[name]}")
+            if expected is not None and expected not in found.get(name, ""):
+                raise AssertionError(f"{name} should fail with {expected!r}, got: {found.get(name)}")
+        # The liveness floor: a root without islands is never a clean verdict.
+        plain = Path(tmp) / "plain"
+        plain.mkdir()
+        (plain / "index.html").write_text("<p>nothing</p>", encoding="utf-8")
+        _, island_pages = check([plain])
+        if island_pages != 0:
+            raise AssertionError("a root without islands counted island pages")
+
+
+def main(argv):
+    if argv[1:] == ["--self-test"]:
+        self_test()
+        return 0
+    roots = [Path(argument) for argument in argv[1:]]
+    if not roots:
+        print("usage: fuelscape-assets DOC_ROOT...", file=sys.stderr)
+        return 2
+    # A nonexistent root would hold no pages and read as clean; a renamed or
+    # relocated doc directory must be a usage error, never a pass.
+    missing = [root for root in roots if not root.exists()]
+    if missing:
+        for root in missing:
+            print(f"fuelscape-assets: no such file or directory: {root}", file=sys.stderr)
+        return 2
+
+    problems, island_pages = check(roots)
+    for path, message in problems:
+        print(f"{path}: {message}")
+    if island_pages == 0:
+        print(
+            "fuelscape-assets: no page under the given roots holds a chart island; "
+            "the roots hold no before pages, so there is nothing to attest",
+            file=sys.stderr,
+        )
+        return 1
+    if problems:
+        print(
+            "\nEvery page holding a chart island must carry the widget assets exactly "
+            "once: attach `#[cfg_attr(doc, doc = include_str!(concat!(env!(\"OUT_DIR\"), "
+            "\"/fuelscape-assets.html\")))]` to the item that owns the page, and to "
+            "nothing whose page holds no island.",
+            file=sys.stderr,
+        )
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

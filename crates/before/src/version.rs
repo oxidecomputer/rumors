@@ -65,8 +65,8 @@ mod tests;
 /// is a canonical byte compare (the skyline coding is a unique
 /// representation, so byte equality is exactly causal equality):
 ///
-#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_cmp.html"))]
-#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_eq.html"))]
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_cmp.html")))]
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_eq.html")))]
 ///
 /// # Example
 ///
@@ -92,13 +92,14 @@ mod tests;
 // the derived `Clone` `O(1)`: a clone shares the buffer, and
 // `codec::canonical_eq`'s clone-identity rung recognizes the sharing.
 #[derive(Clone, Eq)]
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-assets.html")))]
 pub struct Version(codec::Bits);
 
 /// Hashes the canonical bytes, consistently with `Eq`'s byte compare.
 ///
 /// # Complexity
 ///
-#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_hash.html"))]
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_hash.html")))]
 impl Hash for Version {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         codec::canonical_hash(&self.0, state);
@@ -167,7 +168,7 @@ impl Version {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_tick.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_tick.html")))]
     ///
     /// # Example
     ///
@@ -188,7 +189,7 @@ impl Version {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_ticks.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_ticks.html")))]
     ///
     /// # Example
     ///
@@ -221,7 +222,7 @@ impl Version {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_concurrent.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_concurrent.html")))]
     ///
     /// # Example
     ///
@@ -254,7 +255,7 @@ impl Version {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_min_ticks.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_min_ticks.html")))]
     ///
     /// # Example
     ///
@@ -288,7 +289,7 @@ impl Version {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_rank.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_rank.html")))]
     ///
     /// Typical inputs run far below the worst case; `M` is the complexity of unbounded-integer multiplication (about `O(n log n)` in this implementation).
     ///
@@ -359,7 +360,7 @@ impl Version {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_distance.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_distance.html")))]
     ///
     /// Typical inputs run far below the worst case; `M` is the complexity of
     /// unbounded-integer multiplication (about `O(n log n)` in this
@@ -406,7 +407,7 @@ impl Version {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_lag.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_lag.html")))]
     ///
     /// Typical inputs run far below the worst case; `M` is the complexity of
     /// unbounded-integer multiplication (about `O(n log n)` in this
@@ -442,7 +443,7 @@ impl Version {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_join.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_join.html")))]
     ///
     /// # Example
     ///
@@ -470,7 +471,7 @@ impl Version {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_join_all.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_join_all.html")))]
     ///
     /// Auxiliary space is `O(|self| + |iter|)`.
     ///
@@ -502,7 +503,7 @@ impl Version {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_meet.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_meet.html")))]
     ///
     /// # Example
     ///
@@ -534,7 +535,7 @@ impl Version {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_meet_all.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_meet_all.html")))]
     ///
     /// Auxiliary space is `O(|self| + |iter|)`.
     ///
@@ -568,7 +569,7 @@ impl Version {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_span.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_span.html")))]
     ///
     /// # Example
     ///
@@ -605,7 +606,7 @@ impl Version {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_span_all.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_span_all.html")))]
     ///
     /// Auxiliary space is `O(|self| + |iter|)`.
     ///
@@ -733,7 +734,7 @@ impl Version {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_shape.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_shape.html")))]
     ///
     /// Draining the iterator is linear in the version's encoded size:
     /// each plateau costs `O(1)` plus its own rise's encoded width, and
@@ -1015,7 +1016,7 @@ impl Version {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_encode.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_encode.html")))]
     ///
     /// # Example
     ///
@@ -1032,7 +1033,7 @@ impl Version {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_encode.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_encode.html")))]
     ///
     /// # Example
     ///
@@ -1053,7 +1054,7 @@ impl Version {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_encode_rank.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_encode_rank.html")))]
     ///
     /// Typical inputs run far below the worst case; `M` is the complexity of unbounded-integer multiplication (about `O(n log n)` in this implementation).
     ///
@@ -1076,7 +1077,7 @@ impl Version {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_encode_rank.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_encode_rank.html")))]
     ///
     /// Typical inputs run far below the worst case; `M` is the complexity of unbounded-integer multiplication (about `O(n log n)` in this implementation).
     ///
@@ -1096,7 +1097,7 @@ impl Version {
     ///
     /// # Complexity
     ///
-    #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_decode.html"))]
+    #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_decode.html")))]
     ///
     /// Strict validation is one pass over the stream, and the result reuses the read buffer.
     ///
@@ -1356,7 +1357,7 @@ impl Default for Version {
 ///
 /// # Complexity
 ///
-#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_join_all.html"))]
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_join_all.html")))]
 ///
 /// Auxiliary space is `O(|iter|)`.
 impl Sum<Version> for Version {
@@ -1369,7 +1370,7 @@ impl Sum<Version> for Version {
 ///
 /// # Complexity
 ///
-#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_join_all.html"))]
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_join_all.html")))]
 ///
 /// Auxiliary space is `O(|iter|)`.
 impl<'a> Sum<&'a Version> for Version {
@@ -1382,7 +1383,7 @@ impl<'a> Sum<&'a Version> for Version {
 ///
 /// # Complexity
 ///
-#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_join_all.html"))]
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_join_all.html")))]
 ///
 /// Auxiliary space is `O(|iter|)`.
 impl FromIterator<Version> for Version {
@@ -1395,7 +1396,7 @@ impl FromIterator<Version> for Version {
 ///
 /// # Complexity
 ///
-#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_join_all.html"))]
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_join_all.html")))]
 ///
 /// Auxiliary space is `O(|iter|)`.
 impl<'a> FromIterator<&'a Version> for Version {
@@ -1409,7 +1410,7 @@ impl<'a> FromIterator<&'a Version> for Version {
 ///
 /// # Complexity
 ///
-#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_display.html"))]
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_display.html")))]
 ///
 /// # Example
 ///
@@ -1442,7 +1443,7 @@ impl Debug for Version {
 ///
 /// # Complexity
 ///
-#[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_fromstr.html"))]
+#[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_fromstr.html")))]
 ///
 /// # Example
 ///
@@ -1544,7 +1545,7 @@ macro_rules! binop_matrix {
         #[doc = ""]
         #[doc = "# Complexity"]
         #[doc = ""]
-        #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/", $island, ".html"))]
+        #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/", $island, ".html")))]
         impl $Op<$rhs> for $lhs {
             type Output = Version;
             fn $op(self, r: $rhs) -> Version {
@@ -1559,7 +1560,7 @@ macro_rules! binop_matrix {
         #[doc = ""]
         #[doc = "# Complexity"]
         #[doc = ""]
-        #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/", $island, ".html"))]
+        #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/", $island, ".html")))]
         impl $Op<$rhs> for $lhs {
             type Output = Version;
             fn $op(self, r: $rhs) -> Version {
@@ -1574,7 +1575,7 @@ macro_rules! binop_matrix {
         #[doc = ""]
         #[doc = "# Complexity"]
         #[doc = ""]
-        #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/", $island, ".html"))]
+        #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/", $island, ".html")))]
         impl $Assign<$rhs> for $lhs {
             fn $assign(&mut self, r: $rhs) {
                 self.$view(r.view());
@@ -1637,7 +1638,7 @@ macro_rules! span_matrix {
             #[doc = ""]
             #[doc = "# Complexity"]
             #[doc = ""]
-            #[doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/", $island, ".html"))]
+            #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/", $island, ".html")))]
             impl BitXor<$rhs> for $lhs {
                 type Output = Span<'static>;
                 fn bitxor(self, r: $rhs) -> Span<'static> {
