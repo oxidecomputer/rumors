@@ -6,13 +6,14 @@ description = "Interval Tree Clocks (Almeida, Baquero & Fonte, 2008): packed bit
 license = "MPL-2.0"
 readme = "README.md"
 
-# docs.rs renders every feature-gated impl the crate advertises (`serde`,
-# `borsh`), matching the gate's all-features rustdoc passes; the justfile's
-# `docs-docsrs` leg builds this configuration. The fuelscape widget needs
-# no docs.rs flag: build.rs formats its assets from the packaged `docs/`
-# into the doc comments themselves.
+# docs.rs renders the feature-gated impls the crate advertises (`serde`,
+# `borsh`) and nothing of the bench- and test-only features (`oracle`,
+# `meter`, `laws`), which expose instrument modules no user of the crate
+# reaches for; the justfile's `docs-docsrs` leg builds this configuration.
+# The fuelscape widget needs no docs.rs flag: build.rs formats its assets
+# from the packaged `docs/` into the doc comments themselves.
 [package.metadata.docs.rs]
-all-features = true
+features = ["serde", "borsh"]
 
 # build.rs is a pure formatter: it renders the committed fuelscape
 # widget datasets (fuelscape/) into the doc islands the # Complexity
