@@ -314,7 +314,10 @@ impl FusedIterator for Overlay<'_> {}
 /// # Complexity
 ///
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/shape_combine.html")))]
-#[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/shape_combine.md")))]
+#[cfg_attr(
+    not(doc),
+    doc = "`O(n)` in total input bytes; `O(N · total input size)` to drain, `N` the compile-time arity"
+)]
 ///
 /// # Example
 ///

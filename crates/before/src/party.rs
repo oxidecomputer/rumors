@@ -93,7 +93,10 @@ impl Eq for Party {}
 /// # Complexity
 ///
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_hash.html")))]
-#[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/party_hash.md")))]
+#[cfg_attr(
+    not(doc),
+    doc = "`O(n)` in total input bytes; `O(|self|)`: one pass over the canonical bytes"
+)]
 impl core::hash::Hash for Party {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         codec::canonical_hash(&self.0, state);
@@ -170,7 +173,7 @@ impl Party {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_tick.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/version_tick.md")))]
+    #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |party|)`")]
     ///
     /// # Example
     ///
@@ -192,7 +195,10 @@ impl Party {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_ticks.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/version_ticks.md")))]
+    #[cfg_attr(
+        not(doc),
+        doc = "`O(n)` in total input bytes; `O(|self| + |party| + log k)`"
+    )]
     ///
     /// # Example
     ///
@@ -224,7 +230,7 @@ impl Party {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_fork.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/party_fork.md")))]
+    #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self|)`")]
     ///
     /// # Example
     ///
@@ -259,7 +265,10 @@ impl Party {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_forks.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/party_forks.md")))]
+    #[cfg_attr(
+        not(doc),
+        doc = "`O(n)` in total input bytes; a full drain costs `O(|self| + k (|self| + log k))`"
+    )]
     ///
     /// Shares are built on demand; see [`Forks`] for the per-step and early-drop costs.
     ///
@@ -291,7 +300,10 @@ impl Party {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_join.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/party_join.md")))]
+    #[cfg_attr(
+        not(doc),
+        doc = "`O(n)` in total input bytes; `O(|self| + |other|)`, accepted or rejected"
+    )]
     ///
     /// # Example
     ///
@@ -327,7 +339,10 @@ impl Party {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_join_all.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/party_join_all.md")))]
+    #[cfg_attr(
+        not(doc),
+        doc = "`O(n log n)` in total input bytes; `O((|self| + |iter|) log k + (|self| + |iter|) log |self|)` time, `k` the operand count"
+    )]
     ///
     /// Auxiliary space is `O(|self| + |iter|)`.
     ///
@@ -392,7 +407,10 @@ impl Party {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_is_disjoint.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/party_is_disjoint.md")))]
+    #[cfg_attr(
+        not(doc),
+        doc = "`O(n)` in total input bytes; `O(|self| + |other|)`, no allocation"
+    )]
     ///
     /// # Example
     ///
@@ -417,7 +435,10 @@ impl Party {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_covers.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/party_covers.md")))]
+    #[cfg_attr(
+        not(doc),
+        doc = "`O(n)` in total input bytes; `O(|self| + |other|)`, no allocation"
+    )]
     ///
     /// # Example
     ///
@@ -450,7 +471,7 @@ impl Party {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_without.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/party_without.md")))]
+    #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |other|)`")]
     ///
     /// # Example
     ///
@@ -487,7 +508,7 @@ impl Party {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_shape.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/party_shape.md")))]
+    #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self|)` to drain")]
     ///
     /// Draining the iterator is linear in the party's encoded size: each
     /// region costs `O(1)`, and nothing allocates.
@@ -555,7 +576,7 @@ impl Party {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_encode.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/party_encode.md")))]
+    #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self|)`")]
     ///
     /// # Example
     ///
@@ -573,7 +594,7 @@ impl Party {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_encode.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/party_encode.md")))]
+    #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self|)`")]
     ///
     /// # Example
     ///
@@ -626,7 +647,10 @@ impl Party {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_decode.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/party_decode.md")))]
+    #[cfg_attr(
+        not(doc),
+        doc = "`O(n)` in total input bytes; `O(n)` with `n` the size of the input, accepted or rejected"
+    )]
     ///
     /// # Example
     ///
@@ -752,7 +776,10 @@ impl Party {
 /// # Complexity
 ///
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_display.html")))]
-#[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/party_display.md")))]
+#[cfg_attr(
+    not(doc),
+    doc = "`O(n)` in total input bytes; `O(|self|)` time and space"
+)]
 ///
 /// The text spells `O(1)` bytes per id-tree node, so it is itself `O(|self|)` bytes.
 ///
@@ -786,7 +813,10 @@ impl core::fmt::Debug for Party {
 /// # Complexity
 ///
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_fromstr.html")))]
-#[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/party_fromstr.md")))]
+#[cfg_attr(
+    not(doc),
+    doc = "`O(n)` in total input bytes; `O(|s|)` time and space, accepted or rejected"
+)]
 ///
 /// The parsed party is itself `O(|s|)` bytes.
 ///

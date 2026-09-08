@@ -362,7 +362,7 @@
 //! viewing this on a third-party site such as GitHub or crates.io).
 //!
 #![cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_tick.open.html")))]
-#![cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/version_tick.open.md")))]
+#![cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |party|)`")]
 //!
 //! Each chart shows a heatmap of instruction-count required to evaluate the
 //! function, plotted against the total input size in bytes, and sampled over

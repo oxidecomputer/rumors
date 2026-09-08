@@ -25,9 +25,15 @@ mod tests;
 /// itself is `O(1)`:
 ///
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/own_version_cmp.html")))]
-#[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/own_version_cmp.md")))]
+#[cfg_attr(
+    not(doc),
+    doc = "vs `Version`: `O(n)` in total input bytes; `O(|self| + |other|)`"
+)]
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/own_version_pair_cmp.html")))]
-#[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/own_version_pair_cmp.md")))]
+#[cfg_attr(
+    not(doc),
+    doc = "vs `OwnVersion`: `O(n)` in total input bytes; `O(|self| + |other|)`"
+)]
 ///
 /// # Example
 ///
@@ -66,7 +72,10 @@ impl OwnVersion<'_> {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_project.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/version_project.md")))]
+    #[cfg_attr(
+        not(doc),
+        doc = "`O(n^2)` in total input bytes; the view is `O(1)`; materializing: `O(|self| + |result|)`, `|result| = O(|self|^2)`"
+    )]
     ///
     /// # Example
     ///
@@ -98,7 +107,10 @@ impl OwnVersion<'_> {
 /// # Complexity
 ///
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_project.html")))]
-#[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/version_project.md")))]
+#[cfg_attr(
+    not(doc),
+    doc = "`O(n^2)` in total input bytes; the view is `O(1)`; materializing: `O(|self| + |result|)`, `|result| = O(|self|^2)`"
+)]
 ///
 /// # Example
 ///

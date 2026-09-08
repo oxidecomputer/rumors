@@ -98,7 +98,10 @@ impl<'a> Ranked<'a> {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_rank.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/version_rank.md")))]
+    #[cfg_attr(
+        not(doc),
+        doc = "`O(n (log n)^2)` in total input bytes; `O(M(|self|) · log |self|)` time, `O(|self|)` space"
+    )]
     ///
     /// Typical inputs run far below the worst case; `M` is the complexity of unbounded-integer multiplication (about `O(n log n)` in this implementation).
     ///
@@ -146,7 +149,10 @@ impl<'a> Ranked<'a> {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_encode.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/ranked_encode.md")))]
+    #[cfg_attr(
+        not(doc),
+        doc = "`O(n (log n)^2)` in total input bytes; `O(M(|self|) · log |self|)` time, `O(|self|)` space"
+    )]
     ///
     /// Typical inputs run far below the worst case; `M` is the complexity of unbounded-integer multiplication (about `O(n log n)` in this implementation).
     ///
@@ -173,7 +179,10 @@ impl<'a> Ranked<'a> {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_encode.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/ranked_encode.md")))]
+    #[cfg_attr(
+        not(doc),
+        doc = "`O(n (log n)^2)` in total input bytes; `O(M(|self|) · log |self|)` time, `O(|self|)` space"
+    )]
     ///
     /// Typical inputs run far below the worst case; `M` is the complexity of unbounded-integer multiplication (about `O(n log n)` in this implementation).
     ///
@@ -202,7 +211,10 @@ impl<'a> Ranked<'a> {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_encode_rank.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/ranked_encode_rank.md")))]
+    #[cfg_attr(
+        not(doc),
+        doc = "`O(n (log n)^2)` in total input bytes; `O(M(|self|) · log |self|)` time, `O(|self|)` space"
+    )]
     ///
     /// Typical inputs run far below the worst case; `M` is the complexity of unbounded-integer multiplication (about `O(n log n)` in this implementation).
     ///
@@ -224,7 +236,10 @@ impl<'a> Ranked<'a> {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_encode_rank.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/ranked_encode_rank.md")))]
+    #[cfg_attr(
+        not(doc),
+        doc = "`O(n (log n)^2)` in total input bytes; `O(M(|self|) · log |self|)` time, `O(|self|)` space"
+    )]
     ///
     /// Typical inputs run far below the worst case; `M` is the complexity of unbounded-integer multiplication (about `O(n log n)` in this implementation).
     ///
@@ -255,7 +270,10 @@ impl<'a> Ranked<'a> {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_decode.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/ranked_decode.md")))]
+    #[cfg_attr(
+        not(doc),
+        doc = "`O(n (log n)^2)` in total input bytes; `O(M(|self|) · log |self|)` time, `O(|self|)` space"
+    )]
     ///
     /// Typical inputs run far below the worst case; `M` is the complexity of unbounded-integer multiplication (about `O(n log n)` in this implementation).
     ///
@@ -383,7 +401,7 @@ impl core::hash::Hash for Ranked<'_> {
 /// One fused signed rank co-sweep over the two viewed versions:
 ///
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ranked_cmp.html")))]
-#[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/ranked_cmp.md")))]
+#[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |other|)`")]
 impl Ord for Ranked<'_> {
     fn cmp(&self, other: &Self) -> Ordering {
         total_cmp(self, other)

@@ -92,7 +92,7 @@ impl Clock {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_tick.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/clock_tick.md")))]
+    #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self|)`")]
     ///
     /// # Example
     ///
@@ -117,7 +117,10 @@ impl Clock {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_ticks.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/version_ticks.md")))]
+    #[cfg_attr(
+        not(doc),
+        doc = "`O(n)` in total input bytes; `O(|self| + |party| + log k)`"
+    )]
     ///
     /// # Example
     ///
@@ -144,7 +147,7 @@ impl Clock {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_fork.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/clock_fork.md")))]
+    #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self|)`")]
     ///
     /// # Example
     ///
@@ -178,7 +181,10 @@ impl Clock {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_forks.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/clock_forks.md")))]
+    #[cfg_attr(
+        not(doc),
+        doc = "`O(n)` in total input bytes; a full drain costs at most `O(|self| + k (|self| + log k))`"
+    )]
     ///
     /// Children are built on demand; see [`Forks`] for the per-step and early-drop costs.
     ///
@@ -209,7 +215,10 @@ impl Clock {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_join.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/clock_join.md")))]
+    #[cfg_attr(
+        not(doc),
+        doc = "`O(n)` in total input bytes; `O(|self| + |other|)`, accepted or rejected"
+    )]
     ///
     /// # Example
     ///
@@ -248,7 +257,10 @@ impl Clock {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_join_all.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/clock_join_all.md")))]
+    #[cfg_attr(
+        not(doc),
+        doc = "`O(n log n)` in total input bytes; `O((|self| + |iter|) log k + (|self| + |iter|) log |self|)` time, `k` the operand count"
+    )]
     ///
     /// Auxiliary space is `O(|self| + |iter|)`.
     ///
@@ -315,7 +327,10 @@ impl Clock {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_sync.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/clock_sync.md")))]
+    #[cfg_attr(
+        not(doc),
+        doc = "`O(n)` in total input bytes; `O(|self| + |other|)`, accepted or rejected"
+    )]
     ///
     /// # Example
     ///
@@ -361,7 +376,10 @@ impl Clock {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_sync_all.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/clock_sync_all.md")))]
+    #[cfg_attr(
+        not(doc),
+        doc = "`O(n log n)` in total input bytes; `O((|self| + |iter|) log k + (|self| + |iter|) log |self|)` time, `k` the operand count"
+    )]
     ///
     /// Auxiliary space is `O(|self| + |iter|)`.
     ///
@@ -443,7 +461,7 @@ impl Clock {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_send.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/clock_send.md")))]
+    #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self|)`")]
     ///
     /// Exactly as [`tick`](Clock::tick).
     ///
@@ -469,7 +487,7 @@ impl Clock {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_recv.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/clock_recv.md")))]
+    #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |version|)`")]
     ///
     /// # Example
     ///
@@ -494,7 +512,7 @@ impl Clock {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_join.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/version_join.md")))]
+    #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |other|)`")]
     ///
     /// # Example
     ///
@@ -528,7 +546,10 @@ impl Clock {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_recv_all.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/clock_recv_all.md")))]
+    #[cfg_attr(
+        not(doc),
+        doc = "`O(n log n)` in total input bytes; `O((|self| + |iter|) log k)` time, `k` the operand count"
+    )]
     ///
     /// Auxiliary space is `O(|self| + |iter|)`.
     ///
@@ -561,7 +582,10 @@ impl Clock {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_join_all.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/version_join_all.md")))]
+    #[cfg_attr(
+        not(doc),
+        doc = "`O(n log n)` in total input bytes; `O((|self| + |iter|) log k)` time, `k` the operand count"
+    )]
     ///
     /// Auxiliary space is `O(|self| + |iter|)`.
     ///
@@ -592,7 +616,7 @@ impl Clock {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_from_parts.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/clock_from_parts.md")))]
+    #[cfg_attr(not(doc), doc = "`O(1)` in total input bytes; `O(1)`")]
     ///
     /// # Example
     ///
@@ -613,7 +637,7 @@ impl Clock {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_into_parts.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/clock_into_parts.md")))]
+    #[cfg_attr(not(doc), doc = "`O(1)` in total input bytes; `O(1)`")]
     ///
     /// # Example
     ///
@@ -668,7 +692,10 @@ impl Clock {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_own_version.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/clock_own_version.md")))]
+    #[cfg_attr(
+        not(doc),
+        doc = "`O(n^2)` in total input bytes; the view is `O(1)`; materializing: `O(|self| + |result|)`, `|result| = O(|self|^2)`"
+    )]
     ///
     /// # Example
     ///
@@ -701,7 +728,7 @@ impl Clock {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_shape.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/clock_shape.md")))]
+    #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self|)` to drain")]
     ///
     /// Draining the iterator is linear in the clock's encoded size: each
     /// fragment costs `O(1)` plus its own rise's encoded width, and the
@@ -739,7 +766,7 @@ impl Clock {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_encode.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/clock_encode.md")))]
+    #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self|)`")]
     ///
     /// # Example
     ///
@@ -763,7 +790,7 @@ impl Clock {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_encode.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/clock_encode.md")))]
+    #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self|)`")]
     ///
     /// # Example
     ///
@@ -794,7 +821,10 @@ impl Clock {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_decode.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/clock_decode.md")))]
+    #[cfg_attr(
+        not(doc),
+        doc = "`O(n)` in total input bytes; `O(n)` with `n` the size of the input, accepted or rejected"
+    )]
     ///
     /// # Example
     ///
@@ -922,7 +952,10 @@ impl Clock {
 /// # Complexity
 ///
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_display.html")))]
-#[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/clock_display.md")))]
+#[cfg_attr(
+    not(doc),
+    doc = "`O(n log n)` in total input bytes; superlinear, subquadratic time; `O(|self|)` space"
+)]
 ///
 /// # Example
 ///
@@ -953,7 +986,10 @@ impl Debug for Clock {
 /// # Complexity
 ///
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_fromstr.html")))]
-#[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/clock_fromstr.md")))]
+#[cfg_attr(
+    not(doc),
+    doc = "`O(n log n)` in total input bytes; superlinear, subquadratic time; `O(|s|)` space"
+)]
 ///
 /// # Example
 ///
@@ -1024,16 +1060,16 @@ where
 /// same expansion as the method it belongs to (`self` cannot cross a
 /// macro-invocation boundary).
 macro_rules! clock_join_matrix {
-    ($island:literal, $opdoc:literal, $($kind:tt $lhs:ty, $rhs:ty);* $(;)?) => {
-        $( clock_join_matrix!(@cell $island, $opdoc, $kind $lhs, $rhs); )*
+    ($island:literal, $contract:literal, $opdoc:literal, $($kind:tt $lhs:ty, $rhs:ty);* $(;)?) => {
+        $( clock_join_matrix!(@cell $island, $contract, $opdoc, $kind $lhs, $rhs); )*
     };
-    (@cell $island:literal, $opdoc:literal, op_l $lhs:ty, $rhs:ty) => {
+    (@cell $island:literal, $contract:literal, $opdoc:literal, op_l $lhs:ty, $rhs:ty) => {
         #[doc = $opdoc]
         #[doc = ""]
         #[doc = "# Complexity"]
         #[doc = ""]
         #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/", $island, ".html")))]
-        #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/", $island, ".md")))]
+        #[cfg_attr(not(doc), doc = $contract)]
         impl BitOr<$rhs> for $lhs {
             type Output = Clock;
             fn bitor(mut self, r: $rhs) -> Clock {
@@ -1042,13 +1078,13 @@ macro_rules! clock_join_matrix {
             }
         }
     };
-    (@cell $island:literal, $opdoc:literal, op_r $lhs:ty, $rhs:ty) => {
+    (@cell $island:literal, $contract:literal, $opdoc:literal, op_r $lhs:ty, $rhs:ty) => {
         #[doc = $opdoc]
         #[doc = ""]
         #[doc = "# Complexity"]
         #[doc = ""]
         #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/", $island, ".html")))]
-        #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/", $island, ".md")))]
+        #[cfg_attr(not(doc), doc = $contract)]
         impl BitOr<$rhs> for $lhs {
             type Output = Clock;
             fn bitor(self, mut r: $rhs) -> Clock {
@@ -1057,13 +1093,13 @@ macro_rules! clock_join_matrix {
             }
         }
     };
-    (@cell $island:literal, $opdoc:literal, as_clock $lhs:ty, $rhs:ty) => {
+    (@cell $island:literal, $contract:literal, $opdoc:literal, as_clock $lhs:ty, $rhs:ty) => {
         #[doc = $opdoc]
         #[doc = ""]
         #[doc = "# Complexity"]
         #[doc = ""]
         #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/", $island, ".html")))]
-        #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/", $island, ".md")))]
+        #[cfg_attr(not(doc), doc = $contract)]
         impl BitOrAssign<$rhs> for $lhs {
             fn bitor_assign(&mut self, r: $rhs) {
                 self.version |= r.borrow();
@@ -1074,6 +1110,7 @@ macro_rules! clock_join_matrix {
 
 clock_join_matrix! {
     "version_join",
+    "`O(n)` in total input bytes; `O(|self| + |other|)`",
     "`clock | version` (in either operand order) and `clock |= version`: merge a received [`Version`] without marking an event, as [`Clock::absorb`].",
     op_l     Clock,    Version;
     op_l     Clock,    &Version;

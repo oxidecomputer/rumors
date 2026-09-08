@@ -117,7 +117,10 @@ impl<'a> Span<'a> {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_cmp.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/version_cmp.md")))]
+    #[cfg_attr(
+        not(doc),
+        doc = "comparison: `O(n)` in total input bytes; `O(|a| + |b|)`"
+    )]
     ///
     /// # Errors
     ///
@@ -227,7 +230,7 @@ impl<'a> Span<'a> {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_place.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/span_place.md")))]
+    #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |version|)`")]
     ///
     /// # Example
     ///
@@ -287,7 +290,7 @@ impl<'a> Span<'a> {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_dominance.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/span_dominance.md")))]
+    #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |version|)`")]
     ///
     /// # Example
     ///
@@ -352,7 +355,7 @@ impl<'a> Span<'a> {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_precedence.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/span_precedence.md")))]
+    #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |version|)`")]
     ///
     /// # Example
     ///
@@ -414,14 +417,17 @@ impl<'a> Span<'a> {
     /// `hi` together:
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_contains.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/span_contains.md")))]
+    #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |version|)`")]
     ///
     /// A [`Span`] requires two causal comparisons: one to compare the two `lo`
     /// endpoints and a second to compare the two `hi` endpoint, where seach
     /// comparison costs:
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_cmp.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/version_cmp.md")))]
+    #[cfg_attr(
+        not(doc),
+        doc = "comparison: `O(n)` in total input bytes; `O(|a| + |b|)`"
+    )]
     ///
     /// # Example
     ///

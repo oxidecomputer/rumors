@@ -74,7 +74,10 @@ impl<'a, P: Polarity> Query<'a, P> {
 /// # Complexity
 ///
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_conjoin_floors.html")))]
-#[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/query_conjoin_floors.md")))]
+#[cfg_attr(
+    not(doc),
+    doc = "`O(n)` in total input bytes; `O(|a| + |b|)`: one fused join walk over the two bounds"
+)]
 impl<'a> BitAnd for Floor<'a> {
     type Output = Floor<'a>;
 
@@ -91,7 +94,10 @@ impl<'a> BitAnd for Floor<'a> {
 /// # Complexity
 ///
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_conjoin_ceilings.html")))]
-#[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/query_conjoin_ceilings.md")))]
+#[cfg_attr(
+    not(doc),
+    doc = "`O(n)` in total input bytes; `O(|a| + |b|)`: one fused meet walk over the two bounds"
+)]
 impl<'a> BitAnd for Ceiling<'a> {
     type Output = Ceiling<'a>;
 
@@ -154,7 +160,7 @@ macro_rules! conjoin {
         #[doc = "# Complexity"]
         #[doc = ""]
         #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_conjoin_bounded_holes.html")))]
-        #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/query_conjoin_bounded_holes.md")))]
+        #[cfg_attr(not(doc), doc = "`O(n^2)` in total input bytes; linear, plus one comparison per opposite-side hole pair: `O(|self| · |rhs|)` at worst")]
         impl<'a> BitAnd<$rhs> for $lhs {
             type Output = $out;
 

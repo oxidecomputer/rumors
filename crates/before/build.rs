@@ -24,11 +24,12 @@
 //! exist only in rustdoc's own view of this crate: never in the compiled
 //! metadata that IDE hovers read, and never in the copy a dependent's
 //! re-export inlines, whose pages could not carry the assets. The claim
-//! must still reach those readers, so every island has a twin,
-//! `$OUT_DIR/fuelscape-contracts/<op>.md`: the island's summary as one
-//! Markdown paragraph, attached beside it under `cfg(not(doc))`. The
-//! doc-attachment totality test holds every island site to carrying
-//! its twin.
+//! must still reach those readers, so every island site also states it
+//! as a literal, `#[cfg_attr(not(doc), doc = "...")]`, readable in the
+//! source and rendered by IDE hovers, which expand no `include_str!` in
+//! a doc attribute. `$OUT_DIR/fuelscape-contracts/<op>.md` is the text
+//! of record for each literal, the island's summary as Markdown, and the
+//! doc-attachment totality test holds every site's literal to it.
 //!
 //! This script is a pure formatter: it re-bins nothing, computes no
 //! statistics, and holds no constants the widget or compactor also
@@ -91,21 +92,16 @@ fn main() {
         validate(&file, op);
         let island = island(&doc["meta"], op);
         // The crate-level Complexity section shows one island expanded
-        // as its worked example; the `.open` variants of the island and
-        // its twin exist for that include (the dot keeps them outside
-        // the totality scan's island-name charset — the op's own doc
-        // site still owes the closed island and its twin).
+        // as its worked example; the `.open` variant exists for that
+        // include (the dot keeps it outside the totality scan's
+        // island-name charset — the op's own doc site still owes the
+        // closed island).
         if name == "version_tick" {
             std::fs::write(
                 dst.join(format!("{name}.open.html")),
                 island.replacen("<details ", "<details open ", 1),
             )
             .expect("open island variant is writable");
-            std::fs::write(
-                contracts.join(format!("{name}.open.md")),
-                contract_paragraph(op),
-            )
-            .expect("open contract variant is writable");
         }
         std::fs::write(dst.join(format!("{name}.html")), island).expect("island file is writable");
         std::fs::write(contracts.join(format!("{name}.md")), contract_paragraph(op))
@@ -263,10 +259,9 @@ fn island(meta: &serde_json::Value, op: &serde_json::Value) -> String {
 /// doc comments' own backtick idiom, word for word what the island's
 /// summary shows.
 ///
-/// This is what a reader sees wherever the island cannot render: an IDE
-/// hover, or a dependent crate's page that inlines the item. The
-/// trailing newline ends the paragraph, so stacked twins render as
-/// separate paragraphs rather than one run-on line.
+/// The text of record for the literal each island site carries under
+/// `cfg(not(doc))`, what a reader sees wherever the island cannot render.
+/// The totality test compares the literals against these files.
 fn contract_paragraph(op: &serde_json::Value) -> String {
     let contract = op["contract"].as_str().expect("validated");
     let claim = op["claim"].as_str().expect("validated");

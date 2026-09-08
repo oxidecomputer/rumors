@@ -284,7 +284,10 @@ impl Rank {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_checked_sub.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/rank_checked_sub.md")))]
+    #[cfg_attr(
+        not(doc),
+        doc = "`O(n)` in total input bytes; `O(‖self‖ + ‖other‖)`; a `None` or zero result costs only the comparison"
+    )]
     ///
     /// A `None` or zero result allocates nothing.
     ///
@@ -341,7 +344,10 @@ impl Rank {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_checked_sub.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/rank_checked_sub.md")))]
+    #[cfg_attr(
+        not(doc),
+        doc = "`O(n)` in total input bytes; `O(‖self‖ + ‖other‖)`; a `None` or zero result costs only the comparison"
+    )]
     ///
     /// A floored result allocates nothing.
     ///
@@ -381,7 +387,10 @@ impl Rank {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_encode.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/rank_encode.md")))]
+    #[cfg_attr(
+        not(doc),
+        doc = "`O(n)` in total input bytes; `O(‖self‖)` time and space"
+    )]
     ///
     /// # Example
     ///
@@ -412,7 +421,10 @@ impl Rank {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_encode.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/rank_encode.md")))]
+    #[cfg_attr(
+        not(doc),
+        doc = "`O(n)` in total input bytes; `O(‖self‖)` time and space"
+    )]
     ///
     /// # Example
     ///
@@ -452,7 +464,10 @@ impl Rank {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_decode.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/rank_decode.md")))]
+    #[cfg_attr(
+        not(doc),
+        doc = "`O(n)` in total input bytes; `O(n)`, `n` the bytes read, accepted or rejected"
+    )]
     ///
     /// # Example
     ///
@@ -885,7 +900,7 @@ impl BitSink {
 /// Unequal magnitude classes settle in `O(1)`:
 ///
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_cmp.html")))]
-#[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/rank_cmp.md")))]
+#[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(‖self‖ + ‖other‖)`")]
 impl Ord for Rank {
     fn cmp(&self, other: &Self) -> Ordering {
         // Class first: `bits(num) − exp` is `floor(log2 value) + 1`, so unequal
@@ -941,7 +956,7 @@ impl PartialOrd for Rank {
 /// # Complexity
 ///
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_add.html")))]
-#[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/rank_add.md")))]
+#[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(‖self‖ + ‖rhs‖)`")]
 impl Add<&Rank> for &Rank {
     type Output = Rank;
     fn add(self, rhs: &Rank) -> Rank {
@@ -1077,7 +1092,10 @@ impl Default for Rank {
 /// the backend's reach.)
 ///
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_display.html")))]
-#[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/rank_display.md")))]
+#[cfg_attr(
+    not(doc),
+    doc = "`O(n log n)` in total input bytes; superlinear, subquadratic in the rank's width: decimal conversion"
+)]
 ///
 /// # Example
 ///

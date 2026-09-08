@@ -93,7 +93,7 @@ impl<'a> OwnSpan<'a> {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/own_span_place.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/own_span_place.md")))]
+    #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |version|)`")]
     ///
     /// # Example
     ///
@@ -149,7 +149,7 @@ impl<'a> OwnSpan<'a> {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/own_span_dominance.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/own_span_dominance.md")))]
+    #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |version|)`")]
     ///
     /// # Example
     ///
@@ -200,7 +200,7 @@ impl<'a> OwnSpan<'a> {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/own_span_precedence.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/own_span_precedence.md")))]
+    #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |version|)`")]
     ///
     /// # Example
     ///
@@ -240,7 +240,7 @@ impl<'a> OwnSpan<'a> {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/own_span_contains.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/own_span_contains.md")))]
+    #[cfg_attr(not(doc), doc = "`O(n)` in total input bytes; `O(|self| + |version|)`")]
     ///
     /// # Example
     ///
@@ -277,7 +277,10 @@ impl<'a> OwnSpan<'a> {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_project.html")))]
-    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/span_project.md")))]
+    #[cfg_attr(
+        not(doc),
+        doc = "`O(n^2)` in total input bytes; the view is `O(1)`; materializing both endpoints: `O(|self| + |result|)`, `|result| = O(|self|^2)`"
+    )]
     ///
     /// # Example
     ///
@@ -327,7 +330,10 @@ impl<'a> Div<&'a Party> for &'a Span<'a> {
 /// # Complexity
 ///
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_project.html")))]
-#[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/span_project.md")))]
+#[cfg_attr(
+    not(doc),
+    doc = "`O(n^2)` in total input bytes; the view is `O(1)`; materializing both endpoints: `O(|self| + |result|)`, `|result| = O(|self|^2)`"
+)]
 ///
 /// # Example
 ///
