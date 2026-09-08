@@ -86,6 +86,7 @@ impl ExactSizeIterator for Split {}
 /// # Complexity
 ///
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_forks.html")))]
+#[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/party_forks.md")))]
 ///
 /// Each `next` costs proportionate to its share of the drain; an early drop
 /// rejoins the unclaimed remainder in `O(|p| log k)`, with `|p|` the borrowed
@@ -175,6 +176,7 @@ impl Drop for Forks<'_> {
 /// # Complexity
 ///
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/party_forks.html")))]
+#[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/party_forks.md")))]
 ///
 /// # Example
 ///

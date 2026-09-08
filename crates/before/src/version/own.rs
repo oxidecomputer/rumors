@@ -25,7 +25,9 @@ mod tests;
 /// itself is `O(1)`:
 ///
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/own_version_cmp.html")))]
+#[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/own_version_cmp.md")))]
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/own_version_pair_cmp.html")))]
+#[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/own_version_pair_cmp.md")))]
 ///
 /// # Example
 ///
@@ -64,6 +66,7 @@ impl OwnVersion<'_> {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_project.html")))]
+    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/version_project.md")))]
     ///
     /// # Example
     ///
@@ -95,6 +98,7 @@ impl OwnVersion<'_> {
 /// # Complexity
 ///
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/version_project.html")))]
+#[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/version_project.md")))]
 ///
 /// # Example
 ///

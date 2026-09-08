@@ -93,6 +93,7 @@ impl<'a> OwnSpan<'a> {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/own_span_place.html")))]
+    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/own_span_place.md")))]
     ///
     /// # Example
     ///
@@ -148,6 +149,7 @@ impl<'a> OwnSpan<'a> {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/own_span_dominance.html")))]
+    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/own_span_dominance.md")))]
     ///
     /// # Example
     ///
@@ -198,6 +200,7 @@ impl<'a> OwnSpan<'a> {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/own_span_precedence.html")))]
+    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/own_span_precedence.md")))]
     ///
     /// # Example
     ///
@@ -237,6 +240,7 @@ impl<'a> OwnSpan<'a> {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/own_span_contains.html")))]
+    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/own_span_contains.md")))]
     ///
     /// # Example
     ///
@@ -273,6 +277,7 @@ impl<'a> OwnSpan<'a> {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_project.html")))]
+    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/span_project.md")))]
     ///
     /// # Example
     ///
@@ -322,6 +327,7 @@ impl<'a> Div<&'a Party> for &'a Span<'a> {
 /// # Complexity
 ///
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/span_project.html")))]
+#[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/span_project.md")))]
 ///
 /// # Example
 ///

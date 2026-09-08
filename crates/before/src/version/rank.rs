@@ -284,6 +284,7 @@ impl Rank {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_checked_sub.html")))]
+    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/rank_checked_sub.md")))]
     ///
     /// A `None` or zero result allocates nothing.
     ///
@@ -340,6 +341,7 @@ impl Rank {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_checked_sub.html")))]
+    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/rank_checked_sub.md")))]
     ///
     /// A floored result allocates nothing.
     ///
@@ -379,6 +381,7 @@ impl Rank {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_encode.html")))]
+    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/rank_encode.md")))]
     ///
     /// # Example
     ///
@@ -409,6 +412,7 @@ impl Rank {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_encode.html")))]
+    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/rank_encode.md")))]
     ///
     /// # Example
     ///
@@ -448,6 +452,7 @@ impl Rank {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_decode.html")))]
+    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/rank_decode.md")))]
     ///
     /// # Example
     ///
@@ -880,6 +885,7 @@ impl BitSink {
 /// Unequal magnitude classes settle in `O(1)`:
 ///
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_cmp.html")))]
+#[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/rank_cmp.md")))]
 impl Ord for Rank {
     fn cmp(&self, other: &Self) -> Ordering {
         // Class first: `bits(num) − exp` is `floor(log2 value) + 1`, so unequal
@@ -935,6 +941,7 @@ impl PartialOrd for Rank {
 /// # Complexity
 ///
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_add.html")))]
+#[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/rank_add.md")))]
 impl Add<&Rank> for &Rank {
     type Output = Rank;
     fn add(self, rhs: &Rank) -> Rank {
@@ -1070,6 +1077,7 @@ impl Default for Rank {
 /// the backend's reach.)
 ///
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/rank_display.html")))]
+#[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/rank_display.md")))]
 ///
 /// # Example
 ///

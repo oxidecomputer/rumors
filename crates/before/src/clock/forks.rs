@@ -14,6 +14,7 @@ use crate::{party, Clock, Party, Version};
 /// # Complexity
 ///
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_forks.html")))]
+#[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/clock_forks.md")))]
 ///
 /// Each `next` costs its own share's portion of the drain; an early drop
 /// rejoins in `O(|c| log k)`, with `|c|` the borrowed clock's size in bytes.
@@ -84,6 +85,7 @@ impl ExactSizeIterator for Forks<'_> {}
 /// # Complexity
 ///
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/clock_forks.html")))]
+#[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/clock_forks.md")))]
 ///
 /// # Example
 ///

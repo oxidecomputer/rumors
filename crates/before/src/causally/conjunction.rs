@@ -74,6 +74,7 @@ impl<'a, P: Polarity> Query<'a, P> {
 /// # Complexity
 ///
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_conjoin_floors.html")))]
+#[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/query_conjoin_floors.md")))]
 impl<'a> BitAnd for Floor<'a> {
     type Output = Floor<'a>;
 
@@ -90,6 +91,7 @@ impl<'a> BitAnd for Floor<'a> {
 /// # Complexity
 ///
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_conjoin_ceilings.html")))]
+#[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/query_conjoin_ceilings.md")))]
 impl<'a> BitAnd for Ceiling<'a> {
     type Output = Ceiling<'a>;
 
@@ -152,6 +154,7 @@ macro_rules! conjoin {
         #[doc = "# Complexity"]
         #[doc = ""]
         #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/query_conjoin_bounded_holes.html")))]
+        #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/query_conjoin_bounded_holes.md")))]
         impl<'a> BitAnd<$rhs> for $lhs {
             type Output = $out;
 

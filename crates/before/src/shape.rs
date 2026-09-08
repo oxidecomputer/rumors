@@ -314,6 +314,7 @@ impl FusedIterator for Overlay<'_> {}
 /// # Complexity
 ///
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/shape_combine.html")))]
+#[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/shape_combine.md")))]
 ///
 /// # Example
 ///

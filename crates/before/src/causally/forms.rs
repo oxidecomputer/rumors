@@ -282,6 +282,7 @@ impl<'a> Floor<'a> {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/floor_contains.html")))]
+    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/floor_contains.md")))]
     pub fn contains(&self, version: &Version) -> bool {
         le(&self.at, version)
     }
@@ -306,6 +307,7 @@ impl<'a> Ceiling<'a> {
     /// # Complexity
     ///
     #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscapes/ceiling_contains.html")))]
+    #[cfg_attr(not(doc), doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-contracts/ceiling_contains.md")))]
     pub fn contains(&self, version: &Version) -> bool {
         le(version, &self.at)
     }
