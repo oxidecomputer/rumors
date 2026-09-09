@@ -166,6 +166,15 @@ the tip, named in the commit message as this change's. A pin moving the
 other way, or a meter whose premise the change breaks, is a finding
 for the packet.
 
+Evidence lives outside `/tmp`. The system's periodic cleanup empties the
+session scratchpad after a few days, and it took every verification log
+and packet meta once. Runners, readers, and lanes write their whole-output
+logs and the coordinator its metas under `~/.local/state/rumors-triage/<lane>/`
+(create it; never under `/tmp` or the session scratchpad); a packet's
+acceptance rows quote the decisive output verbatim so the packet stands
+without the log, and a lost meta is regenerated from the committed packet
+(its sections above the reading order are the meta).
+
 ### 5. The packet goes to Finch
 
 - Build it: `review.py packet --base <parent> --head <lane-branch>
