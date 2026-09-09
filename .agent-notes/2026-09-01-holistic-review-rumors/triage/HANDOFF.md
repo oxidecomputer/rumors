@@ -297,3 +297,18 @@ fresh-eyes read, then the packet is rebuilt with
 `coordinator/p2-commit-path-meta.md` (rewrite its goal, rulings, and
 acceptance rows for T170 first) and the Ready row restored; the lane
 merges as one. Everything else stays paused.
+
+## 2026-09-09, later: the re-scope at `fb945237`
+
+The lane agent is wrapped (stopped by Finch after landing round 4; the
+box gate ruled unneeded). Running: the verification runner
+(`a5d007d966066c4d7`, worktree `/Users/oxide/src/rumors-verify-commit-path-4`,
+logs `~/.local/state/rumors-triage/verify-commit-path-4/`) and the light
+read (`a294bae7e0e2a20d7`). Evidence and metas now live under
+`~/.local/state/rumors-triage/` (the `/tmp` scratchpad was emptied by
+the system cleanup; the commit-path meta was regenerated from the
+committed packet `14d0d5fb` and extended, at
+`~/.local/state/rumors-triage/coordinator/p2-commit-path-meta.md`). After
+both reports: rewrite the meta's stops for T170/T171, add the acceptance
+rows, rebuild the packet on the lane branch against base `1336daa0`,
+restore the Ready row; the lane merges as one. Rulings through T171.
