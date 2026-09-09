@@ -2,7 +2,7 @@
 
 # Triage landing status
 
-Updated: 2026-09-09 19:09 UTC by the rumors session.
+Updated: 2026-09-09 19:18 UTC by the rumors session.
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
 
@@ -64,7 +64,7 @@ Maintained by the rumors session.
 |---|---|---|
 | p1-swarm, p1-conformance, p1-memwatch, p1-gate, p2-codec, p1-renderer, p1-harness-tests, p1-harness-crate, p2-walk, p1-causality | merged | see the queue's Merged section for shas and root files |
 | p2-link | waiting on Finch | packet `95c429e2` (code `a956bdb3`, base `7aa2b9a1`), five verification passes, five rounds; three stops; root file `Cargo.toml` (`tokio/rt`); the sush patch beside it |
-| p2-commit-path | in progress | T170 landed at `8bd0f32b` on the Mac (the box unreachable: `ox-east-1.local` does not resolve): the optimistic swap, the `RwLock` gate held shared by every commit, both new tests with controls, the public paragraph gone; the sink narrowed to the apply walk, now being dissolved by keeping the batch's handles across the commit; two stops for Finch (the window census's `overhead()` premise, broken by the improvement; where the gate runs while the box is down) |
+| p2-commit-path | in review | T170 complete at `19d17ba6` (the optimistic swap with the `RwLock` gate; `Discarded` gone entirely, the batch keeping its handles across the commit; the hang pin passing unchanged and failing by timeout under the control; `commit_alloc` 325/3 → 324/1 attributed to the sink's `Vec`); verified on the Mac only (the box unreachable); fresh-eyes read running; two stops for Finch (the census `overhead()` premise; where the gate and the verification run while the box is down) |
 | p1-proptest-ci | in review | landed at `a34859ed` (sweep, caselint, release recipe and nextest profile, meter excluded, T157 rewrite); gate clean; the CI number is a stop (recommendation 4000 after p1-generators); verification and packet after p1-generators lands, since the number is set on that tree |
 | p2-vanish-liveness | waiting on Finch | packet `c9e7465b` (code `31324e42`, base `9c8ce16c`), five verification passes, four rounds; seven stops; merges after `p2-deep-geometry` (the terminal-tail conflict resolves toward this lane) |
 | p1-collision-mode | waiting on Finch | packet `f6d9a0af` (code `35d134fd`, base `d0dcb9f5`), four verification passes, three rounds; three stops; merges after before's `p1-fuzz` refit |
