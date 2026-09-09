@@ -2,7 +2,7 @@
 
 # Triage landing status
 
-Updated: 2026-09-05 04:05 UTC by the before session.
+Updated: 2026-09-09 18:31 UTC by the rumors session.
 
 Ordered merge record and cross-plan rules: `merge-queue.md`. Lane states: not started, running, in review (fresh-eyes rounds or repairs), packet ready, merged, held (with the reason).
 
@@ -64,7 +64,7 @@ Maintained by the rumors session.
 |---|---|---|
 | p1-swarm, p1-conformance, p1-memwatch, p1-gate, p2-codec, p1-renderer, p1-harness-tests, p1-harness-crate, p2-walk, p1-causality | merged | see the queue's Merged section for shas and root files |
 | p2-link | waiting on Finch | packet `95c429e2` (code `a956bdb3`, base `7aa2b9a1`), five verification passes, five rounds; three stops; root file `Cargo.toml` (`tokio/rt`); the sush patch beside it |
-| p2-commit-path | packet ready | packet `14d0d5fb` on `triage/p2-commit-path` (code tip `5a4559e1`, base `1336daa0`, lane diff identical across the rebase); every acceptance and control run by the verifier; three fresh-eyes rounds; T166 landed; no open stop; commits unsigned by the lock protocol, re-signed at merge |
+| p2-commit-path | in progress | re-scoped under T170 at Finch's word (the gossip commit optimistic with an `RwLock` escalation; the `Discarded` sink dissolves to returning the pre-image root); the lane builds on its packet commit `14d0d5fb`; verification, a fresh-eyes read, and a rebuilt packet follow; merges as one |
 | p1-proptest-ci | in review | landed at `a34859ed` (sweep, caselint, release recipe and nextest profile, meter excluded, T157 rewrite); gate clean; the CI number is a stop (recommendation 4000 after p1-generators); verification and packet after p1-generators lands, since the number is set on that tree |
 | p2-vanish-liveness | waiting on Finch | packet `c9e7465b` (code `31324e42`, base `9c8ce16c`), five verification passes, four rounds; seven stops; merges after `p2-deep-geometry` (the terminal-tail conflict resolves toward this lane) |
 | p1-collision-mode | waiting on Finch | packet `f6d9a0af` (code `35d134fd`, base `d0dcb9f5`), four verification passes, three rounds; three stops; merges after before's `p1-fuzz` refit |

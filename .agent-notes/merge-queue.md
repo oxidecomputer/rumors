@@ -141,7 +141,9 @@ lanes have closed.
 
 ## Ready for Finch, in merge order
 
-- rumors `p2-commit-path`: branch `triage/p2-commit-path`, packet head
+- rumors `p2-commit-path`: WITHDRAWN from Ready on 2026-09-09 for the
+  T170 re-scope (the optimistic gossip commit; the sink dissolves); the
+  packet is rebuilt when the re-scope lands. Was: packet head
   `14d0d5fb`, last code commit `5a4559e1`, base `1336daa0` (main). Root
   files: README.md (regenerated from the crate doc). Its commits are
   unsigned (the lock protocol); the merge rebase re-signs.
