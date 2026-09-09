@@ -282,3 +282,18 @@ beyond the packets' stops: the two probe findings (the session's
 about-linear term in the shared set; the dev-profile send cost), the
 conformance-floor stop from collision-mode, and the sim's wall-clock
 deadline finding.
+
+## 2026-09-09: the commit-path re-scope (T170) runs during the pause
+
+Finch is reviewing the six other packets. The one running agent is the
+commit-path lane (`aee05d3d797a0b84f`, worktree
+`/Users/oxide/src/rumors-p2-commit-path`, building on `14d0d5fb`):
+the optimistic gossip commit with an `RwLock` escalation, the
+`Discarded` sink dissolving to a returned pre-image root, the public
+guarantee paragraph removed (brief `briefs/p2-commit-path-optimistic.md`).
+When it reports: a verification runner (a fresh detached worktree at its
+sha; the old `rumors-verify-*` worktrees stay for the merges) and a
+fresh-eyes read, then the packet is rebuilt with
+`coordinator/p2-commit-path-meta.md` (rewrite its goal, rulings, and
+acceptance rows for T170 first) and the Ready row restored; the lane
+merges as one. Everything else stays paused.
