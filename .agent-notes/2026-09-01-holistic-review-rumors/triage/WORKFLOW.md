@@ -158,6 +158,14 @@ Stop iterating when a round's findings shift from "this is wrong" to
 "you might consider". Cap the rounds at three per lane; a lane that has
 not converged by then is a finding about the lane, reported to Finch.
 
+A deterministic meter pin that a lane's change moves in the improving
+direction (fewer allocations, handles, fuel, or hops, at a measurement
+load cannot perturb) is re-pinned by the lane without Finch's word
+(T171), with the attribution unchanged: measured at the parent and at
+the tip, named in the commit message as this change's. A pin moving the
+other way, or a meter whose premise the change breaks, is a finding
+for the packet.
+
 ### 5. The packet goes to Finch
 
 - Build it: `review.py packet --base <parent> --head <lane-branch>
