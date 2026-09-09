@@ -802,18 +802,13 @@ impl<T, B: Persist> Peer<T, B> {
             }
         }
 
-        // Write back our (potentially changed) tree and any party absorbed
-        // from a retiring peer, notifying when either changes. An overlapping
-        // donated party is a protocol violation: we leave our own party
-        // untouched, commit nothing, and abort the session.
-        //
-        // The reconciled tree's frontier is the converged version: what both
-        // replicas hold the instant this commits, *before* the join below
-        // mixes in any commits that ran concurrently with the session.
+        // Record the session's converged frontier before joining in local
+        // changes made while it ran. Retain the incoming tree until the
+        // commit unlocks: its discarded payloads may access this replica.
         let merged = Tree::from_root(root);
         let converged = merged.latest().clone();
         let mut party_overlap = false;
-        self.inner.send_if_modified(|inner| {
+        Inner::commit(&self.inner, |inner| {
             if let Some(party) = absorbed.take() {
                 match inner.party.as_mut() {
                     Some(existing) => {
@@ -822,53 +817,23 @@ impl<T, B: Persist> Peer<T, B> {
                             return false;
                         }
                     }
-                    // Unreachable in practice: we hold a live `Peer` and are
-                    // not retiring, so our party is present. Adopting the
-                    // donation keeps the arm total without a panic path.
+                    // A live, non-retiring Peer normally has a party.
                     None => inner.party = Some(party),
                 }
             }
 
-            // Join the tree we got via gossip: a synchronous, in-memory
-            // merge, run directly inside the critical section, as in `send`
-            // and `redact`.
-            //
-            // We've modified the watch if the peer retired, the tree's
-            // content changed (straight from `join`'s changed flag: no root
-            // hash is read inside this critical section — `Tree::join`
-            // states the flag's contract), or the causal ceiling advanced.
-            // The ceiling term is ours to add, not the flag's: the flag
-            // answers for the set's content, while the observer contract
-            // (`Rumors::changes`: one tick per observed frontier advance)
-            // counts ceiling-only advances too — a redaction's only wire
-            // representation is such an advance. Computed by containment
-            // before the join consumes the merged tree: the ceiling moves
-            // exactly when the reconciled frontier is not already contained
-            // in ours — strictly greater, or incomparable (commits that ran
-            // concurrently with the session advance our frontier past the
-            // session's view without containing it; the join then adds the
-            // reconciled regions, so incomparable is an advance too). Both
-            // frontiers are plain field reads, cheap under the lock.
-            // Waking on a ceiling advance cannot loop: the driver's
-            // suppression token is the converged frontier itself, so the
-            // echo cue this notification queues on the session's own
-            // connection is swallowed, and a fresh connection initiates once
-            // and then quiesces (`tests/gossip_when.rs` pins the chain).
-            // Unconditional cues bypass the token, but they come from the
-            // caller's timers, never from this wake — and a session that
-            // carried no news (nothing crossed, nobody retired) takes none
-            // of the three wake branches below, so unconditional probing
-            // feeds no wake either (pinned in the same suite).
-            //
-            // The join runs unconditionally — it must commit the merge even
-            // when the retirement alone decides the notification.
+            // Tree::join reports content changes; a ceiling-only advance
+            // also needs a notification because it can convey redactions.
+            // Incomparable frontiers advance on join too. The driver's
+            // converged-frontier token suppresses a resulting echo session.
             let ceiling_advancing = matches!(
                 merged.latest().partial_cmp(inner.tree.latest()),
                 None | Some(std::cmp::Ordering::Greater)
             );
-            let tree_changed = inner.tree.join(merged);
+            let tree_changed = inner.tree.join(merged.clone());
             peer_retiring || tree_changed || ceiling_advancing
         });
+        drop(merged);
         if party_overlap {
             return (Intent::Remain, Err(Error::PartyOverlap));
         }

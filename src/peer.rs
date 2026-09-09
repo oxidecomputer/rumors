@@ -168,15 +168,29 @@ pub struct Peer<T, B: BookmarkError = NoBookmark> {
     pub(crate) observe: Attachment,
 }
 
-/// The replica's shared mutable state, behind the `watch` channel every
-/// handle and observer subscribes to: the identity (absent only while a
-/// retirement has it in flight) and the content tree.
-///
-/// Mutations happen inside `send_if_modified` critical sections so observers
-/// wake exactly once per committed change.
+/// The replica's identity and content, shared through a watch channel.
+/// The party is absent while a retirement holds it in flight.
 pub(crate) struct Inner<T> {
     pub(crate) party: Option<Party>,
     pub(crate) tree: Tree<T>,
+}
+
+impl<T> Inner<T> {
+    /// Apply a change, releasing removed payloads after the watch write lock.
+    ///
+    /// Retaining the original tree keeps its payload destructors from
+    /// running under the lock. The caller must also retain incoming payloads
+    /// outside `update`, passing cloned handles to any consuming tree walk.
+    /// Together these keep destructors free to read or change the replica,
+    /// including when the update unwinds.
+    pub(crate) fn commit(sender: &watch::Sender<Self>, update: impl FnOnce(&mut Self) -> bool) {
+        let mut previous = None;
+        sender.send_if_modified(|inner| {
+            previous = Some(inner.tree.clone());
+            update(inner)
+        });
+        drop(previous);
+    }
 }
 
 /// A summary view (network, latest version, live-message count), independent

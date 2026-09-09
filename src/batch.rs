@@ -7,27 +7,18 @@ use crate::tree::Action;
 use crate::tree::typed::Path;
 use crate::{Inner, Version};
 
-/// The scope handle for a batch of insertions and redactions against a
-/// [`Rumors`](crate::Rumors), applied in one all-or-nothing commit.
+/// Insertions and redactions queued for one atomic commit.
 ///
-/// Handed exclusively to the closure [`Rumors::batch`](crate::Rumors::batch)
-/// runs: queue actions on it with [`send`](Self::send) and
-/// [`redact`](Self::redact), and the batch commits — atomically, as one
-/// commit — exactly when the closure returns `Ok`. Any other exit
-/// (a returned `Err`, a panic) commits nothing; [`Rumors::batch`] states
-/// the full lifecycle.
+/// [`Rumors::batch`](crate::Rumors::batch) gives its closure a batch to fill
+/// with [`send`](Self::send) and [`redact`](Self::redact). Returning `Ok`
+/// commits all queued changes; returning `Err` or panicking commits none.
 ///
-/// [`Rumors::batch`]: crate::Rumors::batch
-///
-/// Building a batch holds no lock; a batch is serialized against other
-/// commits only at its own commit. Because building holds no lock,
-/// concurrent gossip rounds can land between building and committing, and
-/// two batches carry no guaranteed causal relationship to one another
-/// unless the application synchronizes them itself.
+/// Building a batch holds no lock. Other operations may commit while the
+/// closure runs; two batches have no guaranteed causal order unless the
+/// application synchronizes them.
 pub struct Batch<'a, T: Send + Sync> {
     inner: &'a watch::Sender<Inner<T>>,
-    /// The peer's payload codec: every queued send serializes and
-    /// depth-checks through it.
+    /// Validate and encode messages as they are queued.
     codec: PayloadCodec,
     actions: Vec<Action>,
 }
@@ -41,29 +32,17 @@ impl<'a, T: Send + Sync> Batch<'a, T> {
         }
     }
 
-    /// Queues a message for this batch's commit.
+    /// Queue a message for this batch's commit.
     ///
-    /// Serialization and admission run here, not at commit: the message
-    /// is serialized through the peer's codec immediately, and a payload
-    /// a receiver would reject or misread — one nesting deeper than the
-    /// peer's
-    /// [`payload_depth_limit`](crate::Peer::payload_depth_limit), one
-    /// whose type does not survive its own serde round-trip, or one
-    /// whose encoding decodes to a different value — is the typed
-    /// [`EncodeError`], surfacing at the offending call
-    /// ([`Rumors::send`](crate::Rumors::send) states the admission
-    /// contract). Propagating the
-    /// error out of the closure cancels the whole batch
-    /// ([`Rumors::batch`](crate::Rumors::batch)'s commit-on-`Ok`
-    /// contract); handling it locally keeps the batch alive with the
-    /// offending message not queued.
+    /// Validate the message immediately, following the admission rules of
+    /// [`Rumors::send`](crate::Rumors::send). A rejected message is not queued.
+    /// Propagating the error out of the batch closure cancels the whole batch;
+    /// handling it there leaves earlier messages queued.
     ///
     /// # Panics
     ///
-    /// If `message` fails to serialize: a violation of the payload
-    /// contract ([choosing a payload
-    /// type](crate#choosing-a-payload-type)), exactly as
-    /// [`Rumors::send`](crate::Rumors::send) treats it.
+    /// Panics if `message` fails to serialize, as with
+    /// [`Rumors::send`](crate::Rumors::send).
     pub fn send(&mut self, message: T) -> Result<(), EncodeError>
     where
         T: 'static,
@@ -73,26 +52,23 @@ impl<'a, T: Send + Sync> Batch<'a, T> {
         Ok(())
     }
 
-    /// Queues a redaction of the message stamped with `version` for this
-    /// batch's commit.
+    /// Queue a redaction of the message stamped with `version`.
     ///
     /// Redacting a version not held at commit time is a no-op.
     pub fn redact(&mut self, version: &Version) {
         self.actions.push(Action::Forget(Path::for_leaf(version)));
     }
 
-    /// Queues every message `messages` yields for this batch's commit.
+    /// Queue every message `messages` yields.
     ///
-    /// Equivalent to calling [`send`](Self::send) on each in turn:
-    /// admission runs per message, and the first rejected message is the
-    /// returned [`EncodeError`], with the messages before it queued and
-    /// the rest never drawn from the iterator. Propagating the error out
-    /// of the closure cancels the whole batch; handling it locally keeps
-    /// the batch alive with only the messages admitted so far queued.
+    /// Call [`send`](Self::send) on each message until the first error.
+    /// Earlier messages remain queued; later messages are not drawn from
+    /// the iterator. Propagating the error out of the batch closure cancels
+    /// the whole batch.
     ///
     /// # Panics
     ///
-    /// If any message fails to serialize, exactly as [`send`](Self::send).
+    /// Panics if a message fails to serialize, as with [`send`](Self::send).
     pub fn send_all<I>(&mut self, messages: I) -> Result<(), EncodeError>
     where
         T: 'static,
@@ -104,8 +80,7 @@ impl<'a, T: Send + Sync> Batch<'a, T> {
         Ok(())
     }
 
-    /// Queues a redaction of every version `versions` yields for this
-    /// batch's commit.
+    /// Queue a redaction of every version `versions` yields.
     ///
     /// Equivalent to calling [`redact`](Self::redact) on each in turn;
     /// versions not held at commit time are no-ops.
@@ -118,29 +93,18 @@ impl<'a, T: Send + Sync> Batch<'a, T> {
         }
     }
 
-    /// Commit everything queued, as one commit.
-    ///
-    /// Observers and concurrent gossip sessions see all of it land at
-    /// once, in at most one observer wakeup. Runs iff the caller's
-    /// closure returned `Ok`
-    /// ([`Rumors::batch`](crate::Rumors::batch) owns that decision).
+    /// Apply the queued actions, notifying observers if the tree changed.
     pub(crate) fn commit(self) {
         let Batch { inner, actions, .. } = self;
-        // An empty action list needs no special case: `Tree::act`
-        // documents an empty batch as a complete no-op, and its false
-        // changed flag suppresses the wakeup.
-        inner.send_if_modified(|inner| {
-            // The party is present on every reachable handle: `retire`
-            // consumes the `Peer`, and the `Peer`/`Rumors` XOR keeps a
-            // retiring set's handles from coexisting with it.
+        Inner::commit(inner, |inner| {
+            // Retirement consumes the Peer, so no batch can coexist with it.
             let Some(party) = inner.party.as_ref() else {
                 debug_assert!(false, "no party to tick in a `Batch` commit");
                 return false;
             };
-            // Notify observers iff the batch changed the tree, straight from
-            // `act`'s changed flag: no root hash is read inside this critical
-            // section (`Tree::act` states the flag's contract).
-            inner.tree.act(party, actions)
+            // A later action may discard an earlier insert. Keep the queued
+            // handles until the commit releases the lock, even on unwind.
+            inner.tree.act(party, actions.iter().cloned())
         });
     }
 }
