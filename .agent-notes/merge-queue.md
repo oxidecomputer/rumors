@@ -141,12 +141,25 @@ lanes have closed.
 
 ## Ready for Finch, in merge order
 
-- rumors `p2-commit-path`: WITHDRAWN from Ready on 2026-09-09 for the
-  T170 re-scope (the optimistic gossip commit; the sink dissolves); the
-  packet is rebuilt when the re-scope lands. Was: packet head
-  `14d0d5fb`, last code commit `5a4559e1`, base `1336daa0` (main). Root
-  files: README.md (regenerated from the crate doc). Its commits are
-  unsigned (the lock protocol); the merge rebase re-signs.
+- rumors `p2-commit-path`: branch `triage/p2-commit-path`, packet head
+  `afc7da22`, last code commit `dd43f667`, base `1336daa0` (main).
+  Rebuilt after the T170 re-scope (the optimistic gossip commit with the
+  `RwLock` escalation; the `Discarded` sink gone; the public guarantee
+  paragraph removed; the window census re-derived under T171). Root
+  files: README.md (regenerated). Merges first among the rumors packets;
+  file overlaps the later rebases meet: with vanish, `src/peer/gossip.rs`,
+  `src/testing.rs`, `remote/proxy/tests.rs`, `remote/proxy/tests/failures.rs`;
+  with deep-geometry, `src/testing.rs`, `remote/proxy/tests.rs`,
+  `remote/proxy/tests/declarations.rs`, `streaming/tests.rs`,
+  `streaming/tests/fixtures.rs`; with generators, `src/tree/arb.rs`,
+  `src/tree/tests.rs`, `remote/proxy/tests.rs`, `tests/failures.rs`,
+  `tests/transport.rs`; with collision-mode, `src/testing.rs`,
+  `src/tree/arb.rs`, `remote/proxy/tests.rs`; none with p2-link or
+  envelope. Five stops, all recommended as landed. Commits unsigned (the
+  lock protocol); the gate of record is the Mac test surface plus the
+  box's suites (the box gate ruled unneeded; `fuzz-build` a Mac run at
+  merge). Packet:
+  `.agent-notes/2026-09-01-holistic-review-rumors/triage/reviews/p2-commit-path.md`.
 - rumors `p2-deep-geometry`: branch `triage/p2-deep-geometry`, packet
   head `f74324a7`, last code commit `7e7bae71`, base `7858b35e` (the
   `p1-collision-mode` branch); merges after `p1-collision-mode`, rebased

@@ -312,3 +312,16 @@ committed packet `14d0d5fb` and extended, at
 both reports: rewrite the meta's stops for T170/T171, add the acceptance
 rows, rebuild the packet on the lane branch against base `1336daa0`,
 restore the Ready row; the lane merges as one. Rulings through T171.
+
+## Paused again, 2026-09-09, after the commit-path re-scope closed
+
+Seven packets wait on Finch, in merge order: `p2-commit-path`
+(`afc7da22`, first), `p1-collision-mode` (`f6d9a0af`, after before's
+`p1-fuzz`), `p2-deep-geometry` (`f74324a7`), `p2-link` (`95c429e2`),
+`p2-vanish-liveness` (`c9e7465b`, after deep-geometry), `p1-envelope`
+(`10f4bb6f`), `p1-generators` (`f21541da`, whole, after before's
+`p2-generators`). Rulings through T171. Nothing is running; every lane
+and verifier worktree is clean at its tip (`rumors-verify-commit-path-4`
+at `dd43f667` joins the verifier set). Evidence under
+`~/.local/state/rumors-triage/`. Resume as the earlier pause section
+says; merges at Finch's word only.
