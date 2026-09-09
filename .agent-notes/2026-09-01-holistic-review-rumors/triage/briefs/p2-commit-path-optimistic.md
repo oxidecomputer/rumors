@@ -35,12 +35,19 @@ behind sends for the length of a diff walk.
   peer stays inside the swap.
 - **Fairness.** After a small fixed number of failed swaps (name the
   constant, state why that number), the committer takes an outer
-  `RwLock<()>` exclusively for its next attempt; every fast-path swap
-  attempt takes the same lock shared around its critical section, so
-  an exclusive holder cannot be raced. No user code runs under the outer
-  lock either (it wraps only the swap attempt). Say where the lock lives
-  (beside the `watch::Sender`) and that it is never held across an
-  await.
+  `RwLock<()>` exclusively across its next attempt's snapshot, re-join,
+  and swap; every other commit, gossip fast path and local operation
+  alike, holds the same lock shared around its critical section, so no
+  commit can land between the exclusive holder's snapshot and its swap
+  and the swap cannot lose. (An exclusive hold around the swap alone is
+  inert: the watch lock already serializes swaps, and the losing window
+  is between snapshot and swap.) No user code runs under the outer lock:
+  the exclusive attempt joins `candidate.clone()` into `fresh.clone()`
+  while `candidate` and `fresh` stay owned outside the hold, so every
+  drop inside the held join is a non-final decrement, and the originals
+  and the returned pre-image drop after the release. Say where the lock
+  lives (beside the `watch::Sender`), that it is never held across an
+  await, and that locals wait one diff-sized join per escalation.
 - **The local operations** (`send`, `redact`, `Batch`, `act`) keep their
   walk under the lock: they mint versions from the tree's ceiling inside
   the walk, a leaf's path is the hash of its version, and version order
