@@ -55,7 +55,7 @@ Prerequisites: None.
 First implementation. Start from the payload destructor regression on current main; assess the prepared ownership solution against it.
 
 - [x] **Release displaced roots and retained payloads after every replica guard is gone.**
-  Merged as `2c77220a` after the user's “lgtm.” Retaining the original tree and incoming payload handles fixes destructor access during local and gossip commits. Three regressions timed out on the parent and pass with the fix. `just gate` passed in 329 seconds, including all 1,857 workspace tests and four future-size checks. The larger optimistic publication change remains below.
+  Merged as `2c77220a` after the user's “lgtm.” Retaining the original tree and incoming payload handles fixes destructor access during local and gossip commits. Three regressions timed out on the parent and pass with the fix. `just gate` passed in 329 seconds, including all 1,857 workspace tests and four future-size checks. The larger optimistic publication change remains below. The completed worktree and its six Cargo build directories under `/Volumes/forge/build/` were removed after merge.
   Findings: `async-hazards-3`.
   Decisions: T34.
 

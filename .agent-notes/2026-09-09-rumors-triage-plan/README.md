@@ -126,6 +126,12 @@ the next one, without another confirmation. Preserve saved user edits and
 complete the required checks, then commit, merge, update the satisfied
 checklist items with the landing commit, and start the next batch.
 
+After merging, close the corresponding Zed window, remove the clean, merged
+worktree, and delete its Cargo build artifacts under `/Volumes/forge/`.
+Before removing the worktree, use `cargo metadata` to identify its
+`build_directory`, including those of nested workspaces. Clean up those
+specific directories; keep shared caches and other checkouts’ artifacts.
+
 ## 5. Scope boundaries
 
 The checklist includes public diagnostics, observability, the file-backed
