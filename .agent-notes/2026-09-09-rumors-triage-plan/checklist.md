@@ -1,7 +1,7 @@
 # Rumors review checklist
 
-**Active:** 03, reproducible local-session schedules, ready for review — `codex/reproducible-sessions`, base `main@f7457d77`.
-**Next candidates:** 03 deep-tree wire fixtures → 04.
+**Active:** 03, deep-tree wire fixtures — `codex/deep-tree-fixtures`, from merged main.
+**Next candidates:** 04 → 05.
 
 Check code outcomes only after verification and merge; retain the landing
 commit. Checked dispositions are labelled explicitly.
@@ -41,7 +41,7 @@ Dependencies: None to construct fixtures; 04 and 05 before enabling the complete
 - [ ] Exercise deep data streams without changing production hashing or wire snapshots.
   Sources: `remote-capture-atlas-28`, `remote-proxy-tests-10`, `tests-wire-format-7`, T23, T123, T132, T162–164, N27–29.
 
-- [ ] Make cancellation tests depend on a reproducible session schedule.
+- [x] Make cancellation tests depend on a reproducible session schedule — `f643bd60`.
   Sources: `streaming-tests-3`, `streaming-tests-6`, `streaming-tests-7`, T19, T127, T132, T162, N19, N42.
 
 ## 04. Departure, malformed replies, and error preservation
