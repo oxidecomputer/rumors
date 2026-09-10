@@ -1,7 +1,7 @@
 # Rumors review checklist
 
-**Active:** 10, publish roots with warm memos — `codex/warm-tree-memos`, base `main`.
-**Next:** 10, remove message-buffer slack.
+**Active:** 10, remove message-buffer slack — `codex/exact-message-buffers`, base `main`.
+**Next:** 11, remove the leaf-hash heap buffer.
 
 Check code outcomes only after verification and merge; retain the landing
 commit. Checked dispositions are labelled explicitly.
@@ -136,7 +136,7 @@ Coupled work: party ownership with 01; other API pieces can be separate.
   Sources: `api-audit-1`, `api-audit-3`, `api-audit-7`, `api-audit-12`, `api-core-1`, `api-core-5`, `api-core-22`, `api-core-30`, `deps-6`, `tree-core-2`, T47, T72, T73, T81, T83, T84, T125.
 
 - [ ] Simplify core API plumbing and correct its comments.
-  Sources: `api-core-3`, `api-core-4`, `api-core-6`, `api-core-8`, `api-core-9`, `api-core-13–16`, `api-core-21`, `api-core-23`, `api-core-24`, `api-core-28`, `api-core-31`, `api-core-32`, `api-core-37`, T52, T72, T82, T92, T132.
+  Sources: `api-core-3`, `api-core-4`, `api-core-6`, `api-core-8`, `api-core-9`, `api-core-13–16`, `api-core-21`, `api-core-23`, `api-core-24`, `api-core-28–29`, `api-core-31`, `api-core-32`, `api-core-37`, T52, T72, T82, T92, T132.
 
 ## 08. Bookmark contracts and file implementation
 
@@ -183,10 +183,10 @@ Coupled work: no-op handling with 01. Do root-version changes before dependent o
 - [x] Simplify action representations and join reassembly — `4961398d`.
   Sources: `tree-core-14`, `tree-core-31`.
 
-- [ ] Publish roots with their required memos already warm; cover join allocation costs. **Working.**
-  Sources: `api-core-29`, `async-hazards-4`, `tree-core-8`, T42, T96, T132, N23. Measure after memo ownership is settled.
+- [x] Publish roots with their required memos already warm; cover join allocation costs — `f7b462e1`.
+  Sources: `async-hazards-4`, `tree-core-8`, T42, T96, T132, N23. Coupled: local preparation and party handoffs must precede publication.
 
-- [ ] Remove message-buffer slack with a direct size invariant.
+- [ ] Remove message-buffer slack with a direct size invariant. **Working.**
   Sources: `api-core-10`, T110, T113.
 
 - [ ] Protect tree algebra, deletion, and traversal invariants with meaningful cases.
