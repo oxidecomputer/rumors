@@ -323,7 +323,7 @@ Dependencies: 07 and 16; 15 for generator changes.
 
 Dependencies: 04–05 and 16.
 
-- [ ] Keep party-conservation fault coverage in the in-process harness.
+- [x] Keep party-conservation fault coverage in the in-process harness — `37bcab3f`, `5619a9ff`, `41129172`, `64964725`.
   Sources: `suite-economics-10`, `tests-disruption-handshake-2–4`, `tests-disruption-handshake-7`, `tests-disruption-handshake-8`, T132, T143, T149, T154, N15.
 
 - [ ] Exercise driver termination, cancellation, redaction, and handshake ordering without vacuous checks.
@@ -364,7 +364,7 @@ Dependencies: 03, 05–09, 13 and 16 as each case requires.
 - [ ] Keep seed and snapshot discovery accurate without deleting counterexamples.
   Sources: `streaming-tests-20`, `tests-common-31`, `tests-common-32`, `tests-lifecycle-1`, `tests-observation-38`, `tests-wire-format-19–21`, T59, T91, T132.
 
-- [ ] Confirm the public future-size check runs under its intended profile.
+- [x] Confirm the public future-size check runs under its intended profile — `713d5854`.
   Sources: `suite-economics-1`, `tests-wire-format-25`, `tests-wire-format-26`, `verification-infra-1`, T7, T26.
 
 - [ ] Simplify capture/atlas helpers and correct renderer descriptions.
@@ -459,7 +459,7 @@ Dependencies: Accepted implementation and documentation work complete.
 
 ## 26. Historical, declined, deferred, and external work
 
-- [ ] Verify swarm/memwatch removal and remaining references (deletion: `6e5eb555`).
+- [x] Verify swarm/memwatch removal and remaining references — `6e5eb555`, `6b258a5f`.
   Sources: `suite-economics-9`, `swarm-example-1–31`, T27, T132, T135, T136.
 
 - [x] Declined: a new Rumors mutation campaign or coverage threshold.
