@@ -1,6 +1,6 @@
 # Rumors review checklist
 
-**Active:** Sush attested-link conformance timeout — Rumors `codex/sush-conformance`, base `main`; Sush `codex/rumors-compat`, review base `3139ec7`.
+**Active:** 01, optimistic gossip publication and its notification/accounting checks — `codex/optimistic-publication`, base `main`.
 **Next:** 04, deep malformed replies; then 05, deep pipelining and conformance.
 
 Check code outcomes only after verification and merge; retain the landing
@@ -17,10 +17,13 @@ Dependencies apply only to the affected work within a group.
 
 ## 01. Commit ownership and publication
 
+Coupled work: optimistic gossip publication must preserve notification behavior
+and recheck retained-root accounting.
+
 - [x] Release displaced roots and retained payloads after every replica guard is gone — `2c77220a`.
   Sources: `async-hazards-3`, T34.
 
-- [ ] Move the gossip join out of the replica write lock.
+- [ ] Move the gossip join out of the replica write lock. **Working.**
   Sources: T170.
 
 - [ ] Keep no-op, content-change, and party-only publication behavior distinct.
@@ -34,7 +37,7 @@ Dependencies apply only to the affected work within a group.
 - [x] Keep idle connections with their owning link; preserve fairness and progress across routing and reuse — `45aaec54`.
   Sources: `link-14`, `link-28`, T31, T152, T153, T156, T160, T164, T167, N06, N07, N24, N25, N48, N49; [Sush compatibility](sush-pooling.md).
 
-- [ ] Identify and fix Sush's concurrent-connect conformance timeout. **Working.**
+- [x] Identify and fix Sush's concurrent-connect conformance timeout — Sush `5ea47e0`.
   Source: Owner follow-up; [reproduction context](sush-pooling.md).
 
 ## 03. Deep-tree fixtures and reproducible schedules

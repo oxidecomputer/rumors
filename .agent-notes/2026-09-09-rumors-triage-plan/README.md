@@ -11,6 +11,13 @@ checklist groups organize outcomes; they do not prescribe patch size or require
 finishing every group in numerical order. Work in small batches that can be
 understood, edited, and merged separately.
 
+Choose by correctness risk, actual dependencies, and owner priorities. When
+eligible work has comparable priority, prefer finishing a partly completed
+area over opening another. At each handoff, name the next outcome and explain
+why it comes next; distinguish required prerequisites from a convenient
+sequence. If an earlier group remains unfinished, say what is still open.
+Report completed outcomes, never imply that one merged batch finished its group.
+
 Recover the intended behavior from the findings and amended rulings.
 Salvage useful code, counterexamples, and experiments from the prepared
 branches; do not merge them wholesale. Current user instructions take
@@ -103,6 +110,11 @@ Use one short outcome line and one source-reference line per item. Compact
 consecutive IDs into inclusive ranges. Add a brief blocker or remaining scope
 only when it cannot be recovered from the sources. Split a partly completed
 outcome rather than checking off its unfinished work.
+
+Put a blocking dependency beside the affected outcome, naming the prerequisite
+outcome or landing commit. Use a group-level dependency only when its scope is
+clear. Mark changes that must be designed together as coupled work, rather
+than inventing an order between them. A preferred next batch is not a dependency.
 
 Update status in place. After merge, replace active-batch details with the
 landing commit. Do not accumulate implementation summaries, test counts,
