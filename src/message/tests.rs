@@ -9,6 +9,20 @@ use serde::{Deserialize, Serialize};
 use super::Message;
 
 use serde::Serializer;
+
+/// Check the cache's original allocation without copying or shrinking it.
+fn assert_exact_cache(message: Message) {
+    let bytes = message.serialized;
+    let pointer = bytes.as_ptr();
+    let bytes = bytes.try_into_mut().expect("this cache has one owner");
+    assert_eq!(bytes.as_ptr(), pointer);
+    assert_eq!(
+        bytes.capacity(),
+        bytes.len(),
+        "stored encoding has spare capacity"
+    );
+}
+
 /// A small serde payload with varied field types, so proptests exercise
 /// nontrivial serialization structure (nested containers, strings) rather
 /// than only fixed-width primitives.
@@ -19,6 +33,7 @@ struct Payload {
     data: Vec<u8>,
 }
 
+/// Generate payloads with varied scalar, string, and array encodings.
 fn payload() -> impl Strategy<Value = Payload> {
     (any::<u64>(), any::<String>(), any::<Vec<u8>>()).prop_map(|(id, tag, data)| Payload {
         id,
@@ -27,6 +42,7 @@ fn payload() -> impl Strategy<Value = Payload> {
     })
 }
 
+/// Hash a value for the equality/hash consistency property.
 fn hash_of<T: Hash>(value: &T) -> u64 {
     let mut h = DefaultHasher::new();
     value.hash(&mut h);
@@ -41,6 +57,20 @@ fn cbor_vec<T: Serialize>(value: &T) -> Vec<u8> {
 }
 
 proptest! {
+    /// Locally allocated caches retain only the encoding's length, including
+    /// payload sizes on either side of buffer growth boundaries.
+    #[test]
+    fn stored_encodings_have_no_spare_capacity(size in 0usize..4096, value in any::<u8>()) {
+        let payload = std::sync::Arc::new(vec![value; size]);
+        let limit = PayloadDepthLimit::default();
+        assert_exact_cache(Message::new((*payload).clone()));
+        assert_exact_cache(Message::from_arc(payload.clone()));
+        assert_exact_cache(Message::try_new((*payload).clone(), limit).unwrap());
+        assert_exact_cache(Message::try_from_arc(payload.clone(), limit).unwrap());
+        let bytes = cbor_vec(&*payload);
+        assert_exact_cache(Message::from_slice::<Vec<u8>>(&bytes, limit).unwrap());
+    }
+
     /// After construction via `new`, the cached serialized bytes are exactly
     /// the value's CBOR encoding, and the typed read recovers the value.
     #[test]
@@ -87,8 +117,11 @@ proptest! {
     /// nesting a message in a larger CBOR value costs one length header.
     #[test]
     fn serde_form_wraps_cached_bytes(p in payload()) {
+        /// Encode borrowed bytes as a CBOR byte string.
         struct Bstr<'a>(&'a [u8]);
+        /// Match the wire wrapper independently of `Message`'s serialization.
         impl Serialize for Bstr<'_> {
+            /// Write the borrowed bytes as one byte string.
             fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
                 s.serialize_bytes(self.0)
             }
@@ -259,13 +292,17 @@ fn try_new_prices_an_enums_own_decode() {
 #[derive(Debug, PartialEq, Eq)]
 struct Lopsided;
 
+/// Encode a value in a form that its own decoder rejects.
 impl Serialize for Lopsided {
+    /// Write an integer instead of the text expected by the decoder.
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_u64(0)
     }
 }
 
+/// Require text, contradicting this fixture's integer encoding.
 impl<'de> serde::Deserialize<'de> for Lopsided {
+    /// Accept only a text payload.
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         String::deserialize(deserializer).map(|_| Lopsided)
     }

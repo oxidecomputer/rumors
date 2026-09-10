@@ -9,44 +9,28 @@ use bytes::Bytes;
 use serde::Serialize;
 use serde::Serializer;
 use serde::de::DeserializeOwned;
-/// A stored message: a type-erased payload paired with its cached
-/// serialization.
+
+/// A type-erased payload and its cached CBOR encoding.
 ///
-/// The payload is held as `Arc<dyn Any + Send + Sync>` — the caller's own
-/// `Arc<T>` allocation, unsized in place — so the tree and the gossip
-/// sessions handle messages without being generic over the payload type:
-/// they compile once, and only the thin typed facades at the crate's API
-/// boundary name `T`. Construction goes through the typed constructors
-/// ([`new`](Self::new), [`from_slice`](Self::from_slice), ...); reads at
-/// the typed boundary go through the checked downcast
-/// ([`arc`](Self::arc)).
+/// Clones share the payload and cache. Typed API boundaries recover the payload
+/// through [`arc`](Self::arc); tree traversal and wire encoding use the cached
+/// bytes without knowing the payload type. Received encodings are preserved
+/// exactly rather than serialized again.
 ///
-/// The cache avoids repeated roundtrips through serialization: a `Message`
-/// always carries the exact CBOR bytes its payload was encoded to or
-/// decoded from, and every identity-blind consumer — the wire encoders,
-/// size accounting — reads the cached bytes, never the payload. Cloning is
-/// cheap: both fields are shared handles.
-///
-/// The payload encoding is CBOR (via [`ciborium`]): self-describing, so
-/// field and variant *names* are the wire contract — a decoder pairs fields
-/// by name, tolerating reordering — and no canonical encoding is required
-/// of the payload type, because payload bytes carry no identity (a leaf's
-/// identity is its version).
+/// Payload bytes do not determine a message's identity; its version does.
+/// CBOR field and variant names are the payload's wire contract, and callers
+/// need not provide a canonical encoding.
 ///
 /// # Panics
 ///
-/// Every payload value must serialize: methods that serialize
-/// ([`new`](Self::new), [`from_arc`](Self::from_arc)) panic if the
-/// payload's [`serde::Serialize`] implementation reports an error —
-/// always a bug in the payload type, since CBOR itself imposes no
-/// format-driven failures. The crate docs' "choosing a payload type"
-/// section is the contract of record for this obligation.
-///
-/// The typed read panics on a payload type mismatch; see
-/// [`arc`](Self::arc).
+/// Serializing constructors panic if the payload's [`Serialize`] implementation
+/// fails. Every payload value must serialize, as required by the crate's payload
+/// contract. A typed read with the wrong type also panics (see [`arc`](Self::arc)).
 #[derive(Clone)]
 pub struct Message {
+    /// The caller's payload allocation, unsized without copying.
     message: Arc<dyn Any + Send + Sync>,
+    /// The exact bytes used for gossip and size accounting.
     serialized: Bytes,
 }
 
@@ -71,6 +55,7 @@ pub const DEFAULT_PAYLOAD_DEPTH_LIMIT: PayloadDepthLimit = PayloadDepthLimit(256
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PayloadDepthLimit(u64);
 
+/// Construct and inspect the decoder's recursion limit.
 impl PayloadDepthLimit {
     /// A limit of exactly `steps` decode recursion steps: a payload
     /// value whose decode recurses deeper is rejected.
@@ -93,13 +78,17 @@ impl PayloadDepthLimit {
     }
 }
 
+/// Use the crate's default payload depth limit.
 impl Default for PayloadDepthLimit {
+    /// Return the default recursion limit.
     fn default() -> Self {
         DEFAULT_PAYLOAD_DEPTH_LIMIT
     }
 }
 
+/// Format the limit with its unit.
 impl fmt::Display for PayloadDepthLimit {
+    /// Display the number of decode steps.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} steps", self.0)
     }
@@ -151,6 +140,7 @@ pub(crate) enum PayloadDecodeError {
     Io(io::Error),
 }
 
+/// Convert decode failures for callers that use I/O errors.
 impl PayloadDecodeError {
     /// Fold into `io::Error`, the wire-ingress surface: the depth case
     /// becomes invalid data naming the exceeded limit.
@@ -187,11 +177,15 @@ pub(crate) type PayloadDeserializer =
 /// every ingress parse in the peer's orbit goes through this one value.
 #[derive(Clone, Copy)]
 pub(crate) struct PayloadCodec {
+    /// Serialize and check admission for the peer's payload type.
     serialize: PayloadSerializer,
+    /// Decode the peer's payload type into shared, type-erased storage.
     deserialize: PayloadDeserializer,
+    /// The recursion limit used for admission and wire ingress.
     limit: PayloadDepthLimit,
 }
 
+/// Apply one payload type and depth limit at every typed boundary.
 impl PayloadCodec {
     /// Construct the codec for payloads of type `T` at the given depth limit.
     ///
@@ -205,6 +199,7 @@ impl PayloadCodec {
     where
         T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
     {
+        /// Recover the payload type and check its encoding before storage.
         fn serialize_payload<T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static>(
             payload: Arc<dyn Any + Send + Sync>,
             limit: PayloadDepthLimit,
@@ -270,18 +265,21 @@ fn de_error(error: ciborium::de::Error<io::Error>) -> io::Error {
     }
 }
 
-/// Encode one value as CBOR into a fresh buffer.
+/// Encode one CBOR value, discarding spare capacity before caching it.
 ///
-/// # Panics
-///
-/// If `T`'s `Serialize` implementation reports an error ([`Message`]'s
-/// panic contract: serializability is the caller's obligation). Writing
-/// into a `Vec` cannot fail.
-fn to_vec<T: Serialize>(value: &T) -> Vec<u8> {
+/// Panics if the payload cannot serialize, as required by [`Message`].
+fn encode<T: Serialize>(value: &T) -> Bytes {
     let mut buf = Vec::new();
     ciborium::ser::into_writer(value, &mut buf)
         .expect("every message value must serialize (see Message's panic contract)");
-    buf
+    if buf.len() == buf.capacity() {
+        Bytes::from(buf)
+    } else {
+        // A shrink can leave the original allocation in place. Copy into a
+        // fresh allocation so the long-lived cache sheds the growth buffer's
+        // spare capacity; the allocator may still round up the requested size.
+        Bytes::copy_from_slice(&buf)
+    }
 }
 
 /// Decode exactly one CBOR value of type `T` from `bytes`, bounding the
@@ -312,18 +310,12 @@ fn decode_exact<T: DeserializeOwned>(
     Ok(message)
 }
 
+/// Construct cached messages and recover their typed payloads.
 impl Message {
-    /// Creates a `Message` pairing the given object with its cached
-    /// serialization, with no admission check.
+    /// Cache a payload's encoding without checking admission.
     ///
-    /// No unchecked constructor can reach a peer's set: insertion happens
-    /// only through [`Rumors::send`](crate::Rumors::send) and
-    /// [`Batch::send`](crate::Batch::send), which create admission-checked
-    /// messages through the peer's codec ([`try_new`](Self::try_new)),
-    /// and through wire ingress, which runs the same decode admission
-    /// runs. `new` and [`from_arc`](Self::from_arc) construct
-    /// free-standing messages (trees built outside any peer, fixtures,
-    /// size probes).
+    /// Used for standalone trees and fixtures. Peer insertion checks admission
+    /// through the peer's payload codec.
     ///
     /// # Panics
     ///
@@ -333,24 +325,17 @@ impl Message {
         T: Serialize + Send + Sync + 'static,
     {
         Message {
-            serialized: Bytes::from(to_vec(&message)),
+            serialized: encode(&message),
             message: Arc::new(message),
         }
     }
 
-    /// Creates an admission-checked `Message`: the constructor behind
-    /// [`Rumors::send`](crate::Rumors::send) and
-    /// [`Batch::send`](crate::Batch::send).
+    /// Cache a payload and check that a receiver can decode it faithfully.
     ///
-    /// Serializes `message` and admits it only if the exact decode
-    /// every receiver's wire ingress runs for `T` reads the encoding
-    /// back within `limit`, to a value equal (by `T`'s own `Eq`) to the
-    /// one sent. Because admission is the receiving computation itself,
-    /// there is no second accounting to drift: a payload a receiver
-    /// would reject or misread fails here instead, at its author, as
-    /// the typed [`EncodeError`] (its variants name the causes). A
-    /// [`Serialize`] failure keeps [`Message`]'s documented panic
-    /// contract.
+    /// Decoding at `limit` must recover a value equal to the original; otherwise
+    /// return [`EncodeError`]. [`Rumors::send`](crate::Rumors::send) and
+    /// [`Batch::send`](crate::Batch::send) apply the same checks. Serialization
+    /// failure panics, as required by [`Message`].
     pub fn try_new<T>(message: T, limit: PayloadDepthLimit) -> Result<Self, EncodeError>
     where
         T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
@@ -358,8 +343,7 @@ impl Message {
         Self::try_from_arc(Arc::new(message), limit)
     }
 
-    /// [`try_new`](Self::try_new) from an existing [`Arc`], without
-    /// copying: the same allocation, unsized in place.
+    /// Check admission and cache the encoding, sharing the payload's [`Arc`].
     pub(crate) fn try_from_arc<T>(
         arc: Arc<T>,
         limit: PayloadDepthLimit,
@@ -367,18 +351,15 @@ impl Message {
     where
         T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
     {
-        let serialized = to_vec(&*arc);
-        // Admission is the receiver's computation: the payload deserializer
-        // — the same fn every receiver's wire ingress runs for this
-        // payload type — reads the just-serialized bytes back at the same
-        // limit.
+        let serialized = encode(&*arc);
+        // Use the receiver's decoder and limit so admission cannot accept a
+        // value that wire ingress would reject.
         let decoded = match Self::deserializer::<T>()(&serialized, limit) {
             Ok(decoded) => decoded,
             Err(PayloadDecodeError::Depth(limit)) => return Err(EncodeError::Depth { limit }),
             Err(PayloadDecodeError::Io(source)) => return Err(EncodeError::Roundtrip(source)),
         };
-        // Faithfulness: what a receiver reads must be the value that was
-        // sent, judged by the payload type's own equality.
+        // Decoding successfully is not enough: the value must survive intact.
         let decoded: Arc<T> = decoded
             .downcast()
             .unwrap_or_else(|_| panic!("a payload decodes to its own type"));
@@ -386,23 +367,16 @@ impl Message {
             return Err(EncodeError::Unfaithful);
         }
         Ok(Message {
-            serialized: Bytes::from(serialized),
+            serialized,
             message: arc,
         })
     }
 
-    /// Creates a `Message` pairing the given serialized bytes with the
-    /// object derived by deserializing them as a `T`, bounding the
-    /// decode's recursion at `limit`.
+    /// Decode one CBOR payload as `T` and copy its encoding into the cache.
     ///
-    /// Crate-internal rehydration over bytes that arrive outside any
-    /// peer's orbit (fixtures, capture tooling), so the limit is an
-    /// explicit parameter rather than a codec's: a caller rehydrating
-    /// bytes written under a raised limit passes that limit. The bytes
-    /// must be exactly one CBOR value: trailing bytes are rejected as
-    /// invalid data, so the cache is always the value's exact encoding,
-    /// and a value whose decode recurses past the limit is invalid data
-    /// too.
+    /// Used by fixtures and capture tooling, where no peer supplies a limit.
+    /// `bytes` must contain exactly one value that decodes within `limit`;
+    /// trailing bytes and excessive depth are invalid data.
     pub fn from_slice<T>(bytes: &[u8], limit: PayloadDepthLimit) -> io::Result<Self>
     where
         T: DeserializeOwned + Send + Sync + 'static,
@@ -414,17 +388,10 @@ impl Message {
         })
     }
 
-    /// Decodes wire payload bytes into a `Message` through the peer's
-    /// [`PayloadCodec`]: the one deserialization every gossip ingress
-    /// performs.
+    /// Decode a wire payload using the peer's type and depth limit.
     ///
-    /// The codec carries the payload type the peer was constructed with
-    /// and the depth limit it was configured with.
-    ///
-    /// The codec validates the bytes are exactly one CBOR value of its
-    /// type, decoded within its limit, so the cache is always the
-    /// payload's exact encoding and a malformed or over-deep payload
-    /// fails here, at the wire boundary, as invalid data.
+    /// The codec rejects malformed, trailing, or excessively nested data.
+    /// Successful decoding retains the received encoding without copying it.
     pub(crate) fn from_wire(bytes: Bytes, codec: PayloadCodec) -> io::Result<Self> {
         Ok(Message {
             message: codec.decode(&bytes).map_err(PayloadDecodeError::into_io)?,
@@ -432,21 +399,15 @@ impl Message {
         })
     }
 
-    /// The deserializer for payloads of type `T`: the deserializing half
-    /// of the [`PayloadCodec`] a [`Peer`](crate::Peer) builds at
-    /// construction, applied at every session's wire ingress
-    /// ([`from_wire`](Self::from_wire)).
+    /// The shared decoder for send-side admission and wire ingress.
     ///
-    /// A plain function pointer, so everything that carries it stays
-    /// non-generic: the payload type's only residue in a running session.
-    /// The depth limit arrives as an argument because a fn pointer cannot
-    /// capture one; the codec pairs the two. Send-side admission
-    /// ([`try_new`](Self::try_new)) runs this same fn over its own
-    /// output, which is what makes admission and ingress one computation.
+    /// Returning a function pointer keeps [`PayloadCodec`] non-generic; the
+    /// payload type and its serde implementation stay inside this function.
     pub(crate) fn deserializer<T>() -> PayloadDeserializer
     where
         T: DeserializeOwned + Send + Sync + 'static,
     {
+        /// Decode one value into shared, type-erased storage.
         fn deserialize<T: DeserializeOwned + Send + Sync + 'static>(
             bytes: &[u8],
             limit: PayloadDepthLimit,
@@ -457,13 +418,9 @@ impl Message {
         deserialize::<T>
     }
 
-    /// Creates a `Message` from already-shared serialized bytes, without
-    /// copying, bounding the decode's recursion at `limit`.
+    /// Decode one CBOR payload as `T`, retaining `bytes` without copying.
     ///
-    /// The bytes are deserialized as a `T` to produce the paired object,
-    /// under [`from_slice`](Self::from_slice)'s exactly-one-value,
-    /// within-limit contract (its docs state why the caller supplies the
-    /// limit).
+    /// Uses [`from_slice`](Self::from_slice)'s exactly-one-value and depth checks.
     pub fn from_bytes<T>(bytes: Bytes, limit: PayloadDepthLimit) -> io::Result<Self>
     where
         T: DeserializeOwned + Send + Sync + 'static,
@@ -476,11 +433,9 @@ impl Message {
         })
     }
 
-    /// Creates a `Message` from an existing [`Arc`], without copying: the
-    /// same allocation, unsized in place.
+    /// Cache an existing payload's encoding, sharing its [`Arc`].
     ///
-    /// Like [`new`](Self::new), no depth admission: `new`'s docs state
-    /// why the unlimited constructors cannot reach a peer's set.
+    /// Like [`new`](Self::new), this does not check admission.
     ///
     /// # Panics
     ///
@@ -490,21 +445,17 @@ impl Message {
         T: Serialize + Send + Sync + 'static,
     {
         Message {
-            serialized: Bytes::from(to_vec(&*arc)),
+            serialized: encode(&*arc),
             message: arc,
         }
     }
 
-    /// Clones out an owned handle to the payload: a reference bump on the
-    /// same shared allocation.
+    /// Share the stored payload as its original type.
     ///
     /// # Panics
     ///
-    /// If the payload is not a `T`. A mismatch is always a crate bug,
-    /// never an input: every message reachable from a typed facade was
-    /// constructed with that facade's payload type — local sends through
-    /// the same `Peer`'s type, wire ingress through its typed decode —
-    /// so no gossip input can place a differently-typed payload here.
+    /// If the payload is not a `T`. Typed facades must request the same type
+    /// that their constructors and wire decoders stored.
     pub fn arc<T: Send + Sync + 'static>(&self) -> Arc<T> {
         self.message
             .clone()
@@ -526,6 +477,7 @@ impl Message {
 /// Shows the cached serialization, not the payload: the payload's type is
 /// erased here, so its own `Debug` is out of reach.
 impl fmt::Debug for Message {
+    /// Display the cached bytes as hexadecimal.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Message")
             .field("serialized", &hex::encode(&self.serialized))
@@ -533,20 +485,20 @@ impl fmt::Debug for Message {
     }
 }
 
-// Equality, and the `Hash` that must agree with it, compare the cached
-// serialization: with the payload's type erased, its bytes are the whole
-// observable content. Two messages built from the same value by the same
-// constructor always carry equal bytes.
-
+/// Compare the cached encodings without recovering the erased payload types.
 impl PartialEq for Message {
+    /// Test byte-for-byte equality of the cached encodings.
     fn eq(&self, other: &Self) -> bool {
         self.serialized == other.serialized
     }
 }
 
+/// Cached byte equality is an equivalence relation.
 impl Eq for Message {}
 
+/// Hash the same cached bytes that determine equality.
 impl Hash for Message {
+    /// Feed the cached encoding into the caller's hasher.
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.serialized.hash(state);
     }
@@ -558,6 +510,7 @@ impl Hash for Message {
 /// The wrapper is what makes a nested message self-delimiting wherever
 /// the container does not delimit it.
 impl Serialize for Message {
+    /// Pass the cached encoding to the serializer as a byte string.
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_bytes(&self.serialized)
     }
