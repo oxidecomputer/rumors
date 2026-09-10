@@ -1,7 +1,7 @@
 # Rumors review checklist
 
-**Active:** 04, reported error attribution ready for review — `codex/peer-departure`, base `main@7abf8907`.
-**Next candidates:** 09, public error API → 04, peer-departure liveness.
+**Active:** 09, public error API — `codex/public-errors`.
+**Next candidates:** 04, peer-departure liveness → deep malformed replies.
 
 Check code outcomes only after verification and merge; retain the landing
 commit. Checked dispositions are labelled explicitly.
@@ -54,7 +54,7 @@ Dependencies: 03 for deep reproductions; coordinate all edits to the shared driv
 - [ ] End waits when the peer can no longer provide an owed stream.
   Sources: T145, T154, T165, T166, N01, N21.
 
-- [ ] Preserve reported violations when a concurrent stream-supply failure also arrives.
+- [x] Preserve reported violations when a concurrent stream-supply failure also arrives — `f92fcbc3`.
   Sources: `remote-proxy-12`, `remote-proxy-tests-26`, T126, T132, T165, N32.
 
 - [ ] Surface violations stranded in proxy and materialized response relays.
