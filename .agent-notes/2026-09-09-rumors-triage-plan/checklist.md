@@ -1,7 +1,7 @@
 # Rumors review checklist
 
-**Active:** 07, usable bootstrap retry outcomes — `codex/bootstrap-retry`, base `main`.
-**Next:** 10, action and join cleanup.
+**Active:** 10, action and join cleanup — `codex/tree-join-cleanup`, base `main`.
+**Next:** 10, publish roots with warm memos.
 
 Check code outcomes only after verification and merge; retain the landing
 commit. Checked dispositions are labelled explicitly.
@@ -111,7 +111,7 @@ Coupled work: party ownership with 01; other API pieces can be separate.
 - [x] Represent retirement ownership directly — `51e14731`.
   Source: T37. Coupled with 01's absent-party path.
 
-- [ ] Return usable builders from failed joins. **Ready for review.**
+- [x] Return usable builders from failed joins — `184cede1`.
   Sources: `fresh-eyes-9`, T70, T77.
 
 - [x] Verify exactly one concurrent reuniter can reclaim the Peer — `51e14731`.
@@ -180,7 +180,7 @@ Coupled work: no-op handling with 01. Do root-version changes before dependent o
 - [x] Store each leaf’s action version and traverse sorted actions without repeated sorting or copying — `915571b7`.
   Sources: `tree-core-11`, `tree-core-13`, `tree-core-16`, `tree-core-27`, `tree-core-30`, T38, T39, T107, T124, T132, N12.
 
-- [ ] Simplify action representations and join reassembly; cover their remaining regressions.
+- [ ] Simplify action representations and join reassembly; cover their remaining regressions. **Working.**
   Sources: `tree-core-14`, `tree-core-31`, N23.
 
 - [ ] Publish roots with their required memos already warm.
