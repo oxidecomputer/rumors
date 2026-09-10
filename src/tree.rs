@@ -143,6 +143,22 @@ impl<T> Clone for Tree<T> {
     }
 }
 
+impl<T> Tree<T> {
+    /// Whether this shares a snapshot's node allocation and causal ceiling.
+    ///
+    /// A sufficient check for a conditional swap that never hashes under the
+    /// replica lock. Equal trees with distinct allocations may fail this check
+    /// and require a retry; full content-and-ceiling equality would also be safe.
+    pub(crate) fn root_is(&self, snapshot: &Self) -> bool {
+        let same_node = match (&self.root.root, &snapshot.root.root) {
+            (None, None) => true,
+            (Some(ours), Some(theirs)) => ours.ptr_eq(theirs),
+            _ => false,
+        };
+        same_node && self.root.ceiling == snapshot.root.ceiling
+    }
+}
+
 impl<T> PartialEq for Tree<T> {
     fn eq(&self, other: &Self) -> bool {
         self.root == other.root

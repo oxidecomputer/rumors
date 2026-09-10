@@ -331,10 +331,7 @@ impl<T> Peer<T, NoBookmark> {
                 network: remote.network,
                 window: config.window,
                 run_budget: config.run_budget,
-                inner: watch::Sender::new(Inner {
-                    party: Some(party),
-                    tree: Tree::from_root(root),
-                }),
+                inner: watch::Sender::new(Inner::new(party, Tree::from_root(root))),
                 bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
                 codec,
                 observe: config.observe,
@@ -722,15 +719,12 @@ impl<T, B: Persist> Peer<T, B> {
         // its frontier is the version the greeting carries.
         let local_min_events = prior_tree.latest().min_ticks();
 
-        // Reconcile using this peer's selected protocol. Both branches meet at
-        // the lifecycle boundary the surrounding transaction needs: a local
-        // root plus control streams positioned after reconciliation. The
-        // protocol bodies live behind the non-generic [`Reconciliation`], whose
-        // methods return their futures boxed: neither concrete protocol state
-        // machine becomes part of this outer session future,
-        // or of the consumer crate that instantiates it.
+        // Retain the starting root so publication can detect concurrent changes.
+        // Reconciliation owns a clone and returns the merged root and control
+        // streams. Its boxed future keeps the protocol state out of this outer
+        // future and the consumer crate that instantiates it.
         let reconciliation = Reconciliation {
-            root: prior_tree.root,
+            root: prior_tree.root.clone(),
             link: (read, write, connector, acceptor, epoch),
             codec,
             window: self.window,
@@ -809,14 +803,12 @@ impl<T, B: Persist> Peer<T, B> {
         // commit unlocks: its discarded payloads may access this replica.
         let merged = Tree::from_root(root);
         let converged = merged.latest().clone();
-        let mut party_overlap = false;
-        Inner::commit(&self.inner, |inner| {
+        let committed = Inner::publish(&self.inner, &prior_tree, &merged, |inner| {
             if let Some(party) = absorbed.take() {
                 match inner.party.as_mut() {
                     Some(existing) => {
                         if existing.join(party).is_err() {
-                            party_overlap = true;
-                            return false;
+                            return Err(());
                         }
                     }
                     // A live, non-retiring Peer normally has a party.
@@ -824,19 +816,13 @@ impl<T, B: Persist> Peer<T, B> {
                 }
             }
 
-            // Tree::join reports content changes; a ceiling-only advance
-            // also needs a notification because it can convey redactions.
-            // Incomparable frontiers advance on join too. The driver's
-            // converged-frontier token suppresses a resulting echo session.
-            let ceiling_advancing = matches!(
-                merged.latest().partial_cmp(inner.tree.latest()),
-                None | Some(std::cmp::Ordering::Greater)
-            );
-            let tree_changed = inner.tree.join(merged.clone());
-            peer_retiring || tree_changed || ceiling_advancing
+            Ok(peer_retiring)
         });
+        // Publication has released both locks. Free session roots before any
+        // further I/O so a slow peer cannot prolong removed payloads' lifetimes.
         drop(merged);
-        if party_overlap {
+        drop(prior_tree);
+        if committed.is_err() {
             return (
                 Intent::Remain,
                 Err(Error::violation(Phase::IdentityTransfer, SessionDefect::PartyOverlap).widen()),

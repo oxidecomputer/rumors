@@ -146,6 +146,11 @@ where
 }
 
 impl<H: Height> Node<H> {
+    /// Whether both handles refer to the same node allocation, without hashing.
+    pub fn ptr_eq(&self, other: &Self) -> bool {
+        self.inner.ptr_eq(&other.inner)
+    }
+
     /// Tag an untyped node at height `H`: the caller asserts the height.
     ///
     /// The streaming mirror's erasure seam

@@ -1,20 +1,15 @@
 //! The window's memory bound checked against measured node residency.
 //!
-//! The crate counts every live tree-node handle under `test-internals`
-//! ([`node_census`]): constructions and clones check in, drops check out,
-//! and the high-water mark is exact concurrent residency. A session's
-//! peak has four parts: the pre-session generation (alive until the
-//! atomic replace), the reconciled generation, the session's output tree
-//! (transiently coexisting with both at the commit join), and the
-//! window's in-flight work. The first three are content and scale with
-//! the divergence; only the fourth is the window's to bound, and its
-//! byte admittance is owned by the backend conformance suite's census
-//! (`rumors::conformance::backend`), whose session has no commit join.
-//! Here the census pins what a session at the floor holds above its
-//! generations (the commit's double-existence, bounded by the content),
-//! the version bounds a reconciled tree assembles against the pair
-//! bound the greeting priced, and that a tight budget widens the
-//! session's window past the serialization floor.
+//! [`node_census`] counts live node handles, including handles inside shared
+//! nodes only once. We retain both starting snapshots through reconciliation,
+//! then measure the handles shared by the starting and final trees together.
+//! Subtracting that resting count measures peak excess above both generations,
+//! without double-counting shared subtrees.
+//!
+//! These tests bound that overhead at the one-slot floor, check the negotiated
+//! version bound, and verify that a larger budget widens the session window.
+//! The window's byte bound is checked by `rumors::conformance::backend`, which
+//! measures reconciliation without the replica's publication step.
 //!
 //! The census is process-global, so every test body holds
 //! [`CENSUS_LOCK`]: the suite is correct under any runner's threading,
@@ -109,8 +104,7 @@ fn reconcile(a: &Rumors<u64>, b: &Rumors<u64>) -> (Gossiped, Gossiped) {
 
 /// The census of one session over a fresh divergence.
 struct Overhead {
-    /// Handles the session held at peak above its two resting
-    /// generations: content double-existence plus window in-flight.
+    /// Peak handles beyond those retained by the starting and final trees.
     handles: usize,
     /// Handles the reconciled generation holds at rest.
     after: usize,
@@ -118,27 +112,25 @@ struct Overhead {
     session: Gossiped,
 }
 
-/// Reconcile a fresh `divergent`-message divergence under `budget` and
-/// difference the census peak against the two resting generations.
+/// Measure temporary handles while retaining both starting snapshots.
 ///
-/// The differencing rests on both old generations being alive when the
-/// last side commits its fresh output, so the peak covers both resting
-/// generations at once; a session that dropped one side's old
-/// generation before the other's output finished assembling would read
-/// a peak below their sum and fail here visibly, not vacuously.
+/// Keeping the starting trees alive lets the census count their union with
+/// the final trees directly. Adding separate before/after counts would count
+/// shared child handles twice. The retained snapshots model a caller holding
+/// snapshots across gossip; their root handles are included in the baseline.
 fn overhead(budget: usize, divergent: usize) -> Overhead {
     let (left, right) = diverged(budget, divergent);
-    let before = node_census().live;
+    let retained = (left.snapshot(), right.snapshot());
     node_census_reset();
     let (session, _) = reconcile(&left, &right);
     let peak = node_census().peak;
+    let resting = node_census().live;
+    let handles = peak.checked_sub(resting).expect("peak covers live handles");
+    drop(retained);
     let after = node_census().live;
-    let handles = peak
-        .checked_sub(before + after)
-        .expect("peak covers both resting generations");
     eprintln!(
         "budget {budget}, divergence {divergent}: peak {peak}, \
-         generations {before}+{after}, overhead {handles}, \
+         retained generations {resting}, final {after}, overhead {handles}, \
          widest capacity {}",
         session.stats.window_granted,
     );
@@ -182,11 +174,7 @@ fn a_pre_charge_only_budget_fails_the_fixture_liveness() {
 ///
 /// The budget's derived capacities must sum past one per stage, and the
 /// real session over the same population must report a widest capacity
-/// above one: the solve and the session agree that the budget bound a
-/// window wider than the floor. What that window admits in bytes is the
-/// backend conformance suite's claim to hold (its census has no commit
-/// join, so a wider window moves its peak); this census's peak is the
-/// commit join at every budget, so nothing here differences peaks.
+/// above one. The backend conformance suite checks the resulting byte bound.
 #[test]
 fn a_tight_budget_widens_the_session_window() {
     let _census = census_locked();
@@ -332,13 +320,10 @@ fn wide_concurrent_frontiers_stay_inside_the_exchanged_bound() {
     );
 }
 
-/// Content overhead at the floor is the output tree, not the divergence.
+/// Temporary handles at the floor fit within one output tree plus fixed slack.
 ///
-/// At the one-slot floor the window holds almost nothing, so a session's
-/// peak above its generations is the commit's double-existence: the
-/// output tree alive beside the joining result. That is bounded by the
-/// reconciled content itself — it cannot silently grow into a multiple
-/// of it.
+/// The one-slot window limits in-flight work. Beyond the retained generations,
+/// allow room for one intermediate tree and the walk's fixed working set.
 #[test]
 fn floor_overhead_is_bounded_by_content() {
     let _census = census_locked();

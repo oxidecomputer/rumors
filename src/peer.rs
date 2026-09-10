@@ -2,7 +2,7 @@
 //! API for sending, redacting, and observing messages. The wire-session
 //! drivers (bootstrap, gossip, retire) live in [`gossip`].
 
-use std::sync::Arc;
+use std::sync::{Arc, PoisonError, RwLock};
 
 use before::Party;
 use rand::{RngCore, rngs::OsRng};
@@ -172,11 +172,33 @@ pub struct Peer<T, B: BookmarkError = NoBookmark> {
 /// The replica's identity and content, shared through a watch channel.
 /// The party is absent while a retirement holds it in flight.
 pub(crate) struct Inner<T> {
+    /// Identity available for local events; absent during retirement.
     pub(crate) party: Option<Party>,
+    /// The published content and causal ceiling.
     pub(crate) tree: Tree<T>,
+    /// Shared by ordinary commits; held exclusively after repeated swap conflicts.
+    ///
+    /// Acquire this before the watch write lock. Snapshot readers do not take it.
+    /// The gate contains no data to repair after a panic, so poison is ignored.
+    commit_gate: Arc<RwLock<()>>,
 }
 
+/// Try the session result, then one rebase, before excluding competing writers.
+///
+/// More optimistic attempts can avoid excluding writers, but each failed rebase
+/// wastes a join. This bounds speculative work without tuning a public contract.
+const OPTIMISTIC_ATTEMPTS: usize = 2;
+
 impl<T> Inner<T> {
+    /// Construct a replica whose commits share one writer gate.
+    pub(crate) fn new(party: Party, tree: Tree<T>) -> Self {
+        Self {
+            party: Some(party),
+            tree,
+            commit_gate: Arc::new(RwLock::new(())),
+        }
+    }
+
     /// Apply a change, releasing removed payloads after the watch write lock.
     ///
     /// Retaining the original tree keeps its payload destructors from
@@ -185,14 +207,150 @@ impl<T> Inner<T> {
     /// Together these keep destructors free to read or change the replica,
     /// including when the update unwinds.
     pub(crate) fn commit(sender: &watch::Sender<Self>, update: impl FnOnce(&mut Self) -> bool) {
+        // Declaring this outside the guard's scope also preserves drop order
+        // if the update panics: unlock before releasing any removed payload.
         let mut previous = None;
-        sender.send_if_modified(|inner| {
-            previous = Some(inner.tree.clone());
-            update(inner)
-        });
+        {
+            let gate = sender.borrow().commit_gate.clone();
+            // Other ordinary commits may enter too; the watch lock orders them.
+            // Only an exclusive gossip join needs to stop all of these writers.
+            let _hold = gate.read().unwrap_or_else(PoisonError::into_inner);
+            sender.send_if_modified(|inner| {
+                previous = Some(inner.tree.clone());
+                update(inner)
+            });
+        }
         drop(previous);
     }
+
+    /// Clone the published tree without carrying its read guard into the caller.
+    fn snapshot(sender: &watch::Sender<Self>) -> Tree<T> {
+        // An assignment may drop the caller's old tree. End the borrow here so
+        // that a destructor triggered by that assignment runs outside this lock.
+        sender.borrow().tree.clone()
+    }
+
+    /// Publish reconciled content without walking the tree under the watch lock.
+    ///
+    /// The session result already includes `prior`. If that snapshot is still
+    /// current, swap in the result directly. Otherwise join it with a fresh
+    /// snapshot outside the lock and retry. After repeated conflicts, exclude
+    /// other writers for one join and swap; readers remain free to take snapshots.
+    ///
+    /// Keep every input and displaced root alive until both locks are released,
+    /// including on unwind: this guards against a pathological case where their
+    /// payload destructors may access this replica, which would otherwise
+    /// deadlock. `update` runs once, under the watch lock, to publish an
+    /// identity change alongside the tree. Its boolean requests an additional
+    /// notification.
+    fn publish<E>(
+        sender: &watch::Sender<Self>,
+        prior: &Tree<T>,
+        reconciled: &Tree<T>,
+        mut update: impl FnMut(&mut Self) -> Result<bool, E>,
+    ) -> Result<(), E>
+    where
+        T: Send + Sync,
+    {
+        let gate = sender.borrow().commit_gate.clone();
+        // Reconciliation already joined against `prior`. If it is still current,
+        // publishing needs only a swap, with no second join of the same inputs.
+        let mut expected = prior.clone();
+        let mut candidate = reconciled.clone();
+        for attempt in 0..OPTIMISTIC_ATTEMPTS {
+            if attempt > 0 {
+                // A writer moved the root. Replace the failed candidate with a
+                // join against the latest snapshot, releasing the old attempt's
+                // roots here while neither lock is held.
+                expected = Self::snapshot(sender);
+                candidate = reconciled.clone();
+                candidate.join(expected.clone());
+            }
+            #[cfg(test)]
+            tests::before_swap();
+            let result = {
+                // Join work is already done. Hold the shared gate only while
+                // checking and publishing, so local writers can keep progressing.
+                let _hold = gate.read().unwrap_or_else(PoisonError::into_inner);
+                Self::try_swap(sender, &expected, &mut candidate, &mut update)
+            };
+            if let Some(result) = result {
+                return result;
+            }
+        }
+
+        // Further retries could keep losing to busy writers. Excluding them
+        // makes one final join sufficient, while leaving snapshot reads free.
+        Self::publish_exclusive(sender, reconciled, &gate, &mut update)
+    }
+
+    /// Join and publish while excluding other writers, without blocking snapshots.
+    fn publish_exclusive<E>(
+        sender: &watch::Sender<Self>,
+        reconciled: &Tree<T>,
+        gate: &RwLock<()>,
+        update: &mut impl FnMut(&mut Self) -> Result<bool, E>,
+    ) -> Result<(), E>
+    where
+        T: Send + Sync,
+    {
+        // Declare retained roots before the guard so unwinding also releases
+        // the gate before any payload can be destroyed.
+        let snapshot;
+        let mut candidate = reconciled.clone();
+        {
+            let _hold = gate.write().unwrap_or_else(PoisonError::into_inner);
+            // Acquire the gate before reading: another writer may have committed
+            // since the last failed attempt. Now this snapshot stays current
+            // through the join, without holding the watch lock during the walk.
+            snapshot = Self::snapshot(sender);
+            candidate.join(snapshot.clone());
+            Self::try_swap(sender, &snapshot, &mut candidate, update)
+                .expect("exclusive commit cannot lose its snapshot")
+        }
+    }
+
+    /// Swap only if the published root still matches `expected`.
+    ///
+    /// The caller holds the writer gate. A conflict leaves `candidate` and
+    /// `update` untouched; success moves the displaced tree into `candidate`
+    /// so its destruction happens after the caller releases the gate.
+    fn try_swap<E>(
+        sender: &watch::Sender<Self>,
+        expected: &Tree<T>,
+        candidate: &mut Tree<T>,
+        update: &mut impl FnMut(&mut Self) -> Result<bool, E>,
+    ) -> Option<Result<(), E>> {
+        // Equality includes the causal ceiling: even an empty tree can convey
+        // new redactions. It may compute hashes, so keep it outside the watch lock.
+        let changed = candidate != expected;
+        let mut result = None;
+        sender.send_if_modified(|inner| {
+            if !inner.tree.root_is(expected) {
+                // The candidate may lack a concurrent change. Leave both it and
+                // the identity callback untouched until we have rebased it.
+                return false;
+            }
+            match update(inner) {
+                Ok(notify) => {
+                    // Return the displaced root through `candidate`; dropping it
+                    // here could run a payload destructor under both locks.
+                    std::mem::swap(&mut inner.tree, candidate);
+                    result = Some(Ok(()));
+                    changed || notify
+                }
+                Err(error) => {
+                    result = Some(Err(error));
+                    false
+                }
+            }
+        });
+        result
+    }
 }
+
+#[cfg(test)]
+mod tests;
 
 /// A summary view (network, latest version, live-message count), independent
 /// of `T: Debug`: the messages themselves are not printed.
@@ -230,10 +388,7 @@ impl<T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<T, NoBoo
             network: Network::from_rng(rng),
             window: WindowConfig::default(),
             run_budget: RunBudget::default(),
-            inner: watch::Sender::new(Inner {
-                party: Some(Party::seed()),
-                tree: Tree::new(),
-            }),
+            inner: watch::Sender::new(Inner::new(Party::seed(), Tree::new())),
             bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
             codec: PayloadCodec::new::<T>(PayloadDepthLimit::default()),
             observe: Attachment::default(),

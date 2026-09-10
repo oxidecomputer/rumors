@@ -83,9 +83,8 @@ fn bootstrap_from(provider: Peer<u64>) -> (Peer<u64>, Peer<u64>) {
 /// with [`Error::Protocol`] rather than corrupting its clock.
 ///
 /// A correct universe never produces this (live parties are always disjoint);
-/// we forge it with [`Party::dangerously_alias`] — a copy of the absorber's
-/// *exact* region — to model a buggy or malicious peer. The overlap is detected
-/// by the absorbing `party.join`, the only place it can arise.
+/// we forge it with [`Party::dangerously_alias`] to check that absorption
+/// detects a peer's violation of party disjointness.
 #[test]
 fn overlapping_retiree_party_is_rejected() {
     let survivor = Peer::<u64>::seed();
@@ -98,10 +97,10 @@ fn overlapping_retiree_party_is_rejected() {
         network: survivor.network,
         window: survivor.window,
         run_budget: survivor.run_budget,
-        inner: watch::Sender::new(Inner {
-            party: Some(party_of(&survivor)),
-            tree: Tree::from_root(Root::default()),
-        }),
+        inner: watch::Sender::new(Inner::new(
+            party_of(&survivor),
+            Tree::from_root(Root::default()),
+        )),
         bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
         observe: Attachment::default(),
     };
