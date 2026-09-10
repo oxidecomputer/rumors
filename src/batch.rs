@@ -97,14 +97,9 @@ impl<'a, T: Send + Sync> Batch<'a, T> {
     pub(crate) fn commit(self) {
         let Batch { inner, actions, .. } = self;
         Inner::commit(inner, |inner| {
-            // Retirement consumes the Peer, so no batch can coexist with it.
-            let Some(party) = inner.party.as_ref() else {
-                debug_assert!(false, "no party to tick in a `Batch` commit");
-                return false;
-            };
             // A later action may discard an earlier insert. Keep the queued
             // handles until the commit releases the lock, even on unwind.
-            inner.tree.act(party, actions.iter().cloned())
+            inner.tree.act(&inner.party, actions.iter().cloned())
         });
     }
 }

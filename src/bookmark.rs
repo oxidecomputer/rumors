@@ -360,14 +360,10 @@ impl<B: Persist> Bookmarked<B> {
         result
     }
 
-    /// Slice the donated `party` out of the record, since it has now left for
-    /// the network.
+    /// Remove a donation from the loaded record.
     ///
-    /// The synchronous half of donation, run inside the caller's `watch`
-    /// critical section (so it moves with the party leaving `Inner`); the
-    /// caller [`write`](Self::write)s afterwards. Must run *before* sending the
-    /// [`Party`] over the network, and after
-    /// [`ensure_loaded`](Self::ensure_loaded).
+    /// The caller must successfully [`write`](Self::write) this change before
+    /// sending the party, so crash recovery cannot reclaim a donated identity.
     pub(crate) fn slice(&mut self, network: Network, party: &Party) {
         let inner = self.inner.as_mut().expect("loaded before mutation");
         if let Some(clocks) = inner.remove(&network) {

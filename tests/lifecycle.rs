@@ -12,6 +12,8 @@
 //! between real replicas.
 
 mod common;
+#[path = "lifecycle/reunion.rs"]
+mod reunion;
 
 use std::future::Future;
 use std::pin::pin;

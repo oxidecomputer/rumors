@@ -36,12 +36,7 @@ fn with_messages(k: Peer<u64>, vals: &[u64]) -> Peer<u64> {
 
 /// Read a `Peer`'s party for assertions.
 fn party_of(k: &Peer<u64>) -> Party {
-    k.inner
-        .borrow()
-        .party
-        .as_ref()
-        .expect("a live Peer holds its party")
-        .dangerously_alias()
+    k.inner.borrow().party.dangerously_alias()
 }
 
 /// Drive `child.retire` against `survivor.gossip` over a memory link, asserting

@@ -316,12 +316,14 @@ impl<A: Acceptor> Acceptor for &mut A {
 ///   which state which side of the identity hand-off the failure landed on,
 ///   with the same link consequences.
 /// - **Cancellation: as `Err`.** Dropping a session future mid-flight never
-///   commits a partial session (the replica holds the session's full
-///   effect or none of it) and poisons the link the same way. One
-///   carve-out: a `retire` future owns its consumed [`Peer`](crate::Peer),
-///   so dropping it destroys the peer and loses the identity (recoverable
-///   only through an attached bookmark), where `retire`'s `Err` would have
-///   handed the peer back through [`Retire`](crate::Retire)'s variants.
+///   commits a partial session (the replica holds the session's full effect or
+///   none of it) and poisons the link the same way. One exception: cancelling
+///   retirement destroys its consumed [`Peer`](crate::Peer) without returning a
+///   [`Retire::Recovered`](crate::Retire::Recovered) outcome. An attached
+///   bookmark can recover only the identity it still records. Retirement removes
+///   the donation from that record before transmitting it; after that removal is
+///   durable, recovery depends on the recipient having received the identity, as
+///   with [`Retire::Uncertain`](crate::Retire::Uncertain).
 ///
 /// No session imposes its own deadline: against a stalled peer a session
 /// waits forever, so the *caller* owns the timeout. Wrap sessions in your

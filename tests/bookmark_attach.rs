@@ -158,7 +158,7 @@ fn failed_attach_does_not_reclaim_into_an_unbookmarked_peer() {
             .bookmark(FlakyInMemoryBookmark::new(store_b.clone(), reliable(), 1))
             .await
             .expect("B records its fork");
-        let stranded = b.dangerously_alias_party().expect("B is live");
+        let stranded = b.dangerously_alias_party();
         drop(b);
 
         // Advance the network so a recovering peer's frontier strictly
@@ -168,7 +168,7 @@ fn failed_attach_does_not_reclaim_into_an_unbookmarked_peer() {
 
         // B' recovers: a *fresh* fork from A, disjoint from the stranded region.
         let b_prime = bootstrap_unbookmarked(&a).await;
-        let fresh = b_prime.dangerously_alias_party().expect("B' is live");
+        let fresh = b_prime.dangerously_alias_party();
         assert!(
             fresh.is_disjoint(&stranded),
             "the fresh fork must be disjoint from the stranded region",
@@ -190,7 +190,7 @@ fn failed_attach_does_not_reclaim_into_an_unbookmarked_peer() {
         // party stays exactly the fresh fork, disjoint from what is still
         // recorded on disk. (Reclaim-at-attach would make this region live here
         // yet claimable by the next peer to read the store — a recycle.)
-        let after = peer.dangerously_alias_party().expect("the peer is live");
+        let after = peer.dangerously_alias_party();
         assert!(
             after.is_disjoint(&stranded),
             "a failed attach must not reclaim the stranded region into the peer",

@@ -1281,13 +1281,7 @@ impl World {
         // Pairwise party disjointness.
         let parties: Vec<Party> = live
             .iter()
-            .map(|&k| {
-                self.nodes[k]
-                    .live()
-                    .unwrap()
-                    .dangerously_alias_party()
-                    .expect("a live peer holds its party")
-            })
+            .map(|&k| self.nodes[k].live().unwrap().dangerously_alias_party())
             .collect();
         for (i, &ni) in live.iter().enumerate() {
             for (j, &nj) in live.iter().enumerate().skip(i + 1) {
@@ -1410,11 +1404,7 @@ impl World {
         let mut held: Vec<Party> = Vec::new();
         for k in 0..self.n() {
             if let Some(rumors) = self.nodes[k].live() {
-                held.push(
-                    rumors
-                        .dangerously_alias_party()
-                        .expect("a live peer holds its party"),
-                );
+                held.push(rumors.dangerously_alias_party());
             }
             held.extend(store_parties(&self.nodes[k].store, network));
         }
@@ -1601,8 +1591,8 @@ fn retire_into_rebooted_absorber_absorbs_cleanly() {
 
         // Both parties are well-formed, disjoint, and tile the seed: a valid
         // single-universe state.
-        let pa = a.dangerously_alias_party().expect("A live");
-        let pb = b.dangerously_alias_party().expect("B live");
+        let pa = a.dangerously_alias_party();
+        let pb = b.dangerously_alias_party();
         assert!(
             pa.is_disjoint(&pb),
             "A {pa:?} and B {pb:?} must be disjoint"
@@ -1630,7 +1620,7 @@ fn retire_into_rebooted_absorber_absorbs_cleanly() {
         );
         absorb_out.expect("the absorber's gossip must not fail while taking a retirement");
         assert_eq!(
-            a.dangerously_alias_party().expect("A live"),
+            a.dangerously_alias_party(),
             Party::seed(),
             "after absorbing the only other peer, A must hold the whole seed identity",
         );

@@ -187,13 +187,7 @@ fn provider_with(values: &[u64]) -> Peer<u64> {
 
 /// Read a provider's live party for before/after comparison.
 fn party_of(provider: &Peer<u64>) -> Party {
-    provider
-        .inner
-        .borrow()
-        .party
-        .as_ref()
-        .expect("a live Peer holds its party")
-        .dangerously_alias()
+    provider.inner.borrow().party.dangerously_alias()
 }
 
 /// A provider serving a bootstrap rejects, under V2, a claimant whose
@@ -359,7 +353,7 @@ proptest! {
             let expected = identity.as_bytes().to_vec();
             let mut wire = Vec::new();
             if donation {
-                party::send(identity, &mut wire, &observe).await.unwrap();
+                party::send(&identity, &mut wire, &observe).await.unwrap();
             }
             wire.extend_from_slice(&EPILOGUE_MARKER);
             let cut = split_at % (wire.len() + 1);

@@ -85,7 +85,7 @@ another annotated copy of the review history.
 
 For every external Rumors API change, update and test Sush's
 `codex/rumors-compat` branch alongside the Rumors batch. Keep it atop the latest
-`locker`, preserving its compatibility work when rebasing. Simplify Sush code
+Sush `main`, preserving its compatibility work when rebasing. Simplify Sush code
 and comments wherever the new API permits. Use the local dependency override
 while Rumors changes are unmerged; advance Sush's Git pin and lockfile when
 the corresponding Rumors revision is available. Before final review, verify

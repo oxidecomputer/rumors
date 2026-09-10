@@ -4,7 +4,7 @@ use proptest::prelude::*;
 
 use super::party_of;
 use crate::link::memory;
-use crate::peer::gossip::PartyGuard;
+use crate::peer::gossip::ForkGuard;
 use crate::testing::run_to_quiescence;
 use crate::{Peer, Retire};
 
@@ -49,11 +49,10 @@ proptest! {
         prop_assert_eq!(changes.has_changed().unwrap(), provider.snapshot() != before);
     }
 
-    /// Recovering either a bootstrap fork or an entire retiring identity
-    /// restores custody without changing the tree or waking its observers.
+    /// An abandoned bootstrap fork rejoins its owner without changing the tree
+    /// or waking content observers.
     #[test]
     fn abandoned_donations_restore_identity_without_notification(
-        whole in any::<bool>(),
         initial in 0u64..8,
     ) {
         let provider = Peer::<u64>::seed();
@@ -63,10 +62,10 @@ proptest! {
         let changes = provider.inner.subscribe();
         let mut donation = None;
         provider.inner.send_if_modified(|inner| {
-            donation = if whole { inner.party.take() } else { inner.party.as_mut().map(|p| p.fork()) };
+            donation = Some(inner.party.fork());
             false
         });
-        drop(PartyGuard { party: donation, recover: provider.inner.clone() });
+        drop(ForkGuard { party: donation, recover: provider.inner.clone() });
         prop_assert_eq!(party_of(&provider), original_party);
         prop_assert!(provider.snapshot() == before);
         prop_assert!(!changes.has_changed().unwrap());

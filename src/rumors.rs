@@ -419,7 +419,7 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     /// [`Peer::dangerously_alias_party`] for what the caller must uphold.
     #[cfg(any(test, feature = "test-internals"))]
     #[doc(hidden)]
-    pub fn dangerously_alias_party(&self) -> Option<before::Party> {
+    pub fn dangerously_alias_party(&self) -> before::Party {
         self.peer.dangerously_alias_party()
     }
 }

@@ -97,7 +97,7 @@ fn batch_allows_destructor_access() {
     completes(|| {
         let replica = Peer::seed().into_rumors();
         let mut version = replica.snapshot().latest().clone();
-        version.tick(&replica.dangerously_alias_party().unwrap());
+        version.tick(&replica.dangerously_alias_party());
         replica
             .batch(|batch| {
                 batch.send(replaces_itself(&replica))?;

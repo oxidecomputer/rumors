@@ -1,9 +1,9 @@
 //! The wire-session drivers for [`Peer`]: [`bootstrap`](Bootstrap::join),
 //! [`gossip`](crate::Rumors::gossip), and [`retire`](Peer::retire).
 //!
-//! Also here: the preamble constants every session leads with, and the
-//! [`PartyGuard`] that snaps a speculatively donated party back in place
-//! on failure.
+//! A [`ForkGuard`] restores bootstrap forks abandoned before transmission.
+//! Retirement owns its consumed `Peer` until the outcome determines whether
+//! the identity can be returned to the caller.
 
 use crate::error::{Mismatch, Phase, TransportOperation as Op};
 use std::pin::Pin;
@@ -370,7 +370,7 @@ impl<T> Peer<T, NoBookmark> {
         // forked/absorbed identity) must be made durable immediately.
         let pristine = {
             let inner = peer.inner.borrow();
-            inner.tree.latest().is_empty() && inner.party.as_ref().is_some_and(Party::is_seed)
+            inner.tree.latest().is_empty() && inner.party.is_seed()
         };
         if pristine {
             return Ok(peer);
@@ -502,9 +502,7 @@ impl<T, B: Persist> Peer<T, B> {
         bookmark.ensure_loaded().await?;
         {
             let inner = self.inner.borrow();
-            if let Some(party) = inner.party.as_ref() {
-                bookmark.record(self.network, party, inner.tree.latest());
-            }
+            bookmark.record(self.network, &inner.party, inner.tree.latest());
         }
         bookmark.write().await
     }
@@ -535,16 +533,12 @@ impl<T, B: Persist> Peer<T, B> {
 
         let mut persist = false;
         self.inner.send_if_modified(|inner| {
-            if let Some(party) = inner.party.as_mut() {
-                let version = inner.tree.latest().clone();
-                if !bookmark.is_current(party, &version) {
-                    // `reclaim` stages the suppression token for this
-                    // `(party, version)`; only the `write` below, completing
-                    // `Ok`, commits it — a failed or cancelled write leaves
-                    // no token, so the next update persists afresh.
-                    bookmark.reclaim(self.network, party, &version);
-                    persist = true;
-                }
+            let version = inner.tree.latest();
+            if !bookmark.is_current(&inner.party, version) {
+                // The suppression token becomes current only after persistence
+                // succeeds; a failed write must be retried.
+                bookmark.reclaim(self.network, &mut inner.party, version);
+                persist = true;
             }
             // Reclaiming widens the party's identity but records no new event,
             // so the observable frontier is unchanged: no observer wakeup is due.
@@ -557,43 +551,23 @@ impl<T, B: Persist> Peer<T, B> {
         }
     }
 
-    /// Slice a donated `party` out of the bookmark before it crosses the wire,
-    /// and persist. The party has already left `Inner` (forked off or taken
-    /// whole), so this needs no `watch` critical section.
-    async fn bookmark_donate(&self, party: &Party) -> Result<(), BookmarkIo<B::Error>> {
-        let mut bookmark = self.bookmark.lock().await;
-        bookmark.ensure_loaded().await?;
-        // Donating shrinks our identity, so `slice` invalidates the suppression
-        // token; the next update re-records the true current identity.
-        bookmark.slice(self.network, party);
-        bookmark.write().await
-    }
-
-    /// Synchronize with a remote peer, optionally trying to retire afterwards.
+    /// Synchronize with a remote peer, optionally donating our identity.
     ///
-    /// The returned `Intent` is `Intent::Remain` whenever the provided intent
-    /// was, and `Intent::Retire` *only if* the entire local party was handed
-    /// off to the counterparty via retirement. `Intent::Retire` can arrive
-    /// *with* an error: when sending the party itself fails, we cannot know
-    /// whether the remote received it, so we must assume it might have.
+    /// Only `retire_inner` may pass `Intent::Retire`: it owns the consumed
+    /// `Peer`, so no writable handle can coexist with the donation. A returned
+    /// `Intent::Retire` forbids returning that peer, even on error.
     ///
-    /// On success, returns the *converged* version: the causal frontier of
-    /// the reconciled tree both replicas now hold, before any commits that
-    /// ran concurrently with the session. The session's [`SessionStats`]
-    /// ride along with it. [`gossip_when`] records the version as the
-    /// suppression token for [`Gossip::WhenChanged`] cues — "the local
-    /// frontier has advanced" means exactly "latest no longer equals this".
+    /// Return `Intent::Retire` once transmission of our whole party begins,
+    /// even if the session fails: the peer may already have received it.
+    /// Otherwise return `Intent::Remain`.
     ///
-    /// `staged` is the remote preamble's staging buffer, usually empty; a
-    /// [`gossip_when`] driver hands one that may already hold part (or all)
-    /// of the remote's preamble.
+    /// Success includes session statistics and the converged frontier, before
+    /// concurrent local commits. [`gossip_when`](crate::Rumors::gossip_when)
+    /// uses that frontier to decide whether further gossip is needed.
     ///
-    /// [`gossip_when`]: crate::Rumors::gossip_when
-    ///
-    /// Takes the link pre-erased ([`DynLinkParts`]): every generic caller
-    /// funnels through here, and the reconciliation itself runs behind the
-    /// non-generic [`Reconciliation`], so the protocol towers it drives
-    /// codegen exactly once, in this crate.
+    /// `staged` holds any preamble bytes already read by the cue-driven driver.
+    /// The erased [`DynLinkParts`] and [`Reconciliation`] keep protocol code
+    /// generation independent of the caller's concrete link type.
     async fn gossip_inner<'a>(
         &self,
         intent: Intent,
@@ -605,22 +579,15 @@ impl<T, B: Persist> Peer<T, B> {
     {
         let (read, write, connector, acceptor, epoch) = link;
         let codec = self.codec;
-        // The session's stats recorder: both protocol participants below
-        // share it (the walk counts disputes, gains, sheds, and the
-        // window grant; the proxy's codec seam counts bytes), and its
-        // snapshot rides the `Ok`. A session that ends before
-        // reconciliation reports zeros.
+        // The walk and proxy share these counters for the returned statistics.
         let stats = Recorder::default();
-        // The session's observation handle: inert unless a handler is
-        // attached and the dialect is observable, and shared, like the
-        // recorder, by every layer that moves a wire item.
+        // All protocol layers share the caller's optional observation handler.
         let kind = match intent {
             Intent::Remain => SessionKind::Gossip,
             Intent::Retire => SessionKind::Retire,
         };
         let observe = self.observe.begin(kind);
-        // Magic/version preamble: reject a non-rumors or incompatible peer
-        // before the framing trusts any peer-supplied frame length.
+        // Check protocol and network compatibility before reconciliation.
         let remote =
             match handshake::preamble(self.network, intent, staged, read, write, &observe).await {
                 Err(error) => return (Intent::Remain, Err(Error::from(error).widen())),
@@ -641,33 +608,13 @@ impl<T, B: Persist> Peer<T, B> {
             return (Intent::Remain, Ok((unchanged, stats.snapshot())));
         }
 
-        // Reflect our identity into the bookmark, snapshot the session's
-        // tree, and *speculatively* remove any party we will donate — all in
-        // one `watch` critical section under the bookmark mutex. One critical
-        // section carries two safety obligations at once:
-        //
-        // - The persisted record's own-party projection dominates the
-        //   snapshot's own-party version, so every own event this session can
-        //   transmit is durably accounted for before it crosses the wire, and
-        //   a crash-and-reclaim can never reuse a causal coordinate some
-        //   replica already holds. A `send` committed while the record's
-        //   write is in flight lands *after* the snapshot: it stays out of
-        //   this session and the next session's update covers it.
-        //
-        // - The donated party forks at the exact version the snapshot
-        //   carries: no lag in which a concurrent `send` could stamp messages
-        //   with a version exceeding the one communicated to a bootstrapping
-        //   party, violating party disjointness. Reclaiming grows the live
-        //   party in place, so it runs before the fork and a fork or donation
-        //   carries the grown identity. (`retire` reaches here too, through
-        //   its `gossip_inner` call, so a retiring set is bookmarked before
-        //   donating itself.)
-        //
-        // The lock order is bookmark-then-`watch`, as everywhere. A failed
-        // record write aborts the session before any wire traffic: dropping
-        // `guarded` re-joins the speculative fork, and the next update
-        // re-records what the reclaim already grew in memory.
-        let mut guarded = PartyGuard {
+        // Persist our identity at the snapshot's frontier before sharing any
+        // content. Reclaim, snapshot, and bootstrap fork share one watch lock:
+        // a concurrent send must either precede all three or follow them all.
+        // Otherwise the newcomer could inherit a party without its latest
+        // events and reuse their versions. Always lock bookmark before watch.
+        // Retirement needs no fork: its consumed Peer retains the whole party.
+        let mut guarded = ForkGuard {
             party: None,
             recover: self.inner.clone(),
         };
@@ -679,33 +626,15 @@ impl<T, B: Persist> Peer<T, B> {
             }
             let mut persist = false;
             self.inner.send_if_modified(|inner| {
-                if let Some(party) = inner.party.as_mut() {
-                    let version = inner.tree.latest().clone();
-                    if !bookmark.is_current(party, &version) {
-                        // `reclaim` stages the suppression token for
-                        // this `(party, version)`; only the `write` below,
-                        // completing `Ok`, commits it — a failed or
-                        // cancelled write leaves no token, so the next
-                        // update persists afresh.
-                        bookmark.reclaim(self.network, party, &version);
-                        persist = true;
-                    }
+                let version = inner.tree.latest();
+                if !bookmark.is_current(&inner.party, version) {
+                    bookmark.reclaim(self.network, &mut inner.party, version);
+                    persist = true;
                 }
                 prior_tree = Some(inner.tree.clone());
-                guarded.party = if self_retiring {
-                    // Retiring donates our *whole* identity, not a fork of it.
-                    //
-                    // We only can have our hands on a `Peer` when there are no
-                    // extant `Rumors`, which means that we aren't stepping on
-                    // anyone's toes by doing this.
-                    inner.party.take()
-                } else if peer_bootstrapping {
-                    // Serving a bootstrap donates a fork of our identity.
-                    inner.party.as_mut().map(Party::fork)
-                } else {
-                    // Plain gossip moves no party at all.
-                    None
-                };
+                if peer_bootstrapping && !self_retiring {
+                    guarded.party = Some(inner.party.fork());
+                }
                 // Identity custody changes no content or causal history, so
                 // observers have nothing new to read.
                 false
@@ -715,9 +644,7 @@ impl<T, B: Persist> Peer<T, B> {
             }
         }
         let prior_tree = prior_tree.expect("set in closure");
-        // The event floor this side's handshake declares: `prior_tree` is
-        // exactly the root the local protocol participant starts from, so
-        // its frontier is the version the greeting carries.
+        // Advertise the event floor of the snapshot used for reconciliation.
         let local_min_events = prior_tree.latest().min_ticks();
 
         // Retain the starting root so publication can detect concurrent changes.
@@ -748,54 +675,53 @@ impl<T, B: Persist> Peer<T, B> {
         let mut absorbed = None;
         let mut outcome = Intent::Remain;
         if peer_retiring {
-            // The peer is retiring: the reconciliation just made us a causal
-            // superset of it, so it now ships its party as one trailing frame
-            // on the same wire the descent used, and drops its own copy.
-            //
-            // The preamble rejects a peer that claims to both bootstrap and
-            // retire, and we bailed early if we were retiring too, so no
-            // party of ours is in flight here: `guarded.party` is `None`.
+            // We now hold the retiree's history and can safely inherit its
+            // identity. Neither side can also be donating a bootstrap fork,
+            // and the mutual-retirement case returned before reconciliation.
             absorbed = match party::receive(&mut read, &observe).await {
                 Err(e) => return (Intent::Remain, Err(e.widen())),
                 Ok(donated_party) => Some(donated_party),
             };
-        } else if guarded.party.is_some() {
-            // We are donating: our whole party if we are retiring, or a fresh
-            // fork of it if the peer is bootstrapping from us.
-            //
-            // First slice the donation out of the bookmark, while it is still
-            // held in the guard: if persisting fails we abort *before* the
-            // party crosses the wire, and the guard re-joins it on the way out,
-            // so a bookmark failure here never strands a region.
-            let donated = guarded.party.as_ref().expect("is_some");
-            if let Err(e) = self.bookmark_donate(donated).await {
-                return (Intent::Remain, Err(Error::Bookmark(e)));
+        } else if self_retiring || guarded.party.is_some() {
+            // Remove the donation from durable storage before sending it. A
+            // failure here still permits recovery: retirement owns the Peer,
+            // and a bootstrap's guard still owns its fork.
+            {
+                let mut bookmark = self.bookmark.lock().await;
+                if let Err(e) = bookmark.ensure_loaded().await {
+                    return (Intent::Remain, Err(Error::Bookmark(e)));
+                }
+                if self_retiring {
+                    let inner = self.inner.borrow();
+                    bookmark.slice(self.network, &inner.party);
+                } else {
+                    bookmark.slice(
+                        self.network,
+                        guarded.party.as_ref().expect("bootstrap fork"),
+                    );
+                }
+                if let Err(e) = bookmark.write().await {
+                    return (Intent::Remain, Err(Error::Bookmark(e)));
+                }
             }
 
-            // Now take it out of the guard, defusing drop-recovery: from here
-            // the peer may hold the party even if the send errors, so it can
-            // never be safely re-joined.
-            let donated = guarded.party.take().expect("is_some");
-            match party::send(donated, write, &observe).await {
-                Err(e) => {
-                    // A retiring donation in limbo must be assumed received:
-                    // report `Intent::Retire` alongside the error so that the
-                    // `Peer` is not handed back. A lost fork merely leaks its
-                    // region; we remain.
-                    let outcome = if self_retiring {
-                        Intent::Retire
-                    } else {
-                        Intent::Remain
-                    };
-                    return (outcome, Err(e.widen()));
-                }
-                Ok(()) => {
-                    if self_retiring {
-                        // The point of no return: the peer holds our whole
-                        // party, so this `Peer` must not survive the session.
-                        outcome = Intent::Retire;
-                    }
-                }
+            // `send` encodes immediately and retains no party borrow. Release
+            // the watch lock before I/O, or discard the fork's recovery guard.
+            let send = if self_retiring {
+                let inner = self.inner.borrow();
+                party::send(&inner.party, write, &observe)
+            } else {
+                let donated = guarded.party.take().expect("bootstrap fork");
+                party::send(&donated, write, &observe)
+            };
+            if self_retiring {
+                // From the first poll onward the peer may receive our identity.
+                // Even an error must consume us; returning the Peer could give
+                // two participants authority over the same identity space.
+                outcome = Intent::Retire;
+            }
+            if let Err(e) = send.await {
+                return (outcome, Err(e.widen()));
             }
         }
 
@@ -806,18 +732,10 @@ impl<T, B: Persist> Peer<T, B> {
         let converged = merged.latest().clone();
         let committed = Inner::publish(&self.inner, &prior_tree, &merged, |inner| {
             if let Some(party) = absorbed.take() {
-                match inner.party.as_mut() {
-                    Some(existing) => {
-                        if existing.join(party).is_err() {
-                            return Err(());
-                        }
-                    }
-                    // A live, non-retiring Peer normally has a party.
-                    None => inner.party = Some(party),
-                }
+                inner.party.join(party).map_err(|_| ())?;
             }
 
-            Ok(())
+            Ok::<(), ()>(())
         });
         // Publication has released both locks. Free session roots before any
         // further I/O so a slow peer cannot prolong removed payloads' lifetimes.
@@ -825,39 +743,26 @@ impl<T, B: Persist> Peer<T, B> {
         drop(prior_tree);
         if committed.is_err() {
             return (
-                Intent::Remain,
+                outcome,
                 Err(Error::violation(Phase::IdentityTransfer, SessionDefect::PartyOverlap).widen()),
             );
         }
 
-        // Persist an absorbed retiree's identity before declaring success. The
-        // join above grew our live party in memory only; the retiree has
-        // already sliced that region out of its own bookmark, so until we write
-        // it down a crash here would strand it — held by no one, recorded
-        // nowhere. This mirrors the eager persist `Peer::bookmark` does when a
-        // freshly bootstrapped fork is bookmarked. A failed write surfaces as
-        // an error rather than a silent leak: our caller learns the absorption
-        // is not yet durable.
+        // The retiree already removed this identity from its bookmark. Persist
+        // it in ours before confirming absorption, or a crash could lose it.
+        // Report a failed write even though the in-memory join has committed.
         if peer_retiring && let Err(e) = self.bookmark_update().await {
-            return (Intent::Remain, Err(Error::Bookmark(e)));
+            return (outcome, Err(Error::Bookmark(e)));
         }
 
-        // All local session work is done and committed: certify completion to
-        // the peer and require its certificate in return, so `Ok` below means
-        // the *peer* completed and committed too. This one insertion point
-        // covers every side — plain gossip, serving a bootstrap, the retiree
-        // (its party is sent above), and the absorber (its bookmark update is
-        // committed above; under `NoBookmark` that commit is in-memory only).
-        // The failure return must preserve `outcome`: a retiree whose party
-        // crossed the wire but whose epilogue failed is post-hand-off, and
-        // mapping it back to `Intent::Remain` would duplicate the identity.
+        // Confirm that both sides completed their commits, including any
+        // attached bookmark writes. Preserve `outcome` on error: retirement
+        // cannot return its identity merely because confirmation was lost.
         if let Err(e) = finish_session(&mut read, write, &observe).await {
             return (outcome, Err(e.widen()));
         }
 
-        // In the case where we successfully retired (only callable on the
-        // !Clone `Peer<T>`), we've given away our inner party and no more
-        // actions are possible, so don't hand back the `Peer`.
+        // Retirement's caller consumes the Peer after any possible handoff.
         (outcome, Ok((converged, stats.snapshot())))
     }
 }
@@ -1356,34 +1261,26 @@ impl<T, B: BookmarkError, S> Drop for Drive<'_, T, B, S> {
     }
 }
 
-/// Return a staged donation unless the session hands it to the peer.
-///
-/// Taking `party` before sending ends local custody. Until then, cancellation,
-/// failure, or unwinding restores it to the replica.
-struct PartyGuard<T> {
-    /// A bootstrap fork or the entire retiring identity, awaiting handoff.
+/// Restore a bootstrap fork unless its transmission has started.
+struct ForkGuard<T> {
+    /// The unsent fork; taken before any of its bytes may reach the peer.
     party: Option<Party>,
-    /// The replica that resumes custody if the donation is abandoned.
+    /// The replica from which the fork was split.
     recover: watch::Sender<Inner<T>>,
 }
 
-impl<T> Drop for PartyGuard<T> {
-    /// Restore an unsent identity without waking content observers.
+/// Return an abandoned fork without waking content observers.
+impl<T> Drop for ForkGuard<T> {
+    /// Rejoin the disjoint fork on cancellation, failure, or unwind.
     fn drop(&mut self) {
         if let Some(party) = self.party.take() {
             self.recover.send_if_modified(|inner| {
-                match inner.party.as_mut() {
-                    // This fork came from the resident party, so it is disjoint.
-                    // Restore it in release builds too, outside the assertion.
-                    Some(existing) => {
-                        if existing.join(party).is_err() {
-                            debug_assert!(false, "non-disjoint party in `PartyGuard`");
-                        }
-                    }
-                    // An abandoned retirement returns the entire party.
-                    None => inner.party = Some(party),
-                }
-                // Recovery changes identity custody, not the tree's frontier.
+                // This fork came from the resident party. Overlap indicates a
+                // custody bug; it must not silently discard identity space.
+                assert!(
+                    inner.party.join(party).is_ok(),
+                    "bootstrap fork overlaps its owner"
+                );
                 false
             });
         }

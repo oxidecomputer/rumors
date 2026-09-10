@@ -32,6 +32,8 @@
 //! fails at its source rather than hanging the test.
 
 mod common;
+#[path = "bookmark_transmit_window/retirement.rs"]
+mod retirement;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -56,29 +58,32 @@ const MAX_HEAL_ROUNDS: usize = 16;
 
 // ---- the gated bookmark ------------------------------------------------------
 
-/// An in-memory [`Bookmark`] whose `store` can be armed to park mid-persist:
-/// the deterministic stand-in for a durable write racing a concurrent `send`.
-///
-/// Disarmed (the default) it persists synchronously, like the sibling suites'
-/// in-memory bookmarks. Armed, the next `store` signals `entered`, then parks
-/// until `release` is notified; the test body runs in that window, on the
-/// same thread under the same poller, so the interleaving is exact and
-/// replayable.
+/// An in-memory bookmark that can pause before or after a durable write.
+/// Tests wait for `entered`, inspect the paused state, then release or cancel it.
 #[derive(Clone, Debug)]
 struct GatedBookmark {
+    /// Bytes that survive a cancelled session or a dropped peer.
     store: DurableStore,
+    /// Whether the next write should pause.
     armed: Arc<AtomicBool>,
+    /// Park after durability instead of before it.
+    after_write: Arc<AtomicBool>,
+    /// Announces that a write reached its pause.
     entered: Arc<Notify>,
+    /// Allows a paused write to continue.
     release: Arc<Notify>,
     /// Fail the Nth `store` call from now (1 = the very next); 0 = disarmed.
     fail_at: Arc<AtomicUsize>,
 }
 
+/// Control where persistence pauses or fails.
 impl GatedBookmark {
+    /// Wrap a durable store with initially disarmed gates.
     fn new(store: DurableStore) -> Self {
         GatedBookmark {
             store,
             armed: Arc::new(AtomicBool::new(false)),
+            after_write: Arc::new(AtomicBool::new(false)),
             entered: Arc::new(Notify::new()),
             release: Arc::new(Notify::new()),
             fail_at: Arc::new(AtomicUsize::new(0)),
@@ -96,6 +101,18 @@ impl GatedBookmark {
         self.armed.store(true, Ordering::SeqCst);
     }
 
+    /// Park after the next write becomes durable, before it returns.
+    fn arm_after_write(&self) {
+        self.after_write.store(true, Ordering::SeqCst);
+        self.arm();
+    }
+
+    /// Announce the pause and wait for the test to release it.
+    async fn park(&self) {
+        self.entered.notify_one();
+        self.release.notified().await;
+    }
+
     /// Wait until an armed `store` has parked.
     async fn entered(&self) {
         self.entered.notified().await;
@@ -107,29 +124,37 @@ impl GatedBookmark {
     }
 }
 
+/// A deliberately failed durable write.
 #[derive(Debug, thiserror::Error)]
 #[error("injected store fault")]
 struct InjectedFault;
 
+/// Use the injected fault as this bookmark’s storage error.
 impl BookmarkError for GatedBookmark {
+    /// Failure reported by a scheduled write fault.
     type Error = InjectedFault;
 }
 
+/// Persist bytes with the configured pause and failure schedule.
 impl Bookmark for GatedBookmark {
+    /// Owned reader over the durable bytes.
     type Reader = std::io::Cursor<Vec<u8>>;
 
+    /// Read the bytes from the last successful durable write.
     async fn load(&self) -> Result<Option<Self::Reader>, Self::Error> {
         Ok(self.store.lock().unwrap().clone().map(std::io::Cursor::new))
     }
 
+    /// Serialize and persist, pausing on the configured side of durability.
     async fn store<F>(&self, write: F) -> Result<(), Self::Error>
     where
         F: for<'a> FnOnce(&'a mut (dyn tokio::io::AsyncWrite + Unpin + Send)) -> Serialized<'a>
             + Send,
     {
-        if self.armed.swap(false, Ordering::SeqCst) {
-            self.entered.notify_one();
-            self.release.notified().await;
+        let armed = self.armed.swap(false, Ordering::SeqCst);
+        let after_write = self.after_write.swap(false, Ordering::SeqCst);
+        if armed && !after_write {
+            self.park().await;
         }
         match self.fail_at.load(Ordering::SeqCst) {
             0 => {}
@@ -142,6 +167,9 @@ impl Bookmark for GatedBookmark {
         let mut bytes = Vec::new();
         write(&mut bytes).await.expect("in-memory serialize");
         *self.store.lock().unwrap() = Some(bytes);
+        if armed && after_write {
+            self.park().await;
+        }
         Ok(())
     }
 }
@@ -289,9 +317,7 @@ fn record_dominates_the_transmitted_frontier() {
         let scene = transmit_during_persist().await;
         let Scene { a, b, store_a, .. } = &scene;
 
-        let party = a
-            .dangerously_alias_party()
-            .expect("a live peer holds its party");
+        let party = a.dangerously_alias_party();
         let recorded = persisted_record(store_a)
             .remove(&a.network())
             .expect("the gated session persisted a record")
@@ -371,9 +397,7 @@ fn cancelled_persist_never_suppresses_the_next_update() {
         // the cancelled write would skip that persist.
         gossip(&a, &b).await;
 
-        let party = a
-            .dangerously_alias_party()
-            .expect("a live peer holds its party");
+        let party = a.dangerously_alias_party();
         let recorded = persisted_record(&store_a)
             .remove(&a.network())
             .expect("the follow-up session persisted a record")
@@ -511,9 +535,7 @@ fn donation_persist_failure_aborts_before_the_wire() {
         a.send(M0).unwrap();
         let b = boot_from(&a, GatedBookmark::new(DurableStore::default())).await;
 
-        let party_before = a
-            .dangerously_alias_party()
-            .expect("a live peer holds its party");
+        let party_before = a.dangerously_alias_party();
         // Settle the record: a session with B re-records the post-donation
         // identity (the serve's slice cleared the suppression token), so the
         // failing serve below mutates nothing but the donation itself.
@@ -550,8 +572,7 @@ fn donation_persist_failure_aborts_before_the_wire() {
 
         // The abort left no trace: identity re-joined, disk untouched.
         assert_eq!(
-            a.dangerously_alias_party()
-                .expect("a live peer holds its party"),
+            a.dangerously_alias_party(),
             party_before,
             "the speculative fork must re-join the donor's party on abort",
         );
@@ -593,9 +614,7 @@ fn repeated_donation_aborts_normalize() {
             .into_rumors();
         a.send(M0).unwrap();
         let b = boot_from(&a, GatedBookmark::new(DurableStore::default())).await;
-        let party_before = a
-            .dangerously_alias_party()
-            .expect("a live peer holds its party");
+        let party_before = a.dangerously_alias_party();
 
         for round in 0..3 {
             // A failed write resets the in-memory record, so the next
@@ -626,8 +645,7 @@ fn repeated_donation_aborts_normalize() {
                 "round {round}: the newcomer must not receive a party",
             );
             assert_eq!(
-                a.dangerously_alias_party()
-                    .expect("a live peer holds its party"),
+                a.dangerously_alias_party(),
                 party_before,
                 "round {round}: the donor's identity must be whole again",
             );
@@ -649,8 +667,8 @@ fn repeated_donation_aborts_normalize() {
             d.snapshot().hash(),
             "D diverged after the aborts"
         );
-        let pa = a.dangerously_alias_party().expect("A live");
-        let pd = d.dangerously_alias_party().expect("D live");
+        let pa = a.dangerously_alias_party();
+        let pd = d.dangerously_alias_party();
         assert!(
             pa.is_disjoint(&pd),
             "the clean donation must be disjoint from the donor",

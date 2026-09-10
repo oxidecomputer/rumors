@@ -58,9 +58,7 @@ const LINK_BUF: usize = 64 * 1024;
 /// joined into any live peer's state — per the
 /// [`dangerously_alias_party`](Rumors::dangerously_alias_party) contract.
 fn alias(handle: &Rumors<u64>) -> Party {
-    handle
-        .dangerously_alias_party()
-        .expect("no retirement is in flight between schedule steps")
+    handle.dangerously_alias_party()
 }
 
 /// Assert every pair of live parties disjoint: the Law of Disjointness,

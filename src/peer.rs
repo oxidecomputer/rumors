@@ -170,10 +170,11 @@ pub struct Peer<T, B: BookmarkError = NoBookmark> {
 }
 
 /// The replica's identity and content, shared through a watch channel.
-/// The party is absent while a retirement holds it in flight.
+///
+/// Retirement owns the consumed `Peer`, excluding other writable handles.
 pub(crate) struct Inner<T> {
-    /// Identity available for local events; absent during retirement.
-    pub(crate) party: Option<Party>,
+    /// Identity used to stamp local events.
+    pub(crate) party: Party,
     /// The published content and causal ceiling.
     pub(crate) tree: Tree<T>,
     /// Shared by ordinary commits; held exclusively after repeated swap conflicts.
@@ -193,7 +194,7 @@ impl<T> Inner<T> {
     /// Construct a replica whose commits share one writer gate.
     pub(crate) fn new(party: Party, tree: Tree<T>) -> Self {
         Self {
-            party: Some(party),
+            party,
             tree,
             commit_gate: Arc::new(RwLock::new(())),
         }
@@ -880,21 +881,13 @@ impl<T, B: BookmarkError> Peer<T, B> {
         self.inner.borrow().tree.warm_caches();
     }
 
-    /// Alias this set's live party for invariant assertions in tests:
-    /// compare it, [`join`](Party::join) it into an accounting fold, or test
-    /// [`is_disjoint`](Party::is_disjoint); never use it as an identity.
+    /// Alias the live identity for invariant assertions in tests.
     ///
-    /// The alias shares the live party's identity space without forking it,
-    /// so treating it as a participant violates the linearity everything
-    /// else rests on. `None` only while a retirement has the party in
-    /// flight.
+    /// Compare it or use it in an accounting fold; never tick with it. An alias
+    /// shares the original identity's space and cannot act as another peer.
     #[cfg(any(test, feature = "test-internals"))]
     #[doc(hidden)]
-    pub fn dangerously_alias_party(&self) -> Option<Party> {
-        self.inner
-            .borrow()
-            .party
-            .as_ref()
-            .map(Party::dangerously_alias)
+    pub fn dangerously_alias_party(&self) -> Party {
+        self.inner.borrow().party.dangerously_alias()
     }
 }

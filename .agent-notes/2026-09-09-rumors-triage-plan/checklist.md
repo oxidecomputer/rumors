@@ -32,7 +32,7 @@ and recheck retained-root accounting.
 - [x] Preserve no-op trees and memos — `915571b7`.
   Sources: `tree-core-29`, T107, T166. Coupled with 10's tree edits.
 
-- [ ] Eliminate the absent-party batch path. **Working.**
+- [ ] Eliminate the absent-party batch path. **Ready for review.**
   Sources: `api-core-2`, T37. Coupled with 07's retirement ownership.
 
 - [x] Reconcile the window census with the roots the commit actually retains — `e238db87`.
@@ -43,7 +43,7 @@ and recheck retained-root accounting.
 - [x] Keep idle connections with their owning link; preserve fairness and progress across routing and reuse — `45aaec54`.
   Sources: `link-14`, `link-28`, T31, T152, T153, T156, T160, T164, T167, N06, N07, N24, N25, N48, N49; [Sush compatibility](sush-pooling.md).
 
-- [x] Identify and fix Sush's concurrent-connect conformance timeout — Sush `5ea47e0`.
+- [x] Identify and fix Sush's concurrent-connect conformance timeout — Sush `b70f107`.
   Source: Owner follow-up; [reproduction context](sush-pooling.md).
 
 ## 03. Deep-tree fixtures and reproducible schedules
@@ -108,8 +108,17 @@ Dependencies: 01 for retained-root measurements; 03–05 when claims cover deep 
 
 Coupled work: party ownership with 01; other API pieces can be separate.
 
-- [ ] Represent retirement ownership directly and return usable builders from failed joins.
-  Sources: `api-core-25`, `async-hazards-2`, `fresh-eyes-9`, T37, T70, T77, T125, T128.
+- [ ] Represent retirement ownership directly. **Ready for review.**
+  Source: T37. Coupled with 01's absent-party path.
+
+- [ ] Return usable builders from failed joins.
+  Sources: `fresh-eyes-9`, T70, T77.
+
+- [ ] Verify exactly one concurrent reuniter can reclaim the Peer. **Ready for review.**
+  Sources: `api-core-25`, T125. Before 07's handle-liveness simplification (`api-core-22`).
+
+- [ ] Verify retirement cancellation against durable identity at each handoff stage. **Ready for review.**
+  Sources: `async-hazards-2`, T128.
 
 - [ ] Return the stamped Version from send and simplify version lookup at callers.
   Sources: `tests-common-2`, `tests-lifecycle-31`, T67.

@@ -685,7 +685,7 @@ async fn probe_disjointness(handles: Vec<Rumors<u64>>, done: Arc<AtomicBool>) {
         let parties: Vec<(usize, Party)> = handles
             .iter()
             .enumerate()
-            .filter_map(|(i, h)| h.dangerously_alias_party().map(|p| (i, p)))
+            .map(|(i, h)| (i, h.dangerously_alias_party()))
             .collect();
         for (n, (i, pi)) in parties.iter().enumerate() {
             for (j, pj) in parties.iter().skip(n + 1) {
@@ -1094,13 +1094,7 @@ pub fn assert_value_oracle(
 ///    exactly [`Party::seed`] — every id-region is held by exactly one
 ///    live peer, and none leaked.
 pub fn assert_party_invariants(peers: &[Rumors<u64>], possible_losses: usize) {
-    let parties: Vec<Party> = peers
-        .iter()
-        .map(|k| {
-            k.dangerously_alias_party()
-                .expect("a live peer holds its party")
-        })
-        .collect();
+    let parties: Vec<Party> = peers.iter().map(|k| k.dangerously_alias_party()).collect();
 
     for (n, pi) in parties.iter().enumerate() {
         for (m, pj) in parties.iter().enumerate().skip(n + 1) {

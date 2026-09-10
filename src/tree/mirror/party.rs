@@ -45,18 +45,17 @@ pub enum HandOffDefect {
     Undecodable(before::error::Decode),
 }
 
-/// Ship a donated party after reconciliation has transferred all content.
+/// Encode a donation now and return the future that transmits it.
 ///
-/// Bootstrapping sends a freshly forked party from provider to newcomer;
-/// retirement sends the retiree's whole party toward its absorber. The
-/// hand-off is one self-delimiting item — the party-atom tag wrapping a
-/// byte string of the party's canonical encoding — so its exact boundary
-/// leaves a following session preamble untouched.
-pub(crate) async fn send<W>(
-    party: Party,
-    writer: &mut W,
-    observe: &SessionHandle,
-) -> Result<(), Error>
+/// The future owns the encoded frame and borrows only the writer and observer,
+/// so the caller can release an identity lock before polling it. Once polling
+/// begins, the caller must not resume using or recover the donated identity,
+/// even if transmission fails: the peer may already have received it.
+pub(crate) fn send<'a, W>(
+    party: &Party,
+    writer: &'a mut W,
+    observe: &'a SessionHandle,
+) -> impl Future<Output = Result<(), Error>> + use<'a, W>
 where
     W: AsyncWrite + Unpin + ?Sized,
 {
@@ -67,16 +66,18 @@ where
     cbor::write_tag(&mut item, PARTY_TAG);
     cbor::write_head(&mut item, MAJOR_BSTR, bytes.len() as u64);
     item.extend_from_slice(bytes);
-    writer
-        .write_all(&item)
-        .await
-        .map_err(|source| Error::transport(Phase::IdentityTransfer, Op::Write, source))?;
-    writer
-        .flush()
-        .await
-        .map_err(|source| Error::transport(Phase::IdentityTransfer, Op::Flush, source))?;
-    observe.control_sent(&item);
-    Ok(())
+    async move {
+        writer
+            .write_all(&item)
+            .await
+            .map_err(|source| Error::transport(Phase::IdentityTransfer, Op::Write, source))?;
+        writer
+            .flush()
+            .await
+            .map_err(|source| Error::transport(Phase::IdentityTransfer, Op::Flush, source))?;
+        observe.control_sent(&item);
+        Ok(())
+    }
 }
 
 /// Receive the identity donation promised by the peer's preamble intent.

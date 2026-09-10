@@ -102,10 +102,10 @@ proptest! {
                     attempts.set(attempt + 1);
                     if attempt < conflicts {
                         Inner::commit(&sender, |inner| {
-                            insert(&mut inner.tree, inner.party.as_ref().unwrap(), 100 + attempt as u64);
+                            insert(&mut inner.tree, &inner.party, 100 + attempt as u64);
                             if redact {
                                 let path = crate::tree::typed::Path::for_leaf(inner.tree.latest());
-                                inner.tree.act(inner.party.as_ref().unwrap(), [Action::Forget(path)]);
+                                inner.tree.act(&inner.party, [Action::Forget(path)]);
                             }
                             true
                         });
@@ -277,7 +277,7 @@ proptest! {
                 start.wait();
                 for i in 0..local_events {
                     Inner::commit(&sender, |inner| {
-                        insert(&mut inner.tree, inner.party.as_ref().unwrap(), i as u64);
+                        insert(&mut inner.tree, &inner.party, i as u64);
                         if i + 1 == local_events {
                             // These stamps include any gossip already published;
                             // replaying the sends in isolation would mint others.
@@ -305,11 +305,11 @@ proptest! {
                 let message = on_drop(move || {
                     assert!(Inner::snapshot(&callback_sender).is_empty());
                     Inner::commit(&callback_sender, |inner| {
-                        inner.tree.act(inner.party.as_ref().unwrap(), [Action::Insert(on_drop(|| {}))]);
+                        inner.tree.act(&inner.party, [Action::Insert(on_drop(|| {}))]);
                         true
                     });
                 });
-                inner.tree.act(inner.party.as_ref().unwrap(), [Action::Insert(message)]);
+                inner.tree.act(&inner.party, [Action::Insert(message)]);
                 true
             });
             // Only the published tree retains the payload. The incoming state
@@ -318,7 +318,7 @@ proptest! {
             {
                 let inner = sender.borrow();
                 let path = crate::tree::typed::Path::for_leaf(incoming.latest());
-                incoming.act(inner.party.as_ref().unwrap(), [Action::Forget(path)]);
+                incoming.act(&inner.party, [Action::Forget(path)]);
             }
             if exclusive {
                 let gate = sender.borrow().commit_gate.clone();
@@ -358,7 +358,7 @@ fn exclusive_publication_unwind_allows_later_commits() {
             let sender = sender.clone();
             *hook = Some(Box::new(move || {
                 Inner::commit(&sender, |inner| {
-                    insert(&mut inner.tree, inner.party.as_ref().unwrap(), 1);
+                    insert(&mut inner.tree, &inner.party, 1);
                     true
                 });
             }));
@@ -385,7 +385,7 @@ fn exclusive_publication_unwind_allows_later_commits() {
         assert!(outcome.is_err());
         assert_eq!(Inner::snapshot(&sender), expected.unwrap());
         Inner::commit(&sender, |inner| {
-            insert(&mut inner.tree, inner.party.as_ref().unwrap(), 2);
+            insert(&mut inner.tree, &inner.party, 2);
             true
         });
         assert_eq!(Inner::snapshot(&sender).len(), OPTIMISTIC_ATTEMPTS + 1);

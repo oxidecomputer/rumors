@@ -62,7 +62,7 @@ fn defect(result: Result<Party, Error>) -> HandOffDefect {
 fn a_donated_party_round_trips() {
     pollster::block_on(async {
         let mut wire = Vec::new();
-        send(nth_party(3), &mut wire, &SessionHandle::default())
+        send(&nth_party(3), &mut wire, &SessionHandle::default())
             .await
             .expect("donation sends");
         let received = receive(&mut &wire[..], &SessionHandle::default())
@@ -222,7 +222,7 @@ fn trailing_frame_bytes_are_rejected() {
 fn bytes_after_the_frame_stay_untouched() {
     pollster::block_on(async {
         let mut wire = Vec::new();
-        send(nth_party(3), &mut wire, &SessionHandle::default())
+        send(&nth_party(3), &mut wire, &SessionHandle::default())
             .await
             .expect("donation sends");
         wire.extend_from_slice(b".RUMORS");
@@ -260,4 +260,18 @@ proptest! {
             Err(other) => prop_assert!(false, "expected a typed hand-off defect, got {other:?}"),
         }
     }
+}
+
+/// Preparing a donation releases the identity borrow before any I/O, while
+/// the future retains the complete frame after the original party is dropped.
+#[test]
+fn donation_future_owns_its_frame() {
+    let party = nth_party(2);
+    let expected = party.as_bytes().to_vec();
+    let mut wire = Vec::new();
+    let observe = SessionHandle::default();
+    let sending = send(&party, &mut wire, &observe);
+    drop(party);
+    pollster::block_on(sending).unwrap();
+    assert_eq!(receive_party(&wire).unwrap().as_bytes(), expected);
 }

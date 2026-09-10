@@ -1,8 +1,11 @@
 # Sush compatibility branch
 
 Worktree: `/Users/oxide/src/sush/.worktrees/rumors-compat`, branch
-`codex/rumors-compat`, based on `origin/locker`. Keep this worktree until the
+`codex/rumors-compat`, based on `origin/main`. Keep this worktree until the
 final Sush review. The [plan](README.md) owns the ongoing workflow.
+
+[Draft PR #84](https://github.com/oxidecomputer/sush/pull/84) tracks this work
+against Sush `main`; keep it a draft until the final compatibility review.
 
 The branch uses Rumors-owned connection pooling, supplies Sush's routing
 deadline, and handles the current message admission API. Implementation and

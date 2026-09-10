@@ -13,11 +13,8 @@
 //! it receives the whole tree through the descent and the whole party as
 //! the trailing frame, becoming the retiree's successor.
 //!
-//! (No test covers a retire refused by outstanding snapshots, because
-//! none can exist: the `Peer`/`Rumors` XOR makes "retire while
-//! observers share the party" unrepresentable at compile time. The
-//! party-accounting side — every retire reconstituting the seed's whole
-//! id-space — lives in the crate-level tests, which can read the party.)
+//! Retirement consumes the unique `Peer`, excluding concurrent writers.
+//! Snapshot and message observers may remain and drain its final state.
 
 mod common;
 
@@ -25,8 +22,10 @@ use proptest::prelude::*;
 use rumors::{Peer, Retire, Rumors, causally};
 
 use crate::common::action::{LocalAction, arb_local_actions, build_local};
+use crate::common::fault::{self, FaultPlan};
 use crate::common::oracle::readout;
 use crate::common::wire::{assert_control_drained, block_on, bootstrap_fork, wire_gossip};
+use rumors::testing::run_to_quiescence;
 
 /// Capacity for each in-memory link stream. A divergent retiree's session moves
 /// content through the gossip round, so keep the other wire tests' headroom.
@@ -439,5 +438,73 @@ proptest! {
             retire_version, gossip_version,
             "unsynchronized retire leaves the same causal version as plain gossip"
         );
+    }
+}
+
+/// Run one converged retirement, measuring a clean send or severing it at
+/// `cut`. Any returned peer must remain usable and disjoint from the absorber.
+fn retirement_cut(cut: Option<usize>, initial: usize) -> usize {
+    let absorber = Peer::<u64>::seed().into_rumors();
+    absorber.send_all(0..initial as u64).unwrap();
+    let retiree = bootstrap_fork(&absorber);
+    let original = retiree.dangerously_alias_party();
+    run_to_quiescence(async {
+        let retiree = retiree.try_into_peer().await.unwrap();
+        let (retiring, mut receiving) = rumors::link::memory();
+        let (mut link, meter) = if let Some(cut) = cut {
+            (
+                fault::faulty(
+                    retiring,
+                    FaultPlan {
+                        write_cut: Some(cut),
+                        ..FaultPlan::NONE
+                    },
+                ),
+                None,
+            )
+        } else {
+            let (link, meter) = fault::metered(retiring);
+            (link, Some(meter))
+        };
+        let outgoing = async move { retiree.retire(&mut link).await };
+        let (retired, received) = tokio::join!(outgoing, absorber.gossip(&mut receiving));
+        if cut.is_none() {
+            assert!(
+                matches!(retired, Retire::Retired),
+                "clean retirement: {retired:?}"
+            );
+        }
+        match retired {
+            Retire::Recovered { peer, .. } => {
+                assert_eq!(peer.dangerously_alias_party(), original);
+                assert!(original.is_disjoint(&absorber.dangerously_alias_party()));
+                let live = peer.into_rumors();
+                live.send(999).unwrap();
+                assert_eq!(live.snapshot().len(), initial + 1);
+            }
+            Retire::Retired => {
+                if cut.is_none() {
+                    received.unwrap();
+                }
+                assert!(absorber.dangerously_alias_party().is_seed());
+            }
+            Retire::Uncertain { .. } => {}
+            Retire::Declined { .. } => panic!("ordinary gossip accepts retirement"),
+        }
+        meter.map_or(0, |meter| meter.written())
+    })
+    .expect("a cut retirement must not deadlock")
+}
+
+proptest! {
+    /// A cut anywhere in retirement's outgoing traffic never returns an
+    /// identity the absorber holds; a recovered peer can still commit events.
+    #[test]
+    fn retirement_write_cuts_preserve_exclusive_identity(
+        initial in 0usize..6,
+        offset in any::<proptest::sample::Index>(),
+    ) {
+        let extent = retirement_cut(None, initial);
+        retirement_cut(Some(offset.index(extent + 1)), initial);
     }
 }
