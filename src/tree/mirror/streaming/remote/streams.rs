@@ -51,7 +51,8 @@ use crate::tree::mirror::streaming::stats::{CountedRead, CountedWrite, Recorder}
 use crate::tree::mirror::streaming::tasks::cancelled;
 
 use super::codec::{
-    DecodeError, EncodeError, End, Frame, FrameRead, FrameWrite, Origin, RunBudget, Speaker, Stream,
+    DecodeError, DecodeErrorKind, EncodeError, End, Frame, FrameRead, FrameWrite, Origin,
+    RunBudget, Speaker, Stream,
 };
 
 /// Render the label naming one opened stream: two CBOR unsigned-int
@@ -294,6 +295,20 @@ pub enum StreamError {
     },
 }
 
+impl StreamError {
+    /// Whether a failed transport could produce this report.
+    pub(super) fn is_transport_failure(&self) -> bool {
+        match self {
+            Self::SupplyClosed { .. } | Self::Truncated { .. } => true,
+            Self::Decode(error) => matches!(
+                error.kind,
+                DecodeErrorKind::Read { .. } | DecodeErrorKind::Truncated { .. }
+            ),
+            Self::Mislabeled { .. } => false,
+        }
+    }
+}
+
 /// One lazily claimed incoming logical stream, yielding its protocol frames.
 ///
 /// The first poll claims the accepted transport stream delivered for this
@@ -435,15 +450,9 @@ where
 {
     stream! {
         let Ok((rx, done)) = claim.await else {
-            // The claim slot is gone: the link's stream supply failed before
-            // the peer's stream for this level arrived. This is the one
-            // consumer that provably needed it, so the report comes from
-            // here; a supply failure that nothing was waiting on lets the
-            // session finish on the streams it already holds. The supply's
-            // own I/O failure is not attached here: it stays deposited for
-            // the session terminal, which attaches it to whichever error
-            // wins selection — a report that loses the terminal's race must
-            // not strand the causal transport error.
+            // This consumer needed a stream the supply could not deliver.
+            // Keep the acceptor's I/O error separate: the executor attaches
+            // it only if a transport failure wins, preserving any violation.
             route.report(StreamError::SupplyClosed {
                 origin: Origin::stream(speaker, stream),
                 source: None,
@@ -496,23 +505,17 @@ where
 /// The reporting half of the session's one-slot first-error route.
 #[derive(Clone)]
 pub struct ErrorRoute {
+    /// Keeps the first incoming-stream report until the executor receives it.
     send: mpsc::Sender<StreamError>,
-    /// The parked accept driver's deposited transport failure.
-    ///
-    /// Reporters never read it: the session terminal is the slot's sole
-    /// consumer ([`FirstStreamError::take_supply_failure`]), so the causal
-    /// I/O error cannot be stranded on a report that loses the terminal's
-    /// selection.
+    /// The acceptor's I/O error, retained even if its stream report is dropped.
     supply_failure: std::sync::Arc<std::sync::Mutex<Option<std::io::Error>>>,
 }
 
 impl ErrorRoute {
     /// Publish the first incoming-stream error without blocking its reporter.
     ///
-    /// A report that loses the one-slot race is dropped as cascade. No
-    /// causal detail is lost with it: reports never carry the supply
-    /// deposit (the session terminal is the slot's sole consumer), so a
-    /// dropped report forfeits only its stream-granularity origin.
+    /// Later reports are discarded. The supply's I/O failure lives separately,
+    /// so it remains available even when a stream report cannot be queued.
     fn report(&self, error: StreamError) {
         let _ = self.send.try_send(error);
     }
@@ -526,6 +529,7 @@ impl ErrorRoute {
 
 /// The observing half of the session's first-error route.
 pub struct FirstStreamError {
+    /// The report selected beside the protocol and accept driver.
     receive: mpsc::Receiver<StreamError>,
     /// The slot the accept driver deposits the supply's transport failure
     /// into; the session terminal is its sole consumer.
@@ -543,12 +547,7 @@ impl FirstStreamError {
         }
     }
 
-    /// Claim the deposited supply failure as the session's cause.
-    ///
-    /// A deposit precedes every error the dead supply goes on to cause,
-    /// and nothing but the session terminal consumes the slot, so an
-    /// error selected beside a deposit is the *symptom* of the dead
-    /// supply: the terminal reports the deposit as the session's cause.
+    /// Take the acceptor's deferred I/O failure for the executor to attribute.
     pub fn take_supply_failure(&self) -> Option<std::io::Error> {
         self.supply_failure
             .lock()
@@ -556,29 +555,13 @@ impl FirstStreamError {
             .take()
     }
 
-    /// Recover a queued [`StreamError::SupplyClosed`] the terminal's biased
-    /// poll order never received, attaching the deposited cause (reports
-    /// leave the deposit in its slot for the terminal to claim).
-    ///
-    /// When the protocol arm resolves first with a symptom of the dead
-    /// supply (a write to a peer that already tore down), the causal report
-    /// can be sitting unreceived in the route. Any *other* queued error is
-    /// discarded here: it lost to the protocol error by the terminal's
-    /// deliberate poll order, exactly as if the select had resolved the
-    /// protocol arm alone.
-    pub fn queued_supply_closed(&mut self) -> Option<StreamError> {
-        while let Ok(error) = self.receive.try_recv() {
-            if let StreamError::SupplyClosed { origin, source } = error {
-                let source = source.or_else(|| self.take_supply_failure());
-                return Some(StreamError::SupplyClosed { origin, source });
-            }
-        }
-        None
+    /// Take a report skipped when the protocol won the executor's selection.
+    pub fn take_report(&mut self) -> Option<StreamError> {
+        self.receive.try_recv().ok()
     }
 }
 
-/// One slot: the route keeps the first error and drops the rest, because
-/// the first failure is the session's cause and later ones its cascade.
+/// Keep one incoming-stream report; the executor cancels the other reporters.
 const ERROR_ROUTE_CAPACITY: usize = 1;
 
 /// Allocate the session's incoming-stream error route.
@@ -675,22 +658,13 @@ impl<A: Acceptor> AcceptDriver<A> {
         }
     }
 
-    /// Accept and route incoming streams until dropped; violations are
-    /// terminal, supply failures are deferred to whoever needed a stream.
+    /// Route streams until cancelled, returning any label violation.
     ///
-    /// Never resolves successfully: session completion cancels it. A
-    /// transport-level supply failure — the acceptor erroring, or a stream
-    /// dying mid-label — is *not* immediately fatal: a peer that completed
-    /// its session cleanly has already delivered every stream this session
-    /// will claim, and may drop its link before this side finishes. The
-    /// driver instead drops the undelivered claim slots and parks; a pump
-    /// that provably needed one then fails the session through the error
-    /// route ([`StreamError::SupplyClosed`]), while a session that needed
-    /// nothing more completes on the streams it holds. The failure's own
-    /// I/O detail is deposited in the error route before the driver parks;
-    /// the session terminal claims it at selection and reports it as the
-    /// session's cause, so the causal transport error survives the
-    /// deferral no matter which racing symptom wins the terminal's select.
+    /// A supply failure drops undelivered claims and parks. Only a consumer
+    /// awaiting one of those claims reports an error; a session with all its
+    /// streams already delivered can still complete. The acceptor's I/O error
+    /// stays in the error route for the executor to attach to a transport
+    /// failure. It never replaces a protocol or codec violation.
     pub async fn run(mut self) -> AcceptError {
         loop {
             match self.accept_one().await {

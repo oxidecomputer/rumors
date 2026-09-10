@@ -19,10 +19,9 @@ use crate::tree::{
         materialized::SupplyLedger,
         protocol::BoxResponses,
         remote::{
-            adapter::{DecodeError, EncodeError},
-            codec::{Origin, RunBudget, Speaker},
+            codec::{RunBudget, Speaker},
             proxy::{Error, send_or_cancel},
-            streams::{AcceptDriver, FirstStreamError, StreamError},
+            streams::{AcceptDriver, AcceptError, FirstStreamError},
         },
         tasks::{complete, park_after_published_error},
         window::Window,
@@ -46,6 +45,7 @@ where
     B: Backend<Node<Z>: Leaf>,
     A: Acceptor,
 {
+    /// The store used to enumerate and reconstruct nodes.
     backend: B,
     /// Per-edge capacity for the proxy's question and scope queues.
     window: Window,
@@ -71,24 +71,29 @@ where
     /// local opening's listing against it to decide whether the
     /// early-supply stream opens.
     peer_listing: Vec<(u8, Hash)>,
+    /// Transport and error reporting shared by the pumps.
     physical: Physical<R, W, A>,
+    /// Pumps driven concurrently when the protocol reaches its terminal step.
     tasks: Vec<BoxFuture<'static, Result<(), Error<B::Error>>>>,
+    /// Records reply and scope publication order in tests.
     progress: Progress,
 }
 
-/// The session's transport residue: the control halves it must hand back,
-/// the accept driver routing incoming streams, and the error route through
-/// which those streams report.
+/// Transport ownership and incoming error reporting for one session.
 pub struct Physical<R, W, A>
 where
     A: Acceptor,
 {
+    /// Control input returned to the caller after reconciliation.
     pub control_read: R,
+    /// Control output returned alongside the input.
     pub control_write: W,
     /// The remote elected speaker: the direction whose failures the
     /// terminal attributes when no single stream can be named.
     pub remote: Speaker,
+    /// Routes arriving data streams to the pumps awaiting them.
     pub accept: AcceptDriver<A>,
+    /// Receives pump failures and the acceptor's deferred I/O failure.
     pub errors: FirstStreamError,
 }
 
@@ -156,44 +161,13 @@ where
         Box::pin(responses)
     }
 
-    /// Drive all accumulated pumps, the terminal operation, and the session's
-    /// stream supply to completion.
+    /// Drive the protocol, incoming streams, and their error reports together.
     ///
-    /// The protocol schedule is assembled synchronously before this point:
-    /// nothing — pumps, decode streams, the materialized walk, the accept
-    /// driver — is polled until this select. The accept driver therefore
-    /// starts with the first pump poll, which is why lazy claiming cannot
-    /// strand an earlier level: no claim is ever awaited before the driver
-    /// that fills it is running.
-    ///
-    /// Poll order is deliberate: the protocol is observed first, so a
-    /// completed reconciliation wins over an accept-side anomaly discovered
-    /// in the same poll, and a protocol fault is reported as the cause it
-    /// is. The accept driver and the incoming error route resolve only to
-    /// errors, so neither can preempt a completion.
-    ///
-    /// One refinement on protocol *failure*: a dead stream supply is
-    /// reported as the session's cause even when one of its consequences
-    /// (a write to a peer that already tore down, a decode of a severed
-    /// stream) wins the selection. The accept driver deposits the supply
-    /// failure's I/O detail in the same poll that observes it, and this
-    /// terminal is the deposit's sole consumer, so a consequence caused by
-    /// this process's own cut always finds the deposit already in place.
-    /// On a real transport the peer's cut arrives from outside, so the
-    /// supply failure and a consequence can become ready in the same wave
-    /// with the consequence ahead in the biased order; one final poll of
-    /// the accept driver then flushes the ready failure into the slot.
-    /// That poll never waits — the driver either deposits and parks or is
-    /// pending — so the session still imposes no deadline of its own (the
-    /// link contract's liveness posture). The failure is surfaced at the
-    /// finest granularity available: the selected error or a queued
-    /// [`StreamError::SupplyClosed`] the biased order never received
-    /// names the stream that provably needed the supply; the deposit
-    /// alone is attributed at direction granularity. Typed backend errors
-    /// are exempt from the outranking: the local store failing is
-    /// independent of the transport, so a dead supply cannot have caused
-    /// it, and it surfaces as itself (the attribution contract on
-    /// [`Error`]).
+    /// The protocol is polled first: a completed reconciliation succeeds even
+    /// if the peer has since closed its stream supply. A reported violation
+    /// also stands on its own. For a transport failure, poll the accept driver
+    /// once more to collect any ready cause before attributing the error.
+    /// This final poll never waits and cannot change a successful outcome.
     async fn execute<O>(
         self,
         finish: impl Future<Output = Result<O, Error<B::Error>>> + Send,
@@ -209,62 +183,33 @@ where
             mut errors,
         } = physical;
         let outcome = {
-            let mut protocol = pin!(Box::pin(complete(tasks, finish)));
+            let mut protocol = Box::pin(complete(tasks, finish));
             let mut accept = pin!(accept.run());
             let mut stream_errors = pin!(errors.first());
-            let outcome = tokio::select! {
+            let (mut outcome, protocol_finished) = tokio::select! {
                 biased;
-                output = &mut protocol => output,
-                error = &mut stream_errors => Err(Error::Stream(error)),
-                error = &mut accept => Err(Error::Accept(error)),
+                output = &mut protocol => (output, true),
+                error = &mut stream_errors => (Err(Error::Stream(error)), false),
+                error = &mut accept => (Err(Error::Accept(error)), false),
             };
-            match &outcome {
-                // A violation resolved the accept arm: the driver is
-                // complete and must not be polled again, and a violating
-                // driver never deposited (it returns instead of parking).
-                Ok(_) | Err(Error::Accept(_)) => {}
-                Err(_) => {
-                    // Flush a supply failure that became ready in the
-                    // selected wave but sat behind the biased order; a
-                    // single poll either deposits-and-parks or returns
-                    // pending, never waits.
-                    let _ = futures::poll!(accept.as_mut());
+            if matches!(&outcome, Err(error) if error.is_transport_failure()) {
+                match futures::poll!(accept.as_mut()) {
+                    // A failed protocol drops its claim receivers. Delivery
+                    // to one of those slots is a consequence of teardown,
+                    // not evidence that the peer sent an unasked stream.
+                    std::task::Poll::Ready(AcceptError::Unexpected { .. }) if protocol_finished => {
+                    }
+                    std::task::Poll::Ready(error) => outcome = Err(Error::Accept(error)),
+                    std::task::Poll::Pending => {}
                 }
             }
+            // A selected accept error is a violation, so the completed
+            // accept future never reaches the extra poll above.
             outcome
         };
-        match outcome {
-            Ok(output) => Ok((output, control_read, control_write)),
-            // The causal supply failure outranks its own symptoms wherever
-            // it landed: the selected report or a queued `SupplyClosed` the
-            // biased poll never received (stream granularity), else the
-            // deposit still in its slot (direction granularity), else the
-            // protocol error really is the cause.
-            Err(Error::Stream(StreamError::SupplyClosed { origin, source })) => {
-                Err(Error::Stream(StreamError::SupplyClosed {
-                    origin,
-                    source: source.or_else(|| errors.take_supply_failure()),
-                }))
-            }
-            // A typed backend error is the local store's own failure: the
-            // supply cannot have caused it, so it is never outranked — it
-            // surfaces from the failing operation itself, as `Error`'s
-            // attribution contract promises.
-            Err(
-                error @ (Error::Encode(EncodeError::Backend(_))
-                | Error::Decode(DecodeError::Backend(_))),
-            ) => Err(error),
-            Err(error) => match errors.queued_supply_closed() {
-                Some(supply) => Err(Error::Stream(supply)),
-                None => match errors.take_supply_failure() {
-                    Some(source) => Err(Error::Stream(StreamError::SupplyClosed {
-                        origin: Origin::direction(remote),
-                        source: Some(source),
-                    })),
-                    None => Err(error),
-                },
-            },
-        }
+        outcome
+            .map(|output| (output, control_read, control_write))
+            .map_err(|error| error.attribute(&mut errors, remote))
     }
 }
 

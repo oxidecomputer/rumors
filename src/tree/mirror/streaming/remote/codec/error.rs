@@ -128,7 +128,7 @@ pub enum DecodeErrorKind {
     },
     #[error(transparent)]
     QueryOutOfOrder(#[from] QueryOrderError),
-    /// The frame item is not a one- or two-element CBOR array.
+    /// The frame item is not a two- or three-element CBOR array.
     #[error("frame is not a CBOR reaction array: {detail}")]
     FrameShape { detail: &'static str },
     /// The frame array's length contradicts its signal's body arity.

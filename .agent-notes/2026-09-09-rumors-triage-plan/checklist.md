@@ -1,7 +1,7 @@
 # Rumors review checklist
 
-**Active:** 04, peer-departure liveness — `codex/peer-departure`.
-**Next candidates:** 04, deep malformed replies → 05.
+**Active:** 04, reported error attribution ready for review — `codex/peer-departure`, base `main@7abf8907`.
+**Next candidates:** 09, public error API → 04, peer-departure liveness.
 
 Check code outcomes only after verification and merge; retain the landing
 commit. Checked dispositions are labelled explicitly.
@@ -54,8 +54,11 @@ Dependencies: 03 for deep reproductions; coordinate all edits to the shared driv
 - [ ] End waits when the peer can no longer provide an owed stream.
   Sources: T145, T154, T165, T166, N01, N21.
 
-- [ ] Preserve semantic violations when a concurrent transport failure also arrives.
-  Sources: `remote-proxy-12`, `remote-proxy-31`, `remote-proxy-tests-26`, T126, T132, T165, N18, N32, N33.
+- [ ] Preserve reported violations when a concurrent stream-supply failure also arrives.
+  Sources: `remote-proxy-12`, `remote-proxy-tests-26`, T126, T132, T165, N32.
+
+- [ ] Surface violations stranded in proxy and materialized response relays.
+  Sources: T132, T165, N18, N33.
 
 - [ ] Reproduce and fix the duplicated-reply stall at deep disputes.
   Sources: T162, N26, N31.
@@ -135,10 +138,10 @@ Dependencies: 07 for join outcomes; owned-byte trait before conformance and file
 
 ## 09. Public diagnostics and observability
 
-Dependencies: 04 before error projection cleanup; 02 before router-event counters.
+Dependencies: 04's reported-error attribution fix before the public error redesign; 02 before router-event counters.
 
-- [ ] Expose nameable, useful error categories and remove impossible cases.
-  Sources: `api-audit-13`, `api-audit-14`, `api-core-7`, `fresh-eyes-10`, `materialized-17`, `mirror-common-10`, `mirror-common-15`, `remote-adapter-streams-19`, `remote-adapter-streams-22`, `remote-codec-9`, `remote-codec-18`, `remote-codec-19`, `remote-codec-28`, `remote-codec-30`, `remote-proxy-2`, `remote-proxy-3`, `session-bookmark-46`, T46, T55, T63, T82, T85.
+- [ ] Replace public implementation-layer wrappers with shallow typed causes and structured violation context; separate causes from operation outcomes and remove impossible cases.
+  Sources: `api-audit-13`, `api-audit-14`, `api-core-7`, `fresh-eyes-10`, `materialized-17`, `mirror-common-10`, `mirror-common-15`, `remote-adapter-streams-19`, `remote-adapter-streams-22`, `remote-codec-9`, `remote-codec-18`, `remote-codec-19`, `remote-codec-28`, `remote-codec-30`, `remote-proxy-2`, `remote-proxy-3`, `session-bookmark-46`, T46, T55, T63, T82, T85; owner direction, 2026-09-10.
 
 - [ ] Expose useful session outcomes, settings, and event counts.
   Sources: `api-audit-11`, `link-16`, `link-21`, `materialized-2`, `remote-adapter-streams-21`, `remote-codec-5`, `session-bookmark-20`, `session-bookmark-38`, T66, T68.
@@ -248,7 +251,7 @@ Dependencies: 04, 06, 09 and the relevant codec edits in 12.
   Sources: `mirror-common-33`, T117, T132.
 
 - [ ] Exercise meaningful walk and proxy failures, shedding, isolation, and terminal behavior.
-  Sources: `materialized-28`, `materialized-37`, `materialized-39`, `remote-proxy-19`, `remote-proxy-20`, `remote-proxy-tests-5`, `remote-proxy-tests-7–9`, `remote-proxy-tests-12`, `remote-proxy-tests-15`, `remote-proxy-tests-18`, `remote-proxy-tests-20–24`, `streaming-backend-window-15`, `streaming-backend-window-16`, `streaming-backend-window-18`, `streaming-backend-window-36`, `streaming-backend-window-38`, `streaming-tests-11`, `streaming-tests-17`, `streaming-tests-19`, `streaming-tests-23`, `streaming-tests-26`, T22, T26, T101, T126, T128, T132, T159, N03.
+  Sources: `materialized-28`, `materialized-37`, `materialized-39`, `remote-proxy-19`, `remote-proxy-20`, `remote-proxy-31`, `remote-proxy-tests-5`, `remote-proxy-tests-7–9`, `remote-proxy-tests-12`, `remote-proxy-tests-15`, `remote-proxy-tests-18`, `remote-proxy-tests-20–24`, `streaming-backend-window-15`, `streaming-backend-window-16`, `streaming-backend-window-18`, `streaming-backend-window-36`, `streaming-backend-window-38`, `streaming-tests-11`, `streaming-tests-17`, `streaming-tests-19`, `streaming-tests-23`, `streaming-tests-26`, T22, T26, T101, T126, T128, T132, T159, N03.
 
 - [ ] Simplify materialized-backend state and explain its ownership.
   Sources: `materialized-1`, `materialized-3–9`, `materialized-12`, `materialized-15`, `materialized-16`, `materialized-18–21`, `materialized-23–25`, `materialized-29`, `materialized-32`, `materialized-33`, `materialized-38`, T46, T48, T49, T52, T54, T128, T132.

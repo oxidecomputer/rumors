@@ -5,14 +5,10 @@ use crate::tree::mirror::streaming::remote::{adapter, codec, streams};
 
 /// A protocol or adapter failure while proxying one remote counterparty.
 ///
-/// A failed session reports its root cause, not a downstream symptom: when
-/// the link's incoming stream supply dies, the session surfaces
-/// [`Stream`](Self::Stream) with
-/// [`SupplyClosed`](streams::StreamError::SupplyClosed) carrying the
-/// supply's own failure, outranking any error the dead supply went on to
-/// cause on another surface (a write or flush failing against the torn
-/// transport). Errors the supply did not cause surface from the failing
-/// operation itself.
+/// When the incoming stream supply fails, transport errors may be reported
+/// as [`SupplyClosed`](streams::StreamError::SupplyClosed) with the supply's
+/// I/O error as their source. Backend failures and violations of the protocol
+/// or wire format retain their own identity.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error<E> {
@@ -78,4 +74,62 @@ pub enum Error<E> {
     /// The terminal responder attempted to ask another leaf question.
     #[error("terminal responder reply contained another query")]
     TerminalQuery,
+}
+
+impl<E> Error<E> {
+    /// Whether loss of the stream supply could explain this failure.
+    ///
+    /// Only transport reads, writes, opens, and truncated streams qualify.
+    /// Decoding a complete but invalid record is a violation, even when its
+    /// decoder uses an I/O error type to describe the invalid content.
+    pub(super) fn is_transport_failure(&self) -> bool {
+        match self {
+            Self::Send(
+                streams::SendError::Connect { .. }
+                | streams::SendError::Label { .. }
+                | streams::SendError::Frame(codec::EncodeError {
+                    kind: codec::EncodeErrorKind::Write { .. } | codec::EncodeErrorKind::Flush(_),
+                    ..
+                }),
+            ) => true,
+            Self::Stream(error) => error.is_transport_failure(),
+            _ => false,
+        }
+    }
+
+    /// Attach a known supply failure without replacing an independent error.
+    ///
+    /// A queued violation can explain a selected transport error. Otherwise,
+    /// prefer a report naming the stream that needed the failed supply; use
+    /// the direction alone when no such report was observed.
+    pub(super) fn attribute(
+        self,
+        errors: &mut streams::FirstStreamError,
+        remote: codec::Speaker,
+    ) -> Self {
+        if !self.is_transport_failure() {
+            return self;
+        }
+        let queued = match errors.take_report() {
+            Some(error) if !error.is_transport_failure() => return Self::Stream(error),
+            queued => queued,
+        };
+        let (origin, source) = match (self, queued) {
+            (Self::Stream(streams::StreamError::SupplyClosed { origin, source }), _)
+            | (_, Some(streams::StreamError::SupplyClosed { origin, source })) => (origin, source),
+            (error, _) => {
+                return match errors.take_supply_failure() {
+                    Some(source) => Self::Stream(streams::StreamError::SupplyClosed {
+                        origin: codec::Origin::direction(remote),
+                        source: Some(source),
+                    }),
+                    None => error,
+                };
+            }
+        };
+        Self::Stream(streams::StreamError::SupplyClosed {
+            origin,
+            source: source.or_else(|| errors.take_supply_failure()),
+        })
+    }
 }
