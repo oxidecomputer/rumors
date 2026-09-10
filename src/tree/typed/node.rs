@@ -20,7 +20,9 @@ pub struct Children<H: Height> {
     inner: Fan,
 }
 
+/// Construct an empty child list.
 impl<H: Height> Default for Children<H> {
+    /// Start with no occupied radices.
     fn default() -> Self {
         Self {
             height: PhantomData,
@@ -29,16 +31,8 @@ impl<H: Height> Default for Children<H> {
     }
 }
 
-impl<H: Height> Clone for Children<H> {
-    fn clone(&self) -> Self {
-        Self {
-            height: PhantomData,
-            inner: self.inner.clone(),
-        }
-    }
-}
-
 impl<H: Height> Children<H> {
+    /// Wrap a fan whose children have height `H`.
     fn from_fan(inner: Fan) -> Self {
         Self {
             height: PhantomData,
@@ -46,8 +40,19 @@ impl<H: Height> Children<H> {
         }
     }
 
+    /// Remove the height marker when passing children to untyped storage.
     fn into_fan(self) -> Fan {
         self.inner
+    }
+
+    /// An empty list with room for `capacity` children, at most 256.
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self::from_fan(Fan::with_capacity(capacity))
+    }
+
+    /// Append a child whose radix is greater than every existing radix.
+    pub fn push(&mut self, radix: u8, child: Node<H>) {
+        self.inner.push(radix, child.into_untyped());
     }
 
     /// Whether no child is present.
@@ -71,21 +76,11 @@ impl<H: Height> Children<H> {
     pub fn remove(&mut self, radix: u8) -> Option<Node<H>> {
         self.inner.remove(radix).map(Node::from_untyped)
     }
-
-    /// The children in ascending radix order, as owned handles (each a
-    /// cheap reference bump into the shared structure).
-    ///
-    /// The engine of [`Tree::join`](crate::tree::Tree::join)'s recursion:
-    /// the merge walk pairs two of these streams by radix and prunes equal
-    /// pairs by [`Node`]'s pointer-or-hash equality before descending.
-    pub fn iter(&self) -> impl Iterator<Item = (u8, Node<H>)> + '_ {
-        self.inner
-            .iter()
-            .map(|(radix, child)| (radix, Node::from_untyped(child.clone())))
-    }
 }
 
+/// Collect children, preserving the fan's sorted, unique radix invariant.
 impl<H: Height> FromIterator<(u8, Node<H>)> for Children<H> {
+    /// Collect ascending input without sorting; otherwise sort and deduplicate.
     fn from_iter<I: IntoIterator<Item = (u8, Node<H>)>>(iter: I) -> Self {
         Self::from_fan(
             iter.into_iter()
@@ -95,14 +90,17 @@ impl<H: Height> FromIterator<(u8, Node<H>)> for Children<H> {
     }
 }
 
+/// Restore the height marker to a child from the untyped iterator.
 fn typed_child<H: Height>((radix, inner): (u8, untyped::Node)) -> (u8, Node<H>) {
     (radix, Node::from_untyped(inner))
 }
 
+/// Consume children in ascending radix order without cloning their handles.
 impl<H: Height> IntoIterator for Children<H> {
     type Item = (u8, Node<H>);
     type IntoIter = Map<fan::IntoIter, fn((u8, untyped::Node)) -> (u8, Node<H>)>;
 
+    /// Transfer ownership of each child to the caller.
     fn into_iter(self) -> Self::IntoIter {
         self.inner
             .into_iter()

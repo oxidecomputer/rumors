@@ -1,4 +1,5 @@
 mod act;
+mod join;
 
 use std::collections::{BTreeSet, HashMap};
 
@@ -92,7 +93,7 @@ fn leaf_path(party: impl AsRef<[u8]>, scalar: u64) -> Path {
 }
 
 /// Build a versioned insert triple of the shape `Tree::react` expects:
-/// `(leaf_path, version, message)`.
+/// `(leaf_path, version, edit)`.
 ///
 /// The leaf path matches what `act` would have computed for the given party
 /// label and scalar version. Wrapping the boilerplate keeps the test bodies
@@ -102,8 +103,12 @@ fn insert_at(
     party: impl AsRef<[u8]>,
     scalar: u64,
     value: Bytes,
-) -> (Path, Version, Message) {
-    (leaf_path(party, scalar), version, msg(value))
+) -> (Path, Version, traverse::Action) {
+    (
+        leaf_path(party, scalar),
+        version,
+        traverse::Action::Insert(msg(value)),
+    )
 }
 
 /// Compute the root hash of the canonical maximally-compressed trie over the
@@ -257,12 +262,12 @@ proptest! {
     ) {
         // One tick of the leaf's own disjoint party; kept leaf indices come
         // from base order, extras continue the numbering beyond them.
-        let event = |index: usize, b: &Bytes| -> (Path, Version, Message) {
+        let event = |index: usize, b: &Bytes| -> (Path, Version, traverse::Action) {
             let mut version = Version::new();
             version.tick(&crate::tree::arb::nth_party(index));
             let message = msg(b.clone());
             let key = Path::for_leaf(&version);
-            (key, version, message)
+            (key, version, traverse::Action::Insert(message))
         };
         let index_of: HashMap<Bytes, usize> = kept
             .iter()
@@ -279,7 +284,7 @@ proptest! {
 
         // Route B: shuffled order, split into two batches, with the extra
         // leaves inserted in between and redacted again afterwards.
-        let extra_events: Vec<(Path, Version, Message)> = extras
+        let extra_events: Vec<(Path, Version, traverse::Action)> = extras
             .iter()
             .enumerate()
             .map(|(i, b)| event(kept.len() + i, b))
@@ -747,7 +752,7 @@ proptest! {
         // replay the event. This is the information a real synchronization
         // protocol would put on the wire.
         let mut tree_a: Tree<Bytes> = Tree::new();
-        let mut a_events: Vec<(Path, Version, Message)> = Vec::new();
+        let mut a_events: Vec<(Path, Version, traverse::Action)> = Vec::new();
         for (i, value) in a_inserts.iter().enumerate() {
             let scalar = (i + 1) as u64;
             let mut recorded = tree_a.latest().clone();
@@ -757,7 +762,7 @@ proptest! {
         }
 
         let mut tree_b: Tree<Bytes> = Tree::new();
-        let mut b_events: Vec<(Path, Version, Message)> = Vec::new();
+        let mut b_events: Vec<(Path, Version, traverse::Action)> = Vec::new();
         for (i, value) in b_inserts.iter().enumerate() {
             let scalar = (i + 1) as u64;
             let mut recorded = tree_b.latest().clone();
@@ -1690,7 +1695,7 @@ fn act_destructor_unwind_leaves_tree_byte_identical() {
     let mut tree: Tree<DropBomb> = Tree::new();
     let existing = Message::new(DropBomb { armed: false });
     let key = Path::for_leaf(&version_for("A", 2));
-    tree.react([(key, version_for("A", 2), existing)]);
+    tree.react([(key, version_for("A", 2), traverse::Action::Insert(existing))]);
 
     let hash_before = tree.hash();
     let ceiling_before = tree.latest().clone();
@@ -1701,7 +1706,7 @@ fn act_destructor_unwind_leaves_tree_byte_identical() {
     // last handle — before publication.
     let bomb = Message::new(DropBomb { armed: true });
     let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        tree.react([(key, version_for("A", 1), bomb)]);
+        tree.react([(key, version_for("A", 1), traverse::Action::Insert(bomb))]);
     }));
     let payload = unwound.expect_err("the armed destructor must unwind out of the apply walk");
     assert_eq!(
@@ -1799,10 +1804,18 @@ fn join_prunes_same_position_leaves_whatever_their_contents() {
     let shared = Path::from([0x42; 32]);
 
     let mut ours: Tree<Bytes> = Tree::new();
-    ours.react([(shared, version_for("A", 1), msg(Bytes::from_static(b"a")))]);
+    ours.react([(
+        shared,
+        version_for("A", 1),
+        traverse::Action::Insert(msg(Bytes::from_static(b"a"))),
+    )]);
 
     let mut theirs: Tree<Bytes> = Tree::new();
-    theirs.react([(shared, version_for("B", 1), msg(Bytes::from_static(b"b")))]);
+    theirs.react([(
+        shared,
+        version_for("B", 1),
+        traverse::Action::Insert(msg(Bytes::from_static(b"b"))),
+    )]);
 
     let hash_before = ours.hash();
     let changed = ours.join(theirs);
@@ -1828,9 +1841,17 @@ fn join_prunes_same_version_payload_divergence_as_equal() {
     let path = Path::for_leaf(&version);
 
     let mut ours: Tree<Bytes> = Tree::new();
-    ours.react([(path, version.clone(), msg(Bytes::from_static(b"ours")))]);
+    ours.react([(
+        path,
+        version.clone(),
+        traverse::Action::Insert(msg(Bytes::from_static(b"ours"))),
+    )]);
     let mut theirs: Tree<Bytes> = Tree::new();
-    theirs.react([(path, version, msg(Bytes::from_static(b"theirs")))]);
+    theirs.react([(
+        path,
+        version,
+        traverse::Action::Insert(msg(Bytes::from_static(b"theirs"))),
+    )]);
 
     let hash_before = ours.hash();
     let changed = ours.join(theirs);
@@ -1854,9 +1875,13 @@ fn reinserting_an_identical_leaf_is_idempotent() {
     let message = msg(Bytes::from_static(b"same"));
 
     let mut tree: Tree<Bytes> = Tree::new();
-    tree.react([(path, version.clone(), message.clone())]);
+    tree.react([(
+        path,
+        version.clone(),
+        traverse::Action::Insert(message.clone()),
+    )]);
     let hash_before = tree.hash();
-    tree.react([(path, version, message)]);
+    tree.react([(path, version, traverse::Action::Insert(message))]);
     assert_eq!(tree.hash(), hash_before, "the tree is unchanged");
 }
 
@@ -1871,8 +1896,16 @@ fn react_asserts_on_version_reuse_at_an_occupied_path() {
     let path = Path::for_leaf(&version);
 
     let mut tree: Tree<Bytes> = Tree::new();
-    tree.react([(path, version.clone(), msg(Bytes::from_static(b"first")))]);
-    tree.react([(path, version, msg(Bytes::from_static(b"second")))]);
+    tree.react([(
+        path,
+        version.clone(),
+        traverse::Action::Insert(msg(Bytes::from_static(b"first"))),
+    )]);
+    tree.react([(
+        path,
+        version,
+        traverse::Action::Insert(msg(Bytes::from_static(b"second"))),
+    )]);
 }
 
 /// An insert landing on a live leaf whose version *differs* (a synthetic
@@ -1884,6 +1917,14 @@ fn react_asserts_on_a_path_collision_between_distinct_versions() {
     let shared = Path::from([0x24; 32]);
 
     let mut tree: Tree<Bytes> = Tree::new();
-    tree.react([(shared, version_for("A", 1), msg(Bytes::from_static(b"a")))]);
-    tree.react([(shared, version_for("B", 1), msg(Bytes::from_static(b"a")))]);
+    tree.react([(
+        shared,
+        version_for("A", 1),
+        traverse::Action::Insert(msg(Bytes::from_static(b"a"))),
+    )]);
+    tree.react([(
+        shared,
+        version_for("B", 1),
+        traverse::Action::Insert(msg(Bytes::from_static(b"a"))),
+    )]);
 }

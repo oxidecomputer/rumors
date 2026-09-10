@@ -413,38 +413,34 @@ impl<T> Tree<T> {
             new_version.tick(party);
             let version = new_version.clone();
 
-            let (path, value) = match action {
-                Action::Forget(path) => (path, None),
-                Action::Insert(value) => (typed::Path::for_leaf(&version), Some(value)),
+            let (path, edit) = match action {
+                Action::Forget(path) => (path, traverse::Action::Forget),
+                Action::Insert(value) => (
+                    typed::Path::for_leaf(&version),
+                    traverse::Action::Insert(value),
+                ),
             };
-            (path, version, value)
+            (path, version, edit)
         }))
     }
 
     /// Apply `act`'s versioned actions without ticking again.
     ///
-    /// Each insert uses its version-derived path; `None` forgets that path.
+    /// Each insert uses its version-derived path; a forget removes that path.
     /// Actions at one path must be causally ascending in specification order,
     /// as `act` guarantees. This is not a general conflict resolver for
     /// concurrent or reordered actions.
     ///
     /// Returns `act`'s conservative changed flag. Panics from traversal or
     /// discarded action payloads leave the tree untouched.
-    fn react<M, I>(&mut self, reactions: I) -> bool
+    fn react<I>(&mut self, reactions: I) -> bool
     where
         T: Send + Sync,
-        M: Into<Option<Message>>,
-        I: IntoIterator<Item = (typed::Path, Version, M)>,
+        I: IntoIterator<Item = (typed::Path, Version, traverse::Action)>,
     {
         // Finish the caller's iterator before starting the traversal. The owned
         // batch also keeps its payloads alive until the walk completes.
-        let actions: Vec<_> = reactions
-            .into_iter()
-            .map(|(path, version, message)| match message.into() {
-                None => (path, version, traverse::Action::Forget),
-                Some(value) => (path, version, traverse::Action::Insert(value)),
-            })
-            .collect();
+        let actions = reactions.into_iter().collect();
 
         // Work on a shared root and a separate ceiling so any unwind leaves
         // `self` intact. Only keys with an effect contribute history;
@@ -464,30 +460,14 @@ impl<T> Tree<T> {
         changed
     }
 
-    /// Merges `other` into `self` by a single simultaneous recursion over
-    /// both trees.
+    /// Merge `other` into this tree, honoring deletions by causal version.
     ///
-    /// This is the in-memory counterpart to [`mirror::streaming`] and is
-    /// observationally identical to it: it produces the same merged tree.
-    /// Deletions are honored by version dominance: a leaf one side lacks
-    /// while its version is `<=` that side's version vector was deleted
-    /// there and is dropped.
+    /// This is the in-memory oracle for wire reconciliation. A leaf absent
+    /// from a side whose ceiling includes its version was deleted there.
     ///
-    /// # The changed flag
-    ///
-    /// Returns whether the merge changed this tree's *content* — exactly
-    /// whether the root hash moved, decided by the traversal itself (each
-    /// leaf gained is a gain the recursion sees; each leaf dropped by
-    /// deletion honoring moves a node's exact leaf count) rather than by
-    /// hashing. `false` means the root hash is byte-identical to what it was
-    /// before the call; `true` means it differs.
-    ///
-    /// The flag deliberately does *not* cover the causal ceiling, which can
-    /// advance without any content change (absorbing the frontier of a peer
-    /// whose every message we already hold or honor as deleted): the flag
-    /// answers for what observers of the *set* can see, and a ceiling-only
-    /// join leaves the set untouched.
-    ///
+    /// Returns whether the live set changed, as detected by the traversal.
+    /// The causal ceiling can advance even when the result is `false`.
+    /// Panics during the walk or ceiling merge leave this tree untouched.
     pub fn join(&mut self, other: Tree<T>) -> bool
     where
         T: Send + Sync,
@@ -497,21 +477,9 @@ impl<T> Tree<T> {
             root: their_root,
         } = other.root;
 
-        // Panic atomicity, to the same end as `react`'s commit section:
-        // nothing of `self` mutates until the commit point below, whatever
-        // the unwind's origin. Unwind sources survive inside this walk
-        // (deletion honoring and the duplicate-leaf arm drop the incoming
-        // tree's uniquely-held leaves, running `T` destructors), so the
-        // pre-image retention is load-bearing: the walk is handed an O(1)
-        // structural clone of our root (nodes are Arc-shared; the walk
-        // copies on write where they stay shared) while the pre-image stays
-        // in place, and the merged ceiling is computed into a local first,
-        // because folding in place would stake unwind atomicity on the
-        // fold's internal ordering, which no contract states.
-        // `join_unwind_leaves_tree_byte_identical` pins the atomicity with
-        // an unwind injected mid-walk, after copy-on-write work has begun;
-        // `join_destructor_unwind_leaves_tree_byte_identical` pins the real
-        // mid-walk destructor source.
+        // Retain our root while building the candidate: filtering their tree
+        // can run payload destructors, and a panic must leave us unchanged.
+        // Compute the new ceiling separately for the same reason.
         let our_root = self.root.root.clone();
         let mut changed = false;
         let merged = traverse::join(
@@ -523,13 +491,9 @@ impl<T> Tree<T> {
         );
         let new_ceiling = &self.root.ceiling | their_version;
 
-        // The commit point: the walk and the ceiling fold both completed
-        // without unwinding. Both fields are assigned before the pre-image drops,
-        // because that drop runs user code — everything deletion honoring
-        // removed from our side becomes uniquely held here, so its
-        // cascading `T` destructors run now, and a panicking destructor
-        // must find the tree already consistent. The defense is nothing
-        // subtler than statement order: replace, assign, then drop.
+        // Publish both fields before releasing our old root. Payloads removed
+        // by this join may become uniquely owned here; if their destructors
+        // panic, they must find the new tree and ceiling consistent.
         let pre_image = std::mem::replace(&mut self.root.root, merged);
         self.root.ceiling = new_ceiling;
         drop(pre_image);

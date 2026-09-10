@@ -7,7 +7,7 @@ use crate::{Version, message::Message};
 use super::typed::*;
 use height::{Height, Root, S, Z};
 
-/// An action to perform at a particular [`Path`].
+/// An insertion or deletion whose path and version have already been assigned.
 #[derive(Debug, Clone)]
 pub enum Action {
     /// Insert a message at its version-derived path.

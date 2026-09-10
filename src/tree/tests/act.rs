@@ -152,8 +152,11 @@ fn concurrent_fixture_stores_insert_version() {
     let c = version_for("C", 1);
     let path = Path::for_leaf(&c);
     let mut tree = Tree::<Bytes>::new();
-    tree.react([(path, a, msg(Bytes::new()))]);
-    tree.react([(path, b, None), (path, c.clone(), Some(msg(Bytes::new())))]);
+    tree.react([(path, a, traverse::Action::Insert(msg(Bytes::new())))]);
+    tree.react([
+        (path, b, traverse::Action::Forget),
+        (path, c.clone(), traverse::Action::Insert(msg(Bytes::new()))),
+    ]);
     assert_eq!(tree.iter().next().unwrap().0, &c);
     assert!(tree.get(&c).is_some());
 }
@@ -167,8 +170,12 @@ fn descending_fixture_stores_insert_version() {
     let path = Path::for_leaf(&earlier);
     let mut tree = Tree::<Bytes>::new();
     tree.react([
-        (path, later, None),
-        (path, earlier.clone(), Some(msg(Bytes::new()))),
+        (path, later, traverse::Action::Forget),
+        (
+            path,
+            earlier.clone(),
+            traverse::Action::Insert(msg(Bytes::new())),
+        ),
     ]);
     assert_eq!(tree.iter().next().unwrap().0, &earlier);
     assert!(tree.get(&earlier).is_some());

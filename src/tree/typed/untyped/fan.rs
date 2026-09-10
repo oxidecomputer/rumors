@@ -83,6 +83,14 @@ impl Fan {
         Self::default()
     }
 
+    /// An empty fan with room for `capacity` children, at most 256.
+    pub fn with_capacity(capacity: usize) -> Self {
+        assert!(capacity <= 256, "a fan has at most 256 radices");
+        Self {
+            entries: SmallVec::with_capacity(capacity),
+        }
+    }
+
     /// The fan holding exactly `child` at `radix`.
     ///
     /// The single-entry shape is transient — it exists between exploding a

@@ -1,38 +1,19 @@
-//! A direct, in-memory merge of two trees by a single simultaneous recursion
-//! over both, inductive over the height.
+//! Merge two trees in memory, honoring deletions by causal version.
 //!
-//! This is the local-only counterpart to the [`mirror`](super::mirror)
-//! protocol: where the mirror reconciles two replicas by exchanging messages
-//! (and so must serialize, run a zipper, and build the union on both sides),
-//! `join` walks the two trees in lockstep in one process and builds the
-//! merged union once. It is observationally identical to mirroring two local
-//! trees, producing the same merged [`Root`](crate::tree::Root), because it
-//! delegates all version filtering to the same [`Unknown`] traversal the
-//! mirror uses.
+//! This is the behavioral oracle for wire reconciliation. At each path:
 //!
-//! For each pair of nodes at a path the recursion distinguishes four cases:
+//! - An absent pair stays absent.
+//! - A one-sided subtree is filtered by [`Unknown::unknown`] against the
+//!   absent side's causal ceiling. A leaf that side has seen but no longer
+//!   holds was deleted there.
+//! - Equal nodes retain our handle, including its cached hash and bounds.
+//! - Differing nodes merge their sorted child lists and recurse. Reassembly
+//!   through [`Node::branch`] compresses singleton branches again.
 //!
-//! - **neither side has it**: nothing.
-//! - **only one side has it**: hand the whole subtree to [`Unknown::unknown`],
-//!   filtered against the *other* side's version vector. Survivors are the
-//!   subtree the other side learns; anything causally `<=` the other side's
-//!   version was deleted there (the version vector is the entire deletion
-//!   mechanism; there are no tombstones) and is dropped.
-//! - **both have it, hashes equal**: the subtrees hold the same version
-//!   set (paths are version-derived, so a hash commits the versions
-//!   beneath it), hence the same messages; keep one verbatim.
-//! - **both have it, hashes differ**: explode both one level and merge-walk
-//!   the two ascending radix fans in lockstep, recursing only into the
-//!   radixes whose child subtrees differ — children equal by pointer or by
-//!   Merkle hash carry over verbatim through the shared structure — and
-//!   reassembling with [`Node::branch`] (which re-compresses singletons and
-//!   recomputes the joined branch version).
-//!
-//! The merge walk enumerates each *divergent* branch's full fan (≤ 256
-//! entries) rather than only its changed radixes; equal subtrees still
-//! prune by pointer-or-hash before any descent, so a small delta against a
-//! large shared tree costs work proportional to the delta at the tree
-//! level, with a per-divergent-node constant bounded by the fan.
+//! Equality checks shared ownership first, then Merkle hashes. A divergent
+//! branch visits at most 256 children; equal subtrees need no descent.
+
+use itertools::{EitherOrBoth, Itertools};
 
 use crate::Version;
 
@@ -40,20 +21,12 @@ use super::typed::*;
 use super::unknown::Unknown;
 use height::{Height, Root, S, Z};
 
-/// Merges two trees rooted at `a` and `b` into one.
+/// Merge the roots using their causal ceilings to recognize deletions.
 ///
-/// `a_version` / `b_version` are the two roots' version vectors, used to honor
-/// deletions (a node one side lacks while its version is `<=` that side's vector
-/// was deleted there, and is dropped).
-///
-/// `changed` is set — never cleared — iff the merged result's content differs
-/// from `a`'s: some leaf was gained from `b`, or some leaf of `a` was dropped
-/// by deletion honoring. The recursion decides this exactly, with no hashing:
-/// a gain is a subtree of `b` surviving the deletion filter where `a` held
-/// nothing, and a drop moves a node's exact memoized leaf count. Gains and
-/// drops live at distinct version-addressed paths and each is monotone at its
-/// path, so they cannot cancel: an untouched flag really means the merged
-/// tree is `a`, content-identical, equal root hash.
+/// Set `changed` if the result gains or loses a leaf relative to `a`; never
+/// clear it. The walk detects gains by a surviving subtree and losses by a
+/// reduced leaf count, without hashing solely to check for change. Each path
+/// can only gain or lose, so changes cannot cancel across recursive calls.
 pub fn join(
     a: Option<Node<Root>>,
     b: Option<Node<Root>>,
@@ -61,24 +34,16 @@ pub fn join(
     b_version: &Version,
     changed: &mut bool,
 ) -> Option<Node<Root>> {
-    // Test-only unwind source for the panic-atomicity pin: the merge walk
-    // is the unwind-source region of `Tree::join`'s commit section (deletion
-    // honoring and the duplicate-subtree drops run `T` destructors), and its
-    // entry burns the first fuse step (each branch-level step below burns
-    // one more).
+    // Tests can interrupt the walk before any candidate is published.
     #[cfg(test)]
     crate::tree::panic_injection::fire_if_armed();
 
     Join::join(a, b, a_version, b_version, changed)
 }
 
-/// The inductive step of the merge, implemented per [`Height`]; see the
-/// module docs for the four-case analysis each level performs.
-///
-/// Each step upholds the [`join`] free function's `changed` contract: set
-/// on any gain from `b` or any deletion-honoring drop from `a`, left
-/// alone when the result is content-identical to `a`.
+/// One height of the merge, preserving [`join`]'s change-detection contract.
 pub trait Join: Unknown {
+    /// Merge the nodes at this height and record any change from `a`.
     fn join(
         a: Option<Node<Self>>,
         b: Option<Node<Self>>,
@@ -88,10 +53,12 @@ pub trait Join: Unknown {
     ) -> Option<Node<Self>>;
 }
 
+/// Merge branches, filtering one-sided children and retaining equal ones.
 impl<H: Join> Join for S<H>
 where
     S<H>: Height + Unknown,
 {
+    /// Reconcile this level and rebuild its surviving children in order.
     fn join(
         a: Option<Node<S<H>>>,
         b: Option<Node<S<H>>>,
@@ -99,23 +66,14 @@ where
         b_version: &Version,
         changed: &mut bool,
     ) -> Option<Node<S<H>>> {
-        // Test-only unwind source, continued: every branch-level merge step
-        // burns one fuse step, so a fuse armed past the entry unwinds only
-        // after earlier steps completed real merge work.
+        // A later fuse step exercises unwinding after some children were merged.
         #[cfg(test)]
         crate::tree::panic_injection::fire_if_armed();
 
         match (a, b) {
             (None, None) => None,
-            // Asymmetric cases: a subtree one side holds and the other lacks.
-            // Filter it against the *other* side's version vector to honor
-            // deletions: causally-known subtrees the other side lacks were
-            // deleted there, and drop out.
-            //
-            // On our side, the filter only ever *removes* leaves, so its
-            // memoized leaf count is an exact change detector: the count
-            // moved iff some leaf of ours was dropped. On their side, any
-            // survivor at all is a gain (we held nothing here).
+            // Filtering can only remove our leaves, so a smaller count means
+            // a change. Any surviving leaf from their one-sided subtree is new.
             (Some(ours), None) => {
                 let leaves = ours.len();
                 let kept = Unknown::unknown(Some(ours), b_version);
@@ -128,67 +86,36 @@ where
                 gained
             }
             (Some(ours), Some(theirs)) => {
-                // Identical subtrees: keep one. Equality short-circuits on
-                // shared backing (the common case for forked trees,
-                // hash-free), else on the Merkle hash — same version set, hence
-                // same messages: nothing to learn on either side.
+                // Equal paths commit the same versions, hence the same messages
+                // under the unique-version contract. Keep our cached node.
                 if ours == theirs {
                     return Some(ours);
                 }
 
-                // Differing subtrees: descend one level, merge-walking the
-                // two ascending radix fans in lockstep and recursing only
-                // into the radixes that actually diverge. A child equal on
-                // both sides — by `Node`'s `ptr_eq`-or-hash equality, the
-                // same short-circuit the node-level check above uses —
-                // carries over verbatim: nothing is learned across an equal
-                // subtree. One-sided radixes recurse too: the asymmetric
-                // arms above filter them against the absent side's version,
-                // which is where deletion honoring drops what that side
-                // redacted.
-                //
-                // The walk reads both fans directly rather than diffing the
-                // two maps against each other: the merged map starts from
-                // *ours* and only divergent radixes are rewritten, so every
-                // shared child persists by structural sharing.
+                // Consume both sorted child lists. Equal children keep their
+                // existing handles; one-sided children still need deletion
+                // filtering against the absent side's causal ceiling.
                 let ours = ours.into_children();
                 let theirs = theirs.into_children();
-
-                let mut merged = ours.clone();
-                let mut ours = ours.iter().peekable();
-                let mut theirs = theirs.iter().peekable();
-                loop {
-                    let (radix, our_child, their_child) = match (ours.peek(), theirs.peek()) {
-                        (None, None) => break,
-                        (Some((radix, _)), None) => {
-                            (*radix, ours.next().map(|(_, child)| child), None)
+                // Reserving the larger side avoids growth for mostly overlapping
+                // fans. Disjoint additions can grow this up to 256 children.
+                let mut merged = Children::with_capacity(ours.len().max(theirs.len()));
+                for pair in ours.into_iter().merge_join_by(theirs, |a, b| a.0.cmp(&b.0)) {
+                    let (radix, ours, theirs) = match pair {
+                        EitherOrBoth::Both((radix, ours), (_, theirs)) => {
+                            if ours == theirs {
+                                merged.push(radix, ours);
+                                continue;
+                            }
+                            (radix, Some(ours), Some(theirs))
                         }
-                        (None, Some((radix, _))) => {
-                            (*radix, None, theirs.next().map(|(_, child)| child))
-                        }
-                        (Some((ours_radix, _)), Some((theirs_radix, _))) => {
-                            let radix = (*ours_radix).min(*theirs_radix);
-                            (
-                                radix,
-                                ours.next_if(|(r, _)| *r == radix).map(|(_, child)| child),
-                                theirs.next_if(|(r, _)| *r == radix).map(|(_, child)| child),
-                            )
-                        }
+                        EitherOrBoth::Left((radix, ours)) => (radix, Some(ours), None),
+                        EitherOrBoth::Right((radix, theirs)) => (radix, None, Some(theirs)),
                     };
-
-                    if let (Some(our_child), Some(their_child)) = (&our_child, &their_child)
-                        && our_child == their_child
-                    {
-                        continue;
-                    }
-
-                    match Join::join(our_child, their_child, a_version, b_version, changed) {
-                        Some(child) => {
-                            merged.insert(radix, child);
-                        }
-                        None => {
-                            merged.remove(radix);
-                        }
+                    if let Some(child) = Join::join(ours, theirs, a_version, b_version, changed) {
+                        // The merge yields unique ascending radices, so append
+                        // without a search or shifting existing entries.
+                        merged.push(radix, child);
                     }
                 }
 
@@ -198,7 +125,9 @@ where
     }
 }
 
+/// Resolve leaves that survive the branch-level equality checks.
 impl Join for Z {
+    /// Filter a one-sided leaf; paired leaves must have pruned above.
     fn join(
         a: Option<Node<Z>>,
         b: Option<Node<Z>>,
@@ -221,12 +150,8 @@ impl Join for Z {
                 *changed |= gained.is_some();
                 gained
             }
-            // Two leaves at one position share the path, and a leaf digest
-            // is a pure function of its path (`Hash::leaf`), so the pair
-            // hashes equal and the level above carries it over verbatim
-            // without recursing. Collision detection is ingestion's job
-            // (`react`'s occupied-path arms), where both leaves are in
-            // hand; the merge walk trusts path derivation.
+            // Same-path leaves hash equally and prune above. Ingestion checks
+            // version reuse; join trusts that distinct versions have distinct paths.
             (Some(_), Some(_)) => {
                 unreachable!("same-position leaves hash equally and prune above")
             }
