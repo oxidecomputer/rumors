@@ -1,7 +1,7 @@
 # Rumors review checklist
 
-**Active:** 04, peer-departure liveness — `codex/peer-departure-liveness`, base `main`.
-**Next:** Sush attested-link conformance timeout; then 04, deep malformed replies.
+**Active:** Sush attested-link conformance timeout — Rumors `codex/sush-conformance`, base `main`; Sush `codex/rumors-compat`, review base `3139ec7`.
+**Next:** 04, deep malformed replies; then 05, deep pipelining and conformance.
 
 Check code outcomes only after verification and merge; retain the landing
 commit. Checked dispositions are labelled explicitly.
@@ -34,6 +34,9 @@ Dependencies apply only to the affected work within a group.
 - [x] Keep idle connections with their owning link; preserve fairness and progress across routing and reuse — `45aaec54`.
   Sources: `link-14`, `link-28`, T31, T152, T153, T156, T160, T164, T167, N06, N07, N24, N25, N48, N49; [Sush compatibility](sush-pooling.md).
 
+- [ ] Identify and fix Sush's concurrent-connect conformance timeout. **Working.**
+  Source: Owner follow-up; [reproduction context](sush-pooling.md).
+
 ## 03. Deep-tree fixtures and reproducible schedules
 
 Dependencies: None to construct fixtures; 04 and 05 before enabling the complete CI run.
@@ -51,7 +54,7 @@ Dependencies: None to construct fixtures; 04 and 05 before enabling the complete
 
 Dependencies: 03 for deep reproductions; coordinate all edits to the shared driver.
 
-- [ ] End waits when the peer can no longer provide an owed stream. **Ready for review.**
+- [x] End waits when the peer can no longer provide an owed stream — `64964725`.
   Sources: T145, T154, T165, T166, N01, N21.
 
 - [x] Preserve reported violations when a concurrent stream-supply failure also arrives — `f92fcbc3`.
