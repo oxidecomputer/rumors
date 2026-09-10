@@ -1,6 +1,6 @@
 # Rumors review checklist
 
-**Active:** 09, public error API — `codex/public-errors`.
+**Active:** 09, public error API — `codex/public-errors`, base `main@8436dd73`.
 **Next candidates:** 04, peer-departure liveness → deep malformed replies.
 
 Check code outcomes only after verification and merge; retain the landing
@@ -140,8 +140,11 @@ Dependencies: 07 for join outcomes; owned-byte trait before conformance and file
 
 Dependencies: 04's reported-error attribution fix before the public error redesign; 02 before router-event counters.
 
-- [ ] Replace public implementation-layer wrappers with shallow typed causes and structured violation context; separate causes from operation outcomes and remove impossible cases.
-  Sources: `api-audit-13`, `api-audit-14`, `api-core-7`, `fresh-eyes-10`, `materialized-17`, `mirror-common-10`, `mirror-common-15`, `remote-adapter-streams-19`, `remote-adapter-streams-22`, `remote-codec-9`, `remote-codec-18`, `remote-codec-19`, `remote-codec-28`, `remote-codec-30`, `remote-proxy-2`, `remote-proxy-3`, `session-bookmark-46`, T46, T55, T63, T82, T85; owner direction, 2026-09-10.
+- [ ] Collapse public session failures to actionable causes and one protocol-violation diagnostic; keep operation outcomes separate. **Working.**
+  Sources: `api-audit-13`, `api-audit-14`, `api-core-7`, `fresh-eyes-10`, `mirror-common-15`, `remote-proxy-2`, `remote-proxy-3`, T46, T63, T82, T85; owner direction, 2026-09-10.
+
+- [ ] Finish internal diagnostic cleanup: remove impossible cases, refine decoder context, and apply the error-enum conventions.
+  Sources: `materialized-17`, `mirror-common-10`, `remote-adapter-streams-19`, `remote-adapter-streams-22`, `remote-codec-9`, `remote-codec-18`, `remote-codec-19`, `remote-codec-28`, `remote-codec-30`, `session-bookmark-46`, T55, T63, T85.
 
 - [ ] Expose useful session outcomes, settings, and event counts.
   Sources: `api-audit-11`, `link-16`, `link-21`, `materialized-2`, `remote-adapter-streams-21`, `remote-codec-5`, `session-bookmark-20`, `session-bookmark-38`, T66, T68.
@@ -392,6 +395,10 @@ Dependencies: 10–12 for affected implementation baselines; 16 for shared suppo
 ## 22. Verification recipes and dependencies
 
 Dependencies: API lints only after their affected public surfaces are clean; broad settings after 15.
+
+- [ ] Diagnose `before`'s `ff_party_decode` fuel-band failure (13,612 fuel at 136 bits).
+  Reproduce with `just fuzzfit`; preserved [seed](../../crates/before/fuzzfit/harness/proptest-regressions/enforce.txt): `ea7f69a7…`.
+  Owner approved proceeding despite this failure, 2026-09-10. Keep the test enabled; this specific failure does not block Rumors batches.
 
 - [ ] Make gate and CI run the intended checks reproducibly.
   Sources: `remote-proxy-tests-27`, `tests-disruption-handshake-33`, `tests-observation-37`, `verification-infra-2`, `verification-infra-7–10`, `verification-infra-12`, `verification-infra-13`, T15, T20, T26, T28, T30, T155, N02, N08, N40.

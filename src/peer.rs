@@ -124,7 +124,8 @@ pub use gossip::{Gossip, Gossiped, Led, Retire, Unbookmarked};
 /// Absent any true consensus mechanism, another reasonable approach to
 /// bootstrapping a [`Network`] is for *every* [`Peer`] to initially call
 /// [`Peer::seed`] and attempt to [`gossip`](crate::Rumors::gossip) with all
-/// others. At first, this will lead to many [`Error::NetworkMismatch`](crate::Error::NetworkMismatch)es;
+/// others. Initially, peers report
+/// [`Mismatch::Network`](crate::error::Mismatch::Network);
 /// whenever a peer observes one, it can use a deterministic metric to decide
 /// whether it or its peer should dominate.
 ///
@@ -585,7 +586,7 @@ impl<T, B: BookmarkError> Peer<T, B> {
     /// - **Handshake**: the greeting carries each side's configured
     ///   limit, and a session proceeds only if the two are exactly equal;
     ///   a mismatch in either direction aborts both sides with
-    ///   [`Error::PayloadDepthMismatch`](crate::Error::PayloadDepthMismatch)
+    ///   [`Mismatch::PayloadDepth`](crate::error::Mismatch::PayloadDepth)
     ///   before anything else — the converged-session short-circuit
     ///   included — so a mixed configuration is caught at every pairing.
     /// - **Wire ingress**: every payload decode runs under this same

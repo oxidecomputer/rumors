@@ -5,9 +5,8 @@
 //! these tests hold the public API to: `Ok` certifies both replicas
 //! committed and leaves the link reusable; `Err` and cancellation leave the
 //! local replica unchanged and the link poisoned, failing every further
-//! session on it fast; and the one irreducible residue (a lost final
-//! epilogue marker) surfaces as the distinguished post-commit
-//! [`rumors::Error::Epilogue`]. The in-crate unit tests (`src/tests.rs`)
+//! session on it fast. Losing the final marker fails in
+//! [`rumors::error::Phase::Completion`], after local work has committed. The in-crate unit tests (`src/tests.rs`)
 //! pin the same mechanisms at exact byte boundaries with forged peers;
 //! these are their integration-tier complements, driving whole sessions
 //! between real replicas.
@@ -153,11 +152,11 @@ fn dropping_the_link_immediately_after_ok_is_clean() {
     assert_eq!(a.snapshot().len(), 2 * DIVERGENT_MESSAGES as usize);
 }
 
-/// The peer-committed-or-not residue is distinguished and post-commit.
+/// Losing completion confirmation does not undo either peer's local commit.
 ///
 /// With A's final epilogue marker withheld (B's read budget is one byte
 /// short of a clean session, measured from a byte-identical probe run),
-/// A's `Ok` still lands, while B fails with [`Error::Epilogue`] rather
+/// A's `Ok` still lands, while B fails in [`rumors::error::Phase::Completion`] rather
 /// than any pre-commit class, and B's replica nonetheless holds the fully
 /// reconciled content. A cut landing anywhere earlier would fail these
 /// assertions with a different error class and missing content, so the
@@ -221,8 +220,8 @@ fn a_lost_epilogue_marker_is_distinguished_and_post_commit() {
     // B committed before its epilogue, so the failure is the distinguished
     // post-commit residue, not a session-failure class.
     assert!(
-        matches!(b_out, Err(Error::Epilogue(_))),
-        "a lost final marker must surface as the post-commit Epilogue, got {b_out:?}"
+        matches!(b_out, Err(Error::Transport(ref error)) if error.context.phase == rumors::error::Phase::Completion),
+        "a lost final marker must surface as the completion-phase transport failure, got {b_out:?}"
     );
     // Post-commit means exactly this: B holds the reconciled content.
     assert_eq!(

@@ -1,41 +1,18 @@
-//! Session-level ingress validation in [`gossip_inner`]'s driver layer.
+//! Session ingress checks: invalid completion markers are protocol violations,
+//! premature closes are transport failures, and bootstrap claimants must have
+//! no causal history.
 //!
-//! Two ingress surfaces are exercised here, both peer-controlled and both
-//! reachable only with in-crate access to the session internals:
-//!
-//! - The V2 session epilogue marker: the last wire ingress of every V2
-//!   session, one byte read from the control stream after all session
-//!   work. The suite exhausts that byte space and its truncation directly
-//!   against [`epilogue`]: every non-marker byte is a typed protocol
-//!   violation, an honest cut is a typed EOF, both as the distinguished
-//!   post-commit [`Error::Epilogue`] — never a panic and never a hang —
-//!   and a clean exchange leaves the next session's bytes untouched. The
-//!   end-to-end commit-boundary consequences are pinned in
-//!   `tests/lifecycle.rs` and `src/tests.rs`.
-//!
-//! - The greeting version of a bootstrap claimant: a peer whose preamble
-//!   declares [`Network::BOOTSTRAP`] is definitionally a newborn replica
-//!   with no causal history, so its greeting version must be empty. The
-//!   deletion-honoring filter trusts the greeting version as the
-//!   counterparty's causal frontier, so a claimant declaring history it
-//!   cannot have would otherwise make the provider drop — as
-//!   deleted-there — every subtree that version dominates. The claimant
-//!   here is driven by the crate's own protocol machinery handed a
-//!   non-newborn root, standing in for a misbehaving implementation; the
-//!   suite pins the rejection ([`Error::BootstrapHistoryConflict`]) on
-//!   whichever side faces the claimant — the serving provider, and the
-//!   joining side of a mutual-bootstrap encounter — with the detecting
-//!   replica unchanged and its link poisoned.
-//!
-//! [`gossip_inner`]: super::Peer::gossip_inner
-//! [`Network::BOOTSTRAP`]: Network
+//! Rejections leave the link poisoned. Existing-replica
+//! completion failures happen after commit; bootstrap constructs no peer.
 
 use crate::message::{PayloadCodec, PayloadDepthLimit};
+use crate::testing::run_to_quiescence;
 use before::Party;
 use futures::future::BoxFuture;
+use proptest::prelude::*;
 use tokio::io::{duplex, split};
 
-use super::{EPILOGUE_MARKER, epilogue, erase, streaming_error};
+use super::{EPILOGUE_MARKER, SessionDefect, epilogue, erase};
 use crate::link::{Link, MemoryLink, memory};
 use crate::observe::SessionHandle;
 use crate::tree::mirror::{
@@ -45,14 +22,6 @@ use crate::tree::mirror::{
 };
 use crate::tree::{self, Tree};
 use crate::{Error, Network, Peer};
-
-/// Unwrap the sole error variant the epilogue can produce.
-fn epilogue_error(result: Result<(), Error>) -> std::io::Error {
-    match result {
-        Err(Error::Epilogue(error)) => error,
-        other => panic!("the epilogue fails as Error::Epilogue, got {other:?}"),
-    }
-}
 
 /// Both sides exchange markers over a one-byte transport without deadlock.
 ///
@@ -65,65 +34,46 @@ fn concurrent_exchange_is_symmetric() {
     let (mut left_read, mut left_write) = split(left_io);
     let (mut right_read, mut right_write) = split(right_io);
 
-    let (left, right) = pollster::block_on(async {
+    let (left, right) = run_to_quiescence(async {
         let observe = SessionHandle::default();
         tokio::join!(
             epilogue(&mut left_read, &mut left_write, &observe),
             epilogue(&mut right_read, &mut right_write, &observe),
         )
-    });
+    })
+    .expect("completion exchange must not deadlock");
     left.expect("left epilogue completes");
     right.expect("right epilogue completes");
 }
 
-/// Marker decoding is exhaustive: exactly the one marker byte is accepted
-/// and every other byte is a typed protocol violation.
-///
-/// A non-marker byte — a desynchronized peer's next preamble included —
-/// must surface [`Error::Epilogue`] with `InvalidData`, distinguishing a
-/// protocol violation from an honest wire cut; the marker itself completes
-/// the session.
-#[test]
-fn marker_byte_space_is_exhaustive() {
-    for byte in u8::MIN..=u8::MAX {
-        let bytes = [EPILOGUE_MARKER[0], byte];
+proptest! {
+    /// Complete marker bytes either confirm completion or report the exact
+    /// invalid bytes as a protocol violation in the completion phase.
+    #[test]
+    fn complete_markers_are_classified(bytes in prop_oneof![Just(EPILOGUE_MARKER), any::<[u8; 2]>()]) {
         let mut reader = &bytes[..];
         let mut writer = tokio::io::sink();
-        let result = pollster::block_on(epilogue(
-            &mut reader,
-            &mut writer,
-            &SessionHandle::default(),
-        ));
-        if byte == EPILOGUE_MARKER[1] {
-            result.expect("the marker byte completes the epilogue");
+        let result = pollster::block_on(epilogue(&mut reader, &mut writer, &SessionHandle::default()));
+        if bytes == EPILOGUE_MARKER {
+            prop_assert!(result.is_ok());
         } else {
-            let error = epilogue_error(result);
-            assert_eq!(
-                error.kind(),
-                std::io::ErrorKind::InvalidData,
-                "byte {byte:#04x} must be a typed protocol violation",
-            );
+            let Err(Error::Protocol(error)) = result else { prop_assert!(false, "invalid marker accepted: {bytes:?}"); return Ok(()); };
+            prop_assert_eq!(error.context.phase, crate::error::Phase::Completion);
+            let Some(SessionDefect::CompletionMarker(actual)) = error.source.downcast_ref::<SessionDefect>() else { prop_assert!(false, "missing invalid-marker diagnostic"); return Ok(()); };
+            prop_assert_eq!(*actual, bytes);
         }
     }
-}
 
-/// A peer that closes before its marker is a typed EOF, not a hang.
-///
-/// The honest wire cut must surface [`Error::Epilogue`] with
-/// `UnexpectedEof` — the arm the peer-committed-or-not residue lands on — kept
-/// distinct from the `InvalidData` violation above so operators can tell a
-/// dead link from a desynchronized peer.
-#[test]
-fn close_before_the_marker_is_a_typed_eof() {
-    let mut reader: &[u8] = &[];
-    let mut writer = tokio::io::sink();
-    let result = pollster::block_on(epilogue(
-        &mut reader,
-        &mut writer,
-        &SessionHandle::default(),
-    ));
-    let error = epilogue_error(result);
-    assert_eq!(error.kind(), std::io::ErrorKind::UnexpectedEof);
+    /// Closing at any point before the complete marker is a transport EOF.
+    #[test]
+    fn incomplete_markers_are_transport_failures(cut in 0..EPILOGUE_MARKER.len()) {
+        let mut reader = &EPILOGUE_MARKER[..cut];
+        let mut writer = tokio::io::sink();
+        let result = pollster::block_on(epilogue(&mut reader, &mut writer, &SessionHandle::default()));
+        let Err(Error::Transport(error)) = result else { prop_assert!(false, "close was not a transport failure: {result:?}"); return Ok(()); };
+        prop_assert_eq!(error.context.phase, crate::error::Phase::Completion);
+        prop_assert_eq!(error.source.kind(), std::io::ErrorKind::UnexpectedEof);
+    }
 }
 
 /// Reading the marker consumes exactly the marker's bytes, leaving later
@@ -214,9 +164,9 @@ async fn claim_bootstrap_v2(
     );
     let handshaken = streaming::handshake(local, proxy)
         .await
-        .map_err(streaming_error)?;
+        .map_err(Error::from)?;
     let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
-    let (root, (mut read, mut write)) = descent.await.map_err(streaming_error)?;
+    let (root, (mut read, mut write)) = descent.await.map_err(Error::from)?;
     let party = party::receive(&mut read, &SessionHandle::default()).await?;
     epilogue(&mut read, &mut write, &SessionHandle::default()).await?;
     Ok((party, Tree::from_root(root.into())))
@@ -245,7 +195,7 @@ fn party_of(provider: &Peer<u64>) -> Party {
 }
 
 /// A provider serving a bootstrap rejects, under V2, a claimant whose
-/// greeting declares causal history: [`Error::BootstrapHistoryConflict`],
+/// greeting declares causal history: [`Error::Protocol`],
 /// nothing moved.
 ///
 /// The declared version would otherwise drive the deletion-honoring filter
@@ -285,12 +235,15 @@ fn v2_bootstrap_claimant_declaring_history_is_rejected() {
     });
 
     match first {
-        Err(Error::BootstrapHistoryConflict {
-            claimed_min_events: reported,
-        }) => assert_eq!(
-            reported, claimed_min_events,
-            "the error carries the claimed history's event floor",
-        ),
+        Err(Error::Protocol(error)) => {
+            let Some(SessionDefect::BootstrapHistory {
+                claimed_min_events: reported,
+            }) = error.source.downcast_ref::<SessionDefect>()
+            else {
+                panic!("missing claimant diagnostic: {error:?}");
+            };
+            assert_eq!(*reported, claimed_min_events);
+        }
         other => panic!("the provider rejects the claimant, got {other:?}"),
     }
     assert!(
@@ -319,7 +272,7 @@ fn v2_bootstrap_claimant_declaring_history_is_rejected() {
 ///
 /// The newborn requirement binds every bootstrap claimant, and in a
 /// mutual-bootstrap encounter the joining side is the side facing one: it
-/// surfaces the same [`Error::BootstrapHistoryConflict`] a serving
+/// surfaces the same [`Error::Protocol`] a serving
 /// provider would, rather than certifying a clean mutual bail against a
 /// counterparty that is neither newborn nor a provider.
 #[test]
@@ -333,7 +286,7 @@ fn v2_mutual_bootstrap_counterparty_with_history_is_rejected() {
     });
 
     assert!(
-        matches!(join_out, Err(Error::BootstrapHistoryConflict { .. })),
+        matches!(join_out, Err(Error::Protocol(_))),
         "the joining side rejects the counterparty's claimed history, got {join_out:?}",
     );
     assert!(
@@ -360,7 +313,7 @@ fn rejected_claimant_leaves_the_provider_serviceable() {
             async move { provider_ref.gossip(&mut b_link).await },
         );
         assert!(
-            matches!(provider_out, Err(Error::BootstrapHistoryConflict { .. })),
+            matches!(provider_out, Err(Error::Protocol(_))),
             "the provider rejects the claimant, got {provider_out:?}",
         );
         assert!(claim_out.is_err());

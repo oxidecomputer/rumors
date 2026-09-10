@@ -14,7 +14,7 @@
 use std::alloc::System;
 use std::sync::Mutex;
 
-use rumors::error::{CodecDecodeErrorKind, FramePart, HeadError, LeafRunError};
+use rumors::testing::{CodecDecodeErrorKind, FramePart, HeadError, LeafRunError};
 use stats_alloc::{INSTRUMENTED_SYSTEM, Region, Stats, StatsAlloc};
 
 #[global_allocator]

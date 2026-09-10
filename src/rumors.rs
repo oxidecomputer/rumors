@@ -462,10 +462,9 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// promises](crate::link::Link#what-a-session-promises)).
     /// "Unchanged" has three qualified exceptions:
     ///
-    /// - On [`Error::Epilogue`], every local effect of the session is
-    ///   already committed; only the confirmation of the *peer's*
-    ///   completion was lost ([`Error::Epilogue`] explains why that gap
-    ///   cannot be closed).
+    /// - A transport failure or protocol violation in
+    ///   [`Phase::Completion`](crate::error::Phase::Completion) leaves all
+    ///   local effects committed, but the peer's commit is unconfirmed.
     /// - A failure while donating a bootstrap fork costs that fork's
     ///   identity space (deliberately: the newcomer may hold it),
     ///   narrowing this replica's identity without touching its content.
@@ -526,7 +525,7 @@ impl<T, B: Bookmark> Rumors<T, B> {
     ///
     /// - the connection fails: one final `Err`, with the replica unchanged,
     ///   subject to the same qualified exceptions as [`gossip`](Self::gossip)
-    ///   (the post-commit [`Error::Epilogue`] and retiree-absorption
+    ///   (completion-phase failures and retiree-absorption
     ///   [`Error::Bookmark`] cases, and a donated fork lost in flight), and
     ///   the link is poisoned on every error path, so any later session on
     ///   it fails fast with [`Error::LinkPoisoned`]: discard the link;

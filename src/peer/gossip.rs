@@ -5,6 +5,7 @@
 //! [`PartyGuard`] that snaps a speculatively donated party back in place
 //! on failure.
 
+use crate::error::{Mismatch, Phase, TransportOperation as Op};
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -123,10 +124,9 @@ pub enum Retire<T, B: BookmarkError = NoBookmark> {
     /// rather than risk the same identity living twice. The link is
     /// poisoned; discard it.
     ///
-    /// In flight covers the party frame itself and everything after it:
-    /// a failure while awaiting the peer's commit confirmation lands here
-    /// too — the confirmation was lost and cannot be re-fetched
-    /// ([`Error::Epilogue`] explains why that gap cannot be closed).
+    /// This includes failure while awaiting completion confirmation
+    /// ([`Phase::Completion`]). The peer may have committed even when its
+    /// confirmation did not arrive.
     Uncertain {
         /// What failed the session.
         error: Error<B>,
@@ -835,7 +835,10 @@ impl<T, B: Persist> Peer<T, B> {
         });
         drop(merged);
         if party_overlap {
-            return (Intent::Remain, Err(Error::PartyOverlap));
+            return (
+                Intent::Remain,
+                Err(Error::violation(Phase::IdentityTransfer, SessionDefect::PartyOverlap).widen()),
+            );
         }
 
         // Persist an absorbed retiree's identity before declaring success. The
@@ -1116,18 +1119,19 @@ impl<'a> Reconciliation<'a> {
                 .observe(observe);
             let handshaken = streaming::handshake(local, proxy)
                 .await
-                .map_err(streaming_error)?;
+                .map_err(Error::from)?;
             if peer_bootstrapping {
                 bootstrap_claimant_is_newborn(&handshaken.peer().version)?;
             } else if remote_network != network {
-                return Err(Error::NetworkMismatch {
+                return Err(Error::Mismatch(Mismatch::Network {
+                    local_network: network,
+                    local_min_events,
                     remote_network,
                     remote_min_events: handshaken.peer().version.min_ticks(),
-                    local_min_events,
-                });
+                }));
             }
             let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
-            let (root, (read, write)) = descent.await.map_err(streaming_error)?;
+            let (root, (read, write)) = descent.await.map_err(Error::from)?;
             Ok((root.into(), read, write))
         })
     }
@@ -1174,7 +1178,7 @@ fn bootstrap_reconcile<'a>(
             .observe(observe.clone());
         let handshaken = streaming::handshake(local, proxy)
             .await
-            .map_err(streaming_error)?;
+            .map_err(Error::from)?;
         // A counterparty that is itself bootstrapping has nothing to hand
         // us, but the session still ends with the epilogue. Both trees are
         // empty, so the versions are equal and `reconcile` resolves to the
@@ -1186,7 +1190,7 @@ fn bootstrap_reconcile<'a>(
             bootstrap_claimant_is_newborn(&handshaken.peer().version)?;
         }
         let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
-        let (root, (mut read, mut write)) = descent.await.map_err(streaming_error)?;
+        let (root, (mut read, mut write)) = descent.await.map_err(Error::from)?;
         if both_bootstrapping {
             epilogue(&mut read, &mut write, &observe).await?;
             return Ok(None);
@@ -1218,67 +1222,75 @@ where
     ))
 }
 
-/// Require a bootstrap claimant's greeting version to be empty, the version
-/// a newborn replica has by construction.
-///
-/// A bootstrap claimant is definitionally a newborn replica with no causal
-/// history, yet its greeting version feeds the deletion-honoring filter as
-/// its causal frontier — a mis-declared frontier would make established
-/// content read as deleted-there on both sides of the descent. Every
-/// session facing a claimant runs this after the greeting and before
-/// reconciliation, whichever protocol carries it: a failing session moves
-/// nothing and poisons its link like any other pre-descent failure.
+/// Reject a newcomer claiming causal history before reconciliation uses that
+/// history to infer deletions. A valid bootstrap claimant has an empty version.
 fn bootstrap_claimant_is_newborn(claimed: &Version) -> Result<(), Error> {
     if claimed.is_empty() {
         Ok(())
     } else {
-        Err(Error::BootstrapHistoryConflict {
-            claimed_min_events: claimed.min_ticks(),
-        })
+        Err(Error::violation(
+            Phase::Greeting,
+            SessionDefect::BootstrapHistory {
+                claimed_min_events: claimed.min_ticks(),
+            },
+        ))
     }
 }
 
-/// Exchange the V2 session epilogue: write our completion marker, flush, and
-/// read the peer's, concurrently (mirroring [`handshake::preamble`]).
-///
-/// Runs strictly after *all* local session work — the descent, any identity
-/// hand-off, and the local commit — so a received marker certifies the peer
-/// reached the same point. Both sides write and flush before either read
-/// resolves, so the exchange cannot deadlock. Failure is [`Error::Epilogue`]:
-/// post-commit by construction, with a non-marker byte surfaced as an
-/// invalid-data protocol violation rather than an honest wire cut.
+/// Identity and completion invariants checked by the session driver.
+#[derive(Debug, thiserror::Error)]
+enum SessionDefect {
+    /// A donation overlaps identity already held by its recipient.
+    #[error("retiring peer's party overlaps ours")]
+    PartyOverlap,
+    /// A newcomer claims events despite having no identity or history.
+    #[error("bootstrap claimant declared history (at least {claimed_min_events} events)")]
+    BootstrapHistory {
+        /// Lower bound derived from the claimant's version.
+        claimed_min_events: crate::Ticks,
+    },
+    /// A complete closing item differs from the protocol's marker.
+    #[error("invalid completion marker: {0:02x?}")]
+    CompletionMarker([u8; 2]),
+}
+
+/// Exchange completion markers concurrently so both sides can flush before
+/// waiting for a response. Existing replicas have committed at this point;
+/// bootstrap constructs its new peer only after the exchange succeeds.
 async fn epilogue(
     read: &mut (dyn AsyncRead + Unpin + Send + '_),
     write: &mut (dyn AsyncWrite + Unpin + Send + '_),
     observe: &SessionHandle,
 ) -> Result<(), Error> {
     let send = async {
-        write.write_all(&EPILOGUE_MARKER).await?;
-        write.flush().await?;
+        write
+            .write_all(&EPILOGUE_MARKER)
+            .await
+            .map_err(|source| Error::transport(Phase::Completion, Op::Write, source))?;
+        write
+            .flush()
+            .await
+            .map_err(|source| Error::transport(Phase::Completion, Op::Flush, source))?;
         observe.control_sent(&EPILOGUE_MARKER);
         Ok(())
     };
     let receive = async {
         let mut marker = [0u8; EPILOGUE_MARKER.len()];
-        read.read_exact(&mut marker).await?;
+        read.read_exact(&mut marker)
+            .await
+            .map_err(|source| Error::transport(Phase::Completion, Op::Read, source))?;
         if marker != EPILOGUE_MARKER {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                format!(
-                    "peer wrote {:#04x} {:#04x} where the epilogue marker belongs",
-                    marker[0], marker[1]
-                ),
+            return Err(Error::violation(
+                Phase::Completion,
+                SessionDefect::CompletionMarker(marker),
             ));
         }
-        // The validated marker is byte-equal to the local constant, so
-        // the constant is the received item.
-        observe.control_received(&EPILOGUE_MARKER);
+        observe.control_received(&marker);
         Ok(())
     };
     futures_util::future::try_join(send, receive)
         .await
         .map(|((), ())| ())
-        .map_err(Error::Epilogue)
 }
 
 /// What woke the [`gossip_when`](Peer::gossip_when) driver out of its idle
@@ -1366,33 +1378,6 @@ impl<T> Drop for PartyGuard<T> {
                 });
         }
     }
-}
-
-/// Retain which streaming participant detected a reconciliation failure.
-///
-/// The local backend itself is infallible, but its materialized participant
-/// can still diagnose semantic violations in peer-controlled replies. The
-/// remote participant additionally retains adapter, codec, session, and
-/// transport context, so neither side can be collapsed without losing useful
-/// information.
-fn streaming_error(
-    error: tree::mirror::Error<
-        materialized::Error<std::convert::Infallible>,
-        streaming_remote::Error<std::convert::Infallible>,
-    >,
-) -> Error {
-    // The depth-limit mismatch is a configuration diagnosis, not a
-    // reconciliation failure: surface it as its own top-level variant.
-    // Only the proxy (the server side of every production handshake)
-    // detects it; the materialized participant has no wire.
-    if let tree::mirror::Error::Server(streaming_remote::Error::PayloadDepthMismatch {
-        local,
-        remote,
-    }) = error
-    {
-        return Error::PayloadDepthMismatch { local, remote };
-    }
-    Error::Mirror(error)
 }
 
 #[cfg(test)]

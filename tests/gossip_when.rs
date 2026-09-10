@@ -867,7 +867,7 @@ fn max_sever_cut_spans_the_fixture_session() {
 /// B's read budget is one byte short of a clean session (measured from a
 /// byte-identical metered run), so the byte B never reads is A's
 /// completion marker: A yields `Ok`; B yields no `Ok` and fails with the
-/// post-commit [`Error::Epilogue`] residue. The class places the cut: one
+/// failure in [`rumors::error::Phase::Completion`]. The class places the cut: one
 /// byte more and B completes the session, failing only on its next
 /// control read after an `Ok`; any earlier and B fails pre-commit. A
 /// generated read cut reaches this case only by landing exactly here, so
@@ -895,8 +895,8 @@ fn a_lost_marker_certifies_one_side() {
         run.b_items
     );
     assert!(
-        matches!(run.b_items.last(), Some(Err(Error::Epilogue(_)))),
-        "B's lost marker must surface as the post-commit Epilogue: {:?}",
+        matches!(run.b_items.last(), Some(Err(Error::Transport(error))) if error.context.phase == rumors::error::Phase::Completion),
+        "B's lost marker must surface as the completion-phase transport failure: {:?}",
         run.b_items
     );
     block_on(check_severed(&run));
@@ -1079,11 +1079,11 @@ async fn truncated_initiation_is_a_terminal_error() {
         .expect("error never surfaced")
         .expect("driver yielded its terminal item");
     match item {
-        Err(Error::PreambleTruncated { received, expected }) => {
-            assert_eq!(received, 4, "the four delivered bytes are counted");
-            assert_eq!(expected, 30, "the V2 dialect width is named");
+        Err(Error::Transport(error)) => {
+            assert_eq!(error.context.phase, rumors::error::Phase::Preamble);
+            assert_eq!(error.source.kind(), std::io::ErrorKind::UnexpectedEof);
         }
-        other => panic!("expected PreambleTruncated, got {other:?}"),
+        other => panic!("expected preamble transport failure, got {other:?}"),
     }
     assert!(
         timeout(DEADLINE, a_sessions.next())
@@ -1123,7 +1123,7 @@ async fn a_control_read_error_on_the_idle_boundary_poisons_the_link() {
             .expect("error never surfaced")
             .expect("driver yielded its terminal item");
         assert!(
-            matches!(item, Err(Error::Io(_))),
+            matches!(item, Err(Error::Transport(_))),
             "a control read error is the driver's terminal Err, got {item:?}",
         );
         assert!(

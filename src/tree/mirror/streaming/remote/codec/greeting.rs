@@ -87,15 +87,7 @@ fn greeting_map(greeting: &Greeting) -> Vec<u8> {
     map
 }
 
-/// A greeting that is not canonical rumors CBOR.
-///
-/// Carried by [`RemoteError::HandshakeDecode`]: the greeting item
-/// arrived, but its spelling or content violates the wire's
-/// deterministic-encoding contract. The greeting admits one spelling per
-/// value, so every variant here is a counterparty bug, never an
-/// alternate encoding.
-///
-/// [`RemoteError::HandshakeDecode`]: super::super::RemoteError::HandshakeDecode
+/// A greeting whose structure or encoding violates the wire format.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum GreetingError {

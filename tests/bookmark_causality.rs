@@ -97,10 +97,9 @@ use before::Party;
 use proptest::prelude::*;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
-use rumors::error::{RemoteError, ReplyDecodeError};
+use rumors::error::{Mismatch, ProtocolViolation};
 use rumors::{
-    BookmarkError, BookmarkIo, Error, MERKLE_HASH_LEN, MirrorError, Network, Peer, Retire, Rumors,
-    Version,
+    BookmarkError, BookmarkIo, Error, MERKLE_HASH_LEN, Network, Peer, Retire, Rumors, Version,
 };
 
 use crate::common::fault::{self, FaultPlan};
@@ -272,27 +271,9 @@ fn store_parties(store: &DurableStore, network: Network) -> Vec<Party> {
 
 // ---- the session error classifier -------------------------------------------
 
-/// Fail the test if `error` is one no session can report except through a
-/// crate bug, whatever wire faults or bookmark faults the step schedules.
-///
-/// The admitted errors are exactly what a severed wire, an injected
-/// bookmark fault, a counterparty closing the wire after its own fault, or
-/// a network mismatch can produce: a transport failure (`Io` or `Epilogue`
-/// carrying an I/O error other than `InvalidData`, or a `Mirror` error
-/// whose source chain bottoms out in one), a truncated preamble or
-/// hand-off, an injected bookmark fault, or the mismatch itself. One
-/// `Mirror` error is excluded before its chain is consulted: a supplied
-/// record that does not decode (`ReplyDecodeError::Record`) wraps the
-/// short read as an `UnexpectedEof` I/O error, though the run's bytes were
-/// received whole, so it is a decode failure whatever its chain says. Every
-/// other error is a bug: a fully received frame that does not decode, a
-/// bookmark file that does not parse when the crate wrote every byte the
-/// store holds, an overlapping retiring party, a poisoned link (every
-/// session here runs on a fresh one), a malformed preamble, an invalid
-/// intent, a bootstrap conflict, a magic, version, or payload-depth
-/// mismatch, and any variant added later. `Error` is `#[non_exhaustive]`,
-/// so the compiler cannot hold that totality from outside the crate; the
-/// wildcard arm is the bug arm, which is the safe default.
+/// Admit only failures explained by this harness: transport cuts, injected
+/// bookmark I/O, and network mismatches. Protocol and bookmark-format errors
+/// indicate bugs, regardless of the types used by their diagnostic sources.
 fn assert_not_codec_bug<B>(step: &str, error: &Error<B>)
 where
     B: BookmarkError + std::fmt::Debug,
@@ -300,35 +281,14 @@ where
 {
     let transport = |io: &std::io::Error| io.kind() != std::io::ErrorKind::InvalidData;
     let admitted = match error {
-        Error::Io(io) | Error::Epilogue(io) => transport(io),
-        Error::PreambleTruncated { .. }
-        | Error::HandOffTruncated
-        | Error::NetworkMismatch { .. }
-        | Error::Bookmark(BookmarkIo::Io(_)) => true,
-        Error::Mirror(MirrorError::Server(RemoteError::Decode(ReplyDecodeError::Record(_)))) => {
-            false
-        }
-        Error::Mirror(mirror) => io_source(mirror).is_some_and(transport),
+        Error::Transport(error) => transport(&error.source),
+        Error::Mismatch(Mismatch::Network { .. }) | Error::Bookmark(BookmarkIo::Io(_)) => true,
         _ => false,
     };
     assert!(
         admitted,
         "{step}: a protocol, codec, or bookmark-format bug, not an injected disruption: {error:?}",
     );
-}
-
-/// The I/O error an error's source chain bottoms out in, if any: what
-/// separates a mirror session that died on the transport from one that
-/// rejected a frame.
-fn io_source<'a>(error: &'a (dyn std::error::Error + 'static)) -> Option<&'a std::io::Error> {
-    let mut current = Some(error);
-    while let Some(error) = current {
-        if let Some(io) = error.downcast_ref::<std::io::Error>() {
-            return Some(io);
-        }
-        current = error.source();
-    }
-    None
 }
 
 /// Why a bootstrap's joining side came up without a live peer.
@@ -827,7 +787,7 @@ impl World {
     /// `fault_a`/`fault_b`.
     ///
     /// A cross-network pair surfaces
-    /// [`Error::NetworkMismatch`] on at least one side; the loser of the
+    /// [`Mismatch::Network`] on at least one side; the loser of the
     /// `(min_ticks, network)` tie-break re-bootstraps into the winner. Any other
     /// error is a disruption, admitted only when the step scheduled a fault
     /// or met a mismatch; a step that cannot fail must succeed on both sides,
@@ -871,12 +831,12 @@ impl World {
         self.secure(a);
         self.secure(b);
 
-        let mismatched = matches!(out_a, Err(Error::NetworkMismatch { .. }))
-            || matches!(out_b, Err(Error::NetworkMismatch { .. }));
+        let mismatched = matches!(out_a, Err(Error::Mismatch(Mismatch::Network { .. })))
+            || matches!(out_b, Err(Error::Mismatch(Mismatch::Network { .. })));
         for (side, out) in [(a, &out_a), (b, &out_b)] {
             match out {
                 Ok(_) => {}
-                Err(Error::NetworkMismatch { .. }) => assert!(
+                Err(Error::Mismatch(Mismatch::Network { .. })) => assert!(
                     !same_network,
                     "gossip {a}<->{b}: node {side} reported a network mismatch inside one network",
                 ),
@@ -1770,6 +1730,7 @@ fn negative_control_recycled_durable_emission_panics() {
 /// on, and an injected disruption does not.
 #[test]
 fn negative_control_classifier_rejects_codec_bugs() {
+    /// Whether the classifier rejects a synthetic outcome.
     fn fires(error: Error<FlakyInMemoryBookmark>) -> bool {
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             assert_not_codec_bug("negative control", &error)
@@ -1778,58 +1739,43 @@ fn negative_control_classifier_rejects_codec_bugs() {
         .and_then(|payload| payload.downcast::<String>().ok())
         .is_some_and(|message| message.contains("a protocol, codec, or bookmark-format bug"))
     }
-    let io = |kind, text| Error::Io(std::io::Error::new(kind, text));
+    let (mut link, remote) = rumors::link::memory();
+    drop(remote);
+    let replica = Peer::<u64>::seed().into_rumors();
+    let failure = rumors::testing::run_to_quiescence(replica.gossip(&mut link))
+        .expect("a closed link must not deadlock")
+        .expect_err("a closed link cannot complete a session");
+    let Error::Transport(transport) = failure else {
+        panic!("a closed link must report a transport failure: {failure:?}");
+    };
+    let context = transport.context;
+    for kind in [
+        std::io::ErrorKind::InvalidData,
+        std::io::ErrorKind::UnexpectedEof,
+    ] {
+        assert!(
+            fires(Error::Protocol(ProtocolViolation {
+                context,
+                source: Box::new(std::io::Error::new(kind, "invalid complete record")),
+            })),
+            "a diagnostic I/O source cannot turn a violation into a transport cut"
+        );
+    }
     for bug in [
-        io(
-            std::io::ErrorKind::InvalidData,
-            "a fully received frame that does not decode",
-        ),
-        Error::Epilogue(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            "a bad marker",
-        )),
-        Error::HandOffMalformed {
-            defect: rumors::error::HandOffDefect::NotPartyTagged,
-        },
         Error::Bookmark(BookmarkIo::Format(rumors::FormatError::Truncated {
             len: 0,
         })),
-        Error::PartyOverlap,
         Error::LinkPoisoned,
-        Error::IntentInvalid { byte: 0xff },
-        Error::BootstrapRetireConflict,
-        Error::Mirror(MirrorError::Client(
-            rumors::error::MaterializedError::Violation(
-                rumors::error::MaterializedViolation::UnaskedReply,
-            ),
-        )),
-        Error::Mirror(MirrorError::Server(RemoteError::Decode(
-            ReplyDecodeError::Record(rumors::error::DecodeLeafError::Version(
-                std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "a short record"),
-            )),
-        ))),
     ] {
         assert!(fires(bug), "an unconditional crate bug must fail the step");
     }
     for disruption in [
-        io(std::io::ErrorKind::UnexpectedEof, "a severed wire"),
-        Error::Epilogue(std::io::Error::new(
-            std::io::ErrorKind::UnexpectedEof,
-            "a severed wire",
-        )),
-        Error::PreambleTruncated {
-            received: 0,
-            expected: 1,
-        },
-        Error::HandOffTruncated,
+        Error::Transport(transport),
         Error::Bookmark(BookmarkIo::Io(FlakyError::injected_write())),
-        Error::Mirror(MirrorError::Server(RemoteError::HandshakeRead(
-            std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "a severed wire"),
-        ))),
     ] {
         assert!(
             !fires(disruption),
-            "an injected disruption must not fail the step",
+            "an injected disruption must not fail the step"
         );
     }
 }

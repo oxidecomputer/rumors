@@ -305,8 +305,17 @@ where
     write
         .write_all(&item)
         .await
-        .map_err(Error::HandshakeWrite)?;
-    write.flush().await.map_err(Error::HandshakeWrite)?;
+        .map_err(|source| Error::HandshakeWrite {
+            operation: crate::error::TransportOperation::Write,
+            source,
+        })?;
+    write
+        .flush()
+        .await
+        .map_err(|source| Error::HandshakeWrite {
+            operation: crate::error::TransportOperation::Flush,
+            source,
+        })?;
     observe.control_sent(&item);
     Ok(())
 }

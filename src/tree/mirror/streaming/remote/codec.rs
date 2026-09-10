@@ -76,6 +76,7 @@ mod signal;
 pub use budget::SUPPLY_FRAME_OVERHEAD;
 pub use budget::{DEFAULT_TARGET_MESSAGE_SIZE, RunBudget};
 
+#[cfg(any(test, feature = "test-internals"))]
 pub use crate::tree::mirror::cbor::HeadError;
 #[cfg(any(test, feature = "test-internals"))]
 pub use capture::{
@@ -88,19 +89,23 @@ pub use decode::{decode, decode_exact};
 pub use encode::FrameWrite;
 #[cfg(test)]
 pub use encode::encode;
+#[cfg(any(test, feature = "test-internals"))]
+pub use error::FramePart;
 pub use error::{
-    DecodeError, DecodeErrorKind, DecodeLeafError, EncodeError, EncodeErrorKind, FramePart, Origin,
+    DecodeError, DecodeErrorKind, DecodeLeafError, EncodeError, EncodeErrorKind, Origin,
     QueryOrderError,
 };
+#[cfg(any(test, feature = "test-internals"))]
+pub use frame::LeafRunError;
 #[cfg(test)]
 pub use frame::WireFrame;
-pub use frame::{Frame, LeafRun, LeafRunError, ListingIssue, Reaction};
+pub use frame::{Frame, LeafRun, Reaction};
 #[cfg(test)]
 pub(crate) use frame::{parse_listing_map, write_listing};
 pub use greeting::GreetingError;
-pub use signal::{
-    DecodeSignalError, End, Flow, InvalidSignalPlacement, Speaker, Stream, StreamClass,
-};
+#[cfg(test)]
+pub(crate) use signal::DecodeSignalError;
+pub use signal::{End, Flow, Speaker, Stream};
 
 /// The whole wire prefix of one initiator-spoken, reply-ending supply
 /// frame declaring a `declared`-byte run: the frame's array head, its

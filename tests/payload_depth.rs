@@ -16,6 +16,7 @@
 
 mod common;
 
+use rumors::error::Mismatch;
 use rumors::{DEFAULT_PAYLOAD_DEPTH_LIMIT, PayloadDepthLimit, Peer, Rumors};
 
 use crate::common::wire::{bootstrap_fork, wire_gossip};
@@ -289,11 +290,11 @@ fn mismatched_limits_abort_both_sides_at_the_handshake() {
         )
     });
 
-    let Error::PayloadDepthMismatch { local, remote } = a_err else {
+    let Error::Mismatch(Mismatch::PayloadDepth { local, remote, .. }) = a_err else {
         panic!("a's error must be the typed mismatch: {a_err:?}");
     };
     assert_eq!((local, remote), (DEFAULT_PAYLOAD_DEPTH_LIMIT, raised));
-    let Error::PayloadDepthMismatch { local, remote } = b_err else {
+    let Error::Mismatch(Mismatch::PayloadDepth { local, remote, .. }) = b_err else {
         panic!("b's error must be the typed mismatch: {b_err:?}");
     };
     assert_eq!((local, remote), (raised, DEFAULT_PAYLOAD_DEPTH_LIMIT));
@@ -315,10 +316,8 @@ fn mismatched_limits_abort_both_sides_at_the_handshake() {
 /// and discards its poisoned link, the sender's own `gossip` completes
 /// with an error rather than hanging.
 ///
-/// The sender's error is [`rumors::Error::Epilogue`]: its local session
-/// work committed, and only the peer's confirmation was lost. The
-/// sender's replica is unharmed and still holds its message; the
-/// failure's blast radius is one aborted session on each side.
+/// The sender fails in [`rumors::error::Phase::Completion`]: its local work
+/// committed, but the peer's confirmation was lost. It still holds its message.
 ///
 /// The decode failure is injected by pairing ends whose payload types
 /// disagree (the sender's set holds a CBOR integer; the receiver
@@ -360,12 +359,12 @@ fn a_sender_exits_typed_when_its_counterparty_aborts_on_decode() {
 
     let b_err = b_out.expect_err("the receiver aborts on the payload decode");
     assert!(
-        matches!(b_err, rumors::Error::Mirror(_)),
+        matches!(b_err, rumors::Error::Protocol(_)),
         "the receiver's exit is the typed decode failure: {b_err:?}"
     );
     let a_err = a_out.expect_err("the sender's session cannot confirm completion");
     assert!(
-        matches!(a_err, rumors::Error::Epilogue(_)),
+        matches!(a_err, rumors::Error::Transport(ref error) if error.context.phase == rumors::error::Phase::Completion),
         "the sender committed locally and lost only the confirmation: {a_err:?}"
     );
     assert_eq!(

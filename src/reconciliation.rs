@@ -185,7 +185,7 @@
 //!
 //! The asymmetry is demand-shaped. The control stream carries what every
 //! session unconditionally exchanges — the preamble, the greeting, and the
-//! closing [`Error::Epilogue`](crate::Error::Epilogue) confirmation — so it is
+//! closing [`Phase::Completion`](crate::error::Phase::Completion) confirmation — so it is
 //! the one stream worth holding open across sessions: those fixed phases
 //! dominate a short session's latency, and re-dialing per session would put
 //! transport dial time and its failure modes inside every one of them. The

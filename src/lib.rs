@@ -338,7 +338,7 @@ pub use bookmark::{
     BOOKMARK_FORMAT_VERSION, Bookmark, BookmarkError, BookmarkIo, FormatError, FrameDefect,
     NoBookmark, RecordDefect, Serialized,
 };
-pub use error::{Error, MirrorError};
+pub use error::Error;
 pub use link::{Acceptor, Connector, Link};
 pub use message::EncodeError;
 pub use network::Network;

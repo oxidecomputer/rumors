@@ -9,6 +9,7 @@ mod common;
 
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
+use rumors::error::Mismatch;
 use rumors::{Error, Peer};
 
 use crate::common::wire::{assert_control_drained, block_on};
@@ -54,7 +55,7 @@ fn independent_seeds_differ() {
 }
 
 /// Two peers from different seeds that try to [`gossip`](rumors::Rumors::gossip)
-/// are both rejected with [`Error::NetworkMismatch`] at the handshake, before
+/// are both rejected with [`Mismatch::Network`] at the handshake, before
 /// any content crosses the wire.
 #[test]
 fn gossip_rejects_foreign_network() {
@@ -66,14 +67,21 @@ fn gossip_rejects_foreign_network() {
         tokio::join!(alice.gossip(&mut a_link), bob.gossip(&mut b_link))
     });
 
-    assert!(
-        matches!(alice_out, Err(Error::NetworkMismatch { .. })),
-        "expected NetworkMismatch, got {alice_out:?}",
-    );
-    assert!(
-        matches!(bob_out, Err(Error::NetworkMismatch { .. })),
-        "expected NetworkMismatch, got {bob_out:?}",
-    );
+    for (outcome, ours, theirs) in [
+        (alice_out, alice.network(), bob.network()),
+        (bob_out, bob.network(), alice.network()),
+    ] {
+        let Err(Error::Mismatch(Mismatch::Network {
+            local_network,
+            remote_network,
+            ..
+        })) = outcome
+        else {
+            panic!("expected a network mismatch, got {outcome:?}");
+        };
+        assert_eq!(local_network, ours);
+        assert_eq!(remote_network, theirs);
+    }
 }
 
 /// A bootstrapped peer adopts the provider's network, so it lands in exactly

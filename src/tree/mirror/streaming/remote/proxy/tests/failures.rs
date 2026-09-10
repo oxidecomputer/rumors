@@ -16,8 +16,11 @@ use crate::tree::{
     mirror::streaming::{
         Failing, Local,
         remote::{
-            CodecDecodeErrorKind, CodecEncodeErrorKind, Error as RemoteError, SendError,
-            StreamError,
+            Error as RemoteError,
+            codec::{
+                DecodeErrorKind as CodecDecodeErrorKind, EncodeErrorKind as CodecEncodeErrorKind,
+            },
+            streams::{SendError, StreamError},
         },
     },
 };
@@ -27,7 +30,7 @@ use super::harness::EndpointError;
 /// Find the typed injected source retained anywhere below a remote failure.
 fn injected<E>(error: &RemoteError<E>) -> Option<InjectedIo> {
     let source = match error {
-        RemoteError::HandshakeRead(source) | RemoteError::HandshakeWrite(source) => source,
+        RemoteError::HandshakeRead(source) | RemoteError::HandshakeWrite { source, .. } => source,
         RemoteError::Stream(StreamError::Decode(error)) => match &error.kind {
             CodecDecodeErrorKind::Read { source, .. }
             | CodecDecodeErrorKind::Truncated { source, .. } => source,
@@ -83,7 +86,10 @@ fn has_expected_surface(error: &RemoteError<Infallible>, operation: IoOperation)
                 | RemoteError::Stream(StreamError::Decode(_) | StreamError::SupplyClosed { .. })
         ),
         IoOperation::Write | IoOperation::Flush => {
-            matches!(error, RemoteError::HandshakeWrite(_) | RemoteError::Send(_))
+            matches!(
+                error,
+                RemoteError::HandshakeWrite { .. } | RemoteError::Send(_)
+            )
         }
         IoOperation::Connect => {
             matches!(error, RemoteError::Send(SendError::Connect { .. }))

@@ -1,363 +1,164 @@
-//! Public failures from transport sessions and durable identity handling.
+//! Failures from sessions and durable identity handling.
 //!
-//! You handle [`Error`], and a send can return the local admission
-//! error [`EncodeError`] (also at the crate root); everything else on
-//! this page is the diagnostic taxonomy reachable through
-//! [`Error::Mirror`], for matching and bug reports. Every session `Err` poisons its link (discard it and
-//! reconnect, [`Error::LinkPoisoned`]), so the table below states what
-//! each variant means *beyond* that:
+//! Session methods return [`Error`]. Choose a response from its cause:
 //!
-//! | Variant | Replica | Beyond reconnecting |
-//! |---|---|---|
-//! | [`Error::Io`] | unchanged | transport failure (retry over a fresh link), or a wire framing fault outside the streaming mirror (counterparty bug: report it) |
-//! | [`Error::MagicMismatch`] | unchanged | the counterparty is not speaking rumors: fix the dial target |
-//! | [`Error::VersionMismatch`] | unchanged | select the same [`Protocol`] at both ends; if both already do, the selected protocol's wire version differs across the two releases: align crate versions |
-//! | [`Error::NetworkMismatch`] | unchanged | unrelated universes: apply the dominance rule ([`Peer`](crate::Peer)'s "Bootstrapping without consensus") |
-//! | [`Error::PayloadDepthMismatch`] | unchanged | fix the configuration: the payload depth limit is a fleet-wide parameter ([`Peer::payload_depth_limit`](crate::Peer::payload_depth_limit)); align it and reconnect |
-//! | [`Error::PartyOverlap`] | unchanged | nothing was absorbed: the retiring peer's identity overlaps ours |
-//! | [`Error::Epilogue`] | **committed** (a bootstrapping side instead applies nothing) | none locally: what was certainly lost is the peer's confirmation (a donor's identity may be lost with it: see the variant) |
-//! | [`Error::LinkPoisoned`] | unchanged | handle the first non-poisoned error; repeats mean the reconnect is not producing a fresh link |
-//! | [`Error::PreambleMalformed`] | unchanged | counterparty bug: report it (the defect names the field) |
-//! | [`Error::PreambleTruncated`] | unchanged | the peer or transport hung up mid-handshake: retry over a fresh link |
-//! | [`Error::HandOffMalformed`] | unchanged | counterparty bug: report it (the defect names the fault) |
-//! | [`Error::HandOffTruncated`] | unchanged | the peer or transport hung up before delivering its promised identity hand-off: retry over a fresh link |
-//! | [`Error::IntentInvalid`] | unchanged | counterparty bug: report it |
-//! | [`Error::BootstrapRetireConflict`] | unchanged | counterparty bug: report it |
-//! | [`Error::BootstrapHistoryConflict`] | unchanged | counterparty bug: report it |
-//! | [`Error::Bookmark`] | unchanged (committed if raised after absorbing a retirement) | fix or replace the bookmark storage, then retry |
-//! | [`Error::Mirror`] | unchanged | reconciliation failed: the nested source names the detecting side and the fault |
+//! - [`Transport`](Error::Transport): reconnect over a fresh link.
+//! - [`Mismatch`](Error::Mismatch): use the mismatch kind and its values to
+//!   resolve incompatible protocols, networks, or settings.
+//! - [`Bookmark`](Error::Bookmark): repair or replace the bookmark storage.
+//! - [`Protocol`](Error::Protocol): report a bug with its context and
+//!   diagnostic source. Individual protocol checks stay private.
+//!
+//! A failed or cancelled session leaves its link unusable. Discard it before
+//! retrying; reusing it returns [`Error::LinkPoisoned`].
+//!
+//! Failure does not guarantee unchanged state. On an existing replica, a
+//! failure in [`Phase::Completion`] leaves local work committed but the peer's
+//! commit unconfirmed; bootstrap instead discards the received identity.
+//! [`Error::Bookmark`] can also leave identity changes live but not persisted.
 
 use std::convert::Infallible;
 
 use crate::{
     Network, PayloadDepthLimit, Protocol, Ticks,
     bookmark::{BookmarkError, BookmarkIo, NoBookmark},
-    tree::mirror::{self, handshake},
+    tree::mirror::{
+        self, handshake,
+        streaming::{materialized, remote},
+    },
 };
 
+mod session;
 pub use crate::message::EncodeError;
-pub use crate::tree::mirror::handshake::PreambleDefect;
-pub use crate::tree::mirror::party::HandOffDefect;
-pub use crate::tree::mirror::streaming::materialized::{
-    Error as MaterializedError, Violation as MaterializedViolation,
-};
-pub use crate::tree::mirror::streaming::remote::{
-    AcceptError, CodecDecodeError, CodecDecodeErrorKind, CodecEncodeError, CodecEncodeErrorKind,
-    DecodeLeafError, DecodeSignalError, FramePart, GreetingError, HeadError,
-    InvalidSignalPlacement, LeafRunError, LengthOverflow, ListingIssue, OpeningError, Origin,
-    QueryOrderError, RemoteError, ReplyDecodeError, ReplyEncodeError, ReplyFrameError, ScopeError,
-    SendError, Speaker, Stream, StreamClass, StreamError,
+pub use session::{
+    Context, DataStream, Phase, ProtocolViolation, TransportError, TransportOperation,
 };
 
-/// The concrete production mirror failure, retaining its detecting side.
-pub type MirrorError = mirror::Error<MaterializedError<Infallible>, RemoteError<Infallible>>;
+/// The production mirror's internal failure type; neither backend can fail.
+pub(crate) type MirrorError =
+    mirror::Error<materialized::Error<Infallible>, remote::Error<Infallible>>;
 
-/// An error returned by bootstrap, gossip, or retirement.
+/// An incompatibility that prevents the peers from reconciling.
 ///
-/// Generic over the bookmark `B` only to retain its backend error in
-/// [`Bookmark`](Self::Bookmark). Every wire and protocol variant is otherwise
-/// bookmark-independent. The default bookmark type has an uninhabited backend
-/// error.
+/// Each variant carries the values needed to choose a recovery action.
+/// Retrying unchanged peers cannot resolve a mismatch; after resolving it,
+/// reconnect over a fresh link.
 #[non_exhaustive]
 #[derive(Debug, thiserror::Error)]
-pub enum Error<B: BookmarkError = NoBookmark> {
-    /// An underlying reader/writer error, or a wire framing failure outside
-    /// the streaming mirror itself.
-    #[error(transparent)]
-    Io(#[from] std::io::Error),
-
-    /// The peer is not speaking the rumors protocol: its preamble does
-    /// not begin with the self-described CBOR opening of a rumors
-    /// session.
-    #[error("peer is not a rumors stream (leading bytes: {remote_magic:x?})")]
-    MagicMismatch { remote_magic: [u8; 6] },
-
-    /// The peer speaks a different wire dialect.
+pub enum Mismatch {
+    /// The peer speaks a different wire version. Select the same protocol at
+    /// both ends; if it is already the same, align the crate versions.
     #[error("peer speaks rumors protocol version {remote_version}, we selected {local_protocol:?}")]
-    VersionMismatch {
+    #[non_exhaustive]
+    Protocol {
+        /// The protocol selected locally.
         local_protocol: Protocol,
+        /// The wire version advertised by the peer.
         remote_version: u64,
     },
 
-    /// Both peers were gossiping but belong to unrelated causal universes.
-    #[error("peer belongs to a different network ({remote_network:?})")]
-    NetworkMismatch {
-        /// The network identifier advertised by the remote peer.
+    /// Both peers were gossiping but belong to different causal universes.
+    /// Use these event bounds to apply the dominance rule described by
+    /// [`Peer`](crate::Peer)'s "Bootstrapping without consensus" section.
+    #[error("peer belongs to network {remote_network:?}, ours is {local_network:?}")]
+    #[non_exhaustive]
+    Network {
+        /// The network identifier this side advertised.
+        local_network: Network,
+        /// The event bound this side advertised for its own universe.
+        local_min_events: Ticks,
+        /// The network identifier advertised by the peer.
         remote_network: Network,
         /// A lower bound on events recorded in the remote universe.
         remote_min_events: Ticks,
-        /// A lower bound on events recorded in the local universe, as this
-        /// side declared it in the session's handshake.
-        ///
-        /// Together with `remote_min_events` this lets both sides of a
-        /// mismatch apply one deterministic dominance rule from the error
-        /// alone (see [`Peer`](crate::Peer)'s "Bootstrapping without
-        /// consensus"): [`Ticks`] is totally ordered at any magnitude, so
-        /// the comparison never saturates or ties spuriously, however deep
-        /// the two universes' histories run.
-        local_min_events: Ticks,
     },
 
-    /// A retiring peer offered an identity overlapping one already held here.
-    #[error("retiring peer's party overlaps ours")]
-    PartyOverlap,
-
-    /// The peer's configured payload depth limit differs from ours.
-    ///
-    /// The limit is a property of the shared set — every replica must be
-    /// able to hold and forward all content — so all peers of a fleet
-    /// must select the same [`Peer::payload_depth_limit`](crate::Peer::payload_depth_limit).
-    /// Both sides detect the mismatch symmetrically, after the greetings
-    /// are exchanged and before anything else (the converged-session
-    /// short-circuit included), so a mixed configuration is caught
-    /// deterministically at every pairing rather than mid-session on
-    /// particular content. Fix the configuration — align the limit
-    /// fleet-wide — and reconnect.
+    /// The peers have different payload depth limits. Align
+    /// [`Peer::payload_depth_limit`](crate::Peer::payload_depth_limit)
+    /// across the fleet, then reconnect. No reconciliation has taken place.
     #[error("peer's payload depth limit ({remote}) differs from ours ({local})")]
-    PayloadDepthMismatch {
+    #[non_exhaustive]
+    PayloadDepth {
         /// This side's configured limit.
         local: PayloadDepthLimit,
-        /// The limit the peer's greeting declared.
+        /// The limit the peer advertised.
         remote: PayloadDepthLimit,
     },
-
-    /// The session's closing epilogue failed *after* the session's local
-    /// work committed.
-    ///
-    /// A [`Protocol::V2`] session ends with a completion exchange on the
-    /// control stream: each side commits all of its session work, then
-    /// writes one marker byte and reads the peer's. Returning `Ok` requires
-    /// having read the peer's marker, so `Ok` certifies that the peer
-    /// committed too. This error means the exchange itself failed: the
-    /// local side committed, but the peer's confirmation never arrived, so
-    /// the peer may have committed or may have failed. That uncertainty is
-    /// irreducible (the two-generals problem); the exchange pins it to this
-    /// one distinguished error instead of letting it hide behind `Ok`.
-    ///
-    /// Replica state never needs the exchange: content converges by CRDT
-    /// join whatever either side believes, and a donated identity is
-    /// committed out of the donor before it crosses the wire, so a failed
-    /// session can leave an identity held by no one, never by both. What
-    /// the exchange protects is the *success report*. A donor completing
-    /// an identity hand-off (retire, or serving a bootstrap) loses the
-    /// donated identity irreparably whenever its counterparty fails
-    /// before committing; that loss happens with or without a
-    /// confirmation exchange, but without one, the donor would report
-    /// success anyway. With the exchange in place, identity can be lost
-    /// only inside this one window, and the window always announces
-    /// itself as this error, never as an `Ok`.
-    ///
-    /// For a session on an existing replica (gossip, retire, or the side
-    /// serving a bootstrap), the local replica **is** committed on this
-    /// error: every message and identity the session moved is applied here.
-    /// The bootstrapping side is the exception: its epilogue runs before
-    /// any [`Peer`](crate::Peer) exists, so the received identity is
-    /// dropped and nothing is applied locally, while the provider may have
-    /// committed; the forked identity is then lost (see
-    /// [`Bootstrap::join`](crate::Bootstrap::join)). The source is the I/O
-    /// failure that cut the exchange short, or an invalid-data error if the
-    /// peer wrote something other than the marker where it belonged.
-    #[error("session epilogue failed after local commit: {0}")]
-    Epilogue(#[source] std::io::Error),
-
-    /// A session was started on a link whose previous session was
-    /// interrupted.
-    ///
-    /// A session that fails or is cancelled leaves the link's control
-    /// stream mid-frame, where a next session would misread its leftover
-    /// bytes as a preamble. The link records the interruption
-    /// ([`SessionState`](crate::link::SessionState)) and every subsequent
-    /// session fails here, before any wire traffic. Discard the link and
-    /// reconnect; the replica itself is unharmed. Seeing this repeatedly
-    /// means the reconnect path is not actually producing a fresh link;
-    /// the root cause is the first non-poisoned error.
-    #[error(
-        "link is poisoned: an earlier session on it was interrupted before completing; discard the link and reconnect"
-    )]
-    LinkPoisoned,
-
-    /// The peer opened as a rumors stream of the selected dialect, but a
-    /// field of its preamble is not spelled the way the wire demands.
-    ///
-    /// The preamble is deterministic-encoding CBOR — one spelling per
-    /// field — so this is always a counterparty bug, never an alternate
-    /// encoding; the defect names the offending field.
-    #[error("peer preamble is malformed: {defect}")]
-    PreambleMalformed {
-        /// Which preamble field failed, and how.
-        defect: PreambleDefect,
-    },
-
-    /// The peer closed the stream partway through its preamble.
-    ///
-    /// Distinct from [`Io`](Self::Io): the transport delivered a clean
-    /// close, not a failure — the counterparty (or something between)
-    /// hung up mid-handshake. Retry over a fresh link; persistent
-    /// zero-byte truncations from a live peer are a counterparty bug.
-    #[error("peer closed after sending {received} of its {expected} preamble bytes")]
-    PreambleTruncated {
-        /// Preamble bytes received before the close.
-        received: usize,
-        /// The selected dialect's full preamble width.
-        expected: usize,
-    },
-
-    /// The peer delivered its promised identity hand-off, but the item is
-    /// not spelled the way the wire demands, or its content is not one
-    /// canonical party encoding.
-    ///
-    /// The hand-off — the trailing party donation of a bootstrap or
-    /// retirement session — is deterministic-encoding CBOR wrapping a
-    /// canonical party encoding, one spelling per donation, so this is
-    /// always a counterparty bug, never an alternate encoding; the defect
-    /// names the fault. Nothing was absorbed: the local replica is
-    /// unchanged.
-    #[error("peer identity hand-off is malformed: {defect}")]
-    HandOffMalformed {
-        /// Which part of the hand-off failed, and how.
-        defect: HandOffDefect,
-    },
-
-    /// The peer closed the stream before delivering its promised identity
-    /// hand-off whole.
-    ///
-    /// Distinct from [`Io`](Self::Io): the transport delivered a clean
-    /// close, not a failure — the counterparty (or something between)
-    /// hung up after its preamble intent promised a donation. Nothing was
-    /// absorbed: the local replica is unchanged. Retry over a fresh link.
-    #[error("peer closed before delivering its promised identity hand-off")]
-    HandOffTruncated,
-
-    /// The peer's intent byte had no defined meaning.
-    #[error("peer sent an invalid intent byte ({byte:#04x})")]
-    IntentInvalid { byte: u8 },
-
-    /// A peer cannot simultaneously receive and donate an identity.
-    #[error("peer claimed to bootstrap and retire in the same session")]
-    BootstrapRetireConflict,
-
-    /// A bootstrap claimant declared a non-empty causal version.
-    ///
-    /// A bootstrap claimant is definitionally a newborn replica with no
-    /// causal history, so its greeting version must be empty. The declared
-    /// version feeds the deletion-honoring filter as the claimant's causal
-    /// frontier, and a mis-declared frontier would make established content
-    /// read as deleted-there; the conflict between the two claims
-    /// (newborn, yet with history) is rejected here, after the greeting
-    /// and before reconciliation moves anything.
-    ///
-    /// Detected by whichever side faces the claimant: a provider serving
-    /// the bootstrap, or a bootstrapping peer whose counterparty is itself
-    /// a claimant (the mutual-bootstrap encounter). The detecting side's
-    /// replica is unchanged (no content, identity, or bookmark state
-    /// moved) and its link is poisoned like any failed session's. The
-    /// recovery is the claimant's: rejoin with a genuinely newborn
-    /// replica, whose version is empty by construction.
-    #[error(
-        "peer claimed to bootstrap while declaring causal history (at least {claimed_min_events} events): a bootstrap claimant is a newborn replica whose version is empty"
-    )]
-    BootstrapHistoryConflict {
-        /// A lower bound on events recorded in the claimant's declared
-        /// version, as [`NetworkMismatch`](Self::NetworkMismatch) counts
-        /// them.
-        claimed_min_events: Ticks,
-    },
-
-    /// The application's bookmark failed to load, persist, or decode.
-    ///
-    /// The replica's content is never affected; fix or replace the storage
-    /// and retry. In the common case the error arrives *before* the
-    /// session transmits anything, and nothing has changed at all. The one
-    /// post-commit case: absorbing a retiring peer commits the reconciled
-    /// content and the absorbed identity first, then persists, so this
-    /// error can arrive with the absorption live but not yet crash-safe. A
-    /// crash before some later session persists successfully strands that
-    /// identity, held by no live peer and recorded in no bookmark;
-    /// retrying [`gossip`](crate::Rumors::gossip) on a fresh link re-runs
-    /// the persist. Independently, identity a failed update had already
-    /// reclaimed from the record stays live in memory, and the next
-    /// successful persist records it.
-    #[error(transparent)]
-    Bookmark(BookmarkIo<B::Error>),
-
-    /// Reconciliation failed in either the materialized participant or its
-    /// wire-bound counterparty proxy.
-    ///
-    /// The nested source retains the detecting side and remains matchable
-    /// through backend, adapter, session, codec, and transport errors.
-    #[error(transparent)]
-    Mirror(#[from] MirrorError),
 }
 
-impl From<handshake::Error> for Error<NoBookmark> {
+/// A failure returned by bootstrap, gossip, or retirement.
+///
+/// `B` retains the application's bookmark error type. Session diagnostics are
+/// independent of bookmark storage. For failures with a [`Context`], inspect
+/// its phase as well as its cause: completion can fail after local commit.
+#[non_exhaustive]
+#[derive(Debug, thiserror::Error)]
+pub enum Error<B: BookmarkError = NoBookmark> {
+    /// A transport operation failed or the peer closed before it completed.
+    /// Reconnect using a fresh link.
+    #[error(transparent)]
+    Transport(TransportError),
+
+    /// A protocol or implementation invariant failed. Report its context and
+    /// diagnostic source as a bug; ordinary peer departure is a transport failure.
+    #[error(transparent)]
+    Protocol(ProtocolViolation),
+
+    /// The peers have incompatible protocols, networks, or settings.
+    /// Resolve the mismatch before retrying on a fresh link.
+    #[error(transparent)]
+    Mismatch(Mismatch),
+
+    /// An earlier session failed or was cancelled on this link. Discard it and
+    /// reconnect; its stream positions no longer mark a session boundary.
+    #[error("link is poisoned by an interrupted session; discard it and reconnect")]
+    LinkPoisoned,
+
+    /// The application's bookmark failed to load, persist, or decode.
+    /// Repair or replace the storage before retrying.
+    ///
+    /// Usually this happens before any traffic. Absorbing a retirement instead
+    /// commits content and identity before persisting, so that absorption is
+    /// live but not yet crash-safe on this error. A later successful gossip
+    /// persists it. Identity reclaimed during an unsuccessful update also
+    /// remains live in memory until a successful persist records it.
+    #[error(transparent)]
+    Bookmark(BookmarkIo<B::Error>),
+}
+
+impl From<handshake::Error> for Error {
+    /// Classify preamble failures without exposing its wire grammar.
     fn from(error: handshake::Error) -> Self {
         match error {
-            handshake::Error::Io(error) => Error::Io(error),
-            handshake::Error::MagicMismatch { remote_magic } => {
-                Error::MagicMismatch { remote_magic }
+            handshake::Error::Io { operation, source } => {
+                Self::transport(Phase::Preamble, operation, source)
             }
             handshake::Error::VersionMismatch {
                 local_protocol,
                 remote_version,
-            } => Error::VersionMismatch {
+            } => Self::Mismatch(Mismatch::Protocol {
                 local_protocol,
                 remote_version,
-            },
-            handshake::Error::Malformed { defect } => Error::PreambleMalformed { defect },
-            handshake::Error::Truncated { received, expected } => {
-                Error::PreambleTruncated { received, expected }
-            }
-            handshake::Error::IntentInvalid { byte } => Error::IntentInvalid { byte },
-            handshake::Error::BootstrapRetireConflict => Error::BootstrapRetireConflict,
+            }),
+            error @ handshake::Error::Truncated { .. } => Self::transport(
+                Phase::Preamble,
+                TransportOperation::Read,
+                std::io::Error::new(std::io::ErrorKind::UnexpectedEof, error),
+            ),
+            error => Self::violation(Phase::Preamble, error),
         }
     }
 }
 
-impl Error<NoBookmark> {
-    /// Re-tags a bookmark-free session error under any bookmark `B`.
-    ///
-    /// Wire and protocol machinery produces `Error<NoBookmark>`; peer-level
-    /// drivers return `Error<B>`. The only bookmark backend error here is
-    /// uninhabited, making the conversion total and lossless.
+impl Error {
+    /// Retag an error under a bookmark type without losing its cause.
     pub(crate) fn widen<B: BookmarkError>(self) -> Error<B> {
         match self {
-            Error::Io(error) => Error::Io(error),
-            Error::MagicMismatch { remote_magic } => Error::MagicMismatch { remote_magic },
-            Error::VersionMismatch {
-                local_protocol,
-                remote_version,
-            } => Error::VersionMismatch {
-                local_protocol,
-                remote_version,
-            },
-            Error::NetworkMismatch {
-                remote_network,
-                remote_min_events,
-                local_min_events,
-            } => Error::NetworkMismatch {
-                remote_network,
-                remote_min_events,
-                local_min_events,
-            },
-            Error::PartyOverlap => Error::PartyOverlap,
-            Error::PayloadDepthMismatch { local, remote } => {
-                Error::PayloadDepthMismatch { local, remote }
-            }
-            Error::Epilogue(error) => Error::Epilogue(error),
-            Error::LinkPoisoned => Error::LinkPoisoned,
-            Error::PreambleMalformed { defect } => Error::PreambleMalformed { defect },
-            Error::PreambleTruncated { received, expected } => {
-                Error::PreambleTruncated { received, expected }
-            }
-            Error::HandOffMalformed { defect } => Error::HandOffMalformed { defect },
-            Error::HandOffTruncated => Error::HandOffTruncated,
-            Error::IntentInvalid { byte } => Error::IntentInvalid { byte },
-            Error::BootstrapRetireConflict => Error::BootstrapRetireConflict,
-            Error::BootstrapHistoryConflict { claimed_min_events } => {
-                Error::BootstrapHistoryConflict { claimed_min_events }
-            }
-            Error::Mirror(error) => Error::Mirror(error),
-            Error::Bookmark(error) => match error {
+            Self::Transport(error) => Error::Transport(error),
+            Self::Protocol(error) => Error::Protocol(error),
+            Self::Mismatch(error) => Error::Mismatch(error),
+            Self::LinkPoisoned => Error::LinkPoisoned,
+            Self::Bookmark(error) => match error {
                 BookmarkIo::Io(never) => match never {},
                 BookmarkIo::Format(error) => Error::Bookmark(BookmarkIo::Format(error)),
             },

@@ -166,31 +166,22 @@ Every input, in one process, under libFuzzer:
    `sync_memory_budget` envelope plus fixture overhead and pinned
    (open question 3). A session that materializes transient state
    grossly disproportionate to its window pricing is a crash finding.
-4. **Fail-fast surfaces typed errors.** The session's result type
-   already forces this statically: `Result<Gossiped, Error<NoBookmark>>`
-   with the taxonomy in `src/error.rs` (`Error::Io`,
-   `Error::MagicMismatch`, `Error::VersionMismatch`,
-   `Error::NetworkMismatch`, `Error::IntentInvalid`,
-   `Error::Epilogue`, `Error::Mirror` wrapping
-   `MaterializedError`/`Violation` — `UnaskedReply`,
-   `UncontainedSupply`, … — and `RemoteError` over the codec's
-   `CodecDecodeError`/`CodecDecodeErrorKind`, the stream layer's
-   `StreamError`/`AcceptError`/`SendError`, and the adapter's
-   `ReplyDecodeError` with `OversizedVersion`, `LeafOutsideScope`, …). What
-   the harness asserts dynamically is the *link consequence* the
-   contract attaches: on any `Err`, the link end's
-   `SessionState::poisoned()` reads true (via `Link::into_parts`).
+4. **Fail-fast surfaces typed errors.** Sessions return
+   `Result<Gossiped, Error<NoBookmark>>`. A violation of a fully received
+   frame is `Error::Protocol`; wire cuts are `Error::Transport`.
+   The harness also checks the link consequence: on any `Err`,
+   `SessionState::poisoned()` is true (via `Link::into_parts`).
 5. **Replica coherence after rejection** — pinned to what the session
    contract promises today (`Rumors::gossip` docs; `Link`'s "What a
    session promises"), not an invented ideal:
    - Before the session, capture `snapshot.hash()` and
      `snapshot.latest()` (`src/snapshot.rs`).
-   - On `Err` other than `Error::Epilogue`: the replica is unchanged —
+   - On failure before `Phase::Completion`: the replica is unchanged —
      post-session root hash and version byte-equal to the captured pair.
-     (Of the contract's three "unchanged" exceptions, only `Epilogue`
+     (Of the contract's three "unchanged" exceptions, only completion failure
      is reachable: the fixture neither bootstraps, donates, nor carries
      a bookmark.)
-   - On `Ok` or `Err(Epilogue)` (both mean locally committed): the
+   - On success or failure in `Phase::Completion` (both mean locally committed): the
      local version never regresses — post-session `latest()` is `>=`
      the captured version. Content retention is deliberately *not*
      asserted: a completed session may honor peer-declared deletions,

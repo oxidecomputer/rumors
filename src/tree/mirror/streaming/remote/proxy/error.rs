@@ -18,9 +18,15 @@ pub enum Error<E> {
     /// The peer's greeting arrived but is not canonical rumors CBOR.
     #[error("failed to decode streaming handshake")]
     HandshakeDecode(#[source] codec::GreetingError),
-    /// Writing and flushing the local greeting frames failed.
-    #[error("failed to write streaming handshake")]
-    HandshakeWrite(#[source] std::io::Error),
+    /// Sending the local greeting failed before reconciliation began.
+    #[error("{operation} failed during the greeting: {source}")]
+    HandshakeWrite {
+        /// Whether writing or flushing failed.
+        operation: crate::error::TransportOperation,
+        /// The transport's original error.
+        #[source]
+        source: std::io::Error,
+    },
     /// The peer's greeting listing violated canonical ascending radix order.
     #[error("peer greeting carried a non-canonical root-fan listing")]
     HandshakeListing(#[source] codec::QueryOrderError),

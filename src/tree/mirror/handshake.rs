@@ -24,6 +24,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use crate::{
     Network, Protocol,
+    error::TransportOperation,
     observe::SessionHandle,
     tree::mirror::cbor::{self, MAJOR_BSTR, MAJOR_UINT},
 };
@@ -171,8 +172,14 @@ impl Preamble {
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum Error {
     /// Reading or writing the fixed frame failed.
-    #[error(transparent)]
-    Io(#[from] std::io::Error),
+    #[error("{operation} failed during the preamble: {source}")]
+    Io {
+        /// The failed control-stream operation.
+        operation: TransportOperation,
+        /// The transport's original error.
+        #[source]
+        source: std::io::Error,
+    },
     /// The peer is not speaking the rumors protocol.
     #[error("peer is not a rumors stream (leading bytes: {remote_magic:x?})")]
     MagicMismatch { remote_magic: [u8; 6] },
@@ -197,14 +204,7 @@ pub(crate) enum Error {
     BootstrapRetireConflict,
 }
 
-/// Which field of a correctly-opened preamble failed to parse.
-///
-/// Carried by
-/// [`Error::PreambleMalformed`](crate::Error::PreambleMalformed): the
-/// peer opened as a rumors stream of the selected dialect, but one
-/// field is not spelled the way the wire demands. The preamble is
-/// deterministic-encoding CBOR — one spelling per field — so every
-/// defect here is a counterparty bug, never an alternate encoding.
+/// The invalid field in a fully received preamble.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 pub enum PreambleDefect {
@@ -267,7 +267,13 @@ impl Staged {
         R: AsyncRead + Unpin + ?Sized,
     {
         while self.filled < V2_PREAMBLE_LEN {
-            match reader.read(&mut self.buf[self.filled..]).await? {
+            match reader
+                .read(&mut self.buf[self.filled..])
+                .await
+                .map_err(|source| Error::Io {
+                    operation: TransportOperation::Read,
+                    source,
+                })? {
                 0 if self.filled == 0 => return Ok(Fill::Closed),
                 0 => {
                     return Err(Error::Truncated {
@@ -310,8 +316,14 @@ where
     let local = Preamble { network, intent }.encode();
 
     let write = async {
-        writer.write_all(&local).await.map_err(Error::Io)?;
-        writer.flush().await.map_err(Error::Io)?;
+        writer.write_all(&local).await.map_err(|source| Error::Io {
+            operation: TransportOperation::Write,
+            source,
+        })?;
+        writer.flush().await.map_err(|source| Error::Io {
+            operation: TransportOperation::Flush,
+            source,
+        })?;
         observe.control_sent(&local);
         Ok(())
     };

@@ -80,7 +80,7 @@ fn bootstrap_from(provider: Peer<u64>) -> (Peer<u64>, Peer<u64>) {
 }
 
 /// A peer that absorbs a retiree whose party **overlaps** its own rejects it
-/// with [`Error::PartyOverlap`] rather than corrupting its clock.
+/// with [`Error::Protocol`] rather than corrupting its clock.
 ///
 /// A correct universe never produces this (live parties are always disjoint);
 /// we forge it with [`Party::dangerously_alias`] — a copy of the absorber's
@@ -118,7 +118,7 @@ fn overlapping_retiree_party_is_rejected() {
     });
 
     assert!(
-        matches!(survivor_out, Err(Error::PartyOverlap)),
+        matches!(survivor_out, Err(Error::Protocol(_))),
         "absorbing an overlapping party must surface PartyOverlap, got {survivor_out:?}"
     );
     // The absorber aborted pre-marker, so the forged retiree's party is in
@@ -412,9 +412,9 @@ fn severed_descent_recovers_the_retiree() {
 /// identity: [`Retire::Recovered`] here would let the same identity live
 /// twice, and [`Retire::Retired`] would overstate (the peer's commit was
 /// never confirmed). The only sound outcome is [`Retire::Uncertain`], and
-/// its error is the distinguished post-commit [`Error::Epilogue`]: the
-/// epilogue's failure return must preserve the retire outcome rather than
-/// mapping back to a recovery.
+/// its error identifies [`Phase::Completion`](crate::error::Phase::Completion).
+/// Failure at this point must preserve the uncertain retirement outcome;
+/// the donated identity cannot be recovered safely.
 #[test]
 fn severed_epilogue_marker_is_uncertain() {
     let survivor = Peer::<u64>::seed();
@@ -431,13 +431,13 @@ fn severed_epilogue_marker_is_uncertain() {
         panic!("a failure on the epilogue marker must consume the retiree, got {child_out:?}");
     };
     assert!(
-        matches!(error, Error::Epilogue(_)),
+        matches!(error, Error::Transport(ref error) if error.context.phase == crate::error::Phase::Completion),
         "the post-hand-off failure is the distinguished post-commit error, got {error:?}"
     );
     // The absorber committed the party before its own epilogue read hit the
     // severed wire: it reports the same post-commit residue.
     assert!(
-        matches!(peer_out, Err(Error::Epilogue(_))),
+        matches!(peer_out, Err(Error::Transport(ref error)) if error.context.phase == crate::error::Phase::Completion),
         "the absorber's confirmation of the retiree's completion fails, got {peer_out:?}"
     );
     drop(survivor);
@@ -536,7 +536,7 @@ fn severed_party_frame_is_uncertain() {
 /// An uncontained supply crossing a real peer session surfaces through
 /// [`Rumors::gossip`](crate::Rumors::gossip) as its typed violation.
 ///
-/// The error is [`Error::Mirror`] carrying `UncontainedSupply`; the
+/// The error is [`Error::Protocol`] carrying `UncontainedSupply`; the
 /// replica's content is untouched, and the link is poisoned so the next
 /// session on it fails fast with [`Error::LinkPoisoned`].
 ///
@@ -548,9 +548,8 @@ fn severed_party_frame_is_uncertain() {
 /// `escaped_version_defeats_redaction_in_a_poisoned_store`.
 #[test]
 fn uncontained_supply_fails_gossip_and_poisons_the_link() {
-    use crate::error::{MaterializedError, MaterializedViolation};
     use crate::message::Message;
-    use crate::tree::mirror::Error as MirrorError;
+    use crate::tree::mirror::streaming::materialized::Violation as MaterializedViolation;
 
     let survivor = Peer::<u64>::seed();
     let (survivor, child) = bootstrap_from(survivor);
@@ -594,9 +593,8 @@ fn uncontained_supply_fails_gossip_and_poisons_the_link() {
     assert!(
         matches!(
             receiver_out,
-            Err(Error::Mirror(MirrorError::Client(
-                MaterializedError::Violation(MaterializedViolation::UncontainedSupply)
-            ))),
+            Err(Error::Protocol(ref error))
+                if matches!(error.source.downcast_ref::<MaterializedViolation>(), Some(MaterializedViolation::UncontainedSupply)),
         ),
         "the receiving peer rejects the escaped leaf with its typed violation, got {receiver_out:?}",
     );

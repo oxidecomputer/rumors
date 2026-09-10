@@ -1,15 +1,8 @@
-//! Ingress validation of the trailing party-donation frame.
+//! Identity donations either decode completely or fail without accepting a
+//! partial identity.
 //!
-//! The donated identity is the last peer-controlled payload of a bootstrap
-//! or retire session: one party-atom-tagged byte string whose content must
-//! be exactly one canonical party encoding. This suite feeds [`receive`]
-//! crafted items — truncations at each structural boundary, length lies in
-//! both directions, wrong tags, trailing and arbitrary bodies — and pins
-//! that each surfaces as its typed diagnosis ([`Error::HandOffTruncated`]
-//! for a stream that stops, [`Error::HandOffMalformed`] with the naming
-//! defect for bytes that lie), never a panic, never a hang, and never a
-//! partial identity; and that a clean receive leaves the next session's
-//! bytes untouched in the transport.
+//! Wire cuts are transport failures; invalid complete items
+//! are protocol violations. A successful receive leaves later bytes untouched.
 
 use before::Party;
 use before::error::Decode;
@@ -40,10 +33,13 @@ fn receive_party(bytes: &[u8]) -> Result<Party, Error> {
 /// Unwrap the typed defect of a malformed donation.
 fn defect(result: Result<Party, Error>) -> HandOffDefect {
     match result {
-        Err(Error::HandOffMalformed { defect }) => defect,
+        Err(Error::Protocol(error)) => *error
+            .source
+            .downcast::<HandOffDefect>()
+            .expect("hand-off diagnostic"),
         Ok(_) => panic!("a malformed donation must not decode"),
         Err(other) => {
-            panic!("a malformed donation fails as Error::HandOffMalformed, got {other:?}")
+            panic!("a malformed donation fails as a protocol violation, got {other:?}")
         }
     }
 }
@@ -80,7 +76,7 @@ fn a_donated_party_round_trips() {
 /// truncation.
 ///
 /// Every strict prefix of the tag and byte-string heads — the close at
-/// each boundary included — must resolve to [`Error::HandOffTruncated`],
+/// each boundary included — must resolve to [`Error::Transport`],
 /// never a hang on bytes that cannot arrive.
 #[test]
 fn truncated_frame_header_is_a_typed_truncation() {
@@ -88,7 +84,7 @@ fn truncated_frame_header_is_a_typed_truncation() {
     let heads = &heads[..heads.len() - 1];
     for cut in 0..heads.len() {
         assert!(
-            matches!(receive_party(&heads[..cut]), Err(Error::HandOffTruncated)),
+            matches!(receive_party(&heads[..cut]), Err(Error::Transport(ref error)) if error.source.kind() == std::io::ErrorKind::UnexpectedEof),
             "cut after {cut} head bytes must be the typed truncation",
         );
     }
@@ -152,7 +148,7 @@ fn malformed_head_is_a_typed_error() {
 /// A frame declaring more bytes than the peer sends is a typed truncation.
 ///
 /// The over-declared length makes the exact body read run off the end of
-/// the stream; the lie must surface as [`Error::HandOffTruncated`], never
+/// the stream; the lie must surface as [`Error::Transport`], never
 /// as a partially filled body handed to the party decoder.
 #[test]
 fn over_declared_frame_is_a_typed_truncation() {
@@ -163,7 +159,7 @@ fn over_declared_frame_is_a_typed_truncation() {
 
     assert!(matches!(
         receive_party(&bytes),
-        Err(Error::HandOffTruncated)
+        Err(Error::Transport(ref error)) if error.source.kind() == std::io::ErrorKind::UnexpectedEof
     ));
 }
 
@@ -174,7 +170,7 @@ fn over_declared_frame_is_a_typed_truncation() {
 /// first bit read. The body arrived whole (exactly the zero bytes its head
 /// declared), so this is the content's own fault:
 /// [`HandOffDefect::Undecodable`] with the decoder's truncation, never
-/// [`Error::HandOffTruncated`], which is reserved for a stream that stops.
+/// [`Error::Transport`], which is reserved for a stream that stops.
 #[test]
 fn empty_frame_body_is_a_typed_error() {
     assert!(matches!(
@@ -241,7 +237,7 @@ fn bytes_after_the_frame_stay_untouched() {
 
 proptest! {
     /// Arbitrary frame bodies decode to a party or the typed
-    /// [`Error::HandOffMalformed`] — never a panic — and anything accepted
+    /// [`Error::Protocol`] — never a panic — and anything accepted
     /// is canonical.
     ///
     /// The frame is honestly sized around an arbitrary body, so the fuzz
@@ -260,7 +256,7 @@ proptest! {
                 let reencoded = party.as_bytes().to_vec();
                 prop_assert_eq!(reencoded, body, "accepted donation was not canonical");
             }
-            Err(Error::HandOffMalformed { defect: HandOffDefect::Undecodable(_) }) => {}
+            Err(Error::Protocol(ref error)) if matches!(error.source.downcast_ref::<HandOffDefect>(), Some(HandOffDefect::Undecodable(_))) => {}
             Err(other) => prop_assert!(false, "expected a typed hand-off defect, got {other:?}"),
         }
     }

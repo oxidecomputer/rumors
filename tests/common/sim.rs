@@ -81,10 +81,7 @@ use std::time::Duration;
 
 use before::Party;
 use proptest::prelude::*;
-use rumors::error::{
-    CodecDecodeErrorKind, CodecEncodeErrorKind, RemoteError, SendError, StreamError,
-};
-use rumors::{Error, Gossiped, MirrorError, Peer, Retire, Rumors, Version};
+use rumors::{Error, Gossiped, Peer, Retire, Rumors, Version};
 
 use crate::common::fault::{self, FaultPlan, Vanish};
 use crate::common::oracle::{readout, readout_multiset, version_key};
@@ -454,21 +451,10 @@ pub fn arb_plan() -> impl Strategy<Value = Plan> {
 
 // ---- honesty of failures ---------------------------------------------------
 
-/// Assert `e` is an injected I/O fault that *truncated* a frame: the only
-/// error an honest, single-universe simulation can surface.
+/// Assert that the failure is an injected transport cut.
 ///
-/// Anything else — [`Error::PartyOverlap`] above all, network/protocol
-/// mismatches, or a frame that arrived whole but failed to parse — is an
-/// invariant violation, not a disruption, and fails the test on the spot.
-///
-/// A wire cut stops the byte stream mid-frame, so a faulted read surfaces as an
-/// I/O error whose kind is `UnexpectedEof` (or a write/broken-pipe variant),
-/// or — when the cut lands inside the handshake or the identity hand-off —
-/// as the typed `PreambleTruncated` or `HandOffTruncated`; never a
-/// complete-but-malformed frame. A decode failure (`InvalidData`,
-/// `PreambleMalformed`, `HandOffMalformed`) is therefore a protocol/codec
-/// bug, not a fault: it is exactly how a non-canonical [`Party`] on the
-/// wire once slipped through, so reject it alongside the non-I/O variants.
+/// Fully received invalid content remains a protocol bug, even if a nested
+/// decoder describes it using an I/O error type.
 pub fn assert_honest_error(e: &Error) {
     assert!(
         is_honest_error(e),
@@ -479,24 +465,7 @@ pub fn assert_honest_error(e: &Error) {
 
 /// Whether an error is exactly one of the disruption harness's wire cuts.
 fn is_honest_error(error: &Error) -> bool {
-    match error {
-        Error::Io(error) => honest_io(error),
-        // A cut that lands inside the preamble surfaces as the typed
-        // truncation: its byte counts say the stream *stopped*, never
-        // that it lied. A malformed preamble stays dishonest — a cut
-        // never corrupts a frame.
-        Error::PreambleTruncated { .. } => true,
-        // Likewise a cut that lands inside the promised identity
-        // hand-off: the typed truncation says the stream stopped. A
-        // malformed hand-off stays dishonest, as everywhere.
-        Error::HandOffTruncated => true,
-        // A cut that lands on the closing epilogue exchange is post-commit
-        // but still an honest severed wire; a non-marker byte there
-        // (`InvalidData`) stays dishonest, as everywhere.
-        Error::Epilogue(error) => honest_io(error),
-        Error::Mirror(MirrorError::Server(error)) => honest_remote(error),
-        _ => false,
-    }
+    matches!(error, Error::Transport(error) if honest_io(&error.source))
 }
 
 /// Whether an I/O source is one of the fault harness's severed-wire outcomes.
@@ -507,36 +476,6 @@ fn honest_io(error: &std::io::Error) -> bool {
             | std::io::ErrorKind::ConnectionReset
             | std::io::ErrorKind::UnexpectedEof
     )
-}
-
-/// Recognize only typed V2 surfaces directly caused by a severed transport.
-fn honest_remote(error: &RemoteError<Infallible>) -> bool {
-    match error {
-        RemoteError::HandshakeRead(source) | RemoteError::HandshakeWrite(source) => {
-            honest_io(source)
-        }
-        // A stream truncated mid-frame, or a stream supply that died: both
-        // are the transport dying somewhere the protocol did not choose.
-        RemoteError::Stream(StreamError::Truncated { .. }) => true,
-        RemoteError::Stream(StreamError::SupplyClosed { source, .. }) => {
-            source.as_ref().is_none_or(honest_io)
-        }
-        RemoteError::Stream(StreamError::Decode(error)) => match &error.kind {
-            CodecDecodeErrorKind::Read { source, .. }
-            | CodecDecodeErrorKind::Truncated { source, .. } => honest_io(source),
-            _ => false,
-        },
-        RemoteError::Send(SendError::Connect { source, .. } | SendError::Label { source, .. }) => {
-            honest_io(source)
-        }
-        RemoteError::Send(SendError::Frame(error)) => match &error.kind {
-            CodecEncodeErrorKind::Write { source, .. } | CodecEncodeErrorKind::Flush(source) => {
-                honest_io(source)
-            }
-            _ => false,
-        },
-        _ => false,
-    }
 }
 
 /// [`assert_honest_error`] over a session outcome.

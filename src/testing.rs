@@ -3,6 +3,11 @@
 mod memnet;
 mod transport;
 
+pub use crate::tree::mirror::streaming::remote::codec::{
+    DecodeError as CodecDecodeError, DecodeErrorKind as CodecDecodeErrorKind, FramePart, HeadError,
+    LeafRunError,
+};
+
 pub use memnet::{MemoryDial, MemoryListen, MemoryName, MemoryNet};
 pub use transport::{
     AdversarialAcceptor, AdversarialConnector, AdversarialRead, AdversarialWrite,
@@ -144,14 +149,14 @@ pub fn lone_record_run(len: usize) -> Vec<u8> {
 ///
 /// The allocator meter (`tests/decode_alloc.rs`) drives the codec's supply
 /// read path through this; the decoded value is noise to that meter, but
-/// the typed [`CodecDecodeError`](crate::error::CodecDecodeError) passes
+/// the typed [`CodecDecodeError`] passes
 /// through so the meter can also assert how a failure classified. Runs at
 /// the framing-ceiling run budget, so every well-framed declaration reaches
 /// the body-read path this entry prices; the budget's ingress gate is
 /// priced separately through [`decode_supply_frame_budgeted`].
 pub async fn decode_supply_frame(
     read: impl tokio::io::AsyncRead + Unpin,
-) -> Result<(), crate::error::CodecDecodeError> {
+) -> Result<(), CodecDecodeError> {
     decode_supply_frame_budgeted(read, usize::MAX).await
 }
 
@@ -166,7 +171,7 @@ pub async fn decode_supply_frame(
 pub async fn decode_supply_frame_budgeted(
     read: impl tokio::io::AsyncRead + Unpin,
     budget: usize,
-) -> Result<(), crate::error::CodecDecodeError> {
+) -> Result<(), CodecDecodeError> {
     crate::tree::mirror::streaming::remote::decode_frame_discarded(
         read,
         crate::tree::mirror::streaming::remote::RunBudget::from_bytes(budget),

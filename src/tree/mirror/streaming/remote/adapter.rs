@@ -80,7 +80,9 @@ mod scope;
 
 pub use decode::{Decoded, decode_leaf_reply, decode_reply, early_supplies, opening_reply};
 pub use encode::{Encoded, encode_leaf_reply, encode_reply, opening_parts};
-pub use error::{DecodeError, EncodeError, OpeningError, ScopeError};
+#[cfg(test)]
+use error::ScopeError;
+pub use error::{DecodeError, EncodeError, OpeningError};
 pub use scope::Scope;
 
 #[cfg(test)]

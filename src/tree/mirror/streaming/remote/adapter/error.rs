@@ -107,7 +107,7 @@ pub enum DecodeError<E> {
     /// offending record while its reply is still open, never after the
     /// reply materializes. The in-process walk enforces the same premise
     /// at absorption as
-    /// [`Violation::OverdrawnSupply`](crate::error::MaterializedViolation::OverdrawnSupply).
+    /// [`Violation::OverdrawnSupply`](crate::tree::mirror::streaming::materialized::Violation::OverdrawnSupply).
     #[error("supplied leaf overruns the peer's declared set length of {declared}")]
     OverdrawnSupply { declared: u64 },
     /// A positional wire reaction cannot be scoped without another child.

@@ -5,7 +5,9 @@ use crate::testing::run_to_quiescence;
 use crate::tree::{
     arb::early_first_child_dispute_pair,
     mirror::streaming::remote::{
-        CodecDecodeErrorKind, DecodeSignalError, Error as RemoteError, StreamError,
+        Error as RemoteError,
+        codec::{DecodeErrorKind as CodecDecodeErrorKind, DecodeSignalError},
+        streams::StreamError,
     },
 };
 

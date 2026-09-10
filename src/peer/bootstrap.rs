@@ -226,17 +226,13 @@ impl<T> Bootstrap<T> {
     /// another peer and try again (the builder is `Clone`, so the same
     /// configuration retries as-is).
     ///
-    /// On `Ok(Some(peer))` the provider has confirmed committing its side
-    /// of the donation. The confirmation exchange leaves one irreducible
-    /// residue: the confirmation itself can be lost, a gap
-    /// [`Error::Epilogue`] explains cannot be closed. If the session
-    /// fails at the very end with that error, the provider may have
-    /// committed while our side reports failure, and the forked identity
-    /// is lost. Losing a fork is safe (no invariant depends on it
-    /// arriving) but not free: it is identity space gone for good,
-    /// unless coordination outside this library reclaims it. What `Err`
-    /// and cancellation leave behind is stated in [what a session
-    /// promises](crate::link::Link#what-a-session-promises).
+    /// On `Ok(Some(peer))`, the provider has confirmed its commit. Failure
+    /// in [`Phase::Completion`](crate::error::Phase::Completion) instead
+    /// discards the received identity and constructs no peer, even if the
+    /// provider committed. The fork is then lost. This preserves identity
+    /// disjointness, but permanently reduces available identity space unless
+    /// external coordination reclaims it. See [session failure and
+    /// cancellation](crate::link::Link#what-a-session-promises).
     ///
     /// The peer arrives unbookmarked: its identity has been forked away
     /// to us but not yet persisted, so a crash before it is recorded

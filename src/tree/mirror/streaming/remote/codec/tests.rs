@@ -1,3 +1,4 @@
+use super::signal::{InvalidSignalPlacement, StreamClass};
 use std::collections::BTreeMap;
 use std::fmt::Write;
 use std::io::Cursor;

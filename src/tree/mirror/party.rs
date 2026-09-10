@@ -5,19 +5,13 @@ use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
 use crate::{
     Error,
+    error::{Phase, TransportOperation as Op},
     observe::{CaptureRead, SessionHandle},
     tags::PARTY_TAG,
     tree::mirror::cbor::{self, HeadError, MAJOR_BSTR},
 };
 
-/// Which part of a delivered identity hand-off failed to parse.
-///
-/// Carried by [`Error::HandOffMalformed`]: the peer
-/// delivered its promised identity hand-off, but the item is not spelled
-/// the way the wire demands, or its content is not one canonical party
-/// encoding. The hand-off is deterministic-encoding CBOR wrapping a
-/// canonical party encoding — one spelling per donation — so every defect
-/// here is a counterparty bug, never an alternate encoding.
+/// A framing or content defect in an identity donation.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum HandOffDefect {
@@ -46,7 +40,7 @@ pub enum HandOffDefect {
     /// so this is never a transport cut: the content itself is wrong.
     /// An encoding the declared length cuts short is
     /// [`Truncated`](before::error::Decode::Truncated) here, not
-    /// [`Error::HandOffTruncated`].
+    /// a transport truncation.
     #[error("the hand-off bytes are not one canonical party encoding: {0}")]
     Undecodable(before::error::Decode),
 }
@@ -73,8 +67,14 @@ where
     cbor::write_tag(&mut item, PARTY_TAG);
     cbor::write_head(&mut item, MAJOR_BSTR, bytes.len() as u64);
     item.extend_from_slice(bytes);
-    writer.write_all(&item).await.map_err(Error::Io)?;
-    writer.flush().await.map_err(Error::Io)?;
+    writer
+        .write_all(&item)
+        .await
+        .map_err(|source| Error::transport(Phase::IdentityTransfer, Op::Write, source))?;
+    writer
+        .flush()
+        .await
+        .map_err(|source| Error::transport(Phase::IdentityTransfer, Op::Flush, source))?;
     observe.control_sent(&item);
     Ok(())
 }
@@ -99,7 +99,7 @@ async fn receive_item<R>(reader: &mut R) -> Result<Party, Error>
 where
     R: AsyncRead + Unpin + ?Sized,
 {
-    let malformed = |defect| Error::HandOffMalformed { defect };
+    let malformed = |defect| Error::violation(Phase::IdentityTransfer, defect);
     let head = read_head(reader).await?;
     if head.major != cbor::MAJOR_TAG || head.value != PARTY_TAG {
         return Err(malformed(HandOffDefect::NotPartyTagged));
@@ -115,49 +115,39 @@ where
     // transport failure keeps its own kind and passes through.
     let bytes = crate::tree::mirror::framing::read_payload(&mut &mut *reader, len)
         .await
-        .map_err(|e| match e.kind() {
-            std::io::ErrorKind::UnexpectedEof => Error::HandOffTruncated,
-            _ => Error::Io(e),
-        })?;
+        .map_err(|source| Error::transport(Phase::IdentityTransfer, Op::Read, source))?;
     decode_party(&bytes)
 }
 
-/// Decode one exact donation body into its canonical party.
-///
-/// The body arrived whole, so every decode failure is the content's own:
-/// a typed hand-off defect, never a transport error. The one exception
-/// is the reader's own failure, which passes through — unreachable from
-/// a slice, kept total.
+/// Decode a complete donation body; failures describe content, not transport.
 fn decode_party(bytes: &[u8]) -> Result<Party, Error> {
-    Party::decode(bytes).map_err(|defect| match defect {
-        before::error::Decode::Io(e) => Error::Io(e),
-        defect => Error::HandOffMalformed {
-            defect: HandOffDefect::Undecodable(defect),
-        },
+    Party::decode(bytes).map_err(|defect| {
+        Error::violation(Phase::IdentityTransfer, HandOffDefect::Undecodable(defect))
     })
 }
 
-/// Read one canonical head, treating any close as a truncation of the
-/// hand-off the peer's preamble intent promised.
-///
-/// `read_head_async` spells a close inside a head as `UnexpectedEof`, so
-/// that kind joins the clean close before the first byte as
-/// [`Error::HandOffTruncated`]; a transport failure keeps its own kind
-/// and passes through as [`Error::Io`].
+/// Read a canonical head, preserving I/O failures and premature closes.
 async fn read_head<R>(reader: &mut R) -> Result<cbor::Head, Error>
 where
     R: AsyncRead + Unpin + ?Sized,
 {
     match cbor::read_head_async(reader).await {
         Ok(Some(head)) => Ok(head),
-        Ok(None) => Err(Error::HandOffTruncated),
-        Err(cbor::HeadReadError::Io(io)) if io.kind() == std::io::ErrorKind::UnexpectedEof => {
-            Err(Error::HandOffTruncated)
+        Ok(None) => Err(Error::transport(
+            Phase::IdentityTransfer,
+            Op::Read,
+            std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "identity donation ended before its item head",
+            ),
+        )),
+        Err(cbor::HeadReadError::Io(source)) => {
+            Err(Error::transport(Phase::IdentityTransfer, Op::Read, source))
         }
-        Err(cbor::HeadReadError::Io(io)) => Err(Error::Io(io)),
-        Err(cbor::HeadReadError::Malformed(head)) => Err(Error::HandOffMalformed {
-            defect: HandOffDefect::HeadMalformed(head),
-        }),
+        Err(cbor::HeadReadError::Malformed(head)) => Err(Error::violation(
+            Phase::IdentityTransfer,
+            HandOffDefect::HeadMalformed(head),
+        )),
     }
 }
 

@@ -285,11 +285,9 @@ impl<A: Acceptor> Acceptor for &mut A {
 ///   certifies that the *peer* completed and committed too: every message
 ///   and identity the session moved is applied on both ends. The link rests
 ///   at the session boundary, ready for this pair's next session. One
-///   residue is irreducible (the confirmation itself can be lost), in
-///   which case that side observes
-///   [`Error::Epilogue`](crate::Error::Epilogue), an `Err` whose local
-///   replica is nonetheless fully committed (the error's docs explain why
-///   the gap cannot be closed).
+///   uncertainty remains: losing the peer's confirmation fails the session
+///   in [`Phase::Completion`](crate::error::Phase::Completion), despite its
+///   local work having committed.
 /// - **`Err`: the local replica is unchanged, and the link is poisoned.**
 ///   The failed session leaves the control stream mid-frame, so every later
 ///   session on the link fails fast with
@@ -297,7 +295,7 @@ impl<A: Acceptor> Acceptor for &mut A {
 ///   misreading leftover bytes: discard the link and reconnect; there is no
 ///   repair. "Unchanged" has three qualified exceptions, stated where they
 ///   arise:
-///   - the post-commit [`Error::Epilogue`](crate::Error::Epilogue) above;
+///   - a failure in [`Phase::Completion`](crate::error::Phase::Completion);
 ///   - a bootstrap donation lost in flight, which costs the donated
 ///     identity space ([`Bootstrap::join`](crate::Bootstrap::join));
 ///   - a bookmark persist failing after a retiring peer's identity is
@@ -339,7 +337,7 @@ pub struct Link<CR, CW, C, A> {
 /// The epoch advances in lockstep at both ends of a connection (sessions
 /// are serialized and both ends run each session), but the poison latch is
 /// local by design: one end can conclude a session `Ok` while its peer
-/// fails post-commit ([`Error::Epilogue`](crate::Error::Epilogue)), so
+/// fails post-commit ([`Phase::Completion`](crate::error::Phase::Completion)), so
 /// between sessions the two ends' latches may legitimately disagree. Never
 /// mirror one end's carried state onto the other.
 #[derive(Clone, Copy, Debug)]

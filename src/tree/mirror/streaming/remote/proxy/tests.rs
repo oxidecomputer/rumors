@@ -277,7 +277,9 @@ fn walk_injected_operation(
 
 /// Extract the injected backend operation from a proxy conversion failure.
 fn injected_operation(error: &ProxyFailure) -> Option<Operation> {
-    use crate::tree::mirror::streaming::remote::{ReplyDecodeError, ReplyEncodeError};
+    use crate::tree::mirror::streaming::remote::adapter::{
+        DecodeError as ReplyDecodeError, EncodeError as ReplyEncodeError,
+    };
 
     match error {
         RemoteError::Encode(ReplyEncodeError::Backend(Failure::Injected(operation)))

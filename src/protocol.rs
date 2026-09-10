@@ -2,13 +2,10 @@
 
 /// The wire dialect a reconciliation session speaks.
 ///
-/// Both endpoints of a session must speak the same dialect; the preamble
-/// enforces this, diagnosing a skewed pairing as
-/// [`Error::VersionMismatch`](crate::Error::VersionMismatch). The wire
-/// format of a shipped version is frozen: a wire change means a new
-/// variant here, never a mutation of a released dialect (see the crate
-/// docs' stability notes), which is why the discriminant crosses the wire
-/// as a version number.
+/// Both endpoints must select the same protocol. A different wire version
+/// yields [`Mismatch::Protocol`](crate::error::Mismatch::Protocol).
+/// Once released, a protocol's wire format is fixed; a format change requires
+/// a new protocol variant.
 #[repr(u16)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 #[non_exhaustive]

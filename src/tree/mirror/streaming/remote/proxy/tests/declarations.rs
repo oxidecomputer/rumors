@@ -17,8 +17,10 @@ use crate::tree::{
     arb::{early_first_child_dispute_pair, nth_party},
     mirror::streaming::{
         remote::{
-            CodecDecodeError, CodecDecodeErrorKind, Error as RemoteError, ReplyDecodeError,
-            StreamError,
+            Error as RemoteError,
+            adapter::DecodeError as ReplyDecodeError,
+            codec::{DecodeError as CodecDecodeError, DecodeErrorKind as CodecDecodeErrorKind},
+            streams::StreamError,
         },
         window::FAN,
     },

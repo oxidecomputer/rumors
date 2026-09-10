@@ -105,14 +105,9 @@ impl fmt::Display for PayloadDepthLimit {
     }
 }
 
-/// A message payload failed admission at its author: the send is refused
-/// before anything is stored or gossiped.
+/// A payload rejected before it is stored or sent.
 ///
-/// Admission runs the exact decode every receiver's wire ingress runs,
-/// so a payload this error rejects is one a receiver would have failed
-/// to decode — surfaced at the author instead. A [`serde::Serialize`]
-/// failure is never this error: it keeps the panic contract documented
-/// at [`Rumors::send`](crate::Rumors::send).
+/// See [`Rumors::send`](crate::Rumors::send) for the payload requirements.
 #[derive(Debug, thiserror::Error)]
 pub enum EncodeError {
     /// The payload value's CBOR encoding nests deeper than the peer's

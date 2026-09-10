@@ -24,11 +24,16 @@ Never commit the override or a lockfile resolved against local paths. The Git
 pin still needs to advance to the reviewed Rumors changes once their commit is available from the Git remote; final validation must
 use that revision without an override.
 
-Run TLS conformance after parallel build jobs settle to avoid test dial timeouts.
+Pending: diagnose the Helios `sush-server::link::conformance` dial timeout
+during concurrent opens. It also reproduces with the link tests run alone;
+keep the production deadline unchanged while investigating.
 
-Outstanding validation: run the full process/job suite on Linux. On this Mac,
-PTY-path assertions and the job address-space limit fail; transport, gossip,
-and message-admission checks pass.
+Run native process/job validation on `ox-east-1-agent` (Helios), using the
+[building-on-illumos skill](/Users/oxide/.claude/skills/building-on-illumos/SKILL.md).
+Sync both worktrees. Resolve a temporary path-patched lockfile locally, then
+use `--locked` with the remote Rumors path; restore the portable local lockfile
+after syncing. Seed missing Git dependency commits from the local Cargo cache.
+The Mac's PTY and job address-space behavior is not the native test baseline.
 
 Cargo's build directory for this worktree is
 `/Volumes/forge/build/a5/fd255fb3310972`. Keep it across Rumors batches.

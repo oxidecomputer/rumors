@@ -16,6 +16,7 @@
 
 mod common;
 
+use rumors::error::Mismatch;
 use rumors::{Error, Peer, Protocol, Rumors};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -79,9 +80,9 @@ async fn handshake_roundtrip_succeeds() {
 }
 
 /// A peer that opens with the wrong bytes is rejected with
-/// [`Error::MagicMismatch`] before any framed traffic.
+/// [`Error::Protocol`] before reconciliation.
 #[pollster::test]
-async fn magic_mismatch_surfaces_error() {
+async fn unrecognized_preamble_is_a_violation() {
     let (mut a_link, b) = rumors::link::memory();
     let b = b.into_parts();
     let mut b_r = b.control_read;
@@ -102,15 +103,15 @@ async fn magic_mismatch_surfaces_error() {
 
     let (alice_result, ()) = tokio::join!(alice_fut, fake_peer);
     match alice_result {
-        Err(Error::MagicMismatch { remote_magic }) => {
-            assert_eq!(remote_magic, *b"NOPENO");
+        Err(Error::Protocol(error)) => {
+            assert_eq!(error.context.phase, rumors::error::Phase::Preamble);
         }
-        other => panic!("expected MagicMismatch, got {other:?}"),
+        other => panic!("expected an unrecognized-preamble violation, got {other:?}"),
     }
 }
 
 /// A peer with the correct opening but an unsupported version is rejected
-/// with [`Error::VersionMismatch`].
+/// with [`Mismatch::Protocol`].
 #[pollster::test]
 async fn version_mismatch_surfaces_error() {
     let (mut a_link, b) = rumors::link::memory();
@@ -135,19 +136,20 @@ async fn version_mismatch_surfaces_error() {
 
     let (alice_result, ()) = tokio::join!(alice_fut, fake_peer);
     match alice_result {
-        Err(Error::VersionMismatch {
+        Err(Error::Mismatch(Mismatch::Protocol {
             local_protocol,
             remote_version,
-        }) => {
+            ..
+        })) => {
             assert_eq!(local_protocol, Protocol::V2);
             assert_eq!(remote_version, u64::from(bogus_version));
         }
-        other => panic!("expected VersionMismatch, got {other:?}"),
+        other => panic!("expected protocol mismatch, got {other:?}"),
     }
 }
 
 /// A peer whose intent is neither 0 (remain) nor 1 (retire) is rejected
-/// with [`Error::IntentInvalid`]: the intent is peer-supplied and must be
+/// with [`Error::Protocol`]: the intent is peer-supplied and must be
 /// validated rather than assumed.
 #[pollster::test]
 async fn invalid_intent_surfaces_error() {
@@ -169,16 +171,14 @@ async fn invalid_intent_surfaces_error() {
 
     let (alice_result, ()) = tokio::join!(alice_fut, fake_peer);
     match alice_result {
-        Err(Error::IntentInvalid { byte }) => {
-            assert_eq!(byte, bogus_intent);
+        Err(Error::Protocol(error)) => {
+            assert_eq!(error.context.phase, rumors::error::Phase::Preamble);
         }
-        other => panic!("expected IntentInvalid, got {other:?}"),
+        other => panic!("expected invalid-intent violation, got {other:?}"),
     }
 }
 
-/// A peer that closes the connection mid-preamble surfaces as
-/// [`Error::PreambleTruncated`] carrying the exact byte counts of the
-/// cut, not a bare I/O error and not a malformed-preamble error.
+/// Closing mid-preamble reports a transport EOF in the preamble phase.
 #[pollster::test]
 async fn truncated_handshake_surfaces_typed_truncation() {
     let (mut a_link, b) = rumors::link::memory();
@@ -201,17 +201,16 @@ async fn truncated_handshake_surfaces_typed_truncation() {
 
     let (alice_result, ()) = tokio::join!(alice_fut, fake_peer);
     match alice_result {
-        Err(Error::PreambleTruncated { received, expected }) => {
-            assert_eq!(received, 6, "the six delivered bytes are counted");
-            assert_eq!(expected, PREAMBLE_LEN, "the full dialect width is named");
+        Err(Error::Transport(error)) => {
+            assert_eq!(error.context.phase, rumors::error::Phase::Preamble);
+            assert_eq!(error.source.kind(), std::io::ErrorKind::UnexpectedEof);
         }
-        other => panic!("expected PreambleTruncated, got {other:?}"),
+        other => panic!("expected preamble transport failure, got {other:?}"),
     }
 }
 
 /// A peer whose preamble opens correctly but spells a field wrong is
-/// rejected as [`Error::PreambleMalformed`] with the defect naming the
-/// field.
+/// rejected as [`Error::Protocol`] in the preamble phase.
 ///
 /// Never accepted, and never blamed on the transport.
 #[pollster::test]
@@ -237,15 +236,15 @@ async fn malformed_preamble_surfaces_typed_defect() {
 
     let (alice_result, ()) = tokio::join!(alice_fut, fake_peer);
     match alice_result {
-        Err(Error::PreambleMalformed { defect }) => {
-            assert_eq!(defect, rumors::error::PreambleDefect::Network);
+        Err(Error::Protocol(error)) => {
+            assert_eq!(error.context.phase, rumors::error::Phase::Preamble);
         }
-        other => panic!("expected PreambleMalformed, got {other:?}"),
+        other => panic!("expected preamble violation, got {other:?}"),
     }
 }
 
 /// The preamble must be the connection's first bytes: a peer that skips it and
-/// goes straight to protocol traffic is rejected as a magic mismatch before
+/// goes straight to protocol traffic is rejected as a preamble violation before
 /// any peer-declared protocol frame length can be read or trusted.
 #[pollster::test]
 async fn handshake_precedes_protocol_traffic() {
@@ -268,9 +267,9 @@ async fn handshake_precedes_protocol_traffic() {
 
     let (alice_result, ()) = tokio::join!(alice_fut, fake_peer);
     match alice_result {
-        Err(Error::MagicMismatch { remote_magic }) => {
-            assert_eq!(remote_magic, *b"XXXXXX");
+        Err(Error::Protocol(error)) => {
+            assert_eq!(error.context.phase, rumors::error::Phase::Preamble);
         }
-        other => panic!("expected MagicMismatch, got {other:?}"),
+        other => panic!("expected a preamble violation, got {other:?}"),
     }
 }
