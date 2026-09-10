@@ -1,7 +1,7 @@
 # Rumors review checklist
 
-**Active:** 01/07, retirement ownership — `codex/retirement-ownership`, base `main`.
-**Next:** 07, usable bootstrap retry outcomes; then 10, action and join cleanup.
+**Active:** 07, usable bootstrap retry outcomes — `codex/bootstrap-retry`, base `main`.
+**Next:** 10, action and join cleanup.
 
 Check code outcomes only after verification and merge; retain the landing
 commit. Checked dispositions are labelled explicitly.
@@ -32,7 +32,7 @@ and recheck retained-root accounting.
 - [x] Preserve no-op trees and memos — `915571b7`.
   Sources: `tree-core-29`, T107, T166. Coupled with 10's tree edits.
 
-- [ ] Eliminate the absent-party batch path. **Ready for review.**
+- [x] Eliminate the absent-party batch path — `51e14731`.
   Sources: `api-core-2`, T37. Coupled with 07's retirement ownership.
 
 - [x] Reconcile the window census with the roots the commit actually retains — `e238db87`.
@@ -108,16 +108,16 @@ Dependencies: 01 for retained-root measurements; 03–05 when claims cover deep 
 
 Coupled work: party ownership with 01; other API pieces can be separate.
 
-- [ ] Represent retirement ownership directly. **Ready for review.**
+- [x] Represent retirement ownership directly — `51e14731`.
   Source: T37. Coupled with 01's absent-party path.
 
-- [ ] Return usable builders from failed joins.
+- [ ] Return usable builders from failed joins. **Working.**
   Sources: `fresh-eyes-9`, T70, T77.
 
-- [ ] Verify exactly one concurrent reuniter can reclaim the Peer. **Ready for review.**
+- [x] Verify exactly one concurrent reuniter can reclaim the Peer — `51e14731`.
   Sources: `api-core-25`, T125. Before 07's handle-liveness simplification (`api-core-22`).
 
-- [ ] Verify retirement cancellation against durable identity at each handoff stage. **Ready for review.**
+- [x] Verify retirement cancellation against durable identity at each handoff stage — `51e14731`.
   Sources: `async-hazards-2`, T128.
 
 - [ ] Return the stamped Version from send and simplify version lookup at callers.
