@@ -4,35 +4,33 @@ use super::hash::PathHash;
 use super::height::{Height, Root, S};
 use crate::Version;
 
-/// A typed path through the tree which is always the right height.
+/// The remaining suffix of a leaf address, with `H` bytes left to traverse.
 ///
-/// The height marker is `PhantomData<fn() -> H>` rather than
-/// `PhantomData<H>` for the same auto-trait reason as
-/// [`super::node::Node`]: function pointers are unconditionally
-/// `Send + Sync`, so the recursive `S<S<…>>` chain never opens up
-/// during auto-trait dispatch on consumers.
+/// Popping a byte advances the height marker. Equality and ordering compare
+/// only the remaining bytes, though the full address stays in memory.
 #[repr(transparent)]
 pub struct Path<H: Height = Root> {
+    /// Remaining height; the function marker avoids `Send`/`Sync` bounds on `H`.
     height: PhantomData<fn() -> H>,
+    /// Full leaf address, including bytes already consumed by traversal.
     hash: [u8; 32],
 }
 
 impl Path<Root> {
-    /// Get the path for a leaf stamped with `version`: the full-width hash
-    /// of the version's canonical bytes, and nothing else.
+    /// Hash the leaf's canonical version bytes into its full 32-byte address.
     ///
-    /// Versions are unique per send — locally by [`tick`](Version::tick)
-    /// (each tick changes the canonical [`as_bytes`](Version::as_bytes)),
-    /// globally by party disjointness — an invariant the protocol already
-    /// rests on everywhere, so version-derived identity adds no assumption.
-    /// Message bytes enter no path and no digest: no actor can steer where
-    /// anything lands by choosing content.
+    /// Each insert has a unique version: successive inserts tick their party,
+    /// and concurrent parties are disjoint. Message contents do not affect
+    /// the address.
     ///
-    /// The path is the full-width 32-byte `PathHash`, never the
-    /// truncated Merkle `Hash`: a path collision is permanent split-brain
-    /// (see `PathHash`). The preimage is one self-delimiting canonical
-    /// byte string, so no concatenation ambiguity arises.
+    /// [`PathHash`] preserves full collision resistance because the path
+    /// identifies the leaf. The shorter Merkle hash only compares subtrees.
     pub fn for_leaf(version: &Version) -> Self {
+        #[cfg(test)]
+        if let Some(path) = fixture::get(version) {
+            return path;
+        }
+
         Self {
             height: PhantomData,
             hash: PathHash::of(version.as_bytes()).into(),
@@ -44,8 +42,7 @@ impl<H: Height> Path<S<H>>
 where
     S<H>: Height,
 {
-    /// Pop one hash byte off the path, yielding the byte and the remainder of
-    /// the path.
+    /// Split off the next address byte, leaving a path one level shorter.
     pub fn pop(self) -> (u8, Path<H>) {
         let byte = self.hash[32 - S::<H>::HEIGHT];
         (
@@ -58,32 +55,33 @@ where
     }
 }
 
-// Manual copy/clone impls so we don't require unnecessary bounds on `H`:
+// Manual implementations avoid requiring `H: Copy + Clone`.
 
 impl<H: Height> Copy for Path<H> {}
 
 impl<H: Height> Clone for Path<H> {
+    /// Copy the address and its height marker.
     fn clone(&self) -> Self {
         *self
     }
 }
 
-// Comparison of paths refers only to the un-consumed portion, even though
-// there's still stored hash (inaccessible) in the struct itself:
-
 impl<H: Height> PartialEq for Path<H> {
+    /// Compare only the unconsumed suffixes.
     fn eq(&self, other: &Self) -> bool {
         self.hash[32 - H::HEIGHT..].eq(&other.hash[32 - H::HEIGHT..])
     }
 }
 
 impl<H: Height> PartialOrd for Path<H> {
+    /// Order the unconsumed suffixes lexicographically.
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
 impl<H: Height> Ord for Path<H> {
+    /// Order the unconsumed suffixes lexicographically.
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.hash[32 - H::HEIGHT..].cmp(&other.hash[32 - H::HEIGHT..])
     }
@@ -92,14 +90,14 @@ impl<H: Height> Ord for Path<H> {
 impl<H: Height> Eq for Path<H> {}
 
 impl<H: Height> Debug for Path<H> {
+    /// Show the full address, including its consumed prefix.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.hash.fmt(f)
     }
 }
 
-// We can convert any hash-sized array of bytes into a Path:
-
 impl From<[u8; 32]> for Path<Root> {
+    /// Use all the supplied bytes as a leaf address.
     fn from(bytes: [u8; 32]) -> Self {
         Self {
             height: PhantomData,
@@ -109,10 +107,13 @@ impl From<[u8; 32]> for Path<Root> {
 }
 
 impl From<Path<Root>> for [u8; 32] {
+    /// Recover the full leaf address.
     fn from(path: Path<Root>) -> Self {
         path.hash
     }
 }
 
+#[cfg(test)]
+mod fixture;
 #[cfg(test)]
 mod tests;

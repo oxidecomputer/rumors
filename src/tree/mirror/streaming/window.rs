@@ -297,6 +297,19 @@ impl Window {
         capacities: [1; KEY_DEPTH + 1],
     };
 
+    /// Give every non-root level the same capacity in protocol tests.
+    ///
+    /// The budget calculation assumes hash-distributed paths and keeps the
+    /// deepest queues at one slot. This lets fixtures exercise pipelining
+    /// there. The root keeps its structural one-slot channels.
+    #[cfg(test)]
+    pub(crate) const fn uniform(capacity: usize) -> Self {
+        assert!(capacity > 0, "a protocol queue needs at least one slot");
+        let mut capacities = [capacity; KEY_DEPTH + 1];
+        capacities[KEY_DEPTH] = 1;
+        Self { capacities }
+    }
+
     /// Derive per-height capacities from the two replicas' set sizes and
     /// version-size bounds, a worst-case memory budget, and the backend's
     /// node pricing function.
@@ -499,8 +512,7 @@ impl Window {
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum WindowConfig {
-    /// Predetermined capacities. Constructed only through
-    /// [`Self::FLOOR`], the test suites' opt-in.
+    /// Predetermined capacities for tests, including [`Self::FLOOR`].
     #[cfg(any(test, feature = "test-internals"))]
     Fixed(Window),
     /// Derive per-height capacities at session start, once both replicas'

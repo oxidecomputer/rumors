@@ -690,8 +690,7 @@ fn scripted(
     .into_link()
 }
 
-/// Drive one two-proxy session over already-wrapped links: the one place
-/// the four participants are constructed.
+/// Drive two proxy endpoints over already-wrapped links.
 ///
 /// `left_link` carries the left endpoint, whose proxy represents the right
 /// peer; `right_link` the reverse. Every result is the endpoint's

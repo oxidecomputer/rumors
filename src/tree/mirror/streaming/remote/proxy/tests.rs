@@ -3,8 +3,6 @@
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::convert::Infallible;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use futures::join;
 use proptest::collection::vec;
@@ -12,9 +10,7 @@ use proptest::prelude::*;
 
 use crate::link::memory_with_capacity;
 use crate::observe::SessionHandle;
-use crate::testing::{
-    IoPlan, IoReportHandle, IoSide, Quiescence, reorder_accepts, run_to_quiescence, wrap_link,
-};
+use crate::testing::{IoPlan, IoReportHandle, IoSide, Quiescence, run_to_quiescence, wrap_link};
 use crate::tree::mirror::handshake::{self, Intent};
 use crate::tree::mirror::streaming::channel::{
     ChannelReport, QueueKind, with_observation, with_schedule,
@@ -41,15 +37,22 @@ use crate::{
 
 use harness::{Backends, EndpointError, Topology, codec, drive};
 
+/// An injected failure over the otherwise infallible local backend.
 type BackendFailure = Failure<Infallible>;
+/// A failure reported by a materialized participant using that backend.
 type LocalFailure = MaterializedError<BackendFailure>;
+/// A failure reported by a proxy using that backend.
 type ProxyFailure = RemoteError<BackendFailure>;
+/// An endpoint failure identified by the participant that reported it.
 type EndpointFailure = EndpointError<BackendFailure>;
+/// A session failure when the materialized participant is the client.
 type LeftFailure = MirrorError<LocalFailure, ProxyFailure>;
+/// A session failure when the materialized participant is the server.
 type RightFailure = MirrorError<ProxyFailure, LocalFailure>;
 
 mod containment;
 mod declarations;
+mod deep;
 mod failures;
 mod greeting;
 mod harness;
@@ -67,42 +70,6 @@ async fn reconcile_symmetric_accepts(
     transport_capacity: usize,
 ) -> (TreeRoot, TreeRoot) {
     let (a_link, b_link) = memory_with_capacity(transport_capacity);
-    let (a, b) = drive(
-        Topology::Production,
-        Backends::local(),
-        a,
-        b,
-        a_link,
-        b_link,
-        codec::<()>(),
-        WindowConfig::FLOOR,
-    )
-    .await;
-    (
-        a.expect("endpoint A should reconcile through its proxy"),
-        b.expect("endpoint B should reconcile through its proxy"),
-    )
-}
-
-/// Arrivals held and released newest-first by the reordering acceptor: deep
-/// enough to invert most bursts, small enough that batching never starves a
-/// stream.
-const REORDER_BATCH: usize = 3;
-
-/// [`reconcile_symmetric_accepts`] with both acceptors delivering arrivals
-/// in reversed batches: worst-case-legal stream reordering on both ends.
-///
-/// `reordered` counts the genuine inversions both ends release; the caller
-/// asserts its disposition across the run.
-async fn reconcile_symmetric_accepts_reordered(
-    a: TreeRoot,
-    b: TreeRoot,
-    transport_capacity: usize,
-    reordered: Arc<AtomicUsize>,
-) -> (TreeRoot, TreeRoot) {
-    let (a_link, b_link) = memory_with_capacity(transport_capacity);
-    let a_link = reorder_accepts(a_link, REORDER_BATCH, reordered.clone());
-    let b_link = reorder_accepts(b_link, REORDER_BATCH, reordered);
     let (a, b) = drive(
         Topology::Production,
         Backends::local(),
@@ -586,73 +553,6 @@ fn opening_failure_before_the_first_yield_returns_over_the_wire() {
     assert!(
         result.0.is_err() && result.1.is_err(),
         "the counterparty must terminate on the cut: {result:?}",
-    );
-}
-
-/// Wide-budget divergence still matches the materialized oracle with both
-/// acceptors decorated for reversed-batch delivery at one-byte windows —
-/// with the honest caveat that the reordering provably never fires here.
-///
-/// In this topology no inversion is reachable: the deterministic driver
-/// joins two whole-endpoint futures, so while an accept holds its first
-/// arrival waiting for a second, this endpoint's own control writes are
-/// suspended — and the peer needs exactly those bytes before it opens its
-/// next stream. A second in-flight arrival can never materialize (verified
-/// empirically: zero batches across the run, at any patience budget and at
-/// one-byte and 37-byte windows alike), so as exercised this property pins
-/// no more than [`reconcile_symmetric_accepts`]; the decorator's inversion
-/// genuinely firing is proven instead by its unit witness in
-/// `testing::transport` (a batch of two formed by the patient wait) and by
-/// the link conformance suite, which runs under the same decorator with
-/// its probes connecting streams concurrently.
-///
-/// The final assertion is the tripwire keeping this caveat honest: if the
-/// topology ever admits a genuine inversion, it fails, and this doc's
-/// claims must be rewritten upward. The test runs against a manual
-/// [`proptest::test_runner::TestRunner`] rather than the `proptest!` macro
-/// so that assertion can run once, after every case.
-#[test]
-fn wide_symmetric_accepts_reordered_match_local() {
-    /// Cases for this property, fewer than the default.
-    ///
-    /// The wide generator plus the decorator's added accept latency make
-    /// each case expensive, and the trigger geometry is pinned separately
-    /// by the deterministic [`early_first_child_dispute_pair`] fixture.
-    const CASES: u32 = 48;
-
-    let reordered = Arc::new(AtomicUsize::new(0));
-    let mut config = ProptestConfig {
-        cases: CASES,
-        ..ProptestConfig::default()
-    };
-    config.source_file = Some(file!());
-    let mut runner = proptest::test_runner::TestRunner::new(config);
-    let counter = reordered.clone();
-    let cases = runner.run(&arb_wide_divergent_pair(), move |(a, b)| {
-        let expected = run_to_quiescence(reconcile_locally(a.clone(), b.clone()))
-            .expect("local reconciliation should remain live");
-        let actual = run_to_quiescence(reconcile_symmetric_accepts_reordered(
-            a,
-            b,
-            1,
-            counter.clone(),
-        ))
-        .map_err(|stopped| {
-            TestCaseError::fail(format!(
-                "reordered symmetric proxy reconciliation became quiescent: {stopped:?}",
-            ))
-        })?;
-        prop_assert_eq!(actual, expected);
-        Ok(())
-    });
-    if let Err(failure) = cases {
-        panic!("{failure}\n{runner}");
-    }
-    assert_eq!(
-        reordered.load(Ordering::Relaxed),
-        0,
-        "the topology now admits a genuine inversion: this test's doc \
-         undersells it: rewrite the claims and flip this tripwire to > 0",
     );
 }
 

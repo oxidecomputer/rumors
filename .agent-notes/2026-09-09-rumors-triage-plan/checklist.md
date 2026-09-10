@@ -1,6 +1,6 @@
 # Rumors review checklist
 
-**Active:** 03, deep-tree wire fixtures — `codex/deep-tree-fixtures`, from merged main.
+**Active:** 03, deep-tree wire fixtures ready for review — `codex/deep-tree-fixtures`, base `main@8fd7962f`.
 **Next candidates:** 04 → 05.
 
 Check code outcomes only after verification and merge; retain the landing
@@ -38,7 +38,10 @@ Dependencies apply only to the affected work within a group.
 
 Dependencies: None to construct fixtures; 04 and 05 before enabling the complete CI run.
 
-- [ ] Exercise deep data streams without changing production hashing or wire snapshots.
+- [ ] Exercise deep wire reconciliation across branching depths, nested and asymmetric trees, and transport and window variations.
+  Sources: `remote-proxy-tests-6`, T23, T132, T162–164, N27–29.
+
+- [ ] Run the broader behavioral suites under deep geometry without changing production hashing or wire snapshots.
   Sources: `remote-capture-atlas-28`, `remote-proxy-tests-10`, `tests-wire-format-7`, T23, T123, T132, T162–164, N27–29.
 
 - [x] Make cancellation tests depend on a reproducible session schedule — `f643bd60`.
@@ -245,7 +248,7 @@ Dependencies: 04, 06, 09 and the relevant codec edits in 12.
   Sources: `mirror-common-33`, T117, T132.
 
 - [ ] Exercise meaningful walk and proxy failures, shedding, isolation, and terminal behavior.
-  Sources: `materialized-28`, `materialized-37`, `materialized-39`, `remote-proxy-19`, `remote-proxy-20`, `remote-proxy-tests-5–9`, `remote-proxy-tests-12`, `remote-proxy-tests-15`, `remote-proxy-tests-18`, `remote-proxy-tests-20–24`, `streaming-backend-window-15`, `streaming-backend-window-16`, `streaming-backend-window-18`, `streaming-backend-window-36`, `streaming-backend-window-38`, `streaming-tests-11`, `streaming-tests-17`, `streaming-tests-19`, `streaming-tests-23`, `streaming-tests-26`, T22, T26, T101, T126, T128, T132, T159, N03.
+  Sources: `materialized-28`, `materialized-37`, `materialized-39`, `remote-proxy-19`, `remote-proxy-20`, `remote-proxy-tests-5`, `remote-proxy-tests-7–9`, `remote-proxy-tests-12`, `remote-proxy-tests-15`, `remote-proxy-tests-18`, `remote-proxy-tests-20–24`, `streaming-backend-window-15`, `streaming-backend-window-16`, `streaming-backend-window-18`, `streaming-backend-window-36`, `streaming-backend-window-38`, `streaming-tests-11`, `streaming-tests-17`, `streaming-tests-19`, `streaming-tests-23`, `streaming-tests-26`, T22, T26, T101, T126, T128, T132, T159, N03.
 
 - [ ] Simplify materialized-backend state and explain its ownership.
   Sources: `materialized-1`, `materialized-3–9`, `materialized-12`, `materialized-15`, `materialized-16`, `materialized-18–21`, `materialized-23–25`, `materialized-29`, `materialized-32`, `materialized-33`, `materialized-38`, T46, T48, T49, T52, T54, T128, T132.
