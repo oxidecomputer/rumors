@@ -1,7 +1,7 @@
 # Rumors review checklist
 
-**Active:** 01, optimistic gossip publication and its notification/accounting checks — `codex/optimistic-publication`, base `main`.
-**Next:** 04, deep malformed replies; then 05, deep pipelining and conformance.
+**Active:** 01, suppress party-only observer wakeups — `codex/publication-notifications`, base `main`.
+**Next:** 01, no-op tree edits and memo retention (with 10); then 07, retirement ownership.
 
 Check code outcomes only after verification and merge; retain the landing
 commit. Checked dispositions are labelled explicitly.
@@ -23,13 +23,16 @@ and recheck retained-root accounting.
 - [x] Release displaced roots and retained payloads after every replica guard is gone — `2c77220a`.
   Sources: `async-hazards-3`, T34.
 
-- [ ] Move the gossip join out of the replica write lock. **Working.**
+- [x] Move the gossip join out of the replica write lock — `e238db87`.
   Sources: T170.
 
-- [ ] Keep no-op, content-change, and party-only publication behavior distinct.
-  Sources: `api-core-2`, `tree-core-29`, T35, T37, T107, T166.
+- [ ] Notify observers for tree changes, without party-only wakeups. **Working.**
+  Sources: T35.
 
-- [ ] Reconcile the window census with the roots the commit actually retains.
+- [ ] Preserve no-op trees and memos; eliminate the absent-party batch path.
+  Sources: `api-core-2`, `tree-core-29`, T37, T107, T166. Coupled with 07's retirement ownership and 10's tree edits.
+
+- [x] Reconcile the window census with the roots the commit actually retains — `e238db87`.
   Sources: T139, T171, N54.
 
 ## 02. Routed connection pooling
@@ -100,7 +103,7 @@ Dependencies: 01 for retained-root measurements; 03–05 when claims cover deep 
 
 ## 07. Peer lifecycle, observers, and snapshots
 
-Dependencies: 01 before party/publication cleanup; other API pieces can be separate.
+Coupled work: party ownership with 01; other API pieces can be separate.
 
 - [ ] Represent retirement ownership directly and return usable builders from failed joins.
   Sources: `api-core-25`, `async-hazards-2`, `fresh-eyes-9`, T37, T70, T77, T125, T128.
@@ -160,7 +163,7 @@ Dependencies: 04's reported-error attribution fix before the public error redesi
 
 ## 10. Tree edits, joins, and memo ownership
 
-Dependencies: 01; do root-version changes before dependent optimization measurements.
+Coupled work: no-op handling with 01. Do root-version changes before dependent optimization measurements.
 
 - [ ] Store each leaf’s action version and traverse sorted actions without repeated sorting or copying.
   Sources: `tree-core-11`, `tree-core-13`, `tree-core-14`, `tree-core-16`, `tree-core-27`, `tree-core-30`, `tree-core-31`, T38, T39, T107, T124, T132, N12, N23.
