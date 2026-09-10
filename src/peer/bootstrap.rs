@@ -1,14 +1,13 @@
-//! Joining an existing universe: the [`Bootstrap`] builder behind
-//! [`Peer::bootstrap`], its bookmarked state [`BookmarkedBootstrap`], and
-//! the latter's [`Joined`] outcome.
+//! Configure a bootstrap session and retain its settings when a retry is needed.
 
 use std::marker::PhantomData;
-
-use tokio::io::{AsyncRead, AsyncWrite};
-
 use std::sync::Arc;
 
-use crate::bookmark::{Bookmark, BookmarkError};
+use serde::Serialize;
+use serde::de::DeserializeOwned;
+use tokio::io::{AsyncRead, AsyncWrite};
+
+use crate::bookmark::{Bookmark, BookmarkError, NoBookmark};
 use crate::link::{Acceptor, Connector, Link};
 use crate::message::PayloadDepthLimit;
 use crate::observe::{Attachment, Observer};
@@ -18,318 +17,169 @@ use crate::{Error, Peer};
 
 use super::gossip::Unbookmarked;
 
-use serde::Serialize;
-use serde::de::DeserializeOwned;
-/// Configuration for joining an existing universe: the builder behind
-/// [`Peer::bootstrap`].
+/// Configuration for joining a gossip network through [`Peer::bootstrap`].
 ///
-/// [`join`](Self::join) runs one session against an established peer over
-/// a [`Link`], receives that provider's whole live set, and returns a new
-/// [`Peer`] holding the identity the provider donates. The link chooses
-/// the provider (a [`Link`] is a conduit to exactly one counterparty),
-/// and joining lands you in whichever [`Network`](crate::Network) the
-/// provider belongs to.
+/// [`join`](Self::join) joins the connected peer's gossip network and receives
+/// its current message set. The new peer retains every setting selected here.
 ///
-/// Every setting here is the new peer's own, selected one session
-/// early: [`sync_memory_budget`](Self::sync_memory_budget),
-/// [`target_message_size`](Self::target_message_size), and
-/// [`payload_depth_limit`](Self::payload_depth_limit) each state what they
-/// change about the bootstrap session itself, and the joined peer keeps
-/// the choice exactly as if selected through the matching [`Peer`] method.
-/// [`bookmark`](Self::bookmark) additionally persists the received
-/// identity before `join` returns, moving the builder to its
-/// [`BookmarkedBootstrap`] state (whose `join` reports outcomes as a
-/// [`Joined`], since a persist can fail while the peer lives).
+/// A failed session or a meeting between two bootstrappers returns this builder
+/// in [`Joined`], including any selected bookmark. Retry by calling `join` on
+/// the returned builder with another link. No configuration or storage clone
+/// is needed. Builders without a bookmark also implement [`Clone`].
 ///
-/// The builder is `Clone`: after a mutual-bootstrap bail
-/// ([`join`](Self::join)'s `Ok(None)`) or a failed session, a clone of
-/// the same configuration retries against another provider as-is.
+/// Select [`bookmark`](Self::bookmark) to attach restart bookkeeping before
+/// returning the joined peer. A storage failure after joining instead
+/// returns the live, unbookmarked peer through [`Joined::Unbookmarked`].
 ///
-/// # The provider's side
+/// # Serving a bootstrap
 ///
-/// Serving a bootstrap takes no provider-side call of its own: it happens
-/// automatically inside an ordinary [`gossip`](crate::Rumors::gossip),
-/// which forks the provider's identity and donates the fork. The provider
-/// neither schedules nor manages the donation (its atomicity is handled
-/// internally), and concurrent serves over separate links are legal, like
-/// any concurrent gossip. Donation commits on the donor's side before the
-/// fork crosses the wire, so a failed serve can leave identity held by no
-/// one, never by both sides.
-#[must_use = "a `Bootstrap` does nothing until `join` runs it against a link"]
-pub struct Bootstrap<T> {
-    /// The window policy selected by
-    /// [`sync_memory_budget`](Self::sync_memory_budget): the join
-    /// session's reconciliation memory bound, carried into the joined
-    /// peer.
+/// An established peer automatically serves bootstrappers through ordinary
+/// [`gossip`](crate::Rumors::gossip); no special invocation is required.
+#[must_use = "a Bootstrap does nothing until join runs it against a link"]
+pub struct Bootstrap<T, B: BookmarkError = NoBookmark> {
+    /// Pipelining policy inherited by the joined peer.
     pub(crate) window: WindowConfig,
-    /// The supply-run sizing budget selected by
-    /// [`target_message_size`](Self::target_message_size): the join
-    /// session's byte target, carried into the joined peer.
+    /// Supply-run size target used during and after the join.
     pub(crate) run_budget: RunBudget,
-    /// The payload depth limit selected by
-    /// [`payload_depth_limit`](Self::payload_depth_limit): the join
-    /// session's ingress bound, carried into the joined peer's codec.
+    /// Payload nesting limit used during and after the join.
     pub(crate) payload_depth_limit: PayloadDepthLimit,
-    /// The wire-observation handler selected by
-    /// [`observe`](Self::observe), carried into the joined peer.
+    /// Observation handlers retained by the joined peer.
     pub(crate) observe: Attachment,
-    /// Covariant, `Send`/`Sync`-neutral marker for the payload type the
-    /// new [`Peer`] will carry.
+    /// Storage owned by this attempt, returned if no peer arrives.
+    bookmark: B,
+    /// Marks the payload type without storing a value or constraining auto traits.
     marker: PhantomData<fn() -> T>,
 }
 
-// A manual, unbounded impl: the payload type is phantom (the builder
-// holds configuration only), so the `T: Clone` bound `derive` would add
-// has nothing to constrain.
+/// Copy an unbookmarked builder without requiring the payload type to be Clone.
 impl<T> Clone for Bootstrap<T> {
+    /// Copy the settings and share the observation handlers.
     fn clone(&self) -> Self {
-        Self {
-            window: self.window,
-            run_budget: self.run_budget,
-            payload_depth_limit: self.payload_depth_limit,
-            observe: self.observe.clone(),
-            marker: PhantomData,
-        }
+        self.session_config()
     }
 }
 
-/// The configuration only; the payload type parameter carries no state.
-impl<T> std::fmt::Debug for Bootstrap<T> {
+/// Show configuration without Debug bounds on the payload or storage.
+impl<T, B: BookmarkError> std::fmt::Debug for Bootstrap<T, B> {
+    /// Describe the settings without reading the bookmark.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Bootstrap")
             .field("window", &self.window)
             .field("run_budget", &self.run_budget)
             .field("payload_depth_limit", &self.payload_depth_limit)
+            .field("bookmark", &std::any::type_name::<B>())
             .finish()
     }
 }
 
+/// Construct an unbookmarked builder or select its storage.
 impl<T> Bootstrap<T> {
-    /// The all-defaults configuration behind [`Peer::bootstrap`], the one
-    /// constructor.
+    /// Use the default session settings without a bookmark.
     pub(crate) fn new() -> Self {
         Self {
             window: WindowConfig::default(),
             run_budget: RunBudget::default(),
             payload_depth_limit: PayloadDepthLimit::default(),
             observe: Attachment::default(),
+            bookmark: NoBookmark,
             marker: PhantomData,
         }
     }
 
-    /// Bound the memory the joined peer's synchronizations may spend on
-    /// pipelining.
+    /// Attach a bookmark before returning the joined peer.
     ///
-    /// The bootstrap session itself gives this setting nothing to bound.
-    /// A joining replica holds nothing yet, so the session disputes no
-    /// subtrees; it only receives the provider's set, and that transfer's
-    /// memory is [`target_message_size`](Self::target_message_size)'s
-    /// concern. Selecting a budget here means the peer's very first
-    /// synchronization after joining already runs budgeted.
+    /// Reuse the bookmark across restarts to limit version growth. It stores
+    /// restart bookkeeping, not messages; the join receives those from the
+    /// provider. See [`Bookmark`] for storage and ownership requirements.
     ///
-    /// The default, what the budget prices, and how to choose one are
-    /// [`Peer::sync_memory_budget`]'s; the joined peer behaves exactly as
-    /// if it had called it.
+    /// This calls [`Peer::bookmark`] after the session. If attachment fails,
+    /// [`Joined::Unbookmarked`] returns the live peer and the storage error.
+    /// If the session fails or bails, the returned builder owns the untouched
+    /// bookmark and can retry.
+    pub fn bookmark<B: Bookmark>(self, bookmark: B) -> Bootstrap<T, B> {
+        Bootstrap {
+            window: self.window,
+            run_budget: self.run_budget,
+            payload_depth_limit: self.payload_depth_limit,
+            observe: self.observe,
+            bookmark,
+            marker: PhantomData,
+        }
+    }
+}
+
+/// Configure the session independently of whether storage has been selected.
+impl<T, B: BookmarkError> Bootstrap<T, B> {
+    /// Copy only session settings; storage stays with the retryable builder.
+    fn session_config(&self) -> Bootstrap<T> {
+        Bootstrap {
+            window: self.window,
+            run_budget: self.run_budget,
+            payload_depth_limit: self.payload_depth_limit,
+            observe: self.observe.clone(),
+            bookmark: NoBookmark,
+            marker: PhantomData,
+        }
+    }
+
+    /// Set the joined peer's pipelining memory budget.
+    ///
+    /// Bootstrap receives into an empty replica and has no disputed subtrees
+    /// to pipeline. This budget takes effect on its later synchronizations;
+    /// [`target_message_size`](Self::target_message_size) bounds bootstrap's
+    /// supply runs. Defaults and sizing guidance are in [`Peer::sync_memory_budget`].
     pub fn sync_memory_budget(mut self, budget_bytes: usize) -> Self {
         self.window = WindowConfig::Budget(budget_bytes);
         self
     }
 
-    /// Bound the encoded size of the batched messages the bootstrap
-    /// session, and every later session, sends.
+    /// Set the batched-message size target during and after bootstrap.
     ///
-    /// This is the one setting with immediate effect on the bootstrap
-    /// session, the session that transfers the provider's entire set as
-    /// supply *runs* (batched leaf-record messages). The greeting carries
-    /// each side's target and each side's encoder batches within the
-    /// **minimum** of the two, so a memory-constrained newcomer's setting
-    /// is what the provider's encoder builds the whole transfer within.
-    /// Any value is safe, including zero (one leaf per message).
-    ///
-    /// The default and the full contract (flush accounting, the memory
-    /// unit on each side, and the framing ceiling) are
-    /// [`Peer::target_message_size`]'s; the joined peer behaves exactly
-    /// as if it had called it.
+    /// The provider uses the smaller of its target and ours. Zero sends one
+    /// leaf per message. See [`Peer::target_message_size`] for defaults and
+    /// what the target accounts for.
     pub fn target_message_size(mut self, bytes: usize) -> Self {
         self.run_budget = RunBudget::from_bytes(bytes);
         self
     }
 
-    /// Bound the nesting depth of the message payloads the bootstrap
-    /// session, and every later session, accepts.
+    /// Set the payload nesting limit during and after bootstrap.
     ///
-    /// The join session decodes the provider's supplied records before a
-    /// [`Peer`] exists, so the bound is selected here, one session early.
-    /// The default, the scope accounting, and the fleet-coordination
-    /// contract are [`Peer::payload_depth_limit`]'s; the joined peer
-    /// behaves exactly as if it had called it.
+    /// See [`Peer::payload_depth_limit`] for defaults and fleet coordination.
     pub fn payload_depth_limit(mut self, limit: PayloadDepthLimit) -> Self {
         self.payload_depth_limit = limit;
         self
     }
 
-    /// Attach a wire-observation handler, starting with the bootstrap
-    /// session itself.
+    /// Observe this bootstrap session and the joined peer's later sessions.
     ///
-    /// The join is the one session that runs before the peer exists,
-    /// so observing it means selecting the handler here; the joined
-    /// peer then keeps the handler exactly as [`Peer::observe`] would
-    /// attach it; an observer that numbers sessions will count the join
-    /// as the first session it sees. The observation contract is the
-    /// [`observe`](crate::observe) module's.
+    /// The handler also survives failed attempts in the returned builder.
+    /// See [`observe`](crate::observe) for the observation contract.
     pub fn observe(mut self, observer: Arc<dyn Observer>) -> Self {
         self.observe.attach(observer);
         self
     }
-
-    /// Persist the received identity as part of joining: the peer comes
-    /// back already [`bookmark`](Peer::bookmark)ed.
-    ///
-    /// [`Peer::bookmark`]'s contract asks for the attach *immediately*
-    /// after an unbookmarked arrival, because a crash before the identity
-    /// is recorded strands it. Selecting the bookmark here makes
-    /// "immediately" structural: [`join`](BookmarkedBootstrap::join)
-    /// returns only after the attach and its eager persist have run (no
-    /// caller code can interleave), and its [`Joined`] outcome makes a
-    /// persist failure impossible to mistake for success. A joined peer
-    /// always has an identity worth recording (the received fork is never
-    /// the undivided seed), so the persist always touches storage.
-    ///
-    /// One bookmark records one peer, handled linearly; the sharing rules
-    /// are [`Bookmark`]'s. Like the session settings, this may be selected
-    /// in any order with the others.
-    ///
-    /// # What the bookmark does not protect
-    ///
-    /// Arrival and persistence remain two steps: a process crash after
-    /// the provider commits its donation but before the store commits
-    /// still loses the identity. What this removes is the *unbounded*
-    /// application-side window after a bare `join` returns. A failed
-    /// session is beyond its reach: an identity lost in flight was never
-    /// the bookmark's to record. And a bookmark records identity, never
-    /// content: messages are recovered by
-    /// [`gossip`](crate::Rumors::gossip)ing, like any peer's.
-    pub fn bookmark<B: Bookmark>(self, bookmark: B) -> BookmarkedBootstrap<T, B> {
-        BookmarkedBootstrap {
-            config: self,
-            bookmark,
-        }
-    }
-
-    /// Join the provider's universe: run the bootstrap session over
-    /// `link`, building a brand-new [`Peer`] from the counterparty's
-    /// donation.
-    ///
-    /// `Ok(None)` means the counterparty was itself still bootstrapping,
-    /// so neither side had anything to share and no identity moved. It is
-    /// a clean session boundary: the link remains usable. Connect to
-    /// another peer and try again (the builder is `Clone`, so the same
-    /// configuration retries as-is).
-    ///
-    /// On `Ok(Some(peer))`, the provider has confirmed its commit. Failure
-    /// in [`Phase::Completion`](crate::error::Phase::Completion) instead
-    /// discards the received identity and constructs no peer, even if the
-    /// provider committed. The fork is then lost. This preserves identity
-    /// disjointness, but permanently reduces available identity space unless
-    /// external coordination reclaims it. See [session failure and
-    /// cancellation](crate::link::Link#what-a-session-promises).
-    ///
-    /// The peer arrives unbookmarked: its identity has been forked away
-    /// to us but not yet persisted, so a crash before it is recorded
-    /// strands it. To make the received identity durable, attach a
-    /// [`Bookmark`] with [`bookmark`](Peer::bookmark) immediately, or
-    /// select it before joining with [`bookmark`](Self::bookmark), which
-    /// makes the attach structural.
-    pub async fn join<CR, CW, C, A>(
-        self,
-        link: &mut Link<CR, CW, C, A>,
-    ) -> Result<Option<Peer<T>>, Error>
-    where
-        T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
-        CR: AsyncRead + Unpin + Send,
-        CW: AsyncWrite + Unpin + Send,
-        C: Connector,
-        A: Acceptor,
-    {
-        Peer::bootstrap_inner(self, link).await
-    }
 }
 
-/// A [`Bootstrap`] that will persist the received identity before handing
-/// it back.
-///
-/// [`join`](Self::join) runs the same session the plain builder's
-/// [`join`](Bootstrap::join) does, then attaches the bookmark and eagerly
-/// persists: the exact [`Peer::bookmark`] step, with no room for caller
-/// code between the identity's arrival and the persist attempt. A distinct
-/// type, rather than a fourth setting, lets each state's `join` declare only
-/// its own outcomes: without a bookmark, nothing can fail *after* the
-/// session, and the plain `Result` says so; with one, the persist can fail
-/// while the peer lives, and [`Joined`] carries that arm where it cannot
-/// be ignored.
-///
-/// The session settings remain selectable in this state, order-free; the
-/// bookmark itself does not: one bookmark records one peer, so there is
-/// nothing coherent for a second selection to mean.
-#[must_use = "a `BookmarkedBootstrap` does nothing until `join` runs it against a link"]
-pub struct BookmarkedBootstrap<T, B> {
-    /// The session settings, exactly as the plain builder holds them.
-    config: Bootstrap<T>,
-    /// The storage the joined peer's identity will be recorded in.
-    bookmark: B,
-}
-
-/// The session settings; the bookmark is shown by its type only, since
-/// [`Bookmark`] does not require `Debug`.
-impl<T, B> std::fmt::Debug for BookmarkedBootstrap<T, B> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("BookmarkedBootstrap")
-            .field("config", &self.config)
-            .field("bookmark", &std::any::type_name::<B>())
-            .finish()
-    }
-}
-
-impl<T, B: Bookmark> BookmarkedBootstrap<T, B> {
-    /// Bound pipelining memory; the contract is
-    /// [`Bootstrap::sync_memory_budget`]'s.
-    pub fn sync_memory_budget(mut self, budget_bytes: usize) -> Self {
-        self.config = self.config.sync_memory_budget(budget_bytes);
-        self
-    }
-
-    /// Bound batched message size; the contract is
-    /// [`Bootstrap::target_message_size`]'s.
-    pub fn target_message_size(mut self, bytes: usize) -> Self {
-        self.config = self.config.target_message_size(bytes);
-        self
-    }
-
-    /// Bound payload nesting depth; the contract is
-    /// [`Bootstrap::payload_depth_limit`]'s.
-    pub fn payload_depth_limit(mut self, limit: PayloadDepthLimit) -> Self {
-        self.config = self.config.payload_depth_limit(limit);
-        self
-    }
-
-    /// Attach a wire-observation handler; the contract is
-    /// [`Bootstrap::observe`]'s.
-    pub fn observe(mut self, observer: Arc<dyn Observer>) -> Self {
-        self.config = self.config.observe(observer);
-        self
-    }
-
-    /// Join the provider's universe and durably record the received
-    /// identity, reporting what survived as a [`Joined`].
+/// Run a configured bootstrap and attach its selected bookmark.
+impl<T, B: Bookmark> Bootstrap<T, B> {
+    /// Join the connected peer's gossip network, returning a peer or a retryable builder.
     ///
-    /// The session itself is exactly [`Bootstrap::join`]'s; see it for
-    /// the session contract (whom the link chooses, what a failure at the
-    /// very end can cost, what `Err` and cancellation leave behind).
-    /// This method adds one step after a successful session: the new
-    /// peer takes the bookmark through [`Peer::bookmark`], persisting the
-    /// received identity before anything is handed back. Each of the four
-    /// ways that can end is a [`Joined`] variant; the bookmark comes back
-    /// in every outcome that never used it.
+    /// Success receives the provider's current message set. The provider may
+    /// be gossiping or retiring. Two bootstrappers cannot supply each other;
+    /// both return [`Joined::Bailed`] with their builders.
+    ///
+    /// [`Joined::Failed`] returns the builder on session failure. Discard the
+    /// poisoned link and retry on another.
+    ///
+    /// If a bookmark was selected, joining then attaches it through
+    /// [`Peer::bookmark`]. A failed attachment returns [`Joined::Unbookmarked`],
+    /// preserving the joined peer.
+    ///
+    /// Cancelling drops the builder and any joined peer. Cancellation during
+    /// the session poisons the link; once bookmark attachment begins, the
+    /// session is complete and the link remains usable. See the
+    /// [session contract](crate::link::Link#what-a-session-promises).
     pub async fn join<CR, CW, C, A>(self, link: &mut Link<CR, CW, C, A>) -> Joined<T, B>
     where
         T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
@@ -338,64 +188,48 @@ impl<T, B: Bookmark> BookmarkedBootstrap<T, B> {
         C: Connector,
         A: Acceptor,
     {
-        let Self { config, bookmark } = self;
-        match config.join(link).await {
-            Ok(Some(peer)) => match peer.bookmark(bookmark).await {
+        // The session needs a copy of the settings, not ownership of storage.
+        // Retaining self lets both unsuccessful outcomes return it unchanged.
+        match Peer::bootstrap_inner(self.session_config(), link).await {
+            Ok(Some(peer)) => match peer.bookmark(self.bookmark).await {
                 Ok(peer) => Joined::Joined { peer },
                 Err(unbookmarked) => Joined::Unbookmarked(unbookmarked),
             },
-            Ok(None) => Joined::Bailed { bookmark },
-            Err(error) => Joined::Failed { error, bookmark },
+            Ok(None) => Joined::Bailed { bootstrap: self },
+            Err(error) => Joined::Failed {
+                error,
+                bootstrap: self,
+            },
         }
     }
 }
 
-/// The outcome of [`BookmarkedBootstrap::join`].
-///
-/// Marked `must_use` because every variant carries something whose silent
-/// drop loses state the call existed to preserve: the joined peer
-/// ([`Joined`](Self::Joined)), a live peer whose identity is *not yet
-/// durable* ([`Unbookmarked`](Self::Unbookmarked)), or the bookmark to
-/// retry with ([`Bailed`](Self::Bailed), [`Failed`](Self::Failed)).
-#[must_use = "every `Joined` variant carries a peer or the bookmark; dropping it loses one or the other"]
+/// A bootstrap's outcome, preserving either its new peer or its retry configuration.
+#[must_use = "Joined contains a peer or a builder needed for retry"]
 #[derive(Debug)]
-pub enum Joined<T, B: BookmarkError> {
-    /// **Joined and durable.** The session committed, the received
-    /// identity is attached and persisted, and the link rests at a clean
-    /// session boundary.
+pub enum Joined<T, B: BookmarkError = NoBookmark> {
+    /// The session succeeded and any selected bookmark was attached and persisted.
+    /// The link remains usable.
     Joined {
-        /// The new, bookmarked peer.
+        /// The new peer, carrying the selected configuration and storage.
         peer: Peer<T, B>,
     },
-    /// **Bailed, nothing moved.** The counterparty was itself still
-    /// bootstrapping, so neither side had a universe to share.
-    ///
-    /// The bookmark never touched storage and comes back for the retry
-    /// against a more established peer. The link remains usable.
+    /// Both endpoints were bootstrapping; neither could provide a gossip network.
+    /// The link remains usable and storage was not touched.
     Bailed {
-        /// The unused bookmark, for the retry.
-        bookmark: B,
+        /// The complete builder, ready to try another provider.
+        bootstrap: Bootstrap<T, B>,
     },
-    /// **Alive but not durable.** The session committed, but recording
-    /// the received identity failed: a crash now strands it.
-    ///
-    /// The peer inside holds the received identity and the provider's
-    /// whole set: the failure cost a persist attempt and nothing else.
-    /// This is exactly [`Peer::bookmark`]'s failure: take the peer back
-    /// out and retry the attach against healthy storage, or proceed
-    /// knowingly unbookmarked.
+    /// The session succeeded, but attaching the bookmark failed.
+    /// The returned peer is live and unbookmarked; retry its bookmark attachment.
+    /// The link remains usable.
     Unbookmarked(Unbookmarked<T, B>),
-    /// **Failed.** The session failed before any peer existed; the
-    /// bookmark never touched storage and comes back for the retry.
-    ///
-    /// The link is poisoned; an identity that was in flight when the
-    /// session failed is lost, leaking its identity space benignly,
-    /// exactly as [`Bootstrap::join`]'s `Err` describes.
+    /// The session failed and poisoned the link. Storage was not touched.
     Failed {
-        /// What failed the session.
+        /// The session error.
         error: Error,
-        /// The unused bookmark, for the retry.
-        bookmark: B,
+        /// The complete builder, ready to retry on another link.
+        bootstrap: Bootstrap<T, B>,
     },
 }
 

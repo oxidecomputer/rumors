@@ -203,10 +203,12 @@ async fn serve_bootstrap(subject: &Rumors<u64, Probe>) -> Rumors<u64> {
         Peer::<u64>::bootstrap().join(&mut n_link),
     );
     s.expect("subject serve bootstrap");
-    n.expect("bootstrap handshake")
-        .expect("subject served the bootstrap")
-        .sync_window_floor()
-        .into_rumors()
+    (match n {
+        rumors::Joined::Joined { peer } => peer,
+        _ => panic!("subject served the bootstrap"),
+    })
+    .sync_window_floor()
+    .into_rumors()
 }
 
 /// Serve a bootstrap from `origin`, returning the newcomer as a still-unbookmarked
@@ -221,9 +223,11 @@ async fn bootstrap_fork_peer(origin: &Rumors<u64>) -> Peer<u64> {
         Peer::<u64>::bootstrap().join(&mut n_link),
     );
     o.expect("origin serves the bootstrap");
-    n.expect("bootstrap handshake")
-        .expect("origin served the bootstrap")
-        .sync_window_floor()
+    (match n {
+        rumors::Joined::Joined { peer } => peer,
+        _ => panic!("origin served the bootstrap"),
+    })
+    .sync_window_floor()
 }
 
 /// Absorb a retiree: `retiree` retires its whole identity into the subject,

@@ -11,7 +11,7 @@ set of messages that peers replicate and keep convergent, reconciling over
 the wire by exchanging only what differs. It is built on `crates/before`, an
 Interval Tree Clock library (`crates/before-viz` visualizes the clocks).
 
-- The model (membership as custody), the `Peer`/`Rumors` split, the session
+- Network membership, the `Peer`/`Rumors` split, the session
   contract, and bootstrap/retire semantics: crate docs (`src/lib.rs`).
 - The transport: sessions run over a `Link` — a control byte stream plus a
   supply of independent, lazily opened data streams. The contract (which
@@ -114,6 +114,10 @@ compatibility branch current with every external Rumors API change.
   first *who is reading it* (the developer wanting to *use* the library) and
   what they *need to know*. Hew to the quadrants of the Diataxis framework where
   applicable.
+- Describe public lifecycle operations as joining, gossiping, and leaving a
+  network. Explain internal peer identity in `Bookmark`, where it motivates
+  version growth and storage obligations, and in maintainer or protocol
+  documentation that needs the mechanism. Ordinary API use should not require it.
 - When writing maintainer-facing documentation (all private rustdoc comments and
   internal code comments), consider first *who is reading it* (the developer
   wanting to *understand*, *orient*, and *modify* the library) and what they
@@ -148,8 +152,8 @@ compatibility branch current with every external Rumors API change.
   economics. Violation/fail-fast machinery is a conformance bug
   detector, not a security boundary.
 - Never let two independently-`seed`ed universes interact; within a universe,
-  linearity of parties is the invariant everything rests on (see the crate
-  docs' safety rules).
+  linearity of parties is the invariant everything rests on (see `before`
+  and its `Party` documentation).
 - Commit every proptest seed file (`proptest-regressions/**`); never
   strip them from diffs.
 - `tests/gossip_snapshot.rs` and the `insta` snapshots pin the wire format

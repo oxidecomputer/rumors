@@ -162,10 +162,11 @@ async fn pooled_mutual_sessions_converge() {
         let (served, joined) =
             tokio::join!(seed.gossip(&mut a), Peer::<u64>::bootstrap().join(&mut b));
         served.expect("the bootstrap-serving session completes");
-        let newcomer = joined
-            .expect("the bootstrap session completes")
-            .expect("the seed serves the bootstrap")
-            .into_rumors();
+        let newcomer = (match joined {
+            rumors::Joined::Joined { peer } => peer,
+            _ => panic!("the seed serves the bootstrap"),
+        })
+        .into_rumors();
         {
             seed.send_all(0..48u64).unwrap();
         }

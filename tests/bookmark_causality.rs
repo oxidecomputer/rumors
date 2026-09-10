@@ -928,9 +928,12 @@ impl World {
                 async move {
                     let mut link = boot_side;
                     let peer = match Peer::<Msg>::bootstrap().join(&mut link).await {
-                        Ok(Some(peer)) => peer,
-                        Ok(None) => return Err(BootFailure::NoPeer),
-                        Err(error) => return Err(BootFailure::Join(error)),
+                        rumors::Joined::Joined { peer } => peer,
+                        rumors::Joined::Bailed { .. } => return Err(BootFailure::NoPeer),
+                        rumors::Joined::Failed { error, .. } => {
+                            return Err(BootFailure::Join(error));
+                        }
+                        rumors::Joined::Unbookmarked(_) => unreachable!("no bookmark was selected"),
                     };
                     peer.sync_window_floor()
                         .bookmark(bookmark)
@@ -1638,12 +1641,11 @@ async fn boot_from_async(
     let (boot_out, serve_out) = tokio::join!(
         async move {
             let mut link = boot_side;
-            let peer = Peer::<Msg>::bootstrap()
-                .join(&mut link)
-                .await
-                .expect("bootstrap ok")
-                .expect("got a peer")
-                .sync_window_floor();
+            let peer = (match Peer::<Msg>::bootstrap().join(&mut link).await {
+                rumors::Joined::Joined { peer } => peer,
+                _ => panic!("got a peer"),
+            })
+            .sync_window_floor();
             // Clean wires, reliable store: the eager persist of the reclaimed
             // identity must succeed.
             match peer.bookmark(bm).await {

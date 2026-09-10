@@ -73,12 +73,11 @@ where
     let (mut near, mut far) = rumors::link::memory();
     let serve = sender.clone();
     let server = tokio::spawn(async move { serve.gossip(&mut far).await.unwrap() });
-    let receiver = Peer::<B>::bootstrap()
-        .join(&mut near)
-        .await
-        .expect("the bootstrap session succeeds")
-        .expect("the sender is established")
-        .into_rumors();
+    let receiver = (match Peer::<B>::bootstrap().join(&mut near).await {
+        rumors::Joined::Joined { peer } => peer,
+        _ => panic!("the sender is established"),
+    })
+    .into_rumors();
     server.await.expect("the serving task");
 
     let snapshot = receiver.snapshot();
@@ -160,7 +159,10 @@ async fn undecodable_payload_fails_bootstrap_cleanly() {
     let server = tokio::spawn(async move { serve.gossip(&mut far).await });
 
     let joined = Peer::<u64>::bootstrap().join(&mut near).await;
-    assert!(joined.is_err(), "a String payload must not decode as u64");
+    assert!(
+        matches!(joined, rumors::Joined::Failed { .. }),
+        "a String payload must not decode as u64"
+    );
 
     // Drop the failed side's link so the donor sees the transport close
     // (a peer that errored out of a session hangs up); its session then
@@ -183,15 +185,14 @@ async fn out_of_range_payload_fails_gossip_cleanly() {
     let (mut near, mut far) = rumors::link::memory();
     let serve = sender.clone();
     let server = tokio::spawn(async move { serve.gossip(&mut far).await });
-    let receiver = Peer::<u32>::bootstrap()
-        .join(&mut near)
-        .await
-        .expect("in-range values decode across the pair")
-        .expect("the sender is established")
-        .into_rumors();
+    let receiver = (match Peer::<u32>::bootstrap().join(&mut near).await {
+        rumors::Joined::Joined { peer } => peer,
+        _ => panic!("the sender is established"),
+    })
+    .into_rumors();
     server
         .await
-        .expect("the serving task must not panic")
+        .expect("the serving task completes")
         .expect("the in-range session succeeds");
 
     // A value only `u64` can hold: the next session must fail at the

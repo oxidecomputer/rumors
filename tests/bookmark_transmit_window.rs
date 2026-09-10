@@ -187,11 +187,10 @@ async fn boot_from(
     let (boot_out, serve_out) = tokio::join!(
         async move {
             let mut link = boot_side;
-            let peer = Peer::<Msg>::bootstrap()
-                .join(&mut link)
-                .await
-                .expect("bootstrap ok")
-                .expect("the server is established");
+            let peer = match Peer::<Msg>::bootstrap().join(&mut link).await {
+                rumors::Joined::Joined { peer } => peer,
+                _ => panic!("the server is established"),
+            };
             peer.bookmark(bm).await.expect("in-memory persist")
         },
         async move {
@@ -566,7 +565,7 @@ fn donation_persist_failure_aborts_before_the_wire() {
             "the serve must surface the failed donation persist",
         );
         assert!(
-            !matches!(boot_out, Ok(Some(_))),
+            matches!(boot_out, rumors::Joined::Failed { .. }),
             "the newcomer must not receive a party the donor could not persist away",
         );
 
@@ -641,7 +640,7 @@ fn repeated_donation_aborts_normalize() {
                 "round {round}: the serve must surface the failed donation persist",
             );
             assert!(
-                !matches!(boot_out, Ok(Some(_))),
+                matches!(boot_out, rumors::Joined::Failed { .. }),
                 "round {round}: the newcomer must not receive a party",
             );
             assert_eq!(

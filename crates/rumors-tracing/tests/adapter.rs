@@ -184,10 +184,11 @@ fn adapter_bridges_real_sessions() {
                     .join(&mut near),
             );
             served.expect("provider session");
-            let bob = joined
-                .expect("bootstrap session")
-                .expect("alice is established, not herself bootstrapping")
-                .into_rumors();
+            let bob = (match joined {
+                rumors::Joined::Joined { peer } => peer,
+                _ => panic!("alice is established, not herself bootstrapping"),
+            })
+            .into_rumors();
 
             // Diverge both replicas so the follow-up gossip elects a
             // role and moves data-stream frames both ways.
@@ -330,11 +331,12 @@ fn concurrent_sessions_number_cleanly() {
                 Peer::<String>::bootstrap().join(&mut near),
             );
             served.expect("provider session");
-            let bob = joined
-                .expect("bootstrap session")
-                .expect("alice is established, not herself bootstrapping")
-                .observe(Arc::new(TracingObserver::new()))
-                .into_rumors();
+            let bob = (match joined {
+                rumors::Joined::Joined { peer } => peer,
+                _ => panic!("alice is established, not herself bootstrapping"),
+            })
+            .observe(Arc::new(TracingObserver::new()))
+            .into_rumors();
 
             let (mut near, mut far) = rumors::link::memory();
             let (served, joined) = tokio::join!(
@@ -342,10 +344,11 @@ fn concurrent_sessions_number_cleanly() {
                 Peer::<String>::bootstrap().join(&mut near),
             );
             served.expect("provider session");
-            let carol = joined
-                .expect("bootstrap session")
-                .expect("alice is established, not herself bootstrapping")
-                .into_rumors();
+            let carol = (match joined {
+                rumors::Joined::Joined { peer } => peer,
+                _ => panic!("alice is established, not herself bootstrapping"),
+            })
+            .into_rumors();
 
             // Diverge all three replicas so both sessions elect roles
             // and move data-stream frames.

@@ -6,6 +6,8 @@ final Sush review. The [plan](README.md) owns the ongoing workflow.
 
 [Draft PR #84](https://github.com/oxidecomputer/sush/pull/84) tracks this work
 against Sush `main`; keep it a draft until the final compatibility review.
+Push only after an approved Rumors merge, following the
+[publication sequence](README.md#2-how-each-change-proceeds).
 
 The branch uses Rumors-owned connection pooling, supplies Sush's routing
 deadline, and handles the current message admission API. Implementation and
@@ -23,9 +25,9 @@ cargo nextest run --config .cargo/rumors-local.toml --workspace --run-ignored al
 
 The override rewrites `Cargo.lock` for local paths. Preserve the Git-resolved
 lockfile before running with it, then restore that lockfile before committing.
-Never commit the override or a lockfile resolved against local paths. The Git
-pin still needs to advance to the reviewed Rumors changes once their commit is available from the Git remote; final validation must
-use that revision without an override.
+Never commit the override or a lockfile resolved against local paths.
+After an approved Rumors merge is pushed, advance the Git pin and validate against it without an override before pushing
+the compatibility branch.
 
 Run native process/job validation on `ox-east-1-agent` (Helios), using the
 [building-on-illumos skill](/Users/oxide/.claude/skills/building-on-illumos/SKILL.md).

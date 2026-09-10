@@ -75,11 +75,12 @@ fn diverged(budget: usize, divergent: usize) -> (Rumors<u64>, Rumors<u64>) {
             Peer::<u64>::bootstrap().join(&mut newcomer),
         );
         served.expect("serve bootstrap");
-        joined
-            .expect("bootstrap newcomer")
-            .expect("provider is established")
-            .sync_memory_budget(budget)
-            .into_rumors()
+        (match joined {
+            rumors::Joined::Joined { peer } => peer,
+            _ => panic!("provider is established"),
+        })
+        .sync_memory_budget(budget)
+        .into_rumors()
     });
 
     send_random(&left, divergent, &mut rng);
@@ -219,11 +220,12 @@ fn version_bounds_stay_inside_the_priced_pair_bound() {
             Peer::<u64>::bootstrap().join(&mut newcomer),
         );
         served.expect("serve third bootstrap");
-        joined
-            .expect("bootstrap third")
-            .expect("provider is established")
-            .sync_memory_budget(TIGHT_BUDGET)
-            .into_rumors()
+        (match joined {
+            rumors::Joined::Joined { peer } => peer,
+            _ => panic!("provider is established"),
+        })
+        .sync_memory_budget(TIGHT_BUDGET)
+        .into_rumors()
     });
     let mut rng = SmallRng::seed_from_u64(0x0b05_2026_1e77_a51a);
     send_random(&third, 2_048, &mut rng);
@@ -252,11 +254,12 @@ fn bootstrap_from(provider: &Rumors<u64>) -> Rumors<u64> {
             Peer::<u64>::bootstrap().join(&mut joining),
         );
         served.expect("serve swarm bootstrap");
-        joined
-            .expect("bootstrap swarm member")
-            .expect("provider is established")
-            .sync_window_floor()
-            .into_rumors()
+        (match joined {
+            rumors::Joined::Joined { peer } => peer,
+            _ => panic!("provider is established"),
+        })
+        .sync_window_floor()
+        .into_rumors()
     })
 }
 

@@ -149,11 +149,12 @@ fn equal_raised_limits_gossip_deep_content_clean() {
                 .join(&mut newcomer),
         );
         served.expect("the seed serves the bootstrap");
-        joined
-            .expect("the bootstrap session completes")
-            .expect("the seed is established")
-            .sync_window_floor()
-            .into_rumors()
+        (match joined {
+            rumors::Joined::Joined { peer } => peer,
+            _ => panic!("the seed is established"),
+        })
+        .sync_window_floor()
+        .into_rumors()
     });
 
     a.send(deep.clone()).expect("the raised limit admits it");
@@ -334,11 +335,12 @@ fn a_sender_exits_typed_when_its_counterparty_aborts_on_decode() {
             Peer::<String>::bootstrap().join(&mut newcomer),
         );
         served.expect("the seed serves the bootstrap (no payloads to decode yet)");
-        joined
-            .expect("the bootstrap session completes")
-            .expect("the seed is established")
-            .sync_window_floor()
-            .into_rumors()
+        (match joined {
+            rumors::Joined::Joined { peer } => peer,
+            _ => panic!("the seed is established"),
+        })
+        .sync_window_floor()
+        .into_rumors()
     });
 
     a.send(7u64).expect("a flat integer");

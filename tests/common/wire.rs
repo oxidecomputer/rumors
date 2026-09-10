@@ -253,11 +253,10 @@ where
     );
     server_out.expect("bootstrap server gossip");
     let forked = window
-        .apply(
-            boot_out
-                .expect("bootstrap handshake")
-                .expect("parent served the bootstrap"),
-        )
+        .apply(match boot_out {
+            rumors::Joined::Joined { peer } => peer,
+            _ => panic!("parent served the bootstrap"),
+        })
         .into_rumors();
     assert_control_drained(parent_link, boot_link);
     forked

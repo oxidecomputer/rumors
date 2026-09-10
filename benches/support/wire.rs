@@ -48,9 +48,10 @@ where
             Peer::<T>::bootstrap().join(&mut newcomer_link),
         );
         served.expect("serve bootstrap");
-        newcomer
-            .expect("bootstrap newcomer")
-            .expect("provider is established")
-            .into_rumors()
+        (match newcomer {
+            rumors::Joined::Joined { peer } => peer,
+            _ => panic!("provider is established"),
+        })
+        .into_rumors()
     })
 }

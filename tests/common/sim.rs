@@ -547,12 +547,15 @@ async fn run_boot(
     };
     assert_honest_gossip(&served);
     let newcomer = match joined {
-        Ok(Some(newcomer)) => Some(window.apply(newcomer)),
-        Ok(None) => unreachable!("the serving peer is never itself bootstrapping"),
-        Err(e) => {
-            assert_honest_error(&e);
+        rumors::Joined::Joined { peer } => Some(window.apply(peer)),
+        rumors::Joined::Bailed { .. } => {
+            unreachable!("the serving peer is never itself bootstrapping")
+        }
+        rumors::Joined::Failed { error, .. } => {
+            assert_honest_error(&error);
             None
         }
+        rumors::Joined::Unbookmarked(_) => unreachable!("no bookmark was selected"),
     };
     (newcomer, 0)
 }

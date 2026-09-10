@@ -293,12 +293,11 @@ fn capture_bootstrap(provider: Rumors<u64>, config: Bootstrap<u64>) -> String {
                 .expect("the provider serves the bootstrap");
         },
         move |mut link, hook| async move {
-            config
-                .observe(hook)
-                .join(&mut link)
-                .await
-                .expect("the bootstrap session completes")
-                .expect("the provider is established, not itself bootstrapping");
+            let outcome = config.observe(hook).join(&mut link).await;
+            assert!(
+                matches!(outcome, rumors::Joined::Joined { .. }),
+                "the provider serves the bootstrap"
+            );
         },
     )
 }

@@ -282,9 +282,11 @@ fn forked(observer: Option<&Arc<Recording>>, parent: &Rumors<Vec<u8>>) -> Rumors
     block_on(async {
         let (peer, served) = tokio::join!(bootstrap.join(&mut near), serve.gossip(&mut far),);
         served.expect("the parent serves the fork");
-        peer.expect("the join session completes")
-            .expect("the parent held a universe to share")
-            .into_rumors()
+        (match peer {
+            rumors::Joined::Joined { peer } => peer,
+            _ => panic!("the parent held a universe to share"),
+        })
+        .into_rumors()
     })
 }
 
@@ -424,12 +426,14 @@ fn bootstrap_sessions_are_observed() {
         {
             let rec_newcomer = rec_newcomer.clone();
             move |mut link| async move {
-                Peer::<Vec<u8>>::bootstrap()
+                match Peer::<Vec<u8>>::bootstrap()
                     .observe(rec_newcomer)
                     .join(&mut link)
                     .await
-                    .expect("bootstrap handshake")
-                    .expect("provider served the bootstrap");
+                {
+                    rumors::Joined::Joined { peer } => peer,
+                    _ => panic!("provider served the bootstrap"),
+                };
             }
         },
     );

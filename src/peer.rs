@@ -28,55 +28,41 @@ use serde::de::DeserializeOwned;
 mod bootstrap;
 mod gossip;
 
-pub use bootstrap::{BookmarkedBootstrap, Bootstrap, Joined};
+pub use bootstrap::{Bootstrap, Joined};
 pub use gossip::{Gossip, Gossiped, Led, Retire, Unbookmarked};
 
 /// The start and end of a [`Rumors`]'s lifecycle.
 ///
-/// A [`Peer`] is the unique `!Clone` anchor for a participant's identity in
-/// the gossip protocol. Peer identity in [`rumors`](crate) is *not*
-/// self-sovereign: it descends from the community of [`Peer`]s. Exactly *one*
-/// [`Peer`] should call [`Peer::seed`] to establish the unique [`Network`];
-/// peers whose identities descend from different calls to [`Peer::seed`] can
-/// never [`gossip`](Rumors::gossip) with one another.
+/// Create a network with [`seed`](Self::seed), or join an established peer's
+/// network with [`bootstrap`](Self::bootstrap). Independently seeded networks
+/// cannot gossip with one another.
 ///
-/// A [`Peer`] can exist only while no [`Rumors`] handles to the same identity
-/// are outstanding, so it is statically impossible to
-/// [`retire`](Peer::retire) one out from under another handle.
+/// Convert the peer into [`Rumors`] to use and share the replica. A `Peer`
+/// cannot be cloned and exists only while no `Rumors` handles to that replica
+/// remain, so [`retire`](Self::retire) cannot interrupt another handle's use.
 ///
 /// # Example
 ///
 /// The lifecycle of a [`Peer`] usually looks something like this:
 ///
 /// ```
-/// use rumors::{Peer, Retire};
+/// use rumors::{Joined, Peer, Retire};
 ///
 /// # tokio::runtime::Builder::new_current_thread()
 /// #     .build()
 /// #     .unwrap()
 /// #     .block_on(async {
 /// // The counterparty this example talks to: the universe's seed, serving
-/// // the bootstrap and later absorbing the retirement, over in-memory links.
+/// // the bootstrap and later accepting the retirement, over in-memory links.
 /// let counterparty = Peer::<String>::seed().into_rumors();
 /// let (mut near, mut far) = rumors::link::memory();
 /// # let serve = counterparty.clone();
 /// # tokio::spawn(async move {
 /// #     serve.gossip(&mut far).await.unwrap();
 /// # });
-/// // A real deployment would dial a different provider here; this example's
-/// // counterparty is established, so the retry path is never taken.
-/// async fn bootstrap_from_another_peer() -> Result<Peer<String>, rumors::Error> {
-///     unreachable!("the example's counterparty is the established seed")
-/// }
-///
-/// // Join an existing universe through any connected peer. (The universe's
-/// // very first peer is created with `Peer::seed()` instead.)
-/// let peer = match Peer::<String>::bootstrap().join(&mut near).await? {
-///     Some(peer) => peer,
-///     // The counterparty was *itself* bootstrapping: neither side holds
-///     // a universe to share yet, and nothing was exchanged. Connect to a
-///     // different, more established peer and try again.
-///     None => bootstrap_from_another_peer().await?,
+/// // Join through an established peer. The new peer receives its full set.
+/// let Joined::Joined { peer } = Peer::<String>::bootstrap().join(&mut near).await else {
+///     panic!("the established counterparty must serve the bootstrap");
 /// };
 ///
 /// // A `Peer` is `!Clone`; trade it for `Rumors` handles to send and gossip.
@@ -90,23 +76,20 @@ pub use gossip::{Gossip, Gossiped, Led, Retire, Unbookmarked};
 ///     unreachable!("all other handles were dropped already");
 /// };
 ///
-/// // Leave the universe, donating our identity to any gossiping peer (it
-/// // does not need to be the one we bootstrapped from).
+/// // Leave the network through any gossiping peer. It need not be the
+/// // one we joined through.
 /// let (mut near, mut far) = rumors::link::memory();
 /// # tokio::spawn(async move {
 /// #     counterparty.gossip(&mut far).await.unwrap();
 /// # });
 /// let retry = match peer.retire(&mut near).await {
-///     // The peer absorbed our identity; nothing more to do.
+///     // Retirement completed; nothing more to do.
 ///     Retire::Retired => None,
-///     // The peer was itself retiring, so it could not absorb us;
-///     // retry against a different peer.
+///     // Both sides were retiring; retry against a different peer.
 ///     Retire::Declined { peer } => Some(peer),
-///     // The session failed before we sent our identity to the peer;
-///     // retry here or elsewhere.
+///     // Retirement did not proceed. Retry using a fresh link.
 ///     Retire::Recovered { peer, error: _ } => Some(peer),
-///     // The session failed after we sent our identity: the peer may
-///     // hold it, so we cannot safely retry.
+///     // The outcome is uncertain, and this peer cannot be used again.
 ///     Retire::Uncertain { error } => return Err(error),
 /// };
 /// assert!(retry.is_none(), "the example's retirement succeeds");
@@ -135,9 +118,9 @@ pub use gossip::{Gossip, Gossiped, Led, Retire, Unbookmarked};
 /// (their ordering is total).
 /// Each side declared its count in the session's handshake, so both apply
 /// the rule from the one error alone, with nothing further to fetch or
-/// race, and agree without coordination: the greater persists in its
-/// [`Peer`] identity, and the lesser attempts to
-/// re-[`bootstrap`](Peer::bootstrap) into the dominating [`Network`].
+/// race, and agree without coordination: the winner stays in its network,
+/// and the loser drops its replica and attempts to
+/// re-[`bootstrap`](Peer::bootstrap) into the winning [`Network`].
 ///
 /// If peers are reasonably well-connected as the network gets started, this
 /// quickly reaches a stable steady state, disrupted only if a group of new
@@ -366,16 +349,12 @@ impl<T, B: BookmarkError> std::fmt::Debug for Peer<T, B> {
 }
 
 impl<T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<T, NoBookmark> {
-    /// Create the distinguished seed rumor set: the single root from which
-    /// every other participant must [`bootstrap`](Peer::bootstrap).
+    /// Create a new gossip network containing only this peer.
     ///
-    /// Call this exactly once per universe of cooperating peers.
-    ///
-    /// The payload type's serde obligations — [`Serialize`] and
-    /// [`DeserializeOwned`] both — live here, at construction: the peer
-    /// builds its payload codec once, every send serializes through it,
-    /// and every gossip session decodes through it, so neither the send
-    /// paths nor the gossip entry points carry serde bounds of their own.
+    /// Call once per network; other participants join through
+    /// [`bootstrap`](Self::bootstrap). Independently seeded peers cannot gossip
+    /// with each other. The payload type must follow the
+    /// [payload contract](crate#choosing-a-payload-type).
     pub fn seed() -> Self {
         Self::seed_rng(&mut OsRng)
     }
@@ -397,48 +376,29 @@ impl<T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<T, NoBoo
 }
 
 impl<T> Peer<T> {
-    /// Begin joining an existing universe: the [`Bootstrap`] configuration
-    /// for one session against an established provider.
+    /// Configure a join to an existing gossip network.
     ///
-    /// [`Bootstrap::join`] runs the session and returns the brand-new peer;
-    /// its docs state the session contract (the mutual-bootstrap bail, what
-    /// a failure at the very end can cost, the unbookmarked arrival). The
-    /// builder's settings ([`Bootstrap::sync_memory_budget`],
-    /// [`Bootstrap::target_message_size`]) are the peer-to-be's own,
-    /// selected before it exists so the bootstrap session and every
-    /// session after it run configured. The zero-configuration join is
-    /// `Peer::bootstrap().join(&mut link)`.
+    /// Call [`Bootstrap::join`] with a link to an established member. The
+    /// returned peer retains the builder's settings. Failed sessions return
+    /// the builder for retry. See [`Joined`] for the possible outcomes.
     pub fn bootstrap() -> Bootstrap<T> {
         Bootstrap::new()
     }
 
-    /// Attach `bookmark` to this [`Peer`], persisting its identity before
-    /// returning.
+    /// Attach restart bookkeeping that limits version growth after crashes.
     ///
-    /// A joining peer can skip this step: selecting the bookmark on the
-    /// builder ([`Bootstrap::bookmark`]) hands back the peer already
-    /// attached, with no window in which a crash could strand the received
-    /// identity unrecorded.
+    /// Reuse this bookmark when restarting the peer. It records internal
+    /// protocol state, not messages; recover content by joining and gossiping.
+    /// [`Bookmark`] explains the storage and ownership requirements.
     ///
-    /// This peer's own identity is [`load`](crate::Bookmark::load)ed into the
-    /// record and [`store`](crate::Bookmark::store)d back *eagerly*, here, so a
-    /// freshly received fork cannot strand on a crash before the first gossip.
-    /// Reclaiming *other* stranded identities (which grows the live party) is
-    /// left to the first gossip, behind that path's persist gate, never done at
-    /// attach.
-    ///
-    /// A pristine [`seed`](Peer::seed), with nothing sent and no identity yet
-    /// donated or absorbed, has nothing worth persisting, so this touches
-    /// storage only once the peer *knows* something: any content, or any
-    /// identity beyond the undivided seed.
+    /// Attachment reads and updates storage before returning. A pristine seed
+    /// with no prior activity defers this until its first gossip session.
+    /// Select [`Bootstrap::bookmark`] to perform attachment as part of joining.
     ///
     /// # Errors
     ///
-    /// If the bookmark cannot be read or written, nothing reaches storage and
-    /// the peer is handed back **untouched**, still unbookmarked, inside
-    /// [`Unbookmarked`], to drop or retry. Because the attach never reclaims, the
-    /// live party is exactly as it was: a failed attach cannot leave reclaimed
-    /// identity live in this peer yet stranded on disk.
+    /// A storage or decoding failure returns the peer unchanged and without a
+    /// bookmark in [`Unbookmarked`]. Repair or replace the storage, then retry.
     pub async fn bookmark<B: Bookmark>(
         self,
         bookmark: B,
@@ -448,15 +408,15 @@ impl<T> Peer<T> {
 }
 
 impl<T, B: Bookmark> Peer<T, B> {
-    /// Retire this rumor set into a remote peer, handing it our identity so
-    /// that it can be recycled by the network.
+    /// Leave the gossip network after synchronizing with a remote member.
     ///
-    /// See the [type-level lifecycle example](Peer) for how to handle the
-    /// four [`Retire`] outcomes; in brief, a session reconciles content
-    /// exactly as [`gossip`](crate::Rumors::gossip) would, then the peer
-    /// absorbs our identity, and the outcome reports what survived. What
-    /// `Ok`, `Err`, and cancellation promise is stated in [what a session
-    /// promises](crate::link::Link#what-a-session-promises).
+    /// Retiring helps keep message versions compact as peers come and go.
+    /// The remote member runs ordinary [`gossip`](Rumors::gossip); it needs
+    /// no special call to accept the retirement.
+    ///
+    /// [`Retire`] reports whether this peer left, can retry, or was consumed
+    /// with an uncertain outcome. See the [lifecycle example](Peer) and the
+    /// [session contract](crate::link::Link#what-a-session-promises).
     pub async fn retire<CR, CW, C, A>(self, link: &mut Link<CR, CW, C, A>) -> Retire<T, B>
     where
         T: Send + Sync + 'static,

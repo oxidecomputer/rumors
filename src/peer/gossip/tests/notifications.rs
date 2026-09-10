@@ -29,7 +29,9 @@ proptest! {
             )
         }).expect("bootstrap must complete");
         served.unwrap();
-        let newcomer = joined.unwrap().unwrap();
+        let crate::Joined::Joined { peer: newcomer } = joined else {
+            panic!("bootstrap must succeed");
+        };
         prop_assert!(!changes.has_changed().unwrap(), "donating a fork changes no content");
 
         newcomer.send_all(100..100 + added).unwrap();

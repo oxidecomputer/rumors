@@ -288,47 +288,35 @@ impl<A: Acceptor> Acceptor for &mut A {
 ///
 /// # What a session promises
 ///
-/// Every session on a link resolves in one of three ways:
+/// Sessions synchronize message sets and may also join or retire a peer.
+/// Their outcomes determine whether the replica and link can be reused:
 ///
-/// - **`Ok`: both replicas committed.** The session ends with each side
-///   exchanging a completion marker on the control stream, so `Ok`
-///   certifies that the *peer* completed and committed too: every message
-///   and identity the session moved is applied on both ends. The link rests
-///   at the session boundary, ready for this pair's next session. One
-///   uncertainty remains: losing the peer's confirmation fails the session
-///   in [`Phase::Completion`](crate::error::Phase::Completion), despite its
-///   local work having committed.
-/// - **`Err`: the local replica is unchanged, and the link is poisoned.**
-///   The failed session leaves the control stream mid-frame, so every later
-///   session on the link fails fast with
-///   [`Error::LinkPoisoned`](crate::Error::LinkPoisoned) rather than
-///   misreading leftover bytes: discard the link and reconnect; there is no
-///   repair. "Unchanged" has three qualified exceptions, stated where they
-///   arise:
-///   - a failure in [`Phase::Completion`](crate::error::Phase::Completion);
-///   - a bootstrap donation lost in flight, which costs the donated
-///     identity space ([`Bootstrap::join`](crate::Bootstrap::join));
-///   - a bookmark persist failing after a retiring peer's identity is
-///     absorbed, which leaves the session committed with the absorption
-///     not yet crash-safe ([`Error::Bookmark`](crate::Error::Bookmark)).
+/// - **Success:** both sides confirmed completion. The link is ready for
+///   another session. Gossip returns [`Gossiped`](crate::Gossiped); bootstrap
+///   and retirement report their results through [`Joined`](crate::Joined)
+///   and [`Retire`](crate::Retire).
+/// - **Failure:** discard the link and reconnect. Further sessions on it fail
+///   with [`Error::LinkPoisoned`](crate::Error::LinkPoisoned). Failure does not
+///   always mean that nothing changed: a failure in
+///   [`Phase::Completion`](crate::error::Phase::Completion) can follow a local
+///   commit. Accepting a retirement can also commit content before a bookmark
+///   write fails; see [`Error::Bookmark`](crate::Error::Bookmark).
+/// - **Cancellation:** dropping an active session future poisons the link.
+///   No partial reconciliation is published, but a completed local commit
+///   is not undone. Cancelling bootstrap or retirement also drops the builder
+///   or peer it consumed; no outcome is returned for retry. See [`Bookmark`](crate::Bookmark)
+///   for the effects on restart bookkeeping.
 ///
-///   `retire` reports failure through [`Retire`](crate::Retire)'s variants,
-///   which state which side of the identity hand-off the failure landed on,
-///   with the same link consequences.
-/// - **Cancellation: as `Err`.** Dropping a session future mid-flight never
-///   commits a partial session (the replica holds the session's full effect or
-///   none of it) and poisons the link the same way. One exception: cancelling
-///   retirement destroys its consumed [`Peer`](crate::Peer) without returning a
-///   [`Retire::Recovered`](crate::Retire::Recovered) outcome. An attached
-///   bookmark can recover only the identity it still records. Retirement removes
-///   the donation from that record before transmitting it; after that removal is
-///   durable, recovery depends on the recipient having received the identity, as
-///   with [`Retire::Uncertain`](crate::Retire::Uncertain).
+/// Bootstrap attaches a selected bookmark after its wire session completes.
+/// Failing or cancelling that attachment leaves the link usable;
+/// [`Joined::Unbookmarked`](crate::Joined::Unbookmarked) preserves the joined
+/// peer after an attachment failure.
 ///
-/// No session imposes its own deadline: against a stalled peer a session
-/// waits forever, so the *caller* owns the timeout. Wrap sessions in your
-/// runtime's timeout and treat expiry as any other cancellation: replica
-/// intact or fully committed, link poisoned, reconnect.
+/// Sessions impose no deadline. Against a stalled peer, they wait until the
+/// caller cancels them. Wrap a session in your runtime's timeout and discard
+/// its link on expiry. A [`gossip_when`](crate::Rumors::gossip_when) driver may
+/// also wait indefinitely *between* sessions; its docs explain how to use
+/// unconditional cues as liveness probes on an otherwise idle connection.
 pub struct Link<CR, CW, C, A> {
     pub(crate) control_read: CR,
     pub(crate) control_write: CW,

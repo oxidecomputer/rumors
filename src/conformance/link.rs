@@ -1143,10 +1143,10 @@ pub async fn check_sessions<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab, D>(
         let (served, joined) =
             join(seed.gossip(&mut a), Peer::<u64>::bootstrap().join(&mut b)).await;
         served.expect("contract: the bootstrap-serving session completes");
-        let newcomer = joined
-            .expect("contract: the bootstrap session completes")
-            .expect("the seed serves the bootstrap")
-            .into_rumors();
+        let crate::Joined::Joined { peer: newcomer } = joined else {
+            panic!("contract: the seed serves the bootstrap: {joined:?}");
+        };
+        let newcomer = newcomer.into_rumors();
 
         // Give each side data to contribute to the shallow reconciliation.
         seed.send_all(0..SESSION_PAYLOADS)

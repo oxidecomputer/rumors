@@ -19,8 +19,8 @@ use super::unordered::Channel;
 /// The first poll yields `()` immediately, even for an empty replica. Later
 /// polls coalesce all changes since the last notification into one `()`;
 /// notifications cannot be used to count commits. Changes include local
-/// insertions, redactions, and new state learned through gossip. Transferring
-/// identity alone does not count as a change.
+/// insertions, redactions, and new state learned through gossip. Serving a
+/// bootstrap or accepting a retirement notifies only if the message set changes.
 ///
 /// The stream ends (`None`) once the [`Peer`](crate::Peer) and every
 /// [`Rumors`](crate::Rumors) handle for the replica have dropped and the final

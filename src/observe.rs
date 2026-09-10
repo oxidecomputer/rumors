@@ -169,8 +169,7 @@ pub struct StreamInfo {
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StreamId {
-    /// The session's control stream: preamble, greeting, identity
-    /// hand-off, epilogue.
+    /// Session setup, network joins and departures, and completion confirmation.
     Control,
     /// One reconciliation data stream.
     Data {

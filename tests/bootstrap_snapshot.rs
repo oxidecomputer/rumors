@@ -55,12 +55,10 @@ where
             provider.gossip(&mut link).await.expect("provider gossip");
         },
         move |mut link, hook| async move {
-            Peer::<T>::bootstrap()
-                .observe(hook)
-                .join(&mut link)
-                .await
-                .expect("bootstrap handshake")
-                .expect("provider served the bootstrap");
+            match Peer::<T>::bootstrap().observe(hook).join(&mut link).await {
+                rumors::Joined::Joined { peer } => peer,
+                _ => panic!("provider served the bootstrap"),
+            };
         },
     )
 }
@@ -112,25 +110,17 @@ fn string_payload() {
 fn mutual_bootstrap_bails() {
     let capture = capture_session(
         |mut link, hook| async move {
-            let out = Peer::<u64>::bootstrap()
-                .observe(hook)
-                .join(&mut link)
-                .await
-                .expect("handshake A");
+            let out = Peer::<u64>::bootstrap().observe(hook).join(&mut link).await;
             assert!(
-                out.is_none(),
-                "a mutually-bootstrapping peer must bail with None"
+                matches!(out, rumors::Joined::Bailed { .. }),
+                "a mutually-bootstrapping peer must return its builder"
             );
         },
         |mut link, hook| async move {
-            let out = Peer::<u64>::bootstrap()
-                .observe(hook)
-                .join(&mut link)
-                .await
-                .expect("handshake B");
+            let out = Peer::<u64>::bootstrap().observe(hook).join(&mut link).await;
             assert!(
-                out.is_none(),
-                "a mutually-bootstrapping peer must bail with None"
+                matches!(out, rumors::Joined::Bailed { .. }),
+                "a mutually-bootstrapping peer must return its builder"
             );
         },
     );

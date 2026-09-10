@@ -99,9 +99,10 @@ fn bootstrap_adopts_provider_network() {
             Peer::<u64>::bootstrap().join(&mut b_link),
         );
         provider_out.expect("provider gossip");
-        let joined = bootstrap_out
-            .expect("bootstrap handshake")
-            .expect("provider served the bootstrap");
+        let joined = match bootstrap_out {
+            rumors::Joined::Joined { peer } => peer,
+            _ => panic!("provider served the bootstrap"),
+        };
         assert_control_drained(a_link, b_link);
         joined
     });

@@ -67,9 +67,10 @@ fn bootstrap_from(provider: Peer<u64>) -> (Peer<u64>, Peer<u64>) {
         provider_out.expect("provider gossip");
         (
             provider,
-            boot_out
-                .expect("bootstrap")
-                .expect("provider served the bootstrap"),
+            (match boot_out {
+                crate::Joined::Joined { peer } => peer,
+                _ => panic!("provider served the bootstrap"),
+            }),
         )
     })
 }

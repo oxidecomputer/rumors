@@ -76,11 +76,12 @@ fn diverged_pair() -> (Rumors<u64>, Rumors<u64>) {
             Peer::<u64>::bootstrap().join(&mut newcomer),
         );
         served.expect("serve bootstrap");
-        joined
-            .expect("bootstrap newcomer")
-            .expect("provider is established")
-            .sync_memory_budget(DEFAULT_SYNC_MEMORY_BUDGET)
-            .into_rumors()
+        (match joined {
+            rumors::Joined::Joined { peer } => peer,
+            _ => panic!("provider is established"),
+        })
+        .sync_memory_budget(DEFAULT_SYNC_MEMORY_BUDGET)
+        .into_rumors()
     });
 
     send_random(&left, DIVERGENT_PER_SIDE, &mut rng);

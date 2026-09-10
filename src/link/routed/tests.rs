@@ -569,7 +569,11 @@ async fn routing_deadline_allows_idle_gossip_and_reuse() {
             alice.gossip(&mut at_a),
         );
         served.unwrap();
-        let bob = joined.unwrap().unwrap().into_rumors();
+        let bob = (match joined {
+            crate::Joined::Joined { peer } => peer,
+            _ => panic!("bootstrap must succeed"),
+        })
+        .into_rumors();
         let (mut ticks, when) = futures::channel::mpsc::channel(1);
         let mut a_driver = alice.gossip_when(futures::stream::pending::<Gossip>(), &mut at_a);
         let mut b_driver = bob.gossip_when(when, &mut at_b);

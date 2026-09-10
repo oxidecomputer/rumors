@@ -454,37 +454,20 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// link rests exactly at the session boundary, ready to host this
     /// pair's next session.
     ///
-    /// On `Err`, the replica is unchanged and the link is poisoned:
-    /// discard it and reconnect. This is enforced, not advisory, since
-    /// every subsequent session on the link fails fast with
-    /// [`Error::LinkPoisoned`] rather than misreading its mid-frame
-    /// control stream. Cancellation counts as `Err` ([what a session
-    /// promises](crate::link::Link#what-a-session-promises)).
-    /// "Unchanged" has three qualified exceptions:
+    /// On failure or cancellation, discard the poisoned link and reconnect.
+    /// No partial reconciliation is published, but a completed local commit
+    /// is not undone: a failure in [`Phase::Completion`](crate::error::Phase::Completion)
+    /// leaves the peer's commit unconfirmed. Accepting a retirement can also
+    /// commit content before a bookmark write fails; [`Error::Bookmark`]
+    /// explains how to recover. See the [session contract](crate::link::Link#what-a-session-promises).
     ///
-    /// - A transport failure or protocol violation in
-    ///   [`Phase::Completion`](crate::error::Phase::Completion) leaves all
-    ///   local effects committed, but the peer's commit is unconfirmed.
-    /// - A failure while donating a bootstrap fork costs that fork's
-    ///   identity space (deliberately: the newcomer may hold it),
-    ///   narrowing this replica's identity without touching its content.
-    /// - An [`Error::Bookmark`] raised after absorbing a retiring peer
-    ///   leaves the session fully committed (reconciled content *and* the
-    ///   absorbed identity) with only its durable record unwritten (the
-    ///   error's docs carry the crash-safety consequence).
+    /// An established peer automatically serves bootstrappers and accepts
+    /// retirements through this same call.
     ///
-    /// Independently of these, an `Err` never rolls back identity the
-    /// session reclaimed from the bookmark: it stays live in memory, and
-    /// the next successful persist records it
-    /// ([`Error::Bookmark`] carries the
-    /// mechanism).
-    ///
-    /// Gossip sessions may run concurrently through any handles (the
-    /// same clone or different ones), each over its own link; each commits
-    /// atomically when it completes. Sessions on one link are serialized,
-    /// which the `&mut` borrow enforces; a bookmarked peer's sessions also
-    /// queue at the bookmark lock before any wire traffic
-    /// ([`Bookmark`]).
+    /// Sessions may run concurrently on separate links, through the same or
+    /// different handles. Each publishes its reconciled content atomically.
+    /// The `&mut Link` borrow prevents overlapping sessions on one link.
+    /// A bookmarked peer also serializes storage access; see [`Bookmark`].
     pub async fn gossip<CR, CW, C, A>(
         &self,
         link: &mut Link<CR, CW, C, A>,
@@ -523,12 +506,8 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// yields one [`Gossiped`] per completed gossip session. It terminates
     /// in one of three ways:
     ///
-    /// - the connection fails: one final `Err`, with the replica unchanged,
-    ///   subject to the same qualified exceptions as [`gossip`](Self::gossip)
-    ///   (completion-phase failures and retiree-absorption
-    ///   [`Error::Bookmark`] cases, and a donated fork lost in flight), and
-    ///   the link is poisoned on every error path, so any later session on
-    ///   it fails fast with [`Error::LinkPoisoned`]: discard the link;
+    /// - the connection fails: one final `Err`, with the same state guarantees
+    ///   as [`gossip`](Self::gossip). Discard the poisoned link;
     /// - `when` ends, cleanly, after finishing any session in flight;
     /// - the remote hangs up at a session boundary, cleanly.
     ///
@@ -588,10 +567,12 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// # let server = tokio::spawn(async move {
     /// #     serve.gossip(&mut far).await.unwrap();
     /// # });
-    /// let bob = Peer::<String>::bootstrap().join(&mut near)
-    ///     .await?
-    ///     .expect("alice is established")
-    ///     .into_rumors();
+    /// let rumors::Joined::Joined { peer: bob } =
+    ///     Peer::<String>::bootstrap().join(&mut near).await
+    /// else {
+    ///     panic!("Alice must serve the bootstrap");
+    /// };
+    /// let bob = bob.into_rumors();
     /// # server.await.unwrap();
     ///
     /// // A long-lived link between them, one driver per end.

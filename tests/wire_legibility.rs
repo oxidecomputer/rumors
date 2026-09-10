@@ -163,11 +163,11 @@ proptest! {
                 provider.gossip(&mut link).await.expect("provider gossip");
             },
             move |mut link| async move {
-                Peer::<Vec<u8>>::bootstrap()
-                    .join(&mut link)
-                    .await
-                    .expect("bootstrap handshake")
-                    .expect("provider served the bootstrap");
+                let rumors::Joined::Joined { peer: _ } =
+                    Peer::<Vec<u8>>::bootstrap().join(&mut link).await
+                else {
+                    panic!("provider must serve the bootstrap");
+                };
             },
         );
         assert_legible("provider", &provider_capture);

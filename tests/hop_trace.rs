@@ -484,11 +484,12 @@ fn bootstrap_fork(parent: &Rumors<u64>) -> Rumors<u64> {
             Peer::<u64>::bootstrap().join(&mut newcomer_link),
         );
         served.expect("serve bootstrap");
-        newcomer
-            .expect("bootstrap newcomer")
-            .expect("provider is established")
-            .sync_memory_budget(DEFAULT_SYNC_MEMORY_BUDGET)
-            .into_rumors()
+        (match newcomer {
+            rumors::Joined::Joined { peer } => peer,
+            _ => panic!("provider is established"),
+        })
+        .sync_memory_budget(DEFAULT_SYNC_MEMORY_BUDGET)
+        .into_rumors()
     })
 }
 

@@ -252,10 +252,11 @@ async fn bootstrap_session() {
         Peer::<u64>::bootstrap().join(&mut n_link),
     );
     served.expect("the serving session completes");
-    let newcomer = joined
-        .expect("the bootstrap session completes")
-        .expect("the provider serves the bootstrap")
-        .into_rumors();
+    let newcomer = (match joined {
+        rumors::Joined::Joined { peer } => peer,
+        _ => panic!("the provider serves the bootstrap"),
+    })
+    .into_rumors();
     assert_eq!(newcomer.snapshot().hash(), provider.snapshot().hash());
     assert_control_drained(p_link, n_link);
 }
@@ -300,12 +301,12 @@ async fn mutual_bootstrap_session() {
         Peer::<u64>::bootstrap().join(&mut b_link),
     );
     assert!(
-        a_out.expect("side A handshake completes").is_none(),
-        "a mutually-bootstrapping peer bails with None"
+        matches!(a_out, rumors::Joined::Bailed { .. }),
+        "a mutually-bootstrapping peer returns its builder"
     );
     assert!(
-        b_out.expect("side B handshake completes").is_none(),
-        "a mutually-bootstrapping peer bails with None"
+        matches!(b_out, rumors::Joined::Bailed { .. }),
+        "a mutually-bootstrapping peer returns its builder"
     );
     assert_control_drained(a_link, b_link);
 }
@@ -332,10 +333,11 @@ async fn retire_into_bootstrapper_session() {
         matches!(retired, Retire::Retired),
         "the bootstrapper absorbs the retiree, got {retired:?}"
     );
-    let successor = joined
-        .expect("the bootstrap session completes")
-        .expect("the retiree serves the bootstrap")
-        .into_rumors();
+    let successor = (match joined {
+        rumors::Joined::Joined { peer } => peer,
+        _ => panic!("the retiree serves the bootstrap"),
+    })
+    .into_rumors();
     let after = successor.snapshot();
     assert_eq!(after.len(), before.len(), "no content is lost in handoff");
     assert_eq!(

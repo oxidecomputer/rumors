@@ -109,17 +109,17 @@
 //! A `send` commits right there, at the call; it errs only on a payload
 //! that violates the [payload
 //! contract](crate#choosing-a-payload-type). Applying several changes as
-//! one commit is [`batch`](crate::Rumors::batch)'s job. Notice that the snapshot yields a
-//! [`Version`](crate::Version) alongside each message — the message's
-//! identity, which we ignore for now; it returns in step 6.
+//! one commit is [`batch`](crate::Rumors::batch)'s job. The snapshot yields a
+//! [`Version`](crate::Version) alongside each message; step 6 uses it to
+//! redact that specific message.
 //!
 //! # Step 4: bootstrap Bob
 //!
 //! A second peer does not call `seed` — it would create a separate universe,
 //! forever unable to gossip with this one. Instead it
 //! [`bootstrap`](crate::Peer::bootstrap)s through any established member:
-//! one session against Alice hands Bob a full replica and a donated
-//! identity. Sessions run over a [`Link`](crate::Link);
+//! one session against Alice joins her network and gives Bob a full replica.
+//! Sessions run over a [`Link`](crate::Link);
 //! [`link::memory`](crate::link::memory) makes the in-process pair, and
 //! each link end is a conduit to exactly one counterparty. Alice serves
 //! her end from a spawned task while Bob joins through the other:
@@ -138,11 +138,12 @@
 //!     let server = tokio::spawn(async move { serve.gossip(&mut far).await });
 //!
 //!     // ...and Bob joins the universe through the other end.
-//!     let bob = Peer::<String>::bootstrap()
-//!         .join(&mut near)
-//!         .await?
-//!         .expect("alice is established, not herself bootstrapping")
-//!         .into_rumors();
+//!     let rumors::Joined::Joined { peer: bob } =
+//!         Peer::<String>::bootstrap().join(&mut near).await
+//!     else {
+//!         panic!("Alice must serve Bob’s bootstrap");
+//!     };
+//!     let bob = bob.into_rumors();
 //!     server.await??;
 //!
 //!     for (_version, message) in bob.snapshot().iter() {
@@ -159,7 +160,7 @@
 //! Notice that Bob arrives converged: the message Alice sent before the
 //! two ever met is already in his replica. Serving a bootstrap took
 //! nothing special from Alice — an ordinary [`gossip`](crate::Rumors::gossip)
-//! call handles the donation automatically.
+//! call serves Bob's join automatically.
 //!
 //! # Step 5: keep the pair converged
 //!
@@ -186,11 +187,12 @@
 //!     let (mut near, mut far) = rumors::link::memory();
 //!     let serve = alice.clone();
 //!     let server = tokio::spawn(async move { serve.gossip(&mut far).await });
-//!     let bob = Peer::<String>::bootstrap()
-//!         .join(&mut near)
-//!         .await?
-//!         .expect("alice is established, not herself bootstrapping")
-//!         .into_rumors();
+//!     let rumors::Joined::Joined { peer: bob } =
+//!         Peer::<String>::bootstrap().join(&mut near).await
+//!     else {
+//!         panic!("Alice must serve Bob’s bootstrap");
+//!     };
+//!     let bob = bob.into_rumors();
 //!     server.await??;
 //!
 //!     // A second, long-lived link between them, one driver per end.
@@ -245,11 +247,12 @@
 //!     let (mut near, mut far) = rumors::link::memory();
 //!     let serve = alice.clone();
 //!     let server = tokio::spawn(async move { serve.gossip(&mut far).await });
-//!     let bob = Peer::<String>::bootstrap()
-//!         .join(&mut near)
-//!         .await?
-//!         .expect("alice is established, not herself bootstrapping")
-//!         .into_rumors();
+//!     let rumors::Joined::Joined { peer: bob } =
+//!         Peer::<String>::bootstrap().join(&mut near).await
+//!     else {
+//!         panic!("Alice must serve Bob’s bootstrap");
+//!     };
+//!     let bob = bob.into_rumors();
 //!     server.await??;
 //!
 //!     let (mut alice_side, mut bob_side) = rumors::link::memory();
@@ -317,7 +320,7 @@
 //! - A real deployment binds a network transport as a
 //!   [`Link`](crate::Link) — the [`link`](crate::link) module states the
 //!   contract and ships a conformance suite for your implementation.
-//! - Surviving restarts without stranding identity is
-//!   [`Bookmark`](crate::Bookmark)'s job.
+//! - To limit version growth across restarts, reuse a
+//!   [`Bookmark`](crate::Bookmark).
 //! - And for how a session actually reconciles two replicas —
 //!   [`reconciliation`](crate::reconciliation).

@@ -90,72 +90,52 @@ type Reconciled<'a> = (tree::Root, ControlRead<DynRead<'a>>, DynWrite<'a>);
 
 /// The outcome of [`Peer::retire`].
 ///
-/// Marked `must_use` because two variants carry the intact [`Peer`]: silently
-/// dropping the result of a declined or recovered retirement destroys the
-/// identity that the call was specifically trying to preserve.
-#[must_use = "a declined or recovered retirement hands the Peer back; dropping it leaks the identity"]
+/// [`Declined`](Self::Declined) and [`Recovered`](Self::Recovered) return the
+/// peer so it can keep gossiping or retry retirement. Dropping either result
+/// discards that peer.
+#[must_use = "retirement may return a peer that can keep gossiping or retry"]
 #[derive(Debug)]
 pub enum Retire<T, B: BookmarkError = NoBookmark> {
-    /// **Retired.** This replica has left the universe.
-    ///
-    /// The peer reconciled with us, absorbed our identity, and confirmed
-    /// the absorption through the session epilogue. The link rests at a
-    /// clean session boundary.
+    /// Retirement completed and this replica left the network.
+    /// The remote peer confirmed completion; the link remains usable.
     Retired,
-    /// **Declined, unchanged.** The peer was itself retiring, so nothing
-    /// moved; our replica is handed back intact, to try retiring elsewhere.
-    /// The session ended cleanly, so the link remains usable.
+    /// The remote peer was also retiring, so the session changed neither replica.
+    /// The link remains usable; retry retirement with another peer.
     Declined {
-        /// The intact retiree.
+        /// The unchanged peer, still usable.
         peer: Peer<T, B>,
     },
-    /// **Recovered, unchanged.** The session failed *before* our identity
-    /// ever crossed the wire; the replica is handed back intact, to try
-    /// retiring elsewhere.
-    ///
-    /// Retry over a different link: this one is poisoned (or, on
-    /// [`Error::LinkPoisoned`], already was), and its next session fails
-    /// fast.
+    /// Retirement failed before the peer had to be consumed.
+    /// The returned peer can keep gossiping or retry retirement on a fresh link.
+    /// The failed link is poisoned; discard it.
     Recovered {
-        /// The intact retiree.
+        /// The unchanged peer, still usable.
         peer: Peer<T, B>,
-        /// What failed the session.
+        /// The session failure.
         error: Error<B>,
     },
-    /// **Uncertain.** The session failed while our identity itself was in
-    /// flight: the peer may or may not hold it, so our peer is consumed
-    /// rather than risk the same identity living twice. The link is
-    /// poisoned; discard it.
+    /// Retirement started but could not be confirmed. This peer was consumed
+    /// and cannot resume gossip or retry; the remote peer may have committed.
+    /// The link is poisoned; discard it.
     ///
-    /// This includes failure while awaiting completion confirmation
-    /// ([`Phase::Completion`]). The peer may have committed even when its
-    /// confirmation did not arrive.
+    /// This includes failures while awaiting [`Phase::Completion`].
     Uncertain {
-        /// What failed the session.
+        /// The session failure.
         error: Error<B>,
     },
 }
 
-/// A failed bookmark attach: the [`Peer`] handed back unchanged, still
-/// unbookmarked.
+/// A failed bookmark attachment, with the peer returned unchanged.
 ///
-/// The bookmark could not be read or persisted. Produced by
-/// [`Peer::bookmark`] as its `Err`, and by a bookmarked bootstrap as
-/// [`Joined::Unbookmarked`](super::Joined::Unbookmarked) — the same
-/// failure at the same step, differing only in when the bookmark was
-/// selected.
-///
-/// Marked `must_use` because dropping it discards the [`Peer`], the very
-/// identity the failed call was trying to make durable. Take
-/// [`peer`](Self::peer) back to drop it deliberately or to retry.
-#[must_use = "a failed `Peer::bookmark` hands the `Peer` back; dropping it strands the identity"]
+/// Produced by [`Peer::bookmark`] or [`Joined::Unbookmarked`](super::Joined::Unbookmarked).
+/// The peer remains usable without a bookmark. To retry attachment, repair or
+/// replace the storage and call `bookmark` on the returned peer.
+#[must_use = "a failed bookmark attachment returns the peer for continued use or retry"]
 #[derive(Debug)]
 pub struct Unbookmarked<T, B: BookmarkError> {
-    /// The peer, its identity intact and no bookmark attached.
+    /// The unchanged peer, with no bookmark attached.
     pub peer: Peer<T, NoBookmark>,
-    /// What the bookmark's [`load`](crate::Bookmark::load) or
-    /// [`store`](crate::Bookmark::store) reported, or the framing failure the
-    /// crate hit reading the stored bytes.
+    /// The storage or decoding failure.
     pub error: BookmarkIo<B::Error>,
 }
 
@@ -256,9 +236,8 @@ impl<T> Peer<T, NoBookmark> {
         Box::pin(async move {
             let parts = erase(&mut *link)?;
             let result = Self::bootstrap_erased(config, parts).await;
-            // Un-poison on clean completion: both `Ok` arms — a completed
-            // donation and a mutual-bootstrap bail — end with the epilogue
-            // under V2, leaving the control stream at the session boundary.
+            // Both arrival and mutual bootstrap complete the epilogue,
+            // so either outcome leaves the link ready for another session.
             if result.is_ok() {
                 link.session.finish();
             }
@@ -283,8 +262,8 @@ impl<T> Peer<T, NoBookmark> {
             // constructed peer inherits it.
             let codec = PayloadCodec::new::<T>(config.payload_depth_limit);
             let observe = config.observe.begin(SessionKind::Bootstrap);
-            // Magic/version/network/intent preamble first, before the
-            // protocol is allowed to trust peer-declared frame lengths.
+            // Establish the protocol version and the provider's network
+            // before interpreting the rest of the session.
             let mut staged = handshake::Staged::new();
             let remote = handshake::preamble(
                 Network::BOOTSTRAP,
@@ -297,17 +276,9 @@ impl<T> Peer<T, NoBookmark> {
             .await
             .map_err(Error::from)?;
 
-            // In the bootstrap case, it doesn't matter whether the remote intends
-            // to remain or retire; they will hand us a party regardless, and we can
-            // absorb it.
-            let _ = remote.intent;
-
-            // Reconcile from an empty tree; the lifecycle boundary is a
-            // materialized root and control streams positioned at the trailing
-            // party frame. The protocol body is the non-generic
-            // [`bootstrap_reconcile`], which returns its future boxed; see
-            // [`Reconciliation::reconcile`] for the boxing and inlining
-            // discipline.
+            // Reconcile from an empty tree. On arrival, the returned root
+            // holds the provider's content and the next frame carries the
+            // donated identity. Two bootstrappers instead finish without one.
             let both_bootstrapping = remote.network.is_bootstrap();
             let reconcile = bootstrap_reconcile(
                 (read, write, connector, acceptor, epoch),
@@ -320,12 +291,12 @@ impl<T> Peer<T, NoBookmark> {
             let Some((root, mut read, mut write)) = reconcile.await? else {
                 return Ok(None);
             };
+            // A serving provider donates a fork; a retiring one donates
+            // its whole identity. Either becomes this peer's identity.
             let party = party::receive(&mut read, &observe).await?;
-            // Our absorption of the received identity completes with the
-            // in-memory `Peer` construction below, which cannot fail: certify
-            // completion now, and require the provider's certificate so `Ok`
-            // means it committed its donation. On `Err` the received fork is
-            // dropped: its identity region leaks, benignly.
+            // Peer construction cannot fail. Confirm receipt and wait for
+            // the provider's completion before exposing the new peer. If this
+            // exchange fails, the received identity is dropped, never reused.
             finish_session(&mut read, &mut write, &observe).await?;
             let peer = Self {
                 network: remote.network,

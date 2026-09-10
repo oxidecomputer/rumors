@@ -1,4 +1,4 @@
-//! Failures from sessions and durable identity handling.
+//! Session and bookmark failures, with the information needed to respond.
 //!
 //! Session methods return [`Error`]. Choose a response from its cause:
 //!
@@ -14,8 +14,8 @@
 //!
 //! Failure does not guarantee unchanged state. On an existing replica, a
 //! failure in [`Phase::Completion`] leaves local work committed but the peer's
-//! commit unconfirmed; bootstrap instead discards the received identity.
-//! [`Error::Bookmark`] can also leave identity changes live but not persisted.
+//! commit unconfirmed; a failed bootstrap instead returns a builder for retry.
+//! [`Error::Bookmark`] can also leave restart bookkeeping awaiting persistence.
 
 use std::convert::Infallible;
 
@@ -117,11 +117,11 @@ pub enum Error<B: BookmarkError = NoBookmark> {
     /// The application's bookmark failed to load, persist, or decode.
     /// Repair or replace the storage before retrying.
     ///
-    /// Usually this happens before any traffic. Absorbing a retirement instead
-    /// commits content and identity before persisting, so that absorption is
-    /// live but not yet crash-safe on this error. A later successful gossip
-    /// persists it. Identity reclaimed during an unsuccessful update also
-    /// remains live in memory until a successful persist records it.
+    /// Usually this happens before any traffic. When accepting a retirement,
+    /// content has already committed before the bookmark write. It stays live,
+    /// and a later successful gossip persists the pending restart bookkeeping.
+    /// Until then, a crash can prevent that bookkeeping from being recovered.
+    /// See [`Bookmark`](crate::Bookmark) for the recovery limits.
     #[error(transparent)]
     Bookmark(BookmarkIo<B::Error>),
 }

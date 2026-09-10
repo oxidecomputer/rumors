@@ -87,7 +87,7 @@ fn retire_into_retire(a: Rumors<u64>, b: Rumors<u64>) -> (Retire<u64>, Retire<u6
 
 /// Drive `retiree.retire` against a fresh `bootstrap`. Returns the retiree's
 /// outcome and the bootstrapper's successor (as a data-plane handle).
-fn retire_into_bootstrap(retiree: Rumors<u64>) -> (Retire<u64>, Option<Rumors<u64>>) {
+fn retire_into_bootstrap(retiree: Rumors<u64>) -> (Retire<u64>, Rumors<u64>) {
     block_on(async move {
         let retiree = retiree
             .try_into_peer()
@@ -99,12 +99,10 @@ fn retire_into_bootstrap(retiree: Rumors<u64>) -> (Retire<u64>, Option<Rumors<u6
             Peer::<u64>::bootstrap().join(&mut b_link),
         );
         assert_control_drained(a_link, b_link);
-        (
-            retire_out,
-            boot_out
-                .expect("bootstrapper")
-                .map(|peer| peer.sync_window_floor().into_rumors()),
-        )
+        let rumors::Joined::Joined { peer } = boot_out else {
+            panic!("the retiree must serve the bootstrap");
+        };
+        (retire_out, peer.sync_window_floor().into_rumors())
     })
 }
 
@@ -270,7 +268,6 @@ fn retire_into_bootstrapper_hands_off_the_identity() {
         matches!(outcome, Retire::Retired),
         "a bootstrapper absorbs the retiree, got {outcome:?}"
     );
-    let successor = successor.expect("the retiree served the bootstrap");
     assert_eq!(
         successor.network(),
         network,

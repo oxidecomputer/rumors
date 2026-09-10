@@ -973,11 +973,12 @@ fn starved_pool_degrades_latency_not_liveness() {
         )
         .await;
         served.expect("the bootstrap-serving session completes");
-        let newcomer = joined
-            .expect("the bootstrap session completes")
-            .expect("the seed serves the bootstrap")
-            .sync_window_floor()
-            .into_rumors();
+        let newcomer = (match joined {
+            crate::Joined::Joined { peer } => peer,
+            _ => panic!("the seed serves the bootstrap"),
+        })
+        .sync_window_floor()
+        .into_rumors();
         {
             seed.send_all(0..2048u64)
                 .expect("flat test payloads are within any depth limit");

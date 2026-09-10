@@ -37,10 +37,11 @@ async fn bootstrap_unbookmarked(server: &Rumors<String, FlakyInMemoryBookmark>) 
         },
     );
     serve_out.expect("serve the bootstrap");
-    boot_out
-        .expect("bootstrap ok")
-        .expect("got a peer")
-        .sync_window_floor()
+    (match boot_out {
+        rumors::Joined::Joined { peer } => peer,
+        _ => panic!("got a peer"),
+    })
+    .sync_window_floor()
 }
 
 /// Bookmarking a pristine seed touches no storage: a content-free, never-forked

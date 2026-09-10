@@ -282,7 +282,13 @@ fn v2_mutual_bootstrap_counterparty_with_history_is_rejected() {
     });
 
     assert!(
-        matches!(join_out, Err(Error::Protocol(_))),
+        matches!(
+            join_out,
+            crate::Joined::Failed {
+                error: Error::Protocol(_),
+                ..
+            }
+        ),
         "the joining side rejects the counterparty's claimed history, got {join_out:?}",
     );
     assert!(
@@ -322,9 +328,10 @@ fn rejected_claimant_leaves_the_provider_serviceable() {
             provider.gossip(&mut b_link),
         );
         provider_out.expect("the provider serves the honest bootstrap");
-        witness_out
-            .expect("the honest bootstrap completes")
-            .expect("the provider donates")
+        match witness_out {
+            crate::Joined::Joined { peer } => peer,
+            _ => panic!("the provider donates"),
+        }
     });
     assert_eq!(
         witness.snapshot().len(),

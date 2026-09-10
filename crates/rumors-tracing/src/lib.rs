@@ -23,21 +23,23 @@
 //! use rumors_tracing::TracingObserver;
 //!
 //! #[tokio::main(flavor = "current_thread")]
-//! async fn main() -> Result<(), rumors::Error> {
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     // Install your subscriber first (tracing_subscriber::fmt(),
 //!     // a test collector, anything): the adapter emits, it never
 //!     // installs.
 //!     let alice = Peer::<String>::seed()
 //!         .observe(Arc::new(TracingObserver::new()))
 //!         .into_rumors();
-//!     alice.send("the meeting is at noon".to_string());
+//!     alice.send("the meeting is at noon".to_string())?;
 //!
 //!     let (mut near, mut far) = rumors::link::memory();
 //!     let (served, joined) = tokio::join!(alice.gossip(&mut far), async {
 //!         Peer::<String>::bootstrap().join(&mut near).await
 //!     });
 //!     served?;
-//!     joined?.expect("alice is established, not herself bootstrapping");
+//!     let rumors::Joined::Joined { peer: _bob } = joined else {
+//!         panic!("Alice must serve the bootstrap");
+//!     };
 //!     Ok(())
 //! }
 //! ```

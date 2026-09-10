@@ -63,10 +63,11 @@ fn diverged_pair() -> (Rumors<u64>, Rumors<u64>) {
             Peer::<u64>::bootstrap().join(&mut newcomer),
         );
         served.expect("serve bootstrap");
-        joined
-            .expect("bootstrap newcomer")
-            .expect("provider is established")
-            .into_rumors()
+        (match joined {
+            rumors::Joined::Joined { peer } => peer,
+            _ => panic!("provider is established"),
+        })
+        .into_rumors()
     });
 
     left.send_all(1..=64u64).unwrap();

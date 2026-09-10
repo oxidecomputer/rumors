@@ -16,18 +16,16 @@ pub enum Phase {
     Greeting,
     /// Comparing trees and transferring their differences.
     Reconciliation,
-    /// Transferring an identity during bootstrap or retirement.
+    /// Exchanging protocol state to complete a network join or departure.
     IdentityTransfer,
     /// Exchanging confirmation that the session completed.
     ///
     /// On an existing replica, all local session work has committed before
     /// this phase. A failure means the peer's commit is unconfirmed; it does
-    /// not undo local changes. A donated identity can be lost if its recipient
-    /// fails before accepting it.
+    /// not undo local changes.
     ///
-    /// Bootstrap is the exception: the newcomer confirms completion before
-    /// constructing its peer. On failure it discards the received identity
-    /// and applies nothing, even if the provider has committed.
+    /// A failed bootstrap returns no peer, even if the provider completed
+    /// its side. Retry with the builder in [`Joined::Failed`](crate::Joined::Failed).
     Completion,
 }
 

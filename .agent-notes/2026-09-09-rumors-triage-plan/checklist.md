@@ -111,7 +111,7 @@ Coupled work: party ownership with 01; other API pieces can be separate.
 - [x] Represent retirement ownership directly — `51e14731`.
   Source: T37. Coupled with 01's absent-party path.
 
-- [ ] Return usable builders from failed joins. **Working.**
+- [ ] Return usable builders from failed joins. **Ready for review.**
   Sources: `fresh-eyes-9`, T70, T77.
 
 - [x] Verify exactly one concurrent reuniter can reclaim the Peer — `51e14731`.

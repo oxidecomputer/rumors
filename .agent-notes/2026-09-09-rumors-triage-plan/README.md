@@ -87,11 +87,15 @@ For every external Rumors API change, update and test Sush's
 `codex/rumors-compat` branch alongside the Rumors batch. Keep it atop the latest
 Sush `main`, preserving its compatibility work when rebasing. Simplify Sush code
 and comments wherever the new API permits. Use the local dependency override
-while Rumors changes are unmerged; advance Sush's Git pin and lockfile when
-the corresponding Rumors revision is available. Before final review, verify
-Sush against the final revision without the override. The user reviews and
-approves the completed Sush branch at the end of this refactor effort.
-See [Sush setup](sush-pooling.md) for the worktree and override.
+during Rumors review, and keep these Sush changes local until the owner approves
+the Rumors batch.
+
+After approval and validation, merge and push Rumors `main`. Advance Sush's
+Rumors Git pin and lockfile to that published revision, validate without the
+local override, then push `codex/rumors-compat` to its draft PR. Do this after
+each Rumors merge so the remote branches stay in sync. Keep the PR a draft;
+the user reviews and approves the completed Sush branch at the end of this
+effort. See [Sush setup](sush-pooling.md) for the worktree and override.
 
 Keep Sush compatibility work in the background. Open its Zed window only when
 the user asks or when presenting the completed compatibility branch for review.
@@ -170,8 +174,9 @@ preserve the saved edits, verify the revised code, and show any further
 substantive changes. **Merge only after the user's approval of the final
 result.** “lgtm” means approval to merge the reviewed batch and proceed to
 the next one, without another confirmation. Preserve saved user edits and
-complete the required checks, then commit, merge, update the satisfied
-checklist items with the landing commit, and start the next batch.
+complete the required checks, then commit, merge, and push both branches
+as described above. Update the satisfied checklist items with the landing
+commit, and start the next batch.
 
 After merging, delete the merged batch branch once the review checkout has
 switched to its successor. Keep that checkout, window, and build artifacts

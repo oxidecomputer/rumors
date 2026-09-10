@@ -62,9 +62,8 @@
 //!   be linearized differently between peers.
 //! - **If you don't control the peers.** Peers trust one another: the protocol
 //!   rejects malformed and mismatched sessions, but it is not Byzantine-tolerant.
-//!   A compromised member can fabricate, redact, deny service, and violate the
-//!   linearity of peer identities that everything rests on (a violation the
-//!   model assumes absent, mostly undetectable, and unrecoverable).
+//!   An authorized member already has permission to write and redact any
+//!   message. Rumors relies on those members following the protocol.
 //!   Authenticating peers and securing the transport are the application's job;
 //!   the [`link`] module lists exactly what the protocol asks of the transport.
 //! - **If bandwidth is your scarce resource.** `rumors` buys low latency with
@@ -73,57 +72,30 @@
 //!   divergences amortizes much of this cost, but on metered, narrow, or
 //!   high-loss links, this crate strikes the wrong balance.
 //!
-//! # Network membership is identity custody
+//! # Joining and leaving a network
 //!
-//! No global shared secret initiates a peer into a gossip network. Instead,
-//! membership in the network is contagious, just like messages. A single call
-//! to [`Peer::seed`] creates a new gossip network, and every other member
-//! joins by [`Peer::bootstrap`]ping from some already-bootstrapped peer, back
-//! along a chain of introductions that ends at the seed.
+//! [`Peer::seed`] creates a new gossip network. Other peers join through
+//! [`Peer::bootstrap`], synchronizing with any established member. Peers
+//! created by independent calls to `seed` belong to separate networks and
+//! cannot gossip with each other.
 //!
-//! Peers may also [`Peer::retire`] from the network, donating their identity
-//! to an arbitrary recipient. Identities are returned to circulation rather
-//! than discarded because peer identity consumes *identity space*: a peer's
-//! identity is a point in that shared space (a set of non-overlapping
-//! intervals), and every message's [`Version`] is expressed in terms of the
-//! tree of bootstrapped identities. Each [`Peer::bootstrap`] therefore widens
-//! timestamps a little, and each [`Peer::retire`] narrows them again. A peer
-//! that drops off without retiring strands its identity, and the universe's
-//! timestamps stay a little wider forever: a few wasted bits, nothing
-//! corrupted. (The identity machinery is [`before`]'s interval tree clocks;
-//! see its docs for the model and for the [paper it
-//! implements](https://gsd.di.uminho.pt/members/cbm/ps/itc2008.pdf).)
-//!
-//! A note on identity-space hygiene: Every bootstrap forks the provider's own
-//! identity, so the topology of introductions is the shape of the resulting
-//! identity representations (which are, internally, trees): large fleets should
-//! bootstrap with some kind of fan-out, neither one seed serving every joiner
-//! nor each arrival introducing the next in a chain. Retire when you can, and
-//! give peers a [`Bookmark`] so a crashed peer's identity is self-reclaimed
-//! rather than stranded. Identity space may still strand and fragment over a
-//! long life; where the application can arrange it, the full remedy is a roll
-//! call: atomically have every participant retire its identity, then reissue
-//! identities along a tree-shaped topology. That solves both fragmentation and
-//! loss, but only if the application can guarantee that no peer left out of the
-//! roll call will ever resurrect: an application-level obligation, not always
-//! possible.
+//! [`Peer::retire`] leaves the network after a final synchronization with
+//! another member. Retiring when possible and reusing a [`Bookmark`] across
+//! restarts help keep message versions compact as peers come and go.
 //!
 //! # The shape of the API
 //!
-//! One replica has two faces, split by functionality. [`Peer`] is the unique
-//! `!Clone` anchor that holds the peer's identity; it appears only at the edges
-//! of a replica's life, where identity can move between peers: seeding a
-//! universe ([`Peer::seed`]), joining one ([`Peer::bootstrap`]), leaving it
-//! ([`Peer::retire`]).
+//! [`Peer`] manages a replica's lifecycle: creating a network, joining one,
+//! attaching a bookmark, and retiring. It cannot be cloned.
 //!
-//! Trading the anchor away ([`Peer::into_rumors`]) opens the working state:
-//! [`Rumors`] clones freely, and cloned handles may [`send`](Rumors::send),
-//! [`redact`](Rumors::redact), observe [`messages`](Rumors::unordered_messages),
-//! and [`gossip`](Rumors::gossip) (among other operations) concurrently
-//! with one another. When all other clones are gone, [`Rumors::try_into_peer`]
-//! recovers the anchor. This temporal partitioning lets the compiler guarantee
-//! that your whole peer identity moves in or out only when you own it
-//! exclusively.
+//! [`Peer::into_rumors`] returns a [`Rumors`] handle for everyday use. Clone
+//! that handle to [`send`](Rumors::send), [`redact`](Rumors::redact), observe
+//! [`messages`](Rumors::unordered_messages), and [`gossip`](Rumors::gossip)
+//! concurrently. All handles share the same replica.
+//!
+//! When the other handles have been dropped, [`Rumors::try_into_peer`]
+//! recovers the `Peer`. This ensures retirement cannot happen while another
+//! handle still uses the replica.
 //!
 //! The [`Peer`] docs walk the full lifecycle as one runnable example,
 //! including every retirement outcome and bootstrapping a universe without
@@ -161,10 +133,11 @@
 //!     });
 //!
 //!     // ...and Bob joins the universe through it, arriving as a full replica.
-//!     let bob = Peer::<String>::bootstrap()
-//!         .join(&mut near)
-//!         .await?
-//!         .expect("alice is established, not herself bootstrapping");
+//!     let rumors::Joined::Joined { peer: bob } =
+//!         Peer::<String>::bootstrap().join(&mut near).await
+//!     else {
+//!         panic!("Alice must serve the bootstrap");
+//!     };
 //!     let bob = bob.into_rumors();
 //!
 //!     // Convergence: Bob holds the message Alice sent before they ever met.
@@ -344,7 +317,7 @@ pub use message::EncodeError;
 pub use network::Network;
 pub(crate) use peer::Inner;
 pub use peer::{
-    BookmarkedBootstrap, Bootstrap, DEFAULT_PAYLOAD_DEPTH_LIMIT, DEFAULT_SYNC_MEMORY_BUDGET,
+    Bootstrap, DEFAULT_PAYLOAD_DEPTH_LIMIT, DEFAULT_SYNC_MEMORY_BUDGET,
     DEFAULT_TARGET_MESSAGE_SIZE, Gossip, Gossiped, Joined, Led, PayloadDepthLimit, Peer, Retire,
     Unbookmarked,
 };
