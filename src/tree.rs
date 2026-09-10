@@ -174,7 +174,7 @@ impl<T> Default for Tree<T> {
 /// An action to perform on the tree, locally.
 #[derive(Clone, Debug)]
 pub enum Action {
-    /// Insert some value, tagged at the current version by your own party.
+    /// Insert a message, stamped with the next tick of the local party.
     Insert(Message),
     /// Forget the leaf at a version-derived path.
     Forget(typed::Path),
@@ -383,83 +383,36 @@ impl<T> Tree<T> {
             .map(|(v, m)| (v, m.arc::<T>()))
     }
 
-    /// Applies the specified actions as a batch to the tree, advancing its
-    /// internal version vector once per action.
+    /// Apply a batch of local insertions and redactions.
     ///
-    /// Each [`Action::Insert`] advances the local party's component of the
-    /// version vector by one before the leaf's path is derived; the inserts
-    /// in a batch are therefore assigned strictly-increasing versions in the
-    /// order they appear, so two content-identical messages within a batch
-    /// occupy distinct leaves. An [`Action::Forget`] ticks too, so an
-    /// effectual forget carries a version strictly greater than any prior
-    /// insert (the mirror protocol's deletion-honoring inference depends on
-    /// that; see the body comment). A forget that targets the version of
-    /// an earlier insert in the same batch overrides that insert (last
-    /// action on a path wins).
+    /// Each action ticks `party` from the running version, initially the tree's
+    /// ceiling. Inserts use that version for both their address and their
+    /// stored timestamp. Redactions tick too: a deletion must be later than the
+    /// message it removes for other replicas to recognize it.
     ///
-    /// An empty batch is a complete no-op: nothing ticks, the tree is
-    /// unchanged, and the returned flag is `false`.
+    /// A single sorted traversal applies the batch. Empty batches, missing-key
+    /// redactions, and an insertion cancelled within the same batch leave the
+    /// affected nodes and their memos intact. Such keys add no history; the
+    /// ceiling joins the last applied version of each remaining affected key.
+    /// Splitting a batch can therefore change its resulting versions.
     ///
-    /// A batch is applied to the tree in a single traversal, which is more
-    /// efficient than applying its actions one at a time: in theory an
-    /// O(log n) speedup over one-by-one insertion, in practice about 2-3x
-    /// since the log base is 256.
-    ///
-    /// This function is "morally associative": partitioning a sequence of
-    /// actions across multiple `act` calls produces the same tree as a
-    /// single `act` over their concatenation, except possibly for the tree's
-    /// version when several actions address the same key. In that case the
-    /// version is incremented once per changed key, regardless of how many
-    /// actions pertain to it.
-    ///
-    /// # The changed flag
-    ///
-    /// Returns whether the batch changed the tree, so the caller can answer
-    /// "did anything happen?" without reading the root hash — the answer the
-    /// traversal's effectual-action observer already produced. The two
-    /// directions carry different promises:
-    ///
-    /// - **`false` is exact**: the root hash is byte-identical to what it was
-    ///   before the call, and the causal ceiling did not move. Nothing about
-    ///   the tree changed. A watcher skipped on `false` misses nothing.
-    /// - **`true` is conservative**: the tree changed *or* an action was
-    ///   silently skipped as causally prior to the leaf it targeted. The skip
-    ///   is unreachable when every leaf's version is bounded by the tree's
-    ///   ceiling — which `act` and `join` both maintain, so every honestly
-    ///   built tree qualifies — because each action ticks strictly above the
-    ///   ceiling. Only a store poisoned by nonconforming gossip (a leaf
-    ///   *above* the ceiling; session ingestion rejects the shape) can
-    ///   produce `true` without a hash change, and then the cost is one
-    ///   spurious watch wakeup, never a missed one.
-    ///
+    /// `false` guarantees that neither content nor history changed. `true`
+    /// normally means content changed, but is conservative for malformed stored
+    /// state: actions older than a resident leaf are skipped and can still
+    /// report `true`, without advancing the ceiling. Local ticks cannot
+    /// encounter this case when the tree's ceiling bounds all its leaves.
     pub fn act<I>(&mut self, party: &before::Party, actions: I) -> bool
     where
         T: Send + Sync,
         I: IntoIterator<Item = Action>,
     {
-        // Track the running version across the batch, ticking the owning party
-        // once per action so that (a) content-identical messages occupy
-        // distinct leaves even when submitted together, and (b) forgets carry a
-        // version strictly greater than any prior insert at this party. The
-        // strict tick on forgets is required by the mirror protocol's
-        // deletion-honoring inference, which cannot distinguish "forgot it"
-        // from "never had it" when versions are equal.
-        // The running version, advanced in place per action; each action
-        // clones the post-tick value as the committed version that keys
-        // its leaf. The reactions flow into `react` lazily; the whole
-        // chain materializes only once, at the traversal's radix sort.
+        // Tick in specification order, before sorting by path. This gives
+        // every insert a unique address and each forget a later timestamp.
         let mut new_version = self.latest().clone();
         self.react(actions.into_iter().map(|action| {
-            // Advance the version. It must be unique for every action
-            // applied to the tree; otherwise the mirror protocol
-            // wrongly early-aborts when versions compare equal.
             new_version.tick(party);
             let version = new_version.clone();
 
-            // Convert unversioned, unlocalized actions into reactions
-            // independent of our party and current version. The path is
-            // derived from the post-tick version, which is unique per
-            // insert (see [`typed::Path::for_leaf`]).
             let (path, value) = match action {
                 Action::Forget(path) => (path, None),
                 Action::Insert(value) => (typed::Path::for_leaf(&version), Some(value)),
@@ -468,42 +421,23 @@ impl<T> Tree<T> {
         }))
     }
 
-    /// Applies the specified *versioned* actions as a batch to the tree
-    /// without incrementing its internal version vector.
+    /// Apply `act`'s versioned actions without ticking again.
     ///
-    /// In the specified iterator, `Some(message)` indicates an insert, and
-    /// `None` indicates that the key should be forgotten.
+    /// Each insert uses its version-derived path; `None` forgets that path.
+    /// Actions at one path must be causally ascending in specification order,
+    /// as `act` guarantees. This is not a general conflict resolver for
+    /// concurrent or reordered actions.
     ///
-    /// If multiple actions refer to the same leaf of the tree, the causally
-    /// latest action wins, with order of specification breaking concurrency
-    /// and version ties. Each item is keyed by its version-derived path, so
-    /// if each party only manipulates its own tree through [`Tree::act`],
-    /// these conflicts cannot arise.
-    ///
-    /// As with [`act`](Self::act), a batch is applied in a single traversal,
-    /// which is more efficient than applying its actions one at a time but
-    /// semantically equivalent.
-    ///
-    /// Returns whether the effectual-action observer fired at all — the
-    /// changed flag [`act`](Self::act) hands out, with the contract stated
-    /// there. `false` means no observation and therefore no ceiling
-    /// movement either: the tree is untouched. Panics exactly as
-    /// [`traverse::act`](fn@traverse::act) does (version reuse: a crate bug, never an input),
-    /// with the tree untouched on unwind.
+    /// Returns `act`'s conservative changed flag. Panics from traversal or
+    /// discarded action payloads leave the tree untouched.
     fn react<M, I>(&mut self, reactions: I) -> bool
     where
         T: Send + Sync,
         M: Into<Option<Message>>,
         I: IntoIterator<Item = (typed::Path, Version, M)>,
     {
-        // Materialize the caller's action stream before the commit section
-        // begins: a panicking caller iterator (`act`'s version ticks and key
-        // derivations ride the same chain) then surfaces before any traversal
-        // work is spent. This is an ordering nicety, not the atomicity
-        // mechanism — the commit section below defends against every unwind,
-        // this one included. The traversal's root-level radix sort would
-        // materialize the stream anyway; collecting up front costs one Vec
-        // the radix sort immediately consumes.
+        // Finish the caller's iterator before starting the traversal. The owned
+        // batch also keeps its payloads alive until the walk completes.
         let actions: Vec<_> = reactions
             .into_iter()
             .map(|(path, version, message)| match message.into() {
@@ -512,31 +446,9 @@ impl<T> Tree<T> {
             })
             .collect();
 
-        // Traverse the tree from the root, batch-applying the actions.
-        // The version join is deferred to the effectual-action observer so
-        // that zero-effect actions (e.g. forgetting a nonexistent key) do not
-        // bump the root version. The changed flag rides the same observer:
-        // no observation means no leaf was inserted, replaced, or removed
-        // and no version was joined, so the tree — hash and ceiling both —
-        // is exactly what it was.
-        //
-        // Panic atomicity: nothing of `self` mutates until the commit point
-        // below, whatever the unwind's origin — a user type's destructor or
-        // our own bug. Unwind sources survive inside this walk: the leaf
-        // level drops causally-skipped action messages and batch-internal
-        // displaced inserts mid-walk, and on the wire-apply path those
-        // messages are freshly deserialized, so the drop is the last handle
-        // and runs `T`'s destructor. The walk is therefore handed an O(1)
-        // structural clone of our root (nodes are Arc-shared; the walk
-        // copies on write where they stay shared) while the pre-image stays
-        // in place, and the observer accumulates the ceiling into a local.
-        // What this rules out is an unwind publishing an emptied root under
-        // a live ceiling, the byte-for-byte shape of "everything was
-        // redacted". `act_unwind_leaves_tree_byte_identical` pins the entry
-        // unwind, `act_destructor_unwind_leaves_tree_byte_identical` pins
-        // the real mid-walk destructor source, and
-        // `act_mid_walk_unwind_leaves_tree_byte_identical` pins an arbitrary
-        // internal unwind via the injected fuse.
+        // Work on a shared root and a separate ceiling so any unwind leaves
+        // `self` intact. Only keys with an effect contribute history;
+        // forgetting a missing key must not advance the ceiling.
         let mut changed = false;
         let mut new_ceiling = self.root.ceiling.clone();
         let new_root = traverse::act(self.root.root.clone(), actions, &mut |v: &Version| {
@@ -544,12 +456,8 @@ impl<T> Tree<T> {
             changed = true;
         });
 
-        // The commit point: the walk returned without unwinding. Both fields
-        // are assigned before the pre-image drops, because that drop runs
-        // user code — everything the batch displaced becomes uniquely held
-        // here, so its cascading `T` destructors run now, and a panicking
-        // destructor must find the tree already consistent. The defense is
-        // nothing subtler than statement order: replace, assign, then drop.
+        // Publish both fields before releasing displaced payloads. Their
+        // destructors may panic, so they must find a consistent tree.
         let pre_image = std::mem::replace(&mut self.root.root, new_root);
         self.root.ceiling = new_ceiling;
         drop(pre_image);

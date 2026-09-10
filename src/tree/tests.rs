@@ -1,3 +1,5 @@
+mod act;
+
 use std::collections::{BTreeSet, HashMap};
 
 use bytes::Bytes;
@@ -663,13 +665,8 @@ proptest! {
         prop_assert_eq!(t_ab, t_ba);
     }
 
-    /// `react` is idempotent: applying the same batch twice is identical to
-    /// applying it once.
-    ///
-    /// This is the CRDT property that lets us re-deliver messages safely
-    /// in the face of retries or out-of-order transport, and it rides the
-    /// identical-leaf arm: a re-delivered insert matches the resident leaf
-    /// byte-for-byte and is kept, never a collision.
+    /// Repeating identical versioned inserts preserves the tree: the leaf
+    /// identity check retains a matching resident message.
     #[test]
     fn react_idempotent(bytes in distinct_bytes(16)) {
         let party = "P".to_string();
@@ -1318,6 +1315,7 @@ fn act_changed_flag_is_conservative_only_in_a_poisoned_store() {
     );
 
     let before = tree.hash();
+    let ceiling_before = tree.latest().clone();
     let changed = tree.act(&receiver_party, [Action::Forget(key)]);
     assert!(
         changed,
@@ -1327,6 +1325,11 @@ fn act_changed_flag_is_conservative_only_in_a_poisoned_store() {
         tree.hash(),
         before,
         "the skipped forget left the root hash byte-identical",
+    );
+    assert_eq!(
+        tree.latest(),
+        &ceiling_before,
+        "skipped actions add no history"
     );
     assert!(
         tree.get(&escaped).is_some(),
@@ -1680,19 +1683,8 @@ fn act_mid_walk_unwind_leaves_tree_byte_identical() {
     );
 }
 
-/// `Tree::act`'s commit section is panic-atomic against its real mid-walk
-/// unwind source: a `T` destructor panicking as the walk's causal skip
-/// drops an action message's last handle.
-///
-/// The tree holds a leaf at party A's version 2; a versioned insert at
-/// the same key carries the causally-prior version 1, so the leaf level
-/// skips it and drops the action's message mid-walk — and that message is
-/// the payload's last handle, exactly the wire-apply shape, where every
-/// incoming message is freshly deserialized. The caught panic must be the
-/// destructor's own (proving the pin exercises the real source, not an
-/// incidental panic), and root hash and causal ceiling must both come
-/// through byte-identical: the emptied-root-under-live-ceiling shape that
-/// gossip would replicate never publishes.
+/// Dropping a skipped action's payload may panic; the batch must release it
+/// before publishing either the candidate root or its ceiling.
 #[test]
 fn act_destructor_unwind_leaves_tree_byte_identical() {
     let mut tree: Tree<DropBomb> = Tree::new();
@@ -1706,7 +1698,7 @@ fn act_destructor_unwind_leaves_tree_byte_identical() {
 
     // The causally-prior insert: version 1 targets the leaf holding
     // version 2, so the walk's skip path drops the armed message — its
-    // last handle — mid-walk.
+    // last handle — before publication.
     let bomb = Message::new(DropBomb { armed: true });
     let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         tree.react([(key, version_for("A", 1), bomb)]);

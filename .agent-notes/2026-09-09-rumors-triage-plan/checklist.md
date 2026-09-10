@@ -1,6 +1,6 @@
 # Rumors review checklist
 
-**Active:** 01/10, no-op tree edits and memo retention — `codex/noop-tree-edits`, base `main`.
+**Active:** 01/10, no-op tree edits and memo retention — ready for review on `codex/noop-tree-edits`, base `main`.
 **Next:** 07, retirement ownership and the absent-party batch path.
 
 Check code outcomes only after verification and merge; retain the landing
@@ -29,7 +29,7 @@ and recheck retained-root accounting.
 - [x] Notify observers for tree changes, without party-only wakeups — `06f96386`.
   Sources: T35.
 
-- [ ] Preserve no-op trees and memos. **Working.**
+- [ ] Preserve no-op trees and memos. **Ready for review.**
   Sources: `tree-core-29`, T107, T166. Coupled with 10's tree edits.
 
 - [ ] Eliminate the absent-party batch path.
@@ -168,8 +168,11 @@ Dependencies: 04's reported-error attribution fix before the public error redesi
 
 Coupled work: no-op handling with 01. Do root-version changes before dependent optimization measurements.
 
-- [ ] Store each leaf’s action version and traverse sorted actions without repeated sorting or copying.
-  Sources: `tree-core-11`, `tree-core-13`, `tree-core-14`, `tree-core-16`, `tree-core-27`, `tree-core-30`, `tree-core-31`, T38, T39, T107, T124, T132, N12, N23.
+- [ ] Store each leaf’s action version and traverse sorted actions without repeated sorting or copying. **Ready for review.**
+  Sources: `tree-core-11`, `tree-core-13`, `tree-core-16`, `tree-core-27`, `tree-core-30`, T38, T39, T107, T124, T132, N12.
+
+- [ ] Simplify action representations and join reassembly; cover their remaining regressions.
+  Sources: `tree-core-14`, `tree-core-31`, N23.
 
 - [ ] Publish roots with their required memos already warm.
   Sources: `api-core-29`, `async-hazards-4`, `tree-core-8`, T42, T96, T132.
