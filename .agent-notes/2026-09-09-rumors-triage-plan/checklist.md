@@ -1,7 +1,7 @@
 # Rumors review checklist
 
-**Active:** 01, suppress party-only observer wakeups — ready for review on `codex/publication-notifications`, base `main`.
-**Next:** 01, no-op tree edits and memo retention (with 10); then 07, retirement ownership.
+**Active:** 01/10, no-op tree edits and memo retention — `codex/noop-tree-edits`, base `main`.
+**Next:** 07, retirement ownership and the absent-party batch path.
 
 Check code outcomes only after verification and merge; retain the landing
 commit. Checked dispositions are labelled explicitly.
@@ -26,11 +26,14 @@ and recheck retained-root accounting.
 - [x] Move the gossip join out of the replica write lock — `e238db87`.
   Sources: T170.
 
-- [ ] Notify observers for tree changes, without party-only wakeups. **Ready for review.**
+- [x] Notify observers for tree changes, without party-only wakeups — `06f96386`.
   Sources: T35.
 
-- [ ] Preserve no-op trees and memos; eliminate the absent-party batch path.
-  Sources: `api-core-2`, `tree-core-29`, T37, T107, T166. Coupled with 07's retirement ownership and 10's tree edits.
+- [ ] Preserve no-op trees and memos. **Working.**
+  Sources: `tree-core-29`, T107, T166. Coupled with 10's tree edits.
+
+- [ ] Eliminate the absent-party batch path.
+  Sources: `api-core-2`, T37. Coupled with 07's retirement ownership.
 
 - [x] Reconcile the window census with the roots the commit actually retains — `e238db87`.
   Sources: T139, T171, N54.
