@@ -1,7 +1,7 @@
 # Rumors review checklist
 
-**Active:** 01/10, no-op tree edits and memo retention — ready for review on `codex/noop-tree-edits`, base `main`.
-**Next:** 07, retirement ownership and the absent-party batch path.
+**Active:** 01/07, retirement ownership — `codex/retirement-ownership`, base `main`.
+**Next:** 07, usable bootstrap retry outcomes; then 10, action and join cleanup.
 
 Check code outcomes only after verification and merge; retain the landing
 commit. Checked dispositions are labelled explicitly.
@@ -29,10 +29,10 @@ and recheck retained-root accounting.
 - [x] Notify observers for tree changes, without party-only wakeups — `06f96386`.
   Sources: T35.
 
-- [ ] Preserve no-op trees and memos. **Ready for review.**
+- [x] Preserve no-op trees and memos — `915571b7`.
   Sources: `tree-core-29`, T107, T166. Coupled with 10's tree edits.
 
-- [ ] Eliminate the absent-party batch path.
+- [ ] Eliminate the absent-party batch path. **Working.**
   Sources: `api-core-2`, T37. Coupled with 07's retirement ownership.
 
 - [x] Reconcile the window census with the roots the commit actually retains — `e238db87`.
@@ -168,7 +168,7 @@ Dependencies: 04's reported-error attribution fix before the public error redesi
 
 Coupled work: no-op handling with 01. Do root-version changes before dependent optimization measurements.
 
-- [ ] Store each leaf’s action version and traverse sorted actions without repeated sorting or copying. **Ready for review.**
+- [x] Store each leaf’s action version and traverse sorted actions without repeated sorting or copying — `915571b7`.
   Sources: `tree-core-11`, `tree-core-13`, `tree-core-16`, `tree-core-27`, `tree-core-30`, T38, T39, T107, T124, T132, N12.
 
 - [ ] Simplify action representations and join reassembly; cover their remaining regressions.

@@ -139,16 +139,17 @@ scanner, gate, or test is needed to enforce this document's style.
 
 ## 4. Review and edit in Zed
 
-Use a dedicated worktree for each batch. Open it in a separate Zed window
-with `zed -n`, then run `git: compare with branch` and choose `main`.
-For a deliberately stacked batch, choose its recorded parent instead.
-This shows the whole branch change, including uncommitted edits.
+Reuse the review checkout and its Zed window across batches. After merging a
+batch, switch the clean checkout to a fresh `codex/` branch from `main`, then
+run `git: compare with branch` and choose `main`. For a deliberately stacked
+batch, choose its recorded parent instead. This shows the whole branch change,
+including uncommitted edits, without accumulating windows or cold build caches.
 
 Verify on screen that the current worktree's red/green diff is visible and its
 base is correct; opening a project or issuing the command is not enough. With
 multiple windows, select the worktree through Zed's Window menu and focus it
-before running the comparison. Verify this again at every review handoff, and
-close the merged batch's stale window.
+before running the comparison. Verify this again after switching branches and
+at every review handoff.
 
 Open this diff when starting each batch and keep it open during implementation
 so the user can review continuously. Read saved edits before changing the same
@@ -172,13 +173,14 @@ the next one, without another confirmation. Preserve saved user edits and
 complete the required checks, then commit, merge, update the satisfied
 checklist items with the landing commit, and start the next batch.
 
-After merging, close the corresponding Zed window, remove the clean, merged
-worktree, and delete its Cargo build artifacts under `/Volumes/forge/`.
-Before removing the worktree, use `cargo metadata` to identify its
-`build_directory`, including those of nested workspaces. Clean up those
-specific directories; keep shared caches and other checkouts’ artifacts.
-Keep the ongoing Sush compatibility worktree and its build artifacts across
-Rumors batches, updating its local override before retiring a Rumors worktree.
+After merging, delete the merged batch branch once the review checkout has
+switched to its successor. Keep that checkout, window, and build artifacts
+while they are in use. When retiring a checkout, close its Zed window, remove
+the clean worktree, and delete only its Cargo `build_directory` paths under
+`/Volumes/forge/`, identified beforehand with `cargo metadata` for each nested
+workspace. Retain shared caches and other checkouts’ artifacts. Keep the Sush
+compatibility checkout throughout this effort and update its local override
+whenever the Rumors checkout changes.
 
 ## 5. Scope boundaries
 
