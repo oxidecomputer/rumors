@@ -373,19 +373,22 @@ fn cancel_after<F: Future>(future: F, polls: usize) -> Option<F::Output> {
     None
 }
 
-/// The polls a session between `a` and `b` takes to complete under the
-/// same polling `cancel_after` applies: the length every drawn
-/// cancellation point stays below.
+/// Count polls until a local session succeeds, using `cancel_after`'s poller.
 fn session_length(a: Root, b: Root) -> usize {
+    /// Bound a broken session's test run, including one that keeps waking.
     const MAX_POLLS: usize = 1_000_000;
     let mut session = pin!(tokio::task::coop::unconstrained(drive_streaming(
         floor_start(a),
         floor_start(b),
     )));
     let mut cx = Context::from_waker(Waker::noop());
-    (1..=MAX_POLLS)
-        .find(|_| session.as_mut().poll(&mut cx).is_ready())
-        .expect("a local session completes within the poll budget")
+    for polls in 1..=MAX_POLLS {
+        if let Poll::Ready(result) = session.as_mut().poll(&mut cx) {
+            result.expect("a local session succeeds");
+            return polls;
+        }
+    }
+    panic!("a local session must complete within the poll budget")
 }
 
 /// A generated pair with its measured session length and a cancellation
@@ -452,6 +455,28 @@ fn cancelled_session_leaves_no_residue() {
         cancelled_after_building.get() > 0,
         "no case cancelled a session after it had built node handles: the pin exercised nothing"
     );
+}
+
+proptest! {
+    /// Replaying the same trees and I/O delays preserves the local session's
+    /// poll count and publication order, including disputes at leaf height.
+    #[test]
+    fn local_session_schedule_replays(
+        spec in fixtures::arb_divergence(),
+        channel_delays in proptest::collection::vec(0u8..=3, 0..=64),
+        backend_delays in proptest::collection::vec(0u8..=3, 0..=64),
+    ) {
+        let (a, b, _) = spec.trees(&());
+        let run = || with_schedule(channel_delays.clone(), || {
+            with_local_schedule(backend_delays.clone(), || {
+                with_trace(|| session_length(a.clone(), b.clone()))
+            })
+        });
+        let first = run();
+        for _ in 0..3 {
+            prop_assert_eq!(&run(), &first);
+        }
+    }
 }
 
 /// A dispute that survives to leaf-parent height — both sides hold the same

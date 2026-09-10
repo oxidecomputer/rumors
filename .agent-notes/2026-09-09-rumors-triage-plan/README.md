@@ -129,6 +129,13 @@ with `zed -n`, then run `git: compare with branch` and choose `main`.
 For a deliberately stacked batch, choose its recorded parent instead.
 This shows the whole branch change, including uncommitted edits.
 
+Open this diff when starting each batch and keep it open during implementation
+so the user can review continuously. Read saved edits before changing the same
+code, and preserve them. Note to the user if anything they change introduces
+correctness issues, or if you would do it differently, and correct towards the
+intent you infer, but always with notification of such action. At the final
+review handoff, stop editing until the user responds.
+
 Zed's Project Diff edits the underlying files. The user can change the
 working side, save, and continue reviewing on that branch. See Zed's
 [editable diff documentation](https://zed.dev/docs/git#project-diff) and

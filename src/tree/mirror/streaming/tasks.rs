@@ -1,8 +1,11 @@
 //! Executor-agnostic driving of independently runnable protocol work.
 
-use std::{future::Future, pin::pin};
+use std::future::Future;
 
 use futures::{StreamExt, future, future::BoxFuture, stream::FuturesUnordered};
+
+#[cfg(test)]
+mod tests;
 
 /// Run every task, cancelling the remainder as soon as any task fails.
 ///
@@ -16,24 +19,19 @@ async fn try_run_all<E>(tasks: Vec<BoxFuture<'static, Result<(), E>>>) -> Result
     Ok(())
 }
 
-/// Race registered work against its terminal operation, failing on either.
+/// Drive registered work and its terminal operation until both succeed or
+/// either fails. A failure drops all remaining work.
+///
+/// Poll the task set first so a task error it reports wins over a terminal
+/// error caused by its closed channels. A fixed poll order also lets
+/// in-memory tests replay a cancellation point.
 pub async fn complete<O, E>(
     tasks: Vec<BoxFuture<'static, Result<(), E>>>,
     finish: impl Future<Output = Result<O, E>>,
 ) -> Result<O, E> {
-    let mut tasks = pin!(try_run_all(tasks));
-    let mut finish = pin!(finish);
-    tokio::select! {
-        finished = &mut tasks => {
-            finished?;
-            finish.await
-        }
-        output = &mut finish => {
-            let output = output?;
-            tasks.await?;
-            Ok(output)
-        }
-    }
+    future::try_join(try_run_all(tasks), finish)
+        .await
+        .map(|((), output)| output)
 }
 
 /// Retain cancellation-sensitive resources until their owner is dropped.

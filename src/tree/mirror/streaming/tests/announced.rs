@@ -1,35 +1,19 @@
-//! Bridge 3: announced-skeleton reconstruction — the payload-independence
-//! bridge B5.
+//! Channel order and message contents: a check of model premise B5.
 //!
-//! The formal model's payload-independence premise — the count and order
-//! of channel operations depend only on each child's merge-join arm,
-//! never on payloads — underpins the skeleton abstraction, and holds only
-//! if every consumption-order discriminator is announced in-band. This
-//! bridge checks both halves against real sessions:
+//! These tests reconstruct the dispute skeleton from the payload-erased
+//! frame transcript and compare it with the walk's internal progress trace.
+//! The comparison checks that frames announce the choices which determine
+//! how a session consumes its channels.
 //!
-//! - the *announced* skeleton, reconstructed from the payload-erased frame
-//!   transcript alone (no tree access, no internal events — [`announced`]),
-//!   equals the session's *actual* dispute skeleton as decoded from the
-//!   internal progress trace;
-//! - per channel, the session's op count and order are a function of that
-//!   skeleton only: a payload-perturbed twin — identical paths, versions,
-//!   and divergence pattern, different leaf contents, hence different
-//!   hashes on every differing subtree — produces identical per-channel
-//!   trace sequences and identical per-stream transcripts.
+//! Each case also runs with different message contents but identical paths
+//! and versions. Versions determine node hashes and role election, so those
+//! remain fixed. Changing message bodies must preserve the publication
+//! sequence on each channel and the frame sequence on each stream.
 //!
-//! Two deliberate scopings. Content perturbation (`u64` payloads) rather
-//! than version perturbation: versions feed the handshake ceilings, so
-//! perturbing them could flip role election and change the session for a
-//! modeled reason; contents feed only hashes and supply bodies — exactly
-//! the "payload" the premise erases. And the claim is per channel, not the
-//! global interleaving: the model quantifies over interleavings
-//! adversarially, and the real global publication order is not even a
-//! function of the trees — `complete_initiator`'s terminal `tokio::select!`
-//! is unbiased, so its branch order draws tokio's thread-local RNG and
-//! reorders the tail of otherwise identical back-to-back runs (observed
-//! while building this bridge: the committed regression seed reorders the
-//! final absorb-side events between two runs of the SAME trees; the
-//! per-channel projections are unaffected).
+//! The formal model's payload-independence premise concerns each channel's
+//! operation count and order. Cross-channel interleavings are outside this
+//! comparison: the model allows them to vary. Local scheduling replay is
+//! checked separately by `local_session_schedule_replays`.
 
 use proptest::prelude::*;
 
@@ -38,16 +22,9 @@ use super::skeleton::{announced, decode, trace_channels, transcript_streams};
 use super::transcribed_mirror_sides;
 
 proptest! {
-    /// B5 ANNOUNCED-SKELETON RECONSTRUCTION: the wire transcript alone
-    /// determines the dispute skeleton, and the skeleton alone determines
-    /// every channel's op count and order.
-    ///
-    /// For any generated divergence, the skeleton reconstructed from the
-    /// payload-erased transcript equals the session's actual dispute
-    /// skeleton (with the transcript and the trace agreeing on who
-    /// initiated), and a content-perturbed twin of the same divergence
-    /// produces identical per-channel publication sequences and identical
-    /// per-stream wire transcripts — never a function of payload bytes.
+    /// Frames reconstruct the walk's dispute skeleton. Changing only message
+    /// contents preserves each channel's publication order and each stream's
+    /// payload-erased frame sequence.
     #[test]
     fn announced_skeleton_reconstructs_the_session(spec in arb_divergence()) {
         let run = |value: u64| {

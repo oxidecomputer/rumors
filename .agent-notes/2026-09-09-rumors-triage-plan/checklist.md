@@ -1,6 +1,6 @@
 # Rumors review checklist
 
-**Active:** 03, reproducible local-session schedules — `codex/reproducible-sessions`, from merged main.
+**Active:** 03, reproducible local-session schedules, ready for review — `codex/reproducible-sessions`, base `main@f7457d77`.
 **Next candidates:** 03 deep-tree wire fixtures → 04.
 
 Check code outcomes only after verification and merge; retain the landing

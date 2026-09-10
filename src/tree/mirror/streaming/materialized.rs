@@ -819,35 +819,27 @@ impl<B> protocol::CompleteInitiator<B> for Completing<B>
 where
     B: Backend<Node<Z>: Leaf>,
 {
+    /// Drain the final leaf replies and finish assembling the reconciled root.
     async fn complete_initiator(
         self,
         requests: impl Requests<B, Z>,
     ) -> Result<Root<B>, Self::Error> {
         let stats = self.work.stats();
-        let mut absorb = pin!(absorb::<B>(
+        let absorb = absorb::<B>(
             self.their_version,
             self.ledger,
             requests.map(erased::erase_reply::<B, Z>),
             self.queries,
             self.returns,
             stats,
-        ));
-        let mut finish = pin!(self.work.execute(self.finish));
-
-        // Race rather than join: a violation in `absorb` must surface even
-        // though the session's remaining work, which includes streams the
-        // now-misbehaving counterparty feeds, may never complete.
-        tokio::select! {
-            absorbed = &mut absorb => {
-                absorbed?;
-                finish.await
-            }
-            finished = &mut finish => {
-                let root = finished?;
-                absorb.await?;
-                Ok(root)
-            }
-        }
+        );
+        // Both operations must succeed. Either error cancels the other,
+        // which may be waiting on a peer that cannot finish the session.
+        // Poll replies first to report an available protocol violation before
+        // an assembly error; fixed ordering also makes local tests replayable.
+        futures::future::try_join(absorb, self.work.execute(self.finish))
+            .await
+            .map(|((), root)| root)
     }
 }
 

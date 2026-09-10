@@ -635,17 +635,10 @@ pub(super) fn announced(transcript: &Transcript) -> Announced {
 
 // ------------------------------------------------------- channel projections
 
-/// A trace's per-channel projection: for each (endpoint, event kind, scope
-/// depth) — one model channel instance — the ordered publications on it.
+/// Group publications by model channel: endpoint, event kind, and scope depth.
 ///
-/// This is the granularity at which the payload-independence premise speaks:
-/// the count and order of CHANNEL operations depend only on each child's
-/// merge-join arm, never on payloads. The cross-channel interleaving of one
-/// run is scheduler freedom the model already quantifies over adversarially,
-/// and empirically it is not even a function of the trees — the terminal
-/// `tokio::select!` in
-/// `complete_initiator` is unbiased, so its branch order draws tokio's
-/// thread-local RNG and varies run to run.
+/// Preserve order within each channel. The payload-independence comparison
+/// permits different interleavings between channels, as the model does.
 pub(super) fn trace_channels(
     trace: &Trace,
 ) -> BTreeMap<(usize, &'static str, usize), Vec<(Vec<u8>, usize)>> {
