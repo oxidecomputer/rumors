@@ -1,7 +1,7 @@
 # Rumors review checklist
 
-**Active:** 03, deep-tree wire fixtures ready for review — `codex/deep-tree-fixtures`, base `main@8fd7962f`.
-**Next candidates:** 04 → 05.
+**Active:** 04, peer-departure liveness — `codex/peer-departure`.
+**Next candidates:** 04, deep malformed replies → 05.
 
 Check code outcomes only after verification and merge; retain the landing
 commit. Checked dispositions are labelled explicitly.
@@ -38,7 +38,7 @@ Dependencies apply only to the affected work within a group.
 
 Dependencies: None to construct fixtures; 04 and 05 before enabling the complete CI run.
 
-- [ ] Exercise deep wire reconciliation across branching depths, nested and asymmetric trees, and transport and window variations.
+- [x] Exercise deep wire reconciliation across branching depths, nested and asymmetric trees, and transport and window variations — `a16bcfb8`.
   Sources: `remote-proxy-tests-6`, T23, T132, T162–164, N27–29.
 
 - [ ] Run the broader behavioral suites under deep geometry without changing production hashing or wire snapshots.
