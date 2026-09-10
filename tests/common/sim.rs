@@ -107,18 +107,8 @@ pub const MAX_CUT: usize = 3072;
 /// Headroom on the heal loop, as in `peer::quiesce`.
 const MAX_QUIESCE_ROUNDS_PER_PEER: usize = 16;
 
-/// Bound on one faulted session, bootstrap, or retirement.
-///
-/// Over in-memory wires these complete in milliseconds, so the bound is
-/// headroom over scheduling, not protocol work. A session still running
-/// at the deadline is parked: after a vanish, the survivor waiting on a
-/// stream its dead peer never opens (a wait the link contract leaves to
-/// the caller's timeout, which this is); otherwise a protocol deadlock.
-/// A deadlock fails by name instead of hanging the run; a park after a
-/// planned vanish is counted in [`SimOutcome::parked`] (see there).
-/// Single-digit seconds so that a deadlock's shrink, bounded by
-/// [`MAX_SHRINK_TIME`], finishes inside nextest's budget with its seed
-/// persisted.
+/// Deadline for in-memory sessions, including survivors of peer departure.
+/// Enough headroom for scheduling, short enough to shrink deadlocks promptly.
 const SESSION_DEADLINE: Duration = Duration::from_secs(2);
 
 /// Shrink-time bound for the plan proptests, in milliseconds: with every
@@ -299,20 +289,8 @@ pub struct SimOutcome {
     /// The execution-time redaction log; see [`Redaction`].
     pub redactions: Vec<Redaction>,
     /// Endpoints that reached their vanish point, across sessions,
-    /// bootstraps, and retirements (a parked survivor's counterparty
-    /// counted among them).
+    /// bootstraps, and retirements.
     pub vanished: usize,
-    /// Sessions, bootstraps, or retirements in which the survivor of a
-    /// planned vanish was still running at [`SESSION_DEADLINE`] and was
-    /// aborted.
-    ///
-    /// Such a survivor waits on a stream its dead peer never opens,
-    /// without consulting the control stream's end-of-stream: the open
-    /// item of ruling T143, pinned by
-    /// `survivor_parks_when_its_peer_vanishes_before_its_first_stream`
-    /// and ruled in T145; the lane that closes it asserts this count is
-    /// zero.
-    pub parked: usize,
 }
 
 // ---- strategies ------------------------------------------------------------
@@ -348,28 +326,21 @@ pub fn arb_fault(faults: bool) -> BoxedStrategy<FaultPlan> {
         .boxed()
 }
 
-/// [`arb_fault`] for this engine's plans, whose endpoints may also vanish
-/// mid-stream.
+/// Add peer departures to the read and write faults drawn by [`arb_fault`].
 ///
-/// A vanish lands on one of the endpoint's first [`MAX_VANISH_STREAM`]
-/// data streams, at an offset below [`MAX_VANISH_OFFSET`] into it,
-/// weighted toward the first stream and its first byte, which every
-/// endpoint that opens a stream at all reaches; the bounds keep every
-/// stream and byte of the envelope session reachable, and a point past
-/// what the endpoint writes never fires. Without a vanish an endpoint runs
-/// exactly as [`arb_fault`]'s would.
-///
-/// A vanish between the handshake and the first data stream is not drawn:
-/// a survivor of one parks on its first accept, the open item the ignored
-/// `survivor_notices_a_peer_vanished_before_its_first_stream` holds, and
-/// this family must stay green; that point joins the family when the
-/// item closes.
+/// An endpoint may disappear on its first data-stream open, while writing
+/// control bytes, or while writing one of its first [`MAX_VANISH_STREAM`]
+/// data streams. Byte offsets stay below [`MAX_VANISH_OFFSET`], with extra
+/// weight on the first data stream and byte. A point the endpoint never
+/// reaches does not fire.
 fn arb_fault_or_vanish(faults: bool) -> BoxedStrategy<FaultPlan> {
     if !faults {
         return Just(FaultPlan::NONE).boxed();
     }
     let vanish = prop_oneof![
         3 => Just(None),
+        1 => Just(Some(Vanish::AtFirstConnect)),
+        1 => (0..MAX_VANISH_OFFSET).prop_map(|offset| Some(Vanish::OnControl { offset })),
         1 => (
             prop_oneof![3 => Just(0usize), 1 => 0..MAX_VANISH_STREAM],
             prop_oneof![1 => Just(0usize), 2 => 0..MAX_VANISH_OFFSET],
@@ -496,32 +467,11 @@ pub fn assert_survivor(out: &Result<Gossiped, Error>) {
     assert_honest_gossip(out);
 }
 
-/// What awaiting under [`SESSION_DEADLINE`] produced.
-enum Bounded<T> {
-    Done(T),
-    /// The deadline passed with a vanish planned: the survivor parked on
-    /// its dead peer (see [`SimOutcome::parked`]).
-    Parked,
-}
-
-/// Await `work` under [`SESSION_DEADLINE`]: expiry with a vanish planned
-/// (`vanishing`) is a park, expiry without one a deadlock named `what`.
-async fn bounded<F: Future>(what: &str, vanishing: bool, work: F) -> Bounded<F::Output> {
-    match tokio::time::timeout(SESSION_DEADLINE, work).await {
-        Ok(output) => Bounded::Done(output),
-        Err(_) if vanishing => Bounded::Parked,
-        Err(_) => panic!(
-            "{what} parked past SESSION_DEADLINE ({SESSION_DEADLINE:?}): a protocol deadlock"
-        ),
-    }
-}
-
-/// One phase's vanish accounting: endpoints that vanished, and whether the
-/// survivor parked and was aborted.
-#[derive(Clone, Copy, Default)]
-struct Vanishes {
-    vanished: usize,
-    parked: bool,
+/// Fail with the session's name if its in-memory work stops making progress.
+async fn bounded<F: Future>(what: &str, work: F) -> F::Output {
+    tokio::time::timeout(SESSION_DEADLINE, work)
+        .await
+        .unwrap_or_else(|_| panic!("{what} did not finish within {SESSION_DEADLINE:?}"))
 }
 
 // ---- the engine ------------------------------------------------------------
@@ -532,13 +482,13 @@ struct Vanishes {
 /// Each side's halves are owned by its own task, so the failing side's
 /// drop surfaces as EOF to its counterparty instead of wedging the
 /// session. A side that vanishes leaves its counterparty to end alone,
-/// with an honest error, or parked and aborted at the deadline.
+/// with an honest error; exceeding the deadline fails the test.
 async fn run_session(
     a: Rumors<u64>,
     b: Rumors<u64>,
     fault_a: FaultPlan,
     fault_b: FaultPlan,
-) -> Vanishes {
+) -> usize {
     let (link_a, link_b) = rumors::link::memory();
     let task_a = tokio::spawn(fault::drive(link_a, fault_a, async move |link| {
         a.gossip(link).await
@@ -546,20 +496,7 @@ async fn run_session(
     let task_b = tokio::spawn(fault::drive(link_b, fault_b, async move |link| {
         b.gossip(link).await
     }));
-    let (abort_a, abort_b) = (task_a.abort_handle(), task_b.abort_handle());
-    let vanishing = fault_a.vanish.is_some() || fault_b.vanish.is_some();
-    let joined = bounded("a session", vanishing, async {
-        tokio::join!(task_a, task_b)
-    })
-    .await;
-    let Bounded::Done((driven_a, driven_b)) = joined else {
-        abort_a.abort();
-        abort_b.abort();
-        return Vanishes {
-            vanished: 1,
-            parked: true,
-        };
-    };
+    let (driven_a, driven_b) = bounded("a session", async { tokio::join!(task_a, task_b) }).await;
     let driven_a = driven_a.expect("session task A");
     let driven_b = driven_b.expect("session task B");
     match (&driven_a.outcome, &driven_b.outcome) {
@@ -570,10 +507,7 @@ async fn run_session(
         (Some(survivor), None) | (None, Some(survivor)) => assert_survivor(survivor),
         (None, None) => {}
     }
-    Vanishes {
-        vanished: usize::from(driven_a.vanished()) + usize::from(driven_b.vanished()),
-        parked: false,
-    }
+    usize::from(driven_a.vanished()) + usize::from(driven_b.vanished())
 }
 
 /// Serve one bootstrap from `server` mid-chaos, the joiner's endpoint
@@ -596,7 +530,7 @@ async fn run_boot(
     server: Rumors<u64>,
     fault: FaultPlan,
     window: WindowChoice,
-) -> (Option<Peer<u64>>, Vanishes) {
+) -> (Option<Peer<u64>>, usize) {
     let (boot_side, serve_side) = rumors::link::memory();
     let serve = tokio::spawn(async move {
         let mut link = fault::faulty(serve_side, FaultPlan::NONE);
@@ -605,32 +539,11 @@ async fn run_boot(
     let boot = tokio::spawn(fault::drive(boot_side, fault, async move |link| {
         Peer::<u64>::bootstrap().join(link).await
     }));
-    let (abort_serve, abort_boot) = (serve.abort_handle(), boot.abort_handle());
-    let joined = bounded("a bootstrap", fault.vanish.is_some(), async {
-        tokio::join!(serve, boot)
-    })
-    .await;
-    let Bounded::Done((served, driven)) = joined else {
-        abort_serve.abort();
-        abort_boot.abort();
-        return (
-            None,
-            Vanishes {
-                vanished: 1,
-                parked: true,
-            },
-        );
-    };
+    let (served, driven) = bounded("a bootstrap", async { tokio::join!(serve, boot) }).await;
     let served = served.expect("bootstrap serve task");
     let Some(joined) = driven.expect("bootstrap join task").outcome else {
         assert_survivor(&served);
-        return (
-            None,
-            Vanishes {
-                vanished: 1,
-                parked: false,
-            },
-        );
+        return (None, 1);
     };
     assert_honest_gossip(&served);
     let newcomer = match joined {
@@ -641,7 +554,7 @@ async fn run_boot(
             None
         }
     };
-    (newcomer, Vanishes::default())
+    (newcomer, 0)
 }
 
 /// Run one peer's activity script, yielding between operations so it
@@ -796,7 +709,6 @@ async fn probe_disjointness(handles: Vec<Rumors<u64>>, done: Arc<AtomicBool>) {
 pub async fn run_plan(plan: Plan) -> SimOutcome {
     let mut possible_losses = 0usize;
     let mut vanished = 0usize;
-    let mut parked = 0usize;
 
     // The insert side of the value ledger, known from the plan alone:
     // sends are local operations and always execute.
@@ -874,14 +786,12 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
     }
     for task in session_tasks {
         let vanishes = task.await.expect("session task");
-        vanished += vanishes.vanished;
-        parked += usize::from(vanishes.parked);
+        vanished += vanishes;
     }
     let mut newcomers = Vec::new();
     for task in boot_tasks {
         let (newcomer, vanishes) = task.await.expect("bootstrap task");
-        vanished += vanishes.vanished;
-        parked += usize::from(vanishes.parked);
+        vanished += vanishes;
         match newcomer {
             Some(newcomer) => newcomers.push(newcomer),
             None => possible_losses += 1,
@@ -937,36 +847,18 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
                 absorber.gossip(&mut link).await
             }
         });
-        let (abort_retiring, abort_absorbing) = (retiring.abort_handle(), absorbing.abort_handle());
-        let joined = bounded("a retirement", op.fault.vanish.is_some(), async {
-            tokio::join!(retiring, absorbing)
-        })
-        .await;
-        // A retiree that vanished mid-retirement is gone with its party:
-        // dropping a retire future destroys the consumed peer, and the
-        // absorber, which cannot have committed, holds nothing of it. An
-        // absorber parked on the vanished retiree is aborted and the loss
-        // is the same.
-        let outcome = match joined {
-            Bounded::Parked => {
-                abort_retiring.abort();
-                abort_absorbing.abort();
-                parked += 1;
+        let (driven, absorbed) =
+            bounded("a retirement", async { tokio::join!(retiring, absorbing) }).await;
+        let driven = driven.expect("retire task");
+        let absorbed = absorbed.expect("absorb task");
+        let outcome = match driven.outcome {
+            None => {
+                assert_survivor(&absorbed);
                 None
             }
-            Bounded::Done((driven, absorbed)) => {
-                let driven = driven.expect("retire task");
-                let absorbed = absorbed.expect("absorb task");
-                match driven.outcome {
-                    None => {
-                        assert_survivor(&absorbed);
-                        None
-                    }
-                    Some(outcome) => {
-                        assert_honest_gossip(&absorbed);
-                        Some((outcome, absorbed))
-                    }
-                }
+            Some(outcome) => {
+                assert_honest_gossip(&absorbed);
+                Some((outcome, absorbed))
             }
         };
         let Some((outcome, absorbed)) = outcome else {
@@ -1053,7 +945,6 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
         inserted,
         redactions: by_version.into_values().collect(),
         vanished,
-        parked,
     }
 }
 

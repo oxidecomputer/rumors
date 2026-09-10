@@ -54,7 +54,8 @@ use crate::tree::{
     },
 };
 
-use super::{encode, queues};
+use super::{ControlRead, encode, queues};
+use tokio::io::AsyncRead;
 
 impl<B, R, W, A> Work<B, R, W, A>
 where
@@ -312,7 +313,10 @@ where
         requests: impl Requests<B, Z>,
         scopes: Receiver<Scope>,
         outgoing: StreamSender<C>,
-    ) -> Result<(R, W), Error<B::Error>> {
+    ) -> Result<(ControlRead<R>, W), Error<B::Error>>
+    where
+        R: AsyncRead + Unpin,
+    {
         let requests: encode::Replies<B::Erased> =
             Box::pin(requests.map(erased::erase_reply::<B, Z>));
         let finish = encode::terminal(
@@ -337,10 +341,10 @@ where
         outgoing: StreamSender<C>,
     ) -> (
         BoxResponses<B, Z, Error<B::Error>>,
-        impl Future<Output = Result<(R, W), Error<B::Error>>> + Send,
+        impl Future<Output = Result<(ControlRead<R>, W), Error<B::Error>>> + Send,
     )
     where
-        R: Send,
+        R: AsyncRead + Unpin + Send,
         W: Send,
         A: Send,
     {

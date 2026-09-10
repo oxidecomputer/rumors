@@ -89,5 +89,5 @@ pub(crate) fn codec_stream_count() -> u8 {
     codec::Stream::COUNT
 }
 pub use codec::{DEFAULT_TARGET_MESSAGE_SIZE, RunBudget};
-pub use proxy::Error;
 pub use proxy::Handshaking;
+pub use proxy::{ControlRead, Error};

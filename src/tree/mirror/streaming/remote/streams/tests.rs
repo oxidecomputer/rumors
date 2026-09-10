@@ -104,7 +104,7 @@ fn frames_flow_sender_to_claimed_receiver() {
             tokio::select! {
                 biased;
                 () = receive => {}
-                _error = driver.run() => panic!("accept driver failed"),
+                _error = driver.run(std::future::pending()) => panic!("accept driver failed"),
             }
         };
         join(send, receive).await;
@@ -159,7 +159,7 @@ fn accept_driver_rejects_wrong_epoch() {
             let (slots, _claims) = claims();
             let (route, _errors) = error_route();
             let driver = AcceptDriver::new(&mut b.acceptor, 5, Speaker::Initiator, slots, route);
-            driver.run().await
+            driver.run(std::future::pending()).await
         };
         let (_sender, error) = join(send, receive).await;
         assert!(
@@ -207,7 +207,7 @@ fn accept_driver_rejects_unclaimed_delivery() {
             drop(claims.take(stream));
             let (route, _errors) = error_route();
             let driver = AcceptDriver::new(&mut b.acceptor, 0, Speaker::Initiator, slots, route);
-            driver.run().await
+            driver.run(std::future::pending()).await
         };
         let (_sender, error) = join(send, receive).await;
         assert!(
@@ -276,7 +276,7 @@ async fn first_reported_error(
     let error = tokio::select! {
         biased;
         error = observe => error,
-        error = driver.run() => {
+        error = driver.run(std::future::pending()) => {
             panic!("the accept driver resolved instead of the error route: {error:?}")
         }
     };
@@ -396,7 +396,7 @@ fn accept_driver_rejects_duplicate_label() {
             let (route, _errors) = error_route();
             let driver =
                 AcceptDriver::new(&mut b.acceptor, EPOCH, Speaker::Initiator, slots, route);
-            driver.run().await
+            driver.run(std::future::pending()).await
         };
         let ((), error) = join(send, receive).await;
         // Pinned in full, origin included, like the stream-error tests.
@@ -430,7 +430,7 @@ fn accept_driver_rejects_unknown_stream_index() {
             let (route, _errors) = error_route();
             let driver =
                 AcceptDriver::new(&mut b.acceptor, EPOCH, Speaker::Initiator, slots, route);
-            driver.run().await
+            driver.run(std::future::pending()).await
         };
         let ((), error) = join(send, receive).await;
         assert!(
@@ -478,9 +478,12 @@ fn supply_failure_reaches_the_awaiting_receiver() {
     );
     // The deposited cause is the acceptor's own transport error, still in
     // the slot after the report: the terminal's claim, not the reporter's.
-    let cause = errors
-        .take_supply_failure()
-        .expect("the deposit survives the report for the terminal to claim");
+    let super::IncomingFailure::Supply(cause) = errors
+        .take_failure()
+        .expect("the deposit survives the report for the terminal to claim")
+    else {
+        panic!("the acceptor failed without a control-stream watch");
+    };
     assert_eq!(cause.kind(), std::io::ErrorKind::UnexpectedEof);
 }
 
@@ -549,7 +552,7 @@ fn supply_failure_after_delivery_lets_the_session_finish() {
                 error = errors.first() => {
                     panic!("a parked supply failure surfaced without a claimant: {error:?}")
                 }
-                error = driver.run() => {
+                error = driver.run(std::future::pending()) => {
                     panic!("a supply failure is not a peer violation: {error:?}")
                 }
             }

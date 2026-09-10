@@ -67,6 +67,16 @@
 //!   the drop and deliver the affected stream to a later `accept` call: no
 //!   delivery may be lost while the link stays healthy.
 //!
+//! ## Peer departure
+//!
+//! Keep the control stream open until the session's data streams have
+//! completed. When a peer disappears, expose EOF or an error on its control
+//! stream. During reconciliation, that signal preempts our waiting for incoming
+//! streams the peer can no longer supply. It does not interrupt outgoing opens
+//! or writes; the transport must ensure those operations eventually finish or
+//! fail. Applications can impose a session deadline when they also need to
+//! bound undetected failures.
+//!
 //! Streams are anonymous at this boundary. The session labels each opened
 //! stream itself (a [session epoch](SessionState) and stream index written
 //! as the stream's first bytes) and validates the label on the accepting

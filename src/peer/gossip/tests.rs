@@ -336,3 +336,85 @@ fn rejected_claimant_leaves_the_provider_serviceable() {
         "the honest newcomer replicates the provider's full content",
     );
 }
+
+proptest! {
+    /// Identity transfer and completion decode across any lookahead boundary,
+    /// leaving bytes from a following session unread in the live transport.
+    #[test]
+    fn trailing_items_cross_the_lookahead_boundary(
+        forks in 0usize..32,
+        donation in any::<bool>(),
+        split_at in any::<usize>(),
+        following in prop::collection::vec(any::<u8>(), 1..32),
+    ) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        run_to_quiescence(async {
+            let observe = SessionHandle::default();
+            let mut identity = Party::seed();
+            for _ in 0..forks {
+                let _ = identity.fork();
+            }
+            let expected = identity.as_bytes().to_vec();
+            let mut wire = Vec::new();
+            if donation {
+                party::send(identity, &mut wire, &observe).await.unwrap();
+            }
+            wire.extend_from_slice(&EPILOGUE_MARKER);
+            let cut = split_at % (wire.len() + 1);
+            let (local, remote) = duplex(1);
+            let (local_read, mut local_write) = split(local);
+            let (mut remote_read, mut remote_write) = split(remote);
+            let mut read = std::io::Cursor::new(wire[..cut].to_vec()).chain(local_read);
+            let receive = async {
+                if donation {
+                    let received = party::receive(&mut read, &observe).await.unwrap();
+                    assert_eq!(received.as_bytes(), expected);
+                }
+                super::finish_session(&mut read, &mut local_write, &observe).await.unwrap();
+                assert_eq!(read.get_ref().0.position() as usize, cut);
+                let mut next = vec![0; following.len()];
+                read.read_exact(&mut next).await.unwrap();
+                assert_eq!(next, following);
+            };
+            let send = async {
+                // Read our marker concurrently with sending the suffix, as a
+                // one-byte duplex cannot buffer both complete markers.
+                let (_, marker) = tokio::join!(
+                    async { remote_write.write_all(&wire[cut..]).await.unwrap(); },
+                    async {
+                        let mut marker = [0; EPILOGUE_MARKER.len()];
+                        remote_read.read_exact(&mut marker).await.unwrap();
+                        marker
+                    },
+                );
+                assert_eq!(marker, EPILOGUE_MARKER);
+                // A peer may begin the next session only after our marker.
+                remote_write.write_all(&following).await.unwrap();
+            };
+            tokio::join!(receive, send);
+        }).expect("trailing items must decode without consuming the next session");
+    }
+
+    /// Completion cannot silently discard control bytes sent before the peer
+    /// was permitted to start another session.
+    #[test]
+    fn completion_rejects_leftover_lookahead(extra in prop::collection::vec(any::<u8>(), 0..64)) {
+        use tokio::io::AsyncReadExt;
+        let mut bytes = super::EPILOGUE_MARKER.to_vec();
+        bytes.extend_from_slice(&extra);
+        let mut read = std::io::Cursor::new(bytes).chain(tokio::io::empty());
+        let result = crate::testing::run_to_quiescence(super::finish_session(
+            &mut read, &mut tokio::io::sink(), &SessionHandle::default(),
+        )).expect("in-memory completion must finish");
+        if extra.is_empty() {
+            prop_assert!(result.is_ok());
+        } else {
+            let Error::Protocol(error) = result.unwrap_err() else {
+                panic!("extra control bytes must be a protocol violation");
+            };
+            prop_assert_eq!(error.context.phase, crate::error::Phase::Completion);
+            prop_assert!(matches!(error.source.downcast_ref::<super::SessionDefect>(),
+                Some(super::SessionDefect::EarlyControl(count)) if *count == extra.len()));
+        }
+    }
+}

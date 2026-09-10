@@ -32,7 +32,7 @@ use crate::{
         party,
         streaming::{
             self, Local, materialized,
-            remote::{self as streaming_remote, RunBudget},
+            remote::{self as streaming_remote, ControlRead, RunBudget},
             stats::{Recorder, SessionStats},
             window::WindowConfig,
         },
@@ -84,6 +84,9 @@ type DynWrite<'a> = &'a mut (dyn AsyncWrite + Unpin + Send + 'a);
 /// so the `gossip_when` driver can reborrow its halves one session at a
 /// time.
 type DynLinkParts<'a> = (DynRead<'a>, DynWrite<'a>, DynConnector, DynAcceptor<'a>, u8);
+
+/// Reconciled content and control streams ready for identity transfer or completion.
+type Reconciled<'a> = (tree::Root, ControlRead<DynRead<'a>>, DynWrite<'a>);
 
 /// The outcome of [`Peer::retire`].
 ///
@@ -300,11 +303,11 @@ impl<T> Peer<T, NoBookmark> {
             let _ = remote.intent;
 
             // Reconcile from an empty tree; the lifecycle boundary is a
-            // materialized root and the raw control halves positioned at
-            // the trailing party frame. The protocol body is the
-            // non-generic [`bootstrap_reconcile`], which returns its
-            // future boxed; see [`Reconciliation::reconcile`] for the
-            // boxing and inlining discipline.
+            // materialized root and control streams positioned at the trailing
+            // party frame. The protocol body is the non-generic
+            // [`bootstrap_reconcile`], which returns its future boxed; see
+            // [`Reconciliation::reconcile`] for the boxing and inlining
+            // discipline.
             let both_bootstrapping = remote.network.is_bootstrap();
             let reconcile = bootstrap_reconcile(
                 (read, write, connector, acceptor, epoch),
@@ -321,10 +324,9 @@ impl<T> Peer<T, NoBookmark> {
             // Our absorption of the received identity completes with the
             // in-memory `Peer` construction below, which cannot fail: certify
             // completion now, and require the provider's certificate so `Ok`
-            // means it committed its donation. On `Err` the received fork
-            // is dropped — its region leaks, benignly, like any fork lost
-            // in flight.
-            epilogue(&mut read, &mut write, &observe).await?;
+            // means it committed its donation. On `Err` the received fork is
+            // dropped: its identity region leaks, benignly.
+            finish_session(&mut read, &mut write, &observe).await?;
             let peer = Self {
                 network: remote.network,
                 window: config.window,
@@ -722,10 +724,10 @@ impl<T, B: Persist> Peer<T, B> {
 
         // Reconcile using this peer's selected protocol. Both branches meet at
         // the lifecycle boundary the surrounding transaction needs: a local
-        // root plus raw transport halves positioned after reconciliation.
-        // The protocol bodies live behind the non-generic [`Reconciliation`],
-        // whose methods return their futures boxed: neither concrete
-        // protocol state machine becomes part of this outer session future,
+        // root plus control streams positioned after reconciliation. The
+        // protocol bodies live behind the non-generic [`Reconciliation`], whose
+        // methods return their futures boxed: neither concrete protocol state
+        // machine becomes part of this outer session future,
         // or of the consumer crate that instantiates it.
         let reconciliation = Reconciliation {
             root: prior_tree.root,
@@ -741,7 +743,7 @@ impl<T, B: Persist> Peer<T, B> {
             local_min_events,
         };
         let reconcile = reconciliation.reconcile();
-        let (root, read, write) = match reconcile.await {
+        let (root, mut read, write) = match reconcile.await {
             Ok(reconciled) => reconciled,
             Err(error) => return (Intent::Remain, Err(error.widen())),
         };
@@ -758,7 +760,7 @@ impl<T, B: Persist> Peer<T, B> {
             // The preamble rejects a peer that claims to both bootstrap and
             // retire, and we bailed early if we were retiring too, so no
             // party of ours is in flight here: `guarded.party` is `None`.
-            absorbed = match party::receive(read, &observe).await {
+            absorbed = match party::receive(&mut read, &observe).await {
                 Err(e) => return (Intent::Remain, Err(e.widen())),
                 Ok(donated_party) => Some(donated_party),
             };
@@ -862,7 +864,7 @@ impl<T, B: Persist> Peer<T, B> {
         // The failure return must preserve `outcome`: a retiree whose party
         // crossed the wire but whose epilogue failed is post-hand-off, and
         // mapping it back to `Intent::Remain` would duplicate the identity.
-        if let Err(e) = epilogue(read, write, &observe).await {
+        if let Err(e) = finish_session(&mut read, write, &observe).await {
             return (outcome, Err(e.widen()));
         }
 
@@ -1079,20 +1081,13 @@ struct Reconciliation<'a> {
 }
 
 impl<'a> Reconciliation<'a> {
-    /// Drive one streaming reconciliation to the lifecycle boundary the
-    /// session transaction resumes from: the reconciled local root plus the
-    /// raw control halves, positioned after the descent.
+    /// Reconcile content and return control input with any read-ahead retained.
     ///
-    /// Returns the future boxed: an `async fn` body is codegen'd into
-    /// whichever crate polls it, so a bare future here would hand the whole
-    /// protocol state machine right back to every consumer. The `dyn`
-    /// coercion pins it — vtable, poll, and everything the body awaits — in
-    /// this crate's own object code. `inline(never)` guards the same
-    /// boundary in optimized builds: the shell is small enough for rustc's
-    /// automatic cross-crate MIR inlining, which would move the coercion —
-    /// and the tower behind it — back into the consumer.
+    /// Box the protocol future at this non-generic boundary so consumers do
+    /// not instantiate its state machine. Prevent inlining from moving that
+    /// erasure back into downstream code.
     #[inline(never)]
-    fn reconcile(self) -> BoxFuture<'a, Result<(tree::Root, DynRead<'a>, DynWrite<'a>), Error>> {
+    fn reconcile(self) -> BoxFuture<'a, Result<Reconciled<'a>, Error>> {
         Box::pin(async move {
             let Self {
                 root,
@@ -1159,7 +1154,7 @@ fn bootstrap_reconcile<'a>(
     run_budget: RunBudget,
     both_bootstrapping: bool,
     observe: SessionHandle,
-) -> BoxFuture<'a, Result<Option<(tree::Root, DynRead<'a>, DynWrite<'a>)>, Error>> {
+) -> BoxFuture<'a, Result<Option<Reconciled<'a>>, Error>> {
     Box::pin(async move {
         let (read, write, connector, acceptor, epoch) = link;
         let local_root: streaming::Root<Local> = tree::Root::default().into();
@@ -1192,7 +1187,7 @@ fn bootstrap_reconcile<'a>(
         let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
         let (root, (mut read, mut write)) = descent.await.map_err(Error::from)?;
         if both_bootstrapping {
-            epilogue(&mut read, &mut write, &observe).await?;
+            finish_session(&mut read, &mut write, &observe).await?;
             return Ok(None);
         }
         Ok(Some((root.into(), read, write)))
@@ -1252,6 +1247,31 @@ enum SessionDefect {
     /// A complete closing item differs from the protocol's marker.
     #[error("invalid completion marker: {0:02x?}")]
     CompletionMarker([u8; 2]),
+    /// Bytes after the completion marker arrived before we confirmed completion.
+    #[error("peer sent {0} extra control bytes before our completion marker")]
+    EarlyControl(usize),
+}
+
+/// Finish the session without discarding bytes read ahead of its boundary.
+///
+/// The departure watch stops before we send our completion marker. A peer
+/// cannot start another session before receiving that marker, so leftover
+/// lookahead is a protocol violation, not the next session's preamble.
+async fn finish_session<R: AsyncRead + Unpin + Send>(
+    read: &mut ControlRead<R>,
+    write: &mut (dyn AsyncWrite + Unpin + Send + '_),
+    observe: &SessionHandle,
+) -> Result<(), Error> {
+    epilogue(read, write, observe).await?;
+    let (ahead, _) = read.get_ref();
+    let unread = ahead.get_ref().len() - ahead.position() as usize;
+    if unread != 0 {
+        return Err(Error::violation(
+            Phase::Completion,
+            SessionDefect::EarlyControl(unread),
+        ));
+    }
+    Ok(())
 }
 
 /// Exchange completion markers concurrently so both sides can flush before

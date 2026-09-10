@@ -2,7 +2,7 @@ use std::{future, pin::pin};
 
 use futures::StreamExt;
 use proptest::prelude::*;
-use tokio::io::{AsyncWriteExt, DuplexStream};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream};
 use tokio::sync::oneshot;
 
 use super::{Physical, Work};
@@ -310,7 +310,7 @@ async fn receiver(bytes: &[u8], stream: Stream, route: ErrorRoute) -> StreamRece
 
 proptest! {
     /// Frame violations retain their kind and origin whether selected directly
-    /// or queued beside a write failure, before or after the supply fails.
+    /// or queued beside a write failure, before or after supply or control EOF.
     #[test]
     fn incoming_violation_survives_supply_failure(
         index in 0u8..Stream::COUNT,
@@ -319,6 +319,7 @@ proptest! {
         mislabel in any::<bool>(),
         queued in any::<bool>(),
         supply_first in any::<bool>(),
+        control_only in any::<bool>(),
     ) {
         let ParkedSession { mut work, claims: _claims, route, peer } = parked_session();
         let stream = Stream::new(index).unwrap();
@@ -345,7 +346,14 @@ proptest! {
                     unreachable!("a malformed stream reports and parks");
                 }
             });
-            drop(peer);
+            let _supply = if control_only {
+                let peer = peer.into_parts();
+                drop(peer.control_write);
+                Some(peer.connector)
+            } else {
+                drop(peer);
+                None
+            };
             let mut execute = pin!(work.execute(future::pending::<Result<(), _>>()));
             if supply_first {
                 assert!(futures::poll!(execute.as_mut()).is_pending());
@@ -369,19 +377,27 @@ proptest! {
         }
     }
 
-    /// A declaration violation from protocol work is not replaced by a closed
-    /// supply, even when that closure was already observed on an earlier poll.
+    /// A declaration violation survives supply or control EOF, including
+    /// closures already observed on an earlier poll.
     #[test]
     fn declaration_violation_survives_supply_failure(
         declared in 0u64..1024,
         excess in 1usize..1024,
         supply_first in any::<bool>(),
+        control_only in any::<bool>(),
     ) {
         let ParkedSession { work, claims: _claims, route: _route, peer } = parked_session();
         let actual = declared as usize + excess;
         let error = run_to_quiescence(async {
             let (send, receive) = oneshot::channel();
-            drop(peer);
+            let _supply = if control_only {
+                let peer = peer.into_parts();
+                drop(peer.control_write);
+                Some(peer.connector)
+            } else {
+                drop(peer);
+                None
+            };
             let mut execute = pin!(work.execute(async { receive.await.unwrap() }));
             if supply_first {
                 assert!(futures::poll!(execute.as_mut()).is_pending());
@@ -455,7 +471,7 @@ fn completed_protocol_does_not_poll_the_acceptor() {
     run_to_quiescence(async {
         let (mut tx, _) = peer.connector.connect().await.unwrap();
         tx.write_all(&[1, 0]).await.unwrap();
-        work.execute(async { Ok(()) }).await.unwrap();
+        let _ = work.execute(async { Ok(()) }).await.unwrap();
     })
     .unwrap();
 }
@@ -499,5 +515,159 @@ fn unasked_stream_is_attributed_before_or_after_protocol_teardown() {
                 "{error:?}"
             );
         }
+    }
+}
+
+proptest! {
+    /// Control EOF interrupts an accepted stream's incomplete label, even
+    /// while its writer and the incoming stream supply remain alive.
+    #[test]
+    fn control_departure_interrupts_a_partial_label(
+        index in 0u8..Stream::COUNT,
+        label_bytes in 0usize..2,
+    ) {
+        let ParkedSession { work, mut claims, route, peer } = parked_session();
+        let peer = peer.into_parts();
+        let stream = Stream::new(index).unwrap();
+        let mut incoming = StreamReceiver::new(
+            claims.take(stream), Speaker::Responder, stream, RunBudget::default(),
+            route, Recorder::default(), SessionHandle::default(),
+        );
+        let error = run_to_quiescence(async {
+            let (mut tx, _done) = peer.connector.connect().await.unwrap();
+            tx.write_all(&[0, index][..label_bytes]).await.unwrap();
+            let mut execute = pin!(work.execute(async {
+                let _ = incoming.next().await;
+                Ok::<(), _>(())
+            }));
+            assert!(futures::poll!(&mut execute).is_pending());
+            drop(peer.control_write);
+            execute.await.unwrap_err()
+        }).expect("control EOF must interrupt a partial label");
+        prop_assert!(matches!(error, Error::PeerDeparted(ref source)
+            if source.kind() == std::io::ErrorKind::UnexpectedEof), "{error:?}");
+    }
+
+    /// After the watch stops, saved bytes precede later transport input,
+    /// regardless of the split or the application's read buffer size.
+    #[test]
+    fn control_lookahead_hands_off_to_live_input(
+        bytes in prop::collection::vec(any::<u8>(), 0..256),
+        split_at in any::<usize>(),
+        read_size in 1usize..65,
+    ) {
+        let ParkedSession { work, claims: _claims, route: _route, peer } = parked_session();
+        let mut peer = peer.into_parts();
+        let cut = split_at % (bytes.len() + 1);
+        let actual = run_to_quiescence(async {
+            peer.control_write.write_all(&bytes[..cut]).await.unwrap();
+            let (finish, finished) = oneshot::channel();
+            let mut execute = pin!(work.execute(async { finished.await.unwrap(); Ok(()) }));
+            assert!(futures::poll!(&mut execute).is_pending());
+            finish.send(()).unwrap();
+            let ((), mut read, _) = execute.await.unwrap();
+            assert_eq!(read.get_ref().0.get_ref(), &bytes[..cut]);
+            peer.control_write.write_all(&bytes[cut..]).await.unwrap();
+            // Keep the transport open: exact-length reads must not need EOF.
+            let mut actual = vec![0; bytes.len()];
+            for chunk in actual.chunks_mut(read_size) {
+                read.read_exact(chunk).await.unwrap();
+            }
+            actual
+        }).expect("saved input must hand off to the live transport");
+        prop_assert_eq!(actual, bytes);
+    }
+
+    /// Control EOF closes missing claims without discarding unread replies
+    /// on streams already delivered to the protocol.
+    #[test]
+    fn control_departure_preserves_delivered_replies(
+        index in 0u8..Stream::COUNT,
+        replies in 1usize..8,
+    ) {
+        let ParkedSession { work, mut claims, route: _route, peer } = parked_session();
+        let peer = peer.into_parts();
+        let stream = Stream::new(index).unwrap();
+        let delivered = claims.take(stream);
+        let mut missing = claims.take(Stream::new((index + 1) % Stream::COUNT).unwrap());
+        let mut bytes = Vec::new();
+        for _ in 0..replies {
+            codec::encode(Speaker::Responder, &(stream, Frame::Reaction(
+                codec::Reaction::Match, codec::Flow::End,
+            )), &mut bytes).unwrap();
+        }
+        let actual = run_to_quiescence(async {
+            let (mut tx, _done) = peer.connector.connect().await.unwrap();
+            tx.write_all(&[0, index]).await.unwrap();
+            tx.write_all(&bytes).await.unwrap();
+            let (ready, resume) = oneshot::channel();
+            let mut execute = pin!(work.execute(async {
+                let (mut rx, _done) = delivered.await.unwrap();
+                resume.await.unwrap();
+                let mut actual = vec![0; bytes.len()];
+                rx.read_exact(&mut actual).await.unwrap();
+                Ok(actual)
+            }));
+            assert!(futures::poll!(&mut execute).is_pending());
+            assert!(matches!(missing.try_recv(), Err(oneshot::error::TryRecvError::Empty)));
+            drop(peer.control_write);
+            assert!(futures::poll!(&mut execute).is_pending());
+            assert!(matches!(missing.try_recv(), Err(oneshot::error::TryRecvError::Closed)));
+            ready.send(()).unwrap();
+            execute.await.unwrap().0
+        }).expect("delivered replies must remain readable after control EOF");
+        prop_assert_eq!(actual, bytes);
+    }
+
+    /// Control EOF releases every possible undelivered stream claim, even
+    /// when later control bytes arrived before the peer disappeared.
+    #[test]
+    fn control_departure_ends_an_owed_stream_wait(
+        index in 0u8..Stream::COUNT,
+        ahead in prop::collection::vec(any::<u8>(), 0..128),
+    ) {
+        let ParkedSession { work, mut claims, route, peer } = parked_session();
+        let mut peer = peer.into_parts();
+        let _supply = peer.connector;
+        let stream = Stream::new(index).unwrap();
+        let mut incoming = StreamReceiver::new(
+            claims.take(stream), Speaker::Responder, stream, RunBudget::default(),
+            route, Recorder::default(), SessionHandle::default(),
+        );
+        let result = run_to_quiescence(async {
+            peer.control_write.write_all(&ahead).await.unwrap();
+            drop(peer.control_write);
+            work.execute(async {
+                let _ = incoming.next().await;
+                Ok(())
+            }).await
+        }).expect("control EOF must release a missing stream");
+        let error = result.unwrap_err();
+        prop_assert!(matches!(error, Error::PeerDeparted(ref source)
+            if source.kind() == std::io::ErrorKind::UnexpectedEof), "{error:?}");
+    }
+
+    /// A locally complete protocol succeeds after departure and replays every
+    /// control byte already read, in order, for the lifecycle's trailing readers.
+    #[test]
+    fn completed_work_retains_control_lookahead(
+        ahead in prop::collection::vec(any::<u8>(), 0..128),
+    ) {
+        let ParkedSession { work, claims: _claims, route: _route, peer } = parked_session();
+        let mut peer = peer.into_parts();
+        let _supply = peer.connector;
+        let actual = run_to_quiescence(async {
+            peer.control_write.write_all(&ahead).await.unwrap();
+            drop(peer.control_write);
+            let (finish, finished) = oneshot::channel();
+            let mut execute = Box::pin(work.execute(async { finished.await.unwrap(); Ok(()) }));
+            assert!(futures::poll!(&mut execute).is_pending());
+            finish.send(()).unwrap();
+            let ((), mut read, _) = execute.await.unwrap();
+            let mut actual = Vec::new();
+            read.read_to_end(&mut actual).await.unwrap();
+            actual
+        }).expect("departure cannot prevent already-complete local work");
+        prop_assert_eq!(actual, ahead);
     }
 }

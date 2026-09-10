@@ -26,6 +26,9 @@ impl From<MirrorError> for Error {
             mirror::Error::Server(error) => error,
         };
         let (context, operation, source) = match remote {
+            proxy::Error::PeerDeparted(source) => {
+                (Context::new(Phase::Reconciliation), Op::Read, source)
+            }
             proxy::Error::PayloadDepthMismatch { local, remote } => {
                 return Self::Mismatch(Mismatch::PayloadDepth { local, remote });
             }

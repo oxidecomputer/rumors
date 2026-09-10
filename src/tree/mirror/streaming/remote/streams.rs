@@ -502,28 +502,37 @@ where
     }
 }
 
+/// Why no further incoming streams can be delivered.
+#[derive(Debug)]
+pub enum IncomingFailure {
+    /// The transport could no longer accept or identify a stream.
+    Supply(std::io::Error),
+    /// The peer's control stream closed or failed during reconciliation.
+    Departed(std::io::Error),
+}
+
 /// The reporting half of the session's one-slot first-error route.
 #[derive(Clone)]
 pub struct ErrorRoute {
     /// Keeps the first incoming-stream report until the executor receives it.
     send: mpsc::Sender<StreamError>,
-    /// The acceptor's I/O error, retained even if its stream report is dropped.
-    supply_failure: std::sync::Arc<std::sync::Mutex<Option<std::io::Error>>>,
+    /// The failure preventing delivery, retained even if a stream report is dropped.
+    failure: std::sync::Arc<std::sync::Mutex<Option<IncomingFailure>>>,
 }
 
 impl ErrorRoute {
     /// Publish the first incoming-stream error without blocking its reporter.
     ///
-    /// Later reports are discarded. The supply's I/O failure lives separately,
+    /// Later reports are discarded. The delivery failure lives separately,
     /// so it remains available even when a stream report cannot be queued.
     fn report(&self, error: StreamError) {
         let _ = self.send.try_send(error);
     }
 
-    /// Deposit the supply's transport failure for the session terminal.
-    fn supply_failed(&self, source: std::io::Error) {
-        let mut slot = self.supply_failure.lock().expect("supply failure lock");
-        slot.get_or_insert(source);
+    /// Retain the first failure for the executor before closing pending claims.
+    fn failed(&self, failure: IncomingFailure) {
+        let mut slot = self.failure.lock().expect("incoming failure lock");
+        slot.get_or_insert(failure);
     }
 }
 
@@ -531,9 +540,8 @@ impl ErrorRoute {
 pub struct FirstStreamError {
     /// The report selected beside the protocol and accept driver.
     receive: mpsc::Receiver<StreamError>,
-    /// The slot the accept driver deposits the supply's transport failure
-    /// into; the session terminal is its sole consumer.
-    supply_failure: std::sync::Arc<std::sync::Mutex<Option<std::io::Error>>>,
+    /// Deferred delivery failure; the session executor is its sole consumer.
+    failure: std::sync::Arc<std::sync::Mutex<Option<IncomingFailure>>>,
 }
 
 impl FirstStreamError {
@@ -547,12 +555,9 @@ impl FirstStreamError {
         }
     }
 
-    /// Take the acceptor's deferred I/O failure for the executor to attribute.
-    pub fn take_supply_failure(&self) -> Option<std::io::Error> {
-        self.supply_failure
-            .lock()
-            .expect("supply failure lock")
-            .take()
+    /// Take the failure that prevented further incoming stream delivery.
+    pub fn take_failure(&self) -> Option<IncomingFailure> {
+        self.failure.lock().expect("incoming failure lock").take()
     }
 
     /// Take a report skipped when the protocol won the executor's selection.
@@ -567,16 +572,13 @@ const ERROR_ROUTE_CAPACITY: usize = 1;
 /// Allocate the session's incoming-stream error route.
 pub fn error_route() -> (ErrorRoute, FirstStreamError) {
     let (send, receive) = mpsc::channel(ERROR_ROUTE_CAPACITY);
-    let supply_failure = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let failure = std::sync::Arc::new(std::sync::Mutex::new(None));
     (
         ErrorRoute {
             send,
-            supply_failure: supply_failure.clone(),
+            failure: failure.clone(),
         },
-        FirstStreamError {
-            receive,
-            supply_failure,
-        },
+        FirstStreamError { receive, failure },
     )
 }
 
@@ -632,11 +634,15 @@ pub fn claims<Rx>() -> (ClaimSlots<Rx>, Claims<Rx>) {
 /// unasked replies are never absorbable either way, and a parked stream's
 /// memory is bounded by its own link stream's buffers.
 pub struct AcceptDriver<A: Acceptor> {
+    /// This link's supply of incoming transport streams.
     acceptor: A,
+    /// Session epoch required in every arriving stream's label.
     epoch: u8,
     /// The remote role, whose streams this driver routes.
     speaker: Speaker,
+    /// Undelivered claims; dropping them wakes consumers awaiting a stream.
     slots: ClaimSlots<A::Rx>,
+    /// Retains delivery failures until the protocol needs their cause.
     route: ErrorRoute,
 }
 
@@ -660,23 +666,30 @@ impl<A: Acceptor> AcceptDriver<A> {
 
     /// Route streams until cancelled, returning any label violation.
     ///
-    /// A supply failure drops undelivered claims and parks. Only a consumer
-    /// awaiting one of those claims reports an error; a session with all its
-    /// streams already delivered can still complete. The acceptor's I/O error
-    /// stays in the error route for the executor to attach to a transport
+    /// A supply failure or control-stream departure drops undelivered claims
+    /// and parks. Only a consumer awaiting a missing claim reports an error;
+    /// a session with all its streams delivered can still complete. The cause
+    /// remains in the error route for the executor to attach to a transport
     /// failure. It never replaces a protocol or codec violation.
-    pub async fn run(mut self) -> AcceptError {
-        loop {
-            match self.accept_one().await {
-                Ok(()) => {}
-                Err(AcceptFate::Violation(error)) => return error,
-                Err(AcceptFate::SupplyFailed(source)) => {
-                    self.route.supply_failed(source);
-                    drop(self.slots);
-                    cancelled().await
-                }
+    pub async fn run(mut self, departure: impl Future<Output = std::io::Error>) -> AcceptError {
+        let mut departure = std::pin::pin!(departure);
+        let failure = loop {
+            tokio::select! {
+                biased;
+                result = self.accept_one() => match result {
+                    Ok(()) => {},
+                    Err(AcceptFate::Violation(error)) => return error,
+                    Err(AcceptFate::SupplyFailed(source)) => break IncomingFailure::Supply(source),
+                },
+                source = &mut departure => break IncomingFailure::Departed(source),
             }
-        }
+        };
+        // Record the cause before waking consumers of the dropped claims.
+        // Already-delivered streams remain owned by their consumers, so this
+        // driver must defer to the protocol rather than fail the session itself.
+        self.route.failed(failure);
+        drop(self.slots);
+        cancelled().await
     }
 
     /// Accept one stream, read and validate its label, and deliver it.

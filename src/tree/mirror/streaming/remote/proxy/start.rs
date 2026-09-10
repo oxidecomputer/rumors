@@ -16,7 +16,7 @@ use crate::{
                 codec::{RunBudget, Speaker, greeting as greeting_codec},
                 proxy::{
                     Connected, Error,
-                    work::{Physical, Work},
+                    work::{ControlRead, Physical, Work},
                 },
                 streams::{AcceptDriver, claims, error_route},
             },
@@ -127,7 +127,7 @@ where
 {
     type Height = Root;
     type Error = Error<B::Error>;
-    type Output = (R, W);
+    type Output = (ControlRead<R>, W);
 }
 
 /// The wire participant in the protocol's client position: this impl and

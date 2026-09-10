@@ -45,6 +45,7 @@ mod work;
 pub use error::Error;
 pub use start::Handshaking;
 pub use state::Connected;
+pub use work::ControlRead;
 
 #[cfg(test)]
 mod tests;

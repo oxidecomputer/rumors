@@ -12,6 +12,9 @@ use crate::tree::mirror::streaming::remote::{adapter, codec, streams};
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error<E> {
+    /// The control stream failed while reconciliation still needed the peer.
+    #[error("peer departed during reconciliation: {0}")]
+    PeerDeparted(#[source] std::io::Error),
     /// Reading one of the peer's greeting frames failed.
     #[error("failed to read streaming handshake")]
     HandshakeRead(#[source] std::io::Error),
@@ -103,11 +106,12 @@ impl<E> Error<E> {
         }
     }
 
-    /// Attach a known supply failure without replacing an independent error.
+    /// Attach a known delivery failure without replacing an independent error.
     ///
-    /// A queued violation can explain a selected transport error. Otherwise,
-    /// prefer a report naming the stream that needed the failed supply; use
-    /// the direction alone when no such report was observed.
+    /// A queued violation takes precedence over a selected transport error.
+    /// Otherwise, attribute control EOF to departure. For supply failures,
+    /// prefer a report naming the affected stream; use the direction alone
+    /// when no such report was observed.
     pub(super) fn attribute(
         self,
         errors: &mut streams::FirstStreamError,
@@ -120,11 +124,16 @@ impl<E> Error<E> {
             Some(error) if !error.is_transport_failure() => return Self::Stream(error),
             queued => queued,
         };
+        let failure = match errors.take_failure() {
+            Some(streams::IncomingFailure::Departed(source)) => return Self::PeerDeparted(source),
+            Some(streams::IncomingFailure::Supply(source)) => Some(source),
+            None => None,
+        };
         let (origin, source) = match (self, queued) {
             (Self::Stream(streams::StreamError::SupplyClosed { origin, source }), _)
             | (_, Some(streams::StreamError::SupplyClosed { origin, source })) => (origin, source),
             (error, _) => {
-                return match errors.take_supply_failure() {
+                return match failure {
                     Some(source) => Self::Stream(streams::StreamError::SupplyClosed {
                         origin: codec::Origin::direction(remote),
                         source: Some(source),
@@ -135,7 +144,7 @@ impl<E> Error<E> {
         };
         Self::Stream(streams::StreamError::SupplyClosed {
             origin,
-            source: source.or_else(|| errors.take_supply_failure()),
+            source: source.or(failure),
         })
     }
 }

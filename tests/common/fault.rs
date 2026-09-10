@@ -74,6 +74,8 @@ pub enum Vanish {
     /// At its first outgoing stream open: after the handshake, which rides
     /// the control half, and before its first data stream.
     AtFirstConnect,
+    /// While writing the control stream, after `offset` bytes.
+    OnControl { offset: usize },
 }
 
 impl FaultPlan {
@@ -290,19 +292,19 @@ fn budget(cut: Option<usize>) -> Budget {
 /// the session. Nothing this endpoint owns makes progress again.
 struct VanishState {
     point: Vanish,
-    /// Bytes still to write on the named stream before an
-    /// [`Vanish::OnStream`] trips.
+    /// Bytes the named data or control stream can write before vanishing.
     remaining: Mutex<usize>,
     tripped: AtomicBool,
     notify: Notify,
 }
 
 impl VanishState {
+    /// Share the departure trigger and its remaining byte budget.
     fn new(point: Vanish) -> Arc<Self> {
         Arc::new(Self {
             point,
             remaining: Mutex::new(match point {
-                Vanish::OnStream { offset, .. } => offset,
+                Vanish::OnStream { offset, .. } | Vanish::OnControl { offset } => offset,
                 Vanish::AtFirstConnect => usize::MAX,
             }),
             tripped: AtomicBool::new(false),
@@ -310,10 +312,12 @@ impl VanishState {
         })
     }
 
+    /// Whether the session must stop all further I/O.
     fn tripped(&self) -> bool {
         self.tripped.load(Ordering::Acquire)
     }
 
+    /// Stop the endpoint and wake its session owner.
     fn trip(&self) {
         self.tripped.store(true, Ordering::Release);
         self.notify.notify_one();
@@ -332,7 +336,11 @@ impl VanishState {
     /// Whether `stream` (a data stream's ordinal; `None` is the control
     /// half) is the one the point names.
     fn at_point(&self, stream: Option<usize>) -> bool {
-        matches!(self.point, Vanish::OnStream { index, .. } if stream == Some(index))
+        match self.point {
+            Vanish::OnStream { index, .. } => stream == Some(index),
+            Vanish::OnControl { .. } => stream.is_none(),
+            Vanish::AtFirstConnect => false,
+        }
     }
 
     /// How many of `len` bytes a write on `stream` may admit, or `None`
@@ -353,6 +361,7 @@ impl VanishState {
         Some(len.min(remaining))
     }
 
+    /// Charge bytes actually written on the selected stream.
     fn wrote(&self, stream: Option<usize>, bytes: usize) {
         if self.at_point(stream) {
             *self.remaining.lock().expect("vanish budget lock") -= bytes;
@@ -498,6 +507,7 @@ pub struct Fuse<W> {
 }
 
 impl<W> Fuse<W> {
+    /// Combine the writer with its cut and departure budgets.
     fn new(
         inner: W,
         remaining: Budget,
@@ -512,12 +522,14 @@ impl<W> Fuse<W> {
         }
     }
 
+    /// The data stream index, or `None` for control traffic.
     fn ordinal(&self) -> Option<usize> {
         self.stream.as_ref().map(|(ordinal, _)| *ordinal)
     }
 }
 
 impl<W: AsyncWrite + Unpin> AsyncWrite for Fuse<W> {
+    /// Write up to the next fault boundary and record actual progress.
     fn poll_write(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,

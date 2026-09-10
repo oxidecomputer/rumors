@@ -44,6 +44,22 @@ proptest! {
         }
     }
 
+    /// Control failure keeps its source and is attributed to reconciliation,
+    /// without inventing a data-stream position.
+    #[test]
+    fn departure_keeps_its_transport_source(
+        marker in any::<u64>(),
+        kind in prop::sample::select(vec![io::ErrorKind::UnexpectedEof, io::ErrorKind::ConnectionReset]),
+    ) {
+        let public = Error::from(MirrorError::Server(proxy::Error::PeerDeparted(io::Error::new(kind, Injected(marker)))));
+        let Error::Transport(error) = public else { panic!("departure must be a transport failure"); };
+        prop_assert_eq!(error.context.phase, Phase::Reconciliation);
+        prop_assert_eq!(error.context.data_stream, None);
+        prop_assert_eq!(error.operation, TransportOperation::Read);
+        prop_assert_eq!(error.source.kind(), kind);
+        prop_assert_eq!(error.source.get_ref().unwrap().downcast_ref::<Injected>().unwrap().0, marker);
+    }
+
     /// An I/O-shaped error from a complete record remains a protocol violation;
     /// diagnostics retain its concrete cause for debugging.
     #[test]

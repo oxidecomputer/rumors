@@ -30,7 +30,9 @@ use super::harness::EndpointError;
 /// Find the typed injected source retained anywhere below a remote failure.
 fn injected<E>(error: &RemoteError<E>) -> Option<InjectedIo> {
     let source = match error {
-        RemoteError::HandshakeRead(source) | RemoteError::HandshakeWrite { source, .. } => source,
+        RemoteError::PeerDeparted(source)
+        | RemoteError::HandshakeRead(source)
+        | RemoteError::HandshakeWrite { source, .. } => source,
         RemoteError::Stream(StreamError::Decode(error)) => match &error.kind {
             CodecDecodeErrorKind::Read { source, .. }
             | CodecDecodeErrorKind::Truncated { source, .. } => source,
@@ -82,7 +84,8 @@ fn has_expected_surface(error: &RemoteError<Infallible>, operation: IoOperation)
     match operation {
         IoOperation::Read => matches!(
             error,
-            RemoteError::HandshakeRead(_)
+            RemoteError::PeerDeparted(_)
+                | RemoteError::HandshakeRead(_)
                 | RemoteError::Stream(StreamError::Decode(_) | StreamError::SupplyClosed { .. })
         ),
         IoOperation::Write | IoOperation::Flush => {
@@ -105,6 +108,7 @@ fn has_expected_surface(error: &RemoteError<Infallible>, operation: IoOperation)
     }
 }
 
+/// Combine a fault with transfer chunking, scheduling delays, and flush behavior.
 fn plan(fault: Option<IoFault>, chunk: usize, delays: Vec<u8>, buffered: bool) -> IoPlan {
     IoPlan {
         read_chunk: chunk,

@@ -7,7 +7,9 @@
 //! stage yield its reply before publishing the lower scopes derived from it,
 //! so one-slot backpressure cannot withhold the reply which releases it.
 
+use std::io::Cursor;
 use std::marker::PhantomData;
+use tokio::io::{AsyncRead, AsyncReadExt};
 
 use crate::link::{Acceptor, Connector};
 use crate::observe::SessionHandle;
@@ -19,7 +21,10 @@ use crate::tree::{
         remote::{
             adapter::Scope,
             codec::{RunBudget, Speaker, Stream},
-            proxy::{Error, work::Work},
+            proxy::{
+                Error,
+                work::{ControlRead, Work},
+            },
             streams::{Claims, ErrorRoute, StreamReceiver, StreamSender},
         },
         stats::Recorder,
@@ -169,7 +174,7 @@ where
 {
     type Height = Root;
     type Error = Error<B::Error>;
-    type Output = (R, W);
+    type Output = (ControlRead<R>, W);
 }
 
 /// A proxy inside the descent with scopes for the next local reply stream.
@@ -218,7 +223,7 @@ where
 {
     type Height = H;
     type Error = Error<B::Error>;
-    type Output = (R, W);
+    type Output = (ControlRead<R>, W);
 }
 
 impl<B, R, W, C, A> protocol::Protocol for Completing<B, R, W, C, A>
@@ -231,21 +236,21 @@ where
 {
     type Height = Z;
     type Error = Error<B::Error>;
-    type Output = (R, W);
+    type Output = (ControlRead<R>, W);
 }
 
 impl<B, R, W, C, A> protocol::CompleteEqual<B> for Connected<B, R, W, C, A>
 where
     B: Backend<Node<Z>: Leaf>,
-    R: Send,
+    R: AsyncRead + Unpin + Send,
     W: Send,
     C: Connector,
     A: Acceptor,
 {
     /// Return the untouched control halves; equal versions used no streams.
-    async fn complete_equal(self) -> Result<(R, W), Self::Error> {
+    async fn complete_equal(self) -> Result<(ControlRead<R>, W), Self::Error> {
         match self.state {
-            ConnectedState::Equal(read, write) => Ok((read, write)),
+            ConnectedState::Equal(read, write) => Ok((Cursor::new(Vec::new()).chain(read), write)),
             ConnectedState::Diverged(..) => unreachable!("equal completion for divergent versions"),
         }
     }
@@ -393,7 +398,7 @@ where
 impl<B, R, W, C, A> protocol::CompleteInitiator<B> for Completing<B, R, W, C, A>
 where
     B: Backend<Node<Z>: Leaf>,
-    R: Send,
+    R: AsyncRead + Unpin + Send,
     W: Send,
     C: Connector,
     A: Acceptor,
@@ -402,7 +407,7 @@ where
     async fn complete_initiator(
         mut self,
         requests: impl Requests<B, Z>,
-    ) -> Result<(R, W), Self::Error> {
+    ) -> Result<(ControlRead<R>, W), Self::Error> {
         debug_assert_eq!(self.session.remote, Speaker::Initiator);
         let outgoing = self.session.outgoing::<Z>();
         self.session
@@ -415,7 +420,7 @@ where
 impl<B, R, W, C, A> protocol::CompleteResponder<B> for Descending<B, Z, R, W, C, A>
 where
     B: Backend<Node<Z>: Leaf>,
-    R: Send,
+    R: AsyncRead + Unpin + Send,
     W: Send,
     C: Connector,
     A: Acceptor,
@@ -426,7 +431,7 @@ where
         requests: impl Requests<B, Z>,
     ) -> (
         BoxResponses<B, Z, Self::Error>,
-        impl Future<Output = Result<(R, W), Self::Error>> + Send,
+        impl Future<Output = Result<(ControlRead<R>, W), Self::Error>> + Send,
     ) {
         debug_assert_eq!(self.session.remote, Speaker::Responder);
         let incoming = self.session.incoming::<Z>();

@@ -1,7 +1,7 @@
 # Rumors review checklist
 
 **Active:** 04, peer-departure liveness — `codex/peer-departure-liveness`, base `main`.
-**Next candidates:** 04, deep malformed replies; Sush attested-link conformance timeout.
+**Next:** Sush attested-link conformance timeout; then 04, deep malformed replies.
 
 Check code outcomes only after verification and merge; retain the landing
 commit. Checked dispositions are labelled explicitly.
@@ -51,7 +51,7 @@ Dependencies: None to construct fixtures; 04 and 05 before enabling the complete
 
 Dependencies: 03 for deep reproductions; coordinate all edits to the shared driver.
 
-- [ ] End waits when the peer can no longer provide an owed stream. **Working.**
+- [ ] End waits when the peer can no longer provide an owed stream. **Ready for review.**
   Sources: T145, T154, T165, T166, N01, N21.
 
 - [x] Preserve reported violations when a concurrent stream-supply failure also arrives — `f92fcbc3`.

@@ -6,7 +6,9 @@
 //! work, the session's accept driver, and the incoming-stream error route.
 
 use crate::message::PayloadCodec;
+use std::io::Cursor;
 use std::pin::{Pin, pin};
+use tokio::io::{AsyncRead, AsyncReadExt, Chain};
 
 use futures::{Stream, StreamExt, future::BoxFuture};
 
@@ -38,6 +40,39 @@ mod encode;
 pub(super) mod progress;
 mod pump;
 mod queues;
+
+/// Remaining control input, with bytes read by the departure watch replayed first.
+///
+/// Tree replies and message payloads travel on separate data streams and never
+/// enter this buffer. A conforming peer can send its completion marker and,
+/// during bootstrap or retirement, an identity donation while our
+/// reconciliation is still running. The buffer has no fixed byte cap: ordinary
+/// gossip needs at most the two-byte marker; an identity donation during
+/// retirement or bootstrap can also append its encoded party.
+pub type ControlRead<R> = Chain<Cursor<Vec<u8>>, R>;
+
+/// Watch for control EOF while preserving later session items for their
+/// readers.
+///
+/// During reconciliation the peer may send its identity donation or completion
+/// marker before our data-stream work finishes. Keep those bytes in order and
+/// continue to EOF; stopping at the first byte would miss a departure after a
+/// partially delivered donation. The peer must await our completion marker
+/// before starting its next session.
+///
+/// This watch stops when reconciliation returns. The returned [`ControlRead`]
+/// then replays the saved bytes to the identity and completion readers before
+/// they resume reading the transport.
+async fn departure(read: &mut (impl AsyncRead + Unpin), ahead: &mut Vec<u8>) -> std::io::Error {
+    let mut buffer = [0; 64];
+    loop {
+        match read.read(&mut buffer).await {
+            Ok(0) => return std::io::ErrorKind::UnexpectedEof.into(),
+            Ok(len) => ahead.extend_from_slice(&buffer[..len]),
+            Err(error) => return error,
+        }
+    }
+}
 
 /// Deferred reply pumps and the physical session which drives them.
 pub struct Work<B, R, W, A>
@@ -84,7 +119,7 @@ pub struct Physical<R, W, A>
 where
     A: Acceptor,
 {
-    /// Control input returned to the caller after reconciliation.
+    /// Control input watched during reconciliation and returned with lookahead.
     pub control_read: R,
     /// Control output returned alongside the input.
     pub control_write: W,
@@ -163,28 +198,39 @@ where
 
     /// Drive the protocol, incoming streams, and their error reports together.
     ///
+    /// Reconciliation uses data streams, leaving control input available to
+    /// watch for departure. The accept driver uses that signal to close missing
+    /// stream claims, then waits for the protocol to decide its outcome.
+    ///
     /// The protocol is polled first: a completed reconciliation succeeds even
-    /// if the peer has since closed its stream supply. A reported violation
-    /// also stands on its own. For a transport failure, poll the accept driver
-    /// once more to collect any ready cause before attributing the error.
-    /// This final poll never waits and cannot change a successful outcome.
+    /// if the peer has since departed or closed its stream supply. A reported
+    /// violation also stands on its own. For a transport failure, poll the
+    /// accept driver once more to collect any ready cause before attributing
+    /// the error. This final poll never waits and cannot change a successful
+    /// outcome.
     async fn execute<O>(
         self,
         finish: impl Future<Output = Result<O, Error<B::Error>>> + Send,
-    ) -> Result<(O, R, W), Error<B::Error>> {
+    ) -> Result<(O, ControlRead<R>, W), Error<B::Error>>
+    where
+        R: AsyncRead + Unpin,
+    {
         let Self {
             physical, tasks, ..
         } = self;
         let Physical {
-            control_read,
+            mut control_read,
             control_write,
             remote,
             accept,
             mut errors,
         } = physical;
+        // Only early control items accumulate here; data-stream traffic keeps
+        // flowing through the pumps under its existing flow control.
+        let mut ahead = Vec::new();
         let outcome = {
             let mut protocol = Box::pin(complete(tasks, finish));
-            let mut accept = pin!(accept.run());
+            let mut accept = pin!(accept.run(departure(&mut control_read, &mut ahead)));
             let mut stream_errors = pin!(errors.first());
             let (mut outcome, protocol_finished) = tokio::select! {
                 biased;
@@ -208,7 +254,13 @@ where
             outcome
         };
         outcome
-            .map(|output| (output, control_read, control_write))
+            .map(|output| {
+                (
+                    output,
+                    Cursor::new(ahead).chain(control_read),
+                    control_write,
+                )
+            })
             .map_err(|error| error.attribute(&mut errors, remote))
     }
 }

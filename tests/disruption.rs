@@ -15,7 +15,7 @@ use std::collections::BTreeSet;
 use proptest::prelude::*;
 use proptest::strategy::ValueTree;
 use proptest::test_runner::TestRunner;
-use rumors::testing::{Quiescence, run_to_quiescence};
+use rumors::testing::run_to_quiescence;
 use rumors::{Peer, Rumors};
 
 use crate::common::fault::{self, FaultPlan, Vanish};
@@ -77,11 +77,8 @@ proptest! {
     /// cloned [`Rumors`] handles, concurrent sends and redactions,
     /// bootstraps served mid-chaos against the same shared state,
     /// retirements, and endpoints that vanish mid-protocol (their session
-    /// dropped with its link, promised streams never opened). A survivor
-    /// that parks on a vanished peer is aborted at the session deadline
-    /// and counted (`SimOutcome::parked`), the open item ruling T145
-    /// assigns; a session that parks with no vanish planned is a deadlock
-    /// and fails by name.
+    /// dropped with its link, promised streams never opened). Every surviving
+    /// session must finish before the deadline, including after a vanish.
     #[test]
     fn disrupted_concurrent_gossip_upholds_party_invariants(plan in arb_plan()) {
         mt_runtime().block_on(check_plan(plan));
@@ -198,22 +195,12 @@ fn survivor_notices_a_peer_vanished_mid_stream() {
     }
 }
 
-/// A peer whose counterparty vanishes after their handshake, before
-/// opening the first data stream, parks on its first accept without
-/// consulting the control stream's end-of-stream: the closed-world poller
-/// names it `Stalled`.
-///
-/// This pins the open item of ruling T143, ruled in T145: the
-/// `p2-vanish-liveness` lane makes the survivor end with an honest error,
-/// and flips this pin to `assert_survivor` on the outcome.
+/// Control EOF ends a wait for the departed peer's first data stream.
 #[test]
-fn survivor_parks_when_its_peer_vanishes_before_its_first_stream() {
-    let parked = survive_a_vanish(Vanish::AtFirstConnect);
-    assert!(
-        matches!(parked, Err(Quiescence::Stalled)),
-        "the survivor of a peer that vanished before opening a stream must park \
-         (Stalled) on this tree: {parked:?}"
-    );
+fn survivor_notices_a_peer_vanished_before_its_first_stream() {
+    let survivor = survive_a_vanish(Vanish::AtFirstConnect)
+        .expect("the survivor must not park on an owed stream after control EOF");
+    assert_survivor(&survivor);
 }
 
 /// A retiree that vanishes mid-retirement is a recorded loss: its party
