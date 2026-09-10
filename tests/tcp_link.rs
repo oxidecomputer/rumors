@@ -3,11 +3,8 @@
 //! `common::tcp` is the workspace's one [`Link`](rumors::link::Link)
 //! instantiation over real sockets; these tests run it through the public
 //! [`rumors::conformance::link`] suite so the contract is known to hold on
-//! a real transport, not only in memory. Real sockets
-//! need real time: a paused clock's auto-advance would fire the harness
-//! timeout while socket I/O is genuinely pending. Every check runs under an
-//! explicit timeout because the contract's liveness clauses fail as hangs,
-//! and only the surrounding harness can bound them.
+//! a real transport, not only in memory. Socket I/O uses real deadlines:
+//! a paused clock could expire while the OS is still delivering bytes.
 
 mod common;
 
@@ -17,11 +14,8 @@ use tokio::net::{TcpListener, TcpStream};
 
 use crate::common::tcp;
 
-/// Bound on one whole suite run.
-///
-/// Loopback checks finish in seconds; a run past this bound is a liveness
-/// violation, not a slow machine.
-const SUITE_TIMEOUT: Duration = Duration::from_secs(120);
+/// Deadline for each conformance check, including its loopback pair setup.
+const CHECK_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// Buffer request for the minimal-capacity variant.
 ///
@@ -51,12 +45,11 @@ async fn tcp_pair(stream_buffers: Option<u32>) -> (tcp::TcpLink, tcp::TcpLink) {
 /// Run the whole conformance suite against fresh TCP pairs at the given
 /// per-stream buffer sizing.
 async fn conformance(stream_buffers: Option<u32>) {
-    tokio::time::timeout(
-        SUITE_TIMEOUT,
-        rumors::conformance::link::check(async || tcp_pair(stream_buffers).await),
+    rumors::conformance::link::check(
+        async || tcp_pair(stream_buffers).await,
+        || tokio::time::sleep(CHECK_TIMEOUT),
     )
-    .await
-    .expect("conformance suite ran past its liveness bound");
+    .await;
 }
 
 /// At the platform's default socket buffers, the TCP link satisfies every

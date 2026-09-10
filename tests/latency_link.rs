@@ -27,8 +27,11 @@ const CAPACITY: usize = 64;
 /// accept cancellation — holds.
 #[tokio::test(start_paused = true)]
 async fn conforms_at_zero_delay() {
-    rumors::conformance::link::check(async || latency::delayed_pair(CAPACITY, Duration::ZERO))
-        .await;
+    rumors::conformance::link::check(
+        async || latency::delayed_pair(CAPACITY, Duration::ZERO),
+        || tokio::time::sleep(Duration::from_secs(120)),
+    )
+    .await;
 }
 
 /// The contract holds with latency injected: delaying every byte by a
@@ -36,9 +39,10 @@ async fn conforms_at_zero_delay() {
 /// stay independent, receiver-paced, and half-close clean.
 #[tokio::test(start_paused = true)]
 async fn conforms_at_nonzero_delay() {
-    rumors::conformance::link::check(async || {
-        latency::delayed_pair(CAPACITY, Duration::from_millis(3))
-    })
+    rumors::conformance::link::check(
+        async || latency::delayed_pair(CAPACITY, Duration::from_millis(3)),
+        || tokio::time::sleep(Duration::from_secs(120)),
+    )
     .await;
 }
 

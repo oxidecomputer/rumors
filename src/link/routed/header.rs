@@ -1,13 +1,10 @@
 //! The connect header: the bytes that route a connection to its link.
 //!
-//! Every connection dialed by this module opens with one header, written
-//! by the dialer before any protocol byte, and read by the accepting
-//! router as its only I/O on the connection. Two kinds exist: `LINK`
-//! establishes a link (the connection becomes the control stream, and
-//! the header carries the dialer's advertised name for reverse dials),
-//! `STREAM` attaches one data stream to an existing link. `LINK`
-//! connections receive a one-byte acknowledgement; see the [module
-//! docs](super) for the race it closes.
+//! The dialer writes a header before any session bytes. `LINK` establishes
+//! a link on the control connection and carries the dialer's advertised name
+//! for reverse dials. The router registers the link and reserves its delivery
+//! before acknowledging it. `STREAM` attaches a data connection to an existing
+//! link; reuse repeats this header after the router sends READY.
 //!
 //! Layout, integers big-endian, lengths fixed per kind:
 //!
@@ -21,13 +18,9 @@
 //! addr      …  Addr::encode() of the dialer's advertised name
 //! ```
 //!
-//! The header carries no epoch and no stream index: the session labels
-//! its streams itself (the label is the stream's first payload bytes,
-//! after this header), the router routes on the token alone, and a
-//! second copy of the session's label would be a consistency obligation
-//! with no checker. The version byte is the compatibility door: any
-//! future shape (a reusable-lease kind, say) arrives as a new version
-//! or kind, never a mutation of these.
+//! Session epochs and stream indices belong to the session framing that
+//! follows this header. The router needs only the link's token. The version
+//! and kind bytes identify the header layout.
 
 use std::fmt;
 use std::io;
@@ -35,13 +28,7 @@ use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 
 use tokio::io::{AsyncRead, AsyncReadExt};
 
-/// The header's opening magic.
-///
-/// Named for what the bytes introduce (a routed-link connect header),
-/// deliberately unrelated to the session preamble's own magic: the two
-/// travel adjacent on the wire (a control connection carries this
-/// header, then the session preamble), and distinct magics turn a
-/// misrouted or misaligned connection into a precise first-read error.
+/// Identifies a routing header, distinct from the session preamble that follows.
 const MAGIC: &[u8; 10] = b"ROUTEDLINK";
 
 /// The one wire version this module speaks.
@@ -63,15 +50,8 @@ pub(super) const PREFIX_LEN: usize = MAGIC.len() + 2 + TOKEN_LEN;
 /// link is on its way to the application.
 pub(super) const ACK: u8 = 1;
 
-/// The byte a router writes back on a recovered connection when it is
-/// reading for the next header.
-///
-/// Until it arrives, the previous stream's consumer still holds the
-/// connection, and a stream sent on it would wait on that consumer's
-/// progress. A reusing [`Dial`] consumes the byte off the dialing
-/// path before the connection is reused.
-///
-/// [`Dial`]: super::Dial
+/// Sent after admitting a completed connection for reuse. The connector
+/// must consume this byte before sending another stream header.
 pub(super) const READY: u8 = 2;
 
 /// Bytes in a [`Token`].
@@ -105,6 +85,7 @@ impl Token {
 }
 
 impl fmt::Debug for Token {
+    /// Display the routing token in hexadecimal.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Token({})", hex::encode(self.0))
     }
@@ -188,6 +169,7 @@ const SOCKET_ADDR_LEN: usize = 18;
 /// deployment needs a caller-supplied [`Addr`] whose encoding carries
 /// the scope.
 impl Addr for SocketAddr {
+    /// Encode the IP and port, rejecting IPv6 names that require a scope.
     fn encode(&self) -> Result<Vec<u8>, Unencodable> {
         if let SocketAddr::V6(v6) = self
             && v6.scope_id() != 0
@@ -207,6 +189,7 @@ impl Addr for SocketAddr {
         Ok(bytes)
     }
 
+    /// Decode an IP and port, normalizing IPv4-mapped addresses to IPv4.
     fn decode(bytes: &[u8]) -> Option<Self> {
         if bytes.len() != SOCKET_ADDR_LEN {
             return None;
@@ -271,18 +254,13 @@ fn invalid(message: &'static str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
 }
 
-/// Read and parse one connect header from a fresh inbound connection.
-///
-/// This is the router's only read on any connection: a fixed-width
-/// prefix, then (for `LINK`) a length byte and exactly that many name
-/// bytes, so the read is bounded by construction.
+/// Read one routing header, leaving session bytes for the link.
+/// The fixed prefix and bounded address length limit how much is read.
 ///
 /// # Errors
 ///
-/// Malformed bytes (wrong magic, unknown version or kind, a name that
-/// does not decode) and truncation both fail with the underlying
-/// classification; the router responds to either by dropping the
-/// connection.
+/// Malformed headers return `InvalidData`; I/O errors retain their kind.
+/// The router closes the connection on either failure.
 pub(super) async fn read<A: Addr, R: AsyncRead + Unpin>(conn: &mut R) -> io::Result<Header<A>> {
     let mut prefix = [0; PREFIX_LEN];
     conn.read_exact(&mut prefix).await?;

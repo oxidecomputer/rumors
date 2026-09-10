@@ -1,9 +1,4 @@
-//! The conformance suite validated in both directions.
-//!
-//! The in-memory instantiation passes — including adversarial-but-legal
-//! variants the contract admits — and negative controls prove the suite
-//! still catches what it claims to (see the negative-controls section:
-//! contract-violating fixtures asserted to *fail* the checks).
+//! Conforming transports must pass; deliberately faulty transports must fail.
 
 use std::collections::{HashMap, VecDeque};
 use std::io;
@@ -23,19 +18,24 @@ use crate::link::{
 };
 use crate::testing::{Quiescence, reorder_accepts, run_to_quiescence};
 
-/// The reference instantiation passes the whole suite under the
-/// deterministic closed-world driver.
+mod coverage;
+
+/// The memory link passes the whole suite under the deterministic driver.
 #[test]
 fn memory_link_conforms() {
-    run_to_quiescence(super::check(async || memory())).expect("the suite stays live");
+    run_to_quiescence(super::check(async || memory(), std::future::pending))
+        .expect("the suite stays live");
 }
 
 /// One-byte stream buffers are legal: window size affects latency, never
 /// conformance. The full suite passes at capacity one.
 #[test]
 fn one_byte_windows_conform() {
-    run_to_quiescence(super::check(async || memory_with_capacity(1)))
-        .expect("the suite stays live at one-byte windows");
+    run_to_quiescence(super::check(
+        async || memory_with_capacity(1),
+        std::future::pending,
+    ))
+    .expect("the suite stays live at one-byte windows");
 }
 
 /// Decorate one memory end's acceptor, preserving every other part — the
@@ -74,13 +74,16 @@ const REORDER_BATCH: usize = 3;
 fn reordered_accepts_conform() {
     let reordered = Arc::new(AtomicUsize::new(0));
     let counter = reordered.clone();
-    run_to_quiescence(super::check(async || {
-        let (a, b) = memory();
-        (
-            reorder_accepts(a, REORDER_BATCH, counter.clone()),
-            reorder_accepts(b, REORDER_BATCH, counter.clone()),
-        )
-    }))
+    run_to_quiescence(super::check(
+        async || {
+            let (a, b) = memory();
+            (
+                reorder_accepts(a, REORDER_BATCH, counter.clone()),
+                reorder_accepts(b, REORDER_BATCH, counter.clone()),
+            )
+        },
+        std::future::pending,
+    ))
     .expect("the suite stays live under reordered accepts");
     assert!(
         reordered.load(Ordering::Relaxed) > 0,
@@ -98,13 +101,21 @@ fn reordered_accepts_conform() {
 /// silently lost while the link stays healthy, violating the contract's
 /// cancellation clause.
 struct LossyAcceptor<A: Acceptor> {
+    /// The actual stream supply.
     inner: A,
+    /// Delay dequeue so cancellation can encounter it on different polls.
+    before_dequeue: usize,
 }
 
 impl<A: Acceptor> Acceptor for LossyAcceptor<A> {
+    /// The underlying read half.
     type Rx = A::Rx;
 
+    /// Keep a dequeued stream in the cancellable future across a yield.
     async fn accept(&mut self) -> io::Result<(Self::Rx, Done<Self::Rx>)> {
+        for _ in 0..self.before_dequeue {
+            super::yield_once().await;
+        }
         let rx = self.inner.accept().await?;
         // The loss window: one self-waking yield with the dequeued stream
         // held only in this future's state.
@@ -117,7 +128,10 @@ impl<A: Acceptor> Acceptor for LossyAcceptor<A> {
 fn lossy(
     link: MemoryLink,
 ) -> Link<DuplexStream, DuplexStream, MemoryConnector, LossyAcceptor<MemoryAcceptor>> {
-    with_acceptor(link, |inner| LossyAcceptor { inner })
+    with_acceptor(link, |inner| LossyAcceptor {
+        inner,
+        before_dequeue: 0,
+    })
 }
 
 // ─── The shared-FIFO mux: head-of-line coupling built as a fixture ──────────
@@ -398,20 +412,24 @@ impl Acceptor for MuxAcceptor {
 
 // ─── Fixtures violating the control-duplex and concurrency clauses ──────────
 
-/// Shared coupling state for one side's control halves: while the write
-/// half is blocked, the read half parks.
+/// Faulty coupling to one side's blocked control writer.
 struct CoupledControl {
+    /// Whether the last control write or flush was pending.
     write_blocked: bool,
-    parked_read: Option<Waker>,
+    /// A read or open incorrectly waiting on that write.
+    parked: Option<Waker>,
 }
 
 /// The read half of a direction-coupled control stream; see [`coupled`].
 struct CoupledRead<R> {
+    /// The actual control reader.
     inner: R,
+    /// Whether this read must incorrectly wait on its writer.
     state: Arc<Mutex<CoupledControl>>,
 }
 
 impl<R: AsyncRead + Unpin> AsyncRead for CoupledRead<R> {
+    /// Park behind a blocked write, even if incoming bytes are available.
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -420,7 +438,7 @@ impl<R: AsyncRead + Unpin> AsyncRead for CoupledRead<R> {
         {
             let mut state = self.state.lock().expect("coupling state lock");
             if state.write_blocked {
-                state.parked_read = Some(cx.waker().clone());
+                state.parked = Some(cx.waker().clone());
                 return Poll::Pending;
             }
         }
@@ -430,23 +448,25 @@ impl<R: AsyncRead + Unpin> AsyncRead for CoupledRead<R> {
 
 /// The write half of a direction-coupled control stream; see [`coupled`].
 struct CoupledWrite<W> {
+    /// The actual control writer.
     inner: W,
+    /// The operation incorrectly waiting for this writer to unblock.
     state: Arc<Mutex<CoupledControl>>,
 }
 
 impl<W> CoupledWrite<W> {
-    /// Record the write half's disposition and wake a parked read when the
-    /// write unblocks.
+    /// Record whether writing blocked and wake the coupled operation when it clears.
     fn record(&self, blocked: bool) {
         let mut state = self.state.lock().expect("coupling state lock");
         state.write_blocked = blocked;
-        if !blocked && let Some(waker) = state.parked_read.take() {
+        if !blocked && let Some(waker) = state.parked.take() {
             waker.wake();
         }
     }
 }
 
 impl<W: AsyncWrite + Unpin> AsyncWrite for CoupledWrite<W> {
+    /// Write while recording backpressure for the coupled operation.
     fn poll_write(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -457,12 +477,14 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for CoupledWrite<W> {
         result
     }
 
+    /// Flush while recording backpressure for the coupled operation.
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         let result = Pin::new(&mut self.inner).poll_flush(cx);
         self.record(result.is_pending());
         result
     }
 
+    /// Close the writer while recording whether shutdown blocked.
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         let result = Pin::new(&mut self.inner).poll_shutdown(cx);
         self.record(result.is_pending());
@@ -483,7 +505,7 @@ fn coupled(
     let parts = link.into_parts();
     let state = Arc::new(Mutex::new(CoupledControl {
         write_blocked: false,
-        parked_read: None,
+        parked: None,
     }));
     LinkParts {
         control_read: CoupledRead {
@@ -808,48 +830,35 @@ fn mux_pair() -> (MuxLink, MuxLink) {
     )
 }
 
-// ─── Negative controls: every check proves its teeth ────────────────────────
-//
-// Each violating fixture must FAIL its check, and each legal-adversity
-// fixture must pass with its adversity proven fired. A check whose negative
-// control stops failing has lost its teeth — these assertions are what make
-// a green suite mean anything.
-
-/// Negative control: the shared-FIFO mux — the head-of-line architecture
-/// the independence clause exists to exclude — is caught by the
-/// independence probe.
-///
-/// The stalled stream's sustained writes fill its small per-stream queue,
-/// the shared reader parks routing the next stalled frame, live deliveries
-/// wedge behind it, and the deterministic harness witnesses the stall.
-/// Sustained pressure is what makes the catch: a single unread byte would
-/// sit absorbed in the per-stream queue and the coupling would stay hidden.
+/// Filling one unread stream must expose a mux that blocks all delivery
+/// behind it. A single unread byte would fit in its queue and hide the bug.
 #[test]
 fn shared_mux_coupling_is_caught() {
     let (a, b) = mux_pair();
     assert_eq!(
-        run_to_quiescence(super::check_independence(a, b)),
+        run_to_quiescence(super::check_independence(
+            async || (a, b),
+            std::future::pending
+        )),
         Err(Quiescence::Stalled),
         "the mux's head-of-line coupling must surface as a stall",
     );
 }
 
-/// Legal adversity: a conforming reordering acceptor passes the
-/// independence probe.
-///
-/// Streams are classified by their in-band first-byte tag, never by the
-/// order the acceptor yields them — a probe that assumed the stalled
-/// stream arrived first would hang against this legal acceptor. The final
-/// assertion proves the reordering genuinely fired — the probe's
-/// concurrently connected streams queue at the acceptor, so batches form —
-/// rather than the decorator degenerating to pass-through.
+/// Reordering accepted streams must pass: the probe identifies each stream
+/// by its tag. The final assertion ensures reordering actually occurred.
 #[test]
 fn reordering_acceptor_passes_independence() {
     let reordered = Arc::new(AtomicUsize::new(0));
     let (a, b) = memory();
     run_to_quiescence(super::check_independence(
-        reorder_accepts(a, REORDER_BATCH, reordered.clone()),
-        reorder_accepts(b, REORDER_BATCH, reordered.clone()),
+        async || {
+            (
+                reorder_accepts(a, REORDER_BATCH, reordered.clone()),
+                reorder_accepts(b, REORDER_BATCH, reordered.clone()),
+            )
+        },
+        std::future::pending,
     ))
     .expect("independence stays live under reordered accepts");
     assert!(
@@ -858,53 +867,45 @@ fn reordering_acceptor_passes_independence() {
     );
 }
 
-/// Negative control: the lossy dequeue-then-await acceptor is caught by
-/// the cancellation probe.
-///
-/// With deliveries in flight, a poll-once-then-drop cycle catches the
-/// acceptor holding a dequeued stream in the cancelled future; the stream
-/// is lost with it and the collecting accept never resolves. Deliveries
-/// must be genuinely in flight for the catch: a dropped accept that never
-/// made internal progress has nothing to lose.
+/// Cancelling an accept after it dequeues a stream must expose the lost
+/// delivery: a later accept stalls while waiting for that stream.
 #[test]
 fn lossy_accept_cancellation_is_caught() {
     let (a, b) = memory();
     assert_eq!(
-        run_to_quiescence(super::check_accept_cancellation(a, lossy(b))),
+        run_to_quiescence(super::check_accept_cancellation(
+            async || (a, lossy(b)),
+            std::future::pending
+        )),
         Err(Quiescence::Stalled),
         "the lost delivery must surface as a stall at the collecting accept",
     );
 }
 
-/// Negative control: a violation confined to the b-to-a direction is
-/// still caught.
-///
-/// Every focused probe runs a role-swapped second pass, so a lossy
-/// acceptor on the a side — untouched by the a-to-b pass — hangs the
-/// cancellation probe's reverse direction.
+/// Loss confined to the reverse direction must still fail the check.
 #[test]
 fn asymmetric_lossiness_is_caught() {
     let (a, b) = memory();
     assert_eq!(
-        run_to_quiescence(super::check_accept_cancellation(lossy(a), b)),
+        run_to_quiescence(super::check_accept_cancellation(
+            async || (lossy(a), b),
+            std::future::pending
+        )),
         Err(Quiescence::Stalled),
         "the reverse-direction pass must catch the a-side acceptor",
     );
 }
 
-/// Negative control: a control carrier whose read parks while its own
-/// write is blocked — the direction coupling the control-duplex clause
-/// forbids — is caught by the control-duplex probe as a stall.
-///
-/// Both sides are coupled: once each side's fill overruns the small pipes,
-/// each write blocks, each read parks behind its own side's write, and no
-/// waker stays live — the deterministic harness witnesses the deadlock the
-/// clause exists to exclude.
+/// Control reads that wait for their own blocked writes must fail the probe.
+/// Both pipes fill, so neither side can read or write and the driver stalls.
 #[test]
 fn coupled_control_duplex_is_caught() {
     let (a, b) = memory_with_capacity(COUPLED_CONTROL_CAPACITY);
     assert_eq!(
-        run_to_quiescence(super::check_control_duplex(coupled(a), coupled(b))),
+        run_to_quiescence(super::check_control_duplex(
+            async || (coupled(a), coupled(b)),
+            std::future::pending
+        )),
         Err(Quiescence::Stalled),
         "direction-coupled control halves must surface as a stall",
     );
@@ -918,38 +919,30 @@ const POOLED_STREAM_CAPACITY: usize = 1024;
 /// starve.
 const POOLED_BINDING_BUDGET: usize = 4 * POOLED_STREAM_CAPACITY;
 
-/// Negative control: a budget pooled across streams — connection-level
-/// flow control — sized below the buffering it must cover is caught by
-/// the independence check's pooled shape as a stall.
-///
-/// The pressured stalled complement absorbs the whole pool unread, the
-/// live stream's write finds the window empty, and no reader remains to
-/// release it: the deterministic harness witnesses the starvation. The
-/// single-stalled shape alone cannot catch this fixture (one stream's
-/// unread bytes are capped by its own pipe, leaving this pool headroom),
-/// which is why the pooled shape exists.
+/// Several unread streams exhaust an undersized shared pool and block the
+/// live stream. One unread stream alone cannot fill this fixture's pool.
 #[test]
 fn pooled_budget_below_the_bound_is_caught() {
     let (a, b) = windowed_pair(POOLED_BINDING_BUDGET, POOLED_STREAM_CAPACITY);
     assert_eq!(
-        run_to_quiescence(super::check_independence(a, b)),
+        run_to_quiescence(super::check_independence(
+            async || (a, b),
+            std::future::pending
+        )),
         Err(Quiescence::Stalled),
         "a pooled budget below the buffering it must cover must surface as a stall",
     );
 }
 
-/// A pooled budget at the contract's never-binding bound conforms.
-///
-/// With (STREAM_COUNT + 1) per-stream buffers of headroom per direction,
-/// no stream's unread bytes can make the pool the binding constraint, so
-/// every clause reduces to the per-stream case and the whole suite —
-/// pooled independence shape included — passes.
+/// A pool with room for every data stream and control buffer passes the suite.
+/// Unread bytes cannot exhaust the pool before their individual buffers fill.
 #[test]
 fn never_binding_pooled_budget_conforms() {
     let budget = (STREAM_COUNT + 1) * POOLED_STREAM_CAPACITY;
-    run_to_quiescence(super::check(async || {
-        windowed_pair(budget, POOLED_STREAM_CAPACITY)
-    }))
+    run_to_quiescence(super::check(
+        async || windowed_pair(budget, POOLED_STREAM_CAPACITY),
+        std::future::pending,
+    ))
     .expect("the suite stays live at the never-binding pooled budget");
 }
 
@@ -1006,18 +999,16 @@ fn starved_pool_degrades_latency_not_liveness() {
     .expect("deep sessions stay live over a 64-byte pooled budget");
 }
 
-/// Negative control: a supply that caps concurrent streams below the
-/// complement is caught by the concurrency probe as a stall at the capped
-/// open.
-///
-/// The probe holds every opened stream alive, so the fixture's fifth open
-/// waits forever on a permit no drop will release; with the acceptor
-/// likewise parked, no waker stays live and the harness reports the stall.
+/// A stream limit below the contract's requirement must fail the probe.
+/// The fifth open stalls because earlier streams still hold every permit.
 #[test]
 fn capped_stream_supply_is_caught() {
     let (a, b) = memory();
     assert_eq!(
-        run_to_quiescence(super::check_concurrency(capped(a), b)),
+        run_to_quiescence(super::check_concurrency(
+            async || (capped(a), b),
+            std::future::pending
+        )),
         Err(Quiescence::Stalled),
         "a stream cap below the complement must surface as a stall",
     );

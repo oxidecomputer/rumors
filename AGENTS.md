@@ -101,8 +101,15 @@ additionally wants `wasm-pack` and node/npm.
 You can leave durable notes and other artifacts of exploration and ideation in
 `.agent-notes`. Read the README there for the ground rules.
 
+During the current triage, follow the workflow in
+`.agent-notes/2026-09-09-rumors-triage-plan/README.md`, including keeping Sush's
+compatibility branch current with every external Rumors API change.
+
 ## Writing style
 
+- Give every function, type, trait, constant, and other definition at least a
+  brief doc comment explaining its purpose, including private items, trait
+  implementations, and test helpers. Keep it useful; add detail only as needed.
 - When writing user-facing documentation (all public rustdoc comments), consider
   first *who is reading it* (the developer wanting to *use* the library) and
   what they *need to know*. Hew to the quadrants of the Diataxis framework where

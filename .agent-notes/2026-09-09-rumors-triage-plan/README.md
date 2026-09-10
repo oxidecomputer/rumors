@@ -1,28 +1,15 @@
 # A smaller plan for the Rumors review
 
-The [checklist](checklist.md) is the work record. It accounts for **all 995
-original findings, 171 rulings, and 55 later reports**, grouped into 116
-outcomes with prerequisites. A one-off comparison found no missing or
-multiply assigned original findings or later reports. This establishes scope;
-it does not certify old fixes or prepared branches.
+The [checklist](checklist.md) owns scope, status, dependencies, and the current
+queue. The [inventory](inventory.md) records the source review and prepared
+branch evidence. Neither certifies old fixes.
 
-The [inventory](inventory.md) records the source review and branch evidence.
-Both were prepared against `main` at `90e4509d` on 2026-09-09.
+## 1. Choosing a batch
 
-## 1. Current queue
-
-| Position | Work | First step |
-|---|---|---|
-| Active | [Routed pooling](checklist.md#02-routed-connection-pooling) | Recover the stream-level reproducer and assess adapter-owned pooling. |
-| Next candidate | [Deep fixtures](checklist.md#03-deep-tree-fixtures-and-reproducible-schedules) | Reproduce the deep-tree failures on current main. |
-| Following candidate | [Protocol termination](checklist.md#04-departure-malformed-replies-and-error-preservation) | Reconcile departure and semantic-error handling. |
-
-Keep one implementation active and at most two next candidates described
-in detail. Destructor safety landed as `2c77220a` after user review and a
-clean gate. The next branch is `codex/routed-pooling`, in
-`/Users/oxide/src/rumors/.worktrees/routed-pooling`. The numbered checklist groups are navigational aids, not 27
-large patches or a demand to finish every group in numerical order.
-Work in small batches that can be understood, edited, and merged separately.
+Keep one implementation active and at most two next candidates. The numbered
+checklist groups organize outcomes; they do not prescribe patch size or require
+finishing every group in numerical order. Work in small batches that can be
+understood, edited, and merged separately.
 
 Recover the intended behavior from the findings and amended rulings.
 Salvage useful code, counterexamples, and experiments from the prepared
@@ -44,10 +31,11 @@ surrounding prose whose lines the fix itself would leave unchanged:
 - **Understand before rewriting.** Check comments against implementation,
   callers, and tests. Resolve inaccurate claims; do not make an unverified
   explanation merely more fluent.
-- **Decide whether a comment is needed.** Delete narration of obvious code,
-  duplicated contracts, stale claims, and unnecessary commentary. Clearer
-  names or simpler control flow may remove the need for an explanation.
-  Preserve non-obvious invariants and necessary reasoning.
+- **Document every definition.** Give each function, type, trait, constant,
+  and other definition a brief purpose doc comment, including private items,
+  trait implementations, and test helpers. Simplification must preserve this
+  minimum. Delete redundant inline narration, duplicated contracts, and stale
+  claims; retain non-obvious invariants and necessary reasoning.
 - **Write for the reader.** Public rustdoc primarily states contracts:
   behavior, caller obligations, guarantees, outcomes, and relevant costs.
   Explain mechanism only when it helps someone use the API. Private docs
@@ -67,6 +55,9 @@ surrounding prose whose lines the fix itself would leave unchanged:
   naming and control flow. Related cleanup needs no pre-existing finding;
   if it becomes substantial, give it a checklist item and a separate diff.
 
+Keep Rumors runtime-independent. Runtime-specific optimizations do not belong
+in production code; Tokio runtime support is confined to tests and test helpers.
+
 Add tests that catch wrong behavior. Prefer the existing harness and a
 focused construction. A source-reading test that demands a comment phrase
 or compares two copied rosters should disappear with the duplication.
@@ -85,24 +76,51 @@ accuracy, audience, abstraction, and unnecessary complexity. Explain the
 final change, validation, and any remaining decision briefly. Do not produce
 another annotated copy of the review history.
 
+For every external Rumors API change, update and test Sush's
+`codex/rumors-compat` branch alongside the Rumors batch. Keep it atop the latest
+`locker`, preserving its compatibility work when rebasing. Simplify Sush code
+and comments wherever the new API permits. Use the local dependency override
+while Rumors changes are unmerged; advance Sush's Git pin and lockfile when
+the corresponding Rumors revision is available. Before final review, verify
+Sush against the final revision without the override. The user reviews and
+approves the completed Sush branch at the end of this refactor effort.
+See [Sush setup](sush-pooling.md) for the worktree and override.
+
 ## 3. Tracking without another system
 
-Use only the [checklist](checklist.md) for progress. Each outcome has its
-source IDs and decisions; later amendments and current instructions govern
-implementation. The old ledger remains source material. No new tracking
-tool, gate, or test is needed.
+Keep the [checklist](checklist.md) as a completion index. It uniquely records:
 
-An item stays unchecked until its full outcome is verified and merged.
-Then record the actual landing commit. If only part is finished, split or
-name the remainder. Old receipt SHAs are verification leads, not proof of
-completion. Declined, deferred, obsolete and external proposals keep an
-explicit disposition; they must not silently become new requirements.
+- Each outcome and its assigned finding, ruling, and later-report IDs.
+- Dependencies that affect sequencing.
+- Open, working, ready-for-review, or completed status; completion means a
+  verified merge with its landing commit, or an explicit non-code disposition.
+- One active branch and review base, plus the next candidates.
 
-Add newly discovered work to this same checklist. During an active batch,
-record its branch, worktree, review base, and whether it is working or ready
-for review. At a handoff, report what remains. Before claiming the whole
-triage complete, recheck source coverage and every unchecked outcome against
-the integrated code.
+Do not maintain summary counts of findings, outcomes, tests, or lines. Derive
+them from their source only when needed.
+
+Use one short outcome line and one source-reference line per item. Compact
+consecutive IDs into inclusive ranges. Add a brief blocker or remaining scope
+only when it cannot be recovered from the sources. Split a partly completed
+outcome rather than checking off its unfinished work.
+
+Update status in place. After merge, replace active-batch details with the
+landing commit. Do not accumulate implementation summaries, test counts,
+timings, review transcripts, cleanup receipts, or restated rulings. Git already
+records implementation; source reports and amended rulings hold the rationale;
+this README holds the workflow. Find a branch's worktree through Git. Keep the
+queue only in the checklist, without a second copy here.
+
+Delete duplication rather than moving it into another document. A separate
+note is justified only for information with no other durable home, such as
+an unresolved design decision or an external consumer experiment; link to it
+instead of copying it. Do not create a note for every batch by default.
+
+Add newly discovered work to this same checklist. Preserve source assignments
+when regrouping or shortening it; before declaring the effort complete, check
+them again and verify every remaining outcome against the integrated code.
+Old ledger SHAs are leads, not completion evidence. No tracking tool, source
+scanner, gate, or test is needed to enforce this document's style.
 
 ## 4. Review and edit in Zed
 
@@ -131,6 +149,8 @@ worktree, and delete its Cargo build artifacts under `/Volumes/forge/`.
 Before removing the worktree, use `cargo metadata` to identify its
 `build_directory`, including those of nested workspaces. Clean up those
 specific directories; keep shared caches and other checkouts’ artifacts.
+Keep the ongoing Sush compatibility worktree and its build artifacts across
+Rumors batches, updating its local override before retiring a Rumors worktree.
 
 ## 5. Scope boundaries
 
@@ -143,5 +163,5 @@ boundaries.
 
 Before-specific generator and fuel-band work matters where it blocks an
 actual workspace check. It does not make the entire before triage a
-prerequisite for Rumors fixes. Consumer evidence for the pooling interface
-may need reassessment; this plan does not authorize changes to sush.
+prerequisite for Rumors fixes. Maintaining Sush compatibility is part of this
+effort; merging or publishing the Sush branch awaits its final review.

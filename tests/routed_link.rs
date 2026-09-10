@@ -1,20 +1,8 @@
-//! The routed adapter satisfies the link contract, over real sockets
-//! and the in-memory network.
+//! Routed links satisfy the transport contract over TCP and the memory network.
 //!
-//! [`rumors::link::routed`] is the crate's shipped shape for
-//! accept/connect transports, so it answers to the same public
-//! conformance suite as any caller-built transport — here over TCP at
-//! default and OS-floor socket buffers, in both construction
-//! orientations (the dialing and accepting ends of a routed link are
-//! built by different code paths), and over the in-memory network,
-//! whose string names keep the address seam honest. Real sockets need
-//! real time, and every run sits under an explicit timeout because the
-//! contract's liveness clauses fail as hangs.
-//!
-//! The mesh test then exercises the process scope the suite cannot: a
-//! full mesh of endpoints converging by concurrent gossip over routed
-//! links, beside a connection stalled mid-header — the router's
-//! never-block law observed end to end over sockets.
+//! Conformance runs cover both construction paths, connection reuse, and
+//! small socket buffers. TCP checks use timeouts to detect stalled sessions.
+//! The mesh test checks that unrelated header stalls do not block gossip.
 
 mod common;
 
@@ -26,15 +14,13 @@ use rumors::testing::{MemoryDial, MemoryName, MemoryNet};
 use rumors::{Peer, Rumors};
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
-use tokio::time::timeout;
+use tokio::time::{sleep, timeout};
 
-use crate::common::routed_tcp::{PoolingTcpDial, TcpDial, TcpListen};
+use crate::common::routed_tcp::{TcpDial, TcpListen};
 use crate::common::wire::bootstrap_fork_async;
 
-/// Bound on one whole suite run; loopback and in-memory checks finish
-/// in seconds, so a run past this is a liveness violation, not a slow
-/// machine.
-const SUITE_TIMEOUT: Duration = Duration::from_secs(120);
+/// Deadline for each conformance check or pooled-session scenario.
+const TEST_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// Bound on the mesh test's establishment and gossip rounds.
 const MESH_TIMEOUT: Duration = Duration::from_secs(60);
@@ -47,10 +33,11 @@ const MINIMAL_BUFFER_REQUEST: u32 = 1;
 /// Messages each mesh replica contributes before the gossip rounds.
 const MESH_PAYLOADS: u64 = 16;
 
-/// One TCP endpoint with its router spawned onto the ambient runtime;
-/// the router task runs (and holds the listener) for the rest of the
-/// process, which is the deployment shape.
-async fn tcp_endpoint(buffers: Option<u32>) -> (Endpoint<TcpDial>, Incoming<TcpDial>, SocketAddr) {
+/// Spawn a router and return its endpoint, incoming links, and address.
+async fn tcp_endpoint(
+    buffers: Option<u32>,
+    pooling: bool,
+) -> (Endpoint<TcpDial>, Incoming<TcpDial>, SocketAddr) {
     let (listen, addr) = TcpListen::bind(buffers)
         .await
         .expect("bind a loopback listener");
@@ -60,25 +47,24 @@ async fn tcp_endpoint(buffers: Option<u32>) -> (Endpoint<TcpDial>, Incoming<TcpD
         TcpDial {
             send_buffer: buffers,
         },
-        Config::default(),
+        Config {
+            pooling,
+            ..Config::default()
+        },
     )
     .expect("an unscoped loopback name is routable");
     tokio::spawn(router);
     (endpoint, incoming, addr)
 }
 
-/// Create a fresh routed-link pair over TCP: two endpoints, one
-/// establishment.
-///
-/// `dialer_first` picks which construction (the dialing or the
-/// accepting end) lands in the suite's first seat, so both
-/// orientations get every per-side probe.
+/// Establish a TCP pair, choosing which end occupies the suite's first seat.
 async fn tcp_pair(
     buffers: Option<u32>,
     dialer_first: bool,
+    pooling: bool,
 ) -> (RoutedLink<TcpDial>, RoutedLink<TcpDial>) {
-    let (_a, mut a_incoming, a_addr) = tcp_endpoint(buffers).await;
-    let (b, _b_incoming, _b_addr) = tcp_endpoint(buffers).await;
+    let (_a, mut a_incoming, a_addr) = tcp_endpoint(buffers, pooling).await;
+    let (b, _b_incoming, _b_addr) = tcp_endpoint(buffers, pooling).await;
     let (linked, arrival) = tokio::join!(b.link(a_addr), a_incoming.accept());
     let dialed = linked.expect("establishment succeeds");
     let (_info, accepted) = arrival.expect("the router delivers the link");
@@ -92,12 +78,11 @@ async fn tcp_pair(
 /// Run the whole conformance suite against fresh TCP pairs at the
 /// given buffer sizing and construction orientation.
 async fn tcp_conformance(buffers: Option<u32>, dialer_first: bool) {
-    timeout(
-        SUITE_TIMEOUT,
-        rumors::conformance::link::check(async || tcp_pair(buffers, dialer_first).await),
+    rumors::conformance::link::check(
+        async || tcp_pair(buffers, dialer_first, true).await,
+        || sleep(TEST_TIMEOUT),
     )
-    .await
-    .expect("conformance suite ran past its liveness bound");
+    .await;
 }
 
 /// Create a fresh routed-link pair over an in-memory network of its own.
@@ -127,21 +112,13 @@ async fn memory_pair(dialer_first: bool) -> (RoutedLink<MemoryDial>, RoutedLink<
     }
 }
 
-/// At the platform's default socket buffers, the routed TCP link
-/// satisfies every contract clause the suite observes.
-///
-/// The clauses: independent control pipes, receiver-paced independent
-/// streams, clean half-close, tolerated accept cancellation, and full
-/// reconciliation sessions.
+/// Default-buffer TCP links satisfy the full conformance suite.
 #[tokio::test]
 async fn conforms_over_tcp_at_default_buffers() {
     tcp_conformance(None, true).await;
 }
 
-/// The default-buffer suite with the pair's seats swapped: the
-/// accepting end (router-built) takes the first seat, so its
-/// construction path gets the other half of the suite's asymmetric
-/// probes.
+/// TCP conformance also holds with the accepting end in the first seat.
 #[tokio::test]
 async fn conforms_over_tcp_at_default_buffers_swapped() {
     tcp_conformance(None, false).await;
@@ -156,77 +133,31 @@ async fn conforms_over_tcp_at_minimal_buffers() {
     tcp_conformance(Some(MINIMAL_BUFFER_REQUEST), true).await;
 }
 
-/// The minimal-buffer suite with the pair's seats swapped, as for the
-/// default-buffer variant.
+/// Minimal-buffer TCP links conform with the accepting end in the first seat.
 #[tokio::test]
 async fn conforms_over_tcp_at_minimal_buffers_swapped() {
     tcp_conformance(Some(MINIMAL_BUFFER_REQUEST), false).await;
 }
 
-/// Create a routed-link pair whose shared dialer pools recycled
-/// connections, so the suite's completed streams ride recycled
-/// connections wherever a pooled one is available.
-async fn pooled_tcp_pair(
-    dialer_first: bool,
-) -> (RoutedLink<PoolingTcpDial>, RoutedLink<PoolingTcpDial>) {
-    let dial = PoolingTcpDial::default();
-    let pooled_endpoint = async |dial: PoolingTcpDial| {
-        let (listen, addr) = TcpListen::bind(None)
-            .await
-            .expect("bind a loopback listener");
-        let (endpoint, incoming, router) = Endpoint::new(listen, addr, dial, Config::default())
-            .expect("an unscoped loopback name is routable");
-        tokio::spawn(router);
-        (endpoint, incoming, addr)
-    };
-    let (_a, mut a_incoming, a_addr) = pooled_endpoint(dial.clone()).await;
-    let (b, _b_incoming, _b_addr) = pooled_endpoint(dial).await;
-    let (linked, arrival) = tokio::join!(b.link(a_addr), a_incoming.accept());
-    let dialed = linked.expect("establishment succeeds");
-    let (_info, accepted) = arrival.expect("the router delivers the link");
-    if dialer_first {
-        (dialed, accepted)
-    } else {
-        (accepted, dialed)
+/// Disabling pooling preserves the link contract in both orientations.
+#[tokio::test]
+async fn conforms_over_tcp_without_pooling() {
+    for dialer_first in [false, true] {
+        rumors::conformance::link::check(
+            async || tcp_pair(None, dialer_first, false).await,
+            || sleep(TEST_TIMEOUT),
+        )
+        .await;
     }
 }
 
-/// The suite holds when completed streams ride recycled connections:
-/// pooling is invisible to every clause the contract states.
-#[tokio::test]
-async fn conforms_over_tcp_with_a_pooling_dial() {
-    timeout(
-        SUITE_TIMEOUT,
-        rumors::conformance::link::check(async || pooled_tcp_pair(true).await),
-    )
-    .await
-    .expect("conformance suite ran past its liveness bound");
-}
-
-/// The pooling suite with the pair's seats swapped, as for the plain
-/// TCP variants.
-#[tokio::test]
-async fn conforms_over_tcp_with_a_pooling_dial_swapped() {
-    timeout(
-        SUITE_TIMEOUT,
-        rumors::conformance::link::check(async || pooled_tcp_pair(false).await),
-    )
-    .await
-    .expect("conformance suite ran past its liveness bound");
-}
-
-/// Mutual gossip sessions over a pooling dialer converge under a
-/// multi-thread scheduler.
-///
-/// The regression this pins: a pool that hands out a recycled
-/// connection before the peer router's ready byte couples the next
-/// stream's delivery to the previous stream's consumer, and mutual
-/// sessions then deadlock. Single-thread schedules rarely close the
-/// cycle, so the flavor here is load-bearing.
+/// Repeated mutual sessions converge with connection reuse under a
+/// multithreaded scheduler. Reuse must not couple a stream's delivery to
+/// another stream's consumer.
 #[tokio::test(flavor = "multi_thread")]
 async fn pooled_mutual_sessions_converge() {
-    timeout(SUITE_TIMEOUT, async {
-        let (mut a, mut b) = pooled_tcp_pair(true).await;
+    timeout(TEST_TIMEOUT, async {
+        let (mut a, mut b) = tcp_pair(None, true, true).await;
         let seed: Rumors<u64> = Peer::seed().into_rumors();
         let (served, joined) =
             tokio::join!(seed.gossip(&mut a), Peer::<u64>::bootstrap().join(&mut b));
@@ -258,23 +189,15 @@ async fn pooled_mutual_sessions_converge() {
 /// names prove the address seam carries non-IP namespaces.
 #[tokio::test]
 async fn conforms_over_the_memory_network() {
-    timeout(
-        SUITE_TIMEOUT,
-        rumors::conformance::link::check(async || memory_pair(true).await),
-    )
-    .await
-    .expect("conformance suite ran past its liveness bound");
+    rumors::conformance::link::check(async || memory_pair(true).await, || sleep(TEST_TIMEOUT))
+        .await;
 }
 
 /// The in-memory suite with the pair's seats swapped, as for TCP.
 #[tokio::test]
 async fn conforms_over_the_memory_network_swapped() {
-    timeout(
-        SUITE_TIMEOUT,
-        rumors::conformance::link::check(async || memory_pair(false).await),
-    )
-    .await
-    .expect("conformance suite ran past its liveness bound");
+    rumors::conformance::link::check(async || memory_pair(false).await, || sleep(TEST_TIMEOUT))
+        .await;
 }
 
 /// A full mesh gossips to convergence over routed TCP links while a
@@ -286,9 +209,9 @@ async fn conforms_over_the_memory_network_swapped() {
 #[tokio::test(flavor = "multi_thread")]
 async fn mesh_converges_beside_a_stalled_header() {
     timeout(MESH_TIMEOUT, async {
-        let (_a_ep, mut a_incoming, a_addr) = tcp_endpoint(None).await;
-        let (b_ep, mut b_incoming, b_addr) = tcp_endpoint(None).await;
-        let (c_ep, _c_incoming, _c_addr) = tcp_endpoint(None).await;
+        let (_a_ep, mut a_incoming, a_addr) = tcp_endpoint(None, true).await;
+        let (b_ep, mut b_incoming, b_addr) = tcp_endpoint(None, true).await;
+        let (c_ep, _c_incoming, _c_addr) = tcp_endpoint(None, true).await;
 
         // The stall: a connection into a's router that never finishes
         // its header, held open across the whole mesh's traffic.

@@ -1,61 +1,56 @@
 //! Conformance checks for caller-built [`Link`] implementations.
 //!
-//! The gossip protocol's deadlock-freedom argument rests on the [link
-//! contract](crate::link): a full-duplex control stream, independent
-//! receiver-paced streams, half-close, and accept-cancellation tolerance.
-//! This crate validates its own in-memory instantiation with these checks;
-//! a deployment that builds its own `Link` (over QUIC, TCP, or anything
-//! else) should validate it the same way.
+//! The checks exercise the [link contract](crate::link): independent control
+//! and data traffic, concurrent opens, stream completion and abort, and
+//! cancellation of incoming delivery. Both ends are tested, including through
+//! cloned connectors and with control and data traffic active together.
 //!
 //! # Using the suite
 //!
-//! Provide a factory that builds a *fresh, connected* pair of link ends per
-//! call, then run [`check`]:
+//! Supply a connected-pair factory and a deadline factory:
 //!
 //! ```
-//! # tokio::runtime::Builder::new_current_thread().build().unwrap().block_on(async {
-//! rumors::conformance::link::check(async || rumors::link::memory()).await;
+//! # tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap().block_on(async {
+//! rumors::conformance::link::check(
+//!     async || rumors::link::memory(),
+//!     || tokio::time::sleep(std::time::Duration::from_secs(30)),
+//! ).await;
 //! # });
 //! ```
 //!
-//! Every check panics with the violated clause on failure, so the suite
-//! drops into any test harness. Checks run on the caller's executor: a
-//! closed-world in-memory link can run under a deterministic single-poll
-//! driver, while a link over real sockets runs under its runtime. **Run
-//! under a timeout**: the contract's liveness clauses fail as hangs, not as
-//! return values, and only the surrounding harness can bound them.
+//! Each check starts a fresh deadline before constructing its pair. If the
+//! deadline completes, the check is cancelled and panics with its name. The
+//! focused checks take the same two arguments as [`check`].
+//!
+//! The caller supplies the clock and executor; this suite requires no runtime.
+//! With a deterministic driver that detects stalled futures, use
+//! [`std::future::pending`] as the deadline factory. Deadlines are cooperative:
+//! they cannot interrupt transport code that never returns from a poll.
 //!
 //! # What the suite cannot see
 //!
-//! A black box bounds what any probe can establish; a pass leaves each of
-//! these partly the implementation's own obligation:
+//! Passing checks is evidence for the tested traffic and schedules. These
+//! obligations still need review of the implementation and its configuration:
 //!
-//! - **Bounded buffering.** The coupling probes expose dependence by
-//!   writing until hidden buffers fill: the independence probe pressures a
-//!   stalled stream the whole time the live complement takes to finish,
-//!   and the control-duplex probe writes [`CONTROL_DUPLEX_FILL`] bytes
-//!   each way. Coupling concealed behind more buffering than a probe
-//!   writes (in the limit, an implementation that never backpressures at
-//!   all) passes anyway.
-//! - **Cancellation mid-delivery.** The probe drops `accept` futures only
-//!   after a first delivery has genuinely surfaced, so an acceptor that
-//!   internally dequeues and then awaits is caught whenever that dequeue
-//!   is reachable within the probe's patience. An acceptor that resolves
-//!   on its first poll is never caught waiting, and one whose internal
-//!   dequeue arises only under timings outside the probed window still
-//!   passes.
-//! - **Concurrency under sparse arrival.** The concurrency probe holds a
-//!   full complement of open streams and requires the last to open and
-//!   flow past its backpressured elders, but the clause's sparse
-//!   mid-session arrival pattern is the protocol's own; a supply that
-//!   misbehaves only under some arrival cadence the probe does not
-//!   produce passes anyway.
-//! - **Failure classification.** The contract restricts `connect`/`accept`
-//!   errors to transport failure. A healthy link never errs, so the suite
-//!   never sees one to classify.
+//! - **Buffer bounds.** Pressure probes may miss coupling hidden behind large
+//!   buffers. They do not require a writer to reach backpressure, so an
+//!   unbounded implementation can pass. Control exchanges write
+//!   [`CONTROL_DUPLEX_FILL`] bytes each way; data pressure lasts until the
+//!   accompanying traffic finishes. Check the complete buffering path and any
+//!   shared pool against the [link contract](crate::link#pooled-flow-control).
+//! - **Failure handling and security.** A connected pair does not expose
+//!   authentication, authorization, encryption, replay protection, or transport
+//!   fault injection. The suite also cannot validate a routing deadline or
+//!   fairness among links sharing a listener. Those need transport-specific
+//!   tests. Errors from `connect` and `accept` must still indicate transport
+//!   failure as required by their contracts.
 
+use std::future::Future;
 use std::io;
 use std::pin::pin;
+
+mod contention;
+pub use contention::check_control_data_independence;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::task::{Context, Poll};
@@ -79,15 +74,10 @@ const CONTROL_PROBE_AB: &[u8] = b"rumors-conformance-control:a>b";
 /// Control probe payload in the b-to-a direction; see [`CONTROL_PROBE_AB`].
 const CONTROL_PROBE_BA: &[u8] = b"rumors-conformance-control:b>a";
 
-/// Bytes each side writes concurrently in the control-duplex probe.
+/// Bytes each direction exchanges in the control-duplex probe.
 ///
-/// The fill must overrun the transport's control buffering, so a carrier
-/// that couples the two directions wedges instead of absorbing the whole
-/// exchange: the probe proves direction independence only up to
-/// this much hidden buffering (see the module docs). 32 KiB is four times
-/// the in-memory reference's buffer and past common transport defaults,
-/// while staying affordable for a deterministic single-poll driver at
-/// one-byte windows.
+/// Buffers that absorb this entire exchange can hide direction coupling.
+/// The size keeps the check affordable even with one-byte stream windows.
 pub const CONTROL_DUPLEX_FILL: usize = 32 * 1024;
 
 /// Direction tag folded into the control-duplex payload a writes to b.
@@ -114,49 +104,31 @@ const LIVE_TAG: u8 = b'L';
 /// coupling fills while the probe is still watching.
 const STALL_FILL: &[u8] = &[STALLED_TAG; 512];
 
-/// Streams the sender puts in flight for the cancellation probe.
+/// Cancelled accepts allowed to return no stream before collecting normally.
 ///
-/// The first bridges arrival (collected by a real accept, proving
-/// deliveries are surfacing) and the remainder is what the poll-and-drop
-/// cycles catch a lossy acceptor holding.
-const CANCELLED_DELIVERIES: usize = 2;
-
-/// Cooperative yields the cancellation probe spends between poll-drop
-/// cycles once the first delivery has genuinely arrived.
-///
-/// The first delivery is collected with a real accept before any cycle
-/// runs, so the cycles start inside the delivery window and the budget
-/// only spans the jitter between two concurrently written streams.
-/// Expiring is safe: the collecting accepts still require every delivery,
-/// so expiry weakens the probe (admitted in the module docs) rather than
-/// failing a conforming link.
+/// This bounds the sampled schedule, not delivery time. Normal accepts still
+/// require every stream to arrive, so slow arrivals do not fail a healthy link.
 const CANCEL_DROP_PATIENCE: usize = 32;
 
-/// Payload count per side in the session check, sized to open data streams
-/// in both directions and run reconciliation's full lifecycle over the
-/// pair.
+/// Payloads per side in the shallow session check.
 ///
-/// Stream count follows the reconciled tree's depth, not the payload
-/// count: hashed leaf paths keep a corpus this size one or two levels
-/// deep, opening one or two streams per direction. The check's final
-/// assertion pins exactly what the sizing buys (every direction opened at
-/// least one data stream in-session), so it cannot rot silently; the
-/// many-streams regime is [`check_concurrency`]'s job.
+/// The check requires data streams to open in both directions. Tree depth
+/// determines how many; [`check_concurrency`] separately exercises the limit.
 const SESSION_PAYLOADS: u64 = 48;
 
 /// Run the whole conformance suite against fresh pairs from `pair`.
 ///
-/// Each check consumes one fresh pair (`pair` is called once per check),
-/// and every focused check probes both directions of its pair, so the
-/// suite validates an asymmetric implementation on each side's connector
-/// and acceptor. See the [module docs](self) for executor and timeout
-/// requirements.
+/// Each check calls `deadline` once, then constructs and tests a fresh pair.
+/// The deadline covers both construction and the check's work. Every check
+/// exercises both ends, including asymmetric connectors and acceptors.
 ///
 /// # Panics
 ///
-/// On the first violated contract clause, with a description of the clause.
-pub async fn check<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab>(
+/// On a contract violation or expired deadline. A deadline failure names the
+/// check that timed out.
+pub async fn check<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab, D>(
     mut pair: impl AsyncFnMut() -> (Link<CRa, CWa, Ca, Aa>, Link<CRb, CWb, Cb, Ab>),
+    mut deadline: impl FnMut() -> D,
 ) where
     CRa: AsyncRead + Unpin + Send,
     CWa: AsyncWrite + Unpin + Send,
@@ -166,31 +138,43 @@ pub async fn check<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab>(
     CWb: AsyncWrite + Unpin + Send,
     Cb: Connector,
     Ab: Acceptor,
+    D: Future<Output = ()>,
 {
-    let (a, b) = pair().await;
-    check_control(a, b).await;
-    let (a, b) = pair().await;
-    check_control_duplex(a, b).await;
-    let (a, b) = pair().await;
-    check_streams(a, b).await;
-    let (a, b) = pair().await;
-    check_independence(a, b).await;
-    let (a, b) = pair().await;
-    check_concurrency(a, b).await;
-    let (a, b) = pair().await;
-    check_accept_cancellation(a, b).await;
-    let (a, b) = pair().await;
-    check_sessions(a, b).await;
+    check_control(&mut pair, &mut deadline).await;
+    check_control_duplex(&mut pair, &mut deadline).await;
+    check_control_data_independence(&mut pair, &mut deadline).await;
+    check_streams(&mut pair, &mut deadline).await;
+    check_independence(&mut pair, &mut deadline).await;
+    check_concurrency(&mut pair, &mut deadline).await;
+    check_accept_cancellation(&mut pair, &mut deadline).await;
+    check_sessions(&mut pair, &mut deadline).await;
+}
+
+/// Race a check against its caller's deadline, keeping the check name on failure.
+fn timed(
+    name: &str,
+    deadline: impl Future<Output = ()>,
+    check: impl Future<Output = ()>,
+) -> impl Future<Output = ()> {
+    // Transport futures can be large. Box before constructing the timeout
+    // future so nesting the check does not multiply its stack usage.
+    let check = Box::pin(check);
+    async move {
+        match select(pin!(deadline), check).await {
+            Either::Left(_) => panic!("conformance: {name} timed out"),
+            Either::Right(_) => {}
+        }
+    }
 }
 
 /// The control halves form two independent ordered byte pipes.
 ///
-/// Each direction carries its own distinct probe bytes, so a wiring that
-/// loops a side's control write back to its own read fails the byte
-/// assertion instead of surfacing only as a hang on the other side.
-pub async fn check_control<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab>(
-    a: Link<CRa, CWa, Ca, Aa>,
-    b: Link<CRb, CWb, Cb, Ab>,
+/// Distinct payloads in each direction detect bytes delivered to the wrong end.
+///
+/// The deadline covers pair construction and this check.
+pub async fn check_control<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab, D>(
+    pair: impl AsyncFnOnce() -> (Link<CRa, CWa, Ca, Aa>, Link<CRb, CWb, Cb, Ab>),
+    deadline: impl FnOnce() -> D,
 ) where
     CRa: AsyncRead + Unpin + Send,
     CWa: AsyncWrite + Unpin + Send,
@@ -200,60 +184,61 @@ pub async fn check_control<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab>(
     CWb: AsyncWrite + Unpin + Send,
     Cb: Connector,
     Ab: Acceptor,
+    D: Future<Output = ()>,
 {
-    let mut a = a.into_parts();
-    let mut b = b.into_parts();
-    let (a_read, a_write) = (&mut a.control_read, &mut a.control_write);
-    let (b_read, b_write) = (&mut b.control_read, &mut b.control_write);
-    let ping = async {
-        a_write
-            .write_all(CONTROL_PROBE_AB)
-            .await
-            .expect("contract: control writes succeed while the peer link lives");
-        a_write.flush().await.expect("contract: control flush");
-        let mut bytes = vec![0u8; CONTROL_PROBE_BA.len()];
-        a_read
-            .read_exact(&mut bytes)
-            .await
-            .expect("contract: control delivers the peer's bytes");
-        assert_eq!(
-            bytes, CONTROL_PROBE_BA,
-            "contract: control delivers the peer's bytes in order, not this side's own",
-        );
-    };
-    let pong = async {
-        let mut bytes = vec![0u8; CONTROL_PROBE_AB.len()];
-        b_read
-            .read_exact(&mut bytes)
-            .await
-            .expect("contract: control delivers the peer's bytes");
-        assert_eq!(
-            bytes, CONTROL_PROBE_AB,
-            "contract: control delivers the peer's bytes in order, not this side's own",
-        );
-        b_write
-            .write_all(CONTROL_PROBE_BA)
-            .await
-            .expect("contract: control writes succeed while the peer link lives");
-        b_write.flush().await.expect("contract: control flush");
-    };
-    join(ping, pong).await;
+    timed("check_control", deadline(), async {
+        let (a, b) = pair().await;
+        let mut a = a.into_parts();
+        let mut b = b.into_parts();
+        let (a_read, a_write) = (&mut a.control_read, &mut a.control_write);
+        let (b_read, b_write) = (&mut b.control_read, &mut b.control_write);
+        let ping = async {
+            a_write
+                .write_all(CONTROL_PROBE_AB)
+                .await
+                .expect("contract: control writes succeed while the peer link lives");
+            a_write.flush().await.expect("contract: control flush");
+            let mut bytes = vec![0u8; CONTROL_PROBE_BA.len()];
+            a_read
+                .read_exact(&mut bytes)
+                .await
+                .expect("contract: control delivers the peer's bytes");
+            assert_eq!(
+                bytes, CONTROL_PROBE_BA,
+                "contract: control delivers the peer's bytes in order, not this side's own",
+            );
+        };
+        let pong = async {
+            let mut bytes = vec![0u8; CONTROL_PROBE_AB.len()];
+            b_read
+                .read_exact(&mut bytes)
+                .await
+                .expect("contract: control delivers the peer's bytes");
+            assert_eq!(
+                bytes, CONTROL_PROBE_AB,
+                "contract: control delivers the peer's bytes in order, not this side's own",
+            );
+            b_write
+                .write_all(CONTROL_PROBE_BA)
+                .await
+                .expect("contract: control writes succeed while the peer link lives");
+            b_write.flush().await.expect("contract: control flush");
+        };
+        join(ping, pong).await;
+    })
+    .await;
 }
 
-/// The control stream's two directions are independent full-duplex pipes.
+/// Both control directions must progress during simultaneous writes and reads.
 ///
-/// This validates the control-duplex clause. The protocol exchanges its
-/// largest control frames (the greeting, the epilogue) as concurrent
-/// write-and-read on both ends because such a frame may exceed any
-/// buffer, so a carrier that couples the directions (a half-duplex turn
-/// protocol, a shared lock across read and write, a read that waits for
-/// this side's own write to drain) wedges with both writers blocked, and
-/// fails here as a hang. A pass proves independence only up to
-/// [`CONTROL_DUPLEX_FILL`] of hidden buffering (see the module docs).
-/// Inherently bidirectional, so one pass probes both directions.
-pub async fn check_control_duplex<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab>(
-    a: Link<CRa, CWa, Ca, Aa>,
-    b: Link<CRb, CWb, Cb, Ab>,
+/// Each side exchanges [`CONTROL_DUPLEX_FILL`] bytes, which must exceed the
+/// transport's buffering to expose coupling. If each side's read waits on its
+/// blocked write, the check cannot finish before its deadline.
+///
+/// The deadline covers pair construction and this check.
+pub async fn check_control_duplex<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab, D>(
+    pair: impl AsyncFnOnce() -> (Link<CRa, CWa, Ca, Aa>, Link<CRb, CWb, Cb, Ab>),
+    deadline: impl FnOnce() -> D,
 ) where
     CRa: AsyncRead + Unpin + Send,
     CWa: AsyncWrite + Unpin + Send,
@@ -263,22 +248,27 @@ pub async fn check_control_duplex<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab>(
     CWb: AsyncWrite + Unpin + Send,
     Cb: Connector,
     Ab: Acceptor,
+    D: Future<Output = ()>,
 {
-    let mut a = a.into_parts();
-    let mut b = b.into_parts();
-    let a_side = duplex_exchange(
-        &mut a.control_read,
-        &mut a.control_write,
-        CONTROL_DUPLEX_TAG_AB,
-        CONTROL_DUPLEX_TAG_BA,
-    );
-    let b_side = duplex_exchange(
-        &mut b.control_read,
-        &mut b.control_write,
-        CONTROL_DUPLEX_TAG_BA,
-        CONTROL_DUPLEX_TAG_AB,
-    );
-    join(a_side, b_side).await;
+    timed("check_control_duplex", deadline(), async {
+        let (a, b) = pair().await;
+        let mut a = a.into_parts();
+        let mut b = b.into_parts();
+        let a_side = duplex_exchange(
+            &mut a.control_read,
+            &mut a.control_write,
+            CONTROL_DUPLEX_TAG_AB,
+            CONTROL_DUPLEX_TAG_BA,
+        );
+        let b_side = duplex_exchange(
+            &mut b.control_read,
+            &mut b.control_write,
+            CONTROL_DUPLEX_TAG_BA,
+            CONTROL_DUPLEX_TAG_AB,
+        );
+        join(a_side, b_side).await;
+    })
+    .await;
 }
 
 /// One side of [`check_control_duplex`]: write this side's fill while
@@ -322,16 +312,16 @@ fn duplex_fill(tag: u8) -> Vec<u8> {
     (0..CONTROL_DUPLEX_FILL).map(|i| (i as u8) ^ tag).collect()
 }
 
-/// An opened stream delivers its exact bytes to the peer's acceptor,
-/// ended either way the contract allows.
+/// Streams preserve accepted bytes on completion and abort, even without a flush.
 ///
-/// A dropped stream's abort surfaces as end-of-stream after the final
-/// byte. A completed stream leaves the acceptor's next streams still
-/// arriving. Probed in both directions: each side's connector against
-/// the other side's acceptor.
-pub async fn check_streams<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab>(
-    a: Link<CRa, CWa, Ca, Aa>,
-    b: Link<CRb, CWb, Cb, Ab>,
+/// Abort must deliver EOF after those bytes. Completion must preserve the
+/// stream supply: later streams still flow while either end of an earlier
+/// stream has yet to complete. Both directions are exercised.
+///
+/// The deadline covers pair construction and this check.
+pub async fn check_streams<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab, D>(
+    pair: impl AsyncFnOnce() -> (Link<CRa, CWa, Ca, Aa>, Link<CRb, CWb, Cb, Ab>),
+    deadline: impl FnOnce() -> D,
 ) where
     CRa: AsyncRead + Unpin + Send,
     CWa: AsyncWrite + Unpin + Send,
@@ -341,13 +331,35 @@ pub async fn check_streams<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab>(
     CWb: AsyncWrite + Unpin + Send,
     Cb: Connector,
     Ab: Acceptor,
+    D: Future<Output = ()>,
 {
-    let mut a = a.into_parts();
-    let mut b = b.into_parts();
-    probe_stream(&a.connector, &mut b.acceptor).await;
-    probe_stream(&b.connector, &mut a.acceptor).await;
-    probe_completed_streams(&a.connector, &mut b.acceptor).await;
-    probe_completed_streams(&b.connector, &mut a.acceptor).await;
+    timed("check_streams", deadline(), async {
+        let (a, b) = pair().await;
+        let mut a = a.into_parts();
+        let mut b = b.into_parts();
+        probe_stream(&a.connector, &mut b.acceptor).await;
+        probe_stream(&b.connector, &mut a.acceptor).await;
+        probe_completed_streams(&a.connector, &mut b.acceptor).await;
+        probe_completed_streams(&b.connector, &mut a.acceptor).await;
+        for receiver_first in [false, true] {
+            join(
+                probe_delayed_completion(
+                    &a.connector,
+                    &mut b.acceptor,
+                    receiver_first,
+                    STREAM_COUNT + 1,
+                ),
+                probe_delayed_completion(
+                    &b.connector,
+                    &mut a.acceptor,
+                    receiver_first,
+                    STREAM_COUNT + 1,
+                ),
+            )
+            .await;
+        }
+    })
+    .await;
 }
 
 /// One direction of [`check_streams`]: a single stream, delivered exactly
@@ -359,7 +371,6 @@ async fn probe_stream<C: Connector, A: Acceptor>(connector: &C, acceptor: &mut A
             .await
             .expect("contract: connect succeeds while the peer link lives");
         tx.write_all(PROBE).await.expect("contract: stream write");
-        tx.flush().await.expect("contract: stream flush");
         drop((tx, done));
     };
     let receive = async {
@@ -390,14 +401,16 @@ async fn probe_stream<C: Connector, A: Acceptor>(connector: &C, acceptor: &mut A
 /// proves the supply survives the first one's completion, wherever its
 /// connection went.
 async fn probe_completed_streams<C: Connector, A: Acceptor>(connector: &C, acceptor: &mut A) {
-    for _ in 0..2 {
+    for sequence in 0..2u8 {
+        let payload = [sequence; PROBE.len()];
         let send = async {
             let (mut tx, done) = connector
                 .connect()
                 .await
                 .expect("contract: connect succeeds while the peer link lives");
-            tx.write_all(PROBE).await.expect("contract: stream write");
-            tx.flush().await.expect("contract: stream flush");
+            tx.write_all(&payload)
+                .await
+                .expect("contract: stream write");
             done.complete(tx);
         };
         let receive = async {
@@ -410,7 +423,7 @@ async fn probe_completed_streams<C: Connector, A: Acceptor>(connector: &C, accep
                 .await
                 .expect("contract: a completed stream delivers its bytes");
             assert_eq!(
-                bytes, PROBE,
+                bytes, payload,
                 "contract: a stream delivers its exact bytes in order",
             );
             done.complete(rx);
@@ -419,22 +432,77 @@ async fn probe_completed_streams<C: Connector, A: Acceptor>(connector: &C, accep
     }
 }
 
-/// Streams are independent: a stream whose receiver never drains blocks
-/// nothing but itself.
+/// Completing either half must not make later streams wait for the other half.
+async fn probe_delayed_completion<C: Connector, A: Acceptor>(
+    connector: &C,
+    acceptor: &mut A,
+    receiver_first: bool,
+    rounds: usize,
+) {
+    let (tx, rx) = join(connector.connect(), acceptor.accept()).await;
+    let (mut tx, tx_done) = tx.expect("contract: connect");
+    let (mut rx, rx_done) = rx.expect("contract: accept");
+    let (sent, received) = join(
+        async {
+            tx.write_u8(0).await?;
+            tx.flush().await
+        },
+        rx.read_u8(),
+    )
+    .await;
+    sent.expect("contract: stream write");
+    assert_eq!(received.expect("contract: stream read"), 0);
+    // Return one end while retaining the other. A reusing transport must
+    // leave this connection alone and allow other streams to proceed.
+    let held = if receiver_first {
+        rx_done.complete(rx);
+        Either::Left((tx, tx_done))
+    } else {
+        tx_done.complete(tx);
+        Either::Right((rx, rx_done))
+    };
+    for round in 0..rounds {
+        let payload = (round + 1) as u8;
+        let send = async {
+            let (mut tx, done) = connector
+                .connect()
+                .await
+                .expect("contract: independent open");
+            tx.write_u8(payload).await.expect("contract: stream write");
+            tx.flush().await.expect("contract: stream flush");
+            done.complete(tx);
+        };
+        let receive = async {
+            let (mut rx, done) = acceptor
+                .accept()
+                .await
+                .expect("contract: independent accept");
+            assert_eq!(
+                rx.read_u8().await.expect("contract: independent delivery"),
+                payload,
+                "contract: completion preserves stream boundaries"
+            );
+            done.complete(rx);
+        };
+        join(send, receive).await;
+    }
+    match held {
+        Either::Left((tx, done)) => done.complete(tx),
+        Either::Right((rx, done)) => done.complete(rx),
+    }
+}
+
+/// Unread streams must not block other streams.
 ///
-/// This validates the independence clause, the one the deadlock-freedom
-/// argument rests on, in two shapes, each probed in both directions: one
-/// stalled stream beside a live complement that must all deliver and
-/// close, and the inversion (every stream but one stalled), which
-/// exhausts a budget pooled across streams (connection-level flow
-/// control) sized below the buffering it must cover. Coupling anywhere
-/// (a shared reader, a shared window, head-of-line blocking, an
-/// under-sized pool) reveals itself as a hang once the buffering
-/// concealing it fills; coupling hidden behind more buffering than the
-/// probes write passes anyway (see the module docs).
-pub async fn check_independence<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab>(
-    a: Link<CRa, CWa, Ca, Aa>,
-    b: Link<CRb, CWb, Cb, Ab>,
+/// Both directions are tested with one unread stream and then with all but
+/// one stream unread. The latter can exhaust a shared buffer pool that a
+/// single stream cannot fill. All remaining streams must deliver and close.
+/// Coupling hidden behind larger buffers may pass; see the module docs.
+///
+/// The deadline covers pair construction and this check.
+pub async fn check_independence<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab, D>(
+    pair: impl AsyncFnOnce() -> (Link<CRa, CWa, Ca, Aa>, Link<CRb, CWb, Cb, Ab>),
+    deadline: impl FnOnce() -> D,
 ) where
     CRa: AsyncRead + Unpin + Send,
     CWa: AsyncWrite + Unpin + Send,
@@ -444,13 +512,18 @@ pub async fn check_independence<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab>(
     CWb: AsyncWrite + Unpin + Send,
     Cb: Connector,
     Ab: Acceptor,
+    D: Future<Output = ()>,
 {
-    let mut a = a.into_parts();
-    let mut b = b.into_parts();
-    probe_independence(&a.connector, &mut b.acceptor).await;
-    probe_independence(&b.connector, &mut a.acceptor).await;
-    probe_independence_pooled(&a.connector, &mut b.acceptor).await;
-    probe_independence_pooled(&b.connector, &mut a.acceptor).await;
+    timed("check_independence", deadline(), async {
+        let (a, b) = pair().await;
+        let mut a = a.into_parts();
+        let mut b = b.into_parts();
+        probe_independence(&a.connector, &mut b.acceptor).await;
+        probe_independence(&b.connector, &mut a.acceptor).await;
+        probe_independence_pooled(&a.connector, &mut b.acceptor).await;
+        probe_independence_pooled(&b.connector, &mut a.acceptor).await;
+    })
+    .await;
 }
 
 /// One direction of [`check_independence`]: a stalled stream under
@@ -475,32 +548,8 @@ async fn probe_independence<C: Connector, A: Acceptor>(connector: &C, acceptor: 
             .await
             .expect("contract: one byte lands within any legal window");
         stalled.flush().await.expect("contract: stream flush");
-        // Keep pressuring the stalled stream for as long as the live
-        // complement runs: an implementation that couples streams behind
-        // shared machinery can hide the coupling in per-stream buffers,
-        // and only sustained undrained writes force those buffers full
-        // while the probe is still watching. A conforming implementation
-        // simply backpressures this loop (blocking, not failing), and
-        // only this stream blocks with it.
-        let pressure = async {
-            loop {
-                stalled
-                    .write_all(STALL_FILL)
-                    .await
-                    .expect("contract: a backpressured write blocks rather than failing");
-                stalled
-                    .flush()
-                    .await
-                    .expect("contract: a backpressured flush blocks rather than failing");
-                // Yield between fills: against an implementation that never
-                // backpressures (in the limit, an unbounded buffer), nothing
-                // above ever returns `Pending`, and without the yield this
-                // loop would spin inside a single poll, starving the live
-                // arm and any in-task timeout, instead of letting the live
-                // complement finish and the probe pass.
-                yield_once().await;
-            }
-        };
+        // Keep this receiver under pressure while other streams flow.
+        let pressure = press(&mut stalled);
         // A full complement of further streams must flow meanwhile:
         // writing to one stream may block only on that stream's receiver.
         let live = async {
@@ -599,21 +648,7 @@ async fn probe_independence_pooled<C: Connector, A: Acceptor>(connector: &C, acc
             tx.flush().await.expect("contract: stream flush");
             stalled.push(tx);
         }
-        // Sustained pressure on the whole complement at once, so buffering
-        // pooled anywhere across the streams fills while the probe is
-        // still watching; each loop backpressures on its own stream only,
-        // and yields so an unbounded buffer cannot trap the poll.
-        let pressure = join_all(stalled.iter_mut().map(|tx| async move {
-            loop {
-                tx.write_all(STALL_FILL)
-                    .await
-                    .expect("contract: a backpressured write blocks rather than failing");
-                tx.flush()
-                    .await
-                    .expect("contract: a backpressured flush blocks rather than failing");
-                yield_once().await;
-            }
-        }));
+        let pressure = join_all(stalled.iter_mut().map(press));
         // The one live stream must flow beside the pressured complement.
         let live = async {
             let (mut tx, _) = connector.connect().await.expect("contract: connect");
@@ -677,6 +712,18 @@ async fn probe_independence_pooled<C: Connector, A: Acceptor>(connector: &C, acc
     join(send, receive).await;
 }
 
+/// Keep writing to an unread stream, yielding if the transport keeps accepting.
+async fn press<W: AsyncWrite + Unpin>(write: &mut W) {
+    loop {
+        write
+            .write_all(STALL_FILL)
+            .await
+            .expect("contract: backpressure blocks instead of failing");
+        write.flush().await.expect("contract: stream flush");
+        yield_once().await;
+    }
+}
+
 /// Yield to the executor exactly once: `Pending` with an immediate
 /// self-wake.
 ///
@@ -695,20 +742,16 @@ async fn yield_once() {
     .await;
 }
 
-/// The transport admits a full complement of concurrently open streams.
+/// All data streams can stay open and flow in both directions at once.
 ///
-/// This validates the concurrency clause's quantitative bound: all
-/// [`STREAM_COUNT`] streams held open at once, with the last-opened
-/// stream's bytes flowing to completion past its still-open,
-/// backpressured elders: the progress-beside-siblings the session's
-/// lazily held reply streams require. A supply that caps concurrent
-/// streams below the complement, or serializes an open behind an earlier
-/// stream's progress or closure, fails here as a hang at the capped open;
-/// sibling coupling hangs the youngest stream's drain. Probed in both
-/// directions.
-pub async fn check_concurrency<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab>(
-    a: Link<CRa, CWa, Ca, Aa>,
-    b: Link<CRb, CWb, Cb, Ab>,
+/// Opens run both sequentially and concurrently, through the connector and
+/// its clone. The last stream must finish while earlier receivers stay idle.
+/// Backpressure is exercised only to the extent described in the module docs.
+///
+/// The deadline covers pair construction and this check.
+pub async fn check_concurrency<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab, D>(
+    pair: impl AsyncFnOnce() -> (Link<CRa, CWa, Ca, Aa>, Link<CRb, CWb, Cb, Ab>),
+    deadline: impl FnOnce() -> D,
 ) where
     CRa: AsyncRead + Unpin + Send,
     CWa: AsyncWrite + Unpin + Send,
@@ -718,104 +761,118 @@ pub async fn check_concurrency<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab>(
     CWb: AsyncWrite + Unpin + Send,
     Cb: Connector,
     Ab: Acceptor,
+    D: Future<Output = ()>,
 {
-    let mut a = a.into_parts();
-    let mut b = b.into_parts();
-    probe_concurrency(&a.connector, &mut b.acceptor).await;
-    probe_concurrency(&b.connector, &mut a.acceptor).await;
+    timed("check_concurrency", deadline(), async {
+        let (a, b) = pair().await;
+        let mut a = a.into_parts();
+        let mut b = b.into_parts();
+        for concurrent in [false, true] {
+            join(
+                probe_concurrency(&a.connector, &mut b.acceptor, concurrent),
+                probe_concurrency(&b.connector, &mut a.acceptor, concurrent),
+            )
+            .await;
+        }
+    })
+    .await;
 }
 
-/// One direction of [`check_concurrency`]: the full complement held open at
-/// once.
-///
-/// Opens run sequentially with every earlier stream still open (every
-/// write and read half alive), then the drain reads the last-opened
-/// stream to end-of-stream first, while every elder writer sits mid-write
-/// on an undrained stream.
-async fn probe_concurrency<C: Connector, A: Acceptor>(connector: &C, acceptor: &mut A) {
-    let send = async {
-        // Open the whole complement with every earlier stream still open:
-        // a capped or open-serializing supply hangs right here.
-        let mut held = Vec::with_capacity(STREAM_COUNT);
-        for index in 0..STREAM_COUNT {
+/// Open and identify a full set of streams without relying on arrival order.
+async fn open_streams<C: Connector, A: Acceptor>(
+    connector: &C,
+    acceptor: &mut A,
+    concurrent: bool,
+) -> (Vec<C::Tx>, Vec<A::Rx>) {
+    let cloned = connector.clone();
+    let open = |index: usize| {
+        let connector = if index.is_multiple_of(2) {
+            connector
+        } else {
+            &cloned
+        };
+        async move {
             let (mut tx, _) = connector
                 .connect()
                 .await
-                .expect("contract: a full complement of opens succeeds");
-            tx.write_all(&[index as u8])
+                .expect("contract: concurrent connect");
+            tx.write_u8(index as u8)
                 .await
                 .expect("contract: stream write");
             tx.flush().await.expect("contract: stream flush");
-            held.push(tx);
+            tx
         }
-        // Every stream then writes its payload concurrently. The receiver
-        // drains the last-opened stream first, so at small windows the
-        // elder writers sit backpressured, on their own streams only,
-        // while the youngest completes.
-        join_all(held.into_iter().map(|mut tx| async move {
-            tx.write_all(PROBE).await.expect("contract: stream write");
-            tx.flush().await.expect("contract: stream flush");
-            drop(tx);
-        }))
-        .await;
+    };
+    let send = async {
+        if concurrent {
+            join_all((0..STREAM_COUNT).map(open)).await
+        } else {
+            let mut held = Vec::with_capacity(STREAM_COUNT);
+            for index in 0..STREAM_COUNT {
+                held.push(open(index).await);
+            }
+            held
+        }
     };
     let receive = async {
-        // Accept the whole complement, holding every read half open and
-        // pairing streams by their in-band index byte, never by accept
-        // order, which the contract leaves to the transport.
         let mut held: Vec<Option<A::Rx>> =
             std::iter::repeat_with(|| None).take(STREAM_COUNT).collect();
         for _ in 0..STREAM_COUNT {
             let (mut rx, _) = acceptor
                 .accept()
                 .await
-                .expect("contract: accept succeeds while the peer link lives");
-            let mut index = [0u8; 1];
-            rx.read_exact(&mut index)
-                .await
-                .expect("contract: every stream's first byte is delivered");
+                .expect("contract: every opened stream arrives");
+            let index = rx.read_u8().await.expect("contract: stream label");
             let slot = held
-                .get_mut(usize::from(index[0]))
+                .get_mut(usize::from(index))
                 .expect("contract: a stream delivered an index it was never sent");
             assert!(
                 slot.replace(rx).is_none(),
-                "contract: exactly one stream carries each index",
+                "contract: a stream arrived twice"
             );
         }
-        let drain = |mut rx: A::Rx| async move {
+        held.into_iter()
+            .map(|rx| rx.expect("every stream arrived"))
+            .collect()
+    };
+    join(send, receive).await
+}
+
+/// Drain the youngest stream before its siblings, which remain open and unread.
+async fn probe_concurrency<C: Connector, A: Acceptor>(
+    connector: &C,
+    acceptor: &mut A,
+    concurrent: bool,
+) {
+    let (writers, mut readers) = open_streams(connector, acceptor, concurrent).await;
+    let send = join_all(writers.into_iter().map(|mut tx| async move {
+        tx.write_all(PROBE).await.expect("contract: stream write");
+        tx.flush().await.expect("contract: stream flush");
+    }));
+    let receive = async {
+        readers.rotate_right(1);
+        for mut rx in readers {
             let mut bytes = Vec::new();
             rx.read_to_end(&mut bytes)
                 .await
-                .expect("contract: delivery beside open siblings");
+                .expect("contract: independent stream delivery");
             assert_eq!(bytes, PROBE, "contract: exact bytes on every stream");
-        };
-        // Youngest first: its bytes and end-of-stream must arrive while
-        // every elder sits open and undrained.
-        let youngest = held[STREAM_COUNT - 1]
-            .take()
-            .expect("every slot was filled");
-        drain(youngest).await;
-        for slot in &mut held[..STREAM_COUNT - 1] {
-            drain(slot.take().expect("every slot was filled")).await;
         }
     };
     join(send, receive).await;
 }
 
-/// A pending `accept` dropped mid-wait does not lose a stream: every
-/// delivery still surfaces from later `accept` calls.
+/// Cancelling an accept must preserve delivery for a later accept.
 ///
-/// This validates the cancellation clause with the shape session teardown
-/// produces: accept futures polled once and dropped while deliveries are
-/// in flight. An acceptor that internally dequeues a delivery and then
-/// awaits before returning it drops the dequeued stream with the
-/// cancelled future, and fails here as a hang on a collecting accept. A
-/// pass catches such an acceptor only when its internal dequeue is
-/// reachable within the probed window (see the module docs). Probed in
-/// both directions.
-pub async fn check_accept_cancellation<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab>(
-    a: Link<CRa, CWa, Ca, Aa>,
-    b: Link<CRb, CWb, Cb, Ab>,
+/// In both directions, pending accepts are dropped before arrivals and after
+/// one, two, four, or eight polls during delivery, with up to [`STREAM_COUNT`]
+/// streams in flight. A lost stream makes a later accept hang. Internal loss
+/// windows outside these schedules may go unseen.
+///
+/// The deadline covers pair construction and this check.
+pub async fn check_accept_cancellation<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab, D>(
+    pair: impl AsyncFnOnce() -> (Link<CRa, CWa, Ca, Aa>, Link<CRb, CWb, Cb, Ab>),
+    deadline: impl FnOnce() -> D,
 ) where
     CRa: AsyncRead + Unpin + Send,
     CWa: AsyncWrite + Unpin + Send,
@@ -825,22 +882,34 @@ pub async fn check_accept_cancellation<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab>(
     CWb: AsyncWrite + Unpin + Send,
     Cb: Connector,
     Ab: Acceptor,
+    D: Future<Output = ()>,
 {
-    let mut a = a.into_parts();
-    let mut b = b.into_parts();
-    probe_cancellation(&a.connector, &mut b.acceptor).await;
-    probe_cancellation(&b.connector, &mut a.acceptor).await;
+    timed("check_accept_cancellation", deadline(), async {
+        let (a, b) = pair().await;
+        let mut a = a.into_parts();
+        let mut b = b.into_parts();
+        for (polls, deliveries) in [(1, 2), (2, 3), (4, STREAM_COUNT), (8, STREAM_COUNT)] {
+            join(
+                probe_cancellation(&a.connector, &mut b.acceptor, polls, deliveries),
+                probe_cancellation(&b.connector, &mut a.acceptor, polls, deliveries),
+            )
+            .await;
+        }
+    })
+    .await;
 }
 
-/// One direction of [`check_accept_cancellation`]: dropped accepts around
-/// in-flight deliveries.
+/// Cancel accepts after `polls` polls while streams are arriving.
 ///
-/// The sender connects every stream and signals the receiving half before
-/// writing, and the receiver collects the first delivery with a real
-/// accept, so the poll-once-drop cycles that follow run inside the
-/// observed delivery window on any transport rather than racing ahead of
-/// arrival.
-async fn probe_cancellation<C: Connector, A: Acceptor>(connector: &C, acceptor: &mut A) {
+/// A first delivery establishes that streams can reach the receiver before
+/// cancellation starts. Each cancelled future retains its state across polls;
+/// the final collecting accepts must recover every stream.
+async fn probe_cancellation<C: Connector, A: Acceptor>(
+    connector: &C,
+    acceptor: &mut A,
+    polls: usize,
+    deliveries: usize,
+) {
     {
         // Poll a pending accept once, then drop it before anything arrives:
         // the trivial case of the teardown shape.
@@ -864,8 +933,8 @@ async fn probe_cancellation<C: Connector, A: Acceptor>(connector: &C, acceptor: 
         // through a one-byte window until the receiver drains it, and the
         // receiver drains nothing until signalled: a post-write signal
         // would deadlock the probe itself.
-        let mut streams = Vec::with_capacity(CANCELLED_DELIVERIES);
-        for _ in 0..CANCELLED_DELIVERIES {
+        let mut streams = Vec::with_capacity(deliveries);
+        for _ in 0..deliveries {
             let (tx, _) = connector.connect().await.expect("contract: connect");
             streams.push(tx);
         }
@@ -874,27 +943,25 @@ async fn probe_cancellation<C: Connector, A: Acceptor>(connector: &C, acceptor: 
         // whatever order its acceptor yields them, and sequential writes
         // through small windows would deadlock the probe against a
         // conforming reordering acceptor.
-        join_all(streams.into_iter().map(|mut tx| async move {
-            tx.write_all(PROBE).await.expect("contract: stream write");
-            tx.flush().await.expect("contract: stream flush");
-            drop(tx);
-        }))
+        join_all(
+            streams
+                .into_iter()
+                .enumerate()
+                .map(|(index, mut tx)| async move {
+                    tx.write_all(&[index as u8; PROBE.len()])
+                        .await
+                        .expect("contract: stream write");
+                    tx.flush().await.expect("contract: stream flush");
+                    drop(tx);
+                }),
+        )
         .await;
     };
     let receive = async {
         in_flight
             .await
             .expect("the sending half signals after connecting");
-        // Each collected stream is drained immediately; the sender writes
-        // every stream concurrently, so draining in accept order cannot
-        // deadlock however the acceptor orders arrivals.
-        let drain = |mut rx: A::Rx| async move {
-            let mut bytes = Vec::new();
-            rx.read_to_end(&mut bytes)
-                .await
-                .expect("contract: delivery");
-            assert_eq!(bytes, PROBE, "contract: exact bytes after cancellation");
-        };
+        let mut seen = vec![false; deliveries];
         // Bridge arrival with a real accept: connect completion at the
         // sender does not imply local acceptability (an RTT may separate
         // them), so the poll-drop cycles below start only once a delivery
@@ -903,28 +970,35 @@ async fn probe_cancellation<C: Connector, A: Acceptor>(connector: &C, acceptor: 
             .accept()
             .await
             .expect("contract: accept succeeds while the peer link lives");
-        drain(first).await;
+        receive_cancelled(first, &mut seen).await;
         let mut delivered = 1;
-        // Poll a fresh accept exactly once with the real waker, then drop
-        // it: the shape session teardown produces. Inside the delivery
-        // window this is the moment an acceptor holding an internally
-        // dequeued stream loses it; a stream the poll yields is simply
-        // collected. Yields between cycles give the concurrently written
-        // remainder time to surface.
+        // Keep each accept across several polls before cancelling it. A
+        // dequeue reached after the first poll must be cancellation-safe too.
+        // Yields allow the sender and any transport tasks to make progress.
         let mut patience = CANCEL_DROP_PATIENCE;
-        while delivered < CANCELLED_DELIVERIES {
-            let polled_once = std::future::poll_fn(|cx| {
+        while delivered < deliveries {
+            let polled = {
                 let mut accept = pin!(acceptor.accept());
-                Poll::Ready(match accept.as_mut().poll(cx) {
-                    Poll::Ready(rx) => Some(rx),
-                    Poll::Pending => None,
-                })
-            })
-            .await;
-            match polled_once {
+                let mut delivered = None;
+                for _ in 0..polls {
+                    delivered = std::future::poll_fn(|cx| {
+                        Poll::Ready(match accept.as_mut().poll(cx) {
+                            Poll::Ready(rx) => Some(rx),
+                            Poll::Pending => None,
+                        })
+                    })
+                    .await;
+                    if delivered.is_some() {
+                        break;
+                    }
+                    yield_once().await;
+                }
+                delivered
+            };
+            match polled {
                 Some(rx) => {
                     let (rx, _) = rx.expect("contract: accept succeeds while the peer link lives");
-                    drain(rx).await;
+                    receive_cancelled(rx, &mut seen).await;
                     delivered += 1;
                 }
                 None => {
@@ -938,16 +1012,41 @@ async fn probe_cancellation<C: Connector, A: Acceptor>(connector: &C, acceptor: 
         }
         // Every delivery must now surface from real accepts, however many
         // waits were dropped above.
-        while delivered < CANCELLED_DELIVERIES {
+        while delivered < deliveries {
             let (rx, _) = acceptor
                 .accept()
                 .await
                 .expect("contract: a delivery in flight across a dropped accept still arrives");
-            drain(rx).await;
+            receive_cancelled(rx, &mut seen).await;
             delivered += 1;
         }
     };
     join(send, receive).await;
+}
+
+/// Check one delivered stream's identity and bytes after accept cancellation.
+async fn receive_cancelled<R: AsyncRead + Unpin>(mut rx: R, seen: &mut [bool]) {
+    let mut bytes = Vec::new();
+    rx.read_to_end(&mut bytes)
+        .await
+        .expect("contract: delivery after cancellation");
+    assert_eq!(
+        bytes.len(),
+        PROBE.len(),
+        "contract: exact bytes after cancellation"
+    );
+    let index = bytes[0];
+    assert!(
+        bytes.iter().all(|byte| *byte == index),
+        "contract: exact bytes after cancellation"
+    );
+    let seen = seen
+        .get_mut(usize::from(index))
+        .expect("contract: stream identity after cancellation");
+    assert!(
+        !std::mem::replace(seen, true),
+        "contract: cancellation duplicated a stream"
+    );
 }
 
 /// A connector that counts successful opens.
@@ -957,11 +1056,14 @@ async fn probe_cancellation<C: Connector, A: Acceptor>(connector: &C, acceptor: 
 /// instead of assuming [`SESSION_PAYLOADS`] stays large enough as the
 /// protocol evolves.
 struct CountingConnector<C> {
+    /// The transport under test.
     inner: C,
+    /// Opens shared by every clone used in the session.
     opened: Arc<AtomicUsize>,
 }
 
 impl<C: Clone> Clone for CountingConnector<C> {
+    /// Keep cloned session handles in the same census.
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
@@ -971,8 +1073,10 @@ impl<C: Clone> Clone for CountingConnector<C> {
 }
 
 impl<C: Connector> Connector for CountingConnector<C> {
+    /// The underlying transport writer.
     type Tx = C::Tx;
 
+    /// Count a successful open without changing its completion behavior.
     async fn connect(&self) -> io::Result<(Self::Tx, Done<Self::Tx>)> {
         let pair = self.inner.connect().await?;
         self.opened.fetch_add(1, Ordering::Relaxed);
@@ -1008,17 +1112,15 @@ where
 
 /// Full protocol sessions converge over the pair.
 ///
-/// The end-to-end check: a bootstrap, then divergent gossip wide enough
-/// to open data streams in each direction, then a convergence-check
-/// session, all serialized on the one link pair. A clause violated in a
-/// way the focused probes miss makes reconciliation deadlock (a hang) or
-/// fail here. The two replicas must converge on the *same set* (asserted
-/// by snapshot equality, not merely equal sizes), and each direction must
-/// have opened data streams in-session, so the check cannot silently
-/// degenerate into control-stream-only traffic.
-pub async fn check_sessions<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab>(
-    a: Link<CRa, CWa, Ca, Aa>,
-    b: Link<CRb, CWb, Cb, Ab>,
+/// Bootstrap, reconcile distinct messages, and gossip again over the same
+/// link pair. The replicas must reach identical snapshots, and each direction
+/// must open data streams during the sessions. This can expose failures that
+/// the focused transport checks miss.
+///
+/// The deadline covers pair construction and this check.
+pub async fn check_sessions<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab, D>(
+    pair: impl AsyncFnOnce() -> (Link<CRa, CWa, Ca, Aa>, Link<CRb, CWb, Cb, Ab>),
+    deadline: impl FnOnce() -> D,
 ) where
     CRa: AsyncRead + Unpin + Send,
     CWa: AsyncWrite + Unpin + Send,
@@ -1028,54 +1130,60 @@ pub async fn check_sessions<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab>(
     CWb: AsyncWrite + Unpin + Send,
     Cb: Connector,
     Ab: Acceptor,
+    D: Future<Output = ()>,
 {
-    let a_opened = Arc::new(AtomicUsize::new(0));
-    let b_opened = Arc::new(AtomicUsize::new(0));
-    let mut a = counting(a, a_opened.clone());
-    let mut b = counting(b, b_opened.clone());
-    let seed: Rumors<u64> = Peer::seed().into_rumors();
-    // Session one: bootstrap the far side into the near side's universe.
-    let (served, joined) = join(seed.gossip(&mut a), Peer::<u64>::bootstrap().join(&mut b)).await;
-    served.expect("contract: the bootstrap-serving session completes");
-    let newcomer = joined
-        .expect("contract: the bootstrap session completes")
-        .expect("the seed serves the bootstrap")
-        .into_rumors();
+    timed("check_sessions", deadline(), async {
+        let (a, b) = pair().await;
+        let a_opened = Arc::new(AtomicUsize::new(0));
+        let b_opened = Arc::new(AtomicUsize::new(0));
+        let mut a = counting(a, a_opened.clone());
+        let mut b = counting(b, b_opened.clone());
+        let seed: Rumors<u64> = Peer::seed().into_rumors();
+        // Session one: bootstrap the far side into the near side's universe.
+        let (served, joined) =
+            join(seed.gossip(&mut a), Peer::<u64>::bootstrap().join(&mut b)).await;
+        served.expect("contract: the bootstrap-serving session completes");
+        let newcomer = joined
+            .expect("contract: the bootstrap session completes")
+            .expect("the seed serves the bootstrap")
+            .into_rumors();
 
-    // Divergence wide and deep enough to exercise many streams per side.
-    seed.send_all(0..SESSION_PAYLOADS)
-        .expect("flat payloads are within any depth limit");
-    newcomer
-        .send_all(SESSION_PAYLOADS..2 * SESSION_PAYLOADS)
-        .expect("flat payloads are within any depth limit");
+        // Give each side data to contribute to the shallow reconciliation.
+        seed.send_all(0..SESSION_PAYLOADS)
+            .expect("flat payloads are within any depth limit");
+        newcomer
+            .send_all(SESSION_PAYLOADS..2 * SESSION_PAYLOADS)
+            .expect("flat payloads are within any depth limit");
 
-    // Session two: reconcile the divergence; session three: converge as a
-    // no-op. Serialized on the same links, so the epoch counting and
-    // per-session stream lifecycle are exercised across sessions.
-    for _ in 0..2 {
-        let (near, far) = join(seed.gossip(&mut a), newcomer.gossip(&mut b)).await;
-        near.expect("contract: gossip completes over the link");
-        far.expect("contract: gossip completes over the link");
-    }
-    assert_eq!(
-        seed.snapshot().len(),
-        (2 * SESSION_PAYLOADS) as usize,
-        "reconciliation over the link converged",
-    );
-    assert_eq!(
-        seed.snapshot(),
-        newcomer.snapshot(),
-        "contract: reconciliation over the link converged on the same set",
-    );
-    for (side, opened) in [("a", &a_opened), ("b", &b_opened)] {
-        let opened = opened.load(Ordering::Relaxed);
-        assert!(
-            opened >= 1,
-            "the session check opened no data streams on side {side}: \
+        // Session two: reconcile the divergence; session three: converge as a
+        // no-op. Serialized on the same links, so the epoch counting and
+        // per-session stream lifecycle are exercised across sessions.
+        for _ in 0..2 {
+            let (near, far) = join(seed.gossip(&mut a), newcomer.gossip(&mut b)).await;
+            near.expect("contract: gossip completes over the link");
+            far.expect("contract: gossip completes over the link");
+        }
+        assert_eq!(
+            seed.snapshot().len(),
+            (2 * SESSION_PAYLOADS) as usize,
+            "reconciliation over the link converged",
+        );
+        assert_eq!(
+            seed.snapshot(),
+            newcomer.snapshot(),
+            "contract: reconciliation over the link converged on the same set",
+        );
+        for (side, opened) in [("a", &a_opened), ("b", &b_opened)] {
+            let opened = opened.load(Ordering::Relaxed);
+            assert!(
+                opened >= 1,
+                "the session check opened no data streams on side {side}: \
              reconciliation rode the control stream alone, so the end-to-end \
              check does not exercise the connector and acceptor in-session",
-        );
-    }
+            );
+        }
+    })
+    .await;
 }
 
 #[cfg(test)]

@@ -1,21 +1,25 @@
-use std::collections::HashMap;
 use std::future::{Future, poll_fn};
 use std::io;
-use std::mem::take;
-use std::pin::{Pin, pin};
+use std::pin::pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::task::{Context, Poll};
+use std::task::Poll;
 
+use crate::testing::run_to_quiescence;
 use futures::FutureExt;
 use futures::future::{Either, select, try_join};
-use futures::task::noop_waker;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt, DuplexStream, ReadBuf};
+use proptest::prelude::*;
+use tokio::io::{AsyncReadExt, AsyncWriteExt, BufStream, DuplexStream};
+use tokio::sync::{mpsc, oneshot};
 
 use super::header::{self, Token};
-use super::{Config, Dial, Endpoint, EndpointError, Incoming, LinkError, LinkInfo, RoutedLink};
+use super::{
+    Config, Dial, Endpoint, EndpointError, Incoming, LinkError, LinkInfo, Listen, RoutedLink,
+};
 use crate::link::{Acceptor, Connector, Link, STREAM_COUNT};
 use crate::testing::{MemoryDial, MemoryName, MemoryNet};
+
+mod fairness;
 
 /// One endpoint on `net`, listening at (and advertising) `name`.
 fn endpoint(
@@ -147,6 +151,92 @@ fn establishment_connects_control_and_streams() {
     });
 }
 
+/// Buffer routing bytes until the adapter explicitly flushes them.
+#[derive(Clone)]
+struct Buffered<T>(T);
+
+impl<D: Dial> Dial for Buffered<D> {
+    /// Preserve the wrapped dialer's address type.
+    type Addr = D::Addr;
+    /// Buffer reads and writes on each dialed connection.
+    type Conn = BufStream<D::Conn>;
+
+    /// Dial a connection and add buffering.
+    async fn dial(&self, addr: &Self::Addr) -> io::Result<Self::Conn> {
+        self.0.dial(addr).await.map(BufStream::new)
+    }
+}
+
+impl<L: Listen> Listen for Buffered<L> {
+    /// Buffer reads and writes on each accepted connection.
+    type Conn = BufStream<L::Conn>;
+
+    /// Accept a connection and add buffering.
+    async fn accept(&mut self) -> io::Result<Self::Conn> {
+        self.0.accept().await.map(BufStream::new)
+    }
+
+    /// Preserve the wrapped listener's routing deadline.
+    fn routing_deadline(&self) -> impl Future<Output = ()> + Send + 'static {
+        self.0.routing_deadline()
+    }
+}
+
+/// Buffered connections establish links, deliver streams before payload writes,
+/// and become reusable after completion. Full sessions flush their own traffic.
+#[test]
+fn buffered_connections_flush_routing_boundaries() {
+    run_to_quiescence(async {
+        let net = MemoryNet::new();
+        let dial = CountingDial::new(&net);
+        let a_name = MemoryName::new("a");
+        let (_a, mut incoming, a_router) = Endpoint::new(
+            Buffered(net.listen(&a_name)),
+            a_name.clone(),
+            Buffered(dial.clone()),
+            Config::default(),
+        )
+        .unwrap();
+        let b_name = MemoryName::new("b");
+        let (b, _incoming, b_router) = Endpoint::new(
+            Buffered(net.listen(&b_name)),
+            b_name,
+            Buffered(dial.clone()),
+            Config::default(),
+        )
+        .unwrap();
+        drive(routers(a_router, b_router), async {
+            let (linked, arrival) = futures::join!(b.link(a_name), incoming.accept());
+            let at_b = linked.unwrap();
+            let (_, mut at_a) = arrival.unwrap();
+            for _ in 0..2 {
+                // Routing must finish before either side sends payload bytes.
+                let (opened, accepted) =
+                    futures::join!(at_b.connector.connect(), at_a.acceptor.accept());
+                let (mut tx, sent) = opened.unwrap();
+                let (mut rx, received) = accepted.unwrap();
+                tx.write_all(b"payload").await.unwrap();
+                tx.flush().await.unwrap();
+                let mut bytes = [0; 7];
+                rx.read_exact(&mut bytes).await.unwrap();
+                assert_eq!(&bytes, b"payload");
+                sent.complete(tx);
+                received.complete(rx);
+                settle().await;
+            }
+            assert_eq!(
+                dial.fresh_dials(),
+                2,
+                "one control and one reused data connection"
+            );
+            crate::conformance::link::check_sessions(async || (at_a, at_b), std::future::pending)
+                .await;
+        })
+        .await;
+    })
+    .expect("buffered routing and sessions make progress");
+}
+
 /// `local_addr` is the advertised name given at construction, the name
 /// peers dial this endpoint at; callers need it back for policies like
 /// dial tiebreaks.
@@ -180,55 +270,55 @@ fn unknown_token_is_dropped() {
     });
 }
 
-/// A stream queue driven past a full session complement proves peer
-/// misbehavior and evicts the link: the queued complement still
-/// drains, the next accept errors instead of hanging, and the token
-/// routes nothing afterward.
+/// Queue overflow evicts the link. Queued streams remain available, then
+/// acceptance reports an error; later connections using the token are closed.
 #[test]
 fn queue_overflow_evicts_the_link() {
-    pollster::block_on(async {
+    run_to_quiescence(async {
         let net = MemoryNet::new();
         let (a, mut a_incoming, a_router) = endpoint(&net, "a", Config::default());
         let (b, _b_incoming, b_router) = endpoint(&net, "b", Config::default());
-        drive(routers(a_router, b_router), async {
-            let (_at_b, info, mut at_a) = establish(&b, "a", &mut a_incoming).await;
+        let mut running = pin!(routers(a_router, b_router));
+        let (_at_b, info, mut at_a) =
+            drive(running.as_mut(), establish(&b, "a", &mut a_incoming)).await;
 
-            // A misbehaving peer: one connection past the complement,
-            // dialed raw so the link's own connector is not implicated.
-            let mut flood = Vec::new();
-            for _ in 0..=STREAM_COUNT {
-                let mut conn = net.dial().dial(&MemoryName::new("a")).await.expect("dial");
-                conn.write_all(&header::stream_header(&info.token))
-                    .await
-                    .expect("header writes");
-                flood.push(conn);
-            }
-
-            // The queued complement drains; the accept after it
-            // surfaces the eviction as a transport error.
-            for _ in 0..STREAM_COUNT {
-                at_a.acceptor.accept().await.expect("queued streams drain");
-            }
-            at_a.acceptor
-                .accept()
-                .await
-                .expect_err("eviction surfaces as a transport error");
-
-            // The token is revoked: a further stream connection is
-            // dropped on sight.
-            let mut conn = net.dial().dial(&MemoryName::new("a")).await.expect("dial");
+        let mut flood = Vec::new();
+        for _ in 0..=STREAM_COUNT {
+            let mut conn = net.dial().dial(&MemoryName::new("a")).await.unwrap();
             conn.write_all(&header::stream_header(&info.token))
                 .await
-                .expect("header writes");
-            let mut drained = Vec::new();
-            conn.read_to_end(&mut drained)
+                .unwrap();
+            flood.push(conn);
+        }
+        // Keep the consumer idle until every header has been routed. Draining
+        // it concurrently would free slots and might never overflow the queue.
+        assert_eq!(
+            run_to_quiescence(running.as_mut()).unwrap_err(),
+            crate::testing::Quiescence::Stalled
+        );
+        for _ in 0..STREAM_COUNT {
+            at_a.acceptor.accept().await.expect("queued streams drain");
+        }
+        at_a.acceptor
+            .accept()
+            .await
+            .expect_err("eviction closes the supply");
+
+        drive(running.as_mut(), async {
+            let mut conn = net.dial().dial(&MemoryName::new("a")).await.unwrap();
+            conn.write_all(&header::stream_header(&info.token))
                 .await
-                .expect("the router drops the connection");
-            assert!(drained.is_empty());
-            drop((a, b));
+                .unwrap();
+            assert_eq!(
+                conn.read(&mut [0]).await.unwrap(),
+                0,
+                "the token was revoked"
+            );
         })
         .await;
-    });
+        drop((a, b));
+    })
+    .expect("overflow reports an error without stalling");
 }
 
 /// Dropping a link revokes its token at that moment, router
@@ -282,39 +372,307 @@ fn stalled_header_does_not_park_the_router() {
     });
 }
 
-/// Past the pending-header bound the oldest stalled connection is
-/// evicted (its dialer observes end-of-stream), and the router keeps
-/// serving: the count bound is the no-clock substitute for a header
-/// deadline.
-#[test]
-fn pending_header_bound_evicts_oldest() {
-    pollster::block_on(async {
-        let net = MemoryNet::new();
-        let config = Config {
-            pending_headers: 1,
-            ..Config::default()
-        };
-        let (a, mut a_incoming, a_router) = endpoint(&net, "a", config);
-        let (b, _b_incoming, b_router) = endpoint(&net, "b", Config::default());
-        drive(routers(a_router, b_router), async {
-            let mut stalled = net.dial().dial(&MemoryName::new("a")).await.expect("dial");
-            stalled
-                .write_all(b"ROU")
-                .await
-                .expect("a partial magic writes");
+/// Lets the scenario expire each fresh connection's routing independently.
+struct Deadlines<L> {
+    /// Supplies connections without an I/O timeout.
+    listen: L,
+    /// Gives the scenario control of each newly created deadline.
+    started: mpsc::UnboundedSender<oneshot::Sender<()>>,
+}
 
-            // The establishment connection displaces the stalled one.
-            let (_at_b, _info, _at_a) = establish(&b, "a", &mut a_incoming).await;
-            let mut drained = Vec::new();
-            stalled
-                .read_to_end(&mut drained)
-                .await
-                .expect("eviction drops the stalled connection");
-            assert!(drained.is_empty());
-            drop((a, b));
+impl<L: Listen> Listen for Deadlines<L> {
+    /// Preserve the wrapped listener's connection type.
+    type Conn = L::Conn;
+
+    /// Accept without changing the wrapped listener's behavior.
+    async fn accept(&mut self) -> io::Result<Self::Conn> {
+        self.listen.accept().await
+    }
+
+    /// Give the scenario a handle that expires this routing attempt.
+    fn routing_deadline(&self) -> impl Future<Output = ()> + Send + 'static {
+        let (expire, expired) = oneshot::channel();
+        self.started.send(expire).unwrap();
+        async {
+            let _ = expired.await;
+        }
+    }
+}
+
+proptest! {
+    /// Expiring an incomplete header releases its slot, lets a queued link
+    /// establish, and leaves the listener running.
+    #[test]
+    fn routing_deadline_releases_partial_header(prefix in 0usize..64) {
+        run_to_quiescence(async {
+            let net = MemoryNet::new();
+            let name = MemoryName::new("a");
+            let (started, mut deadlines) = mpsc::unbounded_channel();
+            let (_a, mut incoming, router) = Endpoint::new(
+                Deadlines { listen: net.listen(&name), started }, name.clone(), net.dial(),
+                Config { pending_headers: 1, ..Config::default() },
+            ).unwrap();
+            let mut router = pin!(router);
+            let mut stalled = net.dial().dial(&name).await.unwrap();
+            let header = header::link_header(&Token::new(), b"peer");
+            stalled.write_all(&header[..prefix % header.len()]).await.unwrap();
+            assert_eq!(run_to_quiescence(router.as_mut()).unwrap_err(), crate::testing::Quiescence::Stalled);
+            let expire = deadlines.try_recv().unwrap();
+            let mut waiting = net.dial().dial(&name).await.unwrap();
+            waiting.write_all(&header).await.unwrap();
+            assert_eq!(run_to_quiescence(router.as_mut()).unwrap_err(), crate::testing::Quiescence::Stalled);
+            assert!(deadlines.try_recv().is_err(), "the second arrival has not been admitted");
+            expire.send(()).unwrap();
+            drive(router.as_mut(), async {
+                assert_eq!(stalled.read(&mut [0]).await.unwrap(), 0);
+                let (_info, _link) = incoming.accept().await.unwrap();
+                assert_eq!(waiting.read_u8().await.unwrap(), header::ACK);
+                assert!(deadlines.try_recv().unwrap().is_closed(), "handoff discards the deadline");
+            }).await;
+        }).expect("expiration restores routing progress");
+    }
+}
+
+/// Supplies connections whose buffers the test can prepare before acceptance.
+struct Queued<C>(mpsc::UnboundedReceiver<C>);
+
+impl<C: super::Conn> Listen for Queued<C> {
+    /// A connection supplied by the test.
+    type Conn = C;
+
+    /// Receive the next prepared connection or report a closed supply.
+    async fn accept(&mut self) -> io::Result<C> {
+        self.0
+            .recv()
+            .await
+            .ok_or_else(|| io::ErrorKind::BrokenPipe.into())
+    }
+}
+
+/// A deadline also covers ACK flushing. Expiration releases the registration
+/// and backlog reservation, allowing the same link token to establish again.
+#[test]
+fn routing_deadline_cancels_blocked_ack_flush() {
+    run_to_quiescence(async {
+        let (mut local, mut remote) = tokio::io::duplex(64);
+        local.write_all(&[0; 64]).await.unwrap();
+        let (queued, conns) = mpsc::unbounded_channel();
+        queued.send(BufStream::new(local)).unwrap();
+        let (started, mut deadlines) = mpsc::unbounded_channel();
+        let net = MemoryNet::new();
+        let (_a, mut incoming, router) = Endpoint::new(
+            Deadlines {
+                listen: Queued(conns),
+                started,
+            },
+            MemoryName::new("a"),
+            Buffered(net.dial()),
+            Config {
+                incoming_backlog: 1,
+                pending_headers: 1,
+                ..Config::default()
+            },
+        )
+        .unwrap();
+        let mut router = pin!(router);
+        let token = Token::new();
+        remote
+            .write_all(&header::link_header(&token, b"peer"))
+            .await
+            .unwrap();
+        assert_eq!(
+            run_to_quiescence(router.as_mut()).unwrap_err(),
+            crate::testing::Quiescence::Stalled
+        );
+        assert!(
+            incoming.accept().now_or_never().is_none(),
+            "ACK must flush before handoff"
+        );
+        deadlines.try_recv().unwrap().send(()).unwrap();
+        assert_eq!(
+            run_to_quiescence(router.as_mut()).unwrap_err(),
+            crate::testing::Quiescence::Stalled
+        );
+        let mut bytes = Vec::new();
+        remote.read_to_end(&mut bytes).await.unwrap();
+        assert_eq!(bytes, [0; 64], "the ACK stayed buffered until cancellation");
+
+        let (local, mut remote) = tokio::io::duplex(64);
+        queued.send(BufStream::new(local)).unwrap();
+        remote
+            .write_all(&header::link_header(&token, b"peer"))
+            .await
+            .unwrap();
+        drive(router.as_mut(), async {
+            let (info, _link) = incoming.accept().await.unwrap();
+            assert_eq!(info.token, token);
+            assert_eq!(remote.read_u8().await.unwrap(), header::ACK);
+            assert!(deadlines.try_recv().unwrap().is_closed());
         })
         .await;
-    });
+    })
+    .expect("ACK cancellation releases routing resources");
+}
+
+/// A caller-owned clock bounds fresh routing without timing out established
+/// gossip or retaining deadlines on idle pooled connections.
+#[tokio::test(start_paused = true)]
+async fn routing_deadline_allows_idle_gossip_and_reuse() {
+    use crate::{Gossip, Peer};
+    use futures::{SinkExt, StreamExt};
+    use std::time::Duration;
+
+    /// Apply a short routing deadline while preserving connection I/O.
+    struct Timed<L>(L);
+    impl<L: Listen> Listen for Timed<L> {
+        /// Preserve the wrapped listener's connection type.
+        type Conn = L::Conn;
+        /// Accept without imposing an I/O timeout on the connection.
+        async fn accept(&mut self) -> io::Result<Self::Conn> {
+            self.0.accept().await
+        }
+        /// Expire initial routing after ten seconds on the test clock.
+        fn routing_deadline(&self) -> impl Future<Output = ()> + Send + 'static {
+            tokio::time::sleep(Duration::from_secs(10))
+        }
+    }
+
+    let net = MemoryNet::new();
+    let dial = CountingDial::new(&net);
+    let a_name = MemoryName::new("a");
+    let (_a, mut incoming, a_router) = Endpoint::new(
+        Timed(net.listen(&a_name)),
+        a_name.clone(),
+        dial.clone(),
+        Config::default(),
+    )
+    .unwrap();
+    let b_name = MemoryName::new("b");
+    let (b, _incoming, b_router) = Endpoint::new(
+        Timed(net.listen(&b_name)),
+        b_name,
+        dial.clone(),
+        Config::default(),
+    )
+    .unwrap();
+    drive(routers(a_router, b_router), async {
+        let (linked, arrival) = futures::join!(b.link(a_name), incoming.accept());
+        let mut at_b = linked.unwrap();
+        let (_, mut at_a) = arrival.unwrap();
+        complete_streams(&at_a, &mut at_b, STREAM_COUNT).await;
+        complete_streams(&at_b, &mut at_a, STREAM_COUNT).await;
+        let dials = dial.fresh_dials();
+        let alice = Peer::<String>::seed().into_rumors();
+        alice.send("first".into()).unwrap();
+        let (joined, served) = futures::join!(
+            Peer::<String>::bootstrap().join(&mut at_b),
+            alice.gossip(&mut at_a),
+        );
+        served.unwrap();
+        let bob = joined.unwrap().unwrap().into_rumors();
+        let (mut ticks, when) = futures::channel::mpsc::channel(1);
+        let mut a_driver = alice.gossip_when(futures::stream::pending::<Gossip>(), &mut at_a);
+        let mut b_driver = bob.gossip_when(when, &mut at_b);
+        for round in 0..2 {
+            tokio::select! {
+                result = a_driver.next() => panic!("idle gossip ended: {result:?}"),
+                result = b_driver.next() => panic!("idle gossip ended: {result:?}"),
+                _ = tokio::time::sleep(Duration::from_secs(30)) => {}
+            }
+            alice.send(format!("after idle {round}")).unwrap();
+            ticks.send(Gossip::Unconditionally).await.unwrap();
+            let (a, b) = tokio::time::timeout(Duration::from_secs(10), async {
+                futures::join!(a_driver.next(), b_driver.next())
+            })
+            .await
+            .expect("gossip resumes after the idle wait");
+            a.unwrap().unwrap();
+            b.unwrap().unwrap();
+            assert!(alice.snapshot() == bob.snapshot());
+            assert_eq!(
+                dial.fresh_dials(),
+                dials,
+                "idle connections remain reusable"
+            );
+        }
+    })
+    .await;
+}
+
+proptest! {
+    /// At capacity, new arrivals wait without displacing admitted attempts.
+    /// Finishing or closing any admitted connection lets waiting arrivals route.
+    #[test]
+    fn pending_header_bound_preserves_admitted_work(
+        capacity in 1usize..8,
+        arrivals in 1usize..8,
+        released in any::<usize>(),
+        finish in any::<bool>(),
+    ) {
+        run_to_quiescence(async {
+            let net = MemoryNet::new();
+            let (_a, mut incoming, a_router) = endpoint(&net, "a", Config {
+                pending_headers: capacity,
+                ..Config::default()
+            });
+            let mut a_router = pin!(a_router);
+            let name = MemoryName::new("a");
+            let mut admitted = Vec::new();
+            for _ in 0..capacity {
+                let mut conn = net.dial().dial(&name).await.unwrap();
+                conn.write_all(b"ROU").await.unwrap();
+                admitted.push(conn);
+            }
+            assert_eq!(
+                run_to_quiescence(a_router.as_mut()).expect_err("partial headers wait"),
+                crate::testing::Quiescence::Stalled,
+            );
+
+            let mut waiting = Vec::new();
+            for _ in 0..arrivals {
+                let mut conn = net.dial().dial(&name).await.unwrap();
+                let token = Token::new();
+                conn.write_all(&header::link_header(&token, b"peer")).await.unwrap();
+                waiting.push((conn, token));
+            }
+            assert_eq!(
+                run_to_quiescence(a_router.as_mut()).expect_err("acceptance stays paused"),
+                crate::testing::Quiescence::Stalled,
+            );
+            assert!(incoming.accept().now_or_never().is_none());
+            for conn in &mut admitted {
+                assert!(conn.read_u8().now_or_never().is_none(), "admitted work stays open");
+            }
+
+            let mut conn = admitted.remove(released % capacity);
+            if finish {
+                let token = Token::new();
+                conn.write_all(&header::link_header(&token, b"peer")[3..]).await.unwrap();
+                waiting.push((conn, token));
+            } else {
+                drop(conn);
+            }
+            drive(a_router.as_mut(), async {
+                // One free slot suffices to route the entire waiting group.
+                let mut tokens: Vec<_> = waiting.iter().map(|(_, token)| *token).collect();
+                for _ in 0..waiting.len() {
+                    let (info, _link) = incoming.accept().await.unwrap();
+                    let index = tokens.iter().position(|token| *token == info.token).unwrap();
+                    tokens.swap_remove(index);
+                }
+                for (mut conn, _) in waiting {
+                    assert_eq!(conn.read_u8().await.unwrap(), header::ACK);
+                }
+                for mut conn in admitted {
+                    let token = Token::new();
+                    conn.write_all(&header::link_header(&token, b"peer")[3..]).await.unwrap();
+                    assert_eq!(conn.read_u8().await.unwrap(), header::ACK);
+                    let (info, _link) = incoming.accept().await.unwrap();
+                    assert_eq!(info.token, token);
+                }
+            }).await;
+        }).expect("waiting and admitted connections finish routing");
+    }
 }
 
 /// A full incoming backlog rejects establishment while the dialer is
@@ -491,89 +849,40 @@ async fn transfer_completed<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab>(
     assert_eq!(received, payload);
 }
 
-/// A dialer that pools recycled connections per peer and counts the
-/// fresh dials it performs: how the reuse tests observe which streams
-/// paid for a connection.
+/// Counts fresh connections while leaving reuse to the adapter.
 #[derive(Clone)]
-struct PoolingDial {
+struct CountingDial {
+    /// Supplies fresh connections from the test network.
     inner: MemoryDial,
-    /// Recycled, awaiting the router's ready byte.
-    pending: Arc<Mutex<HashMap<String, Vec<DuplexStream>>>>,
-    /// Ready for reuse.
-    pool: Arc<Mutex<HashMap<String, Vec<DuplexStream>>>>,
+    /// Shared by clones so all dial attempts are counted.
     fresh: Arc<AtomicUsize>,
 }
 
-impl PoolingDial {
+impl CountingDial {
+    /// Wrap the network's dialer with a shared connection counter.
     fn new(net: &MemoryNet) -> Self {
-        PoolingDial {
+        Self {
             inner: net.dial(),
-            pending: Arc::default(),
-            pool: Arc::default(),
             fresh: Arc::default(),
         }
     }
 
+    /// Read the number of fresh dials made through any clone.
     fn fresh_dials(&self) -> usize {
         self.fresh.load(Ordering::Relaxed)
     }
-
-    /// Admit pending connections whose ready byte has arrived, polling
-    /// each read exactly once: the byte is consumed off the dialing
-    /// path, never awaited.
-    fn admit(&self, addr: &MemoryName) {
-        let mut pending = self.pending.lock().expect("pending lock");
-        let Some(conns) = pending.get_mut(&addr.0) else {
-            return;
-        };
-        let waker = noop_waker();
-        let mut cx = Context::from_waker(&waker);
-        for mut conn in take(conns) {
-            let mut byte = [0u8; 1];
-            let mut buf = ReadBuf::new(&mut byte);
-            match Pin::new(&mut conn).poll_read(&mut cx, &mut buf) {
-                Poll::Ready(Ok(())) if buf.filled().len() == 1 => {
-                    self.pool
-                        .lock()
-                        .expect("pool lock")
-                        .entry(addr.0.clone())
-                        .or_default()
-                        .push(conn);
-                }
-                Poll::Pending => conns.push(conn),
-                // EOF or error: the connection is dead.
-                _ => {}
-            }
-        }
-    }
 }
 
-impl Dial for PoolingDial {
+impl Dial for CountingDial {
+    /// A listener name in the test network.
     type Addr = MemoryName;
+    /// An in-memory connection supplied by the test network.
     type Conn = DuplexStream;
 
+    /// Count the attempt and delegate to the test network.
     async fn dial(&self, addr: &MemoryName) -> io::Result<DuplexStream> {
-        self.admit(addr);
-        let pooled = self
-            .pool
-            .lock()
-            .expect("pool lock")
-            .get_mut(&addr.0)
-            .and_then(Vec::pop);
-        if let Some(conn) = pooled {
-            return Ok(conn);
-        }
         self.fresh.fetch_add(1, Ordering::Relaxed);
         self.inner.dial(addr).await
-    }
-
-    fn recycle(&self, peer: &MemoryName, conn: DuplexStream) {
-        self.pending
-            .lock()
-            .expect("pending lock")
-            .entry(peer.0.clone())
-            .or_default()
-            .push(conn);
     }
 }
 
@@ -595,18 +904,12 @@ async fn settle() {
     }
 }
 
-/// A completed stream's connection carries the next stream instead of
-/// a fresh dial.
-///
-/// The write half hands it back through [`Dial::recycle`], the read
-/// half returns it to the router for its next connect header, and the
-/// recycled connection routes exactly as a dialed one would — in both
-/// directions of the link.
+/// Completed connections carry later streams in both link directions.
 #[test]
 fn completed_streams_reuse_their_connection() {
     pollster::block_on(async {
         let net = MemoryNet::new();
-        let dial = PoolingDial::new(&net);
+        let dial = CountingDial::new(&net);
         let a_name = MemoryName::new("a");
         let (a, mut a_incoming, a_router) =
             Endpoint::new(net.listen(&a_name), a_name, dial.clone(), Config::default())
@@ -647,9 +950,12 @@ fn completed_streams_reuse_their_connection() {
 struct SocketDial;
 
 impl Dial for SocketDial {
+    /// Exercise the socket-address wire encoding during construction.
     type Addr = std::net::SocketAddr;
+    /// A placeholder connection type; construction does not dial.
     type Conn = tokio::io::DuplexStream;
 
+    /// Fail if a construction-only test unexpectedly attempts to dial.
     async fn dial(&self, _addr: &Self::Addr) -> io::Result<Self::Conn> {
         unreachable!("construction tests never dial")
     }
@@ -740,4 +1046,486 @@ fn zero_config_bounds_fail_construction() {
         panic!("zero pending headers must fail construction");
     };
     assert!(matches!(error, EndpointError::ZeroPendingHeaders));
+}
+
+proptest! {
+/// Header pressure must not break streams opened on a link's idle connections.
+#[test]
+fn pooled_streams_survive_header_pressure(count in 1usize..=STREAM_COUNT, pressure in 1usize..8) {
+    crate::testing::run_to_quiescence(async {
+        let net = MemoryNet::new();
+        let dial = CountingDial::new(&net);
+        let a_name = MemoryName::new("a");
+        let (a, mut incoming, a_router) = Endpoint::new(
+            net.listen(&a_name),
+            a_name.clone(),
+            dial.clone(),
+            Config {
+                pending_headers: 1,
+                ..Config::default()
+            },
+        )
+        .unwrap();
+        let b_name = MemoryName::new("b");
+        let (b, _incoming, b_router) =
+            Endpoint::new(net.listen(&b_name), b_name, dial.clone(), Config::default()).unwrap();
+        drive(routers(a_router, b_router), async {
+            let (linked, arrival) = futures::join!(b.link(a_name.clone()), incoming.accept());
+            let at_b = linked.unwrap();
+            let (_, mut at_a) = arrival.unwrap();
+            complete_streams(&at_b, &mut at_a, count).await;
+            settle().await;
+            let dials = dial.fresh_dials();
+
+            let mut stalled = Vec::new();
+            for _ in 0..pressure {
+                let mut conn = net.dial().dial(&a_name).await.unwrap();
+                conn.write_all(b"ROU").await.unwrap();
+                stalled.push(conn);
+                settle().await;
+            }
+            complete_streams(&at_b, &mut at_a, count).await;
+            assert_eq!(dial.fresh_dials(), dials, "reuse every healthy connection");
+            drop((a, stalled));
+        })
+        .await;
+    })
+    .expect("streams make progress despite header pressure");
+}
+
+}
+
+/// Open a group before returning any connection, then transfer and complete
+/// each stream. A yield between opens lets even a one-slot router keep up.
+async fn complete_streams<D: Dial<Addr = MemoryName>>(
+    from: &RoutedLink<D>,
+    to: &mut RoutedLink<impl Dial<Addr = MemoryName>>,
+    count: usize,
+) {
+    let mut opened = Vec::new();
+    for _ in 0..count {
+        opened.push(from.connector.connect().await.unwrap());
+        settle().await;
+    }
+    for (mut tx, done) in opened {
+        tx.write_all(b"payload").await.unwrap();
+        done.complete(tx);
+        let (mut rx, done) = to.acceptor.accept().await.unwrap();
+        let mut bytes = [0; 7];
+        rx.read_exact(&mut bytes).await.unwrap();
+        assert_eq!(&bytes, b"payload");
+        done.complete(rx);
+        settle().await;
+    }
+}
+
+/// Return a raw stream to the router and read its reuse decision: READY
+/// when admitted, EOF when refused. Keep its dialing end to observe reuse.
+async fn park(
+    net: &MemoryNet,
+    link: &mut RoutedLink<MemoryDial>,
+    token: Token,
+) -> (DuplexStream, Option<u8>) {
+    let mut conn = net.dial().dial(&MemoryName::new("a")).await.unwrap();
+    conn.write_all(&header::stream_header(&token))
+        .await
+        .unwrap();
+    let (rx, done) = link.acceptor.accept().await.unwrap();
+    done.complete(rx);
+    let decision = conn.read_u8().await.ok();
+    (conn, decision)
+}
+
+proptest! {
+    /// Admission is bounded per link. Closing any idle connection frees one
+    /// slot; dropping or evicting its link closes the rest without affecting
+    /// another link to the same peer.
+    #[test]
+    fn idle_admission_and_release(dead in 0usize..STREAM_COUNT, evict in any::<bool>()) {
+        run_to_quiescence(async {
+            let net = MemoryNet::new();
+            let (_a, mut incoming, a_router) = endpoint(&net, "a", Config::default());
+            let (b, _incoming, b_router) = endpoint(&net, "b", Config::default());
+            drive(routers(a_router, b_router), async {
+                let (_b1, info1, mut a1) = establish(&b, "a", &mut incoming).await;
+                let (b2, info2, mut a2) = establish(&b, "a", &mut incoming).await;
+                let mut idle = Vec::new();
+                for _ in 0..STREAM_COUNT {
+                    let (conn, decision) = park(&net, &mut a1, info1.token).await;
+                    assert_eq!(decision, Some(header::READY));
+                    idle.push(conn);
+                }
+                for _ in 0..2 {
+                    assert_eq!(park(&net, &mut a1, info1.token).await.1, None);
+                }
+                let (mut other, decision) = park(&net, &mut a2, info2.token).await;
+                assert_eq!(decision, Some(header::READY));
+
+                drop(idle.swap_remove(dead));
+                settle().await;
+                let (conn, decision) = park(&net, &mut a1, info1.token).await;
+                assert_eq!(decision, Some(header::READY));
+                idle.push(conn);
+                assert_eq!(park(&net, &mut a1, info1.token).await.1, None);
+
+                if evict {
+                    let mut overflow = Vec::new();
+                    for _ in 0..=STREAM_COUNT {
+                        let mut conn = net.dial().dial(&MemoryName::new("a")).await.unwrap();
+                        conn.write_all(&header::stream_header(&info1.token)).await.unwrap();
+                        overflow.push(conn);
+                        settle().await;
+                    }
+                    for _ in 0..STREAM_COUNT {
+                        a1.acceptor.accept().await.unwrap();
+                    }
+                    assert!(a1.acceptor.accept().await.is_err());
+                } else {
+                    drop(a1);
+                }
+                for mut conn in idle {
+                    assert_eq!(conn.read(&mut [0]).await.unwrap(), 0);
+                }
+                other.write_all(&header::stream_header(&info2.token)).await.unwrap();
+                other.write_all(b"other link").await.unwrap();
+                let (mut rx, _) = a2.acceptor.accept().await.unwrap();
+                let mut bytes = [0; 10];
+                rx.read_exact(&mut bytes).await.unwrap();
+                assert_eq!(&bytes, b"other link");
+                transfer(&b2, &mut a2, b"still usable").await;
+            }).await;
+        }).expect("admission and teardown complete");
+    }
+}
+
+/// A stream whose receiver has not completed cannot block a later open.
+/// Dropping one link's pool must leave another link's reusable connections intact.
+#[test]
+fn reuse_waits_for_completion_without_blocking_other_streams() {
+    run_to_quiescence(async {
+        let net = MemoryNet::new();
+        let (_a, mut incoming, a_router) = endpoint(&net, "a", Config::default());
+        let dial = CountingDial::new(&net);
+        let b_name = MemoryName::new("b");
+        let (b, _incoming, b_router) =
+            Endpoint::new(net.listen(&b_name), b_name, dial.clone(), Config::default()).unwrap();
+        drive(routers(a_router, b_router), async {
+            let (linked, arrival) = futures::join!(b.link(MemoryName::new("a")), incoming.accept());
+            let b1 = linked.unwrap();
+            let (_, mut a1) = arrival.unwrap();
+            let (linked, arrival) = futures::join!(b.link(MemoryName::new("a")), incoming.accept());
+            let b2 = linked.unwrap();
+            let (_, mut a2) = arrival.unwrap();
+            let (tx, done) = b1.connector.connect().await.unwrap();
+            done.complete(tx);
+            let held = a1.acceptor.accept().await.unwrap();
+            let dials = dial.fresh_dials();
+            transfer_completed(&b1, &mut a1, b"independent").await;
+            assert_eq!(dial.fresh_dials(), dials + 1);
+            held.1.complete(held.0);
+            settle().await;
+
+            complete_streams(&b2, &mut a2, 2).await;
+            let dials = dial.fresh_dials();
+            drop(b1);
+            drop(a1);
+            settle().await;
+            complete_streams(&b2, &mut a2, 2).await;
+            assert_eq!(dial.fresh_dials(), dials, "the other link keeps its pool");
+        })
+        .await;
+    })
+    .expect("independent streams complete");
+}
+
+/// Either endpoint can disable outgoing reuse without affecting delivery.
+#[test]
+fn pooling_can_be_disabled_at_either_end() {
+    run_to_quiescence(async {
+        for pooling in [false, true] {
+            let net = MemoryNet::new();
+            let dial = CountingDial::new(&net);
+            let a_name = MemoryName::new("a");
+            let config = Config {
+                pooling,
+                ..Config::default()
+            };
+            let (_a, mut incoming, a_router) =
+                Endpoint::new(net.listen(&a_name), a_name.clone(), dial.clone(), config).unwrap();
+            let b_name = MemoryName::new("b");
+            let (b, _incoming, b_router) =
+                Endpoint::new(net.listen(&b_name), b_name, dial.clone(), config).unwrap();
+            drive(routers(a_router, b_router), async {
+                let (linked, arrival) = futures::join!(b.link(a_name), incoming.accept());
+                let mut at_b = linked.unwrap();
+                let (_, mut at_a) = arrival.unwrap();
+                let dials = dial.fresh_dials();
+                for _ in 0..2 {
+                    complete_streams(&at_b, &mut at_a, 2).await;
+                    complete_streams(&at_a, &mut at_b, 2).await;
+                }
+                assert_eq!(dial.fresh_dials() - dials, if pooling { 4 } else { 8 });
+            })
+            .await;
+        }
+    })
+    .expect("streams complete with either pooling setting");
+}
+
+/// Supplies prebuilt connections so tests can control buffer capacity.
+#[derive(Clone)]
+struct PreparedDial(Arc<Mutex<Vec<DuplexStream>>>);
+
+impl Dial for PreparedDial {
+    /// An unused address; connections come from the prepared queue.
+    type Addr = MemoryName;
+    /// A prepared in-memory connection.
+    type Conn = DuplexStream;
+
+    /// Take a prepared connection, or fail when none remain.
+    async fn dial(&self, _: &MemoryName) -> io::Result<Self::Conn> {
+        self.0
+            .lock()
+            .unwrap()
+            .pop()
+            .ok_or_else(|| io::ErrorKind::ConnectionRefused.into())
+    }
+}
+
+proptest! {
+    /// Cancelling a reused open after any partial header closes that
+    /// connection. A subsequent open can use a fresh connection normally.
+    #[test]
+    fn cancellation_during_reuse_closes_the_partial_header(prefix in 1usize..header::PREFIX_LEN) {
+        run_to_quiescence(async {
+            let (first, mut remote) = tokio::io::duplex(prefix);
+            let (fresh, mut next_remote) = tokio::io::duplex(header::PREFIX_LEN);
+            let dial = PreparedDial(Arc::new(Mutex::new(vec![fresh, first])));
+            let token = Token::new();
+            let connector = super::stream::StreamConnector::new(dial, MemoryName::new("peer"), token, true);
+            let (opened, header) = futures::join!(connector.connect(), header::read::<MemoryName, _>(&mut remote));
+            assert!(header.is_ok());
+            let (conn, done) = opened.unwrap();
+            done.complete(conn);
+            remote.write_all(&[header::READY]).await.unwrap();
+            assert!(connector.connect().now_or_never().is_none());
+            let mut received = Vec::new();
+            remote.read_to_end(&mut received).await.unwrap();
+            assert_eq!(received, header::stream_header(&token)[..prefix]);
+            let (opened, header) = futures::join!(connector.connect(), header::read::<MemoryName, _>(&mut next_remote));
+            assert!(opened.is_ok());
+            assert!(matches!(header.unwrap(), header::Header::Stream { token: next } if next == token));
+        }).expect("cancellation closes the partial stream");
+    }
+}
+
+/// The outgoing pool refuses excess returns and closes every retained
+/// connection when its last connector drops, even if a completion is still held.
+#[test]
+fn outgoing_pool_is_bounded_and_released_with_its_connector() {
+    run_to_quiescence(async {
+        let net = MemoryNet::new();
+        let name = MemoryName::new("peer");
+        let mut listen = net.listen(&name);
+        let connector = super::stream::StreamConnector::new(net.dial(), name, Token::new(), true);
+        let mut opened = Vec::new();
+        let mut remotes = Vec::new();
+        for _ in 0..STREAM_COUNT + 2 {
+            opened.push(connector.connect().await.unwrap());
+            let mut remote = super::Listen::accept(&mut listen).await.unwrap();
+            header::read::<MemoryName, _>(&mut remote).await.unwrap();
+            remotes.push(remote);
+        }
+        let held = opened.pop().unwrap();
+        for (conn, done) in opened {
+            done.complete(conn);
+        }
+        assert_eq!(remotes[STREAM_COUNT].read(&mut [0]).await.unwrap(), 0);
+        drop(connector);
+        held.1.complete(held.0);
+        for mut remote in remotes {
+            assert_eq!(remote.read(&mut [0]).await.unwrap(), 0);
+        }
+    })
+    .expect("pool teardown closes its connections");
+}
+
+/// A transport yielding with READY buffered does not stall a new stream.
+/// Pooling resumes when the transport can make progress again.
+#[tokio::test]
+async fn reuse_probe_allows_transport_yields() {
+    let net = MemoryNet::new();
+    let a_name = MemoryName::new("a");
+    let (_a, mut incoming, a_router) = Endpoint::new(
+        net.listen(&a_name),
+        a_name.clone(),
+        net.dial(),
+        Config::default(),
+    )
+    .unwrap();
+    let dial = CountingDial::new(&net);
+    let b_name = MemoryName::new("b");
+    let (b, _incoming, b_router) =
+        Endpoint::new(net.listen(&b_name), b_name, dial.clone(), Config::default()).unwrap();
+    let task = tokio::spawn(routers(a_router, b_router));
+    let (linked, arrival) = tokio::join!(b.link(a_name), incoming.accept());
+    let at_b = linked.unwrap();
+    let (_, mut at_a) = arrival.unwrap();
+    complete_streams(&at_b, &mut at_a, 2).await;
+    let dials = dial.fresh_dials();
+    spend_budget().await;
+    transfer_completed(&at_b, &mut at_a, b"fresh while the probe yields").await;
+    assert_eq!(dial.fresh_dials(), dials + 1);
+    settle().await;
+    transfer_completed(&at_b, &mut at_a, b"reused after the yield").await;
+    assert_eq!(dial.fresh_dials(), dials + 1);
+    task.abort();
+}
+
+/// Exhaust Tokio's cooperative budget using buffered reads without yielding.
+async fn spend_budget() {
+    let (mut rx, mut tx) = tokio::io::duplex(1024);
+    tx.write_all(&[0; 512]).await.unwrap();
+    while tokio::task::coop::has_budget_remaining() {
+        rx.read_u8().await.unwrap();
+    }
+}
+
+/// The incoming idle bound includes returns queued for an unpolled router.
+/// Excess connections close immediately, before any READY can be sent.
+#[test]
+fn idle_admission_bounds_queued_returns() {
+    run_to_quiescence(async {
+        let net = MemoryNet::new();
+        let (_a, mut incoming, a_router) = endpoint(&net, "a", Config::default());
+        let (b, _incoming, b_router) = endpoint(&net, "b", Config::default());
+        drive(routers(a_router, b_router), async {
+            let (_b, info, mut at_a) = establish(&b, "a", &mut incoming).await;
+            let mut remotes = Vec::new();
+            let mut returned = Vec::new();
+            for _ in 0..=STREAM_COUNT {
+                let mut conn = net.dial().dial(&MemoryName::new("a")).await.unwrap();
+                conn.write_all(&header::stream_header(&info.token))
+                    .await
+                    .unwrap();
+                returned.push(at_a.acceptor.accept().await.unwrap());
+                remotes.push(conn);
+            }
+            for (conn, done) in returned {
+                done.complete(conn);
+            }
+            // Observe refusal without polling the router between returns.
+            assert_eq!(
+                remotes
+                    .last_mut()
+                    .unwrap()
+                    .read(&mut [0])
+                    .now_or_never()
+                    .unwrap()
+                    .unwrap(),
+                0
+            );
+            for conn in &mut remotes[..STREAM_COUNT] {
+                assert_eq!(conn.read_u8().await.unwrap(), header::READY);
+            }
+        })
+        .await;
+    })
+    .expect("bounded returns complete");
+}
+
+/// Dropping a link or its router closes queued returns without another
+/// router poll. A completion held across teardown cannot retain a connection.
+#[test]
+fn queued_returns_follow_owner_lifetime() {
+    for stop_router in [false, true] {
+        run_to_quiescence(async {
+            let net = MemoryNet::new();
+            let (a, mut incoming, a_router) = endpoint(&net, "a", Config::default());
+            let (b, _incoming, b_router) = endpoint(&net, "b", Config::default());
+            let mut a_router = Box::pin(a_router);
+            let (mut at_a, mut remotes, mut returned) =
+                drive(routers(&mut a_router, b_router), async {
+                    let (_b, info, mut at_a) = establish(&b, "a", &mut incoming).await;
+                    let mut remotes = Vec::new();
+                    let mut returned = Vec::new();
+                    for _ in 0..3 {
+                        let mut conn = net.dial().dial(&MemoryName::new("a")).await.unwrap();
+                        conn.write_all(&header::stream_header(&info.token))
+                            .await
+                            .unwrap();
+                        returned.push(at_a.acceptor.accept().await.unwrap());
+                        remotes.push(conn);
+                    }
+                    (at_a, remotes, returned)
+                })
+                .await;
+            let held = returned.pop().unwrap();
+            for (conn, done) in returned {
+                done.complete(conn);
+            }
+            if stop_router {
+                drop(a_router);
+                assert!(
+                    at_a.acceptor
+                        .accept()
+                        .now_or_never()
+                        .expect("a stopped router closes its stream supplies")
+                        .is_err()
+                );
+                assert!(matches!(
+                    a.link(MemoryName::new("b")).now_or_never()
+                        .expect("a stopped router rejects new links"),
+                    Err(LinkError::Io(error)) if error.kind() == io::ErrorKind::BrokenPipe
+                ));
+            } else {
+                drop(at_a);
+            }
+            held.1.complete(held.0);
+            for conn in &mut remotes {
+                assert_eq!(
+                    conn.read(&mut [0])
+                        .now_or_never()
+                        .expect("teardown closes returns without polling the router")
+                        .unwrap(),
+                    0
+                );
+            }
+        })
+        .expect("teardown releases returned connections");
+    }
+}
+
+proptest! {
+    /// Completion bursts on several links retain each link's full allowance.
+    /// A coalesced wakeup must deliver READY to every admitted connection.
+    #[test]
+    fn concurrent_return_bursts_stay_per_link(links in 2usize..5, count in 1usize..=STREAM_COUNT) {
+        run_to_quiescence(async {
+            let net = MemoryNet::new();
+            let (_a, mut incoming, a_router) = endpoint(&net, "a", Config::default());
+            let (b, _incoming, b_router) = endpoint(&net, "b", Config::default());
+            drive(routers(a_router, b_router), async {
+                let mut owners = Vec::new();
+                let mut remotes = Vec::new();
+                let mut returned = Vec::new();
+                for _ in 0..links {
+                    let (at_b, info, mut at_a) = establish(&b, "a", &mut incoming).await;
+                    for _ in 0..count {
+                        let mut conn = net.dial().dial(&MemoryName::new("a")).await.unwrap();
+                        conn.write_all(&header::stream_header(&info.token)).await.unwrap();
+                        returned.push(at_a.acceptor.accept().await.unwrap());
+                        remotes.push(conn);
+                    }
+                    owners.push((at_b, at_a));
+                }
+                for (conn, done) in returned {
+                    done.complete(conn);
+                }
+                for conn in &mut remotes {
+                    assert_eq!(conn.read_u8().await.unwrap(), header::READY);
+                }
+            }).await;
+        }).expect("one wakeup drains all links' returns");
+    }
 }

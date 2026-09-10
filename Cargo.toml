@@ -76,7 +76,7 @@ surface-scan = { path = "crates/surface-scan" }
 thiserror = "2"
 tinyvec = { version = "1.11", features = ["alloc"] }
 tokio = { version = "1", default-features = false }
-tokio-stream = "0.1"
+tokio-stream = { version = "0.1", default-features = false }
 tracing = "0.1"
 wasm-bindgen = "0.2"
 

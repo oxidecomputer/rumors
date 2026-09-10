@@ -1,107 +1,69 @@
-//! [`Link`]s over accept/connect transports: one connection per stream,
-//! routed by a per-process listener.
+//! [`Link`]s over transports such as TCP: one connection per stream,
+//! with a shared listener routing incoming connections to their links.
 //!
-//! A [`Link`] wants one persistent control stream plus lazily opened,
-//! independently flow-controlled data streams. Transports with native
-//! substreams (QUIC) map onto that directly; an accept/connect transport
-//! (TCP and everything shaped like it) offers exactly one primitive:
-//! dial a name, get a byte stream. This module is the adapter between
-//! the two shapes, generic over the transport: the caller supplies a
-//! [`Dial`]/[`Listen`] pair, and the adapter maps **every link stream to
-//! its own connection**, so per-stream flow control and half-close are
-//! the transport's own, which is precisely what the link contract's
-//! independence clause asks for.
+//! Supply a [`Dial`]/[`Listen`] pair to [`Endpoint::new`]. Each link uses
+//! a persistent duplex control connection and opens independent data
+//! connections as needed. This preserves the transport's per-connection
+//! flow control and close behavior without multiplexing stream payloads.
 //!
-//! What makes that routable is a small connect header. Every dialed
-//! connection opens by naming the link it belongs to (a 16-byte random
-//! *token* drawn at link establishment), and one **router** per
-//! [`Endpoint`] owns the listener: it reads each arriving connection's
-//! header and hands the connection — whole, never its bytes — to that
-//! link's bounded queue, where the link's [`Acceptor`] collects it. A
-//! link's first connection carries the control stream; each later one
-//! carries a single unidirectional data stream at a time.
+//! # Driving the endpoint
 //!
-//! A data stream ends one of two ways, the link contract's completion
-//! clause. Completed at its clean end, the connection outlives the
-//! stream: the write half goes back to its [`Dial`] (see
-//! [`Dial::recycle`]), the read half back to the router, which reads
-//! the connection's next header there — so a dial that pools recycled
-//! connections carries stream after stream over one connection, paying
-//! connection setup once. Dropped instead, the connection closes with
-//! the stream, which is how the peer observes the abort.
+//! `Endpoint::new` returns an endpoint, an [`Incoming`] link supply, and
+//! a router future. Drive that future for the endpoint's lifetime. It
+//! resolves on listener failure; dropping it stops the router. An undriven
+//! router cannot establish links or deliver new data streams.
 //!
-//! # Driving the router
+//! Call [`Endpoint::link`] to establish a link; the peer receives its end
+//! through [`Incoming::accept`]. Both ends must advertise names the other
+//! can dial, since data connections may originate on either side. Link
+//! establishment registers both ends before allowing data streams to open.
+//! Concurrent establishments create independent links, including when two
+//! peers call `link` toward each other. The application chooses which to keep.
 //!
-//! The crate requires no runtime, so the router is a future the caller
-//! drives: [`Endpoint::new`] returns it alongside the endpoint, and the
-//! caller spawns it (or selects over it) for the endpoint's lifetime.
-//! An undriven router accepts no links and routes no streams — sessions
-//! on existing links stall until the caller's timeout cancels them. The
-//! future resolves only on listener failure ([`Listen::accept`]
-//! erroring is fatal to the endpoint); dropping it is the shutdown.
+//! # Connection reuse
 //!
-//! # Establishing links
+//! By default, each link reuses connections from its completed data streams.
+//! Reuse avoids repeated connection setup, which can be expensive for
+//! authenticated transports. Each link holds at most
+//! [`STREAM_COUNT`](crate::link::STREAM_COUNT) idle connections per direction.
+//! See [`Config::pooling`] to disable outgoing reuse.
 //!
-//! [`Endpoint::link`] dials the peer's router, sends the link's token
-//! together with this endpoint's own advertised name, and waits for the
-//! peer router's one-byte acknowledgement; the peer's application
-//! receives the other end from [`Incoming::accept`]. The advertised
-//! name rides along because the accept side must dial back for its own
-//! outgoing data streams, and only the dialer knows the name it is
-//! reachable at (the accepted connection's source is an ephemeral
-//! port). The acknowledgement makes token registration on both routers
-//! happen strictly before either end can open a data stream, so a
-//! stream dial can never race ahead of its own link.
+//! Reuse never waits for another stream's consumer. If no completed connection
+//! is ready, a fresh one is dialed when needed. Abandoning a stream closes its
+//! connection, delivering its accepted bytes followed by EOF.
 //!
-//! Both ends may [`link`](Endpoint::link) toward each other
-//! concurrently; the result is two independent links. The adapter does
-//! not deduplicate: which links to hold and gossip on is application
-//! policy, as on every other transport.
+//! # Failures and transport obligations
 //!
-//! # Failure modes
+//! Unknown link tokens and malformed headers cause a connection to close. A
+//! full incoming stream queue closes that link's supply: exceeding the stream
+//! limit means the peer violated the Rumors protocol. The router continues
+//! serving other links in this case.
 //!
-//! - A connection bearing an unknown token (a link the application
-//!   already discarded, a dial chasing a stale name) is dropped; the
-//!   dialing side's session fails as transport failure, poisoning its
-//!   link, and the application re-links. Failures heal at session
-//!   granularity.
-//! - A link whose stream queue overflows is evicted wholesale: an
-//!   honest peer never has more than a session's worth of streams in
-//!   flight, so overflow proves misbehavior (or a local bug), and
-//!   evicting the link turns it into an ordinary transport failure
-//!   instead of a silent lost delivery. The router never blocks on a
-//!   full queue.
-//! - A silently dead path hangs a stream open or write until the
-//!   caller's session timeout cancels the session, the same backstop
-//!   every transport relies on. Liveness probing (keepalive) belongs in
-//!   the caller's [`Dial`] — as does discovering that a pooled
-//!   connection died while idle, which surfaces as the recycled
-//!   stream's transport failure and heals at session granularity.
-//! - Every lazy stream open pays one dial. Where the dial itself is
-//!   the expensive step (an authenticating transport, say), a [`Dial`]
-//!   that pools recycled connections pays it once per connection
-//!   rather than once per stream; a transport with native substreams
-//!   avoids the per-stream open entirely.
+//! [`Config::pending_headers`] bounds connections undergoing initial routing.
+//! At capacity, acceptance pauses while admitted attempts and connection reuse
+//! continue. A stalled attempt retains its slot until its I/O finishes or
+//! fails, or its [`Listen::routing_deadline`] expires. That deadline covers
+//! initial routing only; established links and idle pooled connections can wait
+//! without a time limit between gossip rounds.
 //!
-//! # What the transport must provide
+//! The adapter discards idle connections whose failure is already visible. A
+//! failure discovered during use fails the session. This adapter supplies no
+//! clock or background liveness checks: if you need these, implement them in
+//! your underlying transport, e.g. by enabling TCP keepalive.
 //!
-//! Two obligations on [`Dial::Conn`] reach beyond its trait bounds, and
-//! the conformance suite observes both (see [`Conn`]):
+//! Connections must be authenticated and authorized; this adapter provides
+//! neither.
 //!
-//! - bytes accepted by `poll_write` become visible to the peer without
-//!   an explicit flush;
-//! - dropping a connection delivers already-written bytes and then
-//!   end-of-stream to the peer.
+//! Validate your own transport with the `conformance` feature's suite of tests
+//! for links.
 //!
-//! Security is the transport's, per the [link contract's security
-//! division](crate::link#what-securing-the-transport-means): the
-//! adapter assumes `Dial`/`Listen` connections are authenticated,
-//! integrity-protected, and fresh. The token routes connections; it is
-//! not a credential, and the router's violation handling (dropping
-//! malformed or unknown arrivals) is a conformance bug detector, not a
-//! security boundary.
+//! # Example: a toy TCP instantiation
 //!
-//! # Example: a TCP instantiation
+//! You would usually not want to do this in production, because plain TCP is
+//! neither authenticated nor authorized. Anyone along the network path between
+//! gossip nodes could therefore arbitrarily read and write to the set of
+//! rumors. A deployment in an untrusted environment should use mutual TLS or
+//! similar.
 //!
 //! ```
 //! # tokio::runtime::Builder::new_current_thread().enable_io().build().unwrap().block_on(async {
@@ -111,16 +73,21 @@
 //! use rumors::link::routed::{Config, Dial, Endpoint, Listen};
 //! use tokio::net::{TcpListener, TcpStream};
 //!
-//! /// Dials one TCP connection per link stream.
+//! /// Opens an outgoing TCP connection.
 //! #[derive(Clone)]
 //! struct TcpDial;
 //!
 //! impl Dial for TcpDial {
+//!     /// The peer's TCP listen address.
 //!     type Addr = SocketAddr;
+//!     /// An independent TCP connection.
 //!     type Conn = TcpStream;
 //!
+//!     /// Connect to the peer with Nagle's algorithm disabled.
 //!     async fn dial(&self, addr: &SocketAddr) -> io::Result<TcpStream> {
-//!         TcpStream::connect(*addr).await
+//!         let conn = TcpStream::connect(*addr).await?;
+//!         conn.set_nodelay(true)?;
+//!         Ok(conn)
 //!     }
 //! }
 //!
@@ -128,10 +95,14 @@
 //! struct TcpListen(TcpListener);
 //!
 //! impl Listen for TcpListen {
+//!     /// An accepted TCP connection.
 //!     type Conn = TcpStream;
 //!
+//!     /// Accept a connection and disable Nagle's algorithm.
 //!     async fn accept(&mut self) -> io::Result<TcpStream> {
-//!         Ok(self.0.accept().await?.0)
+//!         let conn = self.0.accept().await?.0;
+//!         conn.set_nodelay(true)?;
+//!         Ok(conn)
 //!     }
 //! }
 //!
@@ -184,105 +155,70 @@ pub use endpoint::{Config, Endpoint, EndpointError, Incoming, LinkError, LinkInf
 pub use header::{Addr, MAX_ADDR_LEN, Token, Unencodable};
 pub use stream::{StreamAcceptor, StreamConnector};
 
-/// A byte-stream connection the adapter can route: one per link stream.
+/// A duplex connection with independent flow control.
 ///
-/// Blanket-implemented for every type with the bounds; the real
-/// contract is two obligations the bounds cannot express, both load-
-/// bearing for the link contract:
+/// Blanket-implemented for types with the required bounds. Routing writes
+/// are flushed before waiting for a reply or handing off the connection.
 ///
-/// - **No hidden write buffering.** Bytes accepted by `poll_write`
-///   must become visible to the peer without an explicit flush: the
-///   session (and the conformance suite) awaits peer reactions to
-///   unflushed writes. A connection wrapped in a write buffer that
-///   holds bytes until it fills stalls the first such exchange.
-/// - **Drop is half-close.** Dropping the connection must deliver all
-///   already-written bytes and then end-of-stream to the peer: an
-///   aborted data stream ends by dropping its connection, and the
-///   peer reads to end-of-stream. A drop that discards queued bytes,
-///   or never signals the peer, breaks stream teardown. (A *completed*
-///   stream never drops its connection — the adapter recovers it; see
-///   [`Dial::recycle`].)
-///
-/// `tokio::net::TcpStream` satisfies both, as does anything else whose
-/// writes land in the transport as they are accepted.
+/// Dropping a connection must deliver accepted bytes followed by EOF, so
+/// abandoning a stream signals its end to the peer. `tokio::net::TcpStream`
+/// satisfies this requirement.
 pub trait Conn: AsyncRead + AsyncWrite + Unpin + Send + 'static {}
 
 impl<T: AsyncRead + AsyncWrite + Unpin + Send + 'static> Conn for T {}
 
-/// Opens outgoing connections to peers' routers, by name.
+/// Opens fresh outgoing connections to peers' routers.
 ///
-/// This is the adapter's outgoing seam, and the place transport policy
-/// lives: socket options, liveness probing (keepalive), security
-/// wrapping, and dial timeouts are all the implementation's own. Dials
-/// arrive concurrently through clones (one per in-flight stream open),
-/// so implementations hold shared state behind cheap handles.
+/// Implementations should authenticate and authorize the peer and configure
+/// their own connection, e.g. choosing socket options, keepalive, and dial
+/// timeouts. Calls may run concurrently through clones. Each connection must
+/// satisfy [`Conn`]'s behavioral contract.
 ///
-/// # Errors
-///
-/// A dial failure fails the stream open (and with it the session)
-/// as transport failure; the adapter never retries.
+/// A pending dial is cancelled if its link establishment or stream open is
+/// cancelled. If the transport's handshake cannot safely be cancelled, the
+/// implementation must run it in a separate task that can finish independently.
 pub trait Dial: Clone + Send + Sync + 'static {
-    /// The name this transport dials by; see [`Addr`].
+    /// The transport's peer address type.
     type Addr: Addr;
 
-    /// The connection a dial yields.
+    /// The connection a successful dial yields.
     type Conn: Conn;
 
-    /// Open one connection to the router reachable at `addr`.
+    /// Connect to the router at `addr`. An error fails the link establishment
+    /// or stream open; the adapter does not retry failed dials.
     fn dial(&self, addr: &Self::Addr) -> impl Future<Output = io::Result<Self::Conn>> + Send;
-
-    /// Take back a connection to `peer` whose stream completed cleanly.
-    ///
-    /// The connection rests exactly where a fresh dial's would: the
-    /// peer's router is reading for its next connect header, so a dial
-    /// that hands it out again reuses the connection for another stream
-    /// in place of a new connection's setup. The default drops it,
-    /// which suits transports whose connections are cheap; implement it
-    /// (a pool keyed by peer, typically) where connection setup is the
-    /// latency that matters. A connection whose stream failed or was
-    /// abandoned never comes back through here: the adapter drops it,
-    /// so a recycled connection is never mid-stream.
-    ///
-    /// Two cautions. Recycle runs on the session's task at the
-    /// stream's completion, so it must not block. And recycling
-    /// certifies nothing about liveness: the peer's router evicts idle
-    /// connections by count, so a pooled connection may be dead and
-    /// discovered only by the stream that draws it.
-    ///
-    /// The peer's router writes one byte on the connection once it is
-    /// ready for the next stream. A stream sent earlier is not
-    /// delivered until the previous stream's consumer lets the
-    /// connection go. Consume the byte off the dialing path and reuse
-    /// only connections whose byte has arrived, dialing fresh
-    /// otherwise: a `dial` that waits for it serializes the open
-    /// behind another stream's progress, which the link contract
-    /// forbids, and deadlocks a session whose streams cross.
-    fn recycle(&self, _peer: &Self::Addr, conn: Self::Conn) {
-        drop(conn);
-    }
 }
 
-/// Yields inbound connections to an endpoint's router.
+/// Supplies inbound connections to an endpoint's router.
 ///
-/// The router is this listener's only consumer, selecting over
-/// [`accept`](Self::accept) in its loop.
+/// An accept error stops the router. Handle transient failures inside the
+/// implementation if accepting should continue after them.
 ///
-/// # Errors
-///
-/// An accept failure is fatal to the endpoint: the router resolves
-/// with the error and stops routing. A transport whose accept can fail
-/// transiently (resource exhaustion, say) handles the retry inside its
-/// own `accept`.
-///
-/// # Cancel safety
-///
-/// The router holds `accept` in a `select!` loop, so the future is
-/// dropped and re-created continuously; a connection mid-accept must
-/// not be lost to the drop.
+/// Accept must be cancellation-safe: the router repeatedly drops pending
+/// calls, and the next call must still be able to receive any arriving
+/// connection.
 pub trait Listen: Send + 'static {
     /// The connection an accept yields.
     type Conn: Conn;
 
     /// Accept the next inbound connection.
     fn accept(&mut self) -> impl Future<Output = io::Result<Self::Conn>> + Send;
+
+    /// Time-bound the initial routing of a freshly accepted connection.
+    ///
+    /// The router calls this method once after each successful
+    /// [`accept`](Self::accept). If it completes before the connection supplies
+    /// a routing header and flushes its corresponding acknowledgement, the
+    /// router closes that connection attempt and releases its slot without
+    /// stopping the listener.
+    ///
+    /// Successful routing discards the deadline. It does not apply to
+    /// established links or pooled reuse, so idle waits between gossip rounds
+    /// remain unrestricted.
+    ///
+    /// The default never expires. Override it with your runtime's timer, such
+    /// as `tokio::time::sleep(limit)`; Rumors supplies no clock.
+    fn routing_deadline(&self) -> impl Future<Output = ()> + Send + 'static {
+        std::future::pending()
+    }
 }

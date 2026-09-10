@@ -236,7 +236,8 @@ and cancellation.
 
 Sessions and observers are plain futures and streams, driven entirely by
 the caller. The I/O traits are Tokio's runtime-independent
-`AsyncRead` and `AsyncWrite`;
+[`AsyncRead`](https://docs.rs/tokio/latest/tokio/io/trait.AsyncRead.html)
+and [`AsyncWrite`](https://docs.rs/tokio/latest/tokio/io/trait.AsyncWrite.html);
 no Tokio runtime, spawning, sockets, or timers are required by this crate.
 
 ## Choosing a payload type
