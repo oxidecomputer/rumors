@@ -144,16 +144,17 @@ scanner, gate, or test is needed to enforce this document's style.
 ## 4. Review and edit in Zed
 
 Reuse the review checkout and its Zed window across batches. After merging a
-batch, switch the clean checkout to a fresh `codex/` branch from `main`, then
-run `git: compare with branch` and choose `main`. For a deliberately stacked
-batch, choose its recorded parent instead. This shows the whole branch change,
-including uncommitted edits, without accumulating windows or cold build caches.
+batch, switch the clean checkout to a fresh `codex/` branch from `main`.
+Export each changed file at the review base to a temporary directory, then use
+`zed --existing --diff <base-file> <live-file>` (repeat `--diff` for more files).
+Use `main` as the base, or the recorded parent for a deliberately stacked batch.
+The working side must be the live checkout so edits apply directly to the branch.
 
 Verify on screen that the current worktree's red/green diff is visible and its
-base is correct; opening a project or issuing the command is not enough. With
-multiple windows, select the worktree through Zed's Window menu and focus it
-before running the comparison. Verify this again after switching branches and
-at every review handoff.
+base is correct; opening a project or issuing the command is not enough.
+Verify this again after switching branches and at every review handoff.
+Do not automate typing into Zed: if a palette fails to open, those keystrokes
+can edit the source buffer. Use its CLI to open diffs.
 
 Open this diff when starting each batch and keep it open during implementation
 so the user can review continuously. Read saved edits before changing the same

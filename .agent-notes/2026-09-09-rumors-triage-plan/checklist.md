@@ -1,6 +1,6 @@
 # Rumors review checklist
 
-**Active:** 10, remove message-buffer slack — `codex/exact-message-buffers`, base `main`.
+**Active:** none (paused).
 **Next:** 11, remove the leaf-hash heap buffer.
 
 Check code outcomes only after verification and merge; retain the landing
@@ -186,7 +186,7 @@ Coupled work: no-op handling with 01. Do root-version changes before dependent o
 - [x] Publish roots with their required memos already warm; cover join allocation costs — `f7b462e1`.
   Sources: `async-hazards-4`, `tree-core-8`, T42, T96, T132, N23. Coupled: local preparation and party handoffs must precede publication.
 
-- [ ] Remove message-buffer slack with a direct size invariant. **Working.**
+- [x] Remove message-buffer slack with a direct size invariant — `6399b06e`.
   Sources: `api-core-10`, T110, T113.
 
 - [ ] Protect tree algebra, deletion, and traversal invariants with meaningful cases.
