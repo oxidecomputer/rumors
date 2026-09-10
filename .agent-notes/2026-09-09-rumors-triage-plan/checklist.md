@@ -1,7 +1,7 @@
 # Rumors review checklist
 
-**Active:** 09, public error API — `codex/public-errors`, base `main@8436dd73`.
-**Next candidates:** 04, peer-departure liveness → deep malformed replies.
+**Active:** 04, peer-departure liveness — `codex/peer-departure-liveness`, base `main`.
+**Next candidates:** 04, deep malformed replies; Sush attested-link conformance timeout.
 
 Check code outcomes only after verification and merge; retain the landing
 commit. Checked dispositions are labelled explicitly.
@@ -51,7 +51,7 @@ Dependencies: None to construct fixtures; 04 and 05 before enabling the complete
 
 Dependencies: 03 for deep reproductions; coordinate all edits to the shared driver.
 
-- [ ] End waits when the peer can no longer provide an owed stream.
+- [ ] End waits when the peer can no longer provide an owed stream. **Working.**
   Sources: T145, T154, T165, T166, N01, N21.
 
 - [x] Preserve reported violations when a concurrent stream-supply failure also arrives — `f92fcbc3`.
@@ -140,7 +140,7 @@ Dependencies: 07 for join outcomes; owned-byte trait before conformance and file
 
 Dependencies: 04's reported-error attribution fix before the public error redesign; 02 before router-event counters.
 
-- [ ] Collapse public session failures to actionable causes and one protocol-violation diagnostic; keep operation outcomes separate. **Working.**
+- [x] Collapse public session failures to actionable causes and one protocol-violation diagnostic; keep operation outcomes separate — `faa518a5`.
   Sources: `api-audit-13`, `api-audit-14`, `api-core-7`, `fresh-eyes-10`, `mirror-common-15`, `remote-proxy-2`, `remote-proxy-3`, T46, T63, T82, T85; owner direction, 2026-09-10.
 
 - [ ] Finish internal diagnostic cleanup: remove impossible cases, refine decoder context, and apply the error-enum conventions.
