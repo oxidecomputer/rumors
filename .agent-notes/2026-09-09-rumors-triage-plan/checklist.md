@@ -1,7 +1,7 @@
 # Rumors review checklist
 
-**Active:** 10, action and join cleanup — `codex/tree-join-cleanup`, base `main`.
-**Next:** 10, publish roots with warm memos.
+**Active:** 10, publish roots with warm memos — `codex/warm-tree-memos`, base `main`.
+**Next:** 10, remove message-buffer slack.
 
 Check code outcomes only after verification and merge; retain the landing
 commit. Checked dispositions are labelled explicitly.
@@ -180,10 +180,10 @@ Coupled work: no-op handling with 01. Do root-version changes before dependent o
 - [x] Store each leaf’s action version and traverse sorted actions without repeated sorting or copying — `915571b7`.
   Sources: `tree-core-11`, `tree-core-13`, `tree-core-16`, `tree-core-27`, `tree-core-30`, T38, T39, T107, T124, T132, N12.
 
-- [ ] Simplify action representations and join reassembly. **Working.**
+- [x] Simplify action representations and join reassembly — `4961398d`.
   Sources: `tree-core-14`, `tree-core-31`.
 
-- [ ] Publish roots with their required memos already warm; cover join allocation costs.
+- [ ] Publish roots with their required memos already warm; cover join allocation costs. **Working.**
   Sources: `api-core-29`, `async-hazards-4`, `tree-core-8`, T42, T96, T132, N23. Measure after memo ownership is settled.
 
 - [ ] Remove message-buffer slack with a direct size invariant.
