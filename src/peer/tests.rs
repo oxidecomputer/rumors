@@ -80,7 +80,6 @@ proptest! {
         conflicts in 0usize..=OPTIMISTIC_ATTEMPTS,
         remote_events in 0usize..8,
         redact in any::<bool>(),
-        notify in any::<bool>(),
         reject in any::<bool>(),
     ) {
         completes(move || {
@@ -121,7 +120,7 @@ proptest! {
                 called += 1;
                 assert_eq!(gate.try_read().is_err(), conflicts == OPTIMISTIC_ATTEMPTS,
                     "only exhausted retries should hold the gate exclusively");
-                if reject { Err(()) } else { Ok(notify) }
+                if reject { Err(()) } else { Ok(()) }
             });
             BEFORE_SWAP.with_borrow_mut(|hook| *hook = None);
             assert_eq!(called, 1);
@@ -131,7 +130,7 @@ proptest! {
             assert_eq!(result.is_err(), reject);
             assert_eq!(Inner::snapshot(&sender), expected);
             let changed = expected != *live.borrow();
-            assert_eq!(receiver.borrow().has_changed().unwrap(), !reject && (changed || notify));
+            assert_eq!(receiver.borrow().has_changed().unwrap(), !reject && changed);
         });
     }
 
@@ -143,7 +142,6 @@ proptest! {
         remote_events in 0usize..8,
         redact_local in any::<bool>(),
         redact_remote in any::<bool>(),
-        notify in any::<bool>(),
         exclusive in any::<bool>(),
     ) {
         let mut local = Party::seed();
@@ -170,7 +168,7 @@ proptest! {
         let mut called = 0;
         let mut update = |_: &mut Inner<u64>| {
             called += 1;
-            Ok::<_, Infallible>(notify)
+            Ok::<_, Infallible>(())
         };
         if exclusive {
             Inner::publish_exclusive(&sender, &incoming, &gate, &mut update).unwrap();
@@ -179,11 +177,11 @@ proptest! {
         }
         prop_assert_eq!(called, 1);
         prop_assert_eq!(&sender.borrow().tree, &expected);
-        prop_assert_eq!(receiver.has_changed().unwrap(), changed || notify);
+        prop_assert_eq!(receiver.has_changed().unwrap(), changed);
 
         // Publishing the same state again must not cause an echo notification.
         receiver.borrow_and_update();
-        Inner::publish(&sender, &expected, &expected, |_| Ok::<_, Infallible>(false)).unwrap();
+        Inner::publish(&sender, &expected, &expected, |_| Ok::<_, Infallible>(())).unwrap();
         prop_assert!(!receiver.has_changed().unwrap());
     }
 
@@ -206,7 +204,7 @@ proptest! {
         let mut called = false;
         let mut update = |_: &mut Inner<u64>| {
             called = true;
-            Ok::<_, Infallible>(true)
+            Ok::<_, Infallible>(())
         };
         let gate = sender.borrow().commit_gate.clone();
         let result = {
@@ -232,9 +230,9 @@ proptest! {
         let receiver = sender.subscribe();
         let gate = sender.borrow().commit_gate.clone();
         let result = if exclusive {
-            Inner::publish_exclusive(&sender, &incoming, &gate, &mut |_| Err::<bool, _>("overlap"))
+            Inner::publish_exclusive(&sender, &incoming, &gate, &mut |_| Err::<(), _>("overlap"))
         } else {
-            Inner::publish(&sender, &prior, &incoming, |_| Err::<bool, _>("overlap"))
+            Inner::publish(&sender, &prior, &incoming, |_| Err::<(), _>("overlap"))
         };
         prop_assert_eq!(result, Err("overlap"));
         prop_assert_eq!(&sender.borrow().tree, &prior);
@@ -270,9 +268,9 @@ proptest! {
                         start.wait();
                         if exclusive {
                             let gate = sender.borrow().commit_gate.clone();
-                            Inner::publish_exclusive(sender, tree, &gate, &mut |_| Ok::<_, Infallible>(false)).unwrap();
+                            Inner::publish_exclusive(sender, tree, &gate, &mut |_| Ok::<_, Infallible>(())).unwrap();
                         } else {
-                            Inner::publish(sender, prior, tree, |_| Ok::<_, Infallible>(false)).unwrap();
+                            Inner::publish(sender, prior, tree, |_| Ok::<_, Infallible>(())).unwrap();
                         }
                     });
                 }
@@ -324,9 +322,9 @@ proptest! {
             }
             if exclusive {
                 let gate = sender.borrow().commit_gate.clone();
-                Inner::publish_exclusive(&sender, &incoming, &gate, &mut |_| Ok::<_, Infallible>(false)).unwrap();
+                Inner::publish_exclusive(&sender, &incoming, &gate, &mut |_| Ok::<_, Infallible>(())).unwrap();
             } else {
-                Inner::publish(&sender, &prior, &incoming, |_| Ok::<_, Infallible>(false)).unwrap();
+                Inner::publish(&sender, &prior, &incoming, |_| Ok::<_, Infallible>(())).unwrap();
             }
             assert_eq!(Inner::snapshot(&sender).len(), 1);
         });
@@ -372,7 +370,7 @@ fn exclusive_publication_unwind_allows_later_commits() {
                 &sender,
                 &prior,
                 &incoming,
-                |inner| -> Result<bool, Infallible> {
+                |inner| -> Result<(), Infallible> {
                     assert!(
                         gate.try_read().is_err(),
                         "the fallback holds the gate exclusively"

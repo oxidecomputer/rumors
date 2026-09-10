@@ -8,39 +8,31 @@ use crate::Version;
 
 use super::unordered::Channel;
 
-/// A content-free observer of a [`Rumors`](crate::Rumors) set: one `()` per
-/// observed change.
+/// Reports changes to a replica without returning its messages.
 ///
-/// This is the wake-up signal for anything that reacts to "the set changed"
-/// without consuming the changes themselves. Above all, this is useful as the
-/// `when` input to [`gossip_when`](crate::Rumors::gossip_when), but equally a
-/// persist-on-change loop or a UI refresh. For the changes *themselves*, use
-/// [`UnorderedMessages`](crate::UnorderedMessages) or [`CausalMessages`](crate::CausalMessages).
+/// Use this stream to trigger gossip, persist state, or refresh a display.
+/// To read the messages themselves, use [`UnorderedMessages`](crate::UnorderedMessages)
+/// or [`CausalMessages`](crate::CausalMessages).
 ///
-/// # Ticks are a signal, not a ledger
+/// # Notifications
 ///
-/// The stream is *coalescing*: it yields one `()` for everything that happened
-/// since the previous poll, however many commits that was, and it yields
-/// immediately on first poll (a fresh observer has seen nothing, so whatever
-/// the set holds is news). Consequently the number of ticks means nothing; only
-/// "at least one tick since I last looked" does. Every change fires it: local
-/// [`send`](crate::Rumors::send)s and [`redact`](crate::Rumors::redact)s, and
-/// anything learned by [`gossip`](crate::Rumors::gossip).
+/// The first poll yields `()` immediately, even for an empty replica. Later
+/// polls coalesce all changes since the last notification into one `()`;
+/// notifications cannot be used to count commits. Changes include local
+/// insertions, redactions, and new state learned through gossip. Transferring
+/// identity alone does not count as a change.
 ///
 /// The stream ends (`None`) once the [`Peer`](crate::Peer) and every
-/// [`Rumors`](crate::Rumors) for the set have dropped and no further change is
-/// possible. Like the message observers, holding a `Changes` does not count
-/// against the quiescence that lets
-/// [`try_into_peer`](crate::Rumors::try_into_peer) reclaim the `Peer`.
+/// [`Rumors`](crate::Rumors) handle for the replica have dropped and the final
+/// change has been reported. Holding this observer does not prevent
+/// [`try_into_peer`](crate::Rumors::try_into_peer) from recovering the `Peer`.
 ///
-/// # This signal alone does not make a gossip driver
+/// # Driving gossip
 ///
-/// `loop { changes.next().await; gossip(..).await }` on both ends of a
-/// connection deadlocks: each side's `gossip` leads with its preamble and then
-/// waits for the peer's, so the side whose set did *not* change never answers.
-/// A driver must also enter a session when the *remote* initiates, which is
-/// exactly what [`gossip_when`](crate::Rumors::gossip_when) adds; feed this
-/// stream to it rather than calling `gossip` yourself to gossip-on-change.
+/// Pass this stream as the `when` input to [`gossip_when`](crate::Rumors::gossip_when),
+/// which also answers sessions initiated by the remote peer. A loop that waits
+/// for a local change before calling `gossip` can deadlock: a replica with no
+/// local changes never enters the session its peer is waiting to start.
 pub struct Changes<T> {
     /// The watch channel, or the in-flight wait for it to change; the same
     /// materialized-wait dance as [`UnorderedMessages`](crate::UnorderedMessages) (see its
@@ -48,6 +40,9 @@ pub struct Changes<T> {
     channel: Option<Channel<T>>,
     /// The frontier most recently reported to the consumer: `None` until the
     /// first yield, so the first poll always finds news.
+    ///
+    /// Content changes advance this frontier, including redactions, so an equal
+    /// frontier means there is no new change to report.
     seen: Option<Version>,
 }
 
@@ -65,6 +60,7 @@ pub enum TryTick {
 }
 
 impl<T> Changes<T> {
+    /// Subscribe to the replica, reporting its current state on the first poll.
     pub(crate) fn subscribe(inner: &watch::Sender<crate::Inner<T>>) -> Self {
         Self {
             channel: Some(Channel::Ready(inner.subscribe())),

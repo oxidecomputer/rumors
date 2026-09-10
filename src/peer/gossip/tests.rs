@@ -5,6 +5,8 @@
 //! Rejections leave the link poisoned. Existing-replica
 //! completion failures happen after commit; bootstrap constructs no peer.
 
+mod notifications;
+
 use crate::message::{PayloadCodec, PayloadDepthLimit};
 use crate::testing::run_to_quiescence;
 use before::Party;

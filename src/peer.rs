@@ -241,13 +241,12 @@ impl<T> Inner<T> {
     /// including on unwind: this guards against a pathological case where their
     /// payload destructors may access this replica, which would otherwise
     /// deadlock. `update` runs once, under the watch lock, to publish an
-    /// identity change alongside the tree. Its boolean requests an additional
-    /// notification.
+    /// identity change alongside the tree. Only a tree change notifies observers.
     fn publish<E>(
         sender: &watch::Sender<Self>,
         prior: &Tree<T>,
         reconciled: &Tree<T>,
-        mut update: impl FnMut(&mut Self) -> Result<bool, E>,
+        mut update: impl FnMut(&mut Self) -> Result<(), E>,
     ) -> Result<(), E>
     where
         T: Send + Sync,
@@ -289,7 +288,7 @@ impl<T> Inner<T> {
         sender: &watch::Sender<Self>,
         reconciled: &Tree<T>,
         gate: &RwLock<()>,
-        update: &mut impl FnMut(&mut Self) -> Result<bool, E>,
+        update: &mut impl FnMut(&mut Self) -> Result<(), E>,
     ) -> Result<(), E>
     where
         T: Send + Sync,
@@ -319,7 +318,7 @@ impl<T> Inner<T> {
         sender: &watch::Sender<Self>,
         expected: &Tree<T>,
         candidate: &mut Tree<T>,
-        update: &mut impl FnMut(&mut Self) -> Result<bool, E>,
+        update: &mut impl FnMut(&mut Self) -> Result<(), E>,
     ) -> Option<Result<(), E>> {
         // Equality includes the causal ceiling: even an empty tree can convey
         // new redactions. It may compute hashes, so keep it outside the watch lock.
@@ -332,12 +331,12 @@ impl<T> Inner<T> {
                 return false;
             }
             match update(inner) {
-                Ok(notify) => {
+                Ok(()) => {
                     // Return the displaced root through `candidate`; dropping it
                     // here could run a payload destructor under both locks.
                     std::mem::swap(&mut inner.tree, candidate);
                     result = Some(Ok(()));
-                    changed || notify
+                    changed
                 }
                 Err(error) => {
                     result = Some(Err(error));

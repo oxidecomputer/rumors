@@ -93,6 +93,9 @@ Sush against the final revision without the override. The user reviews and
 approves the completed Sush branch at the end of this refactor effort.
 See [Sush setup](sush-pooling.md) for the worktree and override.
 
+Keep Sush compatibility work in the background. Open its Zed window only when
+the user asks or when presenting the completed compatibility branch for review.
+
 ## 3. Tracking without another system
 
 Keep the [checklist](checklist.md) as a completion index. It uniquely records:
@@ -140,6 +143,12 @@ Use a dedicated worktree for each batch. Open it in a separate Zed window
 with `zed -n`, then run `git: compare with branch` and choose `main`.
 For a deliberately stacked batch, choose its recorded parent instead.
 This shows the whole branch change, including uncommitted edits.
+
+Verify on screen that the current worktree's red/green diff is visible and its
+base is correct; opening a project or issuing the command is not enough. With
+multiple windows, select the worktree through Zed's Window menu and focus it
+before running the comparison. Verify this again at every review handoff, and
+close the merged batch's stale window.
 
 Open this diff when starting each batch and keep it open during implementation
 so the user can review continuously. Read saved edits before changing the same

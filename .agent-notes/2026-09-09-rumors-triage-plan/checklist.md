@@ -1,6 +1,6 @@
 # Rumors review checklist
 
-**Active:** 01, suppress party-only observer wakeups — `codex/publication-notifications`, base `main`.
+**Active:** 01, suppress party-only observer wakeups — ready for review on `codex/publication-notifications`, base `main`.
 **Next:** 01, no-op tree edits and memo retention (with 10); then 07, retirement ownership.
 
 Check code outcomes only after verification and merge; retain the landing
@@ -26,7 +26,7 @@ and recheck retained-root accounting.
 - [x] Move the gossip join out of the replica write lock — `e238db87`.
   Sources: T170.
 
-- [ ] Notify observers for tree changes, without party-only wakeups. **Working.**
+- [ ] Notify observers for tree changes, without party-only wakeups. **Ready for review.**
   Sources: T35.
 
 - [ ] Preserve no-op trees and memos; eliminate the absent-party batch path.

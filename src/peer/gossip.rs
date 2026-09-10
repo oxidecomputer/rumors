@@ -706,8 +706,9 @@ impl<T, B: Persist> Peer<T, B> {
                     // Plain gossip moves no party at all.
                     None
                 };
-                // We modified the watched party only if we removed something.
-                guarded.party.is_some()
+                // Identity custody changes no content or causal history, so
+                // observers have nothing new to read.
+                false
             });
             if persist && let Err(e) = bookmark.write().await {
                 return (Intent::Remain, Err(Error::Bookmark(e)));
@@ -816,7 +817,7 @@ impl<T, B: Persist> Peer<T, B> {
                 }
             }
 
-            Ok(peer_retiring)
+            Ok(())
         });
         // Publication has released both locks. Free session roots before any
         // further I/O so a slow peer cannot prolong removed payloads' lifetimes.
@@ -1355,33 +1356,36 @@ impl<T, B: BookmarkError, S> Drop for Drive<'_, T, B, S> {
     }
 }
 
-// To ensure that a speculatively forked party always snaps back in place, even
-// if we return an error or panic, we place it in a drop-guard that joins it
-// back into the remaining party in the `inner` if we don't donate it
-// successfully along any return path.
+/// Return a staged donation unless the session hands it to the peer.
+///
+/// Taking `party` before sending ends local custody. Until then, cancellation,
+/// failure, or unwinding restores it to the replica.
 struct PartyGuard<T> {
-    pub(crate) party: Option<Party>,
-    pub(crate) recover: watch::Sender<Inner<T>>,
+    /// A bootstrap fork or the entire retiring identity, awaiting handoff.
+    party: Option<Party>,
+    /// The replica that resumes custody if the donation is abandoned.
+    recover: watch::Sender<Inner<T>>,
 }
 
 impl<T> Drop for PartyGuard<T> {
+    /// Restore an unsent identity without waking content observers.
     fn drop(&mut self) {
         if let Some(party) = self.party.take() {
-            self.recover
-                .send_modify(|inner| match inner.party.as_mut() {
-                    // Re-joining a fork we split off this very party: disjoint by
-                    // construction, so the join cannot fail in a well-formed
-                    // universe. The join must run unconditionally (it is the
-                    // recovery), so it cannot live inside a `debug_assert!`.
+            self.recover.send_if_modified(|inner| {
+                match inner.party.as_mut() {
+                    // This fork came from the resident party, so it is disjoint.
+                    // Restore it in release builds too, outside the assertion.
                     Some(existing) => {
                         if existing.join(party).is_err() {
                             debug_assert!(false, "non-disjoint party in `PartyGuard`");
                         }
                     }
-                    // We took the whole party (a retire that failed before the
-                    // hand-off): put it back.
+                    // An abandoned retirement returns the entire party.
                     None => inner.party = Some(party),
-                });
+                }
+                // Recovery changes identity custody, not the tree's frontier.
+                false
+            });
         }
     }
 }
