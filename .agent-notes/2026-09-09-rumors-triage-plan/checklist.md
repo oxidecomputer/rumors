@@ -1,7 +1,7 @@
 # Rumors review checklist
 
-**Active:** 02 and link conformance in 05, ready for review — `codex/routed-pooling`, base `main@bccc6dfa`.
-**Next candidates:** 03 → 04.
+**Active:** 03, reproducible local-session schedules — `codex/reproducible-sessions`, from merged main.
+**Next candidates:** 03 deep-tree wire fixtures → 04.
 
 Check code outcomes only after verification and merge; retain the landing
 commit. Checked dispositions are labelled explicitly.
@@ -31,7 +31,7 @@ Dependencies apply only to the affected work within a group.
 
 ## 02. Routed connection pooling
 
-- [ ] Keep idle connections with their owning link; preserve fairness and progress across routing and reuse.
+- [x] Keep idle connections with their owning link; preserve fairness and progress across routing and reuse — `45aaec54`.
   Sources: `link-14`, `link-28`, T31, T152, T153, T156, T160, T164, T167, N06, N07, N24, N25, N48, N49; [Sush compatibility](sush-pooling.md).
 
 ## 03. Deep-tree fixtures and reproducible schedules
@@ -67,7 +67,7 @@ Dependencies: 03–04 for deep geometry; 02 for the pooled transport case.
 - [ ] Make conformance memory and liveness checks test their stated premises.
   Sources: `conformance-24`, `conformance-25`, `conformance-28–31`, `conformance-35`, `conformance-40–42`, `tests-resource-link-window-19`, `tests-resource-link-window-20`, T6, T18, T132, T139, T142, N22, N34.
 
-- [ ] Extend link conformance coverage for combined contention, overlapping opens, completion, and cancellation; state the remaining test limits.
+- [x] Extend link conformance coverage for combined contention, overlapping opens, completion, and cancellation; state the remaining test limits — `45aaec54`.
   Source: [Link contract](../../src/link.rs) and [public suite](../../src/conformance/link.rs).
 
 ## 06. Window arithmetic and operating costs

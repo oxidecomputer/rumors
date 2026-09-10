@@ -21,8 +21,8 @@ cargo nextest run --config .cargo/rumors-local.toml --workspace --run-ignored al
 The override rewrites `Cargo.lock` for local paths. Preserve the Git-resolved
 lockfile before running with it, then restore that lockfile before committing.
 Never commit the override or a lockfile resolved against local paths. The Git
-pin still needs to advance to the reviewed Rumors changes once they have a
-commit; final validation must use that revision without an override.
+pin still needs to advance to the reviewed Rumors changes once their commit is available from the Git remote; final validation must
+use that revision without an override.
 
 Run TLS conformance after parallel build jobs settle to avoid test dial timeouts.
 
@@ -32,14 +32,3 @@ and message-admission checks pass.
 
 Cargo's build directory for this worktree is
 `/Volumes/forge/build/a5/fd255fb3310972`. Keep it across Rumors batches.
-
-Temporary checks to remove after the routed-pooling merge, along with their
-specific build directories:
-
-| Checkout | Build directory |
-| --- | --- |
-| `/private/tmp/rumors-pooling-sush` | `/Volumes/forge/build/1d/619946551a5011` |
-| `/private/tmp/rumors-runtime-independence` | `/Volumes/forge/build/e3/ec172cffa4b2f2` |
-| `/private/tmp/rumors-routed-timeout` | `/Volumes/forge/build/13/920b1318964d9c` |
-
-Also remove `/private/tmp/routed-pooling-review-base` after merge.
