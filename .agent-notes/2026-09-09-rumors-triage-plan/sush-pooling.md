@@ -24,12 +24,6 @@ Never commit the override or a lockfile resolved against local paths. The Git
 pin still needs to advance to the reviewed Rumors changes once their commit is available from the Git remote; final validation must
 use that revision without an override.
 
-Next batch: identify and fix the `sush-server::link::conformance` dial timeout
-during concurrent opens, keeping the production deadline unchanged. First
-observed during routed-pooling's conformance expansion (`45aaec54`), before
-the error API batch. Later isolated macOS runs passed; Helios reproduces it
-even with the link tests alone. The introducing change is not yet established.
-
 Run native process/job validation on `ox-east-1-agent` (Helios), using the
 [building-on-illumos skill](/Users/oxide/.claude/skills/building-on-illumos/SKILL.md).
 Standing owner authorization (2026-09-10): sync the current Rumors and Sush
