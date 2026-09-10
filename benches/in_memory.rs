@@ -153,15 +153,12 @@ fn bench_redact(c: &mut Criterion) {
     group.finish();
 }
 
-/// A size-`n` set whose last `delta` messages sit above the returned checkpoint,
-/// with the tree's lazy memos warmed so the timed body measures the
-/// version-bounded walk itself rather than first-touch memoization.
+/// A size-`n` set whose last `delta` messages sit above the returned checkpoint.
 fn build_with_checkpoint(n: usize, delta: usize) -> (Rumors<()>, rumors::Version) {
     let rumors: Rumors<()> = Peer::seed().into_rumors();
     send_units(&rumors, n - delta);
     let checkpoint = rumors.snapshot().latest().clone();
     send_units(&rumors, delta);
-    rumors.warm_caches();
     (rumors, checkpoint)
 }
 
@@ -211,7 +208,6 @@ fn bench_observer_replay(c: &mut Criterion) {
         group.sample_size(sample_size_for(n));
         group.throughput(Throughput::Elements(n as u64));
         let (rumors, _versions) = build(n);
-        rumors.warm_caches();
         group.bench_function(BenchmarkId::from_parameter(n), |b| {
             b.iter(|| {
                 let mut observer = rumors.unordered_messages();
@@ -275,7 +271,6 @@ fn bench_causal_replay(c: &mut Criterion) {
         group.sample_size(sample_size_for(n));
         group.throughput(Throughput::Elements(n as u64));
         let (rumors, _versions) = build(n);
-        rumors.warm_caches();
         group.bench_function(BenchmarkId::from_parameter(n), |b| {
             b.iter(|| {
                 let mut observer = rumors.causal_messages();
@@ -323,7 +318,6 @@ fn bench_get(c: &mut Criterion) {
     for &n in SIZES {
         group.sample_size(sample_size_for(n));
         let (rumors, versions) = build(n);
-        rumors.warm_caches();
         // A fixed version from the middle of the stable iteration order;
         // any live version costs the same depth-bounded descent.
         let version = versions[versions.len() / 2].clone();

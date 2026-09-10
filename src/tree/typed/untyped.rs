@@ -631,6 +631,25 @@ impl Node {
         }
     }
 
+    /// Inspect stored memos without computing them, including every descendant.
+    #[cfg(test)]
+    pub(crate) fn memos_are_warm(&self) -> bool {
+        self.inner.hash.get().is_some()
+            && match &self.inner.children {
+                Children::Leaf { .. } => true,
+                Children::Branch {
+                    bounds,
+                    version_bytes,
+                    children,
+                    ..
+                } => {
+                    bounds.get().is_some()
+                        && version_bytes.get().is_some()
+                        && children.values().all(Node::memos_are_warm)
+                }
+            }
+    }
+
     /// Whether this node's content is a single leaf (regardless of any
     /// path-compressed prefix above it).
     ///

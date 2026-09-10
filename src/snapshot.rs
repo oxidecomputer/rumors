@@ -159,14 +159,6 @@ impl<T> Snapshot<T> {
     {
         self.tree.range(query)
     }
-
-    /// Forces this set's tree to compute its lazy structural memos (observable
-    /// hash and ceiling/floor version bounds), so a subsequent operation is
-    /// timed against its own work. For benchmark and test calibration only.
-    #[doc(hidden)]
-    pub fn warm_caches(&self) {
-        self.tree.warm_caches();
-    }
 }
 
 impl<'a, T: Send + Sync + 'static> IntoIterator for &'a Snapshot<T> {

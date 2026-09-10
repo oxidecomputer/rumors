@@ -57,8 +57,8 @@ proptest! {
             let [our_edits, their_edits] = edits;
             ours.react(our_edits);
             theirs.react(their_edits);
-            ours.warm_caches();
-            theirs.warm_caches();
+            ours.warm_memos();
+            theirs.warm_memos();
             let ceiling = ours.latest() | theirs.latest();
             let original = ours.clone();
             let counter = theirs.clone();
@@ -98,7 +98,7 @@ proptest! {
         Path::with_leaf_paths(paths, || {
             let mut ours = Tree::<Bytes>::new();
             ours.act(&party, (0..width + 1).map(|_| insert_action(Bytes::new())));
-            ours.warm_caches();
+            ours.warm_memos();
             let sibling = ours.root.root.as_ref().unwrap().clone().into_children().remove(0).unwrap();
             let mut theirs = ours.clone();
             theirs.act(&party, [insert_action(Bytes::new())]);

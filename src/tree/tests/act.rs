@@ -16,7 +16,7 @@ proptest! {
         Path::with_leaf_paths(versions.into_iter().zip(paths), || {
             let mut tree = Tree::<Bytes>::new();
             tree.act(&party_of("P"), (0..width).map(|_| insert_action(Bytes::new())));
-            tree.warm_caches();
+            tree.warm_memos();
             let before = tree.clone();
             assert!(!tree.act(&party_of("P"), []));
             assert!(tree.root_is(&before));
@@ -49,7 +49,7 @@ proptest! {
         Path::with_leaf_paths(versions.into_iter().zip(paths), || {
             let mut tree = Tree::<Bytes>::new();
             tree.act(&party_of("P"), (0..width + 2).map(|_| insert_action(Bytes::new())));
-            tree.warm_caches();
+            tree.warm_memos();
             let before = tree.clone();
             let sibling = before.root.root.as_ref().unwrap().clone().into_children().remove(0).unwrap();
             let mut missing = [0; 32];
@@ -133,7 +133,7 @@ proptest! {
         Path::with_leaf_paths([(initial, held), (inserted, fresh)], || {
             let mut tree = Tree::<Bytes>::new();
             tree.act(&party_of("P"), [insert_action(Bytes::new())]);
-            tree.warm_caches();
+            tree.warm_memos();
             let before = tree.clone();
             let actions = std::iter::once(insert_action(Bytes::from_static(b"cancelled")))
                 .chain(std::iter::repeat_n(Action::Forget(fresh), repeats));

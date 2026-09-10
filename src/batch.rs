@@ -96,10 +96,10 @@ impl<'a, T: Send + Sync> Batch<'a, T> {
     /// Apply the queued actions, notifying observers if the tree changed.
     pub(crate) fn commit(self) {
         let Batch { inner, actions, .. } = self;
-        Inner::commit(inner, |inner| {
+        Inner::commit(inner, |party, tree| {
             // A later action may discard an earlier insert. Keep the queued
             // handles until the commit releases the lock, even on unwind.
-            inner.tree.act(&inner.party, actions.iter().cloned())
+            tree.act(party, actions.iter().cloned())
         });
     }
 }

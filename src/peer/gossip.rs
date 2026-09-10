@@ -487,11 +487,8 @@ impl<T, B: Persist> Peer<T, B> {
     /// already committed — the record's own-party projection dominates every
     /// event that existed when the reclaim ran.
     ///
-    /// Holds the bookmark mutex across that brief `watch` critical section —
-    /// where the party grows atomically with the record — and the persisting
-    /// write, so the two stores never diverge. The lock order is always
-    /// bookmark-then-`watch`; no path takes them the other way, so it cannot
-    /// deadlock.
+    /// Holds the bookmark mutex through the update and persistence. Acquire it
+    /// before the writer gate and watch guard, as all custody changes do.
     ///
     /// Suppressed when the live `(party, version)` still matches what was last
     /// persisted: between updates nothing else touches the record, so re-running
@@ -503,17 +500,14 @@ impl<T, B: Persist> Peer<T, B> {
         bookmark.ensure_loaded().await?;
 
         let mut persist = false;
-        self.inner.send_if_modified(|inner| {
-            let version = inner.tree.latest();
-            if !bookmark.is_current(&inner.party, version) {
+        Inner::update_party(&self.inner, |party, tree| {
+            let version = tree.latest();
+            if !bookmark.is_current(party, version) {
                 // The suppression token becomes current only after persistence
                 // succeeds; a failed write must be retried.
-                bookmark.reclaim(self.network, &mut inner.party, version);
+                bookmark.reclaim(self.network, party, version);
                 persist = true;
             }
-            // Reclaiming widens the party's identity but records no new event,
-            // so the observable frontier is unchanged: no observer wakeup is due.
-            false
         });
         if persist {
             bookmark.write().await
@@ -580,11 +574,13 @@ impl<T, B: Persist> Peer<T, B> {
         }
 
         // Persist our identity at the snapshot's frontier before sharing any
-        // content. Reclaim, snapshot, and bootstrap fork share one watch lock:
-        // a concurrent send must either precede all three or follow them all.
+        // content. The writer gate orders this with local tree preparation;
+        // reclaim, snapshot, and bootstrap fork share one watch lock: a
+        // concurrent send must either precede all three or follow them all.
         // Otherwise the newcomer could inherit a party without its latest
-        // events and reuse their versions. Always lock bookmark before watch.
-        // Retirement needs no fork: its consumed Peer retains the whole party.
+        // events and reuse their versions. Lock bookmark, then writer gate,
+        // then watch. Retirement needs no fork: its consumed Peer retains the
+        // whole party.
         let mut guarded = ForkGuard {
             party: None,
             recover: self.inner.clone(),
@@ -596,19 +592,16 @@ impl<T, B: Persist> Peer<T, B> {
                 return (Intent::Remain, Err(Error::Bookmark(e)));
             }
             let mut persist = false;
-            self.inner.send_if_modified(|inner| {
-                let version = inner.tree.latest();
-                if !bookmark.is_current(&inner.party, version) {
-                    bookmark.reclaim(self.network, &mut inner.party, version);
+            Inner::update_party(&self.inner, |party, tree| {
+                let version = tree.latest();
+                if !bookmark.is_current(party, version) {
+                    bookmark.reclaim(self.network, party, version);
                     persist = true;
                 }
-                prior_tree = Some(inner.tree.clone());
+                prior_tree = Some(tree.clone());
                 if peer_bootstrapping && !self_retiring {
-                    guarded.party = Some(inner.party.fork());
+                    guarded.party = Some(party.fork());
                 }
-                // Identity custody changes no content or causal history, so
-                // observers have nothing new to read.
-                false
             });
             if persist && let Err(e) = bookmark.write().await {
                 return (Intent::Remain, Err(Error::Bookmark(e)));
@@ -1245,14 +1238,13 @@ impl<T> Drop for ForkGuard<T> {
     /// Rejoin the disjoint fork on cancellation, failure, or unwind.
     fn drop(&mut self) {
         if let Some(party) = self.party.take() {
-            self.recover.send_if_modified(|inner| {
+            Inner::update_party(&self.recover, |owner, _| {
                 // This fork came from the resident party. Overlap indicates a
                 // custody bug; it must not silently discard identity space.
                 assert!(
-                    inner.party.join(party).is_ok(),
+                    owner.join(party).is_ok(),
                     "bootstrap fork overlaps its owner"
                 );
-                false
             });
         }
     }

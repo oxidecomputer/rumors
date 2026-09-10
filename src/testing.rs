@@ -20,6 +20,25 @@ pub use crate::tree::mirror::streaming::remote::{
     FrameShape, HookCapture, HookStream, LinkCapture, PreparedFrame,
 };
 
+/// Join snapshots from one network in memory, preparing the result for readers.
+///
+/// This exposes the local join to allocation tests without including transport
+/// setup, wire decoding, or a runtime in the measured work.
+pub fn join_snapshots<T: Send + Sync>(
+    ours: &crate::Snapshot<T>,
+    theirs: &crate::Snapshot<T>,
+) -> crate::Snapshot<T> {
+    assert_eq!(
+        ours.network(),
+        theirs.network(),
+        "snapshots belong to different networks"
+    );
+    let mut tree = ours.tree().clone();
+    tree.join(theirs.tree().clone());
+    tree.warm_memos();
+    crate::Snapshot::new(ours.network(), tree)
+}
+
 /// Render two hook captures grouped by labeled logical streams.
 pub fn render_hook_capture(a: &HookCapture, b: &HookCapture) -> String {
     crate::tree::mirror::streaming::remote::render_hook_capture(a, b)

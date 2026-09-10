@@ -37,18 +37,15 @@
 //!
 //! # Memos and sharing
 //!
-//! Every node lives behind an `Arc` (its children a sorted radix fan of
-//! further handles), so cloning a tree — every
-//! [`Snapshot`](crate::Snapshot), every gossip session's working copy — is
-//! O(1) and shares structure; mutation is copy-on-write along the touched
-//! spine.
-//! Each branch lazily memoizes three pure functions of its subtree: the
-//! Merkle **hash** (mirror pruning), and the **ceiling** and **floor** of
-//! its leaves' versions. The version bounds power both deletion honoring
-//! (a subtree whose ceiling the counterparty's version contains holds
-//! nothing it is missing — see [`traverse::unknown`]) and causal range
-//! queries ([`Tree::range`]), which prune whole subtrees without entering
-//! them.
+//! Every node lives behind an `Arc` (its children a sorted radix fan of further
+//! handles), so cloning a tree is O(1) and shares structure; mutation is
+//! copy-on-write along the touched spine.
+//!
+//! Nodes memoize their Merkle hashes, version bounds, and maximum encoded
+//! version sizes. Publication forces these values before readers can reach a
+//! tree; traversal candidates may still be cold. Unchanged subtrees share their
+//! memos. The bounds let deletion filtering and causal range queries skip whole
+//! subtrees, and encoded-version sizes let a session budget its decode buffers.
 //!
 //! # The traversal trio
 //!
@@ -310,21 +307,15 @@ impl<T> Tree<T> {
             .map(|(_, message)| message.arc::<T>())
     }
 
-    /// Forces every lazily-memoized structural value — the observable hash
-    /// and the ceiling/floor version bounds — for the whole tree.
+    /// Compute hashes, version bounds, and encoded-version size before publication.
     ///
-    /// Each accessor recurses, so one call apiece warms the entire subtree.
-    ///
-    /// For benchmark and test calibration only: it lets a subsequent operation
-    /// be timed against its own work rather than this one-time memoization. In
-    /// production these warm naturally as the tree is hashed for the wire and
-    /// reconciled against peers.
-    #[doc(hidden)]
-    pub fn warm_caches(&self) {
+    /// Accessors recurse only through cold nodes. Unchanged subtrees retain
+    /// their memos, so an incremental commit pays for its new spine. Warming
+    /// version sizes also computes the bounds they depend on.
+    pub(crate) fn warm_memos(&self) {
         if let Some(root) = &self.root.root {
-            let _ = root.hash();
-            let _ = root.ceiling();
-            let _ = root.floor();
+            root.hash();
+            root.version_bytes();
         }
     }
 

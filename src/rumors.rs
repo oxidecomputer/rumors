@@ -407,14 +407,6 @@ impl<T, B: BookmarkError> Rumors<T, B> {
         Changes::subscribe(&self.peer.inner)
     }
 
-    /// Force this set's tree to compute its lazy structural memos (observable
-    /// hash and ceiling/floor version bounds), so a subsequent operation is
-    /// timed against its own work. For benchmark and test calibration only.
-    #[doc(hidden)]
-    pub fn warm_caches(&self) {
-        self.peer.warm_caches();
-    }
-
     /// Alias this set's live party for invariant assertions in tests; see
     /// [`Peer::dangerously_alias_party`] for what the caller must uphold.
     #[cfg(any(test, feature = "test-internals"))]

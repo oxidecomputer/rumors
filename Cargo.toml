@@ -171,9 +171,7 @@ rand = { workspace = true, features = ["small_rng"] }
 # and the suite pins paths derived from those ids.
 rand_chacha = { workspace = true }
 pollster = { workspace = true }
-# Counting global allocator for the decoder allocation meter
-# (`tests/decode_alloc.rs`): prices decodes in bytes requested from the
-# allocator, so a declared-length pre-allocation is observable.
+# Count allocation traffic in focused resource tests.
 stats_alloc = { workspace = true }
 
 [profile.dev]

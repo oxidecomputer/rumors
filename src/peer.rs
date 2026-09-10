@@ -160,9 +160,11 @@ pub(crate) struct Inner<T> {
     pub(crate) party: Party,
     /// The published content and causal ceiling.
     pub(crate) tree: Tree<T>,
-    /// Shared by ordinary commits; held exclusively after repeated swap conflicts.
+    /// Serializes local tree preparation and the fallback gossip join.
     ///
-    /// Acquire this before the watch write lock. Snapshot readers do not take it.
+    /// Party changes and optimistic swaps take it shared; local preparation and
+    /// the fallback join take it exclusively. Acquire it before any watch guard.
+    /// Snapshot readers do not take it.
     /// The gate contains no data to repair after a panic, so poison is ignored.
     commit_gate: Arc<RwLock<()>>,
 }
@@ -176,6 +178,7 @@ const OPTIMISTIC_ATTEMPTS: usize = 2;
 impl<T> Inner<T> {
     /// Construct a replica whose commits share one writer gate.
     pub(crate) fn new(party: Party, tree: Tree<T>) -> Self {
+        tree.warm_memos();
         Self {
             party,
             tree,
@@ -183,28 +186,50 @@ impl<T> Inner<T> {
         }
     }
 
-    /// Apply a change, releasing removed payloads after the watch write lock.
+    /// Prepare and publish a local tree change without blocking snapshot reads.
     ///
-    /// Retaining the original tree keeps its payload destructors from
-    /// running under the lock. The caller must also retain incoming payloads
-    /// outside `update`, passing cloned handles to any consuming tree walk.
-    /// Together these keep destructors free to read or change the replica,
-    /// including when the update unwinds.
-    pub(crate) fn commit(sender: &watch::Sender<Self>, update: impl FnOnce(&mut Self) -> bool) {
-        // Declaring this outside the guard's scope also preserves drop order
-        // if the update panics: unlock before releasing any removed payload.
-        let mut previous = None;
+    /// The writer gate keeps the tree and party together until publication.
+    /// Borrow the party while applying the update, then release the watch guard
+    /// before warming the new tree. Readers continue to see the previous tree.
+    /// Retain incoming payloads outside `update`: a skipped insert's destructor
+    /// must run after both guards are released, including on unwind.
+    pub(crate) fn commit(
+        sender: &watch::Sender<Self>,
+        update: impl FnOnce(&Party, &mut Tree<T>) -> bool,
+    ) {
+        // Declaring the candidate before the guards makes its destructor run
+        // after them on unwind too. Until the swap, the sender retains our old
+        // payloads; afterwards the candidate retains the displaced tree.
+        let mut candidate;
         {
             let gate = sender.borrow().commit_gate.clone();
-            // Other ordinary commits may enter too; the watch lock orders them.
-            // Only an exclusive gossip join needs to stop all of these writers.
-            let _hold = gate.read().unwrap_or_else(PoisonError::into_inner);
+            let _hold = gate.write().unwrap_or_else(PoisonError::into_inner);
+            let changed = {
+                let inner = sender.borrow();
+                candidate = inner.tree.clone();
+                update(&inner.party, &mut candidate)
+            };
+            candidate.warm_memos();
             sender.send_if_modified(|inner| {
-                previous = Some(inner.tree.clone());
-                update(inner)
+                std::mem::swap(&mut inner.tree, &mut candidate);
+                changed
             });
         }
-        drop(previous);
+        drop(candidate);
+    }
+
+    /// Change party custody at the published frontier without notifying readers.
+    ///
+    /// A local commit must publish before a fork can inherit its party and
+    /// history. The shared writer gate orders these changes with preparation.
+    /// Callers needing a bookmark guard must acquire it before this method.
+    fn update_party(sender: &watch::Sender<Self>, update: impl FnOnce(&mut Party, &Tree<T>)) {
+        let gate = sender.borrow().commit_gate.clone();
+        let _hold = gate.read().unwrap_or_else(PoisonError::into_inner);
+        sender.send_if_modified(|inner| {
+            update(&mut inner.party, &inner.tree);
+            false
+        });
     }
 
     /// Clone the published tree without carrying its read guard into the caller.
@@ -249,6 +274,7 @@ impl<T> Inner<T> {
                 candidate = reconciled.clone();
                 candidate.join(expected.clone());
             }
+            candidate.warm_memos();
             #[cfg(test)]
             tests::before_swap();
             let result = {
@@ -288,6 +314,7 @@ impl<T> Inner<T> {
             // through the join, without holding the watch lock during the walk.
             snapshot = Self::snapshot(sender);
             candidate.join(snapshot.clone());
+            candidate.warm_memos();
             Self::try_swap(sender, &snapshot, &mut candidate, update)
                 .expect("exclusive commit cannot lose its snapshot")
         }
@@ -295,9 +322,9 @@ impl<T> Inner<T> {
 
     /// Swap only if the published root still matches `expected`.
     ///
-    /// The caller holds the writer gate. A conflict leaves `candidate` and
-    /// `update` untouched; success moves the displaced tree into `candidate`
-    /// so its destruction happens after the caller releases the gate.
+    /// The caller holds the writer gate and has warmed `candidate`.
+    /// A conflict leaves `candidate` and `update` untouched; success moves the
+    /// displaced tree into `candidate` for destruction after the gate is released.
     fn try_swap<E>(
         sender: &watch::Sender<Self>,
         expected: &Tree<T>,
@@ -831,14 +858,6 @@ impl<T, B: BookmarkError> Peer<T, B> {
         T: Send + Sync,
     {
         CausalMessages::subscribe(&self.inner, since)
-    }
-
-    /// Force this set's tree to compute its lazy structural memos (observable
-    /// hash and ceiling/floor version bounds), so a subsequent operation is
-    /// timed against its own work. For benchmark and test calibration only.
-    #[doc(hidden)]
-    pub fn warm_caches(&self) {
-        self.inner.borrow().tree.warm_caches();
     }
 
     /// Alias the live identity for invariant assertions in tests.

@@ -1437,7 +1437,7 @@ mod span_door_traffic {
             let mut tree: Tree<Bytes> = Tree::new();
             for round in 0..8 {
                 tree.act(&party_of("A"), batch("a", round, 64).map(insert_action));
-                tree.warm_caches();
+                tree.warm_memos();
             }
         });
         eprintln!(
@@ -1470,16 +1470,16 @@ mod span_door_traffic {
                 for round in 0..4 {
                     tree.act(&party_of(label), batch(label, round, 32).map(insert_action));
                 }
-                tree.warm_caches();
+                tree.warm_memos();
                 merged.join(tree);
             }
-            merged.warm_caches();
+            merged.warm_memos();
             // Incremental rounds on the merged tree: acts invalidate
             // ancestor memos, so re-warming re-folds them against the
             // merged population.
             for round in 100..104 {
                 merged.act(&party_of("A"), batch("a", round, 32).map(insert_action));
-                merged.warm_caches();
+                merged.warm_memos();
             }
         });
         eprintln!(

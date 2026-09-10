@@ -153,7 +153,7 @@ fn bench_gossip_fixed(c: &mut Criterion) {
             group.throughput(Throughput::Elements(param as u64));
             group.bench_function(BenchmarkId::new("V2", param), |b| {
                 b.iter_batched(
-                    || warmed(scenario.build(param)),
+                    || scenario.build(param),
                     |(left, right)| black_box(wire.round_trip(left, right)),
                     BatchSize::PerIteration,
                 )
@@ -192,7 +192,7 @@ fn bench_gossip_latency(c: &mut Criterion) {
                         b.iter_custom(|iters| {
                             let mut total = Duration::ZERO;
                             for _ in 0..iters {
-                                let (left, right) = warmed(scenario.build(param));
+                                let (left, right) = scenario.build(param);
                                 let (pair, elapsed) = wire.round_trip(left, right);
                                 black_box(pair);
                                 total += elapsed;
@@ -294,12 +294,6 @@ fn seeded_with_versions(n: usize, seed: u64) -> (Rumors<u8>, Vec<Version>) {
         .expect("flat test payloads are within any depth limit");
     let versions = rumors.snapshot().iter().map(|(v, _)| v.clone()).collect();
     (rumors, versions)
-}
-
-fn warmed((left, right): (Rumors<u8>, Rumors<u8>)) -> (Rumors<u8>, Rumors<u8>) {
-    left.warm_caches();
-    right.warm_caches();
-    (left, right)
 }
 
 fn random_bytes(n: usize, seed: u64) -> Vec<u8> {

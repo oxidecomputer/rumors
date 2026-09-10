@@ -20,6 +20,12 @@ fn insert(tree: &mut Tree<u64>, party: &Party, value: u64) {
     tree.act(party, [Action::Insert(Message::new(value))]);
 }
 
+/// Inspect the published tree's memos without warming them as a side effect.
+fn assert_warm<T>(tree: &Tree<T>) {
+    let root: Option<crate::tree::typed::node::Root> = tree.root.clone().into();
+    assert!(root.is_none_or(|root| root.into_untyped().memos_are_warm()));
+}
+
 thread_local! {
     /// Interleave a local commit after candidate preparation, on this test's thread.
     static BEFORE_SWAP: RefCell<Option<Box<dyn FnMut()>>> = RefCell::new(None);
@@ -101,11 +107,11 @@ proptest! {
                     let attempt = attempts.get();
                     attempts.set(attempt + 1);
                     if attempt < conflicts {
-                        Inner::commit(&sender, |inner| {
-                            insert(&mut inner.tree, &inner.party, 100 + attempt as u64);
+                        Inner::commit(&sender, |party, tree| {
+                            insert(tree, party, 100 + attempt as u64);
                             if redact {
-                                let path = crate::tree::typed::Path::for_leaf(inner.tree.latest());
-                                inner.tree.act(&inner.party, [Action::Forget(path)]);
+                                let path = crate::tree::typed::Path::for_leaf(tree.latest());
+                                tree.act(party, [Action::Forget(path)]);
                             }
                             true
                         });
@@ -128,6 +134,7 @@ proptest! {
             let mut expected = live.borrow().clone();
             if !reject { expected.join(incoming); }
             assert_eq!(result.is_err(), reject);
+            assert_warm(&Inner::snapshot(&sender));
             assert_eq!(Inner::snapshot(&sender), expected);
             let changed = expected != *live.borrow();
             assert_eq!(receiver.borrow().has_changed().unwrap(), !reject && changed);
@@ -163,6 +170,7 @@ proptest! {
         expected.join(incoming.clone());
         let changed = expected != live;
         let sender = watch::Sender::new(Inner::new(local, live));
+        assert_warm(&Inner::snapshot(&sender));
         let mut receiver = sender.subscribe();
         let gate = sender.borrow().commit_gate.clone();
         let mut called = 0;
@@ -276,12 +284,12 @@ proptest! {
                 }
                 start.wait();
                 for i in 0..local_events {
-                    Inner::commit(&sender, |inner| {
-                        insert(&mut inner.tree, &inner.party, i as u64);
+                    Inner::commit(&sender, |party, tree| {
+                        insert(tree, party, i as u64);
                         if i + 1 == local_events {
                             // These stamps include any gossip already published;
                             // replaying the sends in isolation would mint others.
-                            expected = inner.tree.clone();
+                            expected = tree.clone();
                         }
                         true
                     });
@@ -289,6 +297,7 @@ proptest! {
                 }
             });
             for tree in incoming { expected.join(tree); }
+            assert_warm(&Inner::snapshot(&sender));
             assert_eq!(Inner::snapshot(&sender), expected);
         });
     }
@@ -301,15 +310,15 @@ proptest! {
             let sender = watch::Sender::new(Inner::new(Party::seed(), Tree::<OnDrop>::new()));
             let prior = Inner::snapshot(&sender);
             let callback_sender = sender.clone();
-            Inner::commit(&sender, |inner| {
+            Inner::commit(&sender, |party, tree| {
                 let message = on_drop(move || {
                     assert!(Inner::snapshot(&callback_sender).is_empty());
-                    Inner::commit(&callback_sender, |inner| {
-                        inner.tree.act(&inner.party, [Action::Insert(on_drop(|| {}))]);
+                    Inner::commit(&callback_sender, |party, tree| {
+                        tree.act(party, [Action::Insert(on_drop(|| {}))]);
                         true
                     });
                 });
-                inner.tree.act(&inner.party, [Action::Insert(message)]);
+                tree.act(party, [Action::Insert(message)]);
                 true
             });
             // Only the published tree retains the payload. The incoming state
@@ -357,8 +366,8 @@ fn exclusive_publication_unwind_allows_later_commits() {
         BEFORE_SWAP.with_borrow_mut(|hook| {
             let sender = sender.clone();
             *hook = Some(Box::new(move || {
-                Inner::commit(&sender, |inner| {
-                    insert(&mut inner.tree, &inner.party, 1);
+                Inner::commit(&sender, |party, tree| {
+                    insert(tree, party, 1);
                     true
                 });
             }));
@@ -384,10 +393,81 @@ fn exclusive_publication_unwind_allows_later_commits() {
         BEFORE_SWAP.with_borrow_mut(|hook| *hook = None);
         assert!(outcome.is_err());
         assert_eq!(Inner::snapshot(&sender), expected.unwrap());
-        Inner::commit(&sender, |inner| {
-            insert(&mut inner.tree, &inner.party, 2);
+        Inner::commit(&sender, |party, tree| {
+            insert(tree, party, 2);
             true
         });
         assert_eq!(Inner::snapshot(&sender).len(), OPTIMISTIC_ATTEMPTS + 1);
     });
+}
+
+proptest! {
+    /// Installation and subsequent local commits publish warm metadata even
+    /// when all leaves share a long compressed prefix.
+    #[test]
+    fn deep_installation_and_local_commit_prepare_memos(depth in 0usize..32, width in 1usize..64) {
+        use crate::tree::typed::Path;
+        let party = Party::seed();
+        let mut version = crate::Version::new();
+        let paths: Vec<_> = (0..=width).map(|index| {
+            version.tick(&party);
+            let mut path = [0; 32];
+            path[depth] = u8::try_from(index).unwrap();
+            (version.clone(), Path::from(path))
+        }).collect();
+        Path::with_leaf_paths(paths, || {
+            let mut tree = Tree::new();
+            for i in 0..width { insert(&mut tree, &party, i as u64); }
+            let sender = watch::Sender::new(Inner::new(party, tree));
+            assert_warm(&Inner::snapshot(&sender));
+            Inner::commit(&sender, |party, tree| {
+                insert(tree, party, width as u64);
+                true
+            });
+            assert_warm(&Inner::snapshot(&sender));
+        });
+    }
+
+    /// While local preparation is suspended, snapshots see the old tree and a
+    /// concurrent fork waits to inherit the completed commit's history.
+    #[test]
+    fn local_preparation_orders_party_handoffs(events in 1usize..32) {
+        completes(move || {
+            let sender = watch::Sender::new(Inner::new(Party::seed(), Tree::new()));
+            let (started, ready) = mpsc::channel();
+            let (resume, proceed) = mpsc::channel();
+            let writer = sender.clone();
+            let worker = thread::spawn(move || {
+                Inner::commit(&writer, |party, tree| {
+                    for i in 0..events { insert(tree, party, i as u64); }
+                    // Custody changes must wait until this candidate is published.
+                    let gate = writer.borrow().commit_gate.clone();
+                    assert!(gate.try_read().is_err());
+                    started.send(()).unwrap();
+                    proceed.recv().unwrap();
+                    true
+                });
+            });
+            ready.recv().unwrap();
+            let owner = sender.clone();
+            let handoff = thread::spawn(move || {
+                let mut inherited = None;
+                Inner::update_party(&owner, |party, tree| {
+                    inherited = Some((party.fork(), tree.clone()));
+                });
+                inherited.unwrap()
+            });
+            // This read must complete while the writer and handoff remain pending.
+            assert!(Inner::snapshot(&sender).is_empty());
+            resume.send(()).unwrap();
+            worker.join().unwrap();
+            let (party, mut inherited) = handoff.join().unwrap();
+            assert_eq!(inherited.len(), events);
+            assert_warm(&inherited);
+            let committed = inherited.latest().clone();
+            insert(&mut inherited, &party, events as u64);
+            assert!(inherited.latest() > committed);
+            assert_eq!(inherited.len(), events + 1);
+        });
+    }
 }
