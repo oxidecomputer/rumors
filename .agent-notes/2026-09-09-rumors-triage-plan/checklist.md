@@ -1,7 +1,7 @@
 # Rumors review checklist
 
 **Active:** none.
-**Next:** 11, remove the root-hash read's clone; then measure branch-hash buffers.
+**Next:** 11, remove the root conversion and unused interfaces; then measure branch-hash buffers.
 
 Check code outcomes only after verification and merge; retain the landing
 commit. Checked dispositions are labelled explicitly.
@@ -202,8 +202,11 @@ Dependencies: 10 when a change affects the same traversal or baseline.
 - [x] Remove the leaf-hash heap buffer — `6da27444`.
   Sources: `tree-typed-6` (leaf), T111.
 
-- [ ] Borrow the root when reading its hash.
+- [x] Borrow the root when reading its hash — `efb91ceb`.
   Sources: `tree-core-7`, T132.
+
+- [ ] Remove the root-to-node conversion and unused interfaces it exposes.
+  Source: follow-up from `tree-core-7`; removing the conversion reveals unused message, node, and backend methods. Preserve the publication memo checks.
 
 - [ ] Measure branch buffers, inline prefixes, and leaf reconstruction.
   Sources: `tree-typed-6` (branch), `tree-typed-23`, T111.
