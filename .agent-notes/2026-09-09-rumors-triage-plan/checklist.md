@@ -1,7 +1,7 @@
 # Rumors review checklist
 
-**Ready for review:** 05, scope pipelining tests to their queue-sizing premise — `codex/deep-pipelining`, base `main`.
-**Next:** 06, independent envelope calculation; then 05, audit remaining conformance claims.
+**Active:** 06, independent envelope calculation — `codex/window-envelope`, base `main`.
+**Next:** 05, audit remaining conformance claims; then 03's broader deep-session validation.
 
 The envelope calculation is independent of deep-session coverage. Validate the
 sizing arithmetic before extending measurements that rely on it.
@@ -85,7 +85,7 @@ Dependencies: 03's deep fixtures; reported-error repairs in 04 are complete. Con
 - [x] Disposition: deep clustered fixtures can serialize at production queue widths; no production fix is needed. Owner ruling, 2026-09-11.
   Sources: T132, T162, N41.
 
-- [ ] Scope the pipelining latency ceiling to hash-distributed fixtures and add a minimum-window comparison.
+- [x] Scope the pipelining latency ceiling to hash-distributed fixtures and add a minimum-window comparison — `7f6551f4`.
   Sources: `tests-disruption-handshake-10`, `verification-infra-16`, T28, T98, T159.
 
 - [x] Give census tests a shared lock, verify budget-induced widening, and require positive catch-up hop counts — `3a014c3c`, `709eea83`, `7c08a81b`; retained-root accounting corrected in `e238db87`.
