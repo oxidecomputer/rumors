@@ -1,7 +1,9 @@
 # Rumors review checklist
 
 **Active:** None.
-**Next:** 11, verify typed-tree preconditions and finish helper cleanup.
+**Next:** 04, surface stranded response errors; then reproduce the deep duplicated-reply stall.
+
+These unblock broader deep-session validation; remaining typed-tree cleanup can wait.
 
 Check code outcomes only after verification and merge; retain the landing
 commit. Checked dispositions are labelled explicitly.
@@ -61,7 +63,7 @@ Dependencies: None to construct fixtures; 04 and 05 before enabling the complete
 
 ## 04. Departure, malformed replies, and error preservation
 
-Dependencies: 03 for deep reproductions; coordinate all edits to the shared driver.
+Dependencies: 03’s completed deep fixtures; coordinate all edits to the shared driver.
 
 - [x] End waits when the peer can no longer provide an owed stream — `64964725`.
   Sources: T145, T154, T165, T166, N01, N21.
@@ -77,7 +79,7 @@ Dependencies: 03 for deep reproductions; coordinate all edits to the shared driv
 
 ## 05. Pipelining and conformance claims under deep geometry
 
-Dependencies: 03–04 for deep geometry; 02 for the pooled transport case.
+Dependencies: 03’s deep fixtures and 04’s failure repairs; 02 for the pooled transport case.
 
 - [ ] Determine and repair the depth-dependent pipelining behavior.
   Sources: `tests-disruption-handshake-10`, `tests-resource-link-window-25`, `verification-infra-16`, T28, T98, T132, T159, T162, N41.
@@ -229,7 +231,7 @@ Dependencies: 10 when a change affects the same traversal or baseline.
 - [x] Share path width, simplify conversions, and enforce consistent prefix heights and diagnostics — `ef32c7f9`.
   Sources: `tree-typed-12` (path width), `tree-typed-15–17`, `tree-typed-20–22`, T36, T132.
 
-- [ ] Check typed-tree preconditions where a real failure construction is possible.
+- [x] Check typed-tree preconditions where a real failure construction is possible — `1bc7e85d`.
   Sources: `tree-typed-7`, `tree-typed-9`, T132.
 
 - [ ] Simplify typed-tree helpers and clarify their contracts.

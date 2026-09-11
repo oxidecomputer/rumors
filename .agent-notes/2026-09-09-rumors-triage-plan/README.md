@@ -17,6 +17,9 @@ area over opening another. At each handoff, name the next outcome and explain
 why it comes next; distinguish required prerequisites from a convenient
 sequence. If an earlier group remains unfinished, say what is still open.
 Report completed outcomes, never imply that one merged batch finished its group.
+Before choosing another cleanup batch, compare it with the remaining correctness
+issues and the validation they block. Being nearby in the code is a tie-breaker,
+not a reason to postpone higher-value work.
 
 Recover the intended behavior from the findings and amended rulings.
 Salvage useful code, counterexamples, and experiments from the prepared
