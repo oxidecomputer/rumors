@@ -179,6 +179,7 @@ proptest! {
         }
         prop_assert_eq!(iter.size_hint(), (n - j - k, Some(n - j - k)));
         prop_assert_eq!(iter.len(), n - j - k);
+        drop(iter);
 
         let mut into_iter = fan.into_iter();
         for _ in 0..j {

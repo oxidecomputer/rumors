@@ -1,23 +1,13 @@
-//! The radix fan: a branch's children as a flat, strictly-ascending
-//! association from child index to child node.
+//! Ordered children of an untyped branch.
 //!
-//! A fan holds at most 256 entries (its keys are the byte alphabet) and a
-//! materialized branch holds at least 2 (path compression collapses
-//! singletons), with the population concentrated near the small end: past
-//! the first few levels of a uniform-hash tree almost every branch carries
-//! only a handful of children. At that size a sorted inline vector beats a
-//! tree-shaped map on every operation the crate performs — one contiguous
-//! (often inline) allocation instead of a heap node per entry, and
-//! cache-friendly iteration in the ascending radix order the hash preimage,
-//! the wire encoding, and the merge walks all consume directly.
+//! A [`Fan`] maps byte radixes to node handles. Entries are unique and sorted,
+//! allowing binary-search lookups and ordered traversal without sorting again.
+//! Small fans fit inline; wider ones use one contiguous allocation.
 //!
-//! [`Fan`] is deliberately *not* a persistent map. Structural sharing lives
-//! one level up, on the node handles the fan stores (each entry is one
-//! `Arc` reference): cloning a fan is one refcount bump per child, and
-//! every mutation site first takes exclusive ownership of the fan (via
-//! `Arc::make_mut` or `mem::take` on the enclosing node), so copy-on-write
-//! inside the container would buy nothing that the walk following every
-//! clone does not already pay for.
+//! Stored branches have at least two children because path compression
+//! absorbs singletons. Temporary fans may be empty or contain one child.
+//! Cloning copies the entries and shares their child nodes; copy-on-write
+//! belongs to the enclosing node, not this container.
 
 use std::mem;
 
@@ -30,53 +20,30 @@ mod tests;
 
 /// Entries a [`Fan`] holds inline before spilling to the heap.
 ///
-/// An entry is 16 bytes (`(u8, Node)`, padded to the handle's
-/// alignment), so the fan occupies `8 + max(16 × FAN_INLINE, 16)` bytes
-/// inline — 40 at 2. Two entries cover the modal materialized branch (path
-/// compression guarantees at least two children, and interior branches
-/// rarely carry more) and the transient singleton produced by exploding a
-/// path-compressed node, so the tree's hottest reassembly paths never
-/// touch the allocator for the fan itself; anything wider spills once to a
-/// size-classed heap block the branch then owns. A larger inline capacity
-/// would tax every node allocation — the fan is embedded in the largest
-/// variant of every node's children enum — for shapes the tree seldom
-/// materializes.
+/// Two entries cover the smallest stored branch and temporary singletons.
+/// A larger inline buffer would enlarge every node, including leaves, to
+/// avoid allocations only for wider branches.
 const FAN_INLINE: usize = 2;
 
-/// The children of a branch: `(radix, child)` pairs kept strictly
-/// ascending by radix, with no duplicate radixes.
+/// Child handles keyed by unique radixes in ascending order.
 ///
-/// The ordering invariant is private to this module; every constructor and
-/// mutator preserves it, so consumers read ascending radix order
-/// structurally — the hash preimage and the wire encoding need no re-sort
-/// and no caller discipline.
+/// Constructors and mutations preserve this order. Hashing, wire encoding,
+/// and merge walks can consume it directly.
+#[derive(Default, Clone)]
 pub struct Fan {
     /// Invariant: strictly ascending by radix, no duplicates.
     entries: SmallVec<[(u8, Node); FAN_INLINE]>,
 }
 
-impl Default for Fan {
-    fn default() -> Self {
-        Self {
-            entries: SmallVec::new(),
-        }
-    }
-}
-
-impl Clone for Fan {
-    fn clone(&self) -> Self {
-        Self {
-            entries: self.entries.clone(),
-        }
-    }
-}
-
+/// Display the fan as an ordered radix-to-node map.
 impl std::fmt::Debug for Fan {
+    /// Format entries in ascending radix order.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_map().entries(self.iter()).finish()
     }
 }
 
+/// Construct and update sorted child entries.
 impl Fan {
     /// The empty fan.
     pub fn new() -> Self {
@@ -91,11 +58,10 @@ impl Fan {
         }
     }
 
-    /// The fan holding exactly `child` at `radix`.
+    /// A temporary fan holding just `child` at `radix`, without allocating.
     ///
-    /// The single-entry shape is transient — it exists between exploding a
-    /// path-compressed node and the `branch` constructor collapsing it back
-    /// — and fits inline, so building it never allocates.
+    /// Traversal uses this shape when expanding a compressed path. The node
+    /// constructor folds it back into the child's prefix when reassembling.
     pub fn unit(radix: u8, child: Node) -> Self {
         let mut entries = SmallVec::new();
         entries.push((radix, child));
@@ -135,11 +101,9 @@ impl Fan {
         self.search(radix).ok().map(|at| self.entries.remove(at).1)
     }
 
-    /// The least entry at or above `radix`, if any.
+    /// The first entry at or above `radix`, found by binary search.
     ///
-    /// The resume point of a suspended ascending walk: one binary search,
-    /// so the entries between the cursor and the answer are never
-    /// enumerated and no sibling handle is materialized.
+    /// Owned walks use this to resume without collecting pending children.
     pub fn successor(&self, radix: u8) -> Option<(u8, &Node)> {
         let at = self
             .entries
@@ -147,13 +111,10 @@ impl Fan {
         self.entries.get(at).map(|(radix, child)| (*radix, child))
     }
 
-    /// Append `(radix, child)`, which must be strictly greater than the
-    /// fan's current last radix.
+    /// Append a child whose radix is greater than every existing radix.
     ///
-    /// Sorted bulk builds produce every entry in ascending radix order, so
-    /// this O(1) append is their build path; an out-of-order push trips a
-    /// debug assertion (in release it would silently break the invariant
-    /// the binary searches rely on).
+    /// Bulk builds use this to avoid searching for an insertion point. The
+    /// caller must supply ascending, unique radixes; debug builds check this.
     pub fn push(&mut self, radix: u8, child: Node) {
         debug_assert!(
             self.entries.last().is_none_or(|(last, _)| *last < radix),
@@ -162,14 +123,11 @@ impl Fan {
         self.entries.push((radix, child));
     }
 
-    /// Iterate the fan in ascending radix order.
+    /// Borrow entries in ascending radix order, with reverse traversal available.
     ///
-    /// Double-ended, and the length reported by `size_hint` is exact at
-    /// every step: preimage assembly sizes its buffer from it.
-    pub fn iter(&self) -> Iter<'_> {
-        Iter {
-            inner: self.entries.iter(),
-        }
+    /// The remaining length is exact; hash construction sizes its buffer from it.
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = (u8, &Node)> + ExactSizeIterator {
+        self.entries.iter().map(|(radix, child)| (*radix, child))
     }
 
     /// Iterate the children alone, in ascending radix order.
@@ -178,13 +136,12 @@ impl Fan {
     }
 }
 
-/// Collect `(radix, child)` pairs into a fan.
+/// Collect entries, keeping the last child supplied for each radix.
 ///
-/// Later pairs displace earlier ones at the same radix, matching repeated
-/// [`insert`](Fan::insert). Every reassembly in the crate feeds pairs
-/// already strictly ascending and duplicate-free, which this recognizes in
-/// one pass; anything else pays one stable sort.
+/// Strictly ascending input needs no sort. Otherwise a stable sort keeps
+/// duplicate entries in input order, matching repeated [`insert`](Fan::insert).
 impl FromIterator<(u8, Node)> for Fan {
+    /// Sort and deduplicate only when input is not already strictly ascending.
     fn from_iter<I: IntoIterator<Item = (u8, Node)>>(iter: I) -> Self {
         let mut entries: SmallVec<[(u8, Node); FAN_INLINE]> = iter.into_iter().collect();
         if !entries.windows(2).all(|pair| pair[0].0 < pair[1].0) {
@@ -203,64 +160,18 @@ impl FromIterator<(u8, Node)> for Fan {
     }
 }
 
-/// The borrowing walk over a fan, ascending by radix; see [`Fan::iter`].
-pub struct Iter<'a> {
-    inner: std::slice::Iter<'a, (u8, Node)>,
-}
-
-impl<'a> Iterator for Iter<'a> {
-    type Item = (u8, &'a Node);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.inner.next().map(|(radix, child)| (*radix, child))
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.inner.size_hint()
-    }
-}
-
-impl DoubleEndedIterator for Iter<'_> {
-    fn next_back(&mut self) -> Option<Self::Item> {
-        self.inner.next_back().map(|(radix, child)| (*radix, child))
-    }
-}
-
-impl ExactSizeIterator for Iter<'_> {}
-
 /// The consuming walk over a fan, ascending by radix.
-pub struct IntoIter {
-    inner: smallvec::IntoIter<[(u8, Node); FAN_INLINE]>,
-}
+pub type IntoIter = smallvec::IntoIter<[(u8, Node); FAN_INLINE]>;
 
-impl Iterator for IntoIter {
-    type Item = (u8, Node);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.inner.next()
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.inner.size_hint()
-    }
-}
-
-impl DoubleEndedIterator for IntoIter {
-    fn next_back(&mut self) -> Option<Self::Item> {
-        self.inner.next_back()
-    }
-}
-
-impl ExactSizeIterator for IntoIter {}
-
+/// Transfer the fan's entries to the caller in radix order.
 impl IntoIterator for Fan {
+    /// A radix and its owned child handle.
     type Item = (u8, Node);
+    /// The backing vector's consuming iterator.
     type IntoIter = IntoIter;
 
     /// Consume the fan in ascending radix order.
     fn into_iter(self) -> Self::IntoIter {
-        IntoIter {
-            inner: self.entries.into_iter(),
-        }
+        self.entries.into_iter()
     }
 }

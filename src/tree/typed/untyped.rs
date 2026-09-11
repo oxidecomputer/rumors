@@ -107,73 +107,35 @@ impl std::fmt::Debug for Node {
     }
 }
 
-/// The children of a node.
-#[derive(Debug)]
+/// Content stored beneath a node's compressed prefix.
+///
+/// Cloning shares leaf data and child nodes and preserves computed summaries.
+/// Those summaries depend only on the subtree, so changing children must
+/// clear them; changing the prefix leaves them valid.
+#[derive(Debug, Clone)]
 enum Children {
-    /// A direct leaf, at the true bottom of the tree.
+    /// A leaf's version and payload.
     Leaf {
         /// The version of this leaf.
         version: Version,
         /// The payload of this leaf.
         message: Message,
     },
-    /// A materialized branch point, with the invariant that there are always >=
-    /// 2 branches (or else they should be path-compressed away).
+    /// At least two children; singleton branches are folded into the prefix.
     Branch {
-        /// The tightest causal span containing every leaf version under
-        /// this branch — its floor (the meet) and ceiling (the join) as
-        /// one [`Span`] — computed lazily on first read of
-        /// either bound and memoized.
-        ///
-        /// Storing the pair as a span makes `floor <= ceiling` a
-        /// property of the stored type: every consumer reads bounds
-        /// that are ordered by construction, and the classifiers place
-        /// versions against the span with no per-read validation.
-        ///
-        /// This must be reset whenever the branch's children change, but
-        /// not when its prefix does.
+        /// The tightest span containing all leaf versions below this branch,
+        /// cached on first read. Its floor is their meet; its ceiling is
+        /// their join. [`Span`] keeps the pair ordered by construction.
         bounds: OnceLock<Span<'static>>,
-        /// The number of total leaves under this branch.
+        /// The number of leaves below this branch.
         leaves: usize,
-        /// The largest canonical [`Version`] encoding among every bound
-        /// this branch holds — its leaf versions and every descendant
-        /// branch's ceiling and floor, its own included — in bytes,
-        /// computed lazily on first read and memoized.
-        ///
-        /// Like the bounds span (which it forces), this must be reset
-        /// whenever the branch's children change, but not when its
-        /// prefix does.
+        /// The largest encoded version size in this subtree: leaf versions
+        /// and branch bounds, including this branch's own bounds. Computing
+        /// it also fills `bounds`; later reads use the cached size.
         version_bytes: OnceLock<usize>,
         /// The children of this branch.
         children: Fan,
     },
-}
-
-/// Copy content and preserve cached summaries of the unchanged subtree.
-impl Clone for Children {
-    /// Clone leaf data or the branch fan and its computed summaries.
-    fn clone(&self) -> Self {
-        match self {
-            Self::Leaf { version, message } => Self::Leaf {
-                version: version.clone(),
-                message: message.clone(),
-            },
-            // The lazy memos are pure functions of the (shared) subtree, so
-            // cloning the `OnceLock`s carries any already-computed value over
-            // to the copy-on-write clone rather than discarding it.
-            Self::Branch {
-                bounds,
-                leaves,
-                version_bytes,
-                children,
-            } => Self::Branch {
-                bounds: bounds.clone(),
-                leaves: *leaves,
-                version_bytes: version_bytes.clone(),
-                children: children.clone(),
-            },
-        }
-    }
 }
 
 /// Construct, query, and reshape storage nodes.
