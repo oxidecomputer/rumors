@@ -9,6 +9,7 @@
 use std::{convert::Infallible, future};
 
 use futures::stream::{self, StreamExt, TryStreamExt};
+use proptest::prelude::*;
 
 use super::{Work, assembly::assemble};
 
@@ -23,6 +24,7 @@ use crate::{
         arb::nth_party,
         mirror::streaming::{
             Backend, Failing, Failure, Local, Operation,
+            erased::Reply,
             materialized::{Error, Resolution, Resolve, Violation},
             window::Window,
         },
@@ -71,8 +73,43 @@ fn parent_of(
         .unwrap_or_else(|e| match e {})
 }
 
+/// One scope awaiting reassembly, or the error that prevents it.
 type Item = Result<Resolution<Erased>, Error<Infallible>>;
+/// One reconstructed child, its deletion, or its failure.
 type Level = Result<Option<Erased>, Error<Infallible>>;
+
+proptest! {
+    /// A detected response error ends the work even when its reply queue is
+    /// full or its consumer has gone away, ahead of a terminal failure.
+    #[test]
+    fn response_failure_does_not_wait_for_its_consumer(
+        buffered in any::<bool>(),
+        dropped in any::<bool>(),
+        terminal_ready in any::<bool>(),
+    ) {
+        let mut work = Work::new(Local, Window::FLOOR, Recorder::default());
+        // A closed consumer may stop a pump before later items are read.
+        // Put the error first in that case so it is actually detected.
+        let buffered = buffered && !dropped;
+        let messages = stream::iter(
+            buffered.then_some(Ok(Reply {
+                replies: Vec::new(),
+            })).into_iter().chain([Err(Error::Violation(Violation::UnaskedReply))]),
+        );
+        let responses = work.respond::<Z>(messages);
+        let _responses = (!dropped).then_some(responses);
+        let finish = async move {
+            if terminal_ready {
+                Err(Error::Violation(Violation::UnansweredQuery))
+            } else {
+                future::pending::<Result<(), _>>().await
+            }
+        };
+        let result = run_to_quiescence(work.execute(Box::pin(finish)));
+        prop_assert!(matches!(result, Ok(Err(Error::Violation(Violation::UnaskedReply)))),
+            "response error was lost: {:?}", result);
+    }
+}
 
 /// A work error cancels parked peers and retains its original error identity.
 #[test]

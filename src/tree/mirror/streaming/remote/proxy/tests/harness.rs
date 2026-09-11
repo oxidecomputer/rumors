@@ -598,7 +598,7 @@ pub async fn reconcile_rewritten_greetings(
 }
 
 /// Wrap one link's control-read half in a greeting-word rewriter.
-fn rewritten(
+pub fn rewritten(
     link: MemoryLink,
     rewrite: Option<GreetingRewrite>,
 ) -> Link<

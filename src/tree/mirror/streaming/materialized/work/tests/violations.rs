@@ -216,48 +216,36 @@ where
 
 /// Drive a walk's response pump until it surfaces the injected violation.
 ///
-/// `well_formed` is the number of replies the script answers before its
-/// fault: each must be answered, and the violation must follow the last.
+/// Drain successful replies so backpressure cannot prevent the walk from
+/// reaching the fault. The executor must report it even if replies remain buffered.
 fn reported_violation<H: Height>(
     work: Work<Local>,
     mut responses: BoxResponses<Local, H, Error<Infallible>>,
-    well_formed: usize,
 ) -> Violation {
-    let response = pollster::block_on(async move {
-        let drive = work.execute(Box::pin(std::future::pending::<
-            Result<(), Error<Infallible>>,
-        >()));
-        tokio::pin!(drive);
-        for _ in 0..well_formed {
-            let answered = tokio::select! {
-                response = responses.next() => response,
-                result = &mut drive => panic!("the pending driver unexpectedly completed: {result:?}"),
-            };
-            assert!(
-                matches!(answered, Some(Ok(_))),
-                "a well-formed reply ahead of the fault was not answered",
-            );
+    let finish = async move {
+        while let Some(response) = responses.next().await {
+            response?;
         }
-        tokio::select! {
-            response = responses.next() => response,
-            result = &mut drive => panic!("the pending driver unexpectedly completed: {result:?}"),
-        }
-    });
-
-    match response {
-        Some(Err(Error::Violation(violation))) => violation,
-        Some(Err(Error::Backend(error))) => match error {},
-        Some(Ok(_)) => panic!("the malformed reply produced a successful response"),
-        None => panic!("the malformed reply ended without a violation"),
+        std::future::pending::<Result<(), Error<Infallible>>>().await
+    };
+    let error = crate::testing::run_to_quiescence(work.execute(Box::pin(finish)))
+        .expect("a detected violation must terminate the work")
+        .expect_err("the malformed reply must fail");
+    match error {
+        Error::Violation(violation) => violation,
+        Error::Backend(error) => match error {},
     }
 }
 
 /// Inject a malformed script through the walk assigned to this query height.
 trait InjectHeight: TestHeight {
+    /// Run the malformed script through the walk at this height.
     fn inject(injection: Injection, parent: u8, radixes: &BTreeSet<u8>) -> Violation;
 }
 
+/// Exercise the terminal leaf walk.
 impl InjectHeight for Z {
+    /// Inject the script into leaf reconciliation and collect its failure.
     fn inject(injection: Injection, parent: u8, radixes: &BTreeSet<u8>) -> Violation {
         let (query, requests, declared) = violation_script::<Self>(injection, parent, radixes);
         let queries = query_receiver::<Self>(query);
@@ -268,11 +256,13 @@ impl InjectHeight for Z {
             stream::iter(requests),
             queries,
         );
-        reported_violation(work, responses, 0)
+        reported_violation(work, responses)
     }
 }
 
+/// Exercise the walk which opens leaf requests.
 impl InjectHeight for S<Z> {
+    /// Inject the script into leaf-parent reconciliation and collect its failure.
     fn inject(injection: Injection, parent: u8, radixes: &BTreeSet<u8>) -> Violation {
         let (query, requests, declared) = violation_script::<Self>(injection, parent, radixes);
         let queries = query_receiver::<Self>(query);
@@ -283,10 +273,11 @@ impl InjectHeight for S<Z> {
             stream::iter(requests),
             queries,
         );
-        reported_violation(work, responses, 0)
+        reported_violation(work, responses)
     }
 }
 
+/// Exercise an interior walk above the leaf-parent stage.
 impl<H> InjectHeight for S<S<H>>
 where
     H: TestHeight,
@@ -294,6 +285,7 @@ where
     S<S<H>>: TestHeight,
     S<S<S<H>>>: Height,
 {
+    /// Inject the script into interior reconciliation and collect its failure.
     fn inject(injection: Injection, parent: u8, radixes: &BTreeSet<u8>) -> Violation {
         let (query, requests, declared) = violation_script::<Self>(injection, parent, radixes);
         let queries = query_receiver::<Self>(query);
@@ -306,7 +298,7 @@ where
             stream::iter(requests),
             queries,
         );
-        reported_violation(work, responses, 0)
+        reported_violation(work, responses)
     }
 }
 
@@ -529,7 +521,5 @@ fn opening_violation(injection: OpeningInjection, radixes: &BTreeSet<u8>) -> Vio
         fan,
         stream::iter(requests),
     );
-    // The unasked reply trails the opening's well-formed answer.
-    let well_formed = usize::from(matches!(injection, OpeningInjection::UnaskedReply));
-    reported_violation(work, responses, well_formed)
+    reported_violation(work, responses)
 }

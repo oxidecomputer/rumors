@@ -1,17 +1,13 @@
 //! Background work accumulated by materialized protocol states.
 //!
-//! [`Work`] owns every independently runnable pump while the type-level walk
-//! advances. [`levels`] contains the phase-specific walks, while [`assembly`]
-//! reconstructs their resolved scopes upward. The terminal protocol state
-//! drives the accumulated tasks and its final result through one shared
-//! fail-fast completion primitive.
+//! [`Work`] collects the pumps created by each protocol phase. [`levels`]
+//! processes requests; [`assembly`] reconstructs resolved scopes. The terminal
+//! state drives all pumps and its final result together. A pump failure cancels
+//! the remaining work without waiting for a response consumer to read it.
 //!
-//! The walks and pumps run on the erased vocabulary (see
-//! [`erased`]): one instantiation
-//! per backend. The typed surface is the thin boundary the protocol
-//! schedule sees — [`Work::respond`]'s [`BoxResponses`] exit re-tags each
-//! outgoing reply at its stage's height, and each walk's public method
-//! erases its typed request stream on the way in.
+//! Walks use [`erased`] values so their code is compiled once per backend.
+//! Their entry methods erase typed requests; [`Work::respond`] assigns the
+//! phase's height to outgoing replies for the typed protocol schedule.
 
 use std::pin::Pin;
 
@@ -33,7 +29,7 @@ use crate::tree::{
         materialized::{Error, channel::Sender},
         protocol::BoxResponses,
         stats::Recorder,
-        tasks::{complete, park_after_published_error},
+        tasks::complete,
         window::Window,
     },
     typed::height::{Height, Z},
@@ -46,17 +42,20 @@ pub struct Work<B>
 where
     B: Backend<Node<Z>: Leaf>,
 {
+    /// The store used to read and reconstruct nodes.
     backend: B,
     /// Per-edge capacity for the recursive query and resolution queues.
     window: Window,
-    /// The session's stats recorder: the walks count disputed scopes,
-    /// absorbed supplies, and deletion-honoring drops through clones of it.
+    /// Shared session statistics updated by the walks.
     stats: Recorder,
+    /// Pumps driven together when the protocol reaches its terminal step.
     tasks: Vec<BoxFuture<'static, Result<(), Error<B::Error>>>>,
+    /// Identifies this walk in test traces.
     #[cfg(test)]
     trace_id: usize,
 }
 
+/// Accumulate phase work and drive its pumps to completion.
 impl<B> Work<B>
 where
     B: Backend<Node<Z>: Leaf>,
@@ -84,9 +83,7 @@ where
         self.stats.clone()
     }
 
-    /// Add a task which actively drives a response stream, and return the
-    /// stream's typed exit: the one point where a walk's erased replies
-    /// re-tag at their stage's height.
+    /// Drive a response stream independently and expose its replies at height `H`.
     fn respond<H: Height>(
         &mut self,
         messages: impl Stream<Item = Result<erased::Reply<B::Erased>, Error<B::Error>>> + Send + 'static,
@@ -127,29 +124,28 @@ where
     }
 }
 
-/// Drive one walk's response stream into its outgoing edge.
+/// Forward one walk's replies to the response queue.
 ///
 /// One buffered response is sufficient: whenever the pump blocks, that
 /// response is already available to advance the counterparty and release
 /// the slot. Buffering a fan would retain whole protocol messages without
 /// breaking another dependency.
+///
+/// Errors return directly to the work executor. Sending them through the reply
+/// queue would require a consumer that may already have stopped reading.
 async fn pump<E: Send, Err: Send + 'static>(
     mut messages: Pin<Box<dyn Stream<Item = Result<erased::Reply<E>, Error<Err>>> + Send>>,
     send: Sender<Result<erased::Reply<E>, Error<Err>>>,
     #[cfg(test)] (work, height): (usize, usize),
 ) -> Result<(), Error<Err>> {
-    while let Some(item) = messages.next().await {
-        // Capture the payload-erased wire transcript at the pump:
-        // per-stream pull order is exactly the wire order.
+    while let Some(reply) = messages.next().await {
+        let reply = reply?;
+        // Record produced replies in stream order.
         #[cfg(test)]
-        if let Ok(reply) = &item {
-            transcript::reply(work, height, reply);
-        }
-        let failed = item.is_err();
-        if send.send(item).await.is_err() {
+        transcript::reply(work, height, &reply);
+        if send.send(Ok(reply)).await.is_err() {
             return Ok(());
         }
-        park_after_published_error(failed).await;
     }
     Ok(())
 }

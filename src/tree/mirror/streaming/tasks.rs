@@ -41,13 +41,6 @@ pub async fn cancelled() -> ! {
     }
 }
 
-/// Park after publishing an error so it cannot be followed by successful EOF.
-pub async fn park_after_published_error(failed: bool) {
-    if failed {
-        cancelled().await;
-    }
-}
-
 /// Return the next item or await cancellation after its producer disappears.
 pub async fn next_or_cancelled<T>(next: impl Future<Output = Option<T>>) -> T {
     match next.await {

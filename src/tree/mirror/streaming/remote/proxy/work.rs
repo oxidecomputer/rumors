@@ -25,7 +25,7 @@ use crate::tree::{
             proxy::{Error, send_or_cancel},
             streams::{AcceptDriver, AcceptError, FirstStreamError},
         },
-        tasks::{complete, park_after_published_error},
+        tasks::complete,
         window::Window,
     },
     typed::{
@@ -128,10 +128,11 @@ where
     pub remote: Speaker,
     /// Routes arriving data streams to the pumps awaiting them.
     pub accept: AcceptDriver<A>,
-    /// Receives pump failures and the acceptor's deferred I/O failure.
+    /// Receives incoming-stream failures and the acceptor's deferred I/O failure.
     pub errors: FirstStreamError,
 }
 
+/// Accumulate protocol pumps and coordinate them with the transport.
 impl<B, R, W, A> Work<B, R, W, A>
 where
     B: Backend<Node<Z>: Leaf>,
@@ -174,9 +175,7 @@ where
         self.tasks.push(Box::pin(task));
     }
 
-    /// Add a task which actively drives a response stream, and return the
-    /// stream's typed exit: the one point where the proxy's decoded erased
-    /// replies re-tag at their stage's height.
+    /// Drive a decode stream independently and expose its replies at height `H`.
     fn respond<H>(
         &mut self,
         messages: impl Stream<Item = Result<erased::Reply<B::Erased>, Error<B::Error>>> + Send + 'static,
@@ -265,15 +264,15 @@ where
     }
 }
 
-/// Drive one decoded response stream into its outgoing relay edge.
+/// Forward decoded replies to the response queue.
+///
+/// Return decode errors to the executor without waiting for the reply consumer.
 async fn pump<E: Send, Err: Send + 'static>(
     mut messages: Pin<Box<dyn Stream<Item = Result<erased::Reply<E>, Error<Err>>> + Send>>,
     send: Sender<Result<erased::Reply<E>, Error<Err>>>,
 ) -> Result<(), Error<Err>> {
     while let Some(message) = messages.next().await {
-        let failed = message.is_err();
-        send_or_cancel(&send, message).await;
-        park_after_published_error(failed).await;
+        send_or_cancel(&send, Ok(message?)).await;
     }
     Ok(())
 }

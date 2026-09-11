@@ -64,12 +64,12 @@ impl Divergence {
         pair
     }
 
-    /// Build the version-addressed trees, reconcile them, and check `Tree::join`.
+    /// Build a pair and run a test while its chosen leaf addresses are installed.
     ///
     /// Preassign versions using `Tree::act`'s tick order. Each payload contains
     /// its address bytes, so a wrong leaf reconstruction also changes content.
-    /// All trees stay inside the path-mapping scope; only observations escape.
-    fn check(&self, session: &Session, plans: [IoPlan; 2]) -> Observations {
+    /// The callback must keep all tree operations inside this scope.
+    fn with_trees<O>(&self, run: impl FnOnce([Tree<Vec<u8>>; 2]) -> O) -> O {
         let mut mapping = Vec::new();
         let mut shared = Version::new();
         for (party, paths) in std::iter::once(&self.shared)
@@ -100,7 +100,13 @@ impl Divergence {
                 );
                 tree
             });
-            let [left, right] = sides;
+            run(sides)
+        })
+    }
+
+    /// Reconcile the pair and compare both results and payloads with `Tree::join`.
+    fn check(&self, session: &Session, plans: [IoPlan; 2]) -> Observations {
+        self.with_trees(|[left, right]| {
             let mut expected = left.clone();
             expected.join(right.clone());
             let (actual, observations) = session.run([left.root, right.root], plans);
@@ -114,6 +120,43 @@ impl Divergence {
             }
             observations
         })
+    }
+}
+
+proptest! {
+    /// An understated version-size declaration terminates deep wire sessions
+    /// and retains its decode error, whichever endpoint receives it.
+    #[test]
+    fn deep_declaration_error_reaches_its_receiver(
+        depth in 1usize..32,
+        receiver_left in any::<bool>(),
+        capacity in 1usize..80,
+        window in 1usize..9,
+    ) {
+        use super::harness::{self, Backends, EndpointError, GreetingRewrite, Topology};
+        use crate::tree::mirror::streaming::remote::{Error, adapter::DecodeError};
+
+        let pair = Divergence::new([vec![0; depth]], [2, 2]);
+        pair.with_trees(|[left, right]| {
+            let (left_link, right_link) = memory_with_capacity(capacity);
+            let rewrite = GreetingRewrite::max_version_bytes(0);
+            let (left, right) = run_to_quiescence(harness::drive(
+                Topology::Production,
+                Backends::local(),
+                left.root,
+                right.root,
+                harness::rewritten(left_link, receiver_left.then_some(rewrite)),
+                harness::rewritten(right_link, (!receiver_left).then_some(rewrite)),
+                codec::<Vec<u8>>(),
+                WindowConfig::Fixed(Window::uniform(window)),
+            )).expect("a deep declaration error must terminate both endpoints");
+            let receiver = if receiver_left { left } else { right };
+            prop_assert!(matches!(receiver,
+                Err(EndpointError::Proxy(Error::Decode(DecodeError::OversizedVersion {
+                    declared: 0, actual,
+                }))) if actual > 0), "receiver lost its declaration error: {:?}", receiver);
+            Ok(())
+        })?;
     }
 }
 

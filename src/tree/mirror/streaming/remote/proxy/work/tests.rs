@@ -13,6 +13,7 @@ use crate::testing::run_to_quiescence;
 use crate::tree::mirror::streaming::window::Window;
 use crate::tree::mirror::streaming::{
     Failing, Failure, Local, Operation,
+    erased::Reply,
     remote::{
         adapter::{DecodeError, EncodeError},
         codec::{self, DecodeErrorKind, End, Frame, Origin, RunBudget, Speaker, Stream},
@@ -24,6 +25,7 @@ use crate::tree::mirror::streaming::{
     },
     stats::Recorder,
 };
+use crate::tree::typed::height::Z;
 
 /// A memory-link executor with its claims, error route, and peer held alive.
 struct ParkedSession {
@@ -309,6 +311,41 @@ async fn receiver(bytes: &[u8], stream: Stream, route: ErrorRoute) -> StreamRece
 }
 
 proptest! {
+    /// A decoded declaration error reaches the executor without waiting for
+    /// an unread or dropped response consumer, ahead of a terminal write error.
+    #[test]
+    fn response_failure_does_not_wait_for_its_consumer(
+        buffered in any::<bool>(),
+        dropped in any::<bool>(),
+        terminal_ready in any::<bool>(),
+        declared in 0u64..1024,
+        excess in 1usize..1024,
+    ) {
+        let ParkedSession { mut work, claims: _claims, route: _route, peer: _peer } = parked_session();
+        let actual = declared as usize + excess;
+        // A closed consumer may stop a pump before later items are read.
+        let buffered = buffered && !dropped;
+        let messages = futures::stream::iter(
+            buffered.then_some(Ok(Reply {
+                replies: Vec::new(),
+            })).into_iter().chain([Err(Error::Decode(DecodeError::OversizedVersion { declared, actual }))]),
+        );
+        let responses = work.respond::<Z>(messages);
+        let _responses = (!dropped).then_some(responses);
+        let finish = async move {
+            if terminal_ready {
+                Err(failed_send())
+            } else {
+                future::pending::<Result<(), _>>().await
+            }
+        };
+        let result = run_to_quiescence(work.execute(finish));
+        prop_assert!(matches!(result, Ok(Err(Error::Decode(DecodeError::OversizedVersion {
+            declared: found_declared, actual: found_actual,
+        }))) if found_declared == declared && found_actual == actual),
+            "response error was lost: {:?}", result);
+    }
+
     /// Frame violations retain their kind and origin whether selected directly
     /// or queued beside a write failure, before or after supply or control EOF.
     #[test]
@@ -377,8 +414,8 @@ proptest! {
         }
     }
 
-    /// A declaration violation survives supply or control EOF, including
-    /// closures already observed on an earlier poll.
+    /// A declaration violation from a response pump survives supply or control
+    /// EOF, including closures already observed on an earlier poll.
     #[test]
     fn declaration_violation_survives_supply_failure(
         declared in 0u64..1024,
@@ -386,7 +423,7 @@ proptest! {
         supply_first in any::<bool>(),
         control_only in any::<bool>(),
     ) {
-        let ParkedSession { work, claims: _claims, route: _route, peer } = parked_session();
+        let ParkedSession { mut work, claims: _claims, route: _route, peer } = parked_session();
         let actual = declared as usize + excess;
         let error = run_to_quiescence(async {
             let (send, receive) = oneshot::channel();
@@ -398,12 +435,13 @@ proptest! {
                 drop(peer);
                 None
             };
-            let mut execute = pin!(work.execute(async { receive.await.unwrap() }));
+            let _responses = work.respond::<Z>(futures::stream::once(async { receive.await.unwrap() }));
+            let mut execute = pin!(work.execute(future::pending::<Result<(), _>>()));
             if supply_first {
                 assert!(futures::poll!(execute.as_mut()).is_pending());
             }
-            send.send(Err::<(), _>(Error::Decode(DecodeError::OversizedVersion { declared, actual })))
-                .unwrap();
+            assert!(send.send(Err(Error::Decode(DecodeError::OversizedVersion { declared, actual })))
+                .is_ok());
             execute.await
         }).unwrap().unwrap_err();
         prop_assert!(matches!(error, Error::Decode(DecodeError::OversizedVersion {
