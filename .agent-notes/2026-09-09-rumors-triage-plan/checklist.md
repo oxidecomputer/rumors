@@ -1,7 +1,7 @@
 # Rumors review checklist
 
 **Active:** None.
-**Next:** 11, measure leaf reconstruction.
+**Next:** 11, simplify owned traversal states.
 
 Check code outcomes only after verification and merge; retain the landing
 commit. Checked dispositions are labelled explicitly.
@@ -214,7 +214,7 @@ Dependencies: 10 when a change affects the same traversal or baseline.
 - [x] Store compressed prefixes inline — `3f28b3b2`.
   Sources: `tree-typed-23`, T111.
 
-- [ ] Measure leaf reconstruction.
+- [x] Declined: avoid outgoing leaf reconstruction; the small measured gain does not justify changing the backend interface.
   Source: T111.
 
 - [ ] Derive height/radix structure and simplify owned traversal states.
