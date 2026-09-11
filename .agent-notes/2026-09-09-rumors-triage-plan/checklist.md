@@ -1,7 +1,7 @@
 # Rumors review checklist
 
 **Active:** None.
-**Next:** 11, simplify height/radix structure and remaining traversal states.
+**Next:** 11, simplify radix fan iteration and derived traits.
 
 Check code outcomes only after verification and merge; retain the landing
 commit. Checked dispositions are labelled explicitly.
@@ -220,14 +220,17 @@ Dependencies: 10 when a change affects the same traversal or baseline.
 - [x] Use a standard owned iterator with explicit radix exhaustion — `a61aa7b3`.
   Sources: `tree-typed-34`, `tree-typed-35`, T132.
 
-- [ ] Derive height/radix structure and simplify remaining traversal states.
-  Sources: `tree-typed-11`, `tree-typed-12`, `tree-typed-16`, `tree-typed-17`, `tree-typed-20`, `tree-typed-21`, `tree-typed-24`, `tree-typed-31`, T36, T125, T132.
+- [x] Define supported heights once and remove unused marker requirements — `70a8bf45`.
+  Sources: `tree-typed-10`, `tree-typed-11`, `tree-typed-12` (height definitions), T132.
+
+- [ ] Derive path width and simplify remaining traversal states.
+  Sources: `tree-typed-12` (path width), `tree-typed-16`, `tree-typed-17`, `tree-typed-20`, `tree-typed-21`, `tree-typed-24`, `tree-typed-31`, T36, T125, T132.
 
 - [ ] Check typed-tree preconditions where a real failure construction is possible.
   Sources: `tree-typed-7`, `tree-typed-9`, T132.
 
 - [ ] Simplify typed-tree helpers and clarify their contracts.
-  Sources: `tree-typed-1–5`, `tree-typed-8`, `tree-typed-10`, `tree-typed-13–15`, `tree-typed-18`, `tree-typed-19`, `tree-typed-22`, `tree-typed-25–29`, `tree-typed-32`, `tree-typed-33`, T46, T49, T52, T95, T97, T125, T132.
+  Sources: `tree-typed-1–5`, `tree-typed-8`, `tree-typed-13–15`, `tree-typed-18`, `tree-typed-19`, `tree-typed-22`, `tree-typed-25–29`, `tree-typed-32`, `tree-typed-33`, T46, T49, T52, T95, T97, T125, T132.
 
 ## 12. Wire codec, greeting, and stream adapters
 
