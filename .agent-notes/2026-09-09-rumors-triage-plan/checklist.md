@@ -1,7 +1,7 @@
 # Rumors review checklist
 
 **Active:** None.
-**Next:** 11, simplify owned traversal states.
+**Next:** 11, simplify height/radix structure and remaining traversal states.
 
 Check code outcomes only after verification and merge; retain the landing
 commit. Checked dispositions are labelled explicitly.
@@ -217,8 +217,11 @@ Dependencies: 10 when a change affects the same traversal or baseline.
 - [x] Declined: avoid outgoing leaf reconstruction; the small measured gain does not justify changing the backend interface.
   Source: T111.
 
-- [ ] Derive height/radix structure and simplify owned traversal states.
-  Sources: `tree-typed-11`, `tree-typed-12`, `tree-typed-16`, `tree-typed-17`, `tree-typed-20`, `tree-typed-21`, `tree-typed-24`, `tree-typed-31`, `tree-typed-34`, `tree-typed-35`, T36, T125, T132.
+- [x] Use a standard owned iterator with explicit radix exhaustion — `a61aa7b3`.
+  Sources: `tree-typed-34`, `tree-typed-35`, T132.
+
+- [ ] Derive height/radix structure and simplify remaining traversal states.
+  Sources: `tree-typed-11`, `tree-typed-12`, `tree-typed-16`, `tree-typed-17`, `tree-typed-20`, `tree-typed-21`, `tree-typed-24`, `tree-typed-31`, T36, T125, T132.
 
 - [ ] Check typed-tree preconditions where a real failure construction is possible.
   Sources: `tree-typed-7`, `tree-typed-9`, T132.
