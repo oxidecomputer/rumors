@@ -238,26 +238,22 @@ impl<H: Height> Node<H> {
 
     /// Walk every leaf beneath this node, in ascending path order.
     ///
-    /// `prefix` locates the node in the tree, so each leaf is keyed by its
-    /// full path; the leaves are handed out as bare height-zero handles
-    /// (see [`untyped::Leaf::into_node`]). The walk is lazy and owned —
-    /// constant-size descent state, child handles cloned one at a time —
-    /// so it costs one node handle per yielded leaf, not one per virtual
-    /// level: path-compressed spines are skipped, never unwrapped.
+    /// `prefix` supplies the preceding path bytes. The owned walk skips
+    /// compressed spans and yields one stored leaf at a time, then
+    /// [`untyped::Leaf::into_node`] gives it the empty prefix required at
+    /// height zero. Descent state is bounded by the tree's depth.
     pub(crate) fn leaves(
         self,
         prefix: &super::Prefix<H>,
     ) -> impl Iterator<Item = (super::Prefix<Z>, Node<Z>)> + Send + use<H> {
-        let mut walk =
-            untyped::RangeOwned::within(Some(self.inner), prefix.as_bytes(), causally::all());
-        std::iter::from_fn(move || {
-            walk.next().map(|(key, leaf)| {
+        untyped::RangeOwned::within(Some(self.inner), prefix.as_bytes(), causally::all()).map(
+            |(key, leaf)| {
                 (
                     super::Prefix::from(key),
                     Node::from_untyped(leaf.into_node()),
                 )
-            })
-        })
+            },
+        )
     }
 
     /// Build the height-`H` node over one sorted run of bare leaves.

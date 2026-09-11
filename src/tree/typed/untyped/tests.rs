@@ -509,6 +509,43 @@ proptest! {
         }
         prop_assert!(node.into_children().is_err());
     }
+
+    /// The owned walk visits each path once, including radix 255 at nested
+    /// levels, then remains exhausted after unwinding the whole descent.
+    #[test]
+    fn owned_walk_finishes_levels_at_the_largest_radix(
+        common in any::<[u8; 32]>(),
+        depth in 0usize..32,
+        mut radixes in btree_set(any::<u8>(), 0..=16),
+    ) {
+        radixes.extend([0, u8::MAX]);
+        let mut paths = BTreeSet::new();
+        for radix in radixes {
+            let mut path = common;
+            path[depth] = radix;
+            if depth + 1 < path.len() {
+                // Exhaust a child at 255 while its parent may still have
+                // siblings to visit. Both levels must advance correctly.
+                for child in [0, u8::MAX] {
+                    path[depth + 1] = child;
+                    paths.insert(path);
+                }
+            } else {
+                paths.insert(path);
+            }
+        }
+        let expected: Vec<_> = paths.into_iter().collect();
+        let mut walk = super::RangeOwned::root(
+            Some(canonical_at(0, &expected)),
+            crate::causally::all(),
+        );
+        // Bound collection so a repeated final leaf fails without looping.
+        let actual: Vec<_> = walk.by_ref().take(expected.len() + 1)
+            .map(|(path, _)| path).collect();
+        prop_assert_eq!(actual, expected);
+        prop_assert!(walk.next().is_none());
+        prop_assert!(walk.next().is_none());
+    }
 }
 
 /// Independent reference for the node-hash convention, computed with literal

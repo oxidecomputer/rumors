@@ -63,7 +63,9 @@ pub struct CausalMessages<T> {
     staged: BTreeMap<(Rank, Vec<u8>), Leaf>,
 }
 
+/// Subscribe, stage unseen messages, and expose a safe resume point.
 impl<T> CausalMessages<T> {
+    /// Observe messages beyond `since`, starting from the current snapshot.
     pub(crate) fn subscribe(inner: &watch::Sender<crate::Inner<T>>, since: Version) -> Self {
         Self {
             channel: Some(Channel::Ready(inner.subscribe())),
@@ -73,15 +75,13 @@ impl<T> CausalMessages<T> {
         }
     }
 
-    /// Ingest one whole pass over the latest snapshot: stage every live
-    /// leaf not causally contained in the ingest frontier, keyed by its
-    /// causal rank, then absorb the snapshot's ceiling into the frontier.
+    /// Stage the latest snapshot's unseen leaves in causal order, then
+    /// advance the ingest frontier to include the snapshot's ceiling.
     ///
-    /// Eager where [`UnorderedMessages`](super::UnorderedMessages) is lazy, by necessity: a
-    /// pass arrives in key order, so any leaf might causally precede one
-    /// staged earlier, and nothing can be delivered until the pass is
-    /// complete. The watch read guard lives only long enough to freeze the
-    /// walk and capture the ceiling; the walk itself runs unlocked.
+    /// The tree walks in path order, so a later leaf may causally precede
+    /// an earlier one. Delivery must wait until this whole pass is sorted.
+    /// Capture the owned walk and ceiling under the watch read guard, then
+    /// release it before traversing the snapshot.
     fn ingest(
         staged: &mut BTreeMap<(Rank, Vec<u8>), Leaf>,
         ingested: &mut Version,
@@ -89,14 +89,14 @@ impl<T> CausalMessages<T> {
     ) where
         T: Send + Sync,
     {
-        let (mut walk, ceiling) = {
+        let (walk, ceiling) = {
             let inner = rx.borrow_and_update();
             (
                 inner.tree.range_owned(causally::since(ingested.clone())),
                 inner.tree.latest().clone(),
             )
         };
-        while let Some((_, leaf)) = walk.next() {
+        for (_, leaf) in walk {
             let version = leaf.version();
             staged.insert((version.rank(), version.as_bytes().to_vec()), leaf);
         }

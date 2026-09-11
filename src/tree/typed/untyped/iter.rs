@@ -1,9 +1,10 @@
-//! Leaf iterators over the untyped tree: a shared frontier walk and its two
-//! shells, [`Iter`] (the unfiltered, exact-size walk) and [`Range`]
-//! (the walk filtered to a causal [`causally::Query`]).
+//! Leaf iterators over the untyped tree.
 //!
-//! A child module of [`node`](super) so the walk can match on the parent's
-//! private [`Children`] variants and path-compression internals directly.
+//! [`Iter`] and [`Range`] borrow their leaves and share a bidirectional walk.
+//! [`RangeOwned`] holds node handles and reconstructs each leaf's full path.
+//! All three visit leaves in path order; the range walks also filter by a
+//! causal query. As a child of [`untyped`](super), this module can inspect
+//! compressed paths and [`Children`] directly.
 
 use std::collections::VecDeque;
 
@@ -25,31 +26,15 @@ struct Frame<'a> {
     passes: bool,
 }
 
-/// The shared frontier engine beneath [`Iter`] and [`Range`]: a lazy
-/// depth-first walk over a subtree's live leaves, filtered by a causal
-/// [`Query`].
+/// A bidirectional walk shared by [`Iter`] and [`Range`].
 ///
-/// [`Iter`] passes [`causally::all`], whose one root classification
-/// promotes the whole walk. The walk yields each leaf's [`Version`] and a
-/// borrowed handle to its [`Message`]; a leaf's location is a pure
-/// function of its version, so no path is reconstructed (the owned walk,
-/// [`RangeOwned`], is the one that yields paths — its consumers key
-/// leaves by them).
+/// The frontier holds unvisited subtrees in path order. Each step expands
+/// only enough of one end to yield a leaf, borrowing its version and message.
+/// [`Iter`] uses [`causally::all`] to visit every leaf.
 ///
-/// The walk is lazy: a single step descends only far enough to reach the
-/// next leaf, so the first item is produced after walking one root-to-leaf
-/// spine rather than the whole tree; the only allocation the walk ever
-/// makes is the frontier deque itself.
-///
-/// A popped subtree is classified before it is entered: one
-/// [`coverage`](Query::coverage) verdict over its memoized
-/// [`span`](Node::span) prunes it whole ([`Empty`](Coverage::Empty)),
-/// promotes it ([`Full`](Coverage::Full); its descendants skip the
-/// version comparisons), or descends it undecided
-/// ([`Partial`](Coverage::Partial)). A leaf's span is coincident, so
-/// its verdict degenerates to membership and prune-or-promote is
-/// exhaustive: the walk never compares versions leaf-by-leaf.
-///
+/// [`Query::coverage`] classifies each subtree's version span: `Empty` skips
+/// it, `Full` accepts every leaf beneath it without further comparisons, and
+/// `Partial` requires descent. At a leaf, this is a membership test.
 struct Walk<'a, P: Polarity> {
     /// Pending [`Frame`]s, held in ascending key order front-to-back.
     ///
@@ -73,7 +58,9 @@ struct Walk<'a, P: Polarity> {
     query: Query<'a, P>,
 }
 
+/// Maintain the ordered frontier and its remaining-leaf bound.
 impl<'a, P: Polarity> Walk<'a, P> {
+    /// Start at the supplied root, or with an empty frontier.
     fn new(node: Option<&'a Node>, query: Query<'a, P>) -> Self {
         match node {
             None => Self {
@@ -153,32 +140,20 @@ impl<'a, P: Polarity> Walk<'a, P> {
     }
 }
 
-/// A lazy depth-first iterator over every live leaf in a subtree, yielding
-/// each leaf's [`Version`] and a borrowed handle to its [`Message`].
+/// Borrow every leaf's version and message in ascending path order.
 ///
-/// For the same walk filtered to a causal range, see [`Range`].
+/// Forward and backward steps share one frontier, so interleaving them
+/// visits each leaf once. The remaining length is exact. Path order comes
+/// from version hashes and does not imply causal order.
 ///
-/// The [`Message`] is the richest leaf payload (it carries the cached
-/// serialization alongside the shared payload handle); callers that only
-/// want the value project it with [`Message::arc`].
-///
-/// [`next`](Iterator::next) yields leaves in ascending order of their
-/// version-derived paths; the iterator is also a [`DoubleEndedIterator`],
-/// so [`next_back`](DoubleEndedIterator::next_back) yields them in
-/// descending path order, and the two ends meet in the middle without
-/// overlap. Path order bears *no* relation to the causal order on
-/// [`Version`]s: a leaf may be yielded before one that causally precedes
-/// it. (The public observers on [`Rumors`](crate::Rumors) still promise
-/// nothing about order, but [`unknown`](crate::tree::traverse::unknown)
-/// and `Tree::join` lean on the ascending forward order for their own
-/// deterministic callback delivery.)
-///
-/// `Iter` is `Send + Sync`: it holds only `&Node` references, and the
-/// stored payloads are `Send + Sync` by [`Message`]'s construction bound.
+/// [`Message`] provides both the payload and its cached encoding. Use
+/// [`Message::arc`] for a typed payload handle. [`Range`] adds causal filtering.
 pub struct Iter<'a> {
+    /// Unfiltered frontier shared by both directions.
     walk: Walk<'a, causally::Neutral>,
 }
 
+/// Construct unfiltered borrowing walks.
 impl<'a> Iter<'a> {
     /// Iterate the subtree rooted at `node`.
     pub(crate) fn root(node: &'a Node) -> Self {
@@ -195,9 +170,12 @@ impl<'a> Iter<'a> {
     }
 }
 
+/// Visit leaves from the smallest remaining path.
 impl<'a> Iterator for Iter<'a> {
+    /// References into the borrowed tree.
     type Item = (&'a Version, &'a Message);
 
+    /// Yield the next leaf in ascending path order.
     fn next(&mut self) -> Option<Self::Item> {
         self.walk.step(false)
     }
@@ -210,33 +188,28 @@ impl<'a> Iterator for Iter<'a> {
     }
 }
 
+/// Visit leaves from the largest remaining path.
 impl<'a> DoubleEndedIterator for Iter<'a> {
+    /// Yield the next leaf in descending path order.
     fn next_back(&mut self) -> Option<Self::Item> {
         self.walk.step(true)
     }
 }
 
+/// The unfiltered frontier tracks the exact number of remaining leaves.
 impl<'a> ExactSizeIterator for Iter<'a> {}
 
-/// The leaf walk filtered to a causal [`Query`].
+/// Borrow leaves whose versions satisfy a causal [`Query`], in path order.
 ///
-/// A leaf is yielded iff the query [`contains`](Query::contains) its
-/// version. Subtrees wholly outside the query are pruned by one
-/// [`coverage`](Query::coverage) verdict over their memoized version
-/// bounds without being entered, so a walk over a small causal delta
-/// against a large tree costs work proportional to the delta (plus
-/// the pruning frontier), not the tree.
-///
-/// Same item shape and ordering guarantees as [`Iter`] — in particular,
-/// iteration order is key order, *not* causal order: filtering by versions
-/// does not mean yielding in version order — but *not* an
-/// [`ExactSizeIterator`]: how many leaves pass is unknown until they are
-/// visited, so [`size_hint`](Iterator::size_hint) reports only an upper
-/// bound.
+/// Version bounds allow entire subtrees to be accepted or skipped. Both
+/// directions share a frontier, as in [`Iter`]. The number of matching
+/// leaves is unknown until visited, so the size hint is an upper bound.
 pub struct Range<'a, P: Polarity> {
+    /// Filtered frontier shared by both directions.
     walk: Walk<'a, P>,
 }
 
+/// Construct borrowing walks with a causal filter.
 impl<'a, P: Polarity> Range<'a, P> {
     /// Iterate the leaves of the (possibly absent) height-32 root `node`
     /// whose versions the causal `query` admits.
@@ -247,9 +220,12 @@ impl<'a, P: Polarity> Range<'a, P> {
     }
 }
 
+/// Visit matching leaves from the smallest remaining path.
 impl<'a, P: Polarity> Iterator for Range<'a, P> {
+    /// References into the borrowed tree.
     type Item = (&'a Version, &'a Message);
 
+    /// Yield the next matching leaf in ascending path order.
     fn next(&mut self) -> Option<Self::Item> {
         self.walk.step(false)
     }
@@ -261,33 +237,22 @@ impl<'a, P: Polarity> Iterator for Range<'a, P> {
     }
 }
 
+/// Visit matching leaves from the largest remaining path.
 impl<'a, P: Polarity> DoubleEndedIterator for Range<'a, P> {
+    /// Yield the next matching leaf in descending path order.
     fn next_back(&mut self) -> Option<Self::Item> {
         self.walk.step(true)
     }
 }
 
-/// The owned, "frozen" counterpart of the borrowing walk: frames hold cheap
-/// [`Node`] handles (`Arc` clones) instead of `&Node` borrows.
+/// An owned walk yielding each matching leaf and its full path, in path order.
 ///
-/// The walk carries no lifetime and can be held across awaits and stored in
-/// long-lived state.
+/// Node handles and an owned query let the walk outlive its caller's tree
+/// handle. Filtering follows [`Range`]; traversal is forward-only.
 ///
-/// Its state is *constant-size*: a descent spine of at most one [`Level`]
-/// per materialized branch level along the current path (≤ 32, under two
-/// kilobytes all told), plus the shared path buffer. Unvisited siblings are
-/// never enumerated — each advance probes the parent's child map for the
-/// next radix at or past the level's cursor — and child handles are cloned
-/// one at a time, lazily, as they are visited. The spine's node handles pin
-/// only the current path's ancestors; everything already walked past is
-/// released.
-///
-/// Same query semantics and prune/promote/descend classification as the
-/// borrowing walk (see [`Range`]); forward-only, since its consumers are
-/// subscription drains.
-/// Yields each passing leaf as an owned [`Leaf`] handle alongside its
-/// reconstructed 32-byte path; the version and value read out of the
-/// handle as shared, clone-cheap references into the tree's storage.
+/// The descent uses a path buffer and one [`Level`] per branch, bounded by
+/// the 32-byte path. Each level selects one child at a time and retains its
+/// branch's subtree until traversal leaves it.
 pub struct RangeOwned<P: Polarity> {
     /// The not-yet-visited root, consumed by the first advance.
     start: Option<Node>,
@@ -308,8 +273,8 @@ pub struct RangeOwned<P: Polarity> {
 struct Level {
     /// The branch node this level walks.
     node: Node,
-    /// The smallest child radix not yet visited; `256` means exhausted.
-    next: u16,
+    /// The smallest radix still to visit, or `None` when this level is done.
+    next: Option<u8>,
     /// Whether an ancestor (or this level itself) was promoted: every leaf
     /// beneath is known to satisfy the range, so descendants skip the
     /// version comparisons.
@@ -319,10 +284,13 @@ struct Level {
     rollback: usize,
 }
 
-/// A live leaf popped out of a [`RangeOwned`] walk: an owned handle on the leaf
-/// node, lending its version and value to whoever holds it.
-pub struct Leaf(Node);
+/// An owned handle to a stored leaf, lending its version and payload.
+pub struct Leaf(
+    /// The stored node, including any compressed path above the leaf.
+    Node,
+);
 
+/// Read leaf data or obtain a node at height zero.
 impl Leaf {
     /// The causal [`Version`] at which this message was observed.
     pub fn version(&self) -> &Version {
@@ -342,13 +310,11 @@ impl Leaf {
             .arc::<T>()
     }
 
-    /// Unwrap into a bare height-zero leaf node.
+    /// Return a leaf node with an empty compressed path.
     ///
-    /// The walk yields the leaf as stored, which usually carries the
-    /// compressed spine above it; a height-zero view must shed that prefix
-    /// (its hash commits an empty suffix, not the stored spine). The stored handle
-    /// is reused when it is already bare; otherwise a fresh prefix-free
-    /// leaf is built around the same message handle.
+    /// Height-zero nodes hash an empty suffix. Reuse an already bare node;
+    /// otherwise build one sharing the stored version and payload, leaving
+    /// the original compressed node intact for other readers.
     pub(crate) fn into_node(self) -> Node {
         if self.0.inner.prefix.is_empty() {
             return self.0;
@@ -362,6 +328,7 @@ impl Leaf {
     }
 }
 
+/// Start an owned walk at the root or at a known path within the tree.
 impl<P: Polarity> RangeOwned<P> {
     /// Walk the leaves of the (possibly absent) height-32 root `node`
     /// whose versions the causal `query` admits.
@@ -371,28 +338,29 @@ impl<P: Polarity> RangeOwned<P> {
 
     /// Walk the leaves of a subtree rooted below the top of the tree.
     ///
-    /// `path` carries the bytes already walked to reach `node` (the
-    /// ancestors' radixes, shallowest-first), which the descent extends so
-    /// each leaf still reconstructs a full 32-byte
-    /// 32-byte path. `path.len()` plus the height of
-    /// `node` must therefore be 32.
+    /// `path` contains the preceding bytes, shallowest first. Its length plus
+    /// the node's height must be 32, so each yielded leaf has a full path.
     pub(crate) fn within(node: Option<Node>, path: &[u8], query: Query<'static, P>) -> Self {
         let mut buf = ArrayVec::new();
         buf.extend_from_slice(path);
         Self {
             start: node,
-            // One level per materialized branch along a root-to-leaf path:
-            // never more than the depth, so this is the walk's only
-            // allocation.
+            // Reserve enough frames for any path so descent never grows
+            // this buffer.
             spine: Vec::with_capacity(32),
             path: buf,
             query,
         }
     }
+}
 
-    /// Advance to the next passing leaf. The same classification as the
-    /// borrowing walk, with the leaf handed out by value.
-    pub(crate) fn next(&mut self) -> Option<([u8; 32], Leaf)> {
+/// Yield owned leaves from an ascending walk of the current subtree.
+impl<P: Polarity> Iterator for RangeOwned<P> {
+    /// A full version-derived path and a handle to its stored leaf.
+    type Item = ([u8; 32], Leaf);
+
+    /// Advance to the next matching leaf in ascending path order.
+    fn next(&mut self) -> Option<Self::Item> {
         loop {
             // Obtain the next unvisited node — the initial root, or the next
             // child at the deepest spine level, ascending past exhausted
@@ -405,15 +373,12 @@ impl<P: Polarity> RangeOwned<P> {
                 None => loop {
                     let level = self.spine.last_mut()?;
                     let next_child = match &level.node.inner.children {
-                        // Probe for the smallest not-yet-visited radix: one
-                        // O(log fan-out) binary search, so unvisited siblings
-                        // are never enumerated or held.
-                        Children::Branch { children, .. } if level.next <= u8::MAX as u16 => {
-                            children
-                                .successor(level.next as u8)
-                                .map(|(radix, child)| (radix, child.clone()))
-                        }
-                        Children::Branch { .. } => None,
+                        // Find the next radix by binary search and clone
+                        // only that child. Pending siblings stay in the branch.
+                        Children::Branch { children, .. } => level
+                            .next
+                            .and_then(|at| children.successor(at))
+                            .map(|(radix, child)| (radix, child.clone())),
                         Children::Leaf { .. } => {
                             unreachable!("spine levels are branches, by construction")
                         }
@@ -426,7 +391,8 @@ impl<P: Polarity> RangeOwned<P> {
                             self.path.truncate(rollback);
                         }
                         Some((radix, child)) => {
-                            level.next = radix as u16 + 1;
+                            // Radix 255 is the last child this level can visit.
+                            level.next = radix.checked_add(1);
                             let passes = level.passes;
                             let rollback = self.path.len();
                             self.path.push(radix);
@@ -457,7 +423,7 @@ impl<P: Polarity> RangeOwned<P> {
                 // Descend: this node becomes the new deepest level.
                 self.spine.push(Level {
                     node,
-                    next: 0,
+                    next: Some(0),
                     passes,
                     rollback,
                 });

@@ -885,21 +885,14 @@ fn owned<T>((version, value): (&Version, Arc<T>)) -> (Version, Arc<T>) {
 }
 
 proptest! {
-    /// The walk machinery's correctness core, differentially.
+    /// Borrowed and owned range walks match a direct membership filter and
+    /// yield leaves in path order for every causal query form.
     ///
-    /// For arbitrary divergent trees and a causal query built over bound
-    /// versions sampled from both trees' leaves and ceilings plus genesis
-    /// — so dominated, dominating, equal, concurrent, and crossed bound
-    /// pairs all occur, and every form in the query vocabulary is driven
-    /// at each polarity — `Tree::range` yields exactly the leaves whose
-    /// versions the query `contains`, from the unfiltered walk: the
-    /// coverage prune/promote shortcuts are pure optimization. The yield
-    /// is in ascending key order, and the frozen spine walk
-    /// (`Tree::range_owned`) yields the identical sequence. Two
-    /// independent implementations of the same query semantics checking
-    /// each other.
+    /// Bounds come from divergent trees and genesis, covering ordered,
+    /// equal, and concurrent versions at each query polarity. Subtree
+    /// pruning and acceptance must preserve the naive filter's results.
     #[test]
-    fn range_and_freeze_match_the_naive_filter(
+    fn borrowed_and_owned_ranges_match_the_naive_filter(
         (a, b) in crate::tree::arb::arb_divergent_pair(),
         start_sel in any::<prop::sample::Index>(),
         end_sel in any::<prop::sample::Index>(),
@@ -943,12 +936,10 @@ proptest! {
                 "range yields ascending version-derived paths",
             );
 
-            let mut frozen = tree.range_owned(query);
-            let mut thawed = Vec::new();
-            while let Some((_, leaf)) = frozen.next() {
-                thawed.push((leaf.version().clone(), leaf.value::<()>()));
-            }
-            prop_assert_eq!(&thawed, &naive, "the frozen walk must equal the naive filter");
+            let owned: Vec<_> = tree.range_owned(query)
+                .map(|(_, leaf)| (leaf.version().clone(), leaf.value::<()>()))
+                .collect();
+            prop_assert_eq!(&owned, &naive, "the owned walk must equal the naive filter");
             Ok(())
         }
 
