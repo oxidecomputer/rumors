@@ -381,6 +381,7 @@ impl<N> MaterializedNode<N> {
     }
 }
 
+/// Supply node metadata, with controllable size errors for conformance tests.
 impl<H> Node for MaterializedNode<typed::Node<H>>
 where
     H: Height,
@@ -388,22 +389,20 @@ where
     type Backend = Materializing;
     type Height = H;
 
+    /// Borrow the underlying node's valid version bounds.
     fn span(&self) -> Span<'_> {
         self.inner.span()
     }
 
-    fn hash(&self) -> Hash {
-        self.inner.hash()
-    }
-
+    /// Return the underlying node's exact leaf count.
     fn len(&self) -> usize {
         self.inner.len()
     }
 
+    /// Alter the version-size aggregate to exercise undercounts and overcounts.
     fn version_bytes(&self) -> usize {
-        // The aggregate-lying knobs: a deflated answer must be caught by
-        // the assembly seam's floor, and an inflated leaf answer by the
-        // walk seam's aggregate-membership check.
+        // Assembly checks must catch undercounts; leaf walks must catch
+        // inflated leaf sizes that disagree with the stored aggregate.
         let inflate = if H::HEIGHT == 0 {
             LEAF_VERSION_INFLATE.get()
         } else {

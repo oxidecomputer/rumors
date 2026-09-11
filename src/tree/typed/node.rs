@@ -55,11 +55,6 @@ impl<H: Height> Children<H> {
         self.inner.push(radix, child.into_untyped());
     }
 
-    /// Whether no child is present.
-    pub fn is_empty(&self) -> bool {
-        self.inner.is_empty()
-    }
-
     /// The number of children present (0..=256).
     pub fn len(&self) -> usize {
         self.inner.len()
@@ -225,25 +220,6 @@ impl<H: Height> Node<H> {
         self.inner.max_bound_bytes()
     }
 
-    /// Whether this node's content is a single leaf, regardless of any
-    /// path-compressed prefix above it.
-    ///
-    /// A leaf carries exactly one version, so its [`floor`](Self::floor) and
-    /// [`ceiling`](Self::ceiling) coincide: a single version comparison
-    /// decides whether the whole (compressed) subtree is kept or dropped —
-    /// no need to explode it.
-    pub fn is_leaf(&self) -> bool {
-        self.inner.is_leaf()
-    }
-
-    /// Number of path-compressed prefix bytes on this node — i.e., the
-    /// count of singleton virtual-branch levels collapsed above the node's
-    /// actual content. Zero for a leaf or a non-compressed branch.
-    #[cfg(test)]
-    pub fn compressed_prefix_len(&self) -> usize {
-        self.inner.compressed_prefix_len()
-    }
-
     /// Hash the subtree rooted at this node.
     ///
     /// Hashes are computed lazily on first read and memoized, so the first read
@@ -337,13 +313,11 @@ where
         Children::from_fan(children)
     }
 
-    /// Wrap `child` (at height `H`) beneath slot `index` of a virtual branch
-    /// at height `S<H>`.
+    /// Extend a test node's compressed prefix through slot `index`.
     ///
-    /// The result is the typed counterpart of
-    /// `untyped::Node::beneath`: it path-compresses a single-child wrap into
-    /// the underlying node's prefix without materializing the intervening
-    /// branch level.
+    /// Deep-tree fixtures use this to place a node one level farther down
+    /// without allocating a single-child branch.
+    #[cfg(test)]
     pub fn beneath(child: Node<H>, index: u8) -> Self {
         Node {
             height: PhantomData,
@@ -427,24 +401,3 @@ impl<H: Height> PartialEq for Node<H> {
         self.inner == other.inner
     }
 }
-
-// Wire format (see [`crate::tree::wire`]). Serialization is
-// height-uniform: every typed `Node<H>` delegates to
-// [`untyped::Node::serialize_to`], which emits the in-memory
-// representation directly (prefix length, head bytes, then either a leaf
-// body or a `count_minus_two` + children list). No leaf-vs-branch tag is
-// needed on the wire — at the receiver, the typed height together with
-// the running `prefix_len` names the body's shape.
-//
-// Deserialization at typed height `H` ([`DecodeNode`]) reads `prefix_len`, then either
-// decodes the body directly (when `prefix_len == 0`) or peels one head
-// byte and recurses at the next-finer typed height — synthesizing the
-// `prefix_len - 1` byte for the inner reader via
-// [`std::io::Read::chain`]. The recursion bottoms out at the typed
-// level matching the structural level of the underlying body: a multi-
-// child branch at `S<_>` heights, or a leaf at `Z`.
-//
-// Multi-child branches always carry at least two children (the path-
-// compression invariant); singletons appear on the wire only as
-// `prefix_len > 0` and reconstruct through [`Node::beneath`].
-//

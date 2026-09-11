@@ -136,6 +136,7 @@ impl<N> FailingNode<N> {
     }
 }
 
+/// Preserve typed-node observations while testing failures in backend operations.
 impl<N> Node for FailingNode<N>
 where
     N: Node + Clone + Send + 'static,
@@ -143,18 +144,17 @@ where
     type Backend = Failing<N::Backend>;
     type Height = N::Height;
 
+    /// Borrow the wrapped node's version bounds.
     fn span(&self) -> Span<'_> {
         self.0.span()
     }
 
-    fn hash(&self) -> Hash {
-        self.0.hash()
-    }
-
+    /// Read the wrapped node's leaf count.
     fn len(&self) -> usize {
         self.0.len()
     }
 
+    /// Read the wrapped node's largest encoded version bound.
     fn version_bytes(&self) -> usize {
         self.0.version_bytes()
     }

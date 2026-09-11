@@ -211,92 +211,48 @@ pub trait Node {
     /// The height of the node above the leaf level.
     type Height: Height;
 
-    /// The node's version bounds as one causal span: the floor (the
-    /// minimum version of any node under this one) as the span's meet,
-    /// the ceiling (the maximum) as its join.
+    /// The meet and join of every live version in this subtree.
     ///
-    /// The trait's whole version-bounds obligation lives here. The
-    /// deletion-honoring filter classifies subtrees by asking the span
-    /// [`dominance`](Span::dominance) directly, without
-    /// descending: [`After`](before::Dominance::After) iff the
-    /// ceiling is within the probe's causal past (everything under the
-    /// node is already known there),
-    /// [`Before`](before::Dominance::Before) iff the probe dominates
-    /// not even the floor (the whole subtree is unknown), and
-    /// [`Between`](before::Dominance::Between) otherwise (mixed, so
-    /// the filter descends). Single-endpoint consumers — bound pricing,
-    /// containment checks, leaf-version reads — take
-    /// [`lo`](Span::lo) or [`hi`](Span::hi)
-    /// off the same span.
+    /// Deletion filtering compares a probe with this span. If the probe
+    /// dominates the ceiling, all messages are known; if it does not dominate
+    /// even the floor, all are unknown. Mixed spans require descent.
     ///
-    /// The span's ordering — `floor <= ceiling`, which every honest
-    /// meet/join pair over one leaf set satisfies — is the
-    /// implementor's obligation, priced at *construction* rather than
-    /// per read: the in-memory backend stores each branch's memoized
-    /// bounds as one [`Span`], ordered by construction, and
-    /// answers by reborrowing it
-    /// ([`Span::reborrow`]). A backend reading bounds back
-    /// from its own storage validates the pair once at node load: bounds
-    /// stored as the span's canonical bytes load through
-    /// [`Span::decode`] — one pass that parses both endpoints
-    /// and proves them ordered, rejecting corrupt bytes and crossed
-    /// pairs alike as the load-time storage corruption they are — and
-    /// bounds held as two already-decoded versions validate through
-    /// [`Span::new`], surfacing
-    /// [`Crossed`](before::error::Crossed) the same way. Either way the
-    /// backend answers thereafter by reborrowing the span it validated.
-    /// A violated ordering is not a detected fault: every verdict read
-    /// off the span becomes unspecified, which here means silently
-    /// wrong reconciliation — news withheld or re-sent — so the check
-    /// belongs at the load seam, where it is paid once.
+    /// The bounds must be ordered. Construct them with the node, or validate
+    /// them once when loading storage: [`Span::decode`] checks encoded bounds
+    /// and [`Span::new`] checks decoded ones. Then borrow the validated span
+    /// for each read. Invalid bounds can make reconciliation discard or resend
+    /// messages, so this obligation cannot be deferred to callers.
     fn span(&self) -> Span<'_>;
 
-    /// The merkle hash of this node.
-    fn hash(&self) -> Hash;
-
-    /// The number of live leaves under this node, exact.
+    /// The exact number of live leaves in the subtree.
     ///
-    /// A leaf answers one; a parent holds the sum over its children,
-    /// fixed when [`Backend::parent`] assembles it — the same
-    /// recompute-on-reassembly discipline as
-    /// [`version_bytes`](Self::version_bytes), and cheap for a persistent
-    /// backend to keep as a stored field. The root's value is the exact
-    /// set size the session greeting carries.
+    /// A leaf has one; a parent has the sum of its children's counts. The
+    /// root's count supplies the session greeting's set size.
     fn len(&self) -> usize;
 
-    /// The largest canonical encoding among every version bound under
-    /// this node — its leaf versions and every interior node's ceiling
-    /// and floor, its own included — in bytes, exact.
+    /// The largest encoded version bound in this subtree, in bytes.
     ///
-    /// A leaf answers its own version's encoded length; a parent answers
-    /// the **max over its children's values and its own two bounds'
-    /// encodings**. That recurrence is the whole maintenance story: every
-    /// mutation rebuilds its spine through [`Backend::parent`], so the
-    /// max is recomputed from what remains and redacting the version
-    /// that carries it resizes the aggregate *down* with no separate
-    /// invalidation. Interior bounds must be covered: a ceiling joins
-    /// every leaf version below it, and a join of many small concurrent
-    /// stamps can encode several times larger than any one of them.
+    /// Include leaf versions and every branch's floor and ceiling. A leaf
+    /// returns its version's size; a parent takes the maximum over its own
+    /// bounds and its children's aggregates. Recompute this when rebuilding a
+    /// node, including after redactions.
     ///
-    /// The root's value is the version-size bound the session greeting
-    /// carries, which the memory budget prices nodes with — an inflated
-    /// value costs latency, a deflated one breaches the memory envelope.
+    /// Interior bounds matter: joining small concurrent versions can produce
+    /// a larger encoding. The root supplies this aggregate to the session's
+    /// memory budget; undercounting can make that budget too small.
     fn version_bytes(&self) -> usize;
 }
 
-/// The observations a session reads off an erased node: [`Node`]'s
-/// height-independent surface.
+/// Inspect a node without knowing its height.
 ///
-/// Every read here answers exactly as it would on the typed node the value
-/// was erased from — none of [`Node`]'s observations ever depended on the
-/// height tag, so forgetting it loses nothing. Height-*dependent*
-/// operations (exploding to children, reading a leaf's message) stay on
-/// the typed surface, reached by re-tagging ([`Backend::assume`]).
+/// The session compares hashes and classifies version spans before choosing
+/// whether to descend. Operations that need the height, such as reading
+/// children or a leaf's payload, require [`Backend::assume`] first.
 pub trait ErasedNode {
     /// The node's version bounds as one causal span ([`Node::span`]).
     fn span(&self) -> Span<'_>;
 
-    /// The merkle hash of this node ([`Node::hash`]).
+    /// The subtree digest used to compare nodes at the same trie position.
     fn hash(&self) -> Hash;
 
     /// The number of live leaves under this node, exact ([`Node::len`]).

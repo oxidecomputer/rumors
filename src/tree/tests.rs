@@ -11,6 +11,20 @@ use super::*;
 use crate::message::Message;
 
 use serde::Serialize;
+
+/// Inspect tree storage for publication tests.
+impl<T> Tree<T> {
+    /// Assert every stored memo is warm without computing missing values.
+    pub(crate) fn assert_memos_warm(&self) {
+        assert!(
+            self.root
+                .root
+                .as_ref()
+                .is_none_or(|root| root.clone().into_untyped().memos_are_warm())
+        );
+    }
+}
+
 /// An arbitrary 32-byte leaf path (almost surely naming no live leaf).
 fn arb_path() -> impl Strategy<Value = Path> {
     any::<[u8; 32]>().prop_map(Path::from)

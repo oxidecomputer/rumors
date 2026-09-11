@@ -1,14 +1,39 @@
 use crate::message::PayloadDepthLimit;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use std::io;
+use std::sync::Arc;
 
 use bytes::Bytes;
 use proptest::prelude::*;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use super::Message;
+use super::{Message, PayloadCodec, PayloadDecodeError, decode_exact, encode};
 
 use serde::Serializer;
+
+/// Build tree and capture fixtures without requiring a peer or admission checks.
+impl Message {
+    /// Cache a fixture payload's encoding, panicking if serialization fails.
+    pub(crate) fn new<T: Serialize + Send + Sync + 'static>(message: T) -> Self {
+        Self {
+            serialized: encode(&message),
+            message: Arc::new(message),
+        }
+    }
+
+    /// Decode one fixture payload and copy its exact bytes into the cache.
+    pub(crate) fn from_slice<T: DeserializeOwned + Send + Sync + 'static>(
+        bytes: &[u8],
+        limit: PayloadDepthLimit,
+    ) -> io::Result<Self> {
+        let message: T = decode_exact(bytes, limit).map_err(PayloadDecodeError::into_io)?;
+        Ok(Self {
+            message: Arc::new(message),
+            serialized: Bytes::copy_from_slice(bytes),
+        })
+    }
+}
 
 /// Check the cache's original allocation without copying or shrinking it.
 fn assert_exact_cache(message: Message) {
@@ -49,7 +74,7 @@ fn hash_of<T: Hash>(value: &T) -> u64 {
     h.finish()
 }
 
-/// Encode a value as one CBOR value, as `Message::new` does internally.
+/// Encode a payload independently for comparison with its stored bytes.
 fn cbor_vec<T: Serialize>(value: &T) -> Vec<u8> {
     let mut buf = Vec::new();
     ciborium::ser::into_writer(value, &mut buf).unwrap();
@@ -61,45 +86,30 @@ proptest! {
     /// payload sizes on either side of buffer growth boundaries.
     #[test]
     fn stored_encodings_have_no_spare_capacity(size in 0usize..4096, value in any::<u8>()) {
-        let payload = std::sync::Arc::new(vec![value; size]);
-        let limit = PayloadDepthLimit::default();
-        assert_exact_cache(Message::new((*payload).clone()));
-        assert_exact_cache(Message::from_arc(payload.clone()));
-        assert_exact_cache(Message::try_new((*payload).clone(), limit).unwrap());
-        assert_exact_cache(Message::try_from_arc(payload.clone(), limit).unwrap());
-        let bytes = cbor_vec(&*payload);
-        assert_exact_cache(Message::from_slice::<Vec<u8>>(&bytes, limit).unwrap());
+        let codec = PayloadCodec::new::<Vec<u8>>(PayloadDepthLimit::default());
+        assert_exact_cache(codec.message(Arc::new(vec![value; size])).unwrap());
     }
 
-    /// After construction via `new`, the cached serialized bytes are exactly
-    /// the value's CBOR encoding, and the typed read recovers the value.
+    /// Admission caches the payload's CBOR encoding and preserves its value.
     #[test]
-    fn new_caches_cbor_serialization(p in payload()) {
-        let m = Message::new(p.clone());
+    fn admission_caches_cbor_serialization(p in payload()) {
+        let codec = PayloadCodec::new::<Payload>(PayloadDepthLimit::default());
+        let m = codec.message(Arc::new(p.clone())).unwrap();
         let direct = cbor_vec(&p);
-        prop_assert_eq!(m.bytes(), direct.as_slice());
+        prop_assert_eq!(m.as_slice(), direct.as_slice());
         prop_assert_eq!(&*m.arc::<Payload>(), &p);
     }
 
-    /// `from_slice` reconstructs the inner value and stores exactly the input
-    /// bytes in the cache, with no reserialization drift.
+    /// Wire ingress recovers the value and retains its exact encoding without
+    /// copying the received bytes.
     #[test]
-    fn from_slice_roundtrips(p in payload()) {
-        let bytes = cbor_vec(&p);
-        let m = Message::from_slice::<Payload>(&bytes, PayloadDepthLimit::default()).unwrap();
+    fn wire_ingress_preserves_value_and_encoding(p in payload()) {
+        let bytes = Bytes::from(cbor_vec(&p));
+        let codec = PayloadCodec::new::<Payload>(PayloadDepthLimit::default());
+        let m = Message::from_wire(bytes.clone(), codec).unwrap();
         prop_assert_eq!(&*m.arc::<Payload>(), &p);
-        prop_assert_eq!(m.bytes(), bytes.as_slice());
-    }
-
-    /// `from_bytes` (zero-copy) and `from_slice` (copying) produce equivalent
-    /// `Message`s from the same input.
-    #[test]
-    fn from_bytes_matches_from_slice(p in payload()) {
-        let bytes = cbor_vec(&p);
-        let a = Message::from_slice::<Payload>(&bytes, PayloadDepthLimit::default()).unwrap();
-        let b = Message::from_bytes::<Payload>(Bytes::from(bytes.clone()), PayloadDepthLimit::default()).unwrap();
-        prop_assert_eq!(&a, &b);
-        prop_assert_eq!(a.bytes(), b.bytes());
+        prop_assert_eq!(m.as_slice(), bytes.as_ref());
+        prop_assert_eq!(m.as_slice().as_ptr(), bytes.as_ptr());
     }
 
     /// A payload followed by trailing bytes is rejected: the cache is
@@ -108,8 +118,8 @@ proptest! {
     fn trailing_bytes_are_rejected(p in payload(), trailer in proptest::collection::vec(any::<u8>(), 1..8)) {
         let mut bytes = cbor_vec(&p);
         bytes.extend_from_slice(&trailer);
-        prop_assert!(Message::from_slice::<Payload>(&bytes, PayloadDepthLimit::default()).is_err());
-        prop_assert!(Message::from_bytes::<Payload>(Bytes::from(bytes), PayloadDepthLimit::default()).is_err());
+        let codec = PayloadCodec::new::<Payload>(PayloadDepthLimit::default());
+        prop_assert!(Message::from_wire(Bytes::from(bytes), codec).is_err());
     }
 
     /// The serde form of a `Message` is one CBOR byte string wrapping
@@ -128,7 +138,7 @@ proptest! {
         }
         let m = Message::new(p);
         let wrapped = cbor_vec(&m);
-        let direct = cbor_vec(&Bstr(m.bytes()));
+        let direct = cbor_vec(&Bstr(m.as_slice()));
         prop_assert_eq!(wrapped, direct);
     }
 
@@ -142,13 +152,13 @@ proptest! {
         prop_assert_eq!(hash_of(&a), hash_of(&b));
     }
 
-    /// `arc` hands out the same shared allocation `new` stored, not a
-    /// copy: unsizing erased the type, never the identity.
+    /// Admission and typed reads share the caller's payload allocation.
     #[test]
     fn arc_shares_the_stored_allocation(p in payload()) {
-        let stored = std::sync::Arc::new(p);
-        let m = Message::from_arc(stored.clone());
-        prop_assert!(std::sync::Arc::ptr_eq(&stored, &m.arc::<Payload>()));
+        let stored = Arc::new(p);
+        let codec = PayloadCodec::new::<Payload>(PayloadDepthLimit::default());
+        let m = codec.message(stored.clone()).unwrap();
+        prop_assert!(Arc::ptr_eq(&stored, &m.arc::<Payload>()));
     }
 }
 
@@ -161,48 +171,6 @@ fn mismatched_downcast_panics() {
     let _ = m.arc::<String>();
 }
 
-/// Nested-array CBOR bytes at exactly `depth` scopes: `depth` array heads
-/// around one integer, the minimal encoding whose nesting depth is chosen
-/// freely by the test.
-fn nested_arrays(depth: usize) -> Vec<u8> {
-    let mut bytes = vec![0x81; depth];
-    bytes.push(0x00);
-    bytes
-}
-
-/// The rehydration constructors take the limit explicitly, so an
-/// application on a raised fleet limit can rehydrate its own stored
-/// deep messages.
-///
-/// A payload past the default depth fails `from_slice` and `from_bytes`
-/// at the default limit (as invalid data) and succeeds at a raised one:
-/// both directions, so the parameter is proven live in each.
-#[test]
-fn rehydration_honors_the_explicit_limit() {
-    let default = PayloadDepthLimit::default();
-    let deep = nested_arrays((default.get() + 1) as usize);
-
-    let rejected = Message::from_slice::<ciborium::Value>(&deep, default);
-    assert_eq!(
-        rejected.unwrap_err().kind(),
-        std::io::ErrorKind::InvalidData,
-        "the default limit must reject a payload one scope past it"
-    );
-    let rejected = Message::from_bytes::<ciborium::Value>(Bytes::from(deep.clone()), default);
-    assert_eq!(
-        rejected.unwrap_err().kind(),
-        std::io::ErrorKind::InvalidData
-    );
-
-    let raised = PayloadDepthLimit::new(default.get() + 1);
-    let m = Message::from_slice::<ciborium::Value>(&deep, raised)
-        .expect("a raised limit must rehydrate the deep message");
-    assert_eq!(m.as_slice(), deep.as_slice());
-    let m = Message::from_bytes::<ciborium::Value>(Bytes::from(deep.clone()), raised)
-        .expect("a raised limit must rehydrate the deep message");
-    assert_eq!(m.as_slice(), deep.as_slice());
-}
-
 /// Pure CBOR array nesting from a type satisfying the payload contract:
 /// each layer serializes as a one-element array, the innermost empty.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -213,44 +181,40 @@ fn nested_arr(depth: u64) -> Arr {
     (1..depth).fold(Arr(vec![]), |a, _| Arr(vec![a]))
 }
 
-/// The admission boundary is exact and typed.
-///
-/// A value whose decode needs exactly the configured limit constructs,
-/// one more recursion step is `EncodeError::Depth` carrying the
-/// configured limit, and wire-style rehydration draws the same line —
-/// admission and ingress are the same decode, so the two verdicts
-/// cannot differ.
-#[test]
-fn try_new_admits_exactly_the_limit() {
-    let limit = super::PayloadDepthLimit::new(8);
-    let at = nested_arr(8);
-    let m = Message::try_new(at.clone(), limit).expect("at the limit is admitted");
-    assert_eq!(m.bytes(), cbor_vec(&at).as_slice());
-
-    let over = nested_arr(9);
-    let error = Message::try_new(over.clone(), limit).unwrap_err();
-    assert!(
-        matches!(error, super::EncodeError::Depth { limit: l } if l == limit),
-        "one step past the limit is the typed depth case: {error:?}"
-    );
-
-    // Rehydration rejects the same bytes admission rejects.
-    assert!(
-        Message::from_slice::<Arr>(&cbor_vec(&over), limit).is_err(),
-        "the decoder rejects what admission rejects"
-    );
-    let raised = super::PayloadDepthLimit::new(9);
-    Message::try_new(over, raised).expect("one more step of limit admits it");
+proptest! {
+    /// Admission and wire ingress accept arrays at the configured depth and
+    /// reject the same payload one step below it, including a zero limit.
+    #[test]
+    fn admission_and_ingress_share_depth_limit(depth in prop_oneof![
+        1u64..33,
+        Just(PayloadDepthLimit::default().get()),
+        Just(PayloadDepthLimit::default().get() + 1),
+    ]) {
+        let value = Arc::new(nested_arr(depth));
+        let bytes = Bytes::from(cbor_vec(&*value));
+        let codec = PayloadCodec::new::<Arr>(PayloadDepthLimit::new(depth));
+        let lower_limit = PayloadDepthLimit::new(depth - 1);
+        let lower = codec.with_limit(lower_limit);
+        let error = lower.message(value.clone()).unwrap_err();
+        prop_assert!(matches!(error, super::EncodeError::Depth { limit } if limit == lower_limit), "unexpected admission error: {:?}", error);
+        prop_assert_eq!(
+            Message::from_wire(bytes.clone(), lower).unwrap_err().kind(),
+            io::ErrorKind::InvalidData,
+        );
+        let admitted = codec.message(value.clone()).unwrap();
+        let received = Message::from_wire(bytes.clone(), codec).unwrap();
+        prop_assert_eq!(admitted.as_slice(), bytes.as_ref());
+        prop_assert_eq!(&*received.arc::<Arr>(), &*value);
+    }
 }
 
-/// A recursive enum whose spine is `serde`'s newtype-variant shape.
-///
-/// Each `N` wrapper is one map scope on the wire, and decoding it as
-/// `E` prices the innermost unit variant one further recursion step —
-/// the type-dependent accounting only the type's own decode can price.
+/// A recursive enum whose decoder counts one step per map wrapper plus
+/// one for the innermost unit variant.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 enum E {
+    /// The innermost unit variant.
     A,
+    /// One more map wrapper.
     N(Box<E>),
 }
 
@@ -259,32 +223,20 @@ fn nested_enum(wrappers: u64) -> E {
     (0..wrappers).fold(E::A, |e, _| E::N(Box::new(e)))
 }
 
-/// The admission boundary is exact for an enum payload.
-///
-/// The enum's decode recursion is type-dependent (the innermost unit
-/// variant costs a step no structural count of the bytes would find):
-/// the deepest value whose decode fits the limit is admitted, one more
-/// wrapper is `EncodeError::Depth` — at the author, never at a
-/// receiver.
-#[test]
-fn try_new_prices_an_enums_own_decode() {
-    let limit = super::PayloadDepthLimit::new(8);
-    // 7 map scopes + the unit-variant step = 8: exactly the limit.
-    let at = nested_enum(limit.get() - 1);
-    let m = Message::try_new(at, limit).expect("a decode at exactly the limit is admitted");
-    assert_eq!(
-        &*Message::from_slice::<E>(m.as_slice(), limit)
-            .expect("the admitted encoding decodes at an equally-configured receiver")
-            .arc::<E>(),
-        &nested_enum(limit.get() - 1),
-    );
-
-    // 8 map scopes + the unit-variant step = 9: one past the limit.
-    let error = Message::try_new(nested_enum(limit.get()), limit).unwrap_err();
-    assert!(
-        matches!(error, super::EncodeError::Depth { limit: l } if l == limit),
-        "a decode needing limit + 1 is the typed depth case: {error:?}"
-    );
+proptest! {
+    /// Enum admission counts the decoder's unit-variant step as well as each
+    /// map wrapper, and admitted bytes decode at the same receiver limit.
+    #[test]
+    fn enum_admission_counts_the_payloads_decode(wrappers in 0u64..16) {
+        let limit = PayloadDepthLimit::new(wrappers + 1);
+        let codec = PayloadCodec::new::<E>(limit);
+        let value = Arc::new(nested_enum(wrappers));
+        let admitted = codec.message(value.clone()).unwrap();
+        let received = Message::from_wire(Bytes::copy_from_slice(admitted.as_slice()), codec).unwrap();
+        prop_assert_eq!(&*received.arc::<E>(), &*value);
+        let error = codec.message(Arc::new(nested_enum(wrappers + 1))).unwrap_err();
+        prop_assert!(matches!(error, super::EncodeError::Depth { limit: actual } if actual == limit), "unexpected admission error: {:?}", error);
+    }
 }
 
 /// A payload type violating the round-trip obligation: it serializes as
@@ -313,40 +265,10 @@ impl<'de> serde::Deserialize<'de> for Lopsided {
 /// have failed at every receiver, and admission is that decode.
 #[test]
 fn a_type_that_cannot_read_its_own_output_fails_admission() {
-    let error = Message::try_new(Lopsided, super::PayloadDepthLimit::default()).unwrap_err();
+    let codec = PayloadCodec::new::<Lopsided>(PayloadDepthLimit::default());
+    let error = codec.message(Arc::new(Lopsided)).unwrap_err();
     assert!(
         matches!(error, super::EncodeError::Roundtrip(_)),
         "the round-trip violation is its own typed case: {error:?}"
-    );
-}
-
-/// The constructed codec's serializing half applies the carried limit and
-/// reuses the caller's allocation.
-///
-/// The codec is `Message::try_new` with the peer's configured limit
-/// riding along; the spine here is the enum's map scopes, so the codec
-/// path is exercised on the type-dependent accounting.
-#[test]
-fn codec_serializes_through_the_carried_limit() {
-    use std::sync::Arc;
-    let limit = super::PayloadDepthLimit::new(4);
-    let codec = super::PayloadCodec::new::<E>(limit);
-
-    // 4 map scopes + the unit-variant step: one past the limit.
-    let deep = nested_enum(4);
-    let error = codec.message(Arc::new(deep)).unwrap_err();
-    assert!(
-        matches!(error, super::EncodeError::Depth { limit: l } if l == limit),
-        "the codec surfaces the carried limit: {error:?}"
-    );
-
-    // 3 map scopes + the unit-variant step: exactly the limit.
-    let shallow = nested_enum(3);
-    let stored: Arc<E> = Arc::new(shallow.clone());
-    let m = codec.message(stored.clone()).expect("within the limit");
-    assert_eq!(m.bytes(), cbor_vec(&shallow).as_slice());
-    assert!(
-        std::sync::Arc::ptr_eq(&stored, &m.arc::<E>()),
-        "the codec stores the caller's own allocation"
     );
 }

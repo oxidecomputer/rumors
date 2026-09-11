@@ -20,12 +20,6 @@ fn insert(tree: &mut Tree<u64>, party: &Party, value: u64) {
     tree.act(party, [Action::Insert(Message::new(value))]);
 }
 
-/// Inspect the published tree's memos without warming them as a side effect.
-fn assert_warm<T>(tree: &Tree<T>) {
-    let root: Option<crate::tree::typed::node::Root> = tree.root.clone().into();
-    assert!(root.is_none_or(|root| root.into_untyped().memos_are_warm()));
-}
-
 thread_local! {
     /// Interleave a local commit after candidate preparation, on this test's thread.
     static BEFORE_SWAP: RefCell<Option<Box<dyn FnMut()>>> = RefCell::new(None);
@@ -134,7 +128,7 @@ proptest! {
             let mut expected = live.borrow().clone();
             if !reject { expected.join(incoming); }
             assert_eq!(result.is_err(), reject);
-            assert_warm(&Inner::snapshot(&sender));
+            Inner::snapshot(&sender).assert_memos_warm();
             assert_eq!(Inner::snapshot(&sender), expected);
             let changed = expected != *live.borrow();
             assert_eq!(receiver.borrow().has_changed().unwrap(), !reject && changed);
@@ -170,7 +164,7 @@ proptest! {
         expected.join(incoming.clone());
         let changed = expected != live;
         let sender = watch::Sender::new(Inner::new(local, live));
-        assert_warm(&Inner::snapshot(&sender));
+        Inner::snapshot(&sender).assert_memos_warm();
         let mut receiver = sender.subscribe();
         let gate = sender.borrow().commit_gate.clone();
         let mut called = 0;
@@ -297,7 +291,7 @@ proptest! {
                 }
             });
             for tree in incoming { expected.join(tree); }
-            assert_warm(&Inner::snapshot(&sender));
+            Inner::snapshot(&sender).assert_memos_warm();
             assert_eq!(Inner::snapshot(&sender), expected);
         });
     }
@@ -419,12 +413,12 @@ proptest! {
             let mut tree = Tree::new();
             for i in 0..width { insert(&mut tree, &party, i as u64); }
             let sender = watch::Sender::new(Inner::new(party, tree));
-            assert_warm(&Inner::snapshot(&sender));
+            Inner::snapshot(&sender).assert_memos_warm();
             Inner::commit(&sender, |party, tree| {
                 insert(tree, party, width as u64);
                 true
             });
-            assert_warm(&Inner::snapshot(&sender));
+            Inner::snapshot(&sender).assert_memos_warm();
         });
     }
 
@@ -463,7 +457,7 @@ proptest! {
             worker.join().unwrap();
             let (party, mut inherited) = handoff.join().unwrap();
             assert_eq!(inherited.len(), events);
-            assert_warm(&inherited);
+            inherited.assert_memos_warm();
             let committed = inherited.latest().clone();
             insert(&mut inherited, &party, events as u64);
             assert!(inherited.latest() > committed);

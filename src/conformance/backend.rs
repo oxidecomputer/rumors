@@ -279,6 +279,7 @@ impl<N> Drop for ChargedNode<N> {
     }
 }
 
+/// Preserve typed-node observations while tracking handle residency.
 impl<N> Node for ChargedNode<N>
 where
     N: Node + Clone + Send + 'static,
@@ -287,18 +288,17 @@ where
     type Backend = Charged<N::Backend>;
     type Height = N::Height;
 
+    /// Borrow the wrapped node's version bounds.
     fn span(&self) -> Span<'_> {
         self.inner().span()
     }
 
-    fn hash(&self) -> Hash {
-        self.inner().hash()
-    }
-
+    /// Read the wrapped node's leaf count.
     fn len(&self) -> usize {
         self.inner().len()
     }
 
+    /// Read the wrapped node's largest encoded version bound.
     fn version_bytes(&self) -> usize {
         self.inner().version_bytes()
     }
@@ -962,8 +962,10 @@ where
     // Convergence is agreement on one root; completeness is that root
     // holding the corpora's whole union, which agreement alone cannot
     // show when both sides lose the same leaves.
-    let (converged, reconciled) = match (&ours.root, &theirs.root) {
+    let (converged, reconciled) = match (ours.root, theirs.root) {
         (Some(left_root), Some(right_root)) => {
+            let left_root = Charged::<B>::erase(left_root);
+            let right_root = Charged::<B>::erase(right_root);
             (left_root.hash() == right_root.hash(), left_root.len())
         }
         _ => (false, 0),

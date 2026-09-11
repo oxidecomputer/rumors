@@ -108,14 +108,6 @@ pub struct Root {
     root: Option<typed::node::Root>,
 }
 
-/// Extract the live nodes, discarding the causal ceiling.
-impl From<Root> for Option<typed::node::Root> {
-    /// Return the owned node handle, if the tree is nonempty.
-    fn from(value: Root) -> Self {
-        value.root
-    }
-}
-
 /// The empty root: the empty [`Version`] over no nodes. The state a mirror
 /// exchange starts from when the local side holds nothing yet: a
 /// bootstrapping peer mirrors the provider's tree into it.

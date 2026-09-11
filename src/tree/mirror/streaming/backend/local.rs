@@ -31,42 +31,40 @@ mod tests;
 #[cfg(test)]
 pub use adversarial::with_schedule;
 
+/// Read aggregate metadata from the in-memory tree's stored memos.
 impl<H: Height> Node for typed::Node<H> {
     type Backend = Local;
     type Height = H;
 
-    fn hash(&self) -> typed::Hash {
-        self.hash()
-    }
-
-    // Answered by reborrowing the branch's stored bounds span (a leaf's
-    // bounds coincide at its version), so the ordering the trait
-    // obligates is carried by construction — no per-read validation
-    // anywhere in this backend.
+    /// Borrow bounds ordered by construction; a leaf's bounds coincide.
     fn span(&self) -> Span<'_> {
         self.span()
     }
 
+    /// Return the stored leaf count.
     fn len(&self) -> usize {
         self.len()
     }
 
+    /// Return the largest encoded version bound in the subtree.
     fn version_bytes(&self) -> usize {
         self.version_bytes()
     }
 }
 
-// The typed node is `repr(transparent)` over the untyped node, so the
-// erased observations are the same field reads the typed ones are.
+/// Read comparison metadata without a height marker.
 impl ErasedNode for typed::untyped::Node {
+    /// Borrow the subtree's ordered version bounds.
     fn span(&self) -> Span<'_> {
         self.span()
     }
 
+    /// Read the memoized subtree digest.
     fn hash(&self) -> typed::Hash {
         self.hash()
     }
 
+    /// Return the stored leaf count.
     fn len(&self) -> usize {
         self.len()
     }

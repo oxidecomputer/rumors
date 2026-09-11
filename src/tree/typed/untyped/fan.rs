@@ -107,11 +107,6 @@ impl Fan {
         self.entries.len()
     }
 
-    /// Whether no child is present.
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-
     /// The index of `radix`, or the insertion point that keeps the fan
     /// ascending.
     fn search(&self, radix: u8) -> Result<usize, usize> {

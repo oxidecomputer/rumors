@@ -216,9 +216,8 @@ impl PayloadCodec {
         }
     }
 
-    /// Serialize one payload value of the codec's payload type into an
-    /// admission-checked [`Message`] at the carried limit
-    /// ([`Message::try_new`]'s contract).
+    /// Encode a payload and verify that decoding it at the configured limit
+    /// recovers the same value, retaining the caller's allocation on success.
     ///
     /// # Panics
     ///
@@ -312,37 +311,6 @@ fn decode_exact<T: DeserializeOwned>(
 
 /// Construct cached messages and recover their typed payloads.
 impl Message {
-    /// Cache a payload's encoding without checking admission.
-    ///
-    /// Used for standalone trees and fixtures. Peer insertion checks admission
-    /// through the peer's payload codec.
-    ///
-    /// # Panics
-    ///
-    /// If the message cannot be serialized (see [`Message`]).
-    pub fn new<T>(message: T) -> Self
-    where
-        T: Serialize + Send + Sync + 'static,
-    {
-        Message {
-            serialized: encode(&message),
-            message: Arc::new(message),
-        }
-    }
-
-    /// Cache a payload and check that a receiver can decode it faithfully.
-    ///
-    /// Decoding at `limit` must recover a value equal to the original; otherwise
-    /// return [`EncodeError`]. [`Rumors::send`](crate::Rumors::send) and
-    /// [`Batch::send`](crate::Batch::send) apply the same checks. Serialization
-    /// failure panics, as required by [`Message`].
-    pub fn try_new<T>(message: T, limit: PayloadDepthLimit) -> Result<Self, EncodeError>
-    where
-        T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
-    {
-        Self::try_from_arc(Arc::new(message), limit)
-    }
-
     /// Check admission and cache the encoding, sharing the payload's [`Arc`].
     pub(crate) fn try_from_arc<T>(
         arc: Arc<T>,
@@ -369,22 +337,6 @@ impl Message {
         Ok(Message {
             serialized,
             message: arc,
-        })
-    }
-
-    /// Decode one CBOR payload as `T` and copy its encoding into the cache.
-    ///
-    /// Used by fixtures and capture tooling, where no peer supplies a limit.
-    /// `bytes` must contain exactly one value that decodes within `limit`;
-    /// trailing bytes and excessive depth are invalid data.
-    pub fn from_slice<T>(bytes: &[u8], limit: PayloadDepthLimit) -> io::Result<Self>
-    where
-        T: DeserializeOwned + Send + Sync + 'static,
-    {
-        let message: T = decode_exact(bytes, limit).map_err(PayloadDecodeError::into_io)?;
-        Ok(Message {
-            message: Arc::new(message),
-            serialized: Bytes::copy_from_slice(bytes),
         })
     }
 
@@ -418,38 +370,6 @@ impl Message {
         deserialize::<T>
     }
 
-    /// Decode one CBOR payload as `T`, retaining `bytes` without copying.
-    ///
-    /// Uses [`from_slice`](Self::from_slice)'s exactly-one-value and depth checks.
-    pub fn from_bytes<T>(bytes: Bytes, limit: PayloadDepthLimit) -> io::Result<Self>
-    where
-        T: DeserializeOwned + Send + Sync + 'static,
-    {
-        let message: T =
-            decode_exact(bytes.as_ref(), limit).map_err(PayloadDecodeError::into_io)?;
-        Ok(Message {
-            message: Arc::new(message),
-            serialized: bytes,
-        })
-    }
-
-    /// Cache an existing payload's encoding, sharing its [`Arc`].
-    ///
-    /// Like [`new`](Self::new), this does not check admission.
-    ///
-    /// # Panics
-    ///
-    /// If the message cannot be serialized (see [`Message`]).
-    pub fn from_arc<T>(arc: Arc<T>) -> Self
-    where
-        T: Serialize + Send + Sync + 'static,
-    {
-        Message {
-            serialized: encode(&*arc),
-            message: arc,
-        }
-    }
-
     /// Share the stored payload as its original type.
     ///
     /// # Panics
@@ -466,11 +386,6 @@ impl Message {
     /// Returns the serialized bytes corresponding to this message.
     pub fn as_slice(&self) -> &[u8] {
         self.serialized.as_ref()
-    }
-
-    /// Returns a cheaply-clonable handle to the shared serialized bytes.
-    pub fn bytes(&self) -> &Bytes {
-        &self.serialized
     }
 }
 

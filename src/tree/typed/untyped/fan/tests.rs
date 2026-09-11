@@ -39,13 +39,12 @@ fn arb_ops() -> impl Strategy<Value = Vec<Op>> {
 /// Check every observation of `fan` against the `oracle` holding clones of
 /// the same handles.
 ///
-/// Compared: length, emptiness, both iteration directions (radix sequence
+/// Compared: length, both iteration directions (radix sequence
 /// and per-child identity), the values-only walk both ways, point lookups
 /// across the whole alphabet, and the successor probe against the oracle's
 /// range query.
 fn equivalent(fan: &Fan, oracle: &BTreeMap<u8, Node>) -> Result<(), TestCaseError> {
     prop_assert_eq!(fan.len(), oracle.len());
-    prop_assert_eq!(fan.is_empty(), oracle.is_empty());
 
     for ((radix, child), (expected_radix, expected)) in fan.iter().zip(oracle.iter()) {
         prop_assert_eq!(radix, *expected_radix);
