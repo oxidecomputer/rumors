@@ -12,17 +12,18 @@ mod iter;
 use fan::Fan;
 pub use iter::{Iter, Leaf, Range, RangeOwned};
 
-/// One storage node — a leaf or a branch behind a shared `Arc`, carrying
-/// its compressed prefix and memoized hash.
+/// A shared leaf or branch, with its compressed path and cached hash.
 ///
-/// The single representation beneath the height-typed veneer (see
-/// [`typed`](super)); cloning is an `Arc` bump, and mutation is
-/// copy-on-write.
+/// [`typed`](super) adds compile-time heights to this storage. Cloning a
+/// handle shares the node; mutation copies its state when it is shared.
 pub struct Node {
+    /// State shared by handles to the same node.
     inner: Arc<NodeInner>,
 }
 
+/// Share the node and count the new handle in instrumented builds.
 impl Clone for Node {
+    /// Clone the shared handle without copying node state.
     fn clone(&self) -> Self {
         Self::from_inner(self.inner.clone())
     }
@@ -31,6 +32,7 @@ impl Clone for Node {
 /// Handles are counted, so a dropped one must check out; see [`census`].
 #[cfg(any(test, feature = "test-internals"))]
 impl Drop for Node {
+    /// Release this handle's census entry.
     fn drop(&mut self) {
         census::dropped();
     }
@@ -55,11 +57,13 @@ pub(crate) mod census {
     /// The most handles ever concurrently alive since the last reset.
     static PEAK: AtomicUsize = AtomicUsize::new(0);
 
+    /// Count a new handle and update the peak.
     pub(crate) fn created() {
         let live = LIVE.fetch_add(1, Ordering::Relaxed) + 1;
         PEAK.fetch_max(live, Ordering::Relaxed);
     }
 
+    /// Remove a released handle from the live count.
     pub(crate) fn dropped() {
         LIVE.fetch_sub(1, Ordering::Relaxed);
     }
@@ -75,42 +79,26 @@ pub(crate) mod census {
     }
 }
 
+/// Shared node storage, copied only when a mutation cannot reuse it.
+#[derive(Clone)]
 struct NodeInner {
-    /// Compressed path above this node's own branching level, stored with the
-    /// deepest byte at index 0 and the shallowest byte at the last index. An
-    /// empty prefix means the node is not path-compressed above its level.
+    /// Path compressed above this leaf or branch, deepest byte first.
+    /// Pushing or popping the last byte adds or removes its topmost level.
     ///
-    /// Only the path bytes are stored: the node's hash commits them as one
-    /// length-tagged field of its single preimage (see [`Node::hash`]), and
-    /// any virtual level's hash is recoverable by re-hashing with a
-    /// shortened prefix — one fresh preimage, not a per-byte refold.
-    prefix: Vec<u8>,
-    /// The node's observable hash (the hash of the subtree as seen from the top
-    /// of its compressed prefix), computed lazily on first read and memoized.
-    ///
-    /// Unlike the bounds memo, this lives on `NodeInner` rather than
-    /// inside [`Children::Branch`] so a path-compressed leaf memoizes its hash
-    /// too: a deep single-leaf spine costs its preimage only once. The memo is
-    /// a pure function of the subtree, so it is safe to share across the
-    /// structurally-shared (copy-on-write) clones a forked tree produces. The
-    /// preimage commits the compressed prefix, so any mutation of `prefix`
-    /// *or* `children` invalidates it and must reset this cell.
+    /// The path is at most 32 bytes, so storing it inline avoids a separate
+    /// allocation for compressed nodes, at the cost of a larger node body.
+    prefix: ArrayVec<[u8; 32]>,
+    /// Subtree hash as seen from the top of `prefix`, computed on first use.
+    /// Both leaves and branches cache it. Cloning preserves the cached value;
+    /// changing either `prefix` or `children` must clear it.
     hash: OnceLock<Hash>,
     /// The children of this node: either a leaf, or a branch point.
     children: Children,
 }
 
-impl Clone for NodeInner {
-    fn clone(&self) -> Self {
-        Self {
-            prefix: self.prefix.clone(),
-            hash: self.hash.clone(),
-            children: self.children.clone(),
-        }
-    }
-}
-
+/// Display node content without evaluating its cached summaries.
 impl std::fmt::Debug for Node {
+    /// Format the stored prefix and leaf or branch content.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Node")
             .field("prefix", &hex::encode(&self.inner.prefix))
@@ -161,7 +149,9 @@ enum Children {
     },
 }
 
+/// Copy content and preserve cached summaries of the unchanged subtree.
 impl Clone for Children {
+    /// Clone leaf data or the branch fan and its computed summaries.
     fn clone(&self) -> Self {
         match self {
             Self::Leaf { version, message } => Self::Leaf {
@@ -186,6 +176,7 @@ impl Clone for Children {
     }
 }
 
+/// Construct, query, and reshape storage nodes.
 impl Node {
     /// Wrap built node state as a handle.
     ///
@@ -198,8 +189,11 @@ impl Node {
         Node { inner }
     }
 
-    /// Construct a new branch node from a list of children with distinct
-    /// indices (inverse to [`Node::into_children`]).
+    /// Assemble children at distinct radixes into a subtree.
+    ///
+    /// Empty input returns `None`. A single child absorbs its radix into its
+    /// prefix; only two or more children require a branch node. This reverses
+    /// [`into_children`](Self::into_children).
     pub fn branch(children: Fan) -> Option<Self> {
         match children.len() {
             0 => None,
@@ -210,7 +204,7 @@ impl Node {
                 Some(node.beneath(index))
             }
             _ => Some(Node::from_inner(Arc::new(NodeInner {
-                prefix: Vec::new(),
+                prefix: ArrayVec::new(),
                 hash: OnceLock::new(),
                 children: Children::Branch {
                     bounds: OnceLock::new(),
@@ -296,7 +290,7 @@ impl Node {
                 // would be stale; freshly-built leaves have none, but a
                 // reused bare handle may.
                 let inner = Arc::make_mut(&mut node.inner);
-                inner.prefix.extend(path[depth..].iter().rev());
+                inner.prefix.extend(path[depth..].iter().rev().copied());
                 inner.hash = OnceLock::new();
             }
             return node;
@@ -342,7 +336,7 @@ impl Node {
     /// Construct a new leaf node.
     pub fn leaf(version: Version, value: Message) -> Self {
         Node::from_inner(Arc::new(NodeInner {
-            prefix: Vec::new(),
+            prefix: ArrayVec::new(),
             hash: OnceLock::new(),
             children: Children::Leaf {
                 message: value,
@@ -661,9 +655,7 @@ impl Node {
         matches!(self.inner.children, Children::Leaf { .. })
     }
 
-    /// Number of path-compressed prefix bytes carried on this node — i.e.,
-    /// the count of virtual-branch levels collapsed above the node's actual
-    /// content. Zero for a leaf or a non-compressed branch.
+    /// Number of levels compressed above this leaf or branch.
     #[cfg(test)]
     pub fn compressed_prefix_len(&self) -> usize {
         self.inner.prefix.len()
@@ -698,9 +690,12 @@ impl Node {
     }
 }
 
+/// Node equality compares the replicated version set.
 impl Eq for Node {}
 
+/// Compare shared storage first, then subtree hashes.
 impl PartialEq for Node {
+    /// Test version-set equality without walking equal shared subtrees.
     fn eq(&self, other: &Self) -> bool {
         // Shared backing settles equality with no hashing (and even cold): the
         // common case for forked/cloned trees and the subtrees they share.

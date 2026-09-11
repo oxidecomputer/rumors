@@ -454,12 +454,8 @@ proptest! {
         prop_assert_eq!(popped_child.hash(), child_hash);
     }
 
-    /// Every generated tree's hash equals the independent literal-preimage
-    /// reference.
-    ///
-    /// One preimage per node — kind tag, length-tagged path-order prefix,
-    /// and, for a branch, a big-endian `u16` child count followed by
-    /// ascending 17-byte `radix ‖ hash` records.
+    /// Node hashes match the independent encoding of their kind, prefix,
+    /// and ordered child records.
     #[test]
     fn hash_matches_independent_reference(
         tree in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree(d, TREE_LEAF_BUDGET)),
@@ -482,6 +478,36 @@ proptest! {
         let paths: Vec<[u8; 32]> = paths.into_iter().collect();
         let tree = canonical_at(0, &paths);
         check_virtual_levels(tree, 0, &paths)?;
+    }
+
+    /// A full-length leaf prefix can grow and shrink through every length
+    /// without changing retained nodes or reusing a hash from another depth.
+    #[test]
+    fn full_leaf_prefix_preserves_shared_nodes(path in any::<[u8; 32]>()) {
+        let bare = Node::leaf(Version::new(), Message::new(()));
+        let mut node = bare.clone();
+        for &radix in path.iter().rev() {
+            // Cache before each change: adding a level must invalidate it.
+            node.hash();
+            node = node.beneath(radix);
+        }
+        prop_assert_eq!(node.hash(), super::Hash::leaf(&path));
+        prop_assert!(bare.get(&[]).is_some());
+
+        for depth in 0..path.len() {
+            // Keeping this handle forces prefix removal to copy node state.
+            let retained = node.clone();
+            let hash = retained.hash();
+            let children = node.into_children().expect("a prefix has a child");
+            prop_assert_eq!(children.len(), 1);
+            let (radix, child) = children.into_iter().next().expect("one child");
+            prop_assert_eq!(radix, path[depth]);
+            prop_assert_eq!(child.hash(), super::Hash::leaf(&path[depth + 1..]));
+            prop_assert_eq!(retained.hash(), hash);
+            prop_assert!(retained.get(&path[depth..]).is_some());
+            node = child;
+        }
+        prop_assert!(node.into_children().is_err());
     }
 }
 
@@ -873,21 +899,15 @@ mod memo_fold_cost {
     }
 }
 
-/// Growing the per-node allocation price must be a deliberate, reviewed
-/// decision, never a silent regression.
+/// Keep node layout growth explicit: every leaf pays for the largest
+/// `Children` variant as well as the inline prefix and cached hash.
 ///
-/// Every node allocation pays `NodeInner`'s full size: the `Children`
-/// enum takes its largest variant, so leaves (the most numerous nodes)
-/// carry the branch variant's width, fan included. The asserted ceilings
-/// are the record; the branch variant's bounds-span memo dominates them.
-// A stored `Version` handle is 40 bytes under the Bytes-backed at-rest
-// form, so the branch variant's bounds-span memo — two `Cow<Version>`
-// endpoints — dominates the budget: the handle cost that buys the O(1)
-// clone every memo fold and hand-back rides on.
+/// The inline prefix enlarges the node body but avoids a separate allocation
+/// for compressed paths.
 #[test]
 #[cfg(target_pointer_width = "64")]
 fn node_inner_stays_within_budget() {
     assert!(std::mem::size_of::<Fan>() <= 40);
     assert!(std::mem::size_of::<super::Children>() <= 160);
-    assert!(std::mem::size_of::<super::NodeInner>() <= 208);
+    assert!(std::mem::size_of::<super::NodeInner>() <= 224);
 }
