@@ -102,11 +102,8 @@ fn hops(pair: (Rumors<u64>, Rumors<u64>)) -> u32 {
 fn asymmetric_catch_up_is_ladder_bound_at_the_floor() {
     let measured = hops(pair(0, 1, 20_000, 0));
     eprintln!("asymmetric catch-up at budget 0: {measured} hops");
-    // Ladder hops: the dispute chain prunes within a few levels (the one
-    // shared message's subtree thins to exactly that leaf and matches), and
-    // the supply is one unidirectional stream. The shape measures 8
-    // exact hops; a size-priced session would cost ~2 hops per message —
-    // three orders of magnitude past this bound.
+    // Only the branch containing the shared message needs descent; the rest
+    // streams as supplies. Allow several exchanges, but not one per message.
     assert!(
         measured <= 12,
         "a one-common-message catch-up must cost ladder hops, not waves: \
@@ -265,7 +262,7 @@ fn real_clock_corners_match_the_virtual_model() {
     // exchange on genuinely elapsing timers — completion depends on a
     // reply to a delivered message, so at least two causally-chained
     // one-way hops of real delay elapse. (Its promptness bound is the
-    // virtual-hops pin in `asymmetric_catch_up_is_ladder_bound_at_the_floor`.)
+    // virtual-time check in `asymmetric_catch_up_is_ladder_bound_at_the_floor`.)
     let (left, right) = pair(0, 1, 10_000, 0);
     let mut wire = latency::DelayedWire::new_wall_clock(LINK_CAPACITY, delay);
     let start = std::time::Instant::now();

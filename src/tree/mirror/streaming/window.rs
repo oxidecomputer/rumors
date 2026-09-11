@@ -315,10 +315,10 @@ impl Window {
     /// node pricing function.
     ///
     /// Each height's capacity is `min(K, S(depth))`, floored at one slot:
-    /// `S(d)` is the depth's integer population envelope ([module
-    /// docs](self)) — deep, sparse stages get small static bounds no
-    /// budget can widen, because their populations cannot exist — and `K`
-    /// is the widest global width whose worst case fits the budget,
+    /// `S(d)` is the depth's statistical population envelope ([module
+    /// docs](self)). Once it limits a queue, a larger byte budget cannot widen
+    /// that queue. Artificially clustered deep trees can therefore serialize.
+    /// `K` is the widest global width whose worst case fits the budget,
     /// charging each level's population once at its own occupancy-thinned
     /// fan, after the decode fans' flat residency
     /// ([`SUPPLY_DECODE_ENVELOPE_BYTES`]'s shape, priced through this

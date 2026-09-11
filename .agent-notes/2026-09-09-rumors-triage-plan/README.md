@@ -42,6 +42,12 @@ that show a conformance probe detects a broken implementation. Such tests do
 not imply that every malformed exchange must terminate. Split mixed findings
 so useful validation remains without inheriting that stronger requirement.
 
+Apply the uniform-hash premise to performance claims too. Clustered deep
+fixtures must converge, but need not satisfy latency bounds derived from
+statistically sized queues. A wider queue permits more occupancy; it does not
+require a higher measured memory peak. Check these premises before treating a
+measurement failure as a production defect.
+
 ## 2. How each change proceeds
 
 Read the affected implementation, its callers, and relevant tests. State

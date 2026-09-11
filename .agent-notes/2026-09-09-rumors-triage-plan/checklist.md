@@ -1,10 +1,10 @@
 # Rumors review checklist
 
-**Active:** 05, depth-dependent pipelining — `codex/deep-pipelining`, base `main`.
-**Next:** 05, conformance memory accounting and convergence checks; then 03's broader deep-session validation.
+**Ready for review:** 05, scope pipelining tests to their queue-sizing premise — `codex/deep-pipelining`, base `main`.
+**Next:** 06, independent envelope calculation; then 05, audit remaining conformance claims.
 
-These concern conforming sessions and unblock broader deep-session validation;
-remaining typed-tree cleanup can wait.
+The envelope calculation is independent of deep-session coverage. Validate the
+sizing arithmetic before extending measurements that rely on it.
 
 Check code outcomes only after verification and merge; retain the landing
 commit. Checked dispositions are labelled explicitly.
@@ -44,7 +44,7 @@ and recheck retained-root accounting.
 ## 02. Routed connection pooling
 
 - [x] Keep idle connections with their owning link; preserve fairness and progress across routing and reuse — `45aaec54`.
-  Sources: `link-14`, `link-28`, T31, T152, T153, T156, T160, T164, T167, N06, N07, N24, N25, N48, N49; [Sush compatibility](sush-pooling.md).
+  Sources: `link-14`, `link-28`, T31, T152, T153, T156, T160, T164, T167, N06, N07, N24, N25, N48; [Sush compatibility](sush-pooling.md).
 
 - [x] Identify and fix Sush's concurrent-connect conformance timeout — Sush `b70f107`.
   Source: Owner follow-up; [reproduction context](sush-pooling.md).
@@ -82,23 +82,32 @@ Dependencies: 03’s completed deep fixtures; coordinate all edits to the shared
 
 Dependencies: 03's deep fixtures; reported-error repairs in 04 are complete. Conforming pooled transports use 02.
 
-- [ ] Determine and repair the depth-dependent pipelining behavior.
-  Sources: `tests-disruption-handshake-10`, `tests-resource-link-window-25`, `verification-infra-16`, T28, T98, T132, T159, T162, N41.
+- [x] Disposition: deep clustered fixtures can serialize at production queue widths; no production fix is needed. Owner ruling, 2026-09-11.
+  Sources: T132, T162, N41.
 
-- [ ] Make conformance memory accounting and convergence checks test their stated premises.
-  Sources: `conformance-24`, `conformance-25`, `conformance-28–31`, `conformance-35`, `conformance-40–42`, `tests-resource-link-window-19`, `tests-resource-link-window-20`, T6, T18, T132, T139, T142, N34.
+- [ ] Scope the pipelining latency ceiling to hash-distributed fixtures and add a minimum-window comparison.
+  Sources: `tests-disruption-handshake-10`, `verification-infra-16`, T28, T98, T159.
+
+- [x] Give census tests a shared lock, verify budget-induced widening, and require positive catch-up hop counts — `3a014c3c`, `709eea83`, `7c08a81b`; retained-root accounting corrected in `e238db87`.
+  Sources: `tests-resource-link-window-19`, `tests-resource-link-window-20`, `tests-resource-link-window-25`, T18, T139.
+
+- [x] Disposition: wider queues need not produce a higher peak residency; N34 does not establish a production defect. The conformance test must state its fixture premise.
+  Source: N34; premise review, 2026-09-11.
+
+- [ ] Audit the remaining conformance memory and convergence claims, crediting existing repairs and correcting fixture-specific peak assumptions.
+  Sources: `conformance-24`, `conformance-25`, `conformance-28–31`, `conformance-35`, `conformance-40–42`, T6, T132, T142, N34 (test premise).
 
 - [x] Declined: liveness with a pool that violates stream independence. Owner ruling, 2026-09-11.
   Sources: N22, N27's pooled-liveness question. Removed the stronger test and claim in `782274c7`; retained the independence probe.
 
 - [x] Extend link conformance coverage for combined contention, overlapping opens, completion, and cancellation; state the remaining test limits — `45aaec54`.
-  Source: [Link contract](../../src/link.rs) and [public suite](../../src/conformance/link.rs).
+  Sources: `conformance-6`; [Link contract](../../src/link.rs) and [public suite](../../src/conformance/link.rs).
 
 ## 06. Window arithmetic and operating costs
 
 Dependencies: 01 for retained-root measurements; 03–05 when claims cover deep paths.
 
-- [ ] Check the shipped window formulas against an independent numerical calculation; remove the simulator.
+- [ ] Compare the shipped window formulas against an independent numerical calculation, including asymmetric corpora and a lowered-bound control; delete the simulator.
   Sources: `benches-envelope-28`, `benches-envelope-29`, `benches-envelope-31–34`, `streaming-backend-window-32`, T10, T43.
 
 - [ ] Derive window charges and structural limits from the types or constants that own them.
@@ -127,7 +136,7 @@ Coupled work: party ownership with 01; other API pieces can be separate.
   Sources: `async-hazards-2`, T128.
 
 - [x] Configure per-peer gossip initiation and session deadlines with continuous gossip and explicit gossip_once — `1617433c`; Sush `a466472` adds one-second deadlines and ten-second heartbeats.
-  Source: Owner follow-up, 2026-09-11.
+  Sources: N49; owner follow-up, 2026-09-11.
 
 - [x] Wait for Sush's old gossip drivers to stop before starting a migration's bookmark use — Sush `a466472`.
   Source: Compatibility review, 2026-09-11.
@@ -289,7 +298,7 @@ Dependencies: 02, then relevant API/error changes in 09.
   Sources: `inventory-18`, `link-5`, `link-6`, `link-20`, `link-25`, `link-29`, T44, T45, T47, T80, T81, T84, T156.
 
 - [ ] Make focused conformance probes exercise independent streams and cancellation without a backlog assumption.
-  Sources: `conformance-6–9`, `conformance-11`, `conformance-13`, `conformance-16`, `conformance-18`, `conformance-20`, `conformance-27`, `conformance-37–39`, `link-11`, `link-12`, `link-31`, `testing-infra-12`, T21, T69, T71, T101, T122, T128, T132.
+  Sources: `conformance-7–9`, `conformance-11`, `conformance-13`, `conformance-16`, `conformance-18`, `conformance-20`, `conformance-27`, `conformance-37–39`, `link-11`, `link-12`, `link-31`, `testing-infra-12`, T21, T69, T71, T101, T122, T128, T132.
 
 - [ ] Remove measured or obvious per-connection overhead without changing the transport contract (table lifetime: 02).
   Sources: `link-1`, `link-27`, T132.
