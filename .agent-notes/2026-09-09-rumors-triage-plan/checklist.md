@@ -1,9 +1,10 @@
 # Rumors review checklist
 
-**Active:** 04, reproduce the deep duplicated-reply stall — `codex/deep-duplicate-replies`, base `main`.
-**Next:** 05, investigate depth-dependent pipelining; then repair conformance memory and liveness checks.
+**Active:** Close non-conforming-peer liveness work and audit its scope — `codex/deep-duplicate-replies`, base `main`.
+**Next:** 05, investigate depth-dependent pipelining; then repair conformance memory accounting and convergence checks.
 
-These unblock broader deep-session validation; remaining typed-tree cleanup can wait.
+These concern conforming sessions and unblock broader deep-session validation;
+remaining typed-tree cleanup can wait.
 
 Check code outcomes only after verification and merge; retain the landing
 commit. Checked dispositions are labelled explicitly.
@@ -50,7 +51,7 @@ and recheck retained-root accounting.
 
 ## 03. Deep-tree fixtures and reproducible schedules
 
-Dependencies: None to construct fixtures; 04 and 05 before enabling the complete CI run.
+Dependencies: None to construct fixtures; 05's valid-session and measurement repairs before enabling the complete CI run.
 
 - [x] Exercise deep wire reconciliation across branching depths, nested and asymmetric trees, and transport and window variations — `a16bcfb8`.
   Sources: `remote-proxy-tests-6`, T23, T132, T162–164, N27–29.
@@ -74,18 +75,21 @@ Dependencies: 03’s completed deep fixtures; coordinate all edits to the shared
 - [x] Surface violations stranded in proxy and materialized response relays — `7f6785e8`.
   Sources: T132, T165, N18, N33.
 
-- [ ] Reproduce and fix the duplicated-reply stall at deep disputes.
-  Sources: T162, N26, N31.
+- [x] Declined: guaranteeing termination after duplicated replies; prototype discarded. Owner ruling, 2026-09-11.
+  Sources: T162, N26, N31. A malformed exchange can block before detection; this does not block deep-session validation.
 
 ## 05. Pipelining and conformance claims under deep geometry
 
-Dependencies: 03’s deep fixtures and 04’s failure repairs; 02 for the pooled transport case.
+Dependencies: 03's deep fixtures; reported-error repairs in 04 are complete. Conforming pooled transports use 02.
 
 - [ ] Determine and repair the depth-dependent pipelining behavior.
   Sources: `tests-disruption-handshake-10`, `tests-resource-link-window-25`, `verification-infra-16`, T28, T98, T132, T159, T162, N41.
 
-- [ ] Make conformance memory and liveness checks test their stated premises.
-  Sources: `conformance-24`, `conformance-25`, `conformance-28–31`, `conformance-35`, `conformance-40–42`, `tests-resource-link-window-19`, `tests-resource-link-window-20`, T6, T18, T132, T139, T142, N22, N34.
+- [ ] Make conformance memory accounting and convergence checks test their stated premises.
+  Sources: `conformance-24`, `conformance-25`, `conformance-28–31`, `conformance-35`, `conformance-40–42`, `tests-resource-link-window-19`, `tests-resource-link-window-20`, T6, T18, T132, T139, T142, N34.
+
+- [x] Declined: liveness with a pool that violates stream independence. Owner ruling, 2026-09-11.
+  Sources: N22, N27's pooled-liveness question. Keep the conformance probe that rejects an undersized pool.
 
 - [x] Extend link conformance coverage for combined contention, overlapping opens, completion, and cancellation; state the remaining test limits — `45aaec54`.
   Source: [Link contract](../../src/link.rs) and [public suite](../../src/conformance/link.rs).
@@ -293,6 +297,10 @@ Dependencies: 02, then relevant API/error changes in 09.
 ## 14. Walk, materialized backend, and proxy simplification
 
 Dependencies: 04, 06, 09 and the relevant codec edits in 12.
+
+Scope: `materialized-14`, `remote-proxy-31` and the fault suites retain finite
+input checks and reported-error coverage, without requiring arbitrary malformed
+exchanges to terminate. See the [peer-model ruling](README.md#1-choosing-a-batch).
 
 - [ ] Share classification and completion paths without hiding backend failures.
   Sources: `materialized-13`, `materialized-14`, `materialized-26`, `materialized-27`, `materialized-31`, `materialized-35`, `materialized-36`, `materialized-40`, `remote-proxy-23`, `remote-proxy-25`, `remote-proxy-28–30`, `streaming-backend-window-20`, `streaming-backend-window-23`, `streaming-backend-window-29`, T26, T40, T118, T128, T132, N04, N05.

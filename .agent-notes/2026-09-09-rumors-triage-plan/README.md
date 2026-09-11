@@ -26,6 +26,22 @@ Salvage useful code, counterexamples, and experiments from the prepared
 branches; do not merge them wholesale. Current user instructions take
 precedence over their implementation patterns and older workflow rules.
 
+Apply the authenticated-honest-peer model before accepting a finding.
+Require progress for conforming peers over conforming links, and prompt
+propagation of detected errors and observable departure. A non-conforming
+peer can leave synchronization waiting indefinitely; applications own
+deadlines for those waits. Do not investigate or add protocol machinery to
+guarantee termination under arbitrary malformed traffic or a link that breaks
+the transport contract. Close that demand with an explicit disposition.
+Completion requires finishing the expected exchange, but does not establish
+trust: an authorized peer can follow the protocol while changing or redacting
+any message. This owner ruling (2026-09-11) overrides older acceptance criteria.
+
+Keep finite decoder checks, tests of reported errors, and negative controls
+that show a conformance probe detects a broken implementation. Such tests do
+not imply that every malformed exchange must terminate. Split mixed findings
+so useful validation remains without inheriting that stronger requirement.
+
 ## 2. How each change proceeds
 
 Read the affected implementation, its callers, and relevant tests. State

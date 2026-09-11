@@ -60,10 +60,12 @@
 //! - **If you need a consistently ordered, durable history.** A replicated log
 //!   gives you sequencing; `rumors` only gives you causal ordering, which may
 //!   be linearized differently between peers.
-//! - **If you don't control the peers.** Peers trust one another: the protocol
-//!   rejects malformed and mismatched sessions, but it is not Byzantine-tolerant.
-//!   An authorized member already has permission to write and redact any
-//!   message. Rumors relies on those members following the protocol.
+//! - **If you don't control the peers.** An authorized member can follow the
+//!   protocol while arbitrarily changing the gossip set: every member can
+//!   write and redact messages. Completing synchronization requires finishing
+//!   the expected protocol exchange; it does not make those updates trustworthy.
+//!   A non-conforming peer can leave synchronization waiting indefinitely.
+//!   Applications choose deadlines when they need to bound those waits.
 //!   Authenticating peers and securing the transport are the application's job;
 //!   the [`link`] module lists exactly what the protocol asks of the transport.
 //! - **If bandwidth is your scarce resource.** `rumors` buys low latency with

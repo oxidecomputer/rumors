@@ -114,26 +114,19 @@
 //! the whole suite) and one far below the buffering it must cover (fails
 //! the independence check).
 //!
-//! Sessions at the serialization floor (a one-subtree-in-flight window)
-//! have been *observed* live over far smaller pools, down to tens of
-//! bytes, with latency degradation. That is observed behavior of the
-//! current protocol at that window shape, not a promise: a window wide
-//! enough to fill several streams at once can leave a sub-bound pool in
-//! a cycle of waits, each stream waiting on pool credit the others hold.
-//! Size pools to the bound.
+//! An undersized pool can couple streams and deadlock synchronization.
+//! Size pools to the bound, even when smaller pools pass some sessions.
 //!
 //! # What securing the transport means
 //!
-//! The trust model (see the [crate docs](crate)) leaves authenticating
-//! peers and securing the transport to the application. It is worth
-//! being concrete about that division, because the protocol's own
-//! validation can look like security and is not. The protocol does
-//! reject malformed and mismatched sessions with an error, trusts
-//! nothing peer-declared before the fixed preamble validates, and leaves
-//! the caller's timeout as the sole liveness backstop against a silent
-//! peer; all of that machinery exists to catch nonconforming peers, and
-//! none of it is a security boundary. What the protocol actually leans
-//! on, stated as requirements on the transport:
+//! The application authenticates peers and secures the transport. Protocol
+//! checks help diagnose incompatible or buggy peers; they do not make a
+//! completed session's updates trustworthy. An authorized peer can follow
+//! the protocol while arbitrarily changing the gossip set. A non-conforming
+//! peer can leave synchronization waiting indefinitely, so applications
+//! choose deadlines when they need to bound those waits.
+//!
+//! The transport has these responsibilities:
 //!
 //! - **Authentication is authorization.** Any counterparty that can
 //!   complete a session holds full write authority over the set; the

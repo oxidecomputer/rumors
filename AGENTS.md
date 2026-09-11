@@ -151,6 +151,9 @@ compatibility branch current with every external Rumors API change.
   are off-model — no design or pricing argument may rest on adversary
   economics. Violation/fail-fast machinery is a conformance bug
   detector, not a security boundary.
+  Do not add machinery to guarantee termination against non-conforming
+  peers or links; applications own deadlines for those waits. Preserve
+  progress under conforming traffic and propagate detected failures promptly.
 - Never let two independently-`seed`ed universes interact; within a universe,
   linearity of parties is the invariant everything rests on (see `before`
   and its `Party` documentation).

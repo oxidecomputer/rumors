@@ -946,60 +946,6 @@ fn never_binding_pooled_budget_conforms() {
     .expect("the suite stays live at the never-binding pooled budget");
 }
 
-/// Real sessions stay live over a pooled budget starved far below the
-/// contract's bound: degradation is latency, never deadlock.
-///
-/// This pins observed protocol behavior, deliberately stronger than the
-/// contract (the link docs promise only the never-binding bound): a deep
-/// reconciliation — thousands of payloads, a multi-level trie, frames in
-/// flight on several streams at once — converges over a 64-byte pool per
-/// direction shared by the control stream and every data stream.
-///
-/// The sessions run at the serialization floor, the shape the link docs'
-/// measured-tolerance sentence is denominated in: a sub-bound pool couples
-/// streams, so a window wide enough to fill several streams at once can
-/// genuinely wait-cycle through it — exactly the coupling the contract's
-/// independence clause exists to exclude. If a protocol change trips
-/// this, floor sessions have begun *depending* on pooled headroom, and
-/// that sentence must be re-derived before this pin is loosened.
-#[test]
-fn starved_pool_degrades_latency_not_liveness() {
-    let (mut a, mut b) = windowed_pair(64, POOLED_STREAM_CAPACITY);
-    run_to_quiescence(async {
-        let seed: crate::Rumors<u64> = crate::Peer::seed().sync_window_floor().into_rumors();
-        let (served, joined) = futures::future::join(
-            seed.gossip(&mut a),
-            crate::Peer::<u64>::bootstrap().join(&mut b),
-        )
-        .await;
-        served.expect("the bootstrap-serving session completes");
-        let newcomer = (match joined {
-            crate::Joined::Joined { peer } => peer,
-            _ => panic!("the seed serves the bootstrap"),
-        })
-        .sync_window_floor()
-        .into_rumors();
-        {
-            seed.send_all(0..2048u64)
-                .expect("flat test payloads are within any depth limit");
-        }
-        {
-            newcomer
-                .send_all(2048..4096u64)
-                .expect("flat test payloads are within any depth limit");
-        }
-        let (near, far) = futures::future::join(seed.gossip(&mut a), newcomer.gossip(&mut b)).await;
-        near.expect("gossip completes over the starved pool");
-        far.expect("gossip completes over the starved pool");
-        assert_eq!(
-            seed.snapshot(),
-            newcomer.snapshot(),
-            "reconciliation over the starved pool converged on the same set",
-        );
-    })
-    .expect("deep sessions stay live over a 64-byte pooled budget");
-}
-
 /// A stream limit below the contract's requirement must fail the probe.
 /// The fifth open stalls because earlier streams still hold every permit.
 #[test]
