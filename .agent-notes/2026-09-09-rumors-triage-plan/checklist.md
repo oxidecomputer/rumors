@@ -1,7 +1,7 @@
 # Rumors review checklist
 
-**Active:** None.
-**Next:** 04, surface stranded response errors; then reproduce the deep duplicated-reply stall.
+**Active:** 04, reproduce the deep duplicated-reply stall — `codex/deep-duplicate-replies`, base `main`.
+**Next:** 05, investigate depth-dependent pipelining; then repair conformance memory and liveness checks.
 
 These unblock broader deep-session validation; remaining typed-tree cleanup can wait.
 
@@ -71,7 +71,7 @@ Dependencies: 03’s completed deep fixtures; coordinate all edits to the shared
 - [x] Preserve reported violations when a concurrent stream-supply failure also arrives — `f92fcbc3`.
   Sources: `remote-proxy-12`, `remote-proxy-tests-26`, T126, T132, T165, N32.
 
-- [ ] Surface violations stranded in proxy and materialized response relays.
+- [x] Surface violations stranded in proxy and materialized response relays — `7f6785e8`.
   Sources: T132, T165, N18, N33.
 
 - [ ] Reproduce and fix the duplicated-reply stall at deep disputes.
