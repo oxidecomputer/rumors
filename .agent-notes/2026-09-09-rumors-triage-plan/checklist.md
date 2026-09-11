@@ -1,7 +1,7 @@
 # Rumors review checklist
 
-**Active:** none.
-**Next:** 11, measure branch-hash buffers.
+**Active:** None.
+**Next:** 11, measure inline prefixes, then leaf reconstruction.
 
 Check code outcomes only after verification and merge; retain the landing
 commit. Checked dispositions are labelled explicitly.
@@ -208,8 +208,14 @@ Dependencies: 10 when a change affects the same traversal or baseline.
 - [x] Remove the root-to-node conversion and unused interfaces it exposes — `8fc212e3`.
   Source: follow-up from `tree-core-7`.
 
-- [ ] Measure branch buffers, inline prefixes, and leaf reconstruction.
-  Sources: `tree-typed-6` (branch), `tree-typed-23`, T111.
+- [x] Disposition: keep the branch-hash `Vec`; inline buffers showed no repeatable workload improvement.
+  Sources: `tree-typed-6` (branch), T111.
+
+- [ ] Measure inline prefixes.
+  Sources: `tree-typed-23`, T111.
+
+- [ ] Measure leaf reconstruction.
+  Source: T111.
 
 - [ ] Derive height/radix structure and simplify owned traversal states.
   Sources: `tree-typed-11`, `tree-typed-12`, `tree-typed-16`, `tree-typed-17`, `tree-typed-20`, `tree-typed-21`, `tree-typed-24`, `tree-typed-31`, `tree-typed-34`, `tree-typed-35`, T36, T125, T132.
