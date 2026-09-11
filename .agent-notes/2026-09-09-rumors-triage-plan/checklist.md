@@ -1,7 +1,7 @@
 # Rumors review checklist
 
 **Active:** None.
-**Next:** 11, simplify radix fan iteration and derived traits.
+**Next:** 11, derive path width and simplify path/prefix operations.
 
 Check code outcomes only after verification and merge; retain the landing
 commit. Checked dispositions are labelled explicitly.
@@ -223,8 +223,11 @@ Dependencies: 10 when a change affects the same traversal or baseline.
 - [x] Define supported heights once and remove unused marker requirements — `70a8bf45`.
   Sources: `tree-typed-10`, `tree-typed-11`, `tree-typed-12` (height definitions), T132.
 
+- [x] Use iterator adapters and derive field-wise cloning/defaults — `f0ad7538`.
+  Sources: `tree-typed-24`, `tree-typed-31`, T132.
+
 - [ ] Derive path width and simplify remaining traversal states.
-  Sources: `tree-typed-12` (path width), `tree-typed-16`, `tree-typed-17`, `tree-typed-20`, `tree-typed-21`, `tree-typed-24`, `tree-typed-31`, T36, T125, T132.
+  Sources: `tree-typed-12` (path width), `tree-typed-16`, `tree-typed-17`, `tree-typed-20`, `tree-typed-21`, T36, T125, T132.
 
 - [ ] Check typed-tree preconditions where a real failure construction is possible.
   Sources: `tree-typed-7`, `tree-typed-9`, T132.
