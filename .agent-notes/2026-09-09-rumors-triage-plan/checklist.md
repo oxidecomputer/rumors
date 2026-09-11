@@ -1,7 +1,7 @@
 # Rumors review checklist
 
 **Active:** None.
-**Next:** 11, measure inline prefixes, then leaf reconstruction.
+**Next:** 11, measure leaf reconstruction.
 
 Check code outcomes only after verification and merge; retain the landing
 commit. Checked dispositions are labelled explicitly.
@@ -211,7 +211,7 @@ Dependencies: 10 when a change affects the same traversal or baseline.
 - [x] Disposition: keep the branch-hash `Vec`; inline buffers showed no repeatable workload improvement.
   Sources: `tree-typed-6` (branch), T111.
 
-- [ ] Measure inline prefixes.
+- [x] Store compressed prefixes inline — `3f28b3b2`.
   Sources: `tree-typed-23`, T111.
 
 - [ ] Measure leaf reconstruction.
