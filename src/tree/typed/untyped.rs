@@ -5,6 +5,7 @@ use tinyvec::ArrayVec;
 
 use before::{Dominance, Span};
 
+use super::hash::PATH_LEN;
 use crate::{Version, message::Message, tree::typed::Hash};
 
 pub mod fan;
@@ -87,7 +88,7 @@ struct NodeInner {
     ///
     /// The path is at most 32 bytes, so storing it inline avoids a separate
     /// allocation for compressed nodes, at the cost of a larger node body.
-    prefix: ArrayVec<[u8; 32]>,
+    prefix: ArrayVec<[u8; PATH_LEN]>,
     /// Subtree hash as seen from the top of `prefix`, computed on first use.
     /// Both leaves and branches cache it. Cloning preserves the cached value;
     /// changing either `prefix` or `children` must clear it.
@@ -98,10 +99,11 @@ struct NodeInner {
 
 /// Display node content without evaluating its cached summaries.
 impl std::fmt::Debug for Node {
-    /// Format the stored prefix and leaf or branch content.
+    /// Format the prefix in path order, followed by leaf or branch content.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let prefix: ArrayVec<[u8; PATH_LEN]> = self.inner.prefix.iter().rev().copied().collect();
         f.debug_struct("Node")
-            .field("prefix", &hex::encode(&self.inner.prefix))
+            .field("prefix", &hex::encode(prefix))
             .field("children", &self.inner.children)
             .finish()
     }
@@ -231,7 +233,7 @@ impl Node {
     /// per real branch point plus one per leaf spine.
     pub(crate) fn from_sorted_leaves(
         depth: usize,
-        leaves: &mut [([u8; 32], Option<Self>)],
+        leaves: &mut [([u8; PATH_LEN], Option<Self>)],
     ) -> Self {
         debug_assert!(
             leaves.windows(2).all(|pair| pair[0].0 < pair[1].0),
@@ -263,7 +265,7 @@ impl Node {
         // byte is common to the whole run and compresses into the prefix.
         let first = leaves.first().expect("a leaf run is non-empty").0;
         let last = leaves.last().expect("a leaf run is non-empty").0;
-        let branch_at = (depth..32)
+        let branch_at = (depth..PATH_LEN)
             .find(|&at| first[at] != last[at])
             .expect("distinct 32-byte paths diverge before the bottom");
 
@@ -331,8 +333,7 @@ impl Node {
                 }
             }
             match &node.inner.children {
-                // A full 32-byte path lands exactly at a leaf; a leftover
-                // tail means the path was deeper than the tree.
+                // The supplied suffix must end exactly at the leaf.
                 Children::Leaf { version, message } => {
                     return path.is_empty().then_some((version, message));
                 }
@@ -423,7 +424,8 @@ impl Node {
             // first — while storage is shallowest-last, so reverse into a
             // stack buffer (a compressed span never exceeds the 32-byte
             // path).
-            let prefix: ArrayVec<[u8; 32]> = self.inner.prefix.iter().rev().copied().collect();
+            let prefix: ArrayVec<[u8; PATH_LEN]> =
+                self.inner.prefix.iter().rev().copied().collect();
             match &self.inner.children {
                 Children::Leaf { .. } => Hash::leaf(&prefix),
                 Children::Branch { children, .. } => Hash::branch(

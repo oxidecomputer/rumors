@@ -7,6 +7,9 @@ use sha3::{Digest, Sha3_256};
 /// and returned by [`Snapshot::hash`](crate::Snapshot::hash).
 pub const MERKLE_HASH_LEN: usize = 24;
 
+/// Bytes in a leaf address: the full SHA3-256 output, one byte per tree level.
+pub const PATH_LEN: usize = 32;
+
 /// A subtree comparison digest: the leading 24 bytes of SHA3-256.
 ///
 /// Peers compare these digests at the same trie position. Leaf hashes depend
@@ -180,7 +183,7 @@ impl From<Hash> for [u8; MERKLE_HASH_LEN] {
 /// encoding at this width. Any two versions sharing an address would compete
 /// for one leaf, so paths retain all 256 bits. The shorter [`struct@Hash`]
 /// compares corresponding subtrees rather than assigning storage addresses.
-pub struct PathHash([u8; 32]);
+pub struct PathHash([u8; PATH_LEN]);
 
 /// Compute full-width digests and truncate them for subtree comparisons.
 impl PathHash {
@@ -201,13 +204,13 @@ impl PathHash {
     }
 
     /// Reference to the raw 32 bytes.
-    pub fn as_bytes(&self) -> &[u8; 32] {
+    pub fn as_bytes(&self) -> &[u8; PATH_LEN] {
         &self.0
     }
 }
 
 /// Recover the full-width digest bytes.
-impl From<PathHash> for [u8; 32] {
+impl From<PathHash> for [u8; PATH_LEN] {
     /// Unwrap the digest.
     fn from(hash: PathHash) -> Self {
         hash.0

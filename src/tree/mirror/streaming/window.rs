@@ -134,7 +134,7 @@ pub(crate) const FAN: usize = 256;
 /// Radix levels in the trie: one byte of a 32-byte leaf path per
 /// level. Typed heights run from `Z = 0` (leaves) to `Root = KEY_DEPTH`;
 /// the *depth* of the children discussed at height `h` is `KEY_DEPTH − h`.
-const KEY_DEPTH: usize = 32;
+const KEY_DEPTH: usize = typed::hash::PATH_LEN;
 
 /// In-memory bytes of one child's slots in a level's in-flight
 /// containers: a query slot, a resolution slot, and a listing entry.

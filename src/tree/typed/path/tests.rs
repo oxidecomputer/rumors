@@ -2,6 +2,7 @@ use proptest::prelude::*;
 
 use crate::tree::arb::arb_version;
 
+use super::super::{Prefix, height};
 use super::*;
 use sha3::Digest;
 
@@ -36,57 +37,44 @@ proptest! {
         prop_assert_eq!(Path::for_leaf(&version), hashed);
     }
 
-    /// The first byte popped from a root-height path equals byte 0 of
-    /// the underlying hash.
+    /// At every height, comparisons and debug output use only the active
+    /// suffix or prefix; typed and erased descent move the same bytes.
     #[test]
-    fn path_pop_yields_first_byte(raw in any::<[u8; 32]>()) {
-        let path = Path::<Root>::from(raw);
-        let (byte, _) = path.pop();
-        prop_assert_eq!(byte, raw[0]);
+    fn path_and_prefix_geometry_agree_at_every_height(
+        a in any::<[u8; PATH_LEN]>(),
+        b in any::<[u8; PATH_LEN]>(),
+    ) {
+        seq_macro::seq!(N in 0..=32 {
+            #(check_geometry::<height::H~N>(a, b)?;)*
+        });
+        seq_macro::seq!(N in 0..32 {
+            #(check_step::<height::H~N>(a, b)?;)*
+        });
+        let prefix = Prefix::from(a);
+        prop_assert_eq!(<[u8; PATH_LEN]>::from(prefix), a);
+        prop_assert_eq!(<[u8; PATH_LEN]>::from(Path::from(prefix)), a);
+        prop_assert_eq!(Prefix::from(Path::from(a)), prefix);
     }
 
-    /// At root height, path equality is equivalent to full byte equality.
+    /// Restoring an erased prefix at a different height panics in every build profile.
     #[test]
-    fn path_eq_at_root_compares_all_bytes(
-        a in any::<[u8; 32]>(),
-        b in any::<[u8; 32]>(),
+    fn erased_prefix_rejects_a_different_height(
+        actual in 0usize..=PATH_LEN,
+        offset in 1usize..=PATH_LEN,
     ) {
-        let pa = Path::<Root>::from(a);
-        let pb = Path::<Root>::from(b);
-        prop_assert_eq!(pa == pb, a == b);
-    }
-
-    /// After one pop, path equality ignores the consumed first byte.
-    #[test]
-    fn path_eq_after_pop_ignores_consumed_byte(
-        a in any::<[u8; 32]>(),
-        b in any::<[u8; 32]>(),
-    ) {
-        let (_, ra) = Path::<Root>::from(a).pop();
-        let (_, rb) = Path::<Root>::from(b).pop();
-        prop_assert_eq!(ra == rb, a[1..] == b[1..]);
-    }
-
-    /// Path ordering at root height matches byte-slice lexicographic ordering.
-    #[test]
-    fn path_ord_matches_byte_ordering(
-        a in any::<[u8; 32]>(),
-        b in any::<[u8; 32]>(),
-    ) {
-        let pa = Path::<Root>::from(a);
-        let pb = Path::<Root>::from(b);
-        prop_assert_eq!(pa.cmp(&pb), a.cmp(&b));
-    }
-
-    /// After one pop, path ordering ignores the consumed first byte.
-    #[test]
-    fn path_ord_after_pop_ignores_consumed_byte(
-        a in any::<[u8; 32]>(),
-        b in any::<[u8; 32]>(),
-    ) {
-        let (_, ra) = Path::<Root>::from(a).pop();
-        let (_, rb) = Path::<Root>::from(b).pop();
-        prop_assert_eq!(ra.cmp(&rb), a[1..].cmp(&b[1..]));
+        let mut prefix = Prefix::from([0; PATH_LEN]).erase();
+        for _ in 0..actual {
+            prefix = prefix.pop().0;
+        }
+        let claimed = (actual + offset) % (PATH_LEN + 1);
+        seq_macro::seq!(N in 0..=32 {
+            match claimed {
+                #(N => prop_assert!(std::panic::catch_unwind(
+                    || prefix.assume::<height::H~N>()
+                ).is_err()),)*
+                _ => unreachable!("the claimed height is within the path length"),
+            }
+        });
     }
 }
 
@@ -115,4 +103,90 @@ fn fixture_paths_and_versions_must_be_distinct() {
     ] {
         assert!(std::panic::catch_unwind(|| Path::with_leaf_paths(mapping, || ())).is_err());
     }
+}
+
+/// Compare typed views against slices, including differences outside each view.
+fn check_geometry<H: Height>(
+    a: [u8; PATH_LEN],
+    b: [u8; PATH_LEN],
+) -> proptest::test_runner::TestCaseResult {
+    let depth = PATH_LEN - H::HEIGHT;
+    let path_a = Path::<H> {
+        height: PhantomData,
+        hash: a,
+    };
+    let path_b = Path::<H> {
+        height: PhantomData,
+        hash: b,
+    };
+    prop_assert_eq!(path_a == path_b, a[depth..] == b[depth..]);
+    prop_assert_eq!(path_a.cmp(&path_b), a[depth..].cmp(&b[depth..]));
+    prop_assert_eq!(format!("{path_a:?}"), format!("{:?}", &a[depth..]));
+
+    // Random full addresses seldom have equal suffixes. Force equality
+    // after the consumed prefix to exercise that side of the contract.
+    let mut same_suffix = b;
+    same_suffix[depth..].copy_from_slice(&a[depth..]);
+    let same_suffix = Path::<H> {
+        height: PhantomData,
+        hash: same_suffix,
+    };
+    prop_assert_eq!(path_a, same_suffix);
+    prop_assert_eq!(path_a.cmp(&same_suffix), std::cmp::Ordering::Equal);
+    prop_assert_eq!(format!("{path_a:?}"), format!("{same_suffix:?}"));
+
+    let prefix_a = Prefix::<H>::containing(&Path::from(a));
+    let prefix_b = Prefix::<H>::containing(&Path::from(b));
+    prop_assert_eq!(prefix_a.as_bytes(), &a[..depth]);
+    prop_assert_eq!(prefix_a == prefix_b, a[..depth] == b[..depth]);
+    prop_assert_eq!(prefix_a.cmp(&prefix_b), a[..depth].cmp(&b[..depth]));
+    prop_assert_eq!(format!("{prefix_a:?}"), format!("{:?}", &a[..depth]));
+
+    // containing() can keep unused array bytes behind its logical length.
+    // They must not influence equality, ordering, or the displayed prefix.
+    let mut same_prefix = b;
+    same_prefix[..depth].copy_from_slice(&a[..depth]);
+    let same_prefix = Prefix::<H>::containing(&Path::from(same_prefix));
+    prop_assert_eq!(prefix_a, same_prefix);
+    prop_assert_eq!(prefix_a.cmp(&same_prefix), std::cmp::Ordering::Equal);
+    prop_assert_eq!(format!("{prefix_a:?}"), format!("{same_prefix:?}"));
+
+    let erased = prefix_a.erase();
+    prop_assert_eq!(erased.height(), H::HEIGHT);
+    prop_assert_eq!(erased.as_bytes(), prefix_a.as_bytes());
+    prop_assert_eq!(erased.assume::<H>(), prefix_a);
+    prop_assert_eq!(format!("{erased:?}"), format!("{prefix_a:?}"));
+    Ok(())
+}
+
+/// Pop a path byte and round-trip typed and erased prefixes at one level.
+fn check_step<H: Height>(
+    raw: [u8; PATH_LEN],
+    other: [u8; PATH_LEN],
+) -> proptest::test_runner::TestCaseResult
+where
+    S<H>: Height,
+{
+    let depth = PATH_LEN - S::<H>::HEIGHT;
+    let path = Path::<S<H>> {
+        height: PhantomData,
+        hash: raw,
+    };
+    let (byte, rest) = path.pop();
+    prop_assert_eq!(byte, raw[depth]);
+    prop_assert_eq!(rest.as_bytes(), &raw[depth + 1..]);
+
+    // Push a byte independent of the stored array's next byte, so a
+    // constructor that retains unused bytes must still overwrite that slot.
+    let byte = other[depth];
+    let prefix = Prefix::<S<H>>::containing(&Path::from(raw));
+    let mut extended = raw;
+    extended[depth] = byte;
+    let child = prefix.push(byte);
+    prop_assert_eq!(child, Prefix::<H>::containing(&Path::from(extended)));
+    prop_assert_eq!(child.pop(), (prefix, byte));
+    let erased = prefix.erase().push(byte);
+    prop_assert_eq!(erased, child.erase());
+    prop_assert_eq!(erased.pop(), (prefix.erase(), byte));
+    Ok(())
 }

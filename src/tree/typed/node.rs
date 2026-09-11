@@ -4,8 +4,9 @@ use before::{Dominance, Span};
 
 use crate::{Version, causally, message::Message};
 
-use super::hash::Hash;
+use super::hash::{Hash, PATH_LEN};
 use super::height::{self, Height, S, Z};
+use super::prefix::Prefix;
 use super::untyped;
 use untyped::fan::{self, Fan};
 
@@ -16,7 +17,9 @@ pub type Root = Node<height::Root>;
 /// typed shell over the untyped radix fan, so inserts and removals stay
 /// height-correct at compile time.
 pub struct Children<H: Height> {
+    /// The height shared by every child.
     height: PhantomData<fn() -> H>,
+    /// Child handles sorted by radix.
     inner: Fan,
 }
 
@@ -31,6 +34,7 @@ impl<H: Height> Default for Children<H> {
     }
 }
 
+/// Update children while preserving their common height.
 impl<H: Height> Children<H> {
     /// Wrap a fan whose children have height `H`.
     fn from_fan(inner: Fan) -> Self {
@@ -92,7 +96,9 @@ fn typed_child<H: Height>((radix, inner): (u8, untyped::Node)) -> (u8, Node<H>) 
 
 /// Consume children in ascending radix order without cloning their handles.
 impl<H: Height> IntoIterator for Children<H> {
+    /// A radix and the child at that position.
     type Item = (u8, Node<H>);
+    /// The fan's owned iterator with typed child handles restored.
     type IntoIter = Map<fan::IntoIter, fn((u8, untyped::Node)) -> (u8, Node<H>)>;
 
     /// Transfer ownership of each child to the caller.
@@ -103,24 +109,21 @@ impl<H: Height> IntoIterator for Children<H> {
     }
 }
 
-/// A typed node which enforces the structural validity of the constructed tree
-/// at compile-time.
+/// A storage node viewed at height `H`.
 ///
-/// The height marker is held as `PhantomData<fn() -> H>` rather than
-/// `PhantomData<H>`. Function pointers are unconditionally `Send + Sync`,
-/// so any auto-trait obligation on `Node` discharges without descending
-/// the `S<S<S<...S<Z>...>>>` peano-style height chain: a bare
-/// `PhantomData<H>` would send the trait solver walking 32 levels of
-/// `S<…>: Sync` on every `Send`/`Sync` check, even though the type
-/// variable `H` is purely phantom and never constructs anything that
-/// could fail to be `Send`/`Sync`.
+/// Constructors and traversals preserve this height. The function marker
+/// avoids recursive auto-trait bounds on `H`; see [`S`].
 #[repr(transparent)]
 pub struct Node<H: Height> {
+    /// The height at which this storage node is being viewed.
     height: PhantomData<fn() -> H>,
+    /// Shared storage, including any compressed path below this height.
     inner: untyped::Node,
 }
 
+/// Share storage while retaining the same height.
 impl<H: Height> Clone for Node<H> {
+    /// Clone the node handle and its phantom height marker.
     fn clone(&self) -> Self {
         Self {
             height: self.height,
@@ -129,15 +132,18 @@ impl<H: Height> Clone for Node<H> {
     }
 }
 
+/// Display the underlying node's content.
 impl<H> Debug for Node<H>
 where
     H: Height,
 {
+    /// Delegate to the storage node's debug view.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.inner.fmt(f)
     }
 }
 
+/// Read and construct nodes at a known height.
 impl<H: Height> Node<H> {
     /// Whether both handles refer to the same node allocation, without hashing.
     pub fn ptr_eq(&self, other: &Self) -> bool {
@@ -244,47 +250,33 @@ impl<H: Height> Node<H> {
     /// height zero. Descent state is bounded by the tree's depth.
     pub(crate) fn leaves(
         self,
-        prefix: &super::Prefix<H>,
-    ) -> impl Iterator<Item = (super::Prefix<Z>, Node<Z>)> + Send + use<H> {
-        untyped::RangeOwned::within(Some(self.inner), prefix.as_bytes(), causally::all()).map(
-            |(key, leaf)| {
-                (
-                    super::Prefix::from(key),
-                    Node::from_untyped(leaf.into_node()),
-                )
-            },
-        )
+        prefix: &Prefix<H>,
+    ) -> impl Iterator<Item = (Prefix<Z>, Node<Z>)> + Send + use<H> {
+        untyped::RangeOwned::within(Some(self.inner), prefix.as_bytes(), causally::all())
+            .map(|(key, leaf)| (Prefix::from(key), Node::from_untyped(leaf.into_node())))
     }
 
     /// Build the height-`H` node over one sorted run of bare leaves.
     ///
-    /// Every path in `run` extends `prefix`, strictly ascending, and the
-    /// run is non-empty: exactly the shape one supplied scope's leaves
-    /// arrive in off the wire. The bulk inverse of
-    /// [`leaves`](Self::leaves); see
-    /// [`untyped::Node::from_sorted_leaves`] for the cost argument.
-    pub(crate) fn from_sorted_leaves(
-        prefix: &super::Prefix<H>,
-        run: Vec<(super::Prefix<Z>, Node<Z>)>,
-    ) -> Self {
+    /// The run must be nonempty, with distinct paths in ascending order,
+    /// all extending `prefix`. This is the inverse of [`leaves`](Self::leaves);
+    /// [`untyped::Node::from_sorted_leaves`] builds the compressed subtree.
+    pub(crate) fn from_sorted_leaves(prefix: &Prefix<H>, run: Vec<(Prefix<Z>, Node<Z>)>) -> Self {
         let depth = prefix.as_bytes().len();
         debug_assert!(
             run.iter()
                 .all(|(path, _)| path.as_bytes().starts_with(prefix.as_bytes())),
             "every leaf in a run falls under the run's prefix",
         );
-        let mut entries: Vec<([u8; 32], Option<untyped::Node>)> = run
+        let mut entries: Vec<([u8; PATH_LEN], Option<untyped::Node>)> = run
             .into_iter()
-            .map(|(path, leaf)| {
-                let path = <[u8; 32]>::try_from(path.as_bytes())
-                    .expect("a leaf prefix is a full 32-byte path");
-                (path, Some(leaf.into_untyped()))
-            })
+            .map(|(path, leaf)| (path.into(), Some(leaf.into_untyped())))
             .collect();
         Self::from_untyped(untyped::Node::from_sorted_leaves(depth, &mut entries))
     }
 }
 
+/// Assemble branches or descend one level toward their children.
 impl<H: Height> Node<S<H>>
 where
     S<H>: Height,
@@ -322,6 +314,7 @@ where
     }
 }
 
+/// Construct and read height-zero leaves.
 impl Node<Z> {
     /// Construct a new leaf node from a versioned message.
     pub fn leaf(version: Version, message: Message) -> Self {
@@ -335,28 +328,23 @@ impl Node<Z> {
     pub fn message(&self) -> &Message {
         self.inner
             .as_leaf()
-            .expect("typed leaf failed to be a leaf")
+            .expect("height-zero constructors admit only bare leaves")
     }
 }
 
+/// Look up leaves and start walks from the root.
 impl Node<height::Root> {
-    /// Look up the live leaf whose full 32-byte path is `path`, by a single
-    /// `O(depth)` descent.
-    pub fn get(&self, path: &[u8]) -> Option<(&Version, &Message)> {
+    /// Look up a full leaf address in one descent, bounded by tree depth.
+    pub fn get(&self, path: &[u8; PATH_LEN]) -> Option<(&Version, &Message)> {
         self.inner.get(path)
     }
 
-    /// Lazily iterate every live leaf in this root subtree as
-    /// `([u8; 32], &Version, &Message)`.
-    ///
-    /// Delegates to the height-agnostic untyped walk; because this is a
-    /// height-32 root, every yielded path is a full 32-byte array.
+    /// Borrow every leaf's version and message in ascending path order.
     pub fn iter(&self) -> untyped::Iter<'_> {
         untyped::Iter::root(&self.inner)
     }
 
-    /// Freeze a fully-owned walk over the leaves of the (possibly absent)
-    /// root `node` whose versions the causal `query` admits.
+    /// Start an owned walk over leaves whose versions satisfy `query`.
     ///
     /// The lifetime-free counterpart of [`range`](Self::range), holdable
     /// across awaits (see [`untyped::RangeOwned`]).
@@ -390,9 +378,12 @@ impl Node<height::Root> {
     }
 }
 
+/// Storage-node equality is total at a fixed height.
 impl<H: Height> Eq for Node<H> {}
 
+/// Compare the storage nodes viewed at this height.
 impl<H: Height> PartialEq for Node<H> {
+    /// Delegate to the storage node's subtree comparison.
     fn eq(&self, other: &Self) -> bool {
         self.inner == other.inner
     }

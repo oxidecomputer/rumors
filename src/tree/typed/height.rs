@@ -145,7 +145,7 @@ heights!(
 );
 
 /// A root-to-leaf walk consumes exactly one 32-byte address.
-const _: () = assert!(H0::HEIGHT == 0 && Root::HEIGHT == 32);
+const _: () = assert!(H0::HEIGHT == 0 && Root::HEIGHT == super::hash::PATH_LEN);
 
 /// The leaf height is a zero-sized marker with no alignment requirement.
 const _: () = assert!(size_of::<Z>() == 0 && align_of::<Z>() == 1);

@@ -15,6 +15,7 @@ use crate::causally::{Coverage, Polarity, Query};
 use crate::{Version, causally, message::Message};
 
 use super::{Children, Node};
+use crate::tree::typed::hash::PATH_LEN;
 
 /// One pending subtree in a walk's frontier.
 struct Frame<'a> {
@@ -263,7 +264,7 @@ pub struct RangeOwned<P: Polarity> {
     /// The path bytes accumulated along the spine, extended and rolled back
     /// as the walk descends and ascends; a leaf is yielded exactly when it
     /// reaches 32 bytes.
-    path: ArrayVec<[u8; 32]>,
+    path: ArrayVec<[u8; PATH_LEN]>,
     /// The causal query filter, its bounds settled owned so the walk
     /// carries no lifetime.
     query: Query<'static, P>,
@@ -347,7 +348,7 @@ impl<P: Polarity> RangeOwned<P> {
             start: node,
             // Reserve enough frames for any path so descent never grows
             // this buffer.
-            spine: Vec::with_capacity(32),
+            spine: Vec::with_capacity(PATH_LEN),
             path: buf,
             query,
         }
@@ -357,7 +358,7 @@ impl<P: Polarity> RangeOwned<P> {
 /// Yield owned leaves from an ascending walk of the current subtree.
 impl<P: Polarity> Iterator for RangeOwned<P> {
     /// A full version-derived path and a handle to its stored leaf.
-    type Item = ([u8; 32], Leaf);
+    type Item = ([u8; PATH_LEN], Leaf);
 
     /// Advance to the next matching leaf in ascending path order.
     fn next(&mut self) -> Option<Self::Item> {
@@ -436,8 +437,8 @@ impl<P: Polarity> Iterator for RangeOwned<P> {
             debug_assert!(passes, "an unpruned leaf passes its query");
             debug_assert_eq!(
                 self.path.len(),
-                32,
-                "a leaf sits at depth 32, so its path is 32 bytes"
+                PATH_LEN,
+                "a leaf's path spans the full address"
             );
             let key = self.path.into_inner();
             self.path.truncate(rollback);

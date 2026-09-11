@@ -463,6 +463,20 @@ proptest! {
         prop_assert_eq!(tree.hash(), reference_hash(tree.clone()));
     }
 
+    /// Node diagnostics display compressed prefixes in path order at every length.
+    #[test]
+    fn debug_prefix_is_in_path_order(
+        prefix in vec(any::<u8>(), 0..=super::PATH_LEN),
+    ) {
+        let mut node = Node::leaf(Version::new(), Message::new(()));
+        for &radix in prefix.iter().rev() {
+            node = node.beneath(radix);
+        }
+        let expected = format!("Node {{ prefix: {:?}", hex::encode(prefix));
+        let actual = format!("{node:?}");
+        prop_assert!(actual.starts_with(&expected));
+    }
+
     /// Every virtual level of every compressed spine hashes exactly as a
     /// canonically constructed tree over the same content at that depth.
     ///
