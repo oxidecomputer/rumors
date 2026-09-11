@@ -3,81 +3,52 @@ use std::sync::LazyLock;
 
 use sha3::{Digest, Sha3_256};
 
-/// Width in bytes of the tree's Merkle hashes.
-///
-/// The subtree-comparison digests that gossip exchanges, surfaced as
-/// [`Snapshot::hash`](crate::Snapshot::hash). Narrower than the 32-byte
-/// version-derived leaf path; the width argument is in [the reconciliation
-/// docs](crate::reconciliation).
+/// Width in bytes of the subtree comparison digests exchanged during gossip
+/// and returned by [`Snapshot::hash`](crate::Snapshot::hash).
 pub const MERKLE_HASH_LEN: usize = 24;
 
-/// A 24-byte Merkle hash.
+/// A subtree comparison digest: the leading 24 bytes of SHA3-256.
 ///
-/// A newtype over a fixed-size byte array; on the wire it travels as its
-/// raw bytes, never length-prefixed (the width is pinned by the type).
+/// Peers compare these digests at the same trie position. Leaf hashes depend
+/// on version-derived paths; branch hashes combine their prefix and ordered
+/// child hashes. Message payloads do not enter either calculation.
 ///
-/// The underlying primitive is SHA3-256 (FIPS 202), truncated to its leading
-/// [`MERKLE_HASH_LEN`] bytes. Truncating an approved hash to a shorter
-/// output is the sanctioned narrow form (NIST SP 800-107 Rev. 1, §5.1): the
-/// prefix keeps collision resistance 2⁹⁶ and preimage resistance 2¹⁹² at
-/// this width. Callers use [`Hash::of`] (or [`PathHash`] for the full width)
-/// and never touch the `sha3` types directly.
+/// Each listed child carries a digest, so using 24 bytes instead of 32 saves
+/// eight bytes per entry. Under the crate's uniform-hash model, two unequal
+/// inputs match with probability 2⁻¹⁹² per comparison. Only corresponding
+/// subtrees are compared, so the risk grows with those comparisons, rather
+/// than with every possible pair of nodes in the tree. The margin matters:
+/// a false match skips data exchange, and advancing the shared causal history
+/// can then cause missing messages to be treated as redacted.
 ///
-/// # Why 24 bytes here, and 32 for content
-///
-/// A Merkle hash is only ever an equality probe between two peers' subtrees at
-/// the same prefix, so a false-equal costs what the causal sieve makes of it:
-/// the divergent messages under a landed false-equal are eventually read as
-/// seen-but-absent and deleted fleet-wide (the full argument is in [the
-/// reconciliation docs](crate::reconciliation)). The width prices that event
-/// in-model:
-///
-/// - **Accident.** The hash at prefix `P` is only ever compared against
-///   the counterparty's hash at the same `P`, so a false-equal is a
-///   per-interior-comparison event at 2⁻¹⁹² — pairwise, never
-///   birthday-amplified across the tree's population.
-/// - **Grinding.** For an author of message *content* who is not a peer —
-///   the one adjacent actor the trust model admits — the offline birthday
-///   floor for assembling any colliding content pair is 2⁹⁶ hash
-///   evaluations, which closes that vector unconditionally, with no
-///   premise about what an attempt would cost the attacker.
-///
-/// Hostile *peers* are off-model: peers in a universe trust one another
-/// ([the crate docs](crate) make a compromised member's powers explicit),
-/// so no width buys anything against a member, and none is priced here.
+/// Leaf paths instead use the full 32-byte [`PathHash`]. A path is a storage
+/// address: a collision between any two versions would make them occupy the
+/// same slot. Keeping all 256 bits makes that risk negligible across the
+/// whole population of versions, whose number of possible pairs grows
+/// quadratically.
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Default)]
 #[repr(transparent)]
 pub struct Hash(pub [u8; MERKLE_HASH_LEN]);
 
+/// Format a comparison digest as hexadecimal.
 impl Debug for Hash {
+    /// Display the raw digest bytes.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         hex::encode(self.0).fmt(f)
     }
 }
 
-/// Domain-separation tag leading a leaf's hash preimage.
-///
-/// Leaves are version-addressed (the path is the full-width hash of the
-/// leaf's version; see [`Path::for_leaf`](super::Path::for_leaf)), so a
-/// leaf's preimage commits its compressed suffix — path bytes — and its
-/// version's canonical encoding, never its message bytes: every compared
-/// digest in the tree is a pure function of the version set.
+/// Domain tag distinguishing a leaf's hash input from a branch's.
 const LEAF_TAG: u8 = 0;
 
-/// Domain-separation tag leading a branch's hash preimage.
-///
-/// The kind byte makes leaf/branch separation checkable from the first
-/// byte alone. The nearest pair of shapes — a leaf with an *empty*
-/// suffix (its parent sits at depth 31) and the empty root — would
-/// otherwise differ only in preimage length (two bytes against four),
-/// so the tag is the stated separator and the length difference the
-/// backstop.
+/// Domain tag distinguishing a branch's hash input from a leaf's.
 const BRANCH_TAG: u8 = 1;
 
 /// Bytes a single child contributes to a branch preimage: its radix byte
 /// followed by its [`MERKLE_HASH_LEN`]-byte hash.
 const CHILD_RECORD_LEN: usize = 1 + MERKLE_HASH_LEN;
 
+/// Hash canonical node layouts and expose their comparison bytes.
 impl Hash {
     /// One-shot Merkle hash of a contiguous byte slice: the leading
     /// [`MERKLE_HASH_LEN`] bytes of the full-width hash of the same bytes.
@@ -85,23 +56,15 @@ impl Hash {
         PathHash::of(bytes).truncate()
     }
 
-    /// The hash of a leaf observed from the top of its compressed `suffix`:
-    /// `sha3_256(LEAF_TAG ‖ suffix_len ‖ suffix)`.
+    /// Hash `LEAF_TAG ‖ suffix_len ‖ suffix`, truncated to the Merkle width.
     ///
-    /// `suffix` is the leaf's path-compressed span in **path order** —
-    /// shallowest byte first, as the node serializer emits it — and
-    /// `suffix_len` is one byte (a compressed span never exceeds the
-    /// 32-byte path).
+    /// The suffix runs from shallowest to deepest path byte, with its length
+    /// encoded in one byte. Typed-tree suffixes span at most the 32-byte path.
     ///
-    /// The suffix is a complete commitment: a leaf's path is the
-    /// full-width hash of its version ([`Path::for_leaf`](super::Path::for_leaf)),
-    /// so under the crate's uniform-hash model one path is one version,
-    /// and every compared digest is a pure function of the version set. A
-    /// leaf commits no message bytes: a content author contributes no bit
-    /// to any compared quantity — digests are content-blind by design, a
-    /// modeled trade. Collision detection is ingestion's job
-    /// ([`react`](crate::tree::Tree::react)'s occupied-path arms), where
-    /// both leaves are in hand; the merge walk trusts path derivation.
+    /// [`Path::for_leaf`](super::Path::for_leaf) derives the path from the
+    /// version. Neither the version's encoding nor the payload is repeated
+    /// here. Comparisons at the same trie position share the preceding path,
+    /// so the suffix supplies the remaining bytes needed to identify the leaf.
     ///
     /// # Panics
     ///
@@ -110,66 +73,40 @@ impl Hash {
     pub fn leaf(suffix: &[u8]) -> Self {
         let suffix_len =
             u8::try_from(suffix.len()).expect("a compressed span fits in one length byte");
-        let mut buf = Vec::with_capacity(2 + suffix.len());
-        buf.push(LEAF_TAG);
-        buf.push(suffix_len);
-        buf.extend_from_slice(suffix);
-        Hash::of(&buf)
+        // Successive updates hash the concatenated input without allocating
+        // a temporary buffer for the header and suffix.
+        let mut hash = Sha3_256::new();
+        hash.update([LEAF_TAG, suffix_len]);
+        hash.update(suffix);
+        PathHash(hash.finalize().into()).truncate()
     }
 
-    /// The hash of a branch observed from the top of its compressed
-    /// `prefix`:
-    /// `sha3_256(BRANCH_TAG ‖ prefix_len ‖ prefix ‖ child_count ‖ r₀ ‖ h₀ ‖ …)`.
+    /// Hash `BRANCH_TAG ‖ prefix_len ‖ prefix ‖ child_count ‖ (radix ‖ hash)*`,
+    /// truncated to the Merkle width.
     ///
-    /// One preimage per node, `children` given as `(radix, child hash)`
-    /// pairs in ascending radix order, every variable-width field
-    /// length-tagged:
-    ///
-    /// - `prefix` is the branch's path-compressed span in **path order** —
-    ///   shallowest byte first, as the node serializer emits it —
-    ///   and `prefix_len` is one byte.
-    /// - `child_count` is a big-endian `u16`: the count ranges over
-    ///   {0} ∪ \[2, 256\] — zero only for the [empty root](Hash::empty_root),
-    ///   and never one, by the path-compression invariant (see below) —
-    ///   which overflows a biased byte.
-    /// - Each child is a fixed-width `radix ‖ hash` record
-    ///   ([`CHILD_RECORD_LEN`] bytes). Empty slots are *omitted*, not
-    ///   zero-filled.
-    ///
-    /// The explicit lengths make preimage injectivity *locally* checkable:
-    /// no two distinct `(kind, prefix, children)` triples encode to the same
-    /// byte string, by inspection of the fields alone.
+    /// The prefix runs from shallowest to deepest path byte. Its length is
+    /// one byte; the child count is a big-endian `u16` so it can represent
+    /// all 256 children. Each child contributes one radix byte and its hash.
+    /// Empty slots contribute nothing. The lengths and fixed record width
+    /// keep different node layouts from producing the same hash input.
     ///
     /// # Canonicity
     ///
-    /// The convention defines no hash for a one-child branch: such a node
-    /// is unrepresentable — the tree's constructors collapse a singleton
-    /// branch into its child's compressed prefix, so every materialized
-    /// branch carries at least two children and maximal prefixes, and the
-    /// tree's shape is a pure function of its content. Equal content
-    /// therefore yields equal shape, hence equal `(prefix, children)`
-    /// fields, hence equal hashes, however two peers compressed or arrived
-    /// at that content. The
-    /// canonicity proptests pin the invariant so any future relaxation
-    /// breaks loudly rather than desynchronizing hashes silently. In debug builds this
-    /// function trips on a one-child fan and on out-of-order radixes at the
-    /// call site.
+    /// Children must have distinct, ascending radixes. A branch has at least
+    /// two children, except for the [empty root](Self::empty_root). Tree
+    /// constructors collapse single-child branches and maximize compression,
+    /// so equal version sets have the same layout and hash. Debug assertions
+    /// catch single-child branches and unordered radixes here.
     ///
     /// # Panics
     ///
     /// Panics if `prefix` exceeds 255 bytes. Unreachable through the typed
     /// tree, whose height cap bounds compressed spans at the 32-byte path.
     pub fn branch(prefix: &[u8], children: impl IntoIterator<Item = (u8, Hash)>) -> Self {
-        // Assemble the whole preimage contiguously, then hash it in one shot.
-        // Handing the sponge a single slice lets it absorb whole 136-byte
-        // rate blocks straight from the buffer; a tiny `update` per field
-        // instead stages each fragment through the sponge's block buffer.
-        // Measured by `benches/branch_hash.rs` over this preimage layout:
-        // modestly faster (on the order of a tenth) for a saturated
-        // 256-child branch, and never slower at the hot small nodes (short
-        // prefix, small fan), whose whole preimage fits one rate block and
-        // costs a single permutation either way. `size_hint` sizes the
-        // buffer exactly for the fan/array/empty callers (all exact).
+        // A contiguous input lets SHA3 absorb complete blocks directly.
+        // `benches/branch_hash.rs` compares this with updates for each field.
+        // The tree's child iterators have exact size hints, so one allocation
+        // holds the prefix and every child record.
         let prefix_len =
             u8::try_from(prefix.len()).expect("a compressed span fits in one length byte");
         let children = children.into_iter();
@@ -188,11 +125,8 @@ impl Hash {
             count = count
                 .checked_add(1)
                 .expect("branch fan-out is bounded by the 256-way radix");
-            // The convention requires ascending radix order. The fan caller
-            // guarantees it structurally (the fan's sorted invariant is
-            // private, and every constructor preserves it); for direct and
-            // test callers, trip at the violation site rather than as a
-            // cross-peer hash desync.
+            // Tree fans preserve this order; catch other callers that would
+            // make a node's hash depend on child enumeration order.
             debug_assert!(
                 previous.is_none_or(|previous| previous < radix),
                 "branch children must arrive in strictly ascending radix order",
@@ -201,9 +135,7 @@ impl Hash {
             buf.push(radix);
             buf.extend_from_slice(child.as_bytes());
         }
-        // The convention defines no hash for a one-child branch (see
-        // `# Canonicity`); computing one here would surface three layers
-        // away as a silent cross-peer desync.
+        // A singleton must be compressed into its child before hashing.
         debug_assert!(
             count != 1,
             "a one-child branch is unrepresentable under the canonical-shape invariant",
@@ -215,8 +147,7 @@ impl Hash {
     /// The hash of the empty tree: a prefixless branch with no children,
     /// `sha3_256(BRANCH_TAG ‖ 0 ‖ 0u16)`.
     pub fn empty_root() -> Self {
-        // A compile-time constant: memoize it rather than re-hashing the
-        // four fixed bytes on every empty-root read.
+        /// The fixed empty-root digest, computed on first use.
         static EMPTY_ROOT: LazyLock<Hash> = LazyLock::new(|| Hash::branch(&[], []));
         *EMPTY_ROOT
     }
@@ -227,31 +158,31 @@ impl Hash {
     }
 }
 
+/// Wrap comparison bytes without hashing them again.
 impl From<[u8; MERKLE_HASH_LEN]> for Hash {
+    /// Construct a digest from its raw bytes.
     fn from(bytes: [u8; MERKLE_HASH_LEN]) -> Self {
         Hash(bytes)
     }
 }
 
+/// Recover the comparison bytes.
 impl From<Hash> for [u8; MERKLE_HASH_LEN] {
+    /// Unwrap the digest.
     fn from(hash: Hash) -> Self {
         hash.0
     }
 }
 
-/// Full-width 32-byte SHA3-256 hash: the identity primitive a leaf's path
-/// is made of.
+/// A full-width, 32-byte SHA3-256 digest used to derive leaf paths.
 ///
-/// This is the width that carries identity. A leaf's path *is* a hash of this
-/// width over its version's canonical bytes (see
-/// [`Path::for_leaf`](super::Path::for_leaf)), and every ingestion site
-/// treats one path as one identity, so a collision here would be permanent
-/// split-brain — full width is load-bearing for the path even though the
-/// comparison digests are narrower. A `PathHash` is never stored in a
-/// branch and never travels as a hash on the wire; it reaches the protocol
-/// only as a leaf's path bytes.
+/// [`Path::for_leaf`](super::Path::for_leaf) hashes a version's canonical
+/// encoding at this width. Any two versions sharing an address would compete
+/// for one leaf, so paths retain all 256 bits. The shorter [`struct@Hash`]
+/// compares corresponding subtrees rather than assigning storage addresses.
 pub struct PathHash([u8; 32]);
 
+/// Compute full-width digests and truncate them for subtree comparisons.
 impl PathHash {
     /// One-shot full-width hash of a contiguous byte slice.
     pub fn of(bytes: &[u8]) -> Self {
@@ -275,7 +206,9 @@ impl PathHash {
     }
 }
 
+/// Recover the full-width digest bytes.
 impl From<PathHash> for [u8; 32] {
+    /// Unwrap the digest.
     fn from(hash: PathHash) -> Self {
         hash.0
     }

@@ -1,15 +1,13 @@
-//! Pins the wire-visible hash preimage convention: the exact field layout of
-//! the single-preimage node hash, and the collision pairs its kind tags and
-//! length fields exist to prevent.
+//! Hash input layouts and the kind and length tags that distinguish them.
 
 use super::{BRANCH_TAG, Hash, LEAF_TAG, MERKLE_HASH_LEN, PathHash};
+use proptest::prelude::*;
 
 /// A branch commits to exactly `BRANCH_TAG ‖ prefix_len ‖ prefix ‖
 /// child_count ‖ (radix ‖ child_hash)*`.
 ///
-/// The prefix is length-tagged in one byte, the child count is a big-endian
-/// `u16`, then 17-byte records follow in the iteration order given, with no
-/// other framing or padding.
+/// The prefix length uses one byte; the child count uses a big-endian `u16`.
+/// Each radix and hash follows in the supplied order, without padding.
 #[test]
 fn branch_preimage_layout() {
     let prefix = [0x0a, 0x0b, 0x0c];
@@ -38,6 +36,27 @@ fn leaf_preimage_layout() {
     let suffix = [0x01, 0x02, 0x03, 0x04];
     let expected = vec![LEAF_TAG, 4, 0x01, 0x02, 0x03, 0x04];
     assert_eq!(Hash::leaf(&suffix), Hash::of(&expected));
+}
+
+proptest! {
+    /// Incremental leaf hashing matches the contiguous input at every accepted
+    /// length, including inputs that span more than one SHA3 block.
+    #[test]
+    fn leaf_hash_matches_contiguous_input(suffix in any::<[u8; 255]>()) {
+        for len in 0..=u8::MAX {
+            let suffix = &suffix[..usize::from(len)];
+            let mut input = vec![LEAF_TAG, len];
+            input.extend_from_slice(suffix);
+            prop_assert_eq!(Hash::leaf(suffix), Hash::of(&input), "suffix length {}", len);
+        }
+    }
+}
+
+/// Reject a suffix whose length cannot be represented by the input's length byte.
+#[test]
+#[should_panic(expected = "a compressed span fits in one length byte")]
+fn leaf_suffix_length_must_fit_one_byte() {
+    Hash::leaf(&[0; 256]);
 }
 
 /// The empty tree hashes as a prefixless branch with no children —
