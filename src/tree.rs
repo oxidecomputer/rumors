@@ -86,6 +86,7 @@ pub use typed::{Leaf, RangeOwned};
 /// which conforming peers cannot do.
 #[derive(Debug, Eq)]
 pub struct Tree<T> {
+    /// The live nodes and the causal history used to honor redactions.
     pub(crate) root: Root,
     /// The payload type this tree's typed faces read leaves at.
     ///
@@ -95,19 +96,21 @@ pub struct Tree<T> {
     payload: PhantomData<fn() -> T>,
 }
 
-/// A tree's root pair: the node structure (absent when empty) and the
-/// causal ceiling that rides *outside* it.
+/// The live nodes and the latest version observed by the tree.
 ///
-/// The ceiling outlives the nodes — it advances on effectual redactions and
-/// survives a tree emptying out — which is exactly what deletion honoring
-/// compares against.
+/// The ceiling survives redactions, even when no nodes remain. Joins use it
+/// to distinguish messages not yet seen from messages already redacted.
 #[derive(Clone, Debug, Eq)]
 pub struct Root {
+    /// Causal history, including redactions; excluded from the node hash.
     ceiling: Version,
+    /// Live messages, absent when the tree is empty.
     root: Option<typed::node::Root>,
 }
 
+/// Extract the live nodes, discarding the causal ceiling.
 impl From<Root> for Option<typed::node::Root> {
+    /// Return the owned node handle, if the tree is nonempty.
     fn from(value: Root) -> Self {
         value.root
     }
@@ -283,11 +286,13 @@ impl<T> Tree<T> {
             .unwrap_or_default()
     }
 
-    /// Returns the root hash for the tree.
+    /// Hash the live version set, excluding the root's causal ceiling.
+    ///
+    /// Node hashes are memoized, so reading a published tree's hash is cheap.
     pub fn hash(&self) -> [u8; MERKLE_HASH_LEN] {
         #[cfg(test)]
         meter::record_root_hash_read();
-        Node::root_hash(&self.root.clone().into()).into()
+        Node::root_hash(&self.root.root).into()
     }
 
     /// Looks up the live message stamped with `version`, by its
