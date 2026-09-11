@@ -1,6 +1,6 @@
 # Rumors review checklist
 
-**Active:** Close non-conforming-peer liveness work and audit its scope — `codex/deep-duplicate-replies`, base `main`.
+**Active:** None; peer-model scope audit complete — `782274c7`.
 **Next:** 05, investigate depth-dependent pipelining; then repair conformance memory accounting and convergence checks.
 
 These concern conforming sessions and unblock broader deep-session validation;
@@ -89,7 +89,7 @@ Dependencies: 03's deep fixtures; reported-error repairs in 04 are complete. Con
   Sources: `conformance-24`, `conformance-25`, `conformance-28–31`, `conformance-35`, `conformance-40–42`, `tests-resource-link-window-19`, `tests-resource-link-window-20`, T6, T18, T132, T139, T142, N34.
 
 - [x] Declined: liveness with a pool that violates stream independence. Owner ruling, 2026-09-11.
-  Sources: N22, N27's pooled-liveness question. Keep the conformance probe that rejects an undersized pool.
+  Sources: N22, N27's pooled-liveness question. Removed the stronger test and claim in `782274c7`; retained the independence probe.
 
 - [x] Extend link conformance coverage for combined contention, overlapping opens, completion, and cancellation; state the remaining test limits — `45aaec54`.
   Source: [Link contract](../../src/link.rs) and [public suite](../../src/conformance/link.rs).
