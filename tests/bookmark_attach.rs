@@ -33,7 +33,7 @@ async fn bootstrap_unbookmarked(server: &Rumors<String, FlakyInMemoryBookmark>) 
         },
         async move {
             let mut link = serve_link;
-            server.gossip(&mut link).await
+            server.gossip_once(&mut link).await
         },
     );
     serve_out.expect("serve the bootstrap");

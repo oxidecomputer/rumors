@@ -37,13 +37,13 @@ fn handle_types_are_send_sync() {
     require_send_type::<UnorderedMessages<String>>();
 }
 
-/// `Rumors::gossip`'s future is `Send`: a session can be `tokio::spawn`ed.
+/// `Rumors::gossip_once`'s future is `Send`: a session can be `tokio::spawn`ed.
 #[test]
-fn gossip_future_is_send() {
+fn gossip_once_future_is_send() {
     let alice = Peer::<String>::seed().sync_window_floor();
     let (mut link, _peer) = rumors::link::memory();
     let rumors = alice.into_rumors();
-    let fut = rumors.gossip(&mut link);
+    let fut = rumors.gossip_once(&mut link);
     require_send(&fut);
     drop(fut);
 }
@@ -89,4 +89,18 @@ fn observer_futures_are_send() {
     let fut = messages.next();
     require_send(&fut);
     drop(fut);
+}
+
+/// Custom peer policies retain Send for the continuous driver and one-shot future.
+#[test]
+fn configured_gossip_is_send() {
+    let rumors = Peer::<String>::seed()
+        .gossip_when(|changes| changes)
+        .session_deadline(std::future::pending)
+        .into_rumors();
+    let (mut link, _remote) = rumors::link::memory();
+    let driver = rumors.gossip(&mut link);
+    require_send(&driver);
+    drop(driver);
+    require_send(&rumors.gossip_once(&mut link));
 }

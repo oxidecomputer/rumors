@@ -562,21 +562,30 @@ async fn routing_deadline_allows_idle_gossip_and_reuse() {
         complete_streams(&at_a, &mut at_b, STREAM_COUNT).await;
         complete_streams(&at_b, &mut at_a, STREAM_COUNT).await;
         let dials = dial.fresh_dials();
-        let alice = Peer::<String>::seed().into_rumors();
+        let alice = Peer::<String>::seed()
+            .gossip_when(|_| futures::stream::pending::<Gossip>())
+            .into_rumors();
         alice.send("first".into()).unwrap();
         let (joined, served) = futures::join!(
             Peer::<String>::bootstrap().join(&mut at_b),
-            alice.gossip(&mut at_a),
+            alice.gossip_once(&mut at_a),
         );
         served.unwrap();
+        let (mut ticks, when) = futures::channel::mpsc::channel(1);
+        let when = std::sync::Mutex::new(Some(when));
         let bob = (match joined {
             crate::Joined::Joined { peer } => peer,
             _ => panic!("bootstrap must succeed"),
         })
+        .gossip_when(move |_| {
+            when.lock()
+                .unwrap()
+                .take()
+                .expect("one driver in this fixture")
+        })
         .into_rumors();
-        let (mut ticks, when) = futures::channel::mpsc::channel(1);
-        let mut a_driver = alice.gossip_when(futures::stream::pending::<Gossip>(), &mut at_a);
-        let mut b_driver = bob.gossip_when(when, &mut at_b);
+        let mut a_driver = alice.gossip(&mut at_a);
+        let mut b_driver = bob.gossip(&mut at_b);
         for round in 0..2 {
             tokio::select! {
                 result = a_driver.next() => panic!("idle gossip ended: {result:?}"),

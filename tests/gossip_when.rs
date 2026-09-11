@@ -1,36 +1,8 @@
-//! The [`rumors::Rumors::gossip_when`] driver: policy-driven gossip over a
-//! long-lived connection.
+//! Continuous gossip under per-connection initiation policies.
 //!
-//! Every test drives the policy stream by hand — a `futures` mpsc channel
-//! whose receiver is the `when` stream — so initiation timing is fully
-//! deterministic with no timers anywhere. The suite pins the driver's whole
-//! contract:
-//!
-//! - the reduction to one-shot `gossip`, and remote-led serving;
-//! - suppression exactness: the echo a naive driver would produce does not
-//!   happen, while real changes always do;
-//! - unconditional cues: a probe session on a converged connection
-//!   round-trips, re-converges, and wakes no observer;
-//! - transitive propagation across a chain of connections, and who-led
-//!   attribution;
-//! - clean shutdown on both the `when` stream ending and the peer hanging
-//!   up, and the error terminal.
-//!
-//! The second half pins the cancellation and reuse contract from the
-//! misbehaving side:
-//!
-//! - a driver dropped mid-session commits nothing and forfeits the
-//!   connection — the price the crate docs' "What a session promises"
-//!   section documents, enforced by link poisoning;
-//! - a driver started on an already-poisoned link fails fast without
-//!   waiting for a tick;
-//! - a consumer that drops every `next()` future loses nothing (poll
-//!   cancel-safety);
-//! - a cleanly ended driver hands the connection back usable;
-//! - two proptest suites — random tick/commit/yield interleavings, and
-//!   connections severed at arbitrary byte offsets — require error-free
-//!   convergence and loud-but-recoverable failure respectively, under
-//!   every sequencing.
+//! Hand-driven policy streams exercise suppression, remote serving, connection reuse,
+//! and cancellation. Closed in-memory schedules use the quiescence detector;
+//! tests involving Tokio tasks also carry a wall-clock backstop.
 
 mod common;
 
@@ -69,12 +41,34 @@ fn links() -> (rumors::link::MemoryLink, rumors::link::MemoryLink) {
     rumors::link::memory_with_capacity(LINK_BUF)
 }
 
-/// A hand-driven cue source: send an item into the sender to cue the
-/// stream. Most tests send `()` (the when-changed default); the probe
-/// tests send [`Gossip`] cues directly.
+/// Send policy items manually. Unit items request gossip when the set changes;
+/// probe tests send explicit [`Gossip`] requests.
 fn ticks<I>() -> (UnboundedSender<I>, impl stream::Stream<Item = I>) {
     let (tx, rx) = unbounded();
     (tx, rx)
+}
+
+/// Install a hand-driven stream on a fixture that owns its sole gossip handle.
+/// The fixture permits exactly one driver to consume this stream.
+fn with_policy_stream<S>(rumors: Rumors<u64>, policy: S) -> Rumors<u64>
+where
+    S: stream::Stream + Send + 'static,
+    S::Item: Into<Gossip>,
+{
+    let policy = std::sync::Mutex::new(Some(policy));
+    rumors
+        .try_into_peer()
+        .now_or_never()
+        .expect("fixture owns the only gossip handle")
+        .expect("fixture reclaims its peer")
+        .gossip_when(move |_| {
+            policy
+                .lock()
+                .unwrap()
+                .take()
+                .expect("one driver per policy stream")
+        })
+        .into_rumors()
 }
 
 /// One session under two hand-driven drivers: tick one (or both) sides,
@@ -95,8 +89,8 @@ async fn one_round(
     )
 }
 
-/// `gossip_when` with a single immediate tick reduces to `gossip`: one
-/// session, converged replicas, exactly one `Ok` item per side, then a
+/// A policy with one immediate item requests one session, like `gossip_once`:
+/// converged replicas, exactly one `Ok` item per side, then a
 /// clean end — and the suppression token both sides report is the same
 /// frontier.
 #[tokio::test(flavor = "current_thread")]
@@ -107,8 +101,10 @@ async fn single_tick_reduces_to_gossip() {
 
     let (mut a_link, mut b_link) = links();
     let once = || stream::once(std::future::ready(()));
-    let mut a_sessions = a.gossip_when(once(), &mut a_link);
-    let mut b_sessions = b.gossip_when(once(), &mut b_link);
+    let a = with_policy_stream(a, once());
+    let mut a_sessions = a.gossip(&mut a_link);
+    let b = with_policy_stream(b, once());
+    let mut b_sessions = b.gossip(&mut b_link);
 
     let (a_session, b_session) = one_round(&mut a_sessions, &mut b_sessions).await;
     assert_eq!(a_session.converged, b_session.converged);
@@ -135,8 +131,10 @@ async fn pending_when_serves_remote_initiations() {
     let (mut a_link, mut b_link) = links();
 
     let (a_tx, a_when) = ticks();
-    let mut a_sessions = a.gossip_when(a_when, &mut a_link);
-    let mut b_sessions = b.gossip_when(stream::pending::<()>(), &mut b_link);
+    let a = with_policy_stream(a, a_when);
+    let mut a_sessions = a.gossip(&mut a_link);
+    let b = with_policy_stream(b, stream::pending::<()>());
+    let mut b_sessions = b.gossip(&mut b_link);
 
     for round in 0..3u64 {
         a.send(round).unwrap();
@@ -161,8 +159,8 @@ async fn suppression_swallows_echoes_not_news() {
     let (mut a_link, mut b_link) = links();
 
     // Real drivers: each side's policy stream is its own change signal.
-    let mut a_sessions = a.gossip_when(a.changes(), &mut a_link);
-    let mut b_sessions = b.gossip_when(b.changes(), &mut b_link);
+    let mut a_sessions = a.gossip(&mut a_link);
+    let mut b_sessions = b.gossip(&mut b_link);
 
     // Round 1: the initial `changes()` yield on both sides drives the
     // reconnect-convergence session (both led locally; one session total).
@@ -205,8 +203,10 @@ async fn heartbeat_ticks_are_free_until_divergence() {
     let (mut a_link, mut b_link) = links();
 
     let (a_tx, a_when) = ticks();
-    let mut a_sessions = a.gossip_when(a_when, &mut a_link);
-    let mut b_sessions = b.gossip_when(stream::pending::<()>(), &mut b_link);
+    let a = with_policy_stream(a, a_when);
+    let mut a_sessions = a.gossip(&mut a_link);
+    let b = with_policy_stream(b, stream::pending::<()>());
+    let mut b_sessions = b.gossip(&mut b_link);
 
     // First tick: fresh driver, no token yet — the unconditional first
     // session (reconnect convergence).
@@ -234,25 +234,26 @@ async fn heartbeat_ticks_are_free_until_divergence() {
     assert_eq!(a.snapshot().hash(), b.snapshot().hash());
 }
 
-/// An unconditional cue initiates on a converged connection where a
-/// when-changed cue stays suppressed.
+/// An unconditional request initiates on a converged connection where a
+/// when-changed request stays suppressed.
 ///
 /// The probe session is a full end-to-end round-trip, it re-converges on
 /// the same frontier, and it wakes no `changes()` observer on either
 /// side. That last clause is the invariant that keeps unconditional probing
 /// from ever feeding an echo loop through a change-driven policy stream:
-/// a no-news session's join is a no-op at both ends, so nothing queues a
-/// cue anywhere.
+/// a no-news session's join is a no-op at both ends, so no change notification is emitted.
 #[tokio::test(flavor = "current_thread")]
-async fn unconditional_cues_probe_a_converged_connection() {
+async fn unconditional_requests_probe_a_converged_connection() {
     let (a, b) = pair().await;
     let (mut a_link, mut b_link) = links();
 
     let (a_tx, a_when) = ticks();
-    let mut a_sessions = a.gossip_when(a_when, &mut a_link);
-    let mut b_sessions = b.gossip_when(stream::pending::<Gossip>(), &mut b_link);
+    let a = with_policy_stream(a, a_when);
+    let mut a_sessions = a.gossip(&mut a_link);
+    let b = with_policy_stream(b, stream::pending::<Gossip>());
+    let mut b_sessions = b.gossip(&mut b_link);
 
-    // Converge the pair: the fresh driver's first cue always initiates
+    // Converge the pair: the fresh driver's first policy item always initiates
     // (reconnect convergence).
     a.send(1).unwrap();
     a_tx.unbounded_send(Gossip::WhenChanged)
@@ -266,14 +267,14 @@ async fn unconditional_cues_probe_a_converged_connection() {
     a_changes.next().await.expect("set open");
     b_changes.next().await.expect("set open");
 
-    // Unconditional cues on the converged connection: each initiates a
-    // real session (A cued it, B only served), and each re-converges on
+    // Unconditional requests on the converged connection: each initiates a
+    // real session (A initiated it, B only served), and each re-converges on
     // the same frontier — the round-trip carried no news.
     for probe in 0..2 {
         a_tx.unbounded_send(Gossip::Unconditionally)
             .expect("driver alive");
         let (a_session, b_session) = one_round(&mut a_sessions, &mut b_sessions).await;
-        assert_eq!(a_session.led, Led::Local, "probe {probe}: A cued");
+        assert_eq!(a_session.led, Led::Local, "probe {probe}: A initiated");
         assert_eq!(b_session.led, Led::Remote, "probe {probe}: B served");
         assert_eq!(a_session.converged, first.converged, "probe {probe}");
         assert_eq!(b_session.converged, first.converged, "probe {probe}");
@@ -286,14 +287,14 @@ async fn unconditional_cues_probe_a_converged_connection() {
         "a no-news probe session woke a changes() observer"
     );
 
-    // A when-changed cue on the same converged connection still initiates
+    // A when-changed request on the same converged connection still initiates
     // nothing: the two policies differ exactly in the suppression check.
     a_tx.unbounded_send(Gossip::WhenChanged)
         .expect("driver alive");
     let idle = futures::future::join(a_sessions.next(), b_sessions.next());
     assert!(
         timeout(Duration::from_millis(100), idle).await.is_err(),
-        "a when-changed cue initiated a session on a converged connection"
+        "a when-changed request initiated a session on a converged connection"
     );
 }
 
@@ -314,10 +315,10 @@ async fn changes_propagate_transitively_through_a_chain() {
     // Four drivers, every policy stream a real change signal. Consume
     // session items in the background of the convergence check: the
     // drivers only progress while polled.
-    let a_drv = a.gossip_when(a.changes(), &mut ab_a_link);
-    let b_ab_drv = b.gossip_when(b.changes(), &mut ab_b_link);
-    let b_bc_drv = b.gossip_when(b.changes(), &mut bc_b_link);
-    let c_drv = c.gossip_when(c.changes(), &mut bc_c_link);
+    let a_drv = a.gossip(&mut ab_a_link);
+    let b_ab_drv = b.gossip(&mut ab_b_link);
+    let b_bc_drv = b.gossip(&mut bc_b_link);
+    let c_drv = c.gossip(&mut bc_c_link);
     let drive_all = futures::future::join4(
         a_drv.for_each(|item| async move {
             item.expect("A driver session");
@@ -379,10 +380,10 @@ async fn a_redaction_frontier_propagates_transitively_through_a_chain() {
     let (mut ab_a_link, mut ab_b_link) = links();
     let (mut bc_b_link, mut bc_c_link) = links();
 
-    let mut a_drv = a.gossip_when(a.changes(), &mut ab_a_link);
-    let mut b_ab_drv = b.gossip_when(b.changes(), &mut ab_b_link);
-    let mut b_bc_drv = b.gossip_when(b.changes(), &mut bc_b_link);
-    let mut c_drv = c.gossip_when(c.changes(), &mut bc_c_link);
+    let mut a_drv = a.gossip(&mut ab_a_link);
+    let mut b_ab_drv = b.gossip(&mut ab_b_link);
+    let mut b_bc_drv = b.gossip(&mut bc_b_link);
+    let mut c_drv = c.gossip(&mut bc_c_link);
 
     // The unconditional first sessions converge both connections.
     let initial =
@@ -444,7 +445,8 @@ async fn when_exhaustion_then_hangup_both_end_cleanly() {
     let (mut a_link, mut b_link) = links();
 
     // A's `when` is already exhausted: its driver ends without a session.
-    let mut a_sessions = a.gossip_when(stream::empty::<()>(), &mut a_link);
+    let a = with_policy_stream(a, stream::empty::<()>());
+    let mut a_sessions = a.gossip(&mut a_link);
     assert!(
         timeout(DEADLINE, a_sessions.next())
             .await
@@ -452,7 +454,8 @@ async fn when_exhaustion_then_hangup_both_end_cleanly() {
             .is_none()
     );
     drop(a_sessions);
-    let mut b_sessions = b.gossip_when(stream::pending::<()>(), &mut b_link);
+    let b = with_policy_stream(b, stream::pending::<()>());
+    let mut b_sessions = b.gossip(&mut b_link);
 
     // Dropping A's link hangs the connection up at a session
     // boundary; B's responder ends cleanly.
@@ -482,10 +485,12 @@ async fn dropping_a_driver_mid_session_commits_nothing() {
     let b_before = (b.snapshot().hash(), b.snapshot().latest().clone());
 
     let (mut a_link, mut b_link) = links();
+    let (a_tx, a_when) = ticks();
+    let a = with_policy_stream(a, a_when);
+    let b = with_policy_stream(b, stream::pending::<()>());
     {
-        let (a_tx, a_when) = ticks();
-        let mut a_sessions = a.gossip_when(a_when, &mut a_link);
-        let mut b_sessions = b.gossip_when(stream::pending::<()>(), &mut b_link);
+        let mut a_sessions = a.gossip(&mut a_link);
+        let mut b_sessions = b.gossip(&mut b_link);
 
         // Freeze the session mid-flight: a couple of single polls per side
         // get the preambles (and the first protocol frames) onto the wire,
@@ -516,12 +521,12 @@ async fn dropping_a_driver_mid_session_commits_nothing() {
     // The forfeit is enforced, not just documented: both ends' links are
     // poisoned, so reuse fails fast — with no counterparty driving, which
     // the closed-world harness itself proves the fail-fast does not need.
-    let retry = run_to_quiescence(a.gossip(&mut a_link)).expect("fail-fast needs no peer");
+    let retry = run_to_quiescence(a.gossip_once(&mut a_link)).expect("fail-fast needs no peer");
     assert!(
         matches!(retry, Err(Error::LinkPoisoned)),
         "reusing A's forfeited link must fail fast, got {retry:?}"
     );
-    let retry = run_to_quiescence(b.gossip(&mut b_link)).expect("fail-fast needs no peer");
+    let retry = run_to_quiescence(b.gossip_once(&mut b_link)).expect("fail-fast needs no peer");
     assert!(
         matches!(retry, Err(Error::LinkPoisoned)),
         "reusing B's forfeited link must fail fast, got {retry:?}"
@@ -549,14 +554,15 @@ fn a_driver_on_a_poisoned_link_fails_fast() {
     // counterparty (the bounded-poll harness reports the stall and drops
     // the session future on the way out).
     assert!(
-        run_to_quiescence(a.gossip(&mut a_link)).is_err(),
+        run_to_quiescence(a.gossip_once(&mut a_link)).is_err(),
         "the session must stall against a silent peer, then cancel"
     );
 
     // The policy stream is pending forever, and nothing drives the other
     // end: only the pre-select fail-fast can resolve this, which the
     // closed-world harness proves happens promptly rather than hanging.
-    let mut sessions = a.gossip_when(stream::pending::<()>(), &mut a_link);
+    let a = with_policy_stream(a, stream::pending::<()>());
+    let mut sessions = a.gossip(&mut a_link);
     let item = run_to_quiescence(sessions.next())
         .expect("the fail-fast must not wait for a tick or a peer");
     assert!(
@@ -582,8 +588,10 @@ fn dropping_next_futures_loses_nothing() {
     let (a, b) = pollster::block_on(pair());
     let (mut a_link, mut b_link) = links();
     let (a_tx, a_when) = ticks();
-    let mut a_sessions = a.gossip_when(a_when, &mut a_link);
-    let mut b_sessions = b.gossip_when(stream::pending::<()>(), &mut b_link);
+    let a = with_policy_stream(a, a_when);
+    let mut a_sessions = a.gossip(&mut a_link);
+    let b = with_policy_stream(b, stream::pending::<()>());
+    let mut b_sessions = b.gossip(&mut b_link);
 
     a.send(1).unwrap();
     a_tx.unbounded_send(()).expect("driver alive");
@@ -613,21 +621,25 @@ fn dropping_next_futures_loses_nothing() {
     assert_eq!(a.snapshot().hash(), b.snapshot().hash());
 }
 
-/// A driver that ended cleanly leaves the connection at a session
-/// boundary, as documented: the same link then hosts a
-/// one-shot `gossip`, and after that a second driver, against the
-/// counterparty's still-running responder.
+/// A cleanly ended driver leaves the link usable for a one-shot exchange
+/// and a later driver, while its counterparty keeps responding.
 #[tokio::test(flavor = "current_thread")]
 async fn a_clean_end_leaves_the_connection_reusable() {
     let (a, b) = pair().await;
+    let a = a
+        .try_into_peer()
+        .await
+        .unwrap()
+        .gossip_when(|_| stream::once(std::future::ready(())))
+        .into_rumors();
     let (mut a_link, mut b_link) = links();
-    let mut b_sessions = b.gossip_when(stream::pending::<()>(), &mut b_link);
+    let b = with_policy_stream(b, stream::pending::<()>());
+    let mut b_sessions = b.gossip(&mut b_link);
 
     // Phase 1: a single-tick driver runs one session and ends cleanly.
     a.send(1).unwrap();
     {
-        let once = stream::once(std::future::ready(()));
-        let mut a_sessions = a.gossip_when(once, &mut a_link);
+        let mut a_sessions = a.gossip(&mut a_link);
         let (a_item, b_item) = timeout(
             DEADLINE,
             futures::future::join(a_sessions.next(), b_sessions.next()),
@@ -645,11 +657,11 @@ async fn a_clean_end_leaves_the_connection_reusable() {
         );
     }
 
-    // Phase 2: the same link hosts a one-shot `gossip`.
+    // Phase 2: the same link hosts a one-shot `gossip_once`.
     a.send(2).unwrap();
     let (a_out, b_item) = timeout(
         DEADLINE,
-        futures::future::join(a.gossip(&mut a_link), b_sessions.next()),
+        futures::future::join(a.gossip_once(&mut a_link), b_sessions.next()),
     )
     .await
     .expect("phase 2 deadlocked");
@@ -659,8 +671,7 @@ async fn a_clean_end_leaves_the_connection_reusable() {
     // Phase 3: and then a second driver.
     a.send(3).unwrap();
     {
-        let once = stream::once(std::future::ready(()));
-        let mut a_sessions = a.gossip_when(once, &mut a_link);
+        let mut a_sessions = a.gossip(&mut a_link);
         let (a_item, b_item) = timeout(
             DEADLINE,
             futures::future::join(a_sessions.next(), b_sessions.next()),
@@ -681,8 +692,9 @@ async fn a_clean_end_leaves_the_connection_reusable() {
 async fn a_dropped_driver_does_not_block_peer_reclaim() {
     let rumors: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
     let (mut a_link, _b_link) = links();
+    let rumors = with_policy_stream(rumors, stream::pending::<()>());
     {
-        let _driver = rumors.gossip_when(stream::pending::<()>(), &mut a_link);
+        let _driver = rumors.gossip(&mut a_link);
     }
     assert!(rumors.try_into_peer().await.is_some());
 }
@@ -722,16 +734,15 @@ async fn run_severed(a_fault: FaultPlan, b_fault: FaultPlan) -> Severed {
     let (a_side, b_side) = links();
     let a_link = faulty(a_side, a_fault);
     let b_link = faulty(b_side, b_fault);
+    let a = with_policy_stream(a, stream::once(std::future::ready(())));
+    let b = with_policy_stream(b, stream::pending::<()>());
     let a_task = async {
         let mut a_link = a_link;
-        let once = stream::once(std::future::ready(()));
-        a.gossip_when(once, &mut a_link).collect::<Vec<_>>().await
+        a.gossip(&mut a_link).collect::<Vec<_>>().await
     };
     let b_task = async {
         let mut b_link = b_link;
-        b.gossip_when(stream::pending::<()>(), &mut b_link)
-            .collect::<Vec<_>>()
-            .await
+        b.gossip(&mut b_link).collect::<Vec<_>>().await
     };
     let (a_items, b_items) = timeout(DEADLINE, futures::future::join(a_task, b_task))
         .await
@@ -812,16 +823,15 @@ async fn fixture_session_bytes() -> (usize, usize, usize) {
     let (a_side, b_side) = links();
     let (a_link, a_meter) = fault::metered(a_side);
     let (b_link, b_meter) = fault::metered(b_side);
+    let a = with_policy_stream(a, stream::once(std::future::ready(())));
+    let b = with_policy_stream(b, stream::pending::<()>());
     let a_task = async {
         let mut a_link = a_link;
-        let once = stream::once(std::future::ready(()));
-        a.gossip_when(once, &mut a_link).collect::<Vec<_>>().await
+        a.gossip(&mut a_link).collect::<Vec<_>>().await
     };
     let b_task = async {
         let mut b_link = b_link;
-        b.gossip_when(stream::pending::<()>(), &mut b_link)
-            .collect::<Vec<_>>()
-            .await
+        b.gossip(&mut b_link).collect::<Vec<_>>().await
     };
     let (a_items, b_items) = timeout(DEADLINE, futures::future::join(a_task, b_task))
         .await
@@ -960,6 +970,7 @@ enum Op {
     Pump(u8),
 }
 
+/// Generate local edits, initiation requests, and opportunities for network progress.
 fn op_strategy() -> impl Strategy<Value = Op> {
     prop_oneof![
         Just(Op::SendA),
@@ -989,8 +1000,10 @@ proptest! {
             let (a_tx, a_when) = ticks();
             let (b_tx, b_when) = ticks();
 
-            let a_sessions = a.gossip_when(a_when, &mut a_link);
-            let b_sessions = b.gossip_when(b_when, &mut b_link);
+            let a = with_policy_stream(a, a_when);
+            let a_sessions = a.gossip(&mut a_link);
+            let b = with_policy_stream(b, b_when);
+            let b_sessions = b.gossip(&mut b_link);
 
             // Collectors poll the drivers to completion; any session error
             // panics, which is the test's core assertion.
@@ -1064,7 +1077,8 @@ async fn truncated_initiation_is_a_terminal_error() {
     let b = b.into_parts();
     let mut b_control_write = b.control_write;
 
-    let mut a_sessions = a.gossip_when(stream::pending::<()>(), &mut a_link);
+    let a = with_policy_stream(a, stream::pending::<()>());
+    let mut a_sessions = a.gossip(&mut a_link);
 
     // Four bytes of a preamble, then hang up mid-preamble. Closing the
     // control-write half toward A signals end-of-stream on A's control read.
@@ -1116,8 +1130,9 @@ async fn a_control_read_error_on_the_idle_boundary_poisons_the_link() {
         },
     );
 
+    let a = with_policy_stream(a, stream::pending::<()>());
     {
-        let mut a_sessions = a.gossip_when(stream::pending::<()>(), &mut a_link);
+        let mut a_sessions = a.gossip(&mut a_link);
         let item = timeout(DEADLINE, a_sessions.next())
             .await
             .expect("error never surfaced")
@@ -1137,7 +1152,7 @@ async fn a_control_read_error_on_the_idle_boundary_poisons_the_link() {
 
     // The staging buffer never held a byte, yet the link is poisoned: the
     // fail-fast happens before any I/O, so no counterparty is needed.
-    let retry = timeout(DEADLINE, a.gossip(&mut a_link))
+    let retry = timeout(DEADLINE, a.gossip_once(&mut a_link))
         .await
         .expect("the fail-fast must not wait for a peer");
     assert!(

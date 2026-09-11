@@ -72,7 +72,7 @@ where
 
     let (mut near, mut far) = rumors::link::memory();
     let serve = sender.clone();
-    let server = tokio::spawn(async move { serve.gossip(&mut far).await.unwrap() });
+    let server = tokio::spawn(async move { serve.gossip_once(&mut far).await.unwrap() });
     let receiver = (match Peer::<B>::bootstrap().join(&mut near).await {
         rumors::Joined::Joined { peer } => peer,
         _ => panic!("the sender is established"),
@@ -156,7 +156,7 @@ async fn undecodable_payload_fails_bootstrap_cleanly() {
 
     let (mut near, mut far) = rumors::link::memory();
     let serve = sender.clone();
-    let server = tokio::spawn(async move { serve.gossip(&mut far).await });
+    let server = tokio::spawn(async move { serve.gossip_once(&mut far).await });
 
     let joined = Peer::<u64>::bootstrap().join(&mut near).await;
     assert!(
@@ -184,7 +184,7 @@ async fn out_of_range_payload_fails_gossip_cleanly() {
 
     let (mut near, mut far) = rumors::link::memory();
     let serve = sender.clone();
-    let server = tokio::spawn(async move { serve.gossip(&mut far).await });
+    let server = tokio::spawn(async move { serve.gossip_once(&mut far).await });
     let receiver = (match Peer::<u32>::bootstrap().join(&mut near).await {
         rumors::Joined::Joined { peer } => peer,
         _ => panic!("the sender is established"),
@@ -201,8 +201,8 @@ async fn out_of_range_payload_fails_gossip_cleanly() {
     sender.send(u64::MAX).unwrap();
     let (mut near, mut far) = rumors::link::memory();
     let serve = sender.clone();
-    let server = tokio::spawn(async move { serve.gossip(&mut far).await });
-    let gossiped = receiver.gossip(&mut near).await;
+    let server = tokio::spawn(async move { serve.gossip_once(&mut far).await });
+    let gossiped = receiver.gossip_once(&mut near).await;
     assert!(gossiped.is_err(), "u64::MAX must not decode as u32");
     // Hang up the failed side so the sender's half sees the transport
     // close rather than blocking on an unread stream.

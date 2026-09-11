@@ -1,6 +1,6 @@
 # Rumors review checklist
 
-**Active:** None; peer-model scope audit complete — `782274c7`.
+**Active:** 07, peer gossip policies and deadlines — ready for review on `codex/gossip-deadlines`, base `main`.
 **Next:** 05, investigate depth-dependent pipelining; then repair conformance memory accounting and convergence checks.
 
 These concern conforming sessions and unblock broader deep-session validation;
@@ -125,6 +125,12 @@ Coupled work: party ownership with 01; other API pieces can be separate.
 
 - [x] Verify retirement cancellation against durable identity at each handoff stage — `51e14731`.
   Sources: `async-hazards-2`, T128.
+
+- [ ] Configure per-peer gossip initiation and session deadlines; cover gossip, bootstrap, and retirement, with a one-second deadline in Sush. Keep continuous gossip and explicit gossip_once; leave idle waits untimed.
+  Source: Owner follow-up, 2026-09-11.
+
+- [ ] Wait for Sush's old gossip drivers to stop before starting a migration's bookmark use.
+  Source: Compatibility review, 2026-09-11; `Manager::migrate` requests cancellation without waiting.
 
 - [ ] Return the stamped Version from send and simplify version lookup at callers.
   Sources: `tests-common-2`, `tests-lifecycle-31`, T67.

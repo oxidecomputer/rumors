@@ -259,7 +259,7 @@ where
                 let (outcome, absorbed) = block_on(async {
                     tokio::join!(
                         retiring_peer.retire(&mut link_r),
-                        absorbing.local.gossip(&mut link_a),
+                        absorbing.local.gossip_once(&mut link_a),
                     )
                 });
                 absorbed.expect("clean-wire absorber gossip");

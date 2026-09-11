@@ -176,6 +176,54 @@ impl Bookmark for GatedBookmark {
 
 // ---- schedule helpers --------------------------------------------------------
 
+/// Joining drops its wire deadline before attaching the local bookmark, so a
+/// slow attachment cannot turn successful synchronization into a failed join.
+#[test]
+fn bootstrap_attachment_is_outside_the_session_deadline() {
+    use futures::channel::oneshot;
+    use rumors::Joined;
+
+    block_on(async {
+        let provider = Peer::<Msg>::seed().into_rumors();
+        provider.send(7).unwrap();
+        let bookmark = GatedBookmark::new(DurableStore::default());
+        bookmark.arm();
+        let (expire, deadline) = oneshot::channel();
+        let deadline = std::sync::Mutex::new(Some(deadline));
+        let bootstrap = Peer::<Msg>::bootstrap()
+            .session_deadline(move || {
+                let deadline = deadline.lock().unwrap().take().unwrap();
+                async move { deadline.await.unwrap() }
+            })
+            .bookmark(bookmark.clone());
+        let (mut a, mut b) = rumors::link::memory();
+        let joining = async {
+            let mut joining = std::pin::pin!(bootstrap.join(&mut b));
+            tokio::select! {
+                biased;
+                () = bookmark.entered() => {},
+                outcome = &mut joining => panic!("joining bypassed attachment: {outcome:?}"),
+            }
+            assert!(
+                expire.is_canceled(),
+                "wire completion must release its deadline"
+            );
+            bookmark.release();
+            joining.await
+        };
+        let (served, joined) = tokio::join!(provider.gossip_once(&mut a), joining);
+        served.unwrap();
+        let Joined::Joined { peer } = joined else {
+            panic!("attachment succeeds")
+        };
+        assert_eq!(
+            provider.snapshot().hash(),
+            peer.into_rumors().snapshot().hash()
+        );
+        assert!(!b.into_parts().session.poisoned());
+    });
+}
+
 /// Bootstrap a fresh peer with bookmark `bm` from `server` over a clean
 /// in-memory link, returning the booted peer's [`Rumors`].
 async fn boot_from(
@@ -195,7 +243,7 @@ async fn boot_from(
         },
         async move {
             let mut link = serve_side;
-            server.gossip(&mut link).await
+            server.gossip_once(&mut link).await
         },
     );
     serve_out.expect("serve bootstrap");
@@ -209,11 +257,11 @@ async fn gossip(a: &Rumors<Msg, GatedBookmark>, b: &Rumors<Msg, GatedBookmark>) 
     let (out_a, out_b) = tokio::join!(
         async move {
             let mut link = side_a;
-            a.gossip(&mut link).await
+            a.gossip_once(&mut link).await
         },
         async move {
             let mut link = side_b;
-            b.gossip(&mut link).await
+            b.gossip_once(&mut link).await
         },
     );
     out_a.expect("gossip side a");
@@ -275,14 +323,14 @@ async fn transmit_during_persist() -> Scene {
         let a = a.clone();
         async move {
             let mut link = side_a;
-            a.gossip(&mut link).await
+            a.gossip_once(&mut link).await
         }
     };
     let gb = {
         let b = b.clone();
         async move {
             let mut link = side_b;
-            b.gossip(&mut link).await
+            b.gossip_once(&mut link).await
         }
     };
     let (out_a, out_b, ()) = tokio::join!(ga, gb, async {
@@ -380,7 +428,7 @@ fn cancelled_persist_never_suppresses_the_next_update() {
             let (a, b) = (a.clone(), b.clone());
             let mut session = std::pin::pin!(async move {
                 let (mut side_a, mut side_b) = (side_a, side_b);
-                tokio::join!(a.gossip(&mut side_a), b.gossip(&mut side_b))
+                tokio::join!(a.gossip_once(&mut side_a), b.gossip_once(&mut side_b))
             });
             tokio::select! {
                 biased;
@@ -550,7 +598,7 @@ fn donation_persist_failure_aborts_before_the_wire() {
             let a = a.clone();
             async move {
                 let mut link = serve_side;
-                a.gossip(&mut link).await
+                a.gossip_once(&mut link).await
             }
         };
         let (boot_out, serve_out) = tokio::join!(
@@ -625,7 +673,7 @@ fn repeated_donation_aborts_normalize() {
                 let a = a.clone();
                 async move {
                     let mut link = serve_side;
-                    a.gossip(&mut link).await
+                    a.gossip_once(&mut link).await
                 }
             };
             let (boot_out, serve_out) = tokio::join!(

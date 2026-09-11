@@ -1,4 +1,4 @@
-//! Pairwise gossip semantics for `Rumors::gossip`, the wire merge primitive.
+//! Pairwise gossip semantics for `Rumors::gossip_once`, the wire merge primitive.
 //!
 //! With the shared-state rumor set, wire gossip *is* the merge: there is no
 //! in-process `join`. These properties pin the algebraic laws of one

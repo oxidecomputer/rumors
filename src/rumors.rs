@@ -9,7 +9,7 @@ pub use unordered::{TryNext, UnorderedMessages};
 use crate::bookmark::{Bookmark, BookmarkError, NoBookmark};
 use crate::link::{Acceptor, Connector, Link};
 use crate::message::EncodeError;
-use crate::{Batch, Error, Gossip, Gossiped, Network, Peer, Snapshot, Version};
+use crate::{Batch, Error, Gossiped, Network, Peer, Snapshot, Version};
 use futures::Stream;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -59,13 +59,16 @@ impl Drop for Extant {
     }
 }
 
+/// Share the replica, configuration, and storage while retaining a handle claim.
 impl<T, B: BookmarkError> Clone for Rumors<T, B> {
+    /// Create another handle to the same peer.
     fn clone(&self) -> Self {
         Self {
             peer: Peer {
                 network: self.peer.network,
                 window: self.peer.window,
                 run_budget: self.peer.run_budget,
+                gossip_policy: self.peer.gossip_policy.clone(),
                 inner: self.peer.inner.clone(),
                 bookmark: Arc::clone(&self.peer.bookmark),
                 codec: self.peer.codec,
@@ -416,6 +419,7 @@ impl<T, B: BookmarkError> Rumors<T, B> {
     }
 }
 
+/// Drive replication and recover exclusive ownership of the peer.
 impl<T, B: Bookmark> Rumors<T, B> {
     /// Give up this handle and reclaim the [`Peer`]: resolves when no
     /// [`Rumors`] for this set remains, handing the `Peer` to exactly one
@@ -435,16 +439,19 @@ impl<T, B: Bookmark> Rumors<T, B> {
     ///
     /// `Ok` carries the session's [`Gossiped`]: the converged version and
     /// the session's [`SessionStats`](crate::SessionStats). Its `led` is
-    /// always [`Led::Local`](crate::Led::Local): calling `gossip` is this
+    /// always [`Led::Local`](crate::Led::Local): calling `gossip_once` is this
     /// side's initiation, and a remote initiation already in flight merges
     /// into the same session, exactly as racing
-    /// [`gossip_when`](Self::gossip_when) triggers do.
+    /// [`gossip`](Self::gossip) triggers do.
     ///
     /// On `Ok`, both replicas hold every message either one held when the
     /// session began **and neither had deleted**, and the peer has
     /// confirmed that it completed and committed the session too. The
     /// link rests exactly at the session boundary, ready to host this
     /// pair's next session.
+    ///
+    /// The configured [`Peer::session_deadline`] applies to this exchange.
+    /// The initiation policy does not: this call always starts a session.
     ///
     /// On failure or cancellation, discard the poisoned link and reconnect.
     /// No partial reconciliation is published, but a completed local commit
@@ -460,7 +467,7 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// different handles. Each publishes its reconciled content atomically.
     /// The `&mut Link` borrow prevents overlapping sessions on one link.
     /// A bookmarked peer also serializes storage access; see [`Bookmark`].
-    pub async fn gossip<CR, CW, C, A>(
+    pub async fn gossip_once<CR, CW, C, A>(
         &self,
         link: &mut Link<CR, CW, C, A>,
     ) -> Result<Gossiped, Error<B>>
@@ -471,124 +478,76 @@ impl<T, B: Bookmark> Rumors<T, B> {
         C: Connector,
         A: Acceptor,
     {
-        self.peer.gossip(link).await
+        self.peer.gossip_once(link).await
     }
 
-    /// Drive a long-lived connection: run one gossip session per initiating
-    /// `when` cue, and serve every session the remote initiates, until
-    /// `when` ends or the connection fails.
+    /// Keep one link synchronized, yielding an outcome after each gossip session.
     ///
-    /// `when` defines the local initiation policy. Each item it yields
-    /// converts into a [`Gossip`] cue (`()` converts to
-    /// [`Gossip::WhenChanged`]): providing
-    /// [`self.changes()`](Self::changes) implements push-on-change; an
-    /// interval stream mapped to [`Gossip::Unconditionally`] probes the
-    /// connection on a heartbeat (the initiation-policy section below);
-    /// adding debounce/jitter/rate-limit adapters can set cadence; an
-    /// always-pending stream only ever serves in response to remote
-    /// initiation.
+    /// The driver serves remote initiations and follows the local policy
+    /// selected by [`Peer::gossip_when`]. The default policy starts
+    /// immediately, then pushes local changes. Configure
+    /// [`Peer::session_deadline`] to bound active sessions without timing idle
+    /// waits.
     ///
-    /// Do not provide an always-ready stream (e.g.
-    /// [`stream::repeat`](futures::stream::repeat)), because this would
-    /// busy-loop — and a stream of always-ready unconditional cues would
-    /// saturate the connection with back-to-back sessions: `when` should go
-    /// quiet between reasons to gossip.
+    /// Each successful [`Gossiped`] reports the converged version, initiation
+    /// direction, and statistics. You can discard these if you don't care about
+    /// them, but **keep polling the resultant stream to drive the connection.**
     ///
-    /// The returned stream *must be polled* for gossip to continue. It
-    /// yields one [`Gossiped`] per completed gossip session. It terminates
-    /// in one of three ways:
+    /// To force one exchange regardless of the initiation policy, use
+    /// [`gossip_once`](Self::gossip_once).
     ///
-    /// - the connection fails: one final `Err`, with the same state guarantees
-    ///   as [`gossip`](Self::gossip). Discard the poisoned link;
-    /// - `when` ends, cleanly, after finishing any session in flight;
-    /// - the remote hangs up at a session boundary, cleanly.
+    /// # Ending the driver
     ///
-    /// Either clean termination leaves the link at a session boundary, but
-    /// they differ in what the link is still good for. When `when` ends,
-    /// the connection is intact: hand the link to another driver or
-    /// session. When the remote hangs up, the peer is gone: a new driver on
-    /// the same link only observes the goodbye again, and a one-shot
-    /// session fails against the closed transport. Each driven session
-    /// promises exactly what a one-shot [`gossip`](Self::gossip) does
-    /// ([what a session promises](crate::link::Link#what-a-session-promises)).
+    /// - An error, including deadline expiry, yields one final `Err` and ends the
+    ///   stream. Discard the poisoned link and reconnect.
+    /// - The local policy ending stops the driver after any active session.
+    ///   The link remains usable by another driver. A shared signal can end the
+    ///   policies across all handles; see [`Peer::gossip_when`]'s graceful-shutdown
+    ///   example. Keep polling each driver until it ends.
+    /// - A remote hang-up between sessions ends the stream cleanly. Reconnect
+    ///   to reach that peer again.
     ///
-    /// # Initiation policy
+    /// # Deadlines and cancellation
     ///
-    /// A [`Gossip::WhenChanged`] cue initiates gossip only if the local
-    /// [`Rumors`] has advanced past this connection's last
-    /// [`converged`](Gossiped::converged) version. Providing
-    /// [`changes`](Self::changes) as `when` therefore never echoes a session
-    /// back after its own gossip. A when-changed cue never *pulls* from the
-    /// other side: each side pushes its own news.
+    /// A configured deadline starts when the local policy initiates a session or
+    /// the first remote bytes arrive. It covers the entire exchange through confirmation of
+    /// completion, without being reset by traffic. When both the exchange and its
+    /// deadline are ready, the exchange's result takes precedence.
     ///
-    /// A [`Gossip::Unconditionally`] cue initiates whether or not anything
-    /// changed locally, and a session converges both replicas both ways —
-    /// so an interval stream of unconditional cues is both a liveness probe
-    /// (every session is an end-to-end round-trip, so a dead connection
-    /// surfaces as the stream's terminal `Err`) and an anti-entropy net
-    /// (pulling any news the remote's own policy stream stayed quiet
-    /// about). Between converged replicas such a session is a short
-    /// exchange that changes nothing and wakes no observer.
+    /// Dropping a `next()` future preserves the active session and its deadline
+    /// inside the stream. Dropping the stream cancels any active session and
+    /// poisons the link. Dropping it between completed sessions is safe. To stop
+    /// cleanly regardless of timing, end the policy stream and drain the driver.
     ///
-    /// # Cancellation
+    /// Failure or cancellation publishes no partial reconciliation, but does not
+    /// undo a local commit already made. In particular, expiry while awaiting
+    /// completion can leave the remote's commit unconfirmed. Accepting a retirement
+    /// can also commit content before a bookmark write fails; [`Error::Bookmark`]
+    /// explains recovery. See the [session contract](crate::link::Link#what-a-session-promises).
     ///
-    /// Futures derived from polling the result-stream are cancel-safe: all
-    /// driver state lives in the stream itself. Dropping the result stream,
-    /// however, is *not* cancellation-safe: a session in flight is
-    /// cancelled with it, poisoning the link exactly as dropping a
-    /// [`gossip`](Self::gossip) future would. To stop cleanly, end the
-    /// `when` stream and poll the driver to completion; what the link
-    /// remains good for after each clean termination is stated above.
+    /// Separate links can run concurrently through the same or different handles.
+    /// Each publishes its reconciled content atomically. The mutable link borrow
+    /// prevents concurrent sessions on one link; [`Bookmark`] storage access is
+    /// also serialized.
     ///
-    /// # Examples
+    /// # Example
     ///
-    /// Two replicas keep one connection converged, each end driving with
-    /// its own change signal:
-    ///
-    /// ```
+    /// ```no_run
+    /// # async fn example(rumors: &rumors::Rumors<String>, link: &mut rumors::link::MemoryLink)
+    /// # -> Result<(), rumors::Error> {
     /// use futures::StreamExt;
-    /// use rumors::Peer;
     ///
-    /// # tokio::runtime::Builder::new_current_thread()
-    /// #     .build()
-    /// #     .unwrap()
-    /// #     .block_on(async {
-    /// let alice = Peer::<String>::seed().into_rumors();
-    /// let (mut near, mut far) = rumors::link::memory();
-    /// # let serve = alice.clone();
-    /// # let server = tokio::spawn(async move {
-    /// #     serve.gossip(&mut far).await.unwrap();
-    /// # });
-    /// let rumors::Joined::Joined { peer: bob } =
-    ///     Peer::<String>::bootstrap().join(&mut near).await
-    /// else {
-    ///     panic!("Alice must serve the bootstrap");
-    /// };
-    /// let bob = bob.into_rumors();
-    /// # server.await.unwrap();
-    ///
-    /// // A long-lived link between them, one driver per end.
-    /// let (mut alice_side, mut bob_side) = rumors::link::memory();
-    ///
-    /// alice.send("psst".to_string())?;
-    ///
-    /// let mut alice_drive = alice.gossip_when(alice.changes(), &mut alice_side);
-    /// let mut bob_drive = bob.gossip_when(bob.changes(), &mut bob_side);
-    ///
-    /// // Alice's change signal initiates; Bob's driver serves. One session
-    /// // converges the pair, and each driver reports it.
-    /// let (pushed, served) = tokio::join!(alice_drive.next(), bob_drive.next());
-    /// pushed.expect("driver running")?;
-    /// served.expect("driver running")?;
-    /// assert_eq!(bob.snapshot().len(), 1);
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// # })?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// let mut sessions = rumors.gossip(link);
+    /// while let Some(session) = sessions.next().await {
+    ///     let completed = session?;
+    ///     // Inspect `completed` or continue driving the connection.
+    /// }
+    /// # Ok(())
+    /// # }
     /// ```
     #[must_use = "the driver does nothing until the returned stream is polled"]
-    pub fn gossip_when<'a, CR, CW, C, A, S>(
+    pub fn gossip<'a, CR, CW, C, A>(
         &'a self,
-        when: S,
         link: &'a mut Link<CR, CW, C, A>,
     ) -> impl Stream<Item = Result<Gossiped, Error<B>>> + Unpin + 'a
     where
@@ -597,9 +556,7 @@ impl<T, B: Bookmark> Rumors<T, B> {
         CW: AsyncWrite + Unpin + Send,
         C: Connector,
         A: Acceptor,
-        S: Stream + 'a,
-        S::Item: Into<Gossip>,
     {
-        self.peer.gossip_when(when, link)
+        self.peer.gossip_driver(link)
     }
 }

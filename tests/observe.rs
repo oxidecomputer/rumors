@@ -280,7 +280,7 @@ fn forked(observer: Option<&Arc<Recording>>, parent: &Rumors<Vec<u8>>) -> Rumors
         bootstrap = bootstrap.observe(observer.clone());
     }
     block_on(async {
-        let (peer, served) = tokio::join!(bootstrap.join(&mut near), serve.gossip(&mut far),);
+        let (peer, served) = tokio::join!(bootstrap.join(&mut near), serve.gossip_once(&mut far),);
         served.expect("the parent serves the fork");
         (match peer {
             rumors::Joined::Joined { peer } => peer,
@@ -335,13 +335,13 @@ proptest! {
             {
                 let a = a.clone();
                 move |mut link| async move {
-                    a.gossip(&mut link).await.expect("gossip A");
+                    a.gossip_once(&mut link).await.expect("gossip A");
                 }
             },
             {
                 let b = b.clone();
                 move |mut link| async move {
-                    b.gossip(&mut link).await.expect("gossip B");
+                    b.gossip_once(&mut link).await.expect("gossip B");
                 }
             },
         );
@@ -386,13 +386,13 @@ proptest! {
                 {
                     let a = a.clone();
                     move |mut link| async move {
-                        a.gossip(&mut link).await.expect("gossip A");
+                        a.gossip_once(&mut link).await.expect("gossip A");
                     }
                 },
                 {
                     let b = b.clone();
                     move |mut link| async move {
-                        b.gossip(&mut link).await.expect("gossip B");
+                        b.gossip_once(&mut link).await.expect("gossip B");
                     }
                 },
             )
@@ -420,7 +420,10 @@ fn bootstrap_sessions_are_observed() {
         {
             let provider = provider.clone();
             move |mut link| async move {
-                provider.gossip(&mut link).await.expect("provider gossip");
+                provider
+                    .gossip_once(&mut link)
+                    .await
+                    .expect("provider gossip");
             }
         },
         {
@@ -465,7 +468,10 @@ fn retire_sessions_are_observed() {
         {
             let absorber = absorber.clone();
             move |mut link| async move {
-                absorber.gossip(&mut link).await.expect("absorber gossip");
+                absorber
+                    .gossip_once(&mut link)
+                    .await
+                    .expect("absorber gossip");
             }
         },
         move |mut link| async move {

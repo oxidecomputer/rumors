@@ -493,7 +493,7 @@ impl DelayedWire {
         } = self;
         let virtual_elapsed = runtime.block_on(async {
             let virtual_start = Instant::now();
-            let (a_result, b_result) = tokio::join!(a.gossip(a_link), b.gossip(b_link));
+            let (a_result, b_result) = tokio::join!(a.gossip_once(a_link), b.gossip_once(b_link));
             a_result.expect("peer A gossip");
             b_result.expect("peer B gossip");
             virtual_start.elapsed()

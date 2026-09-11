@@ -104,13 +104,13 @@ where
         sides: [
             Box::pin(async move {
                 let mut a_link = a_link;
-                a.gossip(&mut a_link)
+                a.gossip_once(&mut a_link)
                     .await
                     .expect("overlapped session side A");
             }),
             Box::pin(async move {
                 let mut b_link = b_link;
-                b.gossip(&mut b_link)
+                b.gossip_once(&mut b_link)
                     .await
                     .expect("overlapped session side B");
             }),

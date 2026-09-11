@@ -149,7 +149,7 @@ pub enum SessionKind {
     /// This side is joining the universe ([`Bootstrap::join`](crate::Bootstrap::join)).
     Bootstrap,
     /// This side is gossiping ([`Rumors::gossip`](crate::Rumors::gossip)
-    /// and [`Rumors::gossip_when`](crate::Rumors::gossip_when)).
+    /// and [`Rumors::gossip_once`](crate::Rumors::gossip_once)).
     Gossip,
     /// This side is retiring ([`Peer::retire`](crate::Peer::retire)).
     Retire,

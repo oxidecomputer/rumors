@@ -1,6 +1,6 @@
 //! Connection reuse: back-to-back gossip sessions on one transport.
 //!
-//! A [`rumors::Rumors::gossip`] session that returns `Ok` leaves the stream
+//! A [`rumors::Rumors::gossip_once`] session that returns `Ok` leaves the stream
 //! at a session boundary, so a single connection can host any number of
 //! sequential sessions. These tests pin that promise at the two
 //! interleavings that matter: rounds separated by a cross-peer barrier, and
@@ -68,7 +68,7 @@ async fn barriered_sessions_reuse_the_connection() {
         a.send(round).unwrap();
         b.send(round + 100).unwrap();
         let (a_out, b_out) = timeout(DEADLINE, async {
-            tokio::join!(a.gossip(&mut a_link), b.gossip(&mut b_link))
+            tokio::join!(a.gossip_once(&mut a_link), b.gossip_once(&mut b_link))
         })
         .await
         .expect("barriered round deadlocked");
@@ -103,13 +103,13 @@ async fn eager_reinitiation_reuses_the_connection() {
     let drive_a = async {
         for round in 0..ROUNDS {
             a.send(round).unwrap();
-            a.gossip(&mut a_link).await.expect("A's session");
+            a.gossip_once(&mut a_link).await.expect("A's session");
         }
     };
     let drive_b = async {
         for round in 0..ROUNDS {
             b.send(round + 100).unwrap();
-            b.gossip(&mut b_link).await.expect("B's session");
+            b.gossip_once(&mut b_link).await.expect("B's session");
         }
     };
     timeout(DEADLINE, async { tokio::join!(drive_a, drive_b) })
@@ -143,7 +143,7 @@ async fn empty_sessions_advance_epochs_in_lockstep() {
     // Session 1: the pair is converged, so this is preamble, greeting, and
     // epilogue only — no data stream opens in either direction.
     let (a_out, b_out) = timeout(DEADLINE, async {
-        tokio::join!(a.gossip(&mut a_link), b.gossip(&mut b_link))
+        tokio::join!(a.gossip_once(&mut a_link), b.gossip_once(&mut b_link))
     })
     .await
     .expect("the converged session deadlocked");
@@ -171,7 +171,7 @@ async fn empty_sessions_advance_epochs_in_lockstep() {
     a.send(1).unwrap();
     b.send(2).unwrap();
     let (a_out, b_out) = timeout(DEADLINE, async {
-        tokio::join!(a.gossip(&mut a_link), b.gossip(&mut b_link))
+        tokio::join!(a.gossip_once(&mut a_link), b.gossip_once(&mut b_link))
     })
     .await
     .expect("the divergent session deadlocked");
@@ -197,7 +197,7 @@ async fn epoch_wrap_keeps_the_pair_in_lockstep() {
 
     for session in 0..PRE_WRAP_SESSIONS {
         let (a_out, b_out) = timeout(DEADLINE, async {
-            tokio::join!(a.gossip(&mut a_link), b.gossip(&mut b_link))
+            tokio::join!(a.gossip_once(&mut a_link), b.gossip_once(&mut b_link))
         })
         .await
         .unwrap_or_else(|_| panic!("no-op session {session} deadlocked"));
@@ -209,7 +209,7 @@ async fn epoch_wrap_keeps_the_pair_in_lockstep() {
         a.send(round).unwrap();
         b.send(100 + round).unwrap();
         let (a_out, b_out) = timeout(DEADLINE, async {
-            tokio::join!(a.gossip(&mut a_link), b.gossip(&mut b_link))
+            tokio::join!(a.gossip_once(&mut a_link), b.gossip_once(&mut b_link))
         })
         .await
         .unwrap_or_else(|_| panic!("wrap round {round} deadlocked"));
@@ -240,7 +240,7 @@ async fn drain_assert_catches_a_planted_leftover_byte() {
     let (a, b) = pair().await;
     let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(LINK_BUF);
     let (a_out, b_out) = timeout(DEADLINE, async {
-        tokio::join!(a.gossip(&mut a_link), b.gossip(&mut b_link))
+        tokio::join!(a.gossip_once(&mut a_link), b.gossip_once(&mut b_link))
     })
     .await
     .expect("the clean session deadlocked");

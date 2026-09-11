@@ -33,7 +33,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 /// Two deliberate boundaries:
 ///
 /// - **No duration field.** The caller owns the clock: wrap the `gossip`
-///   call (or the `gossip_when` stream's polls) in whatever timing
+///   call (or the `gossip` stream's polls) in whatever timing
 ///   instrument the application already uses. A duration measured inside
 ///   the crate would bake in one notion of time and satisfy nobody's.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

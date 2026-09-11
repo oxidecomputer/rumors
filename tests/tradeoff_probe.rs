@@ -78,7 +78,7 @@ where
     let right = pollster::block_on(async {
         let (mut provider, mut newcomer) = rumors::link::memory_with_capacity(BUILD_CAPACITY);
         let (served, joined) = tokio::join!(
-            left.gossip(&mut provider),
+            left.gossip_once(&mut provider),
             Peer::<T>::bootstrap().join(&mut newcomer),
         );
         served.expect("serve bootstrap");
@@ -115,8 +115,10 @@ where
     let (mut a_link, mut b_link) = latency::delayed_pair(pipe, DELAY);
     let elapsed = runtime.block_on(async {
         let start = tokio::time::Instant::now();
-        let (a_result, b_result) =
-            tokio::join!(left.gossip(&mut a_link), right.gossip(&mut b_link));
+        let (a_result, b_result) = tokio::join!(
+            left.gossip_once(&mut a_link),
+            right.gossip_once(&mut b_link)
+        );
         a_result.expect("peer A gossip");
         b_result.expect("peer B gossip");
         start.elapsed()

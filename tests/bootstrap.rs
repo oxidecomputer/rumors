@@ -28,7 +28,7 @@ where
         let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(LINK_BUF);
 
         let (provider_out, bootstrap_out) = tokio::join!(
-            provider.gossip(&mut a_link),
+            provider.gossip_once(&mut a_link),
             Peer::<T>::bootstrap().join(&mut b_link),
         );
         provider_out.expect("provider gossip");
@@ -151,7 +151,7 @@ fn zero_budget_bootstrap_converges() {
     let bootstrapped = block_on(async {
         let (mut provider_link, mut newcomer_link) = rumors::link::memory_with_capacity(LINK_BUF);
         let (served, joined) = tokio::join!(
-            provider.gossip(&mut provider_link),
+            provider.gossip_once(&mut provider_link),
             Peer::<u64>::bootstrap()
                 .sync_memory_budget(0)
                 .join(&mut newcomer_link),
@@ -200,7 +200,7 @@ fn wire_join(
     block_on(async move {
         let (mut provider_link, mut newcomer_link) = rumors::link::memory_with_capacity(LINK_BUF);
         let (served, joined) = tokio::join!(
-            provider.gossip(&mut provider_link),
+            provider.gossip_once(&mut provider_link),
             bootstrap.join(&mut newcomer_link),
         );
         served.expect("the provider serves the bookmarked bootstrap");

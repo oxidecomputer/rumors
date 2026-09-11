@@ -74,7 +74,7 @@ fn a_session_cancelled_mid_descent_poisons_the_link() {
     {
         let mut cx = Context::from_waker(noop_waker_ref());
         let mut session =
-            pin!(async { tokio::join!(a.gossip(&mut a_link), b.gossip(&mut b_link)) });
+            pin!(async { tokio::join!(a.gossip_once(&mut a_link), b.gossip_once(&mut b_link)) });
         for _ in 0..MID_FLIGHT_POLLS {
             assert!(
                 session.as_mut().poll(&mut cx).is_pending(),
@@ -97,12 +97,12 @@ fn a_session_cancelled_mid_descent_poisons_the_link() {
     // Reuse fails fast on both ends. The closed-world harness itself is the
     // no-hang proof: the fail-fast resolves with no counterparty driving.
     let (a_before, b_before) = (a_report.snapshot(), b_report.snapshot());
-    let retry = run_to_quiescence(a.gossip(&mut a_link)).expect("the fail-fast needs no peer");
+    let retry = run_to_quiescence(a.gossip_once(&mut a_link)).expect("the fail-fast needs no peer");
     assert!(
         matches!(retry, Err(Error::LinkPoisoned)),
         "a poisoned link must fail A's next session fast, got {retry:?}"
     );
-    let retry = run_to_quiescence(b.gossip(&mut b_link)).expect("the fail-fast needs no peer");
+    let retry = run_to_quiescence(b.gossip_once(&mut b_link)).expect("the fail-fast needs no peer");
     assert!(
         matches!(retry, Err(Error::LinkPoisoned)),
         "a poisoned link must fail B's next session fast, got {retry:?}"
@@ -139,12 +139,12 @@ fn dropping_the_link_immediately_after_ok_is_clean() {
         tokio::join!(
             async {
                 let mut a_link = a_link;
-                a.gossip(&mut a_link).await
+                a.gossip_once(&mut a_link).await
                 // A's whole link drops right here, at its own outcome.
             },
             async {
                 let mut b_link = b_link;
-                b.gossip(&mut b_link).await
+                b.gossip_once(&mut b_link).await
             },
         )
     });
@@ -174,7 +174,7 @@ fn a_lost_epilogue_marker_is_distinguished_and_post_commit() {
         let (mut b_link, report) = wrap_link(IoSide::Right, IoPlan::default(), b_link);
         let (a_out, b_out) = block_on(async {
             let mut a_link = a_link;
-            tokio::join!(a.gossip(&mut a_link), b.gossip(&mut b_link))
+            tokio::join!(a.gossip_once(&mut a_link), b.gossip_once(&mut b_link))
         });
         a_out.expect("probe session A");
         b_out.expect("probe session B");
@@ -207,11 +207,11 @@ fn a_lost_epilogue_marker_is_distinguished_and_post_commit() {
         tokio::join!(
             async {
                 let mut a_link = a_link;
-                a.gossip(&mut a_link).await
+                a.gossip_once(&mut a_link).await
             },
             async {
                 let mut b_link = b_link;
-                b.gossip(&mut b_link).await
+                b.gossip_once(&mut b_link).await
             },
         )
     });

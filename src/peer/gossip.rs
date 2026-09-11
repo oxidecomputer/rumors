@@ -6,7 +6,6 @@
 //! the identity can be returned to the caller.
 
 use crate::error::{Mismatch, Phase, TransportOperation as Op};
-use std::pin::Pin;
 use std::sync::Arc;
 
 use before::{Party, Ticks};
@@ -81,7 +80,7 @@ type DynWrite<'a> = &'a mut (dyn AsyncWrite + Unpin + Send + 'a);
 ///
 /// The funnels produce this (via [`erase`]) and [`Peer::gossip_inner`]
 /// consumes it; it stays a tuple of parts rather than an assembled [`Link`]
-/// so the `gossip_when` driver can reborrow its halves one session at a
+/// so the `gossip` driver can reborrow its halves one session at a
 /// time.
 type DynLinkParts<'a> = (DynRead<'a>, DynWrite<'a>, DynConnector, DynAcceptor<'a>, u8);
 
@@ -139,12 +138,11 @@ pub struct Unbookmarked<T, B: BookmarkError> {
     pub error: BookmarkIo<B::Error>,
 }
 
-/// One completed gossip session: what [`gossip`](crate::Rumors::gossip)
-/// returns and the [`gossip_when`](crate::Rumors::gossip_when) stream
-/// yields.
+/// One completed exchange, returned by [`gossip_once`](crate::Rumors::gossip_once)
+/// or yielded by the [`gossip`](crate::Rumors::gossip) stream.
 ///
 /// One of these exists per successful session; a failed session is an
-/// `Err` instead (the terminal `Err` of the `gossip_when` stream).
+/// `Err` instead (the terminal `Err` of the `gossip` stream).
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct Gossiped {
@@ -168,55 +166,47 @@ pub struct Gossiped {
 /// close together, each side may record `Local` for what becomes one session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Led {
-    /// This side initiated.
-    ///
-    /// Either its [`gossip_when`](crate::Rumors::gossip_when) `when`
-    /// stream yielded a [`Gossip`] cue that initiated, or the caller
-    /// invoked the one-shot [`gossip`](crate::Rumors::gossip): the call
-    /// itself is the local trigger, so a one-shot session always reports
-    /// `Local`.
+    /// The local policy or an explicit [`gossip_once`](crate::Rumors::gossip_once)
+    /// call initiated the session.
     Local,
     /// The remote's preamble arrived first: this side responded.
     Remote,
 }
 
-/// One cue from a [`gossip_when`](crate::Rumors::gossip_when) policy stream:
-/// whether this reason to gossip is conditional on local change.
+/// Whether a policy stream item requests gossip conditionally or unconditionally.
 ///
-/// The `when` stream's items convert into this (`Into<Gossip>`), and `()`
-/// converts to [`WhenChanged`](Self::WhenChanged), so a
-/// [`changes`](crate::Rumors::changes) stream plugs in directly as the
-/// push-on-change policy.
+/// `()` converts to [`WhenChanged`](Self::WhenChanged), so the default changes
+/// stream needs no adaptation for [`Peer::gossip_when`]. Unconditional requests
+/// can add heartbeat sessions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Gossip {
     /// Initiate a session only if the local set has changed since this
     /// connection last [`converged`](Gossiped::converged).
     ///
-    /// A cue that finds nothing new costs nothing and crosses no wire; in
-    /// particular, the cue a [`changes`](crate::Rumors::changes) stream
-    /// fires after a session's own merge never echoes a second session
-    /// back over the connection that delivered it.
+    /// If nothing changed, the driver skips the session without sending bytes.
+    /// In particular, a change notification from the session's own merge never
+    /// starts another session on the connection that delivered it.
     WhenChanged,
     /// Initiate a session whether or not anything changed locally.
     ///
     /// A session between already-converged replicas is a short round-trip
     /// that confirms the connection works end to end, and a session
     /// between diverged ones converges them both ways — so an interval
-    /// stream of unconditional cues doubles as a liveness probe and an
+    /// stream of unconditional requests doubles as a liveness probe and an
     /// anti-entropy net, pulling news a remote's own policy stream stayed
     /// quiet about.
     Unconditionally,
 }
 
-/// `()` is the when-changed cue: [`changes`](crate::Rumors::changes) (and
-/// any other unit stream) feeds [`gossip_when`](crate::Rumors::gossip_when)
-/// the push-on-change policy without adaptation.
+/// Use unit-valued streams, including change subscriptions, as conditional initiation requests.
 impl From<()> for Gossip {
+    /// Treat a change notification as a conditional initiation request.
     fn from((): ()) -> Self {
         Gossip::WhenChanged
     }
 }
 
+/// Create joined peers and attach bookmark storage.
 impl<T> Peer<T, NoBookmark> {
     /// Run bootstrap over any link.
     ///
@@ -235,7 +225,8 @@ impl<T> Peer<T, NoBookmark> {
     {
         Box::pin(async move {
             let parts = erase(&mut *link)?;
-            let result = Self::bootstrap_erased(config, parts).await;
+            let policy = config.gossip_policy.clone();
+            let result = policy.run(Self::bootstrap_erased(config, parts)).await;
             // Both arrival and mutual bootstrap complete the epilogue,
             // so either outcome leaves the link ready for another session.
             if result.is_ok() {
@@ -302,6 +293,7 @@ impl<T> Peer<T, NoBookmark> {
                 network: remote.network,
                 window: config.window,
                 run_budget: config.run_budget,
+                gossip_policy: config.gossip_policy,
                 inner: watch::Sender::new(Inner::new(party, Tree::from_root(root))),
                 bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
                 codec,
@@ -320,6 +312,7 @@ impl<T> Peer<T, NoBookmark> {
             network,
             window,
             run_budget,
+            gossip_policy,
             inner,
             codec,
             observe,
@@ -329,6 +322,7 @@ impl<T> Peer<T, NoBookmark> {
             network,
             window,
             run_budget,
+            gossip_policy,
             inner,
             bookmark: Arc::new(Mutex::new(Bookmarked::new(bookmark))),
             codec,
@@ -358,6 +352,7 @@ impl<T> Peer<T, NoBookmark> {
                     network: peer.network,
                     window: peer.window,
                     run_budget: peer.run_budget,
+                    gossip_policy: peer.gossip_policy,
                     inner: peer.inner,
                     bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
                     codec: peer.codec,
@@ -373,20 +368,12 @@ impl<T> Peer<T, NoBookmark> {
 // public `Peer<T, B>` self type. Every method here is crate-private; public
 // entry points bind the public `Bookmark` trait.
 #[allow(private_bounds)]
+/// Run sessions and maintain bookmarks across ownership changes.
 impl<T, B: Persist> Peer<T, B> {
-    /// Runs the transactional body behind [`retire`](Peer::retire).
+    /// Reconcile and donate, returning the peer only when handoff has not begun.
     ///
-    /// The session begins with a round of gossip: the two peers reconcile
-    /// content exactly as [`gossip`](crate::Rumors::gossip) would, so
-    /// everything we hold that the peer had not yet seen survives in it; the
-    /// peer then absorbs our identity. A peer running ordinary gossip absorbs a
-    /// retiree transparently, so the counterparty needs no special call. The
-    /// four outcomes are the [`Retire`] variants; see each for what survived.
-    ///
-    /// The gossip round writes back into the retiring set too: observers of a
-    /// retiring set ([`UnorderedMessages`](crate::UnorderedMessages),
-    /// [`CausalMessages`](crate::CausalMessages)) drain the *reconciled* final
-    /// state — everything the session learned included — before they end.
+    /// Reconciliation publishes on both sides. Surviving message observers
+    /// drain the retiring peer's final merged state before they end.
     pub(crate) async fn retire_inner<CR, CW, C, A>(
         self,
         link: &mut Link<CR, CW, C, A>,
@@ -410,7 +397,7 @@ impl<T, B: Persist> Peer<T, B> {
                 };
             }
         };
-        let (intent, result) = self.gossip_inner(Intent::Retire, &mut staged, parts).await;
+        let (intent, result) = self.session(Intent::Retire, &mut staged, parts).await;
         // Un-poison on clean completion, before the outcome is shaped: every
         // `Ok` — retired, or declined by a mutually retiring peer — leaves
         // the control stream resting at the session boundary.
@@ -426,7 +413,7 @@ impl<T, B: Persist> Peer<T, B> {
     }
 
     /// Gossip with a remote peer to synchronize rumor sets.
-    pub(crate) async fn gossip<CR, CW, C, A>(
+    pub(crate) async fn gossip_once<CR, CW, C, A>(
         &self,
         link: &mut Link<CR, CW, C, A>,
     ) -> Result<Gossiped, Error<B>>
@@ -439,7 +426,7 @@ impl<T, B: Persist> Peer<T, B> {
     {
         let mut staged = handshake::Staged::new();
         let parts = erase(link).map_err(Error::widen)?;
-        let (_intent, result) = self.gossip_inner(Intent::Remain, &mut staged, parts).await;
+        let (_, result) = self.session(Intent::Remain, &mut staged, parts).await;
         // Un-poison on clean completion: the session's own `Ok` under V2 is
         // already epilogue-certified, so the control stream rests at the
         // session boundary.
@@ -449,12 +436,33 @@ impl<T, B: Persist> Peer<T, B> {
         // A one-shot session is always locally led: the call itself is
         // this side's trigger. A remote preamble already in flight merges
         // into the same session (the preamble exchange is symmetric),
-        // exactly as it does when two `gossip_when` triggers race.
+        // exactly as it does when two `gossip` triggers race.
         result.map(|(converged, stats)| Gossiped {
             converged,
             led: Led::Local,
             stats,
         })
+    }
+
+    /// Time an established peer's session while retaining its recovery outcome.
+    ///
+    /// The outcome must outlive the protocol future: after deadline cancellation,
+    /// retirement can return the peer only if its handoff never started.
+    async fn session(
+        &self,
+        intent: Intent,
+        staged: &mut handshake::Staged,
+        link: DynLinkParts<'_>,
+    ) -> (Intent, Result<(Version, SessionStats), Error<B>>)
+    where
+        T: Send + Sync + 'static,
+    {
+        let mut outcome = Intent::Remain;
+        let result = self
+            .gossip_policy
+            .run(self.gossip_inner(intent, &mut outcome, staged, link))
+            .await;
+        (outcome, result)
     }
 
     /// Durably record this peer's *own* identity at its current version, without
@@ -519,26 +527,27 @@ impl<T, B: Persist> Peer<T, B> {
     /// Synchronize with a remote peer, optionally donating our identity.
     ///
     /// Only `retire_inner` may pass `Intent::Retire`: it owns the consumed
-    /// `Peer`, so no writable handle can coexist with the donation. A returned
-    /// `Intent::Retire` forbids returning that peer, even on error.
+    /// `Peer`, so no writable handle can coexist with the donation. `outcome` becomes
+    /// `Intent::Retire` when the peer must be consumed, even on error or timeout.
     ///
-    /// Return `Intent::Retire` once transmission of our whole party begins,
-    /// even if the session fails: the peer may already have received it.
-    /// Otherwise return `Intent::Remain`.
+    /// Set `outcome` before first polling the identity write: after that point
+    /// the recipient may hold it. The deadline wrapper owns this flag so dropping
+    /// this future cannot lose the handoff decision.
     ///
     /// Success includes session statistics and the converged frontier, before
-    /// concurrent local commits. [`gossip_when`](crate::Rumors::gossip_when)
+    /// concurrent local commits. [`gossip`](crate::Rumors::gossip)
     /// uses that frontier to decide whether further gossip is needed.
     ///
-    /// `staged` holds any preamble bytes already read by the cue-driven driver.
+    /// `staged` holds any preamble bytes already read by the continuous gossip driver.
     /// The erased [`DynLinkParts`] and [`Reconciliation`] keep protocol code
     /// generation independent of the caller's concrete link type.
     async fn gossip_inner<'a>(
         &self,
         intent: Intent,
+        outcome: &mut Intent,
         staged: &mut handshake::Staged,
         link: DynLinkParts<'a>,
-    ) -> (Intent, Result<(Version, SessionStats), Error<B>>)
+    ) -> Result<(Version, SessionStats), Error<B>>
     where
         T: Send + Sync + 'static,
     {
@@ -553,11 +562,9 @@ impl<T, B: Persist> Peer<T, B> {
         };
         let observe = self.observe.begin(kind);
         // Check protocol and network compatibility before reconciliation.
-        let remote =
-            match handshake::preamble(self.network, intent, staged, read, write, &observe).await {
-                Err(error) => return (Intent::Remain, Err(Error::from(error).widen())),
-                Ok(remote) => remote,
-            };
+        let remote = handshake::preamble(self.network, intent, staged, read, write, &observe)
+            .await
+            .map_err(|error| Error::from(error).widen())?;
         let peer_bootstrapping = remote.network.is_bootstrap();
         let self_retiring = intent == Intent::Retire;
         let peer_retiring = remote.intent == Intent::Retire;
@@ -566,11 +573,11 @@ impl<T, B: Persist> Peer<T, B> {
         // Symmetric by construction: both sides take this same branch, so the
         // epilogue markers pair up with no session body between them.
         if self_retiring && peer_retiring {
-            if let Err(e) = epilogue(read, write, &observe).await {
-                return (Intent::Remain, Err(e.widen()));
-            }
+            epilogue(read, write, &observe)
+                .await
+                .map_err(Error::widen)?;
             let unchanged = self.inner.borrow().tree.latest().clone();
-            return (Intent::Remain, Ok((unchanged, stats.snapshot())));
+            return Ok((unchanged, stats.snapshot()));
         }
 
         // Persist our identity at the snapshot's frontier before sharing any
@@ -588,9 +595,7 @@ impl<T, B: Persist> Peer<T, B> {
         let mut prior_tree = None;
         {
             let mut bookmark = self.bookmark.lock().await;
-            if let Err(e) = bookmark.ensure_loaded().await {
-                return (Intent::Remain, Err(Error::Bookmark(e)));
-            }
+            bookmark.ensure_loaded().await.map_err(Error::Bookmark)?;
             let mut persist = false;
             Inner::update_party(&self.inner, |party, tree| {
                 let version = tree.latest();
@@ -604,7 +609,7 @@ impl<T, B: Persist> Peer<T, B> {
                 }
             });
             if persist && let Err(e) = bookmark.write().await {
-                return (Intent::Remain, Err(Error::Bookmark(e)));
+                return Err(Error::Bookmark(e));
             }
         }
         let prior_tree = prior_tree.expect("set in closure");
@@ -629,32 +634,27 @@ impl<T, B: Persist> Peer<T, B> {
             local_min_events,
         };
         let reconcile = reconciliation.reconcile();
-        let (root, mut read, write) = match reconcile.await {
-            Ok(reconciled) => reconciled,
-            Err(error) => return (Intent::Remain, Err(error.widen())),
-        };
+        let (root, mut read, write) = reconcile.await.map_err(Error::widen)?;
 
         // The reconciliation has made both sides causally converged; what
         // remains is the party hand-off, if either side is donating one.
         let mut absorbed = None;
-        let mut outcome = Intent::Remain;
         if peer_retiring {
             // We now hold the retiree's history and can safely inherit its
             // identity. Neither side can also be donating a bootstrap fork,
             // and the mutual-retirement case returned before reconciliation.
-            absorbed = match party::receive(&mut read, &observe).await {
-                Err(e) => return (Intent::Remain, Err(e.widen())),
-                Ok(donated_party) => Some(donated_party),
-            };
+            absorbed = Some(
+                party::receive(&mut read, &observe)
+                    .await
+                    .map_err(Error::widen)?,
+            );
         } else if self_retiring || guarded.party.is_some() {
             // Remove the donation from durable storage before sending it. A
             // failure here still permits recovery: retirement owns the Peer,
             // and a bootstrap's guard still owns its fork.
             {
                 let mut bookmark = self.bookmark.lock().await;
-                if let Err(e) = bookmark.ensure_loaded().await {
-                    return (Intent::Remain, Err(Error::Bookmark(e)));
-                }
+                bookmark.ensure_loaded().await.map_err(Error::Bookmark)?;
                 if self_retiring {
                     let inner = self.inner.borrow();
                     bookmark.slice(self.network, &inner.party);
@@ -664,9 +664,7 @@ impl<T, B: Persist> Peer<T, B> {
                         guarded.party.as_ref().expect("bootstrap fork"),
                     );
                 }
-                if let Err(e) = bookmark.write().await {
-                    return (Intent::Remain, Err(Error::Bookmark(e)));
-                }
+                bookmark.write().await.map_err(Error::Bookmark)?;
             }
 
             // `send` encodes immediately and retains no party borrow. Release
@@ -682,11 +680,9 @@ impl<T, B: Persist> Peer<T, B> {
                 // From the first poll onward the peer may receive our identity.
                 // Even an error must consume us; returning the Peer could give
                 // two participants authority over the same identity space.
-                outcome = Intent::Retire;
+                *outcome = Intent::Retire;
             }
-            if let Err(e) = send.await {
-                return (outcome, Err(e.widen()));
-            }
+            send.await.map_err(Error::widen)?;
         }
 
         // Record the session's converged frontier before joining in local
@@ -706,39 +702,36 @@ impl<T, B: Persist> Peer<T, B> {
         drop(merged);
         drop(prior_tree);
         if committed.is_err() {
-            return (
-                outcome,
-                Err(Error::violation(Phase::IdentityTransfer, SessionDefect::PartyOverlap).widen()),
+            return Err(
+                Error::violation(Phase::IdentityTransfer, SessionDefect::PartyOverlap).widen(),
             );
         }
 
         // The retiree already removed this identity from its bookmark. Persist
         // it in ours before confirming absorption, or a crash could lose it.
         // Report a failed write even though the in-memory join has committed.
-        if peer_retiring && let Err(e) = self.bookmark_update().await {
-            return (outcome, Err(Error::Bookmark(e)));
+        if peer_retiring {
+            self.bookmark_update().await.map_err(Error::Bookmark)?;
         }
 
         // Confirm that both sides completed their commits, including any
         // attached bookmark writes. Preserve `outcome` on error: retirement
         // cannot return its identity merely because confirmation was lost.
-        if let Err(e) = finish_session(&mut read, write, &observe).await {
-            return (outcome, Err(e.widen()));
-        }
+        finish_session(&mut read, write, &observe)
+            .await
+            .map_err(Error::widen)?;
 
         // Retirement's caller consumes the Peer after any possible handoff.
-        (outcome, Ok((converged, stats.snapshot())))
+        Ok((converged, stats.snapshot()))
     }
 }
 
+/// Drive repeated sessions over one link with application-owned timing.
 impl<T, B: Bookmark> Peer<T, B> {
-    /// Run the cue-driven gossip driver behind
-    /// [`Rumors::gossip_when`](crate::Rumors::gossip_when); the public
-    /// contract lives there.
+    /// Run the continuous driver under this peer's initiation policy.
     #[must_use = "the driver does nothing until the returned stream is polled"]
-    pub(crate) fn gossip_when<'a, CR, CW, C, A, S>(
+    pub(crate) fn gossip_driver<'a, CR, CW, C, A>(
         &'a self,
-        when: S,
         link: &'a mut Link<CR, CW, C, A>,
     ) -> impl Stream<Item = Result<Gossiped, Error<B>>> + Unpin + 'a
     where
@@ -747,12 +740,9 @@ impl<T, B: Bookmark> Peer<T, B> {
         CW: AsyncWrite + Unpin + Send,
         C: Connector,
         A: Acceptor,
-        S: Stream + 'a,
-        S::Item: Into<Gossip>,
     {
-        // The link erases here ([`DynRead`]'s contract); `when` stays
-        // generic because erasing it would cost callers the stream's
-        // auto-`Send`, and the driver below is all that re-instantiates.
+        // Each driver gets its own change subscription and policy stream.
+        // Factories are shared by the replica, but active state belongs here.
         let drive = Drive {
             peer: self,
             read: &mut link.control_read as DynRead<'a>,
@@ -760,7 +750,9 @@ impl<T, B: Bookmark> Peer<T, B> {
             connector: DynConnector::new(link.connector.clone()),
             acceptor: &mut link.acceptor as DynAcceptor<'a>,
             state: &mut link.session,
-            when: Box::pin(when),
+            when: self
+                .gossip_policy
+                .when(crate::Changes::subscribe(&self.inner)),
             staged: handshake::Staged::new(),
             converged: None,
             done: false,
@@ -784,45 +776,30 @@ impl<T, B: Bookmark> Peer<T, B> {
                         drive.done = true;
                         return Some((Err(Error::LinkPoisoned.widen()), drive));
                     }
-                    // Wait for a reason to enter a session: the remote's
-                    // preamble arriving, or the `when` stream yielding a tick.
-                    // The staging buffer keeps the arrival's progress outside
-                    // the racing futures, so the losing arm loses no bytes.
+                    // No timer runs here. Receiving the first bytes returns
+                    // immediately, so a partial preamble enters the timed
+                    // exchange instead of leaving the driver idle.
                     let trigger = {
                         tokio::select! {
-                            arrival = drive.staged.fill(&mut *drive.read) => Trigger::Arrival(arrival),
-                            cue = drive.when.next() => Trigger::Tick(cue.map(Into::into)),
+                            arrival = drive.staged.wait_for_start(&mut *drive.read) => Trigger::Arrival(arrival),
+                            item = drive.when.next() => Trigger::Tick(item),
                         }
                     };
                     let led = match trigger {
                         Trigger::Arrival(Err(e)) => {
-                            // Poison even when the staging buffer is empty
-                            // (zero bytes consumed): a transport that errored
-                            // is not a link a later session should trust, and
-                            // the contract promises every error terminal
-                            // leaves the link poisoned. `Drive::drop`'s
-                            // predicate covers the other case — a driver
-                            // dropped with staged bytes it never replayed.
+                            // An I/O failure invalidates the link even when
+                            // no bytes arrived and no session began.
                             drive.state.poison();
                             drive.done = true;
                             return Some((Err(Error::from(e).widen()), drive));
                         }
-                        // A hang-up on an idle boundary — not one preamble byte
-                        // arrived — is the peer's clean goodbye: end in kind.
-                        // (Returning `None` is itself the unfold's terminal
-                        // state; no latch needed on paths that end here.)
-                        Trigger::Arrival(Ok(handshake::Fill::Closed)) => return None,
-                        Trigger::Arrival(Ok(handshake::Fill::Filled)) => Led::Remote,
-                        // The `when` stream is exhausted: end — after honoring
-                        // a remote initiation already on the wire, whose bytes
-                        // we may have consumed into the staging buffer.
-                        Trigger::Tick(None) if drive.staged.is_empty() => return None,
-                        Trigger::Tick(None) => {
-                            drive.done = true;
-                            Led::Remote
-                        }
+                        // EOF or policy exhaustion at an untouched boundary
+                        // ends cleanly. Once any bytes arrive, this same poll
+                        // proceeds to `begin` before it can suspend again.
+                        Trigger::Arrival(Ok(false)) | Trigger::Tick(None) => return None,
+                        Trigger::Arrival(Ok(true)) => Led::Remote,
                         Trigger::Tick(Some(Gossip::WhenChanged)) => {
-                            // Suppression: a when-changed cue initiates only
+                            // Suppression: a WhenChanged request initiates only
                             // if the local frontier has advanced past what
                             // this connection last converged on. The
                             // comparison is local-only — it can never block
@@ -837,7 +814,7 @@ impl<T, B: Bookmark> Peer<T, B> {
                             }
                             Led::Local
                         }
-                        // An unconditional cue's whole job is a session that
+                        // An unconditional request's purpose is a session that
                         // may have nothing to say: the round-trip is the
                         // liveness probe, and the convergence is the
                         // anti-entropy pull.
@@ -851,9 +828,11 @@ impl<T, B: Bookmark> Peer<T, B> {
                             return Some((Err(e.widen()), drive));
                         }
                     };
-                    let (_intent, result) = drive
+                    // `unfold` keeps the session and its deadline alive when
+                    // the caller drops a `next()` future between polls.
+                    let (_, result) = drive
                         .peer
-                        .gossip_inner(
+                        .session(
                             Intent::Remain,
                             &mut drive.staged,
                             (
@@ -1169,60 +1148,40 @@ async fn epilogue(
         .map(|((), ())| ())
 }
 
-/// What woke the [`gossip_when`](Peer::gossip_when) driver out of its idle
-/// select: the remote's preamble (or its absence), or the `when` stream.
-///
-/// Materialized so the racing borrows end before the session consumes the
-/// driver's transport halves.
+/// The event that ends the driver's idle wait, after its racing borrows end.
 enum Trigger {
-    Arrival(Result<handshake::Fill, handshake::Error>),
+    /// Received initiation bytes (`true`), clean EOF (`false`), or an I/O error.
+    Arrival(Result<bool, handshake::Error>),
+    /// The local policy produced an item or ended.
     Tick(Option<Gossip>),
 }
 
-/// The state a [`gossip_when`](Peer::gossip_when) driver carries between
-/// sessions: the erased link parts, the link's session state, the policy
-/// stream, the preamble staging buffer, and the suppression token.
-struct Drive<'a, T, B: BookmarkError, S> {
+/// State retained between sessions; `unfold` also retains the active future.
+struct Drive<'a, T, B: BookmarkError> {
+    /// The replica served by every session on this link.
     peer: &'a Peer<T, B>,
+    /// Control input, retained across session boundaries.
     read: DynRead<'a>,
+    /// Control output, retained across session boundaries.
     write: DynWrite<'a>,
+    /// Opens outgoing data streams for each session.
     connector: DynConnector,
+    /// Supplies incoming data streams for each session.
     acceptor: DynAcceptor<'a>,
-    /// The long-lived link's session state: the counter, advanced once per
-    /// session so stream labels stay in lockstep with the remote's
-    /// counting, and the poison latch the driver sets, clears, and obeys.
+    /// `begin` poisons an active session; only successful completion clears it.
     state: &'a mut SessionState,
-    when: Pin<Box<S>>,
+    /// Local initiation policy; pinned independently of the driver state.
+    when: futures::stream::BoxStream<'static, Gossip>,
+    /// Initiation bytes consumed before the active exchange takes over.
     staged: handshake::Staged,
-    /// The frontier this connection last converged on: a when-changed cue
+    /// The frontier this connection last converged on: a WhenChanged request
     /// initiates only once the local frontier differs.
     ///
-    /// `None` until the first session, so a fresh driver's first cue
+    /// `None` until the first session, so a fresh driver's first policy item
     /// always initiates (the reconnect-convergence session).
     converged: Option<Version>,
-    /// Terminal-state latch: set on error, clean remote goodbye, or `when`
-    /// exhaustion, after which the stream yields nothing further.
+    /// End after yielding the session's terminal error.
     done: bool,
-}
-
-/// Dropping the driver poisons the link if the drop broke a session
-/// boundary; it never clears the latch.
-///
-/// A driver dropped *inside* a session is already covered: `begin` poisoned
-/// the link when the session opened. The case only this drop can see is a
-/// driver dropped while idling with staged preamble bytes — the remote's
-/// initiation was partially consumed out of the control stream, so a next
-/// session would misread its remainder. Every clean termination path
-/// (remote goodbye, `when` exhaustion at an empty boundary, a completed
-/// session's re-arm) reaches this drop with the staging buffer empty and
-/// leaves the latch alone, which is what keeps a cleanly ended connection
-/// reusable.
-impl<T, B: BookmarkError, S> Drop for Drive<'_, T, B, S> {
-    fn drop(&mut self) {
-        if !self.staged.is_empty() {
-            self.state.poison();
-        }
-    }
 }
 
 /// Restore a bootstrap fork unless its transmission has started.

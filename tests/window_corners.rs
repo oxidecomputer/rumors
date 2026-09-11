@@ -54,7 +54,7 @@ fn pair(
     let right = pollster::block_on(async {
         let (mut provider, mut newcomer) = rumors::link::memory_with_capacity(LINK_CAPACITY);
         let (served, joined) = tokio::join!(
-            left.gossip(&mut provider),
+            left.gossip_once(&mut provider),
             Peer::<u64>::bootstrap().join(&mut newcomer),
         );
         served.expect("serve bootstrap");
@@ -181,7 +181,8 @@ fn one_byte_pipes_at_the_floor_stay_live() {
     let (left, right) = pair(0, 64, 64, 64);
     run_to_quiescence(async {
         let (mut a, mut b) = rumors::link::memory_with_capacity(1);
-        let (left_result, right_result) = tokio::join!(left.gossip(&mut a), right.gossip(&mut b));
+        let (left_result, right_result) =
+            tokio::join!(left.gossip_once(&mut a), right.gossip_once(&mut b));
         left_result.expect("gossip left");
         right_result.expect("gossip right");
     })
@@ -212,7 +213,7 @@ fn growth_during_a_session_only_serializes() {
             }
         };
         let (left_result, right_result, ()) =
-            tokio::join!(left.gossip(&mut a), right.gossip(&mut b), race);
+            tokio::join!(left.gossip_once(&mut a), right.gossip_once(&mut b), race);
         let left_result = left_result.expect("gossip left under concurrent growth");
         right_result.expect("gossip right");
         assert!(
@@ -233,7 +234,8 @@ fn growth_during_a_session_only_serializes() {
         );
 
         let (mut a, mut b) = rumors::link::memory_with_capacity(LINK_CAPACITY);
-        let (left_result, right_result) = tokio::join!(left.gossip(&mut a), right.gossip(&mut b));
+        let (left_result, right_result) =
+            tokio::join!(left.gossip_once(&mut a), right.gossip_once(&mut b));
         left_result.expect("follow-up gossip left");
         right_result.expect("follow-up gossip right");
     });

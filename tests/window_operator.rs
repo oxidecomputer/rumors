@@ -62,7 +62,7 @@ fn diverged(budget: usize) -> (Rumors<u64>, Rumors<u64>) {
     let right = pollster::block_on(async {
         let (mut provider, mut newcomer) = rumors::link::memory_with_capacity(BUILD_CAPACITY);
         let (served, joined) = tokio::join!(
-            left.gossip(&mut provider),
+            left.gossip_once(&mut provider),
             Peer::<u64>::bootstrap().join(&mut newcomer),
         );
         served.expect("serve bootstrap");

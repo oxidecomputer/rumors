@@ -288,7 +288,7 @@ fn capture_bootstrap(provider: Rumors<u64>, config: Bootstrap<u64>) -> String {
         move |mut link, hook| async move {
             let provider = observed(provider, hook).await;
             provider
-                .gossip(&mut link)
+                .gossip_once(&mut link)
                 .await
                 .expect("the provider serves the bootstrap");
         },

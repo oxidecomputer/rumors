@@ -491,10 +491,10 @@ async fn run_session(
 ) -> usize {
     let (link_a, link_b) = rumors::link::memory();
     let task_a = tokio::spawn(fault::drive(link_a, fault_a, async move |link| {
-        a.gossip(link).await
+        a.gossip_once(link).await
     }));
     let task_b = tokio::spawn(fault::drive(link_b, fault_b, async move |link| {
-        b.gossip(link).await
+        b.gossip_once(link).await
     }));
     let (driven_a, driven_b) = bounded("a session", async { tokio::join!(task_a, task_b) }).await;
     let driven_a = driven_a.expect("session task A");
@@ -534,7 +534,7 @@ async fn run_boot(
     let (boot_side, serve_side) = rumors::link::memory();
     let serve = tokio::spawn(async move {
         let mut link = fault::faulty(serve_side, FaultPlan::NONE);
-        server.gossip(&mut link).await
+        server.gossip_once(&mut link).await
     });
     let boot = tokio::spawn(fault::drive(boot_side, fault, async move |link| {
         Peer::<u64>::bootstrap().join(link).await
@@ -847,7 +847,7 @@ pub async fn run_plan(plan: Plan) -> SimOutcome {
             let absorber = absorber.clone();
             async move {
                 let mut link = fault::faulty(absorber_side, FaultPlan::NONE);
-                absorber.gossip(&mut link).await
+                absorber.gossip_once(&mut link).await
             }
         });
         let (driven, absorbed) =

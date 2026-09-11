@@ -1,8 +1,8 @@
 //! The transport contract: independent per-session streams for wire gossip.
 //!
 //! A [`Link`] is one long-lived connection between two replicas. Every wire
-//! session ([`gossip`](crate::Rumors::gossip), each session driven by
-//! [`gossip_when`](crate::Rumors::gossip_when),
+//! session ([`gossip_once`](crate::Rumors::gossip_once), each session driven by
+//! [`gossip`](crate::Rumors::gossip),
 //! [`bootstrap`](crate::Bootstrap::join), and
 //! [`retire`](crate::Peer::retire)) runs on a link, one session at a time.
 //!
@@ -305,11 +305,11 @@ impl<A: Acceptor> Acceptor for &mut A {
 /// [`Joined::Unbookmarked`](crate::Joined::Unbookmarked) preserves the joined
 /// peer after an attachment failure.
 ///
-/// Sessions impose no deadline. Against a stalled peer, they wait until the
-/// caller cancels them. Wrap a session in your runtime's timeout and discard
-/// its link on expiry. A [`gossip_when`](crate::Rumors::gossip_when) driver may
-/// also wait indefinitely *between* sessions; its docs explain how to use
-/// unconditional cues as liveness probes on an otherwise idle connection.
+/// Configure [`Peer::session_deadline`](crate::Peer::session_deadline) to bound
+/// gossip, bootstrap, and retirement exchanges while leaving idle waits untimed.
+/// Post-join bookmark attachment is outside this deadline. Discard the link on
+/// expiry. [`Gossip::Unconditionally`](crate::Gossip::Unconditionally) can
+/// initiate liveness probes on an otherwise idle connection.
 pub struct Link<CR, CW, C, A> {
     pub(crate) control_read: CR,
     pub(crate) control_write: CW,

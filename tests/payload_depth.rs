@@ -143,7 +143,7 @@ fn equal_raised_limits_gossip_deep_content_clean() {
     let b = crate::common::wire::block_on(async {
         let (mut provider, mut newcomer) = rumors::link::memory();
         let (served, joined) = tokio::join!(
-            a.gossip(&mut provider),
+            a.gossip_once(&mut provider),
             Peer::<Arr>::bootstrap()
                 .payload_depth_limit(raised)
                 .join(&mut newcomer),
@@ -284,7 +284,7 @@ fn mismatched_limits_abort_both_sides_at_the_handshake() {
 
     let (a_err, b_err) = crate::common::wire::block_on(async {
         let (mut a_link, mut b_link) = rumors::link::memory();
-        let (a_out, b_out) = tokio::join!(a.gossip(&mut a_link), b.gossip(&mut b_link));
+        let (a_out, b_out) = tokio::join!(a.gossip_once(&mut a_link), b.gossip_once(&mut b_link));
         (
             a_out.expect_err("mismatched limits must abort"),
             b_out.expect_err("mismatched limits must abort"),
@@ -331,7 +331,7 @@ fn a_sender_exits_typed_when_its_counterparty_aborts_on_decode() {
     let b = crate::common::wire::block_on(async {
         let (mut provider, mut newcomer) = rumors::link::memory();
         let (served, joined) = tokio::join!(
-            a.gossip(&mut provider),
+            a.gossip_once(&mut provider),
             Peer::<String>::bootstrap().join(&mut newcomer),
         );
         served.expect("the seed serves the bootstrap (no payloads to decode yet)");
@@ -351,9 +351,9 @@ fn a_sender_exits_typed_when_its_counterparty_aborts_on_decode() {
     // sender is a test failure here, never a parked process.
     let (a_out, b_out) = crate::common::wire::block_on(async {
         let (mut a_link, b_link) = rumors::link::memory();
-        tokio::join!(a.gossip(&mut a_link), async move {
+        tokio::join!(a.gossip_once(&mut a_link), async move {
             let mut b_link = b_link;
-            let out = b.gossip(&mut b_link).await;
+            let out = b.gossip_once(&mut b_link).await;
             drop(b_link);
             out
         })

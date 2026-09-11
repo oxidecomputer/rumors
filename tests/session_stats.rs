@@ -4,7 +4,7 @@
 //! The walk-tier suite (`src/tree/mirror/streaming/tests/stats.rs`) pins
 //! the counters against an in-memory dispute oracle; here the same
 //! counters are checked where an application reads them (one-shot
-//! [`Rumors::gossip`], the [`Rumors::gossip_when`] stream), plus the
+//! [`Rumors::gossip_once`], the [`Rumors::gossip`] stream), plus the
 //! wire-only claims that need a real link: the byte counters against an
 //! independent transport-level tally, and the conservation law
 //! `len_after = len_before + gained - shed` over real sessions.
@@ -34,7 +34,7 @@ where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
     let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(LINK_BUF);
-    let (a_out, b_out) = tokio::join!(a.gossip(&mut a_link), b.gossip(&mut b_link));
+    let (a_out, b_out) = tokio::join!(a.gossip_once(&mut a_link), b.gossip_once(&mut b_link));
     let pair = (a_out.expect("gossip A"), b_out.expect("gossip B"));
     assert_control_drained(a_link, b_link);
     pair
@@ -131,20 +131,26 @@ fn floor_window_reports_one_granted_scope() {
     });
 }
 
-/// The `gossip_when` stream carries the same per-session stats: a served
+/// The `gossip` stream carries the same per-session stats: a served
 /// remote push reports what the session gained.
 #[test]
-fn gossip_when_reports_session_stats() {
+fn gossip_stream_reports_session_stats() {
     block_on(async {
         let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
         let b = bootstrap_fork_async(&a).await;
         a.send_all([42]).unwrap();
 
         let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(LINK_BUF);
-        let mut a_drive = a.gossip_when(a.changes(), &mut a_link);
+        let mut a_drive = a.gossip(&mut a_link);
         // The serving side's policy stream stays quiet, so its session is
         // remote-led (a `changes()` stream's first tick would initiate).
-        let mut b_drive = b.gossip_when(futures::stream::pending::<()>(), &mut b_link);
+        let b = b
+            .try_into_peer()
+            .await
+            .unwrap()
+            .gossip_when(|_| futures::stream::pending::<()>())
+            .into_rumors();
+        let mut b_drive = b.gossip(&mut b_link);
         let (pushed, served) = tokio::join!(a_drive.next(), b_drive.next());
         let pushed = pushed.expect("driver running").expect("push succeeds");
         let served = served.expect("driver running").expect("serve succeeds");
@@ -270,7 +276,7 @@ fn byte_counters_match_the_transport_tally() {
         let (a_raw, b_raw) = rumors::link::memory_with_capacity(LINK_BUF);
         let (mut a_link, a_written, a_opens) = counting_link(a_raw);
         let (mut b_link, b_written, b_opens) = counting_link(b_raw);
-        let (a_out, b_out) = tokio::join!(a.gossip(&mut a_link), b.gossip(&mut b_link));
+        let (a_out, b_out) = tokio::join!(a.gossip_once(&mut a_link), b.gossip_once(&mut b_link));
         let a_g = a_out.expect("gossip A");
         let b_g = b_out.expect("gossip B");
 

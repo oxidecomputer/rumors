@@ -37,7 +37,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     alice.send("the meeting is at noon".to_string())?;
 
     let (mut near, mut far) = rumors::link::memory();
-    let (served, joined) = tokio::join!(alice.gossip(&mut far), async {
+    let (served, joined) = tokio::join!(alice.gossip_once(&mut far), async {
         Peer::<String>::bootstrap().join(&mut near).await
     });
     served?;

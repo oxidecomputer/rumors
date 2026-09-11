@@ -178,7 +178,7 @@ fn adapter_bridges_real_sessions() {
             // builder; the attachment then follows the joined peer.
             let (mut near, mut far) = rumors::link::memory();
             let (served, joined) = tokio::join!(
-                alice.gossip(&mut far),
+                alice.gossip_once(&mut far),
                 Peer::<String>::bootstrap()
                     .observe(counting.clone())
                     .join(&mut near),
@@ -198,7 +198,7 @@ fn adapter_bridges_real_sessions() {
                 .send("from alice".to_string())
                 .expect("a flat string admits");
             let (mut near, mut far) = rumors::link::memory();
-            let (a, b) = tokio::join!(alice.gossip(&mut far), bob.gossip(&mut near));
+            let (a, b) = tokio::join!(alice.gossip_once(&mut far), bob.gossip_once(&mut near));
             a.expect("alice's gossip session");
             b.expect("bob's gossip session");
         });
@@ -327,7 +327,7 @@ fn concurrent_sessions_number_cleanly() {
             // sees.
             let (mut near, mut far) = rumors::link::memory();
             let (served, joined) = tokio::join!(
-                alice.gossip(&mut far),
+                alice.gossip_once(&mut far),
                 Peer::<String>::bootstrap().join(&mut near),
             );
             served.expect("provider session");
@@ -340,7 +340,7 @@ fn concurrent_sessions_number_cleanly() {
 
             let (mut near, mut far) = rumors::link::memory();
             let (served, joined) = tokio::join!(
-                alice.gossip(&mut far),
+                alice.gossip_once(&mut far),
                 Peer::<String>::bootstrap().join(&mut near),
             );
             served.expect("provider session");
@@ -367,10 +367,10 @@ fn concurrent_sessions_number_cleanly() {
             let (mut near_a, mut far_a) = rumors::link::memory();
             let (mut near_c, mut far_c) = rumors::link::memory();
             let (a, b1, b2, c) = tokio::join!(
-                alice.gossip(&mut far_a),
-                bob.gossip(&mut near_a),
-                bob_too.gossip(&mut near_c),
-                carol.gossip(&mut far_c),
+                alice.gossip_once(&mut far_a),
+                bob.gossip_once(&mut near_a),
+                bob_too.gossip_once(&mut near_c),
+                carol.gossip_once(&mut far_c),
             );
             a.expect("alice's session");
             b1.expect("bob's session with alice");

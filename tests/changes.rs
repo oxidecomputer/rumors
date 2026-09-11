@@ -106,7 +106,7 @@ async fn gossip_frontier_only_advance_ticks_the_observer() {
     let b = bootstrap_fork_async(&a).await;
 
     // Park B's observer in its quiet-period wait, where a live
-    // `gossip_when` driver's policy stream sits between sessions.
+    // `gossip` driver's policy stream sits between sessions.
     let mut b_changes = b.changes();
     assert_eq!(b_changes.next().now_or_never(), Some(Some(())));
     assert_eq!(b_changes.next().now_or_never(), None);

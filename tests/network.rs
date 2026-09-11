@@ -64,7 +64,7 @@ fn gossip_rejects_foreign_network() {
 
     let (alice_out, bob_out) = block_on(async {
         let (mut a_link, mut b_link) = rumors::link::memory();
-        tokio::join!(alice.gossip(&mut a_link), bob.gossip(&mut b_link))
+        tokio::join!(alice.gossip_once(&mut a_link), bob.gossip_once(&mut b_link))
     });
 
     for (outcome, ours, theirs) in [
@@ -95,7 +95,7 @@ fn bootstrap_adopts_provider_network() {
     let bootstrapped = block_on(async move {
         let (mut a_link, mut b_link) = rumors::link::memory();
         let (provider_out, bootstrap_out) = tokio::join!(
-            provider.gossip(&mut a_link),
+            provider.gossip_once(&mut a_link),
             Peer::<u64>::bootstrap().join(&mut b_link),
         );
         provider_out.expect("provider gossip");

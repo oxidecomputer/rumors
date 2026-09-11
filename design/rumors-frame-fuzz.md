@@ -4,7 +4,7 @@ Status: spec of record, not yet implemented (2026-07-27).
 
 A libFuzzer target that feeds arbitrary bytes into the wire session layer
 as if they came from a peer: the fuzzer plays one end of an in-memory
-`Link` while a real, fixed local replica drives `Rumors::gossip` on the
+`Link` while a real, fixed local replica drives `Rumors::gossip_once` on the
 other. It is the missing complement to the existing wire suites: they
 disrupt *honest* traffic (severed transports, injected I/O faults,
 adversarial chunking), while every byte of the traffic itself is produced
@@ -40,7 +40,7 @@ motivates is a conformance fix.
 ### Entry point decision
 
 The target enters at the outermost public session boundary:
-`Rumors::gossip` (`src/rumors.rs`) driven over one end of
+`Rumors::gossip_once` (`src/rumors.rs`) driven over one end of
 `rumors::link::memory_with_capacity` (`src/link.rs`), with the fuzzer's
 bytes played from the other end. Rationale:
 
@@ -172,7 +172,7 @@ Every input, in one process, under libFuzzer:
    The harness also checks the link consequence: on any `Err`,
    `SessionState::poisoned()` is true (via `Link::into_parts`).
 5. **Replica coherence after rejection** — pinned to what the session
-   contract promises today (`Rumors::gossip` docs; `Link`'s "What a
+   contract promises today (`Rumors::gossip_once` docs; `Link`'s "What a
    session promises"), not an invented ideal:
    - Before the session, capture `snapshot.hash()` and
      `snapshot.latest()` (`src/snapshot.rs`).
@@ -255,7 +255,7 @@ grows organically thereafter.
   adversary — spoofing, replay, confidentiality, and tampering are the
   transport's obligations by the model of record, and no finding or
   fix from this target may be argued on adversary economics.
-- **Session drivers above `gossip`.** `gossip_when`, multi-session link
+- **Continuous sessions.** `Rumors::gossip`, multi-session link
   reuse, bookmark persistence, and the bootstrap/retire pairings are
   out of the first target's scope (question 2 stages the pairings in).
 

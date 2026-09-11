@@ -189,7 +189,10 @@ impl Instrument {
 /// Plain gossip: the subject reconciles content with `helper`. No party moves.
 async fn plain_gossip(subject: &Rumors<u64, Probe>, helper: &Rumors<u64>) {
     let (mut s_link, mut h_link) = rumors::link::memory_with_capacity(LINK_BUF);
-    let (s, h) = tokio::join!(subject.gossip(&mut s_link), helper.gossip(&mut h_link),);
+    let (s, h) = tokio::join!(
+        subject.gossip_once(&mut s_link),
+        helper.gossip_once(&mut h_link),
+    );
     s.expect("subject plain gossip");
     h.expect("helper plain gossip");
 }
@@ -199,7 +202,7 @@ async fn plain_gossip(subject: &Rumors<u64, Probe>, helper: &Rumors<u64>) {
 async fn serve_bootstrap(subject: &Rumors<u64, Probe>) -> Rumors<u64> {
     let (mut s_link, mut n_link) = rumors::link::memory_with_capacity(LINK_BUF);
     let (s, n) = tokio::join!(
-        subject.gossip(&mut s_link),
+        subject.gossip_once(&mut s_link),
         Peer::<u64>::bootstrap().join(&mut n_link),
     );
     s.expect("subject serve bootstrap");
@@ -219,7 +222,7 @@ async fn serve_bootstrap(subject: &Rumors<u64, Probe>) -> Rumors<u64> {
 async fn bootstrap_fork_peer(origin: &Rumors<u64>) -> Peer<u64> {
     let (mut o_link, mut n_link) = rumors::link::memory_with_capacity(LINK_BUF);
     let (o, n) = tokio::join!(
-        origin.gossip(&mut o_link),
+        origin.gossip_once(&mut o_link),
         Peer::<u64>::bootstrap().join(&mut n_link),
     );
     o.expect("origin serves the bootstrap");
@@ -238,7 +241,10 @@ async fn absorb_retire(subject: &Rumors<u64, Probe>, retiree: Rumors<u64>) {
         .await
         .expect("the helper is the sole handle to its set");
     let (mut s_link, mut r_link) = rumors::link::memory_with_capacity(LINK_BUF);
-    let (s, outcome) = tokio::join!(subject.gossip(&mut s_link), retiree.retire(&mut r_link),);
+    let (s, outcome) = tokio::join!(
+        subject.gossip_once(&mut s_link),
+        retiree.retire(&mut r_link),
+    );
     s.expect("subject absorbs the retiree");
     match outcome {
         Retire::Retired => {}
@@ -254,7 +260,10 @@ async fn retire_subject(subject: Rumors<u64, Probe>, absorber: &Rumors<u64>) {
         .await
         .expect("the subject is the sole handle to its set");
     let (mut s_link, mut a_link) = rumors::link::memory_with_capacity(LINK_BUF);
-    let (outcome, a) = tokio::join!(subject.retire(&mut s_link), absorber.gossip(&mut a_link),);
+    let (outcome, a) = tokio::join!(
+        subject.retire(&mut s_link),
+        absorber.gossip_once(&mut a_link),
+    );
     a.expect("absorber gossip");
     match outcome {
         Retire::Retired => {}

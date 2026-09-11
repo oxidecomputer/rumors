@@ -8,7 +8,7 @@
 //! [`Peer`](crate::Peer), [`Rumors`](crate::Rumors),
 //! [`Snapshot`](crate::Snapshot), the in-memory
 //! [`Link`](crate::Link), and the
-//! [`gossip_when`](crate::Rumors::gossip_when) driver.
+//! [`gossip`](crate::Rumors::gossip) driver.
 //!
 //! Everything runs over the in-memory link, so there is no network to
 //! configure. Binding a real transport is the [`link`](crate::link)
@@ -135,7 +135,7 @@
 //!     // Alice serves one gossip session on her end of the link...
 //!     let (mut near, mut far) = rumors::link::memory();
 //!     let serve = alice.clone();
-//!     let server = tokio::spawn(async move { serve.gossip(&mut far).await });
+//!     let server = tokio::spawn(async move { serve.gossip_once(&mut far).await });
 //!
 //!     // ...and Bob joins the universe through the other end.
 //!     let rumors::Joined::Joined { peer: bob } =
@@ -165,7 +165,7 @@
 //! # Step 5: keep the pair converged
 //!
 //! To *keep* the pair converged, each side drives its own end of a long-lived
-//! link — the *bridge* — with [`gossip_when`](crate::Rumors::gossip_when): the
+//! link — the *bridge* — with [`gossip`](crate::Rumors::gossip): the
 //! driver initiates a session whenever its `when` stream ticks (if there's been
 //! local change since the last gossip), and serves whatever the remote
 //! initiates. That second half is what to remember about the bridge — a driver
@@ -186,7 +186,7 @@
 //!
 //!     let (mut near, mut far) = rumors::link::memory();
 //!     let serve = alice.clone();
-//!     let server = tokio::spawn(async move { serve.gossip(&mut far).await });
+//!     let server = tokio::spawn(async move { serve.gossip_once(&mut far).await });
 //!     let rumors::Joined::Joined { peer: bob } =
 //!         Peer::<String>::bootstrap().join(&mut near).await
 //!     else {
@@ -200,8 +200,8 @@
 //!
 //!     alice.send("bring the slides".to_string())?;
 //!
-//!     let mut alice_drive = alice.gossip_when(alice.changes(), &mut alice_side);
-//!     let mut bob_drive = bob.gossip_when(bob.changes(), &mut bob_side);
+//!     let mut alice_drive = alice.gossip(&mut alice_side);
+//!     let mut bob_drive = bob.gossip(&mut bob_side);
 //!
 //!     // Alice's change signal initiates; Bob's driver serves. One
 //!     // session converges the pair, and each driver reports it.
@@ -246,7 +246,7 @@
 //!
 //!     let (mut near, mut far) = rumors::link::memory();
 //!     let serve = alice.clone();
-//!     let server = tokio::spawn(async move { serve.gossip(&mut far).await });
+//!     let server = tokio::spawn(async move { serve.gossip_once(&mut far).await });
 //!     let rumors::Joined::Joined { peer: bob } =
 //!         Peer::<String>::bootstrap().join(&mut near).await
 //!     else {
@@ -259,8 +259,8 @@
 //!
 //!     alice.send("bring the slides".to_string())?;
 //!
-//!     let mut alice_drive = alice.gossip_when(alice.changes(), &mut alice_side);
-//!     let mut bob_drive = bob.gossip_when(bob.changes(), &mut bob_side);
+//!     let mut alice_drive = alice.gossip(&mut alice_side);
+//!     let mut bob_drive = bob.gossip(&mut bob_side);
 //!
 //!     let (pushed, served) = tokio::join!(alice_drive.next(), bob_drive.next());
 //!     pushed.expect("alice's driver is running")?;

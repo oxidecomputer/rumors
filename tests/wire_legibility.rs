@@ -136,13 +136,13 @@ proptest! {
             {
                 let a = a.clone();
                 move |mut link| async move {
-                    a.gossip(&mut link).await.expect("gossip A");
+                    a.gossip_once(&mut link).await.expect("gossip A");
                 }
             },
             {
                 let b = b.clone();
                 move |mut link| async move {
-                    b.gossip(&mut link).await.expect("gossip B");
+                    b.gossip_once(&mut link).await.expect("gossip B");
                 }
             },
         );
@@ -160,7 +160,7 @@ proptest! {
         let provider = loaded(None, &shared);
         let (provider_capture, newcomer_capture) = capture_sides(
             move |mut link| async move {
-                provider.gossip(&mut link).await.expect("provider gossip");
+                provider.gossip_once(&mut link).await.expect("provider gossip");
             },
             move |mut link| async move {
                 let rumors::Joined::Joined { peer: _ } =
@@ -192,7 +192,7 @@ proptest! {
             {
                 let absorber = absorber.clone();
                 move |mut link| async move {
-                    absorber.gossip(&mut link).await.expect("absorber gossip");
+                    absorber.gossip_once(&mut link).await.expect("absorber gossip");
                 }
             },
             move |mut link| async move {

@@ -71,7 +71,7 @@ fn diverged(budget: usize, divergent: usize) -> (Rumors<u64>, Rumors<u64>) {
     let right = pollster::block_on(async {
         let (mut provider, mut newcomer) = rumors::link::memory_with_capacity(LINK_CAPACITY);
         let (served, joined) = tokio::join!(
-            left.gossip(&mut provider),
+            left.gossip_once(&mut provider),
             Peer::<u64>::bootstrap().join(&mut newcomer),
         );
         served.expect("serve bootstrap");
@@ -98,7 +98,8 @@ fn send_random(rumors: &Rumors<u64>, n: usize, rng: &mut SmallRng) {
 fn reconcile(a: &Rumors<u64>, b: &Rumors<u64>) -> (Gossiped, Gossiped) {
     pollster::block_on(async {
         let (mut left, mut right) = rumors::link::memory_with_capacity(LINK_CAPACITY);
-        let (a_result, b_result) = tokio::join!(a.gossip(&mut left), b.gossip(&mut right));
+        let (a_result, b_result) =
+            tokio::join!(a.gossip_once(&mut left), b.gossip_once(&mut right));
         (a_result.expect("gossip a"), b_result.expect("gossip b"))
     })
 }
@@ -216,7 +217,7 @@ fn version_bounds_stay_inside_the_priced_pair_bound() {
     let third = pollster::block_on(async {
         let (mut provider, mut newcomer) = rumors::link::memory_with_capacity(LINK_CAPACITY);
         let (served, joined) = tokio::join!(
-            right.gossip(&mut provider),
+            right.gossip_once(&mut provider),
             Peer::<u64>::bootstrap().join(&mut newcomer),
         );
         served.expect("serve third bootstrap");
@@ -250,7 +251,7 @@ fn bootstrap_from(provider: &Rumors<u64>) -> Rumors<u64> {
     pollster::block_on(async {
         let (mut serving, mut joining) = rumors::link::memory_with_capacity(LINK_CAPACITY);
         let (served, joined) = tokio::join!(
-            provider.gossip(&mut serving),
+            provider.gossip_once(&mut serving),
             Peer::<u64>::bootstrap().join(&mut joining),
         );
         served.expect("serve swarm bootstrap");

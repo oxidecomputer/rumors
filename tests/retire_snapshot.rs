@@ -53,7 +53,10 @@ fn capture_retire(absorber: Rumors<u64>, retiree: Rumors<u64>) -> String {
     capture_session(
         move |mut link, hook| async move {
             let absorber = observed(absorber, hook).await;
-            absorber.gossip(&mut link).await.expect("absorber gossip");
+            absorber
+                .gossip_once(&mut link)
+                .await
+                .expect("absorber gossip");
         },
         move |mut link, hook| async move {
             let retiree = retiree

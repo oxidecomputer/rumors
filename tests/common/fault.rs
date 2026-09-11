@@ -113,6 +113,21 @@ pub fn faulty(link: MemoryLink, plan: FaultPlan) -> FaultyLink {
     wrap(link, plan).0
 }
 
+/// Stop I/O at a byte boundary and signal that the session has stalled.
+/// Using the signal as a deadline tests real timeout recovery without injecting
+/// a transport error or dropping the session from outside.
+pub fn stall_at(link: MemoryLink, point: Vanish) -> (FaultyLink, impl Future<Output = ()> + Send) {
+    let (link, stalled, _) = wrap(
+        link,
+        FaultPlan {
+            vanish: Some(point),
+            ..FaultPlan::NONE
+        },
+    );
+    let stalled = stalled.expect("a stall point was supplied");
+    (link, async move { stalled.vanished().await })
+}
+
 /// What [`drive`] leaves behind.
 ///
 /// Keep it alive until the counterparty's session has ended: after a

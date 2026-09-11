@@ -26,13 +26,6 @@ use super::unordered::Channel;
 /// [`Rumors`](crate::Rumors) handle for the replica have dropped and the final
 /// change has been reported. Holding this observer does not prevent
 /// [`try_into_peer`](crate::Rumors::try_into_peer) from recovering the `Peer`.
-///
-/// # Driving gossip
-///
-/// Pass this stream as the `when` input to [`gossip_when`](crate::Rumors::gossip_when),
-/// which also answers sessions initiated by the remote peer. A loop that waits
-/// for a local change before calling `gossip` can deadlock: a replica with no
-/// local changes never enters the session its peer is waiting to start.
 pub struct Changes<T> {
     /// The watch channel, or the in-flight wait for it to change; the same
     /// materialized-wait dance as [`UnorderedMessages`](crate::UnorderedMessages) (see its

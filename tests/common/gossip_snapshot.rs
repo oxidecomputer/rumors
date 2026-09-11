@@ -500,12 +500,12 @@ where
         capture_session(
             move |mut link, hook| async move {
                 let a = observed(a, hook).await;
-                a.gossip(&mut link).await.expect("gossip A");
+                a.gossip_once(&mut link).await.expect("gossip A");
                 *a_out.lock().unwrap() = Some(a);
             },
             move |mut link, hook| async move {
                 let b = observed(b, hook).await;
-                b.gossip(&mut link).await.expect("gossip B");
+                b.gossip_once(&mut link).await.expect("gossip B");
                 *b_out.lock().unwrap() = Some(b);
             },
         )

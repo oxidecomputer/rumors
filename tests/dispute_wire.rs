@@ -223,7 +223,7 @@ where
     let mut a_link = counting(a_link, &written);
     let mut b_link = counting(b_link, &written);
     block_on(async {
-        let (near, far) = tokio::join!(a.gossip(&mut a_link), b.gossip(&mut b_link));
+        let (near, far) = tokio::join!(a.gossip_once(&mut a_link), b.gossip_once(&mut b_link));
         near.expect("gossip completes over the counting link");
         far.expect("gossip completes over the counting link");
     });

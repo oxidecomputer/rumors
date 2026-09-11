@@ -817,11 +817,11 @@ impl World {
             tokio::join!(
                 async move {
                     let mut link = fault::faulty(side_a, fault_a);
-                    ra.gossip(&mut link).await
+                    ra.gossip_once(&mut link).await
                 },
                 async move {
                     let mut link = fault::faulty(side_b, fault_b);
-                    rb.gossip(&mut link).await
+                    rb.gossip_once(&mut link).await
                 },
             )
         });
@@ -942,7 +942,7 @@ impl World {
                 },
                 async move {
                     let mut link = serve_side;
-                    server_rumors.gossip(&mut link).await
+                    server_rumors.gossip_once(&mut link).await
                 },
             )
         });
@@ -1089,7 +1089,7 @@ impl World {
                 },
                 async move {
                     let mut link = abs_side;
-                    absorber_rumors.gossip(&mut link).await
+                    absorber_rumors.gossip_once(&mut link).await
                 },
             )
         });
@@ -1228,11 +1228,11 @@ impl World {
             tokio::join!(
                 async move {
                     let mut link = side_a;
-                    ra.gossip(&mut link).await
+                    ra.gossip_once(&mut link).await
                 },
                 async move {
                     let mut link = side_b;
-                    rb.gossip(&mut link).await
+                    rb.gossip_once(&mut link).await
                 },
             )
         });
@@ -1613,7 +1613,7 @@ fn retire_into_rebooted_absorber_absorbs_cleanly() {
             },
             async move {
                 let mut link = abs_side;
-                absorber.gossip(&mut link).await
+                absorber.gossip_once(&mut link).await
             },
         );
 
@@ -1655,7 +1655,7 @@ async fn boot_from_async(
         },
         async move {
             let mut link = serve_side;
-            server.gossip(&mut link).await
+            server.gossip_once(&mut link).await
         },
     );
     serve_out.expect("serve bootstrap");
@@ -1734,7 +1734,7 @@ fn negative_control_classifier_rejects_codec_bugs() {
     let (mut link, remote) = rumors::link::memory();
     drop(remote);
     let replica = Peer::<u64>::seed().into_rumors();
-    let failure = rumors::testing::run_to_quiescence(replica.gossip(&mut link))
+    let failure = rumors::testing::run_to_quiescence(replica.gossip_once(&mut link))
         .expect("a closed link must not deadlock")
         .expect_err("a closed link cannot complete a session");
     let Error::Transport(transport) = failure else {

@@ -221,10 +221,10 @@ fn v2_bootstrap_claimant_declaring_history_is_rejected() {
         tokio::join!(
             async move { claim_bootstrap_v2(&mut a_link, claimant_tree.root).await },
             async move {
-                let first = provider_ref.gossip(&mut b_link).await;
+                let first = provider_ref.gossip_once(&mut b_link).await;
                 // The second session on the same link must fail fast,
                 // before any wire traffic: the rejection poisoned it.
-                let second = provider_ref.gossip(&mut b_link).await;
+                let second = provider_ref.gossip_once(&mut b_link).await;
                 (first, second)
             },
         )
@@ -312,7 +312,7 @@ fn rejected_claimant_leaves_the_provider_serviceable() {
         let (mut a_link, mut b_link) = memory();
         let (claim_out, provider_out) = tokio::join!(
             async move { claim_bootstrap_v2(&mut a_link, redacted_history_root(8)).await },
-            async move { provider_ref.gossip(&mut b_link).await },
+            async move { provider_ref.gossip_once(&mut b_link).await },
         );
         assert!(
             matches!(provider_out, Err(Error::Protocol(_))),
@@ -325,7 +325,7 @@ fn rejected_claimant_leaves_the_provider_serviceable() {
         let (mut a_link, mut b_link) = memory();
         let (witness_out, provider_out) = tokio::join!(
             Peer::<u64>::bootstrap().join(&mut a_link),
-            provider.gossip(&mut b_link),
+            provider.gossip_once(&mut b_link),
         );
         provider_out.expect("the provider serves the honest bootstrap");
         match witness_out {
@@ -420,4 +420,136 @@ proptest! {
                 Some(super::SessionDefect::EarlyControl(count)) if *count == extra.len()));
         }
     }
+}
+
+/// Withhold the completion marker while allowing all reconciliation traffic.
+struct HoldCompletion<W> {
+    /// The real control writer used before the completion exchange.
+    inner: W,
+    /// Signals that reconciliation committed and the marker is now withheld.
+    reached: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+/// Pause only at completion so the test can expire an already-committed session.
+impl<W: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for HoldCompletion<W> {
+    /// Write normally until the session tries to send its completion marker.
+    fn poll_write(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        bytes: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        if bytes == EPILOGUE_MARKER {
+            self.reached
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            // The test drops this writer after expiring the other side's
+            // deadline; it deliberately never resumes this write.
+            std::task::Poll::Pending
+        } else {
+            std::pin::Pin::new(&mut self.inner).poll_write(cx, bytes)
+        }
+    }
+
+    /// Flush every byte accepted before the held marker.
+    fn poll_flush(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    /// Delegate shutdown to the underlying writer.
+    fn poll_shutdown(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
+}
+
+/// Deadline expiry at completion reports failure and poisons the link without
+/// undoing the complete local commit. A fresh link can then confirm convergence.
+#[test]
+fn completion_deadline_preserves_the_local_commit() {
+    use futures::FutureExt;
+    use std::future::{Future, poll_fn};
+    use std::sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    };
+    use std::task::Poll;
+
+    let (mut near, mut far) = memory();
+    let a = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    let (served, joined) = run_to_quiescence(async {
+        futures::join!(
+            a.gossip_once(&mut near),
+            Peer::<u64>::bootstrap().join(&mut far)
+        )
+    })
+    .unwrap();
+    served.unwrap();
+    let crate::Joined::Joined { peer } = joined else {
+        panic!("bootstrap succeeds")
+    };
+    let b = peer.into_rumors();
+    a.send(1).unwrap();
+    b.send(2).unwrap();
+
+    let (expire, deadline) = futures::channel::oneshot::channel();
+    let deadline = Mutex::new(Some(deadline));
+    let a = pollster::block_on(a.try_into_peer())
+        .unwrap()
+        .session_deadline(move || deadline.lock().unwrap().take().unwrap().map(|r| r.unwrap()))
+        .into_rumors();
+    let reached = Arc::new(AtomicBool::new(false));
+    let parts = far.into_parts();
+    let mut far = crate::link::LinkParts {
+        control_read: parts.control_read,
+        control_write: HoldCompletion {
+            inner: parts.control_write,
+            reached: reached.clone(),
+        },
+        connector: parts.connector,
+        acceptor: parts.acceptor,
+        session: parts.session,
+    }
+    .into_link();
+    let mut left = Box::pin(a.gossip_once(&mut near));
+    let mut right = Box::pin(b.gossip_once(&mut far));
+    run_to_quiescence(poll_fn(|cx| {
+        assert!(left.as_mut().poll(cx).is_pending());
+        assert!(right.as_mut().poll(cx).is_pending());
+        if reached.load(Ordering::SeqCst) && a.snapshot().len() == 2 {
+            Poll::Ready(())
+        } else {
+            Poll::Pending
+        }
+    }))
+    .expect("reconciliation reaches the held completion marker");
+    assert_eq!(a.snapshot().hash(), b.snapshot().hash());
+    assert_eq!(a.snapshot().len(), 2);
+    expire.send(()).unwrap();
+    assert!(matches!(
+        run_to_quiescence(left).unwrap(),
+        Err(Error::DeadlineExceeded)
+    ));
+    drop(right);
+    assert!(matches!(
+        pollster::block_on(a.gossip_once(&mut near)),
+        Err(Error::LinkPoisoned)
+    ));
+
+    // The peer's content is intact; remove the test's single-use deadline
+    // factory before checking ordinary gossip over a new link.
+    let a = pollster::block_on(a.try_into_peer())
+        .unwrap()
+        .session_deadline(std::future::pending)
+        .into_rumors();
+    let (mut near, mut far) = memory();
+    let (left, right) = run_to_quiescence(async {
+        futures::join!(a.gossip_once(&mut near), b.gossip_once(&mut far))
+    })
+    .unwrap();
+    left.unwrap();
+    right.unwrap();
 }

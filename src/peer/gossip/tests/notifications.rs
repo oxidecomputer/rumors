@@ -24,7 +24,7 @@ proptest! {
         let (served, joined) = run_to_quiescence(async {
             let (mut serving, mut joining) = memory();
             tokio::join!(
-                provider.gossip(&mut serving),
+                provider.gossip_once(&mut serving),
                 Peer::<u64>::bootstrap().join(&mut joining),
             )
         }).expect("bootstrap must complete");
@@ -43,7 +43,7 @@ proptest! {
         changes.borrow_and_update();
         let (served, retired) = run_to_quiescence(async {
             let (mut serving, mut retiring) = memory();
-            tokio::join!(provider.gossip(&mut serving), newcomer.retire(&mut retiring))
+            tokio::join!(provider.gossip_once(&mut serving), newcomer.retire(&mut retiring))
         }).expect("retirement must complete");
         served.unwrap();
         prop_assert!(matches!(retired, Retire::Retired));

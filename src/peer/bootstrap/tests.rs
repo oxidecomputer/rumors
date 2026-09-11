@@ -132,7 +132,8 @@ fn retry_then_join<B: Bookmark>(
         let provider = Peer::<u64>::seed().payload_depth_limit(depth).into_rumors();
         provider.send(42).unwrap();
         let (mut near, mut far) = crate::link::memory();
-        let (joined, served) = tokio::join!(bootstrap.join(&mut near), provider.gossip(&mut far));
+        let (joined, served) =
+            tokio::join!(bootstrap.join(&mut near), provider.gossip_once(&mut far));
         served.unwrap();
         let Joined::Joined { peer } = joined else {
             panic!("the returned builder must remain usable with an established provider");
@@ -154,7 +155,10 @@ fn retry_then_join<B: Bookmark>(
         let joined = peer.into_rumors();
         assert_eq!(joined.snapshot(), provider.snapshot());
         joined.send(7).unwrap();
-        let (ours, theirs) = tokio::join!(joined.gossip(&mut near), provider.gossip(&mut far));
+        let (ours, theirs) = tokio::join!(
+            joined.gossip_once(&mut near),
+            provider.gossip_once(&mut far)
+        );
         assert!(ours.is_ok(), "the joined peer must complete gossip");
         theirs.unwrap();
         assert_eq!(sessions.0.load(Ordering::Relaxed), fail.len() + 2);

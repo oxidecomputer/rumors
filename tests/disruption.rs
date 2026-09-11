@@ -164,10 +164,12 @@ fn survive_a_vanish(
     };
     run_to_quiescence(async {
         let (driven, survivor) = futures::join!(
-            fault::drive(a_link, vanishing, async move |link| a.gossip(link).await),
+            fault::drive(a_link, vanishing, async move |link| a
+                .gossip_once(link)
+                .await),
             async {
                 let mut link = fault::faulty(b_link, FaultPlan::NONE);
-                b.gossip(&mut link).await
+                b.gossip_once(&mut link).await
             },
         );
         assert!(
@@ -586,7 +588,7 @@ async fn envelope_session_bytes() -> EnvelopeExtent {
     let (link_a, link_b) = rumors::link::memory();
     let (mut link_a, meter_a) = fault::metered(link_a);
     let (mut link_b, meter_b) = fault::metered(link_b);
-    let (out_a, out_b) = tokio::join!(a.gossip(&mut link_a), b.gossip(&mut link_b));
+    let (out_a, out_b) = tokio::join!(a.gossip_once(&mut link_a), b.gossip_once(&mut link_b));
     out_a.expect("envelope session A");
     out_b.expect("envelope session B");
     EnvelopeExtent {

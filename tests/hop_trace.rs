@@ -340,7 +340,8 @@ where
         .build()
         .expect("build paused current-thread runtime");
     runtime.block_on(async {
-        let (a_result, b_result) = tokio::join!(a.gossip(&mut a_link), b.gossip(&mut b_link));
+        let (a_result, b_result) =
+            tokio::join!(a.gossip_once(&mut a_link), b.gossip_once(&mut b_link));
         a_result.expect("peer A gossip");
         b_result.expect("peer B gossip");
     });
@@ -480,7 +481,7 @@ fn bootstrap_fork(parent: &Rumors<u64>) -> Rumors<u64> {
     pollster::block_on(async {
         let (mut parent_link, mut newcomer_link) = rumors::link::memory_with_capacity(CAPACITY);
         let (served, newcomer) = tokio::join!(
-            parent.gossip(&mut parent_link),
+            parent.gossip_once(&mut parent_link),
             Peer::<u64>::bootstrap().join(&mut newcomer_link),
         );
         served.expect("serve bootstrap");

@@ -1140,8 +1140,11 @@ pub async fn check_sessions<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab, D>(
         let mut b = counting(b, b_opened.clone());
         let seed: Rumors<u64> = Peer::seed().into_rumors();
         // Session one: bootstrap the far side into the near side's universe.
-        let (served, joined) =
-            join(seed.gossip(&mut a), Peer::<u64>::bootstrap().join(&mut b)).await;
+        let (served, joined) = join(
+            seed.gossip_once(&mut a),
+            Peer::<u64>::bootstrap().join(&mut b),
+        )
+        .await;
         served.expect("contract: the bootstrap-serving session completes");
         let crate::Joined::Joined { peer: newcomer } = joined else {
             panic!("contract: the seed serves the bootstrap: {joined:?}");
@@ -1159,7 +1162,7 @@ pub async fn check_sessions<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab, D>(
         // no-op. Serialized on the same links, so the epoch counting and
         // per-session stream lifecycle are exercised across sessions.
         for _ in 0..2 {
-            let (near, far) = join(seed.gossip(&mut a), newcomer.gossip(&mut b)).await;
+            let (near, far) = join(seed.gossip_once(&mut a), newcomer.gossip_once(&mut b)).await;
             near.expect("contract: gossip completes over the link");
             far.expect("contract: gossip completes over the link");
         }

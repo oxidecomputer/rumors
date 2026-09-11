@@ -105,8 +105,10 @@ fn retire_into(retiree: Rumors<u64>, absorber: &Rumors<u64>) {
             .await
             .expect("the fleet holds each set's sole handle");
         let (mut r_link, mut a_link) = rumors::link::memory_with_capacity(LINK_BUF);
-        let (retired, gossiped) =
-            tokio::join!(retiree.retire(&mut r_link), absorber.gossip(&mut a_link));
+        let (retired, gossiped) = tokio::join!(
+            retiree.retire(&mut r_link),
+            absorber.gossip_once(&mut a_link)
+        );
         gossiped.expect("absorber gossip");
         assert_control_drained(r_link, a_link);
         retired

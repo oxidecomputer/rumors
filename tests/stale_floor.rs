@@ -10,7 +10,7 @@
 //!
 //! The shared-state rumor set makes that desynchronization unrepresentable:
 //! there is no snapshot type that can serve a bootstrap, and
-//! `Rumors::gossip` snapshots the served tree and forks the party in one
+//! `Rumors::gossip_once` snapshots the served tree and forks the party in one
 //! critical section, so the newcomer's floor always matches its region.
 //! ([`rumors::Snapshot`] is data, not a peer; [`rumors::Rumors`] clones
 //! share one synchronized state rather than freezing one.)

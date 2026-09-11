@@ -45,7 +45,7 @@ fn retire_child_into(survivor: Peer<u64>, child: Peer<u64>) -> Peer<u64> {
     pollster::block_on(async {
         let (mut a_link, mut b_link) = memory();
         let (child_out, survivor_out) =
-            tokio::join!(child.retire(&mut a_link), survivor.gossip(&mut b_link),);
+            tokio::join!(child.retire(&mut a_link), survivor.gossip_once(&mut b_link),);
         assert!(
             matches!(child_out, Retire::Retired),
             "the survivor absorbs the child",
@@ -61,7 +61,7 @@ fn bootstrap_from(provider: Peer<u64>) -> (Peer<u64>, Peer<u64>) {
     pollster::block_on(async {
         let (mut a_link, mut b_link) = memory();
         let (provider_out, boot_out) = tokio::join!(
-            provider.gossip(&mut a_link),
+            provider.gossip_once(&mut a_link),
             Peer::<u64>::bootstrap().join(&mut b_link),
         );
         provider_out.expect("provider gossip");
@@ -90,6 +90,7 @@ fn overlapping_retiree_party_is_rejected() {
     // survivor's and the survivor takes the absorb branch.
     let forged = Peer::<u64> {
         codec: PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
+        gossip_policy: Default::default(),
         network: survivor.network,
         window: survivor.window,
         run_budget: survivor.run_budget,
@@ -108,7 +109,7 @@ fn overlapping_retiree_party_is_rejected() {
         let (mut a_link, mut b_link) = memory();
         tokio::join!(
             async move { forged.retire(&mut a_link).await },
-            async move { survivor.gossip(&mut b_link).await },
+            async move { survivor.gossip_once(&mut b_link).await },
         )
     });
 
@@ -349,7 +350,7 @@ fn severed_retire(
                 let mut a_link = fused_link(a_link, budget);
                 retiree.retire(&mut a_link).await
             },
-            async move { peer.gossip(&mut b_link).await.map(|_gossiped| ()) },
+            async move { peer.gossip_once(&mut b_link).await.map(|_gossiped| ()) },
         )
     })
 }
@@ -452,13 +453,13 @@ fn a_cancelled_session_poisons_the_link_for_gossip() {
     // preamble and the bounded-poll harness reports the stall — dropping
     // (cancelling) the session future on its way out.
     assert_eq!(
-        run_to_quiescence(child.gossip(&mut a_link)).err(),
+        run_to_quiescence(child.gossip_once(&mut a_link)).err(),
         Some(Quiescence::Stalled),
     );
 
     // The fail-fast needs no counterparty at all: it resolves before any
     // wire traffic, which the closed-world harness itself proves.
-    let retry = run_to_quiescence(child.gossip(&mut a_link)).expect("fail-fast needs no peer");
+    let retry = run_to_quiescence(child.gossip_once(&mut a_link)).expect("fail-fast needs no peer");
     assert!(
         matches!(retry, Err(Error::LinkPoisoned)),
         "a poisoned link must fail the next gossip fast, got {retry:?}"
@@ -476,7 +477,7 @@ fn retire_on_a_poisoned_link_recovers_the_peer() {
 
     // Poison the link: cancel a gossip session stalled on its silent peer.
     assert_eq!(
-        run_to_quiescence(child.gossip(&mut a_link)).err(),
+        run_to_quiescence(child.gossip_once(&mut a_link)).err(),
         Some(Quiescence::Stalled),
     );
 
@@ -578,8 +579,8 @@ fn uncontained_supply_fails_gossip_and_poisons_the_link() {
     let (mut a_link, mut b_link) = memory();
     let receiver_out = run_to_quiescence(async {
         tokio::select! {
-            out = receiver.gossip(&mut a_link) => out,
-            out = poisoned.gossip(&mut b_link) => {
+            out = receiver.gossip_once(&mut a_link) => out,
+            out = poisoned.gossip_once(&mut b_link) => {
                 panic!("the poisoned side must not complete a session, got {out:?}")
             }
         }
@@ -603,7 +604,8 @@ fn uncontained_supply_fails_gossip_and_poisons_the_link() {
 
     // The failed session poisoned the link: the next session on it fails
     // fast, before any wire traffic — no counterparty is even present.
-    let retry = run_to_quiescence(receiver.gossip(&mut a_link)).expect("fail-fast needs no peer");
+    let retry =
+        run_to_quiescence(receiver.gossip_once(&mut a_link)).expect("fail-fast needs no peer");
     assert!(
         matches!(retry, Err(Error::LinkPoisoned)),
         "a poisoned link must fail the next gossip fast, got {retry:?}",
@@ -670,8 +672,10 @@ fn gossip_session_root_hash_reads() {
     let before = crate::tree::meter::root_hash_reads();
     pollster::block_on(async {
         let (mut a_link, mut b_link) = memory();
-        let (provider_out, joiner_out) =
-            tokio::join!(provider.gossip(&mut a_link), joiner.gossip(&mut b_link));
+        let (provider_out, joiner_out) = tokio::join!(
+            provider.gossip_once(&mut a_link),
+            joiner.gossip_once(&mut b_link)
+        );
         provider_out.expect("provider gossip");
         joiner_out.expect("joiner gossip");
     });

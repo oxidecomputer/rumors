@@ -41,6 +41,8 @@ pub struct Bootstrap<T, B: BookmarkError = NoBookmark> {
     pub(crate) window: WindowConfig,
     /// Supply-run size target used during and after the join.
     pub(crate) run_budget: RunBudget,
+    /// Initiation policy and session deadline, both inherited by the joined peer.
+    pub(crate) gossip_policy: super::policy::Policy<T>,
     /// Payload nesting limit used during and after the join.
     pub(crate) payload_depth_limit: PayloadDepthLimit,
     /// Observation handlers retained by the joined peer.
@@ -79,6 +81,7 @@ impl<T> Bootstrap<T> {
         Self {
             window: WindowConfig::default(),
             run_budget: RunBudget::default(),
+            gossip_policy: super::policy::Policy::default(),
             payload_depth_limit: PayloadDepthLimit::default(),
             observe: Attachment::default(),
             bookmark: NoBookmark,
@@ -100,6 +103,7 @@ impl<T> Bootstrap<T> {
         Bootstrap {
             window: self.window,
             run_budget: self.run_budget,
+            gossip_policy: self.gossip_policy,
             payload_depth_limit: self.payload_depth_limit,
             observe: self.observe,
             bookmark,
@@ -115,11 +119,35 @@ impl<T, B: BookmarkError> Bootstrap<T, B> {
         Bootstrap {
             window: self.window,
             run_budget: self.run_budget,
+            gossip_policy: self.gossip_policy.clone(),
             payload_depth_limit: self.payload_depth_limit,
             observe: self.observe.clone(),
             bookmark: NoBookmark,
             marker: PhantomData,
         }
+    }
+
+    /// Select the joined peer's initiation policy; see [`Peer::gossip_when`].
+    pub fn gossip_when<F, S>(mut self, when: F) -> Self
+    where
+        F: Fn(crate::Changes<T>) -> S + Send + Sync + 'static,
+        S: futures::Stream + Send + 'static,
+        S::Item: Into<crate::Gossip>,
+    {
+        self.gossip_policy.set_when(when);
+        self
+    }
+
+    /// Set the join's session deadline, also inherited by the joined peer.
+    /// See [`Peer::session_deadline`] for timing and expiry behavior.
+    /// Bookmark attachment after the wire session is not covered.
+    pub fn session_deadline<D, F>(mut self, deadline: D) -> Self
+    where
+        D: Fn() -> F + Send + Sync + 'static,
+        F: Future<Output = ()> + Send + 'static,
+    {
+        self.gossip_policy.set_deadline(deadline);
+        self
     }
 
     /// Set the joined peer's pipelining memory budget.
@@ -169,7 +197,8 @@ impl<T, B: Bookmark> Bootstrap<T, B> {
     /// be gossiping or retiring. Two bootstrappers cannot supply each other;
     /// both return [`Joined::Bailed`] with their builders.
     ///
-    /// [`Joined::Failed`] returns the builder on session failure. Discard the
+    /// [`Joined::Failed`] returns the builder on session failure, including
+    /// [`session_deadline`](Self::session_deadline) expiry. Discard the
     /// poisoned link and retry on another.
     ///
     /// If a bookmark was selected, joining then attaches it through

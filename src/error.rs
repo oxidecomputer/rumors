@@ -6,6 +6,8 @@
 //! - [`Mismatch`](Error::Mismatch): use the mismatch kind and its values to
 //!   resolve incompatible protocols, networks, or settings.
 //! - [`Bookmark`](Error::Bookmark): repair or replace the bookmark storage.
+//! - [`DeadlineExceeded`](Error::DeadlineExceeded): the application's session
+//!   deadline expired. Reconnect, adjusting the deadline if needed.
 //! - [`Protocol`](Error::Protocol): report a bug with its context and
 //!   diagnostic source. Individual protocol checks stay private.
 //!
@@ -114,6 +116,12 @@ pub enum Error<B: BookmarkError = NoBookmark> {
     #[error("link is poisoned by an interrupted session; discard it and reconnect")]
     LinkPoisoned,
 
+    /// The application's deadline ended an active wire session.
+    /// Discard the link and reconnect. A local commit already made is not
+    /// undone, and the peer's completion may be unconfirmed.
+    #[error("session deadline exceeded; discard the link and reconnect")]
+    DeadlineExceeded,
+
     /// The application's bookmark failed to load, persist, or decode.
     /// Repair or replace the storage before retrying.
     ///
@@ -158,6 +166,7 @@ impl Error {
             Self::Protocol(error) => Error::Protocol(error),
             Self::Mismatch(error) => Error::Mismatch(error),
             Self::LinkPoisoned => Error::LinkPoisoned,
+            Self::DeadlineExceeded => Error::DeadlineExceeded,
             Self::Bookmark(error) => match error {
                 BookmarkIo::Io(never) => match never {},
                 BookmarkIo::Format(error) => Error::Bookmark(BookmarkIo::Format(error)),

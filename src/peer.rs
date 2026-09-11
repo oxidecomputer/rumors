@@ -27,6 +27,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 mod bootstrap;
 mod gossip;
+mod policy;
 
 pub use bootstrap::{Bootstrap, Joined};
 pub use gossip::{Gossip, Gossiped, Led, Retire, Unbookmarked};
@@ -58,7 +59,7 @@ pub use gossip::{Gossip, Gossiped, Led, Retire, Unbookmarked};
 /// let (mut near, mut far) = rumors::link::memory();
 /// # let serve = counterparty.clone();
 /// # tokio::spawn(async move {
-/// #     serve.gossip(&mut far).await.unwrap();
+/// #     serve.gossip_once(&mut far).await.unwrap();
 /// # });
 /// // Join through an established peer. The new peer receives its full set.
 /// let Joined::Joined { peer } = Peer::<String>::bootstrap().join(&mut near).await else {
@@ -80,7 +81,7 @@ pub use gossip::{Gossip, Gossiped, Led, Retire, Unbookmarked};
 /// // one we joined through.
 /// let (mut near, mut far) = rumors::link::memory();
 /// # tokio::spawn(async move {
-/// #     counterparty.gossip(&mut far).await.unwrap();
+/// #     counterparty.gossip_once(&mut far).await.unwrap();
 /// # });
 /// let retry = match peer.retire(&mut near).await {
 ///     // Retirement completed; nothing more to do.
@@ -127,6 +128,7 @@ pub use gossip::{Gossip, Gossiped, Led, Retire, Unbookmarked};
 /// peers joins exclusively with one another and spends a long time
 /// partitioned before reuniting with the rest of the network.
 pub struct Peer<T, B: BookmarkError = NoBookmark> {
+    /// The network this replica belongs to, established at seed or join.
     pub(crate) network: Network,
     /// The reconciliation window choice selected by
     /// [`sync_memory_budget`](Self::sync_memory_budget), resolved per
@@ -135,6 +137,9 @@ pub struct Peer<T, B: BookmarkError = NoBookmark> {
     /// The supply-run byte budget selected by
     /// [`target_message_size`](Self::target_message_size).
     pub(crate) run_budget: RunBudget,
+    /// Initiation and deadline factories inherited by every gossip handle.
+    pub(crate) gossip_policy: policy::Policy<T>,
+    /// Shared replica state and change notifications for handles and drivers.
     pub(crate) inner: watch::Sender<Inner<T>>,
     /// The identity bookmark: persistence handle and its in-memory record,
     /// behind an async mutex and shared with every [`Rumors`] clone.
@@ -394,6 +399,7 @@ impl<T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<T, NoBoo
             network: Network::from_rng(rng),
             window: WindowConfig::default(),
             run_budget: RunBudget::default(),
+            gossip_policy: policy::Policy::default(),
             inner: watch::Sender::new(Inner::new(Party::seed(), Tree::new())),
             bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
             codec: PayloadCodec::new::<T>(PayloadDepthLimit::default()),
@@ -434,6 +440,7 @@ impl<T> Peer<T> {
     }
 }
 
+/// Retire an exclusively held replica.
 impl<T, B: Bookmark> Peer<T, B> {
     /// Leave the gossip network after synchronizing with a remote member.
     ///
@@ -442,7 +449,8 @@ impl<T, B: Bookmark> Peer<T, B> {
     /// no special call to accept the retirement.
     ///
     /// [`Retire`] reports whether this peer left, can retry, or was consumed
-    /// with an uncertain outcome. See the [lifecycle example](Peer) and the
+    /// with an uncertain outcome, including after [`session_deadline`](Self::session_deadline)
+    /// expires. See the [lifecycle example](Peer) and the
     /// [session contract](crate::link::Link#what-a-session-promises).
     pub async fn retire<CR, CW, C, A>(self, link: &mut Link<CR, CW, C, A>) -> Retire<T, B>
     where
@@ -456,10 +464,109 @@ impl<T, B: Bookmark> Peer<T, B> {
     }
 }
 
+/// Inspect the network and configure replication behavior.
 impl<T, B: BookmarkError> Peer<T, B> {
     /// The globally unique identifier for this network of gossiping [`Peer`]s.
     pub fn network(&self) -> Network {
         self.network
+    }
+
+    /// Select how each connection initiates gossip. By default it follows changes.
+    ///
+    /// The factory receives a fresh [`Changes`](crate::Changes) subscription for
+    /// each [`Rumors::gossip`](crate::Rumors::gossip) driver. It can adapt that
+    /// stream, combine it with periodic heartbeat requests, or ignore it and
+    /// provide its own policy. An always-pending stream only serves remote
+    /// initiations. An endless, always-ready stream can busy-loop.
+    ///
+    /// Each item converts to [`Gossip`]; `()` means initiate if
+    /// this connection has new local state. The driver suppresses echoes of its
+    /// own completed sessions. Remote initiations are always served, regardless
+    /// of the local policy. Ending the policy stream ends the driver cleanly
+    /// after any active session.
+    ///
+    /// The factory is shared by all handles and may be called concurrently for
+    /// different links. Each returned stream belongs to one driver.
+    ///
+    /// # Graceful shutdown
+    ///
+    /// Capture a shared shutdown signal in the factory to end the policy streams
+    /// for every clone's gossip drivers. Each driver observes the signal between
+    /// sessions; keep polling it until it ends so an active exchange can finish.
+    /// Use [`session_deadline`](Self::session_deadline) to bound a stalled exchange.
+    ///
+    /// ```
+    /// # pollster::block_on(async {
+    /// use futures::{channel::oneshot, FutureExt, StreamExt};
+    /// use rumors::Peer;
+    ///
+    /// let (stop, stopped) = oneshot::channel::<()>();
+    /// let stopped = stopped.map(|_| ()).shared();
+    /// let rumors = Peer::<String>::seed()
+    ///     .gossip_when(move |changes| changes.take_until(stopped.clone()))
+    ///     .into_rumors();
+    ///
+    /// let (mut link, _remote) = rumors::link::memory();
+    /// let handle = rumors.clone();
+    /// let drive = async move {
+    ///     let mut sessions = handle.gossip(&mut link);
+    ///     while let Some(session) = sessions.next().await {
+    ///         session?;
+    ///     }
+    ///     Ok::<_, rumors::Error>(())
+    /// }; // Finishing this future drops its `handle`.
+    ///
+    /// // Request shutdown, then keep driving gossip while reclaiming the peer.
+    /// stop.send(()).unwrap();
+    /// let (finished, peer) = futures::join!(drive, rumors.try_into_peer());
+    /// finished.unwrap();
+    /// let peer = peer.expect("this is the only caller reclaiming the peer");
+    /// // The peer can now be reconfigured or retired.
+    /// # });
+    /// ```
+    ///
+    /// [`Rumors::try_into_peer`] waits for every other handle to be dropped,
+    /// including handles held by tasks doing work other than gossip.
+    ///
+    /// Shutdown remains in effect for new drivers using this policy; replace the
+    /// policy before restarting gossip. Shutdown does not force a final
+    /// synchronization of pending local changes, retire the peer, or affect
+    /// explicit [`Rumors::gossip_once`] calls.
+    pub fn gossip_when<F, S>(mut self, when: F) -> Self
+    where
+        F: Fn(crate::Changes<T>) -> S + Send + Sync + 'static,
+        S: futures::Stream + Send + 'static,
+        S::Item: Into<crate::Gossip>,
+    {
+        self.gossip_policy.set_when(when);
+        self
+    }
+
+    /// Supply a fresh deadline for each wire session. Disabled by default.
+    ///
+    /// The deadline covers gossip, bootstrap, and retirement through final
+    /// confirmation. It starts when an explicit call or the local policy
+    /// initiates a session, or when the first remote bytes arrive. Idle waits
+    /// are untimed, and traffic does not reset the deadline.
+    ///
+    /// Expiry reports [`Error::DeadlineExceeded`](crate::Error::DeadlineExceeded)
+    /// and poisons the link. A completed local commit is not undone.
+    /// [`Retire`] preserves a usable peer when recovery is safe; otherwise it
+    /// reports an uncertain retirement. A gossip driver ends after the error.
+    ///
+    /// Because Rumors is runtime-independent, the application owns the clock
+    /// used for the deadline: for a one-second deadline with Tokio, pass `||
+    /// tokio::time::sleep(std::time::Duration::from_secs(1))`. Configure
+    /// [`Bootstrap::session_deadline`] before joining; the returned peer
+    /// inherits it. Bookmark attachment after the join's wire session is a
+    /// separate local storage operation and is not covered by this deadline.
+    pub fn session_deadline<D, F>(mut self, deadline: D) -> Self
+    where
+        D: Fn() -> F + Send + Sync + 'static,
+        F: Future<Output = ()> + Send + 'static,
+    {
+        self.gossip_policy.set_deadline(deadline);
+        self
     }
 
     /// Bound the memory a synchronization may spend on pipelining.

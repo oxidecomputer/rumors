@@ -1,6 +1,6 @@
 //! Protocol preamble exchange (`mirror::remote::preamble`).
 //!
-//! Drives [`rumors::Rumors::gossip`] against a counterparty whose control
+//! Drives [`rumors::Rumors::gossip_once`] against a counterparty whose control
 //! halves are driven by hand over an in-memory [`rumors::link`] pair,
 //! asserting that a mismatched magic, version, or intent surfaces as the
 //! error variant rather than corrupting the local rumor set. The V2
@@ -72,7 +72,8 @@ async fn handshake_roundtrip_succeeds() {
 
     let (mut a_link, mut b_link) = rumors::link::memory();
 
-    let (alice_out, bob_out) = tokio::join!(alice.gossip(&mut a_link), bob.gossip(&mut b_link));
+    let (alice_out, bob_out) =
+        tokio::join!(alice.gossip_once(&mut a_link), bob.gossip_once(&mut b_link));
 
     alice_out.expect("alice gossip");
     bob_out.expect("bob gossip");
@@ -99,7 +100,7 @@ async fn unrecognized_preamble_is_a_violation() {
     };
 
     let alice: Rumors<String> = Peer::seed().sync_window_floor().into_rumors();
-    let alice_fut = alice.gossip(&mut a_link);
+    let alice_fut = alice.gossip_once(&mut a_link);
 
     let (alice_result, ()) = tokio::join!(alice_fut, fake_peer);
     match alice_result {
@@ -132,7 +133,7 @@ async fn version_mismatch_surfaces_error() {
     };
 
     let alice: Rumors<String> = Peer::seed().sync_window_floor().into_rumors();
-    let alice_fut = alice.gossip(&mut a_link);
+    let alice_fut = alice.gossip_once(&mut a_link);
 
     let (alice_result, ()) = tokio::join!(alice_fut, fake_peer);
     match alice_result {
@@ -167,7 +168,7 @@ async fn invalid_intent_surfaces_error() {
     };
 
     let alice: Rumors<String> = Peer::seed().sync_window_floor().into_rumors();
-    let alice_fut = alice.gossip(&mut a_link);
+    let alice_fut = alice.gossip_once(&mut a_link);
 
     let (alice_result, ()) = tokio::join!(alice_fut, fake_peer);
     match alice_result {
@@ -197,7 +198,7 @@ async fn truncated_handshake_surfaces_typed_truncation() {
     };
 
     let alice: Rumors<String> = Peer::seed().sync_window_floor().into_rumors();
-    let alice_fut = alice.gossip(&mut a_link);
+    let alice_fut = alice.gossip_once(&mut a_link);
 
     let (alice_result, ()) = tokio::join!(alice_fut, fake_peer);
     match alice_result {
@@ -232,7 +233,7 @@ async fn malformed_preamble_surfaces_typed_defect() {
     };
 
     let alice: Rumors<String> = Peer::seed().sync_window_floor().into_rumors();
-    let alice_fut = alice.gossip(&mut a_link);
+    let alice_fut = alice.gossip_once(&mut a_link);
 
     let (alice_result, ()) = tokio::join!(alice_fut, fake_peer);
     match alice_result {
@@ -263,7 +264,7 @@ async fn handshake_precedes_protocol_traffic() {
     };
 
     let alice: Rumors<String> = Peer::seed().sync_window_floor().into_rumors();
-    let alice_fut = alice.gossip(&mut a_link);
+    let alice_fut = alice.gossip_once(&mut a_link);
 
     let (alice_result, ()) = tokio::join!(alice_fut, fake_peer);
     match alice_result {

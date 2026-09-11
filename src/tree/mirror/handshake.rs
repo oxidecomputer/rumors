@@ -243,10 +243,13 @@ pub enum PreambleDefect {
 
 /// A cancel-safe, partially received fixed preamble.
 pub(crate) struct Staged {
+    /// The fixed frame's bytes, received without reading into the next item.
     buf: [u8; V2_PREAMBLE_LEN],
+    /// Initialized prefix of `buf`.
     filled: usize,
 }
 
+/// Preserve received bytes across the driver's idle wait and active exchange.
 impl Staged {
     /// Start with no received preamble bytes.
     pub(crate) fn new() -> Self {
@@ -256,9 +259,23 @@ impl Staged {
         }
     }
 
-    /// Whether an idle-boundary hang-up can still be a clean goodbye.
+    /// Whether no preamble byte has arrived, so EOF can be a clean goodbye.
     pub(crate) fn is_empty(&self) -> bool {
         self.filled == 0
+    }
+
+    /// Wait for initiation bytes; return false for EOF at an empty boundary.
+    ///
+    /// Return after the first read so the driver can start its session deadline
+    /// even if the peer stops partway through the preamble.
+    pub(crate) async fn wait_for_start<R>(&mut self, reader: &mut R) -> Result<bool, Error>
+    where
+        R: AsyncRead + Unpin + ?Sized,
+    {
+        if self.is_empty() {
+            self.read_more(reader).await?;
+        }
+        Ok(!self.is_empty())
     }
 
     /// Continue receiving the fixed frame without losing cancelled progress.
@@ -267,13 +284,7 @@ impl Staged {
         R: AsyncRead + Unpin + ?Sized,
     {
         while self.filled < V2_PREAMBLE_LEN {
-            match reader
-                .read(&mut self.buf[self.filled..])
-                .await
-                .map_err(|source| Error::Io {
-                    operation: TransportOperation::Read,
-                    source,
-                })? {
+            match self.read_more(reader).await? {
                 0 if self.filled == 0 => return Ok(Fill::Closed),
                 0 => {
                     return Err(Error::Truncated {
@@ -281,10 +292,26 @@ impl Staged {
                         expected: V2_PREAMBLE_LEN,
                     });
                 }
-                read => self.filled += read,
+                _ => {}
             }
         }
         Ok(Fill::Filled)
+    }
+
+    /// Append one transport read to the frame, leaving later items unread.
+    async fn read_more<R>(&mut self, reader: &mut R) -> Result<usize, Error>
+    where
+        R: AsyncRead + Unpin + ?Sized,
+    {
+        let read = reader
+            .read(&mut self.buf[self.filled..])
+            .await
+            .map_err(|source| Error::Io {
+                operation: TransportOperation::Read,
+                source,
+            })?;
+        self.filled += read;
+        Ok(read)
     }
 
     /// Validate a completely received frame in diagnostic order.

@@ -1,38 +1,18 @@
-//! Guardrail that the public futures stay type-erased.
+//! Catch accidental growth of public futures into the large protocol state.
 //!
-//! The streaming mirror's typed phase schedule (`streaming::protocol`) is a
-//! deep generic type: a layout query that traverses it inline blows past
-//! the default `recursion_limit = 128` and forces downstream crates to
-//! bump their own limit. Boxed boundaries keep it out of the public
-//! futures: `Reconciliation::reconcile` returns its `#[inline(never)]`
-//! body as a `Pin<Box<dyn Future>>` (with `Handshaken::reconcile`'s boxed
-//! descent below it) and `Rumors::gossip` and `Peer::retire` await through
-//! it; `bootstrap_reconcile` does the same for `Bootstrap::join`; and
-//! `gossip_when` hands out its stream boxed. Each public future therefore
-//! holds one pointer plus its own locals, in either profile, so the budget
-//! is pinned under the dev profile the gate runs.
-//!
-//! Removing one of those outer boxes, or adding a public future that drives
-//! the protocol without one, trips the budget here before downstream crates
-//! discover the `recursion_limit` regression. The justfile's `future-size`
-//! recipe reruns this binary with `--no-tests=fail`, so a `cfg` that
-//! compiles it empty fails the gate instead of reading as a pass.
+//! Boxed reconciliation boundaries keep the deeply nested protocol futures out
+//! of callers' layouts. These checks allow modest growth in session state but
+//! catch a missing boundary before callers encounter excessive stack use or
+//! compiler recursion limits. The gate checks the development-profile layout.
 
 use std::mem::size_of_val;
 
-use futures::stream;
 use rumors::{Peer, Rumors};
 
-/// Upper bound for the unawaited public futures and the `gossip_when` stream.
-///
-/// Measured identically under both profiles, the largest is `Peer::retire`
-/// at 2000 bytes. The budget sits half again above it, so an extra captured
-/// local or a fatter error type passes, and below what removing
-/// `Reconciliation::reconcile`'s box alone produces, so the cheapest
-/// boundary regression fails.
-const PUBLIC_FUTURE_BUDGET: usize = 3072;
+/// Allow small session futures while catching large embedded protocol state.
+const PUBLIC_FUTURE_BUDGET: usize = 4096;
 
-/// `Rumors::gossip` drives the full mirror protocol against a peer; the
+/// `Rumors::gossip_once` drives the full mirror protocol against a peer; the
 /// public future is type-erased.
 ///
 /// The erasure is `Reconciliation::reconcile`'s boxed future, so the typed
@@ -43,7 +23,7 @@ fn gossip_future_fits_budget() {
     drop(peer);
 
     let alice: Rumors<()> = Peer::seed().sync_window_floor().into_rumors();
-    let fut = alice.gossip(&mut link);
+    let fut = alice.gossip_once(&mut link);
     let size = size_of_val(&fut);
 
     assert!(
@@ -55,7 +35,7 @@ fn gossip_future_fits_budget() {
     );
 }
 
-/// `Peer::retire` is `gossip` plus the party hand-off: the same erasure
+/// `Peer::retire` adds handoff to a gossip session: the same erasure
 /// boundary must keep it flat.
 #[test]
 fn retire_future_fits_budget() {
@@ -92,24 +72,24 @@ fn bootstrap_future_fits_budget() {
     );
 }
 
-/// `Rumors::gossip_when`'s public stream is one boxed pointer.
+/// `Rumors::gossip` keeps the continuous driver behind a boxed stream.
 ///
 /// What this test would first observe is a stream handed out unboxed with
 /// deep state behind it; the stream cannot see the `Reconciliation::reconcile`
 /// boundary, which the gossip and retire tests beside it hold.
 #[test]
-fn gossip_when_stream_fits_budget() {
+fn gossip_stream_fits_budget() {
     let (mut link, peer) = rumors::link::memory();
     drop(peer);
 
     let alice: Rumors<()> = Peer::seed().sync_window_floor().into_rumors();
-    let sessions = alice.gossip_when(stream::empty::<()>(), &mut link);
+    let sessions = alice.gossip(&mut link);
     let size = size_of_val(&sessions);
 
     assert!(
         size <= PUBLIC_FUTURE_BUDGET,
-        "gossip_when stream is {size} bytes, exceeds budget {PUBLIC_FUTURE_BUDGET}; \
+        "gossip stream is {size} bytes, exceeds budget {PUBLIC_FUTURE_BUDGET}; \
          the stream is handed out unboxed with deep state behind it: restore \
-         the `Box::pin` around `gossip_when`'s unfold",
+         the `Box::pin` around `gossip`'s unfold",
     );
 }

@@ -1,6 +1,6 @@
 //! Convergence of the *asynchronous* gossip path.
 //!
-//! `rumors::Rumors::gossip`, driven concurrently with `tokio::join!` over an
+//! `rumors::Rumors::gossip_once`, driven concurrently with `tokio::join!` over an
 //! in-memory [`rumors::link`] pair, must converge both peers on the union of
 //! their pre-session live content.
 //!
@@ -32,7 +32,7 @@ fn assert_fingerprints_equal<T: Send + Sync>(a: &rumors::Rumors<T>, b: &rumors::
 }
 
 proptest! {
-    /// Driving two async `Rumors` through `Rumors::gossip` over an in-memory
+    /// Driving two async `Rumors` through `Rumors::gossip_once` over an in-memory
     /// [`rumors::link`] pair converges both on the union of the two
     /// pre-session readouts.
     ///

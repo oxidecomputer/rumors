@@ -56,7 +56,7 @@ fn retire_into_gossip(retiree: Rumors<u64>, peer: &Rumors<u64>) -> Retire<u64> {
             .expect("the sole handle reclaims the Peer");
         let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(LINK_BUF);
         let (retire_out, gossip_out) =
-            tokio::join!(retiree.retire(&mut a_link), peer.gossip(&mut b_link),);
+            tokio::join!(retiree.retire(&mut a_link), peer.gossip_once(&mut b_link),);
         gossip_out.expect("gossiping peer");
         assert_control_drained(a_link, b_link);
         retire_out
@@ -464,7 +464,7 @@ fn retirement_cut(cut: Option<usize>, initial: usize) -> usize {
             (link, Some(meter))
         };
         let outgoing = async move { retiree.retire(&mut link).await };
-        let (retired, received) = tokio::join!(outgoing, absorber.gossip(&mut receiving));
+        let (retired, received) = tokio::join!(outgoing, absorber.gossip_once(&mut receiving));
         if cut.is_none() {
             assert!(
                 matches!(retired, Retire::Retired),

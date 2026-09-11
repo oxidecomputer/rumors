@@ -68,7 +68,7 @@ const DIVERGENT_MESSAGES: u64 = 8;
 /// held to the clean-drain invariant at its boundary.
 async fn gossip_over(a: &Rumors<u64>, b: &Rumors<u64>, capacity: usize) {
     let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(capacity);
-    let (a_out, b_out) = tokio::join!(a.gossip(&mut a_link), b.gossip(&mut b_link));
+    let (a_out, b_out) = tokio::join!(a.gossip_once(&mut a_link), b.gossip_once(&mut b_link));
     a_out.expect("gossip completes on side A");
     b_out.expect("gossip completes on side B");
     assert_control_drained(a_link, b_link);
@@ -121,8 +121,10 @@ async fn season(rumors: &Rumors<u64>, payload_base: u64) {
         .await
         .expect("cycled fork is the sole handle");
     let (mut fork_link, mut seed_link) = rumors::link::memory_with_capacity(FIXTURE_CAPACITY);
-    let (retired, gossiped) =
-        tokio::join!(cycled.retire(&mut fork_link), rumors.gossip(&mut seed_link));
+    let (retired, gossiped) = tokio::join!(
+        cycled.retire(&mut fork_link),
+        rumors.gossip_once(&mut seed_link)
+    );
     gossiped.expect("absorbing gossip completes");
     assert!(
         matches!(retired, Retire::Retired),
@@ -248,7 +250,7 @@ async fn bootstrap_session() {
     let provider = seasoned().await;
     let (mut p_link, mut n_link) = rumors::link::memory_with_capacity(MIN_CAPACITY);
     let (served, joined) = tokio::join!(
-        provider.gossip(&mut p_link),
+        provider.gossip_once(&mut p_link),
         Peer::<u64>::bootstrap().join(&mut n_link),
     );
     served.expect("the serving session completes");
@@ -271,7 +273,7 @@ async fn retire_session() {
     }
     let retiree = a.try_into_peer().await.expect("a is the sole handle");
     let (mut r_link, mut p_link) = rumors::link::memory_with_capacity(MIN_CAPACITY);
-    let (retired, gossiped) = tokio::join!(retiree.retire(&mut r_link), b.gossip(&mut p_link));
+    let (retired, gossiped) = tokio::join!(retiree.retire(&mut r_link), b.gossip_once(&mut p_link));
     gossiped.expect("the absorbing session completes");
     assert!(
         matches!(retired, Retire::Retired),

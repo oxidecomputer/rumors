@@ -52,7 +52,10 @@ where
     capture_session(
         move |mut link, hook| async move {
             let provider = observed(provider, hook).await;
-            provider.gossip(&mut link).await.expect("provider gossip");
+            provider
+                .gossip_once(&mut link)
+                .await
+                .expect("provider gossip");
         },
         move |mut link, hook| async move {
             match Peer::<T>::bootstrap().observe(hook).join(&mut link).await {

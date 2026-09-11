@@ -99,6 +99,11 @@ that handle to `send`, `redact`, observe
 `messages`, and `gossip`
 concurrently. All handles share the same replica.
 
+`Rumors::gossip` keeps a connection synchronized, initiating on local
+changes by default. Configure `Peer::gossip_when` to choose another
+initiation policy and `Peer::session_deadline` to limit active exchanges
+without timing idle waits. Use `Rumors::gossip_once` to force one exchange.
+
 When the other handles have been dropped, `Rumors::try_into_peer`
 recovers the `Peer`. This ensures retirement cannot happen while another
 handle still uses the replica.
@@ -135,7 +140,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (mut near, mut far) = rumors::link::memory();
     let serve = alice.clone();
     tokio::spawn(async move {
-        serve.gossip(&mut far).await.unwrap();
+        serve.gossip_once(&mut far).await.unwrap();
     });
 
     // ...and Bob joins the universe through it, arriving as a full replica.

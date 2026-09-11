@@ -39,7 +39,8 @@ fn retire_carries_last_minute_redactions() {
     let retiree = block_on(b.try_into_peer()).expect("sole handle");
     let outcome = block_on(async {
         let (mut b_link, mut a_link) = rumors::link::memory();
-        let (outcome, served) = tokio::join!(retiree.retire(&mut b_link), a.gossip(&mut a_link),);
+        let (outcome, served) =
+            tokio::join!(retiree.retire(&mut b_link), a.gossip_once(&mut a_link),);
         served.expect("A serves the retire session");
         assert_control_drained(b_link, a_link);
         outcome

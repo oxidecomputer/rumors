@@ -1,6 +1,6 @@
 //! Wire helpers for the *asynchronous* gossip path.
 //!
-//! These drive `rumors::Rumors::gossip` over an in-memory [`rumors::link`]
+//! These drive `rumors::Rumors::gossip_once` over an in-memory [`rumors::link`]
 //! pair with both peers polled concurrently via `tokio::join!`. The two
 //! tasks progress directly against each other through the link's streams;
 //! no runtime is required unless a caller explicitly spawns a task.
@@ -116,7 +116,7 @@ fn unread_control_bytes<R: AsyncRead + Unpin>(mut read: R) -> Vec<u8> {
 /// Gossip two async `Rumors` through the on-wire protocol. After this
 /// returns, the two rumor sets hold the same live content and version.
 ///
-/// Both ends drive `gossip` concurrently over the two ends of one in-memory
+/// Both ends drive `gossip_once` concurrently over the two ends of one in-memory
 /// link, so the session makes real bidirectional progress rather than
 /// serializing one peer behind the other.
 #[track_caller]
@@ -150,7 +150,7 @@ where
 {
     let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(LINK_BUF);
 
-    let (a_result, b_result) = tokio::join!(a.gossip(&mut a_link), b.gossip(&mut b_link));
+    let (a_result, b_result) = tokio::join!(a.gossip_once(&mut a_link), b.gossip_once(&mut b_link));
     let a_report = a_result.expect("wire gossip A");
     let b_report = b_result.expect("wire gossip B");
     assert_control_drained(a_link, b_link);
@@ -248,7 +248,7 @@ where
     let (mut parent_link, mut boot_link) = rumors::link::memory_with_capacity(LINK_BUF);
 
     let (server_out, boot_out) = tokio::join!(
-        parent.gossip(&mut parent_link),
+        parent.gossip_once(&mut parent_link),
         Peer::<T>::bootstrap().join(&mut boot_link),
     );
     server_out.expect("bootstrap server gossip");
