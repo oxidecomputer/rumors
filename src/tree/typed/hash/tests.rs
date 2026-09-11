@@ -25,12 +25,8 @@ fn branch_preimage_layout() {
     assert_eq!(Hash::branch(&prefix, children), Hash::of(&expected));
 }
 
-/// A leaf commits to exactly `LEAF_TAG ‖ suffix_len ‖ suffix` — its
-/// compressed suffix, length-tagged, and never any version or message
-/// bytes.
-///
-/// The path (which the suffix spells) is version-derived, so the suffix
-/// is already a complete commitment to the version set.
+/// A leaf hashes its kind tag and length-tagged path suffix. The version
+/// determines the full path; its encoding and the payload are not repeated.
 #[test]
 fn leaf_preimage_layout() {
     let suffix = [0x01, 0x02, 0x03, 0x04];
@@ -39,6 +35,19 @@ fn leaf_preimage_layout() {
 }
 
 proptest! {
+    /// Duplicate or descending radixes cannot form a canonical branch hash.
+    #[cfg(debug_assertions)]
+    #[test]
+    fn branch_rejects_nonascending_radixes(a in any::<u8>(), b in any::<u8>()) {
+        let high = a.max(b);
+        for low in [a.min(b), high] {
+            let result = std::panic::catch_unwind(|| {
+                Hash::branch(&[], [(high, Hash::default()), (low, Hash::default())]);
+            });
+            prop_assert!(result.is_err(), "accepted radixes {}, {}", high, low);
+        }
+    }
+
     /// Incremental leaf hashing matches the contiguous input at every accepted
     /// length, including inputs that span more than one SHA3 block.
     #[test]
@@ -50,6 +59,14 @@ proptest! {
             prop_assert_eq!(Hash::leaf(suffix), Hash::of(&input), "suffix length {}", len);
         }
     }
+}
+
+/// A single-child branch must be compressed into the child's prefix before hashing.
+#[cfg(debug_assertions)]
+#[test]
+#[should_panic(expected = "one-child branch is unrepresentable")]
+fn branch_rejects_a_single_child() {
+    Hash::branch(&[], [(0, Hash::default())]);
 }
 
 /// Reject a suffix whose length cannot be represented by the input's length byte.

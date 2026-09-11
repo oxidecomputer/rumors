@@ -7,7 +7,7 @@ use proptest::test_runner::TestCaseError;
 use crate::tree::arb::arb_version;
 use crate::{Version, message::Message};
 
-use super::{Node, fan::Fan};
+use super::{Node, PATH_LEN, fan::Fan};
 
 /// Upper bound on the depth of trees generated in property tests.
 ///
@@ -86,14 +86,9 @@ fn arb_tree(depth: usize, budget: usize) -> BoxedStrategy<Node> {
     }
 }
 
-/// Walk a tree via the public `into_children` API and collect every
-/// (path, version, leaf) triple.
-///
-/// Paths list the child indices from
-/// shallowest to deepest, matching the order in which `into_children`
-/// yields them. The version is the leaf's own version as recorded by
-/// `Node::leaf`, and is preserved across path compression because
-/// `into_children` never mutates `version` — only `prefix`.
+/// Collect each leaf's path, version, and payload through `into_children`.
+/// Paths run from shallowest to deepest; decomposing a compressed prefix
+/// preserves the leaf's version and payload.
 fn enumerate_leaves(node: Node, path: Vec<u8>) -> Vec<(Vec<u8>, Version, Message)> {
     match node.into_children() {
         Ok(children) => children
@@ -115,27 +110,19 @@ fn enumerate_leaves(node: Node, path: Vec<u8>) -> Vec<(Vec<u8>, Version, Message
     }
 }
 
-/// Recursively traverse a tree via the public smart constructors, mapping
-/// each leaf's bytes through `f` and rebuilding the tree bottom-up.
-///
-/// With
-/// `f = |b| b.clone()` this is an identity functor that decomposes and
-/// rebuilds; with a constant `f` it swaps every leaf's payload. The
-/// branching structure and every node's `version` are preserved exactly:
-/// leaves pass their original version back into `Node::leaf`, and branch
-/// versions are recomputed by `Node::branch` from the same per-child
-/// versions we started with.
+/// Rebuild a tree through its constructors, applying `f` to each payload.
+/// Leaf versions and paths stay the same; branch bounds are memoized lazily
+/// from the rebuilt children. Cloning each payload reconstructs the tree.
 fn rebuild_with<F>(node: Node, f: &F) -> Node
 where
     F: Fn(&Message) -> Message,
 {
-    let version = node.ceiling().clone();
     match node.into_children() {
         Err(leaf_node) => {
             let leaf = leaf_node
                 .as_leaf()
                 .expect("into_children returned Err only for leaves");
-            Node::leaf(version, f(leaf))
+            Node::leaf(leaf_node.ceiling().clone(), f(leaf))
         }
         Ok(children) => {
             let rebuilt: Fan = children
@@ -147,19 +134,90 @@ where
     }
 }
 
-/// A branch with zero children is not a legal node: the smart constructor
-/// must reject it rather than materialize an empty `Branch`.
-///
-/// This is the
-/// "no empty nodes anywhere" half of the path-compression invariant; the
-/// one-child case is handled by `beneath`-collapse instead.
+/// Empty branches have no node; the constructor returns `None`.
 #[test]
 fn empty_branch_is_none() {
     let empty: Fan = Fan::new();
     assert!(Node::branch(empty).is_none());
 }
 
+/// A bulk leaf run must contain at least one leaf.
+#[test]
+#[should_panic(expected = "a leaf run is non-empty")]
+fn bulk_build_rejects_an_empty_run() {
+    Node::from_sorted_leaves(0, &mut []);
+}
+
+/// A bulk build cannot consume a leaf whose slot has already been taken.
+#[test]
+#[should_panic(expected = "each leaf node is consumed exactly once")]
+fn bulk_build_rejects_a_consumed_leaf() {
+    Node::from_sorted_leaves(0, &mut [([0; PATH_LEN], None)]);
+}
+
+/// A prefix-free branch still cannot occupy a bulk builder's leaf slot.
+#[cfg(debug_assertions)]
+#[test]
+#[should_panic(expected = "a leaf run supplies bare leaf nodes")]
+fn bulk_build_rejects_a_branch_as_a_leaf() {
+    let children = [0, 1]
+        .into_iter()
+        .map(|radix| (radix, Node::leaf(Version::new(), Message::new(()))))
+        .collect();
+    let branch = Node::branch(children).expect("two children form a branch");
+    Node::from_sorted_leaves(0, &mut [([0; PATH_LEN], Some(branch))]);
+}
+
 proptest! {
+    /// Duplicate and descending paths are rejected before recursive grouping,
+    /// at any starting depth. A later panic must not mask a missing order check.
+    #[cfg(debug_assertions)]
+    #[test]
+    fn bulk_build_rejects_nonascending_paths(
+        mut low in any::<[u8; PATH_LEN]>(),
+        depth in 0..PATH_LEN,
+        radix in 0u8..u8::MAX,
+    ) {
+        low[depth] = radix;
+        let mut high = low;
+        high[depth] += 1;
+        for paths in [[high, low], [low, low]] {
+            let result = std::panic::catch_unwind(|| {
+                let mut entries = paths.map(|path| {
+                    (path, Some(Node::leaf(Version::new(), Message::new(()))))
+                });
+                Node::from_sorted_leaves(depth, &mut entries);
+            });
+            let panic = result.expect_err("unordered paths must be rejected");
+            prop_assert_eq!(
+                panic.downcast_ref::<&str>().copied(),
+                Some("a leaf run is strictly ascending by path"),
+            );
+        }
+    }
+
+    /// A bulk leaf must have no prefix: the supplied path provides its suffix.
+    #[cfg(debug_assertions)]
+    #[test]
+    fn bulk_build_rejects_a_prefixed_leaf(
+        path in any::<[u8; PATH_LEN]>(),
+        prefix_len in 1..=PATH_LEN,
+        depth in 0..=PATH_LEN,
+    ) {
+        let result = std::panic::catch_unwind(|| {
+            let mut leaf = Node::leaf(Version::new(), Message::new(()));
+            for &radix in &path[..prefix_len] {
+                leaf = leaf.beneath(radix);
+            }
+            Node::from_sorted_leaves(depth, &mut [(path, Some(leaf))]);
+        });
+        let panic = result.expect_err("a prefixed leaf must be rejected");
+        prop_assert_eq!(
+            panic.downcast_ref::<&str>().copied(),
+            Some("a leaf run supplies bare leaf nodes"),
+        );
+    }
+
     /// Any tree built from the public smart constructors satisfies the
     /// path-compression invariant: every branch has at least two children.
     #[test]
@@ -169,24 +227,17 @@ proptest! {
         prop_assert!(tree.is_max_compressed());
     }
 
-    /// Decomposing a tree into its leaves via `into_children` and rebuilding
-    /// bottom-up with `Node::leaf` + `Node::branch` must produce a tree
-    /// with the same root hash and the same root version as the original.
-    ///
-    /// This is the strongest statement that hash and version are pure
-    /// functions of the public structural API: any node we can take apart,
-    /// we can put back together, and the observable invariants are the
-    /// same. Path-compressed single-child branches round-trip through
-    /// `branch`→`beneath`, so this also exercises the compression path.
+    /// Decomposing and rebuilding a tree preserves its root hash and ceiling,
+    /// including when singleton branches are compressed back into prefixes.
     #[test]
-    fn decompose_and_rebuild_preserves_hash_and_version(
+    fn decompose_and_rebuild_preserves_hash_and_ceiling(
         tree in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree(d, TREE_LEAF_BUDGET)),
     ) {
         let hash_before = tree.hash();
-        let version_before = tree.ceiling().clone();
+        let ceiling_before = tree.ceiling().clone();
         let rebuilt = rebuild_with(tree, &|b| b.clone());
         prop_assert_eq!(rebuilt.hash(), hash_before);
-        prop_assert_eq!(rebuilt.ceiling(), &version_before);
+        prop_assert_eq!(rebuilt.ceiling(), &ceiling_before);
     }
 
     /// Enumerating a generated tree's leaves via the public API yields
@@ -213,40 +264,26 @@ proptest! {
         prop_assert_eq!(distinct.len(), leaves.len());
     }
 
-    /// Every node's ceiling is the join of its descendant leaves' versions.
-    ///
-    /// At the root this means: (a) every leaf's version is ≤ the root
-    /// ceiling, and (b) the root ceiling is exactly the join of all leaf
-    /// versions, with no larger component, so the root never over-reports
-    /// causality. A branch's ceiling is computed lazily from its children's
-    /// (see `Node::ceiling`) and `beneath` leaves it alone, so the invariant
-    /// must hold at every layer of the construction.
+    /// The root ceiling is the join of all leaf versions and dominates each one.
     #[test]
-    fn version_is_join_of_leaf_versions(
+    fn ceiling_is_join_of_leaf_versions(
         tree in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree(d, TREE_LEAF_BUDGET)),
     ) {
-        let root_version = tree.ceiling().clone();
+        let root_ceiling = tree.ceiling().clone();
         let leaves = enumerate_leaves(tree, Vec::new());
 
         for (_, v, _) in &leaves {
-            prop_assert!(v <= root_version);
+            prop_assert!(v <= root_ceiling);
         }
 
         let joined = leaves
             .iter()
             .map(|(_, v, _)| v.clone())
             .fold(Version::new(), |acc, v| acc | v);
-        prop_assert_eq!(joined, root_version);
+        prop_assert_eq!(joined, root_ceiling);
     }
 
-    /// Every node's floor is the meet of its descendant leaves' versions.
-    ///
-    /// The dual of `version_is_join_of_leaf_versions`: (a) the root floor
-    /// is ≤ every leaf's version, and (b) it is exactly the sequential
-    /// meet of all leaf versions, seeded from the first and folded in by
-    /// reference — the naive reference for the memoized balanced fold
-    /// (see `Node::floor`), so the memo never under- or over-reports the
-    /// history every leaf shares.
+    /// The root floor is the meet of all leaf versions and is dominated by each.
     #[test]
     fn floor_is_meet_of_leaf_versions(
         tree in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree(d, TREE_LEAF_BUDGET)),
@@ -269,22 +306,14 @@ proptest! {
         prop_assert_eq!(met, root_floor);
     }
 
-    /// Every node's stored bounds span — not just the root's — is
-    /// exactly the hull of its own descendant leaves' versions.
-    ///
-    /// The root projections above can mask an interior drift: a wrong
-    /// child memo can meet/join away against its siblings'
-    /// contributions at the root. This walk holds the memoized span's
-    /// endpoints exact at every layer against the independent split
-    /// folds (`meet_all`/`join_all`, not the fused hull the memo
-    /// itself runs), and re-checks the interval ordering the stored
-    /// span carries by construction — the meet of a nonempty leaf set
-    /// never exceeds its join — so a broken hull door would surface as
-    /// a violated oracle here rather than ride the type unchecked.
+    /// Every node's bounds equal the meet and join of its descendant versions.
+    /// Checking each subtree prevents a sibling's contribution from masking a
+    /// wrong interior memo at the root. Separate folds check the combined fold.
     #[test]
     fn bounds_are_the_leaf_fold_at_every_node(
         tree in (0..=MAX_TEST_DEPTH).prop_flat_map(|d| arb_tree(d, TREE_LEAF_BUDGET)),
     ) {
+        /// Check this subtree's bounds and return its leaf versions to the parent.
         fn check(node: &Node) -> Result<Vec<Version>, TestCaseError> {
             let floor = node.floor().clone();
             let ceiling = node.ceiling().clone();

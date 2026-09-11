@@ -96,6 +96,21 @@ fn equivalent(fan: &Fan, oracle: &BTreeMap<u8, Node>) -> Result<(), TestCaseErro
 }
 
 proptest! {
+    /// Appending a duplicate or smaller radix would break sorted, unique lookup.
+    #[cfg(debug_assertions)]
+    #[test]
+    fn push_rejects_nonascending_radixes(a in any::<u8>(), b in any::<u8>()) {
+        let high = a.max(b);
+        for low in [a.min(b), high] {
+            let result = std::panic::catch_unwind(|| {
+                let mut fan = Fan::new();
+                fan.push(high, child());
+                fan.push(low, child());
+            });
+            prop_assert!(result.is_err(), "accepted radixes {}, {}", high, low);
+        }
+    }
+
     /// After every step of any insert/remove sequence, a fan observes
     /// identically to a `BTreeMap` fed the same operations.
     ///
