@@ -1,10 +1,10 @@
 # Rumors review checklist
 
-**Ready for review:** 06's envelope validation and 23's memory-budget docs — `codex/window-envelope`, base `main`.
-**Next:** 05, audit remaining conformance claims; then 03's broader deep-session validation.
+**Working:** 05's remaining backend conformance claims — `codex/backend-conformance`, base `main`.
+**Next:** 03's broader deep-session validation.
 
-The envelope calculation is independent of deep-session coverage. Validate the
-sizing arithmetic before extending measurements that rely on it.
+The envelope arithmetic is validated. Finish the conformance audit before
+extending measurements that depend on its claims.
 
 Check code outcomes only after verification and merge; retain the landing
 commit. Checked dispositions are labelled explicitly.
@@ -107,7 +107,7 @@ Dependencies: 03's deep fixtures; reported-error repairs in 04 are complete. Con
 
 Dependencies: 01 for retained-root measurements; 03–05 when claims cover deep paths.
 
-- [ ] Validate window sizing against actual session work and an independent numerical calculation, including asymmetric corpora and a lowered-bound control; delete the simulator.
+- [x] Validate window sizing against actual session work and an independent numerical calculation, including asymmetric corpora and a lowered-bound control; delete the simulator — `69bdab34`.
   Sources: `benches-envelope-28`, `benches-envelope-29`, `benches-envelope-31–34`, `streaming-backend-window-32`, T10, T43.
 
 - [ ] Derive window charges and structural limits from the types or constants that own them.
@@ -492,7 +492,7 @@ Dependencies: Contracts and API signatures from earlier batches; prose improves 
 - [ ] Explain the library model and API at the reader’s level.
   Sources: `api-core-17`, `api-core-18`, `api-core-26`, `api-core-27`, `prose-hygiene-2`, `session-bookmark-34`, `session-bookmark-44`, `tree-core-6`, T46, T51, T58, T75, T82, T95, T132, T141, T158, N09.
 
-- [ ] Keep the memory-budget setter focused on its contract, with a separate sizing guide.
+- [x] Keep the memory-budget setter focused on its contract, with a separate sizing guide — `69bdab34`.
   Sources: `api-audit-8–9`, `api-core-15`, `fresh-eyes-3`, T92.
 
 - [ ] Put reconciliation explanations where they belong.
