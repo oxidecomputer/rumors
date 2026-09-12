@@ -1,10 +1,16 @@
+/// Relate sizing inputs to the work a session creates.
+mod application;
+
+/// Numerical checks of the production occupancy bounds.
+mod envelope;
+
 use proptest::prelude::*;
 
 use super::{
     DEFAULT_SYNC_MEMORY_BUDGET, DESIGN_RECORD_BYTES, DISPUTE_OVERHEAD_BYTES, FAN, FAN_SLOT_BYTES,
     KEY_DEPTH, LEAF_REQUEST_BYTES, REFERENCE_SLOT_BYTES, SCOPE_ENVELOPE_BYTES, SCOPE_FIXED_BYTES,
     SPEC_BDP_BYTES, SUPPLY_DECODE_ENVELOPE_BYTES, Window, WindowConfig, children_quantile,
-    jointly_occupied, occupied, stage_population,
+    disputed, occupied, stage_population,
 };
 use crate::link::STREAM_COUNT;
 
@@ -12,15 +18,7 @@ use crate::link::STREAM_COUNT;
 /// replicas at a terabyte-scale corpus.
 const SYMMETRIC: u64 = 10_000_000_000;
 
-/// The design session's corpus scale: a round 62,500 a side, sized
-/// near the spec BDP in design-size records.
-///
-/// The exact quotient moves with the pinned wire-cost anchor; the
-/// round figure is the stable benchmark shape.
-///
-/// Stated, not derived: the budget default is policy, so nothing here
-/// derives from the wire-cost anchor at compile time; this constant
-/// names the session shape [`SCOPE_ENVELOPE_BYTES`] prices.
+/// Corpus size for the average-scope-cost calibration, independent of the public table.
 const DESIGN_SESSION_MESSAGES: u64 = 62_500;
 
 /// The in-memory backend's pricing, for tests that recompute the charge
@@ -30,18 +28,19 @@ fn local_node_bytes(_children: usize, _version_bound: usize) -> usize {
     std::mem::size_of::<*const ()>()
 }
 
-/// The worst case a derived window admits, recomputed exactly as the
-/// solve charges it.
+/// Recompute a window's modeled charge from its installed capacities.
 ///
 /// Each level's population is clamped to its capacity and priced at its
 /// occupancy-thinned fan through the backend's pricing function, plus
 /// the leaf-request edge at the capacity the assignment grants it.
 fn charge(
     window: &Window,
-    n: u128,
+    sizes: [u64; 2],
     node_bytes: impl Fn(usize, usize) -> usize,
     version_bound: usize,
 ) -> u128 {
+    let n = u128::from(sizes[0].max(sizes[1]));
+    let pair = u128::from(sizes[0]) * u128::from(sizes[1]);
     let mut total = (STREAM_COUNT as u128)
         * (FAN as u128 + 1)
         * (node_bytes(0, version_bound) as u128 + FAN_SLOT_BYTES as u128);
@@ -49,12 +48,12 @@ fn charge(
         let held = usize::try_from(children_quantile(n, depth)).unwrap_or(usize::MAX);
         let reference = (node_bytes(held, version_bound) + REFERENCE_SLOT_BYTES) as u128;
         let capacity = window.capacity(KEY_DEPTH - depth) as u128;
-        let population = stage_population(n, n * n, depth).min(capacity);
+        let population = stage_population(n, pair, depth).min(capacity);
         total +=
             population * (children_quantile(n, depth - 1) * reference + SCOPE_FIXED_BYTES as u128);
     }
     total
-        + stage_population(n, n * n, KEY_DEPTH).min(window.capacity(0) as u128)
+        + stage_population(n, pair, KEY_DEPTH).min(window.capacity(0) as u128)
             * LEAF_REQUEST_BYTES as u128
 }
 
@@ -185,18 +184,7 @@ fn deep_levels_are_sparse() {
     }
 }
 
-/// The scope envelope is the derivation's own number, not a hand-fitted
-/// one.
-///
-/// `SCOPE_ENVELOPE_BYTES` is the closed form's numerator: the per-scope
-/// charge of the design session — [`DESIGN_SESSION_MESSAGES`]-message
-/// corpora in full divergence, every stage population held in flight,
-/// priced through the in-memory backend's function — recomputed here
-/// exactly as the solve charges it, so the constant fails loudly
-/// instead of drifting when the pricing or the envelopes change. The
-/// end-to-end statement is asserted too: the policy default admits the
-/// design session's whole population in flight, the table's 1.0× cell
-/// at the default row and the design-record column.
+/// The reference scope charge matches the sizing calculation, and the default fits that case.
 #[test]
 fn scope_envelope_matches_the_derivation() {
     let n = u128::from(DESIGN_SESSION_MESSAGES);
@@ -250,7 +238,7 @@ fn supply_decode_envelope_matches_the_charge() {
 /// rendering.
 ///
 /// Generation is deterministic — each row's window from the solve at
-/// the design session, each cell from the wave form — so any drift
+/// the example's set size, each cell from the wave form — so any drift
 /// between the derivation and the table the rustdoc includes fails
 /// here instead of shipping stale numbers; regenerate with
 /// `just window-tradeoff`.
@@ -263,17 +251,11 @@ fn tradeoff_table_matches_the_derivation() {
     );
 }
 
-/// The crossover and BDP-scale u64 figures the docs quote are the
-/// solve's own numbers.
+/// Preserve the default budget's capacity at two bandwidth-delay-product boundaries.
 ///
-/// `m* = 60 B` (quoted at `Peer::sync_memory_budget`) is the
-/// smallest record size whose self-consistent corpus — the spec BDP in
-/// `m`-size records, per side — fits entirely inside the window the
-/// default budget derives at that corpus; the u64 column's BDP-scale
-/// corpus derives a 65,404-scope window, the quoted ~4.3× figure.
-/// Both are recomputed here from the derivation, so the quoted prose
-/// fails loudly instead of drifting when the solve or its constants
-/// change.
+/// Each payload size determines a corpus that fills one BDP on the wire.
+/// Find the smallest payload whose corpus fits entirely in the default
+/// window, then check the capacity for a corpus of random u64 messages.
 #[test]
 fn default_crossover_matches_the_solve() {
     let window_at = |corpus: u64| {
@@ -297,16 +279,14 @@ fn default_crossover_matches_the_solve() {
     assert_eq!(
         crossover,
         Some(52),
-        "the default's self-consistent slowdown-1 crossover moved: update the figures \
-         quoted at Peer::sync_memory_budget",
+        "the default window no longer reaches the expected crossover",
     );
     // A random u64 payload CBOR-encodes to 9 bytes (header + value).
     let u64_corpus = (SPEC_BDP_BYTES / (DISPUTE_OVERHEAD_BYTES + 9)) as u64;
     assert_eq!(
         window_at(u64_corpus),
         91_941,
-        "the u64 BDP-scale window moved: update the ~2.6x figure quoted at \
-         Peer::sync_memory_budget",
+        "the default window changed for the u64 BDP-scale corpus",
     );
 }
 
@@ -321,7 +301,7 @@ fn materializing_node_bytes(children: usize, version_bound: usize) -> usize {
 ///
 /// A backend that materializes child tables and version bounds derives
 /// capacities pointwise at or below the pointer-priced window at every
-/// height, and its recomputed worst-case charge still fits the budget:
+/// height, and its recomputed modeled charge still fits the budget:
 /// the derivation spends the budget through the supplied function, not
 /// through any built-in rate.
 #[test]
@@ -348,23 +328,35 @@ fn function_pricing_narrows_the_window() {
     }
     // The solve evaluated the function at the doubled joined-pair bound.
     let bound = 2 * usize::try_from(2 * version_bytes).expect("small bound");
-    assert!(charge(&pricey, u128::from(len), materializing_node_bytes, bound) <= budget as u128);
+    assert!(charge(&pricey, [len, len], materializing_node_bytes, bound) <= budget as u128);
 }
 
 proptest! {
-    /// The derived window's worst-case charge stays inside the stated
-    /// budget, except where the one-slot floor alone exceeds it
-    /// (liveness outranks the budget).
+    /// Choose the widest affordable window, except when progress requires exceeding the budget.
     #[test]
-    fn window_stays_inside_the_budget(
-        messages in 1u64..,
+    fn window_uses_the_available_budget(
+        sizes in proptest::array::uniform2(any::<u64>()),
         budget in 0usize..=1 << 44,
     ) {
-        let window = Window::from_budget(messages, messages, 0, 0, budget, local_node_bytes);
+        let window = Window::from_budget(sizes[0], sizes[1], 0, 0, budget, local_node_bytes);
         prop_assert!(
             window == Window::FLOOR
-                || charge(&window, u128::from(messages), local_node_bytes, 0)
-                    <= budget as u128
+                || charge(&window, sizes, local_node_bytes, 0) <= budget as u128
+        );
+
+        // Increase the common width by one wherever population permits.
+        // It must either buy no additional capacity or exceed the budget.
+        // Merely staying under budget would also accept an all-ones bug.
+        let mut wider = window;
+        let next = u128::from(window.widest()) + 1;
+        let n = u128::from(sizes[0].max(sizes[1]));
+        let pair = u128::from(sizes[0]) * u128::from(sizes[1]);
+        for depth in 1..=KEY_DEPTH {
+            wider.capacities[KEY_DEPTH - depth] =
+                stage_population(n, pair, depth).min(next).max(1) as usize;
+        }
+        prop_assert!(
+            wider == window || charge(&wider, sizes, local_node_bytes, 0) > budget as u128
         );
     }
 
@@ -375,7 +367,7 @@ proptest! {
     #[test]
     fn envelopes_are_consistent(messages in 0u64.., depth in 1usize..=KEY_DEPTH) {
         let n = u128::from(messages);
-        prop_assert!(jointly_occupied(n, n * n, depth) <= occupied(n, depth));
+        prop_assert!(disputed(n, n * n, depth) <= occupied(n, depth));
         prop_assert!(children_quantile(n, depth) <= FAN as u128);
         prop_assert!(stage_population(n, n * n, depth) <= occupied(n, depth - 1));
     }

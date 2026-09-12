@@ -230,9 +230,8 @@
 //! Message bodies are governed separately: supplies stream outside the window
 //! as size-targeted runs, with at most one run in hand per stream per direction
 //! ([`Peer::target_message_size`](crate::Peer::target_message_size)). The
-//! budget's full details — what it prices, the closed form for choosing one,
-//! and the measured trade-off table — lives at
-//! [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget).
+//! budget's contract is at [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget);
+//! [the sizing guide](crate::sizing) explains how to choose it.
 //!
 //! # Why streaming, not level-synchronous exchange
 //!

@@ -155,7 +155,8 @@ impl<T, B: BookmarkError> Bootstrap<T, B> {
     /// Bootstrap receives into an empty replica and has no disputed subtrees
     /// to pipeline. This budget takes effect on its later synchronizations;
     /// [`target_message_size`](Self::target_message_size) bounds bootstrap's
-    /// supply runs. Defaults and sizing guidance are in [`Peer::sync_memory_budget`].
+    /// supply runs. See [`Peer::sync_memory_budget`] for the contract and
+    /// [the sizing guide](crate::sizing) for tuning guidance.
     pub fn sync_memory_budget(mut self, budget_bytes: usize) -> Self {
         self.window = WindowConfig::Budget(budget_bytes);
         self

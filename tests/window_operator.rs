@@ -1,23 +1,10 @@
-//! The operator wave model held against measured sessions.
+//! Compare the window slowdown model with measured sessions.
 //!
-//! `sync_memory_budget`'s docs publish the closed-form estimate,
-//! `slowdown(budget, m) ≈ max(1, BDP × envelope / (budget × (28 + m)))`:
-//! the large-window simplification of the exact wave-model form
-//! `slowdown = max(1, BDP_messages / K)` with `K` the derived window.
-//! The simplification substitutes `K ≈ (budget − fans) / envelope`
-//! (`fans` is the flat supply-decode pre-charge) and
-//! `BDP_messages = BDP / (28 + m)`, the calibrated per-message wire law
-//! `tests/dispute_wire.rs` pins. The `K` substitution overstates the
-//! window by roughly `F / budget`, with `F` the corpus-fixed component
-//! of the real charge (4.7–7.9 MB at the design corpus; the band and
-//! its decomposition are worked at `Peer::sync_memory_budget`) — which
-//! is why the committed trade-off table carries the solve's own windows
-//! and the pins here hold the exact form, never the scalar.
-//!
-//! The pin here holds the *exact* wave form against sessions on a
-//! genuinely bandwidth-limited pipe, with the link rate self-calibrated
-//! from the unbounded-budget transfer (the pipe carries several
-//! concurrent streams, so its effective rate is measured, not assumed).
+//! The sizing guide estimates slowdown as `max(1, BDP_messages / K)`,
+//! where `K` is the derived window. These tests use bandwidth-limited
+//! pipes and measure their effective rate from a run with ample budget.
+//! That accounts for traffic across concurrent streams instead of assuming
+//! the configured per-stream rate is the link's aggregate rate.
 
 // Only the delayed wire is exercised here; the module's pipes and
 // conformance surface belong to the benches and `latency_link.rs`.
@@ -108,16 +95,11 @@ fn binding_capacity(budget: usize) -> usize {
         .expect("three engaged heights")
 }
 
-/// The exact wave-model equation holds on a bandwidth-limited link.
+/// The slowdown model stays within a factor of two on bandwidth-limited fixtures.
 ///
-/// The unbounded-budget run measures the link's effective rate (transfer
-/// hops for a known divergence), giving the link's BDP in messages
-/// without assuming how the session spreads bytes across streams. Two
-/// constricted budgets then measure real slowdowns against the exact
-/// form `max(1, BDP_messages / K)` with `K` the derived binding window,
-/// inside the same accuracy band the knee suite certifies for the wave
-/// model. The docs' closed form is this equation with `K` and
-/// `BDP_messages` substituted by their large-window laws.
+/// Measure the transfer baseline with ample budget, then compare two
+/// narrower windows with `max(1, BDP_messages / K)`. Requiring substantial
+/// predicted slowdown ensures these cases exercise waiting for replies.
 #[test]
 fn wave_model_matches_measured_sessions() {
     // Transfer baseline first: it calibrates the effective link rate,

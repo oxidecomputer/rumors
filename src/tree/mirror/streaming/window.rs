@@ -1,124 +1,77 @@
-//! The pipeline window: per-height static bounds on in-flight disputed
-//! scopes, sized by the occupancy statistics of uniform leaf paths.
+//! Queue sizing for pipelined reconciliation.
 //!
-//! Every recursive edge in the streaming session — the walk's query and
-//! resolution queues, the proxy's flushed-question and next-scope queues —
-//! is a bounded channel. One slot per edge is the *liveness floor*: the
-//! ordering invariants in [`materialized`](super::materialized)'s module
-//! docs prove a session at capacity one never deadlocks. But one slot also
-//! admits only ~2 disputed scopes in flight per level, which serializes the
-//! descent into one wire round trip per disputed scope. The window widens
-//! those edges so sibling scopes pipeline; capacity only relaxes the wait
-//! graph, so every schedule live at the floor stays live at any width.
+//! A session can work on several subtrees while earlier replies are in flight.
+//! Wider queues overlap those waits but retain more state. The greeting supplies
+//! both set sizes and version-size bounds; [`Window::from_budget`] combines
+//! them with [`Backend::node_bytes`] to choose fixed capacities for the session.
 //!
-//! The public knob ([`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget))
-//! is one byte budget; each session turns it into **static per-height
-//! capacities** using what the two replicas exchange in their greetings —
-//! exact set sizes and version-size bounds — priced through the storage
-//! backend's own cost function
-//! ([`Backend::node_bytes`]). Channels stay
-//! plain bounded queues; the [link](crate::link) remains the only
-//! backpressure boundary with runtime semantics.
+//! # From tree shape to queue width
 //!
-//! # The occupancy model
+//! A *scope* is the prefix named by a query. A query for a depth-`d − 1`
+//! scope carries child references at depth `d`; the queue is labelled with
+//! those children's typed height, `KEY_DEPTH − d`. Depth counts from the root,
+//! while typed height counts from the leaves.
 //!
-//! Content addresses are uniform 32-byte strings (the model of record:
-//! uniform-hash, authenticated-honest-peer), so the trie's occupancy thins
-//! geometrically with depth, and the population of scopes a level can
-//! *ever* hold in flight is bounded by closed-form statistics of the two
-//! corpora, sizes `A` and `B`:
+//! The model assumes uniform hashes of distinct leaf versions. With set sizes
+//! `A` and `B`, three bounds describe the work at each depth:
 //!
-//! - **Occupied slots.** At most `min(256ʲ, max(A, B))` depth-`j` slots
-//!   are occupied at all — deterministically, one slot per leaf per
-//!   level.
-//! - **Joint occupancy.** A scope is disputed only where **both** replicas
-//!   occupy the slot — a *shared prefix*, deterministically capped by the
-//!   smaller corpus — and two honest corpora are independent draws, so
-//!   the expected jointly occupied depth-`j` slots are `≤ A·B/256ʲ`: the
-//!   birthday scale that shuts dispute populations off past the joint
-//!   frontier, falling ~256× per further depth. An asymmetric session (a
-//!   bootstrap catch-up) disputes almost nothing and derives floor-width
-//!   dispute capacities; its supplies stream outside the window.
-//! - **Per-parent fan.** A disputed parent's queried children are the
-//!   *replier's* — bounded by the larger corpus's occupied sub-slots,
-//!   concentrating near `max(A, B)/256ʲ` per depth-`j` parent, far below
-//!   the structural fan of 256 at every depth past the first few.
+//! - [`occupied`] bounds occupied prefixes by the number of available prefixes
+//!   and leaves. This bound is deterministic.
+//! - [`disputed`] bounds prefixes both replicas hold with different contents.
+//!   Matching subtrees stop descent; one-sided subtrees are supplied whole.
+//!   Its mean bound is `A·B / 256ʲ` at depth `j`. Shared messages do not make
+//!   replicas independent; the function's comment explains why this bound
+//!   still applies to their differences.
+//! - [`children_quantile`] bounds a parent's occupied children, using both
+//!   its leaf count and its occupied child slots, capped by the radix.
 //!
-//! Each bound enters as an *integer envelope*: a quantile at tail
-//! probability 2⁻⁴⁸ per (stage, statistic) from the multiplicative
-//! Chernoff inequality (sums of negatively associated occupancy
-//! indicators), or a Poisson-type tail where the mean is sub-unit. The
-//! envelopes hold simultaneously with probability ≥ 1 − 2⁻⁴⁰ per session.
+//! A disputed prefix at depth `d − 2` can list children at depth `d − 1`;
+//! these become the next queried scopes, retaining references at depth `d`.
+//! [`stage_population`] combines the parent and child bounds into `S(d)`,
+//! the population used to size that queue. The opening root query is a
+//! separate, single-scope case.
 //!
-//! # Why probabilistic bounds may back static capacities
+//! Each queue receives `max(1, min(K, S(d)))` slots. The byte budget chooses
+//! `K`; the population bound stops it from buying width where little work is
+//! expected. [`Window::from_budget`] prices the retained child references and
+//! fixed scope state at each depth, adds the decode buffers, and searches for
+//! the largest affordable `K`.
 //!
-//! If a session's real population exceeds a capacity — probability
-//! < 2⁻⁴⁰ under the model, and only an off-model key distribution can do
-//! systematically worse — the channel fills and **that stage serializes**:
-//! backpressure, exactly as at the liveness floor. Degradation is latency,
-//! never memory growth and never deadlock, because every edge keeps its
-//! one-slot floor and capacity only relaxes the wait graph.
+//! # What the bounds promise
 //!
-//! # Two boundaries the window deliberately does not reach
+//! The statistical bounds use a tail probability of 2⁻⁴⁸ per statistic.
+//! Per-parent bounds cover every possible parent, including ones selected by
+//! the protocol's descent. Their combined failure probability is below 2⁻⁴⁰
+//! under the uniform-hash model; [`UNION_TAIL_BITS`] explains the accounting.
+//! The numerical tests check the integer approximations against a separate
+//! Chernoff calculation, and session tests check the scope/depth mapping.
 //!
-//! - Capacity is a bound, not an allocation: the channels are
-//!   semaphore-bounded and allocate per queued item, so an idle wide window
-//!   costs nothing.
-//! - The assembly fan queues are **not** window edges. Their capacity of
-//!   one full fan is a *correctness* floor, not a tunable: below it, a
-//!   maximally disputed reply's child completions cannot all enqueue while
-//!   the walk finishes the reaction loop, and the session deadlocks —
-//!   demonstrated by `underbuffered_mirror_stalls` in the capacity tests.
-//!   No configuration, however memory-starved, may shrink them. Their
-//!   residency is nevertheless in the budget: the decode fans hold
-//!   backend-priced leaf nodes, charged flat as the supply-decode
-//!   envelope ([`SUPPLY_DECODE_ENVELOPE_BYTES`]) since a floor-width
-//!   window fills them exactly as a wide one does.
+//! This probability concerns the statistical estimates, **not** whether a
+//! queue fills. A small budget deliberately chooses `K < S(d)`, so ordinary
+//! traffic can encounter backpressure. Clustered paths can exceed `S(d)` even
+//! with a large budget. Either way, bounded queues wait for consumers rather
+//! than growing to hold the whole frontier.
 //!
-//! # Sizing the flushed-question edge
+//! Every window queue keeps at least one slot, preserving progress under the
+//! [materialized walk's ordering rules](super::materialized) and the
+//! [link contract](crate::link). This floor may cost more than a tiny budget.
+//! The byte calculation also relies on its fan-size estimates and the backend's
+//! pricing contract; a queue-count limit alone is not a hard resident-memory cap.
+//! Replica storage, transport buffers, and other sessions are separate costs.
 //!
-//! The proxy's flushed-question queue
-//! ([`ProxyLocalQuestions`](super::channel::QueueKind::ProxyLocalQuestions))
-//! holds questions that are on the wire but unanswered: the encoder
-//! publishes a question only after the reply carrying it has completely
-//! flushed, and the decoder retires one per decoded wire reply — a full
-//! round trip later. Its capacity is window-wide, and that is not
-//! defensive headroom. The claim — derived, not measured, from the
-//! premises below — is:
+//! # Queues outside the window
 //!
-//! > At a level whose descent ultimately asks `S` questions, the queue's
-//! > supremum occupancy over schedules is exactly `min(capacity, S)`. Its
-//! > own capacity is the *only* structural bound short of the frontier.
+//! Assembly return queues keep a full fan so completed children can wait while
+//! the walk constructs their parent resolution. Decode buffers also keep a
+//! fixed fan of leaves plus the reader's current record; their cost is charged
+//! before selecting a window width. These are different queues with different
+//! purposes, although both use the radix as their capacity.
 //!
-//! The `≤` half is immediate: the channel is bounded, and a question
-//! enters the queue at most once. Reachability is the substantive half.
-//! Questions aggregate *across* parent replies — every reply flushed at
-//! the level above deposits up to a full fan of them — and a bounded
-//! channel upstream limits how many items sit on that edge at once, never
-//! how many pass through it: slots recycle. Per-edge independence (the
-//! [link contract](crate::link)) therefore admits schedules in which
-//! retirement stalls while production continues — a live counterparty
-//! that serves every level above promptly but lags on this one, or a
-//! local walk that defers consuming this level's responses so retirement
-//! parks behind the proxy's one-slot response relay. Under such a
-//! schedule, replies decoded above keep refilling the next-scope edge,
-//! the encoder keeps pairing recycled scopes with the walk's replies, and
-//! each flushed pair deposits up to a fan more questions with none
-//! retired: occupancy climbs until the queue's own capacity clamps it or
-//! the frontier runs out.
-//!
-//! Premises, each checked against the code it names:
-//!
-//! - the encoder flushes one complete wire reply, then publishes that
-//!   reply's entire question batch, before dequeuing its next scope
-//!   (`remote/proxy/work/encode.rs`; file paths, not intra-doc links,
-//!   because `proxy` is private to `remote` and unresolvable from here);
-//! - the decoder dequeues question-first and retires exactly one entry
-//!   per decoded reply, in wire order (`remote/proxy/work/pump.rs`);
-//! - one reply asks at most one fan of questions (its disputed children);
-//! - edges are independently flow-controlled, so a full edge stalls only
-//!   its own producer — the premise the session's whole liveness argument
-//!   already rests on.
+//! The proxy's flushed-question queue *does* use the window. It tracks questions
+//! already sent but not yet answered. An upstream queue can recycle its slots
+//! while answers at this depth remain pending, so its capacity does not limit
+//! this queue's total population. The flushed-question queue needs its own
+//! depth-specific bound, just like the walk's query and resolution queues.
 
 use super::{Backend, Local, materialized::Resolve};
 use crate::link::STREAM_COUNT;
@@ -200,78 +153,40 @@ pub(crate) const SUPPLY_DECODE_ENVELOPE_BYTES: usize =
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) const SPEC_BDP_BYTES: usize = 12_500_000;
 
-/// End-to-end wire bytes of one disputed message beyond its record's
-/// encoded payload.
+/// Approximate wire overhead per differing message, excluding its encoded payload.
 ///
-/// Its question share, reply share, and record framing (the record's
-/// version atom rides as a CBOR byte string, whose header is part of
-/// this intercept).
-///
-/// Calibrated: `tests/dispute_wire.rs` counts every byte of
-/// deterministic in-memory sessions and pins the per-message cost as an
-/// affine law — this intercept plus the record's CBOR-encoded
-/// payload — at three payload sizes. The closed form documented at
-/// [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget) is
-/// denominated in it. (The minimal-payload cell reads one byte under
-/// this intercept — small records batch more densely, so their share
-/// of per-frame framing is smaller — pinned as the minimal cell's own
-/// residual constant in `tests/dispute_wire.rs`; the interior and
-/// design cells sit on it exactly.)
+/// `tests/dispute_wire.rs` counts all protocol writes in both directions,
+/// divides by the differing messages, and subtracts their encoded payloads.
+/// The reference fixture has 2,048 shared messages and 8,192 new ones per
+/// side. Its whole-byte mean gives 43; the unrounded mean is about 43.9.
+/// Two fully divergent 100,000-message sets instead average about 41.7.
+/// These include hashes, versions, framing, and amortized session setup;
+/// none is a fixed header size or a bound on other workloads.
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) const DISPUTE_OVERHEAD_BYTES: usize = 43;
 
-/// The design record's CBOR-encoded payload size: the `m = 172` column
-/// of the trade-off table, and the record size the wire-cost anchor
-/// below is stated at.
+/// A round encoded payload size above the sizing guide's measured BDP crossover.
 #[cfg(any(test, feature = "test-internals"))]
-pub(crate) const DESIGN_RECORD_BYTES: usize = 172;
+pub(crate) const DESIGN_RECORD_BYTES: usize = 100;
 
-/// Wire bytes one disputed message costs end to end at the design
-/// record size — its question share, reply share, and leaf record.
-///
-/// An anchor, not an input: nothing derives from it. The closed form
-/// takes the record size `m` directly ([`DISPUTE_OVERHEAD_BYTES`]
-/// `+ m` per message), and the default budget is a stated policy
-/// choice. Calibrated: `tests/dispute_wire.rs`'s design-record cell
-/// measures exactly this figure.
+/// Wire cost of one reference-size message, checked by the wire calibration suite.
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) const DISPUTE_WIRE_BYTES: usize = DISPUTE_OVERHEAD_BYTES + DESIGN_RECORD_BYTES;
 
-/// Session-envelope bytes one in-flight disputed scope is charged.
+/// Average modeled bytes per scope with every stage at its population limit.
 ///
-/// Derived, not fitted: the per-scope charge of the *design session* —
-/// two corpora of 62,500 messages each (a round figure at the spec-BDP
-/// scale in design-size records), in full divergence, every stage
-/// population held in flight — under the in-memory backend's pricing,
-/// exactly as
-/// [`from_budget`](Window::from_budget) charges it. The recomputation is
-/// pinned by `scope_envelope_matches_the_derivation`, so this constant
-/// fails loudly instead of drifting when the pricing or the occupancy
-/// envelopes change.
-///
-/// Maintainer calibration shape for the closed form's accuracy band
-/// (worked at
-/// [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget)): the
-/// band is governed by `F`, the corpus-fixed component of the real
-/// charge — the decode-fan pre-charge
-/// ([`SUPPLY_DECODE_ENVELOPE_BYTES`]), the root-adjacent stages at
-/// full-fan reference prices, and a deep population tail, stepping once
-/// the last population-capped mid-depth stage saturates — past which the
-/// marginal scope price settles a few percent under the average this
-/// constant carries. Re-derive the components from the pinned
-/// recomputation (`scope_envelope_matches_the_derivation`) rather than
-/// from any figure quoted in prose.
+/// The calibration case has two fully divergent sets of 62,500 messages.
+/// `scope_envelope_matches_the_derivation` recomputes the average using
+/// `Local` pricing. This is a calibration value, not an input to the window.
+/// It is unsuitable as a fixed price at small budgets: decode buffers and
+/// near-root stages contribute costs that do not scale with window width.
 #[cfg(any(test, feature = "test-internals"))]
 pub(crate) const SCOPE_ENVELOPE_BYTES: usize = 5_431;
 
-/// Worst-case memory one synchronization may spend by default: 512 MiB.
+/// Default target for one synchronization's pipeline memory: 512 MiB.
 ///
-/// Chosen, not derived: a round policy default. What any budget buys —
-/// the operator questions worked through, the closed form with its
-/// accuracy band, and the tabulated trade-off — is documented at
-/// [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget); the
-/// decomposition behind the accuracy band is recorded beside the pinned
-/// per-scope envelope (`SCOPE_ENVELOPE_BYTES`).
+/// See [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget) for
+/// the contract and [the sizing guide](crate::sizing) for tuning guidance.
 pub const DEFAULT_SYNC_MEMORY_BUDGET: usize = 512 * 1024 * 1024;
 
 /// Per-height channel capacities for one session, in disputed scopes.
@@ -288,6 +203,7 @@ pub(crate) struct Window {
     capacities: [usize; KEY_DEPTH + 1],
 }
 
+/// Derive and inspect capacities by typed item height.
 impl Window {
     /// The liveness floor: one scope per edge, the deadlock-proof minimum.
     /// Reached only through [`WindowConfig::FLOOR`], the test suites'
@@ -310,44 +226,24 @@ impl Window {
         Self { capacities }
     }
 
-    /// Derive per-height capacities from the two replicas' set sizes and
-    /// version-size bounds, a worst-case memory budget, and the backend's
-    /// node pricing function.
+    /// Choose fixed queue widths from the greeting and this session's byte budget.
     ///
-    /// Each height's capacity is `min(K, S(depth))`, floored at one slot:
-    /// `S(d)` is the depth's statistical population envelope ([module
-    /// docs](self)). Once it limits a queue, a larger byte budget cannot widen
-    /// that queue. Artificially clustered deep trees can therefore serialize.
-    /// `K` is the widest global width whose worst case fits the budget,
-    /// charging each level's population once at its own occupancy-thinned
-    /// fan, after the decode fans' flat residency
-    /// ([`SUPPLY_DECODE_ENVELOPE_BYTES`]'s shape, priced through this
-    /// session's own `node_bytes`) comes off the top. Disputes require
-    /// joint occupancy, so the joint terms take the *pair product* of the
-    /// two sizes — an asymmetric session (bootstrap catch-up) disputes
-    /// almost nothing and gets narrow dispute windows, while its supplies
-    /// stream outside the window — where the occupied-slot and per-parent
-    /// fan terms bound the replier's listed children and take the larger
-    /// side. Any budget, including zero, keeps every capacity at least
-    /// one: liveness outranks the budget.
+    /// At each child depth `d`, a queued scope retains up to `C(d − 1)` child
+    /// references. Each reference is priced at its own fan bound `C(d)` by
+    /// the backend, plus its query, resolution, and listing slots. `S(d)` bounds
+    /// how many such scopes the population can offer. See the module docs for
+    /// the depth/height mapping and the statistical assumptions.
     ///
-    /// A held reference at depth `d` is priced by
-    /// `node_bytes(c_q(d), version_bound)`: its own children quantile,
-    /// and the exchanged version-size bounds combined and doubled. Each
-    /// exchanged bound covers every ceiling, floor, and leaf version its
-    /// replica materializes (the greeting reads the per-node aggregate),
-    /// and a bound a session assembles across the two joins a ceiling —
-    /// or meets a floor — drawn from each side, encoding within the
-    /// pair's sum (`before`'s pinned join- and meet-subadditivity
-    /// lemmas); a node holds two bounds, hence the double. One priced
-    /// residual: deletion-honoring can prune a side's contribution to a
-    /// survivor subset whose recomputed bound is not one the input tree
-    /// materialized, so the pair sum there is a priced envelope, pinned
-    /// against reality by the census suite's reconciled-bound
-    /// measurements. `node_bytes` must be an upper bound and monotone in
-    /// both arguments ([`Backend::node_bytes`]),
-    /// so evaluating it at quantiles keeps the whole charge an upper
-    /// bound; monotonicity is spot-checked here in debug builds.
+    /// After charging fixed decode buffers, find the largest common width `K`
+    /// fitting the sum of `min(K, S(d))` scope charges. Each queue then gets
+    /// at least one slot, even if that floor exceeds the budget. This is a
+    /// sizing calculation, not an allocation or a measurement of live memory.
+    ///
+    /// Version prices use twice the sum of the replicas' encoded-version
+    /// bounds: a result combines both histories and carries a ceiling and a
+    /// floor. Deletion-pruned subsets are checked separately by the conformance
+    /// and retained-root census tests. The backend's price must be monotone in
+    /// both fan size and version size for these upper estimates to be useful.
     pub(crate) fn from_budget(
         local_messages: u64,
         remote_messages: u64,
@@ -400,52 +296,23 @@ impl Window {
                 children_quantile(n, depth - 1) * reference_bytes + SCOPE_FIXED_BYTES as u128;
         }
 
-        // The decode fans' residency, charged flat: one fan channel per
-        // reply stream at its correctness-floor capacity plus the record
-        // in the reader's hand, each slot one backend-priced leaf node
-        // (custody of the payload passed to the backend at construction,
-        // so `node_bytes(0, ·)` is its whole resident price). Width
-        // cannot shrink this term — the fan capacity is load-bearing for
-        // liveness — so it comes off the budget before the solve.
+        // Decode buffering is independent of K: one fixed leaf channel and
+        // an in-hand record per reply stream. Price it before widening queues.
         let supply_fans = (STREAM_COUNT as u128)
             * (FAN as u128 + 1)
             * (node_bytes(0, version_bound) as u128 + FAN_SLOT_BYTES as u128);
 
-        // The worst case a width-k window admits: each level's population
-        // charged once (the level's queues — the walk's query and
-        // resolution queues and the proxy's flushed-question and
-        // next-scope queues — hold overlapping views of the same
-        // in-flight scopes, and their node references are shared handles,
-        // so per-queue multiplication would double-charge), plus the
-        // leaf-request edge, plus the flat decode-fan term.
+        // Sum the scope charges across depths. Each price includes the
+        // query, resolution, and listing views; do not multiply it again
+        // by the number of queues carrying those views.
         //
-        // The leaf-request edge is charged at the width the capacity
-        // assignment below grants it — `population[KEY_DEPTH]`, the same
-        // bound on both sides of the same function — because a bounded
-        // channel's residency never exceeds its own capacity, so
-        // capacity times item size covers that edge's worst case. The
-        // one divergence between the halves is the liveness floor: the
-        // assignment clamps the granted capacity to one slot even where
-        // the population (and so the charge) is zero, a 40-byte
-        // never-charged slot per session, priced like every other
-        // stage's uncharged floor slot. No wider charge buys anything:
-        // the granted statistic is `jointly_occupied(n, pair, 30)`
-        // times the per-parent fan, whose quantile is zero for every
-        // representable corpus (`small_mean_quantile` at j = 30 has 241
-        // denominator bits against at most 128 for a product of two u64
-        // corpora; nonzero needs pair ≥ 2¹⁹⁰). The entries that could
-        // ever occupy the edge are bounded the same way one stage
-        // deeper: a leaf request is a listing entry of a disputed
-        // depth-31 leaf parent (`answer::leaf_parent`'s ask arm), and
-        // the j = 31 quantile floors identically (249 denominator bits;
-        // nonzero needs pair ≥ 2¹⁹⁸). Capacity beyond a population is
-        // physically idle, so the edge floors at one slot and the
-        // budget is spent where populations exist.
+        // Leaf requests retain only a prefix and need their own slot charge.
+        // Zero population estimates still receive one progress slot below,
+        // just like an unaffordable one-slot window.
         //
-        // Saturating arithmetic keeps the solve total: a population near
-        // 2⁶⁴ times a near-`usize::MAX` scope price passes u128, and a
-        // saturated charge only overstates, failing `charge(mid) <= budget`
-        // and narrowing the window — the safe direction.
+        // Saturation makes an unrepresentable charge unaffordable, so large
+        // populations or backend prices can narrow the window but never wrap
+        // into a falsely cheap width.
         let charge = |k: u128| -> u128 {
             let mut total = supply_fans;
             for depth in 1..=KEY_DEPTH {
@@ -455,8 +322,9 @@ impl Window {
             total.saturating_add(population[KEY_DEPTH].min(k) * LEAF_REQUEST_BYTES as u128)
         };
 
-        // Capacity beyond the widest population is physically idle, so
-        // the search stops there; within it, the charge is monotone in k.
+        // No modeled population benefits from K above the largest S(d).
+        // Charge is monotone in K. Keep the affordable lower half, rounding
+        // the midpoint upward so adjacent bounds still make progress.
         let ceiling = population.iter().copied().max().unwrap_or(1).max(1);
         let (mut lo, mut hi) = (1u128, ceiling);
         while lo < hi {
@@ -468,6 +336,8 @@ impl Window {
             }
         }
 
+        // Convert child depths back to typed heights. The one-slot floor
+        // takes precedence over both the budget and a zero population estimate.
         let mut capacities = [1usize; KEY_DEPTH + 1];
         for (height, capacity) in capacities.iter_mut().enumerate() {
             let depth = KEY_DEPTH - height;
@@ -520,6 +390,7 @@ pub(crate) enum WindowConfig {
     Budget(usize),
 }
 
+/// Resolve configured policy once the session's sizes are known.
 impl WindowConfig {
     /// The one-slot serialization floor, pinned: every session edge at
     /// the capacity where a bad ordering would deadlock.
@@ -558,39 +429,23 @@ impl WindowConfig {
 
 impl Default for WindowConfig {
     fn default() -> Self {
-        // Unconditional: cargo features are additive and unify across a
-        // build graph, so no feature may change what `Default` means —
-        // a harness crate enabling this crate's test feature must not
-        // put production sessions at the serialization floor. Tests pin
-        // [`FLOOR`](Self::FLOOR) explicitly instead.
         Self::Budget(DEFAULT_SYNC_MEMORY_BUDGET)
     }
 }
 
-// ─── The integer occupancy envelopes ─────────────────────────────────────
+// Integer approximations to the occupancy tails. Uniform leaf placement makes
+// prefix occupancies negatively associated: learning that one prefix is crowded
+// cannot make disjoint prefixes collectively more crowded. Chernoff bounds
+// therefore apply despite dependence between prefixes. This property survives
+// combining independent leaf families and applying increasing functions to
+// disjoint groups (Dubhashi–Ranjan, Proposition 7).
 //
-// Uniform 32-byte leaf paths put Binomial(N, 256⁻ʲ) leaves under
-// each depth-j prefix, with iid-uniform continuations — exact, no
-// Poissonization. Chernoff–Hoeffding tails apply verbatim to every
-// count below even though slot occupancies are dependent: occupancy
-// indicators are multinomial-occupancy indicators, which are negatively
-// associated (Dubhashi–Ranjan 1998), and joint-occupancy indicators —
-// each the product of one indicator from each of two independent
-// corpora, an increasing function of disjoint coordinate blocks of the
-// concatenated family — are negatively associated too.
-//
-// The functions below bound the resulting occupancy statistics from
-// above with pure integer arithmetic. Each integer quantile is
-// constructed to dominate its exact-Chernoff counterpart, and the
-// dominance is verified by `examples/envelope_sim.rs` over a dense
-// sampled sweep of (N, depth) — sampled, not exhaustive — so on that
-// certificate the integer envelopes inherit the exact tails' joint
-// ≥ 1 − 2⁻⁴⁰ per-session bound (UNION_TAIL_BITS counts the union). All
-// arithmetic is u128; `256^j` never materializes beyond need (its bit
-// length is exactly 8j + 1).
+// The arguments below explain each rounding step. The tests in `envelope`
+// compare their results with a separate numerical calculation; those sampled
+// checks protect the arithmetic, while `application` checks actual session
+// work.
 
-/// `256^j`, saturating at `u128::MAX` (only ever compared against values
-/// bounded by `u64` inputs, so saturation is always on the safe side).
+/// `256^j`, saturating above every corpus size and product of two corpus sizes.
 fn pow256(j: usize) -> u128 {
     if j >= 16 { u128::MAX } else { 1u128 << (8 * j) }
 }
@@ -598,41 +453,30 @@ fn pow256(j: usize) -> u128 {
 /// The per-statistic tail level, in bits: every (stage, statistic)
 /// quantile is taken at probability 2⁻⁴⁸.
 ///
-/// The union accounting that turns it into the per-session bound: a
-/// session consumes at most three quantiles per depth — the
-/// joint-occupancy quantile and the two per-parent routes — across 32
-/// depths, under 2⁸ statistics in all, so the union costs at most
-/// 2⁸ × 2⁻⁴⁸ = 2⁻⁴⁰ per session. A per-parent quantile must hold for
-/// every candidate parent at its depth simultaneously; the 8·j-bit
-/// sharpening in [`tail_exponent`] pays that union, taken over all
-/// 256ʲ candidate prefixes *without* conditioning on the parent being
-/// queried (`P(queried ∧ X ≥ a) ≤ P(X ≥ a)`), which sidesteps the
-/// conditioning inflation entirely.
+/// The union accounting that turns it into the per-session bound: a session
+/// uses one disputed-prefix bound and two per-parent routes for each replica,
+/// at each depth. Across 32 depths that is fewer than 2⁸ bounds, so the union
+/// costs at most 2⁸ × 2⁻⁴⁸ = 2⁻⁴⁰ per session. A per-parent quantile must hold
+/// for every candidate parent at its depth simultaneously; the 8·j-bit
+/// sharpening in [`tail_exponent`] pays that union, taken over all 256ʲ
+/// candidate prefixes *without* conditioning on the parent being queried
+/// (`P(queried ∧ X ≥ a) ≤ P(X ≥ a)`), which sidesteps the conditioning
+/// inflation entirely.
 const UNION_TAIL_BITS: usize = 48;
 
-/// The Bernstein exponent delivering the union tail: `e⁻ᵗ ≤ 2⁻⁴⁸` needs
-/// `t ≥ UNION_TAIL_BITS × ln 2 ≈ 33.3`, rounded up.
-///
-/// Derived from [`UNION_TAIL_BITS`]; a changed tail level must move
-/// this with it.
-const BERNSTEIN_TAIL: u128 = 34;
-
-/// Depth cap on the per-depth tail sharpening: past it, `2^−(48+8×40)`
-/// is already beyond any population a `u64` corpus can raise, so
-/// sharpening further buys nothing and risks exponent overflow.
-const TAIL_DEPTH_CAP: usize = 40;
+/// Flat-tail exponent, using the same upward rounding as the per-parent bound.
+const BERNSTEIN_TAIL: u128 = tail_exponent(0);
 
 /// Integer upper bound on `ln 2 ×` the union tail bits at parent depth
-/// `j`: `⌈0.7 × (UNION_TAIL_BITS + 8 min(j, TAIL_DEPTH_CAP))⌉`.
+/// `j`: `⌈0.7 × (UNION_TAIL_BITS + 8j)⌉`, for `j ≤ KEY_DEPTH`.
 ///
-/// The `8j` term pays the union over the `256ʲ` candidate parents at
-/// depth `j`: a per-parent quantile at tail `2^−(48+8j)` holds for all
-/// of them simultaneously at the flat 2⁻⁴⁸ statistic level
-/// ([`UNION_TAIL_BITS`]). The coefficient is sound because
-/// `0.7 > ln 2 ≈ 0.693`, so `e⁻ᵗ ≤ 2^−bits` whenever
-/// `t ≥ ⌈0.7 × bits⌉`.
-fn tail_exponent(j: usize) -> u128 {
-    (7 * (UNION_TAIL_BITS + 8 * j.min(TAIL_DEPTH_CAP)) as u128).div_ceil(10)
+/// The `8j` term pays the union over the `256ʲ` candidate parents at depth `j`:
+/// a per-parent quantile at tail `2^−(48+8j)` holds for all of them
+/// simultaneously at the flat 2⁻⁴⁸ statistic level ([`UNION_TAIL_BITS`]). The
+/// coefficient is sound because `0.7 > ln 2 ≈ 0.693`, so `e⁻ᵗ ≤ 2^−bits`
+/// whenever `t ≥ ⌈0.7 × bits⌉`.
+const fn tail_exponent(j: usize) -> u128 {
+    (7 * (UNION_TAIL_BITS + 8 * j) as u128).div_ceil(10)
 }
 
 /// Integer quantile from the multiplicative Chernoff tail
@@ -686,22 +530,26 @@ fn occupied(n: u128, j: usize) -> u128 {
     pow256(j).min(n)
 }
 
-/// Jointly occupied depth-`j` slots.
+/// Bound prefixes both replicas occupy with different contents at depth `j`.
 ///
-/// A slot is jointly occupied only if the smaller corpus occupies it, so
-/// the deterministic caps are the slot count and the corpora. Two honest
-/// corpora are independent draws, so a slot's joint-occupancy
-/// probability is the product of its two occupancy marginals and the
-/// expected jointly occupied slots sit at most at the pair mean
-/// `A·B/256ʲ` — the birthday scale. The quantile is taken there:
-/// Bernstein in the bulk (flat 2⁻⁴⁸ level, `t = 34 ≥ 48 ln 2`),
-/// Poisson-type past the joint frontier where the mean is sub-unit.
-/// `n` is the larger corpus and `pair = A·B`, so `pair / n` recovers
-/// the smaller.
-fn jointly_occupied(n: u128, pair: u128, j: usize) -> u128 {
+/// Shared leaves alone produce a matching subtree and stop descent. Split the
+/// leaves into three independent families: shared, left-only, and right-only.
+/// A prefix is disputed when it contains at least two families. If their
+/// occupancy probabilities are `s`, `a`, and `b`, this event has probability
+/// `ab + as + bs − 2abs`.
+///
+/// The product of the replicas' occupancy marginals is an upper bound: its
+/// excess over that expression is `s²(1 − a)(1 − b) ≥ 0`. Each marginal is at
+/// most its set size divided by `256ʲ`, giving mean at most `A·B / 256ʲ`.
+/// The disputed-prefix indicators remain negatively associated because the
+/// two-families condition increases with each family's occupancy.
+///
+/// Apply a tail bound to that mean, capped by the prefix count and smaller
+/// corpus. `n = max(A, B)` and `pair = A·B`, so `pair / n = min(A, B)`.
+fn disputed(n: u128, pair: u128, j: usize) -> u128 {
     if j == 0 {
-        // The root is jointly occupied only when both corpora are
-        // non-empty; an empty side disputes nothing and only receives.
+        // An empty side disputes nothing and only receives. Otherwise
+        // the root may be disputed, so reserve room for it.
         return u128::from(pair >= 1);
     }
     let smaller = pair.checked_div(n).unwrap_or(0);
@@ -718,8 +566,7 @@ fn jointly_occupied(n: u128, pair: u128, j: usize) -> u128 {
 /// mean.
 fn leaves_quantile(n: u128, j: usize) -> u128 {
     if j > 0
-        && let Some(q) =
-            small_mean_quantile(n, j, (UNION_TAIL_BITS + 8 * j.min(TAIL_DEPTH_CAP)) as u128)
+        && let Some(q) = small_mean_quantile(n, j, (UNION_TAIL_BITS + 8 * j) as u128)
     {
         return q;
     }
@@ -727,16 +574,19 @@ fn leaves_quantile(n: u128, j: usize) -> u128 {
     bernstein(mean_hi, tail_exponent(j))
 }
 
-/// Per-parent quantile, slots route: mean occupied child slots of a
-/// depth-`j` parent are `256 × (1 − (1 − p)^N)` at `p = 256^−(j+1)`.
+/// Bound occupied child slots under one depth-`j` parent.
 ///
-/// The upper envelope needs the exponent correction: `(1 − p)^N ≥
-/// e^(−x′)` at `x′ = Np/(1 − p)`, so the mean is at most `256 × (1 −
-/// e^(−x′)) ≤ 256 × 2x′/(2 + x′)`. The code evaluates that form at
-/// `x = Np` instead of `x′` — an understatement of at most half a slot
-/// for `p ≤ 1/256`, absorbed (with the floor division's sub-unit loss)
-/// by the `+ 1` on `mean_hi`; the Bernstein slack at `t ≥ 34` rides on
-/// top.
+/// The exact mean is `256 × (1 − (1 − p)^N)`, with `p = 256^−(j+1)`.
+/// The rational approximation `256 × 2Np / (2 + Np)` avoids floating point;
+/// adding one covers integer division's rounding loss.
+///
+/// To check the approximation, put `x = Np`. The exact mean is at most
+/// `256 × (1 − exp(−x/(1−p)))`. Since `1 − exp(−x) ≤ 2x/(2+x)`, using `x`
+/// instead of `x/(1−p)` loses at most `256p/(2(1−p)) ≤ 128/255 < 1` slot.
+/// Bernstein's slack covers this: with `s = floor(sqrt(2·mean_hi·t))`,
+/// raising the true mean by one leaves the tail inequality slack at least
+/// `s(t−4) − 3t + 1 > 0`, since `mean_hi ≥ 1`, `t ≥ 34`, and `s ≥ 8`.
+/// The numerical reference checks the final quantile against the exact mean.
 fn child_slots_quantile(n: u128, j: usize) -> u128 {
     let fan = FAN as u128;
     let child_slots = pow256(j).saturating_mul(fan);
@@ -752,13 +602,12 @@ fn children_quantile(n: u128, j: usize) -> u128 {
         .min(child_slots_quantile(n, j))
 }
 
-/// The depth-`d` stage population: its queried listing entries.
+/// Bound queried scopes that retain child references at depth `d`.
 ///
-/// Entries live at depth `d − 1`, bounded by the occupied-slot cap there
-/// and by the listed-under-disputed-parents aggregate — jointly occupied
-/// depth-(d−2) parents times the per-parent children quantile. `n` is the
-/// larger corpus (whose children a reply lists); `pair` is the product of
-/// the two corpus sizes, the scale of joint occupancy.
+/// A scope at depth `d − 1` is one child listed by a disputed parent at
+/// depth `d − 2`. Bound their count by disputed parents times children per
+/// parent, and by the number of occupied prefixes at the scope's depth.
+/// `n` is the larger set size; `pair` is the product of the two sizes.
 fn stage_population(n: u128, pair: u128, d: usize) -> u128 {
     if d == 0 || n == 0 {
         return 0;
@@ -767,7 +616,7 @@ fn stage_population(n: u128, pair: u128, d: usize) -> u128 {
         // The opening question: exactly one root scope.
         return 1;
     }
-    let listed = jointly_occupied(n, pair, d - 2).saturating_mul(children_quantile(n, d - 2));
+    let listed = disputed(n, pair, d - 2).saturating_mul(children_quantile(n, d - 2));
     occupied(n, d - 1).min(listed)
 }
 

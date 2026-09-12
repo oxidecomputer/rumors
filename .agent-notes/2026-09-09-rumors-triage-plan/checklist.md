@@ -1,6 +1,6 @@
 # Rumors review checklist
 
-**Active:** 06, independent envelope calculation — `codex/window-envelope`, base `main`.
+**Ready for review:** 06's envelope validation and 23's memory-budget docs — `codex/window-envelope`, base `main`.
 **Next:** 05, audit remaining conformance claims; then 03's broader deep-session validation.
 
 The envelope calculation is independent of deep-session coverage. Validate the
@@ -107,7 +107,7 @@ Dependencies: 03's deep fixtures; reported-error repairs in 04 are complete. Con
 
 Dependencies: 01 for retained-root measurements; 03–05 when claims cover deep paths.
 
-- [ ] Compare the shipped window formulas against an independent numerical calculation, including asymmetric corpora and a lowered-bound control; delete the simulator.
+- [ ] Validate window sizing against actual session work and an independent numerical calculation, including asymmetric corpora and a lowered-bound control; delete the simulator.
   Sources: `benches-envelope-28`, `benches-envelope-29`, `benches-envelope-31–34`, `streaming-backend-window-32`, T10, T43.
 
 - [ ] Derive window charges and structural limits from the types or constants that own them.
@@ -157,7 +157,7 @@ Coupled work: party ownership with 01; other API pieces can be separate.
   Sources: `api-audit-1`, `api-audit-3`, `api-audit-7`, `api-audit-12`, `api-core-1`, `api-core-5`, `api-core-22`, `api-core-30`, `deps-6`, `tree-core-2`, T47, T72, T73, T81, T83, T84, T125.
 
 - [ ] Simplify core API plumbing and correct its comments.
-  Sources: `api-core-3`, `api-core-4`, `api-core-6`, `api-core-8`, `api-core-9`, `api-core-13–16`, `api-core-21`, `api-core-23`, `api-core-24`, `api-core-28–29`, `api-core-31`, `api-core-32`, `api-core-37`, T52, T72, T82, T92, T132.
+  Sources: `api-core-3`, `api-core-4`, `api-core-6`, `api-core-8`, `api-core-9`, `api-core-13–14`, `api-core-16`, `api-core-21`, `api-core-23`, `api-core-24`, `api-core-28–29`, `api-core-31`, `api-core-32`, `api-core-37`, T52, T72, T82, T132.
 
 ## 08. Bookmark contracts and file implementation
 
@@ -492,14 +492,17 @@ Dependencies: Contracts and API signatures from earlier batches; prose improves 
 - [ ] Explain the library model and API at the reader’s level.
   Sources: `api-core-17`, `api-core-18`, `api-core-26`, `api-core-27`, `prose-hygiene-2`, `session-bookmark-34`, `session-bookmark-44`, `tree-core-6`, T46, T51, T58, T75, T82, T95, T132, T141, T158, N09.
 
-- [ ] Put sizing and reconciliation explanations where they belong.
-  Sources: `mirror-common-12`, `module-graph-4`, T56, T82, T87, T92, T93, T100, T102–104.
+- [ ] Keep the memory-budget setter focused on its contract, with a separate sizing guide.
+  Sources: `api-audit-8–9`, `api-core-15`, `fresh-eyes-3`, T92.
+
+- [ ] Put reconciliation explanations where they belong.
+  Sources: `mirror-common-12`, `module-graph-4`, T56, T82, T87, T93, T100, T102–104.
 
 - [ ] Clarify public API reachability, errors, and costs.
-  Sources: `api-audit-5`, `api-audit-6`, `api-audit-8–10`, `api-audit-16–18`, T55, T82, T92, T132.
+  Sources: `api-audit-5`, `api-audit-6`, `api-audit-10`, `api-audit-16–18`, T55, T82, T132.
 
 - [ ] Repair crate navigation, examples, and model descriptions.
-  Sources: `fresh-eyes-1–3`, `fresh-eyes-5–7`, `fresh-eyes-11`, T49, T82, T92, T104, T132.
+  Sources: `fresh-eyes-1–2`, `fresh-eyes-5–7`, `fresh-eyes-11`, T49, T82, T104, T132.
 
 - [ ] Correct inaccurate prose and remove needless jargon throughout.
   Sources: `prose-hygiene-1`, `prose-hygiene-3–12`, T5, T48, T49, T125, T130, T132.

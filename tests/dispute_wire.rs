@@ -1,39 +1,15 @@
-//! Deterministic calibration pins for the dispute wire-cost law.
+//! Check the sizing model's wire-cost estimate against complete sessions.
 //!
-//! The closed form in `Peer::sync_memory_budget`'s docs takes a
-//! session's mean encoded record size through the per-message wire law
-//! pinned here, and the design-record anchor (`DISPUTE_WIRE_BYTES`) is
-//! that law's value at one stated record size. Nothing else in the
-//! suite ties either to actual wire bytes (the operator suite
-//! self-calibrates its link rate). These pins close the loop with pure
-//! byte counts — every write on the control stream and on every data
-//! stream of an in-memory session is tallied, no timing anywhere — so a
-//! wire-format change that moves the real cost of a disputed message
-//! fails here instead of silently letting the documented law go stale.
+//! Count writes on both endpoints' control and data streams, divide by the
+//! messages transferred, and subtract their encoded payload sizes. The
+//! remainder includes hashes, versions, framing, and session setup, but no
+//! underlying transport overhead. Seeded corpora make this reproducible.
 //!
-//! What the counts establish: the current format's end-to-end cost of one
-//! disputed message — its question share, reply share, and leaf record —
-//! is affine in the record's encoded payload, the calibrated intercept
-//! plus the payload's CBOR encoding. The constant is that cost at the
-//! design point's [`DESIGN_ENCODED_PAYLOAD_BYTES`]-byte record; leaner
-//! records cost proportionally less wire per message. Three cells pin
-//! the law — the minimal end, an interior point, and the design point —
-//! so a change to the per-record framing or the record body moves at
-//! least one loudly. The law is affine over the interior and design
-//! points; the minimal cell sits a stated, pinned residual of
-//! [`MINIMAL_CELL_RESIDUAL`] bytes below that line, so linearity and
-//! the residual are both gated claims. Every pin is exact: the corpus
-//! is seeded, the link is in-memory, and the tally is deterministic,
-//! so each cell's quotient is one fixed integer, and a format change
-//! that moves the mean per-message cost by a byte or more moves its
-//! cell off the pin. (The per-message division truncates only the
-//! session-fixed greeting and epilogue, which the negative control
-//! holds below one byte per message.)
-//!
-//! Payload corpora are [`bytes::Bytes`], which serde carries as a CBOR
-//! byte string: a fixed-length payload has one deterministic encoded
-//! size (a header plus the raw bytes), which is what lets each cell
-//! state its encoded payload size exactly.
+//! The smaller fixtures pin rounded-down means at several payload sizes.
+//! The larger fixture checks the approximation at the sizing table's set
+//! size. These are measurements of particular workloads, not a universal
+//! per-message cost: shared history, tree shape, versions, and batching
+//! all affect how much metadata accompanies each message.
 
 mod common;
 
@@ -49,46 +25,26 @@ use rand::{RngCore, SeedableRng};
 use rumors::link::{Connector, Done, Link, LinkParts, MemoryLink};
 use rumors::testing::{dispute_overhead_bytes, envelope_and_wire_bytes};
 use rumors::{Peer, Rumors};
-use tokio::io::AsyncWrite;
-
-use crate::common::wire::block_on;
-
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-/// Messages both peers share before the fork: enough that the disputed
-/// frontier crosses shared structure, as real sessions do.
+use tokio::io::AsyncWrite;
+
+use crate::common::window::WindowChoice;
+use crate::common::wire::block_on;
+
+/// Shared history in the smaller calibration fixtures.
 const COMMON: usize = 2_048;
 
-/// Messages each side originates alone: the disputed messages whose
-/// crossings the byte count is divided by. Large enough that the fixed
-/// greeting and epilogue overhead (kilobytes) amortizes below one byte
-/// per message.
+/// New messages per side in the smaller calibration fixtures.
 const DIVERGENT: usize = 8_192;
 
-/// Roomy per-stream buffering: the count is schedule-independent, so the
-/// pipe only needs to never distort the session's shape.
+/// Per-stream buffering for the counting link.
 const LINK_CAPACITY: usize = 8 * 1024 * 1024;
 
-/// End-to-end wire bytes of one disputed message beyond its record's
-/// encoded payload — the crate's calibrated intercept.
-///
-/// Read through
-/// [`dispute_overhead_bytes`] so the cells here pin the constant the
-/// closed form quotes, not a test-local copy of it.
-fn fixed_overhead_bytes() -> usize {
-    dispute_overhead_bytes()
-}
+/// A byte-string payload that encodes to the 100-byte reference size.
+const DESIGN_PAYLOAD_LEN: usize = 98;
 
-/// The `Bytes` payload length whose CBOR encoding (a 2-byte byte-string
-/// header plus the bytes, 172 B) prices a disputed message at exactly
-/// `DISPUTE_WIRE_BYTES` under the current format.
-///
-/// This is the record size the design-point constant is denominated in.
-const DESIGN_PAYLOAD_LEN: usize = 170;
-
-/// A mid-size `Bytes` payload length (64 B encoded behind CBOR's 2-byte
-/// byte-string header): the interior cell that holds the affine law
-/// between the minimal and design endpoints.
+/// A byte-string payload that encodes to 64 bytes.
 const MID_PAYLOAD_LEN: usize = 62;
 
 /// CBOR's byte-string header width for lengths in `24..=255`: the major
@@ -104,23 +60,21 @@ const DESIGN_ENCODED_PAYLOAD_BYTES: usize = CBOR_BSTR_HEADER_BYTES + DESIGN_PAYL
 /// deterministic for the minimal cell's corpus).
 const U64_ENCODED_BYTES: usize = 9;
 
-/// The minimal cell reads this many bytes *under* the intercept: small
-/// records batch more densely, so their share of per-frame framing is
-/// smaller.
-///
-/// The mechanism is stated at `DISPUTE_OVERHEAD_BYTES` in
-/// `src/tree/mirror/streaming/window.rs`. A measured value moving off
-/// `intercept + payload - MINIMAL_CELL_RESIDUAL` is a real framing
-/// change, in either direction.
+/// The small-record fixture's rounded mean falls one byte below the estimate.
+/// Smaller records amortize their shared frame headers over more messages.
 const MINIMAL_CELL_RESIDUAL: usize = 1;
 
 /// An `AsyncWrite` that tallies every byte accepted by the inner writer.
 struct CountingWrite<W> {
+    /// The writer that actually accepts the bytes.
     inner: W,
+    /// Bytes accepted across the session's writers.
     written: Arc<AtomicUsize>,
 }
 
+/// Forward writes and count only bytes accepted by the underlying stream.
 impl<W: AsyncWrite + Unpin> AsyncWrite for CountingWrite<W> {
+    /// Add each successful partial write to the shared count.
     fn poll_write(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -133,10 +87,12 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for CountingWrite<W> {
         poll
     }
 
+    /// Flush the underlying stream.
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Pin::new(&mut self.inner).poll_flush(cx)
     }
 
+    /// Close the underlying stream's write side.
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Pin::new(&mut self.inner).poll_shutdown(cx)
     }
@@ -146,13 +102,18 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for CountingWrite<W> {
 /// shared counter.
 #[derive(Clone)]
 struct CountingConnector<C> {
+    /// Opens the actual data streams.
     inner: C,
+    /// The session's shared byte count.
     written: Arc<AtomicUsize>,
 }
 
+/// Count writes on every lazily opened data stream.
 impl<C: Connector> Connector for CountingConnector<C> {
+    /// A data-stream writer contributing to the session's count.
     type Tx = CountingWrite<C::Tx>;
 
+    /// Open a stream and wrap its writer.
     async fn connect(&self) -> io::Result<(Self::Tx, Done<Self::Tx>)> {
         let (inner, _) = self.inner.connect().await?;
         Ok((
@@ -193,21 +154,25 @@ fn counting(
     .into_link()
 }
 
-/// Two floor-window peers sharing [`COMMON`] messages, then diverged by
-/// [`DIVERGENT`] freshly generated payloads on each side, deterministically.
-fn diverged<T>(mut make: impl FnMut(&mut SmallRng) -> T) -> (Rumors<T>, Rumors<T>)
+/// Fork one network after shared history, then add distinct messages on each side.
+fn diverged<T>(
+    common: usize,
+    divergent: usize,
+    window: WindowChoice,
+    mut make: impl FnMut(&mut SmallRng) -> T,
+) -> (Rumors<T>, Rumors<T>)
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
-    let left = Peer::seed().sync_window_floor().into_rumors();
+    let left = window.apply(Peer::seed()).into_rumors();
     let mut rng = SmallRng::seed_from_u64(0x0b05_2026_d15b_073e);
     let mut send = |rumors: &Rumors<T>, n: usize, rng: &mut SmallRng| {
         rumors.send_all((0..n).map(|_| make(rng))).unwrap();
     };
-    send(&left, COMMON, &mut rng);
-    let right = common::wire::bootstrap_fork(&left);
-    send(&left, DIVERGENT, &mut rng);
-    send(&right, DIVERGENT, &mut rng);
+    send(&left, common, &mut rng);
+    let right = common::wire::bootstrap_fork_with_window(&left, window);
+    send(&left, divergent, &mut rng);
+    send(&right, divergent, &mut rng);
     (left, right)
 }
 
@@ -230,38 +195,24 @@ where
     written.load(Ordering::Relaxed)
 }
 
-/// The implied end-to-end bytes per disputed message over one measured
-/// session of the given corpus: total wire bytes over the messages that
-/// crossed.
-///
-/// Each side's divergence crosses once; shared content crosses
-/// only as dispute-descent overhead, which is part of the per-message
-/// cost the constant states.
+/// The smaller fixture's mean bytes per differing message, rounded down.
+/// Both directions contribute writes; each new message crosses once.
 fn implied_bytes_per_message<T>(make: impl FnMut(&mut SmallRng) -> T) -> usize
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
-    let (left, right) = diverged(make);
+    let (left, right) = diverged(COMMON, DIVERGENT, WindowChoice::Floor, make);
     let total = session_wire_bytes(&left, &right);
     assert_eq!(
         left.snapshot().hash(),
         right.snapshot().hash(),
         "the calibration session must actually converge",
     );
+    assert_eq!(left.snapshot().len(), COMMON + 2 * DIVERGENT);
     total / (2 * DIVERGENT)
 }
 
-/// `DISPUTE_WIRE_BYTES` is the measured end-to-end cost of one disputed
-/// message at the design record size.
-///
-/// The invariant: total session wire bytes over a known mutual
-/// divergence of [`DESIGN_PAYLOAD_LEN`]-byte payloads, divided by the
-/// messages that crossed, equals the constant exactly — so the
-/// constant that denominates the default budget and both operator
-/// equations is tied to the wire format by deterministic byte counts.
-/// The corpus is seeded and the link is in-memory: the figure is exact
-/// across runs and machines, and any per-record change to the format
-/// moves it off the pin.
+/// The reference fixture's rounded mean equals the calibrated wire cost.
 #[test]
 fn dispute_wire_bytes_is_the_design_record_cost() {
     let mut make = |rng: &mut SmallRng| {
@@ -277,82 +228,69 @@ fn dispute_wire_bytes_is_the_design_record_cost() {
     );
     assert_eq!(
         implied, constant,
-        "DISPUTE_WIRE_BYTES ({constant}) must equal the measured {implied} B per disputed \
-         message at the design record size: re-derive the constant (and the default \
-         budget and operator ratio built on it) against the current wire format",
+        "reference wire-cost estimate {constant} differs from the measured mean {implied}",
     );
 }
 
-/// The per-message fixed overhead — question share, reply share, and
-/// record framing beyond the encoded payload — is pinned at the
-/// minimal-payload end of the line.
-///
-/// The invariant: a `u64` corpus ([`U64_ENCODED_BYTES`]-byte encoded
-/// payloads) implies the calibrated intercept + that width minus
-/// [`MINIMAL_CELL_RESIDUAL`] per disputed message, exactly. Together
-/// with the design-record cell this pins both parameters of the affine
-/// cost `overhead + encoded_payload`, so framing drift cannot hide
-/// inside the design cell's payload term —
-/// and pinning the residual as its own constant means a regression
-/// confined to small records moves this cell loudly instead of hiding
-/// in slack. It is also the honest floor: minimal-payload sessions cost
-/// several times less wire per disputed message than the design
-/// constant, and correspondingly need more scopes in flight to fill the
-/// same link.
+/// Tiny records' rounded mean stays one byte below payload plus the estimate.
 #[test]
-fn minimal_records_pin_the_fixed_overhead() {
+fn minimal_records_cost_less_than_the_reference_estimate() {
     let implied = implied_bytes_per_message::<u64>(|rng| rng.next_u64());
-    let expected = fixed_overhead_bytes() + U64_ENCODED_BYTES - MINIMAL_CELL_RESIDUAL;
+    let expected = dispute_overhead_bytes() + U64_ENCODED_BYTES - MINIMAL_CELL_RESIDUAL;
     eprintln!("minimal-record cell: implied {implied} B/message (expected {expected})");
     assert_eq!(
         implied, expected,
-        "the fixed per-message overhead moved: measured {implied} B at \
+        "small-record mean changed: measured {implied} B at \
          {U64_ENCODED_BYTES} B encoded payloads against the pinned {expected} B",
     );
 }
 
-/// A mid-size record cell holds the affine law between the endpoints:
-/// the cost is intercept-plus-payload in the interior, not just at the
-/// two pinned ends.
-///
-/// The invariant: a corpus of [`MID_PAYLOAD_LEN`]-byte payloads (64 B
-/// encoded) implies the calibrated intercept + 64 bytes per disputed
-/// message, exactly. With the design cell this makes the affine law
-/// over the interior a committed, gated assertion rather than a
-/// calibration-time observation; the minimal cell pins its own stated
-/// [`MINIMAL_CELL_RESIDUAL`]-byte offset below the same line.
+/// At 64 encoded bytes, the fixture's rounded mean equals payload plus overhead.
 #[test]
-fn mid_size_records_ride_the_affine_law() {
+fn mid_size_records_match_the_reference_estimate() {
     let mut make = |rng: &mut SmallRng| {
         let mut payload = vec![0u8; MID_PAYLOAD_LEN];
         rng.fill_bytes(&mut payload);
         Bytes::from(payload)
     };
     let implied = implied_bytes_per_message::<Bytes>(&mut make);
-    let expected = fixed_overhead_bytes() + CBOR_BSTR_HEADER_BYTES + MID_PAYLOAD_LEN;
+    let expected = dispute_overhead_bytes() + CBOR_BSTR_HEADER_BYTES + MID_PAYLOAD_LEN;
     eprintln!("mid-record cell: implied {implied} B/message (expected {expected})");
     assert_eq!(
         implied,
         expected,
-        "the affine cost law broke in the interior: measured {implied} B at \
+        "mid-size mean changed: measured {implied} B at \
          {} B encoded payloads against the pinned {expected} B",
         CBOR_BSTR_HEADER_BYTES + MID_PAYLOAD_LEN,
     );
 }
 
-/// Negative control: the counting instrument observes bytes even when
-/// nothing is disputed.
-///
-/// A converged pair's session is greeting-and-epilogue only; if the
-/// counter read zero there, the calibration cells could pass vacuously
-/// with a dead instrument. The control also pins the fixed session
-/// overhead below one byte per message at [`DIVERGENT`] scale, which is
-/// what keeps the per-message division's truncation from ever shifting
-/// a calibration cell's quotient: the cells may pin their figures
-/// exactly because the only sub-message remainder is bounded here.
+/// The table's 100,000-message example stays within two bytes of its overhead estimate.
+/// Check the unrounded mean: truncation would hide a material part of this error.
+#[test]
+fn table_corpus_has_similar_protocol_overhead() {
+    let messages = 100_000;
+    let (left, right) = diverged(0, messages, WindowChoice::Default, |rng| {
+        let mut payload = vec![0u8; DESIGN_PAYLOAD_LEN];
+        rng.fill_bytes(&mut payload);
+        Bytes::from(payload)
+    });
+    let total = session_wire_bytes(&left, &right);
+    assert_eq!(left.snapshot().hash(), right.snapshot().hash());
+    assert_eq!(left.snapshot().len(), 2 * messages);
+    let overhead = total as f64 / (2 * messages) as f64 - DESIGN_ENCODED_PAYLOAD_BYTES as f64;
+    let estimate = dispute_overhead_bytes() as f64;
+    assert!(
+        (overhead - estimate).abs() < 2.0,
+        "table overhead estimate {estimate} differs from measured {overhead:.3}",
+    );
+}
+
+/// Even an already converged pair has nonzero session overhead.
+/// This confirms that the counter includes more than transferred payloads.
 #[test]
 fn counting_link_sees_a_converged_sessions_greeting() {
-    let (left, right) = diverged::<u64>(|rng| rng.next_u64());
+    let (left, right) = diverged(COMMON, DIVERGENT, WindowChoice::Floor, |rng| rng.next_u64());
     // Converge first over an uncounted link, then count a session that
     // disputes nothing.
     common::wire::wire_gossip(&left, &right);
@@ -364,8 +302,7 @@ fn counting_link_sees_a_converged_sessions_greeting() {
     );
     assert!(
         total < 2 * DIVERGENT,
-        "a converged session's fixed overhead ({total} bytes measured) must stay below one \
-         byte per message at calibration scale, so the calibration cells' truncated \
-         per-message quotients stay exact",
+        "converged-session overhead ({total} bytes) exceeds one byte per transferred \
+         message at calibration scale",
     );
 }

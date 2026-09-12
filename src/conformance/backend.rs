@@ -1,15 +1,14 @@
 //! Conformance checks for a storage backend's session pricing.
 //!
-//! The sync budget ([`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget))
-//! bounds a session's memory by pricing every in-flight node through the
-//! backend's own cost function. That function is the one input whose
-//! mis-statement breaches *memory* rather than latency, and only the
-//! backend's author can know a node value's real resident bytes — so this
-//! suite is how a backend implementation proves its account:
+//! [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget) sizes queues
+//! using statistical tree-shape estimates and the backend's node prices. This
+//! suite checks those prices against measured nodes and exercises the resulting
+//! windows on concrete fixtures. It does not prove a hard bound on session
+//! memory:
 //!
 //! - **Shape**: the cost function is swept for monotonicity in both
 //!   arguments over a fan and version-bound grid before any session
-//!   runs — the property that keeps the window's quantile evaluation an
+//!   runs. This property keeps the window's quantile evaluation an
 //!   upper bound.
 //! - **Pointwise**: every node the session constructs, assembles, walks,
 //!   or explodes is measured (via [`Measure`]) against the cost function
@@ -31,9 +30,10 @@
 //!   parent and an empty group with none.
 //! - **End to end**: identical divergent corpora reconcile once at the
 //!   zero-budget floor and once under a stated budget, with every live
-//!   node value's measured bytes on a census ledger. The peak difference
-//!   — the bytes the *window* itself admitted — must fit the budget, and
-//!   the reconciled root must hold the corpora's whole union.
+//!   node value's measured bytes on a census ledger. The measured peak
+//!   increase must fit the budget, and the result must contain the union.
+//!   This is a fixture-specific comparison: changing a window also changes
+//!   the schedule, so wider queues need not increase the measured peak.
 //!
 //! # Accounting premises
 //!

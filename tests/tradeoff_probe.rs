@@ -64,6 +64,7 @@ const DIVERGENT: usize = 62_500;
 /// An effectively unbounded budget: the transfer-bound baseline.
 const UNBOUNDED: usize = 8 << 30;
 
+/// Fork after shared history, then add distinct messages on each side.
 fn diverged<T>(budget: usize, make: &mut impl FnMut(&mut SmallRng) -> T) -> (Rumors<T>, Rumors<T>)
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
@@ -131,6 +132,7 @@ where
     (elapsed.as_millis() / DELAY.as_millis()) as u64
 }
 
+/// Compare measured slowdown with the model at each requested budget scale.
 fn run_cells<T>(
     label: &str,
     encoded_m: usize,
@@ -206,14 +208,13 @@ fn tradeoff_closed_form_validation_run() {
         &mut |rng: &mut SmallRng| rng.next_u64(),
     );
 
-    // m = 172: the design record (the table's third column; a 170-byte
-    // `Bytes` payload behind CBOR's two-byte byte-string head), one
-    // constricted cell on a wider pipe so the window stays past the
-    // near-root band.
+    // A 98-byte byte string has a two-byte CBOR header, matching the
+    // table's 100-byte reference message. The wider pipe keeps this
+    // constrained window above the near-root capacity limits.
     let mut design = |rng: &mut SmallRng| {
-        let mut payload = vec![0u8; 170];
+        let mut payload = vec![0u8; 98];
         rng.fill_bytes(&mut payload);
         bytes::Bytes::from(payload)
     };
-    run_cells("design", 172, 1024 * 1024, &[3.0], &mut design);
+    run_cells("design", 100, 1024 * 1024, &[3.0], &mut design);
 }

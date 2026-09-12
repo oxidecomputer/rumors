@@ -296,6 +296,7 @@ mod peer;
 mod protocol;
 pub mod reconciliation;
 mod rumors;
+pub mod sizing;
 mod snapshot;
 pub mod tags;
 #[cfg(any(test, feature = "test-internals"))]

@@ -569,160 +569,33 @@ impl<T, B: BookmarkError> Peer<T, B> {
         self
     }
 
-    /// Bound the memory a synchronization may spend on pipelining.
+    /// Set the per-session memory budget for reconciliation pipelining.
     ///
-    /// Reconciliation pipelines disputed subtrees to pay wire latency per
-    /// tree level rather than per disputed subtree. Pipelining is
-    /// what costs memory — kilobytes per disputed subtree in flight,
-    /// priced by the storage backend's own cost function — and
-    /// `budget_bytes` is its worst-case envelope, not an allocation: a
-    /// session holds only what it actually disputes, typically
-    /// kilobytes. The budget also pre-charges the decode fans' flat
-    /// residency (one fan of backend-priced leaves plus an in-hand
-    /// record per reply stream — ~0.2 MB under the in-memory backend, a
-    /// term of the corpus-fixed charge `F` in the accuracy band below).
-    /// This setting does not govern encoded wire messages in hand: the
-    /// wire schedule bounds those, at most one run per stream per
-    /// direction, so up to
-    /// [`STREAM_COUNT`](crate::link::STREAM_COUNT) ×
-    /// [`target_message_size`](Self::target_message_size) — ~28 MB per
-    /// direction at the defaults, plus a lone over-target record's
-    /// overhang.
+    /// Rumors compares several subtrees while waiting for earlier replies.
+    /// A larger budget allows more comparisons in flight, which can reduce
+    /// waiting on the network. A smaller budget limits buffering but may add
+    /// waits. Both peers may choose different budgets.
     ///
-    /// A budget can add latency, never break a session. A divergence
-    /// wider than the derived capacities drains in capacity-sized
-    /// waves, at the worst-case factor the trade-off table below
-    /// prices; any budget, including zero, leaves every session
-    /// deadlock-free, with at least one disputed subtree in flight per internal tree level.
-    /// The budget is per session: concurrent gossip on separate links
-    /// carries one envelope each; for a global application memory cap, you must limit
-    /// the concurrency of your gossip sessions. The default,
-    /// [`DEFAULT_SYNC_MEMORY_BUDGET`], is 512 MiB.
+    /// The default is [`DEFAULT_SYNC_MEMORY_BUDGET`] (512 MiB). The budget
+    /// applies separately to each synchronization; it is not reserved up
+    /// front. All [`Rumors`] clones inherit this setting, and it is preserved
+    /// when returning to a `Peer`, attaching a bookmark, or retiring.
     ///
-    /// Each session divides the budget into fixed per-level channel
-    /// capacities from what the two replicas exchange at session start:
-    /// exact set sizes and version-size bounds, so every input to the
-    /// worst case is on the table before the descent begins. Under
-    /// uniform version hashing, dispute populations thin geometrically
-    /// with depth and scale with the *product* of the two set sizes, so
-    /// the budget buys width only where disputes can exist. The setting
-    /// is not wire-visible: peers with different budgets interoperate.
+    /// # Memory accounting
     ///
-    /// The choice follows the peer through
-    /// [`into_rumors`](Self::into_rumors), cloning and reunion,
-    /// bookmarking, and retirement.
+    /// This is a sizing target, not a hard memory limit. Buffer sizes are
+    /// estimated from the two sets; unusually clustered hashes can require
+    /// more memory than estimated. Even a zero budget retains the minimum
+    /// buffers needed for progress over a conforming [`Link`]; their memory
+    /// cost may exceed the target.
     ///
-    /// # What this does not bound
+    /// Allow additional memory for the replica, observer backlogs such as
+    /// [`CausalMessages`], and wire and transport buffers. Wire buffering is
+    /// controlled separately by [`target_message_size`](Self::target_message_size).
+    /// Limit concurrent sessions to control their combined memory use.
     ///
-    /// - **Encoded wire messages in hand**: the run buffers stated
-    ///   above, priced by
-    ///   [`target_message_size`](Self::target_message_size), up to
-    ///   [`STREAM_COUNT`](crate::link::STREAM_COUNT) ×
-    ///   `target_message_size` per direction.
-    /// - **The replica itself.** The live set's resident bytes are the
-    ///   application's to provision; the budget prices only what a
-    ///   session holds in flight.
-    /// - **Observers.** [`CausalMessages`] stages an internal backlog
-    ///   with bursts up to the size of the set (its docs state the
-    ///   cost); no observer's memory is charged here.
-    /// - **Other sessions.** The budget is per session, so a peer
-    ///   gossiping over `K` links at once can hold up to
-    ///   `K × (budget + 2 × STREAM_COUNT × target_message_size)`
-    ///   across them in the worst case
-    ///   ([`STREAM_COUNT`](crate::link::STREAM_COUNT) counting each
-    ///   direction's streams once).
-    ///
-    /// # Choosing a budget
-    ///
-    /// The intuition: the budget buys parallelism on the wire. A
-    /// session keeps a window of disputed subtrees in flight at once,
-    /// each holding a few kilobytes of memory while it waits for its
-    /// reply. A window wide enough to keep the link's whole
-    /// bandwidth-delay product occupied runs at wire speed; a narrower
-    /// window makes the session stop and wait for replies in waves,
-    /// spending extra round trips instead of extra memory.
-    ///
-    /// Sizing starts from two numbers. Your link contributes one:
-    /// `BDP = bandwidth × RTT`, the bytes in flight on a full pipe;
-    /// measure it. Worked figures below use the specification BDP of
-    /// 12.5 MB, where 1 Gbps × 100 ms and 100 Gbps × 1 ms coincide;
-    /// substitute your own measurement. Your corpus contributes the
-    /// other: `m`, the mean encoded record size (the CBOR-encoded
-    /// payload of a disputed message's leaf record). Two constants
-    /// then convert between bytes and disputes, both derived and
-    /// pinned: each in-flight dispute (one disputed subtree, the unit
-    /// the table below counts as a disputed scope) charges the budget
-    /// a 5431 B envelope (recomputed exactly by test), and each disputed
-    /// message costs 43 B of wire overhead on top of its record
-    /// (calibrated by deterministic byte counts,
-    /// `tests/dispute_wire.rs`).
-    ///
-    /// For mental arithmetic, one closed form estimates the whole
-    /// trade. A session's worst-case slowdown, relative to a session
-    /// limited only by wire time, is about
-    ///
-    /// > `slowdown ≈ max(1, BDP × 5431 / (budget × (43 + m)))`
-    ///
-    /// Read it as a ratio of two message counts: how many disputed
-    /// messages the wire holds, `BDP / (43 + m)`, against how many the
-    /// budget keeps in flight, `budget / 5431`. Slowdown 1 is
-    /// wire-time-optimal: bandwidth-bound stays bandwidth-bound.
-    ///
-    /// The estimate has a stated accuracy band. It overstates the
-    /// window by roughly `F / budget`, where `F` is the corpus-fixed
-    /// component of the real charge, so the slowdown it returns runs
-    /// ~2–3× low at ~10 MB budgets, ~1.4× low at ~26 MB, and within a
-    /// few percent past ~300 MB. It also prices no population ceiling,
-    /// so where windows reach corpus scale, the exact solve's numbers
-    /// (the table below, and the pinned crossover) replace it.
-    ///
-    /// The ballpark answers, at the specification BDP:
-    ///
-    /// - **Is the default enough?** For any corpus whose mean encoded
-    ///   record size is at least 52 B, yes: the default imposes no
-    ///   window-induced serialization at all, because the in-flight
-    ///   disputes' own transfer time covers the round trip. That
-    ///   52 B crossover comes from the exact solve, evaluated
-    ///   self-consistently (each record size at its own BDP-scale
-    ///   corpus: the specification BDP in `m`-sized records, per side)
-    ///   and pinned by `default_crossover_matches_the_solve`;
-    ///   the closed form's safe-side estimate is ~84 B.
-    /// - **What budget removes the wait entirely?** About
-    ///   `BDP × 5431 / (43 + m)` bytes. The design record (`m = 172`)
-    ///   needs ~316 MB, where the solve agrees with the form to three
-    ///   digits (this is the design point the envelope is pinned at).
-    ///   A minimal `u64`-record corpus (9 B encoded) needs ~1.3 GB by
-    ///   the form, ~0.8 GB by the solve: population caps thin the deep
-    ///   charge at BDP-scale corpora, so the estimate is conservative
-    ///   there.
-    /// - **What does a smaller budget cost?** Smooth latency, never
-    ///   memory, and only on the interleaved dispute walk (bulk supply
-    ///   runs stream outside the window). `u64` records at the default
-    ///   run at ~2.6× wire time for a BDP-scale corpus, and the factor
-    ///   grows slowly with set size as the derived window narrows:
-    ///   ~11.5× at 10⁷ messages, ~21.4× at 10¹⁰ (all derived from the
-    ///   solve). `tests/window_operator.rs` holds the wave model
-    ///   against measured sessions on a bandwidth-limited link.
-    ///
-    /// The table below is the full sizing reference: worst-case
-    /// wire-time slowdown by budget and mean encoded record size `m`,
-    /// with cells clamped at the 1.0× optimum. Each row's window `K`
-    /// (second column, in disputed scopes) is derived by the same
-    /// solve sessions run at handshake time, evaluated at the design
-    /// session of 62500-message corpora a side; larger corpora derive
-    /// narrower windows. Each cell then applies the measured wave form
-    /// `slowdown = max(1, BDP_messages / K)`, with
-    /// `BDP_messages = BDP / (43 + m)` evaluated at the specification
-    /// BDP of 12.5 MB (the wave form is measured:
-    /// `tests/window_knee.rs`, `tests/window_operator.rs`). One
-    /// caution when reading it: in rows whose window reaches the
-    /// design session's population ceiling of 62500 scopes (every
-    /// stage granted its full population envelope), the cells for
-    /// records smaller than the design record are upper envelopes at
-    /// the stated corpus, not predictions for yours; a corpus at such
-    /// a column's own BDP scale derives its own, wider window.
-    ///
-    #[doc = include_str!("tree/mirror/streaming/window/tradeoff.md")]
+    /// See [choosing a synchronization budget](crate::sizing) for tuning
+    /// guidance and example trade-offs.
     #[must_use]
     pub fn sync_memory_budget(mut self, budget_bytes: usize) -> Self {
         self.window = WindowConfig::Budget(budget_bytes);
