@@ -1,6 +1,6 @@
 # Rumors review checklist
 
-**Working:** 03's remaining deep-session coverage — `codex/deep-session-coverage`, base `main`.
+**Status:** Paused after merging the deep-session coverage batch.
 **Next:** 08's owned-byte Bookmark contract.
 
 Add depth coverage where it exercises a distinct failure mode. Then prioritize
@@ -58,7 +58,7 @@ Dependencies: None to construct fixtures; 05's valid-session and measurement rep
 - [x] Exercise deep wire reconciliation across branching depths, nested and asymmetric trees, and transport and window variations — `a16bcfb8`.
   Sources: `remote-proxy-tests-6`, T23, T132, T162–164, N27–29.
 
-- [ ] Validate deep-session ordering, queue bounds, backend failures, and cancellation; assert the wire snapshot's depth without changing its bytes.
+- [x] Validate deep-session ordering, queue bounds, backend failures, and cancellation; assert the wire snapshot's depth without changing its bytes — `38d39a33`.
   Sources: `remote-proxy-tests-10`, `tests-wire-format-7`, T23, T132, T162–164, N27–29.
 
 - [x] Make cancellation tests depend on a reproducible session schedule — `f643bd60`.
