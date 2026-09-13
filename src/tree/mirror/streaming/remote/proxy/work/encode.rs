@@ -60,8 +60,10 @@ where
         let request = requests.next().await.ok_or(Error::UnansweredRemoteQuery)?;
         let mut encoded = adapter::encode_leaf_reply(backend.clone(), budget, scope, request);
         let batch = write_reply(&mut outgoing, &mut encoded).await?;
-        progress.wire_reply(Z::HEIGHT, batch.len());
         if let Some(questions) = &questions {
+            // Only replies which can ask questions participate in this trace.
+            // The initiator's final answers have no publication dependency.
+            progress.wire_reply(Z::HEIGHT, batch.len());
             publish(questions, batch, progress, Z::HEIGHT).await;
         } else if !batch.is_empty() {
             return Err(Error::TerminalQuery);

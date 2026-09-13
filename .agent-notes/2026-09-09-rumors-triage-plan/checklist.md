@@ -58,8 +58,8 @@ Dependencies: None to construct fixtures; 05's valid-session and measurement rep
 - [x] Exercise deep wire reconciliation across branching depths, nested and asymmetric trees, and transport and window variations — `a16bcfb8`.
   Sources: `remote-proxy-tests-6`, T23, T132, T162–164, N27–29.
 
-- [ ] Run the broader behavioral suites under deep geometry without changing production hashing or wire snapshots.
-  Sources: `remote-capture-atlas-28`, `remote-proxy-tests-10`, `tests-wire-format-7`, T23, T123, T132, T162–164, N27–29.
+- [ ] Validate deep-session ordering, queue bounds, backend failures, and cancellation; assert the wire snapshot's depth without changing its bytes.
+  Sources: `remote-proxy-tests-10`, `tests-wire-format-7`, T23, T132, T162–164, N27–29.
 
 - [x] Make cancellation tests depend on a reproducible session schedule — `f643bd60`.
   Sources: `streaming-tests-3`, `streaming-tests-6`, `streaming-tests-7`, T19, T127, T132, T162, N19, N42.
@@ -462,7 +462,7 @@ Dependencies: 10–12 for affected implementation baselines; 16 for shared suppo
   Sources: N52.
 
 - [ ] Use measured test-profile improvements, without blindly optimizing the whole crate.
-  Sources: T123, T169, N53.
+  Sources: `remote-capture-atlas-28`, T123, T169, N53.
 
 - [ ] Consolidate benchmark fixtures and correct timing/cost descriptions.
   Sources: `benches-envelope-4`, `benches-envelope-5`, `benches-envelope-7–10`, `benches-envelope-14`, `benches-envelope-17`, `benches-envelope-21`, `benches-envelope-24`, `benches-envelope-26`, `benches-envelope-27`, `benches-envelope-30`, T50, T129, T132.

@@ -3,21 +3,29 @@ use std::{
     collections::BTreeMap,
 };
 
-use crate::tree::typed::height::{Height as _, UnderRoot};
+use crate::tree::typed::height::{Height as _, Root, UnderRoot};
 
 /// One progress-critical proxy publication.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Kind {
+    /// A complete outgoing reply has flushed its question frames.
     WireReply { questions: usize },
+    /// One flushed question is being registered for decoding.
     LocalQuestion,
+    /// An incoming answer is being published before its derived scopes.
     DecodedReply { scopes: usize },
+    /// One derived scope is being published for the next exchange.
     NextScope,
 }
 
+/// A publication labelled by its proxy and the question it belongs to.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct Event {
+    /// The proxy endpoint that published this event.
     work: usize,
+    /// The question's height, shared by its answer and any derived scopes.
     height: usize,
+    /// Which publication occurred.
     kind: Kind,
 }
 
@@ -25,6 +33,7 @@ struct Event {
 #[derive(Debug)]
 pub struct Trace(Vec<Event>);
 
+/// Check ordering and the question registrations needed to decode replies.
 impl Trace {
     /// Assert wire-before-question and reply-before-scope ordering.
     pub fn assert_valid(&self) {
@@ -54,30 +63,27 @@ impl Trace {
         );
     }
 
-    /// Assert the floor every divergent two-proxy session meets: exactly one
-    /// greeting-seeded opening reply and exactly one opening question at the
-    /// under-root height, and at least one wire reply.
-    ///
-    /// A divergent session elects one initiator and one responder. The
-    /// initiator-side proxy seeds exactly one under-root reply from the
-    /// greeting (`Work::initiator`), and the responder-side proxy publishes
-    /// exactly one under-root question after flushing its opening wire
-    /// reply (`encode::opening`); nothing else records at that height. The
-    /// ordering assertions quantify over whatever was recorded and pass on
-    /// an empty trace; this floor is what makes them bite.
+    /// Reject vacuous traces: a divergent session records one opening from
+    /// the greeting, one opening question, and at least one outgoing reply.
     pub fn assert_covers_divergent_session(&self) {
-        let at_under_root = |kind: fn(Kind) -> bool| {
-            self.0
-                .iter()
-                .filter(|event| event.height == UnderRoot::HEIGHT && kind(event.kind))
-                .count()
-        };
-        let openings = at_under_root(|kind| matches!(kind, Kind::DecodedReply { .. }));
+        let openings = self
+            .0
+            .iter()
+            .filter(|event| {
+                event.height == Root::HEIGHT && matches!(event.kind, Kind::DecodedReply { .. })
+            })
+            .count();
         assert_eq!(
             openings, 1,
             "a divergent session records exactly one greeting-seeded opening reply, found {openings}",
         );
-        let questions = at_under_root(|kind| matches!(kind, Kind::LocalQuestion));
+        let questions = self
+            .0
+            .iter()
+            .filter(|event| {
+                event.height == UnderRoot::HEIGHT && matches!(event.kind, Kind::LocalQuestion)
+            })
+            .count();
         assert_eq!(
             questions, 1,
             "a divergent session records exactly one opening question, found {questions}",
@@ -90,28 +96,9 @@ impl Trace {
         );
     }
 
-    /// Assert context-registration causality: no decoded reply overtakes
-    /// the flushed local question whose scope interprets it.
-    ///
-    /// Decoding pairs replies with scopes positionally off a FIFO whose
-    /// entries are registered at encode time, after the question's complete
-    /// wire reply flushed. So at every trace prefix, per endpoint, the
-    /// decode count at a height is bounded by the flushed-question count at
-    /// the height it consumes scopes from:
-    ///
-    /// - a reply decoded at height `h` consumed a question at `h + 1` (the
-    ///   scope it was asked under);
-    /// - leaf-height decodes drain both the last internal stage's height-1
-    ///   scopes and the terminal height-0 leaf questions, so their bound is
-    ///   the sum;
-    /// - the single greeting-seeded opening (recorded at the under-root
-    ///   height, the one reply with no wire frame at all) is scoped by the
-    ///   greeting itself.
-    ///
-    /// A violation means a reply was interpreted by a scope its own
-    /// question had not yet made publishable: the receive-side complement
-    /// of the wire-before-question ordering
-    /// [`assert_valid`](Self::assert_valid) pins on the send side.
+    /// Every decoded answer needs a previously flushed question on the same
+    /// endpoint. Questions and answers pair in FIFO order at each height.
+    /// The root opening is the sole exception: its scope comes from the greeting.
     pub fn assert_registration_causality(&self) {
         let mut questions = BTreeMap::<(usize, usize), usize>::new();
         let mut decoded = BTreeMap::<(usize, usize), usize>::new();
@@ -123,14 +110,13 @@ impl Trace {
                 Kind::DecodedReply { .. } => {
                     let count = decoded.entry((event.work, event.height)).or_insert(0);
                     *count += 1;
-                    let flushed =
-                        |height: usize| questions.get(&(event.work, height)).copied().unwrap_or(0);
-                    let available = if event.height == UnderRoot::HEIGHT {
+                    let available = if event.height == Root::HEIGHT {
                         1
-                    } else if event.height == 0 {
-                        flushed(0) + flushed(1)
                     } else {
-                        flushed(event.height + 1)
+                        questions
+                            .get(&(event.work, event.height))
+                            .copied()
+                            .unwrap_or(0)
                     };
                     assert!(
                         *count <= available,
@@ -145,6 +131,7 @@ impl Trace {
     }
 }
 
+/// A reply cannot overtake the previous reply’s dependent publications.
 fn assert_drained(
     ledger: &BTreeMap<(usize, usize), usize>,
     event: &Event,
@@ -161,6 +148,7 @@ fn assert_drained(
     );
 }
 
+/// Charge one dependent publication to the reply that made it available.
 fn consume(
     ledger: &mut BTreeMap<(usize, usize), usize>,
     event: &Event,
@@ -184,20 +172,25 @@ fn consume(
 // initializers that already sit in `const` blocks; the allow keeps
 // `-D warnings` honest on every platform the gate runs.
 std::thread_local! {
+    /// Publications recorded by the current trace scope.
     #[allow(clippy::missing_const_for_thread_local)]
     static EVENTS: RefCell<Option<Vec<Event>>> = const { RefCell::new(None) };
+    /// Next endpoint identifier within the current trace.
     #[allow(clippy::missing_const_for_thread_local)]
     static NEXT_WORK: Cell<usize> = const { Cell::new(0) };
 }
 
 /// Run `f` while tracing every proxy publication it creates.
 pub fn with_trace<R>(f: impl FnOnce() -> R) -> (R, Trace) {
+    /// Restore an outer trace even when the inner test panics.
     struct Restore {
         events: Option<Vec<Event>>,
         next_work: usize,
     }
 
+    /// Restore the saved thread-local recorder and endpoint numbering.
     impl Drop for Restore {
+        /// Reinstate the enclosing trace.
         fn drop(&mut self) {
             EVENTS.with(|events| events.replace(self.events.take()));
             NEXT_WORK.with(|next| next.set(self.next_work));
@@ -213,6 +206,7 @@ pub fn with_trace<R>(f: impl FnOnce() -> R) -> (R, Trace) {
     (result, Trace(events))
 }
 
+/// Allocate an endpoint identifier within the current trace.
 pub fn new_work() -> usize {
     NEXT_WORK.with(|next| {
         let work = next.get();
@@ -221,6 +215,7 @@ pub fn new_work() -> usize {
     })
 }
 
+/// Append a publication when a trace is active on this thread.
 pub fn record(work: usize, kind: Kind, height: usize) {
     EVENTS.with(|events| {
         if let Some(events) = events.borrow_mut().as_mut() {

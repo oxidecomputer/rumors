@@ -1,17 +1,16 @@
-//! Golden byte-level snapshots of a single round of gossip between two
-//! [`rumors::Rumors`].
+//! Byte snapshots of gossip sessions between two [`rumors::Rumors`] replicas.
 //!
-//! Each test stages a scenario, drives one gossip session through the
-//! recording link in [`common::gossip_snapshot`], and pins every wire byte.
-//! Frames are grouped by logical stream so nondeterministic cross-stream
-//! scheduling does not destabilize the snapshots, while ordering within each
-//! stream remains exact. Re-accept only after a deliberate protocol change,
-//! never as an accommodation of drift; the two-regime re-accept rule and
-//! its procedure (`cargo insta review`) are in `AGENTS.md`.
+//! Each scenario records every wire byte through [`common::gossip_snapshot`].
+//! Frames are grouped by logical stream so scheduling between streams does
+//! not change a snapshot; ordering within each stream remains exact.
+//! Re-accept only for a deliberate protocol change, following `AGENTS.md`.
 //!
-//! The payload type is `u64` throughout: a small integer is one CBOR byte
-//! and renders as itself (`1`, `2`, …), which keeps the captures short and
-//! lets distinct payloads be spotted directly in the rendering.
+//! These public-API fixtures use ordinary version hashes and reach streams
+//! 0 and 1. The codec's `canonical_frame_atlas_snapshot` pins every stream's
+//! labels and frame forms; the proxy's `tests::deep` fixtures check their
+//! behavior over a link at the remaining tree depths.
+//!
+//! Most fixtures use small `u64` payloads to keep the captures readable.
 
 mod common;
 
@@ -520,37 +519,28 @@ fn redaction_only() {
     insta::assert_snapshot!(capture_gossip(a, b));
 }
 
-/// Number of disjoint messages each side of [`deep_trie_divergence`] holds.
-///
-/// Chosen so the two sides' leaves are numerous enough to collide in their
-/// leading hash byte, branching the trie past its root and so driving the
-/// recursive `Exchange` descent (and the `Opening`/`Closing`/`Complete` phases
-/// at more than one level) that the small scenarios never reach.
+/// Messages per side, enough for this fixture to branch below the root.
 const DEEP_TRIE_PER_SIDE: u64 = 16;
 
-/// Two peers with large, fully disjoint message sets.
-///
-/// `A` holds
-/// `0..DEEP_TRIE_PER_SIDE`, `B` holds the next `DEEP_TRIE_PER_SIDE`; both
-/// descend from one seed so they may gossip, but they share no content. The
-/// reconciliation must branch the prefix-trie and recurse down it, exercising
-/// the protocol's recursive core that the handful-of-messages scenarios leave
-/// untouched.
+/// Disjoint sets with overlapping hash prefixes exchange frames below stream 0.
 #[test]
 fn deep_trie_divergence() {
     let (a, b) = block_on(async {
         let a: Rumors<u64> = seeded();
         let b = bootstrap_fork_async(&a).await;
-        {
-            a.send_all(0..DEEP_TRIE_PER_SIDE).unwrap();
-        }
-        {
-            b.send_all(DEEP_TRIE_PER_SIDE..2 * DEEP_TRIE_PER_SIDE)
-                .unwrap();
-        }
+        a.send_all(0..DEEP_TRIE_PER_SIDE).unwrap();
+        b.send_all(DEEP_TRIE_PER_SIDE..2 * DEEP_TRIE_PER_SIDE)
+            .unwrap();
         (a, b)
     });
-    insta::assert_snapshot!(capture_gossip(a, b));
+    let capture = capture_gossip(a, b);
+    let frames = stream_frames(&capture, "Responder stream 1 (height 29)")
+        .expect("the fixture must exchange frames below stream 0");
+    assert!(
+        frames.iter().any(|frame| frame.starts_with("Supply")),
+        "the deeper stream must carry a supply, not just its end marker"
+    );
+    insta::assert_snapshot!(capture);
 }
 
 /// Payload base for [`shared_subtree_dispute_pins_a_nonempty_query`]'s

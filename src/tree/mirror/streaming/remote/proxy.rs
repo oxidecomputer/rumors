@@ -22,16 +22,17 @@ async fn send_or_cancel<T>(sender: &Sender<T>, value: T) {
 /// caller from filling the one-slot scope queue while withholding the reply
 /// which lets its consumer advance and drain that queue. This is the remote
 /// proxy analogue of the materialized implementation's `yield_resolve_query!`.
+/// The trace labels both publications by the answered question's height.
 macro_rules! yield_reply_scopes {
     (
-        $progress:expr, $height:expr, $count:expr;
+        $progress:expr, $question_height:expr, $count:expr;
         $yielded:expr;
         $scopes:expr => $next_scopes:expr;
     ) => {{
-        $progress.decoded_reply($height, $count);
+        $progress.decoded_reply($question_height, $count);
         $yielded;
         for scope in $next_scopes {
-            $progress.next_scope($height);
+            $progress.next_scope($question_height);
             $crate::tree::mirror::streaming::remote::proxy::send_or_cancel(&$scopes, scope).await;
         }
     }};

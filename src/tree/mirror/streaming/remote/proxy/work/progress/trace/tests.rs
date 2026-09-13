@@ -84,8 +84,8 @@ fn minimal_divergent_session_meets_the_floor() {
     let (_, trace) = with_trace(|| {
         record(0, Kind::WireReply { questions: 1 }, UnderRoot::HEIGHT);
         record(0, Kind::LocalQuestion, UnderRoot::HEIGHT);
-        record(1, Kind::DecodedReply { scopes: 1 }, UnderRoot::HEIGHT);
-        record(1, Kind::NextScope, UnderRoot::HEIGHT);
+        record(1, Kind::DecodedReply { scopes: 1 }, Root::HEIGHT);
+        record(1, Kind::NextScope, Root::HEIGHT);
     });
     trace.assert_valid();
     trace.assert_registration_causality();
@@ -96,7 +96,7 @@ fn minimal_divergent_session_meets_the_floor() {
 #[test]
 fn accepts_decode_after_flushed_question() {
     let (_, trace) = with_trace(|| {
-        record(0, Kind::LocalQuestion, 2);
+        record(0, Kind::LocalQuestion, 1);
         record(0, Kind::DecodedReply { scopes: 0 }, 1);
     });
     trace.assert_registration_causality();
@@ -117,35 +117,60 @@ fn rejects_decode_before_flushed_question() {
 #[should_panic(expected = "arrived before the question that scopes it")]
 fn rejects_decode_scoped_by_the_other_endpoint() {
     let (_, trace) = with_trace(|| {
-        record(0, Kind::LocalQuestion, 2);
+        record(0, Kind::LocalQuestion, 1);
         record(1, Kind::DecodedReply { scopes: 0 }, 1);
     });
     trace.assert_registration_causality();
 }
 
-/// Leaf-height decodes drain both the last internal stage's height-1 scopes
-/// and the terminal height-0 leaf questions, and no more than their sum.
+/// Terminal answers may complete while an internal answer still publishes
+/// leaf scopes: their questions belong to independent height-zero and
+/// height-one queues.
 #[test]
-#[should_panic(expected = "arrived before the question that scopes it")]
-fn rejects_leaf_decode_beyond_both_leaf_question_sources() {
+fn accepts_terminal_answer_during_internal_scope_publication() {
     let (_, trace) = with_trace(|| {
+        record(0, Kind::WireReply { questions: 1 }, 1);
         record(0, Kind::LocalQuestion, 1);
+        record(0, Kind::DecodedReply { scopes: 1 }, 1);
+        record(0, Kind::WireReply { questions: 1 }, 0);
         record(0, Kind::LocalQuestion, 0);
         record(0, Kind::DecodedReply { scopes: 0 }, 0);
-        record(0, Kind::DecodedReply { scopes: 0 }, 0);
+        record(0, Kind::NextScope, 1);
+    });
+    trace.assert_valid();
+    trace.assert_registration_causality();
+}
+
+/// An unanswered parent question cannot stand in for a leaf question.
+#[test]
+#[should_panic(expected = "arrived before the question that scopes it")]
+fn rejects_leaf_decode_scoped_by_parent_question() {
+    let (_, trace) = with_trace(|| {
+        record(0, Kind::LocalQuestion, 1);
         record(0, Kind::DecodedReply { scopes: 0 }, 0);
     });
     trace.assert_registration_causality();
 }
 
+/// An unanswered leaf question cannot stand in for a parent question.
+#[test]
+#[should_panic(expected = "arrived before the question that scopes it")]
+fn rejects_parent_decode_scoped_by_leaf_question() {
+    let (_, trace) = with_trace(|| {
+        record(0, Kind::LocalQuestion, 0);
+        record(0, Kind::DecodedReply { scopes: 0 }, 1);
+    });
+    trace.assert_registration_causality();
+}
+
 /// Exactly one greeting-seeded opening reply per endpoint is scoped by the
-/// greeting itself; a second under-root decode has no question to pair with.
+/// greeting itself; a second root decode has no question to pair with.
 #[test]
 #[should_panic(expected = "arrived before the question that scopes it")]
 fn rejects_a_second_greeting_seeded_opening() {
     let (_, trace) = with_trace(|| {
-        record(0, Kind::DecodedReply { scopes: 1 }, UnderRoot::HEIGHT);
-        record(0, Kind::DecodedReply { scopes: 1 }, UnderRoot::HEIGHT);
+        record(0, Kind::DecodedReply { scopes: 1 }, Root::HEIGHT);
+        record(0, Kind::DecodedReply { scopes: 1 }, Root::HEIGHT);
     });
     trace.assert_registration_causality();
 }

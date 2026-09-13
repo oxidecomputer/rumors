@@ -50,13 +50,14 @@ use crate::tree::{
     },
     typed::{
         ErasedPrefix,
-        height::{Height, S, UnderRoot, UnderUnderRoot, Z},
+        height::{Height, Root as RootHeight, S, UnderRoot, UnderUnderRoot, Z},
     },
 };
 
 use super::{ControlRead, encode, queues};
 use tokio::io::AsyncRead;
 
+/// Connect each protocol stage's encoder, decoder, and dependent scope queues.
 impl<B, R, W, A> Work<B, R, W, A>
 where
     B: Backend<Node<Z>: Leaf>,
@@ -81,7 +82,7 @@ where
         let responses = try_stream! {
             let (reply, scope) = opening_reply::<B::Erased>(listing);
             yield_reply_scopes!(
-                progress, UnderRoot::HEIGHT, 1;
+                progress, RootHeight::HEIGHT, 1;
                 yield reply;
                 next_scopes => [scope];
             );
@@ -219,7 +220,7 @@ where
                         );
                     }
                     yield_reply_scopes!(
-                        progress, height, 0;
+                        progress, height + 1, 0;
                         yield Reply { replies };
                         next_scopes => Vec::<Scope>::new();
                     );
@@ -235,7 +236,7 @@ where
                 )
                 .await?;
                 yield_reply_scopes!(
-                    progress, height, questions.len();
+                    progress, height + 1, questions.len();
                     yield reply;
                     next_scopes => questions;
                 );

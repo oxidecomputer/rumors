@@ -1,8 +1,13 @@
 //! Wire reconciliation through disputes at chosen tree depths.
 
-use std::sync::{
-    Arc, Mutex,
-    atomic::{AtomicUsize, Ordering},
+use std::{
+    future::{Future, poll_fn},
+    pin::pin,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
+    task::Poll,
 };
 
 use futures::join;
@@ -15,20 +20,31 @@ use crate::observe::{
     Attachment, Direction, Observer, Role, SessionHandle, SessionInfo, SessionKind,
     SessionObserver, StreamId, StreamInfo, StreamObserver,
 };
-use crate::testing::{IoPlan, IoReport, IoSide, reorder_accepts, run_to_quiescence, wrap_link};
-use crate::tree::mirror::streaming::channel::{ChannelReport, QueueKind, with_observation};
+use crate::testing::{
+    IoPlan, IoReport, IoSide, node_census, reorder_accepts, run_to_quiescence, wrap_link,
+};
+use crate::tree::mirror::streaming::channel::{
+    ChannelReport, QueueKind, with_observation, with_schedule,
+};
 use crate::tree::mirror::streaming::remote::codec::{
     Frame, RunBudget, Speaker, Stream, decode_exact,
 };
+use crate::tree::mirror::streaming::remote::proxy::work::progress::with_trace;
 use crate::tree::mirror::streaming::window::{Window, WindowConfig};
 use crate::tree::mirror::streaming::{
-    Local, Root, materialized::Handshaking, mirror, remote::Handshaking as RemoteHandshaking,
+    Failing, Failure, Local, Operation, Root,
+    materialized::{Error as MaterializedError, Handshaking},
+    mirror,
+    remote::Handshaking as RemoteHandshaking,
 };
 use crate::tree::typed::Path;
 use crate::tree::typed::height::{Height, Root as RootHeight};
 use crate::tree::{Action, Root as TreeRoot, Tree, arb::nth_party};
 
-use super::harness::codec;
+use super::{
+    harness::{self, Backends, EndpointError, Topology, codec},
+    injected_operation,
+};
 
 /// Leaf addresses and edits for a pair of replicas in one universe.
 struct Divergence {
@@ -40,6 +56,7 @@ struct Divergence {
     redacted: [Vec<Path>; 2],
 }
 
+/// Construct replicas with chosen paths and compare their reconciliation.
 impl Divergence {
     /// Give each prefix two shared leaves and independent additions per side.
     ///
@@ -109,7 +126,22 @@ impl Divergence {
         self.with_trees(|[left, right]| {
             let mut expected = left.clone();
             expected.join(right.clone());
-            let (actual, observations) = session.run([left.root, right.root], plans);
+            let ((actual, observations), trace) =
+                with_trace(|| session.run([left.root, right.root], plans));
+            trace.assert_valid();
+            trace.assert_covers_divergent_session();
+            trace.assert_registration_causality();
+            for (role, stats) in observations
+                .queues
+                .roles()
+                .filter(|(role, _)| QueueKind::PROXY.contains(&role.kind))
+            {
+                assert!(
+                    stats.high_water <= stats.effective_capacity,
+                    "queue {role:?} exceeded its capacity"
+                );
+                assert_eq!(stats.sends, stats.receives, "queue {role:?} did not drain");
+            }
             for root in actual {
                 let tree = Tree::<Vec<u8>>::from_root(root);
                 assert_eq!(tree.root, expected.root);
@@ -120,6 +152,145 @@ impl Divergence {
             }
             observations
         })
+    }
+}
+
+/// Poll a closed-world session to completion or cancel it after `limit` polls.
+///
+/// Using the same poller for both runs makes a cutoff selected from a completed
+/// baseline reproducible. Returning at the cutoff drops the session future.
+fn cancel_after<F: Future>(future: F, limit: usize) -> (usize, Option<F::Output>) {
+    let mut future = pin!(future);
+    let mut polls = 0;
+    let result = run_to_quiescence(poll_fn(|cx| {
+        polls += 1;
+        match future.as_mut().poll(cx) {
+            Poll::Ready(output) => Poll::Ready(Some(output)),
+            Poll::Pending if polls == limit => Poll::Ready(None),
+            Poll::Pending => Poll::Pending,
+        }
+    }))
+    .expect("the session must keep making progress until completion or cancellation");
+    (polls, result)
+}
+
+proptest! {
+    /// Failures selected from deep backend operations terminate both wire
+    /// endpoints, preserve their source error, and release session node handles.
+    #[test]
+    fn deep_backend_failures_preserve_their_source(
+        depth in 2usize..31,
+        fail_left in any::<bool>(),
+        fail_proxy in any::<bool>(),
+        choice in any::<usize>(),
+        width in prop_oneof![Just(1usize), Just(8)],
+        capacity in prop_oneof![Just(1usize), Just(37)],
+        schedule in proptest::collection::vec(0u8..=2, 0..64),
+    ) {
+        let prefix = vec![0; depth];
+        let mut pair = Divergence::new([prefix.clone()], [2, 2]);
+        // Exclusive subtrees make the proxies walk and assemble real nodes
+        // deep in the tree; isolated leaf supplies bypass those operations.
+        for side in 0..2 {
+            let mut exclusive = prefix.clone();
+            exclusive.push(128 + u8::try_from(side).unwrap());
+            pair.novel[side].extend((1..=2).map(|slot| leaf_path(&exclusive, slot)));
+        }
+        pair.with_trees(|[left, right]| {
+            let run = |failing: Failing<Local>| {
+                let mut backends = Backends {
+                    left: Failing::after(Local, usize::MAX),
+                    left_proxy: Failing::after(Local, usize::MAX),
+                    right: Failing::after(Local, usize::MAX),
+                    right_proxy: Failing::after(Local, usize::MAX),
+                };
+                *match (fail_left, fail_proxy) {
+                    (true, false) => &mut backends.left,
+                    (true, true) => &mut backends.left_proxy,
+                    (false, false) => &mut backends.right,
+                    (false, true) => &mut backends.right_proxy,
+                } = failing;
+                let (left_link, right_link) = memory_with_capacity(capacity);
+                with_schedule(schedule.clone(), || run_to_quiescence(harness::drive(
+                    Topology::Production, backends, left.root.clone(), right.root.clone(),
+                    left_link, right_link, codec::<Vec<u8>>(), WindowConfig::Fixed(Window::uniform(width)),
+                ))).expect("a backend failure must not leave either endpoint stalled")
+            };
+            let baseline = Failing::after(Local, usize::MAX);
+            let (a, b) = run(baseline.clone());
+            let mut expected = left.clone();
+            expected.join(right.clone());
+            prop_assert_eq!(a.unwrap(), expected.root.clone());
+            prop_assert_eq!(b.unwrap(), expected.root.clone());
+
+            let candidates: Vec<_> = baseline.history().into_iter().enumerate()
+                .filter(|(_, operation)| match operation {
+                    Operation::Children { height } | Operation::Parent { height } =>
+                        *height <= RootHeight::HEIGHT - depth,
+                }).collect();
+            prop_assert!(!candidates.is_empty(), "the selected participant did no deep backend work");
+            let (index, operation) = candidates[choice % candidates.len()];
+            let failing = Failing::after(Local, index);
+            let live = node_census().live;
+            let (a, b) = run(failing.clone());
+            prop_assert_eq!(failing.history().get(index).copied(), Some(operation), "the operation schedule changed");
+            let faulted = if fail_left { &a } else { &b };
+            let reported = match faulted {
+                Err(EndpointError::Local(MaterializedError::Backend(Failure::Injected(operation)))) => Some(*operation),
+                Err(EndpointError::Proxy(error)) => injected_operation(error),
+                _ => None,
+            };
+            prop_assert_eq!(reported, Some(operation), "backend failure was masked: {:?}", faulted);
+            drop((a, b));
+            prop_assert_eq!(node_census().live, live, "failed sessions retained node handles");
+            Ok(())
+        })?;
+    }
+
+    /// Cancelling a deep wire session releases its node handles, and a fresh
+    /// connection over the same trees still reaches the join oracle.
+    #[test]
+    fn cancelled_deep_sessions_release_nodes_and_retry(
+        depth in 2usize..32,
+        choice in any::<usize>(),
+        width in prop_oneof![Just(1usize), Just(8)],
+        schedule in proptest::collection::vec(0u8..=2, 0..64),
+    ) {
+        let pair = Divergence::new([vec![0; depth]], [2, 3]);
+        pair.with_trees(|[left, right]| {
+            let run = |limit| {
+                let (left_link, right_link) = memory_with_capacity(1);
+                with_schedule(schedule.clone(), || cancel_after(harness::drive(
+                    Topology::Production, Backends::local(), left.root.clone(), right.root.clone(),
+                    left_link, right_link, codec::<Vec<u8>>(), WindowConfig::Fixed(Window::uniform(width)),
+                ), limit))
+            };
+            let mut expected = left.clone();
+            expected.join(right.clone());
+            let (length, result) = run(usize::MAX);
+            let (a, b) = result.unwrap();
+            prop_assert_eq!(a.unwrap(), expected.root.clone());
+            prop_assert_eq!(b.unwrap(), expected.root.clone());
+            prop_assert!(length > 1, "the fixture must suspend before completion");
+
+            // Sample the whole run and always include its last pending poll,
+            // so cleanup is exercised after the deep descent as well as during it.
+            for cutoff in [1 + choice % (length - 1), length - 1] {
+                let live = node_census().live;
+                let (polls, result) = run(cutoff);
+                prop_assert_eq!(polls, cutoff);
+                prop_assert!(result.is_none(), "the replay completed before its measured cutoff");
+                drop(result);
+                prop_assert_eq!(node_census().live, live, "cancelled sessions retained node handles");
+            }
+
+            let (replayed, result) = run(usize::MAX);
+            prop_assert_eq!(replayed, length, "the session's poll schedule changed");
+            let (a, b) = result.unwrap();
+            prop_assert_eq!(a.unwrap(), expected.root.clone());
+            prop_assert_eq!(b.unwrap(), expected.root);
+            Ok(())
+        })?;
     }
 }
 
@@ -172,6 +343,7 @@ fn leaf_path(prefix: &[u8], slot: usize) -> Path {
 #[derive(Clone, Default)]
 struct SentFrames(Arc<Mutex<Vec<StreamId>>>);
 
+/// Attach observers and verify the tree depths reached on the wire.
 impl SentFrames {
     /// Attach this log to a wire endpoint.
     fn handle(&self) -> SessionHandle {
@@ -207,6 +379,7 @@ impl SentFrames {
     }
 }
 
+/// Share the frame log with each observed session.
 impl Observer for SentFrames {
     /// Observe one endpoint's session using this same log.
     fn session(&self, _: &SessionInfo) -> Option<Box<dyn SessionObserver>> {
@@ -214,6 +387,7 @@ impl Observer for SentFrames {
     }
 }
 
+/// Select outgoing data streams for frame recording.
 impl SessionObserver for SentFrames {
     /// Record outgoing data frames; control and incoming streams are irrelevant.
     fn stream(&self, stream: &StreamInfo) -> Option<Box<dyn StreamObserver>> {
@@ -237,6 +411,7 @@ struct SentStream {
     frames: SentFrames,
 }
 
+/// Decode sent frames to distinguish reactions from stream endings.
 impl StreamObserver for SentStream {
     /// Record only reactions; stream endings alone prove no descent.
     fn message(&mut self, bytes: &[u8]) {
@@ -285,6 +460,7 @@ struct Observations {
     queues: ChannelReport,
 }
 
+/// Reconcile observed replicas over a controlled transport.
 impl Session {
     /// Drive two observed proxies, checking liveness without an external runtime.
     fn run(&self, roots: [TreeRoot; 2], plans: [IoPlan; 2]) -> ([TreeRoot; 2], Observations) {
@@ -331,6 +507,7 @@ impl Session {
     }
 }
 
+/// Check that both wire roles reached the requested depth.
 impl Observations {
     /// Check actual reactions on both sides down to the deepest disputed prefix.
     fn assert_reach(&self, depth: usize) {
