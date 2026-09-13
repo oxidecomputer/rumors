@@ -1,10 +1,10 @@
 # Rumors review checklist
 
-**Ready for review:** 05's remaining backend conformance claims — `codex/backend-conformance`, base `main`.
-**Next:** 03's remaining deep-session coverage; then 08's owned-byte Bookmark contract.
+**Working:** 03's remaining deep-session coverage — `codex/deep-session-coverage`, base `main`.
+**Next:** 08's owned-byte Bookmark contract.
 
-Finish the conformance correction and add depth coverage where it exercises a
-distinct failure mode. Then prioritize Bookmark ownership and durability before
+Add depth coverage where it exercises a distinct failure mode. Then prioritize
+Bookmark ownership and durability before
 broad harness or module reorganizations. Recheck N52 on current code before any
 further session micro-optimization; earlier memo and join fixes may have changed it.
 
@@ -99,7 +99,7 @@ Dependencies: 03's deep fixtures; reported-error repairs in 04 are complete. Con
 - [x] Check backend operations, completeness, node prices, padding, and height conversions — `084e4ec7`, `558666ef`, `1b67f297`; existing repairs verified.
   Sources: `conformance-24`, `conformance-25`, `conformance-30`, `conformance-31`, `conformance-40–42`, T6, T132, T142.
 
-- [ ] Correct fixture peak comparisons and directly verify ledger settlement.
+- [x] Correct fixture peak comparisons and directly verify ledger settlement — `adcbf4fc`.
   Sources: `conformance-28`, `conformance-29`, `conformance-35`, N34 (test premise).
 
 - [x] Declined: liveness with a pool that violates stream independence. Owner ruling, 2026-09-11.
