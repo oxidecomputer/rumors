@@ -1,10 +1,12 @@
 # Rumors review checklist
 
-**Working:** 05's remaining backend conformance claims — `codex/backend-conformance`, base `main`.
-**Next:** 03's broader deep-session validation.
+**Ready for review:** 05's remaining backend conformance claims — `codex/backend-conformance`, base `main`.
+**Next:** 03's remaining deep-session coverage; then 08's owned-byte Bookmark contract.
 
-The envelope arithmetic is validated. Finish the conformance audit before
-extending measurements that depend on its claims.
+Finish the conformance correction and add depth coverage where it exercises a
+distinct failure mode. Then prioritize Bookmark ownership and durability before
+broad harness or module reorganizations. Recheck N52 on current code before any
+further session micro-optimization; earlier memo and join fixes may have changed it.
 
 Check code outcomes only after verification and merge; retain the landing
 commit. Checked dispositions are labelled explicitly.
@@ -94,8 +96,11 @@ Dependencies: 03's deep fixtures; reported-error repairs in 04 are complete. Con
 - [x] Disposition: wider queues need not produce a higher peak residency; N34 does not establish a production defect. The conformance test must state its fixture premise.
   Source: N34; premise review, 2026-09-11.
 
-- [ ] Audit the remaining conformance memory and convergence claims, crediting existing repairs and correcting fixture-specific peak assumptions.
-  Sources: `conformance-24`, `conformance-25`, `conformance-28–31`, `conformance-35`, `conformance-40–42`, T6, T132, T142, N34 (test premise).
+- [x] Check backend operations, completeness, node prices, padding, and height conversions — `084e4ec7`, `558666ef`, `1b67f297`; existing repairs verified.
+  Sources: `conformance-24`, `conformance-25`, `conformance-30`, `conformance-31`, `conformance-40–42`, T6, T132, T142.
+
+- [ ] Correct fixture peak comparisons and directly verify ledger settlement.
+  Sources: `conformance-28`, `conformance-29`, `conformance-35`, N34 (test premise).
 
 - [x] Declined: liveness with a pool that violates stream independence. Owner ruling, 2026-09-11.
   Sources: N22, N27's pooled-liveness question. Removed the stronger test and claim in `782274c7`; retained the independence probe.

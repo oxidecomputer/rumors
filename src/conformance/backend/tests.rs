@@ -1,5 +1,4 @@
-//! The backend conformance suite, run against this crate's backends and
-//! against reference backends built to prove the suite has teeth.
+//! Backend conformance tests and fault-injection controls for each check.
 
 use std::convert::Infallible;
 use std::pin::pin;
@@ -13,12 +12,13 @@ use proptest::prelude::*;
 use before::Span;
 
 use super::{
-    BOUND_SWEEP_CEILING, Charged, Measure, check, fan_slot_excess, ledger, node_bytes_monotone,
+    BOUND_SWEEP_CEILING, Measure, check, fan_slot_excess, histories, ledger, node_bytes_monotone,
     reference_slot_excess, run,
 };
 use crate::{
     Version,
     message::Message,
+    testing::run_to_quiescence,
     tree::{
         mirror::streaming::{
             Backend, BoxNodeStream, ErasedNode, Leaf, Local, Node, NodeStream,
@@ -144,41 +144,21 @@ impl Measure for Local {
     }
 }
 
-/// The stated budget the in-memory check runs under.
-///
-/// It must clear the flat decode-fan pre-charge the window solve takes
-/// off every budget before widening any stage
-/// ([`SUPPLY_DECODE_ENVELOPE_BYTES`], the in-memory pricing of that
-/// term) with room left for dispute scopes; a budget at or below the
-/// pre-charge resolves to the serialization floor, and `check`'s
-/// liveness floor fails it by name. The 64 KiB above the pre-charge is
-/// what widens the suite's corpora past the floor: the floor holds
-/// only that the window is wider than the floor's and that the census
-/// peak moved, never a particular width.
+/// Cover the decode-fan allowance and leave enough to widen dispute queues.
 const LOCAL_BUDGET: usize = SUPPLY_DECODE_ENVELOPE_BYTES + 64 * 1024;
 
-/// The in-memory backend's pointer-priced account holds end to end.
-///
-/// `Local` is the trivial case — handles into a resident tree — so the
-/// suite's pointwise check reduces to the pointer-size constant, and the
-/// end-to-end census confirms the window's byte admittance under
-/// [`LOCAL_BUDGET`]: the budgeted run widens the window past the floor
-/// and its census peak exceeds the floor run's.
+/// Local handle prices cover measured nodes, and wider queues reconcile within
+/// the fixture's peak-increase allowance.
 #[test]
 fn local_backend_conforms() {
     let _serial = serialized();
     pollster::block_on(check(Local, LOCAL_BUDGET));
 }
 
-/// A budget that covers only the flat decode-fan pre-charge fails the
-/// liveness floor by name.
-///
-/// It leaves nothing for dispute scopes: the solve floors every capacity
-/// at one, the budgeted run is the floor run, and the census reads one
-/// peak twice, which the admittance ceiling alone would pass vacuously.
+/// A budget spent entirely on decode fans fails to exercise wider queues.
 #[test]
-#[should_panic(expected = "admitted nothing above the floor")]
-fn a_pre_charge_only_budget_fails_the_liveness_floor() {
+#[should_panic(expected = "does not widen any queue above the floor")]
+fn a_decode_only_budget_fails_the_widening_check() {
     let _serial = serialized();
     pollster::block_on(check(Local, SUPPLY_DECODE_ENVELOPE_BYTES));
 }
@@ -350,14 +330,7 @@ const ROW_HEADER: usize = 64;
 /// The bytes one child entry occupies in a materialized row.
 const ROW_ENTRY: usize = 24;
 
-/// The stated budget every materializing check runs under.
-///
-/// The rows make this backend's flat decode-fan pre-charge several
-/// times the in-memory one (each fan slot carries a header and bounds,
-/// not a pointer); 4 MiB clears it with room for dispute scopes, and
-/// `check`'s liveness floor holds the window to being wider than the
-/// floor's, never to a particular width, while the rows keep the
-/// admitted bytes a real fraction of the budget.
+/// Cover row-backed decode fans with enough left to widen dispute queues.
 const MATERIALIZING_BUDGET: usize = 4 * 1024 * 1024;
 
 /// A node value that owns its simulated row.
@@ -679,17 +652,44 @@ fn neighbor<H: Height>(prefix: Prefix<H>) -> Prefix<H> {
     Prefix::<H>::containing(&Path::from(Prefix::<Z>::from(path)))
 }
 
-/// An honestly priced materializing backend passes the whole suite.
-///
-/// Rows own real bytes (header, per-child entries, encoded bounds), the
-/// cost function covers each term, and the end-to-end census holds the
-/// window's measured admittance inside a budget the rows make expensive.
-/// Runs at the knobs' honest resting values: honesty is the default, not
-/// something this test has to establish.
+/// Row prices cover owned buffers and slot padding, and reconciliation stays
+/// within the fixture's peak-increase allowance.
 #[test]
 fn materializing_backend_conforms() {
     let _serial = serialized();
     pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
+}
+
+/// Wider queues can reconcile a clustered fixture without increasing its peak.
+#[test]
+fn wider_queues_need_not_increase_the_peak() {
+    let _serial = serialized();
+    // Put every leaf below one 30-byte prefix. The configured window widens
+    // near the root, while the actual disputes stay deep and serialize.
+    let paths = histories()
+        .into_iter()
+        .flatten()
+        .enumerate()
+        .map(|(index, (version, _))| {
+            let mut path = [0; 32];
+            path[30..].copy_from_slice(&u16::try_from(index).unwrap().to_be_bytes());
+            (version, Path::from(path))
+        });
+    Path::with_leaf_paths(paths, || {
+        let (floor, floor_stats) =
+            run_to_quiescence(run(Materializing, WindowConfig::Budget(0), 0))
+                .expect("the floor session must complete");
+        let (wider, wider_stats) = run_to_quiescence(run(
+            Materializing,
+            WindowConfig::Budget(MATERIALIZING_BUDGET),
+            0,
+        ))
+        .expect("the wider session must complete");
+        assert!(wider_stats.window_granted > floor_stats.window_granted);
+        assert!(wider <= floor, "wider {wider}, floor {floor}");
+        run_to_quiescence(check(Materializing, MATERIALIZING_BUDGET))
+            .expect("conformance must accept the lower or equal peak");
+    });
 }
 
 /// An underpricing cost function fails the run by name.
@@ -964,18 +964,13 @@ fn leaf_underpricing_fails_at_construction() {
     panic!("{}", violations.join("\n"));
 }
 
-/// The decorator's ledger accounting is exact over wrap, clone, and drop.
-///
-/// A wrapped leaf charges its measured post-custody bytes, a cloned
-/// handle charges its bytes again, and drops settle to the starting
-/// balance — the arithmetic the end-to-end census rests on.
+/// Leaf construction and cloning charge both handles; dropping them restores
+/// the live balance while preserving the peak until it is reset.
 #[test]
 fn ledger_settles_over_clone_and_drop() {
     let _serial = serialized();
-    let before = {
-        ledger::reset_peak();
-        ledger::peak()
-    };
+    ledger::reset_peak();
+    let before = ledger::peak();
     let leaf = pollster::block_on(<super::ChargedNode<typed::Node<Z>> as Leaf>::leaf(
         Version::new(),
         Message::new(7),
@@ -983,32 +978,54 @@ fn ledger_settles_over_clone_and_drop() {
     .expect("a local leaf constructs infallibly");
     let handle = std::mem::size_of::<typed::Node<Z>>();
     let clone = leaf.clone();
+    assert_eq!(ledger::peak(), before + 2 * handle);
+    drop(leaf);
+    drop(clone);
     assert_eq!(
         ledger::peak(),
         before + 2 * handle,
-        "two live leaf handles charge their measured bytes twice",
+        "drops preserve the peak"
     );
-    drop(leaf);
-    drop(clone);
 
-    let node: typed::Node<crate::tree::typed::height::Z> =
-        typed::Node::leaf(Version::new(), Message::new(7));
-    let charged = Charged::<Local>::new(Local);
-    let _ = &charged;
-    let wrapped = super::ChargedNode::wrap(node, 100);
-    let clone = wrapped.clone();
-    assert_eq!(
-        ledger::peak(),
-        before + 200,
-        "two live handles charge twice"
-    );
-    drop(wrapped);
-    drop(clone);
-    assert_eq!(
-        ledger::peak(),
-        before + 200,
-        "the peak persists after handles settle",
-    );
+    // Reset samples LIVE, so this checks settlement rather than the old peak.
+    ledger::reset_peak();
+    assert_eq!(ledger::peak(), before, "all node charges must be released");
+}
+
+proptest! {
+    /// Dropping and unwrapping differently sized cloned nodes each releases
+    /// exactly one charge, regardless of their release order.
+    #[test]
+    fn ledger_settles_over_mixed_node_lifetimes(
+        nodes in prop::collection::vec((1usize..1024, 0usize..4, any::<bool>(), any::<u8>()), 1..16),
+    ) {
+        let _serial = serialized();
+        ledger::reset_peak();
+        let before = ledger::peak();
+        let mut handles = Vec::new();
+        let mut total = 0;
+        for (bytes, copies, unwrap, order) in nodes {
+            // The wrapper's accounting is independent of the node representation.
+            let node = super::ChargedNode::wrap((), bytes);
+            for _ in 0..copies {
+                handles.push((order, unwrap, node.clone()));
+            }
+            handles.push((order, !unwrap, node));
+            total += bytes * (copies + 1);
+        }
+        prop_assert_eq!(ledger::peak(), before + total);
+        handles.sort_by_key(|(order, _, _)| *order);
+        for (_, unwrap, node) in handles {
+            if unwrap {
+                node.into_inner();
+            } else {
+                drop(node);
+            }
+        }
+        prop_assert_eq!(ledger::peak(), before + total, "releases preserve the peak");
+        ledger::reset_peak();
+        prop_assert_eq!(ledger::peak(), before, "every charge must settle exactly once");
+    }
 }
 
 /// One case of the bound-monotonicity property: the price at `bound`
@@ -1025,12 +1042,8 @@ fn assert_monotone_in_bound<B: Backend<Node<Z>: Leaf>>(fan: usize, bound: usize,
 }
 
 proptest! {
-    /// The in-memory cost function is monotone in the version bound over
-    /// the whole family: for any bound and any increase, at any fan, the
-    /// price does not fall.
-    ///
-    /// The sweep in `check` samples adjacent grid points; this covers
-    /// the pairs between them.
+    /// Local prices do not fall when a sampled version bound grows, including
+    /// pairs between the deterministic sweep's grid points.
     #[test]
     fn local_node_bytes_is_monotone_in_the_version_bound(
         fan in 0..=FAN,
@@ -1041,12 +1054,8 @@ proptest! {
         assert_monotone_in_bound::<Local>(fan, bound, delta);
     }
 
-    /// The materializing cost function is monotone in the version bound
-    /// over the whole family: for any bound and any increase, at any fan,
-    /// the price does not fall.
-    ///
-    /// The sweep in `check` samples adjacent grid points; this covers
-    /// the pairs between them.
+    /// Row prices do not fall when a sampled version bound grows, including
+    /// pairs between the deterministic sweep's grid points.
     #[test]
     fn materializing_node_bytes_is_monotone_in_the_version_bound(
         fan in 0..=FAN,
@@ -1061,8 +1070,7 @@ proptest! {
     /// bound-monotonicity property by name: the case the grid sweep
     /// cannot see, which the sibling control shows it passing.
     ///
-    /// The knob is set for each case's lifetime; the failing case's seed
-    /// is committed, so the conviction replays deterministically.
+    /// The committed seed supplies a failing pair even if random draws miss it.
     #[test]
     #[should_panic(expected = "monotone in version bound")]
     fn a_step_dip_fails_the_monotonicity_property(
@@ -1085,9 +1093,8 @@ fn a_point_dip_fails_the_dense_sweep() {
     pollster::block_on(check(Materializing, MATERIALIZING_BUDGET));
 }
 
-/// The same step-shaped dip passes the grid sweep: every adjacent grid
-/// pair sits on one side of the threshold, so the sweep is a sample of
-/// the family and the property test above is what holds the family.
+/// A price drop between sparse grid points can pass the sweep; the property
+/// test can detect it by sampling a closer pair that straddles the drop.
 #[test]
 fn a_step_dip_hides_from_the_grid_sweep() {
     let _dishonest = PRICED_BOUND_STEP.set(STEP_THRESHOLD);

@@ -1,62 +1,41 @@
-//! Conformance checks for a storage backend's session pricing.
+//! Conformance checks for storage backends used by streaming reconciliation.
 //!
-//! [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget) sizes queues
-//! using statistical tree-shape estimates and the backend's node prices. This
-//! suite checks those prices against measured nodes and exercises the resulting
-//! windows on concrete fixtures. It does not prove a hard bound on session
-//! memory:
+//! [`Backend::node_bytes`] supplies the node prices used to size session queues.
+//! This suite checks those prices against an independent [`Measure`] oracle,
+//! then reconciles concrete fixtures at the zero-budget floor and a larger
+//! budget. It checks:
 //!
-//! - **Shape**: the cost function is swept for monotonicity in both
-//!   arguments over a fan and version-bound grid before any session
-//!   runs. This property keeps the window's quantile evaluation an
-//!   upper bound.
-//! - **Pointwise**: every node the session constructs, assembles, walks,
-//!   or explodes is measured (via [`Measure`]) against the cost function
-//!   at that node's actual fan and version bounds, or, where the fan
-//!   is invisible, at the widest fan the node can have, which
-//!   monotonicity makes an upper bound on the price at its own. The
-//!   measurement carries the slot padding the window's own constants
-//!   leave to the backend (a node aligned wider than a pointer pads the
-//!   decode-fan and reference slots it sits in), and a node re-tagged
-//!   across heights is re-measured. An underpriced node fails the run
-//!   by name.
-//! - **Bulk seams**: the backend's own [`leaves`](Backend::leaves) and
-//!   [`assemble`](Backend::assemble) overrides — the paths the wire codec
-//!   runs — are delegated to, their yields priced on the same census,
-//!   held to the walked or assembled node's aggregates, and held to the
-//!   clauses the trait states for them: a walk stays inside the walked
-//!   prefix and ascends, an assembly yields one node per run in run
-//!   order, and [`parent`](Backend::parent) answers a real child with a
-//!   parent and an empty group with none.
-//! - **End to end**: identical divergent corpora reconcile once at the
-//!   zero-budget floor and once under a stated budget, with every live
-//!   node value's measured bytes on a census ledger. The measured peak
-//!   increase must fit the budget, and the result must contain the union.
-//!   This is a fixture-specific comparison: changing a window also changes
-//!   the schedule, so wider queues need not increase the measured peak.
+//! - **Prices:** monotonicity over a grid of child counts and version bounds;
+//!   measured residency of constructed, walked, and assembled nodes; and extra
+//!   slot padding for node types aligned wider than the in-memory handle.
+//!   Height erasure and restoration must preserve residency.
+//! - **Operations:** parent presence, node aggregates, ordered leaf walks
+//!   confined to their prefix, and one assembled node per supplied prefix run.
+//! - **Reconciliation:** both replicas converge to a set of the expected union
+//!   size. The larger budget must grant a wider window, and any measured peak
+//!   increase over the floor must fit within that budget.
 //!
-//! # Accounting premises
+//! # What the census measures
 //!
-//! Leaves are in the account at their post-custody price: construction
-//! ([`Leaf::leaf`]) is the backend's chance to persist the payload, so a
-//! leaf charges what its handle keeps resident afterward, checked
-//! pointwise against `node_bytes(0, bounds)` — the price the session
-//! budget charges every decode-fan slot. Payload bytes still crossing
-//! inside one wire message are priced by
-//! [`target_message_size`](crate::Peer::target_message_size), not here.
-//! The ledger is process-global, so checks in one process must not
-//! overlap (this module's tests hold one lock across each test body).
-//! The differencing baseline absorbs what exists regardless of the
-//! window: the resting corpora, the assembly fans' correctness floor,
-//! and the commit join's transients.
+//! The ledger counts each live node value at its measured size. For a leaf,
+//! this is what remains resident after [`Leaf::leaf`] has had the opportunity
+//! to persist its payload. Corpus handles still alive during reconciliation
+//! are included; shared tree storage and wire buffers are not.
 //!
-//! # Visibility
+//! The peak comparison is fixture-specific. Changing capacity can change when
+//! nodes are created and released, so subtracting the floor's peak does not
+//! isolate queue memory, and wider queues need not produce a higher peak.
+//! Neither this comparison nor the sampled price checks prove a hard memory
+//! bound; [`Peer::sync_memory_budget`](crate::Peer::sync_memory_budget) uses
+//! statistical estimates of tree shape.
 //!
-//! The backend boundary is crate-internal, so this suite runs as this
-//! crate's own gate over its backends rather than as a public entry
-//! point — a suite is caller-visible exactly where its boundary is
-//! caller-implementable, as [`conformance::link`](super::link) is for
-//! the [`Link`](crate::link::Link) boundary.
+//! The ledger is process-global. Tests must hold the suite's serialization
+//! lock so their charges and violation reports cannot interfere.
+//!
+//! # Scope
+//!
+//! The backend interface is crate-internal, so this suite runs in the crate's
+//! own tests. Caller-built transports use [`conformance::link`](super::link).
 
 use std::collections::BTreeMap;
 use std::mem::size_of;
@@ -161,15 +140,18 @@ mod ledger {
     /// Pointwise contract violations, reported at the end of a run.
     static VIOLATIONS: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
+    /// Add a live node's measured bytes and update the peak.
     pub(super) fn charge(bytes: usize) {
         let live = LIVE.fetch_add(bytes, Ordering::Relaxed) + bytes;
         PEAK.fetch_max(live, Ordering::Relaxed);
     }
 
+    /// Remove the charge for a node that leaves the census.
     pub(super) fn discharge(bytes: usize) {
         LIVE.fetch_sub(bytes, Ordering::Relaxed);
     }
 
+    /// Retain a contract failure for the session's final report.
     pub(super) fn violation(report: String) {
         VIOLATIONS
             .lock()
@@ -182,10 +164,12 @@ mod ledger {
         PEAK.store(LIVE.load(Ordering::Relaxed), Ordering::Relaxed);
     }
 
+    /// Return the most measured bytes concurrently alive since the last reset.
     pub(super) fn peak() -> usize {
         PEAK.load(Ordering::Relaxed)
     }
 
+    /// Drain the recorded contract failures.
     pub(super) fn take_violations() -> Vec<String> {
         std::mem::take(
             &mut VIOLATIONS
@@ -195,12 +179,7 @@ mod ledger {
     }
 }
 
-/// Fail the run for `reason`, with every contract violation still
-/// pending on the ledger appended.
-///
-/// A by-name report is never masked by the failure that followed it: a
-/// backend fault first recorded on the ledger and then felt as a lost
-/// root or a short session names itself in the panic.
+/// Fail with the recorded violations so a later symptom cannot hide its cause.
 fn fail(reason: &str) -> ! {
     let pending = ledger::take_violations();
     if pending.is_empty() {
@@ -212,37 +191,40 @@ fn fail(reason: &str) -> ! {
     );
 }
 
-/// The byte-charging census decorator.
+/// Wrap a backend to check its operations and count its live node values.
 ///
-/// Delegates every operation to the wrapped backend — the bulk
-/// [`leaves`](Backend::leaves)/[`assemble`](Backend::assemble) overrides
-/// included, so the paths production runs are the paths on trial —
-/// keeping each node value's measured bytes on the [`ledger`] for as
-/// long as any handle to it lives, and checking each assembled parent
-/// against the cost function and the aggregate recurrences.
+/// Delegates to the backend's own bulk overrides so the suite exercises the
+/// same assembly and leaf-walk implementations that wire sessions use.
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct Charged<B> {
+    /// The backend whose operations and node prices are being checked.
     inner: B,
 }
 
+/// Construct a backend wrapper without changing its storage.
 impl<B> Charged<B> {
+    /// Start checking operations on `inner`.
     pub(crate) fn new(inner: B) -> Self {
         Self { inner }
     }
 }
 
-/// A node handle whose measured bytes ride the census ledger.
+/// A node value counted in the live-byte census until dropped or unwrapped.
 ///
 /// The inner slot is an `Option` only so consuming the wrapper can settle
 /// the ledger exactly once: `into_inner` discharges and empties it, and
 /// `Drop` discharges only when it is still full.
 #[derive(Debug)]
 pub(crate) struct ChargedNode<N> {
+    /// Present until the node is consumed by `into_inner`.
     inner: Option<N>,
+    /// The node's measured charge, released when it leaves the wrapper.
     bytes: usize,
 }
 
+/// Track a node for as long as it is held by the conformance wrapper.
 impl<N> ChargedNode<N> {
+    /// Enter a measured node in the census.
     fn wrap(inner: N, bytes: usize) -> Self {
         ledger::charge(bytes);
         Self {
@@ -251,12 +233,14 @@ impl<N> ChargedNode<N> {
         }
     }
 
+    /// Borrow the node without changing its charge.
     fn inner(&self) -> &N {
         self.inner
             .as_ref()
             .expect("a live charged node always holds its inner handle")
     }
 
+    /// Release the charge and return the node, preventing a second discharge on drop.
     fn into_inner(mut self) -> N {
         ledger::discharge(self.bytes);
         self.inner
@@ -265,13 +249,17 @@ impl<N> ChargedNode<N> {
     }
 }
 
+/// Count each cloned handle as another live node value.
 impl<N: Clone> Clone for ChargedNode<N> {
+    /// Clone the node and charge the copy independently.
     fn clone(&self) -> Self {
         Self::wrap(self.inner().clone(), self.bytes)
     }
 }
 
+/// Settle the charge unless `into_inner` already released it.
 impl<N> Drop for ChargedNode<N> {
+    /// Remove this node's charge exactly once.
     fn drop(&mut self) {
         if self.inner.is_some() {
             ledger::discharge(self.bytes);
@@ -734,23 +722,14 @@ fn sweep_bounds() -> Vec<usize> {
 
 /// Sweep one cost function for monotonicity in both arguments.
 ///
-/// The [`node_bytes`](Backend::node_bytes) contract requires an upper
-/// bound monotone in the child count and in the version bound, because
-/// the window derivation evaluates the cost at per-depth quantiles and
-/// monotonicity is what keeps a quantile evaluation an upper bound: a
-/// pointwise-honest function with a dip between evaluation points
-/// under-prices every in-flight reference.
+/// The window evaluates prices at estimated upper bounds on fan and version
+/// size. Monotonicity lets those prices cover smaller nodes too.
 ///
-/// The derivation's own check is a four-point `debug_assert`, compiled
-/// out of release, so the suite sweeps the grid: every adjacent fan pair
-/// up to the radix ([`FAN`]), crossed with [`sweep_bounds`]'s version
-/// bounds, and every adjacent bound pair at each swept fan.
-///
-/// The fan dimension is exhaustive; the bound dimension is a sample of
-/// the family, dense where sessions evaluate and sparse above. A dip
-/// that begins and recovers strictly between two sparse grid points
-/// passes the sweep; the family itself (any bound, any increase) is
-/// held by a property test over each backend in this module's tests.
+/// Compare every adjacent fan up to [`FAN`] at each [`sweep_bounds`] value,
+/// and every adjacent bound at each fan. Bounds are sampled sparsely above
+/// [`BOUND_DENSE_CEILING`], so a dip between grid points can go undetected.
+/// The property tests also sample pairs between those points; neither check
+/// proves monotonicity for every possible bound.
 fn node_bytes_monotone<B>()
 where
     B: Measure + Clone,
@@ -790,22 +769,13 @@ const COMMON: usize = 512;
 /// Messages each side originates alone: the mutual divergence.
 const DIVERGENT: usize = 1_024;
 
-/// Run one backend through the full conformance check.
+/// Check node prices, bulk operations, and reconciliation under two budgets.
 ///
-/// Sweeps the cost function for monotonicity, then builds two corpora
-/// sharing [`COMMON`] messages and diverging by [`DIVERGENT`] more on
-/// each side, drives each corpus's sorted leaves through the default
-/// fold and through the bulk assembly at a sub-root height (many runs)
-/// and at the root (one),
-/// walks each corpus through the bulk leaf walk at the root and, after
-/// exploding the root, at each child's own prefix, and reconciles the
-/// corpora twice: once at the zero-budget floor, once under
-/// `budget_bytes`.
-///
-/// Checks in one process must not overlap: the census ledger is
-/// process-global, so callers serialize (this module's tests hold one
-/// static lock per test; nextest's process-per-test isolates them
-/// regardless).
+/// Reconciles the same divergent corpora at the zero-budget floor and at
+/// `budget_bytes`. The budget must widen at least one queue. Any increase
+/// in the measured peak must fit the budget, but the wider run may also
+/// peak lower: capacity changes the schedule as well as available space.
+/// Callers must serialize checks because the ledger is process-global.
 ///
 /// # Panics
 ///
@@ -819,10 +789,8 @@ const DIVERGENT: usize = 1_024;
 ///   outside its prefix, merged, split, or swallowed a run, or
 ///   `parent` answered a real child with no parent or an empty group
 ///   with one;
-/// - the stated budget resolves to the serialization floor, or the
-///   budgeted run's census peak does not exceed the floor run's (the
-///   admittance ceiling would otherwise compare two identical runs);
-/// - the window's measured byte admittance exceeded the budget; or
+/// - the stated budget does not widen any queue above the floor;
+/// - the measured peak increase exceeds the budget; or
 /// - the session failed to converge the corpora, or converged them to
 ///   less than their union.
 pub(crate) async fn check<B>(backend: B, budget_bytes: usize)
@@ -847,50 +815,26 @@ where
         violations.join("\n"),
     );
 
-    // The liveness floor under the admittance ceiling. A budget that
-    // binds widens some stage past the one-scope serialization floor, and
-    // a wider stage holds more node values in flight at the session's
-    // peak instant than the floor does, so the least the census can read
-    // is one node value more: equal peaks mean the two runs were one run
-    // and the ceiling below could not fail.
+    // Check that the real session used a wider window. Occupancy need not
+    // rise with capacity: less backpressure can let nodes be released sooner.
     assert!(
-        budget_peak > floor_peak,
-        "the budgeted window admitted nothing above the floor: both runs peaked at \
-         {floor_peak} B, so the budget does not bind at this corpus scale",
-    );
-    assert!(
-        budget_stats.window_granted > 1,
-        "the budget resolves to the serialization floor (widest capacity {}) yet the \
-         census moved: the peak difference is not the window's",
+        budget_stats.window_granted > floor_stats.window_granted,
+        "the budget does not widen any queue above the floor (widest capacity {})",
         budget_stats.window_granted,
     );
 
-    let admitted = budget_peak - floor_peak;
+    let increase = budget_peak.saturating_sub(floor_peak);
     assert!(
-        admitted <= budget_bytes,
-        "widening the window from the floor admitted {admitted} measured \
-         bytes at peak; the stated budget is {budget_bytes}",
+        increase <= budget_bytes,
+        "the measured peak increased by {increase} bytes; the stated budget is {budget_bytes}",
     );
 }
 
-/// One controlled-divergence reconciliation; returns the ledger's peak
-/// measured bytes above the resting corpora, with the session's own
-/// account of itself (the window it resolved, above all).
+/// Versions and payloads for the shared history and each replica's additions.
 ///
-/// `omitted` shared messages are left out of *both* corpora: zero for
-/// every honest run, and the completeness control's fault, a loss the
-/// two sides' agreement cannot see.
-pub(super) async fn run<B>(
-    backend: B,
-    window: WindowConfig,
-    omitted: usize,
-) -> (usize, SessionStats)
-where
-    B: Measure + Clone,
-    B::Error: std::fmt::Debug,
-{
-    let charged = Charged::new(backend);
-
+/// The deterministic tick order also lets path fixtures preassign these
+/// versions without creating trees outside their scoped path mapping.
+fn histories() -> [Vec<(Version, u64)>; 3] {
     // Two concurrent histories from one universe: the left clock produces the
     // shared corpus and its own tail; the right fork produces the other tail.
     let mut left_clock = before::Clock::seed();
@@ -906,49 +850,60 @@ where
         .map(|payload| (right_clock.tick().clone(), 2 << 32 | payload))
         .collect();
 
+    [common, left_tail, right_tail]
+}
+
+/// Reconcile divergent corpora and return the absolute node census peak and stats.
+///
+/// `omitted` shared messages are left out of *both* corpora to test that
+/// agreement alone cannot satisfy the completeness check. Pass zero for
+/// a complete fixture. Corpus construction is excluded from the peak, but
+/// corpus handles still alive during reconciliation are included.
+pub(super) async fn run<B>(
+    backend: B,
+    window: WindowConfig,
+    omitted: usize,
+) -> (usize, SessionStats)
+where
+    B: Measure + Clone,
+    B::Error: std::fmt::Debug,
+{
+    let charged = Charged::new(backend);
+    let [common, left_tail, right_tail] = histories();
+
     let shared = common.iter().skip(omitted);
     let left_leaves = sorted_leaves::<B>(shared.clone().chain(&left_tail)).await;
     let right_leaves = sorted_leaves::<B>(shared.chain(&right_tail)).await;
 
-    // The default fold over the charged backend: the path a backend
-    // without an `assemble` override runs, and the one that brings every
-    // interior group of a resting corpus through `parent`'s own checks
-    // (presence, price, aggregates). First, so the first interior
-    // `parent` call of a run is one those checks see.
+    // Exercise `parent` through the default fold before using bulk overrides.
+    // Faults injected on the first parent call must encounter its checks.
     fold_default(&charged, left_leaves.clone()).await;
     fold_default(&charged, right_leaves.clone()).await;
     empty_group(&charged).await;
 
-    // The bulk assembly boundary in the regime the wire decoder runs it:
-    // many maximal same-prefix runs per stream, one node each, in run
-    // order. A one-byte prefix partitions each corpus into up to `FAN`
-    // runs at this scale. Before the corpora assemble at the root, so a
-    // fault felt there is already named on the ledger.
+    // Assemble below the root to exercise multiple prefix runs in one stream.
+    // Do this first so a fault reports its specific violation before it can
+    // prevent construction of the session's roots.
     assemble_runs(&charged, left_leaves.clone()).await;
     assemble_runs(&charged, right_leaves.clone()).await;
 
     let left = corpus(&charged, left_leaves).await;
     let right = corpus(&charged, right_leaves).await;
 
-    // The bulk walk boundary, exercised the way the wire encoder runs it:
-    // every leaf of each corpus once from the root, then once more from
-    // each of the root's children at the child's own prefix, where the
-    // walk's containment clause has content and the explosion prices
-    // every child. Before the baseline resets, so the checks land on
-    // the ledger while the transient charges stay out of the session's
-    // differenced peak.
+    // Walk at the root and at each child's prefix: the latter can expose
+    // leaves escaping their subtree. These extra checks run before the peak
+    // resets so they do not contribute to the session measurement.
     walk(&charged, &left).await;
     walk(&charged, &right).await;
     walk_children(&charged, &left).await;
     walk_children(&charged, &right).await;
 
-    // The corpora are what exists regardless of the window; measure the
-    // session's own admittance above them. The greeting's sizes need no
-    // stating: they are the roots' own aggregates.
+    // Start the peak at the currently live corpus handles. The measurement
+    // includes them and any later handles held by either endpoint.
     ledger::reset_peak();
 
-    // The client's recorder is read afterwards: the two sides exchange
-    // the same pair of sizes, so both resolve the same window.
+    // Both sides use the same size declarations, so one recorder suffices
+    // to check the window granted to this session.
     let stats = Recorder::default();
     let client = materialized::Handshaking::start(charged.clone(), left)
         .window(window)
