@@ -118,6 +118,10 @@ enum Failure {
     Completion,
     /// Removing the donor's durable identity fails before transmission.
     Removal,
+    /// Removal takes effect, but the store returns an error before transmission.
+    AfterRemoval,
+    /// The recipient persists the identity but returns an error before confirming it.
+    AfterAbsorption,
 }
 
 /// A persistence or wire boundary at which the retirement future is dropped.
@@ -266,7 +270,8 @@ proptest! {
     ) {
         let (start, frame, incoming) = boundaries(initial);
         for stage in [Failure::Preamble, Failure::Reconciliation, Failure::DonationStart,
-            Failure::DonationPrefix, Failure::Completion, Failure::Removal] {
+            Failure::DonationPrefix, Failure::Completion, Failure::Removal,
+            Failure::AfterRemoval, Failure::AfterAbsorption] {
             let pair = Pair::new(initial);
             let identity = pair.donor.dangerously_alias_party();
             let receiver_before = pair.receiver.dangerously_alias_party();
@@ -277,39 +282,62 @@ proptest! {
                 Failure::DonationStart => FaultPlan { write_cut: Some(start), ..FaultPlan::NONE },
                 Failure::DonationPrefix => FaultPlan { write_cut: Some(start + 1 + offset.index(frame - 1)), ..FaultPlan::NONE },
                 Failure::Completion => FaultPlan { read_cut: Some(incoming - 1), ..FaultPlan::NONE },
-                Failure::Removal => { pair.donor_bookmark.fail_at(1); FaultPlan::NONE },
+                Failure::Removal | Failure::AfterRemoval => {
+                    pair.donor_bookmark.fail_at(1, stage == Failure::AfterRemoval);
+                    FaultPlan::NONE
+                },
+                Failure::AfterAbsorption => {
+                    pair.receiver_bookmark.fail_at(1, true);
+                    FaultPlan::NONE
+                },
             };
             let (outcome, accepted) = block_on(async {
                 let donor = pair.donor.try_into_peer().await.unwrap();
-                let (a, mut b) = rumors::link::memory();
+                let (a, b) = rumors::link::memory();
                 let outgoing = async move {
                     let mut a = fault::faulty(a, plan);
                     donor.retire(&mut a).await
                 };
-                tokio::join!(outgoing, pair.receiver.gossip_once(&mut b))
+                // Each session owns its link endpoint, so a storage failure
+                // closes the wire and wakes a donor awaiting confirmation.
+                let incoming = async {
+                    let mut b = b;
+                    pair.receiver.gossip_once(&mut b).await
+                };
+                tokio::join!(outgoing, incoming)
             });
-            if matches!(stage, Failure::Preamble | Failure::Reconciliation | Failure::Removal) {
+            if matches!(stage, Failure::Preamble | Failure::Reconciliation | Failure::Removal | Failure::AfterRemoval) {
                 let Retire::Recovered { peer, error } = outcome else {
                     panic!("before handoff must recover, stage {stage:?}: {outcome:?}");
                 };
-                if stage == Failure::Removal {
+                if matches!(stage, Failure::Removal | Failure::AfterRemoval) {
                     assert!(matches!(error, Error::Bookmark(_)));
                 }
                 assert_eq!(peer.dangerously_alias_party(), identity);
                 let live = peer.into_rumors();
                 live.send(999).unwrap();
                 assert_eq!(live.snapshot().len(), initial + 1);
+                if stage == Failure::AfterRemoval {
+                    assert!(recorded(&pair.donor_bookmark, network).is_none());
+                    // A retry must restore the checkpoint before sharing new
+                    // content, even though the failed removal reached storage.
+                    block_on(gossip(&live, &pair.receiver));
+                    assert_eq!(live.snapshot().hash(), pair.receiver.snapshot().hash());
+                }
                 assert_eq!(recorded(&pair.donor_bookmark, network), Some(identity.dangerously_alias()));
             } else {
                 let Retire::Uncertain { error } = outcome else {
                     panic!("possible handoff must consume the peer, stage {stage:?}: {outcome:?}");
                 };
-                transport_phase(&error, if stage == Failure::Completion { Phase::Completion } else { Phase::IdentityTransfer });
+                transport_phase(&error, if matches!(stage, Failure::Completion | Failure::AfterAbsorption) { Phase::Completion } else { Phase::IdentityTransfer });
                 assert!(recorded(&pair.donor_bookmark, network).is_none());
             }
             let mut expected = receiver_before;
             if stage == Failure::Completion {
                 accepted.expect("only the recipient's outgoing confirmation was lost");
+                expected.join(identity).unwrap();
+            } else if stage == Failure::AfterAbsorption {
+                assert!(matches!(accepted, Err(Error::Bookmark(_))));
                 expected.join(identity).unwrap();
             } else {
                 assert!(accepted.is_err(), "the recipient cannot accept this failed donation");

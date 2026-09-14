@@ -23,7 +23,7 @@ use std::convert::Infallible;
 
 use crate::{
     Network, PayloadDepthLimit, Protocol, Ticks,
-    bookmark::{BookmarkError, BookmarkIo, NoBookmark},
+    bookmark::{Bookmark, BookmarkIo, NoBookmark},
     tree::mirror::{
         self, handshake,
         streaming::{materialized, remote},
@@ -95,7 +95,7 @@ pub enum Mismatch {
 /// its phase as well as its cause: completion can fail after local commit.
 #[non_exhaustive]
 #[derive(Debug, thiserror::Error)]
-pub enum Error<B: BookmarkError = NoBookmark> {
+pub enum Error<B: Bookmark = NoBookmark> {
     /// A transport operation failed or the peer closed before it completed.
     /// Reconnect using a fresh link.
     #[error(transparent)]
@@ -125,15 +125,16 @@ pub enum Error<B: BookmarkError = NoBookmark> {
     /// The application's bookmark failed to load, persist, or decode.
     /// Repair or replace the storage before retrying.
     ///
-    /// Usually this happens before any traffic. When accepting a retirement,
+    /// Synchronization may already have started. When accepting a retirement,
     /// content has already committed before the bookmark write. It stays live,
     /// and a later successful gossip persists the pending restart bookkeeping.
     /// Until then, a crash can prevent that bookkeeping from being recovered.
-    /// See [`Bookmark`](crate::Bookmark) for the recovery limits.
+    /// See [`Bookmark`] for the recovery limits.
     #[error(transparent)]
     Bookmark(BookmarkIo<B::Error>),
 }
 
+/// Map preamble failures to public session error categories.
 impl From<handshake::Error> for Error {
     /// Classify preamble failures without exposing its wire grammar.
     fn from(error: handshake::Error) -> Self {
@@ -158,9 +159,10 @@ impl From<handshake::Error> for Error {
     }
 }
 
+/// Adapt errors from sessions that have no bookmark-specific storage failure.
 impl Error {
     /// Retag an error under a bookmark type without losing its cause.
-    pub(crate) fn widen<B: BookmarkError>(self) -> Error<B> {
+    pub(crate) fn widen<B: Bookmark>(self) -> Error<B> {
         match self {
             Self::Transport(error) => Error::Transport(error),
             Self::Protocol(error) => Error::Protocol(error),

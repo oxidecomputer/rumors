@@ -7,7 +7,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use tokio::io::{AsyncRead, AsyncWrite};
 
-use crate::bookmark::{Bookmark, BookmarkError, NoBookmark};
+use crate::bookmark::{Bookmark, NoBookmark};
 use crate::link::{Acceptor, Connector, Link};
 use crate::message::PayloadDepthLimit;
 use crate::observe::{Attachment, Observer};
@@ -36,7 +36,7 @@ use super::gossip::Unbookmarked;
 /// An established peer automatically serves bootstrappers through ordinary
 /// [`gossip`](crate::Rumors::gossip); no special invocation is required.
 #[must_use = "a Bootstrap does nothing until join runs it against a link"]
-pub struct Bootstrap<T, B: BookmarkError = NoBookmark> {
+pub struct Bootstrap<T, B: Bookmark = NoBookmark> {
     /// Pipelining policy inherited by the joined peer.
     pub(crate) window: WindowConfig,
     /// Supply-run size target used during and after the join.
@@ -62,7 +62,7 @@ impl<T> Clone for Bootstrap<T> {
 }
 
 /// Show configuration without Debug bounds on the payload or storage.
-impl<T, B: BookmarkError> std::fmt::Debug for Bootstrap<T, B> {
+impl<T, B: Bookmark> std::fmt::Debug for Bootstrap<T, B> {
     /// Describe the settings without reading the bookmark.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Bootstrap")
@@ -113,7 +113,7 @@ impl<T> Bootstrap<T> {
 }
 
 /// Configure the session independently of whether storage has been selected.
-impl<T, B: BookmarkError> Bootstrap<T, B> {
+impl<T, B: Bookmark> Bootstrap<T, B> {
     /// Copy only session settings; storage stays with the retryable builder.
     fn session_config(&self) -> Bootstrap<T> {
         Bootstrap {
@@ -237,7 +237,7 @@ impl<T, B: Bookmark> Bootstrap<T, B> {
 /// A bootstrap's outcome, preserving either its new peer or its retry configuration.
 #[must_use = "Joined contains a peer or a builder needed for retry"]
 #[derive(Debug)]
-pub enum Joined<T, B: BookmarkError = NoBookmark> {
+pub enum Joined<T, B: Bookmark = NoBookmark> {
     /// The session succeeded and any selected bookmark was attached and persisted.
     /// The link remains usable.
     Joined {

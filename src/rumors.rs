@@ -6,7 +6,7 @@ pub use causal::CausalMessages;
 pub use changes::{Changes, TryTick};
 pub use unordered::{TryNext, UnorderedMessages};
 
-use crate::bookmark::{Bookmark, BookmarkError, NoBookmark};
+use crate::bookmark::{Bookmark, NoBookmark};
 use crate::link::{Acceptor, Connector, Link};
 use crate::message::EncodeError;
 use crate::{Batch, Error, Gossiped, Network, Peer, Snapshot, Version};
@@ -24,7 +24,8 @@ use tokio::{
 /// Unlike [`Peer`], [`Rumors`] is [`Clone`]: any number of tasks may
 /// interact with the set concurrently. Synchronization is internal:
 /// anything one clone learns, all do.
-pub struct Rumors<T, B: BookmarkError = NoBookmark> {
+pub struct Rumors<T, B: Bookmark = NoBookmark> {
+    /// A peer view sharing this replica's state and configuration.
     peer: Peer<T, B>,
     /// This handle's claim to existence; see [`Extant`].
     extant: Extant,
@@ -60,7 +61,7 @@ impl Drop for Extant {
 }
 
 /// Share the replica, configuration, and storage while retaining a handle claim.
-impl<T, B: BookmarkError> Clone for Rumors<T, B> {
+impl<T, B: Bookmark> Clone for Rumors<T, B> {
     /// Create another handle to the same peer.
     fn clone(&self) -> Self {
         Self {
@@ -81,7 +82,8 @@ impl<T, B: BookmarkError> Clone for Rumors<T, B> {
 
 /// A summary view (network, latest version, live-message count), independent
 /// of `T: Debug`: the messages themselves are not printed.
-impl<T, B: BookmarkError> std::fmt::Debug for Rumors<T, B> {
+impl<T, B: Bookmark> std::fmt::Debug for Rumors<T, B> {
+    /// Summarize the replica without printing payloads.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let inner = self.peer.inner.borrow();
         f.debug_struct("Rumors")
@@ -92,7 +94,8 @@ impl<T, B: BookmarkError> std::fmt::Debug for Rumors<T, B> {
     }
 }
 
-impl<T, B: BookmarkError> Rumors<T, B> {
+/// Manage the shared replica and its handle lifetime.
+impl<T, B: Bookmark> Rumors<T, B> {
     /// Assemble the first handle of a fresh broadcast generation around `peer`,
     /// the only constructor: every other handle is a [`Clone`] of this one, so
     /// the token count faithfully counts handles.

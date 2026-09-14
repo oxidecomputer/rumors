@@ -9,7 +9,7 @@ use rand::{RngCore, rngs::OsRng};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{Mutex, watch};
 
-use crate::bookmark::{BookmarkError, Bookmarked, NoBookmark};
+use crate::bookmark::{Bookmarked, NoBookmark};
 use crate::link::{Acceptor, Connector, Link};
 pub use crate::message::{DEFAULT_PAYLOAD_DEPTH_LIMIT, PayloadDepthLimit};
 use crate::message::{EncodeError, PayloadCodec};
@@ -127,7 +127,7 @@ pub use gossip::{Gossip, Gossiped, Led, Retire, Unbookmarked};
 /// quickly reaches a stable steady state, disrupted only if a group of new
 /// peers joins exclusively with one another and spends a long time
 /// partitioned before reuniting with the rest of the network.
-pub struct Peer<T, B: BookmarkError = NoBookmark> {
+pub struct Peer<T, B: Bookmark = NoBookmark> {
     /// The network this replica belongs to, established at seed or join.
     pub(crate) network: Network,
     /// The reconciliation window choice selected by
@@ -369,7 +369,8 @@ mod tests;
 
 /// A summary view (network, latest version, live-message count), independent
 /// of `T: Debug`: the messages themselves are not printed.
-impl<T, B: BookmarkError> std::fmt::Debug for Peer<T, B> {
+impl<T, B: Bookmark> std::fmt::Debug for Peer<T, B> {
+    /// Summarize the replica without printing payloads.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let inner = self.inner.borrow();
         f.debug_struct("Peer")
@@ -465,7 +466,7 @@ impl<T, B: Bookmark> Peer<T, B> {
 }
 
 /// Inspect the network and configure replication behavior.
-impl<T, B: BookmarkError> Peer<T, B> {
+impl<T, B: Bookmark> Peer<T, B> {
     /// The globally unique identifier for this network of gossiping [`Peer`]s.
     pub fn network(&self) -> Network {
         self.network

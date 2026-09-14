@@ -1,25 +1,9 @@
-//! A flaky in-memory [`Bookmark`] for adversarial identity-persistence tests.
+//! Byte storage with scheduled read and write failures.
 //!
-//! [`FlakyInMemoryBookmark`] is the durable identity store a real deployment
-//! would back with a disk: it holds the exact framed bytes the crate serialized
-//! (or `None` until the first write) and survives a peer's in-memory crash. Two
-//! things make it a test instrument rather than a toy:
-//!
-//! - **It fails on a schedule.** Each read and each write consults a
-//!   [`FaultFeed`] — a proptest-generated, shrinkable sequence of booleans —
-//!   and returns [`FlakyError`] when the next decision says so. A failed write
-//!   is exactly the moment the crate's `Bookmarked` cache reverts to its
-//!   on-disk state, the persistence gap this whole test exists to probe.
-//! - **It stores opaque bytes.** The crate owns the on-disk format, so this
-//!   store only shuttles the framed bytes it is handed — keeping it a faithful
-//!   model of a real disk-backed store, which sees bytes and not records. Tests
-//!   that need to inspect *what* was persisted decode through
-//!   [`persisted_record`].
-//!
-//! The `store` and `faults` are held behind [`Arc`]s so a crashed peer recovers
-//! by wrapping a *fresh* `FlakyInMemoryBookmark` around the *same* durable
-//! state: the in-memory peer is gone, but its disk and its remaining fault
-//! schedule are not.
+//! Storage and fault schedules outlive each peer, so a restarted peer reloads
+//! the same durable record. A failed write preserves the previous bytes.
+//! Tests inspect records through `persisted_record`; the store itself treats
+//! them as opaque.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
@@ -27,8 +11,7 @@ use std::sync::{Arc, Mutex};
 
 use before::Clock;
 use ciborium::value::Value;
-use rumors::{Bookmark, BookmarkError, Network, Serialized};
-use tokio::io::AsyncWrite;
+use rumors::{Bookmark, Network};
 
 /// The durable "disk": the framed bytes last persisted, or `None` until the
 /// first write. Shared across a node's incarnations so it outlives a crash.
@@ -105,6 +88,7 @@ pub struct FlakyError {
     op: &'static str,
 }
 
+/// Construct a fault for tests without a generated schedule.
 impl FlakyError {
     /// The error an injected write failure reports, for tests that need the
     /// value without a scheduled fault.
@@ -113,12 +97,15 @@ impl FlakyError {
     }
 }
 
+/// Identify which storage operation failed.
 impl fmt::Display for FlakyError {
+    /// Format the operation named by the injected failure.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "flaky bookmark: injected {} failure", self.op)
     }
 }
 
+/// Expose injected faults through the standard error interface.
 impl std::error::Error for FlakyError {}
 
 /// One peer's bookmark fail schedule, consumed in call order.
@@ -137,6 +124,7 @@ pub struct FaultFeed {
     enabled: bool,
 }
 
+/// Consume independent read and write failure schedules.
 impl FaultFeed {
     /// A feed that fails the reads and writes flagged `true`, in order.
     pub fn new(reads: Vec<bool>, writes: Vec<bool>) -> Self {
@@ -162,10 +150,12 @@ impl FaultFeed {
         self.enabled && (self.reads.contains(&true) || self.writes.contains(&true))
     }
 
+    /// Consume the next read decision, defaulting to success.
     fn next_read(&mut self) -> bool {
         self.enabled && self.reads.pop_front().unwrap_or(false)
     }
 
+    /// Consume the next write decision, defaulting to success.
     fn next_write(&mut self) -> bool {
         self.enabled && self.writes.pop_front().unwrap_or(false)
     }
@@ -186,7 +176,9 @@ pub struct FlakyInMemoryBookmark {
     label: usize,
 }
 
+/// Identify the peer without printing its durable state.
 impl fmt::Debug for FlakyInMemoryBookmark {
+    /// Show only the peer’s diagnostic label.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("FlakyInMemoryBookmark")
             .field("label", &self.label)
@@ -194,6 +186,7 @@ impl fmt::Debug for FlakyInMemoryBookmark {
     }
 }
 
+/// Attach a peer incarnation to shared storage and fault decisions.
 impl FlakyInMemoryBookmark {
     /// Wrap shared durable `store` and `faults` for peer `label`.
     pub fn new(store: DurableStore, faults: Arc<Mutex<FaultFeed>>, label: usize) -> Self {
@@ -205,36 +198,29 @@ impl FlakyInMemoryBookmark {
     }
 }
 
-impl BookmarkError for FlakyInMemoryBookmark {
-    type Error = FlakyError;
-}
-
+/// Model repeatable reads and atomic stores under injected failures.
 impl Bookmark for FlakyInMemoryBookmark {
+    /// The storage failure reported by this implementation.
+    type Error = FlakyError;
+    /// An independent snapshot of the stored bytes.
     type Reader = std::io::Cursor<Vec<u8>>;
 
+    /// Return current storage unless this read is scheduled to fail.
     async fn load(&self) -> Result<Option<Self::Reader>, Self::Error> {
-        let _ = self.label;
         if self.faults.lock().unwrap().next_read() {
             return Err(FlakyError { op: "read" });
         }
         Ok(self.store.lock().unwrap().clone().map(std::io::Cursor::new))
     }
 
-    async fn store<F>(&self, write: F) -> Result<(), Self::Error>
-    where
-        F: for<'a> FnOnce(&'a mut (dyn AsyncWrite + Unpin + Send)) -> Serialized<'a> + Send,
-    {
-        // The fault stands in for a commit that never lands: return before
-        // touching the durable bytes, so a failed write leaves the prior frame
-        // exactly as it was — the atomicity the crate's recovery relies on.
+    /// Replace storage unless this write is scheduled to fail.
+    async fn store(&self, bytes: Vec<u8>) -> Result<(), Self::Error> {
+        // This harness injects failure before replacement. The transmission
+        // boundary tests also exercise errors after a complete replacement.
         if self.faults.lock().unwrap().next_write() {
             return Err(FlakyError { op: "write" });
         }
-        let mut buf: Vec<u8> = Vec::new();
-        write(&mut buf)
-            .await
-            .expect("writing to an in-memory buffer is infallible");
-        *self.store.lock().unwrap() = Some(buf);
+        *self.store.lock().unwrap() = Some(bytes);
         Ok(())
     }
 }

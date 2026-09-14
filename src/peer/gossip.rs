@@ -25,7 +25,7 @@ use crate::observe::{SessionHandle, SessionKind};
 use crate::tree::{self, Tree};
 use crate::{Error, Network, Version};
 use crate::{
-    bookmark::{Bookmark, BookmarkError, BookmarkIo, Bookmarked, NoBookmark, Persist},
+    bookmark::{Bookmark, BookmarkIo, Bookmarked, NoBookmark},
     tree::mirror::{
         handshake::{self, Intent},
         party,
@@ -94,7 +94,7 @@ type Reconciled<'a> = (tree::Root, ControlRead<DynRead<'a>>, DynWrite<'a>);
 /// discards that peer.
 #[must_use = "retirement may return a peer that can keep gossiping or retry"]
 #[derive(Debug)]
-pub enum Retire<T, B: BookmarkError = NoBookmark> {
+pub enum Retire<T, B: Bookmark = NoBookmark> {
     /// Retirement completed and this replica left the network.
     /// The remote peer confirmed completion; the link remains usable.
     Retired,
@@ -131,7 +131,7 @@ pub enum Retire<T, B: BookmarkError = NoBookmark> {
 /// replace the storage and call `bookmark` on the returned peer.
 #[must_use = "a failed bookmark attachment returns the peer for continued use or retry"]
 #[derive(Debug)]
-pub struct Unbookmarked<T, B: BookmarkError> {
+pub struct Unbookmarked<T, B: Bookmark> {
     /// The unchanged peer, with no bookmark attached.
     pub peer: Peer<T, NoBookmark>,
     /// The storage or decoding failure.
@@ -303,8 +303,8 @@ impl<T> Peer<T, NoBookmark> {
         })
     }
 
-    /// Attach and eagerly persist an asynchronous bookmark.
-    pub(crate) async fn bookmark_inner<B: Persist>(
+    /// Attach storage and record the live identity without reclaiming another.
+    pub(crate) async fn bookmark_inner<B: Bookmark>(
         self,
         bookmark: B,
     ) -> Result<Peer<T, B>, Unbookmarked<T, B>> {
@@ -341,10 +341,9 @@ impl<T> Peer<T, NoBookmark> {
             return Ok(peer);
         }
 
-        // Eagerly persist our own identity. `bookmark_record` never reclaims, so
-        // it never grows the live party: on failure it has discarded the
-        // in-memory record (nothing reached storage) and left the party exactly
-        // as it was, so the handed-back peer is genuinely untouched.
+        // Record ownership without reclaiming any stored identity. This leaves
+        // the live party unchanged on failure, even if the write took effect.
+        // The attempt adds only an alias of the returned peer's own identity.
         match peer.bookmark_record().await {
             Ok(()) => Ok(peer),
             Err(error) => Err(Unbookmarked {
@@ -364,12 +363,8 @@ impl<T> Peer<T, NoBookmark> {
     }
 }
 
-// `Persist` is the crate-internal decoded driver, but it constrains `B` in the
-// public `Peer<T, B>` self type. Every method here is crate-private; public
-// entry points bind the public `Bookmark` trait.
-#[allow(private_bounds)]
 /// Run sessions and maintain bookmarks across ownership changes.
-impl<T, B: Persist> Peer<T, B> {
+impl<T, B: Bookmark> Peer<T, B> {
     /// Reconcile and donate, returning the peer only when handoff has not begun.
     ///
     /// Reconciliation publishes on both sides. Surviving message observers
@@ -478,42 +473,31 @@ impl<T, B: Persist> Peer<T, B> {
     /// write; lock order is bookmark-then-`watch`, as everywhere.
     async fn bookmark_record(&self) -> Result<(), BookmarkIo<B::Error>> {
         let mut bookmark = self.bookmark.lock().await;
-        bookmark.ensure_loaded().await?;
+        let loaded = bookmark.ensure_loaded().await?;
         {
             let inner = self.inner.borrow();
-            bookmark.record(self.network, &inner.party, inner.tree.latest());
+            loaded.record(self.network, &inner.party, inner.tree.latest());
         }
         bookmark.write().await
     }
 
-    /// Reflect the live identity into the bookmark and persist it.
+    /// Reclaim caught-up identities and checkpoint our own writes when needed.
     ///
-    /// Reclaims every stranded identity the party has caught up to (growing
-    /// the live party in place) and records the party at its frontier. The
-    /// frontier is read *inside* the `watch` critical section the reclaim
-    /// runs in, so the staged record never lags an event the caller has
-    /// already committed — the record's own-party projection dominates every
-    /// event that existed when the reclaim ran.
-    ///
-    /// Holds the bookmark mutex through the update and persistence. Acquire it
-    /// before the writer gate and watch guard, as all custody changes do.
-    ///
-    /// Suppressed when the live `(party, version)` still matches what was last
-    /// persisted: between updates nothing else touches the record, so re-running
-    /// would reclaim nothing and re-record an identical alias. A change to
-    /// *either* — the version advancing on new content, or the party growing on
-    /// an absorbed retiree — defeats the suppression and persists afresh.
+    /// Hold the bookmark mutex through persistence, taking the replica lock
+    /// only to read its current version and update the party. This records all
+    /// local events visible at that instant without holding the replica during I/O.
+    /// Remote-only version advances leave our checkpoint current.
     async fn bookmark_update(&self) -> Result<(), BookmarkIo<B::Error>> {
         let mut bookmark = self.bookmark.lock().await;
-        bookmark.ensure_loaded().await?;
+        let loaded = bookmark.ensure_loaded().await?;
 
         let mut persist = false;
         Inner::update_party(&self.inner, |party, tree| {
             let version = tree.latest();
-            if !bookmark.is_current(party, version) {
+            if !loaded.is_current(party, version) {
                 // The suppression token becomes current only after persistence
                 // succeeds; a failed write must be retried.
-                bookmark.reclaim(self.network, party, version);
+                loaded.reclaim(self.network, party, version);
                 persist = true;
             }
         });
@@ -595,12 +579,12 @@ impl<T, B: Persist> Peer<T, B> {
         let mut prior_tree = None;
         {
             let mut bookmark = self.bookmark.lock().await;
-            bookmark.ensure_loaded().await.map_err(Error::Bookmark)?;
+            let loaded = bookmark.ensure_loaded().await.map_err(Error::Bookmark)?;
             let mut persist = false;
             Inner::update_party(&self.inner, |party, tree| {
                 let version = tree.latest();
-                if !bookmark.is_current(party, version) {
-                    bookmark.reclaim(self.network, party, version);
+                if !loaded.is_current(party, version) {
+                    loaded.reclaim(self.network, party, version);
                     persist = true;
                 }
                 prior_tree = Some(tree.clone());
@@ -651,15 +635,16 @@ impl<T, B: Persist> Peer<T, B> {
         } else if self_retiring || guarded.party.is_some() {
             // Remove the donation from durable storage before sending it. A
             // failure here still permits recovery: retirement owns the Peer,
-            // and a bootstrap's guard still owns its fork.
+            // and a bootstrap's guard still owns its fork. Even if removal took
+            // effect before the error, nothing has been handed to the recipient.
             {
                 let mut bookmark = self.bookmark.lock().await;
-                bookmark.ensure_loaded().await.map_err(Error::Bookmark)?;
+                let loaded = bookmark.ensure_loaded().await.map_err(Error::Bookmark)?;
                 if self_retiring {
                     let inner = self.inner.borrow();
-                    bookmark.slice(self.network, &inner.party);
+                    loaded.slice(self.network, &inner.party);
                 } else {
-                    bookmark.slice(
+                    loaded.slice(
                         self.network,
                         guarded.party.as_ref().expect("bootstrap fork"),
                     );
@@ -1157,7 +1142,7 @@ enum Trigger {
 }
 
 /// State retained between sessions; `unfold` also retains the active future.
-struct Drive<'a, T, B: BookmarkError> {
+struct Drive<'a, T, B: Bookmark> {
     /// The replica served by every session on this link.
     peer: &'a Peer<T, B>,
     /// Control input, retained across session boundaries.

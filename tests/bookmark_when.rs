@@ -1,58 +1,12 @@
-//! *When* the identity bookmark is read and written, instrumented at the seam.
+//! Check when bookmark reads and checkpoints are required.
 //!
-//! The crate's contract for a [`Bookmark`](rumors::Bookmark) makes two timing
-//! promises that no other test pins directly — the prose in
-//! [`bookmark`](rumors::Bookmark) and [`Peer::bookmark`](rumors::Peer::bookmark)
-//! states them, the disruption suites (`bookmark_causality.rs`) rely on them,
-//! but nothing asserts the *call schedule* itself:
+//! With healthy storage, each peer loads once before its first update. Local
+//! writes and identity changes require a checkpoint; learning remote changes
+//! does not. A failed store can force a reload and is tested separately.
 //!
-//! 1. **Read once.** The durable record is read exactly once over a peer's whole
-//!    lifetime — at attach for a peer born by bootstrap, lazily at first use for
-//!    a fresh seed, and in either case before the first write — and never again,
-//!    however many sessions, donations, or absorptions follow.
-//! 2. **Write on local work, never on hearsay.** A session persists the record
-//!    *before* it transmits, but only when the peer has unpersisted *local*
-//!    identity work to checkpoint: it has never persisted, or has emitted a local
-//!    change (a [`send`](rumors::Rumors::send) or
-//!    [`redact`](rumors::Rumors::redact)) or moved a party (donated a fork,
-//!    absorbed a retiree) since its last persist. Merely *incorporating*
-//!    content learned over gossip advances only other parties' identities,
-//!    never the peer's own, so it triggers no write at all.
-//!
-//! The distinction in (2) is the whole point: a local change ticks the peer's
-//! *own* identity region, and a checkpoint of that region must reach storage
-//! before any peer can causally depend on it; remote content ticks regions the
-//! peer does not own, which its bookmark already need not vouch for. The
-//! suppression token (`Bookmarked::is_current`) draws exactly this line — own
-//! region advanced, or party changed, versus not — and these tests check that
-//! the *observable I/O* falls where that line predicts.
-//!
-//! # The instrument
-//!
-//! [`Probe`] is a faithful in-memory store — it holds the exact framed bytes
-//! the crate serializes, exactly as a real disk-backed store would (see
-//! [`common::flaky`] for the same technique) — that additionally appends a
-//! [`Io::Read`] or [`Io::Write`] marker to a shared log on each call. It never
-//! injects faults: a clean run is the precondition for reasoning about *exact*
-//! call counts, since a failed write would reset the cache and re-arm the next
-//! write.
-//!
-//! # The model
-//!
-//! A [`Model`] mirror tracks two bits — whether the record has been *loaded*
-//! (read), and whether a checkpoint is *pending* — and, from the *operation
-//! semantics alone*, predicts the exact `(reads, writes)` each operation must
-//! drive. The `pending` bit is set purely by *what the operation is*: a send,
-//! or a redact that removed a held message, dirties the peer; incorporating content
-//! over gossip does not; a donation or absorption moves the party. It is never
-//! computed from the version arithmetic the crate's suppression
-//! (`Bookmarked::is_current`) uses — that would only check the implementation
-//! against itself. The whole point is to show the two agree: the model says
-//! "persist iff the *operations* left local work owed," the suppression says
-//! "persist iff the *own-region version* advanced," and the proptest asserts the
-//! observable I/O matches the former at every step, over an arbitrary lifetime.
-//! A peer that read twice, wrote on incorporated content, or skipped a
-//! checkpoint before donating would diverge immediately.
+//! `Probe` records I/O calls. `Model` predicts them from the operations applied
+//! to the peer, independently of the version arithmetic used by the cache.
+//! The property compares their histories throughout a generated peer lifetime.
 
 mod common;
 
@@ -60,8 +14,7 @@ use std::convert::Infallible;
 use std::sync::{Arc, Mutex};
 
 use proptest::prelude::*;
-use rumors::{Bookmark, BookmarkError, Peer, Retire, Rumors, Serialized, Version};
-use tokio::io::AsyncWrite;
+use rumors::{Bookmark, Peer, Retire, Rumors, Version};
 
 use crate::common::wire::block_on;
 
@@ -90,36 +43,31 @@ struct Probe {
     log: Arc<Mutex<Vec<Io>>>,
 }
 
+/// Describe the probe without exposing its shared storage and log.
 impl std::fmt::Debug for Probe {
+    /// Identify the probe in assertion failures.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Probe").finish_non_exhaustive()
     }
 }
 
-impl BookmarkError for Probe {
-    type Error = Infallible;
-}
-
+/// Record I/O calls while atomically replacing the complete byte record.
 impl Bookmark for Probe {
+    /// Replacing an owned in-memory buffer cannot fail.
+    type Error = Infallible;
+    /// A snapshot of the stored bytes.
     type Reader = std::io::Cursor<Vec<u8>>;
 
+    /// Log a read and return the current record.
     async fn load(&self) -> Result<Option<Self::Reader>, Self::Error> {
         self.log.lock().unwrap().push(Io::Read);
         Ok(self.store.lock().unwrap().clone().map(std::io::Cursor::new))
     }
 
-    async fn store<F>(&self, write: F) -> Result<(), Self::Error>
-    where
-        F: for<'a> FnOnce(&'a mut (dyn AsyncWrite + Unpin + Send)) -> Serialized<'a> + Send,
-    {
+    /// Log a write and replace the record with the supplied buffer.
+    async fn store(&self, bytes: Vec<u8>) -> Result<(), Self::Error> {
         self.log.lock().unwrap().push(Io::Write);
-        // Serialize into a fresh buffer, then swap it in: an atomic replace, the
-        // same all-or-nothing a temp-file-and-rename store would make.
-        let mut buf: Vec<u8> = Vec::new();
-        write(&mut buf)
-            .await
-            .expect("writing to an in-memory buffer is infallible");
-        *self.store.lock().unwrap() = Some(buf);
+        *self.store.lock().unwrap() = Some(bytes);
         Ok(())
     }
 }

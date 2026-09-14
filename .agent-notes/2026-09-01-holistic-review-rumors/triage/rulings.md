@@ -337,6 +337,7 @@ Home: code (the `Snapshot` rustdoc).
 ## T62 (2026-09-02): `Bookmark::store` takes owned bytes; `BookmarkError` folds into `Bookmark`
 Disposes: owner decision 17; session-bookmark-23, api-audit-4 (fix)
 Decision: In one pre-release edit, `store` takes the already-encoded record as `Vec<u8>` by value under the same commit-iff-`Ok` obligation, `Serialized` is deleted, `type Error` moves onto `Bookmark` and the `BookmarkError` trait is deleted, and `load` stays reader-shaped. Every generic bound `B: BookmarkError` becomes `B: Bookmark`.
+Amendment (2026-09-14): The owner relaxed the store outcome rule. `Ok(())` requires a complete durable replacement; an error or cancellation may leave either complete record. Never roll back past a successful store, including through late writes. Rumors must not transfer ownership without confirmed durability; a persisted removal followed by error can lose a recovery opportunity without duplicating ownership.
 Home: code.
 
 ## T63 (2026-09-02): The `rumors::error` pass lands whole, R2 reopened

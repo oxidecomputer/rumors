@@ -4,32 +4,15 @@
 //! owns the record format and the rules for recycling a departed peer's identity.
 
 use std::collections::BTreeMap;
-use std::pin::Pin;
 
 use before::{Clock, Party, Version};
-use futures_util::FutureExt;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt};
 
 use crate::Network;
 
 pub(crate) mod format;
 
 pub use format::{BOOKMARK_FORMAT_VERSION, FormatError, FrameDefect, RecordDefect};
-
-/// The error a [`Bookmark`] reports when persistence fails.
-pub trait BookmarkError {
-    /// What a [`load`](Bookmark::load) or [`store`](Bookmark::store)
-    /// reports when it fails.
-    type Error: std::error::Error + Send + Sync + 'static;
-}
-
-/// The crate's serialize step, lent to [`Bookmark::store`] as a boxed future.
-///
-/// `store` hands this closure a writer; the closure writes the framed record
-/// into it. It is a *boxed* future because it both borrows the writer across an
-/// `.await` and must be [`Send`] (the engine's futures are `Send`); naming the
-/// future as a trait object is the stable way to carry both bounds at once.
-pub type Serialized<'a> = Pin<Box<dyn Future<Output = std::io::Result<()>> + Send + 'a>>;
 
 /// Persistent restart bookkeeping that limits growth of message versions.
 ///
@@ -64,13 +47,14 @@ pub type Serialized<'a> = Pin<Box<dyn Future<Output = std::io::Result<()>> + Sen
 ///
 /// - Use one bookmark for one peer across its restarts. Never share it between
 ///   concurrently live peers or duplicate it to start another peer.
-/// - Replace the record atomically, and never restore an older version. A
+/// - Replace the record atomically, and never roll back a successful store. A
 ///   stale but valid record can cause versions to be reused and corrupt the set.
 /// - Preserve the record across restarts, including entries for earlier networks.
 ///
-/// A slow store can delay a session before it sends traffic, or delay completion
-/// when accepting a retirement. It does not block local sends. Repair storage
-/// errors before retrying; they are reported through [`BookmarkIo`].
+/// A slow store delays synchronization or completion when accepting a
+/// retirement. A session may already have exchanged its connection preamble
+/// while waiting for storage. Local sends continue; storage errors are reported
+/// through [`BookmarkIo`].
 ///
 /// # Limits of recovery
 ///
@@ -85,97 +69,45 @@ pub type Serialized<'a> = Pin<Box<dyn Future<Output = std::io::Result<()>> + Sen
 /// sending it. If the transfer then fails or is cancelled, that bookmark cannot
 /// recover the removed identity. Recovery depends on what reached the recipient
 /// and its bookmark; see [`Retire::Uncertain`](crate::Retire::Uncertain).
-pub trait Bookmark: BookmarkError {
+pub trait Bookmark {
+    /// Failure to open or replace the stored bytes.
+    type Error: std::error::Error + Send + Sync + 'static;
+
     /// The byte source [`load`](Self::load) hands back.
     type Reader: AsyncRead + Unpin + Send;
 
     /// Open the stored record for reading, or `Ok(None)` if nothing is stored.
     ///
-    /// Called before the first update to an attached bookmark. Rumors may
-    /// load again after a failed update.
-    /// `Ok(None)` means *nothing has ever been written*. A present-but-short or
-    /// unreadable bookmark is **not** `None`: it surfaces as a corruption error
-    /// once the crate validates the frame.
+    /// Called before the first update, and again if an update fails or loading
+    /// is cancelled. Each call must return the current record; loading must not
+    /// consume it. `Ok(None)` means no record exists. Return present bytes even
+    /// if they are short or malformed: Rumors validates their format.
     fn load(&self) -> impl Future<Output = Result<Option<Self::Reader>, Self::Error>> + Send;
 
-    /// Atomically replace the stored record.
+    /// Atomically replace the stored record with these owned, encoded bytes.
     ///
-    /// Call `write` with a writer for the replacement bytes. Commit only a
-    /// complete, successful write, and return `Ok` only once it is durable.
-    /// On error, leave the previous record intact; never publish a partial
-    /// replacement.
+    /// Return `Ok(())` only once the complete replacement is durable, i.e.
+    /// after an atomic write followed by a filesystem sync. An error or
+    /// cancellation may leave either the previous or replacement record;
+    /// neither may be partial.
     ///
-    /// A stale but valid record can corrupt the gossip set by permitting version
-    /// reuse. Malformed bytes are instead detected as a [`FormatError`].
-    fn store<F>(&self, write: F) -> impl Future<Output = Result<(), Self::Error>> + Send
-    where
-        F: for<'a> FnOnce(&'a mut (dyn AsyncWrite + Unpin + Send)) -> Serialized<'a> + Send;
+    /// Never roll back the durable state of a bookmark to before a successful
+    /// store. Work that continues after an error or cancellation must not
+    /// overwrite a later successful store: stale records can permit version
+    /// reuse and corrupt the gossip set.
+    fn store(&self, bytes: Vec<u8>) -> impl Future<Output = Result<(), Self::Error>> + Send;
 }
 
-/// What a bookmark round trip failed at: I/O, or stored format.
+/// A storage failure or an unreadable bookmark record.
 #[derive(Debug, thiserror::Error)]
 pub enum BookmarkIo<E> {
-    /// The implementor's [`Error`](BookmarkError::Error): the backend could
-    /// not open, stage, or commit its storage.
+    /// The storage implementation could not open or replace the record.
     #[error(transparent)]
     Io(E),
 
-    /// This crate's [`FormatError`]: a stream fault while reading the lent
-    /// bytes, or a format that is foreign or corrupt.
+    /// Reading the returned stream failed, or its bytes failed validation.
     #[error(transparent)]
     Format(#[from] FormatError),
-}
-
-/// The crate-internal decoded persistence driver used by [`Bookmarked`].
-///
-/// [`Bookmark`] deliberately exposes raw storage while this layer owns the
-/// durable format and its validation.
-pub(crate) trait Persist: BookmarkError {
-    /// Read and decode the persisted record, or an empty map if nothing is
-    /// stored.
-    fn read(
-        &self,
-    ) -> impl Future<Output = Result<BTreeMap<Network, Vec<Clock>>, BookmarkIo<Self::Error>>> + Send;
-
-    /// Encode and durably replace the persisted record with `bookmarks`.
-    fn write(
-        &self,
-        bookmarks: &BTreeMap<Network, Vec<Clock>>,
-    ) -> impl Future<Output = Result<(), BookmarkIo<Self::Error>>> + Send;
-}
-
-// The trait methods are called eagerly and their already-`Send` futures are
-// adapted with combinators. Re-wrapping them in an `async` body would capture
-// `&self` across an await and unnecessarily require `B: Sync`.
-impl<B: Bookmark> Persist for B {
-    fn read(
-        &self,
-    ) -> impl Future<Output = Result<BTreeMap<Network, Vec<Clock>>, BookmarkIo<Self::Error>>> + Send
-    {
-        Bookmark::load(self).then(|loaded| async move {
-            let mut reader = match loaded.map_err(BookmarkIo::Io)? {
-                None => return Ok(BTreeMap::new()),
-                Some(reader) => reader,
-            };
-            let mut bytes = Vec::new();
-            reader
-                .read_to_end(&mut bytes)
-                .await
-                .map_err(|e| BookmarkIo::Format(FormatError::Read(e)))?;
-            format::decode(&bytes).map_err(BookmarkIo::Format)
-        })
-    }
-
-    fn write(
-        &self,
-        bookmarks: &BTreeMap<Network, Vec<Clock>>,
-    ) -> impl Future<Output = Result<(), BookmarkIo<Self::Error>>> + Send {
-        let bytes = format::encode(bookmarks);
-        Bookmark::store(self, move |w| {
-            Box::pin(async move { w.write_all(&bytes).await })
-        })
-        .map(|result| result.map_err(BookmarkIo::Io))
-    }
 }
 
 /// The placeholder [`Bookmark`] that persists nothing.
@@ -185,281 +117,185 @@ impl<B: Bookmark> Persist for B {
 #[derive(Debug)]
 pub struct NoBookmark;
 
-impl BookmarkError for NoBookmark {
-    type Error = std::convert::Infallible;
-}
-
+/// Disable persistence for peers that do not use a bookmark.
 impl Bookmark for NoBookmark {
+    /// This implementation performs no fallible operation.
+    type Error = std::convert::Infallible;
+    /// No stored record is returned.
     type Reader = tokio::io::Empty;
 
+    /// Report that no record is stored.
     async fn load(&self) -> Result<Option<Self::Reader>, Self::Error> {
         Ok(None)
     }
 
-    async fn store<F>(&self, _write: F) -> Result<(), Self::Error>
-    where
-        F: for<'a> FnOnce(&'a mut (dyn AsyncWrite + Unpin + Send)) -> Serialized<'a> + Send,
-    {
-        // Persisting nothing: the serializer is never invoked, so the
-        // in-memory record is untouched.
+    /// Discard the record when persistence is disabled.
+    async fn store(&self, _bytes: Vec<u8>) -> Result<(), Self::Error> {
         Ok(())
     }
 }
 
-/// The crate-internal pairing of a [`Bookmark`] with its in-memory record, held
-/// behind an async [`Mutex`](tokio::sync::Mutex) on the [`Peer`](crate::Peer).
+/// Cached restart bookkeeping, protected by the peer's bookmark mutex.
 ///
-/// It does not live in the `watch`-guarded [`Inner`](crate::Inner) because its
-/// [`load`](Bookmark::load)/[`store`](Bookmark::store) are `async` and the
-/// record's [`Clock`]s are `!Clone` (a clock owns identity space), so the
-/// record can be neither borrowed across an `.await` from under a `watch` guard
-/// nor copied out to persist outside one. Instead a session locks this mutex,
-/// reflects the live party into the record ([`reclaim`](Self::reclaim)ing
-/// before a gossip round or [`slice`](Self::slice)ing before a donation, under
-/// a brief `watch` critical section nested inside the mutex so the party and
-/// record move together), and [`write`](Self::write)s, all without releasing
-/// the lock.
-///
-/// Loading is *lazy*: the record is born unloaded (`None`) and read from
-/// storage by [`ensure_loaded`](Self::ensure_loaded) on first use, the first
-/// point a write could otherwise clobber it. The mutex serializes access, so
-/// the read is the record's first content rather than a merge.
+/// The mutex spans loading, mutation, and storage. Changes to the live party
+/// take the replica lock briefly inside it; storage never holds that lock.
+/// This keeps the live identity and the record consistent without blocking
+/// local edits on storage I/O.
 pub(crate) struct Bookmarked<B> {
+    /// Application-owned storage for the encoded record.
     persist: B,
-    /// The in-memory record, or `None` until [`load`](Bookmark::load) has run.
-    ///
-    /// `None` is the unloaded state: a fresh cache is not yet authoritative,
-    /// and is distinct from a loaded-but-empty `Some(BTreeMap::new())`. A
-    /// failed [`write`](Self::write) resets it to `None`, so the diverged,
-    /// unpersisted mutation is discarded and the next use reloads the
-    /// authoritative on-disk state.
-    inner: Option<BTreeMap<Network, Vec<Clock>>>,
-    /// The `(party, version)` the pending [`reclaim`](Self::reclaim) recorded,
-    /// awaiting the [`write`](Self::write) that makes it durable.
-    ///
-    /// Staging and commitment are separate on purpose: the write is
-    /// application I/O whose future can be dropped mid-flight, and a
-    /// suppression token that outlived a cancelled write would claim coverage
-    /// the disk lacks: the next update would skip its persist and transmit
-    /// own events the durable record does not dominate. Only `write`'s `Ok`
-    /// arm promotes the stage to [`last`](Self::last); every other outcome
-    /// (a failed write, a cancelled write, an intervening
-    /// [`slice`](Self::slice) or [`record`](Self::record)) discards it.
+    /// An unloaded cache must read storage before making any changes.
+    loaded: Option<Loaded>,
+}
+
+/// A loaded record and the checkpoint used to avoid redundant stores.
+pub(crate) struct Loaded {
+    /// Identities retained across restarts, grouped by network.
+    record: BTreeMap<Network, Vec<Clock>>,
+    /// The checkpoint to install only after its store succeeds.
     staged: Option<(Party, Version)>,
-    /// The `(party, version)` last recorded by [`reclaim`](Self::reclaim) and
-    /// persisted, or `None` when no token is valid.
-    ///
-    /// No token is valid before the first reclaimed write, after a
-    /// [`slice`](Self::slice) shrinks the identity, or after a failed
-    /// [`write`](Self::write). An update whose live identity still matches the
-    /// token is a no-op and is suppressed, since it would only re-record an
-    /// identical alias.
+    /// The last confirmed checkpoint; removing a donation invalidates it.
     last: Option<(Party, Version)>,
 }
 
+/// Construct an unloaded bookmark cache.
 impl<B> Bookmarked<B> {
-    /// Pair `persist` with an unloaded record and no recorded identity.
+    /// Keep the storage without reading it until the first update.
     pub(crate) fn new(persist: B) -> Self {
-        Bookmarked {
+        Self {
             persist,
-            inner: None,
-            staged: None,
-            last: None,
+            loaded: None,
         }
-    }
-
-    /// Whether `(party, version)` is exactly what the last update persisted, so
-    /// re-recording it would be a no-op. The suppression test for
-    /// [`update`](crate::Peer::bookmark_update).
-    pub(crate) fn is_current(&self, party: &Party, version: &Version) -> bool {
-        self.last.as_ref().is_some_and(|(p, v)| {
-            // We only need to record the bookmark when our party is the same as
-            // the last time we recorded, and the two versions *quotiented by
-            // our current party* are not equal, because we're trying to ensure
-            // that we persist prior to gossiping any messages which originate
-            // from our own party (there's no risk of causal violation in a
-            // non-owned identity interval). If the version advances solely in
-            // identity space non-overlapping with our party, then this change
-            // is irrelevant for bookmarking: it would be *correct* to persist
-            // then, but it is *unnecessary*.
-            p == party && v / p == version / p
-        })
     }
 }
 
-impl<B: Persist> Bookmarked<B> {
-    /// Read the stored record on first use, returning it for mutation. A no-op
-    /// once loaded; the mutex serializes access, and no mutation precedes a
-    /// load, so the read is the record's first content.
-    ///
-    /// Run under the bookmark mutex, before [`reclaim`](Self::reclaim) or
-    /// [`slice`](Self::slice).
-    pub(crate) async fn ensure_loaded(&mut self) -> Result<(), BookmarkIo<B::Error>> {
-        if self.inner.is_none() {
-            self.inner = Some(self.persist.read().await?);
+/// Load and persist records while keeping storage failures recoverable.
+impl<B: Bookmark> Bookmarked<B> {
+    /// Load on first use and return the state that can be safely changed.
+    pub(crate) async fn ensure_loaded(&mut self) -> Result<&mut Loaded, BookmarkIo<B::Error>> {
+        match self.loaded {
+            Some(ref mut loaded) => Ok(loaded),
+            None => {
+                let record = match self.persist.load().await.map_err(BookmarkIo::Io)? {
+                    None => BTreeMap::new(),
+                    Some(mut reader) => {
+                        let mut bytes = Vec::new();
+                        reader
+                            .read_to_end(&mut bytes)
+                            .await
+                            .map_err(|error| BookmarkIo::Format(FormatError::Read(error)))?;
+                        format::decode(&bytes)?
+                    }
+                };
+                Ok(self.loaded.insert(Loaded {
+                    record,
+                    staged: None,
+                    last: None,
+                }))
+            }
         }
-        Ok(())
     }
 
-    /// Persist the current record.
+    /// Store the loaded record and commit its staged checkpoint on success.
     ///
-    /// A no-op while unloaded (nothing has been mutated to persist). Run under
-    /// the bookmark mutex, after a [`reclaim`](Self::reclaim) (which has
-    /// staged the suppression token for this write to commit) or a
-    /// [`slice`](Self::slice).
-    ///
-    /// The suppression token moves only on this method's `Ok`: the staged
-    /// `(party, version)` becomes the token exactly when the bytes it
-    /// describes are durable, never before.
-    ///
-    /// # Cancel safety
-    ///
-    /// Dropping the returned future mid-persist leaves the stage uncommitted
-    /// and the token untouched, so the next update re-records and persists
-    /// afresh rather than suppressing against a write that may never have
-    /// reached storage. The in-memory record keeps its reclaim; re-persisting
-    /// it is idempotent.
-    ///
-    /// # Errors
-    ///
-    /// On failure the record, the stage, and the token all reset to `None`:
-    /// the in-memory mutation never reached storage, so it is discarded (the
-    /// next [`ensure_loaded`](Self::ensure_loaded) reloads the authoritative
-    /// on-disk state; this is what reverts a [`slice`](Self::slice) whose
-    /// donation could not be persisted), and clearing the token forces the
-    /// next update to re-record rather than suppress against a
-    /// `(party, version)` that never reached storage.
+    /// Failure discards the cache so the next update reloads whichever complete
+    /// record storage retained. Neither outcome establishes a current checkpoint.
+    /// Cancellation leaves the staged checkpoint uncommitted: the next update
+    /// must retry rather than skip a store whose completion is unknown.
     pub(crate) async fn write(&mut self) -> Result<(), BookmarkIo<B::Error>> {
-        let result = match &self.inner {
-            Some(inner) => self.persist.write(inner).await,
-            None => return Ok(()),
+        let Some(loaded) = &mut self.loaded else {
+            return Ok(());
         };
-        match &result {
+        let bytes = format::encode(&loaded.record);
+        match self.persist.store(bytes).await {
             Ok(()) => {
-                if let Some(token) = self.staged.take() {
-                    self.last = Some(token);
+                if let Some(checkpoint) = loaded.staged.take() {
+                    loaded.last = Some(checkpoint);
                 }
+                Ok(())
             }
-            Err(_) => {
-                self.inner = None;
-                self.staged = None;
-                self.last = None;
+            Err(error) => {
+                self.loaded = None;
+                Err(BookmarkIo::Io(error))
             }
         }
-        result
+    }
+}
+
+/// Update identity ownership and decide when it needs another checkpoint.
+impl Loaded {
+    /// Whether the stored checkpoint covers this party's own writes.
+    pub(crate) fn is_current(&self, party: &Party, version: &Version) -> bool {
+        self.last.as_ref().is_some_and(|(p, v)| {
+            // Learning about other parties does not change our checkpoint.
+            // Identity changes and advances in our own interval do.
+            p == party && v / p == version / p
+        })
     }
 
-    /// Remove a donation from the loaded record.
-    ///
-    /// The caller must successfully [`write`](Self::write) this change before
-    /// sending the party, so crash recovery cannot reclaim a donated identity.
+    /// Remove a donation; the caller must persist this before sending it.
     pub(crate) fn slice(&mut self, network: Network, party: &Party) {
-        let inner = self.inner.as_mut().expect("loaded before mutation");
-        if let Some(clocks) = inner.remove(&network) {
+        if let Some(clocks) = self.record.remove(&network) {
             let clocks: Vec<_> = clocks
                 .into_iter()
                 .filter_map(|clock| {
-                    let (mut p, v) = clock.into_parts();
-                    p = p.without(party)?;
-                    Some(Clock::from_parts(p, v))
+                    let (p, v) = clock.into_parts();
+                    Some(Clock::from_parts(p.without(party)?, v))
                 })
                 .collect();
             if !clocks.is_empty() {
-                inner.insert(network, clocks);
+                self.record.insert(network, clocks);
             }
         }
-
-        // Donating shrinks our live identity, so the suppression token is now
-        // stale: clear it. Leaving it would let a later update wrongly suppress
-        // if the party happened to return to its pre-donation value at the same
-        // version (e.g. forking for a bootstrap, then absorbing that peer's
-        // retirement), persisting nothing while the live identity has grown
-        // back past what is on disk. A token still staged by an earlier,
-        // never-persisted reclaim is stale for the same reason: this write
-        // must not promote it.
+        // A checkpoint of the larger identity cannot justify skipping a store
+        // after donation, even if that identity later returns through retirement.
         self.staged = None;
         self.last = None;
     }
 
-    /// Record `party`'s identity at `version` without reclaiming anything:
-    /// append our current alias to the network's clocks, leaving every other
-    /// stored entry exactly as it lies.
-    ///
-    /// The attach-time persist behind
-    /// [`Peer::bookmark`](crate::Peer::bookmark), where the live party **must
-    /// not move**, not even transiently, so that a failed
-    /// [`write`](Self::write) can hand the peer back untouched. Reclaiming
-    /// (which grows the live party) is therefore deferred to the first gossip,
-    /// behind that path's persist gate, rather than done here. Run under the
-    /// bookmark mutex, after [`ensure_loaded`](Self::ensure_loaded), before
-    /// [`write`](Self::write).
-    ///
-    /// The suppression token is deliberately *not* staged: the next
-    /// [`reclaim`](Self::reclaim) must run rather than be suppressed against
-    /// this record, so any stranded identity this peer already dominates is
-    /// folded back in at the first gossip rather than stranded until the next
-    /// event. Any token an earlier, never-persisted reclaim left staged is
-    /// discarded for the same reason.
+    /// Record the live identity at attachment without growing it by reclamation.
     pub(crate) fn record(&mut self, network: Network, party: &Party, version: &Version) {
-        let inner = self.inner.as_mut().expect("loaded before mutation");
-        inner.entry(network).or_default().push(Clock::from_parts(
-            party.dangerously_alias(),
-            version.clone(),
-        ));
+        self.record
+            .entry(network)
+            .or_default()
+            .push(Clock::from_parts(
+                party.dangerously_alias(),
+                version.clone(),
+            ));
+        // The first gossip must still attempt reclamation. Attachment records
+        // ownership but does not establish a checkpoint that can skip that work.
         self.staged = None;
     }
 
-    /// Fold the live `party` and `version` into the record, reclaiming every
-    /// stored identity that `version` has caught up to and growing `party` in
-    /// place by the (disjoint) reclaimed identities.
+    /// Reclaim caught-up identities and stage a checkpoint of the resulting party.
     ///
-    /// The synchronous half of an update, run inside the caller's `watch`
-    /// critical section (so the party grows atomically with the record); the
-    /// caller [`write`](Self::write)s afterwards. Must run *before* gossiping
-    /// over the network (and after [`ensure_loaded`](Self::ensure_loaded)), if
-    /// any changes have occurred since the last call.
+    /// Run inside the replica's critical section so the party and its recorded
+    /// version change together. The checkpoint becomes current only after storage.
     pub(crate) fn reclaim(&mut self, network: Network, party: &mut Party, version: &Version) {
-        let inner = self.inner.as_mut().expect("loaded before mutation");
-        // Get the clocks for this network
-        let clocks = inner.entry(network).or_default();
-
-        // Reclaim every dominated identity disjoint from our party by joining
-        // it back in, setting aside any that overlap.
+        let clocks = self.record.entry(network).or_default();
         let mut overlapping = Vec::new();
-        // We use `.own_version()` because we can more-eagerly reclaim a `Party`
-        // if only the identity space *it owns* is causally dominated by the
-        // current version: we just need to guarantee that any events we
-        // generate using that identity will be causally future to any
-        // previously generated by it, which does not require knowing
-        // *everything it knew*; it merely requires knowing *everything it did*.
+        // Reuse requires knowing everything the old identity wrote, not
+        // everything it observed. Compare only its owned version interval.
         for clock in clocks.extract_if(.., |clock| clock.own_version() <= *version) {
             let (p, v) = clock.into_parts();
             if let Err(p) = party.join(p) {
                 overlapping.push(Clock::from_parts(p, v));
             }
         }
-
-        // Retain only the overlapping clocks the *fully-grown* party does not
-        // already cover: identities still outstanding *above* us (a strict
-        // superset of our party), which we must never drop on the floor.
+        // Some stored aliases overlap rather than join. Remove only those
+        // covered by the fully grown party; a larger outstanding alias must stay.
         clocks.extend(
             overlapping
                 .into_iter()
                 .filter(|clock| !party.covers(clock.party())),
         );
-
-        // Store an alias of our party at its current version.
         clocks.push(Clock::from_parts(
             party.dangerously_alias(),
             version.clone(),
         ));
-
-        // Stage the suppression token for [`write`]'s `Ok` arm to commit: an
-        // [`update`] that finds this same `(party, version)` still live once
-        // the write has landed will skip, since it would re-record an
-        // identical alias. The token must not move before the bytes are
-        // durable: a write that fails or is cancelled mid-persist discards
-        // the stage, and the next update re-records.
         self.staged = Some((party.dangerously_alias(), version.clone()));
     }
 }
+
+#[cfg(test)]
+mod tests;

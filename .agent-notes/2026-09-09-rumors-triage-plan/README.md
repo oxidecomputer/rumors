@@ -168,21 +168,24 @@ scanner, gate, or test is needed to enforce this document's style.
 
 ## 4. Review and edit in Zed
 
-Reuse the review checkout and its Zed window across batches. After merging a
-batch, switch the clean checkout to a fresh `codex/` branch from `main`.
+Reuse the review checkout across batches. Do not automatically open or
+foreground Zed: the owner calls up the diff when convenient, and focus changes
+interrupt work in other applications. Keep the branch and comparison base ready
+in the background. After merging a batch, switch the clean checkout to a fresh
+`codex/` branch from `main`.
 Export each changed file at the review base to a temporary directory, then use
 `zed --existing --diff <base-file> <live-file>` (repeat `--diff` for more files).
 Use `main` as the base, or the recorded parent for a deliberately stacked batch.
 The working side must be the live checkout so edits apply directly to the branch.
 
-Verify on screen that the current worktree's red/green diff is visible and its
-base is correct; opening a project or issuing the command is not enough.
-Verify this again after switching branches and at every review handoff.
+When the owner asks to show the diff, verify that it compares the current
+worktree with the correct base. Preserve application focus unless the owner
+explicitly asks to bring Zed forward.
 Do not automate typing into Zed: if a palette fails to open, those keystrokes
 can edit the source buffer. Use its CLI to open diffs.
 
-Open this diff when starting each batch and keep it open during implementation
-so the user can review continuously. Read saved edits before changing the same
+Keep an already-open diff current during implementation without activating its
+window. Read saved edits before changing the same
 code, and preserve them. Note to the user if anything they change introduces
 correctness issues, or if you would do it differently, and correct towards the
 intent you infer, but always with notification of such action. At the final
@@ -193,8 +196,8 @@ working side, save, and continue reviewing on that branch. See Zed's
 [editable diff documentation](https://zed.dev/docs/git#project-diff) and
 [branch comparison action](https://zed.dev/docs/all-actions).
 
-When the batch is ready, present its purpose and test results and open the
-worktree for review. Stop editing it; do not rebase it or advance its
+When the batch is ready, present its purpose, test results, branch, and review
+base. Stop editing it; do not rebase it or advance its
 comparison base while the user reviews. When it comes back, read and
 preserve the saved edits, verify the revised code, and show any further
 substantive changes. **Merge only after the user's approval of the final

@@ -316,8 +316,8 @@ pub use batch::Batch;
 #[doc(no_inline)]
 pub use before::{Ticks, Version, causally};
 pub use bookmark::{
-    BOOKMARK_FORMAT_VERSION, Bookmark, BookmarkError, BookmarkIo, FormatError, FrameDefect,
-    NoBookmark, RecordDefect, Serialized,
+    BOOKMARK_FORMAT_VERSION, Bookmark, BookmarkIo, FormatError, FrameDefect, NoBookmark,
+    RecordDefect,
 };
 pub use error::Error;
 pub use link::{Acceptor, Connector, Link};

@@ -7,7 +7,7 @@ use proptest::prelude::*;
 
 use super::{Bootstrap, Joined};
 use crate::Peer;
-use crate::bookmark::{Bookmark, BookmarkError, Serialized};
+use crate::bookmark::Bookmark;
 use crate::observe::{Observer, SessionInfo, SessionObserver};
 use crate::testing::run_to_quiescence;
 use crate::tree::mirror::streaming::remote::RunBudget;
@@ -48,14 +48,10 @@ struct Stored {
 /// A non-Clone bookmark that owns access to the inspected storage.
 struct Storage(Arc<Stored>);
 
-/// Propagate errors from serialization into the in-memory writer.
-impl BookmarkError for Storage {
-    /// A serialization failure before the record is committed.
-    type Error = std::io::Error;
-}
-
 /// Model atomic replacement while allowing the test to inspect committed bytes.
 impl Bookmark for Storage {
+    /// Replacing an owned in-memory buffer cannot fail.
+    type Error = std::convert::Infallible;
     /// An owned snapshot of the committed bytes.
     type Reader = std::io::Cursor<Vec<u8>>;
 
@@ -71,14 +67,8 @@ impl Bookmark for Storage {
             .map(std::io::Cursor::new))
     }
 
-    /// Publish the serialized record only after the entire write succeeds.
-    async fn store<F>(&self, write: F) -> Result<(), Self::Error>
-    where
-        F: for<'a> FnOnce(&'a mut (dyn tokio::io::AsyncWrite + Unpin + Send)) -> Serialized<'a>
-            + Send,
-    {
-        let mut bytes = Vec::new();
-        write(&mut bytes).await?;
+    /// Replace the complete record and count the successful store.
+    async fn store(&self, bytes: Vec<u8>) -> Result<(), Self::Error> {
         *self.0.bytes.lock().unwrap() = Some(bytes);
         self.0.stores.fetch_add(1, Ordering::Relaxed);
         Ok(())

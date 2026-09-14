@@ -99,7 +99,7 @@ use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 use rumors::error::{Mismatch, ProtocolViolation};
 use rumors::{
-    BookmarkError, BookmarkIo, Error, MERKLE_HASH_LEN, Network, Peer, Retire, Rumors, Version,
+    Bookmark, BookmarkIo, Error, MERKLE_HASH_LEN, Network, Peer, Retire, Rumors, Version,
 };
 
 use crate::common::fault::{self, FaultPlan};
@@ -276,7 +276,7 @@ fn store_parties(store: &DurableStore, network: Network) -> Vec<Party> {
 /// indicate bugs, regardless of the types used by their diagnostic sources.
 fn assert_not_codec_bug<B>(step: &str, error: &Error<B>)
 where
-    B: BookmarkError + std::fmt::Debug,
+    B: Bookmark + std::fmt::Debug,
     B::Error: std::fmt::Debug,
 {
     let transport = |io: &std::io::Error| io.kind() != std::io::ErrorKind::InvalidData;
