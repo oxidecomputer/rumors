@@ -316,8 +316,8 @@ pub use batch::Batch;
 #[doc(no_inline)]
 pub use before::{Ticks, Version, causally};
 pub use bookmark::{
-    BOOKMARK_FORMAT_VERSION, Bookmark, BookmarkIo, FormatError, FrameDefect, NoBookmark,
-    RecordDefect,
+    BOOKMARK_FORMAT_VERSION, Bookmark, BookmarkIo, DEFAULT_BOOKMARK_SIZE_LIMIT, FormatError,
+    NoBookmark,
 };
 pub use error::Error;
 pub use link::{Acceptor, Connector, Link};
@@ -332,5 +332,6 @@ pub use peer::{
 pub use protocol::Protocol;
 pub use rumors::{CausalMessages, Changes, Rumors, TryNext, TryTick, UnorderedMessages};
 pub use snapshot::Snapshot;
-pub use tree::MERKLE_HASH_LEN;
 pub use tree::mirror::streaming::stats::SessionStats;
+
+pub use tree::MERKLE_HASH_LEN;

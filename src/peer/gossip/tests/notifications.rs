@@ -4,6 +4,7 @@ use proptest::prelude::*;
 
 use super::party_of;
 use crate::link::memory;
+use crate::peer::Inner;
 use crate::peer::gossip::ForkGuard;
 use crate::testing::run_to_quiescence;
 use crate::{Peer, Retire};
@@ -63,11 +64,10 @@ proptest! {
         let before = provider.snapshot();
         let changes = provider.inner.subscribe();
         let mut donation = None;
-        provider.inner.send_if_modified(|inner| {
-            donation = Some(inner.party.fork());
-            false
+        Inner::update_party(&provider.inner, |inner| {
+            donation = Some(inner.reserve());
         });
-        drop(ForkGuard { party: donation, recover: provider.inner.clone() });
+        drop(ForkGuard { fork: donation, recover: provider.inner.clone() });
         prop_assert_eq!(party_of(&provider), original_party);
         prop_assert!(provider.snapshot() == before);
         prop_assert!(!changes.has_changed().unwrap());

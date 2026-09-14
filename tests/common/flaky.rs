@@ -17,68 +17,68 @@ use rumors::{Bookmark, Network};
 /// first write. Shared across a node's incarnations so it outlives a crash.
 pub type DurableStore = Arc<Mutex<Option<Vec<u8>>>>;
 
-/// Decode the record a persisted store holds, or an empty record if nothing has
-/// been written.
+/// Decode retained identities with their network's shared write frontier.
 ///
-/// Integration tests cannot reach the crate's codec, and don't need to: the
-/// stored file is one self-described CBOR item, so a generic walk — unwrap
-/// tag 55799, take the frame array's payload item, unwrap tag 24, then strip
-/// each stored clock's tag — recovers the untagged record serde understands.
-/// The format-pin snapshots guard the frame shape against drift; a panic here
-/// means this harness fell behind the format, not that the peer is broken.
+/// This independent CBOR reader preserves the clock-shaped view used by the
+/// behavioral tests. It does not implement recovery or retention policy.
 pub fn persisted_record(store: &DurableStore) -> BTreeMap<Network, Vec<Clock>> {
-    match &*store.lock().unwrap() {
-        None => BTreeMap::new(),
-        Some(bytes) => persisted_record_bytes(bytes),
-    }
-}
-
-/// Walk one persisted bookmark file into its record, generically.
-fn persisted_record_bytes(bytes: &[u8]) -> BTreeMap<Network, Vec<Clock>> {
-    let file: Value =
-        ciborium::de::from_reader(bytes).expect("the persisted bookmark parses as CBOR");
-    let Value::Tag(55799, frame) = file else {
-        panic!("the persisted bookmark is not self-described CBOR");
+    let guard = store.lock().unwrap();
+    let Some(bytes) = &*guard else {
+        return BTreeMap::new();
     };
-    let Value::Array(items) = *frame else {
-        panic!("the persisted frame is not an array");
+    let Value::Tag(55799, frame) = ciborium::de::from_reader(bytes.as_slice()).unwrap() else {
+        panic!("the bookmark must be self-described CBOR");
     };
-    let payload = items.into_iter().nth(2).expect("a three-item frame array");
-    let Value::Tag(24, payload) = payload else {
-        panic!("the persisted payload is not an embedded CBOR item");
+    let Value::Array(frame) = *frame else {
+        panic!("the frame must be an array")
+    };
+    let Value::Tag(24, payload) = frame.into_iter().nth(2).unwrap() else {
+        panic!("embedded CBOR")
     };
     let Value::Bytes(payload) = *payload else {
-        panic!("the embedded payload is not a byte string");
+        panic!("an embedded byte string")
     };
-
-    let record: Value = ciborium::de::from_reader(payload.as_slice())
-        .expect("the persisted payload parses as CBOR");
-    let Value::Map(entries) = record else {
-        panic!("the persisted record is not a map");
+    let Value::Array(networks) = ciborium::de::from_reader(payload.as_slice()).unwrap() else {
+        panic!("the record must be an array");
     };
-    // Strip each clock's identity tag so the plain serde impls (which are
-    // deliberately untagged) can decode the record.
-    let untagged = Value::Map(
-        entries
-            .into_iter()
-            .map(|(key, clocks)| {
-                let Value::Array(clocks) = clocks else {
-                    panic!("a persisted record entry is not an array of clocks");
-                };
-                let stripped = clocks
-                    .into_iter()
-                    .map(|clock| match clock {
-                        Value::Tag(_, inner) => *inner,
-                        untagged => untagged,
-                    })
-                    .collect();
-                (key, Value::Array(stripped))
-            })
-            .collect(),
-    );
-    let mut buf = Vec::new();
-    ciborium::ser::into_writer(&untagged, &mut buf).expect("re-encoding a record is infallible");
-    ciborium::de::from_reader(buf.as_slice()).expect("decode persisted bookmark payload")
+    networks
+        .into_iter()
+        .map(|value| {
+            let Value::Array(fields) = value else {
+                panic!("network fields")
+            };
+            let [network, frontier, identities]: [Value; 3] = fields.try_into().unwrap();
+            let mut encoded_network = Vec::new();
+            ciborium::ser::into_writer(&network, &mut encoded_network).unwrap();
+            let network: Network = ciborium::de::from_reader(encoded_network.as_slice()).unwrap();
+            let Value::Tag(rumors::tags::VERSION_TAG, frontier) = frontier else {
+                panic!("tagged frontier")
+            };
+            let Value::Bytes(frontier) = *frontier else {
+                panic!("frontier bytes")
+            };
+            let frontier = before::Version::decode(frontier.as_slice()).unwrap();
+            let Value::Array(identities) = identities else {
+                panic!("identities")
+            };
+            let clocks = identities
+                .into_iter()
+                .map(|value| {
+                    let Value::Tag(rumors::tags::PARTY_TAG, identity) = value else {
+                        panic!("tagged identity")
+                    };
+                    let Value::Bytes(identity) = *identity else {
+                        panic!("identity bytes")
+                    };
+                    Clock::from_parts(
+                        before::Party::decode(identity.as_slice()).unwrap(),
+                        frontier.clone(),
+                    )
+                })
+                .collect();
+            (network, clocks)
+        })
+        .collect()
 }
 
 /// The error a scheduled read/write failure reports. Carries which operation

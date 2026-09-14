@@ -32,6 +32,5 @@ pub const PARTY_TAG: u64 = 0xD255;
 pub const VERSION_TAG: u64 = 0xD256;
 
 /// Tags a byte string holding a clock's canonical encoding: a party
-/// atom's bytes immediately followed by a version atom's bytes, as the
-/// bookmark stores them.
+/// atom's bytes immediately followed by a version atom's bytes.
 pub const CLOCK_TAG: u64 = 0xD257;

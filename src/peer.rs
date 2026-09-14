@@ -163,6 +163,8 @@ pub struct Peer<T, B: Bookmark = NoBookmark> {
 pub(crate) struct Inner<T> {
     /// Identity used to stamp local events.
     pub(crate) party: Party,
+    /// Pauses bookmark reclamation while sessions hold unsent bootstrap forks.
+    bootstrap_forks: BootstrapReservations,
     /// The published content and causal ceiling.
     pub(crate) tree: Tree<T>,
     /// Serializes local tree preparation and the fallback gossip join.
@@ -174,18 +176,38 @@ pub(crate) struct Inner<T> {
     commit_gate: Arc<RwLock<()>>,
 }
 
+/// Keeps bookmark reclamation paused while bootstrap guards own forks.
+///
+/// The replica holds one reference; each guard holds another. Clone and check
+/// under the replica lock, so no new fork can appear during reclamation. A guard
+/// releases its reference only after returning its fork or durably removing its
+/// recovery rights. If a release races the check, seeing its old count only
+/// delays reclamation.
+#[derive(Clone, Default)]
+struct BootstrapReservations(Arc<()>);
+
+/// Check whether all bootstrap guards have released their forks.
+impl BootstrapReservations {
+    /// Whether only the replica's reference remains; check under its lock.
+    fn can_reclaim(&self) -> bool {
+        Arc::strong_count(&self.0) == 1
+    }
+}
+
 /// Try the session result, then one rebase, before excluding competing writers.
 ///
 /// More optimistic attempts can avoid excluding writers, but each failed rebase
 /// wastes a join. This bounds speculative work without tuning a public contract.
 const OPTIMISTIC_ATTEMPTS: usize = 2;
 
+/// Publish content and change identity ownership under the replica's locks.
 impl<T> Inner<T> {
     /// Construct a replica whose commits share one writer gate.
     pub(crate) fn new(party: Party, tree: Tree<T>) -> Self {
         tree.warm_memos();
         Self {
             party,
+            bootstrap_forks: BootstrapReservations::default(),
             tree,
             commit_gate: Arc::new(RwLock::new(())),
         }
@@ -228,13 +250,18 @@ impl<T> Inner<T> {
     /// A local commit must publish before a fork can inherit its party and
     /// history. The shared writer gate orders these changes with preparation.
     /// Callers needing a bookmark guard must acquire it before this method.
-    fn update_party(sender: &watch::Sender<Self>, update: impl FnOnce(&mut Party, &Tree<T>)) {
+    fn update_party(sender: &watch::Sender<Self>, update: impl FnOnce(&mut Self)) {
         let gate = sender.borrow().commit_gate.clone();
         let _hold = gate.read().unwrap_or_else(PoisonError::into_inner);
         sender.send_if_modified(|inner| {
-            update(&mut inner.party, &inner.tree);
+            update(inner);
             false
         });
+    }
+
+    /// Split off a bootstrap fork and keep reclamation paused until it is released.
+    fn reserve(&mut self) -> (Party, BootstrapReservations) {
+        (self.party.fork(), self.bootstrap_forks.clone())
     }
 
     /// Clone the published tree without carrying its read guard into the caller.
@@ -567,6 +594,33 @@ impl<T, B: Bookmark> Peer<T, B> {
         F: Future<Output = ()> + Send + 'static,
     {
         self.gossip_policy.set_deadline(deadline);
+        self
+    }
+
+    /// Limit the complete encoded bookmark, including its integrity frame.
+    ///
+    /// The default is [`crate::DEFAULT_BOOKMARK_SIZE_LIMIT`] (16 MiB). The
+    /// budget is shared by all networks retained in this bookmark. Updates
+    /// discard the oldest identities from the least recently used network,
+    /// removing each network only after its last identity is gone. Eviction
+    /// only loses opportunities to recycle identity space; it cannot lose
+    /// replicated messages or permit version reuse.
+    ///
+    /// Set this before [`bookmark`](Peer::bookmark) to apply it to attachment,
+    /// or afterwards to apply it at the next checkpoint.
+    /// [`Bootstrap::bookmark_size_limit`] configures it before joining. Smaller
+    /// values are raised to the empty frame size (43 bytes). A limit that
+    /// cannot hold one identity keeps no recovery rights. Capacity is not
+    /// reserved up front.
+    ///
+    /// This bounds stored bytes, not peak working memory: loading and encoding
+    /// use temporary allocations, and an existing record may exceed a newly
+    /// lowered limit until the next successful store.
+    pub fn bookmark_size_limit(self, bytes: usize) -> Self {
+        self.bookmark
+            .try_lock()
+            .expect("a Peer has no running sessions")
+            .set_size_limit(bytes);
         self
     }
 

@@ -1,93 +1,32 @@
-//! Bookmarking never recycles a version identifier, however adverse the run.
+//! Bookmark recovery preserves durable write history and identity ownership.
 //!
-//! This is the disruption simulation's sibling, aimed squarely at the identity
-//! [`Bookmark`](rumors::Bookmark): a fleet of peers that each begin as their own
-//! [`seed`](rumors::Peer::seed) (their own [`Network`]), gossip and converge
-//! toward a single network by the documented `(min_ticks, network)` tie-break,
-//! and throughout suffer two independent, shrinkable streams of synthetic
-//! failure:
+//! The simulator generates sends, redactions, sessions, crashes, and retirement,
+//! with wire and storage failures. Each network descends from its own seed;
+//! histories from different networks are never compared or reconciled.
 //!
-//! - **wire faults** — sessions severed at arbitrary byte offsets (reusing
-//!   [`common::fault`]), so messages are lost and hand-offs are interrupted; and
-//! - **bookmark faults** — reads and writes of each peer's durable identity
-//!   store fail on a proptest schedule (reusing [`common::flaky`]), and peers
-//!   crash, dropping their in-memory state and reloading from that store.
+//! A local change becomes durable for these checks when its bookmark records it
+//! or another replica learns it. Changes lost before either event may disappear
+//! with their emitter. The tests check three independent consequences:
 //!
-//! # The property
+//! - Every live identity is disjoint from the other live identities in its network.
+//! - Its replica knows all durable writes made within the region it now owns.
+//!   This catches premature recovery before a subsequent send can reuse a version.
+//! - Successful synchronization preserves unredacted messages, and a final clean
+//!   heal converges. Version-order checks also reject repeated durable emissions.
 //!
-//! Within any one [`Network`], no message that became **durable** — persisted by
-//! its emitter's bookmark *or* propagated to another peer, either of which means
-//! the network can no longer forget it — is ever followed by a later durable
-//! message whose [`Version`] is dominated by, equal to, or otherwise in the
-//! causal past of it. Two independently-`seed`ed
-//! universes are causally incomparable (the crate's hard rule), so the property
-//! is stated and checked per network; within a network every party is a fork of
-//! one seed, so all versions are comparable, and a later version can be `<=` an
-//! earlier one only by rolling backwards (concurrent versions compare
-//! incomparable, never `<=`). The invariant is observable non-recycling: a
-//! recycle re-issues coordinates without knowing whether durable content
-//! occupies them, so any bookkeeping able to recycle at all does so
-//! observably on the plans that place durable content there (the
-//! reconstructed test and the known-bad artifact construct such plans, and
-//! the survival checks catch the loss), and the emitter's id-region
-//! therefore enters no comparison.
+//! The ordinary plans finish each session before taking another step. The
+//! `concurrent` suite holds bootstrap forks in flight while generated operations
+//! advance the fleet, then completes or cancels the bootstraps and tests recovery.
+//! The storage-window suite separately controls pauses inside individual stores.
 //!
-//! A recycle is also checked by its consequence. A rebooted peer that
-//! re-owns a region below a frontier some replica durably holds emits
-//! versions the causal sieve reads as already deleted wherever the message
-//! they collide with is held, and the fleet converges without it. Such an
-//! emission compares `Greater` or incomparable to the message it destroys
-//! whenever the reclaimer's frontier carries any other region's progress,
-//! so the version order alone cannot see it. The [`World`] keeps a
-//! per-network ledger of every redaction the network has learned of and
-//! checks survival at every session: after a session both sides complete,
-//! each holds every message either held before it and never redacted in
-//! their network, and after the heal every message the winning network held
-//! at heal start and never redacted is live at every peer. The checks are
-//! sound because a correct bookmark's frontier dominates a durable emission
-//! only by having merged it or a redacter's frontier, so the ledger's
-//! entries are the only legitimate losses; they are complete because a
-//! failed session leaves content unchanged or commits it whole, so a
-//! destruction cannot hide inside an unchecked failed session.
-//!
-//! Durability is the load-bearing qualifier. A plain `send` neither persists
-//! (only sessions do) nor propagates, so a local emission lost to a crash before
-//! it is ever persisted *or* reaches another peer was never known to the
-//! network, and reusing its version is not a recycle. The test therefore holds
-//! each emission *pending* until it is persisted or propagated, and a crash
-//! discards what was never secured.
-//!
-//! A broken bookmark violates the property by **recycling**: a peer that
-//! re-owns an id-region whose recorded version the network has not caught up to
-//! — a failed `slice` leaving a donated region claimable, or a stale record
-//! after a failed `write` — then emits a message whose version a *prior*,
-//! durable one already occupies. A correct bookmark cannot: `reclaim` re-owns a
-//! region only once the live frontier dominates its recorded version, and
-//! absorption/retire only proceed when the absorber reflexively dominates the
-//! retiree.
-//!
-//! # Determinism
-//!
-//! Unlike `disruption.rs`, this simulation runs single-threaded under the
-//! closed-world poller ([`common::wire::block_on`]) with a plan-driven
-//! schedule: each session is its own `block_on`, and a session that stops
-//! making progress fails at its source instead of hanging the case. The bug
-//! class is about the *ordering* of emit/gossip/crash/retire/persist-fail
-//! events and the persistence-fault sequence, not watch-channel thread
-//! races. Every input the plan does not carry is fixed by the [`World`]:
-//! message ids and emission sequence numbers come from a per-world counter,
-//! and every universe's [`Network`] identifier, the tie-break between two
-//! fresh peers, comes from a per-world RNG seeded with [`NETWORK_SEED`].
-//! The schedule is deterministic up to tokio's `select!` branch order
-//! inside the session internals: the RNG behind that order is per-thread
-//! state advanced by every `select!`, so a wire cut at a fixed byte offset
-//! can land on a different frame across runs and across the cases of one
-//! run. Shrinking
-//! and replay are therefore exact for clean plans, and for faulted plans
-//! exact up to which frame a cut lands on. Each message's emitted version
-//! is captured race-free.
+//! All sessions use the closed-world poller, so a stalled in-memory exchange
+//! fails locally. Plans fix message IDs, network IDs, faults, and operation order.
+//! Tokio's internal `select!` ordering can still change which frame meets a wire
+//! cut; clean schedules replay exactly, while faulted schedules retain that limit.
 
 mod common;
+#[path = "bookmark_causality/concurrent.rs"]
+mod concurrent;
 
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
@@ -134,20 +73,16 @@ const MAX_HEAL_ROUNDS_PER_PEER: usize = 16;
 
 // ---- the emission log: the property's witness -------------------------------
 
-/// One emitted message: the network it entered, its real-time emission order,
-/// and the event [`Version`] stamped on its leaf.
-///
-/// The [`Version`] alone is the whole identifier we guard: within one network
-/// all versions are causally comparable or concurrent (every party forks one
-/// seed; concurrent pairs compare [`None`]), so a later emission can be `<=`
-/// an earlier one only by rolling backwards over a version the network
-/// already durably held — exactly a recycle. The emitting party's identity
-/// is deliberately *not* recorded: the module docs state the invariant as
-/// observable non-recycling, which the survival checks judge.
+/// An emitted message and the writer's local progress when it was sent.
 struct Emission {
+    /// The network in which this message was produced.
     network: Network,
+    /// Its unique ID and real-time emission order.
     seq: u64,
+    /// The complete causal version attached to the message.
     version: Version,
+    /// Progress within the writer's identity, excluding remote observations.
+    own: Version,
 }
 
 /// The durable record of every emission that became **known to the network** —
@@ -162,9 +97,11 @@ struct Emission {
 /// [`secure`]: World::secure
 #[derive(Default)]
 struct EmissionLog {
+    /// Durable emissions grouped by their causal universe.
     durable: Mutex<BTreeMap<Network, Vec<Emission>>>,
 }
 
+/// Record durable emissions and check that their versions are never reused.
 impl EmissionLog {
     /// Admit a now-durable emission, asserting it recycles no other durable
     /// emission in its network.
@@ -224,43 +161,19 @@ impl EmissionLog {
     }
 }
 
-/// Decode the versions a node has durably persisted, per network, through the
-/// same frame the bookmark itself stored. Used to decide which pending
-/// emissions the store now covers.
-fn decompose_store(store: &DurableStore) -> BTreeMap<Network, Vec<Version>> {
-    persisted_record(store)
-        .into_iter()
-        .map(|(network, clocks)| {
-            (
-                network,
-                clocks
-                    .into_iter()
-                    .map(|clock| clock.into_parts().1)
-                    .collect(),
-            )
-        })
-        .collect()
-}
-
-/// Whether a node's persisted `record` covers `emission`: it has persisted, in
-/// the emission's network, a frontier whose version dominates or equals the
-/// emission's.
-///
-/// Coverage is the bookmark's promise that this version survives a
-/// crash, so it is the moment the emission becomes durable.
-fn store_covers(record: &BTreeMap<Network, Vec<Version>>, emission: &Emission) -> bool {
+/// Whether storage protects the sender's own progress through this emission.
+/// Remote observations do not need to be checkpointed to prevent version reuse.
+fn store_covers(record: &BTreeMap<Network, Vec<before::Clock>>, emission: &Emission) -> bool {
     record
         .get(&emission.network)
-        .is_some_and(|versions| versions.iter().any(|version| emission.version <= *version))
+        .is_some_and(|clocks| clocks.iter().any(|clock| emission.own <= *clock.version()))
 }
 
 /// Decode the id-regions a node has durably checkpointed for `network`, via the
 /// same encode/decode round trip the bookmark itself makes.
 ///
-/// The dual of
-/// [`decompose_store`]: that keeps each clock's version (for durability), this
-/// keeps each clock's [`Party`] (for coverage). A region recorded here is one a
-/// crashed peer can still reclaim, so it counts as *held*, not leaked.
+/// A region recorded here can still be reclaimed after a crash, so it counts
+/// as recoverable rather than lost.
 fn store_parties(store: &DurableStore, network: Network) -> Vec<Party> {
     persisted_record(store)
         .into_iter()
@@ -309,6 +222,7 @@ enum BootFailure {
 /// after a crash or retirement), plus the durable state — store and fault
 /// schedule — that outlives any single incarnation.
 struct Node {
+    /// Current incarnation, if this participant is running.
     state: NodeState,
     /// The durable identity bytes (the "disk"), shared with every incarnation.
     store: DurableStore,
@@ -328,21 +242,26 @@ struct Node {
     /// ([`World::redacted`]) once another live peer's frontier dominates the
     /// redacter's.
     pending_redactions: Vec<Redacted>,
+    /// Stable participant index, retained across restarts.
     label: usize,
 }
 
+/// Whether the participant currently owns a live replica.
 enum NodeState {
-    // Boxed: a live handle carries the peer's whole configuration,
-    // hundreds of bytes wide against the dataless `Dormant`.
+    /// The running replica; boxed to keep dormant participants small.
     Live(Box<Rumors<Msg, FlakyInMemoryBookmark>>),
+    /// No live replica remains after a crash or retirement.
     Dormant,
 }
 
+/// Access the current replica and recreate its persistent storage handle.
 impl Node {
+    /// Whether an incarnation is running.
     fn is_live(&self) -> bool {
         matches!(self.state, NodeState::Live(_))
     }
 
+    /// Borrow the running replica, if any.
     fn live(&self) -> Option<&Rumors<Msg, FlakyInMemoryBookmark>> {
         match &self.state {
             NodeState::Live(rumors) => Some(rumors),
@@ -350,6 +269,7 @@ impl Node {
         }
     }
 
+    /// Reattach the same store and failure schedule after restart.
     fn bookmark(&self) -> FlakyInMemoryBookmark {
         FlakyInMemoryBookmark::new(self.store.clone(), self.faults.clone(), self.label)
     }
@@ -358,9 +278,14 @@ impl Node {
 /// The whole simulated world: the fleet, the shared emission log, and the
 /// per-world sources of every input the plan does not carry.
 struct World {
+    /// Participants and their persistent state.
     nodes: Vec<Node>,
+    /// Emissions whose versions are protected from reuse.
     emissions: EmissionLog,
+    /// Unique payload for the next send.
     next_seq: u64,
+    /// Durable own-write progress, including records that a later store removes.
+    protected: BTreeMap<Network, Version>,
     /// The source of every universe's [`Network`] identifier, seeded with
     /// [`NETWORK_SEED`] so the tie-break between fresh peers replays.
     rng: ChaCha8Rng,
@@ -397,6 +322,8 @@ struct Redacted {
     seq: u64,
     version: Version,
     frontier: Version,
+    /// The redacter's local write progress, excluding remote observations.
+    own: Version,
 }
 
 /// One step of the path a plan takes through the places where a universe's
@@ -423,6 +350,7 @@ impl World {
             nodes: Vec::new(),
             emissions: EmissionLog::default(),
             next_seq: 0,
+            protected: BTreeMap::new(),
             rng: ChaCha8Rng::seed_from_u64(NETWORK_SEED),
             networks: BTreeSet::new(),
             path: Vec::new(),
@@ -530,6 +458,7 @@ impl World {
         world
     }
 
+    /// Number of participants, including dormant ones.
     fn n(&self) -> usize {
         self.nodes.len()
     }
@@ -660,9 +589,11 @@ impl World {
             }
         }
         let version = version.expect("a just-sent message is live on its sender");
+        let own = (snapshot.latest() / &rumors.dangerously_alias_party()).to_version();
         self.nodes[who].pending.push(Emission {
             network,
             seq: id,
+            own,
             version,
         });
     }
@@ -690,10 +621,12 @@ impl World {
         let (version, seq) = leaves[which % leaves.len()].clone();
         rumors.redact(&version);
         let frontier = rumors.snapshot().latest().clone();
+        let own = (&frontier / &rumors.dangerously_alias_party()).to_version();
         self.nodes[who].pending_redactions.push(Redacted {
             network,
             seq,
             version,
+            own,
             frontier,
         });
     }
@@ -718,7 +651,14 @@ impl World {
     /// route only: a persisted frontier carries no deletion to anyone, so
     /// only propagation makes a redaction one the fleet has learned of.
     fn secure(&mut self, who: usize) {
-        let record = decompose_store(&self.nodes[who].store);
+        let record = persisted_record(&self.nodes[who].store);
+        for (network, clocks) in &record {
+            let own: Version = clocks
+                .iter()
+                .map(|clock| clock.own_version().to_version())
+                .sum();
+            *self.protected.entry(*network).or_default() |= &own;
+        }
         // Every other live peer's `(network, frontier)`: a peer knows `who`'s
         // emission iff its frontier in the same network dominates it.
         let observers: Vec<(Network, Version)> = (0..self.n())
@@ -738,6 +678,7 @@ impl World {
                 *network == emission.network && emission.version <= *frontier
             });
             if persisted || propagated {
+                *self.protected.entry(emission.network).or_default() |= &emission.own;
                 self.emissions.promote(emission);
             } else {
                 still_pending.push(emission);
@@ -752,6 +693,7 @@ impl World {
                 *network == redaction.network && redaction.frontier <= *frontier
             });
             if propagated {
+                *self.protected.entry(redaction.network).or_default() |= &redaction.own;
                 self.redacted
                     .entry(redaction.network)
                     .or_default()
@@ -1019,8 +961,10 @@ impl World {
         let server = (0..self.n())
             .find(|&k| k != who && self.nodes[k].is_live() && self.nodes[k].network == network);
         if let Some(server) = server
-            && self.bootstrap_into(who, server)
+            && (self.bootstrap_into(who, server) || self.networks.len() == 1)
         {
+            // A failed join in a single-network plan leaves this node
+            // dormant for a later retry; it does not create another universe.
             return;
         }
         // No reachable member of its old network (or the rejoin's persistence
@@ -1261,6 +1205,29 @@ impl World {
             .collect()
     }
 
+    /// Live identities are exclusive, and their replicas know their durable
+    /// writes.
+    fn assert_ownership(&self) {
+        let live: Vec<_> = self.nodes.iter().filter_map(Node::live).collect();
+        for (index, peer) in live.iter().enumerate() {
+            let party = peer.dangerously_alias_party();
+            if let Some(required) = self.protected.get(&peer.network()) {
+                assert!(
+                    required / &party <= *peer.snapshot().latest(),
+                    "a live identity was recovered ahead of its durable writes"
+                );
+            }
+            for other in &live[index + 1..] {
+                if peer.network() == other.network() {
+                    assert!(
+                        party.is_disjoint(&other.dangerously_alias_party()),
+                        "two live peers own overlapping identities"
+                    );
+                }
+            }
+        }
+    }
+
     /// After a clean heal: every live peer holds identical content, their live
     /// parties are pairwise disjoint, and every unredacted message the winning
     /// network held at heal start is live at every peer.
@@ -1281,19 +1248,7 @@ impl World {
             }
         }
 
-        // Pairwise party disjointness.
-        let parties: Vec<Party> = live
-            .iter()
-            .map(|&k| self.nodes[k].live().unwrap().dangerously_alias_party())
-            .collect();
-        for (i, &ni) in live.iter().enumerate() {
-            for (j, &nj) in live.iter().enumerate().skip(i + 1) {
-                assert!(
-                    parties[i].is_disjoint(&parties[j]),
-                    "live nodes {ni} and {nj} hold overlapping parties",
-                );
-            }
-        }
+        self.assert_ownership();
 
         self.assert_live_content_is_durable(&live);
         self.assert_durable_content_survived(&live);
@@ -1511,8 +1466,11 @@ fn run_plan(plan: Plan) -> World {
             Step::Crash(i) => world.crash(i),
             Step::Retire(i, j) => world.retire(i, j),
         }
+        world.assert_ownership();
     }
+    world.assert_ownership();
     world.heal();
+    world.assert_ownership();
     world
 }
 
@@ -1684,8 +1642,11 @@ fn run_reliable_plan(plan: Plan) -> World {
             }
             Step::Retire(i, j) => world.retire(i, j),
         }
+        world.assert_ownership();
     }
+    world.assert_ownership();
     world.heal();
+    world.assert_ownership();
     world
 }
 
@@ -1708,11 +1669,13 @@ fn negative_control_recycled_durable_emission_panics() {
     log.promote(Emission {
         network,
         seq: 0,
+        own: version.clone(),
         version: version.clone(),
     });
     log.promote(Emission {
         network,
         seq: 1,
+        own: version.clone(),
         version,
     });
 }
@@ -1810,7 +1773,9 @@ fn reconstructed_reclaim_after_crash_keeps_durable_content() {
     for _ in 0..4 {
         world.send(a);
     }
+    world.assert_ownership();
     world.heal();
+    world.assert_ownership();
     world.assert_healed();
     for k in [a, b, c] {
         assert!(
@@ -1856,7 +1821,9 @@ fn known_bad_stale_record_destroys_durable_content() {
         world.send(a);
     }
     world.gossip(a, b, FaultPlan::NONE, FaultPlan::NONE);
+    world.assert_ownership();
     world.heal();
+    world.assert_ownership();
     world.assert_healed();
 }
 
@@ -1873,7 +1840,9 @@ fn negative_control_unledgered_loss_fails_the_survival_check() {
     world.send(0);
     world.gossip(0, 1, FaultPlan::NONE, FaultPlan::NONE);
     world.redact(0, 0);
+    world.assert_ownership();
     world.heal();
+    world.assert_ownership();
     world.assert_healed();
     assert!(
         !world.holds(0, 0) && !world.holds(1, 0),

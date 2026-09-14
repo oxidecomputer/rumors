@@ -49,6 +49,8 @@ pub struct Bootstrap<T, B: Bookmark = NoBookmark> {
     pub(crate) observe: Attachment,
     /// Storage owned by this attempt, returned if no peer arrives.
     bookmark: B,
+    /// Maximum bookmark size inherited by the joined peer.
+    bookmark_size_limit: usize,
     /// Marks the payload type without storing a value or constraining auto traits.
     marker: PhantomData<fn() -> T>,
 }
@@ -70,6 +72,7 @@ impl<T, B: Bookmark> std::fmt::Debug for Bootstrap<T, B> {
             .field("run_budget", &self.run_budget)
             .field("payload_depth_limit", &self.payload_depth_limit)
             .field("bookmark", &std::any::type_name::<B>())
+            .field("bookmark_size_limit", &self.bookmark_size_limit)
             .finish()
     }
 }
@@ -85,6 +88,7 @@ impl<T> Bootstrap<T> {
             payload_depth_limit: PayloadDepthLimit::default(),
             observe: Attachment::default(),
             bookmark: NoBookmark,
+            bookmark_size_limit: crate::DEFAULT_BOOKMARK_SIZE_LIMIT,
             marker: PhantomData,
         }
     }
@@ -107,6 +111,7 @@ impl<T> Bootstrap<T> {
             payload_depth_limit: self.payload_depth_limit,
             observe: self.observe,
             bookmark,
+            bookmark_size_limit: self.bookmark_size_limit,
             marker: PhantomData,
         }
     }
@@ -123,8 +128,15 @@ impl<T, B: Bookmark> Bootstrap<T, B> {
             payload_depth_limit: self.payload_depth_limit,
             observe: self.observe.clone(),
             bookmark: NoBookmark,
+            bookmark_size_limit: self.bookmark_size_limit,
             marker: PhantomData,
         }
+    }
+
+    /// Limit restart bookkeeping before attachment; see [`Peer::bookmark_size_limit`].
+    pub fn bookmark_size_limit(mut self, bytes: usize) -> Self {
+        self.bookmark_size_limit = bytes;
+        self
     }
 
     /// Select the joined peer's initiation policy; see [`Peer::gossip_when`].
@@ -221,7 +233,11 @@ impl<T, B: Bookmark> Bootstrap<T, B> {
         // The session needs a copy of the settings, not ownership of storage.
         // Retaining self lets both unsuccessful outcomes return it unchanged.
         match Peer::bootstrap_inner(self.session_config(), link).await {
-            Ok(Some(peer)) => match peer.bookmark(self.bookmark).await {
+            Ok(Some(peer)) => match peer
+                .bookmark_size_limit(self.bookmark_size_limit)
+                .bookmark(self.bookmark)
+                .await
+            {
                 Ok(peer) => Joined::Joined { peer },
                 Err(unbookmarked) => Joined::Unbookmarked(unbookmarked),
             },

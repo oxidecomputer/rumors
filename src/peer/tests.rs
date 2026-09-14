@@ -446,8 +446,8 @@ proptest! {
             let owner = sender.clone();
             let handoff = thread::spawn(move || {
                 let mut inherited = None;
-                Inner::update_party(&owner, |party, tree| {
-                    inherited = Some((party.fork(), tree.clone()));
+                Inner::update_party(&owner, |inner| {
+                    inherited = Some((inner.party.fork(), inner.tree.clone()));
                 });
                 inherited.unwrap()
             });

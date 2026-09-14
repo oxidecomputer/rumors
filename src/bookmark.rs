@@ -2,17 +2,30 @@
 //!
 //! Applications provide opaque byte storage through [`Bookmark`]. The crate
 //! owns the record format and the rules for recycling a departed peer's identity.
+//!
+//! Recovery has three requirements: know all recorded writes in the recovered
+//! region, never acquire a live bootstrap's fork, and durably remove donated
+//! rights before sending them. `record` owns the first rule; the peer's bootstrap
+//! guards and session driver enforce the other two. This module loads and stores
+//! the record, treating only a confirmed store as a reusable checkpoint.
 
-use std::collections::BTreeMap;
-
-use before::{Clock, Party, Version};
+use before::{Party, Version};
 use tokio::io::{AsyncRead, AsyncReadExt};
 
 use crate::Network;
 
+mod error;
 pub(crate) mod format;
+mod record;
+mod serde;
 
-pub use format::{BOOKMARK_FORMAT_VERSION, FormatError, FrameDefect, RecordDefect};
+use record::Record;
+
+/// Default maximum encoded bookmark size: 16 MiB, allocated only as needed.
+pub const DEFAULT_BOOKMARK_SIZE_LIMIT: usize = 16 * 1024 * 1024;
+
+pub use error::FormatError;
+pub use format::BOOKMARK_FORMAT_VERSION;
 
 /// Persistent restart bookkeeping that limits growth of message versions.
 ///
@@ -38,10 +51,31 @@ pub use format::{BOOKMARK_FORMAT_VERSION, FormatError, FrameDefect, RecordDefect
 /// caught up with those writes; it need not recover every message that the
 /// prior incarnation had merely observed.
 ///
-/// Unreclaimed incarnations remain in the bookmark, so repeated restarts can
-/// grow the record. Records also stay separate by [`Network`]: joining another
-/// network is supported, and its entries coexist with those of earlier networks.
-/// Entries from another network remain dormant until the peer rejoins it.
+/// Reclamation happens when Rumors updates the bookmark, so it can lag behind
+/// catching up. Ordinary gossip records local progress before exchanging
+/// messages, and does not write again just because it learns remote changes. An
+/// identity that becomes reclaimable during an exchange can therefore wait
+/// until a later session after a local send, redaction, or identity change.
+/// Reclamation also waits while bootstrap sessions hold identities for transfer.
+/// These delays postpone the reduction in version size; they do not delay
+/// checkpointing local writes.
+///
+/// # Bounded retention
+///
+/// A bookmark can retain identities from several [`Network`]s, so rejoining a
+/// network can recover its earlier bookkeeping. The default size limit is 16
+/// MiB; configure
+/// [`Peer::bookmark_size_limit`](crate::Peer::bookmark_size_limit) or
+/// [`Bootstrap::bookmark_size_limit`](crate::Bootstrap::bookmark_size_limit).
+/// Rumors discards the oldest identities from the least recently used network,
+/// one at a time until the record fits. It removes a network only when no
+/// identities remain there. Both recency orders survive restarts.
+///
+/// Discarding recovery rights is safe: it can increase future version sizes,
+/// but cannot erase replicated messages or permit version reuse. The limit
+/// includes the encoded identities, their write progress, and the integrity
+/// frame. It bounds stored bytes rather than peak memory used to load or encode
+/// them.
 ///
 /// # Storage obligations
 ///
@@ -49,7 +83,7 @@ pub use format::{BOOKMARK_FORMAT_VERSION, FormatError, FrameDefect, RecordDefect
 ///   concurrently live peers or duplicate it to start another peer.
 /// - Replace the record atomically, and never roll back a successful store. A
 ///   stale but valid record can cause versions to be reused and corrupt the set.
-/// - Preserve the record across restarts, including entries for earlier networks.
+/// - Preserve the complete record across restarts; Rumors handles retention.
 ///
 /// A slow store delays synchronization or completion when accepting a
 /// retirement. A session may already have exchanged its connection preamble
@@ -146,16 +180,26 @@ pub(crate) struct Bookmarked<B> {
     persist: B,
     /// An unloaded cache must read storage before making any changes.
     loaded: Option<Loaded>,
+    /// Maximum encoded record size, including its frame.
+    size_limit: usize,
 }
 
 /// A loaded record and the checkpoint used to avoid redundant stores.
 pub(crate) struct Loaded {
     /// Identities retained across restarts, grouped by network.
-    record: BTreeMap<Network, Vec<Clock>>,
+    record: Record,
     /// The checkpoint to install only after its store succeeds.
-    staged: Option<(Party, Version)>,
+    staged: Option<Checkpoint>,
     /// The last confirmed checkpoint; removing a donation invalidates it.
-    last: Option<(Party, Version)>,
+    last: Option<Checkpoint>,
+}
+
+/// The local ownership and write progress protected by one checkpoint.
+struct Checkpoint {
+    /// The exact live party at the checkpoint.
+    party: Party,
+    /// Known progress; only the party's own region matters for skipping stores.
+    version: Version,
 }
 
 /// Construct an unloaded bookmark cache.
@@ -165,7 +209,22 @@ impl<B> Bookmarked<B> {
         Self {
             persist,
             loaded: None,
+            size_limit: DEFAULT_BOOKMARK_SIZE_LIMIT,
         }
+    }
+
+    /// Select the store limit and require a checkpoint to apply it.
+    pub(crate) fn set_size_limit(&mut self, bytes: usize) {
+        self.size_limit = bytes.max(format::record_size(0, 0));
+        if let Some(loaded) = &mut self.loaded {
+            loaded.last = None;
+            loaded.staged = None;
+        }
+    }
+
+    /// The configured limit, also retained before storage is attached.
+    pub(crate) fn size_limit(&self) -> usize {
+        self.size_limit
     }
 }
 
@@ -177,7 +236,7 @@ impl<B: Bookmark> Bookmarked<B> {
             Some(ref mut loaded) => Ok(loaded),
             None => {
                 let record = match self.persist.load().await.map_err(BookmarkIo::Io)? {
-                    None => BTreeMap::new(),
+                    None => Record::default(),
                     Some(mut reader) => {
                         let mut bytes = Vec::new();
                         reader
@@ -198,102 +257,71 @@ impl<B: Bookmark> Bookmarked<B> {
 
     /// Store the loaded record and commit its staged checkpoint on success.
     ///
-    /// Failure discards the cache so the next update reloads whichever complete
-    /// record storage retained. Neither outcome establishes a current checkpoint.
-    /// Cancellation leaves the staged checkpoint uncommitted: the next update
-    /// must retry rather than skip a store whose completion is unknown.
+    /// Take the cache out before I/O and restore it only on success. An error
+    /// or cancellation then leaves the cache unloaded, so the next update must
+    /// read whichever complete record storage retained.
     pub(crate) async fn write(&mut self) -> Result<(), BookmarkIo<B::Error>> {
-        let Some(loaded) = &mut self.loaded else {
+        let Some(mut loaded) = self.loaded.take() else {
             return Ok(());
         };
-        let bytes = format::encode(&loaded.record);
-        match self.persist.store(bytes).await {
-            Ok(()) => {
-                if let Some(checkpoint) = loaded.staged.take() {
-                    loaded.last = Some(checkpoint);
-                }
-                Ok(())
-            }
-            Err(error) => {
-                self.loaded = None;
-                Err(BookmarkIo::Io(error))
-            }
-        }
+        let bytes = loaded.record.bounded_bytes(self.size_limit);
+        self.persist.store(bytes).await.map_err(BookmarkIo::Io)?;
+        loaded.last = loaded.staged.take();
+        self.loaded = Some(loaded);
+        Ok(())
     }
 }
 
 /// Update identity ownership and decide when it needs another checkpoint.
 impl Loaded {
-    /// Whether the stored checkpoint covers this party's own writes.
-    pub(crate) fn is_current(&self, party: &Party, version: &Version) -> bool {
-        self.last.as_ref().is_some_and(|(p, v)| {
-            // Learning about other parties does not change our checkpoint.
-            // Identity changes and advances in our own interval do.
-            p == party && v / p == version / p
+    /// Whether a confirmed store still protects this party's own writes.
+    ///
+    /// This deliberately requires the same party and own-write progress. A
+    /// larger stored party could sometimes cover a smaller current one too,
+    /// but checkpointing that ownership change keeps the rule simple. Remote
+    /// progress may permit more reclamation without requiring another store.
+    pub(crate) fn can_skip_checkpoint(&self, party: &Party, version: &Version) -> bool {
+        self.last.as_ref().is_some_and(|checkpoint| {
+            checkpoint.party == *party && &checkpoint.version / party == version / party
         })
     }
 
     /// Remove a donation; the caller must persist this before sending it.
     pub(crate) fn slice(&mut self, network: Network, party: &Party) {
-        if let Some(clocks) = self.record.remove(&network) {
-            let clocks: Vec<_> = clocks
-                .into_iter()
-                .filter_map(|clock| {
-                    let (p, v) = clock.into_parts();
-                    Some(Clock::from_parts(p.without(party)?, v))
-                })
-                .collect();
-            if !clocks.is_empty() {
-                self.record.insert(network, clocks);
-            }
-        }
-        // A checkpoint of the larger identity cannot justify skipping a store
-        // after donation, even if that identity later returns through retirement.
+        self.record.slice(network, party);
         self.staged = None;
         self.last = None;
     }
 
-    /// Record the live identity at attachment without growing it by reclamation.
+    /// Record the live identity at attachment without acquiring another identity.
     pub(crate) fn record(&mut self, network: Network, party: &Party, version: &Version) {
-        self.record
-            .entry(network)
-            .or_default()
-            .push(Clock::from_parts(
-                party.dangerously_alias(),
-                version.clone(),
-            ));
-        // The first gossip must still attempt reclamation. Attachment records
-        // ownership but does not establish a checkpoint that can skip that work.
+        self.record.network(network).record(party, version);
+        // Attachment does not reclaim; the first session must still try.
         self.staged = None;
     }
 
-    /// Reclaim caught-up identities and stage a checkpoint of the resulting party.
+    /// Stage the live party's checkpoint, optionally reclaiming caught-up
+    /// identities.
     ///
-    /// Run inside the replica's critical section so the party and its recorded
-    /// version change together. The checkpoint becomes current only after storage.
-    pub(crate) fn reclaim(&mut self, network: Network, party: &mut Party, version: &Version) {
-        let clocks = self.record.entry(network).or_default();
-        let mut overlapping = Vec::new();
-        // Reuse requires knowing everything the old identity wrote, not
-        // everything it observed. Compare only its owned version interval.
-        for clock in clocks.extract_if(.., |clock| clock.own_version() <= *version) {
-            let (p, v) = clock.into_parts();
-            if let Err(p) = party.join(p) {
-                overlapping.push(Clock::from_parts(p, v));
-            }
+    /// The caller permits reclamation only when no bootstrap guard holds a fork.
+    /// While guards remain, their forks may still appear in the bookmark, but
+    /// cannot be acquired. Recording local writes must continue either way.
+    pub(crate) fn checkpoint(
+        &mut self,
+        network: Network,
+        party: &mut Party,
+        version: &Version,
+        reclaim: bool,
+    ) {
+        let record = self.record.network(network);
+        if reclaim {
+            record.reclaim(party, version);
         }
-        // Some stored aliases overlap rather than join. Remove only those
-        // covered by the fully grown party; a larger outstanding alias must stay.
-        clocks.extend(
-            overlapping
-                .into_iter()
-                .filter(|clock| !party.covers(clock.party())),
-        );
-        clocks.push(Clock::from_parts(
-            party.dangerously_alias(),
-            version.clone(),
-        ));
-        self.staged = Some((party.dangerously_alias(), version.clone()));
+        record.record(party, version);
+        self.staged = Some(Checkpoint {
+            party: party.dangerously_alias(),
+            version: version.clone(),
+        });
     }
 }
 

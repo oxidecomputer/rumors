@@ -1,0 +1,10 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 36876534e70daf3606bad668dc50ffd7cc2d0bf7204b42342230acedef6e9d31 # shrinks to finish = [false], steps = [Crash(2), Send(2)], write_faults = [true]
+cc a0cc48a2e7772fbd8a00db156917bf9a247f4a2012b9e8e76666404e020790ad # shrinks to finish = [false], steps = [Crash(1), Crash(0), Send(0)], write_faults = [true]
+cc 955947083a611375cb81bf322baa2b59a196c01c9ea8fa7c11a99781aae8b52c # shrinks to finish = [false], steps = [], write_faults = []
+cc c9138d0477067937b0fd24e7447f437e23d1f3a65776f44a24a8e7342880d0da # shrinks to finish = [false], steps = [Retire(0, 2), Crash(1), Gossip(2, 0, FaultPlan { write_cut: None, read_cut: None, vanish: None }, FaultPlan { write_cut: None, read_cut: None, vanish: None })], write_faults = [], limit = 16777216

@@ -555,7 +555,7 @@ async fn routing_deadline_allows_idle_gossip_and_reuse() {
         Config::default(),
     )
     .unwrap();
-    drive(routers(a_router, b_router), async {
+    Box::pin(drive(routers(a_router, b_router), async {
         let (linked, arrival) = futures::join!(b.link(a_name), incoming.accept());
         let mut at_b = linked.unwrap();
         let (_, mut at_a) = arrival.unwrap();
@@ -608,7 +608,7 @@ async fn routing_deadline_allows_idle_gossip_and_reuse() {
                 "idle connections remain reusable"
             );
         }
-    })
+    }))
     .await;
 }
 

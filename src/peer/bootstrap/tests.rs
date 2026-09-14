@@ -137,7 +137,7 @@ fn retry_then_join<B: Bookmark>(
             assert_eq!(stored.stores.load(Ordering::Relaxed), 1);
             let bytes = stored.bytes.lock().unwrap();
             let record = crate::bookmark::format::decode(bytes.as_ref().unwrap()).unwrap();
-            assert!(record.contains_key(&provider.network()));
+            assert!(record.contains_network(provider.network()));
         }
 
         // Exercise the retained observer and identity after the bootstrap,

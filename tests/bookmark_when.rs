@@ -9,6 +9,8 @@
 //! The property compares their histories throughout a generated peer lifetime.
 
 mod common;
+#[path = "bookmark_when/reclamation.rs"]
+mod reclamation;
 
 use std::convert::Infallible;
 use std::sync::{Arc, Mutex};
@@ -26,20 +28,18 @@ const LINK_BUF: usize = 8 * 1024;
 /// One observed bookmark I/O, in call order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Io {
+    /// Open the current stored record.
     Read,
+    /// Replace the record with a complete checkpoint.
     Write,
 }
 
-/// A faithful in-memory [`Bookmark`] that logs the *timing* of every read and
-/// write.
-///
-/// `store` is the durable "disk" — the raw framed bytes the crate serializes,
-/// or `None` when nothing has been written yet; `log` records each call. Both
-/// are behind [`Arc`]s so the test inspects them while the peer holds the
-/// `Probe`. The crate owns the format, so the `Probe` only shuttles bytes; it
-/// never fails, so call counts are exact.
+/// Reliable storage and an I/O history that survive the peer being tested.
+#[derive(Clone, Default)]
 struct Probe {
+    /// The complete stored record, shared across simulated restarts.
     store: Arc<Mutex<Option<Vec<u8>>>>,
+    /// Storage calls in the order they occurred.
     log: Arc<Mutex<Vec<Io>>>,
 }
 
@@ -79,18 +79,15 @@ struct Instrument {
     log: Arc<Mutex<Vec<Io>>>,
 }
 
+/// Observe bookmark I/O at specific lifecycle boundaries.
 impl Instrument {
     /// A fresh, *pristine* seed with a `Probe` attached. A pristine seed has no
     /// identity worth recording, so the attach itself drives no I/O — the read
     /// is deferred to the first session that needs it.
     fn pristine_seed() -> Self {
         block_on(async {
-            let log = Arc::new(Mutex::new(Vec::new()));
-            let store = Arc::new(Mutex::new(None));
-            let probe = Probe {
-                store,
-                log: Arc::clone(&log),
-            };
+            let probe = Probe::default();
+            let log = Arc::clone(&probe.log);
             let subject = Peer::<u64>::seed()
                 .sync_window_floor()
                 .bookmark(probe)
@@ -242,6 +239,7 @@ struct Model {
     pending: bool,
 }
 
+/// Predict when local progress requires bookmark I/O.
 impl Model {
     /// A pristine seed: never loaded, and a checkpoint pending — its first
     /// session will record its initial identity.
@@ -361,12 +359,8 @@ struct Birth {
 /// Bring a bookmarked subject into being by the given `origin`, asserting the
 /// attach-time I/O each origin promises.
 async fn birth(origin: Origin) -> Birth {
-    let log = Arc::new(Mutex::new(Vec::new()));
-    let store = Arc::new(Mutex::new(None));
-    let probe = Probe {
-        store,
-        log: Arc::clone(&log),
-    };
+    let probe = Probe::default();
+    let log = Arc::clone(&probe.log);
     match origin {
         Origin::Seed => {
             let subject = Peer::<u64>::seed()
@@ -573,6 +567,7 @@ struct World {
     next_msg: u64,
 }
 
+/// Drive lifecycle operations and compare storage activity with the model.
 impl World {
     /// Apply one operation, returning the I/O it was *expected* to drive (per
     /// the model) for the caller to check against the probe. `None` means the

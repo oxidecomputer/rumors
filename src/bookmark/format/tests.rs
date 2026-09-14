@@ -1,27 +1,18 @@
-//! The frame is self-inverse and self-checking: it round-trips any payload,
-//! rejects every single-byte corruption and every truncation, parses whole
-//! under a rumors-blind CBOR reader, and pins byte-for-byte.
+//! Integrity protects the version and payload, independent of envelope spelling.
+//! Round trips, malformed fields, truncation, and byte pins check both CBOR layers.
 
-use std::collections::BTreeMap;
-
-use before::Clock;
+use crate::tags::{PARTY_TAG, VERSION_TAG};
+use crate::tree::mirror::cbor::{MAJOR_ARRAY, MAJOR_BSTR, MAJOR_TAG, MAJOR_UINT};
+use before::{Clock, Party, Version};
+use ciborium::value::Value;
 use proptest::prelude::*;
 
 use super::*;
 use crate::Network;
 
-/// A fixed, non-trivial record: one network mapped to a seed clock and two of
-/// its forks, with concurrent ticks synced so the clocks carry nested,
-/// non-degenerate versions.
-///
-/// The ticks are load-bearing for the format pin: an all-empty record's
-/// version payloads are the two-bit empty coding, which pins nothing of the
-/// version-2 skyline payload bytes — the nested versions here put real
-/// topology and delta codes into the pinned frame. Deterministic —
-/// `Network::from_bytes` and `Clock::seed`/`fork`/`tick`/`sync` draw no
-/// randomness — so anything derived from it (a snapshot, a hash) is stable
-/// across runs.
-fn sample_record() -> BTreeMap<Network, Vec<Clock>> {
+/// A deterministic network with several identities and a nested write frontier.
+/// Concurrent writes exercise real version topology in the format snapshot.
+fn sample_record() -> Record {
     let network = Network::from_bytes([0x5a; 16]);
     let mut clock = Clock::seed();
     let mut first = clock.fork();
@@ -29,22 +20,161 @@ fn sample_record() -> BTreeMap<Network, Vec<Clock>> {
     clock.tick();
     first.tick();
     first.tick();
-    clock.sync(&mut first).expect("forked clocks are disjoint");
-    BTreeMap::from([(network, vec![clock, first, second])])
+    let mut entry = NetworkRecord::default();
+    for clock in [clock, first, second] {
+        let (party, version) = clock.into_parts();
+        entry.record(&party, &version);
+    }
+    let mut record = Record::default();
+    assert!(record.networks.insert(network, entry));
+    record
 }
 
-/// Two records are equal when their CBOR encodings are: a [`Clock`]
-/// is `!Clone` and exposes no value equality, so the bytes are the oracle.
-fn record_eq(a: &BTreeMap<Network, Vec<Clock>>, b: &BTreeMap<Network, Vec<Clock>>) -> bool {
-    let encode = |record: &BTreeMap<Network, Vec<Clock>>| {
-        let mut buf = Vec::new();
-        ciborium::ser::into_writer(record, &mut buf).unwrap();
-        buf
+/// Compare decoded values and both recency orders independently of the encoder.
+fn record_eq(a: &Record, b: &Record) -> bool {
+    a.networks.len() == b.networks.len()
+        && a.networks
+            .iter()
+            .zip(b.networks.iter())
+            .all(|((ka, a), (kb, b))| {
+                ka == kb && a.written == b.written && a.identities == b.identities
+            })
+}
+
+/// Render a CBOR header with either its shortest or its eight-byte argument.
+fn alternate_head(out: &mut Vec<u8>, major: u8, value: u64, wide: bool) {
+    if wide {
+        out.push((major << 5) | 27);
+        out.extend_from_slice(&value.to_be_bytes());
+    } else {
+        cbor::write_head(out, major, value);
+    }
+}
+
+/// Render test values using independent choices of legal CBOR spellings.
+fn alternate_cbor(value: &Value, out: &mut Vec<u8>, indefinite: bool, wide: bool, chunk: usize) {
+    match value {
+        Value::Array(items) => {
+            if indefinite {
+                out.push(0x9f);
+            } else {
+                alternate_head(out, MAJOR_ARRAY, items.len() as u64, wide);
+            }
+            for item in items {
+                alternate_cbor(item, out, indefinite, wide, chunk);
+            }
+            if indefinite {
+                out.push(0xff);
+            }
+        }
+        Value::Bytes(bytes) => {
+            if indefinite {
+                out.push(0x5f);
+                for bytes in bytes.chunks(chunk) {
+                    alternate_head(out, MAJOR_BSTR, bytes.len() as u64, wide);
+                    out.extend_from_slice(bytes);
+                }
+                out.push(0xff);
+            } else {
+                alternate_head(out, MAJOR_BSTR, bytes.len() as u64, wide);
+                out.extend_from_slice(bytes);
+            }
+        }
+        Value::Tag(tag, inner) => {
+            alternate_head(out, MAJOR_TAG, *tag, wide);
+            alternate_cbor(inner, out, indefinite, wide, chunk);
+        }
+        Value::Integer(value) => {
+            alternate_head(out, MAJOR_UINT, (*value).try_into().unwrap(), wide);
+        }
+        _ => {
+            unreachable!("bookmark test values contain arrays, tags, bytes, and positive integers")
+        }
+    }
+}
+
+/// Access the envelope's fields when constructing a malformed test value.
+fn envelope_fields(value: &mut Value) -> &mut Vec<Value> {
+    let Value::Tag(_, inner) = value else {
+        unreachable!()
     };
-    encode(a) == encode(b)
+    let Value::Array(fields) = inner.as_mut() else {
+        unreachable!()
+    };
+    fields
 }
 
 proptest! {
+    /// Each network consumes exactly three fields and its own closing boundary.
+    #[test]
+    fn network_fields_have_exact_arity(indefinite: bool, fields in 0usize..7) {
+        let encoded = encode(&sample_record());
+        let mut value: Value = from_slice(&unframe(&encoded).unwrap()).unwrap();
+        let Value::Array(networks) = &mut value else { unreachable!() };
+        let Value::Array(entry) = &mut networks[0] else { unreachable!() };
+        entry.resize(fields, Value::Null);
+        let mut payload = Vec::new();
+        // Extra values are deliberately CBOR arrays so they could be mistaken
+        // for another network if the tuple's boundary were not checked.
+        for field in entry.iter_mut().skip(3) { *field = Value::Array(Vec::new()); }
+        alternate_cbor(&value, &mut payload, indefinite, false, 3);
+        prop_assert_eq!(decode(&frame(&payload)).is_ok(), fields == 3);
+    }
+
+    /// Legal CBOR spellings preserve identities, frontiers, and recency; every
+    /// truncated spelling is rejected even when its frame has a valid hash.
+    #[test]
+    fn alternate_cbors_decode_without_weakening_validation(
+        indefinite in any::<bool>(), wide in any::<bool>(), chunk in 1usize..20,
+        cut in any::<usize>(),
+    ) {
+        let expected = sample_record();
+        let file = encode(&expected);
+        let value: Value = from_slice(&unframe(&file).unwrap()).unwrap();
+        let mut payload = Vec::new();
+        alternate_cbor(&value, &mut payload, indefinite, wide, chunk);
+        // The generic reader independently confirms the alternate spelling.
+        let parsed: Value = ciborium::de::from_reader(payload.as_slice()).unwrap();
+        prop_assert_eq!(parsed, value);
+        prop_assert!(record_eq(&decode(&frame(&payload)).unwrap(), &expected));
+        let cut = cut % payload.len();
+        prop_assert!(decode(&frame(&payload[..cut])).is_err());
+    }
+
+    /// Trailing bytes are rejected at the end of definite and indefinite payloads.
+    #[test]
+    fn trailing_payload_bytes_are_rejected(indefinite in any::<bool>(), suffix in proptest::collection::vec(any::<u8>(), 1..30)) {
+        let value: Value = from_slice(&unframe(&encode(&sample_record())).unwrap()).unwrap();
+        let mut payload = Vec::new();
+        alternate_cbor(&value, &mut payload, indefinite, true, 2);
+        payload.extend_from_slice(&suffix);
+        prop_assert!(matches!(decode(&frame(&payload)), Err(FormatError::Record(_))), "trailing payload bytes must be rejected");
+    }
+
+    /// Every container, tag, and byte-string boundary rejects the wrong CBOR type.
+    #[test]
+    fn record_structure_is_checked_at_every_boundary(boundary in 0usize..8) {
+        let paths: &[&[usize]] = &[
+            &[], &[0], &[0, 0], &[0, 1], &[0, 1, 0],
+            &[0, 2], &[0, 2, 0], &[0, 2, 0, 0],
+        ];
+        let file = encode(&sample_record());
+        let mut payload: Value = from_slice(&unframe(&file).unwrap()).unwrap();
+        let mut node = &mut payload;
+        for &index in paths[boundary] {
+            node = match node {
+                Value::Array(items) => &mut items[index],
+                Value::Tag(_, inner) => inner,
+                _ => unreachable!("each path names a record field"),
+            };
+        }
+        *node = Value::Bool(false);
+        let mut bytes = Vec::new();
+        ciborium::ser::into_writer(&payload, &mut bytes).unwrap();
+        prop_assert!(matches!(decode(&frame(&bytes)), Err(FormatError::Record(_))),
+            "a boolean cannot replace a record field");
+    }
+
     /// Framing is invertible: `unframe` recovers exactly the bytes `frame`
     /// wrapped, for any payload.
     #[test]
@@ -53,29 +183,60 @@ proptest! {
         prop_assert_eq!(unframe(&framed).unwrap(), payload.as_slice());
     }
 
-    /// A frame always opens with the self-described CBOR tag, the three-item
-    /// frame array, and the format-version item, whatever the payload.
+    /// Equivalent outer CBOR spellings preserve the same checksum and payload.
     #[test]
-    fn frame_carries_the_tag(payload: Vec<u8>) {
-        let framed = frame(&payload);
-        let mut opening = SELF_DESCRIBED_HEAD.to_vec();
-        opening.push(FRAME_ARRAY);
-        cbor::write_head(&mut opening, MAJOR_UINT, BOOKMARK_FORMAT_VERSION);
-        prop_assert!(framed.starts_with(&opening));
+    fn envelope_spellings_preserve_integrity(
+        payload: Vec<u8>, indefinite: bool, wide: bool, chunk in 1usize..32,
+        cut in any::<usize>(),
+    ) {
+        let value: Value = from_slice(&frame(&payload)).unwrap();
+        let mut encoded = Vec::new();
+        alternate_cbor(&value, &mut encoded, indefinite, wide, chunk);
+        prop_assert_eq!(unframe(&encoded).unwrap(), payload);
+        prop_assert!(unframe(&encoded[..cut % encoded.len()]).is_err());
     }
 
-    /// Flipping any one byte of the frame (opening, version, hash, payload
-    /// headers, or payload) makes it fail to validate: nothing corrupt is
-    /// ever accepted.
+    /// Changing any payload or digest byte is rejected even with alternate envelope headers.
     #[test]
-    fn any_single_byte_corruption_is_rejected(
-        payload in prop::collection::vec(any::<u8>(), 1..64),
-        index: prop::sample::Index,
+    fn changed_contents_fail_integrity(
+        payload in prop::collection::vec(any::<u8>(), 1..128),
+        digest: bool, index in any::<usize>(), mask in 1u8..=255,
+        indefinite: bool, wide: bool,
     ) {
-        let mut framed = frame(&payload);
-        let i = index.index(framed.len());
-        framed[i] ^= 0xff;
-        prop_assert!(unframe(&framed).is_err());
+        let mut value: Value = from_slice(&frame(&payload)).unwrap();
+        let fields = envelope_fields(&mut value);
+        let bytes = if digest { &mut fields[1] } else {
+            let Value::Tag(_, inner) = &mut fields[2] else { unreachable!() };
+            inner
+        };
+        let Value::Bytes(bytes) = bytes else { unreachable!() };
+        let index = index % bytes.len();
+        bytes[index] ^= mask;
+        let mut encoded = Vec::new();
+        alternate_cbor(&value, &mut encoded, indefinite, wide, 3);
+        prop_assert!(matches!(unframe(&encoded), Err(FormatError::HashMismatch)));
+    }
+
+    /// The envelope consumes exactly its three fields, including an indefinite array's end.
+    #[test]
+    fn envelope_fields_have_exact_arity(indefinite: bool, fields in 0usize..7) {
+        let mut value: Value = from_slice(&frame(b"payload")).unwrap();
+        envelope_fields(&mut value).resize(fields, Value::Array(Vec::new()));
+        let mut encoded = Vec::new();
+        alternate_cbor(&value, &mut encoded, indefinite, false, 3);
+        prop_assert_eq!(unframe(&encoded).is_ok(), fields == 3);
+    }
+
+    /// The self-described and embedded-item tags are required, regardless of their encoding.
+    #[test]
+    fn envelope_tags_are_required(outer: bool, missing: bool, wrong in any::<u64>()) {
+        let mut value: Value = from_slice(&frame(b"payload")).unwrap();
+        let tagged = if outer { &mut value } else { &mut envelope_fields(&mut value)[2] };
+        let Value::Tag(tag, inner) = tagged else { unreachable!() };
+        if missing { *tagged = *inner.clone(); }
+        else { *tag = if wrong == *tag { wrong ^ 1 } else { wrong }; }
+        prop_assert!(matches!(unframe(&to_vec(&value)), Err(FormatError::NotABookmark { .. })),
+            "both envelope tags are required");
     }
 
     /// Cutting a frame anywhere before its end fails to validate — a partial
@@ -102,22 +263,25 @@ proptest! {
         framed.push(extra);
         let rejected = matches!(
             unframe(&framed),
-            Err(FormatError::NotABookmark { defect: FrameDefect::TrailingBytes }),
+            Err(FormatError::NotABookmark { .. }),
         );
         prop_assert!(rejected);
     }
 
     /// A record survives a serialize/validate/deserialize round trip unchanged,
-    /// for an arbitrary number of forked clocks under an arbitrary network id.
+    /// for an arbitrary number of identities under an arbitrary network id.
     #[test]
     fn record_round_trips(network: [u8; 16], extra_forks in 0usize..12) {
-        let mut clock = Clock::seed();
-        let mut clocks: Vec<Clock> = Vec::new();
+        let (mut party, mut version) = Clock::seed().into_parts();
+        let mut entry = NetworkRecord::default();
         for _ in 0..extra_forks {
-            clocks.push(clock.fork());
+            let fork = party.fork();
+            version.tick(&fork);
+            entry.record(&fork, &version);
         }
-        clocks.push(clock);
-        let record = BTreeMap::from([(Network::from_bytes(network), clocks)]);
+        entry.record(&party, &version);
+        let mut record = Record::default();
+        assert!(record.networks.insert(Network::from_bytes(network), entry));
 
         let decoded = decode(&encode(&record)).expect("a freshly encoded record decodes");
         prop_assert!(record_eq(&decoded, &record));
@@ -127,9 +291,9 @@ proptest! {
 /// An empty record round-trips to an empty record, distinct from "absent".
 #[test]
 fn empty_record_round_trips() {
-    let empty = BTreeMap::new();
+    let empty = Record::default();
     let decoded = decode(&encode(&empty)).expect("the empty record decodes");
-    assert!(decoded.is_empty());
+    assert!(decoded.networks.is_empty());
 }
 
 /// Foreign leading bytes are rejected as [`FormatError::NotABookmark`], not
@@ -141,17 +305,13 @@ fn foreign_magic_is_rejected() {
     framed[0] ^= 0xff;
     assert!(matches!(
         unframe(&framed),
-        Err(FormatError::NotABookmark {
-            defect: FrameDefect::SelfDescribedTag
-        })
+        Err(FormatError::NotABookmark { .. })
     ));
 
     let ascii = b"RUMORSBOOKMARKISH TEXT, NOT CBOR";
     assert!(matches!(
         unframe(ascii),
-        Err(FormatError::NotABookmark {
-            defect: FrameDefect::SelfDescribedTag
-        })
+        Err(FormatError::NotABookmark { .. })
     ));
 }
 
@@ -182,123 +342,6 @@ fn prior_versions_are_rejected() {
     }
 }
 
-/// A non-shortest-form spelling of the format version is rejected as a shape
-/// defect even though its value matches: the frame is deterministic-encoding
-/// CBOR, and a wide header is a spelling this codec never writes.
-#[test]
-fn non_canonical_version_spelling_is_rejected() {
-    // Rebuild a frame exactly as `frame_as` would, but spell the version as
-    // a two-byte header 0x18 0x05, hashing over that spelling so only the
-    // spelling check can reject it.
-    let payload = b"payload";
-    let mut covered = vec![0x18, u8::try_from(BOOKMARK_FORMAT_VERSION).unwrap()];
-    let version_item_len = covered.len();
-    covered.extend_from_slice(&EMBEDDED_CBOR);
-    cbor::write_head(&mut covered, MAJOR_BSTR, payload.len() as u64);
-    covered.extend_from_slice(payload);
-    let hash = Sha3_256::digest(&covered);
-
-    let mut framed = SELF_DESCRIBED_HEAD.to_vec();
-    framed.push(FRAME_ARRAY);
-    framed.extend_from_slice(&covered[..version_item_len]);
-    framed.extend_from_slice(&INTEGRITY_HEAD);
-    framed.extend_from_slice(&hash);
-    framed.extend_from_slice(&covered[version_item_len..]);
-
-    assert!(matches!(
-        unframe(&framed),
-        Err(FormatError::NotABookmark {
-            defect: FrameDefect::FormatVersion
-        }),
-    ));
-}
-
-/// The encoded length of the format-version item in a frame this codec
-/// writes: the offset arithmetic below computes it rather than
-/// hardcoding it, so a version bump cannot silently skew the flips.
-fn version_item_len() -> usize {
-    let mut version_item = Vec::new();
-    cbor::write_head(&mut version_item, MAJOR_UINT, BOOKMARK_FORMAT_VERSION);
-    version_item.len()
-}
-
-/// Corrupting the integrity item's header is rejected as the typed
-/// [`FrameDefect::Integrity`] shape defect, distinct from a hash
-/// mismatch: the header bytes are part of the frame's fixed spelling.
-#[test]
-fn corrupt_integrity_head_is_an_integrity_defect() {
-    let mut framed = frame(b"payload");
-    let integrity_at = SELF_DESCRIBED_HEAD.len() + 1 + version_item_len();
-    assert_eq!(
-        framed[integrity_at], INTEGRITY_HEAD[0],
-        "the computed offset lands on the integrity head"
-    );
-    framed[integrity_at] ^= 0xff;
-    assert!(matches!(
-        unframe(&framed),
-        Err(FormatError::NotABookmark {
-            defect: FrameDefect::Integrity
-        }),
-    ));
-}
-
-/// Corrupting the payload item's tag byte is rejected as the typed
-/// [`FrameDefect::PayloadTag`] shape defect: the embedded-CBOR tag is
-/// part of the frame's fixed spelling, checked before the hash.
-#[test]
-fn corrupt_payload_tag_is_a_payload_tag_defect() {
-    let mut framed = frame(b"payload");
-    let payload_tag_at =
-        SELF_DESCRIBED_HEAD.len() + 1 + version_item_len() + INTEGRITY_HEAD.len() + HASH_LEN;
-    assert_eq!(
-        framed[payload_tag_at], EMBEDDED_CBOR[0],
-        "the computed offset lands on the payload tag"
-    );
-    framed[payload_tag_at] ^= 0xff;
-    assert!(matches!(
-        unframe(&framed),
-        Err(FormatError::NotABookmark {
-            defect: FrameDefect::PayloadTag
-        }),
-    ));
-}
-
-/// A non-shortest-form spelling of the payload byte-string length is
-/// rejected as the typed [`FrameDefect::PayloadByteString`] defect.
-///
-/// The value matches; only the spelling is wrong: the frame is
-/// deterministic-encoding CBOR, and a wide header is a spelling this
-/// codec never writes.
-#[test]
-fn non_canonical_payload_spelling_is_rejected() {
-    // Rebuild a frame exactly as `frame_as` would, but spell the 7-byte
-    // payload's byte-string head as the widened two-byte form 0x58 0x07,
-    // hashing over that spelling so only the spelling check can reject
-    // it.
-    let payload = b"payload";
-    let mut covered = Vec::new();
-    cbor::write_head(&mut covered, MAJOR_UINT, BOOKMARK_FORMAT_VERSION);
-    let version_item_len = covered.len();
-    covered.extend_from_slice(&EMBEDDED_CBOR);
-    covered.extend_from_slice(&[0x58, u8::try_from(payload.len()).unwrap()]);
-    covered.extend_from_slice(payload);
-    let hash = Sha3_256::digest(&covered);
-
-    let mut framed = SELF_DESCRIBED_HEAD.to_vec();
-    framed.push(FRAME_ARRAY);
-    framed.extend_from_slice(&covered[..version_item_len]);
-    framed.extend_from_slice(&INTEGRITY_HEAD);
-    framed.extend_from_slice(&hash);
-    framed.extend_from_slice(&covered[version_item_len..]);
-
-    assert!(matches!(
-        unframe(&framed),
-        Err(FormatError::NotABookmark {
-            defect: FrameDefect::PayloadByteString
-        }),
-    ));
-}
-
 /// A frame whose payload no longer matches its stored hash is rejected as
 /// corrupt.
 #[test]
@@ -319,32 +362,112 @@ fn short_input_is_truncated() {
     ));
 }
 
-/// An intact frame whose payload item holds an untagged clock is a
-/// [`RecordDefect`], not corruption: the hash passed, so the defect class is
-/// [`FormatError::Record`].
+/// A missing atom tag is a record defect even when the integrity hash is valid.
 #[test]
-fn untagged_clock_is_a_record_defect() {
-    let clock = Clock::seed();
-    // The map `encode` writes, minus the clock's tag.
-    let map = ciborium::value::Value::Map(vec![(
-        ciborium::value::Value::Bytes(vec![0x5a; 16]),
-        ciborium::value::Value::Array(vec![ciborium::value::Value::Bytes(clock.encode())]),
-    )]);
-    let mut payload = Vec::new();
-    ciborium::ser::into_writer(&map, &mut payload).unwrap();
+fn untagged_identity_is_a_record_defect() {
+    let record = sample_record();
+    let file = encode(&record);
+    let mut payload: Value = from_slice(&unframe(&file).unwrap()).unwrap();
+    let Value::Array(networks) = &mut payload else {
+        unreachable!()
+    };
+    let Value::Array(fields) = &mut networks[0] else {
+        unreachable!()
+    };
+    let Value::Array(identities) = &mut fields[2] else {
+        unreachable!()
+    };
+    let Value::Tag(_, inner) = &identities[0] else {
+        unreachable!()
+    };
+    identities[0] = *inner.clone();
+    let mut bytes = Vec::new();
+    ciborium::ser::into_writer(&payload, &mut bytes).unwrap();
     assert!(matches!(
-        decode(&frame(&payload)),
-        Err(FormatError::Record(RecordDefect::ClockUntagged)),
+        decode(&frame(&bytes)),
+        Err(FormatError::Record(_))
     ));
+}
+
+/// Duplicate networks cannot introduce independently stale recovery requirements.
+#[test]
+fn duplicate_networks_are_rejected() {
+    let record = sample_record();
+    let file = encode(&record);
+    let mut payload: Value = from_slice(&unframe(&file).unwrap()).unwrap();
+    let Value::Array(networks) = &mut payload else {
+        unreachable!()
+    };
+    networks.push(networks[0].clone());
+    let mut bytes = Vec::new();
+    ciborium::ser::into_writer(&payload, &mut bytes).unwrap();
+    assert!(matches!(
+        decode(&frame(&bytes)),
+        Err(FormatError::Record(_))
+    ));
+}
+
+/// Large identity encodings survive the Serde round trip.
+#[test]
+fn large_identity_round_trips() {
+    let mut identity = Party::seed();
+    for _ in 0..8192 {
+        drop(identity.fork());
+    }
+    assert!(identity.encode().len() > 1024);
+    let mut network = NetworkRecord::default();
+    network.record(&identity, &Version::new());
+    let mut expected = Record::default();
+    assert!(
+        expected
+            .networks
+            .insert(Network::from_bytes([0x42; 16]), network)
+    );
+    let file = encode(&expected);
+    assert!(record_eq(&decode(&file).unwrap(), &expected));
+}
+
+/// Malformed identity and frontier encodings are rejected inside an intact frame.
+#[test]
+fn invalid_atoms_are_rejected() {
+    let file = encode(&sample_record());
+    let payload: Value = from_slice(&unframe(&file).unwrap()).unwrap();
+    for frontier in [false, true] {
+        let mut malformed = payload.clone();
+        let Value::Array(networks) = &mut malformed else {
+            unreachable!()
+        };
+        let Value::Array(fields) = &mut networks[0] else {
+            unreachable!()
+        };
+        let atom = if frontier {
+            &mut fields[1]
+        } else {
+            let Value::Array(identities) = &mut fields[2] else {
+                unreachable!()
+            };
+            &mut identities[0]
+        };
+        let Value::Tag(_, bytes) = atom else {
+            unreachable!()
+        };
+        **bytes = Value::Bytes(Vec::new());
+        let mut encoded = Vec::new();
+        ciborium::ser::into_writer(&malformed, &mut encoded).unwrap();
+        let Err(error) = decode(&frame(&encoded)) else {
+            panic!("an empty atom is invalid");
+        };
+        assert!(matches!(error, FormatError::Record(_)));
+    }
 }
 
 /// The whole file parses as exactly one CBOR item under a reader that knows
 /// nothing of rumors.
 ///
-/// Unwrapping the standard tags (55799, then 24) and the clock tag exposes
-/// the record's full structure, with no bytes outside CBOR items at either
-/// level. This is the tamper-evident form of the "fully CBOR-parseable on
-/// disk" promise.
+/// Unwrapping the standard tags (55799, then 24) and the identity and version
+/// tags exposes the record's full structure, with no bytes outside CBOR items
+/// at either level. This is the tamper-evident form of the "fully
+/// CBOR-parseable on disk" promise.
 #[test]
 fn file_is_rumors_blind_cbor() {
     use ciborium::value::Value;
@@ -378,19 +501,24 @@ fn file_is_rumors_blind_cbor() {
     let record: Value = ciborium::de::from_reader(&mut inner).expect("the payload parses as CBOR");
     assert!(inner.is_empty(), "no bytes outside the record item");
 
-    let Value::Map(entries) = record else {
-        panic!("the record is not a map");
+    let Value::Array(entries) = record else {
+        panic!("the record is not an array");
     };
-    for (key, clocks) in entries {
-        assert!(matches!(key, Value::Bytes(bytes) if bytes.len() == 16));
-        let Value::Array(clocks) = clocks else {
-            panic!("a record entry is not an array");
+    for entry in entries {
+        let Value::Array(fields) = entry else {
+            panic!("the network is not an array")
         };
-        for clock in clocks {
+        let [key, written, identities]: [Value; 3] = fields.try_into().unwrap();
+        assert!(matches!(key, Value::Bytes(bytes) if bytes.len() == 16));
+        assert!(
+            matches!(written, Value::Tag(VERSION_TAG, inner) if matches!(*inner, Value::Bytes(_)))
+        );
+        let Value::Array(identities) = identities else {
+            panic!("identities are not an array")
+        };
+        for identity in identities {
             assert!(
-                matches!(clock, Value::Tag(tag, inner)
-                    if tag == crate::tags::CLOCK_TAG && matches!(*inner, Value::Bytes(_))),
-                "every stored clock is a clock-tagged byte string",
+                matches!(identity, Value::Tag(PARTY_TAG, inner) if matches!(*inner, Value::Bytes(_)))
             );
         }
     }
@@ -402,19 +530,14 @@ fn file_is_rumors_blind_cbor() {
 /// annotation change leaves byte-identical — followed by a decoded,
 /// annotated reading of the same bytes in the wire captures' idiom.
 ///
-/// The integrity digest is sliced from the frame's own bytes, never
-/// recomputed, so the annotation reads what the pin holds; `unframe` has
-/// already verified it against the payload.
+/// The digest is decoded from the frame rather than recomputed, so the
+/// annotation shows what storage holds. `unframe` verifies it first.
 fn annotated(frame: &[u8]) -> String {
     use crate::tree::mirror::cbor::{TAG_EMBEDDED_ITEM, TAG_SELF_DESCRIBED};
     use std::fmt::Write;
     let record = decode(frame).expect("the pinned frame decodes");
     let payload = unframe(frame).expect("the pinned frame unframes");
-    // Fixed offsets: the version head is a single byte for any version
-    // below 24, and everything before the digest is a pinned spelling.
-    const { assert!(BOOKMARK_FORMAT_VERSION < 24, "the version head is one byte") };
-    let hash_at = SELF_DESCRIBED_HEAD.len() + 1 + 1 + INTEGRITY_HEAD.len();
-    let integrity = &frame[hash_at..hash_at + HASH_LEN];
+    let Required(Complete((_, integrity, _))) = from_slice::<Envelope>(frame).unwrap();
     let mut out = format!("{}\n\n", hex::encode(frame));
     writeln!(out, "{TAG_SELF_DESCRIBED}( / self-described CBOR /").unwrap();
     writeln!(out, "  [").unwrap();
@@ -425,7 +548,7 @@ fn annotated(frame: &[u8]) -> String {
     .unwrap();
     writeln!(
         out,
-        "    h'{}' / integrity: SHA3-256 of the embedded record /",
+        "    h'{}' / integrity: SHA3-256 of the version and payload items /",
         hex::encode(integrity)
     )
     .unwrap();
@@ -435,75 +558,66 @@ fn annotated(frame: &[u8]) -> String {
         payload.len()
     )
     .unwrap();
-    writeln!(out, "      {{ / {} network(s) /", record.len()).unwrap();
-    for (network, clocks) in &record {
+    writeln!(
+        out,
+        "      [ / {} network(s), newest first /",
+        record.networks.len()
+    )
+    .unwrap();
+    for (network, entry) in record.networks.iter() {
+        writeln!(out, "        [").unwrap();
         writeln!(
             out,
-            "        h'{}' / network / =>",
+            "          h'{}' / network /",
             hex::encode(network.to_bytes())
         )
         .unwrap();
-        writeln!(out, "          [ / {} clock(s) /", clocks.len()).unwrap();
-        for clock in clocks {
+        writeln!(
+            out,
+            "          {VERSION_TAG}(h'{}') / shared write frontier /",
+            hex::encode(entry.written.encode())
+        )
+        .unwrap();
+        writeln!(
+            out,
+            "          [ / {} identity(s), oldest first /",
+            entry.identities.len()
+        )
+        .unwrap();
+        for identity in &entry.identities {
             writeln!(
                 out,
-                "            {}(h'{}') / clock /",
-                crate::tags::CLOCK_TAG,
-                hex::encode(clock.encode())
+                "            {PARTY_TAG}(h'{}') / identity /",
+                hex::encode(identity.encode())
             )
             .unwrap();
         }
         writeln!(out, "          ]").unwrap();
+        writeln!(out, "        ]").unwrap();
     }
-    writeln!(out, "      }}").unwrap();
+    writeln!(out, "      ]").unwrap();
     writeln!(out, "    >>)").unwrap();
     writeln!(out, "  ]").unwrap();
     write!(out, ")").unwrap();
     out
 }
 
-/// The encoded empty record pins byte-for-byte.
-///
-/// The snapshot's first line is the frame's exact hex — the
-/// self-described frame over the embedded CBOR encoding of an empty
-/// map — followed by [`annotated`]'s decoded reading of the same bytes.
-///
-/// A change to the hex line is a deliberate on-disk format change, like
-/// the wire-format snapshots; an annotation-only change must preserve it
-/// byte-identically.
+/// The empty frame pins the format, including the empty network array.
 #[test]
 fn pins_the_empty_frame() {
-    insta::assert_snapshot!("frame_empty", annotated(&encode(&BTreeMap::new())));
+    insta::assert_snapshot!("frame_empty", annotated(&encode(&Record::default())));
 }
 
-/// The encoded non-trivial record pins byte-for-byte, so format drift cannot
-/// hide in a populated payload (multiple clocks under a network id) the way it
-/// could in an empty one.
-///
-/// The snapshot's first line is the frame's exact hex (the pin); the rest
-/// is [`annotated`]'s decoded reading of the same bytes.
-///
-/// The pinned bytes are fixture-derived: a re-accept whose only cause is a
-/// deliberate [`sample_record`] change — the format attested unchanged by the
-/// untouched `frame_empty` pin and the round-trip/corruption suite in the
-/// same commit — is a sanctioned *fixture re-pin*, not a format change. A
-/// snapshot tamper sweep attributes this pin's history to the fixture, never
-/// to a protocol or format revision (the sanctioned exception is also on the
-/// snapshot roster in `AGENTS.md`).
+/// A populated frame also pins nested version and identity encodings.
 #[test]
 fn pins_a_non_trivial_frame() {
     insta::assert_snapshot!("frame_non_trivial", annotated(&encode(&sample_record())));
 }
 
-/// Pins the stated ingress boundary: the embedded payload's spelling is
-/// not ingress-judged — the hash binds bytes, the frame binds shape.
-///
-/// A payload spelled as an indefinite-length map (a spelling this codec
-/// never writes) decodes to the empty record. Flipping this to rejection
-/// is a deliberate contract change, not drift.
+/// The payload accepts indefinite arrays; its integrity hash still binds every
+/// byte.
 #[test]
-fn indefinite_length_payload_map_is_not_spelling_judged() {
-    let record =
-        decode(&frame(&[0xbf, 0xff])).expect("the payload's spelling is not ingress-judged");
-    assert!(record.is_empty());
+fn indefinite_length_payload_array_is_accepted() {
+    let record = decode(&frame(&[0x9f, 0xff])).expect("a valid empty array");
+    assert!(record.networks.is_empty());
 }

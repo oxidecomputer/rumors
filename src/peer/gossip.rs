@@ -38,7 +38,7 @@ use crate::{
     },
 };
 
-use super::{Inner, Peer, bootstrap::Bootstrap};
+use super::{BootstrapReservations, Inner, Peer, bootstrap::Bootstrap};
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -308,6 +308,11 @@ impl<T> Peer<T, NoBookmark> {
         self,
         bookmark: B,
     ) -> Result<Peer<T, B>, Unbookmarked<T, B>> {
+        let size_limit = self
+            .bookmark
+            .try_lock()
+            .expect("a Peer has no running sessions")
+            .size_limit();
         let Peer {
             network,
             window,
@@ -328,6 +333,8 @@ impl<T> Peer<T, NoBookmark> {
             codec,
             observe,
         };
+
+        let peer = peer.bookmark_size_limit(size_limit);
 
         // A pristine seed has no identity worth recording yet; persisting it
         // would only force a write the lazy load already defers. Anything the
@@ -356,7 +363,8 @@ impl<T> Peer<T, NoBookmark> {
                     bookmark: Arc::new(Mutex::new(Bookmarked::new(NoBookmark))),
                     codec: peer.codec,
                     observe: peer.observe,
-                },
+                }
+                .bookmark_size_limit(size_limit),
                 error,
             }),
         }
@@ -492,12 +500,16 @@ impl<T, B: Bookmark> Peer<T, B> {
         let loaded = bookmark.ensure_loaded().await?;
 
         let mut persist = false;
-        Inner::update_party(&self.inner, |party, tree| {
-            let version = tree.latest();
-            if !loaded.is_current(party, version) {
-                // The suppression token becomes current only after persistence
-                // succeeds; a failed write must be retried.
-                loaded.reclaim(self.network, party, version);
+        Inner::update_party(&self.inner, |inner| {
+            let version = inner.tree.latest();
+            if !loaded.can_skip_checkpoint(&inner.party, version) {
+                // Only a successful store can justify skipping the next one.
+                loaded.checkpoint(
+                    self.network,
+                    &mut inner.party,
+                    version,
+                    inner.bootstrap_forks.can_reclaim(),
+                );
                 persist = true;
             }
         });
@@ -573,7 +585,7 @@ impl<T, B: Bookmark> Peer<T, B> {
         // then watch. Retirement needs no fork: its consumed Peer retains the
         // whole party.
         let mut guarded = ForkGuard {
-            party: None,
+            fork: None,
             recover: self.inner.clone(),
         };
         let mut prior_tree = None;
@@ -581,15 +593,20 @@ impl<T, B: Bookmark> Peer<T, B> {
             let mut bookmark = self.bookmark.lock().await;
             let loaded = bookmark.ensure_loaded().await.map_err(Error::Bookmark)?;
             let mut persist = false;
-            Inner::update_party(&self.inner, |party, tree| {
-                let version = tree.latest();
-                if !loaded.is_current(party, version) {
-                    loaded.reclaim(self.network, party, version);
+            Inner::update_party(&self.inner, |inner| {
+                let version = inner.tree.latest();
+                if !loaded.can_skip_checkpoint(&inner.party, version) {
+                    loaded.checkpoint(
+                        self.network,
+                        &mut inner.party,
+                        version,
+                        inner.bootstrap_forks.can_reclaim(),
+                    );
                     persist = true;
                 }
-                prior_tree = Some(tree.clone());
+                prior_tree = Some(inner.tree.clone());
                 if peer_bootstrapping && !self_retiring {
-                    guarded.party = Some(party.fork());
+                    guarded.fork = Some(inner.reserve());
                 }
             });
             if persist && let Err(e) = bookmark.write().await {
@@ -632,7 +649,7 @@ impl<T, B: Bookmark> Peer<T, B> {
                     .await
                     .map_err(Error::widen)?,
             );
-        } else if self_retiring || guarded.party.is_some() {
+        } else if self_retiring || guarded.fork.is_some() {
             // Remove the donation from durable storage before sending it. A
             // failure here still permits recovery: retirement owns the Peer,
             // and a bootstrap's guard still owns its fork. Even if removal took
@@ -644,10 +661,8 @@ impl<T, B: Bookmark> Peer<T, B> {
                     let inner = self.inner.borrow();
                     loaded.slice(self.network, &inner.party);
                 } else {
-                    loaded.slice(
-                        self.network,
-                        guarded.party.as_ref().expect("bootstrap fork"),
-                    );
+                    let (party, _) = guarded.fork.as_ref().expect("bootstrap fork");
+                    loaded.slice(self.network, party);
                 }
                 bookmark.write().await.map_err(Error::Bookmark)?;
             }
@@ -658,7 +673,8 @@ impl<T, B: Bookmark> Peer<T, B> {
                 let inner = self.inner.borrow();
                 party::send(&inner.party, write, &observe)
             } else {
-                let donated = guarded.party.take().expect("bootstrap fork");
+                // Durable removal makes it safe to release the reservation.
+                let (donated, _reservation) = guarded.fork.take().expect("bootstrap fork");
                 party::send(&donated, write, &observe)
             };
             if self_retiring {
@@ -1171,8 +1187,8 @@ struct Drive<'a, T, B: Bookmark> {
 
 /// Restore a bootstrap fork unless its transmission has started.
 struct ForkGuard<T> {
-    /// The unsent fork; taken before any of its bytes may reach the peer.
-    party: Option<Party>,
+    /// The unsent fork and the token that pauses reclamation while it is held.
+    fork: Option<(Party, BootstrapReservations)>,
     /// The replica from which the fork was split.
     recover: watch::Sender<Inner<T>>,
 }
@@ -1181,12 +1197,13 @@ struct ForkGuard<T> {
 impl<T> Drop for ForkGuard<T> {
     /// Rejoin the disjoint fork on cancellation, failure, or unwind.
     fn drop(&mut self) {
-        if let Some(party) = self.party.take() {
-            Inner::update_party(&self.recover, |owner, _| {
+        if let Some((party, _reservation)) = self.fork.take() {
+            // Keep the token until the fork is back in the writable party.
+            Inner::update_party(&self.recover, |inner| {
                 // This fork came from the resident party. Overlap indicates a
                 // custody bug; it must not silently discard identity space.
                 assert!(
-                    owner.join(party).is_ok(),
+                    inner.party.join(party).is_ok(),
                     "bootstrap fork overlaps its owner"
                 );
             });

@@ -53,19 +53,10 @@ pub(crate) const TAG_CBOR_SEQUENCE: u64 = 63;
 /// Tag number for an embedded CBOR data item in a byte string (RFC 8949).
 pub(crate) const TAG_EMBEDDED_ITEM: u64 = 24;
 
-/// Tag number for self-described CBOR (RFC 8949 §3.4.6): CBOR's own
-/// magic, opening the V2 preamble and the stored bookmark.
-///
-/// The production writers and validators spell the tag through its
-/// rendered head, [`SELF_DESCRIBED_HEAD`]; the number itself is consumed
-/// only by the test-gated capture renderer and by the pin test holding
-/// the rendered spelling to it, so it carries the same gate.
-#[cfg(any(test, feature = "test-internals"))]
+/// Tag number for self-described CBOR, used by the preamble and bookmark.
 pub(crate) const TAG_SELF_DESCRIBED: u64 = 55799;
 
-/// The rendered head of the self-described tag: the one canonical byte
-/// spelling of CBOR's magic, read by every frame that opens with it —
-/// the V2 preamble's prefix and the bookmark's opening bytes.
+/// The self-described tag's shortest encoding, used by the V2 preamble.
 ///
 /// A literal, so the openers can compare and assemble it in const
 /// context; the module's own pin test holds it to [`write_tag`]'s

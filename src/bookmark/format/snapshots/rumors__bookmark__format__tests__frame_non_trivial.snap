@@ -2,21 +2,24 @@
 source: src/bookmark/format/tests.rs
 expression: annotated(&encode(&sample_record()))
 ---
-d9d9f7830558200693f4e88418e4abe17a83fda6defd18b79adcc490d33e468ae7899f478d301bd8185829a1505a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a83d9d25744a22aa580d9d25744482aa580d9d2574292e0
+d9d9f7830658206f5f0acf87a69322bc7c7bfb3354101768b429bd31bc20619a5a3e04adbaad5bd818582a8183505a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5ad9d256432aa58083d9d25541a2d9d2554148d9d2554192
 
 55799( / self-described CBOR /
   [
-    5 / bookmark format version /
-    h'0693f4e88418e4abe17a83fda6defd18b79adcc490d33e468ae7899f478d301b' / integrity: SHA3-256 of the embedded record /
-    24(<< / embedded record, 41 byte(s) /
-      { / 1 network(s) /
-        h'5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a' / network / =>
-          [ / 3 clock(s) /
-            53847(h'a22aa580') / clock /
-            53847(h'482aa580') / clock /
-            53847(h'92e0') / clock /
+    6 / bookmark format version /
+    h'6f5f0acf87a69322bc7c7bfb3354101768b429bd31bc20619a5a3e04adbaad5b' / integrity: SHA3-256 of the version and payload items /
+    24(<< / embedded record, 42 byte(s) /
+      [ / 1 network(s), newest first /
+        [
+          h'5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a' / network /
+          53846(h'2aa580') / shared write frontier /
+          [ / 3 identity(s), oldest first /
+            53845(h'a2') / identity /
+            53845(h'48') / identity /
+            53845(h'92') / identity /
           ]
-      }
+        ]
+      ]
     >>)
   ]
 )
