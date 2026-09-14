@@ -1,7 +1,7 @@
 # Rumors review checklist
 
-**Review:** 08’s owned-byte Bookmark contract — `codex/bookmark-owned-bytes`, base `main`.
-**Next:** 08’s reclamation timing, then Bookmark conformance.
+**Working:** 08’s reclamation timing — `codex/bookmark-reclamation`, base `main`.
+**Next:** 08’s Bookmark conformance.
 
 Prioritize Bookmark ownership and durability before broad harness or module
 reorganizations. Recheck N52 on current code before any
@@ -167,8 +167,8 @@ Coupled work: party ownership with 01; other API pieces can be separate.
 
 Dependencies: 07 for join outcomes; owned-byte trait before conformance and file storage.
 
-- [ ] Make Bookmark own its error type and stored bytes; allow complete replacement on error.
-  Sources: `api-audit-4`, `async-hazards-1`, `session-bookmark-23–25`, T62, T132.
+- [x] Simplify Bookmark storage, require repeatable loads, and allow complete replacement on error — `d73fe2c9`.
+  Sources: `api-audit-4`, `async-hazards-1`, `session-bookmark-22–25`, T62, T132.
 
 - [ ] State and test when a checkpoint makes older bookmark state reclaimable.
   Sources: `session-bookmark-21`, T32.
@@ -180,7 +180,7 @@ Dependencies: 07 for join outcomes; owned-byte trait before conformance and file
   Sources: `fresh-eyes-8`, T94, T159.
 
 - [ ] Simplify session and bookmark plumbing and explanations.
-  Sources: `session-bookmark-1–7`, `session-bookmark-9–17`, `session-bookmark-19`, `session-bookmark-22`, `session-bookmark-26–30`, `session-bookmark-32`, `session-bookmark-33`, `session-bookmark-35`, `session-bookmark-36`, `session-bookmark-39`, `session-bookmark-41`, `session-bookmark-43`, `session-bookmark-45`, `session-bookmark-47`, T46, T48–50, T52, T56, T104, T129, T132.
+  Sources: `session-bookmark-1–7`, `session-bookmark-9–17`, `session-bookmark-19`, `session-bookmark-26–30`, `session-bookmark-32`, `session-bookmark-33`, `session-bookmark-35`, `session-bookmark-36`, `session-bookmark-39`, `session-bookmark-41`, `session-bookmark-43`, `session-bookmark-45`, `session-bookmark-47`, T46, T48–50, T52, T56, T104, T129, T132.
 
 ## 09. Public diagnostics and observability
 
