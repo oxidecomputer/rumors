@@ -1,7 +1,7 @@
 # Rumors review checklist
 
-**Ready for review:** session accounting (17) — `codex/session-accounting`, base `main`.
-Next: overlapping sessions and redaction preservation (17), before broad harness or module cleanup.
+**Working:** overlapping sessions and redaction preservation (17) — `codex/overlap-redactions`, base `main`.
+Next: remaining observation contracts (17), before broad harness or module cleanup.
 
 Check code outcomes only after verification and merge; retain the landing
 commit. Checked dispositions are labelled explicitly.
@@ -399,7 +399,7 @@ refactors are coupled with 16; focused properties can use the existing harness.
 - [x] Preserve reconciled content through retirement and deliver the final state before observers end — `7cb864cc`.
       Sources: `tests-observation-17`, `tests-observation-36`, T130, T132.
 
-- [ ] Check session gains, sheds, and byte counts against message and transport captures.
+- [x] Check session gains, sheds, and byte counts against message and transport captures — `a889c8fa`.
       Sources: `tests-observation-24`, `tests-observation-25`, T130, T132.
 
 - [ ] Check remaining observer progress, wakes, and content claims with varied schedules.
