@@ -38,19 +38,20 @@
 
 mod common;
 
+use std::collections::BTreeMap;
+
 use before::Party;
 use proptest::prelude::*;
 use rumors::{Peer, Retire, Rumors};
 
-use crate::common::action::{arb_local_actions, build_local};
+use crate::common::action::{arb_local_actions, build_local, created_version};
+use crate::common::oracle::readout;
 use crate::common::wire::{assert_control_drained, block_on, bootstrap_fork, wire_gossip};
 
 /// Capacity for each in-memory link stream on the retirement path: a
 /// divergent retiree's session moves content through its gossip round, so
 /// keep `retire.rs`'s headroom.
 const LINK_BUF: usize = 64 * 1024;
-
-// ---- inspection helpers ---------------------------------------------------
 
 /// Alias a live handle's party for accounting.
 ///
@@ -93,8 +94,6 @@ fn assert_seed_conserved(fleet: &[Rumors<u64>]) {
     );
 }
 
-// ---- session drivers ------------------------------------------------------
-
 /// Retire `retiree` into `absorber` over a clean in-memory link, requiring
 /// the retirement to complete (a clean wire and a gossiping counterparty
 /// admit no other outcome).
@@ -118,8 +117,6 @@ fn retire_into(retiree: Rumors<u64>, absorber: &Rumors<u64>) {
         "a clean-wire retirement into a gossiping peer must complete: {outcome:?}"
     );
 }
-
-// ---- lifecycle schedules --------------------------------------------------
 
 /// One abstract lifecycle step.
 ///
@@ -225,8 +222,6 @@ proptest! {
     }
 }
 
-// ---- donated exactly once -------------------------------------------------
-
 proptest! {
     /// A bootstrap donates exactly one fork: the newcomer's party is
     /// disjoint from the provider's remainder, and joining the two
@@ -290,8 +285,6 @@ proptest! {
         );
     }
 }
-
-// ---- the fragmentation bound ----------------------------------------------
 
 proptest! {
     /// Sequential bootstrap/retire cycles cannot fragment the provider's id
@@ -391,30 +384,25 @@ proptest! {
     // choice).
     #![proptest_config(ProptestConfig::with_cases(32))]
 
-    /// Terminal collapse at fleet scale: a fully retired population's last
-    /// survivor holds exactly [`Party::seed`]'s whole interval.
+    /// Retiring a fleet into one survivor preserves every message and the whole party.
     ///
-    /// Bootstrap a population of up to a hundred peers, each newcomer off
-    /// a randomly chosen live provider, then retire peers into one another
-    /// in random order until one remains. Every donated fork and absorbed
-    /// identity renormalizes back to the baseline, so lifecycle churn at
-    /// population scale neither loses nor fragments identity.
+    /// Provider choices, retirement order, and absorbers vary across populations
+    /// of up to a hundred peers; the final set must contain every original version.
     #[test]
-    fn fleet_scale_retirement_collapses_to_seed_party(
+    fn fleet_scale_retirement_preserves_content_and_party(
         (providers, retirements) in (2usize..=100).prop_flat_map(|n| (
             proptest::collection::vec(any::<usize>(), n - 1),
             proptest::collection::vec((any::<usize>(), any::<usize>()), n - 1),
         )),
     ) {
-        // Grow the fleet one bootstrap at a time through `apply`, which
-        // resolves provider indices modulo the live fleet: any random
-        // topology (chain, fan, or mixture) is reachable. Each newcomer
-        // originates once (`Bootstrap` pushes it at the fleet's end), so
-        // retirements move content, not just identity.
+        // Each newcomer sends a distinct value. Remember its version so the
+        // final check catches missing messages, duplicates, or rewritten versions.
+        let mut expected = BTreeMap::new();
         let mut fleet = vec![Peer::<u64>::seed().sync_window_floor().into_rumors()];
         for (i, &provider) in providers.iter().enumerate() {
             apply(&mut fleet, Op::Bootstrap { provider });
             let newest = fleet.len() - 1;
+            let before = fleet[newest].snapshot().latest().clone();
             apply(
                 &mut fleet,
                 Op::Send {
@@ -422,21 +410,17 @@ proptest! {
                     value: i as u64,
                 },
             );
+            let version = created_version(&fleet[newest].snapshot(), &before);
+            expected.insert(version.as_bytes().to_vec(), i as u64);
         }
 
-        // Retire until one peer holds everything: retiree and absorber both
-        // random, distinct by construction. `apply`'s two-peer guard never
-        // skips here: this schedule runs exactly fleet-size-minus-one
-        // retirements, so every one executes with at least two peers live.
+        // There is exactly one retirement per departing peer, so every step
+        // has a distinct absorber and the schedule ends with one survivor.
         for &(retiree, off) in &retirements {
             apply(&mut fleet, Op::Retire { retiree, off });
         }
 
-        let survivor = alias(&fleet[0]);
-        prop_assert!(
-            survivor == Party::seed(),
-            "after the whole fleet retires into one node, its party must be \
-             exactly the seed's whole interval, got {survivor:?}"
-        );
+        prop_assert_eq!(readout(&fleet[0].snapshot()), expected);
+        prop_assert_eq!(alias(&fleet[0]), Party::seed());
     }
 }

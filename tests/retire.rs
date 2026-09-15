@@ -18,11 +18,14 @@
 
 mod common;
 
+use std::collections::BTreeMap;
+
 use proptest::prelude::*;
 use rumors::{Peer, Retire, Rumors, causally};
 
-use crate::common::action::{LocalAction, arb_local_actions, build_local};
+use crate::common::action::{LocalAction, arb_local_actions, build_local, created_version};
 use crate::common::fault::{self, FaultPlan};
+use crate::common::observer::{Step, drain, step};
 use crate::common::oracle::readout;
 use crate::common::wire::{assert_control_drained, block_on, bootstrap_fork, wire_gossip};
 use rumors::testing::run_to_quiescence;
@@ -31,8 +34,6 @@ use rumors::testing::run_to_quiescence;
 /// content through the gossip round, so keep the other wire tests' headroom.
 const LINK_BUF: usize = 64 * 1024;
 
-// ---- builders ------------------------------------------------------------
-
 /// Build an async `Rumors<u64>` by inserting `vals` into a disjoint originator
 /// (a genuine bootstrap fork: its own party region, ready to originate).
 fn async_known(peer: Rumors<u64>, vals: &[u64]) -> Rumors<u64> {
@@ -40,14 +41,8 @@ fn async_known(peer: Rumors<u64>, vals: &[u64]) -> Rumors<u64> {
     build_local(peer, &actions)
 }
 
-// ---- wire harnesses ------------------------------------------------------
-
-/// Drive `retiree.retire` against `peer.gossip` concurrently over an in-memory
-/// link, returning the retiree's outcome.
-///
-/// The retiree arrives as the sole
-/// `Rumors` handle on its set and is converted into the unique `Peer`
-/// retirement requires.
+/// Retire the sole handle into a gossiping peer and check the session boundary.
+/// Message observers may outlive the retiring replica.
 fn retire_into_gossip(retiree: Rumors<u64>, peer: &Rumors<u64>) -> Retire<u64> {
     block_on(async move {
         let retiree = retiree
@@ -105,8 +100,6 @@ fn retire_into_bootstrap(retiree: Rumors<u64>) -> (Retire<u64>, Rumors<u64>) {
         (retire_out, peer.sync_window_floor().into_rumors())
     })
 }
-
-// ---- async behavioral tests ---------------------------------------------
 
 /// Retiring into a peer that has gossiped to convergence (equal versions, so it
 /// reflexively dominates) succeeds.
@@ -343,7 +336,70 @@ fn gossip_absorbs_retiree_without_observations() {
     );
 }
 
-// ---- wire-equivalence property tests -------------------------------------
+proptest! {
+    /// Retirement publishes the reconciled state before either message observer ends.
+    ///
+    /// Both replicas retain new messages from either side and honor shared redactions;
+    /// the retiring replica's observers deliver that final state exactly once.
+    #[test]
+    fn retirement_publishes_final_state_before_observers_end(
+        shared in prop::collection::vec(any::<u64>(), 0..8),
+        retiree_sends in prop::collection::vec(any::<u64>(), 0..8),
+        survivor_sends in prop::collection::vec(any::<u64>(), 1..8),
+        redactions in prop::collection::vec((any::<bool>(), any::<prop::sample::Index>()), 0..10),
+    ) {
+        let survivor = Peer::<u64>::seed().sync_window_floor().into_rumors();
+        survivor.send_all(shared).unwrap();
+        let retiree = bootstrap_fork(&survivor);
+        let shared_versions: Vec<_> = survivor.snapshot().iter()
+            .map(|(version, _)| version.clone()).collect();
+        let mut expected = readout(&survivor.snapshot());
+        let mut unordered = retiree.unordered_messages();
+        let mut causal = retiree.causal_messages();
+
+        // The survivor always sends something new: returning the retiree's
+        // old state must miss it. Record sends before any reconciliation so
+        // the expected set does not depend on gossip.
+        for (peer, values) in [(&retiree, retiree_sends), (&survivor, survivor_sends)] {
+            for value in values {
+                let before = peer.snapshot().latest().clone();
+                peer.send(value).unwrap();
+                let version = created_version(&peer.snapshot(), &before);
+                expected.insert(version.as_bytes().to_vec(), value);
+            }
+        }
+        for (remote, index) in redactions {
+            if !shared_versions.is_empty() {
+                let version = &shared_versions[index.index(shared_versions.len())];
+                let peer = if remote { &survivor } else { &retiree };
+                peer.redact(version);
+                expected.remove(version.as_bytes());
+            }
+        }
+        let mut latest = retiree.snapshot().latest().clone();
+        latest |= survivor.snapshot().latest();
+        let outcome = retire_into_gossip(retiree, &survivor);
+        prop_assert!(matches!(outcome, Retire::Retired), "{outcome:?}");
+        prop_assert_eq!(readout(&survivor.snapshot()), expected.clone());
+        prop_assert_eq!(survivor.snapshot().latest().clone(), latest.clone());
+
+        // Neither observer has captured a pass yet. It must see the final
+        // reconciliation, not the retiring replica's pre-session snapshot.
+        let (unordered_items, unordered_ended) = drain(&mut unordered);
+        let (causal_items, causal_ended) = drain(&mut causal);
+        prop_assert!(unordered_ended && causal_ended);
+        prop_assert_eq!(step(&mut unordered), Step::Ended);
+        prop_assert_eq!(step(&mut causal), Step::Ended);
+        prop_assert_eq!(unordered.checkpoint(), &latest);
+        prop_assert_eq!(causal.checkpoint(), &latest);
+        for (name, items) in [("unordered", unordered_items), ("causal", causal_items)] {
+            prop_assert_eq!(items.len(), expected.len(), "{}: one delivery per live version", name);
+            let actual: BTreeMap<_, _> = items.into_iter()
+                .map(|(version, value)| (version.as_bytes().to_vec(), value)).collect();
+            prop_assert_eq!(&actual, &expected, "{}: complete final content", name);
+        }
+    }
+}
 
 proptest! {
     /// Retiring A into B over the wire (after gossiping to convergence)

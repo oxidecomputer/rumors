@@ -20,15 +20,15 @@ use proptest::collection::vec;
 use proptest::prelude::*;
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
-use rumors::{Peer, Retire, Rumors, Version, causally};
+use rumors::{Peer, Rumors, Version, causally};
 
 use crate::common::action::created_version;
 use crate::common::observer::{
     Step, arb_ops, drain, interleave, live_map, redact_during_pass, step,
 };
-use crate::common::wire::{assert_control_drained, block_on, bootstrap_fork, wire_gossip};
+use crate::common::wire::{block_on, bootstrap_fork, wire_gossip};
 
-/// §6.1 Genesis replay: a from-genesis observer on a populated set yields
+/// Genesis replay: a from-genesis observer on a populated set yields
 /// exactly the live set, each message once, then goes quiet; after the
 /// completed pass its checkpoint dominates every observed version.
 #[test]
@@ -64,7 +64,7 @@ fn genesis_replay_observes_the_live_set_once() {
     }
 }
 
-/// §6.2 Arbitrary start: `unordered_messages_since(v_mid)` observes exactly
+/// Arbitrary start: `unordered_messages_since(v_mid)` observes exactly
 /// the messages `v_mid` does not causally contain.
 #[test]
 fn checkpoint_start_observes_only_what_it_does_not_contain() {
@@ -92,7 +92,7 @@ fn checkpoint_start_observes_only_what_it_does_not_contain() {
     }
 }
 
-/// §6.3 Live delivery: messages sent through a sibling `Rumors` clone
+/// Live delivery: messages sent through a sibling `Rumors` clone
 /// after subscription are observed, as are messages learned via gossip.
 #[test]
 fn live_sends_and_gossip_learned_messages_are_observed() {
@@ -119,7 +119,7 @@ fn live_sends_and_gossip_learned_messages_are_observed() {
     assert_eq!(items[0].1, 20);
 }
 
-/// §6.4 Redaction honored: an observed-then-redacted message fires nothing
+/// Redaction honored: an observed-then-redacted message fires nothing
 /// further; one redacted before subscription never fires.
 ///
 /// Further: one inserted and
@@ -170,7 +170,7 @@ fn redactions_are_honored_silently() {
     assert_eq!(items[0].1, 5, "only post-subscription content fires");
 }
 
-/// §6.9 Termination: when the last handle on the set drops, the observer
+/// Termination: when the last handle on the set drops, the observer
 /// yields the complete final state and then ends.
 #[test]
 fn observer_drains_the_final_state_then_ends() {
@@ -196,44 +196,7 @@ fn observer_drains_the_final_state_then_ends() {
     assert_eq!(step(&mut obs), Step::Ended);
 }
 
-/// §6.9 (retire variant): retiring the rumor set ends its observers. The
-/// retire session's write-back lands the reconciled state first, so the
-/// observer's final drain includes everything the session learned.
-#[test]
-fn retire_ends_the_observer() {
-    let survivor = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    let retiree = bootstrap_fork(&survivor);
-    retiree.send(7).unwrap();
-
-    let mut obs = retiree.unordered_messages();
-
-    let outcome = block_on(async {
-        // An observer is not a handle, so the sole `Rumors` converts back
-        // into the unique `Peer` retirement requires.
-        let retiree = retiree
-            .try_into_peer()
-            .await
-            .expect("the sole handle reclaims the Peer");
-        let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(64 * 1024);
-        let (retire_out, gossip_out) = tokio::join!(
-            retiree.retire(&mut a_link),
-            survivor.gossip_once(&mut b_link),
-        );
-        gossip_out.expect("survivor gossip");
-        assert_control_drained(a_link, b_link);
-        retire_out
-    });
-    assert!(matches!(outcome, Retire::Retired));
-
-    let (items, ended) = drain(&mut obs);
-    assert!(ended, "retiring the set ends its observers");
-    assert!(
-        items.iter().any(|(_, m)| *m == 7),
-        "the final drain delivered the retiree's own message"
-    );
-}
-
-/// §6.10 Pending while actors live: with any handle on the set alive, a
+/// Pending while actors live: with any handle on the set alive, a
 /// drained observer is quiet, not ended.
 #[test]
 fn observer_stays_quiet_while_actors_live() {
@@ -255,7 +218,7 @@ fn observer_stays_quiet_while_actors_live() {
     assert!(items.is_empty());
 }
 
-/// §6.11 Reunite non-interference: an outstanding observer is not an actor —
+/// Reunite non-interference: an outstanding observer is not an actor —
 /// it neither blocks [`Rumors::try_into_peer`](rumors::Rumors::try_into_peer)
 /// nor is ended by it, and it keeps observing across the round-trip.
 #[test]
@@ -287,7 +250,7 @@ fn observer_does_not_block_reunite_and_survives_it() {
     assert_eq!(items[0].1, 42);
 }
 
-/// §6.12 Non-blocking observer: an observer mid-pass — its most recent item
+/// Non-blocking observer: an observer mid-pass — its most recent item
 /// still lent out — holds no lock, so sends on the set proceed and the
 /// observer sees their effects on its next passes.
 #[test]
@@ -314,7 +277,7 @@ fn lent_borrows_do_not_block_senders() {
     );
 }
 
-/// §6.7 Checkpoint round-trip: a checkpoint earned by a completed pass, fed
+/// Checkpoint round-trip: a checkpoint earned by a completed pass, fed
 /// to a fresh `unordered_messages_since` on an unchanged set, observes
 /// nothing and earns an equal checkpoint.
 #[test]
@@ -337,7 +300,7 @@ fn checkpoint_round_trips_on_an_unchanged_set() {
     );
 }
 
-/// §6.8 Replica portability: a checkpoint earned against replica A is a valid
+/// Replica portability: a checkpoint earned against replica A is a valid
 /// `since` against replica B of the same universe — messages observed via A
 /// are skipped, messages B holds that A never saw fire.
 #[test]
@@ -421,7 +384,7 @@ fn stream_face_matches_and_terminates() {
     );
 }
 
-/// §6.6 (negative control): folding *delivered* versions is not a sound
+/// (negative control): folding *delivered* versions is not a sound
 /// resume point.
 ///
 /// Delivery is in path order (the hash of the version), not causal

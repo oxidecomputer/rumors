@@ -106,11 +106,19 @@ for changed code. Notes-only changes need no gate run.
 Use Helios (`ox-east-1-agent`) by default for build-heavy checks, test suites,
 and longer property runs, following the `building-on-illumos` Claude skill.
 Keep the local checkout authoritative and use its wrapper to sync each run.
+After syncing, ensure remote `target` links to `$CARGO_TARGET_DIR`; the recipes
+read generated files there. Preserve any existing artifacts when setting it up.
+Put `/usr/gnu/bin` first on `PATH`: the native `mkdir -p` rejects that symlink.
 Use `--locked` for Cargo commands and verify that recipe runs leave lockfiles
 unchanged. Retrieve every new proptest seed before the next sync can overwrite
 it. Keep quick formatting and prose checks local; run platform-sensitive checks
 on the host their pins require. Coordinate build directories and host load with
 the Sush subagent. Offloading does not waive any gate check.
+
+Two Helios checks currently need the Mac: Clippy 1.97.1 flags an already-const
+thread-local initializer, and libFuzzer does not support illumos. Run `clippy`,
+`clippy-default`, and `fuzz-build` locally, and complete any gate legs they
+blocked on Helios. The justfile remains the checklist of required checks.
 
 Before review, read the changed code and prose together once more for
 accuracy, audience, abstraction, and unnecessary complexity. Explain the

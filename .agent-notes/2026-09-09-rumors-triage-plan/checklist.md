@@ -1,6 +1,6 @@
 # Rumors review checklist
 
-**Working:** retirement content and final observer state (17) — `codex/retirement-observers`, base `main`.
+**Ready for review:** retirement content and final observer state (17) — `codex/retirement-observers`, base `main`.
 Next: session accounting (17), before broad harness or module cleanup.
 
 Check code outcomes only after verification and merge; retain the landing
