@@ -122,6 +122,11 @@ each Rumors merge so the remote branches stay in sync. Keep the PR a draft;
 the user reviews and approves the completed Sush branch at the end of this
 effort. See [Sush setup](sush-pooling.md) for the worktree and override.
 
+Delegate Sush compatibility work to a subagent while the main agent continues
+the Rumors batch. Give it sole ownership of the Sush checkout and the exact
+Rumors revision to validate. Review its result before declaring the handoff
+complete; do not let overlapping updates race in that checkout.
+
 Keep Sush compatibility work in the background. Open its Zed window only when
 the user asks or when presenting the completed compatibility branch for review.
 

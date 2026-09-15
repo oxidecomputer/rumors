@@ -1,6 +1,6 @@
 # Rumors review checklist
 
-**Next:** check sync/async decoder agreement on partial reads and boundary failures (12).
+**Working:** tree join and deletion validation (10) — `codex/tree-join-validation`, base `main`.
 Correctness validation takes priority over broad harness or module cleanup.
 
 Check code outcomes only after verification and merge; retain the landing
@@ -266,8 +266,11 @@ Dependencies: 10 when a change affects the same traversal or baseline.
 
 Dependencies: 04 and 09 before simplifying shared failure paths.
 
-- [ ] Keep sync/async decoding consistent, including partial reads and boundary failures.
-      Sources: `mirror-common-5`, `mirror-common-8`, `remote-codec-6`, `remote-codec-8`, `remote-codec-10`, `remote-codec-11`, `remote-codec-14–17`, `remote-proxy-tests-25`, T24, T33, T41, T126, T132.
+- [x] Bound resumed reads, preserve partial-read errors, and share decoder validation — `1b7f3de4`, `28055b77`, `ded8318e`.
+      Sources: `mirror-common-8`, `remote-codec-8`, `remote-codec-10`, `remote-codec-11`, `remote-codec-14`, T24, T33, T41.
+
+- [x] Check decoder values, errors, and stream boundaries across delivery schedules; correct incomplete assertions and test descriptions — `b0d0abbb`.
+      Sources: `mirror-common-5`, `remote-codec-6`, `remote-codec-15–17`, `remote-proxy-tests-25`, T126, T132.
 
 - [ ] Parse the version head directly and simplify the fixed greeting vocabulary.
       Sources: `inventory-5`, `mirror-common-3`, `mirror-common-14`, `remote-codec-24`, `remote-codec-26`, `remote-codec-27`, `remote-proxy-tests-2`, T105, T126, T132.
