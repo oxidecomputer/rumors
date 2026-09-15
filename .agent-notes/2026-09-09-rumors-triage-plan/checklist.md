@@ -1,6 +1,6 @@
 # Rumors review checklist
 
-**Working:** tree join and deletion validation (10) — `codex/tree-join-validation`, base `main`.
+**Working:** observer delivery, checkpoints, and change signals (17) — `codex/observer-contracts`, base `main`.
 Correctness validation takes priority over broad harness or module cleanup.
 
 Check code outcomes only after verification and merge; retain the landing
@@ -205,7 +205,7 @@ Dependencies: 04's reported-error attribution fix before the public error redesi
 Coupled work: no-op handling with 01. Do root-version changes before dependent optimization measurements.
 
 - [x] Store each leaf’s action version and traverse sorted actions without repeated sorting or copying — `915571b7`.
-      Sources: `tree-core-11`, `tree-core-13`, `tree-core-16`, `tree-core-27`, `tree-core-30`, T38, T39, T107, T124, T132, N12.
+      Sources: `tree-core-11`, `tree-core-13`, `tree-core-16`, `tree-core-27`, `tree-core-30`, `tree-typed-30`, T38, T39, T107, T124, T132, N12.
 
 - [x] Simplify action representations and join reassembly — `4961398d`.
       Sources: `tree-core-14`, `tree-core-31`.
@@ -216,8 +216,11 @@ Coupled work: no-op handling with 01. Do root-version changes before dependent o
 - [x] Remove message-buffer slack with a direct size invariant — `6399b06e`.
       Sources: `api-core-10`, T110, T113.
 
-- [ ] Protect tree algebra, deletion, and traversal invariants with meaningful cases.
-      Sources: `streaming-tests-18`, `tree-core-22`, `tree-core-24`, `tree-core-33`, `tree-core-34`, `tree-typed-30`, T39, T112, T124, T128, T132.
+- [x] Check join survivors and redaction associativity with shared generators; remove ineffective input-preservation assertions — `c75a57b8`.
+      Sources: `streaming-tests-18`, `tree-core-22`, `tree-core-33`, `tree-core-34`, T124, T128, T132.
+
+- [ ] Start the geometry search from a verified hint, falling back to the full search when needed.
+      Sources: `tree-core-24`, T112; coupled with 23's fixture costs.
 
 - [ ] Clarify tree invariants and simplify names and helpers.
       Sources: `tree-core-1`, `tree-core-3`, `tree-core-4`, `tree-core-9`, `tree-core-10`, `tree-core-12`, `tree-core-15`, `tree-core-17–21`, `tree-core-23`, `tree-core-25`, `tree-core-26`, `tree-core-28`, `tree-core-32`, `tree-core-35`, T48, T49, T52, T53, T124, T132.
