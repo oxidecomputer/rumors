@@ -1,7 +1,7 @@
 # Rumors review checklist
 
-**Working:** observer delivery, checkpoints, and change signals (17) — `codex/observer-contracts`, base `main`.
-Correctness validation takes priority over broad harness or module cleanup.
+**Working:** retirement content and final observer state (17) — `codex/retirement-observers`, base `main`.
+Next: session accounting (17), before broad harness or module cleanup.
 
 Check code outcomes only after verification and merge; retain the landing
 commit. Checked dispositions are labelled explicitly.
@@ -150,7 +150,7 @@ Coupled work: party ownership with 01; other API pieces can be separate.
 - [ ] Accumulate observers through one shared channel representation.
       Sources: `api-core-19`, `api-core-33`, `session-bookmark-40`, T74, T125, T132, T159.
 
-- [ ] Keep causal delivery tests within the public ordering contract.
+- [x] Clarify observer installation timing and the limits of per-pass causal ordering — `fa9a1f0e`.
       Sources: `session-bookmark-37`, `tests-observation-3`, T78, T132.
 
 - [ ] Make public bounds, borrowing, and wrapper traits express the real requirements.
@@ -387,19 +387,26 @@ Dependencies: Relevant lifecycle, Bookmark, link and observer signatures from 07
 
 ## 17. Lifecycle and observation tests
 
-Dependencies: 07 and 16; 15 for generator changes.
+Dependencies: tests of API changes follow those changes in 07. Shared-helper
+refactors are coupled with 16; focused properties can use the existing harness.
 
 - [ ] Make lifecycle properties check content, versions, and party ownership directly.
       Sources: `api-core-20`, `suite-economics-5`, `tests-lifecycle-4`, `tests-lifecycle-5`, `tests-lifecycle-7`, `tests-lifecycle-9`, `tests-lifecycle-11`, `tests-lifecycle-15–18`, `tests-lifecycle-20`, `tests-lifecycle-21`, `tests-lifecycle-23`, `tests-lifecycle-25`, `tests-lifecycle-26`, `tests-lifecycle-28`, `tests-lifecycle-29`, `tests-lifecycle-33`, T26, T59, T108, T130–132, T158, N16.
 
-- [ ] Check observer progress, duplicates, wakes, and content with varied schedules.
-      Sources: `tests-observation-5`, `tests-observation-7–11`, `tests-observation-13`, `tests-observation-14`, `tests-observation-17`, `tests-observation-20`, `tests-observation-22–26`, `tests-observation-28`, `tests-observation-30`, `tests-observation-35`, `tests-observation-36`, T13, T78, T90, T130, T132, T144.
+- [x] Check observer delivery under remote redactions and partial reads, duplicate-free checkpoint resumes, and change-signal wakeups — `fa9a1f0e`.
+      Sources: `tests-observation-5–8`, `tests-observation-20`, T130, T132.
+
+- [ ] Preserve reconciled content through retirement and deliver the final state before observers end.
+      Sources: `tests-observation-17`, `tests-observation-36`, T130, T132.
+
+- [ ] Check remaining observer progress, wakes, and content claims with varied schedules.
+      Sources: `tests-observation-9–11`, `tests-observation-13`, `tests-observation-14`, `tests-observation-22–26`, `tests-observation-28`, `tests-observation-30`, `tests-observation-35`, T13, T78, T90, T130, T132, T144.
 
 - [ ] Simplify lifecycle fixtures while preserving ownership and version checks.
       Sources: `tests-lifecycle-2`, `tests-lifecycle-3`, `tests-lifecycle-6`, `tests-lifecycle-8`, `tests-lifecycle-12–14`, `tests-lifecycle-19`, `tests-lifecycle-22`, `tests-lifecycle-24`, `tests-lifecycle-27`, `tests-lifecycle-30`, `tests-lifecycle-32`, T52, T130–132.
 
 - [ ] Consolidate observer helpers and correct delivery/checkpoint explanations.
-      Sources: `tests-observation-1`, `tests-observation-2`, `tests-observation-4`, `tests-observation-6`, `tests-observation-12`, `tests-observation-15`, `tests-observation-16`, `tests-observation-18`, `tests-observation-19`, `tests-observation-21`, `tests-observation-27`, `tests-observation-29`, `tests-observation-31–34`, T48–50, T52, T130–132.
+      Sources: `tests-observation-1`, `tests-observation-2`, `tests-observation-4`, `tests-observation-12`, `tests-observation-15`, `tests-observation-16`, `tests-observation-18`, `tests-observation-19`, `tests-observation-21`, `tests-observation-27`, `tests-observation-29`, `tests-observation-31–34`, T48–50, T52, T130–132.
 
 ## 18. Disruption and handshake tests
 

@@ -103,6 +103,15 @@ AGENTS.md requires. Regenerate READMEs after crate-rustdoc changes. Verify
 the integrated result after rebasing; an old passing report is not evidence
 for changed code. Notes-only changes need no gate run.
 
+Use Helios (`ox-east-1-agent`) by default for build-heavy checks, test suites,
+and longer property runs, following the `building-on-illumos` Claude skill.
+Keep the local checkout authoritative and use its wrapper to sync each run.
+Use `--locked` for Cargo commands and verify that recipe runs leave lockfiles
+unchanged. Retrieve every new proptest seed before the next sync can overwrite
+it. Keep quick formatting and prose checks local; run platform-sensitive checks
+on the host their pins require. Coordinate build directories and host load with
+the Sush subagent. Offloading does not waive any gate check.
+
 Before review, read the changed code and prose together once more for
 accuracy, audience, abstraction, and unnecessary complexity. Explain the
 final change, validation, and any remaining decision briefly. Do not produce
