@@ -1,7 +1,7 @@
 # Rumors review checklist
 
-**Ready for review:** retirement content and final observer state (17) — `codex/retirement-observers`, base `main`.
-Next: session accounting (17), before broad harness or module cleanup.
+**Working:** session accounting (17) — `codex/session-accounting`, base `main`.
+Next: remaining observation contracts (17), before broad harness or module cleanup.
 
 Check code outcomes only after verification and merge; retain the landing
 commit. Checked dispositions are labelled explicitly.
@@ -396,7 +396,7 @@ refactors are coupled with 16; focused properties can use the existing harness.
 - [x] Check observer delivery under remote redactions and partial reads, duplicate-free checkpoint resumes, and change-signal wakeups — `fa9a1f0e`.
       Sources: `tests-observation-5–8`, `tests-observation-20`, T130, T132.
 
-- [ ] Preserve reconciled content through retirement and deliver the final state before observers end.
+- [x] Preserve reconciled content through retirement and deliver the final state before observers end — `7cb864cc`.
       Sources: `tests-observation-17`, `tests-observation-36`, T130, T132.
 
 - [ ] Check remaining observer progress, wakes, and content claims with varied schedules.
