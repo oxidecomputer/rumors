@@ -1,6 +1,6 @@
 # Rumors review checklist
 
-**Next:** 19's checkpoint I/O schedules, including repeated and remote redactions.
+**Next:** 19's remaining Bookmark assertions and corruption-test gaps, then N52's scaling investigation.
 
 Reproduce N52 on current code before further session optimization.
 Correctness gaps take priority over broad harness or module cleanup;
@@ -421,7 +421,7 @@ Dependencies: 08's Bookmark contract; coordinate shared helpers with 16 and shar
 - [x] Cover late storage failures and require durable content to survive restart — `ff8bcb6f`.
       Sources: `tests-bookmark-15`, `tests-bookmark-21`, T130, T132.
 
-- [ ] Exercise exact checkpoint I/O for local, remote, and repeated redactions; simplify the schedule fixture.
+- [x] Exercise exact checkpoint I/O for local, remote, and repeated redactions; simplify the schedule fixture — `d4215257`.
       Sources: `tests-bookmark-4` and `tests-bookmark-14` (schedule suite), `tests-bookmark-24–26`, T130, T132.
 
 - [ ] Exercise the remaining durability guarantees.
