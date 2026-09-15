@@ -54,12 +54,12 @@ pub struct CausalMessages<T> {
     /// The undelivered backlog in rank-then-canonical-bytes order.
     ///
     /// The same total order as [`before::Ranked`], with the [`Rank`]
-    /// materialized once per leaf so repeated map comparisons stay cheap.
-    /// Rank extends the causal order and the byte tiebreak fires only
-    /// between concurrent messages, so delivery order is causal and
-    /// deterministic. Always the residue of a *single* ingest (a new pass
-    /// opens only once this empties), whose range start was `checkpoint`
-    /// and whose ceiling is `ingested`.
+    /// materialized once per leaf so repeated map comparisons stay cheap. Rank
+    /// extends the causal order and the byte tiebreak fires only between
+    /// concurrent messages. The order is deterministic within this backlog; a
+    /// later pass may introduce lower-ranked concurrent messages. A new pass
+    /// opens only once this empties. Its range starts at `checkpoint` and ends
+    /// at `ingested`.
     staged: BTreeMap<(Rank, Vec<u8>), Leaf>,
 }
 

@@ -1,4 +1,4 @@
-//! The [`UnorderedMessages`] observer: delivery contract (exactly-once,
+//! The [`rumors::UnorderedMessages`] observer: delivery contract (exactly-once,
 //! redaction honored, cursor resume and portability), checkpoint semantics,
 //! termination, and non-interference with the actor handles.
 //!
@@ -20,55 +20,13 @@ use proptest::collection::vec;
 use proptest::prelude::*;
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
-use rumors::{Peer, Retire, Rumors, UnorderedMessages, Version, causally};
+use rumors::{Peer, Retire, Rumors, Version, causally};
 
 use crate::common::action::created_version;
+use crate::common::observer::{
+    Step, arb_ops, drain, interleave, live_map, redact_during_pass, step,
+};
 use crate::common::wire::{assert_control_drained, block_on, bootstrap_fork, wire_gossip};
-
-/// One observer step, with the borrowed faces cloned out.
-#[derive(Debug, PartialEq)]
-enum Step {
-    /// The observer yielded a message.
-    Item((Version, u64)),
-    /// The observer is quiet: nothing new, actors still live.
-    Quiet,
-    /// The observer ended: every sender is gone and the complete final
-    /// state has been yielded.
-    Ended,
-}
-
-/// Poll the observer exactly once without an executor.
-fn step(obs: &mut UnorderedMessages<u64>) -> Step {
-    match obs.next().now_or_never() {
-        None => Step::Quiet,
-        Some(None) => Step::Ended,
-        Some(Some((v, m))) => Step::Item((v, *m)),
-    }
-}
-
-/// Drain the observer until it goes quiet or ends, returning the items in
-/// delivery order and whether it ended.
-fn drain(obs: &mut UnorderedMessages<u64>) -> (Vec<(Version, u64)>, bool) {
-    let mut items = Vec::new();
-    loop {
-        match step(obs) {
-            Step::Item(item) => items.push(item),
-            Step::Quiet => return (items, false),
-            Step::Ended => return (items, true),
-        }
-    }
-}
-
-/// The live identity → value map, for comparing against deliveries.
-/// (A message's identity is its `Version`, which is only partially
-/// ordered, so its canonical bytes key the comparison set.)
-fn live_map(rumors: &Rumors<u64>) -> BTreeMap<Vec<u8>, u64> {
-    rumors
-        .snapshot()
-        .iter()
-        .map(|(v, m)| (v.as_bytes().to_vec(), *m))
-        .collect()
-}
 
 /// §6.1 Genesis replay: a from-genesis observer on a populated set yields
 /// exactly the live set, each message once, then goes quiet; after the
@@ -527,111 +485,37 @@ fn folding_delivered_versions_can_lose_a_message() {
     );
 }
 
-const MAX_OPS: usize = 40;
-
-/// One scripted action against the observed set.
-#[derive(Debug, Clone)]
-enum Op {
-    /// Send this value (through one of two sibling `Rumors` clones,
-    /// alternating by op index).
-    Send(u64),
-    /// Redact the `idx % sent`-th message sent so far (dropped if
-    /// none).
-    Redact(usize),
-    /// Drain the observer to quiescence.
-    Drain,
-}
-
-fn arb_ops() -> impl Strategy<Value = Vec<Op>> {
-    vec(
-        prop_oneof![
-            4 => any::<u64>().prop_map(Op::Send),
-            2 => any::<usize>().prop_map(Op::Redact),
-            3 => Just(Op::Drain),
-        ],
-        0..=MAX_OPS,
-    )
-}
-
 proptest! {
-    /// §6.5 Exactly-once under interleaving: across an arbitrary
-    /// send/redact/drain interleaving (sends through alternating sibling
-    /// clones), no message is ever observed twice, and the observations
-    /// cover the final live set.
+    /// A captured pass survives local and remote redactions while it is partly read.
+    /// A message redacted before capture produces no delivery.
     #[test]
-    fn exactly_once_under_interleaving(ops in arb_ops()) {
-        let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
-        let sibling = rumors.clone();
-
-        let mut obs = rumors.unordered_messages();
-        let mut sent: Vec<Version> = Vec::new();
-        let mut observed: Vec<(Version, u64)> = Vec::new();
-
-        for (i, op) in ops.iter().enumerate() {
-            match op {
-                Op::Send(v) => {
-                    let handle = if i % 2 == 0 { &rumors } else { &sibling };
-                    let pre = handle.snapshot().latest().clone();
-                    handle.send(*v).unwrap();
-                    sent.push(created_version(&handle.snapshot(), &pre));
-                }
-                Op::Redact(idx) => {
-                    if !sent.is_empty() {
-                        rumors.redact(&sent[idx % sent.len()]);
-                    }
-                }
-                Op::Drain => {
-                    observed.extend(drain(&mut obs).0);
-                }
-            }
-        }
-
-        // Close the set and take the final drain.
-        let final_live = live_map(&rumors);
-        drop(sibling);
-        drop(rumors);
-        let (final_items, ended) = drain(&mut obs);
-        prop_assert!(ended, "all handles gone: the observer ends");
-        observed.extend(final_items);
-
-        let mut seen = BTreeSet::new();
-        for (version, _) in &observed {
-            prop_assert!(
-                seen.insert(version.as_bytes().to_vec()),
-                "version {version:?} observed twice"
-            );
-        }
-        for (key, value) in &final_live {
-            prop_assert!(
-                observed
-                    .iter()
-                    .any(|(v, m)| v.as_bytes() == key.as_slice() && m == value),
-                "a final live message was never observed",
-            );
-        }
+    fn captured_pass_survives_redaction(
+        values in vec(any::<u64>(), 2..10),
+        taken in any::<prop::sample::Index>(),
+        redactions in vec(any::<prop::sample::Index>(), 1..10),
+        remote in any::<bool>(),
+    ) {
+        redact_during_pass(values, taken, redactions, remote, Rumors::unordered_messages)?;
     }
 
-    /// §6.6 Checkpoint-resume: stop an observer at an arbitrary point and
-    /// resume a fresh one from its `checkpoint()`; the union of observations
-    /// covers every message that survived to the end (nothing lost).
-    ///
-    /// If the
-    /// stop fell *mid-pass*, re-deliveries are permitted but only for
-    /// messages the interrupted pass already delivered (at-least-once); if
-    /// the observer had *completed* its pass, nothing from it is
-    /// re-delivered (exactly-once across completed passes).
+    /// Delivery remains duplicate-free and covers the final live set across
+    /// sends, local and remote redactions, gossip, and partially drained passes.
+    #[test]
+    fn exactly_once_under_interleaving(ops in arb_ops()) {
+        interleave(&ops, Rumors::unordered_messages)?;
+    }
+
+    /// Stopping and resuming loses no final live message; each run is duplicate-free.
+    /// A checkpoint from a completed pass also prevents replay across runs.
     #[test]
     fn checkpoint_resume_loses_nothing(
         phase_one in vec(any::<u64>(), 1..8),
         phase_two in vec(any::<u64>(), 0..8),
-        taken in any::<usize>(),
+        taken in any::<prop::sample::Index>(),
         complete_pass in any::<bool>(),
     ) {
         let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
-        {
-            rumors
-                .send_all(phase_one.iter().copied()).unwrap();
-        }
+        rumors.send_all(phase_one.iter().copied()).unwrap();
 
         // Deliver a prefix of the first pass — or, when `complete_pass`,
         // drain to quiescence so the pass commits into the checkpoint.
@@ -641,7 +525,7 @@ proptest! {
             let (items, _) = drain(&mut obs);
             first_run.extend(items);
         } else {
-            for _ in 0..(taken % (phase_one.len() + 1)) {
+            for _ in 0..(taken.index(phase_one.len() + 1)) {
                 match step(&mut obs) {
                     Step::Item(item) => first_run.push(item),
                     other => panic!("the pass has more items, got {other:?}"),
@@ -652,10 +536,7 @@ proptest! {
         drop(obs);
 
         // More traffic after the stop.
-        {
-            rumors
-                .send_all(phase_two.iter().copied()).unwrap();
-        }
+        rumors.send_all(phase_two.iter().copied()).unwrap();
 
         // Resume from the persisted checkpoint and drain to the end.
         let mut resumed = rumors.unordered_messages_since(checkpoint);
@@ -675,22 +556,16 @@ proptest! {
             );
         }
 
-        // Re-delivery discipline: a message delivered by both runs must
-        // have been part of the interrupted pass; after a *completed*
-        // pass, there are no re-deliveries at all.
+        // Completed passes advance the checkpoint beyond their messages.
         let first_versions: BTreeSet<Vec<u8>> =
             first_run.iter().map(|(v, _)| v.as_bytes().to_vec()).collect();
         let second_versions: BTreeSet<Vec<u8>> =
             second_run.iter().map(|(v, _)| v.as_bytes().to_vec()).collect();
-        let redelivered: Vec<&Vec<u8>> =
-            first_versions.intersection(&second_versions).collect();
+        prop_assert_eq!(first_versions.len(), first_run.len(), "first run repeated a version");
+        prop_assert_eq!(second_versions.len(), second_run.len(), "resumed run repeated a version");
         if complete_pass {
-            prop_assert!(
-                redelivered.is_empty(),
-                "a completed pass's messages must not re-fire: {redelivered:?}",
-            );
+            prop_assert!(first_versions.is_disjoint(&second_versions),
+                "a completed pass's messages must not re-fire");
         }
-        // (Mid-pass, `redelivered ⊆ first_versions` holds by construction;
-        // the loss-freedom assertion above is the substantive check.)
     }
 }

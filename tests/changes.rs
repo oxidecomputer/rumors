@@ -7,16 +7,24 @@
 
 mod common;
 
-use futures::{FutureExt, StreamExt};
-use rumors::{Peer, Rumors};
+use std::pin::Pin;
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
+use std::task::{Context, Poll, Wake, Waker};
+
+use futures::{FutureExt, Stream, StreamExt};
+use proptest::{collection::vec, prelude::*};
+use rumors::{Changes, Peer, Rumors, TryTick, Version};
 
 use crate::common::action::created_version;
-use crate::common::wire::{bootstrap_fork_async, wire_gossip_async};
+use crate::common::wire::{block_on, bootstrap_fork, wire_gossip};
 
 /// A fresh observer yields immediately — even on an empty set — because a
 /// new subscriber has seen nothing, so whatever the set holds is news.
-#[pollster::test]
-async fn first_poll_yields_immediately() {
+#[test]
+fn first_poll_yields_immediately() {
     let rumors: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
     let mut changes = rumors.changes();
     assert_eq!(changes.next().now_or_never(), Some(Some(())));
@@ -24,89 +32,14 @@ async fn first_poll_yields_immediately() {
     assert_eq!(changes.next().now_or_never(), None);
 }
 
-/// Each commit observed in isolation produces exactly one tick: a send, a
-/// redact, and a multi-change batch are one frontier advance apiece.
-#[pollster::test]
-async fn one_tick_per_observed_commit() {
-    let rumors: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
-    let mut changes = rumors.changes();
-    assert_eq!(changes.next().now_or_never(), Some(Some(())));
-
-    // One send: one tick.
-    rumors.send(1).unwrap();
-    assert_eq!(changes.next().now_or_never(), Some(Some(())));
-    assert_eq!(changes.next().now_or_never(), None);
-
-    // One batch of several changes: still one commit, one tick.
-    rumors.send_all([2, 3]).unwrap();
-    assert_eq!(changes.next().now_or_never(), Some(Some(())));
-    assert_eq!(changes.next().now_or_never(), None);
-
-    // One redact: one tick.
-    let version = rumors
-        .snapshot()
-        .iter()
-        .find_map(|(v, m)| (*m == 1).then_some(v.clone()))
-        .expect("message 1 is live");
-    rumors.redact(&version);
-    assert_eq!(changes.next().now_or_never(), Some(Some(())));
-    assert_eq!(changes.next().now_or_never(), None);
-}
-
-/// Ticks coalesce: any number of commits between polls is one tick — the
-/// stream is a signal, not a ledger.
-#[pollster::test]
-async fn unpolled_commits_coalesce_to_one_tick() {
-    let rumors: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
-    let mut changes = rumors.changes();
-    assert_eq!(changes.next().now_or_never(), Some(Some(())));
-
-    rumors.send(1).unwrap();
-    rumors.send(2).unwrap();
-    rumors.send(3).unwrap();
-    assert_eq!(changes.next().now_or_never(), Some(Some(())));
-    assert_eq!(changes.next().now_or_never(), None);
-}
-
-/// A join learned by gossip is a commit like any other: an observer on the
-/// receiving side ticks when the session lands content from the peer.
-#[pollster::test]
-async fn gossip_join_ticks_the_observer() {
+/// Gossip reports new causal history even when no live message moves.
+/// Sending and redacting before gossip leaves this history-only change.
+#[test]
+fn gossip_frontier_only_advance_ticks_the_observer() {
     let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
-    let b = bootstrap_fork_async(&a).await;
+    let b = bootstrap_fork(&a);
 
-    let mut b_changes = b.changes();
-    assert_eq!(b_changes.next().now_or_never(), Some(Some(())));
-    assert_eq!(b_changes.next().now_or_never(), None);
-
-    a.send(7).unwrap();
-    wire_gossip_async(&a, &b).await;
-    assert_eq!(b_changes.next().now_or_never(), Some(Some(())));
-}
-
-/// A frontier advance learned by gossip with no content movement — the
-/// peer's ceiling absorbed while its every message is already held or
-/// honored as deleted — ticks a parked observer like any other change.
-///
-/// [`rumors::Changes`] promises a tick for "anything learned by gossip",
-/// and [`Rumors::changes`] promises one yield "per observed advance of the
-/// set's causal frontier". A redaction's only wire representation *is* such
-/// a frontier advance, so this tick is what lets a change-driven consumer
-/// react to redactions it never held.
-///
-/// `Tree::join`'s changed flag deliberately excludes ceiling-only advances
-/// (it answers for the set's content), so the gossip write-back supplies
-/// the ceiling term itself when deciding whether to notify the watch; this
-/// test pins that term. The closed world is single-threaded and the watch
-/// notification is synchronous, so `now_or_never() == None` below would be
-/// a lost wakeup, not a still-pending one.
-#[pollster::test]
-async fn gossip_frontier_only_advance_ticks_the_observer() {
-    let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
-    let b = bootstrap_fork_async(&a).await;
-
-    // Park B's observer in its quiet-period wait, where a live
-    // `gossip` driver's policy stream sits between sessions.
+    // Register the wait before the update, as an idle gossip driver would.
     let mut b_changes = b.changes();
     assert_eq!(b_changes.next().now_or_never(), Some(Some(())));
     assert_eq!(b_changes.next().now_or_never(), None);
@@ -117,10 +50,9 @@ async fn gossip_frontier_only_advance_ticks_the_observer() {
     a.send(7).unwrap();
     a.redact(&created_version(&a.snapshot(), &pre));
 
-    // B learns that frontier by gossip: verifiably an observed advance of
-    // B's own causal frontier, with no content movement (both trees empty).
+    // Both sets stay empty, but B must learn and report A's history.
     let b_before = b.snapshot().latest().clone();
-    wire_gossip_async(&a, &b).await;
+    wire_gossip(&a, &b);
     assert_ne!(*b.snapshot().latest(), b_before, "B's frontier advanced");
     assert_eq!(
         b.snapshot().latest(),
@@ -139,8 +71,8 @@ async fn gossip_frontier_only_advance_ticks_the_observer() {
 /// The stream ends once the set closes: with the `Peer` and every `Rumors`
 /// gone no further change is possible, and a tick still owed (committed
 /// after the last poll) is delivered before the end.
-#[pollster::test]
-async fn set_closure_ends_the_stream() {
+#[test]
+fn set_closure_ends_the_stream() {
     let rumors: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
     let mut changes = rumors.changes();
     assert_eq!(changes.next().now_or_never(), Some(Some(())));
@@ -155,54 +87,149 @@ async fn set_closure_ends_the_stream() {
 
 /// Holding a `Changes` does not count against the quiescence that lets
 /// [`Rumors::try_into_peer`] reclaim the `Peer`.
-#[pollster::test]
-async fn observer_does_not_block_peer_reclaim() {
+#[test]
+fn observer_does_not_block_peer_reclaim() {
     let rumors: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
     let _changes = rumors.changes();
-    assert!(rumors.try_into_peer().await.is_some());
+    assert!(block_on(rumors.try_into_peer()).is_some());
 }
 
-/// The non-blocking `TryTick` face carries the same contract.
-///
-/// A fresh
-/// signal's first step ticks, commits between steps coalesce into one tick,
-/// a reported signal is quiet (not ended) while handles live, the stream
-/// delivers a tick still owed at set closure, and `Ended` is terminal.
-#[test]
-fn try_tick_coalesces_quiet_and_end() {
-    use rumors::TryTick;
+/// A mutation or a poll of either observer interface.
+#[derive(Clone, Debug)]
+enum Op {
+    /// Send a batch at either replica, including an empty batch.
+    Send(bool, Vec<u64>),
+    /// Redact a live version, or an absent version when the replica is empty.
+    Redact(bool, prop::sample::Index),
+    /// Exchange both replicas' state.
+    Gossip,
+    /// Read once, selecting either `Stream` or `try_next`.
+    Read(bool),
+}
 
-    let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
-    rumors.send_all([1, 2]).unwrap();
+/// Interleave local and remote changes with periods in which notifications coalesce.
+fn arb_ops() -> impl Strategy<Value = Vec<Op>> {
+    vec(
+        prop_oneof![
+            3 => (any::<bool>(), vec(any::<u64>(), 0..4))
+                .prop_map(|(remote, values)| Op::Send(remote, values)),
+            2 => (any::<bool>(), any::<prop::sample::Index>())
+                .prop_map(|(remote, index)| Op::Redact(remote, index)),
+            2 => Just(Op::Gossip),
+            3 => any::<bool>().prop_map(Op::Read),
+        ],
+        0..40,
+    )
+}
 
-    let mut changes = rumors.changes();
-    assert!(
-        matches!(changes.try_next(), TryTick::Tick),
-        "a fresh signal's first step is a tick: the whole set is news"
-    );
-    assert!(
-        matches!(changes.try_next(), TryTick::Quiet),
-        "with a handle live, a reported signal is quiet, not ended"
-    );
+/// Express one stream poll in the same terms as the non-blocking interface.
+fn read(changes: &mut Changes<u64>, stream: bool) -> TryTick {
+    if stream {
+        match changes.next().now_or_never() {
+            None => TryTick::Quiet,
+            Some(None) => TryTick::Ended,
+            Some(Some(())) => TryTick::Tick,
+        }
+    } else {
+        changes.try_next()
+    }
+}
 
-    rumors.send(3).unwrap();
-    rumors.send(4).unwrap();
-    assert!(
-        matches!(changes.try_next(), TryTick::Tick),
-        "commits between steps coalesce into one tick"
-    );
-    assert!(matches!(changes.try_next(), TryTick::Quiet));
+/// Count notifications of a registered task, independently of yielded items.
+#[derive(Default)]
+struct WakeCount(AtomicUsize);
 
-    rumors.send(5).unwrap();
-    drop(rumors);
-    assert_eq!(
-        changes.next().now_or_never(),
-        Some(Some(())),
-        "a tick owed at closure is delivered before the end"
-    );
-    assert!(matches!(changes.try_next(), TryTick::Ended));
-    assert!(
-        matches!(changes.try_next(), TryTick::Ended),
-        "ended is terminal"
-    );
+/// Record both consuming and borrowed wakeups.
+impl Wake for WakeCount {
+    /// Record a wake while releasing the caller's handle.
+    fn wake(self: Arc<Self>) {
+        self.wake_by_ref();
+    }
+
+    /// Record a wake without releasing the caller's handle.
+    fn wake_by_ref(self: &Arc<Self>) {
+        self.0.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+proptest! {
+    /// Either interface reports exactly the history advances since the last read,
+    /// coalesces unread changes, and reports the final state before ending.
+    #[test]
+    fn changes_follow_history_under_interleaving(ops in arb_ops()) {
+        let a = Peer::<u64>::seed().sync_window_floor().into_rumors();
+        let b = bootstrap_fork(&a);
+        let mut changes = a.changes();
+        let mut reported = None;
+        for op in ops {
+            match op {
+                Op::Send(remote, values) => {
+                    let peer = if remote { &b } else { &a };
+                    peer.send_all(values).unwrap();
+                }
+                Op::Redact(remote, index) => {
+                    let peer = if remote { &b } else { &a };
+                    let snapshot = peer.snapshot();
+                    let version = if snapshot.is_empty() {
+                        Version::new()
+                    } else {
+                        snapshot.iter().nth(index.index(snapshot.len())).unwrap().0.clone()
+                    };
+                    peer.redact(&version);
+                }
+                Op::Gossip => wire_gossip(&a, &b),
+                Op::Read(stream) => {
+                    let latest = a.snapshot().latest().clone();
+                    let expected = if reported.as_ref() == Some(&latest) {
+                        TryTick::Quiet
+                    } else {
+                        TryTick::Tick
+                    };
+                    prop_assert_eq!(read(&mut changes, stream), expected);
+                    reported = Some(latest);
+                }
+            }
+        }
+        let latest = a.snapshot().latest().clone();
+        drop(a);
+        if reported.as_ref() != Some(&latest) {
+            prop_assert_eq!(read(&mut changes, true), TryTick::Tick);
+        }
+        prop_assert_eq!(read(&mut changes, false), TryTick::Ended);
+        prop_assert_eq!(read(&mut changes, true), TryTick::Ended);
+    }
+
+    /// Empty batches and absent or repeated redactions do not wake a parked task.
+    #[test]
+    fn noop_commits_do_not_wake_observers(ops in vec(0u8..3, 1..40)) {
+        let a = Peer::<u64>::seed().sync_window_floor().into_rumors();
+        a.send(7).unwrap();
+        let removed = a.snapshot().iter().next().unwrap().0.clone();
+        a.redact(&removed);
+        let latest = a.snapshot().latest().clone();
+        let mut changes = a.changes();
+        let wakes = Arc::new(WakeCount::default());
+        let waker = Waker::from(wakes.clone());
+        let mut cx = Context::from_waker(&waker);
+        prop_assert_eq!(Pin::new(&mut changes).poll_next(&mut cx), Poll::Ready(Some(())));
+        prop_assert_eq!(Pin::new(&mut changes).poll_next(&mut cx), Poll::Pending);
+        let parked = wakes.0.load(Ordering::Relaxed);
+
+        for op in ops {
+            match op {
+                0 => a.send_all(std::iter::empty::<u64>()).unwrap(),
+                1 => a.redact(&Version::new()),
+                _ => a.redact(&removed),
+            }
+            // An unnecessary watch notification may wake the task even though
+            // the observer suppresses the resulting unchanged version.
+            prop_assert_eq!(wakes.0.load(Ordering::Relaxed), parked);
+            prop_assert_eq!(a.snapshot().latest().clone(), latest.clone());
+            prop_assert_eq!(Pin::new(&mut changes).poll_next(&mut cx), Poll::Pending);
+        }
+        // A real change proves that the waker was registered and can fire.
+        a.send(8).unwrap();
+        prop_assert!(wakes.0.load(Ordering::Relaxed) > parked);
+        prop_assert_eq!(Pin::new(&mut changes).poll_next(&mut cx), Poll::Ready(Some(())));
+    }
 }

@@ -68,9 +68,8 @@ use crate::Protocol;
 pub trait Observer: Send + Sync {
     /// Begin observing one session, or return `None` to skip it.
     ///
-    /// Called once per session, before the session's first byte
-    /// crosses the wire. `session` identifies it; the returned
-    /// handler's lifetime is the session's.
+    /// Called once per session, before this side writes its first byte or
+    /// delivers any item to a handler. The returned handler lives for the session.
     fn session(&self, session: &SessionInfo) -> Option<Box<dyn SessionObserver>>;
 }
 

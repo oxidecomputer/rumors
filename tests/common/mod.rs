@@ -15,6 +15,7 @@
 //!   ([`schedule::executor`]), against real peers ([`peer`]) over
 //!   in-memory links, with [`oracle`] computing the expected converged
 //!   set for comparison.
+//! - [`observer`] shares message-observer read helpers and two-peer schedules.
 //! - [`sim`] runs whole plans concurrently instead: overlapping sessions
 //!   on a multi-thread runtime, genuinely nondeterministic.
 //! - [`fault`] injects transport adversity; [`flaky`] injects
@@ -36,6 +37,7 @@ pub mod action;
 pub mod fault;
 pub mod flaky;
 pub mod gossip_snapshot;
+pub mod observer;
 pub mod oracle;
 pub mod overlap;
 pub mod peer;
