@@ -18,8 +18,10 @@ use super::super::{
     signal::{DecodeSignalError, End, Flow, Speaker, Stream, StreamError},
 };
 
+/// Both possible senders of a frame.
 const SPEAKERS: [Speaker; 2] = [Speaker::Initiator, Speaker::Responder];
 
+/// A checked logical stream for a test fixture.
 fn stream(index: u8) -> Stream {
     Stream::new(index).unwrap()
 }
@@ -67,15 +69,7 @@ fn query(stream: Stream, flow: Flow, children: &[(u8, Hash)]) -> Vec<u8> {
 /// tag and byte-string head, then the tagged version atom, then the
 /// payload's CBOR bytes bare.
 fn record(version: &Version, message: &Message) -> Vec<u8> {
-    let mut content = Vec::new();
-    cbor::write_head(&mut content, MAJOR_TAG, crate::tags::VERSION_TAG);
-    ciborium::ser::into_writer(version, &mut content).unwrap();
-    content.extend_from_slice(message.as_slice());
-    let mut record = Vec::new();
-    cbor::write_head(&mut record, MAJOR_TAG, TAG_CBOR_SEQUENCE);
-    cbor::write_head(&mut record, MAJOR_BSTR, content.len() as u64);
-    record.extend_from_slice(&content);
-    record
+    raw_record(&record_content(version, message))
 }
 
 /// A record item wrapping raw content bytes, for malformed-content cases.
@@ -96,10 +90,12 @@ fn record_content(version: &Version, message: &Message) -> Vec<u8> {
     content
 }
 
+/// Either direction of a session.
 fn arb_speaker() -> impl Strategy<Value = Speaker> {
     prop_oneof![Just(Speaker::Initiator), Just(Speaker::Responder)]
 }
 
+/// A reaction that continues or finishes its reply.
 fn arb_flow() -> impl Strategy<Value = Flow> {
     prop_oneof![Just(Flow::Continue), Just(Flow::End)]
 }
@@ -842,89 +838,84 @@ fn async_invalid_signal_does_not_consume_a_body() {
     }
 }
 
-struct FailingReader;
-
-impl std::io::Read for FailingReader {
-    fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
-        Err(std::io::ErrorKind::Other.into())
-    }
-}
-
-/// Reader failures before the signal retain their frame part and speaker.
-#[test]
-fn reader_errors_are_contextual() {
-    for speaker in SPEAKERS {
-        let error = decode(speaker, RunBudget::default(), &mut FailingReader).unwrap_err();
-        assert_eq!(error.origin, Origin::direction(speaker));
-        assert!(matches!(
-            error.kind,
-            DecodeErrorKind::Read {
-                part: FramePart::FrameHead,
-                source,
-            } if source.kind() == std::io::ErrorKind::Other
-        ));
-    }
-}
-
-/// What a `FailAfter` transport does once it has failed: keep failing,
+/// What a `TestRead` transport does once it has failed: keep failing,
 /// close cleanly, or resume delivering the rest of its bytes.
 #[derive(Debug, Clone, Copy)]
 enum AfterFailure {
+    /// Keep reporting the same error.
     Fail,
+    /// Return EOF on subsequent reads.
     Close,
+    /// Deliver the remaining bytes on subsequent reads.
     Resume,
 }
 
-/// A transport that delivers the first `remaining` bytes of `bytes`,
-/// A transport that delivers the first `remaining` bytes of `bytes`,
-/// fails, and then does what `after` says.
+/// Bytes delivered with a repeating chunk schedule and an optional read failure.
 ///
-/// The failing read reports the fixture's `kind`: `Other` from `new`,
-/// chosen by `failing_with`.
-/// One fixture serves both decoders: it reads synchronously for the
-/// oracle and asynchronously for `FrameRead`. It counts the reads made
-/// after its failure, so a test can hold a decoder to reporting the
-/// failure without touching the transport again.
-struct FailAfter {
+/// Both I/O traits use the same byte source. Async reads also yield once before
+/// each operation, so the decoder must retain its progress across polls.
+struct TestRead {
     bytes: Vec<u8>,
     position: usize,
+    /// Bytes left before the injected error; `usize::MAX` disables it.
     remaining: usize,
     after: AfterFailure,
     failed: bool,
     reads_after_failure: usize,
-    /// The kind the failing read reports.
     kind: std::io::ErrorKind,
+    chunks: Vec<usize>,
+    step: usize,
+    /// Whether the next poll should yield before serving bytes.
+    pending: bool,
 }
 
-impl FailAfter {
-    fn new(bytes: &[u8], remaining: usize, after: AfterFailure) -> Self {
-        Self::failing_with(bytes, remaining, after, std::io::ErrorKind::Other)
+/// Configure a finite input and inspect how much the decoder consumed.
+impl TestRead {
+    /// Deliver all bytes without injecting an error.
+    fn new(bytes: &[u8]) -> Self {
+        Self {
+            bytes: bytes.to_vec(),
+            position: 0,
+            remaining: usize::MAX,
+            after: AfterFailure::Fail,
+            failed: false,
+            reads_after_failure: 0,
+            kind: std::io::ErrorKind::Other,
+            chunks: vec![usize::MAX],
+            step: 0,
+            pending: true,
+        }
     }
 
-    /// Like [`new`](Self::new), with the failing read reporting `kind`.
-    fn failing_with(
-        bytes: &[u8],
+    /// Fail the first read after `remaining` bytes, then follow `after`.
+    fn fail_after(
+        mut self,
         remaining: usize,
         after: AfterFailure,
         kind: std::io::ErrorKind,
     ) -> Self {
-        Self {
-            bytes: bytes.to_vec(),
-            position: 0,
-            remaining,
-            after,
-            failed: false,
-            reads_after_failure: 0,
-            kind,
-        }
+        self.remaining = remaining;
+        self.after = after;
+        self.kind = kind;
+        self
     }
 
-    /// The bytes one read of up to `want` bytes delivers, or its failure.
+    /// Repeat these positive read sizes until the input ends.
+    fn chunked(mut self, chunks: Vec<usize>) -> Self {
+        assert!(!chunks.is_empty() && chunks.iter().all(|&n| n > 0));
+        self.chunks = chunks;
+        self
+    }
+
+    /// Serve one read, retaining the exact position and any injected failure.
     fn serve(&mut self, want: usize) -> std::io::Result<&[u8]> {
+        if want == 0 {
+            return Ok(&[]);
+        }
         if self.failed {
             self.reads_after_failure += 1;
             match self.after {
-                AfterFailure::Fail => return Err(std::io::ErrorKind::Other.into()),
+                AfterFailure::Fail => return Err(self.kind.into()),
                 AfterFailure::Close => return Ok(&[]),
                 AfterFailure::Resume => {}
             }
@@ -932,28 +923,33 @@ impl FailAfter {
             self.failed = true;
             return Err(self.kind.into());
         }
+        let chunk = self.chunks[self.step % self.chunks.len()];
+        self.step += 1;
         let available = self.bytes.len() - self.position;
         let served = if self.failed {
             available
         } else {
             self.remaining.min(available)
         }
-        .min(want);
+        .min(want)
+        .min(chunk);
         let start = self.position;
         self.position += served;
         if !self.failed {
             self.remaining -= served;
         }
-        Ok(&self.bytes[start..start + served])
+        Ok(&self.bytes[start..self.position])
     }
 
-    /// The bytes no read has taken.
+    /// Bytes no read has taken, including any trailing frame.
     fn unread(&self) -> &[u8] {
         &self.bytes[self.position..]
     }
 }
 
-impl std::io::Read for FailAfter {
+/// Feed the synchronous reference decoder without asynchronous scheduling.
+impl std::io::Read for TestRead {
+    /// Copy the next scheduled chunk into the caller's buffer.
     fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
         let served = self.serve(out.len())?;
         out[..served.len()].copy_from_slice(served);
@@ -961,12 +957,20 @@ impl std::io::Read for FailAfter {
     }
 }
 
-impl AsyncRead for FailAfter {
+/// Yield before each read, waking the driver so finite input can progress.
+impl AsyncRead for TestRead {
+    /// Alternate a self-waking yield with a scheduled read.
     fn poll_read(
         mut self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
+        cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<std::io::Result<()>> {
+        if self.pending {
+            self.pending = false;
+            cx.waker().wake_by_ref();
+            return Poll::Pending;
+        }
+        self.pending = true;
         let served = self.serve(buf.remaining())?;
         buf.put_slice(served);
         Poll::Ready(Ok(()))
@@ -1014,10 +1018,14 @@ fn opener_read_failures_are_reported_in_wire_order() {
                 let case =
                     format!("{speaker:?}, {bytes:02x?} cut after {remaining}, then {after:?}");
                 let budget = RunBudget::default();
-                let mut sync = FailAfter::new(bytes, remaining, after);
+                let mut sync =
+                    TestRead::new(bytes).fail_after(remaining, after, std::io::ErrorKind::Other);
                 let from_sync = decode(speaker, budget, &mut sync);
-                let mut reader =
-                    FrameRead::new(speaker, budget, FailAfter::new(bytes, remaining, after));
+                let mut reader = FrameRead::new(
+                    speaker,
+                    budget,
+                    TestRead::new(bytes).fail_after(remaining, after, std::io::ErrorKind::Other),
+                );
                 let from_async = pollster::block_on(reader.frame());
                 let r#async = reader.into_inner();
                 for transport in [&sync, &r#async] {
@@ -1051,60 +1059,6 @@ fn opener_read_failures_are_reported_in_wire_order() {
                         error.kind
                     );
                 }
-            }
-        }
-    }
-}
-
-/// A transport failure of kind `UnexpectedEof` inside a body is a
-/// truncation of that body in both decoders, not a read error.
-///
-/// The kind alone decides, whether a bulk read met it after delivering
-/// some bytes or a whole-body read met it outright.
-#[test]
-fn body_eof_failures_are_truncations_in_both_decoders() {
-    let stream = stream(6);
-    let body = record(&Version::new(), &Message::new(1u64));
-    let supply_frame = supply(stream, Flow::Continue, &body);
-    let listing_frame = query(stream, Flow::Continue, &[(3, Hash::default())]);
-    let cases = [
-        // Two body bytes short of the run.
-        (supply_frame.len() - 2, supply_frame, FramePart::SupplyRun),
-        // Inside the listing's one entry.
-        (
-            listing_frame.len() - 8,
-            listing_frame,
-            FramePart::QueryChildren,
-        ),
-    ];
-    for speaker in SPEAKERS {
-        for (remaining, encoded, missing) in &cases {
-            let budget = RunBudget::default();
-            let eof = std::io::ErrorKind::UnexpectedEof;
-            let from_sync = decode(
-                speaker,
-                budget,
-                &mut FailAfter::failing_with(encoded, *remaining, AfterFailure::Fail, eof),
-            )
-            .expect_err("a body cut by a failing read cannot decode");
-            let mut reader = FrameRead::new(
-                speaker,
-                budget,
-                FailAfter::failing_with(encoded, *remaining, AfterFailure::Fail, eof),
-            );
-            let from_async = pollster::block_on(reader.frame())
-                .expect_err("a body cut by a failing read cannot decode");
-            assert_eq!(from_async.origin, from_sync.origin);
-            for error in [&from_sync, &from_async] {
-                assert!(
-                    matches!(
-                        &error.kind,
-                        DecodeErrorKind::Truncated { missing: actual, source }
-                            if actual == missing && source.kind() == eof
-                    ),
-                    "{speaker:?}, {missing:?}: {:?}",
-                    error.kind
-                );
             }
         }
     }
@@ -1153,46 +1107,45 @@ fn frame_wire_size(body: &[u8]) -> usize {
     super::super::SUPPLY_FRAME_OVERHEAD + body.len()
 }
 
-/// A decode failure's classification with its I/O source elided: the two
-/// decoders share every typed field but wrap different reader libraries,
-/// whose error texts legitimately differ.
+/// Compare error categories, context, and I/O kinds without depending on
+/// reader-specific error text.
 fn kind_signature(kind: &DecodeErrorKind) -> String {
     match kind {
-        DecodeErrorKind::Read { part, .. } => format!("Read({part:?})"),
-        DecodeErrorKind::Truncated { missing, .. } => format!("Truncated({missing:?})"),
+        DecodeErrorKind::Read { part, source } => format!("Read({part:?}, {:?})", source.kind()),
+        DecodeErrorKind::Truncated { missing, source } => {
+            format!("Truncated({missing:?}, {:?})", source.kind())
+        }
         other => format!("{other:?}"),
     }
 }
 
-/// Decode one frame from `bytes` through both decoders — the async reader
-/// and the sync oracle — requiring them to classify identically, and
-/// return the shared outcome.
+/// Compare the synchronous reference with bulk and fragmented async reads.
+/// Successful reads must also leave exactly the same suffix untouched.
 fn decode_both(
     speaker: Speaker,
     budget: RunBudget,
     bytes: &[u8],
 ) -> Result<WireFrame, DecodeError> {
-    let mut reader = FrameRead::new(speaker, budget, bytes);
-    let from_async = pollster::block_on(reader.frame())
-        .map(|frame| frame.expect("a nonempty byte stream is not a clean close"));
     let mut rest = bytes;
     let from_sync = decode(speaker, budget, &mut rest);
-    match (from_async, from_sync) {
-        (Ok(a), Ok(s)) => {
-            assert_eq!(a, s, "the two decoders accept different frames");
-            Ok(a)
+    for chunks in [vec![usize::MAX], vec![1, 3, 2]] {
+        let mut reader = FrameRead::new(speaker, budget, TestRead::new(bytes).chunked(chunks));
+        let from_async = crate::testing::run_to_quiescence(reader.frame())
+            .expect("finite input makes progress")
+            .map(|frame| frame.expect("these cases expect a frame"));
+        match (&from_async, &from_sync) {
+            (Ok(a), Ok(s)) => {
+                assert_eq!(a, s, "the two decoders accept different frames");
+                assert_eq!(reader.into_inner().unread(), rest);
+            }
+            (Err(a), Err(s)) => {
+                assert_eq!(kind_signature(&a.kind), kind_signature(&s.kind));
+                assert_eq!(a.origin, s.origin);
+            }
+            (a, s) => panic!("the two decoders disagree: async {a:?}, sync {s:?}"),
         }
-        (Err(a), Err(s)) => {
-            assert_eq!(
-                kind_signature(&a.kind),
-                kind_signature(&s.kind),
-                "the two decoders classify the failure differently"
-            );
-            assert_eq!(a.origin, s.origin);
-            Err(a)
-        }
-        (a, s) => panic!("the two decoders disagree: async {a:?}, sync {s:?}"),
     }
+    from_sync
 }
 
 proptest! {
@@ -1330,6 +1283,18 @@ fn overbatched_corners_classify_exactly() {
             );
         }
 
+        // At the boundary, an empty-content record is structurally valid.
+        // Its missing version is diagnosed later by the record iterator.
+        let empty = raw_record(&[]);
+        assert_eq!(empty.len(), MIN_RECORD_HEADS_LEN);
+        let (_, frame) = decode_both(speaker, zero, &supply(stream, Flow::End, &empty))
+            .expect("the smallest lone record passes the framing check");
+        let Frame::Reaction(Reaction::Supply(run), _) = frame else {
+            panic!("expected a supply frame");
+        };
+        assert_eq!(run.record_count(), 1);
+        assert_eq!(run.as_bytes(), empty);
+
         // A first record falling short of the body (two records' shapes)
         // and one overrunning it: both are the violation.
         let two_records = record(&Version::new(), &Message::new(1)).repeat(2);
@@ -1373,27 +1338,6 @@ fn overbatched_corners_classify_exactly() {
     }
 }
 
-/// An in-memory `AsyncRead` delivering at most `chunk` bytes per read, so
-/// a body read runs under partial delivery.
-struct ChunkedRead<'a> {
-    bytes: &'a [u8],
-    chunk: usize,
-}
-
-impl AsyncRead for ChunkedRead<'_> {
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<std::io::Result<()>> {
-        let granted = self.chunk.min(buf.remaining()).min(self.bytes.len());
-        let (now, later) = self.bytes.split_at(granted);
-        buf.put_slice(now);
-        self.bytes = later;
-        Poll::Ready(Ok(()))
-    }
-}
-
 /// The over-budget lone-record body read consumes no byte beyond the
 /// declared run: the frame after it stays intact in the transport and
 /// decodes next, whatever the delivery chunking.
@@ -1426,10 +1370,7 @@ fn over_budget_lone_record_read_stays_within_its_frame() {
             first
         );
         for chunk in 1..=encoded.len() {
-            let read = ChunkedRead {
-                bytes: &encoded,
-                chunk,
-            };
+            let read = TestRead::new(&encoded).chunked(vec![chunk]);
             let mut reader = FrameRead::new(speaker, zero, read);
             let mut next = || pollster::block_on(reader.frame()).unwrap();
             assert_eq!(next(), Some(first.clone()), "chunk {chunk}");
@@ -1443,16 +1384,11 @@ fn over_budget_lone_record_read_stays_within_its_frame() {
     }
 }
 
-/// A hand-crafted record whose payload nests one scope past the peer's
-/// depth limit dies typed at wire ingress, while the same shape at
-/// exactly the limit decodes clean, pinning the boundary.
-///
-/// Send-side admission binds only this crate's own senders, so a
-/// nonconforming implementation's over-deep supply must still surface as
-/// `DecodeLeafError::Message` (invalid data), never as a panic or an
-/// untyped abort.
+/// Record iteration enforces the payload depth limit: exactly the limit
+/// decodes, while one level deeper returns a payload error. Frame decoding
+/// accepts the record's structure before its content is examined.
 #[test]
-fn an_over_deep_supplied_payload_dies_typed_at_ingress() {
+fn record_iteration_enforces_payload_depth() {
     /// The receiving payload type: pure array nesting, the innermost
     /// array empty, matching the hand-crafted bytes below.
     #[derive(Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -1491,3 +1427,5 @@ fn an_over_deep_supplied_payload_dies_typed_at_ingress() {
         .unwrap()
         .expect("a payload at exactly the limit decodes");
 }
+
+mod transport;

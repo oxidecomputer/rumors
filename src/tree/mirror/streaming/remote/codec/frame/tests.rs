@@ -24,54 +24,34 @@ fn record_capacity_charges_the_whole_item() {
     }
 }
 
-/// `record_len` prices exactly what `push` writes, at every CBOR
-/// byte-string head width a version can occupy.
-///
-/// The two are the same quantity computed two ways — arithmetic against
-/// actual encoding — so the run-budget math can trust the closed form.
-/// Deep version chains grow the canonical encoding through the 1-byte
-/// (< 24), 2-byte (< 256), and 3-byte (< 65536) CBOR head regimes; the
-/// chain lengths below land encodings in the first two and the message
-/// sizes sweep the payload term.
-#[test]
-fn record_len_matches_an_actual_push() {
-    let mut version = crate::Version::new();
-    let mut checked_regimes = std::collections::BTreeSet::new();
-    for parties in 1..=128u32 {
-        // One tick on a fresh disjoint party per step: each new party's
-        // event widens the canonical encoding, marching it through the
-        // CBOR head-width regimes.
-        version.tick(&crate::tree::arb::nth_party(parties as usize));
-        if !(parties == 1 || parties % 17 == 0) {
-            continue;
+proptest::proptest! {
+    /// Record sizing matches the bytes actually written for varied versions
+    /// and payload lengths; the version's framing also matches serde encoding.
+    #[test]
+    fn record_len_matches_an_actual_push(
+        ticks in proptest::collection::vec(0u32..1024, 0..=128),
+        payload in proptest::collection::vec(proptest::num::u8::ANY, 0..1024),
+    ) {
+        use proptest::prelude::*;
+        // Independent parties with different counts produce varied clock
+        // shapes, including versions whose byte-string head needs widening.
+        let mut version = crate::Version::new();
+        for (index, ticks) in ticks.into_iter().enumerate() {
+            version.ticks(&crate::tree::arb::nth_party(index), ticks);
         }
-        checked_regimes.insert(cbor::head_len(version.as_bytes().len() as u64));
-        for message in [Message::new(0u64), Message::new(u64::MAX)] {
-            let mut run = LeafRun::new();
-            run.push(&version, &message).expect("test records fit");
-            assert_eq!(
-                run.encoded_len(),
-                LeafRun::record_len(&version, &message),
-                "record_len must price exactly one pushed record",
-            );
-            // Behind the record's heads and the version-atom tag, the
-            // version `push` writes is byte-identical to the serde form
-            // the decoder parses (ciborium's byte string).
-            let mut serde_form = Vec::new();
-            ciborium::ser::into_writer(&version, &mut serde_form).unwrap();
-            let content = LeafRun::record_body_len(&version, &message);
-            let at = record_heads(content) + VERSION_TAG_LEN;
-            assert_eq!(
-                &run.as_bytes()[at..at + serde_form.len()],
-                serde_form.as_slice(),
-                "push's hand-written version framing must match ciborium's",
-            );
-        }
+        let message = Message::new(payload);
+        let mut run = LeafRun::new();
+        run.push(&version, &message).expect("test records fit");
+        prop_assert_eq!(run.encoded_len(), LeafRun::record_len(&version, &message));
+
+        // Skip the record heads and version tag to compare the version's
+        // hand-written byte-string framing with an independent serde writer.
+        let mut serde_form = Vec::new();
+        ciborium::ser::into_writer(&version, &mut serde_form).unwrap();
+        let content = LeafRun::record_body_len(&version, &message);
+        let at = record_heads(content) + VERSION_TAG_LEN;
+        prop_assert_eq!(&run.as_bytes()[at..at + serde_form.len()], serde_form.as_slice());
     }
-    assert!(
-        checked_regimes.len() >= 2,
-        "the sweep must cross at least two CBOR head-width regimes, got {checked_regimes:?}",
-    );
 }
 
 /// A pushed run round-trips through `from_encoded` and yields the same

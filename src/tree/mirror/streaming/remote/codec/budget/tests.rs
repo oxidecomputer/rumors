@@ -7,10 +7,7 @@ use super::*;
 #[test]
 fn default_budget_matches_its_derivation() {
     assert_eq!(DEFAULT_TARGET_MESSAGE_SIZE, 1_830_400);
-    assert_eq!(
-        RunBudget::default(),
-        RunBudget::from_bytes(DEFAULT_TARGET_MESSAGE_SIZE)
-    );
+    assert_eq!(RunBudget::default().bytes(), DEFAULT_TARGET_MESSAGE_SIZE);
 }
 
 /// The full-fan frame constant prices exactly what the encoder writes.

@@ -40,12 +40,12 @@ const OPENER_LEN: usize = cbor::head_len(3) + WireSignal::ENCODED_LEN;
 
 /// Async frame reader over one speaker's transport direction.
 ///
-/// EOF before a frame's array head is a clean direction close and returns
-/// `None`. Once that head arrives, a missing component is a contextual
-/// truncation. Variable bodies are read at their declared size and
-/// validated exactly once, with supply bodies additionally held to the
-/// session's run budget before they are buffered
-/// ([`DecodeErrorKind::OverbatchedRun`]).
+/// A clean close before a frame's array head returns `None`. A close within a
+/// frame, or an explicit `UnexpectedEof` error at any position, reports the
+/// truncated component. Other I/O errors retain their original kind. Variable
+/// bodies are read at their declared size and validated exactly once, with
+/// supply bodies additionally held to the session's run budget before they are
+/// buffered ([`DecodeErrorKind::OverbatchedRun`]).
 ///
 /// # Reads
 ///
@@ -133,8 +133,7 @@ impl<R: AsyncRead + Unpin> FrameRead<R> {
     }
 }
 
-/// Read and decode one frame from `read`; the contract is
-/// [`FrameRead::frame`]'s.
+/// Read one frame, retaining any partial-read error until its position is known.
 async fn read_frame<R: AsyncRead + Unpin>(
     read: &mut R,
     speaker: Speaker,
@@ -146,22 +145,16 @@ async fn read_frame<R: AsyncRead + Unpin>(
         read,
         failure: None,
     };
-    // Every frame opens with its array head, its stream item, and its
-    // state item, each a one-byte head when canonical, so one read may
-    // take all three. A close before the first byte is the clean end of
-    // the direction; anything shorter after it is judged in wire order
-    // below, each item taking what the read fetched ahead of it, and a
-    // failure the read met is reported at the first item that needs
-    // more bytes than arrived.
+    // Valid frames start with three one-byte items, so fetching them together
+    // cannot consume the next frame. Parse the bytes that arrived in order;
+    // if the read failed, report that error at the first incomplete item.
+    // Re-reading instead could hide the error behind a later close or success.
     let mut opener = [0u8; OPENER_LEN];
     let Arrived { filled, failure } = exact.fill(&mut opener).await;
     if filled == 0 {
         return match failure {
             None => Ok(None),
-            Some(source) => Err(direction(DecodeErrorKind::Read {
-                part: FramePart::FrameHead,
-                source,
-            })),
+            Some(source) => Err(direction(classify(FramePart::FrameHead, source))),
         };
     }
     exact.failure = failure;

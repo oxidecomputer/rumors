@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 38dc50d1bbc6700513d3bfbb19c673292bfff6a8700f41413a97d0bde376f0f9 # shrinks to (case, cut) = (FrameCase { bytes: [130, 1, 0], expected: (Stream(1), Reaction(Match, Continue)), supply_at: None }, 0), chunks = [1], speaker = Initiator, after = Fail, kind = UnexpectedEof

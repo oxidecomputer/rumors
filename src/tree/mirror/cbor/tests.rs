@@ -2,6 +2,9 @@ use proptest::prelude::*;
 
 use super::*;
 
+// Major 7 encodes simple values and floats, rather than the integer arguments
+// these helpers write. The round-trip families therefore cover majors 0–6.
+
 /// Every head a writer emits reads back as the same `(major, value)` pair,
 /// occupies exactly `head_len` bytes, and leaves trailing input untouched:
 /// the writer and the canonical reader are inverses.
@@ -92,24 +95,17 @@ fn async_heads_match_the_slice_reader() {
     proptest!(|(major in 0u8..7, value: u64)| {
         let mut bytes = Vec::new();
         write_head(&mut bytes, major, value);
-        let head = tokio::runtime::Builder::new_current_thread()
-            .build()
-            .expect("runtime builds")
-            .block_on(async {
-                let mut read = bytes.as_slice();
-                read_head_async(&mut read).await
-            })
+        let mut input = bytes.as_slice();
+        let head = crate::testing::run_to_quiescence(read_head_async(&mut input))
+            .expect("a finite head read makes progress")
             .expect("a written head is canonical")
             .expect("a nonempty stream yields a head");
+        prop_assert!(input.is_empty());
         prop_assert_eq!(head, Head { major, value });
     });
-    let none = tokio::runtime::Builder::new_current_thread()
-        .build()
-        .expect("runtime builds")
-        .block_on(async {
-            let mut read: &[u8] = &[];
-            read_head_async(&mut read).await
-        })
+    let mut empty: &[u8] = &[];
+    let none = crate::testing::run_to_quiescence(read_head_async(&mut empty))
+        .expect("a closed input makes progress")
         .expect("an empty stream is a clean close");
     assert!(none.is_none());
 }

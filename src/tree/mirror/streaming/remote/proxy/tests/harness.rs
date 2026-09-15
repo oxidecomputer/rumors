@@ -365,12 +365,17 @@ pub struct ScriptedConnector<C> {
     script: Option<Script>,
 }
 
+/// Preserve the underlying connector's completion callback through the wrapper.
 impl<C: Connector> Connector for ScriptedConnector<C> {
     type Tx = ScriptedWrite<C::Tx>;
 
+    /// Wrap an outgoing stream and return its underlying half on completion.
     async fn connect(&self) -> io::Result<(Self::Tx, Done<Self::Tx>)> {
-        let (tx, _) = self.inner.connect().await?;
-        Ok((ScriptedWrite::new(tx, self.script.clone()), Done::discard()))
+        let (tx, done) = self.inner.connect().await?;
+        Ok((
+            ScriptedWrite::new(tx, self.script.clone()),
+            Done::new(move |tx: Self::Tx| done.complete(tx.inner)),
+        ))
     }
 }
 
@@ -667,15 +672,16 @@ pub async fn reconcile_scripted(
 }
 
 /// Wrap one link's outgoing data streams with a frame script.
-fn scripted(
-    link: MemoryLink,
+pub fn scripted<R, W, C, A>(
+    link: Link<R, W, C, A>,
     script: Option<Script>,
-) -> Link<
-    tokio::io::DuplexStream,
-    tokio::io::DuplexStream,
-    ScriptedConnector<crate::link::MemoryConnector>,
-    crate::link::MemoryAcceptor,
-> {
+) -> Link<R, W, ScriptedConnector<C>, A>
+where
+    R: AsyncRead + Unpin + Send,
+    W: AsyncWrite + Unpin + Send,
+    C: Connector,
+    A: Acceptor,
+{
     let parts = link.into_parts();
     crate::link::LinkParts {
         control_read: parts.control_read,

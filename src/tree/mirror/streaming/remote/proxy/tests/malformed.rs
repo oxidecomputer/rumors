@@ -1,6 +1,7 @@
 //! Full-stack rejection of peer-controlled malformed frames.
 
 use super::harness::{self, EndpointError, EndpointFailure, FrameMutation, FrameSelector, Script};
+use crate::link::{Acceptor, Done, Link, MemoryAcceptor, MemoryConnector, MemoryLink};
 use crate::testing::run_to_quiescence;
 use crate::tree::{
     arb::early_first_child_dispute_pair,
@@ -10,6 +11,8 @@ use crate::tree::{
         streams::StreamError,
     },
 };
+use std::sync::{Arc, Mutex};
+use tokio::io::{AsyncReadExt, DuplexStream};
 
 /// An honestly built, wire-valid pair whose first root child is deeply
 /// disputed on both sides.
@@ -180,36 +183,119 @@ fn duplicated_reply_is_rejected_as_unasked() {
     assert!(right_result.is_err());
 }
 
-/// Bytes past a stream's end control belong to the transport, not the
-/// session: a duplicated stream-end frame is never read, and the session
-/// completes as if it were absent.
-///
-/// The receiver completes its transport half exactly at the end control
-/// (the link contract's completion clause), so trailing bytes are left
-/// where they lie — on a reusing link they would be the next stream's
-/// connect header — rather than parsed as protocol.
+/// Receive halves returned at protocol completion, kept alive for inspection.
+type CompletedReads = Arc<Mutex<Vec<DuplexStream>>>;
+
+/// A memory acceptor that keeps completed halves instead of closing them.
+struct RetainReads {
+    inner: MemoryAcceptor,
+    completed: CompletedReads,
+}
+
+/// Leave completed halves open for the next owner, as a pooling link does.
+impl Acceptor for RetainReads {
+    type Rx = DuplexStream;
+
+    /// Save the receive half only when the protocol calls its completion callback.
+    async fn accept(&mut self) -> std::io::Result<(Self::Rx, Done<Self::Rx>)> {
+        let (rx, _) = self.inner.accept().await?;
+        let completed = self.completed.clone();
+        Ok((rx, Done::new(move |rx| completed.lock().unwrap().push(rx))))
+    }
+}
+
+/// Retain received streams without changing their bytes or delivery behavior.
+fn retain_reads(
+    link: MemoryLink,
+    completed: CompletedReads,
+) -> Link<DuplexStream, DuplexStream, MemoryConnector, RetainReads> {
+    let parts = link.into_parts();
+    crate::link::LinkParts {
+        control_read: parts.control_read,
+        control_write: parts.control_write,
+        connector: parts.connector,
+        acceptor: RetainReads {
+            inner: parts.acceptor,
+            completed,
+        },
+        session: parts.session,
+    }
+    .into_link()
+}
+
+/// Completing a stream leaves its trailing frame unread under varied
+/// chunk sizes and scheduling. Both replicas still reach the join.
 #[test]
 fn bytes_past_the_stream_end_are_never_read() {
-    const STREAM_END_STATE: u8 = 9;
+    use crate::link::memory_with_capacity;
+    use crate::testing::{IoPlan, IoSide, wrap_link};
+    use crate::tree::mirror::streaming::window::WindowConfig;
+    use proptest::prelude::*;
 
-    for corrupt_left in [false, true] {
-        let (left, right) = deep_pair();
-        let script = Script::new(
-            FrameSelector::State(STREAM_END_STATE),
-            FrameMutation::Duplicate,
-        );
-        let (left_result, right_result) = run_to_quiescence(harness::reconcile_scripted(
-            left,
-            right,
-            corrupt_left.then(|| script.clone()),
-            (!corrupt_left).then(|| script.clone()),
-        ))
-        .expect("sessions complete despite the trailing frame");
-        assert!(script.fired(), "no stream-end frame reached the mutator");
-        assert!(left_result.is_ok(), "left session failed: {left_result:?}");
-        assert!(
-            right_result.is_ok(),
-            "right session failed: {right_result:?}"
-        );
-    }
+    let (left, right) = deep_pair();
+    let mut expected = crate::tree::Tree::<()>::from_root(left.clone());
+    expected.join(crate::tree::Tree::from_root(right.clone()));
+    // Finding this deep hash geometry is expensive; vary delivery over
+    // clones of one fixture, without repeating that search for each case.
+    proptest!(|(
+        append_left in any::<bool>(),
+        read_chunk in 1usize..64,
+        write_chunk in 1usize..64,
+        delays in proptest::collection::vec(0u8..=2, 0..32),
+    )| {
+        let script = Script::new(FrameSelector::State(9), FrameMutation::Duplicate);
+        let plan = IoPlan {
+            read_chunk,
+            write_chunk,
+            read_delays: delays.clone(),
+            write_delays: delays,
+            ..IoPlan::default()
+        };
+        let (left_link, right_link) = memory_with_capacity(37);
+        let completed = CompletedReads::default();
+        let left_link = retain_reads(left_link, completed.clone());
+        let right_link = retain_reads(right_link, completed.clone());
+        // Count below the mutation wrapper, where the duplicated bytes really
+        // enter the transport. Counting above it would miss those bytes.
+        let (left_link, left_io) = wrap_link(IoSide::Left, plan.clone(), left_link);
+        let (right_link, right_io) = wrap_link(IoSide::Right, plan, right_link);
+        let (left_result, right_result) = run_to_quiescence(harness::drive(
+            harness::Topology::Production,
+            harness::Backends::local(),
+            left.clone(),
+            right.clone(),
+            harness::scripted(left_link, append_left.then(|| script.clone())),
+            harness::scripted(right_link, (!append_left).then(|| script.clone())),
+            harness::codec::<()>(),
+            WindowConfig::FLOOR,
+        )).expect("a frame beyond stream end must not affect progress");
+        prop_assert!(script.fired());
+        prop_assert_eq!(&left_result.unwrap(), &expected.root);
+        prop_assert_eq!(&right_result.unwrap(), &expected.root);
+
+        let (sender, receiver) = if append_left {
+            (left_io.snapshot(), right_io.snapshot())
+        } else {
+            (right_io.snapshot(), left_io.snapshot())
+        };
+        // End(Stream) is [stream, state]: one byte each for its array head,
+        // stream index, and state. Exactly those three extra bytes must remain.
+        prop_assert_eq!(sender.write_bytes, receiver.read_bytes + 3);
+        prop_assert_eq!(receiver.write_bytes, sender.read_bytes);
+
+        // These are the actual halves returned through Done, below the byte
+        // counters. Each writer has finished, so reading their remainder ends.
+        let halves = std::mem::take(&mut *completed.lock().unwrap());
+        let remaining = run_to_quiescence(async {
+            let mut bytes = Vec::new();
+            for mut rx in halves {
+                rx.read_to_end(&mut bytes).await.unwrap();
+            }
+            bytes
+        }).expect("completed streams have no unfinished writers");
+        prop_assert_eq!(remaining.len(), 3);
+        prop_assert_eq!(remaining[0], 0x82);
+        prop_assert!(remaining[1] < crate::link::STREAM_COUNT as u8);
+        prop_assert_eq!(remaining[2], 9);
+    });
 }

@@ -2,6 +2,7 @@ use super::*;
 
 use crate::tree::typed::{Hash, hash::MERKLE_HASH_LEN};
 
+/// A greeting with a real version and a caller-chosen root listing.
 fn sample(listing: Vec<(u8, Hash)>) -> Greeting {
     let mut version = crate::Version::new();
     version.tick(&crate::tree::arb::nth_party(1));
@@ -49,34 +50,45 @@ fn greetings_round_trip() {
     }
 }
 
-/// The greeting's map admits exactly one spelling: a missing or
-/// out-of-order key, or trailing bytes, are each rejected — one
-/// spelling per greeting is the deterministic contract.
-#[test]
-fn greeting_key_roster_is_exact() {
-    let greeting = sample(Vec::new());
-    let item = encode_greeting(&greeting);
-    let mut input = item.as_slice();
-    cbor::read_head(&mut input).expect("tag head");
-    cbor::read_head(&mut input).expect("bstr head");
-    let map = input.to_vec();
+proptest::proptest! {
+    /// Removing, renaming, duplicating, or exchanging fields is rejected;
+    /// a valid greeting also rejects every nonempty trailing byte sequence.
+    #[test]
+    fn greeting_key_roster_is_exact(
+        index in 0usize..KEYS.len(),
+        distance in 1usize..KEYS.len(),
+        suffix in proptest::collection::vec(proptest::num::u8::ANY, 1..32),
+    ) {
+        use ciborium::Value;
+        use proptest::prelude::*;
 
-    // Renaming a key breaks the roster.
-    let mut wrong_key = map.clone();
-    let at = find(&wrong_key, b"set_len", 0).expect("the key is present");
-    wrong_key[at] = b'x';
-    assert!(matches!(
-        parse_greeting(&wrong_key),
-        Err(GreetingError::Shape(_))
-    ));
+        let map = greeting_map(&sample(Vec::new()));
+        let Value::Map(fields) = ciborium::de::from_reader(map.as_slice()).unwrap() else {
+            panic!("a greeting is a map");
+        };
+        let mut removed = fields.clone();
+        removed.remove(index);
+        let mut renamed = fields.clone();
+        renamed[index].0 = Value::Text("unknown".into());
+        let mut duplicated = fields.clone();
+        duplicated.insert(index, fields[index].clone());
+        let mut swapped = fields.clone();
+        swapped.swap(index, (index + distance) % fields.len());
 
-    // Trailing bytes are rejected.
-    let mut trailing = map.clone();
-    trailing.push(0);
-    assert!(matches!(
-        parse_greeting(&trailing),
-        Err(GreetingError::Shape(_))
-    ));
+        // Ciborium retains map entry order. Re-encoding the unmodified map
+        // must preserve the fixture, so rejection is attributable to each edit.
+        let encode = |fields| {
+            let mut bytes = Vec::new();
+            ciborium::ser::into_writer(&Value::Map(fields), &mut bytes).unwrap();
+            bytes
+        };
+        prop_assert_eq!(encode(fields), map.clone());
+        for fields in [removed, renamed, duplicated, swapped] {
+            prop_assert!(matches!(parse_greeting(&encode(fields)), Err(GreetingError::Shape(_))));
+        }
+        let trailing = [map, suffix].concat();
+        prop_assert!(matches!(parse_greeting(&trailing), Err(GreetingError::Shape(_))));
+    }
 }
 
 /// A listing whose content ends inside a hash is rejected as the typed
