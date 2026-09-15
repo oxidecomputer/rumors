@@ -249,5 +249,11 @@ boundaries.
 
 Before-specific generator and fuel-band work matters where it blocks an
 actual workspace check. It does not make the entire before triage a
-prerequisite for Rumors fixes. Maintaining Sush compatibility is part of this
-effort; merging or publishing the Sush branch awaits its final review.
+prerequisite for Rumors fixes.
+
+Sush work is limited to maintaining compatibility with Rumors changes and
+checking their effects. Unknown or pre-existing Sush failures do not displace
+the Rumors queue. When a compatibility check fails, use a bounded baseline
+comparison to establish whether our changes caused it before expanding scope;
+unrelated Sush repairs belong elsewhere. Final Sush approval follows the
+compatibility workflow above.

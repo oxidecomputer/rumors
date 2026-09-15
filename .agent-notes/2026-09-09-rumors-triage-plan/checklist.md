@@ -1,7 +1,7 @@
 # Rumors review checklist
 
-**Next:** diagnose Sush's Helios restart/session failures (26).
-Then: share content-observer waiting and termination logic (07).
+**Next:** share content-observer waiting and termination logic (07).
+Then: simplify handle-liveness accounting (07).
 
 Check code outcomes only after verification and merge; retain the landing
 commit. Checked dispositions are labelled explicitly.
@@ -590,7 +590,7 @@ Dependencies: Accepted implementation and documentation work complete.
 - [x] Deferred: Rumors decoder fuzzing.
       Sources: `verification-infra-5`, T14.
 
-- [ ] Resolve Sush's Helios restart/session timeouts.
+- [ ] Attribute Sush's Helios restart/session timeouts to a clean baseline or a Rumors compatibility change; unrelated Sush repairs are outside this triage.
       Source: compatibility validation, 2026-09-14; `stragglers_do_not_interrupt_live_jobs`, `witnessed_session_survives_restart`, and `session_resumes_at_stored_successor` also fail with Rumors `d73fe2c9` on Sush `b90dfaf-dirty`. This does not establish independence from earlier triage changes or pristine Sush main.
 
 - [x] Preserve Sush bookmark records larger than the CBOR decoder's scratch buffer — Sush `5a0d44f`.
