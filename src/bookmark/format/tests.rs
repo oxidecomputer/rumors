@@ -199,13 +199,14 @@ proptest! {
     /// Changing any payload or digest byte is rejected even with alternate envelope headers.
     #[test]
     fn changed_contents_fail_integrity(
-        payload in prop::collection::vec(any::<u8>(), 1..128),
+        payload in prop::collection::vec(any::<u8>(), 0..128),
         digest: bool, index in any::<usize>(), mask in 1u8..=255,
         indefinite: bool, wide: bool,
     ) {
         let mut value: Value = from_slice(&frame(&payload)).unwrap();
         let fields = envelope_fields(&mut value);
-        let bytes = if digest { &mut fields[1] } else {
+        // An empty payload has no byte to alter; corrupt its digest instead.
+        let bytes = if digest || payload.is_empty() { &mut fields[1] } else {
             let Value::Tag(_, inner) = &mut fields[2] else { unreachable!() };
             inner
         };

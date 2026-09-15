@@ -1,8 +1,10 @@
 //! Bookmark recovery preserves durable write history and identity ownership.
 //!
 //! The simulator generates sends, redactions, sessions, crashes, and retirement,
-//! with wire and storage failures. Each network descends from its own seed;
-//! histories from different networks are never compared or reconciled.
+//! with wire and storage failures. Wire faults affect ordinary gossip;
+//! bootstrap and retirement use clean links but may fail through storage.
+//! Each network descends from its own seed; histories from different networks
+//! are never compared or reconciled.
 //!
 //! A local change becomes durable for these checks when its bookmark records it
 //! or another replica learns it. Changes lost before either event may disappear
@@ -1986,17 +1988,14 @@ fn reconstructed_crash_pair_then_retire() {
     world.assert_healed();
 }
 
-/// Reconstructed counterexample: a send, one gossip cut in both directions
-/// mid-frame, then a retirement, under bookmark read/write fail
-/// schedules on every node.
+/// A cut gossip followed by failed retirement must preserve durable versions.
 ///
-/// Versions must survive the faulted persistence without recycling. The
-/// path is pinned: the cut session still exchanges greetings, so the
-/// mismatch between the two fresh peers resolves by network identifier
-/// with node 1 the winner and node 2 re-bootstrapping into it; the retire
-/// of 1 into 2 fails on the scheduled bookmark faults and hands node 1 back
-/// intact, so nothing is re-seeded; the heal then collapses both into node
-/// 0, whose send outranks every fresh universe.
+/// Both cut budgets limit traffic from node 1 to node 2: one at the writer,
+/// the other at the reader. The session still detects the network mismatch,
+/// after which node 2 joins node 1's network. Storage faults then prevent
+/// node 1 from retiring. The final heal brings both into node 0's network,
+/// where its earlier send must survive. The path assertion checks that the
+/// fixture actually takes these steps.
 #[test]
 fn reconstructed_cut_gossip_then_retire_under_bookmark_faults() {
     let world = run_plan(Plan {
