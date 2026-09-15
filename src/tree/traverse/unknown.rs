@@ -6,9 +6,9 @@
 //! version holds nothing it hasn't already seen — including anything it
 //! has seen *and deleted* — so the subtree drops out of the answer, and a
 //! deletion propagates by the receiver simply never re-learning the leaf.
-//! Both the in-memory [`join`](mod@super::join) and the wire
-//! [`mirror`](super::mirror) delegate their version filtering here, which
-//! is what makes them observationally identical.
+//! The in-memory [`join`](mod@super::join) uses this filter for one-sided
+//! subtrees. The streaming mirror implements the same rule over its backend
+//! interface; differential tests check that the two reconciliations agree.
 
 use before::Dominance;
 

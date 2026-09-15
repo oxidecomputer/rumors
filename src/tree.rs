@@ -52,10 +52,10 @@
 //! All mutation and reconciliation is three inductive traversals over the
 //! same structure ([`traverse`]): [`act`](Tree::act) applies a local batch
 //! in one pass; [`join`](Tree::join) merges two in-memory trees;
-//! [`mirror`] reconciles two trees over a wire. `join` and `mirror` are
-//! observationally identical — both delegate deletion honoring to the same
-//! filter — so every convergence property can be tested in-memory and
-//! trusted on the wire.
+//! [`mirror`] reconciles two trees over a wire. `join` and `mirror` must produce
+//! the same live set and causal history. Their deletion filters are separate
+//! implementations: tests check `join` against a flat, leaf-by-leaf survivor
+//! rule, then compare wire reconciliation with `join`.
 
 use std::marker::PhantomData;
 use std::sync::Arc;

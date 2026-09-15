@@ -1,3 +1,6 @@
+use std::collections::BTreeMap;
+use std::ops::Range;
+
 use before::Party;
 use proptest::collection::vec;
 use proptest::prelude::*;
@@ -118,223 +121,152 @@ pub fn arb_tree_root(
         .boxed()
 }
 
-/// Generate a pair of divergent trees that share causal history.
+/// Replicas with a shared history, independent inserts, and shared-key redactions.
 ///
-/// A common base (inserts on party 0) is forked into two sides, each of which
-/// then makes its own concurrent inserts (parties 1 and 2) and redacts an
-/// arbitrary subset of the shared keys.
+/// All parties descend from one seed. Each side retains the common history
+/// even when it redacts every shared leaf, so joins must distinguish a missing
+/// message from one the side has already seen and deleted.
+/// `shared` and `per_side` bound the insertion counts before redaction.
+pub fn arb_divergent_roots<const N: usize>(
+    shared: Range<usize>,
+    per_side: Range<usize>,
+) -> BoxedStrategy<[crate::tree::Root; N]> {
+    use crate::tree::{Action, Tree};
+
+    let side = (per_side, vec(any::<bool>(), 0..shared.end));
+    (shared, vec(side, N))
+        .prop_map(|(shared, sides)| {
+            let mut parties = Party::seed();
+            let mut base = Tree::<()>::new();
+            base.act(
+                &parties.fork(),
+                (0..shared).map(|_| Action::Insert(Message::new(()))),
+            );
+            let keys: Vec<_> = base.iter().map(|(v, _)| Path::for_leaf(v)).collect();
+            let mut sides = sides.into_iter();
+            std::array::from_fn(|_| {
+                let (inserts, redact) = sides.next().expect("one plan per replica");
+                let party = parties.fork();
+                let mut tree = base.clone();
+                tree.act(
+                    &party,
+                    (0..inserts).map(|_| Action::Insert(Message::new(()))),
+                );
+                tree.act(
+                    &party,
+                    keys.iter()
+                        .zip(redact)
+                        .filter_map(|(key, forget)| forget.then_some(Action::Forget(*key))),
+                );
+                tree.root
+            })
+        })
+        .boxed()
+}
+
+/// A small pair with shared history, concurrent inserts, and redactions.
 ///
-/// This exercises every cell a merge must handle: keys only one side has, keys
-/// both share (matched subtrees), and keys one side has *deleted*
-/// while the other still holds them (which the merge must drop by version
-/// dominance, the entire deletion mechanism). With zero shared inserts the two
-/// sides are fully disjoint, so this one generator also covers that case.
+/// Counts include zero, covering empty trees, identical trees, and one-sided
+/// additions or deletions as well as disagreement on both sides.
 pub fn arb_divergent_pair() -> BoxedStrategy<(crate::tree::Root, crate::tree::Root)> {
-    use crate::tree::{Action, Tree};
-
-    (
-        0usize..6,                // shared inserts (the common base)
-        0usize..5,                // a-only inserts
-        0usize..5,                // b-only inserts
-        vec(any::<bool>(), 0..6), // which shared keys side a redacts
-        vec(any::<bool>(), 0..6), // which shared keys side b redacts
-    )
-        .prop_map(|(n_shared, n_a, n_b, a_redact, b_redact)| {
-            let p_s = nth_party(0);
-            let p_a = nth_party(1);
-            let p_b = nth_party(2);
-
-            // Common base; at this point the tree holds exactly the shared
-            // inserts, so its live keys are the shared keys each side may
-            // redact.
-            let mut base = Tree::<()>::new();
-            base.act(
-                &p_s,
-                (0..n_shared).map(|_| Action::Insert(Message::new(()))),
-            );
-            let shared_keys: Vec<_> = base.iter().map(|(v, _)| Path::for_leaf(v)).collect();
-
-            let side = |party: &Party, n: usize, redact: &[bool]| {
-                let mut t = base.clone();
-                t.act(party, (0..n).map(|_| Action::Insert(Message::new(()))));
-                let forgets: Vec<_> = shared_keys
-                    .iter()
-                    .zip(redact)
-                    .filter_map(|(k, &r)| r.then_some(Action::Forget(*k)))
-                    .collect();
-                t.act(party, forgets);
-                t.root
-            };
-
-            (side(&p_a, n_a, &a_redact), side(&p_b, n_b, &b_redact))
-        })
+    arb_divergent_roots(0..6, 0..5)
+        .prop_map(|[a, b]| (a, b))
         .boxed()
 }
 
-/// [`arb_divergent_pair`] at a budget wide enough to reach the streaming
-/// wire deadlock's trigger geometry.
+/// A broader pair, giving wire tests more root children and shared hash prefixes.
 ///
-/// Wide roots whose opening reply mixes disputed children with outright
-/// provisions, with disputes that descend several levels — the shape the
-/// small budget rarely produces.
-///
-/// The small-budget generator stays the default for properties where case
-/// count matters more than per-case breadth; wire-liveness properties run
-/// both.
-///
-/// This strategy closes the proxy tier's generator gap on *budget* only,
-/// deliberately not on *bias*: version hashing makes each child's radix a
-/// function of leaf
-/// hashes, so steering generation toward the early-radix-order deep-dispute
-/// shape would mean a per-case search inside the strategy. The geometry pin
-/// is instead the deterministic [`early_first_child_dispute_pair`] fixture,
-/// which performs that search once; this strategy provides breadth around
-/// it.
+/// More leaves increase the chance that a reply mixes whole-subtree supplies
+/// with disputed children. This samples breadth; tests requiring a particular
+/// deep shape use a constructed fixture instead of searching on every draw.
 pub fn arb_wide_divergent_pair() -> BoxedStrategy<(crate::tree::Root, crate::tree::Root)> {
-    use crate::tree::{Action, Tree};
-
-    (
-        0usize..12,                // shared inserts (the common base)
-        0usize..40,                // a-only inserts
-        0usize..40,                // b-only inserts
-        vec(any::<bool>(), 0..12), // which shared keys side a redacts
-        vec(any::<bool>(), 0..12), // which shared keys side b redacts
-    )
-        .prop_map(|(n_shared, n_a, n_b, a_redact, b_redact)| {
-            let p_s = nth_party(0);
-            let p_a = nth_party(1);
-            let p_b = nth_party(2);
-
-            let mut base = Tree::<()>::new();
-            base.act(
-                &p_s,
-                (0..n_shared).map(|_| Action::Insert(Message::new(()))),
-            );
-            let shared_keys: Vec<_> = base.iter().map(|(v, _)| Path::for_leaf(v)).collect();
-
-            let side = |party: &Party, n: usize, redact: &[bool]| {
-                let mut t = base.clone();
-                t.act(party, (0..n).map(|_| Action::Insert(Message::new(()))));
-                let forgets: Vec<_> = shared_keys
-                    .iter()
-                    .zip(redact)
-                    .filter_map(|(k, &r)| r.then_some(Action::Forget(*k)))
-                    .collect();
-                t.act(party, forgets);
-                t.root
-            };
-
-            (side(&p_a, n_a, &a_redact), side(&p_b, n_b, &b_redact))
-        })
+    arb_divergent_roots(0..12, 0..40)
+        .prop_map(|[a, b]| (a, b))
         .boxed()
 }
 
-/// A divergent pair whose sides share a spine of drawn depth before their
-/// novelty splits: the constructed analogue of a hash-prefix collision.
+/// Place unit-valued replicas' leaves below a shared prefix of `depth` bytes.
 ///
-/// Content-addressed generators cannot produce this shape — SHA3-256 scatters
-/// their keys at the root fan, so a merge's divergent descent below the
-/// root is reachable only through chosen paths like these. Both sides
-/// extend one shared leaf whose all-zero path pins the spine; each side's
-/// novelty diverges at the drawn byte position and rides its own disjoint
-/// party, so it is concurrent and survives deletion-pruning. Novelty
-/// widths draw zero too, so subset, identical, and ceiling-only merges —
-/// a changed flag's `false` arm — are sampled at depth alongside the
-/// gains.
-pub fn arb_deep_divergent_pair() -> BoxedStrategy<(crate::tree::Root, crate::tree::Root)> {
-    (0usize..32, 0u8..5, 0u8..5)
-        .prop_map(|(depth, a_width, b_width)| {
-            let path_at = |branch: u8| {
-                let mut bytes = [0u8; 32];
-                bytes[depth] = branch;
-                Path::from(bytes)
-            };
-
-            let mut shared_version = Version::new();
-            shared_version.tick(&nth_party(0));
-            let base = act(
-                None,
-                vec![(
-                    path_at(0),
-                    shared_version.clone(),
+/// One distinct radix per version preserves unique addresses and shared leaves
+/// across replicas. The versions and causal ceilings stay unchanged, so the
+/// same history can exercise deletion filtering at any tree height without
+/// searching for a cryptographic hash collision. At most 256 distinct versions
+/// may be present, and `depth` must be less than the path length.
+pub fn roots_at_depth<const N: usize>(
+    roots: [crate::tree::Root; N],
+    depth: usize,
+) -> [crate::tree::Root; N] {
+    let trees = roots.map(crate::tree::Tree::<()>::from_root);
+    let mut paths: BTreeMap<_, _> = trees
+        .iter()
+        .flat_map(|tree| {
+            tree.iter()
+                .map(|(v, _)| (v.as_bytes().to_vec(), Path::from([0; 32])))
+        })
+        .collect();
+    for (radix, path) in paths.values_mut().enumerate() {
+        let mut bytes = [0; 32];
+        bytes[depth] = u8::try_from(radix).expect("one radix per distinct version");
+        *path = bytes.into();
+    }
+    trees.map(|tree| {
+        let leaves = tree
+            .iter()
+            .map(|(version, _)| {
+                (
+                    paths[version.as_bytes()],
+                    version.clone(),
                     Action::Insert(Message::new(())),
-                )],
-                &mut |_| (),
-            );
+                )
+            })
+            .collect();
+        root_with_ceiling(act(None, leaves, &mut |_| ()), tree.root.ceiling)
+    })
+}
 
-            // One side: `width` sibling leaves diverging at `depth`, all on
-            // the side's own party. The branch ranges are disjoint across
-            // sides so novelty never collides into a same-path dispute.
-            let side = |party_index: usize, first_branch: u8, width: u8| {
-                let mut version = Version::new();
-                version.tick(&nth_party(party_index));
-                let leaves: Vec<_> = (first_branch..first_branch + width)
-                    .map(|branch| {
-                        (
-                            path_at(branch),
-                            version.clone(),
-                            Action::Insert(Message::new(())),
-                        )
-                    })
-                    .collect();
-                let node = if leaves.is_empty() {
-                    base.clone()
-                } else {
-                    act(base.clone(), leaves, &mut |_| ())
-                };
-                root_with_ceiling(node, shared_version.clone() | version)
-            };
-
-            (side(1, 1, a_width), side(2, 5, b_width))
+/// A redacting pair placed below a drawn-length shared prefix.
+///
+/// Every version still names exactly one leaf. Only placement changes, to
+/// exercise deep traversal that version hashing would almost never produce.
+pub fn arb_deep_divergent_pair() -> BoxedStrategy<(crate::tree::Root, crate::tree::Root)> {
+    (arb_divergent_pair(), 0usize..32)
+        .prop_map(|((a, b), depth)| {
+            let [a, b] = roots_at_depth([a, b], depth);
+            (a, b)
         })
         .boxed()
 }
 
-/// A deterministic pair with the streaming deadlock's trigger geometry.
+/// A version-addressed pair whose first root child requires deeper reconciliation.
 ///
-/// The radix-*first* root child is disputed (both sides hold divergent,
-/// branching content under it), while at least six higher-radix root
-/// children exist on one side only, queueing whole-subtree provisions
-/// behind the dispute on the same reply stream.
+/// Both sides hold divergent content under that child, with branching on at
+/// least one side. Later root children include whole-subtree supplies queued
+/// behind the dispute, exercising progress when descent and supplies share a
+/// reply stream.
 ///
-/// This is the streaming wire deadlock's counterexample skeleton, made
-/// permanent at the tier that should have owned it. Content
-/// addressing means the shape cannot be dictated, so it is *searched*: insert
-/// counts vary per attempt, each attempt's honestly-built pair is checked
-/// against the geometry, and the first satisfying pair wins. Hashing is
-/// deterministic, so the search — and therefore the fixture — is too.
+/// The search varies each side's starting version until the hashed paths have
+/// this geometry. It is deterministic and checks its prediction against the
+/// constructed trees.
 pub fn early_first_child_dispute_pair() -> (crate::tree::Root, crate::tree::Root) {
     use crate::tree::{Action, Tree};
 
-    /// Leaves per side: enough on the left for wide roots with collisions,
-    /// few enough on the right that most left children are provisions.
+    /// Left-side leaves: enough for wide roots with shared hash prefixes.
     const LEFT_LEAVES: usize = 32;
+    /// Right-side leaves: few enough that most left children are supplies.
     const RIGHT_LEAVES: usize = 8;
 
     /// Window stride between attempts: larger than either window, so
     /// successive attempts draw fully disjoint leaf populations.
     const STRIDE: usize = 64;
 
-    /// Attempt budget; the assert below turns exhaustion into a loud failure.
-    ///
-    /// The precompute below is proportional to this bound, so it directly
-    /// prices the fixture. Hashing is deterministic and the winning window
-    /// is attempt 1581, so 2048 is exact headroom, not a guess; if hashing
-    /// or the leaf encoding ever changes, the search either finds another
-    /// window within the budget or fails loudly here.
+    /// Maximum candidate windows to search; exhaustion panics.
+    /// Precomputation cost is proportional to this bound.
     const ATTEMPTS: usize = 2048;
 
-    // Paths are functions of (version, payload) and payloads are unit, so a
-    // candidate pair is fully determined by where each side's version chain
-    // *starts*: `Tree::act` ticks from the root ceiling, so seeding a built
-    // tree's ceiling with a pre-ticked version shifts every leaf's version —
-    // and therefore its whole path — while keeping version encodings small
-    // and the state legitimate (indistinguishable from a tree whose earlier
-    // content was redacted). The search therefore precomputes each party's
-    // whole first-byte sequence in one pass and examines disjoint windows of
-    // it; only the one winning attempt pays for real tree construction, and
-    // the equality assert below keeps the simulation honest against the
-    // builder.
+    // Paths depend only on versions. Starting from a later ceiling shifts all
+    // the leaf addresses, as if earlier content had been redacted. Precompute
+    // each party's first radix bytes and inspect windows of that sequence;
+    // build trees only for the first window satisfying the geometry.
     let firsts = |party: &Party, ticks: usize| -> Vec<u8> {
         let mut version = Version::new();
         (0..ticks)
@@ -413,6 +345,9 @@ pub fn early_first_child_dispute_pair() -> (crate::tree::Root, crate::tree::Root
     unreachable!("the deterministic geometry search must terminate");
 }
 
+/// Extra ticks in malformed fixtures, exceeding their tests' later honest ticks.
+const ESCAPE_MARGIN: usize = 64;
+
 /// A `(receiver, poisoned)` pair for version-containment tripwires: the
 /// poisoned tree holds one leaf whose version escapes its declared ceiling.
 ///
@@ -425,11 +360,6 @@ pub fn early_first_child_dispute_pair() -> (crate::tree::Root, crate::tree::Root
 /// contains it. Returns the two roots plus the escaped leaf's
 /// version-derived path and its version.
 pub fn uncontained_supply_pair() -> (crate::tree::Root, crate::tree::Root, Path, Version) {
-    /// How far the escaped version outruns both declared ceilings, per
-    /// party: an upper bound on the honest ticks a test performs after
-    /// the pair is built.
-    const ESCAPE_MARGIN: usize = 64;
-
     // The party pair: disjoint parties whose single-tick versions order
     // the *sender's* above the receiver's in canonical bytes, so the
     // poisoned sender wins the initiator election (live counts tie at one
@@ -536,10 +466,6 @@ pub fn poisoned_root(
     base: &Version,
     message: Message,
 ) -> (crate::tree::Root, Path, Version) {
-    /// How far the escaped version outruns `base`: an upper bound on the
-    /// honest ticks a test performs after the root is planted.
-    const ESCAPE_MARGIN: usize = 64;
-
     let mut escaped = base.clone();
     for _ in 0..ESCAPE_MARGIN {
         escaped.tick(party);

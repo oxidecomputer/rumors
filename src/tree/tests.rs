@@ -1195,14 +1195,9 @@ proptest! {
         prop_assert_eq!(changed, tree.hash() != before);
     }
 
-    /// The changed flag stays exact through deep divergent descent.
-    ///
-    /// The pairs' paths share a drawn-length spine (the constructed
-    /// analogue of a hash-prefix collision), driving the merge's divergent
-    /// arm at every level down to the split, where version-addressed pairs
-    /// scatter at the root fan and never descend. Zero novelty widths are
-    /// drawn too, so subset, identical, and ceiling-only merges — the
-    /// flag's `false` arm — are sampled at depth alongside the gains.
+    /// The changed flag stays exact for gains, redactions, and no-ops at depth.
+    /// The fixtures preserve their causal history but place leaves below a
+    /// shared prefix, exercising heights that hash-derived paths rarely reach.
     #[test]
     fn join_changed_flag_tracks_the_root_hash_at_depth(
         (a, b) in crate::tree::arb::arb_deep_divergent_pair(),

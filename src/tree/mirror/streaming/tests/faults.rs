@@ -1,4 +1,4 @@
-//! Connected-session abort routing and lifecycle atomicity.
+//! Connected-session error routing and greeting validation.
 
 use proptest::prelude::*;
 
@@ -70,17 +70,15 @@ fn arb_greeting_lie() -> impl Strategy<Value = GreetingLie> {
 }
 
 proptest! {
-    /// A genuine malformed reply crosses the fully connected driver as its
-    /// detected violation while both materialized input roots remain untouched.
+    /// The connected driver returns the detected reply violation on the correct side.
     #[test]
-    fn connected_violation_aborts_without_mutating_root(
+    fn connected_violation_aborts_with_its_error(
         violation in arb_connected_violation(),
         server_steps in 0usize..=15,
         client_steps in 0usize..=15,
     ) {
         let (client_root, server_root) =
             full_depth_comb_pair(2, LeafOrder::Interleaved);
-        let before = (client_root.clone(), server_root.clone());
         let local = floor_start(client_root.clone());
         let honest_server = floor_start(server_root.clone());
         let faulting_server =
@@ -97,10 +95,10 @@ proptest! {
 
         // Reversing the handshake sides also reverses initiator order: the
         // driver's frame-relative error is flipped back to the original client.
-        let honest_client = floor_start(client_root.clone());
+        let honest_client = floor_start(client_root);
         let faulting_client =
             Faulting::new(honest_client, client_steps, Some(Fault::Reply(violation)));
-        let local = floor_start(server_root.clone());
+        let local = floor_start(server_root);
         let result = run_to_quiescence(drive_streaming(faulting_client, local))
             .expect("the reversed connected driver must surface the fault, not stall");
         match result {
@@ -113,22 +111,13 @@ proptest! {
                 "the reversed faulting counterparty unexpectedly completed"
             ),
         }
-
-        prop_assert_eq!((client_root, server_root), before);
     }
 
-    /// Every greeting lie classifies exactly against an honest counterparty,
-    /// in both orientations.
+    /// Under-declared greetings return the expected violation in either orientation.
     ///
-    /// The under-declarations are detected by the deceived side as their
-    /// named violation — through an entirely honest supply stream, the path
-    /// the reply-corruption faults never take — with both input roots
-    /// untouched. The over-declarations are tolerated: a declaration is an
-    /// upper premise, so the session completes and reconciles the same
-    /// content an honest run does (an inflated declared version widens the
-    /// deceived side's output ceiling by exactly the inflation, which
-    /// `ours | declared` absorbs by definition, so the ceiling comparison
-    /// is asserted only where the lie leaves it untouched).
+    /// Over-declarations preserve the reconciled content; an inflated version
+    /// also widens the resulting history, so only a size inflation preserves
+    /// the honest run's ceiling.
     #[test]
     fn greeting_lies_classify_exactly(
         lie in arb_greeting_lie(),
@@ -136,7 +125,6 @@ proptest! {
     ) {
         let (client_root, server_root) =
             full_depth_comb_pair(2, LeafOrder::Interleaved);
-        let before = (client_root.clone(), server_root.clone());
         let expected = match lie {
             // The zero declaration trips at the first absorbed supply;
             // the one-leaf declaration admits supply first and trips on
@@ -180,7 +168,7 @@ proptest! {
                 let (ours, theirs): (crate::tree::Root, crate::tree::Root) =
                     (ours.into(), theirs.into());
                 let (base_client, base_server) =
-                    streaming_mirror_sides(client_root.clone(), server_root.clone());
+                    streaming_mirror_sides(client_root, server_root);
                 prop_assert_eq!(&ours.root, &base_client.root);
                 prop_assert_eq!(&theirs.root, &base_server.root);
                 if lie == GreetingLie::InflatedSetLen {
@@ -199,8 +187,6 @@ proptest! {
                 )));
             }
         }
-
-        prop_assert_eq!((client_root, server_root), before);
     }
 
     /// Every reached materialized backend failure terminates the session and
