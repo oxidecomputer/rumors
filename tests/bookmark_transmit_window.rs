@@ -17,19 +17,14 @@ mod retirement;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-use before::Version;
-use rumors::{Bookmark, Peer, Rumors};
+use rumors::{Bookmark, Peer, Rumors, Version};
 use tokio::sync::Notify;
 
 use crate::common::flaky::{DurableStore, persisted_record};
-use crate::common::wire::block_on;
+use crate::common::wire::{LINK_BUF, block_on};
 
 /// The message payload: a test-unique id.
 type Msg = u64;
-
-/// Capacity for every in-memory link stream, matching the sibling bookmark
-/// suites.
-const LINK_BUF: usize = 8 * 1024;
 
 /// A full-mesh heal round cap; a correct fleet reaches a fixed point in a
 /// handful of rounds, and the cap turns a convergence bug into a loud failure.
@@ -284,25 +279,26 @@ fn leaf_version(rumors: &Rumors<Msg, GatedBookmark>, payload: Msg) -> Option<Ver
         .map(|(version, _)| version.clone())
 }
 
-/// The staged world: A bookmarked and gated, B and C booted from it, one
-/// converged message, and A's suppression token cleared by the bootstrap
-/// donations.
-///
-/// This is the precondition under which A's next update re-records an
-/// already-propagated frontier.
+/// A sender holding local M1, and two peers that received only M0.
 struct Scene {
+    /// Sender that commits M1 after its session snapshot is fixed.
     a: Rumors<Msg, GatedBookmark>,
+    /// Recipient of the gated session, which must not receive M1.
     b: Rumors<Msg, GatedBookmark>,
+    /// Source for restarting A from the progress shared before the pause.
     c: Rumors<Msg, GatedBookmark>,
+    /// Handle controlling A's store, separate from its replica handle.
     bm_a: GatedBookmark,
+    /// A's durable bytes, retained when its live handles are dropped.
     store_a: DurableStore,
 }
 
+/// Message replicated before the checkpoint pause.
 const M0: Msg = 0;
+/// Message committed after the gated session fixes its snapshot.
 const M1: Msg = 1;
 
-/// Build the scene, then run the gated session: A gossips with B while M1
-/// commits inside the bookmark persist's in-flight window.
+/// Replicate M0, then send M1 while A's next session is checkpointing its snapshot.
 async fn transmit_during_persist() -> Scene {
     let store_a = DurableStore::default();
     let bm_a = GatedBookmark::new(store_a.clone());
@@ -314,16 +310,14 @@ async fn transmit_during_persist() -> Scene {
         .into_rumors();
     a.send(M0).unwrap();
 
-    // Each serve records A's frontier, then slices the donated fork out of
-    // the record — clearing the update-suppression token with no new own
-    // event, so the gated session below re-records the same frontier.
+    // Both newcomers receive M0. Donation invalidates A's last checkpoint,
+    // so its next session must store again even without a new local write.
     let b = boot_from(&a, GatedBookmark::new(DurableStore::default())).await;
     let c = boot_from(&a, GatedBookmark::new(DurableStore::default())).await;
 
-    // The gated session: A's bookmark update reads the frontier, stages the
-    // record, and parks inside the durable write; M1 commits in that window,
-    // so it rides the session's snapshot while the record persisted without
-    // covering it.
+    // The session fixes its snapshot before checkpointing. Sending M1 while
+    // the store is paused puts it outside both the checkpoint and that snapshot;
+    // only a later session may transmit it.
     bm_a.arm();
     let (side_a, side_b) = rumors::link::memory_with_capacity(LINK_BUF);
     let ga = {
@@ -470,12 +464,7 @@ fn cancelled_persist_never_suppresses_the_next_update() {
     });
 }
 
-/// A crash after the gated session cannot make the network destroy a live,
-/// unredacted message.
-///
-/// The restarted peer reclaims its identity only at a
-/// frontier that accounts for every own event it ever transmitted, so no
-/// re-issued coordinate collides with one a replica durably holds.
+/// Restart preserves M0 on every replica; the uncheckpointed M1 stays untransmitted.
 #[test]
 fn restart_after_transmit_never_destroys_durable_messages() {
     block_on(async {
@@ -488,36 +477,26 @@ fn restart_after_transmit_never_destroys_durable_messages() {
             store_a,
         } = scene;
 
-        // Whether M1 became durable: it reached B in the gated session. (Its
-        // sender crashing below cannot erase it from the network once it did.)
-        //
-        // Under the transmit-window invariant the gated session snapshots
-        // its tree before the persist, so M1 — committed inside the persist's
-        // in-flight window — stays out of the session and dies, never
-        // durable, with A's crash: the destruction arm below is vacuous on
-        // this schedule and goes live only if a change lets a mid-persist
-        // commit ride the wire again. Asserting the expected outcome makes
-        // such drift loud here rather than silently un-arming the check.
-        let m1_at_b = leaf_version(&b, M1);
+        // M0 is durable because other replicas already hold it. M1 was sent
+        // after the session's snapshot, so losing it with A is permitted.
+        let durable_version = leaf_version(&b, M0).expect("B must already hold M0");
+        assert_eq!(leaf_version(&c, M0).as_ref(), Some(&durable_version));
         assert!(
-            m1_at_b.is_none(),
-            "the gated session must not transmit an own event committed inside the \
-             persist's in-flight window",
+            leaf_version(&b, M1).is_none(),
+            "the gated session must not transmit a write committed after its snapshot",
         );
 
         // Crash A: every handle drops; only the durable store survives.
         drop(a);
         drop(bm_a);
 
-        // Restart from C, whose frontier satisfies A's persisted record but
-        // never saw M1: the record admits reclaiming here iff it accounts for
-        // everything A transmitted.
+        // C knows the progress in A's checkpoint. A may reclaim those rights
+        // after catching up, even though the lost M1 is absent.
         let a2 = boot_from(&c, GatedBookmark::new(store_a.clone())).await;
         gossip(&a2, &c).await; // the first update reclaims
 
-        // The restarted peer creates fresh events. A re-issue below M1's durable
-        // coordinate is the recycle this test exists to catch; several ticks
-        // give a colliding placement every chance to occur.
+        // Exercise new writes after recovery. Their versions must not collide
+        // with M0's durable version or cause it to disappear during gossip.
         for i in 0..8 {
             a2.send(100 + i).unwrap();
         }
@@ -548,17 +527,14 @@ fn restart_after_transmit_never_destroys_durable_messages() {
         assert_eq!(reference, b.snapshot().hash(), "B diverged after the heal");
         assert_eq!(reference, c.snapshot().hash(), "C diverged after the heal");
 
-        // The property: a message that became durable pre-crash survives the
-        // heal on every replica. (If M1 never reached B, its loss with A's
-        // crash was never known to the network and is not a violation.)
-        if let Some(version) = m1_at_b {
-            for (label, peer) in [("A'", &a2), ("B", &b), ("C", &c)] {
-                assert!(
-                    leaf_version(peer, M1).is_some(),
-                    "durable message M1 (version {version:?}) was destroyed at {label} by a \
-                     restarted peer re-issuing coordinates below a transmitted own-party frontier",
-                );
-            }
+        // Agreement alone could hide a shared loss. Require the known durable
+        // message to survive with its original version on every replica.
+        for (label, peer) in [("A'", &a2), ("B", &b), ("C", &c)] {
+            assert_eq!(
+                leaf_version(peer, M0).as_ref(),
+                Some(&durable_version),
+                "durable message M0 was lost or changed version at {label}",
+            );
         }
     });
 }

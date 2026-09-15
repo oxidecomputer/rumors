@@ -46,7 +46,7 @@ use crate::common::flaky::{
     DurableStore, FaultFeed, FlakyError, FlakyInMemoryBookmark, persisted_record,
 };
 use crate::common::sim::arb_fault;
-use crate::common::wire::block_on;
+use crate::common::wire::{LINK_BUF, block_on};
 
 /// The message payload: a simulation-unique id that is also the message's
 /// emission sequence number, so a single per-[`World`] counter assigns both at
@@ -61,10 +61,6 @@ type Msg = u64;
 /// ChaCha8, whose output for a seed is fixed across platforms and `rand`
 /// versions; the reconstructed tests pin paths derived from it.
 const NETWORK_SEED: u64 = 0;
-
-/// Capacity for every in-memory link stream; the mirror protocol alternates
-/// within a session, so a modest buffer suffices and exercises backpressure.
-const LINK_BUF: usize = 8 * 1024;
 
 /// A hard ceiling on heal-phase full-mesh rounds, per peer. A correct fleet
 /// reaches a fixed point in a handful; the cap turns a convergence bug into a
@@ -1405,19 +1401,34 @@ enum Step {
 /// read/write fault schedules.
 #[derive(Debug, Clone)]
 struct Plan {
+    /// Number of participants, including those currently offline.
     n: usize,
+    /// Operations to apply before the final reliable heal.
     steps: Vec<Step>,
+    /// Per-participant failures indexed by bookmark load call.
     read_faults: Vec<Vec<bool>>,
+    /// Per-participant failures indexed by bookmark store call.
     write_faults: Vec<Vec<bool>>,
 }
 
-/// A bookmark fail schedule for one node: a short, success-biased bit sequence,
-/// or empty when this plan injects no faults at all.
+/// Sample sparse failures across a peer's storage calls, or disable failures.
+///
+/// Successful prefixes let a peer build up checkpoints before a failure.
+/// Sparse positions shrink toward fewer, earlier faults without requiring
+/// every intervening successful call to be an independent generated choice.
 fn arb_fault_bits(faults: bool) -> BoxedStrategy<Vec<bool>> {
     if !faults {
         return Just(Vec::new()).boxed();
     }
-    prop::collection::vec(prop_oneof![3 => Just(false), 1 => Just(true)], 0..8).boxed()
+    prop::collection::btree_set(0usize..128, 0..8)
+        .prop_map(|failures| {
+            let mut schedule = vec![false; failures.last().map_or(0, |last| last + 1)];
+            for call in failures {
+                schedule[call] = true;
+            }
+            schedule
+        })
+        .boxed()
 }
 
 /// One simulation step over a fleet of `n`. Gossip and retire pick a second,
@@ -1862,6 +1873,49 @@ fn negative_control_unledgered_loss_fails_the_survival_check() {
 }
 
 proptest! {
+    /// A failed checkpoint late in a peer's lifetime preserves earlier durable
+    /// messages through restart and subsequent writes.
+    #[test]
+    fn late_checkpoint_failure_preserves_durable_messages(
+        who in 0usize..2, successful_checkpoints in 8usize..24,
+    ) {
+        let mut world = World::single_network(2);
+        let other = 1 - who;
+        world.clean_gossip(0, 1);
+
+        // Begin after setup so every success below is a checkpoint of a new
+        // local write, and the failure lands at the chosen later checkpoint.
+        let mut failures = vec![false; successful_checkpoints];
+        failures.push(true);
+        *world.nodes[who].faults.lock().unwrap() = FaultFeed::new(Vec::new(), failures);
+        for _ in 0..successful_checkpoints {
+            world.send(who);
+            world.clean_gossip(who, other);
+        }
+        let durable = world.live_ids(other);
+        let previous = world.nodes[who].store.lock().unwrap().clone();
+
+        world.send(who);
+        world.gossip(who, other, FaultPlan::NONE, FaultPlan::NONE);
+        assert!(
+            !world.nodes[who].faults.lock().unwrap().may_fail(),
+            "the late checkpoint must reach the scheduled failure",
+        );
+        assert_eq!(*world.nodes[who].store.lock().unwrap(), previous);
+
+        // The failed store leaves the old record. Recovery must account for
+        // its earlier writes before issuing new versions in the same region.
+        world.crash(who);
+        world.heal();
+        world.send(who);
+        world.clean_gossip(who, other);
+        world.assert_healed();
+        for node in 0..world.n() {
+            prop_assert!(durable.is_subset(&world.live_ids(node)),
+                "node {} lost content checkpointed before the failure", node);
+        }
+    }
+
     /// Under arbitrary interleavings of sends, redactions, faulted gossip,
     /// crashes, and retirements, the identity bookmark never recycles a
     /// version identifier:
