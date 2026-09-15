@@ -1,12 +1,17 @@
 //! Check when bookmark reads and checkpoints are required.
 //!
-//! With healthy storage, each peer loads once before its first update. Local
-//! writes and identity changes require a checkpoint; learning remote changes
-//! does not. A failed store can force a reload and is tested separately.
+//! With healthy storage, a peer loads once, before its first store. Sessions
+//! checkpoint local sends and effective redactions; repeated redactions and
+//! learning remote changes need no store. Identity transfers also persist.
 //!
-//! `Probe` records I/O calls. `Model` predicts them from the operations applied
-//! to the peer, independently of the version arithmetic used by the cache.
-//! The property compares their histories throughout a generated peer lifetime.
+//! Attachment and donation leave a checkpoint due even though they store a
+//! record: attachment defers reclamation to the first session, and donation
+//! invalidates the checkpoint for the previous party. A failed store can force
+//! a reload and is tested separately.
+//!
+//! `Probe` records I/O calls. `Model` predicts the schedule from operations,
+//! without reproducing the cache's version arithmetic. The property compares
+//! the two throughout a generated peer lifetime.
 
 mod common;
 #[path = "bookmark_when/reclamation.rs"]
@@ -18,12 +23,7 @@ use std::sync::{Arc, Mutex};
 use proptest::prelude::*;
 use rumors::{Bookmark, Peer, Retire, Rumors, Version};
 
-use crate::common::wire::block_on;
-
-/// In-memory link stream capacity, comfortably larger than any session here ships.
-const LINK_BUF: usize = 8 * 1024;
-
-// ---- the instrument --------------------------------------------------------
+use crate::common::wire::{LINK_BUF, block_on};
 
 /// One observed bookmark I/O, in call order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,66 +72,7 @@ impl Bookmark for Probe {
     }
 }
 
-/// A live probe attached to the subject, with handles onto its shared store and
-/// log so the test can read out the I/O history without disturbing the peer.
-struct Instrument {
-    subject: Rumors<u64, Probe>,
-    log: Arc<Mutex<Vec<Io>>>,
-}
-
-/// Observe bookmark I/O at specific lifecycle boundaries.
-impl Instrument {
-    /// A fresh, *pristine* seed with a `Probe` attached. A pristine seed has no
-    /// identity worth recording, so the attach itself drives no I/O — the read
-    /// is deferred to the first session that needs it.
-    fn pristine_seed() -> Self {
-        block_on(async {
-            let probe = Probe::default();
-            let log = Arc::clone(&probe.log);
-            let subject = Peer::<u64>::seed()
-                .sync_window_floor()
-                .bookmark(probe)
-                .await
-                .expect("a pristine seed attaches without touching storage");
-            assert!(
-                log.lock().unwrap().is_empty(),
-                "attaching a bookmark to a pristine seed must drive no I/O",
-            );
-            Instrument {
-                subject: subject.into_rumors(),
-                log,
-            }
-        })
-    }
-
-    /// The full I/O history observed so far.
-    fn history(&self) -> Vec<Io> {
-        self.log.lock().unwrap().clone()
-    }
-
-    /// `(reads, writes)` recorded since the log was `from` entries long.
-    fn counts_since(&self, from: usize) -> (usize, usize) {
-        let log = self.log.lock().unwrap();
-        let slice = &log[from..];
-        (
-            slice.iter().filter(|e| **e == Io::Read).count(),
-            slice.iter().filter(|e| **e == Io::Write).count(),
-        )
-    }
-
-    /// Current log length, the cursor into [`counts_since`](Self::counts_since).
-    fn cursor(&self) -> usize {
-        self.log.lock().unwrap().len()
-    }
-}
-
-// ---- session drivers -------------------------------------------------------
-//
-// Each runs one in-memory session between the bookmarked subject and a helper
-// over a clean link, both ends making concurrent progress via `join!` on the
-// current-thread runtime.
-
-/// Plain gossip: the subject reconciles content with `helper`. No party moves.
+/// Reconcile the subject with a helper without transferring identity.
 async fn plain_gossip(subject: &Rumors<u64, Probe>, helper: &Rumors<u64>) {
     let (mut s_link, mut h_link) = rumors::link::memory_with_capacity(LINK_BUF);
     let (s, h) = tokio::join!(
@@ -142,8 +83,7 @@ async fn plain_gossip(subject: &Rumors<u64, Probe>, helper: &Rumors<u64>) {
     h.expect("helper plain gossip");
 }
 
-/// Serve a bootstrap: the subject donates a fresh fork of its identity to a
-/// newcomer, returning it as a new helper in the same universe.
+/// Join a new helper through the subject, donating a fork of its identity.
 async fn serve_bootstrap(subject: &Rumors<u64, Probe>) -> Rumors<u64> {
     let (mut s_link, mut n_link) = rumors::link::memory_with_capacity(LINK_BUF);
     let (s, n) = tokio::join!(
@@ -159,11 +99,7 @@ async fn serve_bootstrap(subject: &Rumors<u64, Probe>) -> Rumors<u64> {
     .into_rumors()
 }
 
-/// Serve a bootstrap from `origin`, returning the newcomer as a still-unbookmarked
-/// [`Peer`] ready to have a `Probe` attached.
-///
-/// This is the way a real process is born
-/// into an existing universe before it adopts its durable identity store.
+/// Join through `origin`, returning a peer ready for bookmark attachment.
 async fn bootstrap_fork_peer(origin: &Rumors<u64>) -> Peer<u64> {
     let (mut o_link, mut n_link) = rumors::link::memory_with_capacity(LINK_BUF);
     let (o, n) = tokio::join!(
@@ -178,8 +114,7 @@ async fn bootstrap_fork_peer(origin: &Rumors<u64>) -> Peer<u64> {
     .sync_window_floor()
 }
 
-/// Absorb a retiree: `retiree` retires its whole identity into the subject,
-/// which runs ordinary gossip and absorbs the donated party.
+/// Retire a helper into the subject, transferring its identity.
 async fn absorb_retire(subject: &Rumors<u64, Probe>, retiree: Rumors<u64>) {
     let retiree = retiree
         .try_into_peer()
@@ -197,8 +132,7 @@ async fn absorb_retire(subject: &Rumors<u64, Probe>, retiree: Rumors<u64>) {
     }
 }
 
-/// The subject retires into `absorber`, donating its whole party. Terminal: the
-/// subject is consumed.
+/// Consume the subject by retiring it into a helper.
 async fn retire_subject(subject: Rumors<u64, Probe>, absorber: &Rumors<u64>) {
     let subject = subject
         .try_into_peer()
@@ -216,443 +150,449 @@ async fn retire_subject(subject: Rumors<u64, Probe>, absorber: &Rumors<u64>) {
     }
 }
 
-// ---- the model -------------------------------------------------------------
-
-/// The exact I/O an operation must drive.
-#[derive(Debug, PartialEq, Eq)]
+/// The number of storage calls made by an operation.
+#[derive(Debug, Default, PartialEq, Eq)]
 struct Delta {
+    /// Calls that opened the stored record.
     reads: usize,
+    /// Calls that replaced the stored record.
     writes: usize,
 }
 
-/// An independent mirror of the bookmark's persistence state, tracking only what
-/// the contract makes observable.
-///
-/// `loaded` is whether the record has been read (it is read lazily, on first
-/// use). `pending` is whether a pre-session checkpoint would write: true at
-/// birth (nothing persisted yet) and after any *local* identity work, false once
-/// a session has captured that work. The key invariant the model encodes is
-/// `!pending ⟹ loaded`: a checkpoint is cleared only by a write, and a write is
-/// always preceded by the lazy load — so the read can never lag the first write.
+/// Summarize observed storage calls for comparison with the model.
+impl Delta {
+    /// Count each kind of I/O in a history or a slice of it.
+    fn count(history: &[Io]) -> Self {
+        Self {
+            reads: history.iter().filter(|io| **io == Io::Read).count(),
+            writes: history.iter().filter(|io| **io == Io::Write).count(),
+        }
+    }
+}
+
+/// Predict storage activity from local operations and identity transfers.
 struct Model {
+    /// Whether the record has been loaded during this peer's lifetime.
     loaded: bool,
+    /// The next session must checkpoint local progress or changed ownership.
     pending: bool,
 }
 
-/// Predict when local progress requires bookmark I/O.
+/// Apply the checkpoint policy without inspecting the peer's clock or cache.
 impl Model {
-    /// A pristine seed: never loaded, and a checkpoint pending — its first
-    /// session will record its initial identity.
-    fn pristine_seed() -> Self {
-        Model {
-            loaded: false,
-            pending: true,
-        }
-    }
-
-    /// A peer born by bootstrap, with its `Probe` already attached.
-    ///
-    /// A fork is
-    /// not pristine, so the attach has *eagerly* persisted it: already loaded
-    /// (one read), already written once. But the attach-time record deliberately
-    /// does not stage the suppression token, so a checkpoint is still pending —
-    /// the first session re-records, folding in any region the fork already
-    /// dominates. The lifetime's single read has therefore *already happened*, at
-    /// attach; no session ever reads again.
-    fn bootstrap_fork() -> Self {
-        Model {
-            loaded: true,
-            pending: true,
-        }
-    }
-
-    /// The lazy read this op drives, if it is the first to load: one read if a
-    /// load is owed, none once loaded.
-    fn read_on_first_use(&self) -> usize {
-        usize::from(!self.loaded)
-    }
-
-    /// A local change — a send, or a redact that removed a held message — that ticks
-    /// the subject's own region: no I/O now, but a checkpoint is owed before the
-    /// next session.
-    fn local_change(&mut self) {
-        self.pending = true;
-    }
-
-    /// Plain gossip. Writes the owed checkpoint, if any, then nothing more —
-    /// reconciled content never re-arms a write. A gossip with no checkpoint
-    /// owed is pure hearsay and drives no I/O at all.
+    /// Predict the I/O before ordinary gossip; remote learning adds none.
     fn plain_gossip(&mut self) -> Delta {
-        if self.pending {
-            let reads = self.read_on_first_use();
-            self.loaded = true;
-            self.pending = false;
-            Delta { reads, writes: 1 }
-        } else {
-            // `!pending ⟹ loaded`, so a suppressed session reads nothing.
-            Delta {
-                reads: 0,
-                writes: 0,
-            }
+        if !self.pending {
+            return Delta::default();
         }
+        let reads = usize::from(!self.loaded);
+        self.loaded = true;
+        self.pending = false;
+        Delta { reads, writes: 1 }
     }
 
-    /// Serving a bootstrap: the owed checkpoint (if any) before the fork, then
-    /// the donation's own slice-and-write. Donating shrinks the identity, so a
-    /// fresh checkpoint is owed afterwards.
+    /// Checkpoint if needed, then store the removal of the donated identity.
+    ///
+    /// The donation invalidates the previous party's checkpoint. The next
+    /// session records the retained party once, even with no intervening send.
     fn serve_bootstrap(&mut self) -> Delta {
-        let reads = self.read_on_first_use();
+        let reads = usize::from(!self.loaded);
         let writes = 1 + usize::from(self.pending);
         self.loaded = true;
         self.pending = true;
         Delta { reads, writes }
     }
 
-    /// Absorbing a retiree: the owed checkpoint (if any) before the session,
-    /// then the post-absorption write that records the grown party. The absorbed
-    /// identity is now persisted, so nothing is owed afterwards.
+    /// Checkpoint if needed, then persist the enlarged identity after absorption.
     fn absorb_retire(&mut self) -> Delta {
-        let reads = self.read_on_first_use();
+        let reads = usize::from(!self.loaded);
         let writes = 1 + usize::from(self.pending);
         self.loaded = true;
         self.pending = false;
         Delta { reads, writes }
     }
 
-    /// The subject retiring: the owed checkpoint (if any) before the session,
-    /// then the whole-party donation's slice-and-write. Terminal.
-    fn retire_subject(&mut self) -> Delta {
-        let reads = self.read_on_first_use();
-        let writes = 1 + usize::from(self.pending);
-        self.loaded = true;
-        Delta { reads, writes }
+    /// Predict the final checkpoint and removal of the subject's whole identity.
+    fn retire_subject(&self) -> Delta {
+        Delta {
+            reads: usize::from(!self.loaded),
+            writes: 1 + usize::from(self.pending),
+        }
     }
 }
 
-// ---- birth -----------------------------------------------------------------
-
-/// How the subject enters the world. The two origins differ only in their
-/// attach-time I/O and initial model state; every later operation is identical.
+/// How the subject joins the network, determining its attachment-time I/O.
 #[derive(Debug, Clone, Copy)]
 enum Origin {
-    /// A fresh [`seed`](Peer::seed). Pristine, so the attach drives no I/O and
-    /// the read is deferred to first use.
+    /// A pristine seed defers storage until its first session.
     Seed,
-    /// A [`bootstrap`](Peer::bootstrap) fork of an existing seed, bookmarked
-    /// after birth. Not pristine, so the attach eagerly reads and writes once.
+    /// A bootstrapped peer immediately reads and persists its identity.
     Bootstrap,
 }
 
-/// Everything a generated lifetime needs once the subject exists.
-///
-/// That is: the
-/// bookmarked subject, a direct handle on its I/O log (which outlives the
-/// subject when it retires), the model in its post-birth state, and any
-/// counterparties already present (the origin seed, for a bootstrapped peer).
-struct Birth {
-    subject: Rumors<u64, Probe>,
-    log: Arc<Mutex<Vec<Io>>>,
-    model: Model,
-    helpers: Vec<Rumors<u64>>,
-}
-
-/// Bring a bookmarked subject into being by the given `origin`, asserting the
-/// attach-time I/O each origin promises.
-async fn birth(origin: Origin) -> Birth {
-    let probe = Probe::default();
-    let log = Arc::clone(&probe.log);
-    match origin {
-        Origin::Seed => {
-            let subject = Peer::<u64>::seed()
-                .sync_window_floor()
-                .bookmark(probe)
-                .await
-                .expect("a pristine seed attaches without touching storage");
-            assert!(
-                log.lock().unwrap().is_empty(),
-                "attaching a bookmark to a pristine seed must drive no I/O",
-            );
-            Birth {
-                subject: subject.into_rumors(),
-                log,
-                model: Model::pristine_seed(),
-                helpers: Vec::new(),
-            }
-        }
-        Origin::Bootstrap => {
-            // A separate seed originates the universe and serves the subject's
-            // bootstrap, then stays on as the subject's first counterparty.
-            let origin = Peer::<u64>::seed().sync_window_floor().into_rumors();
-            let fork = bootstrap_fork_peer(&origin).await;
-            let subject = fork
-                .bookmark(probe)
-                .await
-                .expect("a non-pristine fork attaches by eagerly persisting");
-            assert_eq!(
-                log.lock().unwrap().clone(),
-                vec![Io::Read, Io::Write],
-                "attaching to a bootstrap fork reads then writes, exactly once each",
-            );
-            Birth {
-                subject: subject.into_rumors(),
-                log,
-                model: Model::bootstrap_fork(),
-                helpers: vec![origin],
-            }
-        }
-    }
-}
-
-// ---- anchor tests ----------------------------------------------------------
-
-/// The read is lazy: deferred past attach to the first session that needs the
-/// record, and it is a [`Io::Read`] preceding every [`Io::Write`].
-#[test]
-fn read_is_deferred_to_first_use() {
-    let probe = Instrument::pristine_seed();
-    assert!(
-        probe.history().is_empty(),
-        "no I/O before the first session",
-    );
-
-    let _helper = block_on(serve_bootstrap(&probe.subject));
-
-    let history = probe.history();
-    assert_eq!(
-        history[0],
-        Io::Read,
-        "the first I/O of all is the lazy read"
-    );
-    assert_eq!(
-        history.iter().filter(|e| **e == Io::Read).count(),
-        1,
-        "exactly one read",
-    );
-}
-
-/// The heart of the contract: a session that *only incorporates remote content*
-/// writes nothing.
-///
-/// A local send drives a checkpoint; the next session, after a
-/// *helper's* send, pulls that content in but persists nothing, because the
-/// subject's own region did not advance.
-#[test]
-fn incorporating_remote_content_writes_nothing() {
-    let probe = Instrument::pristine_seed();
-    let helper = block_on(serve_bootstrap(&probe.subject));
-
-    // A local change, then a session: the change is checkpointed.
-    probe.subject.send(1).unwrap();
-    let before = probe.cursor();
-    block_on(plain_gossip(&probe.subject, &helper));
-    let (_reads, writes) = probe.counts_since(before);
-    assert!(writes >= 1, "a session after a local send must persist it");
-
-    // Now the *helper* changes, and the subject pulls it in over a session that
-    // does no local work. Not one write may occur.
-    helper.send(2).unwrap();
-    let before = probe.cursor();
-    block_on(plain_gossip(&probe.subject, &helper));
-    let (reads, writes) = probe.counts_since(before);
-    assert_eq!(
-        (reads, writes),
-        (0, 0),
-        "incorporating remote content must drive no bookmark I/O",
-    );
-    assert!(
-        probe.subject.snapshot().iter().any(|(_, m)| *m == 2),
-        "the remote content was nonetheless incorporated",
-    );
-}
-
-/// The record is read exactly once across a long life of many sessions and
-/// sends — the read never repeats once the cache is warm.
-#[test]
-fn read_happens_exactly_once_across_a_long_life() {
-    let probe = Instrument::pristine_seed();
-    let helper = block_on(serve_bootstrap(&probe.subject));
-
-    for round in 0..16u64 {
-        probe.subject.send(round).unwrap();
-        block_on(plain_gossip(&probe.subject, &helper));
-        helper.send(1_000 + round).unwrap();
-        block_on(plain_gossip(&probe.subject, &helper));
-    }
-
-    assert_eq!(
-        probe.history().iter().filter(|e| **e == Io::Read).count(),
-        1,
-        "the durable record is read exactly once per peer",
-    );
-}
-
-/// A peer born by bootstrap is not pristine, so attaching its bookmark eagerly
-/// persists its forked identity — exactly one read then one write.
-///
-/// That attach read is the lifetime's only read: a following session never repeats
-/// it, and (no local work having intervened) it re-records but does not re-read.
-#[test]
-fn attaching_to_a_fork_eagerly_persists_then_never_re_reads() {
-    block_on(async {
-        let Birth {
-            subject,
-            log,
-            helpers,
-            ..
-        } = birth(Origin::Bootstrap).await;
-        assert_eq!(
-            log.lock().unwrap().clone(),
-            vec![Io::Read, Io::Write],
-            "the attach reads then writes the fork's identity, once each",
-        );
-
-        // The first session after attach: it re-records the identity (the attach
-        // never staged the suppression token), but the warm cache spares a read.
-        let before = log.lock().unwrap().len();
-        plain_gossip(&subject, &helpers[0]).await;
-        let after = log.lock().unwrap().clone();
-        let session = &after[before..];
-        assert_eq!(
-            session.iter().filter(|e| **e == Io::Read).count(),
-            0,
-            "a bootstrapped peer never reads again after the attach read",
-        );
-        assert_eq!(
-            after.iter().filter(|e| **e == Io::Read).count(),
-            1,
-            "exactly one read over the whole life, taken at attach",
-        );
-    });
-}
-
-// ---- the proptest ----------------------------------------------------------
-
-/// One step of an arbitrary peer lifetime. Indices are taken modulo the live
-/// helper count, so they always name a real counterparty (or are skipped when
-/// none exist yet).
-#[derive(Debug, Clone, Copy)]
+/// One operation in a peer's lifetime; unavailable helpers or messages are skipped.
+#[derive(Debug, Clone)]
 enum Op {
-    /// A local send: ticks the subject's own region.
+    /// Insert a fresh local message.
     Send,
-    /// A local redact of the message at this index of the subject's
-    /// snapshot; a no-op (no tick) when the subject holds nothing.
-    Redact(usize),
-    /// A helper sends, so the *next* gossip carries genuinely new remote content
-    /// the subject must incorporate without persisting.
+    /// Redact a selection that may include held, absent, or duplicate versions.
+    Redact(Vec<usize>),
+    /// Repeat the latest local redaction, which must do nothing.
+    RedactAgain,
+    /// Insert a fresh message at a helper.
     HelperSend(usize),
-    /// Plain gossip with a helper.
+    /// Redact a held message at a helper.
+    HelperRedact(usize),
+    /// Reconcile with a helper.
     Gossip(usize),
-    /// Serve a bootstrap, donating a fork and gaining a helper.
+    /// Serve a bootstrap, gaining a helper.
     Serve,
-    /// A helper retires into the subject, which absorbs its party.
+    /// Absorb a helper's retirement.
     Absorb(usize),
 }
 
+/// Mix local edits, remote edits, and lifecycle operations in generated scripts.
 fn op_strategy() -> impl Strategy<Value = Op> {
     prop_oneof![
         3 => Just(Op::Send),
-        2 => (0usize..8).prop_map(Op::Redact),
-        3 => (0usize..8).prop_map(Op::HelperSend),
-        4 => (0usize..8).prop_map(Op::Gossip),
+        2 => prop::collection::vec(any::<usize>(), 0..8).prop_map(Op::Redact),
+        2 => Just(Op::RedactAgain),
+        3 => any::<usize>().prop_map(Op::HelperSend),
+        2 => any::<usize>().prop_map(Op::HelperRedact),
+        4 => any::<usize>().prop_map(Op::Gossip),
         2 => Just(Op::Serve),
-        1 => (0usize..8).prop_map(Op::Absorb),
+        1 => any::<usize>().prop_map(Op::Absorb),
     ]
 }
 
-/// The running state threaded through a generated lifetime.
+/// A bookmarked subject, its storage history, and helpers in the same network.
 struct World {
-    probe: Instrument,
+    /// The peer whose I/O is checked.
+    subject: Rumors<u64, Probe>,
+    /// A history retained even when retirement consumes the subject.
+    log: Arc<Mutex<Vec<Io>>>,
+    /// Expected storage state after the operations already applied.
     model: Model,
+    /// Live counterparties available for gossip or retirement.
     helpers: Vec<Rumors<u64>>,
+    /// Fresh payloads shared by local and helper sends.
     next_msg: u64,
+    /// An absent version for exercising repeated redactions.
+    last_redacted: Option<Version>,
 }
 
-/// Drive lifecycle operations and compare storage activity with the model.
+/// Construct a lifetime and drive its operations through the public API.
 impl World {
-    /// Apply one operation, returning the I/O it was *expected* to drive (per
-    /// the model) for the caller to check against the probe. `None` means the
-    /// operation was skipped (e.g. a session with no helper) and drove nothing.
-    async fn apply(&mut self, op: Op) -> Option<Delta> {
+    /// Attach storage, checking the initial I/O for the chosen origin.
+    async fn new(origin: Origin) -> Self {
+        let probe = Probe::default();
+        let log = Arc::clone(&probe.log);
+        let (peer, helpers, loaded) = match origin {
+            Origin::Seed => (Peer::<u64>::seed().sync_window_floor(), Vec::new(), false),
+            Origin::Bootstrap => {
+                let origin = Peer::<u64>::seed().sync_window_floor().into_rumors();
+                (bootstrap_fork_peer(&origin).await, vec![origin], true)
+            }
+        };
+        let subject = peer.bookmark(probe).await.expect("attach healthy storage");
+        assert_eq!(
+            *log.lock().unwrap(),
+            if loaded {
+                vec![Io::Read, Io::Write]
+            } else {
+                Vec::new()
+            },
+            "attachment I/O for {origin:?}",
+        );
+        Self {
+            subject: subject.into_rumors(),
+            log,
+            // A seed has no record yet. Attaching to a fork records ownership
+            // without reclaiming, leaving that to its first session. Both
+            // origins therefore owe a checkpoint.
+            model: Model {
+                loaded,
+                pending: true,
+            },
+            helpers,
+            next_msg: 0,
+            last_redacted: None,
+        }
+    }
+
+    /// Copy the observed I/O history without holding a lock across a session.
+    fn history(&self) -> Vec<Io> {
+        self.log.lock().unwrap().clone()
+    }
+
+    /// Mark the start of an operation in the shared history.
+    fn cursor(&self) -> usize {
+        self.log.lock().unwrap().len()
+    }
+
+    /// Apply one operation and compare its I/O with the model's prediction.
+    async fn check(&mut self, op: Op) {
+        let cursor = self.cursor();
+        let expected = self.apply(&op).await;
+        let actual = Delta::count(&self.history()[cursor..]);
+        assert_eq!(actual, expected, "unexpected bookmark I/O for {op:?}");
+    }
+
+    /// Apply an operation and return its predicted I/O, including zero for edits.
+    async fn apply(&mut self, op: &Op) -> Delta {
         match op {
             Op::Send => {
-                // A send always inserts a fresh message, ticking the subject's
-                // own region: a checkpoint is always owed afterwards.
-                self.probe.subject.send(self.next_msg).unwrap();
+                self.subject.send(self.next_msg).unwrap();
                 self.next_msg += 1;
-                self.model.local_change();
-                None
+                self.model.pending = true;
             }
-            Op::Redact(i) => {
-                // Redacting a message the application currently holds always
-                // records a deletion in the subject's own region, ticking it;
-                // redacting nothing (an empty set) is a true no-op. Liveness
-                // is read from the snapshot — the application's own view —
-                // never from the version arithmetic the suppression uses.
-                let versions: Vec<Version> = self
-                    .probe
+            Op::Redact(indices) => {
+                // The public snapshot tells the model which targets are held.
+                // An empty batch or a batch of absent versions must do nothing;
+                // any effective redaction makes one checkpoint due.
+                let held: Vec<_> = self
                     .subject
                     .snapshot()
                     .iter()
-                    .map(|(v, _)| v.clone())
+                    .map(|(version, _)| version.clone())
                     .collect();
-                if !versions.is_empty() {
-                    self.probe.subject.redact(&versions[i % versions.len()]);
-                    self.model.local_change();
+                let mut candidates = held.clone();
+                candidates.extend(self.last_redacted.iter().cloned());
+                // Helpers may know versions the subject has never received.
+                // Those are no-ops too, even while a helper still holds them.
+                for helper in &self.helpers {
+                    candidates.extend(helper.snapshot().iter().map(|(version, _)| version.clone()));
                 }
-                None
+                let mut targets = Vec::new();
+                if !candidates.is_empty() {
+                    for i in indices {
+                        targets.push(candidates[i % candidates.len()].clone());
+                    }
+                }
+                if let Some(removed) = targets.iter().find(|version| held.contains(version)) {
+                    self.last_redacted = Some(removed.clone());
+                    self.model.pending = true;
+                }
+                self.subject.redact_all(&targets);
+            }
+            Op::RedactAgain => {
+                if let Some(version) = &self.last_redacted {
+                    self.subject.redact(version);
+                }
             }
             Op::HelperSend(i) => {
                 if !self.helpers.is_empty() {
-                    let n = self.helpers.len();
-                    self.helpers[i % n].send(1_000_000 + self.next_msg).unwrap();
+                    self.helpers[i % self.helpers.len()]
+                        .send(self.next_msg)
+                        .unwrap();
                     self.next_msg += 1;
                 }
-                None
+            }
+            Op::HelperRedact(i) => {
+                if !self.helpers.is_empty() {
+                    let helper = &self.helpers[i % self.helpers.len()];
+                    let snapshot = helper.snapshot();
+                    if !snapshot.is_empty() {
+                        let (version, _) = snapshot.iter().nth(i % snapshot.len()).unwrap();
+                        helper.redact(version);
+                    }
+                }
             }
             Op::Gossip(i) => {
-                if self.helpers.is_empty() {
-                    return None;
+                if !self.helpers.is_empty() {
+                    plain_gossip(&self.subject, &self.helpers[i % self.helpers.len()]).await;
+                    return self.model.plain_gossip();
                 }
-                let n = self.helpers.len();
-                plain_gossip(&self.probe.subject, &self.helpers[i % n]).await;
-                Some(self.model.plain_gossip())
             }
             Op::Serve => {
-                let helper = serve_bootstrap(&self.probe.subject).await;
-                self.helpers.push(helper);
-                Some(self.model.serve_bootstrap())
+                self.helpers.push(serve_bootstrap(&self.subject).await);
+                return self.model.serve_bootstrap();
             }
             Op::Absorb(i) => {
-                if self.helpers.is_empty() {
-                    return None;
+                if !self.helpers.is_empty() {
+                    let retiree = self.helpers.remove(i % self.helpers.len());
+                    absorb_retire(&self.subject, retiree).await;
+                    return self.model.absorb_retire();
                 }
-                let n = self.helpers.len();
-                let retiree = self.helpers.remove(i % n);
-                absorb_retire(&self.probe.subject, retiree).await;
-                Some(self.model.absorb_retire())
             }
         }
+        Delta::default()
     }
 }
 
-proptest! {
-    #![proptest_config(ProptestConfig { cases: 128, ..ProptestConfig::default() })]
+/// A seed's first session loads before it writes, with no I/O at attachment.
+#[test]
+fn read_is_deferred_to_first_use() {
+    block_on(async {
+        let world = World::new(Origin::Seed).await;
+        let _helper = serve_bootstrap(&world.subject).await;
+        let history = world.history();
+        assert_eq!(
+            history.first(),
+            Some(&Io::Read),
+            "load before the first store"
+        );
+        assert_eq!(Delta::count(&history).reads, 1, "load exactly once");
+    });
+}
 
-    /// Over an arbitrary peer lifetime, the bookmark's read/write schedule
-    /// matches the model exactly at every step, and so:
-    ///
-    /// 1. **Read once.** Across the whole life the record is read at most once
-    ///    (at attach for a fork, lazily at first use for a seed), and that read
-    ///    precedes every write.
-    /// 2. **Write on local work, never on hearsay.** Each session writes iff a
-    ///    local change or party movement is owed since the last persist;
-    ///    incorporating remote content drives no I/O; a send or redact alone
-    ///    drives no I/O until the session that checkpoints it.
-    ///
-    /// The lifetime: born either as a fresh seed or as a
-    /// bootstrap fork, then any interleaving of sends, redactions, remote-content
-    /// arrivals, plain gossip, bootstrap donations, and retiree absorptions,
-    /// optionally ending in the subject's own retirement.
+/// A local send requires one checkpoint; learning a helper's message requires none.
+#[test]
+fn incorporating_remote_content_writes_nothing() {
+    block_on(async {
+        let world = World::new(Origin::Seed).await;
+        let helper = serve_bootstrap(&world.subject).await;
+        // Finish the checkpoint due after donation, so the send is the only
+        // reason for the next store.
+        plain_gossip(&world.subject, &helper).await;
+
+        world.subject.send(1).unwrap();
+        let before = world.cursor();
+        plain_gossip(&world.subject, &helper).await;
+        assert_eq!(&world.history()[before..], &[Io::Write]);
+
+        helper.send(2).unwrap();
+        let before = world.cursor();
+        plain_gossip(&world.subject, &helper).await;
+        assert!(world.history()[before..].is_empty());
+        assert!(world.subject.snapshot().iter().any(|(_, m)| *m == 2));
+    });
+}
+
+/// Many local and remote sends still require only one load during a peer's life.
+#[test]
+fn read_happens_exactly_once_across_a_long_life() {
+    block_on(async {
+        let world = World::new(Origin::Seed).await;
+        let helper = serve_bootstrap(&world.subject).await;
+        for round in 0..16u64 {
+            world.subject.send(round).unwrap();
+            plain_gossip(&world.subject, &helper).await;
+            helper.send(1_000 + round).unwrap();
+            plain_gossip(&world.subject, &helper).await;
+        }
+        assert_eq!(Delta::count(&world.history()).reads, 1);
+    });
+}
+
+/// Attachment persists a fork; its first session checkpoints once without reloading.
+#[test]
+fn attaching_to_a_fork_eagerly_persists_then_never_re_reads() {
+    block_on(async {
+        let world = World::new(Origin::Bootstrap).await;
+        let before = world.cursor();
+        plain_gossip(&world.subject, &world.helpers[0]).await;
+        assert_eq!(&world.history()[before..], &[Io::Write]);
+    });
+}
+
+proptest! {
+    /// Donation checkpoints pending sends; later sessions record the retained party only once.
+    #[test]
+    fn donation_leaves_one_checkpoint_due(local_sends in 0u64..8, later_sessions in 1usize..8) {
+        block_on(async {
+            let world = World::new(Origin::Bootstrap).await;
+            plain_gossip(&world.subject, &world.helpers[0]).await;
+            for message in 0..local_sends {
+                world.subject.send(message).unwrap();
+            }
+
+            let before = world.cursor();
+            let helper = serve_bootstrap(&world.subject).await;
+            assert_eq!(
+                Delta::count(&world.history()[before..]),
+                Delta { reads: 0, writes: 1 + usize::from(local_sends > 0) },
+            );
+
+            let before = world.cursor();
+            plain_gossip(&world.subject, &helper).await;
+            assert_eq!(&world.history()[before..], &[Io::Write]);
+
+            let before = world.cursor();
+            for _ in 0..later_sessions {
+                plain_gossip(&world.subject, &helper).await;
+            }
+            assert!(world.history()[before..].is_empty());
+        });
+    }
+
+    /// Repeating completed redactions neither advances local progress nor requires a store.
+    #[test]
+    fn repeated_redactions_need_no_checkpoint(messages in 1u64..12, repetitions in 1usize..8) {
+        block_on(async {
+            let world = World::new(Origin::Bootstrap).await;
+            let helper = &world.helpers[0];
+            for message in 0..messages {
+                world.subject.send(message).unwrap();
+            }
+            let versions: Vec<_> = world.subject.snapshot().iter()
+                .map(|(version, _)| version.clone())
+                .collect();
+            world.subject.redact_all(&versions);
+            plain_gossip(&world.subject, helper).await;
+            let checkpointed = world.subject.snapshot();
+            assert!(checkpointed.is_empty());
+
+            let before = world.cursor();
+            for _ in 0..repetitions {
+                world.subject.redact_all(&versions);
+                assert_eq!(world.subject.snapshot().latest(), checkpointed.latest());
+                plain_gossip(&world.subject, helper).await;
+            }
+            assert!(world.history()[before..].is_empty(), "repeated redactions did I/O");
+        });
+    }
+
+    /// Remote redactions need no store, including when only their frontier reaches the subject.
+    #[test]
+    fn remote_redactions_need_no_checkpoint(
+        retained in 0u64..8,
+        removed in 1u64..8,
+        share_before_redaction: bool,
+    ) {
+        block_on(async {
+            let world = World::new(Origin::Bootstrap).await;
+            let helper = &world.helpers[0];
+            for message in 0..retained {
+                helper.send(message).unwrap();
+            }
+            plain_gossip(&world.subject, helper).await;
+
+            for message in retained..retained + removed {
+                helper.send(message).unwrap();
+            }
+            let versions: Vec<_> = helper.snapshot().iter()
+                .filter(|(_, message)| **message >= retained)
+                .map(|(version, _)| version.clone())
+                .collect();
+            if share_before_redaction {
+                plain_gossip(&world.subject, helper).await;
+            }
+            let prior = world.subject.snapshot();
+            helper.redact_all(&versions);
+
+            let before = world.cursor();
+            plain_gossip(&world.subject, helper).await;
+            let learned = world.subject.snapshot();
+            assert_ne!(learned.latest(), prior.latest(), "remote progress reached the subject");
+            assert_eq!(learned.latest(), helper.snapshot().latest());
+            let mut messages: Vec<_> = learned.iter().map(|(_, message)| *message).collect();
+            messages.sort_unstable();
+            assert_eq!(messages, (0..retained).collect::<Vec<_>>());
+            if !share_before_redaction {
+                // Sending and redacting before any gossip leaves the content
+                // unchanged. Only the remote frontier advances at the subject.
+                assert_eq!(learned.hash(), prior.hash());
+            }
+
+            // The first session checks its checkpoint before learning the
+            // redactions. A second must still skip it with that progress known.
+            plain_gossip(&world.subject, helper).await;
+            assert!(world.history()[before..].is_empty(), "remote redactions did I/O");
+        });
+    }
+
+    /// Every operation drives the predicted I/O; the sole load precedes every store.
     #[test]
     fn bookmark_io_schedule_matches_the_model(
         origin in prop_oneof![Just(Origin::Seed), Just(Origin::Bootstrap)],
@@ -660,74 +600,35 @@ proptest! {
         retire_at_end: bool,
     ) {
         block_on(async {
-            let Birth { subject, log, model, helpers } = birth(origin).await;
-            let mut world = World {
-                probe: Instrument {
-                    subject,
-                    log: Arc::clone(&log),
-                },
-                model,
-                helpers,
-                next_msg: 0,
-            };
-
+            let mut world = World::new(origin).await;
             for op in script {
-                let cursor = world.probe.cursor();
-                let expected = world.apply(op).await;
-                let (reads, writes) = world.probe.counts_since(cursor);
-                let actual = Delta { reads, writes };
-                match expected {
-                    Some(predicted) => assert_eq!(
-                        actual, predicted,
-                        "operation {op:?} drove unexpected bookmark I/O",
-                    ),
-                    None => assert_eq!(
-                        actual,
-                        Delta { reads: 0, writes: 0 },
-                        "a local or skipped operation {op:?} must drive no bookmark I/O",
-                    ),
-                }
-                // The load never lags the first write: a checkpoint is cleared
-                // only by a write, and a write is always preceded by the read.
-                assert!(
-                    world.model.pending || world.model.loaded,
-                    "model reached `!pending && !loaded`, which a write cannot produce",
-                );
+                world.check(op).await;
             }
 
-            // Optionally end the life with the subject's own retirement, which
-            // consumes it. The subject is the sole handle to its set, so it
-            // moves out of the world here rather than cloning.
-            if retire_at_end && !world.helpers.is_empty() {
-                let cursor = world.probe.cursor();
-                let predicted = world.model.retire_subject();
+            // A script may finish on a local edit or after losing every helper.
+            // Always drive a final session: otherwise a wrong pending-checkpoint
+            // decision at the end of the script could go unobserved.
+            if world.helpers.is_empty() {
+                world.check(Op::Serve).await;
+            }
+            // Retain the history separately because retirement consumes the peer.
+            let log = Arc::clone(&world.log);
+            if retire_at_end {
+                let cursor = world.cursor();
+                let expected = world.model.retire_subject();
                 let absorber = world.helpers.remove(0);
-                retire_subject(world.probe.subject, &absorber).await;
-                let (reads, writes) = {
-                    let log = log.lock().unwrap();
-                    let slice = &log[cursor..];
-                    (
-                        slice.iter().filter(|e| **e == Io::Read).count(),
-                        slice.iter().filter(|e| **e == Io::Write).count(),
-                    )
-                };
-                assert_eq!(
-                    Delta { reads, writes },
-                    predicted,
-                    "the subject's retirement drove unexpected bookmark I/O",
-                );
+                retire_subject(world.subject, &absorber).await;
+                assert_eq!(Delta::count(&log.lock().unwrap()[cursor..]), expected);
+            } else {
+                world.check(Op::Gossip(0)).await;
+                // Once caught up, another session must not write again.
+                world.check(Op::Gossip(0)).await;
             }
 
-            // Global read-once: at most one read over the whole life, and it
-            // precedes every write.
-            let history = log.lock().unwrap().clone();
-            let reads = history.iter().filter(|e| **e == Io::Read).count();
-            assert!(reads <= 1, "the record was read more than once: {history:?}");
-            if let (Some(r), Some(w)) = (
-                history.iter().position(|e| *e == Io::Read),
-                history.iter().position(|e| *e == Io::Write),
-            ) {
-                assert!(r < w, "a write preceded the lazy read: {history:?}");
+            let history = log.lock().unwrap();
+            assert!(Delta::count(&history).reads <= 1, "repeated load: {history:?}");
+            if history.contains(&Io::Write) {
+                assert_eq!(history.first(), Some(&Io::Read), "store without a load: {history:?}");
             }
         });
     }
