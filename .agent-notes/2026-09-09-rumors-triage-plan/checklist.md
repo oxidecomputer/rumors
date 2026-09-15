@@ -1,10 +1,10 @@
 # Rumors review checklist
 
-**Next:** 08’s Bookmark conformance.
+**Next:** 19's late storage-failure schedules and restart-survival checks.
 
-Prioritize Bookmark ownership and durability before broad harness or module
-reorganizations. Recheck N52 on current code before any
-further session micro-optimization; earlier memo and join fixes may have changed it.
+Reproduce N52 on current code before further session optimization.
+Correctness gaps take priority over broad harness or module cleanup;
+earlier memo and join fixes may have changed N52's performance result.
 
 Check code outcomes only after verification and merge; retain the landing
 commit. Checked dispositions are labelled explicitly.
@@ -178,7 +178,7 @@ Dependencies: 07 for join outcomes; owned-byte trait before conformance and file
 - [x] Bound bookmark retention by a configurable byte budget with a generous default and least-recently-used eviction — `84b211b6`.
       Source: owner request, 2026-09-14.
 
-- [ ] Ship a focused Bookmark conformance suite.
+- [x] Ship a focused Bookmark conformance suite — `ce670e87`.
       Sources: `conformance-1`, `tests-bookmark-6`, T69, T130.
 
 - [ ] Add a minimal atomic file-backed Bookmark behind a feature.
@@ -415,7 +415,7 @@ Dependencies: 04–05 and 16.
 
 Dependencies: 08 and 16; 15 for schedule generators.
 
-- [ ] Reconcile the completed causality repairs and cover storage failure paths.
+- [x] Verify deterministic network IDs, recovery oracles, stall detection, and storage-error classification — `0b878c20`, `32cc9ae6`, `36b90a78`, `84b211b6`.
       Sources: `tests-bookmark-8`, `tests-bookmark-9`, `tests-bookmark-11`, `tests-bookmark-12`, T8, T26, T149, T150.
 
 - [ ] Exercise durability and checkpoint guarantees across the full schedule.
@@ -552,6 +552,9 @@ Dependencies: Accepted implementation and documentation work complete.
 
 - [ ] Resolve Sush's native restart/session timeouts.
       Source: compatibility validation, 2026-09-14; reproduced on Sush `b90dfaf` / Rumors `d73fe2c9` in `stragglers_do_not_interrupt_live_jobs`, `witnessed_session_survives_restart`, and `session_resumes_at_stored_successor`.
+
+- [x] Preserve Sush bookmark records larger than the CBOR decoder's scratch buffer — Sush `5a0d44f`.
+      Source: Bookmark conformance regression, 2026-09-15.
 
 - [ ] Retain the human-checked formal transcription without a generated comparison tool.
       Sources: `streaming-tests-28`, T29.
