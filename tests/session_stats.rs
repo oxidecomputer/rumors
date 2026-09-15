@@ -1,61 +1,38 @@
-//! Public-surface pins for [`rumors::SessionStats`]: the per-session
-//! counters carried by [`rumors::Gossiped`].
+//! Session statistics match the messages reconciled and the bytes carried.
 //!
-//! The walk-tier suite (`src/tree/mirror/streaming/tests/stats.rs`) pins
-//! the counters against an in-memory dispute oracle; here the same
-//! counters are checked where an application reads them (one-shot
-//! [`Rumors::gossip_once`], the [`Rumors::gossip`] stream), plus the
-//! wire-only claims that need a real link: the byte counters against an
-//! independent transport-level tally, and the conservation law
-//! `len_after = len_before + gained - shed` over real sessions.
+//! Message counts are checked against recorded sends and redactions, including
+//! both peers shedding messages in one session. Byte counts are checked against
+//! captured data streams, excluding their parsed labels, across reused links.
+//! Point tests cover catch-up, one-sided redaction, no-op sessions, the minimum
+//! window, and the continuous gossip driver's results.
 
 mod common;
 
-use std::io;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::task::{Context, Poll};
+use std::collections::BTreeMap;
 
 use futures::StreamExt;
 use proptest::prelude::*;
-use rumors::link::{Connector, Done, Link, LinkParts, MemoryLink};
-use rumors::{Gossiped, Led, Peer, Rumors, SessionStats};
-use tokio::io::AsyncWrite;
+use rumors::testing::stream_label;
+use rumors::{Led, Peer, Rumors, SessionStats};
 
-use crate::common::wire::{LINK_BUF, assert_control_drained, block_on, bootstrap_fork_async};
+use crate::common::action::created_version;
+use crate::common::gossip_snapshot::{CaptureLink, capture_sides};
+use crate::common::oracle::readout;
+use crate::common::wire::{
+    LINK_BUF, assert_control_drained, block_on, bootstrap_fork_async, gossip_pair_async,
+};
 
-use serde::Serialize;
-use serde::de::DeserializeOwned;
-/// Run one gossip session between two handles over an in-memory link,
-/// returning both sides' [`Gossiped`].
-async fn gossip_pair<T>(a: &Rumors<T>, b: &Rumors<T>) -> (Gossiped, Gossiped)
-where
-    T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
-{
-    let (mut a_link, mut b_link) = rumors::link::memory_with_capacity(LINK_BUF);
-    let (a_out, b_out) = tokio::join!(a.gossip_once(&mut a_link), b.gossip_once(&mut b_link));
-    let pair = (a_out.expect("gossip A"), b_out.expect("gossip B"));
-    assert_control_drained(a_link, b_link);
-    pair
-}
-
-/// A one-shot session reports its datum on both ends, and a catch-up
-/// session disputes nothing.
-///
-/// An established but empty replica catching up gains exactly the
-/// provider's live count with zero disputes on both sides (supplies are
-/// not disputes), the provider moves nothing, both report `Led::Local`,
-/// and both converge on one version.
+/// An empty replica learns the provider's messages without resolving disputes.
+/// Both one-shot calls report local initiation and the same final frontier.
 #[test]
 fn catchup_gains_the_providers_count_without_disputes() {
     block_on(async {
         let provider: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
-        // Fork while empty: the newcomer holds an identity but no content.
+        // Join before any sends so the next session transfers the whole set.
         let empty = bootstrap_fork_async(&provider).await;
         provider.send_all([1, 2, 3]).unwrap();
 
-        let (p, e) = gossip_pair(&provider, &empty).await;
+        let (p, e) = gossip_pair_async(&provider, &empty).await;
         assert_eq!(p.led, Led::Local, "a one-shot call is this side's trigger");
         assert_eq!(e.led, Led::Local);
         assert_eq!(p.converged, e.converged, "one session, one frontier");
@@ -66,7 +43,10 @@ fn catchup_gains_the_providers_count_without_disputes() {
         assert_eq!(p.stats.messages_shed, 0);
         assert_eq!(p.stats.disputed_scopes, 0, "supplies are not disputes");
         assert_eq!(e.stats.disputed_scopes, 0);
-        assert!(p.stats.bytes_sent > 0, "the content crossed the codec seam");
+        assert!(
+            p.stats.bytes_sent > 0,
+            "the session sent reconciliation frames"
+        );
         assert_eq!(empty.snapshot().len(), 3);
     });
 }
@@ -80,33 +60,26 @@ fn converged_replicas_report_zero_stats() {
         let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
         let b = bootstrap_fork_async(&a).await;
         a.send_all([7]).unwrap();
-        let _ = gossip_pair(&a, &b).await;
+        let _ = gossip_pair_async(&a, &b).await;
 
-        let (a_g, b_g) = gossip_pair(&a, &b).await;
+        let (a_g, b_g) = gossip_pair_async(&a, &b).await;
         assert_eq!(a_g.stats, SessionStats::default());
         assert_eq!(b_g.stats, SessionStats::default());
     });
 }
 
-/// A redaction is honored as a shed: the peer still holding the message
-/// drops its copy (one shed, nothing gained on either side), and the pair
-/// converges on the smaller set.
+/// Honoring a remote redaction counts as one shed; the redactor counts no changes.
 #[test]
 fn honored_redaction_counts_as_shed() {
     block_on(async {
-        let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+        let a = Peer::<u64>::seed().sync_window_floor().into_rumors();
         a.send_all([10, 20]).unwrap();
         let b = bootstrap_fork_async(&a).await;
-        let version = a
-            .snapshot()
-            .iter()
-            .find(|(_, value)| **value == 10)
-            .map(|(version, _)| version.clone())
-            .expect("the sent message is live");
+        let version = a.snapshot().iter().next().unwrap().0.clone();
         a.redact(&version);
 
-        let (a_g, b_g) = gossip_pair(&a, &b).await;
-        assert_eq!(b_g.stats.messages_shed, 1, "b honors a's deletion");
+        let (a_g, b_g) = gossip_pair_async(&a, &b).await;
+        assert_eq!(b_g.stats.messages_shed, 1);
         assert_eq!(b_g.stats.messages_gained, 0);
         assert_eq!(a_g.stats.messages_shed, 0);
         assert_eq!(a_g.stats.messages_gained, 0);
@@ -125,7 +98,7 @@ fn floor_window_reports_one_granted_scope() {
         a.send_all([1]).unwrap();
         b.send_all([2]).unwrap();
 
-        let (a_g, b_g) = gossip_pair(&a, &b).await;
+        let (a_g, b_g) = gossip_pair_async(&a, &b).await;
         assert_eq!(a_g.stats.window_granted, 1);
         assert_eq!(b_g.stats.window_granted, 1);
     });
@@ -159,183 +132,132 @@ fn gossip_stream_reports_session_stats() {
         assert_eq!(served.stats.messages_gained, 1);
         assert_eq!(pushed.stats.messages_gained, 0);
         assert_eq!(pushed.stats.bytes_sent, served.stats.bytes_received);
+        drop((a_drive, b_drive));
+        assert_control_drained(a_link, b_link);
     });
 }
 
-// ---- the byte counters against an independent transport tally -------------
-
-/// An `AsyncWrite` that tallies every byte accepted by the inner writer.
-struct CountingWrite<W> {
-    inner: W,
-    written: Arc<AtomicUsize>,
-}
-
-impl<W: AsyncWrite + Unpin> AsyncWrite for CountingWrite<W> {
-    fn poll_write(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<io::Result<usize>> {
-        let poll = Pin::new(&mut self.inner).poll_write(cx, buf);
-        if let Poll::Ready(Ok(accepted)) = &poll {
-            self.written.fetch_add(*accepted, Ordering::Relaxed);
-        }
-        poll
-    }
-
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.inner).poll_flush(cx)
-    }
-
-    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.inner).poll_shutdown(cx)
-    }
-}
-
-/// A [`Connector`] that tallies data-stream bytes and counts stream opens.
-#[derive(Clone)]
-struct CountingConnector<C> {
-    inner: C,
-    written: Arc<AtomicUsize>,
-    opens: Arc<AtomicUsize>,
-}
-
-impl<C: Connector> Connector for CountingConnector<C> {
-    type Tx = CountingWrite<C::Tx>;
-
-    async fn connect(&self) -> io::Result<(Self::Tx, Done<Self::Tx>)> {
-        self.opens.fetch_add(1, Ordering::Relaxed);
-        let (inner, _) = self.inner.connect().await?;
-        Ok((
-            CountingWrite {
-                inner,
-                written: self.written.clone(),
-            },
-            Done::discard(),
-        ))
-    }
-}
-
-/// One link end whose data-stream writes are tallied independently of the
-/// crate's own counters, with the opened-stream count alongside.
-#[allow(clippy::type_complexity)]
-fn counting_link(
-    link: MemoryLink,
-) -> (
-    Link<
-        tokio::io::DuplexStream,
-        tokio::io::DuplexStream,
-        CountingConnector<rumors::link::MemoryConnector>,
-        rumors::link::MemoryAcceptor,
-    >,
-    Arc<AtomicUsize>,
-    Arc<AtomicUsize>,
+/// Capture three divergent sessions after advancing an empty link to `initial_epoch`.
+async fn record_sessions(
+    peer: &Rumors<Vec<u8>>,
+    mut link: CaptureLink,
+    initial_epoch: u8,
+    sends: &[Vec<u8>],
+    stats: &mut Vec<SessionStats>,
 ) {
-    let written = Arc::new(AtomicUsize::new(0));
-    let opens = Arc::new(AtomicUsize::new(0));
-    let parts = link.into_parts();
-    let link = LinkParts {
-        control_read: parts.control_read,
-        control_write: parts.control_write,
-        connector: CountingConnector {
-            inner: parts.connector,
-            written: written.clone(),
-            opens: opens.clone(),
-        },
-        acceptor: parts.acceptor,
-        session: parts.session,
+    // Converged sessions advance the epoch without opening data streams,
+    // so the capture contains only the divergent sessions measured below.
+    for _ in 0..initial_epoch {
+        let result = peer.gossip_once(&mut link).await.expect("empty session");
+        assert_eq!(result.stats, SessionStats::default());
     }
-    .into_link();
-    (link, written, opens)
-}
-
-/// Bytes of the label a sender writes before its first frame; the codec
-/// seam's counters exclude it, so the transport tally exceeds
-/// `bytes_sent` by exactly this much per opened stream.
-const LABEL_LEN: usize = 2;
-
-/// The byte counters measure exactly the codec seam.
-///
-/// Each side's transport-level data-stream tally equals its reported
-/// `bytes_sent` plus one label per opened stream, and over the lossless
-/// in-memory link one side's `bytes_sent` is the other's
-/// `bytes_received`.
-#[test]
-fn byte_counters_match_the_transport_tally() {
-    block_on(async {
-        let a: Rumors<Vec<u8>> = Peer::seed().sync_window_floor().into_rumors();
-        let b = bootstrap_fork_async(&a).await;
-        {
-            a.send_all((0u8..20).map(|i| vec![i; 64])).unwrap();
-        }
-        {
-            b.send_all((0u8..20).map(|i| vec![0xa0 | (i & 0x0f); 96]))
-                .unwrap();
-        }
-
-        let (a_raw, b_raw) = rumors::link::memory_with_capacity(LINK_BUF);
-        let (mut a_link, a_written, a_opens) = counting_link(a_raw);
-        let (mut b_link, b_written, b_opens) = counting_link(b_raw);
-        let (a_out, b_out) = tokio::join!(a.gossip_once(&mut a_link), b.gossip_once(&mut b_link));
-        let a_g = a_out.expect("gossip A");
-        let b_g = b_out.expect("gossip B");
-
-        let a_written = a_written.load(Ordering::Relaxed) as u64;
-        let b_written = b_written.load(Ordering::Relaxed) as u64;
-        let a_labels = (a_opens.load(Ordering::Relaxed) * LABEL_LEN) as u64;
-        let b_labels = (b_opens.load(Ordering::Relaxed) * LABEL_LEN) as u64;
-
-        assert!(
-            a_g.stats.bytes_sent > 0,
-            "content crossed in both directions"
-        );
-        assert!(b_g.stats.bytes_sent > 0);
-        assert_eq!(a_written, a_g.stats.bytes_sent + a_labels);
-        assert_eq!(b_written, b_g.stats.bytes_sent + b_labels);
-        assert_eq!(a_g.stats.bytes_sent, b_g.stats.bytes_received);
-        assert_eq!(b_g.stats.bytes_sent, a_g.stats.bytes_received);
-    });
+    for _ in 0..3 {
+        peer.send_all(sends.iter().cloned()).unwrap();
+        stats.push(peer.gossip_once(&mut link).await.expect("gossip").stats);
+    }
 }
 
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(24))]
 
-    /// Over random two-sided divergence, every real session conserves the
-    /// live count on each side (`after = before + gained - shed`), and
-    /// the two ends' byte counters mirror each other over the lossless
-    /// in-memory link.
+    /// Each session counts every data-frame byte exactly once, excluding stream labels.
+    ///
+    /// Reuse the link across consecutive epochs, favoring the CBOR length boundary
+    /// and the epoch wrap. Read label lengths from the capture instead of assuming
+    /// their encoded size. The sender's count must also match its peer's receiver.
     #[test]
-    fn sessions_conserve_the_live_count(
-        a_sends in proptest::collection::vec(any::<u64>(), 0..24),
-        b_sends in proptest::collection::vec(any::<u64>(), 0..24),
+    fn byte_counters_match_the_transport_tally(
+        initial_epoch in prop_oneof![Just(23u8), Just(255u8), any::<u8>()],
+        a_sends in prop::collection::vec(prop::collection::vec(any::<u8>(), 0..512), 1..8),
+        b_sends in prop::collection::vec(prop::collection::vec(any::<u8>(), 0..512), 1..8),
+    ) {
+        let a = Peer::seed().sync_window_floor().into_rumors();
+        let b = block_on(bootstrap_fork_async(&a));
+        let (mut a_stats, mut b_stats) = (Vec::new(), Vec::new());
+        let (a_capture, b_capture) = capture_sides(
+            |link| record_sessions(&a, link, initial_epoch, &a_sends, &mut a_stats),
+            |link| record_sessions(&b, link, initial_epoch, &b_sends, &mut b_stats),
+        );
+
+        for (capture, sessions) in [(a_capture, &a_stats), (b_capture, &b_stats)] {
+            let mut sent = BTreeMap::<u8, u64>::new();
+            for stream in capture.streams {
+                let ((epoch, _), label_len) = stream_label(&stream);
+                *sent.entry(epoch).or_default() += (stream.len() - label_len) as u64;
+            }
+            for (round, stats) in sessions.iter().enumerate() {
+                let epoch = initial_epoch.wrapping_add(round as u8);
+                prop_assert!(stats.bytes_sent > 0, "each session sends new messages");
+                prop_assert_eq!(sent.remove(&epoch), Some(stats.bytes_sent), "epoch {}", epoch);
+            }
+            prop_assert!(sent.is_empty(), "every captured stream belongs to a measured session");
+        }
+        for (a, b) in a_stats.iter().zip(&b_stats) {
+            prop_assert_eq!(a.bytes_sent, b.bytes_received);
+            prop_assert_eq!(b.bytes_sent, a.bytes_received);
+        }
+    }
+
+    /// Session gains and sheds count the exact message versions added and removed.
+    ///
+    /// Both replicas must learn the other's redactions in every case. Additional
+    /// shared redactions and local sends vary independently; equal payloads still
+    /// count separately because messages are keyed by version.
+    #[test]
+    fn sessions_report_each_gain_and_shed(
+        shared in prop::collection::vec(any::<u64>(), 2..24),
+        a_sends in prop::collection::vec(any::<u64>(), 0..24),
+        b_sends in prop::collection::vec(any::<u64>(), 0..24),
+        redactions in prop::collection::vec((any::<bool>(), any::<prop::sample::Index>()), 0..24),
     ) {
         block_on(async {
-            let a: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
+            let a = Peer::seed().sync_window_floor().into_rumors();
+            a.send_all(shared).unwrap();
             let b = bootstrap_fork_async(&a).await;
-            {
-                a
-                    .send_all(a_sends.iter().copied()).unwrap();
-            }
-            {
-                b
-                    .send_all(b_sends.iter().copied()).unwrap();
-            }
-            let a_before = a.snapshot().len() as u64;
-            let b_before = b.snapshot().len() as u64;
+            let shared_versions: Vec<_> = a.snapshot().iter()
+                .map(|(version, _)| version.clone()).collect();
+            let mut expected = readout(&a.snapshot());
 
-            let (a_g, b_g) = gossip_pair(&a, &b).await;
+            // Redact distinct shared messages at opposite peers. Exclude these
+            // two from the optional redactions so both peers must shed at least
+            // one message during gossip, even after shrinking the generated case.
+            for (peer, version) in [(&a, &shared_versions[0]), (&b, &shared_versions[1])] {
+                peer.redact(version);
+                expected.remove(version.as_bytes());
+            }
+            let remaining = &shared_versions[2..];
+            for (at_b, index) in redactions {
+                if !remaining.is_empty() {
+                    let version = &remaining[index.index(remaining.len())];
+                    let peer = if at_b { &b } else { &a };
+                    peer.redact(version);
+                    expected.remove(version.as_bytes());
+                }
+            }
+            for (peer, values) in [(&a, a_sends), (&b, b_sends)] {
+                for value in values {
+                    let before = peer.snapshot().latest().clone();
+                    peer.send(value).unwrap();
+                    let version = created_version(&peer.snapshot(), &before);
+                    expected.insert(version.as_bytes().to_vec(), value);
+                }
+            }
+            let (a_before, b_before) = (readout(&a.snapshot()), readout(&b.snapshot()));
+            let (a_g, b_g) = gossip_pair_async(&a, &b).await;
 
-            prop_assert_eq!(
-                a.snapshot().len() as u64,
-                a_before + a_g.stats.messages_gained - a_g.stats.messages_shed,
-            );
-            prop_assert_eq!(
-                b.snapshot().len() as u64,
-                b_before + b_g.stats.messages_gained - b_g.stats.messages_shed,
-            );
+            prop_assert_eq!(readout(&a.snapshot()), expected.clone());
+            prop_assert_eq!(readout(&b.snapshot()), expected.clone());
+            for (before, stats) in [(a_before, a_g.stats), (b_before, b_g.stats)] {
+                let gained = expected.keys().filter(|v| !before.contains_key(*v)).count() as u64;
+                let shed = before.keys().filter(|v| !expected.contains_key(*v)).count() as u64;
+                prop_assert!(shed > 0);
+                // A net-length check alone misses equal errors in both counters.
+                prop_assert_eq!(stats.messages_gained, gained);
+                prop_assert_eq!(stats.messages_shed, shed);
+            }
             prop_assert_eq!(a_g.stats.bytes_sent, b_g.stats.bytes_received);
             prop_assert_eq!(b_g.stats.bytes_sent, a_g.stats.bytes_received);
-            prop_assert_eq!(a.snapshot().hash(), b.snapshot().hash());
+            prop_assert_eq!(a_g.converged, b_g.converged);
             Ok(())
         })?;
     }

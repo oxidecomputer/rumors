@@ -1,7 +1,7 @@
 # Rumors review checklist
 
-**Working:** session accounting (17) — `codex/session-accounting`, base `main`.
-Next: remaining observation contracts (17), before broad harness or module cleanup.
+**Ready for review:** session accounting (17) — `codex/session-accounting`, base `main`.
+Next: overlapping sessions and redaction preservation (17), before broad harness or module cleanup.
 
 Check code outcomes only after verification and merge; retain the landing
 commit. Checked dispositions are labelled explicitly.
@@ -399,8 +399,11 @@ refactors are coupled with 16; focused properties can use the existing harness.
 - [x] Preserve reconciled content through retirement and deliver the final state before observers end — `7cb864cc`.
       Sources: `tests-observation-17`, `tests-observation-36`, T130, T132.
 
+- [ ] Check session gains, sheds, and byte counts against message and transport captures.
+      Sources: `tests-observation-24`, `tests-observation-25`, T130, T132.
+
 - [ ] Check remaining observer progress, wakes, and content claims with varied schedules.
-      Sources: `tests-observation-9–11`, `tests-observation-13`, `tests-observation-14`, `tests-observation-22–26`, `tests-observation-28`, `tests-observation-30`, `tests-observation-35`, T13, T78, T90, T130, T132, T144.
+      Sources: `tests-observation-9–11`, `tests-observation-13`, `tests-observation-14`, `tests-observation-22`, `tests-observation-23`, `tests-observation-26`, `tests-observation-28`, `tests-observation-30`, `tests-observation-35`, T13, T78, T90, T130, T132, T144.
 
 - [ ] Simplify lifecycle fixtures while preserving ownership and version checks.
       Sources: `tests-lifecycle-2`, `tests-lifecycle-3`, `tests-lifecycle-6`, `tests-lifecycle-8`, `tests-lifecycle-12–14`, `tests-lifecycle-19`, `tests-lifecycle-22`, `tests-lifecycle-24`, `tests-lifecycle-27`, `tests-lifecycle-30`, `tests-lifecycle-32`, T52, T130–132.
