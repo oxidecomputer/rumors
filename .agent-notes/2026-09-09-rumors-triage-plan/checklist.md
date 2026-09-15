@@ -1,7 +1,7 @@
 # Rumors review checklist
 
-**Ready for review:** overlapping sessions and redaction preservation (17) — `codex/overlap-redactions`, base `main`.
-Next: observation-hook completeness and lifecycle reporting (17), before broad harness or module cleanup.
+**Working:** observation-hook completeness and lifecycle reporting (17) — `codex/observation-hooks`, base `main`.
+Next: verify remaining observer/model claims (17), before broad harness or module cleanup.
 
 Check code outcomes only after verification and merge; retain the landing
 commit. Checked dispositions are labelled explicitly.
@@ -402,7 +402,7 @@ refactors are coupled with 16; focused properties can use the existing harness.
 - [x] Check session gains, sheds, and byte counts against message and transport captures — `a889c8fa`.
       Sources: `tests-observation-24`, `tests-observation-25`, T130, T132.
 
-- [ ] Check overlapping sessions in both orders, including immediate redaction preservation.
+- [x] Check overlapping sessions in both orders, including immediate redaction preservation — `16b3c51b`.
       Sources: `tests-observation-22`, `tests-observation-23`, T130, T132.
 
 - [ ] Check remaining observer progress, wakes, and content claims with varied schedules.
