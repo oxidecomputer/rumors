@@ -1,28 +1,19 @@
-//! The internal-capture half of the wire-capture validity contract.
+//! Check the wire-observation contract against independent transport captures.
 //!
-//! The transport-captured render property (`tests/wire_legibility.rs`)
-//! proves *external* capture: a third party tapping the wire reads
-//! valid CBOR. This suite proves *internal* capture: the observation
-//! hook hands its handlers exactly one CBOR item per invocation, and
-//! concatenating one directed stream's invocations reproduces that
-//! stream's transport bytes, byte for byte. The whole-stream property
-//! implies the per-item property only if the hook is bug-free; the
-//! differential here tests exactly that implication, against the same
-//! recording-link oracle the snapshot suites trust. Neither test
-//! supplants the other.
+//! Each callback must contain one complete CBOR item. Within each directed
+//! stream, those items must reproduce the transport bytes, excluding the
+//! stream-open label. The handler set must match the streams actually used.
 //!
-//! The claims are families over sessions, so they are proptests:
-//! randomized peer contents drive real gossip sessions (with the
-//! joining side's own bootstrap observed through the builder), and
-//! fixed pairings cover the bootstrap and retire session kinds
-//! end to end.
+//! Generated gossip, bootstrap, and retirement sessions check this contract
+//! alongside session kinds and role elections. A separate property compares
+//! observed and unobserved sessions to ensure attachment leaves the wire intact.
 
 mod common;
 
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use ciborium::value::Value;
-use proptest::collection::vec;
 use proptest::prelude::*;
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
@@ -33,40 +24,50 @@ use rumors::observe::{
 use rumors::testing::stream_label;
 use rumors::{Peer, Retire, Rumors};
 
-use crate::common::gossip_snapshot::{CapturedLink, capture_sides};
-use crate::common::wire::block_on;
+use crate::common::gossip_snapshot::{CapturedLink, capture_sides, corpora, payloads};
+use crate::common::window::WindowChoice;
+use crate::common::wire::{block_on, bootstrap_fork_configured};
 
-/// A recording observer: retains every session, stream, and item it is
-/// shown, so tests can hold the hook's view against the transport's.
+/// Retain every observation callback for comparison with the transport.
 #[derive(Default)]
 struct Recording {
+    /// Sessions not yet checked by the test.
     sessions: Mutex<Vec<Arc<SessionRecord>>>,
 }
 
+/// One session's metadata, election, and directed streams.
 struct SessionRecord {
+    /// Lifecycle operation reported at session creation.
     info: SessionInfo,
+    /// Role reported before any data handler opens.
     elected: Mutex<Option<Role>>,
+    /// Every stream handler created, including ones receiving no messages.
     streams: Mutex<Vec<Arc<StreamRecord>>>,
 }
 
+/// One directed stream's metadata and ordered message callbacks.
 struct StreamRecord {
+    /// Stream index, speaker, and direction reported at creation.
     info: StreamInfo,
+    /// Ordered callbacks, preserving their boundaries.
     items: Mutex<Vec<Vec<u8>>>,
 }
 
+/// Retrieve records at known session boundaries.
 impl Recording {
-    /// The record of the peer's most recent session.
-    fn last_session(&self) -> Arc<SessionRecord> {
-        self.sessions
-            .lock()
-            .unwrap()
-            .last()
-            .expect("at least one session was observed")
-            .clone()
+    /// Require exactly one session of the expected kind since the last check.
+    fn take_session(&self, kind: SessionKind) -> Arc<SessionRecord> {
+        let mut sessions = self.sessions.lock().unwrap();
+        assert_eq!(sessions.len(), 1, "one observation handler per session");
+        let session = sessions.pop().unwrap();
+        assert_eq!(session.info.kind, kind);
+        session
     }
 }
 
+/// Record every session without filtering.
 impl Observer for Recording {
+    /// Retain the session record and return its callback handler.
     fn session(&self, session: &SessionInfo) -> Option<Box<dyn SessionObserver>> {
         let record = Arc::new(SessionRecord {
             info: *session,
@@ -78,15 +79,33 @@ impl Observer for Recording {
     }
 }
 
+/// A session callback handler sharing its record with the test.
 struct RecordSession(Arc<SessionRecord>);
 
+/// Record stream creation and check election ordering as callbacks arrive.
 impl SessionObserver for RecordSession {
+    /// Require a single election result.
     fn elected(&self, role: Role) {
         let previous = self.0.elected.lock().unwrap().replace(role);
         assert!(previous.is_none(), "the election is decided at most once");
     }
 
+    /// Check the speaker against the prior election, then record the stream.
     fn stream(&self, stream: &StreamInfo) -> Option<Box<dyn StreamObserver>> {
+        if let StreamId::Data { speaker, .. } = stream.id {
+            let role = self
+                .0
+                .elected
+                .lock()
+                .unwrap()
+                .expect("election precedes data streams");
+            match stream.direction {
+                Direction::Sent => assert_eq!(speaker, role, "local peer speaks sent data"),
+                Direction::Received => {
+                    assert_ne!(speaker, role, "remote peer speaks received data")
+                }
+            }
+        }
         let record = Arc::new(StreamRecord {
             info: *stream,
             items: Mutex::new(Vec::new()),
@@ -96,211 +115,119 @@ impl SessionObserver for RecordSession {
     }
 }
 
+/// A stream callback handler sharing its record with the test.
 struct RecordStream(Arc<StreamRecord>);
 
+/// Preserve callback boundaries as well as bytes.
 impl StreamObserver for RecordStream {
+    /// Append one callback's bytes in delivery order.
     fn message(&mut self, bytes: &[u8]) {
         self.0.items.lock().unwrap().push(bytes.to_vec());
     }
 }
 
+/// Compare observations with bytes captured independently at the transport.
 impl SessionRecord {
-    /// Concatenate one direction's control-stream items.
-    fn control(&self, direction: Direction) -> Vec<u8> {
-        let mut bytes = Vec::new();
+    /// Require exactly the captured streams and bytes in one direction.
+    fn assert_capture(&self, side: &str, direction: Direction, capture: &CapturedLink) {
+        // None names the control stream; Some(index) names a data stream.
+        // Keeping even empty handlers in the map catches unused handlers, and
+        // checking each insertion catches duplicates that concatenation hides.
+        let mut observed = BTreeMap::new();
         for stream in self.streams.lock().unwrap().iter() {
-            if stream.info.id == StreamId::Control && stream.info.direction == direction {
-                for item in stream.items.lock().unwrap().iter() {
-                    bytes.extend_from_slice(item);
-                }
-            }
-        }
-        bytes
-    }
-
-    /// One direction's data streams as `(index, speaker, concatenated
-    /// bytes)`, asserting each index appears at most once.
-    fn data(&self, direction: Direction) -> Vec<(u8, Role, Vec<u8>)> {
-        let mut out: Vec<(u8, Role, Vec<u8>)> = Vec::new();
-        for stream in self.streams.lock().unwrap().iter() {
-            let StreamId::Data { speaker, index } = stream.info.id else {
-                continue;
-            };
             if stream.info.direction != direction {
                 continue;
             }
-            assert!(
-                out.iter().all(|(seen, ..)| *seen != index),
-                "one handler per directed data stream"
-            );
-            let mut bytes = Vec::new();
-            for item in stream.items.lock().unwrap().iter() {
-                bytes.extend_from_slice(item);
+            let index = match stream.info.id {
+                StreamId::Control => None,
+                StreamId::Data { index, .. } => Some(index),
+                other => panic!("unhandled stream kind: {other:?}"),
+            };
+            let items = stream.items.lock().unwrap();
+            for item in items.iter() {
+                assert_one_item(item);
             }
-            out.push((index, speaker, bytes));
+            assert!(
+                observed.insert(index, items.concat()).is_none(),
+                "{side} {direction:?}: duplicate handler for {index:?}"
+            );
         }
-        out
-    }
 
-    /// Every observed invocation across every stream of this session.
-    fn items(&self) -> Vec<Vec<u8>> {
-        self.streams
-            .lock()
-            .unwrap()
-            .iter()
-            .flat_map(|stream| stream.items.lock().unwrap().clone())
-            .collect()
+        let mut expected = BTreeMap::from([(None, capture.control.clone())]);
+        for blob in &capture.streams {
+            let ((_, index), label_len) = stream_label(blob);
+            assert!(
+                expected
+                    .insert(Some(index), blob[label_len..].to_vec())
+                    .is_none(),
+                "one transport stream per index in this session"
+            );
+        }
+        assert_eq!(
+            observed, expected,
+            "{side} {direction:?}: handlers and bytes match the wire"
+        );
     }
 }
 
-/// Assert `bytes` parse as exactly one CBOR item with nothing left over.
+/// Require one complete CBOR item, parsed without the Rumors codec.
 fn assert_one_item(bytes: &[u8]) {
     let mut input = bytes;
     let _: Value = ciborium::de::from_reader(&mut input)
-        .unwrap_or_else(|e| panic!("an observed invocation must be one CBOR item: {e}"));
+        .unwrap_or_else(|e| panic!("an observed callback must be one CBOR item: {e}"));
     assert!(
         input.is_empty(),
-        "an observed invocation carries one item exactly, {} residue bytes found",
-        input.len()
+        "a callback must not include a second item"
     );
 }
 
-/// Assert one side's hook view mirrors its transport capture.
-///
-/// Control items concatenate to the control blob, each sent data
-/// stream's items concatenate to its transport blob behind the
-/// stream-open label, and every invocation is one CBOR item.
-fn assert_mirrors(side: &str, session: &SessionRecord, capture: &CapturedLink) {
-    assert_eq!(
-        session.control(Direction::Sent),
-        capture.control,
-        "{side}: sent control items must concatenate to the transport capture"
-    );
-    let sent = session.data(Direction::Sent);
-    assert_eq!(
-        sent.len(),
-        capture.streams.len(),
-        "{side}: one sent data handler per opened transport stream"
-    );
-    for blob in &capture.streams {
-        let ((_, index), label_len) = stream_label(blob);
-        let (_, _, bytes) = sent
-            .iter()
-            .find(|(sent_index, ..)| *sent_index == index)
-            .unwrap_or_else(|| panic!("{side}: no sent handler for data stream {index}"));
-        assert_eq!(
-            bytes,
-            &blob[label_len..],
-            "{side}: data stream {index}'s items must concatenate to its capture"
-        );
-    }
-    for item in session.items() {
-        assert_one_item(&item);
-    }
-}
+/// Check both peers' sent and received streams, and complementary elections.
+fn assert_pair(a: &SessionRecord, b: &SessionRecord, a_wire: &CapturedLink, b_wire: &CapturedLink) {
+    a.assert_capture("A", Direction::Sent, a_wire);
+    a.assert_capture("A", Direction::Received, b_wire);
+    b.assert_capture("B", Direction::Sent, b_wire);
+    b.assert_capture("B", Direction::Received, a_wire);
 
-/// Assert the received side of `local` equals what `remote` put on the
-/// wire, per directed stream: the lossless in-memory link delivers the
-/// counterparty's sent bytes verbatim.
-fn assert_received_mirrors_remote(
-    side: &str,
-    local: &SessionRecord,
-    remote_capture: &CapturedLink,
-) {
-    assert_eq!(
-        local.control(Direction::Received),
-        remote_capture.control,
-        "{side}: received control items must equal the peer's sent capture"
-    );
-    let received = local.data(Direction::Received);
-    for blob in &remote_capture.streams {
-        let ((_, index), label_len) = stream_label(blob);
-        let Some((_, _, bytes)) = received.iter().find(|(i, ..)| *i == index) else {
-            panic!("{side}: no received handler for the peer's data stream {index}");
-        };
-        assert_eq!(
-            bytes,
-            &blob[label_len..],
-            "{side}: received data stream {index} must equal the peer's sent bytes"
-        );
-    }
-}
-
-/// Assert the two sides' elections are complementary, and each side's
-/// data-stream speakers agree with its elected role: sent streams are
-/// spoken by the local role, received streams by the counterparty's.
-fn assert_election(a: &SessionRecord, b: &SessionRecord) {
+    // Use the transport to decide whether reconciliation occurred, so a missing
+    // observation callback cannot also suppress the election check.
     let a_role = *a.elected.lock().unwrap();
     let b_role = *b.elected.lock().unwrap();
-    let opened = !a.data(Direction::Sent).is_empty()
-        || !b.data(Direction::Sent).is_empty()
-        || !a.data(Direction::Received).is_empty();
-    if !opened {
-        assert_eq!(a_role, None, "no election without data streams");
-        assert_eq!(b_role, None, "no election without data streams");
-        return;
-    }
-    let a_role = a_role.expect("a session with data streams elected a role");
-    let b_role = b_role.expect("a session with data streams elected a role");
-    assert_ne!(a_role, b_role, "the two roles are complementary");
-    for (session, role) in [(a, a_role), (b, b_role)] {
-        for (_, speaker, _) in session.data(Direction::Sent) {
-            assert_eq!(speaker, role, "sent streams are spoken by the local role");
-        }
-        for (_, speaker, _) in session.data(Direction::Received) {
-            assert_ne!(speaker, role, "received streams are spoken by the peer");
-        }
+    if a_wire.streams.is_empty() && b_wire.streams.is_empty() {
+        assert_eq!(a_role, None, "no election in a control-only session");
+        assert_eq!(b_role, None, "no election in a control-only session");
+    } else {
+        assert_ne!(
+            a_role.expect("A elected a role"),
+            b_role.expect("B elected a role"),
+            "the two roles are complementary"
+        );
     }
 }
 
-/// A freshly seeded peer loaded with `payloads`, observed when an
-/// observer is given.
+/// Seed a network with the supplied messages and optional observer.
 fn seeded(observer: Option<&Arc<Recording>>, payloads: &[Vec<u8>]) -> Rumors<Vec<u8>> {
-    // A fixed-seed network id: the byte-identity property compares two
-    // whole universes, so both must draw the same identity.
+    // The wire-neutrality test runs two separate networks. A fixed network ID
+    // makes their captures comparable; peers from those runs never interact.
     let mut peer = Peer::seed_rng(&mut SmallRng::seed_from_u64(0)).sync_window_floor();
     if let Some(observer) = observer {
         peer = peer.observe(observer.clone());
     }
     let peer = peer.into_rumors();
-    for payload in payloads {
-        peer.send(payload.clone()).unwrap();
-    }
+    peer.send_all(payloads.iter().cloned()).unwrap();
     peer
 }
 
-/// A peer bootstrapped from `parent` over an uncaptured in-memory
-/// link; when an observer is given it attaches on the builder, so the
-/// join session itself is observed.
+/// Join the parent's network, attaching the observer before bootstrap begins.
 fn forked(observer: Option<&Arc<Recording>>, parent: &Rumors<Vec<u8>>) -> Rumors<Vec<u8>> {
-    let (mut near, mut far) = rumors::link::memory();
-    let serve = parent.clone();
-    let mut bootstrap = Peer::<Vec<u8>>::bootstrap();
+    let mut bootstrap = Peer::bootstrap();
     if let Some(observer) = observer {
         bootstrap = bootstrap.observe(observer.clone());
     }
-    block_on(async {
-        let (peer, served) = tokio::join!(bootstrap.join(&mut near), serve.gossip_once(&mut far),);
-        served.expect("the parent serves the fork");
-        (match peer {
-            rumors::Joined::Joined { peer } => peer,
-            _ => panic!("the parent held a universe to share"),
-        })
-        .into_rumors()
-    })
-}
-
-/// Arbitrary payload corpora, mirroring the wire-legibility suite's
-/// shape: enough variety to drive matches, queries, empty queries, and
-/// batched supply runs, small enough for many full sessions.
-#[allow(clippy::type_complexity)]
-fn corpora() -> impl Strategy<Value = (Vec<Vec<u8>>, Vec<Vec<u8>>, Vec<Vec<u8>>)> {
-    let payload = vec(any::<u8>(), 0..48);
-    (
-        vec(payload.clone(), 0..12),
-        vec(payload.clone(), 0..12),
-        vec(payload, 0..12),
-    )
+    block_on(bootstrap_fork_configured(
+        parent,
+        bootstrap,
+        WindowChoice::Floor,
+    ))
 }
 
 proptest! {
@@ -309,92 +236,53 @@ proptest! {
         ..ProptestConfig::default()
     })]
 
-    /// For arbitrary gossip sessions, the hook's view mirrors the wire
-    /// exactly, per directed stream, in both directions.
-    ///
-    /// Concatenating the observed invocations reproduces the transport
-    /// capture byte for byte (control and data streams alike); every
-    /// invocation is exactly one CBOR item; session identity carries
-    /// the right kind and protocol; and the two sides' role elections
-    /// are complementary and agree with every data stream's speaker.
+    /// Gossip reports each session and directed stream exactly once, with the
+    /// wire's complete items and an election consistent with both speakers.
     #[test]
     fn hook_mirrors_the_wire_exactly(
         (shared, only_a, only_b) in corpora(),
+        add_messages in any::<bool>(),
     ) {
         let rec_a = Arc::new(Recording::default());
         let rec_b = Arc::new(Recording::default());
         let a = seeded(Some(&rec_a), &shared);
         let b = forked(Some(&rec_b), &a);
-        for payload in &only_a {
-            a.send(payload.clone()).unwrap();
-        }
-        for payload in &only_b {
-            b.send(payload.clone()).unwrap();
+        rec_a.take_session(SessionKind::Gossip);
+        rec_b.take_session(SessionKind::Bootstrap);
+        if add_messages {
+            a.send_all(only_a).unwrap();
+            b.send_all(only_b).unwrap();
         }
         let (a_capture, b_capture) = capture_sides(
-            {
-                let a = a.clone();
-                move |mut link| async move {
-                    a.gossip_once(&mut link).await.expect("gossip A");
-                }
-            },
-            {
-                let b = b.clone();
-                move |mut link| async move {
-                    b.gossip_once(&mut link).await.expect("gossip B");
-                }
-            },
+            |mut link| async move { a.gossip_once(&mut link).await.expect("gossip A"); },
+            |mut link| async move { b.gossip_once(&mut link).await.expect("gossip B"); },
         );
-
-        let a_session = rec_a.last_session();
-        let b_session = rec_b.last_session();
-        for (session, side) in [(&a_session, "A"), (&b_session, "B")] {
-            prop_assert_eq!(session.info.kind, SessionKind::Gossip, "{}", side);
-            prop_assert_eq!(session.info.protocol, rumors::Protocol::V2, "{}", side);
-        }
-        prop_assert_eq!(
-            rec_b.sessions.lock().unwrap()[0].info.kind,
-            SessionKind::Bootstrap,
-            "the builder-attached observer saw the join itself"
+        assert_pair(
+            &rec_a.take_session(SessionKind::Gossip),
+            &rec_b.take_session(SessionKind::Gossip),
+            &a_capture,
+            &b_capture,
         );
-
-        assert_mirrors("A", &a_session, &a_capture);
-        assert_mirrors("B", &b_session, &b_capture);
-        assert_received_mirrors_remote("A", &a_session, &b_capture);
-        assert_received_mirrors_remote("B", &b_session, &a_capture);
-        assert_election(&a_session, &b_session);
     }
 
-    /// An observed session's wire bytes are identical to an unobserved
-    /// one's: attachment never changes what crosses the transport.
+    /// Attaching an observer leaves every transport byte unchanged.
     #[test]
     fn observation_never_changes_the_wire(
         (shared, only_a, only_b) in corpora(),
+        add_messages in any::<bool>(),
     ) {
         let captures = [true, false].map(|observed| {
             let rec_a = Arc::new(Recording::default());
             let rec_b = Arc::new(Recording::default());
             let a = seeded(observed.then_some(&rec_a), &shared);
             let b = forked(observed.then_some(&rec_b), &a);
-            for payload in &only_a {
-                a.send(payload.clone()).unwrap();
-            }
-            for payload in &only_b {
-                b.send(payload.clone()).unwrap();
+            if add_messages {
+                a.send_all(only_a.iter().cloned()).unwrap();
+                b.send_all(only_b.iter().cloned()).unwrap();
             }
             capture_sides(
-                {
-                    let a = a.clone();
-                    move |mut link| async move {
-                        a.gossip_once(&mut link).await.expect("gossip A");
-                    }
-                },
-                {
-                    let b = b.clone();
-                    move |mut link| async move {
-                        b.gossip_once(&mut link).await.expect("gossip B");
-                    }
-                },
+                |mut link| async move { a.gossip_once(&mut link).await.expect("gossip A"); },
+                |mut link| async move { b.gossip_once(&mut link).await.expect("gossip B"); },
             )
         });
         let [(a_observed, b_observed), (a_plain, b_plain)] = captures;
@@ -403,91 +291,62 @@ proptest! {
         prop_assert_eq!(b_observed.control, b_plain.control);
         prop_assert_eq!(b_observed.streams, b_plain.streams);
     }
-}
 
-/// A bootstrap pairing is observed end to end.
-///
-/// The newcomer's session carries the `Bootstrap` kind, the provider
-/// observes an ordinary gossip serve, both sides'
-/// hook views mirror their transport captures (the party hand-off and
-/// epilogue included), and every invocation is one CBOR item.
-#[test]
-fn bootstrap_sessions_are_observed() {
-    let rec_provider = Arc::new(Recording::default());
-    let rec_newcomer = Arc::new(Recording::default());
-    let provider = seeded(Some(&rec_provider), &[b"seeded".to_vec()]);
-    let (provider_capture, newcomer_capture) = capture_sides(
-        {
-            let provider = provider.clone();
-            move |mut link| async move {
-                provider
-                    .gossip_once(&mut link)
-                    .await
-                    .expect("provider gossip");
-            }
-        },
-        {
-            let rec_newcomer = rec_newcomer.clone();
-            move |mut link| async move {
-                match Peer::<Vec<u8>>::bootstrap()
-                    .observe(rec_newcomer)
-                    .join(&mut link)
-                    .await
-                {
-                    rumors::Joined::Joined { peer } => peer,
-                    _ => panic!("provider served the bootstrap"),
-                };
-            }
-        },
-    );
-    let provider_session = rec_provider.last_session();
-    let newcomer_session = rec_newcomer.last_session();
-    assert_eq!(provider_session.info.kind, SessionKind::Gossip);
-    assert_eq!(newcomer_session.info.kind, SessionKind::Bootstrap);
-    assert_mirrors("provider", &provider_session, &provider_capture);
-    assert_mirrors("newcomer", &newcomer_session, &newcomer_capture);
-    assert_received_mirrors_remote("provider", &provider_session, &newcomer_capture);
-    assert_received_mirrors_remote("newcomer", &newcomer_session, &provider_capture);
-}
+    /// Joining observes the full bootstrap and serving sessions, including
+    /// stream metadata and elections for empty and populated networks.
+    #[test]
+    fn bootstrap_sessions_are_observed(payloads in payloads()) {
+        let rec_provider = Arc::new(Recording::default());
+        let rec_newcomer = Arc::new(Recording::default());
+        let provider = seeded(Some(&rec_provider), &payloads);
+        let bootstrap = Peer::<Vec<u8>>::bootstrap().observe(rec_newcomer.clone());
+        let (provider_capture, newcomer_capture) = capture_sides(
+            |mut link| async move {
+                provider.gossip_once(&mut link).await.expect("provider gossip");
+            },
+            |mut link| async move {
+                assert!(matches!(bootstrap.join(&mut link).await, rumors::Joined::Joined { .. }));
+            },
+        );
+        assert_pair(
+            &rec_provider.take_session(SessionKind::Gossip),
+            &rec_newcomer.take_session(SessionKind::Bootstrap),
+            &provider_capture,
+            &newcomer_capture,
+        );
+    }
 
-/// A retire pairing is observed end to end.
-///
-/// The retiree's session carries the `Retire` kind, the absorber
-/// observes an ordinary gossip, both hook views mirror their
-/// transport captures (the retiree's party hand-off included), and
-/// every invocation is one CBOR item.
-#[test]
-fn retire_sessions_are_observed() {
-    let rec_absorber = Arc::new(Recording::default());
-    let rec_retiree = Arc::new(Recording::default());
-    let absorber = seeded(Some(&rec_absorber), &[b"kept".to_vec()]);
-    let retiree = forked(Some(&rec_retiree), &absorber);
-    retiree.send(b"handed off".to_vec()).unwrap();
-    let retiree = block_on(retiree.try_into_peer()).expect("the retiree handle is unique");
-    let (absorber_capture, retiree_capture) = capture_sides(
-        {
-            let absorber = absorber.clone();
-            move |mut link| async move {
-                absorber
-                    .gossip_once(&mut link)
-                    .await
-                    .expect("absorber gossip");
-            }
-        },
-        move |mut link| async move {
-            match retiree.retire(&mut link).await {
-                Retire::Retired => {}
-                other => panic!("the retiree must retire cleanly, got {other:?}"),
-            }
-        },
-    );
-    let absorber_session = rec_absorber.last_session();
-    let retiree_session = rec_retiree.last_session();
-    assert_eq!(absorber_session.info.kind, SessionKind::Gossip);
-    assert_eq!(retiree_session.info.kind, SessionKind::Retire);
-    assert_mirrors("absorber", &absorber_session, &absorber_capture);
-    assert_mirrors("retiree", &retiree_session, &retiree_capture);
-    assert_received_mirrors_remote("absorber", &absorber_session, &retiree_capture);
-    assert_received_mirrors_remote("retiree", &retiree_session, &absorber_capture);
-    assert_election(&absorber_session, &retiree_session);
+    /// Retirement observes the final reconciliation and handoff on both peers,
+    /// whether their contents match or either peer has added messages.
+    #[test]
+    fn retire_sessions_are_observed(
+        (shared, only_a, only_b) in corpora(),
+        add_messages in any::<bool>(),
+    ) {
+        let rec_absorber = Arc::new(Recording::default());
+        let rec_retiree = Arc::new(Recording::default());
+        let absorber = seeded(Some(&rec_absorber), &shared);
+        let retiree = forked(Some(&rec_retiree), &absorber);
+        rec_absorber.take_session(SessionKind::Gossip);
+        rec_retiree.take_session(SessionKind::Bootstrap);
+        if add_messages {
+            absorber.send_all(only_a).unwrap();
+            retiree.send_all(only_b).unwrap();
+        }
+        let retiree = block_on(retiree.try_into_peer()).expect("the retiree handle is unique");
+        let (absorber_capture, retiree_capture) = capture_sides(
+            |mut link| async move {
+                absorber.gossip_once(&mut link).await.expect("absorber gossip");
+            },
+            |mut link| async move {
+                assert!(matches!(retiree.retire(&mut link).await, Retire::Retired));
+            },
+        );
+        assert_pair(
+            &rec_absorber.take_session(SessionKind::Gossip),
+            &rec_retiree.take_session(SessionKind::Retire),
+            &absorber_capture,
+            &retiree_capture,
+        );
+    }
 }

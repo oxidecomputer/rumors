@@ -1,29 +1,21 @@
-//! The rumors-blind wire legibility property.
+//! Check that every protocol stream is a CBOR sequence.
 //!
-//! Every directed stream of a V2 session — the control stream and every
-//! data stream, in both directions — parses as an RFC 8742 CBOR sequence
-//! under a generic walk that knows nothing of rumors: standard tag
-//! unwrapping only (55799 self-described CBOR passes through as a tag;
-//! 63 wraps an embedded CBOR sequence; 24 wraps exactly one embedded
-//! item; unknown tags pass through), with zero bytes outside CBOR items,
-//! recursively down through every embedded byte string. The claim is a
-//! family over sessions, so it is stated as a proptest: randomized peer
-//! contents drive real gossip, bootstrap, and retire sessions through
-//! the recording link, and every captured stream must walk clean.
+//! A generic parser walks captured control and data streams in both directions,
+//! using only `ciborium::Value`. It follows containers and tags, decoding tag 63's
+//! byte string as an embedded sequence and tag 24's as exactly one embedded
+//! item. Every byte at each level must belong to a complete CBOR item.
 //!
-//! The walker deliberately uses only `ciborium::Value` — no rumors codec
-//! type appears — so this suite is the committed, tamper-evident form of
-//! the legibility promise: a wire change that smuggles a non-CBOR byte
-//! anywhere onto a V2 stream fails here, whatever the snapshots say.
+//! Generated gossip, bootstrap, and retirement sessions supply the captures.
+//! This complements wire snapshots: even an accepted snapshot change must still
+//! produce bytes that a CBOR library can read without the Rumors codec.
 
 mod common;
 
 use ciborium::value::Value;
-use proptest::collection::vec;
 use proptest::prelude::*;
 use rumors::{Peer, Rumors};
 
-use crate::common::gossip_snapshot::{CapturedLink, capture_sides};
+use crate::common::gossip_snapshot::{CapturedLink, capture_sides, corpora};
 use crate::common::wire::{block_on, bootstrap_fork_async};
 
 /// Tag number for an embedded CBOR sequence in a byte string (RFC 9277).
@@ -99,20 +91,6 @@ fn loaded(parent: Option<&Rumors<Vec<u8>>>, payloads: &[Vec<u8>]) -> Rumors<Vec<
         peer.send(payload.clone()).unwrap();
     }
     peer
-}
-
-/// Arbitrary payload corpora: variable-length byte payloads on both
-/// sides, small enough to keep hundreds of full sessions cheap and
-/// varied enough to drive matches, queries, empty queries, and batched
-/// supply runs.
-#[allow(clippy::type_complexity)]
-fn corpora() -> impl Strategy<Value = (Vec<Vec<u8>>, Vec<Vec<u8>>, Vec<Vec<u8>>)> {
-    let payload = vec(any::<u8>(), 0..48);
-    (
-        vec(payload.clone(), 0..12),
-        vec(payload.clone(), 0..12),
-        vec(payload, 0..12),
-    )
 }
 
 proptest! {

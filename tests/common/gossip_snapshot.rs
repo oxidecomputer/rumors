@@ -1,39 +1,27 @@
-//! Byte-exact wire-capture helpers for `insta` golden snapshots of one
-//! session between two peers.
+//! Record protocol traffic for byte-level assertions and wire snapshots.
 //!
-//! Where [`super::wire`] only checks that the two peers *converge*, this
-//! helper records the *entire conversation*: every byte each peer puts on
-//! the wire. Re-accept a snapshot only after a deliberate protocol change.
+//! Captures retain each control and data stream's bytes independently of the
+//! observation hook. Control reads are also recorded so the driver can check
+//! that both peers consumed all control bytes before returning.
 //!
-//! # What a capture pins, and what it discards
+//! A capture preserves byte order within each stream, but discards read/write
+//! boundaries and ordering between streams. The snapshot renderer groups data
+//! streams by their labeled index, making captures comparable despite differences
+//! in polling order. Re-accept a snapshot only after a deliberate protocol change.
 //!
-//! Traffic rides a [`rumors::Link`], which keeps logical streams
-//! physically separate, so a capture is already demultiplexed: the control
-//! stream's exact bytes plus each opened data stream's exact bytes. Two
-//! kinds of incidental nondeterminism are erased so snapshots stay stable:
-//!
-//! - **Read/write framing**: the representation retains no incidental
-//!   boundaries between individual `poll_write` or `poll_read` calls —
-//!   each capture concatenates every byte sent per stream before parsing.
-//! - **Cross-stream scheduling**: independent streams may be polled in
-//!   different orders, so the renderer keys stream groups by their
-//!   labeled index — the protocol's deterministic observable ordering —
-//!   while preserving every exact byte and the complete order within each
-//!   group.
-//!
-//! # Interposition
-//!
-//! Each side's in-memory link is rebuilt with recording parts: the control
-//! halves are wrapped in a [`Recorder`] logging every accepted write and
-//! delivered read into one shared, ordered [`Log`] (the drain assertion
-//! needs both directions), and the connector is wrapped so each opened data
-//! stream's accepted writes accumulate in a per-stream buffer.
+//! Each in-memory link is wrapped at its control halves and connector. The
+//! control wrappers share a [`Log`]; each opened data stream has its own write
+//! buffer. These transport records can then be compared with observation
+//! callbacks or parsed without using the Rumors codec.
 
 use std::future::Future;
 use std::io;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
+
+use proptest::collection::vec;
+use proptest::prelude::*;
 
 use rumors::link::{Connector, Done, Link, LinkParts, MemoryAcceptor, MemoryConnector};
 use rumors::observe::{
@@ -52,6 +40,18 @@ use crate::common::wire::block_on;
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+
+/// Short byte-payload collections, including empty sets, for wire tests.
+pub fn payloads() -> impl Strategy<Value = Vec<Vec<u8>>> + Clone {
+    vec(vec(any::<u8>(), 0..48), 0..12)
+}
+
+/// Shared and per-peer payloads for equal or divergent message sets.
+#[allow(clippy::type_complexity)]
+pub fn corpora() -> impl Strategy<Value = (Vec<Vec<u8>>, Vec<Vec<u8>>, Vec<Vec<u8>>)> {
+    (payloads(), payloads(), payloads())
+}
+
 /// Whether a logged byte run was put on the wire or taken off it, from the
 /// perspective of the peer that performed the I/O.
 #[derive(Clone, Copy, PartialEq, Eq)]

@@ -11,7 +11,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll, Waker};
 
 use rumors::link::MemoryLink;
-use rumors::{Peer, Protocol, Rumors, testing::run_to_quiescence};
+use rumors::{Bootstrap, Peer, Protocol, Rumors, testing::run_to_quiescence};
 use tokio::io::{AsyncRead, ReadBuf};
 use tokio::runtime::Runtime;
 
@@ -186,15 +186,10 @@ pub async fn divergent_pair(
     (a, b)
 }
 
-/// Create a genuine, party-disjoint `Rumors` from `parent` by serving it a
-/// bootstrap over an in-memory link.
+/// Join the parent's network with an independent peer holding its messages.
 ///
-/// This is how a test obtains a second *originator*: the returned peer
-/// descends from `parent`'s universe (same [`Network`](rumors::Network))
-/// with its own disjoint party region and a copy of `parent`'s content,
-/// exactly as a real process joining over the network would. `parent` keeps
-/// its own party (the bootstrap hands the newcomer a freshly-forked slice
-/// of it, in the same critical section that snapshots the served tree).
+/// The new peer uses the minimum sync window to exercise backpressure. The
+/// shared driver checks that bootstrap completes and drains the control stream.
 #[track_caller]
 pub fn bootstrap_fork<T>(parent: &Rumors<T>) -> Rumors<T>
 where
@@ -203,22 +198,15 @@ where
     block_on(bootstrap_fork_async(parent))
 }
 
-/// Awaitable core of [`bootstrap_fork`], for callers already inside an async
-/// block on this thread's runtime (where a nested [`block_on`] would panic).
-///
-/// Pins the new peer at the serialization floor, keeping the
-/// capacity-one orderings the deadlock-freedom argument certifies
-/// exercised; suites sweeping the window dimension fork through
-/// [`bootstrap_fork_with_window_async`] instead.
+/// Awaitable [`bootstrap_fork`], for composing bootstrap with other work.
 pub async fn bootstrap_fork_async<T>(parent: &Rumors<T>) -> Rumors<T>
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
-    bootstrap_fork_configured(parent, WindowChoice::Floor).await
+    bootstrap_fork_configured(parent, Peer::bootstrap(), WindowChoice::Floor).await
 }
 
-/// [`bootstrap_fork`] with the new peer's window taken from the sweep
-/// dimension instead of pinned at the floor.
+/// Join the parent's network, then configure the new peer's sync window.
 #[track_caller]
 pub fn bootstrap_fork_with_window<T>(parent: &Rumors<T>, window: WindowChoice) -> Rumors<T>
 where
@@ -227,8 +215,7 @@ where
     block_on(bootstrap_fork_with_window_async(parent, window))
 }
 
-/// Awaitable core of [`bootstrap_fork_with_window`], for callers already
-/// inside an async block on this thread's runtime.
+/// Awaitable [`bootstrap_fork_with_window`].
 pub async fn bootstrap_fork_with_window_async<T>(
     parent: &Rumors<T>,
     window: WindowChoice,
@@ -236,12 +223,18 @@ pub async fn bootstrap_fork_with_window_async<T>(
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
-    bootstrap_fork_configured(parent, window).await
+    bootstrap_fork_configured(parent, Peer::bootstrap(), window).await
 }
 
-/// Create a disjoint peer over an in-memory link, with the new peer's
-/// window configuration chosen by the caller.
-async fn bootstrap_fork_configured<T>(parent: &Rumors<T>, window: WindowChoice) -> Rumors<T>
+/// Join through a configured builder, check control drain, and set the window.
+///
+/// Accepting a builder lets suites observe bootstrap itself. The window governs
+/// later sessions; bootstrap has no disputed subtrees to pipeline.
+pub async fn bootstrap_fork_configured<T>(
+    parent: &Rumors<T>,
+    bootstrap: Bootstrap<T>,
+    window: WindowChoice,
+) -> Rumors<T>
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + Clone + 'static,
 {
@@ -249,7 +242,7 @@ where
 
     let (server_out, boot_out) = tokio::join!(
         parent.gossip_once(&mut parent_link),
-        Peer::<T>::bootstrap().join(&mut boot_link),
+        bootstrap.join(&mut boot_link),
     );
     server_out.expect("bootstrap server gossip");
     let forked = window
