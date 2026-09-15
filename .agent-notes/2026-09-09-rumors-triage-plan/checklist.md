@@ -1,8 +1,7 @@
 # Rumors review checklist
 
-**Next:** reproduce N52's session scaling on current code before further optimization.
-Correctness gaps take priority over broad harness or module cleanup;
-earlier memo and join fixes may have changed N52's performance result.
+**Next:** check sync/async decoder agreement on partial reads and boundary failures (12).
+Correctness validation takes priority over broad harness or module cleanup.
 
 Check code outcomes only after verification and merge; retain the landing
 commit. Checked dispositions are labelled explicitly.
@@ -469,7 +468,7 @@ Dependencies: 10–12 for affected implementation baselines; 16 for shared suppo
 - [ ] Measure useful operations without fixture, runtime, or destructor work in the timed body.
       Sources: `benches-envelope-1–3`, `benches-envelope-11–13`, `benches-envelope-15`, `benches-envelope-16`, `benches-envelope-18`, `benches-envelope-20`, `benches-envelope-23`, `benches-envelope-25`, `suite-economics-2`, `suite-economics-3`, `suite-economics-7`, T89, T109, T112, T114, T129, T132.
 
-- [ ] Locate the linear term in a session with one difference.
+- [x] Disposition: the reported linear session cost does not reproduce on current code; no change needed. Owner ruling, 2026-09-15.
       Sources: N52.
 
 - [ ] Use measured test-profile improvements, without blindly optimizing the whole crate.
