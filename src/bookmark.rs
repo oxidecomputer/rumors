@@ -85,6 +85,10 @@ pub use format::BOOKMARK_FORMAT_VERSION;
 ///   stale but valid record can cause versions to be reused and corrupt the set.
 /// - Preserve the complete record across restarts; Rumors handles retention.
 ///
+/// Use `conformance::bookmark` from a dev-dependency with the `conformance`
+/// feature to check an implementation's loads, replacements, and interruptions.
+/// Backend-specific crash tests must still establish durability.
+///
 /// A slow store delays synchronization or completion when accepting a
 /// retirement. A session may already have exchanged its connection preamble
 /// while waiting for storage. Local sends continue; storage errors are reported
@@ -119,6 +123,8 @@ pub trait Bookmark {
     fn load(&self) -> impl Future<Output = Result<Option<Self::Reader>, Self::Error>> + Send;
 
     /// Atomically replace the stored record with these owned, encoded bytes.
+    ///
+    /// Treat the bytes as opaque; Rumors handles their format and validation.
     ///
     /// Return `Ok(())` only once the complete replacement is durable, i.e.
     /// after an atomic write followed by a filesystem sync. An error or

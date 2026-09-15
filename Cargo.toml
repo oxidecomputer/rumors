@@ -111,9 +111,8 @@ bench = false
 # Enabled for this crate's own tests via the self-referential dev-dependency
 # below; never enable it in an application.
 test-internals = ["tokio/rt", "dep:cbor-diag"]
-# The public conformance suite for caller-built `Link` implementations:
-# enable from a dev-dependency to validate a custom transport against the
-# link contract. Documented; safe (though pointless) in an application.
+# Conformance suites for caller-built links and bookmark storage.
+# Enable from a dev-dependency to validate an application's adapters.
 conformance = []
 # Lights `before`'s deterministic resource counters for this crate's own
 # metering tests (the branch bound memos' fold-cost comparison). Test-only

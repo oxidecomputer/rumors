@@ -58,6 +58,7 @@ use std::task::{Context, Poll};
 use futures::future::{Either, join, join_all, select};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
+use super::timed;
 use crate::link::{Acceptor, Connector, Done, Link, LinkParts, STREAM_COUNT};
 use crate::{Peer, Rumors};
 
@@ -148,23 +149,6 @@ pub async fn check<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab, D>(
     check_concurrency(&mut pair, &mut deadline).await;
     check_accept_cancellation(&mut pair, &mut deadline).await;
     check_sessions(&mut pair, &mut deadline).await;
-}
-
-/// Race a check against its caller's deadline, keeping the check name on failure.
-fn timed(
-    name: &str,
-    deadline: impl Future<Output = ()>,
-    check: impl Future<Output = ()>,
-) -> impl Future<Output = ()> {
-    // Transport futures can be large. Box before constructing the timeout
-    // future so nesting the check does not multiply its stack usage.
-    let check = Box::pin(check);
-    async move {
-        match select(pin!(deadline), check).await {
-            Either::Left(_) => panic!("conformance: {name} timed out"),
-            Either::Right(_) => {}
-        }
-    }
 }
 
 /// The control halves form two independent ordered byte pipes.
