@@ -1,6 +1,6 @@
 # Rumors review checklist
 
-**Next:** 19's late storage-failure schedules and restart-survival checks.
+**Next:** 19's checkpoint I/O schedules, including repeated and remote redactions.
 
 Reproduce N52 on current code before further session optimization.
 Correctness gaps take priority over broad harness or module cleanup;
@@ -413,19 +413,25 @@ Dependencies: 04–05 and 16.
 
 ## 19. Bookmark behavioral tests
 
-Dependencies: 08 and 16; 15 for schedule generators.
+Dependencies: 08's Bookmark contract; coordinate shared helpers with 16 and shared generators with 15.
 
 - [x] Verify deterministic network IDs, recovery oracles, stall detection, and storage-error classification — `0b878c20`, `32cc9ae6`, `36b90a78`, `84b211b6`.
       Sources: `tests-bookmark-8`, `tests-bookmark-9`, `tests-bookmark-11`, `tests-bookmark-12`, T8, T26, T149, T150.
 
-- [ ] Exercise durability and checkpoint guarantees across the full schedule.
-      Sources: `session-bookmark-31`, `tests-bookmark-4`, `tests-bookmark-7`, `tests-bookmark-15`, `tests-bookmark-19`, `tests-bookmark-21`, `tests-bookmark-24`, `tests-bookmark-26`, T130, T132.
+- [x] Cover late storage failures and require durable content to survive restart — `ff8bcb6f`.
+      Sources: `tests-bookmark-15`, `tests-bookmark-21`, T130, T132.
+
+- [ ] Exercise exact checkpoint I/O for local, remote, and repeated redactions; simplify the schedule fixture.
+      Sources: `tests-bookmark-4` and `tests-bookmark-14` (schedule suite), `tests-bookmark-24–26`, T130, T132.
+
+- [ ] Exercise the remaining durability guarantees.
+      Sources: `session-bookmark-31`, `tests-bookmark-4` (other suites), `tests-bookmark-7`, `tests-bookmark-19`, T130, T132.
 
 - [ ] Simplify bookmark healing and clarify the tests’ names.
       Sources: `tests-bookmark-13`, `tests-bookmark-23`, T132.
 
 - [ ] Consolidate bookmark test helpers and clarify durability checks.
-      Sources: `tests-bookmark-1–3`, `tests-bookmark-5`, `tests-bookmark-10`, `tests-bookmark-14`, `tests-bookmark-16–18`, `tests-bookmark-20`, `tests-bookmark-22`, `tests-bookmark-25`, T48, T49, T131, T132.
+      Sources: `tests-bookmark-1–3`, `tests-bookmark-5`, `tests-bookmark-10`, `tests-bookmark-14` (causality suite), `tests-bookmark-16–18`, `tests-bookmark-20`, `tests-bookmark-22`, T48, T49, T131, T132.
 
 ## 20. Resource, wire-format, and public-surface tests
 
