@@ -1,38 +1,37 @@
-//! Overlapping-session convergence: the total-set instruments for the
-//! interleaving regime that serial schedules never sample.
+//! Concurrent gossip must preserve sends and honor redactions.
 //!
-//! A gossip session forks its working state when it starts and installs
-//! when it ends; everything the peer does in between — local sends,
-//! redactions, whole *other* sessions — lands between that fork and that
-//! install. The suites here drive such overlaps deterministically, at
-//! every poll prefix or at generated ones, and hold the network to the
-//! only acceptable outcome: after quiescence, every peer holds exactly
-//! the set the schedule's history prescribes. The symptom they exist to
-//! catch is silent divergence — a message nobody redacted vanishing, or
-//! peers converging on different sets — regardless of which layer's
-//! defect produces it: the discovering incident's only visible face was
-//! exactly that symptom.
+//! A session reconciles snapshots taken after its preamble exchange, then
+//! publishes its result alongside any changes made while it ran. The focused
+//! sweep parks either of two sessions at every polling round; generated
+//! schedules mix overlapping sessions with local sends and redactions.
 
 mod common;
 
 use std::collections::BTreeMap;
 
-use common::oracle::{readout, readout_multiset};
-use common::overlap::{self, arb_overlap_schedule, execute_overlap_and_quiesce};
-use common::wire::{bootstrap_fork, wire_gossip};
 use proptest::prelude::*;
-use rumors::{Rumors, Version};
+use rumors::{Peer, Rumors};
 
-/// Build the deterministic witness fleet: a seed peer holding `n` unit
-/// messages and two bootstrapped forks, all converged (a bootstrap copies
-/// the served content, so no further gossip is needed).
-fn converged_trio(n: u64) -> (Rumors<u64>, Rumors<u64>, Rumors<u64>) {
-    let a = rumors::Peer::seed().into_rumors();
-    for v in 0..n {
-        a.send(v).unwrap();
-    }
+use crate::common::oracle::{readout, readout_multiset};
+use crate::common::overlap::{self, arb_overlap_schedule, execute_overlap_and_quiesce};
+use crate::common::wire::{bootstrap_fork, wire_gossip};
+
+/// Build three replicas at the minimum window, then redact `target` only at B.
+fn redacted_trio(n: u64, target: u64) -> (Rumors<u64>, Rumors<u64>, Rumors<u64>) {
+    let a = Peer::seed().sync_window_floor().into_rumors();
+    a.send_all(0..n).unwrap();
     let b = bootstrap_fork(&a);
     let c = bootstrap_fork(&a);
+    // Resolve the target in this network; versions from another seeded
+    // fixture need not identify its messages, even if their values match.
+    let version = b
+        .snapshot()
+        .iter()
+        .find(|(_, value)| **value == target)
+        .unwrap()
+        .0
+        .clone();
+    b.redact(&version);
     (a, b, c)
 }
 
@@ -41,6 +40,7 @@ fn converged_trio(n: u64) -> (Rumors<u64>, Rumors<u64>, Rumors<u64>) {
 /// Panics if they fail to agree within a bounded number of full-mesh
 /// rounds: overlapped sessions must still converge.
 fn converge(a: &Rumors<u64>, b: &Rumors<u64>, c: &Rumors<u64>) -> BTreeMap<Vec<u8>, u64> {
+    /// Maximum full-mesh passes allowed to settle the already completed sessions.
     const ROUNDS: usize = 8;
     for _ in 0..ROUNDS {
         wire_gossip(a, b);
@@ -58,79 +58,54 @@ fn converge(a: &Rumors<u64>, b: &Rumors<u64>, c: &Rumors<u64>) -> BTreeMap<Vec<u
     panic!("three peers failed to agree within {ROUNDS} full-mesh rounds");
 }
 
-/// No interleaving of two honest sessions may lose a message nobody
-/// redacted.
+/// Either ordering of overlapping sessions preserves every message except the redaction.
 ///
-/// Peer A holds 25 messages, with forks B and C converged on them. B
-/// redacts one message; A then runs a session with C *overlapped* around
-/// its session with B — the C-session is opened first, parked after `n`
-/// polls, resumed only after the B-session (which honors the redaction)
-/// has fully installed. Swept over every message as the redaction target
-/// and every parking prefix `n` up to the session's own length, the
-/// converged outcome must always be exactly the original set minus the
-/// one redacted message: one deliberate deletion, no collateral.
-///
-/// The discovering incident's symptom was precisely an innocent leaf
-/// silently deleted under this overlap, at 2 of the 25 sweep positions.
-/// The sweep is total, so any regression with the same *symptom* fails
-/// here no matter which layer produces it.
+/// B redacts a message shared with A and C. Park A's session with either peer
+/// while its session with the other runs to completion. Check A immediately
+/// after both sessions, then check the settled fleet, at every parking round.
 #[test]
 fn overlapped_install_never_loses_innocent_messages() {
+    /// Enough distinct messages to span multiple radix-fan chunks.
     const MESSAGES: u64 = 25;
 
-    // Calibrate the poll sweep's ceiling: how many polls one converged
-    // session takes on this exact fleet shape. The trigger window (fork
-    // done, install pending) lies strictly inside it.
-    let session_polls = {
-        let (a, _b, c) = converged_trio(MESSAGES);
-        let mut probe = overlap::open(&a, &c);
-        let mut polls = 0usize;
-        while !probe.step(1) {
-            polls += 1;
-            assert!(polls < 1 << 20, "calibration session never completed");
-        }
-        polls
-    };
-
-    // The versions created by `converged_trio` are deterministic (the
-    // seed party and its tick sequence are fixed), so versions read from
-    // one instance name the same messages in every other.
-    let versions: Vec<Version> = {
-        let (a, _, _) = converged_trio(MESSAGES);
-        a.snapshot().iter().map(|(v, _)| v.clone()).collect()
-    };
-
-    let mut violations = Vec::new();
-    for redacted in &versions {
-        for n in 0..=session_polls {
-            let (a, b, c) = converged_trio(MESSAGES);
-            let mut expected = readout(&a.snapshot());
-            expected.remove(redacted.as_bytes());
-
-            b.redact(redacted);
-            // S2 (A <-> C, both still converged at fork time) opens
-            // first and parks after `n` polls...
-            let s2 = {
-                let mut s2 = overlap::open(&a, &c);
-                s2.step(n);
-                s2
+    for target in 0..MESSAGES {
+        for redacting_first in [false, true] {
+            // The redacting session does more work than the converged one.
+            // Calibrate each direction and target, including the completing
+            // round, so the sweep covers parking before, during, and after it.
+            let rounds = {
+                let (a, b, c) = redacted_trio(MESSAGES, target);
+                let first = if redacting_first { &b } else { &c };
+                overlap::open(&a, first).finish()
             };
-            // ...S1 (A <-> B) installs the honored redaction at A...
-            wire_gossip(&a, &b);
-            // ...and S2 resumes and installs after it.
-            s2.finish();
+            for park in 0..=rounds {
+                let (a, b, c) = redacted_trio(MESSAGES, target);
+                // Derive the result from the untouched replica, independently
+                // of either redaction or reconciliation. Fixture values are unique.
+                let mut expected = readout(&a.snapshot());
+                expected.retain(|_, value| *value != target);
+                let (first, second) = if redacting_first { (&b, &c) } else { (&c, &b) };
+                let mut session = overlap::open(&a, first);
+                session.step(park);
+                wire_gossip(&a, second);
+                session.finish();
 
-            let converged = converge(&a, &b, &c);
-            if converged != expected {
-                violations.push((redacted.clone(), n, converged.len(), expected.len()));
+                // Later gossip could repair a temporary resurrection at A.
+                // A has completed both exchanges, so it already owes the full
+                // result; C may still need to learn the redaction afterward.
+                assert_eq!(
+                    readout(&a.snapshot()),
+                    expected,
+                    "shared replica: target={target}, redacting_first={redacting_first}, park={park}"
+                );
+                assert_eq!(
+                    converge(&a, &b, &c),
+                    expected,
+                    "settled fleet: target={target}, redacting_first={redacting_first}, park={park}"
+                );
             }
         }
     }
-    assert!(
-        violations.is_empty(),
-        "overlapped installs diverged from the one deliberate redaction \
-         (redacted version, S2 poll prefix, converged len, expected len): {violations:?}",
-    );
 }
 
 proptest! {
@@ -139,18 +114,11 @@ proptest! {
         ..ProptestConfig::default()
     })]
 
-    /// Generated overlapping-session schedules converge to the oracle.
+    /// Generated overlaps converge to exactly the sends not redacted by the schedule.
     ///
-    /// Fleets of 2–4 peers run schedules mixing sends, observed-message
-    /// redactions, whole sessions, and sessions opened, parked at
-    /// generated poll prefixes, and closed across other events —
-    /// starting from a converged base large enough to span several
-    /// radix-fan chunks. After every session closes and the fleet
-    /// quiesces, all peers must hold the same live set, and that set
-    /// must equal the spec-shaped oracle's projection (every insert not
-    /// deliberately redacted). This is the standing sample of the
-    /// interleaving space where install-time defects hide; the serial
-    /// schedule suites cannot reach it by construction.
+    /// Schedules include two sessions sharing a replica in either ordering,
+    /// alongside arbitrary sends, redactions, and other session interleavings.
+    /// Compare both values and versions so equal payloads cannot hide a loss.
     #[test]
     fn overlapping_schedules_converge_to_the_oracle(
         schedule in arb_overlap_schedule(any::<u64>(), 2..=4, 24),
@@ -169,9 +137,7 @@ proptest! {
                 i,
             );
         }
-        // Identity-level agreement across peers, not just value
-        // multisets: the same content must live at the same versions
-        // everywhere.
+        // Equal payloads are distinct messages when their versions differ.
         for pair in readouts.windows(2) {
             prop_assert_eq!(readout(&pair[0]), readout(&pair[1]));
         }

@@ -1,35 +1,18 @@
-//! Deterministic session *overlap*: open a wire gossip session, hold it
-//! parked at any poll prefix while other events run, then finish it.
+//! Controlled interleavings of gossip sessions with local and remote changes.
 //!
-//! The [`schedule`](super::schedule) executor runs gossip sessions one at
-//! a time, and [`sim`](super::sim) overlaps them nondeterministically on a
-//! multi-thread runtime. Neither samples a *chosen* interleaving: a
-//! session that forks its working state at one point in the schedule and
-//! installs at a later one, with arbitrary events (including whole other
-//! sessions) in between. That gap is where a real defect lived — its
-//! downstream symptom was an innocent leaf silently lost under exactly
-//! such an overlap — so overlap is a first-class, deterministically
-//! schedulable
-//! event: [`Session`] is one in-flight wire session driven by hand, and
-//! [`execute_overlap`] runs a generated [`OverlapSchedule`] whose
-//! sessions open, park, and close at generated points.
+//! [`Session::step`] polls each endpoint once per round. A test can pause after
+//! any round, make changes through other handles, then finish the session.
+//! This exposes the gap between taking a snapshot and publishing its result.
 //!
-//! The alphabet extends [`schedule::events::Event`] with three session
-//! events over a small set of *slots*: [`OverlapEvent::Open`] builds a
-//! session and parks it unpolled, [`OverlapEvent::Step`] polls the parked
-//! session a bounded number of times, and [`OverlapEvent::Close`] drives
-//! it to completion and installs. As in [`schedule::arb`], a shadow
-//! simulator keeps the schedule valid by construction; it models an open
-//! session by each side's view at the moment the live side forks it,
-//! after that side's preamble exchange (see [`FORK_ROUNDS`]), so a
-//! `Redact` the shadow emits names a message its live peer holds. The
-//! executor still guards every `Redact` on the live observation log: a
-//! skip there is the model drifting from the protocol, which the
-//! shadow-validity meta-test catches.
+//! [`execute_overlap`] runs these operations as a schedule. Its generator uses
+//! [`Knowledge`] to track which messages each peer can redact and when sessions
+//! take their snapshots after the preamble exchange ([`FORK_ROUNDS`]). The
+//! executor still checks the live observation log before redacting; the
+//! shadow-validity suite checks the model against the actual observations.
 
 use std::collections::BTreeMap;
 use std::fmt::Debug;
-use std::future::Future;
+use std::future::{Future, poll_fn};
 use std::ops::RangeInclusive;
 use std::pin::Pin;
 use std::task::{Context, Poll, Waker};
@@ -38,57 +21,27 @@ use proptest::collection::vec;
 use proptest::prelude::*;
 use rumors::link::memory_with_capacity;
 use rumors::{Rumors, Version};
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 use crate::common::oracle::Oracle;
 use crate::common::peer::{Peer, gossip_step, quiesce};
 use crate::common::schedule::EventIdx;
-use crate::common::wire::bootstrap_fork;
+use crate::common::wire::{block_on, bootstrap_fork};
 
-use serde::Serialize;
-use serde::de::DeserializeOwned;
-/// Capacity of an overlapped session's link streams, in bytes.
-///
-/// Deliberately tiny, unlike [`wire::LINK_BUF`](crate::common::wire::LINK_BUF):
-/// granularity is the whole point of this harness. With a roomy buffer a
-/// peer's counterparty pre-buffers its entire greeting in one poll, and the
-/// peer's next poll then runs its session fork, the exchange, and its
-/// install back-to-back with no intervening park — the window between fork
-/// and install closes before any interleaving can enter it. A tiny buffer
-/// backpressures every message into fragments, making each write a parking
-/// point, so the poll sweep genuinely samples interleavings *between* one
-/// side's fork and its install.
+/// Small stream buffers make greeting and data writes yield between fragments.
 const OVERLAP_LINK_BUF: usize = 48;
 
-/// Alternation rounds after which an unfinished session is declared
-/// deadlocked.
+/// One session whose endpoints can be polled separately to choose an interleaving.
 ///
-/// Every genuine session completes in far fewer rounds, even through the
-/// deliberately tiny [`OVERLAP_LINK_BUF`]; the bound only converts a
-/// protocol hang into a test failure at its source.
-const SESSION_POLL_BOUND: usize = 1 << 20;
-
-/// One in-flight wire gossip session between two peers, each side driven
-/// by hand as its own future.
-///
-/// The sides are polled *separately*, alternating one poll each per
-/// [`step`](Session::step) round. Separate side futures are what give the
-/// harness its granularity: a jointly-polled pair completes a trivial
-/// session inside a handful of polls (each poll of a joined future lets
-/// both sides run each other to quiescence through the synchronous
-/// in-memory link), which parks the session only at points too coarse to
-/// fall between one side's fork and its install. Side-at-a-time
-/// alternation makes every wire round trip a distinct parking point.
-///
-/// Each side owns a clone of its peer handle and its link end, so a
-/// parked session tolerates arbitrary mutation of either peer through
-/// other handles; dropping an unfinished session models a cancelled one.
-/// Each side asserts its own success when it completes. (The completed
-/// pair cannot assert a drained control stream the way
-/// [`wire_gossip`](crate::common::wire::wire_gossip) does — the link
-/// ends live inside the side futures — and a parked or cancelled session
-/// legitimately leaves bytes in flight.)
+/// Each endpoint owns its link and a cloned replica handle. Other handles can
+/// mutate either replica while it is parked; dropping it cancels the session.
+/// Each endpoint checks its own result. The closed links are not retained for
+/// a final drain check.
 pub struct Session {
+    /// Endpoint futures, polled in A-then-B order.
     sides: [Pin<Box<dyn Future<Output = ()>>>; 2],
+    /// Completed endpoints must not be polled again.
     done: [bool; 2],
 }
 
@@ -119,46 +72,49 @@ where
     }
 }
 
+/// Pause at a chosen round or complete the remaining exchange.
 impl Session {
-    /// Drive at most `n` alternation rounds — one poll of each unfinished
-    /// side per round — returning `true` once both sides have completed.
-    /// Stepping a completed session is a no-op.
-    ///
-    /// The in-memory link delivers bytes synchronously, so alternating
-    /// side polls makes real progress without a runtime; a no-op waker
-    /// suffices.
-    pub fn step(&mut self, n: usize) -> bool {
-        if self.done == [true, true] {
-            return true;
+    /// Poll each unfinished endpoint once, preserving A-then-B order.
+    fn poll_round(&mut self, cx: &mut Context<'_>) -> Poll<()> {
+        for side in 0..2 {
+            if !self.done[side] && self.sides[side].as_mut().poll(cx).is_ready() {
+                self.done[side] = true;
+            }
         }
+        if self.done == [true, true] {
+            Poll::Ready(())
+        } else {
+            Poll::Pending
+        }
+    }
+
+    /// Run at most `n` rounds, returning whether both endpoints completed.
+    ///
+    /// Stepping deliberately polls with a no-op waker: the caller chooses the
+    /// next round even if no endpoint wakes. [`Self::finish`] restores normal
+    /// wakeup-driven progress and detects a stalled session.
+    pub fn step(&mut self, n: usize) -> bool {
         let mut cx = Context::from_waker(Waker::noop());
         for _ in 0..n {
-            for side in 0..2 {
-                if !self.done[side]
-                    && let Poll::Ready(()) = self.sides[side].as_mut().poll(&mut cx)
-                {
-                    self.done[side] = true;
-                }
-            }
-            if self.done == [true, true] {
+            if self.poll_round(&mut cx).is_ready() {
                 return true;
             }
         }
-        false
+        self.done == [true, true]
     }
 
-    /// Drive the session to completion.
-    ///
-    /// # Panics
-    ///
-    /// If the session makes no progress within [`SESSION_POLL_BOUND`]
-    /// polls — a deadlock, which is itself a finding.
-    pub fn finish(mut self) {
-        assert!(
-            self.step(SESSION_POLL_BOUND),
-            "overlapped session did not complete within {SESSION_POLL_BOUND} polls: \
-             a protocol deadlock"
-        );
+    /// Complete the session, counting additional rounds for the parking sweep.
+    /// Panics if unfinished endpoints are pending with no further wakeup.
+    pub fn finish(mut self) -> usize {
+        if self.done == [true, true] {
+            return 0;
+        }
+        let mut rounds = 0;
+        block_on(poll_fn(|cx| {
+            rounds += 1;
+            self.poll_round(cx)
+        }));
+        rounds
     }
 }
 
@@ -340,19 +296,11 @@ const SLOTS: usize = 3;
 /// `Close` polls to completion, so it forks whichever side has not.
 const FORK_ROUNDS: [usize; 2] = [2, 1];
 
-/// Strategy: overlap schedules that are valid by construction.
+/// Generate local actions and overlapping sessions from a populated, converged fleet.
 ///
-/// Biased toward the shape that discovers install-time interleaving
-/// defects — a converged fleet whose base content spans several radix-fan
-/// chunks, redactions of that base, and sessions parked across other
-/// sessions' installs (the [`Pincer`] motif, spliced into the general
-/// soup).
-///
-/// The preamble (inserts at the seed peer, then one full-mesh round)
-/// guarantees every schedule starts from a *converged, populated* fleet:
-/// the regime where an overlapped session's fork-time state and its
-/// counterparty's are one and the same object, which no unbiased soup of
-/// events reliably reaches.
+/// Insert [`SessionPair`]s into arbitrary actions so both session orderings
+/// receive regular coverage, including cases where one session starts with
+/// equal snapshots and another changes the replica before it publishes.
 pub fn arb_overlap_schedule<T, S>(
     value_strategy: S,
     n_peers_range: RangeInclusive<usize>,
@@ -366,9 +314,7 @@ where
         .prop_map(|(schedule, _shadow)| schedule)
 }
 
-/// Variant of [`arb_overlap_schedule`] that also yields the shadow's
-/// final [`Knowledge`], for the shadow-validity meta-test that checks the
-/// generator's model against the live executor.
+/// Also return the model's final state for comparison with the live executor.
 pub fn arb_overlap_schedule_with_shadow<T, S>(
     value_strategy: S,
     n_peers_range: RangeInclusive<usize>,
@@ -381,23 +327,22 @@ where
     n_peers_range.prop_flat_map(move |n_peers| {
         (
             vec(any::<usize>(), n_peers.saturating_sub(1)),
-            // Preamble size: enough base content to span multiple
-            // radix-fan chunks (the discovering defect needed the root
-            // fan to cross one 16-entry chunk), sometimes much more.
+            // Vary the shared base across small and multi-chunk root fans.
             (12usize..=48),
             vec(value_strategy.clone(), 48),
             vec(arb_choice(value_strategy.clone(), n_peers), 0..=max_events),
-            vec(arb_pincer(value_strategy.clone(), n_peers), 1..=2),
+            vec(
+                SessionPair::arbitrary(value_strategy.clone(), n_peers),
+                1..=2,
+            ),
         )
             .prop_map(
-                move |(raw_parents, preamble_len, preamble_values, mut choices, pincers)| {
+                move |(raw_parents, preamble_len, preamble_values, mut choices, pairs)| {
                     let fork_parents = fork_tree(n_peers, &raw_parents);
-                    // Splice each pincer into the soup at its drawn
-                    // offset; later offsets are relative to the already-
-                    // spliced stream, which keeps splices independent.
-                    for pincer in &pincers {
-                        let at = pincer.offset % (choices.len() + 1);
-                        choices.splice(at..at, pincer.choices(n_peers));
+                    // Insert each pair relative to the sequence built so far.
+                    for pair in &pairs {
+                        let at = pair.offset % (choices.len() + 1);
+                        choices.splice(at..at, pair.choices(n_peers));
                     }
                     build_overlap_schedule(
                         n_peers,
@@ -474,91 +419,105 @@ where
     ]
 }
 
-/// One deliberate overlap pincer, spliced into the generated soup: the
-/// motif distilled from the discovering incident, as choices the shadow
-/// processes like any others.
+/// Two sessions sharing a replica, with a change at one of the remote peers.
 ///
-/// Expansion (skipped when the fleet has fewer than three peers):
-/// re-converge `x` and `y`; mutate `w` (an insert, or a redaction of
-/// something it observed); open a session `x <-> y` — now trivially
-/// converged, the regime whose install re-joins the fork-time state
-/// itself; park it a few rounds; run a whole `x <-> w` session so the
-/// mutation installs at `x` mid-window; close the parked session. The
-/// generated soup around it supplies every other interleaving; the
-/// pincer guarantees the family samples the one that found a real bug,
-/// densely enough that the known defect reproduces within a default
-/// run's case budget.
+/// One session pauses while the other completes. Vary which one is paused
+/// to exercise a redaction or send arriving before or after the other result.
 #[derive(Debug, Clone)]
-struct Pincer<T> {
+struct SessionPair<T> {
+    /// Where to insert this pair into the surrounding action sequence.
     offset: usize,
-    x: usize,
-    y: usize,
-    w: usize,
+    /// Raw choice of the replica shared by both sessions.
+    shared: usize,
+    /// Raw choice of the peer synchronized before the mutation.
+    unchanged: usize,
+    /// Raw choice of the peer that sends or redacts a message.
+    changed: usize,
+    /// Slot used for the paused session.
     slot: usize,
+    /// Polling rounds to run before pausing.
     park: usize,
-    /// `Ok(value)`: insert at `w`; `Err(idx)`: redact `w`'s `idx`-th
-    /// observation.
+    /// Whether to pause the session with the changed peer.
+    changed_first: bool,
+    /// A value to send, or an index into the changed peer's observations to redact.
     mutation: Result<T, usize>,
 }
 
-fn arb_pincer<T, S>(value_strategy: S, n_peers: usize) -> impl Strategy<Value = Pincer<T>>
-where
-    T: Clone + Debug + 'static,
-    S: Strategy<Value = T> + Clone + 'static,
-{
-    (
-        any::<usize>(),
-        0..n_peers,
-        0..n_peers,
-        0..n_peers,
-        any::<usize>(),
-        1usize..=12,
-        prop_oneof![value_strategy.prop_map(Ok), any::<usize>().prop_map(Err),],
-    )
-        .prop_map(|(offset, x, y, w, slot, park, mutation)| Pincer {
-            offset,
-            x,
-            y,
-            w,
-            slot,
-            park,
-            mutation,
-        })
-}
+/// Generate and expand a pair of sessions sharing one replica.
+impl<T: Clone + Debug + 'static> SessionPair<T> {
+    /// Draw both orderings, a mutation, and positions within the surrounding schedule.
+    fn arbitrary<S>(value_strategy: S, n_peers: usize) -> impl Strategy<Value = Self>
+    where
+        S: Strategy<Value = T> + Clone + 'static,
+    {
+        (
+            any::<usize>(),
+            0..n_peers,
+            0..n_peers,
+            0..n_peers,
+            any::<usize>(),
+            1usize..=12,
+            any::<bool>(),
+            prop_oneof![value_strategy.prop_map(Ok), any::<usize>().prop_map(Err)],
+        )
+            .prop_map(
+                |(offset, shared, unchanged, changed, slot, park, changed_first, mutation)| Self {
+                    offset,
+                    shared,
+                    unchanged,
+                    changed,
+                    slot,
+                    park,
+                    changed_first,
+                    mutation,
+                },
+            )
+    }
 
-impl<T: Clone> Pincer<T> {
-    /// The pincer as ordinary choices, or none when the fleet cannot
-    /// host three distinct roles.
+    /// Expand into actions on distinct peers; smaller fleets cannot host the pair.
     fn choices(&self, n_peers: usize) -> Vec<Choice<T>> {
         if n_peers < 3 {
             return Vec::new();
         }
-        // Fold the drawn roles into three distinct peers.
-        let x = self.x % n_peers;
-        let y = (x + 1 + (self.y % (n_peers - 1))) % n_peers;
-        let mut w = self.w % n_peers;
-        while w == x || w == y {
-            w = (w + 1) % n_peers;
+        let shared = self.shared % n_peers;
+        let unchanged = (shared + 1 + (self.unchanged % (n_peers - 1))) % n_peers;
+        let mut changed = self.changed % n_peers;
+        while changed == shared || changed == unchanged {
+            changed = (changed + 1) % n_peers;
         }
+        let (first, second) = if self.changed_first {
+            (changed, unchanged)
+        } else {
+            (unchanged, changed)
+        };
         vec![
-            Choice::Gossip { a: x, b: y },
+            Choice::Gossip {
+                a: shared,
+                b: unchanged,
+            },
             match &self.mutation {
                 Ok(value) => Choice::Insert {
-                    peer: w,
+                    peer: changed,
                     value: value.clone(),
                 },
-                Err(idx) => Choice::RedactObservation { peer: w, idx: *idx },
+                Err(idx) => Choice::RedactObservation {
+                    peer: changed,
+                    idx: *idx,
+                },
             },
             Choice::Open {
                 slot: self.slot,
-                a: x,
-                b: y,
+                a: shared,
+                b: first,
             },
             Choice::Step {
                 slot: self.slot,
                 polls: self.park,
             },
-            Choice::Gossip { a: x, b: w },
+            Choice::Gossip {
+                a: shared,
+                b: second,
+            },
             Choice::Close { slot: self.slot },
         ]
     }
