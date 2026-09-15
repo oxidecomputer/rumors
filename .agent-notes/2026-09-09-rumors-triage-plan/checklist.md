@@ -1,7 +1,7 @@
 # Rumors review checklist
 
-**Working:** observation-hook completeness and lifecycle reporting (17) — `codex/observation-hooks`, base `main`.
-Next: verify remaining observer/model claims (17), before broad harness or module cleanup.
+**Next:** diagnose Sush's native restart/session failures (26).
+Then: share content-observer waiting and termination logic (07).
 
 Check code outcomes only after verification and merge; retain the landing
 commit. Checked dispositions are labelled explicitly.
@@ -147,14 +147,20 @@ Coupled work: party ownership with 01; other API pieces can be separate.
 - [ ] Provide the intended Snapshot read surface and equality contract.
       Sources: `api-audit-2`, `api-core-34–36`, `benches-envelope-19`, `fresh-eyes-4`, `inventory-1`, `tree-core-5`, T47, T60, T61, T65, T97, T132.
 
-- [ ] Accumulate observers through one shared channel representation.
-      Sources: `api-core-19`, `api-core-33`, `session-bookmark-40`, T74, T125, T132, T159.
+- [ ] Share waiting and termination logic across content observers.
+      Sources: `api-core-33`, T125, T132, T159.
+
+- [ ] Accumulate wire observers across observe calls and report attachment settings.
+      Sources: `api-core-19`, `session-bookmark-40`, T74, T132.
+
+- [ ] Simplify handle-liveness accounting without changing reunion semantics.
+      Sources: `api-core-22`, T125. Prerequisite: concurrent-reuniter checks in `51e14731`.
 
 - [x] Clarify observer installation timing and the limits of per-pass causal ordering — `fa9a1f0e`.
       Sources: `session-bookmark-37`, `tests-observation-3`, T78, T132.
 
 - [ ] Make public bounds, borrowing, and wrapper traits express the real requirements.
-      Sources: `api-audit-1`, `api-audit-3`, `api-audit-7`, `api-audit-12`, `api-core-1`, `api-core-5`, `api-core-22`, `api-core-30`, `deps-6`, `tree-core-2`, T47, T72, T73, T81, T83, T84, T125.
+      Sources: `api-audit-1`, `api-audit-3`, `api-audit-7`, `api-audit-12`, `api-core-1`, `api-core-5`, `api-core-30`, `deps-6`, `tree-core-2`, T47, T72, T73, T81, T83, T84, T125.
 
 - [ ] Simplify core API plumbing and correct its comments.
       Sources: `api-core-3`, `api-core-4`, `api-core-6`, `api-core-8`, `api-core-9`, `api-core-13–14`, `api-core-16`, `api-core-21`, `api-core-23`, `api-core-24`, `api-core-28–29`, `api-core-31`, `api-core-32`, `api-core-37`, T52, T72, T82, T132.
@@ -405,14 +411,23 @@ refactors are coupled with 16; focused properties can use the existing harness.
 - [x] Check overlapping sessions in both orders, including immediate redaction preservation — `16b3c51b`.
       Sources: `tests-observation-22`, `tests-observation-23`, T130, T132.
 
-- [ ] Check remaining observer progress, wakes, and content claims with varied schedules.
-      Sources: `tests-observation-9–11`, `tests-observation-13`, `tests-observation-14`, `tests-observation-26`, `tests-observation-28`, `tests-observation-30`, `tests-observation-35`, T13, T78, T90, T130, T132, T144.
+- [x] Check exact hook coverage and lifecycle reporting, sharing wire fixtures — `8575ff36`.
+      Sources: `tests-observation-9–14`, T130, T132.
+
+- [x] Verify the overlap model against live sessions at their actual fork points — `b09aaf8b`, `428acc44`.
+      Sources: `tests-observation-28`, T13, T144.
+
+- [ ] Finish observer-test simplification and align remaining claims with coverage.
+      Sources: `tests-observation-26`, `tests-observation-30`, `tests-observation-35`, T78, T90, T130, T132.
 
 - [ ] Simplify lifecycle fixtures while preserving ownership and version checks.
       Sources: `tests-lifecycle-2`, `tests-lifecycle-3`, `tests-lifecycle-6`, `tests-lifecycle-8`, `tests-lifecycle-12–14`, `tests-lifecycle-19`, `tests-lifecycle-22`, `tests-lifecycle-24`, `tests-lifecycle-27`, `tests-lifecycle-30`, `tests-lifecycle-32`, T52, T130–132.
 
+- [x] Remove orphaned section numbers from observer test comments — `7cb864cc`.
+      Sources: `tests-observation-15`, T132.
+
 - [ ] Consolidate observer helpers and correct delivery/checkpoint explanations.
-      Sources: `tests-observation-1`, `tests-observation-2`, `tests-observation-4`, `tests-observation-12`, `tests-observation-15`, `tests-observation-16`, `tests-observation-18`, `tests-observation-19`, `tests-observation-21`, `tests-observation-27`, `tests-observation-29`, `tests-observation-31–34`, T48–50, T52, T130–132.
+      Sources: `tests-observation-1`, `tests-observation-2`, `tests-observation-4`, `tests-observation-16`, `tests-observation-18`, `tests-observation-19`, `tests-observation-21`, `tests-observation-27`, `tests-observation-29`, `tests-observation-31–34`, T48–50, T52, T130–132.
 
 ## 18. Disruption and handshake tests
 
@@ -576,7 +591,7 @@ Dependencies: Accepted implementation and documentation work complete.
       Sources: `verification-infra-5`, T14.
 
 - [ ] Resolve Sush's native restart/session timeouts.
-      Source: compatibility validation, 2026-09-14; reproduced on Sush `b90dfaf` / Rumors `d73fe2c9` in `stragglers_do_not_interrupt_live_jobs`, `witnessed_session_survives_restart`, and `session_resumes_at_stored_successor`.
+      Source: compatibility validation, 2026-09-14; `stragglers_do_not_interrupt_live_jobs`, `witnessed_session_survives_restart`, and `session_resumes_at_stored_successor` also fail with Rumors `d73fe2c9` on Sush `b90dfaf-dirty`. This does not establish independence from earlier triage changes or pristine Sush main.
 
 - [x] Preserve Sush bookmark records larger than the CBOR decoder's scratch buffer — Sush `5a0d44f`.
       Source: Bookmark conformance regression, 2026-09-15.
