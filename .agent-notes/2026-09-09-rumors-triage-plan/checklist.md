@@ -1,8 +1,6 @@
 # Rumors review checklist
 
-**Next:** 19's remaining Bookmark assertions and corruption-test gaps, then N52's scaling investigation.
-
-Reproduce N52 on current code before further session optimization.
+**Next:** reproduce N52's session scaling on current code before further optimization.
 Correctness gaps take priority over broad harness or module cleanup;
 earlier memo and join fixes may have changed N52's performance result.
 
@@ -424,8 +422,11 @@ Dependencies: 08's Bookmark contract; coordinate shared helpers with 16 and shar
 - [x] Exercise exact checkpoint I/O for local, remote, and repeated redactions; simplify the schedule fixture — `d4215257`.
       Sources: `tests-bookmark-4` and `tests-bookmark-14` (schedule suite), `tests-bookmark-24–26`, T130, T132.
 
-- [ ] Exercise the remaining durability guarantees.
-      Sources: `session-bookmark-31`, `tests-bookmark-4` (other suites), `tests-bookmark-7`, `tests-bookmark-19`, T130, T132.
+- [x] Tighten attachment and donation assertions; cancel sessions by dropping their futures — `ce670e87`, `d73fe2c9`, `36b90a78`.
+      Sources: `tests-bookmark-4` (other suites), T130, T132.
+
+- [x] Include empty payloads in integrity checks and correct fault-schedule descriptions — `dcd52184`.
+      Sources: `session-bookmark-31`, `tests-bookmark-7`, `tests-bookmark-19`, T130, T132.
 
 - [ ] Simplify bookmark healing and clarify the tests’ names.
       Sources: `tests-bookmark-13`, `tests-bookmark-23`, T132.
