@@ -249,13 +249,13 @@ async fn drain_assert_catches_a_planted_leftover_byte() {
 
     // Plant one unread byte toward A: what a session that failed to drain
     // a peer frame would leave resting on the control stream.
-    let mut b_parts = b_link.into_parts();
+    let mut b_parts = b_link;
     b_parts
         .control_write
         .write_all(&[0xAA])
         .await
         .expect("planting the leftover byte");
-    let b_link = b_parts.into_link();
+    let b_link = b_parts;
 
     let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         assert_control_drained(a_link, b_link);

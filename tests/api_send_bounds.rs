@@ -10,12 +10,13 @@
 
 use futures::StreamExt;
 use rumors::{
-    Bookmark, Error, Gossip, Joined, Led, Peer, Protocol, Retire, Rumors, Snapshot, TryTick,
-    Unbookmarked, UnorderedMessages,
+    Batch, Bookmark, CausalMessages, Changes, Error, Gossip, Joined, Led, Peer, Protocol, Retire,
+    Rumors, Snapshot, TryTick, Unbookmarked, UnorderedMessages,
     link::{
-        SessionState,
-        routed::{Config, LinkInfo, Token},
+        Link, MemoryAcceptor, MemoryConnector, SessionState,
+        routed::{Config, Endpoint, Incoming, LinkInfo, StreamAcceptor, StreamConnector, Token},
     },
+    testing::MemoryDial,
 };
 use serde::{Deserialize, Serialize};
 
@@ -96,6 +97,17 @@ fn wrapper_traits_do_not_inspect_payloads_or_bookmark_handles() {
     require_debug::<Retire<Opaque, SilentBookmark>>();
     require_debug::<Unbookmarked<Opaque, SilentBookmark>>();
     require_debug::<Joined<Opaque, SilentBookmark>>();
+    require_debug::<Batch<'static, Opaque>>();
+    require_debug::<CausalMessages<Opaque>>();
+    require_debug::<Changes<Opaque>>();
+    require_debug::<UnorderedMessages<Opaque>>();
+    require_debug::<Link<Opaque, Opaque, Opaque, Opaque>>();
+    require_debug::<MemoryConnector>();
+    require_debug::<MemoryAcceptor>();
+    require_debug::<Endpoint<MemoryDial>>();
+    require_debug::<Incoming<MemoryDial>>();
+    require_debug::<StreamConnector<MemoryDial>>();
+    require_debug::<StreamAcceptor<tokio::io::DuplexStream>>();
 }
 
 /// Small public values implement the standard traits needed as map keys and

@@ -23,7 +23,7 @@ use std::task::{Context, Poll};
 use proptest::collection::vec;
 use proptest::prelude::*;
 
-use rumors::link::{Connector, Done, Link, LinkParts, MemoryAcceptor, MemoryConnector};
+use rumors::link::{Connector, Done, Link, MemoryAcceptor, MemoryConnector};
 use rumors::observe::{
     Direction, Observer, Role, SessionInfo, SessionObserver, StreamId, StreamInfo, StreamObserver,
 };
@@ -209,34 +209,33 @@ struct Side {
 }
 
 impl Side {
-    /// Wrap one memory-link end in recording parts.
+    /// Wrap one memory-link end in recording transport components.
     fn wrap(link: rumors::link::MemoryLink, peer: &'static str, log: Log) -> (CaptureLink, Self) {
-        let parts = link.into_parts();
         let streams = Arc::new(Mutex::new(Vec::new()));
         let side = Side {
             log: log.clone(),
             peer,
             streams: streams.clone(),
         };
-        let link = LinkParts {
-            control_read: Recorder {
-                inner: parts.control_read,
-                peer,
-                log: log.clone(),
-            },
-            control_write: Recorder {
-                inner: parts.control_write,
-                peer,
-                log,
-            },
-            connector: CaptureConnector {
-                inner: parts.connector,
-                streams,
-            },
-            acceptor: parts.acceptor,
-            session: parts.session,
-        }
-        .into_link();
+        let link = link.map_transport(|control_read, control_write, connector, acceptor| {
+            (
+                Recorder {
+                    inner: control_read,
+                    peer,
+                    log: log.clone(),
+                },
+                Recorder {
+                    inner: control_write,
+                    peer,
+                    log,
+                },
+                CaptureConnector {
+                    inner: connector,
+                    streams,
+                },
+                acceptor,
+            )
+        });
         (link, side)
     }
 

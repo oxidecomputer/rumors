@@ -178,3 +178,18 @@ fn an_unfinished_session_poisons_every_later_begin() {
     a.session.finish();
     assert_eq!(a.session.begin().expect("cleared latch"), 1);
 }
+
+/// Transport decoration preserves the exact epoch and poison latch while
+/// changing component types.
+#[test]
+fn mapping_transport_preserves_session_state() {
+    let (mut a, _b) = memory();
+    assert_eq!(a.session.begin().expect("fresh link"), 0);
+
+    let a = a.map_transport(|read, write, connector, acceptor| {
+        (tokio::io::BufReader::new(read), write, connector, acceptor)
+    });
+
+    assert_eq!(a.session_state().epoch(), 1);
+    assert!(a.session_state().poisoned());
+}

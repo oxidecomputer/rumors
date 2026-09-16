@@ -209,18 +209,17 @@ fn retain_reads(
     link: MemoryLink,
     completed: CompletedReads,
 ) -> Link<DuplexStream, DuplexStream, MemoryConnector, RetainReads> {
-    let parts = link.into_parts();
-    crate::link::LinkParts {
-        control_read: parts.control_read,
-        control_write: parts.control_write,
-        connector: parts.connector,
-        acceptor: RetainReads {
-            inner: parts.acceptor,
-            completed,
-        },
-        session: parts.session,
-    }
-    .into_link()
+    link.map_transport(|control_read, control_write, connector, acceptor| {
+        (
+            control_read,
+            control_write,
+            connector,
+            RetainReads {
+                inner: acceptor,
+                completed,
+            },
+        )
+    })
 }
 
 /// Completing a stream leaves its trailing frame unread under varied

@@ -612,15 +612,14 @@ pub fn rewritten(
     crate::link::MemoryConnector,
     crate::link::MemoryAcceptor,
 > {
-    let parts = link.into_parts();
-    crate::link::LinkParts {
-        control_read: RewriteRead::new(parts.control_read, rewrite),
-        control_write: parts.control_write,
-        connector: parts.connector,
-        acceptor: parts.acceptor,
-        session: parts.session,
-    }
-    .into_link()
+    link.map_transport(|control_read, control_write, connector, acceptor| {
+        (
+            RewriteRead::new(control_read, rewrite),
+            control_write,
+            connector,
+            acceptor,
+        )
+    })
 }
 
 /// Whether the left tree wins the initiator election against the right,
@@ -682,18 +681,17 @@ where
     C: Connector,
     A: Acceptor,
 {
-    let parts = link.into_parts();
-    crate::link::LinkParts {
-        control_read: parts.control_read,
-        control_write: parts.control_write,
-        connector: ScriptedConnector {
-            inner: parts.connector,
-            script,
-        },
-        acceptor: parts.acceptor,
-        session: parts.session,
-    }
-    .into_link()
+    link.map_transport(|control_read, control_write, connector, acceptor| {
+        (
+            control_read,
+            control_write,
+            ScriptedConnector {
+                inner: connector,
+                script,
+            },
+            acceptor,
+        )
+    })
 }
 
 /// Drive two proxy endpoints over already-wrapped links.

@@ -41,25 +41,24 @@ impl Connector for ControlGatedConnector {
 #[test]
 fn control_pressure_catches_blocked_data_opens() {
     let (a, b) = memory_with_capacity(1);
-    let a = a.into_parts();
     let state = Arc::new(Mutex::new(CoupledControl {
         write_blocked: false,
         parked: None,
     }));
-    let a = LinkParts {
-        control_read: a.control_read,
-        control_write: CoupledWrite {
-            inner: a.control_write,
-            state: state.clone(),
-        },
-        connector: ControlGatedConnector {
-            inner: a.connector,
-            state,
-        },
-        acceptor: a.acceptor,
-        session: a.session,
-    }
-    .into_link();
+    let a = a.map_transport(|control_read, control_write, connector, acceptor| {
+        (
+            control_read,
+            CoupledWrite {
+                inner: control_write,
+                state: state.clone(),
+            },
+            ControlGatedConnector {
+                inner: connector,
+                state,
+            },
+            acceptor,
+        )
+    });
     assert_eq!(
         run_to_quiescence(super::super::check_control_data_independence(
             async || (a, b),
@@ -91,9 +90,7 @@ impl Connector for LossyCompletion {
 #[test]
 #[should_panic(expected = "contract: a stream delivers its exact bytes in order")]
 fn abort_catches_lost_unflushed_bytes() {
-    let (a, b) = memory();
-    let a = a.into_parts();
-    let mut b = b.into_parts();
+    let (a, mut b) = memory();
     run_to_quiescence(super::super::probe_stream(
         &LossyCompletion(a.connector),
         &mut b.acceptor,
@@ -105,9 +102,7 @@ fn abort_catches_lost_unflushed_bytes() {
 #[test]
 #[should_panic(expected = "contract: a completed stream delivers its bytes")]
 fn completion_catches_lost_unflushed_bytes() {
-    let (a, b) = memory();
-    let a = a.into_parts();
-    let mut b = b.into_parts();
+    let (a, mut b) = memory();
     run_to_quiescence(super::super::probe_completed_streams(
         &LossyCompletion(a.connector),
         &mut b.acceptor,
@@ -145,18 +140,17 @@ impl Connector for SingleOpen {
 #[should_panic(expected = "overlapping opens rejected")]
 fn overlapping_opens_are_exercised() {
     let (a, b) = memory();
-    let a = a.into_parts();
-    let a = LinkParts {
-        control_read: a.control_read,
-        control_write: a.control_write,
-        connector: SingleOpen {
-            inner: a.connector,
-            opening: Arc::new(AtomicBool::new(false)),
-        },
-        acceptor: a.acceptor,
-        session: a.session,
-    }
-    .into_link();
+    let a = a.map_transport(|control_read, control_write, connector, acceptor| {
+        (
+            control_read,
+            control_write,
+            SingleOpen {
+                inner: connector,
+                opening: Arc::new(AtomicBool::new(false)),
+            },
+            acceptor,
+        )
+    });
     run_to_quiescence(super::super::check_concurrency(
         async || (a, b),
         std::future::pending,
@@ -226,8 +220,6 @@ impl Acceptor for GatedAcceptor {
 #[test]
 fn delayed_consumer_catches_coupled_reuse() {
     let (a, b) = memory();
-    let a = a.into_parts();
-    let b = b.into_parts();
     let (blocked, _) = watch::channel(false);
     let connector = GatedConnector {
         inner: a.connector,
@@ -298,9 +290,7 @@ proptest! {
         rounds in 1usize..24,
         receiver_first in any::<bool>(),
     ) {
-        let (a, b) = memory_with_capacity(capacity);
-        let a = a.into_parts();
-        let mut b = b.into_parts();
+        let (a, mut b) = memory_with_capacity(capacity);
         run_to_quiescence(async {
             super::super::probe_concurrency(&a.connector, &mut b.acceptor, true).await;
             super::super::probe_delayed_completion(&a.connector, &mut b.acceptor, receiver_first, rounds).await;
@@ -327,8 +317,6 @@ proptest! {
     #[test]
     fn delayed_dequeue_loss_is_caught(before_dequeue in 0usize..8) {
         let (a, b) = memory();
-        let a = a.into_parts();
-        let b = b.into_parts();
         let mut acceptor = LossyAcceptor { inner: b.acceptor, before_dequeue };
         prop_assert_eq!(run_to_quiescence(super::super::probe_cancellation(
             &a.connector, &mut acceptor, before_dequeue + 1, 2,

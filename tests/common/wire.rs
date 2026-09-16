@@ -79,8 +79,8 @@ pub const LINK_BUF: usize = 8 * 1024;
 /// error are out of scope — they poison the link mid-frame by design.
 #[track_caller]
 pub fn assert_control_drained(a: MemoryLink, b: MemoryLink) {
-    let toward_a = unread_control_bytes(a.into_parts().control_read);
-    let toward_b = unread_control_bytes(b.into_parts().control_read);
+    let toward_a = unread_control_bytes(a.control_read);
+    let toward_b = unread_control_bytes(b.control_read);
     assert!(
         toward_a.is_empty() && toward_b.is_empty(),
         "control stream not drained at the session boundary: \

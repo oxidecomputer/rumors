@@ -498,18 +498,17 @@ fn completion_deadline_preserves_the_local_commit() {
         .session_deadline(move || deadline.lock().unwrap().take().unwrap().map(|r| r.unwrap()))
         .into_rumors();
     let reached = Arc::new(AtomicBool::new(false));
-    let parts = far.into_parts();
-    let mut far = crate::link::LinkParts {
-        control_read: parts.control_read,
-        control_write: HoldCompletion {
-            inner: parts.control_write,
-            reached: reached.clone(),
-        },
-        connector: parts.connector,
-        acceptor: parts.acceptor,
-        session: parts.session,
-    }
-    .into_link();
+    let mut far = far.map_transport(|control_read, control_write, connector, acceptor| {
+        (
+            control_read,
+            HoldCompletion {
+                inner: control_write,
+                reached: reached.clone(),
+            },
+            connector,
+            acceptor,
+        )
+    });
     let mut left = Box::pin(a.gossip_once(&mut near));
     let mut right = Box::pin(b.gossip_once(&mut far));
     run_to_quiescence(poll_fn(|cx| {

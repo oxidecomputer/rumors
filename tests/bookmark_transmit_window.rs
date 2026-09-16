@@ -222,7 +222,7 @@ fn bootstrap_attachment_is_outside_the_session_deadline() {
             provider.snapshot().hash(),
             peer.into_rumors().snapshot().hash()
         );
-        assert!(!b.into_parts().session.poisoned());
+        assert!(!b.session_state().poisoned());
     });
 }
 

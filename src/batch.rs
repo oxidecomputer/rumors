@@ -17,10 +17,22 @@ use crate::{Inner, Version};
 /// closure runs; two batches have no guaranteed causal order unless the
 /// application synchronizes them.
 pub struct Batch<'a, T: Send + Sync + 'static> {
+    /// The replica that receives the completed batch.
     inner: &'a watch::Sender<Inner<T>>,
     /// Validate and encode messages as they are queued.
     codec: PayloadCodec,
+    /// The operations to apply together at commit.
     actions: Vec<Action>,
+}
+
+/// Summarize a batch without requiring its payloads to be debuggable.
+impl<T: Send + Sync + 'static> std::fmt::Debug for Batch<'_, T> {
+    /// Formats the number of queued operations.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Batch")
+            .field("queued", &self.actions.len())
+            .finish_non_exhaustive()
+    }
 }
 
 impl<'a, T: Send + Sync + 'static> Batch<'a, T> {

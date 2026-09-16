@@ -62,6 +62,18 @@ pub struct CausalMessages<T: Send + Sync + 'static> {
     staged: BTreeMap<(Rank, Vec<u8>), Leaf>,
 }
 
+/// Summarize an observer without requiring its payloads to be debuggable.
+impl<T: Send + Sync + 'static> std::fmt::Debug for CausalMessages<T> {
+    /// Formats its ingest and delivery frontiers and queued-message count.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CausalMessages")
+            .field("ingested", &self.ingested)
+            .field("checkpoint", &self.checkpoint)
+            .field("queued", &self.staged.len())
+            .finish_non_exhaustive()
+    }
+}
+
 /// Subscribe, stage unseen messages, and expose a safe resume point.
 impl<T: Send + Sync + 'static> CausalMessages<T> {
     /// Observe messages beyond `since`, starting from the current snapshot.

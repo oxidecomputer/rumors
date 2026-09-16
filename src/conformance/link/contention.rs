@@ -25,9 +25,7 @@ pub async fn check_control_data_independence<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab,
     D: Future<Output = ()>,
 {
     timed("check_control_data_independence", deadline(), async {
-        let (a, b) = pair().await;
-        let mut a = a.into_parts();
-        let mut b = b.into_parts();
+        let (mut a, mut b) = pair().await;
         let ((mut ab, b_held), (mut ba, a_held)) = join(
             open_streams(&a.connector, &mut b.acceptor, true),
             open_streams(&b.connector, &mut a.acceptor, true),

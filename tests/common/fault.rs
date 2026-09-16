@@ -40,9 +40,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 
-use rumors::link::{
-    Acceptor, Connector, Done, Link, LinkParts, MemoryAcceptor, MemoryConnector, MemoryLink,
-};
+use rumors::link::{Acceptor, Connector, Done, Link, MemoryAcceptor, MemoryConnector, MemoryLink};
 use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadBuf};
 use tokio::sync::Notify;
 
@@ -263,26 +261,25 @@ fn wrap_with(
     read: Budget,
     vanish: Option<Arc<VanishState>>,
 ) -> (FaultyLink, (Budget, Budget, Streams), MemoryConnector) {
-    let parts = link.into_parts();
-    let supply = parts.connector.clone();
+    let supply = link.connector.clone();
     let streams: Streams = Arc::new(Mutex::new(Vec::new()));
-    let link = LinkParts {
-        control_read: Cut::new(parts.control_read, read.clone(), vanish.clone()),
-        control_write: Fuse::new(parts.control_write, write.clone(), vanish.clone(), None),
-        connector: FaultConnector {
-            inner: parts.connector,
-            budget: write.clone(),
-            vanish: vanish.clone(),
-            streams: streams.clone(),
-        },
-        acceptor: FaultAcceptor {
-            inner: parts.acceptor,
-            budget: read.clone(),
-            vanish,
-        },
-        session: parts.session,
-    }
-    .into_link();
+    let link = link.map_transport(|control_read, control_write, connector, acceptor| {
+        (
+            Cut::new(control_read, read.clone(), vanish.clone()),
+            Fuse::new(control_write, write.clone(), vanish.clone(), None),
+            FaultConnector {
+                inner: connector,
+                budget: write.clone(),
+                vanish: vanish.clone(),
+                streams: streams.clone(),
+            },
+            FaultAcceptor {
+                inner: acceptor,
+                budget: read.clone(),
+                vanish,
+            },
+        )
+    });
     (link, (write, read, streams), supply)
 }
 

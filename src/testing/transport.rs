@@ -506,7 +506,6 @@ where
     C: crate::link::Connector,
     A: crate::link::Acceptor,
 {
-    let parts = link.into_parts();
     let state = Arc::new(Mutex::new(State {
         side,
         plan,
@@ -515,24 +514,24 @@ where
         write_step: 0,
         flush_step: 0,
     }));
-    let wrapped = crate::link::LinkParts {
-        control_read: AdversarialRead {
-            inner: parts.control_read,
-            state: state.clone(),
-            delay: None,
-        },
-        control_write: wrap_write(parts.control_write, state.clone()),
-        connector: AdversarialConnector {
-            inner: parts.connector,
-            state: state.clone(),
-        },
-        acceptor: AdversarialAcceptor {
-            inner: parts.acceptor,
-            state: state.clone(),
-        },
-        session: parts.session,
-    }
-    .into_link();
+    let wrapped = link.map_transport(|control_read, control_write, connector, acceptor| {
+        (
+            AdversarialRead {
+                inner: control_read,
+                state: state.clone(),
+                delay: None,
+            },
+            wrap_write(control_write, state.clone()),
+            AdversarialConnector {
+                inner: connector,
+                state: state.clone(),
+            },
+            AdversarialAcceptor {
+                inner: acceptor,
+                state: state.clone(),
+            },
+        )
+    });
     (wrapped, IoReportHandle(state))
 }
 
@@ -759,20 +758,19 @@ where
     C: crate::link::Connector,
     A: crate::link::Acceptor,
 {
-    let parts = link.into_parts();
-    crate::link::LinkParts {
-        control_read: parts.control_read,
-        control_write: parts.control_write,
-        connector: parts.connector,
-        acceptor: ReorderingAcceptor {
-            inner: parts.acceptor,
-            held: VecDeque::new(),
-            batch,
-            reordered,
-        },
-        session: parts.session,
-    }
-    .into_link()
+    link.map_transport(|control_read, control_write, connector, acceptor| {
+        (
+            control_read,
+            control_write,
+            connector,
+            ReorderingAcceptor {
+                inner: acceptor,
+                held: VecDeque::new(),
+                batch,
+                reordered,
+            },
+        )
+    })
 }
 
 /// Suspend one operation according to its next scheduled self-waking delay.
@@ -823,10 +821,8 @@ mod tests {
     fn reordering_acceptor_inverts_a_patient_batch() {
         let reordered = Arc::new(AtomicUsize::new(0));
         let (a, b) = memory();
-        let mut acceptor = reorder_accepts(a, 2, reordered.clone())
-            .into_parts()
-            .acceptor;
-        let connector = b.into_parts().connector;
+        let mut acceptor = reorder_accepts(a, 2, reordered.clone()).acceptor;
+        let connector = b.connector;
         let released = run_to_quiescence(async {
             let (_streams, released) = futures::join!(
                 async {

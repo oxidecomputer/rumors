@@ -184,6 +184,14 @@ impl From<Hash> for [u8; MERKLE_HASH_LEN] {
 /// compares corresponding subtrees rather than assigning storage addresses.
 pub struct PathHash([u8; PATH_LEN]);
 
+/// Format a leaf address digest as hexadecimal.
+impl Debug for PathHash {
+    /// Display the raw digest bytes.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        hex::encode(self.0).fmt(f)
+    }
+}
+
 /// Compute full-width digests and truncate them for subtree comparisons.
 impl PathHash {
     /// One-shot full-width hash of a contiguous byte slice.

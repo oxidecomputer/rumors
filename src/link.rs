@@ -274,10 +274,10 @@ impl<A: Acceptor> Acceptor for &mut A {
 ///
 /// Construct one with [`Link::new`] around an implementation of the
 /// [module-level contract](self), or use [`memory`] for the in-memory
-/// instantiation. Sessions on one link run one at a time: each takes the
-/// link by `&mut`, and the borrow enforces the serialization. Wrappers
-/// that decorate a link carry its [`SessionState`] across the rebuild
-/// ([`Link::into_parts`]).
+/// instantiation. Sessions on one link run one at a time: each takes the link
+/// by `&mut`, and the borrow enforces the serialization. Its transport fields
+/// are public for direct access. Use [`map_transport`](Self::map_transport) to
+/// decorate them while preserving the link's private session bookkeeping.
 ///
 /// # What a session promises
 ///
@@ -311,21 +311,34 @@ impl<A: Acceptor> Acceptor for &mut A {
 /// expiry. [`Gossip::Unconditionally`](crate::Gossip::Unconditionally) can
 /// initiate liveness probes on an otherwise idle connection.
 pub struct Link<CR, CW, C, A> {
-    pub(crate) control_read: CR,
-    pub(crate) control_write: CW,
-    pub(crate) connector: C,
-    pub(crate) acceptor: A,
-    /// This link's session counter and poison latch.
+    /// The control stream's read half.
+    pub control_read: CR,
+    /// The control stream's write half.
+    pub control_write: CW,
+    /// The outgoing data-stream supply.
+    pub connector: C,
+    /// The incoming data-stream supply.
+    pub acceptor: A,
+    /// The session counter and poison latch, preserved by [`Self::map_transport`].
     pub(crate) session: SessionState,
+}
+
+/// Summarize a link without requiring its transport components to be
+/// debuggable.
+impl<CR, CW, C, A> std::fmt::Debug for Link<CR, CW, C, A> {
+    /// Formats the session state and hides the opaque transport components.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Link")
+            .field("session", &self.session)
+            .finish_non_exhaustive()
+    }
 }
 
 /// One link's session bookkeeping: the stream-label epoch and the poison
 /// latch.
 ///
-/// Owned by [`Link`] and exposed through [`LinkParts::session`], so a link
-/// wrapper can carry it across decoration. The state is sealed: a wrapper
-/// carries the value whole (it is `Copy`), and only the link's own sessions
-/// advance the counter or clear the latch.
+/// Owned by [`Link`] and exposed read-only through [`Link::session_state`].
+/// Only the link's own sessions advance the counter or clear the latch.
 ///
 /// The epoch advances in lockstep at both ends of a connection (sessions
 /// are serialized and both ends run each session), but the poison latch is
@@ -424,6 +437,36 @@ where
 }
 
 impl<CR, CW, C, A> Link<CR, CW, C, A> {
+    /// Inspect this link's session counter and poison latch.
+    pub fn session_state(&self) -> &SessionState {
+        &self.session
+    }
+
+    /// Transform the transport components while preserving session state.
+    ///
+    /// Use this to add tracing, fault handling, byte accounting, or another
+    /// transport wrapper to an established link. The closure receives the
+    /// control read half, control write half, connector, and acceptor, in that
+    /// order, and returns their replacements in the same order.
+    pub fn map_transport<NR, NW, NC, NA>(
+        self,
+        map: impl FnOnce(CR, CW, C, A) -> (NR, NW, NC, NA),
+    ) -> Link<NR, NW, NC, NA> {
+        let (control_read, control_write, connector, acceptor) = map(
+            self.control_read,
+            self.control_write,
+            self.connector,
+            self.acceptor,
+        );
+        Link {
+            control_read,
+            control_write,
+            connector,
+            acceptor,
+            session: self.session,
+        }
+    }
+
     /// Assemble a single session's carrier around already-erased halves.
     ///
     /// Unlike [`new`](Self::new), the epoch is the caller's: the long-lived
@@ -448,63 +491,6 @@ impl<CR, CW, C, A> Link<CR, CW, C, A> {
                 epoch,
                 poisoned: false,
             },
-        }
-    }
-
-    /// Disassemble into [`LinkParts`], for building a decorated link.
-    ///
-    /// This is how a wrapper (fault injection, byte capture, an adversity
-    /// harness) interposes on an existing link: decorate the parts, then
-    /// reassemble with [`LinkParts::into_link`]. The parts carry the
-    /// [`SessionState`] so a decorated link stays in lockstep with its
-    /// remote peer's counting.
-    pub fn into_parts(self) -> LinkParts<CR, CW, C, A> {
-        LinkParts {
-            control_read: self.control_read,
-            control_write: self.control_write,
-            connector: self.connector,
-            acceptor: self.acceptor,
-            session: self.session,
-        }
-    }
-}
-
-/// The dismantled pieces of a [`Link`]; see [`Link::into_parts`].
-pub struct LinkParts<CR, CW, C, A> {
-    /// The control stream's read half.
-    pub control_read: CR,
-    /// The control stream's write half.
-    pub control_write: CW,
-    /// The outgoing stream supply.
-    pub connector: C,
-    /// The incoming stream supply.
-    pub acceptor: A,
-    /// The link's session counter and poison latch; see [`SessionState`].
-    ///
-    /// Preserve it when reassembling a wrapped link: both ends of a
-    /// connection count sessions in lockstep, so carrying anything but this
-    /// link's own current state (another link's, or a stale copy from
-    /// before a session ran) would mislabel every stream of the next
-    /// session, or let sessions run on a link whose control stream rests
-    /// mid-frame.
-    pub session: SessionState,
-}
-
-impl<CR, CW, C, A> LinkParts<CR, CW, C, A>
-where
-    CR: AsyncRead + Unpin + Send,
-    CW: AsyncWrite + Unpin + Send,
-    C: Connector,
-    A: Acceptor,
-{
-    /// Reassemble (possibly decorated) parts into a link.
-    pub fn into_link(self) -> Link<CR, CW, C, A> {
-        Link {
-            control_read: self.control_read,
-            control_write: self.control_write,
-            connector: self.connector,
-            acceptor: self.acceptor,
-            session: self.session,
         }
     }
 }
@@ -583,6 +569,16 @@ pub struct MemoryConnector {
     capacity: usize,
 }
 
+/// Summarize an in-memory connector without exposing its channel internals.
+impl std::fmt::Debug for MemoryConnector {
+    /// Formats the buffer capacity of each opened stream.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MemoryConnector")
+            .field("stream_capacity", &self.capacity)
+            .finish_non_exhaustive()
+    }
+}
+
 impl Connector for MemoryConnector {
     type Tx = DuplexStream;
 
@@ -600,6 +596,16 @@ impl Connector for MemoryConnector {
 /// announced, in open order.
 pub struct MemoryAcceptor {
     streams: mpsc::Receiver<DuplexStream>,
+}
+
+/// Summarize an in-memory acceptor without exposing its channel internals.
+impl std::fmt::Debug for MemoryAcceptor {
+    /// Formats the number of streams waiting to be accepted.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MemoryAcceptor")
+            .field("queued", &self.streams.len())
+            .finish_non_exhaustive()
+    }
 }
 
 impl Acceptor for MemoryAcceptor {

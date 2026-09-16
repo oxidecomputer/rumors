@@ -1072,7 +1072,6 @@ async fn truncated_initiation_is_a_terminal_error() {
     // Drive the counterparty's control stream by hand: keep its read half (and
     // the data-stream connector/acceptor) alive so A's own writes succeed,
     // while its control-write half toward A carries only a partial preamble.
-    let b = b.into_parts();
     let mut b_control_write = b.control_write;
 
     let a = with_policy_stream(a, stream::pending::<()>());

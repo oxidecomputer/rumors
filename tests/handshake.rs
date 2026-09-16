@@ -85,7 +85,6 @@ async fn handshake_roundtrip_succeeds() {
 #[pollster::test]
 async fn unrecognized_preamble_is_a_violation() {
     let (mut a_link, b) = rumors::link::memory();
-    let b = b.into_parts();
     let mut b_r = b.control_read;
     let mut b_w = b.control_write;
 
@@ -116,7 +115,6 @@ async fn unrecognized_preamble_is_a_violation() {
 #[pollster::test]
 async fn version_mismatch_surfaces_error() {
     let (mut a_link, b) = rumors::link::memory();
-    let b = b.into_parts();
     let mut b_r = b.control_read;
     let mut b_w = b.control_write;
 
@@ -155,7 +153,6 @@ async fn version_mismatch_surfaces_error() {
 #[pollster::test]
 async fn invalid_intent_surfaces_error() {
     let (mut a_link, b) = rumors::link::memory();
-    let b = b.into_parts();
     let mut b_r = b.control_read;
     let mut b_w = b.control_write;
 
@@ -183,7 +180,6 @@ async fn invalid_intent_surfaces_error() {
 #[pollster::test]
 async fn truncated_handshake_surfaces_typed_truncation() {
     let (mut a_link, b) = rumors::link::memory();
-    let b = b.into_parts();
     let mut b_r = b.control_read;
     let mut b_w = b.control_write;
 
@@ -217,7 +213,6 @@ async fn truncated_handshake_surfaces_typed_truncation() {
 #[pollster::test]
 async fn malformed_preamble_surfaces_typed_defect() {
     let (mut a_link, b) = rumors::link::memory();
-    let b = b.into_parts();
     let mut b_r = b.control_read;
     let mut b_w = b.control_write;
 
@@ -250,7 +245,6 @@ async fn malformed_preamble_surfaces_typed_defect() {
 #[pollster::test]
 async fn handshake_precedes_protocol_traffic() {
     let (mut a_link, b) = rumors::link::memory();
-    let b = b.into_parts();
     let mut b_r = b.control_read;
     let mut b_w = b.control_write;
 

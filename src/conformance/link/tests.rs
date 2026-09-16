@@ -13,8 +13,8 @@ use tokio::sync::mpsc;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::link::{
-    Acceptor, Connector, Done, Link, LinkParts, MemoryAcceptor, MemoryConnector, MemoryLink,
-    STREAM_COUNT, memory, memory_with_capacity,
+    Acceptor, Connector, Done, Link, MemoryAcceptor, MemoryConnector, MemoryLink, STREAM_COUNT,
+    memory, memory_with_capacity,
 };
 use crate::testing::{Quiescence, reorder_accepts, run_to_quiescence};
 
@@ -45,15 +45,9 @@ fn with_acceptor<A: Acceptor>(
     link: MemoryLink,
     wrap: impl FnOnce(MemoryAcceptor) -> A,
 ) -> Link<DuplexStream, DuplexStream, MemoryConnector, A> {
-    let parts = link.into_parts();
-    LinkParts {
-        control_read: parts.control_read,
-        control_write: parts.control_write,
-        connector: parts.connector,
-        acceptor: wrap(parts.acceptor),
-        session: parts.session,
-    }
-    .into_link()
+    link.map_transport(|control_read, control_write, connector, acceptor| {
+        (control_read, control_write, connector, wrap(acceptor))
+    })
 }
 
 /// Arrivals the reordering acceptor holds before each newest-first
@@ -502,25 +496,24 @@ const COUPLED_CONTROL_CAPACITY: usize = 1024;
 fn coupled(
     link: MemoryLink,
 ) -> Link<CoupledRead<DuplexStream>, CoupledWrite<DuplexStream>, MemoryConnector, MemoryAcceptor> {
-    let parts = link.into_parts();
     let state = Arc::new(Mutex::new(CoupledControl {
         write_blocked: false,
         parked: None,
     }));
-    LinkParts {
-        control_read: CoupledRead {
-            inner: parts.control_read,
-            state: state.clone(),
-        },
-        control_write: CoupledWrite {
-            inner: parts.control_write,
-            state,
-        },
-        connector: parts.connector,
-        acceptor: parts.acceptor,
-        session: parts.session,
-    }
-    .into_link()
+    link.map_transport(|control_read, control_write, connector, acceptor| {
+        (
+            CoupledRead {
+                inner: control_read,
+                state: state.clone(),
+            },
+            CoupledWrite {
+                inner: control_write,
+                state,
+            },
+            connector,
+            acceptor,
+        )
+    })
 }
 
 /// A connector admitting at most [`CAPPED_STREAMS`] concurrently open
@@ -594,18 +587,17 @@ const CAPPED_STREAMS: usize = 4;
 fn capped(
     link: MemoryLink,
 ) -> Link<DuplexStream, DuplexStream, CappedConnector<MemoryConnector>, MemoryAcceptor> {
-    let parts = link.into_parts();
-    LinkParts {
-        control_read: parts.control_read,
-        control_write: parts.control_write,
-        connector: CappedConnector {
-            inner: parts.connector,
-            permits: Arc::new(Semaphore::new(CAPPED_STREAMS)),
-        },
-        acceptor: parts.acceptor,
-        session: parts.session,
-    }
-    .into_link()
+    link.map_transport(|control_read, control_write, connector, acceptor| {
+        (
+            control_read,
+            control_write,
+            CappedConnector {
+                inner: connector,
+                permits: Arc::new(Semaphore::new(CAPPED_STREAMS)),
+            },
+            acceptor,
+        )
+    })
 }
 
 // ─── A shared connection window: QUIC/HTTP2-style cross-stream budget ───────
@@ -756,35 +748,30 @@ type WindowedLink =
 /// per-stream pipes of `capacity` bytes.
 fn windowed_pair(budget: usize, capacity: usize) -> (WindowedLink, WindowedLink) {
     let (a, b) = memory_with_capacity(capacity);
-    let a = a.into_parts();
-    let b = b.into_parts();
     let ab = window(budget);
     let ba = window(budget);
-    let rebuild =
-        |parts: LinkParts<DuplexStream, DuplexStream, MemoryConnector, MemoryAcceptor>,
-         writes: &Window,
-         reads: &Window| {
-            LinkParts {
-                control_read: WindowedRx {
-                    inner: parts.control_read,
+    let rebuild = |link: MemoryLink, writes: &Window, reads: &Window| {
+        link.map_transport(|control_read, control_write, connector, acceptor| {
+            (
+                WindowedRx {
+                    inner: control_read,
                     window: reads.clone(),
                 },
-                control_write: WindowedTx {
-                    inner: parts.control_write,
+                WindowedTx {
+                    inner: control_write,
                     window: writes.clone(),
                 },
-                connector: WindowedConnector {
-                    inner: parts.connector,
+                WindowedConnector {
+                    inner: connector,
                     window: writes.clone(),
                 },
-                acceptor: WindowedAcceptor {
-                    inner: parts.acceptor,
+                WindowedAcceptor {
+                    inner: acceptor,
                     window: reads.clone(),
                 },
-                session: parts.session,
-            }
-            .into_link()
-        };
+            )
+        })
+    };
     (rebuild(a, &ab, &ba), rebuild(b, &ba, &ab))
 }
 

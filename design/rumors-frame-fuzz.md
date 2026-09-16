@@ -170,7 +170,7 @@ Every input, in one process, under libFuzzer:
    `Result<Gossiped, Error<NoBookmark>>`. A violation of a fully received
    frame is `Error::Protocol`; wire cuts are `Error::Transport`.
    The harness also checks the link consequence: on any `Err`,
-   `SessionState::poisoned()` is true (via `Link::into_parts`).
+   `SessionState::poisoned()` is true (via `Link::session_state`).
 5. **Replica coherence after rejection** — pinned to what the session
    contract promises today (`Rumors::gossip_once` docs; `Link`'s "What a
    session promises"), not an invented ideal:

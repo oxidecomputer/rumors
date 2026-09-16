@@ -23,6 +23,9 @@ pub type RoutedLink<D> = Link<
 pub(super) type Arrival<D> = (LinkInfo<<D as Dial>::Addr>, RoutedLink<D>);
 
 /// Router capacities and outgoing connection reuse.
+///
+/// Capacities use `usize` to match the queues they size. [`Endpoint::new`]
+/// checks their lower bounds before constructing those queues.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Config {
     /// Maximum peer-established links waiting for [`Incoming::accept`].
@@ -107,6 +110,17 @@ pub struct LinkInfo<A> {
 pub struct Endpoint<D: Dial> {
     /// Shared dialing configuration and access to the router's table.
     inner: Arc<Inner<D>>,
+}
+
+/// Summarize an endpoint without requiring its dialer or address to be
+/// debuggable.
+impl<D: Dial> std::fmt::Debug for Endpoint<D> {
+    /// Formats the type-agnostic endpoint settings.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Endpoint")
+            .field("pooling", &self.inner.pooling)
+            .finish_non_exhaustive()
+    }
 }
 
 impl<D: Dial> Clone for Endpoint<D> {
@@ -243,6 +257,17 @@ impl<D: Dial> Endpoint<D> {
 pub struct Incoming<D: Dial> {
     /// Links acknowledged by the router and waiting for application pickup.
     links: mpsc::Receiver<Arrival<D>>,
+}
+
+/// Summarize the incoming supply without requiring link addresses to be
+/// debuggable.
+impl<D: Dial> std::fmt::Debug for Incoming<D> {
+    /// Formats the number of links waiting for pickup.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Incoming")
+            .field("queued", &self.links.len())
+            .finish_non_exhaustive()
+    }
 }
 
 impl<D: Dial> Incoming<D> {

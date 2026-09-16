@@ -43,12 +43,11 @@ struct ParkedSession {
 /// Wire a fresh in-memory link into a [`ParkedSession`].
 fn parked_session() -> ParkedSession {
     let (link, peer) = memory();
-    let parts = link.into_parts();
     let (slots, claims) = claims();
     let (route, errors) = error_route();
     let accept = AcceptDriver::new(
-        parts.acceptor,
-        parts.session.epoch(),
+        link.acceptor,
+        link.session.epoch(),
         Speaker::Responder,
         slots,
         route.clone(),
@@ -61,8 +60,8 @@ fn parked_session() -> ParkedSession {
         u64::MAX,
         Vec::new(),
         Physical {
-            control_read: parts.control_read,
-            control_write: parts.control_write,
+            control_read: link.control_read,
+            control_write: link.control_write,
             remote: Speaker::Responder,
             accept,
             errors,
@@ -384,7 +383,6 @@ proptest! {
                 }
             });
             let _supply = if control_only {
-                let peer = peer.into_parts();
                 drop(peer.control_write);
                 Some(peer.connector)
             } else {
@@ -428,7 +426,6 @@ proptest! {
         let error = run_to_quiescence(async {
             let (send, receive) = oneshot::channel();
             let _supply = if control_only {
-                let peer = peer.into_parts();
                 drop(peer.control_write);
                 Some(peer.connector)
             } else {
@@ -565,7 +562,6 @@ proptest! {
         label_bytes in 0usize..2,
     ) {
         let ParkedSession { work, mut claims, route, peer } = parked_session();
-        let peer = peer.into_parts();
         let stream = Stream::new(index).unwrap();
         let mut incoming = StreamReceiver::new(
             claims.take(stream), Speaker::Responder, stream, RunBudget::default(),
@@ -594,8 +590,7 @@ proptest! {
         split_at in any::<usize>(),
         read_size in 1usize..65,
     ) {
-        let ParkedSession { work, claims: _claims, route: _route, peer } = parked_session();
-        let mut peer = peer.into_parts();
+        let ParkedSession { work, claims: _claims, route: _route, mut peer } = parked_session();
         let cut = split_at % (bytes.len() + 1);
         let actual = run_to_quiescence(async {
             peer.control_write.write_all(&bytes[..cut]).await.unwrap();
@@ -624,7 +619,6 @@ proptest! {
         replies in 1usize..8,
     ) {
         let ParkedSession { work, mut claims, route: _route, peer } = parked_session();
-        let peer = peer.into_parts();
         let stream = Stream::new(index).unwrap();
         let delivered = claims.take(stream);
         let mut missing = claims.take(Stream::new((index + 1) % Stream::COUNT).unwrap());
@@ -664,8 +658,7 @@ proptest! {
         index in 0u8..Stream::COUNT,
         ahead in prop::collection::vec(any::<u8>(), 0..128),
     ) {
-        let ParkedSession { work, mut claims, route, peer } = parked_session();
-        let mut peer = peer.into_parts();
+        let ParkedSession { work, mut claims, route, mut peer } = parked_session();
         let _supply = peer.connector;
         let stream = Stream::new(index).unwrap();
         let mut incoming = StreamReceiver::new(
@@ -691,8 +684,7 @@ proptest! {
     fn completed_work_retains_control_lookahead(
         ahead in prop::collection::vec(any::<u8>(), 0..128),
     ) {
-        let ParkedSession { work, claims: _claims, route: _route, peer } = parked_session();
-        let mut peer = peer.into_parts();
+        let ParkedSession { work, claims: _claims, route: _route, mut peer } = parked_session();
         let _supply = peer.connector;
         let actual = run_to_quiescence(async {
             peer.control_write.write_all(&ahead).await.unwrap();

@@ -22,7 +22,7 @@ use std::task::{Context, Poll};
 use bytes::Bytes;
 use rand::rngs::SmallRng;
 use rand::{RngCore, SeedableRng};
-use rumors::link::{Connector, Done, Link, LinkParts, MemoryLink};
+use rumors::link::{Connector, Done, Link, MemoryLink};
 use rumors::testing::{dispute_overhead_bytes, envelope_and_wire_bytes};
 use rumors::{Peer, Rumors};
 use serde::Serialize;
@@ -137,21 +137,20 @@ fn counting(
     CountingConnector<rumors::link::MemoryConnector>,
     rumors::link::MemoryAcceptor,
 > {
-    let parts = link.into_parts();
-    LinkParts {
-        control_read: parts.control_read,
-        control_write: CountingWrite {
-            inner: parts.control_write,
-            written: written.clone(),
-        },
-        connector: CountingConnector {
-            inner: parts.connector,
-            written: written.clone(),
-        },
-        acceptor: parts.acceptor,
-        session: parts.session,
-    }
-    .into_link()
+    link.map_transport(|control_read, control_write, connector, acceptor| {
+        (
+            control_read,
+            CountingWrite {
+                inner: control_write,
+                written: written.clone(),
+            },
+            CountingConnector {
+                inner: connector,
+                written: written.clone(),
+            },
+            acceptor,
+        )
+    })
 }
 
 /// Fork one network after shared history, then add distinct messages on each side.

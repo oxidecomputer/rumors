@@ -787,8 +787,8 @@ pub enum AcceptError {
     /// cancelled or failed session: the two ends' session counters no
     /// longer agree, so the next session's streams arrive mislabeled. Link
     /// poisoning fails such reuse fast before it reaches this diagnosis; a
-    /// wrapper that reassembles [`LinkParts`](crate::link::LinkParts)
-    /// without preserving its `session` state can still produce it.
+    /// wrapper that rebuilds a [`Link`](crate::link::Link) without preserving
+    /// its `session` state can still produce it.
     #[error("{origin}: stream labeled for session epoch {actual}, expected {expected}")]
     Epoch {
         origin: Origin,

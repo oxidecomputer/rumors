@@ -75,14 +75,13 @@ type DynRead<'a> = &'a mut (dyn AsyncRead + Unpin + Send + 'a);
 /// See [`DynRead`] for why the erasure exists and what it costs.
 type DynWrite<'a> = &'a mut (dyn AsyncWrite + Unpin + Send + 'a);
 
-/// One session's fully erased link parts, in [`Link`] field order: control
-/// halves, connector, acceptor, and the session epoch.
+/// One session's transport after erasing its concrete component types, in
+/// [`Link`] field order: control halves, connector, acceptor, and epoch.
 ///
 /// The funnels produce this (via [`erase`]) and [`Peer::gossip_inner`]
-/// consumes it; it stays a tuple of parts rather than an assembled [`Link`]
-/// so the `gossip` driver can reborrow its halves one session at a
-/// time.
-type DynLinkParts<'a> = (DynRead<'a>, DynWrite<'a>, DynConnector, DynAcceptor<'a>, u8);
+/// consumes it. The tuple lets the `gossip` driver reborrow individual
+/// components for each session.
+type SessionTransport<'a> = (DynRead<'a>, DynWrite<'a>, DynConnector, DynAcceptor<'a>, u8);
 
 /// Reconciled content and control streams ready for identity transfer or completion.
 type Reconciled<'a> = (tree::Root, ControlRead<DynRead<'a>>, DynWrite<'a>);
@@ -239,7 +238,7 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
     /// Run bootstrap over any link.
     ///
     /// A thin generic funnel: the only monomorphized-per-link code is the
-    /// erasure to [`DynLinkParts`] here.
+    /// erasure to [`SessionTransport`] here.
     pub(crate) fn bootstrap_inner<'a, CR, CW, C, A>(
         config: Bootstrap<T>,
         link: &'a mut Link<CR, CW, C, A>,
@@ -269,7 +268,7 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
     /// [`bootstrap_inner`]: Self::bootstrap_inner
     fn bootstrap_erased<'a>(
         config: Bootstrap<T>,
-        link: DynLinkParts<'a>,
+        link: SessionTransport<'a>,
     ) -> BoxFuture<'a, Result<Option<Self>, Error>>
     where
         T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
@@ -481,7 +480,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         &self,
         intent: Intent,
         staged: &mut handshake::Staged,
-        link: DynLinkParts<'_>,
+        link: SessionTransport<'_>,
     ) -> (Intent, Result<(Version, SessionStats), Error<B>>) {
         let mut outcome = Intent::Remain;
         let result = self
@@ -558,14 +557,14 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// uses that frontier to decide whether further gossip is needed.
     ///
     /// `staged` holds any preamble bytes already read by the continuous gossip driver.
-    /// The erased [`DynLinkParts`] and [`Reconciliation`] keep protocol code
+    /// The erased [`SessionTransport`] and [`Reconciliation`] keep protocol code
     /// generation independent of the caller's concrete link type.
     async fn gossip_inner<'a>(
         &self,
         intent: Intent,
         outcome: &mut Intent,
         staged: &mut handshake::Staged,
-        link: DynLinkParts<'a>,
+        link: SessionTransport<'a>,
     ) -> Result<(Version, SessionStats), Error<B>> {
         let (read, write, connector, acceptor, epoch) = link;
         let codec = self.codec;
@@ -907,7 +906,7 @@ struct Reconciliation<'a> {
     /// critical section: exactly what the local participant reconciles from.
     root: tree::Root,
     /// The session's erased link.
-    link: DynLinkParts<'a>,
+    link: SessionTransport<'a>,
     /// The peer's payload codec: the payload boundary in both directions.
     ///
     /// Supplied leaves decode through it at wire ingress, and egress
@@ -1003,7 +1002,7 @@ impl<'a> Reconciliation<'a> {
 #[inline(never)]
 #[allow(clippy::type_complexity)]
 fn bootstrap_reconcile<'a>(
-    link: DynLinkParts<'a>,
+    link: SessionTransport<'a>,
     codec: PayloadCodec,
     window: WindowConfig,
     run_budget: RunBudget,
@@ -1049,13 +1048,13 @@ fn bootstrap_reconcile<'a>(
     })
 }
 
-/// Erase a caller's link into one session's [`DynLinkParts`], opening the
+/// Erase a caller's link into one session's [`SessionTransport`], opening the
 /// session on the link's [`SessionState`]: each call is exactly one session.
 ///
 /// Fails fast with [`Error::LinkPoisoned`] on a link whose previous session
 /// was interrupted; on success the link is poisoned until its funnel
 /// observes the session's clean completion and clears the latch.
-fn erase<'a, CR, CW, C, A>(link: &'a mut Link<CR, CW, C, A>) -> Result<DynLinkParts<'a>, Error>
+fn erase<'a, CR, CW, C, A>(link: &'a mut Link<CR, CW, C, A>) -> Result<SessionTransport<'a>, Error>
 where
     CR: AsyncRead + Unpin + Send,
     CW: AsyncWrite + Unpin + Send,

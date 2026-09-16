@@ -315,21 +315,20 @@ fn fused_link(
     budget: usize,
 ) -> Link<tokio::io::DuplexStream, Fuse<tokio::io::DuplexStream>, FusedConnector, MemoryAcceptor> {
     let remaining = Arc::new(std::sync::Mutex::new(budget));
-    let parts = link.into_parts();
-    crate::link::LinkParts {
-        control_read: parts.control_read,
-        control_write: Fuse {
-            inner: parts.control_write,
-            remaining: Arc::clone(&remaining),
-        },
-        connector: FusedConnector {
-            inner: parts.connector,
-            remaining,
-        },
-        acceptor: parts.acceptor,
-        session: parts.session,
-    }
-    .into_link()
+    link.map_transport(|control_read, control_write, connector, acceptor| {
+        (
+            control_read,
+            Fuse {
+                inner: control_write,
+                remaining: Arc::clone(&remaining),
+            },
+            FusedConnector {
+                inner: connector,
+                remaining,
+            },
+            acceptor,
+        )
+    })
 }
 
 /// Drive `retiree.retire` against `peer.gossip` over a link whose

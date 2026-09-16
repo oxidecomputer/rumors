@@ -37,6 +37,16 @@ pub struct Changes<T: Send + Sync + 'static> {
     seen: Option<Version>,
 }
 
+/// Summarize a change stream without requiring its payloads to be debuggable.
+impl<T: Send + Sync + 'static> std::fmt::Debug for Changes<T> {
+    /// Formats the frontier most recently reported to the consumer.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Changes")
+            .field("seen", &self.seen)
+            .finish_non_exhaustive()
+    }
+}
+
 /// The outcome of [`Changes::try_next`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TryTick {

@@ -50,6 +50,18 @@ pub struct StreamConnector<D: Dial> {
     pool: Option<Arc<Pool<D::Conn>>>,
 }
 
+/// Summarize an outgoing stream supply without requiring its transport to be
+/// debuggable.
+impl<D: Dial> std::fmt::Debug for StreamConnector<D> {
+    /// Formats the link token and whether completed connections are pooled.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StreamConnector")
+            .field("token", &self.token)
+            .field("pooling", &self.pool.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
 /// Retains idle connections while allowing transport callbacks to re-enter.
 struct Pool<C> {
     /// Probed from the front; returns and pending connections join the back.
@@ -212,6 +224,17 @@ pub struct StreamAcceptor<C> {
     streams: mpsc::Receiver<(C, Done<C>)>,
     /// Owns the route's lifetime; dropping it releases idle incoming connections.
     _registration: Registration<C>,
+}
+
+/// Summarize an incoming stream supply without requiring its transport to be
+/// debuggable.
+impl<C> std::fmt::Debug for StreamAcceptor<C> {
+    /// Formats the number of streams waiting for pickup.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StreamAcceptor")
+            .field("queued", &self.streams.len())
+            .finish_non_exhaustive()
+    }
 }
 
 impl<C> StreamAcceptor<C> {

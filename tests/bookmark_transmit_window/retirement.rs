@@ -167,7 +167,7 @@ proptest! {
                     .session_deadline(move || deadline.lock().unwrap().take().unwrap());
                 let outgoing = async move {
                     let outcome = donor.retire(&mut a).await;
-                    assert!(a.into_parts().session.poisoned());
+                    assert!(a.session_state().poisoned());
                     outcome
                 };
                 tokio::join!(outgoing, pair.receiver.gossip_once(&mut b))
@@ -228,7 +228,7 @@ proptest! {
                         expire.send(()).unwrap();
                         retiring.await
                     };
-                    assert!(a.into_parts().session.poisoned());
+                    assert!(a.session_state().poisoned());
                     // The recipient may be paused after absorption. Let it
                     // finish its durable write and observe the closed link.
                     gate.release();

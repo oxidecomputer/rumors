@@ -65,8 +65,7 @@ proptest! {
                 .session_deadline(move || factory.start()).into_rumors();
             a.send(7).unwrap();
             let before = a.snapshot().hash();
-            let (mut link, remote) = rumors::link::memory();
-            let mut remote = remote.into_parts();
+            let (mut link, mut remote) = rumors::link::memory();
             let mut sessions = a.gossip(&mut link);
             for _ in 0..idle_polls {
                 assert!(sessions.next().now_or_never().is_none());
@@ -187,8 +186,7 @@ async fn real_timers_leave_idle_connections_untimed() {
         .gossip_when(|_| stream::pending::<()>())
         .session_deadline(|| sleep(Duration::from_secs(1)))
         .into_rumors();
-    let (mut link, remote) = rumors::link::memory();
-    let mut remote = remote.into_parts();
+    let (mut link, mut remote) = rumors::link::memory();
     let mut sessions = a.gossip(&mut link);
     assert!(sessions.next().now_or_never().is_none());
     advance(Duration::from_secs(60)).await;

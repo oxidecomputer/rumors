@@ -59,7 +59,7 @@ use futures::future::{Either, join, join_all, select};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use super::timed;
-use crate::link::{Acceptor, Connector, Done, Link, LinkParts, STREAM_COUNT};
+use crate::link::{Acceptor, Connector, Done, Link, STREAM_COUNT};
 use crate::{Peer, Rumors};
 
 /// Bytes used to probe stream delivery without assuming any capacity.
@@ -171,9 +171,7 @@ pub async fn check_control<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab, D>(
     D: Future<Output = ()>,
 {
     timed("check_control", deadline(), async {
-        let (a, b) = pair().await;
-        let mut a = a.into_parts();
-        let mut b = b.into_parts();
+        let (mut a, mut b) = pair().await;
         let (a_read, a_write) = (&mut a.control_read, &mut a.control_write);
         let (b_read, b_write) = (&mut b.control_read, &mut b.control_write);
         let ping = async {
@@ -235,9 +233,7 @@ pub async fn check_control_duplex<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab, D>(
     D: Future<Output = ()>,
 {
     timed("check_control_duplex", deadline(), async {
-        let (a, b) = pair().await;
-        let mut a = a.into_parts();
-        let mut b = b.into_parts();
+        let (mut a, mut b) = pair().await;
         let a_side = duplex_exchange(
             &mut a.control_read,
             &mut a.control_write,
@@ -318,9 +314,7 @@ pub async fn check_streams<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab, D>(
     D: Future<Output = ()>,
 {
     timed("check_streams", deadline(), async {
-        let (a, b) = pair().await;
-        let mut a = a.into_parts();
-        let mut b = b.into_parts();
+        let (mut a, mut b) = pair().await;
         probe_stream(&a.connector, &mut b.acceptor).await;
         probe_stream(&b.connector, &mut a.acceptor).await;
         probe_completed_streams(&a.connector, &mut b.acceptor).await;
@@ -499,9 +493,7 @@ pub async fn check_independence<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab, D>(
     D: Future<Output = ()>,
 {
     timed("check_independence", deadline(), async {
-        let (a, b) = pair().await;
-        let mut a = a.into_parts();
-        let mut b = b.into_parts();
+        let (mut a, mut b) = pair().await;
         probe_independence(&a.connector, &mut b.acceptor).await;
         probe_independence(&b.connector, &mut a.acceptor).await;
         probe_independence_pooled(&a.connector, &mut b.acceptor).await;
@@ -748,9 +740,7 @@ pub async fn check_concurrency<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab, D>(
     D: Future<Output = ()>,
 {
     timed("check_concurrency", deadline(), async {
-        let (a, b) = pair().await;
-        let mut a = a.into_parts();
-        let mut b = b.into_parts();
+        let (mut a, mut b) = pair().await;
         for concurrent in [false, true] {
             join(
                 probe_concurrency(&a.connector, &mut b.acceptor, concurrent),
@@ -869,9 +859,7 @@ pub async fn check_accept_cancellation<CRa, CWa, Ca, Aa, CRb, CWb, Cb, Ab, D>(
     D: Future<Output = ()>,
 {
     timed("check_accept_cancellation", deadline(), async {
-        let (a, b) = pair().await;
-        let mut a = a.into_parts();
-        let mut b = b.into_parts();
+        let (mut a, mut b) = pair().await;
         for (polls, deliveries) in [(1, 2), (2, 3), (4, STREAM_COUNT), (8, STREAM_COUNT)] {
             join(
                 probe_cancellation(&a.connector, &mut b.acceptor, polls, deliveries),
@@ -1080,18 +1068,17 @@ where
     C: Connector,
     A: Acceptor,
 {
-    let parts = link.into_parts();
-    LinkParts {
-        control_read: parts.control_read,
-        control_write: parts.control_write,
-        connector: CountingConnector {
-            inner: parts.connector,
-            opened,
-        },
-        acceptor: parts.acceptor,
-        session: parts.session,
-    }
-    .into_link()
+    link.map_transport(|control_read, control_write, connector, acceptor| {
+        (
+            control_read,
+            control_write,
+            CountingConnector {
+                inner: connector,
+                opened,
+            },
+            acceptor,
+        )
+    })
 }
 
 /// Full protocol sessions converge over the pair.

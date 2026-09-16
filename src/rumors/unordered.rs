@@ -41,6 +41,17 @@ pub struct UnorderedMessages<T: Send + Sync + 'static> {
     pass: Option<Pass>,
 }
 
+/// Summarize an observer without requiring its payloads to be debuggable.
+impl<T: Send + Sync + 'static> std::fmt::Debug for UnorderedMessages<T> {
+    /// Formats its completed frontier and whether a snapshot is being delivered.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UnorderedMessages")
+            .field("checkpoint", &self.checkpoint)
+            .field("delivering", &self.pass.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
 /// The outcome of [`UnorderedMessages::try_next`] or [`CausalMessages::try_next`].
 ///
 /// A non-blocking step that either yields a message or says why it can't.
