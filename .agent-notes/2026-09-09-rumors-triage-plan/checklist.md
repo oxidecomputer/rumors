@@ -1,7 +1,7 @@
 # Rumors review checklist
 
-**Next:** publish `Link`'s fields and remove `LinkParts`, then finish the
-remaining wrapper traits against the simpler interface.
+**Next:** remove `Protocol`'s vestigial representation and default, then correct
+the public prose that still describes protocol selection.
 
 Check code outcomes only after verification and merge; retain the landing
 commit. Checked dispositions are labelled explicitly.
@@ -162,8 +162,11 @@ Coupled work: party ownership with 01; other API pieces can be separate.
 - [x] Put payload bounds on handle definitions, accept owned redaction versions, and remove derive-added wrapper bounds — `6626017e`.
       Sources: `api-audit-1`, `api-audit-3`, `api-core-1`, `api-core-5`, `api-core-30`, `deps-6`, `tree-core-2`, T72, T73, T83, T84.
 
-- [ ] Finish public wrapper traits and their lint-backed documentation after `LinkParts` is removed.
-      Sources: `api-audit-7`, `api-audit-12`, `link-5`, T47, T80, T81, T84, T125.
+- [x] Publish `Link` transport access without exposing mutable session state, remove `LinkParts`, and complete production wrapper traits — `743271c4`.
+      Sources: `api-audit-12`, `link-5`, `link-6`, `link-9`, T80, T81, T84.
+
+- [ ] Enable lint-backed documentation and traits for remaining test-support surfaces.
+      Sources: `api-audit-7`, T47, T125.
 
 - [ ] Simplify core API plumbing and correct its comments.
       Sources: `api-core-3`, `api-core-4`, `api-core-6`, `api-core-8`, `api-core-9`, `api-core-13–14`, `api-core-16`, `api-core-21`, `api-core-23`, `api-core-24`, `api-core-28–29`, `api-core-31`, `api-core-32`, `api-core-37`, T52, T72, T82, T132.
