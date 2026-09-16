@@ -39,7 +39,7 @@ where
 }
 
 /// The state used for fixed-point checks: equal snapshots make gossip a no-op.
-fn fingerprint<T>(k: &Rumors<T>) -> Snapshot<T> {
+fn fingerprint<T: Send + Sync + 'static>(k: &Rumors<T>) -> Snapshot<T> {
     k.snapshot()
 }
 

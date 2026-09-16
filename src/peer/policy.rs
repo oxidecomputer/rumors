@@ -16,7 +16,7 @@ type Initiation<T> = dyn Fn(Changes<T>) -> BoxStream<'static, Gossip> + Send + S
 type Deadline = dyn Fn() -> BoxFuture<'static, ()> + Send + Sync;
 
 /// Immutable factories shared by a replica's handles; each driver owns its state.
-pub(crate) struct Policy<T> {
+pub(crate) struct Policy<T: Send + Sync + 'static> {
     /// None selects the unmodified change stream.
     when: Option<Arc<Initiation<T>>>,
     /// None leaves sessions untimed without allocating a deadline future.
@@ -24,7 +24,7 @@ pub(crate) struct Policy<T> {
 }
 
 /// Default to push-on-change with no session deadline.
-impl<T> Default for Policy<T> {
+impl<T: Send + Sync + 'static> Default for Policy<T> {
     /// Construct the default policy without allocating a factory.
     fn default() -> Self {
         Self {
@@ -35,7 +35,7 @@ impl<T> Default for Policy<T> {
 }
 
 /// Share factories without imposing Clone on the payload.
-impl<T> Clone for Policy<T> {
+impl<T: Send + Sync + 'static> Clone for Policy<T> {
     /// Copy settings while each connection retains its own active stream.
     fn clone(&self) -> Self {
         Self {
@@ -46,7 +46,7 @@ impl<T> Clone for Policy<T> {
 }
 
 /// Configure factories without exposing erased futures or streams to callers.
-impl<T> Policy<T> {
+impl<T: Send + Sync + 'static> Policy<T> {
     /// Replace the initiation factory, converting its items at this boundary.
     pub(super) fn set_when<F, S>(&mut self, when: F)
     where
@@ -89,10 +89,7 @@ impl<T> Policy<T> {
             None => Either::Right(pending()),
         }
     }
-}
 
-/// Instantiate the connection's policy stream from a fresh change subscription.
-impl<T: Send + Sync + 'static> Policy<T> {
     /// Give the factory sole ownership of this connection's subscription.
     pub(super) fn when(&self, changes: Changes<T>) -> BoxStream<'static, Gossip> {
         match &self.when {

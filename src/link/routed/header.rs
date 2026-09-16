@@ -74,7 +74,7 @@ pub const MAX_ADDR_LEN: usize = u8::MAX as usize;
 /// Tokens are created by [`Endpoint::link`](super::Endpoint::link) and
 /// observed through [`LinkInfo`](super::LinkInfo); they cannot be
 /// constructed.
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Token([u8; TOKEN_LEN]);
 
 impl Token {

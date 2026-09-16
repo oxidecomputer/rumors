@@ -6,7 +6,7 @@
 //! the identity can be returned to the caller.
 
 use crate::error::{Mismatch, Phase, TransportOperation as Op};
-use std::sync::Arc;
+use std::{fmt, sync::Arc};
 
 use before::{Party, Ticks};
 use futures::{Stream, future::BoxFuture};
@@ -93,8 +93,7 @@ type Reconciled<'a> = (tree::Root, ControlRead<DynRead<'a>>, DynWrite<'a>);
 /// peer so it can keep gossiping or retry retirement. Dropping either result
 /// discards that peer.
 #[must_use = "retirement may return a peer that can keep gossiping or retry"]
-#[derive(Debug)]
-pub enum Retire<T, B: Bookmark = NoBookmark> {
+pub enum Retire<T: Send + Sync + 'static, B: Bookmark = NoBookmark> {
     /// Retirement completed and this replica left the network.
     /// The remote peer confirmed completion; the link remains usable.
     Retired,
@@ -124,18 +123,47 @@ pub enum Retire<T, B: Bookmark = NoBookmark> {
     },
 }
 
+/// Format retirement outcomes without requiring debuggable payload or
+/// bookmark types.
+impl<T: Send + Sync + 'static, B: Bookmark> fmt::Debug for Retire<T, B> {
+    /// Formats the outcome and any returned peer or error.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Retired => f.write_str("Retired"),
+            Self::Declined { peer } => f.debug_struct("Declined").field("peer", peer).finish(),
+            Self::Recovered { peer, error } => f
+                .debug_struct("Recovered")
+                .field("peer", peer)
+                .field("error", error)
+                .finish(),
+            Self::Uncertain { error } => f.debug_struct("Uncertain").field("error", error).finish(),
+        }
+    }
+}
+
 /// A failed bookmark attachment, with the peer returned unchanged.
 ///
 /// Produced by [`Peer::bookmark`] or [`Joined::Unbookmarked`](super::Joined::Unbookmarked).
 /// The peer remains usable without a bookmark. To retry attachment, repair or
 /// replace the storage and call `bookmark` on the returned peer.
 #[must_use = "a failed bookmark attachment returns the peer for continued use or retry"]
-#[derive(Debug)]
-pub struct Unbookmarked<T, B: Bookmark> {
+pub struct Unbookmarked<T: Send + Sync + 'static, B: Bookmark> {
     /// The unchanged peer, with no bookmark attached.
     pub peer: Peer<T, NoBookmark>,
     /// The storage or decoding failure.
     pub error: BookmarkIo<B::Error>,
+}
+
+/// Format a failed bookmark attachment without requiring debuggable payload or
+/// bookmark types.
+impl<T: Send + Sync + 'static, B: Bookmark> fmt::Debug for Unbookmarked<T, B> {
+    /// Formats the returned peer and storage error.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Unbookmarked")
+            .field("peer", &self.peer)
+            .field("error", &self.error)
+            .finish()
+    }
 }
 
 /// One completed exchange, returned by [`gossip_once`](crate::Rumors::gossip_once)
@@ -164,7 +192,7 @@ pub struct Gossiped {
 ///
 /// The session protocol itself is symmetric, and when both sides' triggers fire
 /// close together, each side may record `Local` for what becomes one session.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Led {
     /// The local policy or an explicit [`gossip_once`](crate::Rumors::gossip_once)
     /// call initiated the session.
@@ -178,7 +206,7 @@ pub enum Led {
 /// `()` converts to [`WhenChanged`](Self::WhenChanged), so the default changes
 /// stream needs no adaptation for [`Peer::gossip_when`]. Unconditional requests
 /// can add heartbeat sessions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Gossip {
     /// Initiate a session only if the local set has changed since this
     /// connection last [`converged`](Gossiped::converged).
@@ -207,7 +235,7 @@ impl From<()> for Gossip {
 }
 
 /// Create joined peers and attach bookmark storage.
-impl<T> Peer<T, NoBookmark> {
+impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
     /// Run bootstrap over any link.
     ///
     /// A thin generic funnel: the only monomorphized-per-link code is the
@@ -372,7 +400,7 @@ impl<T> Peer<T, NoBookmark> {
 }
 
 /// Run sessions and maintain bookmarks across ownership changes.
-impl<T, B: Bookmark> Peer<T, B> {
+impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// Reconcile and donate, returning the peer only when handoff has not begun.
     ///
     /// Reconciliation publishes on both sides. Surviving message observers
@@ -382,7 +410,6 @@ impl<T, B: Bookmark> Peer<T, B> {
         link: &mut Link<CR, CW, C, A>,
     ) -> Retire<T, B>
     where
-        T: Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,
@@ -421,7 +448,6 @@ impl<T, B: Bookmark> Peer<T, B> {
         link: &mut Link<CR, CW, C, A>,
     ) -> Result<Gossiped, Error<B>>
     where
-        T: Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,
@@ -456,10 +482,7 @@ impl<T, B: Bookmark> Peer<T, B> {
         intent: Intent,
         staged: &mut handshake::Staged,
         link: DynLinkParts<'_>,
-    ) -> (Intent, Result<(Version, SessionStats), Error<B>>)
-    where
-        T: Send + Sync + 'static,
-    {
+    ) -> (Intent, Result<(Version, SessionStats), Error<B>>) {
         let mut outcome = Intent::Remain;
         let result = self
             .gossip_policy
@@ -543,10 +566,7 @@ impl<T, B: Bookmark> Peer<T, B> {
         outcome: &mut Intent,
         staged: &mut handshake::Staged,
         link: DynLinkParts<'a>,
-    ) -> Result<(Version, SessionStats), Error<B>>
-    where
-        T: Send + Sync + 'static,
-    {
+    ) -> Result<(Version, SessionStats), Error<B>> {
         let (read, write, connector, acceptor, epoch) = link;
         let codec = self.codec;
         // The walk and proxy share these counters for the returned statistics.
@@ -728,7 +748,7 @@ impl<T, B: Bookmark> Peer<T, B> {
 }
 
 /// Drive repeated sessions over one link with application-owned timing.
-impl<T, B: Bookmark> Peer<T, B> {
+impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// Run the continuous driver under this peer's initiation policy.
     #[must_use = "the driver does nothing until the returned stream is polled"]
     pub(crate) fn gossip_driver<'a, CR, CW, C, A>(
@@ -736,7 +756,6 @@ impl<T, B: Bookmark> Peer<T, B> {
         link: &'a mut Link<CR, CW, C, A>,
     ) -> impl Stream<Item = Result<Gossiped, Error<B>>> + Unpin + 'a
     where
-        T: Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,
@@ -1158,7 +1177,7 @@ enum Trigger {
 }
 
 /// State retained between sessions; `unfold` also retains the active future.
-struct Drive<'a, T, B: Bookmark> {
+struct Drive<'a, T: Send + Sync + 'static, B: Bookmark> {
     /// The replica served by every session on this link.
     peer: &'a Peer<T, B>,
     /// Control input, retained across session boundaries.
@@ -1186,7 +1205,7 @@ struct Drive<'a, T, B: Bookmark> {
 }
 
 /// Restore a bootstrap fork unless its transmission has started.
-struct ForkGuard<T> {
+struct ForkGuard<T: Send + Sync + 'static> {
     /// The unsent fork and the token that pauses reclamation while it is held.
     fork: Option<(Party, BootstrapReservations)>,
     /// The replica from which the fork was split.
@@ -1194,7 +1213,7 @@ struct ForkGuard<T> {
 }
 
 /// Return an abandoned fork without waking content observers.
-impl<T> Drop for ForkGuard<T> {
+impl<T: Send + Sync + 'static> Drop for ForkGuard<T> {
     /// Rejoin the disjoint fork on cancellation, failure, or unwind.
     fn drop(&mut self) {
         if let Some((party, _reservation)) = self.fork.take() {

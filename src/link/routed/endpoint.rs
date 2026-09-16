@@ -23,7 +23,7 @@ pub type RoutedLink<D> = Link<
 pub(super) type Arrival<D> = (LinkInfo<<D as Dial>::Addr>, RoutedLink<D>);
 
 /// Router capacities and outgoing connection reuse.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Config {
     /// Maximum peer-established links waiting for [`Incoming::accept`].
     /// Further establishment attempts are rejected while the backlog is full.
@@ -93,7 +93,7 @@ pub enum LinkError {
 }
 
 /// The identity of a peer-established link, from [`Incoming::accept`].
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LinkInfo<A> {
     /// The peer's advertised name, used to open this link's outgoing streams.
     pub peer: A,

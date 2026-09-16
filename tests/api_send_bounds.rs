@@ -9,7 +9,15 @@
 //! this crate's compilation.
 
 use futures::StreamExt;
-use rumors::{Peer, Rumors, Snapshot, UnorderedMessages};
+use rumors::{
+    Bookmark, Error, Gossip, Joined, Led, Peer, Protocol, Retire, Rumors, Snapshot, TryTick,
+    Unbookmarked, UnorderedMessages,
+    link::{
+        SessionState,
+        routed::{Config, LinkInfo, Token},
+    },
+};
+use serde::{Deserialize, Serialize};
 
 /// Compile-time `Send`-bound check. Takes its argument by reference so the
 /// future can be dropped (rather than awaited) afterwards.
@@ -20,6 +28,49 @@ fn require_send_sync<T: Send + Sync>() {}
 
 /// Compile-time `Send`-only check, for the exclusively-driven observer.
 fn require_send_type<T: Send>() {}
+
+/// Compile-time `Debug` check for public wrapper outcomes.
+fn require_debug<T: std::fmt::Debug>() {}
+
+/// Compile-time `Clone + Debug` check for immutable public views.
+fn require_clone_debug<T: Clone + std::fmt::Debug>() {}
+
+/// Compile-time standard-error check for public failures.
+fn require_error<T: std::error::Error>() {}
+
+/// Compile-time `Hash + Eq` check for public value types.
+fn require_hash_eq<T: std::hash::Hash + Eq>() {}
+
+/// Compile-time total-order check for public value types.
+fn require_ord<T: Ord>() {}
+
+/// Compile-time equality check for public value types.
+fn require_eq<T: Eq>() {}
+
+/// A legal payload that deliberately provides neither `Clone` nor `Debug`.
+#[derive(Deserialize, Eq, PartialEq, Serialize)]
+struct Opaque(u64);
+
+/// A legal bookmark whose handle deliberately provides no `Debug` impl.
+struct SilentBookmark;
+
+/// Provide inert storage for compile-time wrapper checks.
+impl Bookmark for SilentBookmark {
+    /// This storage never fails.
+    type Error = std::convert::Infallible;
+    /// No record is ever returned.
+    type Reader = tokio::io::Empty;
+
+    /// Report that no bookmark exists.
+    async fn load(&self) -> Result<Option<Self::Reader>, Self::Error> {
+        Ok(None)
+    }
+
+    /// Accept and discard replacement records.
+    async fn store(&self, _bytes: Vec<u8>) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
 
 /// The handle types are `Send + Sync` (and the exclusively-driven
 /// `UnorderedMessages` observer is `Send`), so handles can be shared and moved
@@ -35,6 +86,31 @@ fn handle_types_are_send_sync() {
     // `Sync` is not part of its contract (the materialized quiet-period
     // wait future is `Send`-only).
     require_send_type::<UnorderedMessages<String>>();
+}
+
+/// Public wrappers inherit only the bounds required by their stored fields.
+#[test]
+fn wrapper_traits_do_not_inspect_payloads_or_bookmark_handles() {
+    require_error::<Error<SilentBookmark>>();
+    require_clone_debug::<Snapshot<Opaque>>();
+    require_debug::<Retire<Opaque, SilentBookmark>>();
+    require_debug::<Unbookmarked<Opaque, SilentBookmark>>();
+    require_debug::<Joined<Opaque, SilentBookmark>>();
+}
+
+/// Small public values implement the standard traits needed as map keys and
+/// comparable configuration.
+#[test]
+fn public_value_traits_are_complete() {
+    require_hash_eq::<TryTick>();
+    require_hash_eq::<Led>();
+    require_hash_eq::<Gossip>();
+    require_hash_eq::<Protocol>();
+    require_ord::<Protocol>();
+    require_ord::<Token>();
+    require_eq::<SessionState>();
+    require_eq::<Config>();
+    require_eq::<LinkInfo<String>>();
 }
 
 /// `Rumors::gossip_once`'s future is `Send`: a session can be `tokio::spawn`ed.

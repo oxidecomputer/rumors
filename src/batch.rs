@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{borrow::Borrow, sync::Arc};
 
 use tokio::sync::watch;
 
@@ -16,14 +16,14 @@ use crate::{Inner, Version};
 /// Building a batch holds no lock. Other operations may commit while the
 /// closure runs; two batches have no guaranteed causal order unless the
 /// application synchronizes them.
-pub struct Batch<'a, T: Send + Sync> {
+pub struct Batch<'a, T: Send + Sync + 'static> {
     inner: &'a watch::Sender<Inner<T>>,
     /// Validate and encode messages as they are queued.
     codec: PayloadCodec,
     actions: Vec<Action>,
 }
 
-impl<'a, T: Send + Sync> Batch<'a, T> {
+impl<'a, T: Send + Sync + 'static> Batch<'a, T> {
     pub(crate) fn new(inner: &'a watch::Sender<Inner<T>>, codec: PayloadCodec) -> Self {
         Self {
             inner,
@@ -43,10 +43,7 @@ impl<'a, T: Send + Sync> Batch<'a, T> {
     ///
     /// Panics if `message` fails to serialize, as with
     /// [`Rumors::send`](crate::Rumors::send).
-    pub fn send(&mut self, message: T) -> Result<(), EncodeError>
-    where
-        T: 'static,
-    {
+    pub fn send(&mut self, message: T) -> Result<(), EncodeError> {
         let message = self.codec.message(Arc::new(message))?;
         self.actions.push(Action::Insert(message));
         Ok(())
@@ -71,7 +68,6 @@ impl<'a, T: Send + Sync> Batch<'a, T> {
     /// Panics if a message fails to serialize, as with [`send`](Self::send).
     pub fn send_all<I>(&mut self, messages: I) -> Result<(), EncodeError>
     where
-        T: 'static,
         I: IntoIterator<Item = T>,
     {
         for message in messages {
@@ -84,12 +80,13 @@ impl<'a, T: Send + Sync> Batch<'a, T> {
     ///
     /// Equivalent to calling [`redact`](Self::redact) on each in turn;
     /// versions not held at commit time are no-ops.
-    pub fn redact_all<'v, I>(&mut self, versions: I)
+    pub fn redact_all<I>(&mut self, versions: I)
     where
-        I: IntoIterator<Item = &'v Version>,
+        I: IntoIterator,
+        I::Item: Borrow<Version>,
     {
         for version in versions {
-            self.redact(version);
+            self.redact(version.borrow());
         }
     }
 

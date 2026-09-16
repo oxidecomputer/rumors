@@ -19,8 +19,9 @@ use crate::common::wire::{block_on, wire_gossip_async};
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+
 /// One simulated peer.
-pub struct Peer<T> {
+pub struct Peer<T: Send + Sync + 'static> {
     pub local: Rumors<T>,
     /// The causal frontier up to which `observations` is complete: each
     /// drain records the live leaves not contained here, then absorbs the

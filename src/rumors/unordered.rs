@@ -32,7 +32,7 @@ use super::channel::Channel;
 /// This observer does not count against the quiescence that lets
 /// [`try_into_peer`](crate::Rumors::try_into_peer) reclaim the
 /// [`Peer`](crate::Peer).
-pub struct UnorderedMessages<T> {
+pub struct UnorderedMessages<T: Send + Sync + 'static> {
     /// The shared replica receiver and its current wait state.
     channel: Channel<T>,
     /// The frontier covered by every completed pass.
@@ -67,7 +67,7 @@ struct Pass {
 }
 
 /// Creates passes and exposes their completed frontier.
-impl<T> UnorderedMessages<T> {
+impl<T: Send + Sync + 'static> UnorderedMessages<T> {
     /// Observes messages beyond `since`, starting from the current snapshot.
     pub(crate) fn subscribe(inner: &watch::Sender<crate::Inner<T>>, since: Version) -> Self {
         Self {
@@ -84,9 +84,7 @@ impl<T> UnorderedMessages<T> {
         pass: &mut Option<Pass>,
         rx: &mut watch::Receiver<crate::Inner<T>>,
         checkpoint: &Version,
-    ) where
-        T: Send + Sync,
-    {
+    ) {
         if pass.is_none() {
             let inner = rx.borrow_and_update();
             *pass = Some(Pass {
@@ -174,9 +172,6 @@ impl<T: Send + Sync + 'static> UnorderedMessages<T> {
 /// Yields owned `(Version, Arc<T>)` pairs: cheap handles into the shared
 /// storage (the version's buffer and the message's allocation are shared,
 /// not copied).
-///
-/// `T: 'static` because the quiet-period wait is materialized as an owned
-/// future.
 impl<T: Send + Sync + 'static> Stream for UnorderedMessages<T> {
     type Item = (Version, Arc<T>);
 

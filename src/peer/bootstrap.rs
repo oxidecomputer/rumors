@@ -1,7 +1,6 @@
 //! Configure a bootstrap session and retain its settings when a retry is needed.
 
-use std::marker::PhantomData;
-use std::sync::Arc;
+use std::{fmt, marker::PhantomData, sync::Arc};
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -36,7 +35,7 @@ use super::gossip::Unbookmarked;
 /// An established peer automatically serves bootstrappers through ordinary
 /// [`gossip`](crate::Rumors::gossip); no special invocation is required.
 #[must_use = "a Bootstrap does nothing until join runs it against a link"]
-pub struct Bootstrap<T, B: Bookmark = NoBookmark> {
+pub struct Bootstrap<T: Send + Sync + 'static, B: Bookmark = NoBookmark> {
     /// Pipelining policy inherited by the joined peer.
     pub(crate) window: WindowConfig,
     /// Supply-run size target used during and after the join.
@@ -56,7 +55,7 @@ pub struct Bootstrap<T, B: Bookmark = NoBookmark> {
 }
 
 /// Copy an unbookmarked builder without requiring the payload type to be Clone.
-impl<T> Clone for Bootstrap<T> {
+impl<T: Send + Sync + 'static> Clone for Bootstrap<T> {
     /// Copy the settings and share the observation handlers.
     fn clone(&self) -> Self {
         self.session_config()
@@ -64,7 +63,7 @@ impl<T> Clone for Bootstrap<T> {
 }
 
 /// Show configuration without Debug bounds on the payload or storage.
-impl<T, B: Bookmark> std::fmt::Debug for Bootstrap<T, B> {
+impl<T: Send + Sync + 'static, B: Bookmark> std::fmt::Debug for Bootstrap<T, B> {
     /// Describe the settings without reading the bookmark.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Bootstrap")
@@ -78,7 +77,7 @@ impl<T, B: Bookmark> std::fmt::Debug for Bootstrap<T, B> {
 }
 
 /// Construct an unbookmarked builder or select its storage.
-impl<T> Bootstrap<T> {
+impl<T: Send + Sync + 'static> Bootstrap<T> {
     /// Use the default session settings without a bookmark.
     pub(crate) fn new() -> Self {
         Self {
@@ -118,7 +117,7 @@ impl<T> Bootstrap<T> {
 }
 
 /// Configure the session independently of whether storage has been selected.
-impl<T, B: Bookmark> Bootstrap<T, B> {
+impl<T: Send + Sync + 'static, B: Bookmark> Bootstrap<T, B> {
     /// Copy only session settings; storage stays with the retryable builder.
     fn session_config(&self) -> Bootstrap<T> {
         Bootstrap {
@@ -203,7 +202,7 @@ impl<T, B: Bookmark> Bootstrap<T, B> {
 }
 
 /// Run a configured bootstrap and attach its selected bookmark.
-impl<T, B: Bookmark> Bootstrap<T, B> {
+impl<T: Send + Sync + 'static, B: Bookmark> Bootstrap<T, B> {
     /// Join the connected peer's gossip network, returning a peer or a retryable builder.
     ///
     /// Success receives the provider's current message set. The provider may
@@ -252,8 +251,7 @@ impl<T, B: Bookmark> Bootstrap<T, B> {
 
 /// A bootstrap's outcome, preserving either its new peer or its retry configuration.
 #[must_use = "Joined contains a peer or a builder needed for retry"]
-#[derive(Debug)]
-pub enum Joined<T, B: Bookmark = NoBookmark> {
+pub enum Joined<T: Send + Sync + 'static, B: Bookmark = NoBookmark> {
     /// The session succeeded and any selected bookmark was attached and persisted.
     /// The link remains usable.
     Joined {
@@ -277,6 +275,29 @@ pub enum Joined<T, B: Bookmark = NoBookmark> {
         /// The complete builder, ready to retry on another link.
         bootstrap: Bootstrap<T, B>,
     },
+}
+
+/// Format join outcomes without requiring debuggable payload or bookmark
+/// types.
+impl<T: Send + Sync + 'static, B: Bookmark> fmt::Debug for Joined<T, B> {
+    /// Formats the outcome and the peer or retry state it carries.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Joined { peer } => f.debug_struct("Joined").field("peer", peer).finish(),
+            Self::Bailed { bootstrap } => f
+                .debug_struct("Bailed")
+                .field("bootstrap", bootstrap)
+                .finish(),
+            Self::Unbookmarked(unbookmarked) => {
+                f.debug_tuple("Unbookmarked").field(unbookmarked).finish()
+            }
+            Self::Failed { error, bootstrap } => f
+                .debug_struct("Failed")
+                .field("error", error)
+                .field("bootstrap", bootstrap)
+                .finish(),
+        }
+    }
 }
 
 #[cfg(test)]

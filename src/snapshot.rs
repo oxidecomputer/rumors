@@ -14,14 +14,14 @@ pub use crate::tree::Iter;
 /// it shares structure with the live set rather than copying it, and later
 /// changes never show through. Hold it as long as you like; it keeps its
 /// messages alive, not the [`Peer`](crate::Peer).
-pub struct Snapshot<T> {
+pub struct Snapshot<T: Send + Sync + 'static> {
     /// The gossip network whose state was captured.
     network: Network,
     /// The immutable live set and causal frontier.
     tree: Tree<T>,
 }
 
-impl<T> Snapshot<T> {
+impl<T: Send + Sync + 'static> Snapshot<T> {
     /// Makes a new snapshot.
     pub(crate) fn new(network: Network, tree: Tree<T>) -> Self {
         Self { network, tree }
@@ -88,10 +88,7 @@ impl<T> Snapshot<T> {
     ///
     /// The yielded handle is an owned reference bump into the shared
     /// storage: cheap to take, and it keeps the message alive on its own.
-    pub fn get(&self, version: &Version) -> Option<Arc<T>>
-    where
-        T: Send + Sync + 'static,
-    {
+    pub fn get(&self, version: &Version) -> Option<Arc<T>> {
         self.tree.get(version)
     }
 
@@ -123,10 +120,7 @@ impl<T> Snapshot<T> {
     /// messages.sort_by(|a, b| a.0.ranked().cmp(&b.0.ranked()));
     /// # Ok::<(), rumors::EncodeError>(())
     /// ```
-    pub fn iter(&self) -> Iter<'_, T>
-    where
-        T: Send + Sync + 'static,
-    {
+    pub fn iter(&self) -> Iter<'_, T> {
         self.tree.iter()
     }
 
@@ -173,16 +167,13 @@ impl<T> Snapshot<T> {
     pub fn range<'q, P: causally::Polarity>(
         &'q self,
         query: impl Into<causally::Query<'q, P>>,
-    ) -> impl DoubleEndedIterator<Item = (&'q Version, Arc<T>)> + Send + Sync
-    where
-        T: Send + Sync + 'static,
-    {
+    ) -> impl DoubleEndedIterator<Item = (&'q Version, Arc<T>)> + Send + Sync {
         self.tree.range(query)
     }
 }
 
 /// Clone snapshots by sharing their immutable storage.
-impl<T> Clone for Snapshot<T> {
+impl<T: Send + Sync + 'static> Clone for Snapshot<T> {
     /// Clones the snapshot by sharing its immutable tree.
     fn clone(&self) -> Self {
         Self {
@@ -193,18 +184,19 @@ impl<T> Clone for Snapshot<T> {
 }
 
 /// Format snapshots without inspecting their payloads.
-impl<T> fmt::Debug for Snapshot<T> {
-    /// Formats the network and tree without requiring a debuggable payload.
+impl<T: Send + Sync + 'static> fmt::Debug for Snapshot<T> {
+    /// Summarizes the captured state without walking or printing its messages.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Snapshot")
             .field("network", &self.network)
-            .field("tree", &self.tree)
-            .finish()
+            .field("latest", self.tree.latest())
+            .field("len", &self.tree.len())
+            .finish_non_exhaustive()
     }
 }
 
 /// Compare the complete captured replica state.
-impl<T> PartialEq for Snapshot<T> {
+impl<T: Send + Sync + 'static> PartialEq for Snapshot<T> {
     /// Compares the network, live messages, and causal frontier.
     fn eq(&self, other: &Self) -> bool {
         self.network == other.network && self.tree == other.tree
@@ -212,7 +204,7 @@ impl<T> PartialEq for Snapshot<T> {
 }
 
 /// Mark snapshot equality as an equivalence relation.
-impl<T> Eq for Snapshot<T> {}
+impl<T: Send + Sync + 'static> Eq for Snapshot<T> {}
 
 /// Iterate over a borrowed snapshot's live messages.
 impl<'a, T: Send + Sync + 'static> IntoIterator for &'a Snapshot<T> {

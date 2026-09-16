@@ -12,6 +12,7 @@ use crate::link::{Acceptor, Connector, Link};
 use crate::message::EncodeError;
 use crate::{Batch, Error, Gossiped, Network, Peer, Snapshot, Version};
 use futures::Stream;
+use std::borrow::Borrow;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::{
@@ -27,7 +28,7 @@ use tokio::{
 /// anything one clone learns, all do.
 ///
 /// Call [`snapshot`](Self::snapshot) to read a consistent view of the set.
-pub struct Rumors<T, B: Bookmark = NoBookmark> {
+pub struct Rumors<T: Send + Sync + 'static, B: Bookmark = NoBookmark> {
     /// A peer view sharing this replica's state and configuration.
     peer: Peer<T, B>,
     /// Tracks live handles and the exclusive reunion claim.
@@ -50,7 +51,7 @@ struct Reunion {
 }
 
 /// Share the replica, configuration, and storage while retaining a handle claim.
-impl<T, B: Bookmark> Clone for Rumors<T, B> {
+impl<T: Send + Sync + 'static, B: Bookmark> Clone for Rumors<T, B> {
     /// Create another handle to the same peer.
     fn clone(&self) -> Self {
         Self {
@@ -71,7 +72,7 @@ impl<T, B: Bookmark> Clone for Rumors<T, B> {
 
 /// A summary view (network, latest version, live-message count), independent
 /// of `T: Debug`: the messages themselves are not printed.
-impl<T, B: Bookmark> std::fmt::Debug for Rumors<T, B> {
+impl<T: Send + Sync + 'static, B: Bookmark> std::fmt::Debug for Rumors<T, B> {
     /// Summarize the replica without printing payloads.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let inner = self.peer.inner.borrow();
@@ -84,7 +85,7 @@ impl<T, B: Bookmark> std::fmt::Debug for Rumors<T, B> {
 }
 
 /// Manage the shared replica and its handle lifetime.
-impl<T, B: Bookmark> Rumors<T, B> {
+impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     /// Assemble the first handle of a fresh broadcast generation around `peer`,
     /// the only constructor: every other handle is a [`Clone`] of this one, so
     /// the token count faithfully counts handles.
@@ -146,10 +147,7 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// If `message` fails to serialize: a violation of the payload
     /// contract ([choosing a payload
     /// type](crate#choosing-a-payload-type)).
-    pub fn send(&self, message: T) -> Result<Version, EncodeError>
-    where
-        T: Send + Sync + 'static,
-    {
+    pub fn send(&self, message: T) -> Result<Version, EncodeError> {
         self.peer.send(message)
     }
 
@@ -180,10 +178,7 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// Use the [`Version`] returned by [`send`](Self::send), or one reported by
     /// an observer or [`Snapshot`]. Batched sends do not return versions because
     /// one call may insert several messages.
-    pub fn redact(&self, version: &Version)
-    where
-        T: Send + Sync,
-    {
+    pub fn redact(&self, version: &Version) {
         self.peer.redact(version)
     }
 
@@ -218,7 +213,6 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// [`send`](Self::send) treats it.
     pub fn send_all<I>(&self, messages: I) -> Result<(), EncodeError>
     where
-        T: Send + Sync + 'static,
         I: IntoIterator<Item = T>,
     {
         self.peer.send_all(messages)
@@ -247,14 +241,14 @@ impl<T, B: Bookmark> Rumors<T, B> {
     ///     .filter(|(_, message)| **message % 2 == 0)
     ///     .map(|(version, _)| version.clone())
     ///     .collect();
-    /// rumors.redact_all(&evens);
+    /// rumors.redact_all(evens);
     /// assert_eq!(rumors.snapshot().len(), 5);
     /// # Ok::<(), EncodeError>(())
     /// ```
-    pub fn redact_all<'v, I>(&self, versions: I)
+    pub fn redact_all<I>(&self, versions: I)
     where
-        T: Send + Sync,
-        I: IntoIterator<Item = &'v Version>,
+        I: IntoIterator,
+        I::Item: Borrow<Version>,
     {
         self.peer.redact_all(versions)
     }
@@ -311,7 +305,6 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// ```
     pub fn batch<R, E, F>(&self, f: F) -> Result<R, E>
     where
-        T: Send + Sync,
         F: for<'s> FnOnce(&'s mut Batch<'_, T>) -> Result<R, E>,
     {
         self.peer.batch(f)
@@ -334,30 +327,21 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// (*non-causal*) order.
     ///
     /// See [`UnorderedMessages`] for details.
-    pub fn unordered_messages(&self) -> UnorderedMessages<T>
-    where
-        T: Send + Sync,
-    {
+    pub fn unordered_messages(&self) -> UnorderedMessages<T> {
         self.peer.unordered_messages()
     }
 
     /// Monitor every message sent to this [`Rumors`] which is not already
     /// causally contained in `since`, then everything learned afterwards, in
     /// arbitrary (*non-causal*) order.
-    pub fn unordered_messages_since(&self, since: Version) -> UnorderedMessages<T>
-    where
-        T: Send + Sync,
-    {
+    pub fn unordered_messages_since(&self, since: Version) -> UnorderedMessages<T> {
         self.peer.messages_since(since)
     }
 
     /// Monitor every message sent to this [`Rumors`], in *causal order*.
     ///
     /// See [`CausalMessages`] for details.
-    pub fn causal_messages(&self) -> CausalMessages<T>
-    where
-        T: Send + Sync,
-    {
+    pub fn causal_messages(&self) -> CausalMessages<T> {
         self.peer.causal_messages()
     }
 
@@ -365,10 +349,7 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// causally contained in `since`, in *causal order*.
     ///
     /// See [`CausalMessages`] for details.
-    pub fn causal_messages_since(&self, since: Version) -> CausalMessages<T>
-    where
-        T: Send + Sync,
-    {
+    pub fn causal_messages_since(&self, since: Version) -> CausalMessages<T> {
         self.peer.causal_messages_since(since)
     }
 
@@ -392,7 +373,7 @@ impl<T, B: Bookmark> Rumors<T, B> {
 }
 
 /// Drive replication and recover exclusive ownership of the peer.
-impl<T, B: Bookmark> Rumors<T, B> {
+impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
     /// Give up this handle and reclaim the [`Peer`]: resolves when no
     /// [`Rumors`] for this set remains, handing the `Peer` to exactly one
     /// caller.
@@ -444,7 +425,6 @@ impl<T, B: Bookmark> Rumors<T, B> {
         link: &mut Link<CR, CW, C, A>,
     ) -> Result<Gossiped, Error<B>>
     where
-        T: Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,
@@ -523,7 +503,6 @@ impl<T, B: Bookmark> Rumors<T, B> {
         link: &'a mut Link<CR, CW, C, A>,
     ) -> impl Stream<Item = Result<Gossiped, Error<B>>> + Unpin + 'a
     where
-        T: Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,

@@ -174,8 +174,10 @@ where
 }
 
 /// The fleet after an overlap schedule has run, before any quiescence.
-pub struct OverlapRun<T> {
+pub struct OverlapRun<T: Send + Sync + 'static> {
+    /// The peers in stable fleet order.
     pub peers: Vec<Peer<T>>,
+    /// The specification state after the same schedule.
     pub oracle: Oracle<T>,
     /// The [`Version`] each `Insert` event created, by event index.
     pub resolved_versions: BTreeMap<EventIdx, Version>,

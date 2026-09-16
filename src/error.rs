@@ -19,7 +19,7 @@
 //! commit unconfirmed; a failed bootstrap instead returns a builder for retry.
 //! [`Error::Bookmark`] can also leave restart bookkeeping awaiting persistence.
 
-use std::convert::Infallible;
+use std::{convert::Infallible, fmt};
 
 use crate::{
     Network, PayloadDepthLimit, Protocol, Ticks,
@@ -94,7 +94,7 @@ pub enum Mismatch {
 /// independent of bookmark storage. For failures with a [`Context`], inspect
 /// its phase as well as its cause: completion can fail after local commit.
 #[non_exhaustive]
-#[derive(Debug, thiserror::Error)]
+#[derive(thiserror::Error)]
 pub enum Error<B: Bookmark = NoBookmark> {
     /// A transport operation failed or the peer closed before it completed.
     /// Reconnect using a fresh link.
@@ -132,6 +132,22 @@ pub enum Error<B: Bookmark = NoBookmark> {
     /// See [`Bookmark`] for the recovery limits.
     #[error(transparent)]
     Bookmark(BookmarkIo<B::Error>),
+}
+
+/// Format session failures without requiring the bookmark handle itself to be
+/// debuggable.
+impl<B: Bookmark> fmt::Debug for Error<B> {
+    /// Formats the variant and its actionable diagnostic fields.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Transport(error) => f.debug_tuple("Transport").field(error).finish(),
+            Self::Protocol(error) => f.debug_tuple("Protocol").field(error).finish(),
+            Self::Mismatch(error) => f.debug_tuple("Mismatch").field(error).finish(),
+            Self::LinkPoisoned => f.write_str("LinkPoisoned"),
+            Self::DeadlineExceeded => f.write_str("DeadlineExceeded"),
+            Self::Bookmark(error) => f.debug_tuple("Bookmark").field(error).finish(),
+        }
+    }
 }
 
 /// Map preamble failures to public session error categories.

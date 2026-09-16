@@ -7,7 +7,7 @@
 /// Once released, a protocol's wire format is fixed; a format change requires
 /// a new protocol variant.
 #[repr(u16)]
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[non_exhaustive]
 pub enum Protocol {
     /// Bounded-memory reconciliation over multiplexed logical streams.

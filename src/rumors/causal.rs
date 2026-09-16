@@ -35,7 +35,7 @@ use super::unordered::TryNext;
 /// This observer does not count against the quiescence that lets
 /// [`try_into_peer`](crate::Rumors::try_into_peer) reclaim the
 /// [`Peer`](crate::Peer).
-pub struct CausalMessages<T> {
+pub struct CausalMessages<T: Send + Sync + 'static> {
     /// The shared replica receiver and its current wait state.
     channel: Channel<T>,
     /// The ingest frontier: the causal past already staged (or delivered).
@@ -63,7 +63,7 @@ pub struct CausalMessages<T> {
 }
 
 /// Subscribe, stage unseen messages, and expose a safe resume point.
-impl<T> CausalMessages<T> {
+impl<T: Send + Sync + 'static> CausalMessages<T> {
     /// Observe messages beyond `since`, starting from the current snapshot.
     pub(crate) fn subscribe(inner: &watch::Sender<crate::Inner<T>>, since: Version) -> Self {
         Self {
@@ -85,9 +85,7 @@ impl<T> CausalMessages<T> {
         staged: &mut BTreeMap<(Rank, Vec<u8>), Leaf>,
         ingested: &mut Version,
         rx: &mut watch::Receiver<crate::Inner<T>>,
-    ) where
-        T: Send + Sync,
-    {
+    ) {
         let (walk, ceiling) = {
             let inner = rx.borrow_and_update();
             (
@@ -145,9 +143,6 @@ impl<T: Send + Sync + 'static> CausalMessages<T> {
 
 /// Yields owned `(Version, Arc<T>)` pairs popped from the staged backlog
 /// in causal order: cheap handles into the shared storage.
-///
-/// `T: 'static` because the quiet-period wait is materialized as an
-/// owned future, exactly as in [`UnorderedMessages`](super::UnorderedMessages).
 impl<T: Send + Sync + 'static> Stream for CausalMessages<T> {
     type Item = (Version, Arc<T>);
 

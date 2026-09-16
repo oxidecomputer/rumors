@@ -2,7 +2,10 @@
 //! API for sending, redacting, and observing messages. The wire-session
 //! drivers (bootstrap, gossip, retire) live in [`gossip`].
 
-use std::sync::{Arc, PoisonError, RwLock};
+use std::{
+    borrow::Borrow,
+    sync::{Arc, PoisonError, RwLock},
+};
 
 use before::Party;
 use rand::{RngCore, rngs::OsRng};
@@ -127,7 +130,7 @@ pub use gossip::{Gossip, Gossiped, Led, Retire, Unbookmarked};
 /// quickly reaches a stable steady state, disrupted only if a group of new
 /// peers joins exclusively with one another and spends a long time
 /// partitioned before reuniting with the rest of the network.
-pub struct Peer<T, B: Bookmark = NoBookmark> {
+pub struct Peer<T: Send + Sync + 'static, B: Bookmark = NoBookmark> {
     /// The network this replica belongs to, established at seed or join.
     pub(crate) network: Network,
     /// The reconciliation window choice selected by
@@ -160,7 +163,7 @@ pub struct Peer<T, B: Bookmark = NoBookmark> {
 /// The replica's identity and content, shared through a watch channel.
 ///
 /// Retirement owns the consumed `Peer`, excluding other writable handles.
-pub(crate) struct Inner<T> {
+pub(crate) struct Inner<T: Send + Sync + 'static> {
     /// Identity used to stamp local events.
     pub(crate) party: Party,
     /// Pauses bookmark reclamation while sessions hold unsent bootstrap forks.
@@ -201,7 +204,7 @@ impl BootstrapReservations {
 const OPTIMISTIC_ATTEMPTS: usize = 2;
 
 /// Publish content and change identity ownership under the replica's locks.
-impl<T> Inner<T> {
+impl<T: Send + Sync + 'static> Inner<T> {
     /// Construct a replica whose commits share one writer gate.
     pub(crate) fn new(party: Party, tree: Tree<T>) -> Self {
         tree.warm_memos();
@@ -288,10 +291,7 @@ impl<T> Inner<T> {
         prior: &Tree<T>,
         reconciled: &Tree<T>,
         mut update: impl FnMut(&mut Self) -> Result<(), E>,
-    ) -> Result<(), E>
-    where
-        T: Send + Sync,
-    {
+    ) -> Result<(), E> {
         let gate = sender.borrow().commit_gate.clone();
         // Reconciliation already joined against `prior`. If it is still current,
         // publishing needs only a swap, with no second join of the same inputs.
@@ -331,10 +331,7 @@ impl<T> Inner<T> {
         reconciled: &Tree<T>,
         gate: &RwLock<()>,
         update: &mut impl FnMut(&mut Self) -> Result<(), E>,
-    ) -> Result<(), E>
-    where
-        T: Send + Sync,
-    {
+    ) -> Result<(), E> {
         // Declare retained roots before the guard so unwinding also releases
         // the gate before any payload can be destroyed.
         let snapshot;
@@ -396,7 +393,7 @@ mod tests;
 
 /// A summary view (network, latest version, live-message count), independent
 /// of `T: Debug`: the messages themselves are not printed.
-impl<T, B: Bookmark> std::fmt::Debug for Peer<T, B> {
+impl<T: Send + Sync + 'static, B: Bookmark> std::fmt::Debug for Peer<T, B> {
     /// Summarize the replica without printing payloads.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let inner = self.inner.borrow();
@@ -436,7 +433,7 @@ impl<T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<T, NoBoo
     }
 }
 
-impl<T> Peer<T> {
+impl<T: Send + Sync + 'static> Peer<T> {
     /// Configure a join to an existing gossip network.
     ///
     /// Call [`Bootstrap::join`] with a link to an established member. The
@@ -469,7 +466,7 @@ impl<T> Peer<T> {
 }
 
 /// Retire an exclusively held replica.
-impl<T, B: Bookmark> Peer<T, B> {
+impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// Leave the gossip network after synchronizing with a remote member.
     ///
     /// Retiring helps keep message versions compact as peers come and go.
@@ -482,7 +479,6 @@ impl<T, B: Bookmark> Peer<T, B> {
     /// [session contract](crate::link::Link#what-a-session-promises).
     pub async fn retire<CR, CW, C, A>(self, link: &mut Link<CR, CW, C, A>) -> Retire<T, B>
     where
-        T: Send + Sync + 'static,
         CR: AsyncRead + Unpin + Send,
         CW: AsyncWrite + Unpin + Send,
         C: Connector,
@@ -493,7 +489,7 @@ impl<T, B: Bookmark> Peer<T, B> {
 }
 
 /// Inspect the network and configure replication behavior.
-impl<T, B: Bookmark> Peer<T, B> {
+impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// The globally unique identifier for this network of gossiping [`Peer`]s.
     pub fn network(&self) -> Network {
         self.network
@@ -813,19 +809,13 @@ impl<T, B: Bookmark> Peer<T, B> {
     }
 
     /// Commit one message and return its stamped version.
-    pub(crate) fn send(&self, message: T) -> Result<Version, EncodeError>
-    where
-        T: Send + Sync + 'static,
-    {
+    pub(crate) fn send(&self, message: T) -> Result<Version, EncodeError> {
         let mut batch = Batch::new(&self.inner, self.codec);
         batch.send(message)?;
         Ok(batch.commit())
     }
 
-    pub(crate) fn redact(&self, version: &Version)
-    where
-        T: Send + Sync,
-    {
+    pub(crate) fn redact(&self, version: &Version) {
         let mut batch = Batch::new(&self.inner, self.codec);
         batch.redact(version);
         batch.commit();
@@ -833,7 +823,6 @@ impl<T, B: Bookmark> Peer<T, B> {
 
     pub(crate) fn batch<R, E, F>(&self, f: F) -> Result<R, E>
     where
-        T: Send + Sync,
         F: for<'s> FnOnce(&'s mut Batch<'_, T>) -> Result<R, E>,
     {
         let mut batch = Batch::new(&self.inner, self.codec);
@@ -844,7 +833,6 @@ impl<T, B: Bookmark> Peer<T, B> {
 
     pub(crate) fn send_all<I>(&self, messages: I) -> Result<(), EncodeError>
     where
-        T: Send + Sync + 'static,
         I: IntoIterator<Item = T>,
     {
         let mut batch = Batch::new(&self.inner, self.codec);
@@ -853,10 +841,10 @@ impl<T, B: Bookmark> Peer<T, B> {
         Ok(())
     }
 
-    pub(crate) fn redact_all<'v, I>(&self, versions: I)
+    pub(crate) fn redact_all<I>(&self, versions: I)
     where
-        T: Send + Sync,
-        I: IntoIterator<Item = &'v Version>,
+        I: IntoIterator,
+        I::Item: Borrow<Version>,
     {
         let mut batch = Batch::new(&self.inner, self.codec);
         batch.redact_all(versions);
@@ -867,31 +855,19 @@ impl<T, B: Bookmark> Peer<T, B> {
         Snapshot::new(self.network, self.inner.borrow().tree.clone())
     }
 
-    pub(crate) fn unordered_messages(&self) -> UnorderedMessages<T>
-    where
-        T: Send + Sync,
-    {
+    pub(crate) fn unordered_messages(&self) -> UnorderedMessages<T> {
         self.messages_since(Version::new())
     }
 
-    pub(crate) fn messages_since(&self, since: Version) -> UnorderedMessages<T>
-    where
-        T: Send + Sync,
-    {
+    pub(crate) fn messages_since(&self, since: Version) -> UnorderedMessages<T> {
         UnorderedMessages::subscribe(&self.inner, since)
     }
 
-    pub(crate) fn causal_messages(&self) -> CausalMessages<T>
-    where
-        T: Send + Sync,
-    {
+    pub(crate) fn causal_messages(&self) -> CausalMessages<T> {
         self.causal_messages_since(Version::new())
     }
 
-    pub(crate) fn causal_messages_since(&self, since: Version) -> CausalMessages<T>
-    where
-        T: Send + Sync,
-    {
+    pub(crate) fn causal_messages_since(&self, since: Version) -> CausalMessages<T> {
         CausalMessages::subscribe(&self.inner, since)
     }
 

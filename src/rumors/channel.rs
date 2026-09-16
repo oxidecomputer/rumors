@@ -16,7 +16,7 @@ type WaitForChange<T> =
     Pin<Box<dyn Future<Output = (bool, watch::Receiver<crate::Inner<T>>)> + Send>>;
 
 /// Holds an observer's receiver while it is ready, waiting, or closed.
-pub(super) enum Channel<T> {
+pub(super) enum Channel<T: Send + Sync + 'static> {
     /// The observer may inspect the replica's latest state.
     Ready(watch::Receiver<crate::Inner<T>>),
     /// The observer has registered its waker and awaits a change.
@@ -26,7 +26,7 @@ pub(super) enum Channel<T> {
 }
 
 /// Creates the receiver shared by each content-observer implementation.
-impl<T> Channel<T> {
+impl<T: Send + Sync + 'static> Channel<T> {
     /// Subscribes to `inner`, initially ready to inspect its current state.
     pub(super) fn subscribe(inner: &watch::Sender<crate::Inner<T>>) -> Self {
         Self::Ready(inner.subscribe())

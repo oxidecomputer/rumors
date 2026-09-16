@@ -33,7 +33,7 @@ pub enum WindowChoice {
 
 impl WindowChoice {
     /// Apply this choice to a peer under construction.
-    pub fn apply<T>(self, peer: rumors::Peer<T>) -> rumors::Peer<T> {
+    pub fn apply<T: Send + Sync + 'static>(self, peer: rumors::Peer<T>) -> rumors::Peer<T> {
         match self {
             Self::Floor => peer.sync_window_floor(),
             Self::Budget(bytes) => peer.sync_memory_budget(bytes),

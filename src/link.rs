@@ -333,7 +333,7 @@ pub struct Link<CR, CW, C, A> {
 /// fails post-commit ([`Phase::Completion`](crate::error::Phase::Completion)), so
 /// between sessions the two ends' latches may legitimately disagree. Never
 /// mirror one end's carried state onto the other.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SessionState {
     /// The next session's epoch.
     ///

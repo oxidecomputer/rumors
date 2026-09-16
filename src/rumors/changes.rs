@@ -26,7 +26,7 @@ use super::channel::Channel;
 /// [`Rumors`](crate::Rumors) handle for the replica have dropped and the final
 /// change has been reported. Holding this observer does not prevent
 /// [`try_into_peer`](crate::Rumors::try_into_peer) from recovering the `Peer`.
-pub struct Changes<T> {
+pub struct Changes<T: Send + Sync + 'static> {
     /// The shared replica receiver and its current wait state.
     channel: Channel<T>,
     /// The frontier most recently reported to the consumer: `None` until the
@@ -38,7 +38,7 @@ pub struct Changes<T> {
 }
 
 /// The outcome of [`Changes::try_next`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TryTick {
     /// The set advanced since the last report (a fresh signal's first step
     /// is always a tick).
@@ -51,7 +51,7 @@ pub enum TryTick {
 }
 
 /// Creates change subscriptions and exposes non-blocking polling.
-impl<T> Changes<T> {
+impl<T: Send + Sync + 'static> Changes<T> {
     /// Subscribe to the replica, reporting its current state on the first poll.
     pub(crate) fn subscribe(inner: &watch::Sender<crate::Inner<T>>) -> Self {
         Self {
@@ -67,10 +67,7 @@ impl<T> Changes<T> {
     /// [`Tick`]: TryTick::Tick
     /// [`Quiet`]: TryTick::Quiet
     /// [`Ended`]: TryTick::Ended
-    pub fn try_next(&mut self) -> TryTick
-    where
-        T: Send + Sync + 'static,
-    {
+    pub fn try_next(&mut self) -> TryTick {
         use futures::{FutureExt, StreamExt};
         match self.next().now_or_never() {
             None => TryTick::Quiet,
@@ -80,8 +77,7 @@ impl<T> Changes<T> {
     }
 }
 
-/// `T: 'static` because the quiet-period wait is materialized as an owned
-/// future, exactly as in [`UnorderedMessages`](crate::UnorderedMessages).
+/// Yields one unit item for each observed advance.
 impl<T: Send + Sync + 'static> Stream for Changes<T> {
     type Item = ();
 

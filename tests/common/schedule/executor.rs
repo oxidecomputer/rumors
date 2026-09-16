@@ -21,8 +21,12 @@ use crate::common::wire::{LINK_BUF, assert_control_drained, block_on, bootstrap_
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-pub struct ExecutionResult<T> {
+
+/// The peer fleet and oracle produced by a membership-free schedule.
+pub struct ExecutionResult<T: Send + Sync + 'static> {
+    /// The peers in stable fleet order.
     pub peers: Vec<Peer<T>>,
+    /// The specification state after the same schedule.
     pub oracle: Oracle<T>,
     /// For each `Insert` event, the [`Version`] created at the originating
     /// peer.
@@ -33,20 +37,21 @@ pub struct ExecutionResult<T> {
 /// slots (a retired peer's slot is `None`), every retiree's complete
 /// observation log, and the same oracle and version map as the
 /// membership-free result.
-pub struct MembershipExecutionResult<T> {
+pub struct MembershipExecutionResult<T: Send + Sync + 'static> {
     /// One slot per peer ever created — the initial fleet, then every
     /// mid-schedule bootstrap in order. `None` marks a retired peer.
     pub slots: Vec<Option<Peer<T>>>,
     /// Each retired peer's observation log, complete as of the drain
     /// that preceded its retirement.
     pub retired_observations: BTreeMap<usize, Vec<(Version, T)>>,
+    /// The specification state after the same schedule.
     pub oracle: Oracle<T>,
     /// For each `Insert` event, the [`Version`] created at the originating
     /// peer.
     pub resolved_versions: BTreeMap<EventIdx, Version>,
 }
 
-impl<T> MembershipExecutionResult<T> {
+impl<T: Send + Sync + 'static> MembershipExecutionResult<T> {
     /// The live peers, with their fleet indices.
     pub fn live(&self) -> impl Iterator<Item = (usize, &Peer<T>)> {
         self.slots
