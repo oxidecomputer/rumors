@@ -1,8 +1,5 @@
 # Rumors review checklist
 
-**Working:** Snapshot read surface and equality contract on
-`codex/snapshot-api`, based on `main`.
-
 **Next:** make public generic bounds and wrapper traits match their stored
 representations.
 
@@ -147,7 +144,7 @@ Coupled work: party ownership with 01; other API pieces can be separate.
 - [x] Return the stamped Version from send and simplify version lookup at callers — `c36cbf04`.
       Sources: `tests-common-2`, `tests-lifecycle-31`, T67.
 
-- [ ] Provide the intended Snapshot read surface and equality contract.
+- [x] Provide the intended Snapshot read surface and equality contract — `fb73e682`.
       Sources: `api-audit-2`, `api-core-34–36`, `benches-envelope-19`, `fresh-eyes-4`, `inventory-1`, `tree-core-5`, T47, T60, T61, T65, T97, T132.
 
 - [x] Share waiting and termination logic across content observers — `1df95824`.
