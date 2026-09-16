@@ -1,6 +1,6 @@
 # Rumors review checklist
 
-**Next:** simplify link construction, validated headers, and configuration.
+**Next:** enable lint-backed documentation and traits for remaining test-support surfaces.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →
@@ -347,7 +347,7 @@ Dependencies: 04 and 09 before simplifying shared failure paths.
 
 Dependencies: 02, then relevant API/error changes in 09.
 
-- [ ] Simplify link construction, validated headers, and configuration.
+- [x] Simplify link construction, validated headers, and configuration — `1b6fd8ca`.
       Sources: `inventory-18`, `link-5`, `link-6`, `link-20`, `link-25`, `link-29`, T44, T45, T47, T80, T81, T84, T156.
 
 - [ ] Make focused conformance probes exercise independent streams and cancellation without a backlog assumption.
