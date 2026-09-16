@@ -156,7 +156,7 @@ pub struct Peer<T: Send + Sync + 'static, B: Bookmark = NoBookmark> {
     /// Carries the [`payload_depth_limit`](Self::payload_depth_limit)
     /// beside the codec's fn pointers (see [`PayloadCodec`]).
     pub(crate) codec: PayloadCodec,
-    /// The wire-observation handler selected by [`observe`](Self::observe).
+    /// The wire observers added through [`observe`](Self::observe).
     pub(crate) observe: Attachment,
 }
 
@@ -669,22 +669,22 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         self
     }
 
-    /// Attach a wire-observation handler to this peer's future sessions.
+    /// Add a wire observer to this peer's future sessions.
     ///
-    /// For every session the peer enters — gossip, bootstrap serving,
-    /// and retirement alike — the handler is asked for a per-session
-    /// observer, which sees each directed stream's protocol messages
-    /// as raw CBOR items. The full contract (the three handler levels,
-    /// the ordering and back-pressure rules, what exactly is observed)
-    /// is the [`observe`](crate::observe) module's.
+    /// For every session the peer enters — gossip, bootstrap serving, and
+    /// retirement alike — each observer is asked for a per-session observer,
+    /// which sees each directed stream's protocol messages as raw CBOR items.
+    /// The full contract (the three handler levels, the ordering and
+    /// back-pressure rules, what exactly is observed) is the
+    /// [`observe`](crate::observe) module's.
     ///
-    /// Observation never changes the wire: an observed session's bytes
-    /// are identical to an unobserved one's. The choice follows the
-    /// peer through [`into_rumors`](Self::into_rumors), cloning and
-    /// reunion, bookmarking, and retirement; every [`Rumors`] clone
-    /// shares the one handler. To observe a joining peer's own
-    /// bootstrap session, attach on the builder instead
-    /// ([`Bootstrap::observe`]).
+    /// Observation never changes the wire: an observed session's bytes are
+    /// identical to an unobserved one's. The choice follows the peer through
+    /// [`into_rumors`](Self::into_rumors), cloning and reunion, bookmarking,
+    /// and retirement; every [`Rumors`] clone shares all observers. Calling
+    /// `observe` again adds another; callbacks visit them in registration order. To
+    /// observe a joining peer's own bootstrap session, attach on the builder
+    /// instead ([`Bootstrap::observe`]).
     #[must_use]
     pub fn observe(mut self, observer: Arc<dyn Observer>) -> Self {
         self.observe.attach(observer);

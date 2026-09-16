@@ -70,6 +70,7 @@ impl<T: Send + Sync + 'static, B: Bookmark> std::fmt::Debug for Bootstrap<T, B> 
             .field("window", &self.window)
             .field("run_budget", &self.run_budget)
             .field("payload_depth_limit", &self.payload_depth_limit)
+            .field("observe", &self.observe)
             .field("bookmark", &std::any::type_name::<B>())
             .field("bookmark_size_limit", &self.bookmark_size_limit)
             .finish()
@@ -191,9 +192,11 @@ impl<T: Send + Sync + 'static, B: Bookmark> Bootstrap<T, B> {
         self
     }
 
-    /// Observe this bootstrap session and the joined peer's later sessions.
+    /// Add an observer for this bootstrap and the joined peer's later sessions.
     ///
-    /// The handler also survives failed attempts in the returned builder.
+    /// Calling `observe` again adds another observer; callbacks visit them in
+    /// registration order. Every observer also survives failed attempts in the
+    /// returned builder.
     /// See [`observe`](crate::observe) for the observation contract.
     pub fn observe(mut self, observer: Arc<dyn Observer>) -> Self {
         self.observe.attach(observer);

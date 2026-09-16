@@ -9,14 +9,15 @@
 //! invocation carries exactly one whole CBOR item with its stream
 //! identity, and a consumer parses with any CBOR library — or none.
 //!
-//! Attachment has three levels, one handler per level, each supplied
-//! by the level above; every level can return `None` to skip what it
-//! does not care about:
+//! Attachment has three levels. Each peer observer supplies its own
+//! handlers for the levels below; every level can return `None` to
+//! skip what it does not care about:
 //!
-//! - **Peer**: an [`Observer`] attaches once, follows the peer through
-//!   cloning, bookmarking, and reunion, and is asked for a session
-//!   handler for every session the peer enters — gossip, bootstrap,
-//!   and retire alike.
+//! - **Peer**: each [`Observer`] follows the peer through cloning,
+//!   bookmarking, and reunion, and is asked for a session handler for
+//!   every session the peer enters — gossip, bootstrap, and retire
+//!   alike. Repeated attachment adds observers; callbacks visit them
+//!   in attachment order.
 //! - **Session**: a [`SessionObserver`] lives exactly as long as its
 //!   session and is asked for a stream handler for each directed
 //!   stream as it opens.
@@ -57,8 +58,8 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use crate::Protocol;
 
-/// A peer-level observation handler: attaches once, yields one
-/// [`SessionObserver`] per session the peer enters.
+/// One peer-level observation handler, yielding one [`SessionObserver`]
+/// per session the peer enters.
 ///
 /// Attach with [`Peer::observe`](crate::Peer::observe) or
 /// [`Bootstrap::observe`](crate::Bootstrap::observe). The handler is
@@ -205,56 +206,70 @@ pub enum Role {
     Responder,
 }
 
-/// The observation state a peer carries: the attached handler, if any
-/// — shared, like the replica state, by every handle to one peer
-/// identity.
+/// The wire observers a peer carries, in attachment order.
+///
+/// The collection follows the peer through every handle just as its
+/// replica state does. Clones share the collection until a builder
+/// attaches another observer.
 #[derive(Clone, Default)]
 pub(crate) struct Attachment {
-    handler: Option<Arc<dyn Observer>>,
+    /// Observers called for each future session, in attachment order.
+    handlers: Arc<[Arc<dyn Observer>]>,
 }
 
 impl std::fmt::Debug for Attachment {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Attachment")
-            .field("attached", &self.handler.is_some())
+            .field("observers", &self.handlers.len())
             .finish()
     }
 }
 
 impl Attachment {
-    /// Attach `observer`; later sessions ask it for session handlers.
+    /// Append `observer`; later sessions visit observers in this order.
     pub(crate) fn attach(&mut self, observer: Arc<dyn Observer>) {
-        self.handler = Some(observer);
+        let mut handlers = Vec::with_capacity(self.handlers.len() + 1);
+        handlers.extend(self.handlers.iter().cloned());
+        handlers.push(observer);
+        self.handlers = handlers.into();
     }
 
     /// Enter one session: create its handle.
     ///
     /// The handle is inert — every invocation a no-op branch — when no
-    /// observer is attached or when the observer declines the session.
+    /// observer accepts the session.
     pub(crate) fn begin(&self, kind: SessionKind) -> SessionHandle {
-        let Some(handler) = &self.handler else {
-            return SessionHandle::default();
-        };
         let info = SessionInfo {
             kind,
             protocol: Protocol::V2,
         };
-        let Some(session) = handler.session(&info) else {
+        let sessions: Vec<_> = self
+            .handlers
+            .iter()
+            .filter_map(|handler| handler.session(&info))
+            .collect();
+        if sessions.is_empty() {
             return SessionHandle::default();
-        };
+        }
         // The control stream's two directions open with the session
         // itself: create both handlers now, ahead of the preamble.
-        let sent = session.stream(&StreamInfo {
-            id: StreamId::Control,
-            direction: Direction::Sent,
-        });
-        let received = session.stream(&StreamInfo {
-            id: StreamId::Control,
-            direction: Direction::Received,
-        });
+        let sent = stream_handlers(
+            &sessions,
+            &StreamInfo {
+                id: StreamId::Control,
+                direction: Direction::Sent,
+            },
+        );
+        let received = stream_handlers(
+            &sessions,
+            &StreamInfo {
+                id: StreamId::Control,
+                direction: Direction::Received,
+            },
+        );
         SessionHandle {
             inner: Some(Arc::new(HandleInner {
-                session,
+                sessions,
                 control_sent: Mutex::new(sent),
                 control_received: Mutex::new(received),
             })),
@@ -278,10 +293,14 @@ pub(crate) struct SessionHandle {
     inner: Option<Arc<HandleInner>>,
 }
 
+/// The session handlers and control-stream handlers shared by handle clones.
 struct HandleInner {
-    session: Box<dyn SessionObserver>,
-    control_sent: Mutex<Option<Box<dyn StreamObserver>>>,
-    control_received: Mutex<Option<Box<dyn StreamObserver>>>,
+    /// Session handlers called in their observers' attachment order.
+    sessions: Vec<Box<dyn SessionObserver>>,
+    /// Handlers for control messages this side sends.
+    control_sent: Mutex<Vec<Box<dyn StreamObserver>>>,
+    /// Handlers for control messages this side receives.
+    control_received: Mutex<Vec<Box<dyn StreamObserver>>>,
 }
 
 impl SessionHandle {
@@ -307,12 +326,14 @@ impl SessionHandle {
     /// Report the session's decided role election.
     pub(crate) fn elected(&self, role: Role) {
         if let Some(inner) = &self.inner {
-            inner.session.elected(role);
+            for session in &inner.sessions {
+                session.elected(role);
+            }
         }
     }
 
-    /// Create the handler for one opening data stream, if the session
-    /// handler wants it.
+    /// Create the handlers for one opening data stream, if any session
+    /// observers want it.
     pub(crate) fn data(
         &self,
         speaker: Role,
@@ -320,10 +341,42 @@ impl SessionHandle {
         direction: Direction,
     ) -> Option<Box<dyn StreamObserver>> {
         let inner = self.inner.as_ref()?;
-        inner.session.stream(&StreamInfo {
-            id: StreamId::Data { speaker, index },
-            direction,
-        })
+        let handlers = stream_handlers(
+            &inner.sessions,
+            &StreamInfo {
+                id: StreamId::Data { speaker, index },
+                direction,
+            },
+        );
+        match handlers.len() {
+            0 => None,
+            1 => handlers.into_iter().next(),
+            _ => Some(Box::new(StreamFanout(handlers))),
+        }
+    }
+}
+
+/// Ask every session handler about one stream, preserving attachment order.
+fn stream_handlers(
+    sessions: &[Box<dyn SessionObserver>],
+    info: &StreamInfo,
+) -> Vec<Box<dyn StreamObserver>> {
+    sessions
+        .iter()
+        .filter_map(|session| session.stream(info))
+        .collect()
+}
+
+/// Deliver one stream's messages to multiple observers in attachment order.
+struct StreamFanout(Vec<Box<dyn StreamObserver>>);
+
+/// Forward every message to each attached stream handler.
+impl StreamObserver for StreamFanout {
+    /// Forward one message to every handler.
+    fn message(&mut self, bytes: &[u8]) {
+        for handler in &mut self.0 {
+            handler.message(bytes);
+        }
     }
 }
 
@@ -331,11 +384,11 @@ impl SessionHandle {
 ///
 /// A poisoned lock means an earlier invocation panicked (an
 /// application handler's panic, already propagating through the
-/// session); keep delivering to the handler rather than silently
+/// session); keep delivering to the handlers rather than silently
 /// dropping the direction.
-fn observe_control(slot: &Mutex<Option<Box<dyn StreamObserver>>>, bytes: &[u8]) {
+fn observe_control(slot: &Mutex<Vec<Box<dyn StreamObserver>>>, bytes: &[u8]) {
     let mut guard = slot.lock().unwrap_or_else(PoisonError::into_inner);
-    if let Some(observer) = guard.as_mut() {
+    for observer in guard.iter_mut() {
         observer.message(bytes);
     }
 }
