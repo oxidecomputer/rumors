@@ -1,9 +1,8 @@
 # `before` review checklist
 
-**Next:** after the baseline increment is reviewed and committed, audit and
-repair the 32-bit width boundaries as one correctness family. Keep the wasm
-executor only to the extent that it provides direct, maintainable coverage of
-those public boundaries.
+**Next:** finish the remaining fixed-width bookkeeping, then prepare the fork
+count API proposal. Keep the wasm executor only where it gives direct coverage
+that native tests cannot.
 
 **Branch:** `codex/before-triage`, rebased onto `main` at outcome boundaries.
 One implementation batch is active at a time. Nothing merges until the entire
@@ -18,11 +17,11 @@ triage's dispositions and branches are leads only.
 
 ## 01. Current baseline and inherited work
 
-- [ ] Run the current gate and its `before`-specific legs once; record genuine
+- [x] Run the current gate and its `before`-specific legs once; record genuine
       baseline failures without normalizing pins or changing code.
       Sources: `gate-legs-*`, `deps-*`, `suite-economics-*`; later fuzz-fit
       failures indexed in the old triage's `new-findings.md`.
-      Ready for review: on `437604d1`, every gate stream passed except the wasm
+      Committed as `a2e44f6b`. On `437604d1`, every gate stream passed except the wasm
       stream, where `ff_party_decode` at 136 bits reproducibly consumed 13,612
       fuel above its pinned band. The stream's skipped remainder passed when
       run directly: 48 wasm32 boundary tests and 42 fuelscape tests.
@@ -41,9 +40,17 @@ triage's dispositions and branches are leads only.
 
 ## 02. Width and platform correctness
 
-- [ ] Compute suanpan digit positions without intermediate `usize` overflow,
-      and property-test every shifted entry point at the representable boundary.
+- [x] Compute suanpan digit positions without intermediate `usize` overflow,
+      and test the shared landing boundary through native witnesses and the
+      existing shifted-operation properties, plus direct wasm32 execution.
       Sources: `suanpan-24`, related accumulator and wasm witness evidence.
+      Ready for review: full positions are computed in `u128` and converted at
+      one checked boundary. The wasm suite now uses ordinary release overflow
+      semantics and covers the limb-offset, accumulator-offset, and final-index
+      cases; all 49 pins pass. The full gate passed every other stream and
+      reproduced only the recorded `ff_party_decode` fuel-band failure. The
+      owner deferred that failure to the transient-allocation work it belongs
+      with.
 
 - [ ] Make the fork iterator contract correct on 32-bit targets and at the
       maximum public count. Any public signature change requires prior approval
@@ -206,6 +213,9 @@ triage's dispositions and branches are leads only.
       tests cannot; simplify its guest, harness, terminal vocabulary, and
       dependency footprint.
       Sources: `fuzz-guests-pins-*`, `deps-*`, width findings in section 02.
+      Progress: the suanpan landing pin proves a small, unique role for this
+      suite. Running the guest with compiler overflow checks disabled also
+      removes a source of false confidence about release behavior.
 
 - [ ] Make gate and CI recipes derive their inputs, run at their documented
       cadence, and stay green on an unchanged tree. Retire mutation, coverage,

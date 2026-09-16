@@ -18,15 +18,14 @@
 //!   pins directly, so trap-versus-value is the red/green axis whenever a
 //!   boundary misbehaves.
 //!
-//! The workspace builds this guest with `overflow-checks = true`: the 32-bit
-//! failure class under audit includes silent release-mode wraps, and the
-//! checks turn exactly those wraps into observable traps instead of wrong
-//! values downstream code would have to detect after the fact.
+//! The guest uses ordinary release overflow semantics. Boundary checks in the
+//! code under test must prevent silent wraps themselves.
 
 use core::cmp::Ordering;
 
 use before::{Rank, Ranked, Span, Version};
 use borsh::BorshDeserialize;
+use suanpan::Accumulator;
 
 /// The canonical encoding of a valid single-leaf `Version` padded to exactly
 /// `n` bytes: one leaf flag, then the Elias-gamma code of the leaf height
@@ -722,4 +721,29 @@ pub extern "C" fn pin_rank_checked_sub(small_exp: u64) -> i64 {
         return -4;
     }
     0
+}
+
+/// Exercise each suanpan path that adds an operand-digit offset to a shift.
+///
+/// Every case places a nonzero digit at or beyond the largest bufferable
+/// wasm32 index. Correct code panics; wrapped arithmetic returns the misplaced
+/// digit's count instead.
+#[no_mangle]
+pub extern "C" fn pin_suanpan_landing(case: u64) -> i64 {
+    let max = u64::from(u32::MAX);
+    let mut acc = Accumulator::new();
+    match case {
+        // The third limb's low digit lands four positions above the base.
+        1 => acc.add_limbs_shl([0, 0, 5], 32 * (max - 3)),
+        // The only nonzero held digit lands two positions above the base.
+        2 => {
+            acc.add_u64(1);
+            acc.shl(64);
+            acc.shl(32 * (max - 1));
+        }
+        // This position fits usize, but the required length does not.
+        3 => acc.add_u64_shl(1, 32 * max),
+        _ => return -1,
+    }
+    i64::try_from(acc.digit_count()).unwrap_or(-2)
 }

@@ -13,7 +13,21 @@ use core::cmp::Ordering;
 use dashu_int::{IBig, UBig};
 
 use super::{assert_value, park_extreme_negative_digit, Accumulator};
-use crate::accumulator::{QUICK_MAX, QUICK_SHIFT_MAX};
+use crate::accumulator::{landing, QUICK_MAX, QUICK_SHIFT_MAX};
+
+/// The last digit position whose buffer length fits `usize` is accepted.
+#[test]
+fn last_addressable_landing_is_accepted() {
+    let position = usize::MAX as u128 - 1;
+    assert_eq!(landing(position), usize::MAX - 1);
+}
+
+/// The first digit position whose buffer length cannot fit `usize` panics.
+#[test]
+#[should_panic(expected = "digit landing fits the accumulator buffer")]
+fn first_unaddressable_landing_panics() {
+    landing(usize::MAX as u128);
+}
 
 /// The sign fold's decision threshold is tight: a running partial of
 /// exactly 2 can still be overturned by the digits below, so the fold

@@ -672,8 +672,8 @@ fuzzfit-calibrate: fuzzfit-build
 # harness pins each coordinate's exact outcome, with adjacency witnesses
 # beside each boundary so a failure is attributable to its seam. Pins
 # land red-first when a seam is found; each pin's history lives in git.
-# The guest builds with overflow checks on,
-# so a 32-bit wrap is an observable trap, never a silently wrong value.
+# The guest uses ordinary release overflow semantics, so only explicit checks
+# stand between a 32-bit wrap and the wrong value the pins would observe.
 
 # Build the 32-bit boundary-pin wasm guest and its harness (both halves).
 [working-directory("crates/before/wasm32-pins")]

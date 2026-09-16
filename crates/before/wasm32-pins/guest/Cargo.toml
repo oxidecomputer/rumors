@@ -19,3 +19,4 @@ crate-type = ["cdylib"]
 # exact-bit-length observation (`encoded_bits`) the pins report through.
 before = { path = "../..", features = ["borsh", "meter"] }
 borsh = "1"
+suanpan = { path = "../../../suanpan" }

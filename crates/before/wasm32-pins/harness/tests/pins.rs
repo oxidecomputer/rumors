@@ -740,3 +740,18 @@ fn version_rank_memory_terminal_traps() {
         Outcome::Trapped(Trap::UnreachableCodeReached),
     );
 }
+
+/// Every shifted suanpan path rejects a digit landing outside a wasm32 buffer.
+///
+/// The cases cover a limb offset, an accumulator-digit offset, and the final
+/// `usize` index whose required `position + 1` length is unrepresentable.
+#[test]
+fn suanpan_rejects_unaddressable_digit_landings() {
+    for case in 1..=3 {
+        assert_eq!(
+            call1("pin_suanpan_landing", case),
+            Outcome::Trapped(Trap::UnreachableCodeReached),
+            "landing case {case} returned instead of panicking"
+        );
+    }
+}

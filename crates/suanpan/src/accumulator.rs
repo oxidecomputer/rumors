@@ -316,11 +316,9 @@ impl Accumulator {
     ///
     /// # Panics
     ///
-    /// Panics if the shifted digit position `shift / 32` overflows
-    /// `usize` — possible only on targets narrower than 64 bits (from
-    /// `shift = 2^37` on a 32-bit one). On 64-bit targets every `u64`
-    /// shift fits, and an enormous one fails at allocation instead, like
-    /// any collection asked to grow to `shift / 32` entries.
+    /// Panics if a nonzero digit would land at or beyond `usize::MAX`.
+    /// The digit buffer would need the unrepresentable length
+    /// `position + 1`.
     pub fn add_wide_shl(&mut self, delta: &UBig, shift: u64) {
         self.spill();
         self.apply_limbs(Limbs::new(delta), false, shift);
@@ -340,8 +338,8 @@ impl Accumulator {
     ///
     /// # Panics
     ///
-    /// As [`add_wide_shl`](Accumulator::add_wide_shl): a shifted digit
-    /// position past `usize` panics.
+    /// Panics under the same condition as
+    /// [`add_wide_shl`](Accumulator::add_wide_shl).
     pub fn sub_wide_shl(&mut self, delta: &UBig, shift: u64) {
         self.spill();
         self.apply_limbs(Limbs::new(delta), true, shift);
@@ -369,8 +367,8 @@ impl Accumulator {
     ///
     /// # Panics
     ///
-    /// As [`add_wide_shl`](Accumulator::add_wide_shl): a shifted digit
-    /// position past `usize` panics.
+    /// Panics under the same condition as
+    /// [`add_wide_shl`](Accumulator::add_wide_shl).
     pub fn add_limbs_shl<I: IntoIterator<Item = u64>>(&mut self, limbs: I, shift: u64) {
         self.spill();
         self.apply_limbs(limbs.into_iter(), false, shift);
@@ -391,8 +389,8 @@ impl Accumulator {
     ///
     /// # Panics
     ///
-    /// As [`add_wide_shl`](Accumulator::add_wide_shl): a shifted digit
-    /// position past `usize` panics.
+    /// Panics under the same condition as
+    /// [`add_wide_shl`](Accumulator::add_wide_shl).
     pub fn sub_limbs_shl<I: IntoIterator<Item = u64>>(&mut self, limbs: I, shift: u64) {
         self.spill();
         self.apply_limbs(limbs.into_iter(), true, shift);
@@ -413,8 +411,8 @@ impl Accumulator {
     ///
     /// # Panics
     ///
-    /// As [`add_wide_shl`](Accumulator::add_wide_shl): a shifted digit
-    /// position past `usize` panics.
+    /// Panics under the same condition as
+    /// [`add_wide_shl`](Accumulator::add_wide_shl).
     pub fn add_magnitude_shl<M: Magnitude>(&mut self, delta: &M, shift: u64) {
         match delta.to_word() {
             Some(0) => {}
@@ -438,8 +436,8 @@ impl Accumulator {
     ///
     /// # Panics
     ///
-    /// As [`add_wide_shl`](Accumulator::add_wide_shl): a shifted digit
-    /// position past `usize` panics.
+    /// Panics under the same condition as
+    /// [`add_wide_shl`](Accumulator::add_wide_shl).
     pub fn sub_magnitude_shl<M: Magnitude>(&mut self, delta: &M, shift: u64) {
         match delta.to_word() {
             Some(0) => {}
@@ -495,8 +493,8 @@ impl Accumulator {
     ///
     /// # Panics
     ///
-    /// As [`add_wide_shl`](Accumulator::add_wide_shl): a shifted digit
-    /// position past `usize` panics.
+    /// Panics under the same condition as
+    /// [`add_wide_shl`](Accumulator::add_wide_shl).
     pub fn add_accum_shl(&mut self, other: &Accumulator, shift: u64) {
         self.fold_accum(other, shift, false);
     }
@@ -518,8 +516,8 @@ impl Accumulator {
     ///
     /// # Panics
     ///
-    /// As [`add_wide_shl`](Accumulator::add_wide_shl): a shifted digit
-    /// position past `usize` panics.
+    /// Panics under the same condition as
+    /// [`add_wide_shl`](Accumulator::add_wide_shl).
     pub fn sub_accum_shl(&mut self, other: &Accumulator, shift: u64) {
         self.fold_accum(other, shift, true);
     }
@@ -557,13 +555,12 @@ impl Accumulator {
         self.spill();
         let (digit_shift, bit_shift) =
             (shift / u64::from(DIGIT_BITS), shift % u64::from(DIGIT_BITS));
-        let digit_shift = usize::try_from(digit_shift).expect("digit positions fit a usize");
         for (offset, &digit) in other.digits[..=other.top].iter().enumerate() {
             touch(1);
             if digit != 0 {
                 let contribution = i128::from(digit) << bit_shift;
                 self.add_at(
-                    offset + digit_shift,
+                    landing(u128::from(digit_shift) + offset as u128),
                     if negative {
                         -contribution
                     } else {
@@ -596,8 +593,8 @@ impl Accumulator {
     ///
     /// # Panics
     ///
-    /// As [`add_wide_shl`](Accumulator::add_wide_shl): a shifted digit
-    /// position past `usize` panics.
+    /// Panics under the same condition as
+    /// [`add_wide_shl`](Accumulator::add_wide_shl).
     pub fn shl(&mut self, shift: u64) {
         // Identity fast path: a zero shift or a literal zero changes
         // nothing, and returning here keeps both free — no rebuild of a
@@ -1188,8 +1185,8 @@ impl Accumulator {
     ///
     /// # Panics
     ///
-    /// As [`add_wide_shl`](Accumulator::add_wide_shl): a shifted digit
-    /// position past `usize` panics.
+    /// Panics under the same condition as
+    /// [`add_wide_shl`](Accumulator::add_wide_shl).
     #[inline]
     pub fn add_u64_shl(&mut self, word: u64, shift: u64) {
         self.add_shifted_word(word, false, shift);
@@ -1207,8 +1204,8 @@ impl Accumulator {
     ///
     /// # Panics
     ///
-    /// As [`add_wide_shl`](Accumulator::add_wide_shl): a shifted digit
-    /// position past `usize` panics.
+    /// Panics under the same condition as
+    /// [`add_wide_shl`](Accumulator::add_wide_shl).
     #[inline]
     pub fn sub_u64_shl(&mut self, word: u64, shift: u64) {
         self.add_shifted_word(word, true, shift);
@@ -1231,10 +1228,12 @@ impl Accumulator {
         }
         let (digit_shift, bit_shift) =
             (shift / u64::from(DIGIT_BITS), shift % u64::from(DIGIT_BITS));
-        let digit_shift = usize::try_from(digit_shift).expect("digit positions fit a usize");
         // At most 96 bits after the sub-digit shift: well inside `i128`.
         let value = i128::from(word) << bit_shift;
-        self.add_at(digit_shift, if negative { -value } else { value });
+        self.add_at(
+            landing(u128::from(digit_shift)),
+            if negative { -value } else { value },
+        );
     }
 
     /// Fold `delta` into the quick register, spilling to the digit
@@ -1308,7 +1307,7 @@ impl Accumulator {
         debug_assert!(self.quick.is_none(), "deposits land in the digit engine");
         let (digit_shift, bit_shift) =
             (shift / u64::from(DIGIT_BITS), shift % u64::from(DIGIT_BITS));
-        let mut position = usize::try_from(digit_shift).expect("digit positions fit a usize");
+        let mut position = u128::from(digit_shift);
         let negative = value.is_negative();
         let mut magnitude = value.unsigned_abs();
         while magnitude != 0 {
@@ -1317,7 +1316,7 @@ impl Accumulator {
             if digit != 0 {
                 let contribution = digit << bit_shift;
                 self.add_at(
-                    position,
+                    landing(position),
                     if negative {
                         -contribution
                     } else {
@@ -1467,27 +1466,29 @@ impl Accumulator {
     fn apply_limbs<I: Iterator<Item = u64>>(&mut self, limbs: I, negative: bool, shift: u64) {
         let (digit_shift, bit_shift) =
             (shift / u64::from(DIGIT_BITS), shift % u64::from(DIGIT_BITS));
-        let digit_shift = usize::try_from(digit_shift).expect("digit positions fit a usize");
         for (limb_index, limb) in limbs.enumerate() {
             touch(1);
             // At most 33 + 31 bits per contribution after the sub-digit
             // shift: well inside the `i128` `add_at` carries from.
             let low = i128::from(limb & DIGIT_MASK) << bit_shift;
             let high = i128::from(limb >> DIGIT_BITS) << bit_shift;
+            let position = u128::from(digit_shift) + 2 * limb_index as u128;
             if low != 0 {
-                self.add_at(
-                    2 * limb_index + digit_shift,
-                    if negative { -low } else { low },
-                );
+                self.add_at(landing(position), if negative { -low } else { low });
             }
             if high != 0 {
-                self.add_at(
-                    2 * limb_index + 1 + digit_shift,
-                    if negative { -high } else { high },
-                );
+                self.add_at(landing(position + 1), if negative { -high } else { high });
             }
         }
     }
+}
+
+/// Convert a digit position to an index whose buffer length is representable.
+fn landing(position: u128) -> usize {
+    usize::try_from(position)
+        .ok()
+        .filter(|&index| index < usize::MAX)
+        .expect("digit landing fits the accumulator buffer")
 }
 
 impl Default for Accumulator {

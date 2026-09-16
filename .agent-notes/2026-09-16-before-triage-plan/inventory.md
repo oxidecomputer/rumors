@@ -78,8 +78,9 @@ mechanisms:
   `expect("site count fits u32")`.
 - Query epochs still return `u32` and convert the drift count with
   `expect("freeze count fits u32")`.
-- Suanpan converts a shifted digit position to `usize` before adding per-limb
-  offsets, leaving the review's intermediate-overflow question live.
+- Suanpan's shifted-digit landing bug is repaired in the current review
+  increment: the full position is computed before its one checked conversion,
+  with native boundary witnesses and direct wasm32 release coverage.
 
 These observations establish priority, not the final repair. Each batch must
 trace the complete current path and reproduce or prove the boundary before
@@ -106,6 +107,12 @@ The verification architecture currently includes:
 
 Several initial dissolution candidates are strong enough to investigate
 early, but not yet decided:
+
+- **Suanpan's global touch meter:** its exact-count tests interfere under
+  Cargo's default parallel test runner (15 false failures in one observed run)
+  and pass serially. Determine whether to isolate the counter, serialize the
+  tests explicitly, or consolidate the exact-count layer before treating an
+  all-feature run as a reliable instrument.
 
 - **Stack segments:** the review found the production readers disconnected from
   their only writer. The envelope column was deleted, but the board still

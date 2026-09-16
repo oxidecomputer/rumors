@@ -23,10 +23,8 @@
 members = ["guest", "harness"]
 resolver = "2"
 
-# The pins run at release speed (the boundary cases walk hundreds of
-# megabytes), but with overflow checks kept ON: the 32-bit failure class
-# under audit includes silent release-mode wraps, and the checks turn
-# exactly those wraps into observable traps instead of wrong values the
-# guest would have to detect after the fact.
+# Run the arithmetic users get in an ordinary release build. Explicit
+# boundary checks must prevent wraps; compiler-added overflow traps would
+# conceal the wrong-value failures this workspace exists to catch.
 [profile.release]
-overflow-checks = true
+overflow-checks = false
