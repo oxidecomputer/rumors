@@ -3,6 +3,23 @@
 **Next:** make repeated observer attachment additive, preserving registration
 order and every callback.
 
+**Execution topology:** finish the public API lane serially: observers →
+configuration and session diagnostics → routed-link results and counters →
+routed-link construction → test-only surface cleanup. Once that surface is
+stable, the file-backed bookmark, generator repairs, and internal protocol work
+may proceed independently. Protocol work remains serial: errors → version and
+greeting decoding → decode-channel progress → stream state machines → handshake
+handoff. Window arithmetic may proceed beside that lane, but must settle before
+backend/proxy cleanup; preserve its measurement baseline before tree and
+typed-tree cleanup. Consolidate shared test support only after those interfaces
+settle, then finish properties, benchmarks, lints, dependencies, documentation,
+module layout, publication metadata, final reconciliation, and Sush review.
+
+Use separate Rumors implementation agents only for the file-backed bookmark,
+scoped generator repairs, or tree work after the window baseline is fixed.
+Keep one owner for each serial lane and one merge queue; update Sush separately
+after each approved external API merge.
+
 Check code outcomes only after verification and merge; retain the landing
 commit. Checked dispositions are labelled explicitly.
 [Workflow and tracking rules](README.md#3-tracking-without-another-system).
