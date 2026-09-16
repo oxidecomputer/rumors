@@ -1,6 +1,7 @@
 # Rumors review checklist
 
-**Next:** simplify handle-liveness accounting (07).
+**Next:** return the stamped `Version` from send operations (07), then continue
+the accepted breaking public-API work before internal cleanup.
 
 Check code outcomes only after verification and merge; retain the landing
 commit. Checked dispositions are labelled explicitly.
@@ -152,7 +153,7 @@ Coupled work: party ownership with 01; other API pieces can be separate.
 - [ ] Accumulate wire observers across observe calls and report attachment settings.
       Sources: `api-core-19`, `session-bookmark-40`, T74, T132.
 
-- [ ] Simplify handle-liveness accounting without changing reunion semantics.
+- [x] Simplify handle-liveness accounting without changing reunion semantics — `1f8eef35`.
       Sources: `api-core-22`, T125. Prerequisite: concurrent-reuniter checks in `51e14731`.
 
 - [x] Clarify observer installation timing and the limits of per-pass causal ordering — `fa9a1f0e`.

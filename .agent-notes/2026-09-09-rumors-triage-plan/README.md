@@ -21,6 +21,10 @@ Before choosing another cleanup batch, compare it with the remaining correctness
 issues and the validation they block. Being nearby in the code is a tie-breaker,
 not a reason to postpone higher-value work.
 
+Front-load accepted breaking public-API changes so Sush compatibility can
+settle before the remaining internal cleanup, performance, and verification
+work.
+
 Recover the intended behavior from the findings and amended rulings.
 Salvage useful code, counterexamples, and experiments from the prepared
 branches; do not merge them wholesale. Current user instructions take
