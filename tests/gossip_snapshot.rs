@@ -376,14 +376,14 @@ fn early_supplies_honor_redactions() {
     // leaf under the same root radix; the responder redacts its copy of
     // the first and keeps three ballast leaves outside that radix, making
     // it the larger set.
-    let (a, b) = block_on(async {
+    let (a, b, first) = block_on(async {
         let a: Rumors<u64> = seeded();
-        a.send(1).unwrap();
+        let first = a.send(1).unwrap();
         let b = bootstrap_fork_async(&a).await;
-        b.redact(&version_for(&b, 1));
-        (a, b)
+        b.redact(&first);
+        (a, b, first)
     });
-    let radix = path_radix(&version_for(&a, 1));
+    let radix = path_radix(&first);
     send_pool(&a, 2, TARGETED_POOL);
     let sibling = pool(&a, 2, TARGETED_POOL)
         .into_iter()
@@ -673,8 +673,8 @@ fn same_live_content_divergent_versions() {
         let b = bootstrap_fork_async(&a).await;
 
         // A diverges in version but not in live content: insert 2, then drop it.
-        a.send(2).unwrap();
-        a.redact(&version_for(&a, 2));
+        let transient = a.send(2).unwrap();
+        a.redact(&transient);
         (a, b)
     });
     insta::assert_snapshot!(capture_gossip(a, b));

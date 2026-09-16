@@ -565,15 +565,7 @@ async fn envelope_session_bytes() -> EnvelopeExtent {
     // ticks in its version bounds without leaving shared live content
     // that would blunt the divergence.
     for (i, peer) in fleet.iter().enumerate() {
-        peer.send(2_000_000 + i as u64).unwrap();
-        let marker = {
-            let snapshot = peer.snapshot();
-            let (marker, _) = snapshot
-                .iter()
-                .next()
-                .expect("the peer holds exactly its own marker");
-            marker.clone()
-        };
+        let marker = peer.send(2_000_000 + i as u64).unwrap();
         peer.redact(&marker);
     }
     // Two star rounds spread every party's ticks into every peer's

@@ -16,7 +16,6 @@ use rumors::{Error, Gossip, Gossiped, Led, Peer, Rumors, testing::run_to_quiesce
 use tokio::io::AsyncWriteExt;
 use tokio::time::timeout;
 
-use crate::common::action::created_version;
 use crate::common::fault::{self, FaultPlan, faulty};
 use crate::common::wire::{bootstrap_fork_async, tokio_block_on as block_on, wire_gossip_async};
 
@@ -404,9 +403,8 @@ async fn a_redaction_frontier_propagates_transitively_through_a_chain() {
 
     // A sends and redacts between driver polls: the commit's only surviving
     // trace is A's advanced causal frontier.
-    let pre = a.snapshot().latest().clone();
-    a.send(42).unwrap();
-    a.redact(&created_version(&a.snapshot(), &pre));
+    let version = a.send(42).unwrap();
+    a.redact(&version);
 
     // The A-side connection carries the news to B...
     let ab = futures::future::join(a_drv.next(), b_ab_drv.next());

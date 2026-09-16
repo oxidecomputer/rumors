@@ -44,7 +44,7 @@ use before::Party;
 use proptest::prelude::*;
 use rumors::{Peer, Retire, Rumors};
 
-use crate::common::action::{arb_local_actions, build_local, created_version};
+use crate::common::action::{arb_local_actions, build_local};
 use crate::common::oracle::readout;
 use crate::common::wire::{assert_control_drained, block_on, bootstrap_fork, wire_gossip};
 
@@ -402,15 +402,7 @@ proptest! {
         for (i, &provider) in providers.iter().enumerate() {
             apply(&mut fleet, Op::Bootstrap { provider });
             let newest = fleet.len() - 1;
-            let before = fleet[newest].snapshot().latest().clone();
-            apply(
-                &mut fleet,
-                Op::Send {
-                    peer: newest,
-                    value: i as u64,
-                },
-            );
-            let version = created_version(&fleet[newest].snapshot(), &before);
+            let version = fleet[newest].send(i as u64).unwrap();
             expected.insert(version.as_bytes().to_vec(), i as u64);
         }
 

@@ -18,7 +18,6 @@ use futures::{FutureExt, Stream, StreamExt};
 use proptest::{collection::vec, prelude::*};
 use rumors::{Changes, Peer, Rumors, TryTick, Version};
 
-use crate::common::action::created_version;
 use crate::common::wire::{block_on, bootstrap_fork, wire_gossip};
 
 /// A fresh observer yields immediately — even on an empty set — because a
@@ -46,9 +45,8 @@ fn gossip_frontier_only_advance_ticks_the_observer() {
 
     // A sends and redacts before any session runs: A's tree is empty again,
     // and the redaction's only trace is A's advanced causal frontier.
-    let pre = a.snapshot().latest().clone();
-    a.send(7).unwrap();
-    a.redact(&created_version(&a.snapshot(), &pre));
+    let version = a.send(7).unwrap();
+    a.redact(&version);
 
     // Both sets stay empty, but B must learn and report A's history.
     let b_before = b.snapshot().latest().clone();
@@ -203,8 +201,7 @@ proptest! {
     #[test]
     fn noop_commits_do_not_wake_observers(ops in vec(0u8..3, 1..40)) {
         let a = Peer::<u64>::seed().sync_window_floor().into_rumors();
-        a.send(7).unwrap();
-        let removed = a.snapshot().iter().next().unwrap().0.clone();
+        let removed = a.send(7).unwrap();
         a.redact(&removed);
         let latest = a.snapshot().latest().clone();
         let mut changes = a.changes();

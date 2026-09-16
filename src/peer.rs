@@ -812,14 +812,14 @@ impl<T, B: Bookmark> Peer<T, B> {
         Rumors::new(self)
     }
 
-    pub(crate) fn send(&self, message: T) -> Result<(), EncodeError>
+    /// Commit one message and return its stamped version.
+    pub(crate) fn send(&self, message: T) -> Result<Version, EncodeError>
     where
         T: Send + Sync + 'static,
     {
         let mut batch = Batch::new(&self.inner, self.codec);
         batch.send(message)?;
-        batch.commit();
-        Ok(())
+        Ok(batch.commit())
     }
 
     pub(crate) fn redact(&self, version: &Version)

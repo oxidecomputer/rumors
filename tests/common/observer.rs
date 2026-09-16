@@ -7,7 +7,6 @@ use futures::{FutureExt, Stream, StreamExt};
 use proptest::{collection::vec, prelude::*};
 use rumors::{Peer, Rumors, Version};
 
-use super::action::created_version;
 use super::wire::{bootstrap_fork, wire_gossip};
 
 /// A message, a temporary lack of news, or the end of an observer.
@@ -117,9 +116,7 @@ where
                     _ if i % 2 == 0 => &a,
                     _ => &sibling,
                 };
-                let before = sender.snapshot().latest().clone();
-                sender.send(*value).unwrap();
-                let version = created_version(&sender.snapshot(), &before);
+                let version = sender.send(*value).unwrap();
                 published.insert(version.as_bytes().to_vec(), *value);
             }
             Op::Redact(remote, index) => {
@@ -236,9 +233,8 @@ where
         "redactions do not invalidate a captured pass"
     );
 
-    let before = a.snapshot().latest().clone();
-    a.send(0).unwrap();
-    a.redact(&created_version(&a.snapshot(), &before));
+    let version = a.send(0).unwrap();
+    a.redact(&version);
     prop_assert_eq!(
         step(&mut obs),
         Step::Quiet,

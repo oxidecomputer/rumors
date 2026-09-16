@@ -23,7 +23,7 @@ use std::collections::BTreeMap;
 use proptest::prelude::*;
 use rumors::{Peer, Retire, Rumors, causally};
 
-use crate::common::action::{LocalAction, arb_local_actions, build_local, created_version};
+use crate::common::action::{LocalAction, arb_local_actions, build_local};
 use crate::common::fault::{self, FaultPlan};
 use crate::common::observer::{Step, drain, step};
 use crate::common::oracle::readout;
@@ -362,9 +362,7 @@ proptest! {
         // the expected set does not depend on gossip.
         for (peer, values) in [(&retiree, retiree_sends), (&survivor, survivor_sends)] {
             for value in values {
-                let before = peer.snapshot().latest().clone();
-                peer.send(value).unwrap();
-                let version = created_version(&peer.snapshot(), &before);
+                let version = peer.send(value).unwrap();
                 expected.insert(version.as_bytes().to_vec(), value);
             }
         }

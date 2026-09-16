@@ -93,13 +93,17 @@ impl<'a, T: Send + Sync> Batch<'a, T> {
         }
     }
 
-    /// Apply the queued actions, notifying observers if the tree changed.
-    pub(crate) fn commit(self) {
+    /// Apply the queued actions and return the replica's resulting frontier.
+    pub(crate) fn commit(self) -> Version {
         let Batch { inner, actions, .. } = self;
+        let mut latest = None;
         Inner::commit(inner, |party, tree| {
             // A later action may discard an earlier insert. Keep the queued
             // handles until the commit releases the lock, even on unwind.
-            tree.act(party, actions.iter().cloned())
+            let changed = tree.act(party, actions.iter().cloned());
+            latest = Some(tree.latest().clone());
+            changed
         });
+        latest.expect("commit closure always runs")
     }
 }

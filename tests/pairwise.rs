@@ -192,23 +192,10 @@ proptest! {
         let alice = dup(&seed);
         let bob = dup(&seed);
 
-        let pre_a = alice.snapshot().latest().clone();
-        alice.send(a_value).unwrap();
-        let snap_a = alice.snapshot();
-        let (va, _) = snap_a
-            .range(causally::since(&pre_a))
-            .next()
-            .expect("alice's insert creates a live leaf");
+        let alice_version = alice.send(a_value).unwrap();
+        let bob_version = bob.send(b_value).unwrap();
 
-        let pre_b = bob.snapshot().latest().clone();
-        bob.send(b_value).unwrap();
-        let snap_b = bob.snapshot();
-        let (vb, _) = snap_b
-            .range(causally::since(&pre_b))
-            .next()
-            .expect("bob's insert creates a live leaf");
-
-        prop_assert_eq!(va.partial_cmp(vb), None);
+        prop_assert_eq!(alice_version.partial_cmp(&bob_version), None);
     }
 
     /// One session unions live content: after gossip, each side's readout

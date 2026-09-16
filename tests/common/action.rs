@@ -2,15 +2,20 @@
 
 use proptest::collection::vec;
 use proptest::prelude::*;
-use rumors::{Snapshot, Version, causally};
+use rumors::Version;
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+
+/// Maximum generated actions in one local schedule.
 const MAX_ACTIONS: usize = 16;
 
+/// One generated local write against a replica.
 #[derive(Debug, Clone)]
 pub enum LocalAction<T> {
+    /// Send the supplied message.
     Insert(T),
+    /// Redact a previously sent message by generated index.
     Redact(usize),
 }
 
@@ -44,25 +49,6 @@ pub fn arb_string_actions() -> impl Strategy<Value = Vec<LocalAction<String>>> {
     arb_actions("[a-z]{0,8}".prop_map(String::from))
 }
 
-/// Returns the [`Version`] of the single live leaf in `snapshot` above
-/// the causal frontier `pre`.
-///
-/// This is how a builder recovers the version a `send` just created,
-/// given the `latest()` it recorded before sending.
-///
-/// # Panics
-///
-/// Panics unless exactly one leaf qualifies.
-pub fn created_version<T: Send + Sync + 'static>(snapshot: &Snapshot<T>, pre: &Version) -> Version {
-    let mut fresh = snapshot.range(causally::since(pre)).map(|(v, _)| v);
-    let version = fresh.next().expect("a send creates exactly one live leaf");
-    assert!(
-        fresh.next().is_none(),
-        "a single send must create exactly one live leaf"
-    );
-    version.clone()
-}
-
 /// Apply a `LocalAction` sequence to an already-bootstrapped local replica.
 pub fn build_local<T>(local: rumors::Rumors<T>, actions: &[LocalAction<T>]) -> rumors::Rumors<T>
 where
@@ -72,9 +58,7 @@ where
     for a in actions {
         match a {
             LocalAction::Insert(v) => {
-                let pre = local.snapshot().latest().clone();
-                local.send(v.clone()).unwrap();
-                versions.push(created_version(&local.snapshot(), &pre));
+                versions.push(local.send(v.clone()).unwrap());
             }
             LocalAction::Redact(idx) => {
                 if !versions.is_empty() {

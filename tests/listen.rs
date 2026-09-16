@@ -22,7 +22,6 @@ use rand::SeedableRng;
 use rand::rngs::SmallRng;
 use rumors::{Peer, Rumors, Version, causally};
 
-use crate::common::action::created_version;
 use crate::common::observer::{
     Step, arb_ops, drain, interleave, live_map, redact_during_pass, step,
 };
@@ -130,18 +129,14 @@ fn redactions_are_honored_silently() {
     let rumors = Peer::<u64>::seed().sync_window_floor().into_rumors();
 
     // Redacted before subscription: never fires.
-    let pre = rumors.snapshot().latest().clone();
-    rumors.send(1).unwrap();
-    let version_1 = created_version(&rumors.snapshot(), &pre);
+    let version_1 = rumors.send(1).unwrap();
     rumors.redact(&version_1);
     let mut obs = rumors.unordered_messages();
     let (items, _) = drain(&mut obs);
     assert!(items.is_empty(), "a pre-subscription redaction never fires");
 
     // Observed, then redacted: nothing further fires.
-    let pre = rumors.snapshot().latest().clone();
-    rumors.send(2).unwrap();
-    let version_2 = created_version(&rumors.snapshot(), &pre);
+    let version_2 = rumors.send(2).unwrap();
     let (items, _) = drain(&mut obs);
     assert_eq!(items.len(), 1, "the live message fires once");
     rumors.redact(&version_2);
@@ -149,9 +144,7 @@ fn redactions_are_honored_silently() {
     assert!(items.is_empty(), "a redaction fires no further observation");
 
     // Inserted and redacted wholly between passes: never delivered.
-    let pre = rumors.snapshot().latest().clone();
-    rumors.send(3).unwrap();
-    let version_3 = created_version(&rumors.snapshot(), &pre);
+    let version_3 = rumors.send(3).unwrap();
     rumors.redact(&version_3);
     let (items, _) = drain(&mut obs);
     assert!(

@@ -1,9 +1,8 @@
-//! Single-peer correctness for a lone rumor set, with no gossip.
+//! Single-peer write correctness for a lone rumor set, with no gossip.
 //!
-//! Exercises the surface area of [`Batch`](rumors::Batch) commits:
-//! live-leaf fan-out, distinctness of the [`Version`](rumors::Version)s
-//! created within a batch, and strict monotonicity of the local party's
-//! component of each created version.
+//! Exercises individual send versions and the [`Batch`](rumors::Batch) commit
+//! surface: live-leaf fan-out, distinct versions within a batch, and strict
+//! monotonicity of the local party's component.
 
 mod common;
 
@@ -27,6 +26,21 @@ fn batch_send(peer: &Rumors<u64>, values: &[u64]) -> Vec<Version> {
 }
 
 proptest! {
+    /// Each individual send returns the version stored with that message;
+    /// equal payloads sent twice remain distinct messages.
+    #[test]
+    fn send_returns_its_stamped_version(value in any::<u64>()) {
+        let peer = Peer::<u64>::seed().sync_window_floor().into_rumors();
+        let first = peer.send(value).unwrap();
+        let second = peer.send(value).unwrap();
+        let snapshot = peer.snapshot();
+
+        prop_assert_ne!(&first, &second);
+        prop_assert_eq!(snapshot.get(&first).map(|message| *message), Some(value));
+        prop_assert_eq!(snapshot.get(&second).map(|message| *message), Some(value));
+        prop_assert_eq!(snapshot.latest(), &second);
+    }
+
     /// Every value committed in a batch becomes exactly one live leaf:
     /// no duplicates, no omissions.
     #[test]
@@ -212,13 +226,7 @@ fn a_panicked_batch_commits_nothing() {
 #[test]
 fn a_batch_commits_iff_the_closure_returns_ok() {
     let rumors: Rumors<u64> = Peer::seed().sync_window_floor().into_rumors();
-    rumors.send(7).unwrap();
-    let doomed = rumors
-        .snapshot()
-        .iter()
-        .map(|(v, _)| v.clone())
-        .next()
-        .expect("the pre-batch send is live");
+    let doomed = rumors.send(7).unwrap();
 
     rumors
         .batch(|batch| {

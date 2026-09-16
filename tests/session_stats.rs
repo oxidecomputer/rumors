@@ -15,7 +15,6 @@ use proptest::prelude::*;
 use rumors::testing::stream_label;
 use rumors::{Led, Peer, Rumors, SessionStats};
 
-use crate::common::action::created_version;
 use crate::common::gossip_snapshot::{CaptureLink, capture_sides};
 use crate::common::oracle::readout;
 use crate::common::wire::{
@@ -236,9 +235,7 @@ proptest! {
             }
             for (peer, values) in [(&a, a_sends), (&b, b_sends)] {
                 for value in values {
-                    let before = peer.snapshot().latest().clone();
-                    peer.send(value).unwrap();
-                    let version = created_version(&peer.snapshot(), &before);
+                    let version = peer.send(value).unwrap();
                     expected.insert(version.as_bytes().to_vec(), value);
                 }
             }

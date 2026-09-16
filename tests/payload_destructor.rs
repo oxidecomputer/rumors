@@ -6,7 +6,7 @@ use std::sync::{Arc, mpsc};
 use std::thread;
 use std::time::Duration;
 
-use rumors::{Peer, Rumors, Version};
+use rumors::{Peer, Rumors};
 use serde::{Deserialize, Serialize};
 
 use common::wire::{bootstrap_fork, wire_gossip};
@@ -68,11 +68,6 @@ fn completes(test: impl FnOnce() + Send + 'static) {
     }
 }
 
-/// Return the version without retaining a snapshot or payload handle.
-fn only_version(replica: &Rumors<Payload>) -> Version {
-    replica.snapshot().iter().next().unwrap().0.clone()
-}
-
 /// The destructor ran once and its send survived the surrounding commit.
 fn assert_replaced(replica: &Rumors<Payload>) {
     let snapshot = replica.snapshot();
@@ -85,8 +80,8 @@ fn assert_replaced(replica: &Rumors<Payload>) {
 fn redact_allows_destructor_access() {
     completes(|| {
         let replica = Peer::seed().into_rumors();
-        replica.send(replaces_itself(&replica)).unwrap();
-        replica.redact(&only_version(&replica));
+        let version = replica.send(replaces_itself(&replica)).unwrap();
+        replica.redact(&version);
         assert_replaced(&replica);
     });
 }
@@ -114,9 +109,9 @@ fn batch_allows_destructor_access() {
 fn gossip_allows_destructor_access() {
     completes(|| {
         let replica = Peer::seed().into_rumors();
-        replica.send(replaces_itself(&replica)).unwrap();
+        let version = replica.send(replaces_itself(&replica)).unwrap();
         let other = bootstrap_fork(&replica);
-        other.redact(&only_version(&other));
+        other.redact(&version);
         wire_gossip(&replica, &other);
         assert_replaced(&replica);
         wire_gossip(&replica, &other);

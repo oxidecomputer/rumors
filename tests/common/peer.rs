@@ -76,14 +76,14 @@ impl<T: Clone + Serialize + DeserializeOwned + Eq + Send + Sync + 'static> Peer<
 
     /// Insert a single value, returning the [`Version`] created for it.
     pub fn insert_one(&mut self, value: T) -> Version {
-        // Catch the log up first, so the send's drain isolates exactly the
-        // one new observation and its version.
+        // Catch the log up first, so the next drain isolates this send.
         self.drain();
-        self.local.send(value).unwrap();
+        let version = self.local.send(value).unwrap();
         let pre = self.observations.len();
         let drained = self.drain();
         assert_eq!(drained, 1, "a send creates exactly one new observation");
-        self.observations[pre].0.clone()
+        assert_eq!(self.observations[pre].0, version);
+        version
     }
 
     pub fn redact_one(&mut self, version: &Version) {

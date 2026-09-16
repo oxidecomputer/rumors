@@ -120,18 +120,15 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// The message is serialized and admitted here, at the call:
     /// admission runs the exact decode every receiver's wire ingress
     /// runs, so a payload a receiver would reject or misread is the
-    /// typed [`EncodeError`] instead (its variants name the causes),
-    /// and nothing commits. To send many messages in one commit, use
-    /// [`send_all`](Self::send_all); to mix sends and redactions in one
-    /// commit, use [`batch`](Self::batch).
+    /// typed [`EncodeError`] instead (its variants name the causes), and
+    /// nothing commits. To send many messages in one commit, use
+    /// [`send_all`](Self::send_all); to mix sends and redactions in one commit,
+    /// use [`batch`](Self::batch).
     ///
-    /// `send` does not return the message's [`Version`]. Versions come back
-    /// through observation: the observers and [`Snapshot`] attach every
-    /// message to the version its send created, unique across the universe's
-    /// whole history, so even byte-identical re-sends are distinct messages
-    /// under distinct versions. [`redact`](Self::redact) states the intended
-    /// observe-then-redact pattern and why the write path returns no
-    /// version.
+    /// Returns the message's [`Version`]. This uniquely identifies this send
+    /// throughout the network and can be passed directly to
+    /// [`redact`](Self::redact). Even byte-identical re-sends receive distinct
+    /// versions and remain distinct messages.
     ///
     /// # Observe-then-send is domination
     ///
@@ -147,7 +144,7 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// If `message` fails to serialize: a violation of the payload
     /// contract ([choosing a payload
     /// type](crate#choosing-a-payload-type)).
-    pub fn send(&self, message: T) -> Result<(), EncodeError>
+    pub fn send(&self, message: T) -> Result<Version, EncodeError>
     where
         T: Send + Sync + 'static,
     {
@@ -178,18 +175,9 @@ impl<T, B: Bookmark> Rumors<T, B> {
     /// reason, two identical sends are two messages, and redacting one
     /// never touches the other.
     ///
-    /// # Where the version comes from
-    ///
-    /// [`send`](Self::send) does not return a [`Version`], deliberately,
-    /// for two reasons. The intended shape of an application is a state
-    /// machine driven from observed messages: the observers and
-    /// [`Snapshot`] attach every message to its version, so the read path,
-    /// not the write path, is where a version-holding workflow like
-    /// send-then-redact lives. Observe your own message back out, keep its
-    /// version, redact it later. And batching breaks the correspondence
-    /// anyway: a batch inserts all its messages at once, so sends are not
-    /// 1:1 with insertions and a message's version is not knowable until
-    /// insertion.
+    /// Use the [`Version`] returned by [`send`](Self::send), or one reported by
+    /// an observer or [`Snapshot`]. Batched sends do not return versions because
+    /// one call may insert several messages.
     pub fn redact(&self, version: &Version)
     where
         T: Send + Sync,

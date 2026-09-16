@@ -73,18 +73,13 @@ fn divergent_root_child_has_one_question_owner() {
     // pool search lands a second initiator leaf under the same root radix
     // (the disputed child), and the responder keeps three ballast leaves
     // outside that radix, making it the larger set.
-    let (a, b) = block_on(async {
+    let (a, b, first) = block_on(async {
         let a: Rumors<u64> = seeded();
-        a.send(1).unwrap();
+        let first = a.send(1).unwrap();
         let b = bootstrap_fork_async(&a).await;
-        (a, b)
+        (a, b, first)
     });
-    let radix = path_radix(
-        &a.snapshot()
-            .iter()
-            .find_map(|(v, m)| (*m == 1).then_some(v.clone()))
-            .expect("message 1 is live"),
-    );
+    let radix = path_radix(&first);
     send_pool(&a, 2, RADIX_POOL);
     let sibling = pool(&a, 2, RADIX_POOL)
         .into_iter()
