@@ -1,7 +1,7 @@
 # Rumors review checklist
 
-**Next:** make public generic bounds and wrapper traits match their stored
-representations.
+**Next:** publish `Link`'s fields and remove `LinkParts`, then finish the
+remaining wrapper traits against the simpler interface.
 
 Check code outcomes only after verification and merge; retain the landing
 commit. Checked dispositions are labelled explicitly.
@@ -159,8 +159,11 @@ Coupled work: party ownership with 01; other API pieces can be separate.
 - [x] Clarify observer installation timing and the limits of per-pass causal ordering — `fa9a1f0e`.
       Sources: `session-bookmark-37`, `tests-observation-3`, T78, T132.
 
-- [ ] Make public bounds, borrowing, and wrapper traits express the real requirements.
-      Sources: `api-audit-1`, `api-audit-3`, `api-audit-7`, `api-audit-12`, `api-core-1`, `api-core-5`, `api-core-30`, `deps-6`, `tree-core-2`, T47, T72, T73, T81, T83, T84, T125.
+- [x] Put payload bounds on handle definitions, accept owned redaction versions, and remove derive-added wrapper bounds — `6626017e`.
+      Sources: `api-audit-1`, `api-audit-3`, `api-core-1`, `api-core-5`, `api-core-30`, `deps-6`, `tree-core-2`, T72, T73, T83, T84.
+
+- [ ] Finish public wrapper traits and their lint-backed documentation after `LinkParts` is removed.
+      Sources: `api-audit-7`, `api-audit-12`, `link-5`, T47, T80, T81, T84, T125.
 
 - [ ] Simplify core API plumbing and correct its comments.
       Sources: `api-core-3`, `api-core-4`, `api-core-6`, `api-core-8`, `api-core-9`, `api-core-13–14`, `api-core-16`, `api-core-21`, `api-core-23`, `api-core-24`, `api-core-28–29`, `api-core-31`, `api-core-32`, `api-core-37`, T52, T72, T82, T132.
