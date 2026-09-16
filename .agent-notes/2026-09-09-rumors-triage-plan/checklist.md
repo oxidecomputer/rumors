@@ -1,6 +1,7 @@
 # Rumors review checklist
 
-**Next:** report session completion, frame counts, and window saturation.
+**Next:** return link information to routed dialers and count router evictions
+and overflows.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →
@@ -229,7 +230,7 @@ Dependencies: 04's reported-error attribution fix before the public error redesi
       its bounded debug summary — `5b4e4cf8`.
       Sources: `api-audit-11`, `remote-codec-5`, T66.
 
-- [ ] Report session completion, frame counts, and window saturation.
+- [x] Report session completion, frame counts, and window saturation — `832f4eb5`.
       Sources: `materialized-2`, `remote-adapter-streams-21`, `session-bookmark-38`, T66.
 
 - [ ] Return link information to routed dialers and count router evictions and overflows.
