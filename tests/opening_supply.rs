@@ -96,7 +96,7 @@ fn divergent_root_child_has_one_question_owner() {
     // is the smaller set and initiates. A leaf's path is the full-width
     // SHA3-256 hash of its version's canonical bytes.
     let path_radix = |version: &Version| sha3::Sha3_256::digest(version.as_bytes())[0];
-    let apaths: Vec<u8> = a.snapshot().iter().map(|(v, _)| path_radix(v)).collect();
+    let apaths: Vec<u8> = a.snapshot().versions().map(path_radix).collect();
     assert_eq!(apaths.len(), 2, "the initiator holds the sibling pair");
     assert_eq!(
         apaths.first(),
@@ -106,8 +106,8 @@ fn divergent_root_child_has_one_question_owner() {
     let radix = apaths[0];
     assert_eq!(
         b.snapshot()
-            .iter()
-            .filter(|(v, _)| path_radix(v) == radix)
+            .versions()
+            .filter(|v| path_radix(v) == radix)
             .count(),
         1,
         "the responder holds exactly one leaf under the disputed radix"

@@ -7,8 +7,8 @@
 //! plus the causal-concurrency basics the merge rests on.
 //!
 //! Live content is compared through `readout` (the identity → value lens
-//! the oracle checks also use) or through `hash`/`latest` where the
-//! assertion is "nothing changed at all".
+//! the oracle checks also use), or through [`Snapshot`](rumors::Snapshot)
+//! equality where the assertion is "nothing changed at all".
 //!
 //! Every peer in a test is a genuine, party-disjoint fork of one shared
 //! [`Peer::seed`](rumors::Peer::seed), created by [`bootstrap_fork`]. They
@@ -21,7 +21,7 @@ mod common;
 use proptest::prelude::*;
 use proptest::strategy::ValueTree;
 use proptest::test_runner::TestRunner;
-use rumors::{Rumors, Version, causally};
+use rumors::{Rumors, Snapshot, causally};
 
 use crate::common::action::{LocalAction, arb_local_actions, build_local};
 use crate::common::oracle::readout;
@@ -38,12 +38,9 @@ where
     bootstrap_fork(k)
 }
 
-/// The `(hash, latest)` fingerprint of a peer: equal fingerprints mean the
-/// same live content *and* the same causal frontier — gossip between two
-/// peers with equal fingerprints is a guaranteed no-op.
-fn fingerprint<T>(k: &Rumors<T>) -> ([u8; rumors::MERKLE_HASH_LEN], Version) {
-    let snapshot = k.snapshot();
-    (snapshot.hash(), snapshot.latest().clone())
+/// The state used for fixed-point checks: equal snapshots make gossip a no-op.
+fn fingerprint<T>(k: &Rumors<T>) -> Snapshot<T> {
+    k.snapshot()
 }
 
 proptest! {

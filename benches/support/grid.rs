@@ -153,10 +153,9 @@ pub fn build(cell: Cell) -> (Rumors<()>, Rumors<()>) {
 
     let left: Rumors<()> = Peer::seed().into_rumors();
     send_units(&left, common);
-    // The shared prefix's versions, for carving the redaction blocks; order
-    // is immaterial (the blocks only need to be disjoint and deterministic,
-    // and the snapshot iterates in a stable order).
-    let shared: Vec<Version> = left.snapshot().iter().map(|(v, _)| v.clone()).collect();
+    // The shared prefix's versions, for carving two disjoint redaction blocks.
+    // Their order is immaterial.
+    let shared: Vec<Version> = left.snapshot().versions().cloned().collect();
 
     let right = wire::bootstrap_fork(&left);
     send_units(&left, differing);

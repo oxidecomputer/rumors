@@ -64,11 +64,11 @@ fn send_units(rumors: &Rumors<()>, n: usize) {
 }
 
 /// A freshly seeded rumor set holding `n` messages, paired with its live
-/// versions (in the snapshot's stable order).
+/// versions.
 fn build(n: usize) -> (Rumors<()>, Vec<Version>) {
     let rumors: Rumors<()> = Peer::seed().into_rumors();
     send_units(&rumors, n);
-    let versions = rumors.snapshot().iter().map(|(v, _)| v.clone()).collect();
+    let versions = rumors.snapshot().versions().cloned().collect();
     (rumors, versions)
 }
 

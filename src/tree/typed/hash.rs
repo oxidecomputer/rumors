@@ -3,9 +3,8 @@ use std::sync::LazyLock;
 
 use sha3::{Digest, Sha3_256};
 
-/// Width in bytes of the subtree comparison digests exchanged during gossip
-/// and returned by [`Snapshot::hash`](crate::Snapshot::hash).
-pub const MERKLE_HASH_LEN: usize = 24;
+/// Width in bytes of the subtree comparison digests exchanged during gossip.
+pub(crate) const MERKLE_HASH_LEN: usize = 24;
 
 /// Bytes in a leaf address: the full SHA3-256 output, one byte per tree level.
 pub const PATH_LEN: usize = 32;

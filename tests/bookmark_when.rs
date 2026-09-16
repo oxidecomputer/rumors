@@ -350,18 +350,13 @@ impl World {
                 // The public snapshot tells the model which targets are held.
                 // An empty batch or a batch of absent versions must do nothing;
                 // any effective redaction makes one checkpoint due.
-                let held: Vec<_> = self
-                    .subject
-                    .snapshot()
-                    .iter()
-                    .map(|(version, _)| version.clone())
-                    .collect();
+                let held: Vec<_> = self.subject.snapshot().versions().cloned().collect();
                 let mut candidates = held.clone();
                 candidates.extend(self.last_redacted.iter().cloned());
                 // Helpers may know versions the subject has never received.
                 // Those are no-ops too, even while a helper still holds them.
                 for helper in &self.helpers {
-                    candidates.extend(helper.snapshot().iter().map(|(version, _)| version.clone()));
+                    candidates.extend(helper.snapshot().versions().cloned());
                 }
                 let mut targets = Vec::new();
                 if !candidates.is_empty() {
@@ -525,8 +520,8 @@ proptest! {
             for message in 0..messages {
                 world.subject.send(message).unwrap();
             }
-            let versions: Vec<_> = world.subject.snapshot().iter()
-                .map(|(version, _)| version.clone())
+            let versions: Vec<_> = world.subject.snapshot().versions()
+                .cloned()
                 .collect();
             world.subject.redact_all(&versions);
             plain_gossip(&world.subject, helper).await;

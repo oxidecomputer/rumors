@@ -57,6 +57,7 @@
 //! implementations: tests check `join` against a flat, leaf-by-leaf survivor
 //! rule, then compare wire reconciliation with `join`.
 
+use std::fmt;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -65,7 +66,8 @@ pub(crate) mod typed;
 
 use crate::{Version, causally, message::Message, tree::typed::Node};
 
-pub use typed::hash::MERKLE_HASH_LEN;
+#[cfg(any(test, feature = "test-internals"))]
+pub(crate) use typed::hash::MERKLE_HASH_LEN;
 
 pub mod mirror;
 
@@ -84,7 +86,6 @@ pub use typed::{Leaf, RangeOwned};
 /// content-identical messages sent at distinct moments occupy distinct
 /// leaves, and two leaves collide only when a version has been reused,
 /// which conforming peers cannot do.
-#[derive(Debug, Eq)]
 pub struct Tree<T> {
     /// The live nodes and the causal history used to honor redactions.
     pub(crate) root: Root,
@@ -126,7 +127,9 @@ impl PartialEq for Root {
     }
 }
 
+/// Clone a tree by sharing its immutable nodes.
 impl<T> Clone for Tree<T> {
+    /// Clones the root while preserving the payload facade.
     fn clone(&self) -> Self {
         Self {
             root: self.root.clone(),
@@ -151,9 +154,22 @@ impl<T> Tree<T> {
     }
 }
 
+/// Compare the replicated version set and causal frontier.
 impl<T> PartialEq for Tree<T> {
+    /// Returns whether both trees represent the same replica state.
     fn eq(&self, other: &Self) -> bool {
         self.root == other.root
+    }
+}
+
+/// Mark tree equality as an equivalence relation.
+impl<T> Eq for Tree<T> {}
+
+/// Format a tree without inspecting its payloads.
+impl<T> fmt::Debug for Tree<T> {
+    /// Formats the stored tree without requiring a debuggable payload type.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Tree").field("root", &self.root).finish()
     }
 }
 
@@ -180,28 +196,47 @@ pub enum Action {
 /// into the shared storage.
 ///
 /// An [`ExactSizeIterator`] (the live-message count is known up front) and a
-/// [`DoubleEndedIterator`].
+/// [`DoubleEndedIterator`]. Once exhausted, it remains exhausted.
 pub struct Iter<'a, T>(typed::Iter<'a>, PhantomData<fn() -> T>);
 
+/// Format an iterator without inspecting its remaining payloads.
+impl<T> fmt::Debug for Iter<'_, T> {
+    /// Formats the number of messages left without inspecting payloads.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Iter")
+            .field("remaining", &self.0.len())
+            .finish()
+    }
+}
+
+/// Visit live messages from the front of the tree walk.
 impl<'a, T: Send + Sync + 'static> Iterator for Iter<'a, T> {
     type Item = (&'a Version, Arc<T>);
 
+    /// Yields the next live message from the front of the walk.
     fn next(&mut self) -> Option<Self::Item> {
         self.0.next().map(|(v, m)| (v, m.arc::<T>()))
     }
 
+    /// Returns the exact number of messages left to visit.
     fn size_hint(&self) -> (usize, Option<usize>) {
         self.0.size_hint()
     }
 }
 
+/// Visit live messages from the back of the same tree walk.
 impl<'a, T: Send + Sync + 'static> DoubleEndedIterator for Iter<'a, T> {
+    /// Yields the next live message from the back of the walk.
     fn next_back(&mut self) -> Option<Self::Item> {
         self.0.next_back().map(|(v, m)| (v, m.arc::<T>()))
     }
 }
 
+/// Report the exact number of live messages left to visit.
 impl<'a, T: Send + Sync + 'static> ExactSizeIterator for Iter<'a, T> {}
+
+/// Promise that an exhausted tree walk remains exhausted.
+impl<'a, T: Send + Sync + 'static> std::iter::FusedIterator for Iter<'a, T> {}
 
 impl<T> Tree<T> {
     /// Creates a new, empty tree carrying the empty [`Version`].
@@ -281,10 +316,24 @@ impl<T> Tree<T> {
     /// Hash the live version set, excluding the root's causal ceiling.
     ///
     /// Node hashes are memoized, so reading a published tree's hash is cheap.
-    pub fn hash(&self) -> [u8; MERKLE_HASH_LEN] {
+    #[cfg(any(test, feature = "test-internals"))]
+    pub(crate) fn hash(&self) -> [u8; MERKLE_HASH_LEN] {
         #[cfg(test)]
         meter::record_root_hash_read();
         Node::root_hash(&self.root.root).into()
+    }
+
+    /// Finds the live message whose path and stored version match `version`.
+    fn message(&self, version: &Version) -> Option<&Message> {
+        let path = <[u8; 32]>::from(typed::Path::for_leaf(version));
+        let (stored, message) = self.root.root.as_ref()?.get(&path)?;
+        (stored == version).then_some(message)
+    }
+
+    /// Returns whether a live leaf carries `version`, without reading its
+    /// payload.
+    pub(crate) fn contains(&self, version: &Version) -> bool {
+        self.message(version).is_some()
     }
 
     /// Looks up the live message stamped with `version`, by its
@@ -296,12 +345,23 @@ impl<T> Tree<T> {
     where
         T: Send + Sync + 'static,
     {
-        let path = <[u8; 32]>::from(typed::Path::for_leaf(version));
+        self.message(version).map(Message::arc::<T>)
+    }
+
+    /// Lazily borrows every live leaf's version without accessing its payload.
+    pub(crate) fn versions(
+        &self,
+    ) -> impl DoubleEndedIterator<Item = &Version> + ExactSizeIterator + Send + Sync {
+        self.untyped_iter().map(|(version, _)| version)
+    }
+
+    /// Builds the untyped leaf walk shared by the public read methods.
+    fn untyped_iter(&self) -> typed::Iter<'_> {
         self.root
             .root
-            .as_ref()?
-            .get(&path)
-            .map(|(_, message)| message.arc::<T>())
+            .as_ref()
+            .map(typed::node::Root::iter)
+            .unwrap_or_else(typed::Iter::empty)
     }
 
     /// Compute hashes, version bounds, and encoded-version size before publication.
@@ -322,14 +382,7 @@ impl<T> Tree<T> {
     where
         T: Send + Sync + 'static,
     {
-        Iter(
-            self.root
-                .root
-                .as_ref()
-                .map(typed::node::Root::iter)
-                .unwrap_or_else(typed::Iter::empty),
-            PhantomData,
-        )
+        Iter(self.untyped_iter(), PhantomData)
     }
 
     /// Freezes a fully-owned walk over the live leaves whose versions the

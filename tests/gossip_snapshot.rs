@@ -107,8 +107,8 @@ fn colliding_pair() -> (Rumors<u64>, Rumors<u64>) {
     // drifts, fail here with a clear message rather than in the hex.
     let prefixes: Vec<[u8; 2]> = a
         .snapshot()
-        .iter()
-        .map(|(v, _)| {
+        .versions()
+        .map(|v| {
             let path = leaf_path(v);
             [path[0], path[1]]
         })
@@ -313,8 +313,8 @@ fn bulk_initiator_ships_opening_supplies() {
     // Fixture self-checks: the initiator-exclusive subtree and the election.
     let apaths: Vec<[u8; 2]> = a
         .snapshot()
-        .iter()
-        .map(|(v, _)| {
+        .versions()
+        .map(|v| {
             let path = leaf_path(v);
             [path[0], path[1]]
         })
@@ -331,7 +331,7 @@ fn bulk_initiator_ships_opening_supplies() {
     );
     let radix = apaths[0][0];
     assert!(
-        b.snapshot().iter().all(|(v, _)| leaf_path(v)[0] != radix),
+        b.snapshot().versions().all(|v| leaf_path(v)[0] != radix),
         "the responder must lack the initiator's exclusive radix"
     );
     assert!(
@@ -398,7 +398,7 @@ fn early_supplies_honor_redactions() {
 
     // Fixture self-checks: shared radix, cover of the redacted message,
     // and the election.
-    let apaths: Vec<u8> = a.snapshot().iter().map(|(v, _)| leaf_path(v)[0]).collect();
+    let apaths: Vec<u8> = a.snapshot().versions().map(|v| leaf_path(v)[0]).collect();
     assert_eq!(apaths.len(), 2, "the initiator holds the pair");
     assert_eq!(
         apaths.first(),
@@ -407,7 +407,7 @@ fn early_supplies_honor_redactions() {
     );
     let radix = apaths[0];
     assert!(
-        b.snapshot().iter().all(|(v, _)| leaf_path(v)[0] != radix),
+        b.snapshot().versions().all(|v| leaf_path(v)[0] != radix),
         "the responder must lack the shared radix outright: it redacted \
          its copy"
     );
@@ -591,8 +591,8 @@ fn shared_subtree_dispute_pins_a_nonempty_query() {
     let paths = |rumors: &Rumors<u64>| -> Vec<[u8; 2]> {
         rumors
             .snapshot()
-            .iter()
-            .map(|(v, _)| {
+            .versions()
+            .map(|v| {
                 let path = leaf_path(v);
                 [path[0], path[1]]
             })

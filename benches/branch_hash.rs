@@ -25,13 +25,6 @@ use sha3::{Digest, Sha3_256};
 /// Kind byte leading a branch preimage, mirrored from the documented layout.
 const BRANCH_TAG: u8 = 1;
 
-/// Width of a truncated child hash inside a branch preimage.
-const HASH_LEN: usize = rumors::MERKLE_HASH_LEN;
-
-/// Bytes one child contributes to a branch preimage: its radix byte followed
-/// by its hash.
-const CHILD_RECORD_LEN: usize = 1 + HASH_LEN;
-
 /// A hot node's compressed span: short, as path compression typically leaves
 /// interior branches near the root.
 const PREFIX: &[u8] = &[0xa5, 0x5a, 0x3c];
@@ -43,21 +36,33 @@ const FANOUTS: &[usize] = &[2, 4, 16, 64, 256];
 /// A deterministic set of `k` (radix, hash) children in strictly ascending
 /// radix order, as the convention requires. Only the byte content matters to
 /// a hashing microbench, and only that it is fixed across runs.
-fn children(k: usize) -> Vec<(u8, [u8; HASH_LEN])> {
+fn children(k: usize, hash_len: usize) -> Vec<(u8, Vec<u8>)> {
     assert!(k <= 256, "branch fan-out is bounded by the 256-way radix");
     (0..k)
         .map(|i| {
             let radix = u8::try_from(i * 256 / k.max(1)).expect("index scaled into radix range");
-            let hash = std::array::from_fn(|j| (i as u8) ^ (j as u8).wrapping_mul(31));
+            let hash = (0..hash_len)
+                .map(|j| (i as u8) ^ (j as u8).wrapping_mul(31))
+                .collect();
             (radix, hash)
         })
         .collect()
 }
 
+/// Reads the shipped digest width from the test-only snapshot accessor.
+fn hash_len() -> usize {
+    rumors::Peer::<()>::seed()
+        .into_rumors()
+        .snapshot()
+        .hash()
+        .len()
+}
+
 /// The shipped form: assemble the whole preimage contiguously (fresh buffer,
 /// count backfilled after the records), then hash it in one shot.
-fn contiguous(prefix: &[u8], children: &[(u8, [u8; HASH_LEN])]) -> [u8; 32] {
-    let mut buf = Vec::with_capacity(4 + prefix.len() + CHILD_RECORD_LEN * children.len());
+fn contiguous(prefix: &[u8], children: &[(u8, Vec<u8>)]) -> [u8; 32] {
+    let record_len = children.first().map_or(1, |(_, hash)| 1 + hash.len());
+    let mut buf = Vec::with_capacity(4 + prefix.len() + record_len * children.len());
     buf.push(BRANCH_TAG);
     buf.push(u8::try_from(prefix.len()).expect("a compressed span fits in one length byte"));
     buf.extend_from_slice(prefix);
@@ -74,7 +79,7 @@ fn contiguous(prefix: &[u8], children: &[(u8, [u8; HASH_LEN])]) -> [u8; 32] {
 
 /// The streamed form: one `update` call per field, so the sponge sees the
 /// preimage in radix-byte and hash-width fragments.
-fn streamed(prefix: &[u8], children: &[(u8, [u8; HASH_LEN])]) -> [u8; 32] {
+fn streamed(prefix: &[u8], children: &[(u8, Vec<u8>)]) -> [u8; 32] {
     let mut hasher = Sha3_256::new();
     hasher.update([BRANCH_TAG]);
     hasher.update([u8::try_from(prefix.len()).expect("a compressed span fits in one length byte")]);
@@ -90,8 +95,9 @@ fn streamed(prefix: &[u8], children: &[(u8, [u8; HASH_LEN])]) -> [u8; 32] {
 
 fn branch_hash(criterion: &mut Criterion) {
     let mut group = criterion.benchmark_group("branch_hash");
+    let hash_len = hash_len();
     for &fanout in FANOUTS {
-        let kids = children(fanout);
+        let kids = children(fanout, hash_len);
         group.bench_with_input(BenchmarkId::new("contiguous", fanout), &kids, |b, kids| {
             b.iter(|| contiguous(black_box(PREFIX), black_box(kids)));
         });

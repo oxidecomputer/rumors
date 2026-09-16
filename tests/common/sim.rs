@@ -658,7 +658,7 @@ async fn run_observers(handle: Rumors<u64>, done: Arc<AtomicBool>) {
 
     // The writers have settled and both observers are quiet: everything
     // live in the set was live at each observer's final pass.
-    for (version, _) in handle.snapshot().iter() {
+    for version in handle.snapshot().versions() {
         assert!(
             plain_seen.contains(version.as_bytes()),
             "Messages never delivered live version {version:?}"
@@ -960,16 +960,12 @@ pub async fn quiesce(peers: &[Rumors<u64>]) {
     if n < 2 {
         return;
     }
-    let fingerprint = |p: &Rumors<u64>| {
-        let snapshot = p.snapshot();
-        (snapshot.hash(), snapshot.latest().clone())
-    };
+    let fingerprint = |p: &Rumors<u64>| p.snapshot();
     let max_rounds = MAX_QUIESCE_ROUNDS_PER_PEER * n;
     for _ in 0..max_rounds {
-        // Identical fingerprints are the fixed point itself: peers with
-        // equal content and version exchange nothing, so no confirming
+        // Identical snapshots are the fixed point itself, so no confirming
         // mesh round is owed.
-        let first: ([u8; rumors::MERKLE_HASH_LEN], Version) = fingerprint(&peers[0]);
+        let first = fingerprint(&peers[0]);
         if peers[1..].iter().all(|p| fingerprint(p) == first) {
             return;
         }
@@ -992,18 +988,15 @@ pub fn survivor_readouts(peers: &[Rumors<u64>]) -> Vec<BTreeMap<Vec<u8>, u64>> {
 }
 
 /// After healing, every survivor holds identical live content: equal
-/// identity → value readouts, equal observable hashes, equal causal
-/// versions.
+/// identity → value readouts and equal snapshots.
 ///
 /// `readouts` is the fleet's [`survivor_readouts`], indexed like `peers`.
 pub fn assert_converged(peers: &[Rumors<u64>], readouts: &[BTreeMap<Vec<u8>, u64>]) {
     assert_eq!(peers.len(), readouts.len(), "one readout per survivor");
     let Some(first) = peers.first() else { return };
-    let snapshot = first.snapshot();
-    let expected = (&readouts[0], snapshot.hash(), snapshot.latest().clone());
+    let expected = (&readouts[0], first.snapshot());
     for (i, peer) in peers.iter().enumerate().skip(1) {
-        let snapshot = peer.snapshot();
-        let actual = (&readouts[i], snapshot.hash(), snapshot.latest().clone());
+        let actual = (&readouts[i], peer.snapshot());
         assert_eq!(
             actual, expected,
             "peer {i} diverged from peer 0 after the heal phase"

@@ -41,9 +41,9 @@
 //! uniformly, and the trie's shape is a pure function of its membership:
 //! two replicas holding the same set of messages hold the *same tree*,
 //! whatever order they learned it in. Each interior node memoizes two
-//! summaries of its subtree: a digest (a 24-byte truncation of SHA3-256;
-//! [`MERKLE_HASH_LEN`](crate::MERKLE_HASH_LEN)) and the ceiling and floor
-//! of its leaves' versions. The digest answers "do we hold the same things
+//! summaries of its subtree: a 24-byte digest (a truncation of SHA3-256)
+//! and the ceiling and floor of its leaves' versions. The digest answers
+//! "do we hold the same things
 //! here?"; the version bounds answer "could anything here be news to a
 //! peer at that causal position?". The whole protocol is those two
 //! questions, asked recursively.

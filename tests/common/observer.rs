@@ -206,9 +206,9 @@ where
     }
     let pending: Vec<_> = a
         .snapshot()
-        .iter()
-        .map(|(version, _)| version.clone())
+        .versions()
         .filter(|version| !delivered.iter().any(|(seen, _)| seen == version))
+        .cloned()
         .collect();
     let redactor = if remote { &b } else { &a };
     for index in &redactions {

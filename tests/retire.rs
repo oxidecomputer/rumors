@@ -351,8 +351,7 @@ proptest! {
         let survivor = Peer::<u64>::seed().sync_window_floor().into_rumors();
         survivor.send_all(shared).unwrap();
         let retiree = bootstrap_fork(&survivor);
-        let shared_versions: Vec<_> = survivor.snapshot().iter()
-            .map(|(version, _)| version.clone()).collect();
+        let shared_versions: Vec<_> = survivor.snapshot().versions().cloned().collect();
         let mut expected = readout(&survivor.snapshot());
         let mut unordered = retiree.unordered_messages();
         let mut causal = retiree.causal_messages();

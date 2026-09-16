@@ -98,6 +98,33 @@ fn converged_backlog_has_no_inversions() {
     );
 }
 
+/// Sorting a snapshot by `Version::ranked` places a shared cause before two
+/// concurrent effects and gives those effects a deterministic order.
+#[test]
+fn snapshot_items_sort_by_ranked_version() {
+    let a = Peer::<u64>::seed().sync_window_floor().into_rumors();
+    let cause = a.send(0).unwrap();
+    let b = bootstrap_fork(&a);
+    let left = a.send(1).unwrap();
+    let right = b.send(2).unwrap();
+    assert!(
+        left.partial_cmp(&right).is_none(),
+        "the effects are concurrent"
+    );
+    wire_gossip(&a, &b);
+
+    let snapshot = a.snapshot();
+    let mut items: Vec<_> = snapshot.iter().collect();
+    items.sort_by(|a, b| a.0.ranked().cmp(&b.0.ranked()));
+    assert_eq!(items.first().unwrap().0, &cause);
+    assert_causal(
+        &items
+            .into_iter()
+            .map(|(version, value)| (version.clone(), *value))
+            .collect::<Vec<_>>(),
+    );
+}
+
 /// Identical snapshots use the same internal staging order for a single pass.
 /// The public contract allows concurrent messages to arrive in either order.
 #[test]
@@ -111,11 +138,7 @@ fn identical_backlogs_use_the_same_staging_order() {
     a.send(5).unwrap();
     b.send(6).unwrap();
     wire_gossip(&a, &b);
-    assert_eq!(
-        a.snapshot().hash(),
-        b.snapshot().hash(),
-        "the replicas converged"
-    );
+    assert_eq!(a.snapshot(), b.snapshot(), "the replicas converged");
 
     let (from_a, _) = drain(&mut a.causal_messages());
     let (from_b, _) = drain(&mut b.causal_messages());

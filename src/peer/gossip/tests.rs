@@ -116,11 +116,7 @@ fn redacted_history_root(events: u64) -> tree::Root {
             .send_all(0..events)
             .expect("flat test payloads are within any depth limit");
     }
-    let versions: Vec<_> = donor
-        .snapshot()
-        .iter()
-        .map(|(version, _)| version.clone())
-        .collect();
+    let versions: Vec<_> = donor.snapshot().versions().cloned().collect();
     {
         donor.redact_all(&versions);
     }

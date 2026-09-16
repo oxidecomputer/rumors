@@ -292,7 +292,7 @@ fn seeded_with_versions(n: usize, seed: u64) -> (Rumors<u8>, Vec<Version>) {
     rumors
         .send_all(random_bytes(n, seed))
         .expect("flat test payloads are within any depth limit");
-    let versions = rumors.snapshot().iter().map(|(v, _)| v.clone()).collect();
+    let versions = rumors.snapshot().versions().cloned().collect();
     (rumors, versions)
 }
 

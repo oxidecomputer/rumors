@@ -129,7 +129,7 @@ where
 }
 
 /// The convergence core: full-mesh `gossip_step` rounds until every peer
-/// reports one fingerprint (live-content hash plus causal version).
+/// reports the same snapshot.
 ///
 /// Identical fingerprints are the fixed point itself — peers with equal
 /// content and version exchange nothing — so the loop stops the moment a
@@ -146,14 +146,11 @@ where
         return;
     }
 
-    let fingerprint = |peer: &Peer<T>| {
-        let snapshot = peer.local.snapshot();
-        (snapshot.hash(), snapshot.latest().clone())
-    };
+    let fingerprint = |peer: &Peer<T>| peer.local.snapshot();
 
     let max_rounds = MAX_QUIESCE_ROUNDS_PER_PEER * n;
     for _ in 0..max_rounds {
-        let first: ([u8; rumors::MERKLE_HASH_LEN], Version) = fingerprint(peers[0]);
+        let first = fingerprint(peers[0]);
         if peers[1..].iter().all(|p| fingerprint(p) == first) {
             return;
         }

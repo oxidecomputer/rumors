@@ -74,7 +74,7 @@ fn honored_redaction_counts_as_shed() {
         let a = Peer::<u64>::seed().sync_window_floor().into_rumors();
         a.send_all([10, 20]).unwrap();
         let b = bootstrap_fork_async(&a).await;
-        let version = a.snapshot().iter().next().unwrap().0.clone();
+        let version = a.snapshot().versions().next().unwrap().clone();
         a.redact(&version);
 
         let (a_g, b_g) = gossip_pair_async(&a, &b).await;
@@ -213,8 +213,7 @@ proptest! {
             let a = Peer::seed().sync_window_floor().into_rumors();
             a.send_all(shared).unwrap();
             let b = bootstrap_fork_async(&a).await;
-            let shared_versions: Vec<_> = a.snapshot().iter()
-                .map(|(version, _)| version.clone()).collect();
+            let shared_versions: Vec<_> = a.snapshot().versions().cloned().collect();
             let mut expected = readout(&a.snapshot());
 
             // Redact distinct shared messages at opposite peers. Exclude these

@@ -465,7 +465,7 @@ fn diverged_redactions() -> (Rumors<u64>, Rumors<u64>) {
     send_random(&left, COMMON, &mut rng);
     let right = bootstrap_fork(&left);
 
-    let versions: Vec<Version> = left.snapshot().iter().map(|(v, _)| v.clone()).collect();
+    let versions: Vec<Version> = left.snapshot().versions().cloned().collect();
     let mut shuffled = versions;
     shuffled.shuffle(&mut SmallRng::seed_from_u64(0x84f6_7932_1265_9eec));
     left.redact_all(&shuffled[..REDACT_PER_SIDE]);
@@ -586,14 +586,14 @@ fn transfer_pair() -> (Rumors<u64>, Rumors<u64>) {
 
     // Fixture self-checks: mirror the required shape so drift in hashing
     // or version assignment fails here, not in the hop arithmetic.
-    let radices: Vec<u8> = left.snapshot().iter().map(|(v, _)| path_radix(v)).collect();
+    let radices: Vec<u8> = left.snapshot().versions().map(path_radix).collect();
     assert_eq!(radices.len(), 2, "the left peer holds exactly the pair");
     assert_eq!(radices.first(), radices.last(), "one exclusive subtree");
     assert!(
         right
             .snapshot()
-            .iter()
-            .all(|(v, _)| path_radix(v) != radices[0]),
+            .versions()
+            .all(|v| path_radix(v) != radices[0]),
         "no root child is populated on both sides"
     );
     assert!(

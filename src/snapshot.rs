@@ -1,9 +1,10 @@
 use crate::{Network, Version, causally, tree::Tree};
-use std::sync::Arc;
+use std::{fmt, sync::Arc};
 
-/// The iterator of [`Snapshot::iter`], re-exported from the tree internals:
-/// every live message as `(&Version, Arc<T>)`, unspecified order,
-/// exact-size and double-ended.
+/// An iterator over the live messages in a [`Snapshot`].
+///
+/// It yields each message's version and an owned handle to its payload. The
+/// order is unspecified; the iterator is exact-size and double-ended.
 pub use crate::tree::Iter;
 
 /// A consistent point-in-time view of a set of rumors.
@@ -13,9 +14,10 @@ pub use crate::tree::Iter;
 /// it shares structure with the live set rather than copying it, and later
 /// changes never show through. Hold it as long as you like; it keeps its
 /// messages alive, not the [`Peer`](crate::Peer).
-#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Snapshot<T> {
+    /// The gossip network whose state was captured.
     network: Network,
+    /// The immutable live set and causal frontier.
     tree: Tree<T>,
 }
 
@@ -66,19 +68,18 @@ impl<T> Snapshot<T> {
         self.tree.len()
     }
 
-    /// The observable root hash of this snapshot: the
-    /// [`MERKLE_HASH_LEN`](crate::MERKLE_HASH_LEN)-byte Merkle root over
-    /// the live message set.
+    /// Returns the Merkle root over the live messages.
     ///
-    /// Unequal hashes mean different sets. Equal hashes indicate the exact
-    /// same set of messages, up to the digest's pairwise false-equal bound
-    /// of 2⁻¹⁹² per comparison (see [the reconciliation
-    /// docs](crate::reconciliation) for the width argument). The hash
-    /// covers the live set only, not the causal frontier: two replicas at
-    /// different points in causal time can share a hash — compare
-    /// [`latest`](Self::latest) for history.
-    pub fn hash(&self) -> [u8; crate::MERKLE_HASH_LEN] {
+    /// Test support for checking the tree's internal comparison signal. Use
+    /// snapshot equality or the read methods in application code.
+    #[cfg(any(test, feature = "test-internals"))]
+    pub fn hash(&self) -> [u8; crate::tree::MERKLE_HASH_LEN] {
         self.tree.hash()
+    }
+
+    /// Returns whether `version` identifies a live message.
+    pub fn contains(&self, version: &Version) -> bool {
+        self.tree.contains(version)
     }
 
     /// Looks up the live message stamped with `version` (for example, a
@@ -94,17 +95,35 @@ impl<T> Snapshot<T> {
         self.tree.get(version)
     }
 
+    /// Iterates the versions of every live message without accessing its
+    /// payload.
+    ///
+    /// The order is unspecified. The iterator is exact-size and double-ended.
+    pub fn versions(
+        &self,
+    ) -> impl DoubleEndedIterator<Item = &Version> + ExactSizeIterator + Send + Sync {
+        self.tree.versions()
+    }
+
     /// Iterates every live message as `(&Version, Arc<T>)` — the version
     /// borrowed from the snapshot, the payload an owned handle into the
     /// shared storage.
     ///
     /// Order is unspecified, and in particular does *not* follow the causal
     /// order: a message may be yielded before another that causally precedes
-    /// it. Sort by the yielded [`Version`]s if your application needs an
-    /// ordering consistent with causality.
-    pub fn iter(
-        &self,
-    ) -> impl DoubleEndedIterator<Item = (&Version, Arc<T>)> + ExactSizeIterator + Send + Sync
+    /// it. Sort by [`Version::ranked`] for a deterministic total order that
+    /// places causes before their effects.
+    ///
+    /// ```
+    /// let rumors = rumors::Peer::<String>::seed().into_rumors();
+    /// rumors.send("first".into())?;
+    /// rumors.send("second".into())?;
+    /// let snapshot = rumors.snapshot();
+    /// let mut messages: Vec<_> = snapshot.iter().collect();
+    /// messages.sort_by(|a, b| a.0.ranked().cmp(&b.0.ranked()));
+    /// # Ok::<(), rumors::EncodeError>(())
+    /// ```
+    pub fn iter(&self) -> Iter<'_, T>
     where
         T: Send + Sync + 'static,
     {
@@ -128,8 +147,8 @@ impl<T> Snapshot<T> {
     ///
     /// As with [`iter`](Self::iter), order is unspecified and does *not*
     /// follow the causal order: filtering by versions does not mean yielding
-    /// in version order. Sort by the yielded [`Version`]s if your application
-    /// needs an ordering consistent with causality.
+    /// in version order. Sort by [`Version::ranked`] for a deterministic total
+    /// order that places causes before their effects.
     ///
     /// # Examples
     ///
@@ -137,10 +156,10 @@ impl<T> Snapshot<T> {
     /// use rumors::{Peer, causally};
     ///
     /// let rumors = Peer::<String>::seed().into_rumors();
-    /// rumors.send("first".to_string());
+    /// rumors.send("first".to_string())?;
     /// let then = rumors.snapshot().latest().clone();
-    /// rumors.send("second".to_string());
-    /// rumors.send("third".to_string());
+    /// rumors.send("second".to_string())?;
+    /// rumors.send("third".to_string())?;
     ///
     /// let snapshot = rumors.snapshot();
     /// // Everything not already contained in `then`: the two later sends.
@@ -149,6 +168,7 @@ impl<T> Snapshot<T> {
     /// assert_eq!(snapshot.range(causally::before(&then)).count(), 1);
     /// // The two partition the live set.
     /// assert_eq!(snapshot.range(causally::all()).count(), 3);
+    /// # Ok::<(), rumors::EncodeError>(())
     /// ```
     pub fn range<'q, P: causally::Polarity>(
         &'q self,
@@ -161,10 +181,45 @@ impl<T> Snapshot<T> {
     }
 }
 
+/// Clone snapshots by sharing their immutable storage.
+impl<T> Clone for Snapshot<T> {
+    /// Clones the snapshot by sharing its immutable tree.
+    fn clone(&self) -> Self {
+        Self {
+            network: self.network,
+            tree: self.tree.clone(),
+        }
+    }
+}
+
+/// Format snapshots without inspecting their payloads.
+impl<T> fmt::Debug for Snapshot<T> {
+    /// Formats the network and tree without requiring a debuggable payload.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Snapshot")
+            .field("network", &self.network)
+            .field("tree", &self.tree)
+            .finish()
+    }
+}
+
+/// Compare the complete captured replica state.
+impl<T> PartialEq for Snapshot<T> {
+    /// Compares the network, live messages, and causal frontier.
+    fn eq(&self, other: &Self) -> bool {
+        self.network == other.network && self.tree == other.tree
+    }
+}
+
+/// Mark snapshot equality as an equivalence relation.
+impl<T> Eq for Snapshot<T> {}
+
+/// Iterate over a borrowed snapshot's live messages.
 impl<'a, T: Send + Sync + 'static> IntoIterator for &'a Snapshot<T> {
     type Item = (&'a Version, Arc<T>);
     type IntoIter = Iter<'a, T>;
 
+    /// Returns the same iterator as [`Snapshot::iter`].
     fn into_iter(self) -> Self::IntoIter {
         self.tree.iter()
     }

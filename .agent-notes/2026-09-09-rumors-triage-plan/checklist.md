@@ -1,7 +1,10 @@
 # Rumors review checklist
 
-**Next:** survey and order the remaining accepted breaking public-API work;
-land it before internal cleanup.
+**Working:** Snapshot read surface and equality contract on
+`codex/snapshot-api`, based on `main`.
+
+**Next:** make public generic bounds and wrapper traits match their stored
+representations.
 
 Check code outcomes only after verification and merge; retain the landing
 commit. Checked dispositions are labelled explicitly.

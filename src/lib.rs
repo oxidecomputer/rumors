@@ -331,7 +331,5 @@ pub use peer::{
 };
 pub use protocol::Protocol;
 pub use rumors::{CausalMessages, Changes, Rumors, TryNext, TryTick, UnorderedMessages};
-pub use snapshot::Snapshot;
+pub use snapshot::{Iter, Snapshot};
 pub use tree::mirror::streaming::stats::SessionStats;
-
-pub use tree::MERKLE_HASH_LEN;

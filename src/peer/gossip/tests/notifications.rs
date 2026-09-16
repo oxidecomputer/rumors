@@ -37,7 +37,7 @@ proptest! {
 
         newcomer.send_all(100..100 + added).unwrap();
         if redact {
-            let versions: Vec<_> = provider.snapshot().iter().map(|(v, _)| v.clone()).collect();
+            let versions: Vec<_> = provider.snapshot().versions().cloned().collect();
             newcomer.redact_all(&versions);
         }
         let before = provider.snapshot();

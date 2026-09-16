@@ -12,8 +12,8 @@ use proptest::collection::vec;
 use proptest::prelude::*;
 use rumors::{Peer, Rumors, Version, causally};
 
-use serde::Serialize;
-use serde::Serializer;
+use serde::{Deserialize, Serialize, Serializer};
+
 /// Commit `values` to `peer` as one batch, returning the [`Version`]s it
 /// created (recovered as the live leaves above the pre-commit frontier).
 fn batch_send(peer: &Rumors<u64>, values: &[u64]) -> Vec<Version> {
@@ -47,8 +47,53 @@ proptest! {
     fn batch_commits_one_leaf_per_value(values in vec(any::<u64>(), 0..=32)) {
         let peer = Peer::<u64>::seed().sync_window_floor().into_rumors();
         let created = batch_send(&peer, &values);
+        let snapshot = peer.snapshot();
         prop_assert_eq!(created.len(), values.len());
-        prop_assert_eq!(peer.snapshot().len(), values.len());
+        prop_assert_eq!(snapshot.len(), values.len());
+    }
+
+    /// The snapshot readers describe one exact live set after arbitrary
+    /// redactions: `versions` enumerates it, `contains` tests it, and
+    /// `earliest` is absent exactly when it is empty and otherwise precedes
+    /// every member.
+    #[test]
+    fn snapshot_readers_describe_exact_live_membership(
+        items in vec((any::<u64>(), any::<bool>()), 0..=32),
+    ) {
+        let peer = Peer::<u64>::seed().sync_window_floor().into_rumors();
+        let values: Vec<_> = items.iter().map(|(value, _)| *value).collect();
+        let created = batch_send(&peer, &values);
+        peer.redact_all(
+            created
+                .iter()
+                .zip(&items)
+                .filter_map(|(version, (_, redact))| redact.then_some(version)),
+        );
+
+        let snapshot = peer.snapshot();
+        let actual: BTreeSet<_> = snapshot
+            .versions()
+            .map(|version| version.as_bytes().to_vec())
+            .collect();
+        let expected: BTreeSet<_> = created
+            .iter()
+            .zip(&items)
+            .filter(|(_, (_, redact))| !redact)
+            .map(|(version, _)| version.as_bytes().to_vec())
+            .collect();
+        prop_assert_eq!(actual, expected);
+        for (version, (_, redacted)) in created.iter().zip(&items) {
+            prop_assert_eq!(snapshot.contains(version), !redacted);
+        }
+        prop_assert_eq!(snapshot.earliest().is_none(), snapshot.is_empty());
+        if let Some(earliest) = snapshot.earliest() {
+            for version in snapshot.versions() {
+                prop_assert!(earliest <= version, "the live floor precedes every live version");
+            }
+        }
+
+        let later = peer.send(u64::MAX).unwrap();
+        prop_assert!(!snapshot.contains(&later));
     }
 
     /// All `Version`s created within a single batch are distinct, even
@@ -151,6 +196,45 @@ proptest! {
         };
         prop_assert_eq!(multiset_of(&values), multiset_of(&shuffled));
     }
+}
+
+/// A payload that satisfies the storage contract but is neither `Clone` nor
+/// `Debug`.
+#[derive(Deserialize, Eq, PartialEq, Serialize)]
+struct OpaquePayload(u64);
+
+/// Snapshot traits inspect the stored representation rather than requiring
+/// the payload to implement the corresponding traits. Its iterator also has
+/// the public, nameable `Iter` type.
+#[test]
+fn snapshot_traits_do_not_inherit_payload_bounds() {
+    let rumors = Peer::<OpaquePayload>::seed().into_rumors();
+    rumors.send(OpaquePayload(7)).unwrap();
+    let snapshot = rumors.snapshot();
+    let clone = snapshot.clone();
+
+    assert!(snapshot == clone);
+    let rendered = format!("{snapshot:?}");
+    assert!(rendered.starts_with("Snapshot"));
+    let _: rumors::Iter<'_, OpaquePayload> = snapshot.iter();
+}
+
+/// Snapshot equality covers the network, live set, and causal frontier.
+#[test]
+fn snapshot_equality_compares_complete_replica_state() {
+    let rumors = Peer::<u64>::seed().into_rumors();
+    let initial = rumors.snapshot();
+    assert_eq!(initial, initial.clone());
+
+    let version = rumors.send(1).unwrap();
+    assert_ne!(initial, rumors.snapshot(), "the live set changed");
+    rumors.redact(&version);
+    let advanced_empty = rumors.snapshot();
+    assert!(initial.is_empty() && advanced_empty.is_empty());
+    assert_ne!(initial, advanced_empty, "the causal frontier changed");
+
+    let other = Peer::<u64>::seed().into_rumors().snapshot();
+    assert_ne!(initial, other, "the network changed");
 }
 
 /// A value whose serialization fails on demand, so a test can fire
@@ -414,7 +498,7 @@ fn batch_send_all_handled_locally_keeps_the_admitted_prefix() {
         .sync_window_floor()
         .into_rumors();
     rumors.send_all([Arr::nested(3)]).unwrap();
-    let doomed: Vec<Version> = rumors.snapshot().iter().map(|(v, _)| v.clone()).collect();
+    let doomed: Vec<Version> = rumors.snapshot().versions().cloned().collect();
 
     rumors
         .batch(|batch| {

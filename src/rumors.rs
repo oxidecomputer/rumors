@@ -25,6 +25,8 @@ use tokio::{
 /// Unlike [`Peer`], [`Rumors`] is [`Clone`]: any number of tasks may
 /// interact with the set concurrently. Synchronization is internal:
 /// anything one clone learns, all do.
+///
+/// Call [`snapshot`](Self::snapshot) to read a consistent view of the set.
 pub struct Rumors<T, B: Bookmark = NoBookmark> {
     /// A peer view sharing this replica's state and configuration.
     peer: Peer<T, B>,

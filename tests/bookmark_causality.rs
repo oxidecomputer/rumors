@@ -39,9 +39,7 @@ use proptest::prelude::*;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 use rumors::error::{Mismatch, ProtocolViolation};
-use rumors::{
-    Bookmark, BookmarkIo, Error, MERKLE_HASH_LEN, Network, Peer, Retire, Rumors, Version,
-};
+use rumors::{Bookmark, BookmarkIo, Error, Network, Peer, Retire, Rumors, Snapshot, Version};
 
 use crate::common::fault::{self, FaultPlan};
 use crate::common::flaky::{
@@ -1191,15 +1189,10 @@ impl World {
         );
     }
 
-    /// Each live peer's `(hash, latest)` fingerprint, for fixed-point detection.
-    fn fingerprints(&self) -> Vec<Option<([u8; MERKLE_HASH_LEN], Version)>> {
+    /// Each live peer's state, for fixed-point detection.
+    fn fingerprints(&self) -> Vec<Option<Snapshot<u64>>> {
         (0..self.n())
-            .map(|k| {
-                self.nodes[k].live().map(|rumors| {
-                    let snapshot = rumors.snapshot();
-                    (snapshot.hash(), snapshot.latest().clone())
-                })
-            })
+            .map(|k| self.nodes[k].live().map(Rumors::snapshot))
             .collect()
     }
 
@@ -1233,14 +1226,13 @@ impl World {
         let live: Vec<usize> = (0..self.n()).filter(|&k| self.nodes[k].is_live()).collect();
 
         // Convergence.
-        let mut reference: Option<([u8; MERKLE_HASH_LEN], Version)> = None;
+        let mut reference: Option<Snapshot<u64>> = None;
         for &k in &live {
             let snapshot = self.nodes[k].live().unwrap().snapshot();
-            let fingerprint = (snapshot.hash(), snapshot.latest().clone());
             match &reference {
-                None => reference = Some(fingerprint),
+                None => reference = Some(snapshot),
                 Some(expected) => assert_eq!(
-                    &fingerprint, expected,
+                    &snapshot, expected,
                     "node {k} diverged from the fleet after the heal",
                 ),
             }
