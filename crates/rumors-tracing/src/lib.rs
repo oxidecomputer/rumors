@@ -52,11 +52,15 @@
 //! [`Role`], …) are recorded in their debug form.
 //!
 //! - **One `session` span per observed session** (level `INFO`):
-//!   fields `kind` (`Gossip`, `Bootstrap`, `Retire`), `protocol`, and
-//!   `ordinal` — the adapter's own count of the sessions it has
+//!   fields `kind` (`Gossip`, `Bootstrap`, `Retire`), `protocol`,
+//!   `ordinal`, and the terminal `outcome` and optional `failure` category.
+//!   `ordinal` is the adapter's own count of the sessions it has
 //!   observed, so concurrent sessions stay distinguishable. (The hook
 //!   deliberately carries no session number; numbering is the
 //!   observer's concern, and this adapter counts internally.)
+//! - **One `session finished` event** (level `INFO`, inside the session
+//!   span): a successful session records its `converged` frontier and
+//!   `stats`; a failed or cancelled session records its outcome category.
 //! - **One `role elected` event** (level `INFO`, inside the session
 //!   span) when the session's role election is decided, with the
 //!   elected `role`. Sessions whose greetings carry equal versions
@@ -116,7 +120,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use rumors::observe::{
-    Observer, Role, SessionInfo, SessionObserver, StreamId, StreamInfo, StreamObserver,
+    Observer, Role, SessionInfo, SessionObserver, SessionOutcome, StreamId, StreamInfo,
+    StreamObserver,
 };
 use tracing::Span;
 
@@ -157,6 +162,7 @@ impl TracingObserver {
 }
 
 impl Observer for TracingObserver {
+    /// Open one tracing span for the observed session.
     fn session(&self, session: &SessionInfo) -> Option<Box<dyn SessionObserver>> {
         let span = tracing::info_span!(
             target: "rumors",
@@ -164,6 +170,8 @@ impl Observer for TracingObserver {
             kind = ?session.kind,
             protocol = ?session.protocol,
             ordinal = self.sessions.fetch_add(1, Ordering::Relaxed),
+            outcome = tracing::field::Empty,
+            failure = tracing::field::Empty,
         );
         Some(Box::new(SessionAdapter {
             span,
@@ -180,10 +188,46 @@ struct SessionAdapter {
 }
 
 impl SessionObserver for SessionAdapter {
+    /// Record the elected reconciliation role.
     fn elected(&self, role: Role) {
         tracing::info!(target: "rumors", parent: &self.span, role = ?role, "role elected");
     }
 
+    /// Close the session span with its terminal outcome and emit its details.
+    fn finished(&self, outcome: SessionOutcome<'_>) {
+        match outcome {
+            SessionOutcome::Completed { converged, stats } => {
+                self.span.record("outcome", "completed");
+                tracing::info!(
+                    target: "rumors",
+                    parent: &self.span,
+                    ?converged,
+                    ?stats,
+                    "session finished",
+                );
+            }
+            SessionOutcome::Failed(failure) => {
+                self.span.record("outcome", "failed");
+                self.span.record("failure", tracing::field::debug(failure));
+                tracing::info!(
+                    target: "rumors",
+                    parent: &self.span,
+                    ?failure,
+                    "session finished",
+                );
+            }
+            SessionOutcome::Cancelled => {
+                self.span.record("outcome", "cancelled");
+                tracing::info!(target: "rumors", parent: &self.span, "session finished");
+            }
+            _ => {
+                self.span.record("outcome", "unknown");
+                tracing::info!(target: "rumors", parent: &self.span, "session finished");
+            }
+        }
+    }
+
+    /// Open one child span for an observed directed stream.
     fn stream(&self, stream: &StreamInfo) -> Option<Box<dyn StreamObserver>> {
         let span = match stream.id {
             StreamId::Control => tracing::debug_span!(
@@ -228,6 +272,7 @@ struct StreamAdapter {
 }
 
 impl StreamObserver for StreamAdapter {
+    /// Render one complete wire item into a tracing event.
     fn message(&mut self, bytes: &[u8]) {
         // The ordinal must advance even when the event is disabled:
         // enabling a subscriber mid-session would otherwise emit

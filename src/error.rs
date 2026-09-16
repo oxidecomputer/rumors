@@ -24,6 +24,7 @@ use std::{convert::Infallible, fmt};
 use crate::{
     Network, Protocol, Ticks,
     bookmark::{Bookmark, BookmarkIo, NoBookmark},
+    observe::SessionErrorKind,
     tree::mirror::{
         self, handshake,
         streaming::{materialized, remote},
@@ -134,6 +135,22 @@ pub enum Error<B: Bookmark = NoBookmark> {
     /// See [`Bookmark`] for the recovery limits.
     #[error(transparent)]
     Bookmark(BookmarkIo<B::Error>),
+}
+
+impl<B: Bookmark> Error<B> {
+    /// Reduce this error to the category exposed to session observers.
+    pub(crate) fn session_error_kind(&self) -> SessionErrorKind {
+        match self {
+            Self::Transport(_) => SessionErrorKind::Transport,
+            Self::Protocol(_) => SessionErrorKind::Protocol,
+            Self::Mismatch(_) => SessionErrorKind::Mismatch,
+            Self::LinkPoisoned => {
+                unreachable!("an observer starts only after the link accepts a new session")
+            }
+            Self::DeadlineExceeded => SessionErrorKind::DeadlineExceeded,
+            Self::Bookmark(_) => SessionErrorKind::Bookmark,
+        }
+    }
 }
 
 /// Format session failures without requiring the bookmark handle itself to be

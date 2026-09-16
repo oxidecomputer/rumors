@@ -231,7 +231,9 @@ impl<C: Connector> StreamSender<C> {
         write
             .frame(&(stream, frame))
             .await
-            .map_err(SendError::Frame)
+            .map_err(SendError::Frame)?;
+        self.stats.frame_sent();
+        Ok(())
     }
 }
 
@@ -459,7 +461,7 @@ where
             });
             cancelled().await
         };
-        let mut read = FrameRead::new(speaker, budget, CountedRead::new(rx, stats)).observed(
+        let mut read = FrameRead::new(speaker, budget, CountedRead::new(rx, stats.clone())).observed(
             observe.data(speaker.role(), stream.index(), Direction::Received),
         );
         loop {
@@ -484,6 +486,7 @@ where
                     cancelled().await
                 }
             };
+            stats.frame_received();
             if matches!(frame, Frame::End(End::Stream)) {
                 // The lifecycle control is consumed here; the consumer sees
                 // only complete replies followed by a clean end.

@@ -56,11 +56,15 @@ protocol vocabulary (`SessionKind`,
 `Role`, …) are recorded in their debug form.
 
 - **One `session` span per observed session** (level `INFO`):
-  fields `kind` (`Gossip`, `Bootstrap`, `Retire`), `protocol`, and
-  `ordinal` — the adapter's own count of the sessions it has
+  fields `kind` (`Gossip`, `Bootstrap`, `Retire`), `protocol`,
+  `ordinal`, and the terminal `outcome` and optional `failure` category.
+  `ordinal` is the adapter's own count of the sessions it has
   observed, so concurrent sessions stay distinguishable. (The hook
   deliberately carries no session number; numbering is the
   observer's concern, and this adapter counts internally.)
+- **One `session finished` event** (level `INFO`, inside the session
+  span): a successful session records its `converged` frontier and
+  `stats`; a failed or cancelled session records its outcome category.
 - **One `role elected` event** (level `INFO`, inside the session
   span) when the session's role election is decided, with the
   elected `role`. Sessions whose greetings carry equal versions

@@ -30,6 +30,7 @@ use crate::tree::{
             channel::{QueueKind, QueueRole, Receiver, Sender, channel},
             ok_channel,
         },
+        stats::Recorder,
         window::FAN,
     },
     typed::{
@@ -37,6 +38,42 @@ use crate::tree::{
         height::{Height, Root, S, UnderRoot, UnderUnderRoot, Z},
     },
 };
+
+/// A window-controlled sender that records capacity pressure.
+pub(super) struct WindowSender<T> {
+    /// The bounded protocol edge.
+    inner: Sender<T>,
+    /// The session receiving the pressure signal.
+    stats: Recorder,
+}
+
+impl<T> Clone for WindowSender<T> {
+    /// Share the channel and its session recorder.
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            stats: self.stats.clone(),
+        }
+    }
+}
+
+impl<T> WindowSender<T> {
+    /// Wrap a sender whose capacity was derived from the session window.
+    fn new(inner: Sender<T>, stats: &Recorder) -> Self {
+        Self {
+            inner,
+            stats: stats.clone(),
+        }
+    }
+
+    /// Send one item and record whether the window was full on arrival.
+    pub(super) async fn send(&self, item: T) -> Result<(), tokio::sync::mpsc::error::SendError<T>> {
+        if self.inner.capacity() == 0 {
+            self.stats.window_stall();
+        }
+        self.inner.send(item).await
+    }
+}
 
 /// Buffer outgoing protocol replies one at a time.
 ///
@@ -77,7 +114,7 @@ where
 ///
 /// **One full fan is this edge's hard floor, not a tunable.** Unlike the
 /// window-scaled edges, whose one-slot floor is deadlock-free by the
-/// ordering invariants, shrinking this queue below `FAN` can genuinely
+/// ordering invariants, shrinking this queue below `FAN` can
 /// stall a session (`underbuffered_mirror_stalls` in the capacity tests
 /// demonstrates it), which is why the session window deliberately never
 /// reaches this constructor.
@@ -130,14 +167,16 @@ where
 /// node budget.
 pub(super) fn responder_child_queries<B>(
     capacity: usize,
-) -> (Sender<Query<B::Erased>>, Receiver<Query<B::Erased>>)
+    stats: &Recorder,
+) -> (WindowSender<Query<B::Erased>>, Receiver<Query<B::Erased>>)
 where
     B: Backend<Node<Z>: Leaf>,
 {
-    channel(
+    let (send, receive) = channel(
         QueueRole::new(QueueKind::ResponderChildQueries, UnderUnderRoot::HEIGHT),
         capacity,
-    )
+    );
+    (WindowSender::new(send, stats), receive)
 }
 
 /// Carry the responder's single root resolution.
@@ -187,14 +226,16 @@ where
 pub(super) fn internal_child_queries<B>(
     height: usize,
     capacity: usize,
-) -> (Sender<Query<B::Erased>>, Receiver<Query<B::Erased>>)
+    stats: &Recorder,
+) -> (WindowSender<Query<B::Erased>>, Receiver<Query<B::Erased>>)
 where
     B: Backend<Node<Z>: Leaf>,
 {
-    channel(
+    let (send, receive) = channel(
         QueueRole::new(QueueKind::InternalChildQueries, height),
         capacity,
-    )
+    );
+    (WindowSender::new(send, stats), receive)
 }
 
 /// Buffer parent-scope resolutions produced by an internal walk, window-wide.
@@ -209,17 +250,19 @@ where
 pub(super) fn internal_parent_resolutions<B>(
     height: usize,
     capacity: usize,
+    stats: &Recorder,
 ) -> (
-    Sender<Resolution<B::Erased>>,
+    WindowSender<Resolution<B::Erased>>,
     OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
 )
 where
     B: Backend<Node<Z>: Leaf>,
 {
-    ok_channel(
+    let (send, receive) = ok_channel(
         QueueRole::new(QueueKind::InternalParentResolutions, height),
         capacity,
-    )
+    );
+    (WindowSender::new(send, stats), receive)
 }
 
 /// Buffer child-scope resolutions produced by an internal walk, window-wide.
@@ -233,17 +276,19 @@ where
 pub(super) fn internal_child_resolutions<B>(
     height: usize,
     capacity: usize,
+    stats: &Recorder,
 ) -> (
-    Sender<Resolution<B::Erased>>,
+    WindowSender<Resolution<B::Erased>>,
     OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
 )
 where
     B: Backend<Node<Z>: Leaf>,
 {
-    ok_channel(
+    let (send, receive) = ok_channel(
         QueueRole::new(QueueKind::InternalChildResolutions, height),
         capacity,
-    )
+    );
+    (WindowSender::new(send, stats), receive)
 }
 
 /// Buffer the leaf requests emitted by a leaf-parent walk, window-wide.
@@ -251,8 +296,12 @@ where
 /// The corresponding leaf-scope resolution is published first, so one slot is
 /// the liveness floor. This queue is the leaf-height question window: its
 /// capacity is how many requested leaves may await the peer's supplies at once.
-pub(super) fn leaf_requests(capacity: usize) -> (Sender<Prefix<Z>>, Receiver<Prefix<Z>>) {
-    channel(QueueRole::new(QueueKind::LeafRequests, Z::HEIGHT), capacity)
+pub(super) fn leaf_requests(
+    capacity: usize,
+    stats: &Recorder,
+) -> (WindowSender<Prefix<Z>>, Receiver<Prefix<Z>>) {
+    let (send, receive) = channel(QueueRole::new(QueueKind::LeafRequests, Z::HEIGHT), capacity);
+    (WindowSender::new(send, stats), receive)
 }
 
 /// Buffer leaf-parent resolutions awaiting their reconstructed children,
@@ -263,17 +312,19 @@ pub(super) fn leaf_requests(capacity: usize) -> (Sender<Prefix<Z>>, Receiver<Pre
 /// buffered resolutions wait on their leaf exchanges.
 pub(super) fn leaf_parent_resolutions<B>(
     capacity: usize,
+    stats: &Recorder,
 ) -> (
-    Sender<Resolution<B::Erased>>,
+    WindowSender<Resolution<B::Erased>>,
     OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
 )
 where
     B: Backend<Node<Z>: Leaf>,
 {
-    ok_channel(
+    let (send, receive) = ok_channel(
         QueueRole::new(QueueKind::LeafParentResolutions, <S<Z>>::HEIGHT),
         capacity,
-    )
+    );
+    (WindowSender::new(send, stats), receive)
 }
 
 /// Buffer leaf-scope resolutions produced within one leaf-parent reply,
@@ -284,17 +335,19 @@ where
 /// scopes await their supplies.
 pub(super) fn leaf_child_resolutions<B>(
     capacity: usize,
+    stats: &Recorder,
 ) -> (
-    Sender<Resolution<B::Erased>>,
+    WindowSender<Resolution<B::Erased>>,
     OkReceiverStream<Resolution<B::Erased>, Error<B::Error>>,
 )
 where
     B: Backend<Node<Z>: Leaf>,
 {
-    ok_channel(
+    let (send, receive) = ok_channel(
         QueueRole::new(QueueKind::LeafChildResolutions, Z::HEIGHT),
         capacity,
-    )
+    );
+    (WindowSender::new(send, stats), receive)
 }
 
 /// Stream terminal leaf resolutions, buffered one fan deep.

@@ -193,7 +193,7 @@ where
         let backend = self.backend();
         let stats = self.stats.clone();
         let (asked, asked_rx) =
-            responder_child_queries::<B>(self.window.capacity(UnderUnderRoot::HEIGHT));
+            responder_child_queries::<B>(self.window.capacity(UnderUnderRoot::HEIGHT), &stats);
         let (resolution, resolution_rx) = responder_root_resolution::<B>();
         let (early_tx, early_rx) = oneshot::channel();
         let assembling = backend.clone();
@@ -391,14 +391,16 @@ where
         let backend = self.backend();
         let stats = self.stats.clone();
         let (asked, asked_rx) =
-            internal_child_queries::<B>(asked_height, self.window.capacity(asked_height));
+            internal_child_queries::<B>(asked_height, self.window.capacity(asked_height), &stats);
         let (upper, upper_rx) = internal_parent_resolutions::<B>(
             asked_height + 2,
             self.window.capacity(asked_height + 2),
+            &stats,
         );
         let (lower, lower_rx) = internal_child_resolutions::<B>(
             asked_height + 1,
             self.window.capacity(asked_height + 1),
+            &stats,
         );
         #[cfg(test)]
         let trace_id = self.trace_id;
@@ -585,9 +587,11 @@ where
     {
         let backend = self.backend();
         let stats = self.stats.clone();
-        let (asked, asked_rx) = leaf_requests(self.window.capacity(Z::HEIGHT));
-        let (upper, upper_rx) = leaf_parent_resolutions::<B>(self.window.capacity(<S<Z>>::HEIGHT));
-        let (lower, lower_rx) = leaf_child_resolutions::<B>(self.window.capacity(Z::HEIGHT));
+        let (asked, asked_rx) = leaf_requests(self.window.capacity(Z::HEIGHT), &stats);
+        let (upper, upper_rx) =
+            leaf_parent_resolutions::<B>(self.window.capacity(<S<Z>>::HEIGHT), &stats);
+        let (lower, lower_rx) =
+            leaf_child_resolutions::<B>(self.window.capacity(Z::HEIGHT), &stats);
         #[cfg(test)]
         let trace_id = self.trace_id;
 

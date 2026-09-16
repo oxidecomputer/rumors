@@ -6,7 +6,7 @@
 //! the identity can be returned to the caller.
 
 use crate::error::{Mismatch, Phase, TransportOperation as Op};
-use std::{fmt, sync::Arc};
+use std::{fmt, sync::Arc, time::Instant};
 
 use before::{Party, Ticks};
 use futures::{Stream, future::BoxFuture};
@@ -21,7 +21,7 @@ use crate::link::{
     erased::{DynAcceptor, DynConnector},
 };
 use crate::message::PayloadCodec;
-use crate::observe::{SessionHandle, SessionKind};
+use crate::observe::{SessionCompletion, SessionHandle, SessionKind, SessionOutcome};
 use crate::tree::{self, Tree};
 use crate::{Error, Network, Version};
 use crate::{
@@ -182,7 +182,7 @@ pub struct Gossiped {
     /// What the session measured about itself; every count is local, so
     /// the two ends of one session report their own numbers.
     ///
-    /// See [`SessionStats`] for each field's mechanism and the seam it is
+    /// See [`SessionStats`] for each field's meaning and where it is
     /// counted at.
     pub stats: SessionStats,
 }
@@ -253,7 +253,41 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
         Box::pin(async move {
             let parts = erase(&mut *link)?;
             let policy = config.gossip_policy.clone();
-            let result = policy.run(Self::bootstrap_erased(config, parts)).await;
+            let started = Instant::now();
+            let completion = SessionCompletion::new(config.observe.begin(SessionKind::Bootstrap));
+            let observe = completion.handle();
+            let stats = Recorder::default();
+            let result = policy
+                .run(Self::bootstrap_erased(
+                    config,
+                    parts,
+                    observe,
+                    stats.clone(),
+                ))
+                .await;
+            match &result {
+                Ok(Some(peer)) => {
+                    let inner = peer.inner.borrow();
+                    let mut measured = stats.snapshot();
+                    measured.elapsed = started.elapsed();
+                    completion.finish(SessionOutcome::Completed {
+                        converged: inner.tree.latest(),
+                        stats: measured,
+                    });
+                }
+                Ok(None) => {
+                    let converged = Version::new();
+                    let mut measured = stats.snapshot();
+                    measured.elapsed = started.elapsed();
+                    completion.finish(SessionOutcome::Completed {
+                        converged: &converged,
+                        stats: measured,
+                    });
+                }
+                Err(error) => {
+                    completion.finish(SessionOutcome::Failed(error.session_error_kind()));
+                }
+            }
             // Both arrival and mutual bootstrap complete the epilogue,
             // so either outcome leaves the link ready for another session.
             if result.is_ok() {
@@ -269,6 +303,8 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
     fn bootstrap_erased<'a>(
         config: Bootstrap<T>,
         link: SessionTransport<'a>,
+        observe: SessionHandle,
+        stats: Recorder,
     ) -> BoxFuture<'a, Result<Option<Self>, Error>>
     where
         T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
@@ -279,7 +315,6 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
             // the bootstrap session's ingress decodes through it, and the
             // constructed peer inherits it.
             let codec = PayloadCodec::new::<T>(config.payload_depth_limit);
-            let observe = config.observe.begin(SessionKind::Bootstrap);
             // Establish the protocol version and the provider's network
             // before interpreting the rest of the session.
             let mut staged = handshake::Staged::new();
@@ -305,6 +340,7 @@ impl<T: Send + Sync + 'static> Peer<T, NoBookmark> {
                 config.run_budget,
                 both_bootstrapping,
                 observe.clone(),
+                stats,
             );
             let Some((root, mut read, mut write)) = reconcile.await? else {
                 return Ok(None);
@@ -483,10 +519,28 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         link: SessionTransport<'_>,
     ) -> (Intent, Result<(Version, SessionStats), Error<B>>) {
         let mut outcome = Intent::Remain;
-        let result = self
+        let kind = match intent {
+            Intent::Remain => SessionKind::Gossip,
+            Intent::Retire => SessionKind::Retire,
+        };
+        let started = Instant::now();
+        let completion = SessionCompletion::new(self.observe.begin(kind));
+        let observe = completion.handle();
+        let stats = Recorder::default();
+        let mut result = self
             .gossip_policy
-            .run(self.gossip_inner(intent, &mut outcome, staged, link))
+            .run(self.gossip_inner(intent, &mut outcome, staged, link, observe, stats))
             .await;
+        if let Ok((_, stats)) = &mut result {
+            stats.elapsed = started.elapsed();
+        }
+        match &result {
+            Ok((converged, stats)) => completion.finish(SessionOutcome::Completed {
+                converged,
+                stats: *stats,
+            }),
+            Err(error) => completion.finish(SessionOutcome::Failed(error.session_error_kind())),
+        }
         (outcome, result)
     }
 
@@ -565,17 +619,11 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
         outcome: &mut Intent,
         staged: &mut handshake::Staged,
         link: SessionTransport<'a>,
+        observe: SessionHandle,
+        stats: Recorder,
     ) -> Result<(Version, SessionStats), Error<B>> {
         let (read, write, connector, acceptor, epoch) = link;
         let codec = self.codec;
-        // The walk and proxy share these counters for the returned statistics.
-        let stats = Recorder::default();
-        // All protocol layers share the caller's optional observation handler.
-        let kind = match intent {
-            Intent::Remain => SessionKind::Gossip,
-            Intent::Retire => SessionKind::Retire,
-        };
-        let observe = self.observe.begin(kind);
         // Check protocol and network compatibility before reconciliation.
         let remote = handshake::preamble(self.network, intent, staged, read, write, &observe)
             .await
@@ -1008,6 +1056,7 @@ fn bootstrap_reconcile<'a>(
     run_budget: RunBudget,
     both_bootstrapping: bool,
     observe: SessionHandle,
+    stats: Recorder,
 ) -> BoxFuture<'a, Result<Option<Reconciled<'a>>, Error>> {
     Box::pin(async move {
         let (read, write, connector, acceptor, epoch) = link;
@@ -1020,10 +1069,12 @@ fn bootstrap_reconcile<'a>(
         // are built at the exchanged minimum.
         let local = materialized::Handshaking::start(Local, local_root)
             .window(window)
-            .target_message_size(run_budget.bytes() as u64);
+            .target_message_size(run_budget.bytes() as u64)
+            .stats(stats.clone());
         let carrier = Link::for_session(read, write, connector, acceptor, epoch);
         let proxy = streaming_remote::Handshaking::start(Local, carrier, codec)
             .window(window)
+            .stats(stats)
             .observe(observe.clone());
         let handshaken = streaming::handshake(local, proxy)
             .await

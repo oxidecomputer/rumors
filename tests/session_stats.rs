@@ -10,6 +10,7 @@ mod common;
 
 use std::collections::BTreeMap;
 
+use ciborium::value::Value;
 use futures::StreamExt;
 use proptest::prelude::*;
 use rumors::testing::stream_label;
@@ -20,6 +21,22 @@ use crate::common::oracle::readout;
 use crate::common::wire::{
     LINK_BUF, assert_control_drained, block_on, bootstrap_fork_async, gossip_pair_async,
 };
+
+/// Count complete CBOR items in one captured data stream after its label.
+fn frame_count(mut bytes: &[u8]) -> u64 {
+    let mut frames = 0;
+    while !bytes.is_empty() {
+        let _: Value = ciborium::de::from_reader(&mut bytes).expect("captured frame is valid CBOR");
+        frames += 1;
+    }
+    frames
+}
+
+/// Clear the timing measurement when asserting that a session did no work.
+fn without_elapsed(mut stats: SessionStats) -> SessionStats {
+    stats.elapsed = std::time::Duration::ZERO;
+    stats
+}
 
 /// An empty replica learns the provider's messages without resolving disputes.
 /// Both one-shot calls report local initiation and the same final frontier.
@@ -62,8 +79,8 @@ fn converged_replicas_report_zero_stats() {
         let _ = gossip_pair_async(&a, &b).await;
 
         let (a_g, b_g) = gossip_pair_async(&a, &b).await;
-        assert_eq!(a_g.stats, SessionStats::default());
-        assert_eq!(b_g.stats, SessionStats::default());
+        assert_eq!(without_elapsed(a_g.stats), SessionStats::default());
+        assert_eq!(without_elapsed(b_g.stats), SessionStats::default());
     });
 }
 
@@ -148,7 +165,7 @@ async fn record_sessions(
     // so the capture contains only the divergent sessions measured below.
     for _ in 0..initial_epoch {
         let result = peer.gossip_once(&mut link).await.expect("empty session");
-        assert_eq!(result.stats, SessionStats::default());
+        assert_eq!(without_elapsed(result.stats), SessionStats::default());
     }
     for _ in 0..3 {
         peer.send_all(sends.iter().cloned()).unwrap();
@@ -180,20 +197,26 @@ proptest! {
 
         for (capture, sessions) in [(a_capture, &a_stats), (b_capture, &b_stats)] {
             let mut sent = BTreeMap::<u8, u64>::new();
+            let mut frames = BTreeMap::<u8, u64>::new();
             for stream in capture.streams {
                 let ((epoch, _), label_len) = stream_label(&stream);
                 *sent.entry(epoch).or_default() += (stream.len() - label_len) as u64;
+                *frames.entry(epoch).or_default() += frame_count(&stream[label_len..]);
             }
             for (round, stats) in sessions.iter().enumerate() {
                 let epoch = initial_epoch.wrapping_add(round as u8);
                 prop_assert!(stats.bytes_sent > 0, "each session sends new messages");
                 prop_assert_eq!(sent.remove(&epoch), Some(stats.bytes_sent), "epoch {}", epoch);
+                prop_assert_eq!(frames.remove(&epoch), Some(stats.frames_sent), "epoch {}", epoch);
             }
             prop_assert!(sent.is_empty(), "every captured stream belongs to a measured session");
+            prop_assert!(frames.is_empty(), "every captured frame belongs to a measured session");
         }
         for (a, b) in a_stats.iter().zip(&b_stats) {
             prop_assert_eq!(a.bytes_sent, b.bytes_received);
             prop_assert_eq!(b.bytes_sent, a.bytes_received);
+            prop_assert_eq!(a.frames_sent, b.frames_received);
+            prop_assert_eq!(b.frames_sent, a.frames_received);
         }
     }
 

@@ -14,15 +14,16 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use ciborium::value::Value;
+use futures::FutureExt;
 use proptest::prelude::*;
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
 use rumors::observe::{
-    Direction, Observer, Role, SessionInfo, SessionKind, SessionObserver, StreamId, StreamInfo,
-    StreamObserver,
+    Direction, Observer, Role, SessionErrorKind, SessionInfo, SessionKind, SessionObserver,
+    SessionOutcome, StreamId, StreamInfo, StreamObserver,
 };
 use rumors::testing::stream_label;
-use rumors::{Peer, Retire, Rumors};
+use rumors::{Peer, Retire, Rumors, SessionStats, Version};
 
 use crate::common::gossip_snapshot::{CapturedLink, capture_sides, corpora, payloads};
 use crate::common::window::WindowChoice;
@@ -43,6 +44,24 @@ struct SessionRecord {
     elected: Mutex<Option<Role>>,
     /// Every stream handler created, including ones receiving no messages.
     streams: Mutex<Vec<Arc<StreamRecord>>>,
+    /// The one terminal callback, copied out of its synchronous borrow.
+    outcomes: Mutex<Vec<RecordedOutcome>>,
+}
+
+/// An observed terminal outcome retained by the test.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RecordedOutcome {
+    /// A confirmed session with its frontier and statistics.
+    Completed {
+        /// The frontier copied from the callback.
+        converged: Version,
+        /// The session's measured work.
+        stats: SessionStats,
+    },
+    /// A session method returned this failure category.
+    Failed(SessionErrorKind),
+    /// The session future was dropped.
+    Cancelled,
 }
 
 /// One directed stream's metadata and ordered message callbacks.
@@ -73,6 +92,7 @@ impl Observer for Recording {
             info: *session,
             elected: Mutex::new(None),
             streams: Mutex::new(Vec::new()),
+            outcomes: Mutex::new(Vec::new()),
         });
         self.sessions.lock().unwrap().push(record.clone());
         Some(Box::new(RecordSession(record)))
@@ -88,6 +108,20 @@ impl SessionObserver for RecordSession {
     fn elected(&self, role: Role) {
         let previous = self.0.elected.lock().unwrap().replace(role);
         assert!(previous.is_none(), "the election is decided at most once");
+    }
+
+    /// Retain the terminal callback in owned form.
+    fn finished(&self, outcome: SessionOutcome<'_>) {
+        let outcome = match outcome {
+            SessionOutcome::Completed { converged, stats } => RecordedOutcome::Completed {
+                converged: converged.clone(),
+                stats,
+            },
+            SessionOutcome::Failed(failure) => RecordedOutcome::Failed(failure),
+            SessionOutcome::Cancelled => RecordedOutcome::Cancelled,
+            other => panic!("unknown session outcome: {other:?}"),
+        };
+        self.0.outcomes.lock().unwrap().push(outcome);
     }
 
     /// Check the speaker against the prior election, then record the stream.
@@ -128,6 +162,27 @@ impl StreamObserver for RecordStream {
 
 /// Compare observations with bytes captured independently at the transport.
 impl SessionRecord {
+    /// Return the session's sole terminal callback.
+    fn outcome(&self) -> RecordedOutcome {
+        let outcomes = self.outcomes.lock().unwrap();
+        assert_eq!(outcomes.len(), 1, "one terminal callback per session");
+        outcomes[0].clone()
+    }
+
+    /// Count observed data frames in one direction.
+    fn data_frames(&self, direction: Direction) -> u64 {
+        self.streams
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|stream| {
+                stream.info.direction == direction
+                    && matches!(stream.info.id, StreamId::Data { .. })
+            })
+            .map(|stream| stream.items.lock().unwrap().len() as u64)
+            .sum()
+    }
+
     /// Require exactly the captured streams and bytes in one direction.
     fn assert_capture(&self, side: &str, direction: Direction, capture: &CapturedLink) {
         // None names the control stream; Some(index) names a data stream.
@@ -188,6 +243,24 @@ fn assert_pair(a: &SessionRecord, b: &SessionRecord, a_wire: &CapturedLink, b_wi
     b.assert_capture("B", Direction::Sent, b_wire);
     b.assert_capture("B", Direction::Received, a_wire);
 
+    let completed = |record: &SessionRecord| match record.outcome() {
+        RecordedOutcome::Completed { converged, stats } => (converged, stats),
+        outcome => panic!("session did not complete: {outcome:?}"),
+    };
+    let (a_converged, a_stats) = completed(a);
+    let (b_converged, b_stats) = completed(b);
+    assert_eq!(
+        a_converged, b_converged,
+        "both callbacks report one frontier"
+    );
+    for (record, stats) in [(a, a_stats), (b, b_stats)] {
+        assert_eq!(stats.frames_sent, record.data_frames(Direction::Sent));
+        assert_eq!(
+            stats.frames_received,
+            record.data_frames(Direction::Received)
+        );
+    }
+
     // Use the transport to decide whether reconciliation occurred, so a missing
     // observation callback cannot also suppress the election check.
     let a_role = *a.elected.lock().unwrap();
@@ -202,6 +275,58 @@ fn assert_pair(a: &SessionRecord, b: &SessionRecord, a_wire: &CapturedLink, b_wi
             "the two roles are complementary"
         );
     }
+}
+
+/// A returned transport error produces one failed terminal callback.
+#[test]
+fn failed_session_reports_its_error_category_once() {
+    let observer = Arc::new(Recording::default());
+    let peer = Peer::<u64>::seed().observe(observer.clone()).into_rumors();
+    let (mut link, remote) = rumors::link::memory();
+    drop(remote);
+
+    let result = block_on(peer.gossip_once(&mut link));
+    assert!(matches!(result, Err(rumors::Error::Transport(_))));
+    let session = observer.take_session(SessionKind::Gossip);
+    assert_eq!(
+        session.outcome(),
+        RecordedOutcome::Failed(SessionErrorKind::Transport)
+    );
+}
+
+/// Deadline expiry is reported as a failure rather than cancellation.
+#[test]
+fn deadline_reports_its_error_category_once() {
+    let observer = Arc::new(Recording::default());
+    let peer = Peer::<u64>::seed()
+        .session_deadline(|| std::future::ready(()))
+        .observe(observer.clone())
+        .into_rumors();
+    let (mut link, _remote) = rumors::link::memory();
+
+    assert!(matches!(
+        block_on(peer.gossip_once(&mut link)),
+        Err(rumors::Error::DeadlineExceeded)
+    ));
+    let session = observer.take_session(SessionKind::Gossip);
+    assert_eq!(
+        session.outcome(),
+        RecordedOutcome::Failed(SessionErrorKind::DeadlineExceeded)
+    );
+}
+
+/// Dropping an active session produces one cancelled terminal callback.
+#[test]
+fn cancelled_session_reports_cancellation_once() {
+    let observer = Arc::new(Recording::default());
+    let peer = Peer::<u64>::seed().observe(observer.clone()).into_rumors();
+    let (mut link, _remote) = rumors::link::memory();
+    let mut gossip = Box::pin(peer.gossip_once(&mut link));
+    assert!(gossip.as_mut().now_or_never().is_none());
+    drop(gossip);
+
+    let session = observer.take_session(SessionKind::Gossip);
+    assert_eq!(session.outcome(), RecordedOutcome::Cancelled);
 }
 
 /// Seed a network with the supplied messages and optional observer.

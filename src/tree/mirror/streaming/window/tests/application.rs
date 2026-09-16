@@ -16,7 +16,7 @@ use crate::message::Message;
 use crate::testing::run_to_quiescence;
 use crate::tree::mirror::streaming::channel::{QueueKind, with_observation};
 use crate::tree::mirror::streaming::materialized::progress::{Kind, with_trace};
-use crate::tree::mirror::streaming::{Local, materialized::Handshaking, mirror};
+use crate::tree::mirror::streaming::{Local, materialized::Handshaking, mirror, stats::Recorder};
 use crate::tree::typed::Path;
 use crate::tree::{Action, Tree};
 
@@ -118,11 +118,17 @@ fn check_session(trees: [Tree<u64>; 2], budget: usize) {
     let mut expected = trees[0].clone();
     expected.join(trees[1].clone());
     let [left, right] = trees;
+    let left_stats = Recorder::default();
+    let right_stats = Recorder::default();
     let ((result, trace), queues) = with_observation(|| {
         with_trace(|| {
             run_to_quiescence(mirror(
-                Handshaking::start(Local, left.root.into()).window(config),
-                Handshaking::start(Local, right.root.into()).window(config),
+                Handshaking::start(Local, left.root.into())
+                    .window(config)
+                    .stats(left_stats.clone()),
+                Handshaking::start(Local, right.root.into())
+                    .window(config)
+                    .stats(right_stats.clone()),
             ))
         })
     });
@@ -131,6 +137,26 @@ fn check_session(trees: [Tree<u64>; 2], budget: usize) {
         .expect("valid reconciliation");
     assert_eq!(Tree::<u64>::from_root(left.into()), expected);
     assert_eq!(Tree::<u64>::from_root(right.into()), expected);
+
+    let window_kinds = [
+        QueueKind::ResponderChildQueries,
+        QueueKind::InternalChildQueries,
+        QueueKind::InternalParentResolutions,
+        QueueKind::InternalChildResolutions,
+        QueueKind::LeafRequests,
+        QueueKind::LeafParentResolutions,
+        QueueKind::LeafChildResolutions,
+    ];
+    let instrumented_stall = queues
+        .roles()
+        .any(|(role, stats)| window_kinds.contains(&role.kind) && stats.blocked_send_polls > 0);
+    let reported_stall = [left_stats.snapshot(), right_stats.snapshot()]
+        .iter()
+        .any(|stats| stats.window_stalls > 0);
+    assert_eq!(
+        reported_stall, instrumented_stall,
+        "public pressure signal must agree with the independent queue instrumentation"
+    );
 
     let mut counts = BTreeMap::<usize, usize>::new();
     for event in trace.events() {

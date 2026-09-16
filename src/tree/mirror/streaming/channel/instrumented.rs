@@ -113,6 +113,11 @@ impl<T> Clone for Sender<T> {
 }
 
 impl<T> Sender<T> {
+    /// Return the channel's currently available capacity.
+    pub fn capacity(&self) -> usize {
+        self.inner.capacity()
+    }
+
     /// Send one item, applying a scheduled suspension before every poll.
     pub async fn send(&self, item: T) -> Result<(), mpsc::error::SendError<T>> {
         let mut sending = Box::pin(self.inner.send(item));

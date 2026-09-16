@@ -206,7 +206,7 @@ where
     H: Height,
     S<H>: Height,
 {
-    let (queries, queries_rx) = internal_child_queries::<Local>(H::HEIGHT, 1);
+    let (queries, queries_rx) = internal_child_queries::<Local>(H::HEIGHT, 1, &Recorder::default());
     if let Some(query) = query {
         pollster::block_on(queries.send(query)).expect("the walk is live");
     }

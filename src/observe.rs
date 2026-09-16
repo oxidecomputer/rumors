@@ -18,9 +18,9 @@
 //!   every session the peer enters — gossip, bootstrap, and retire
 //!   alike. Repeated attachment adds observers; callbacks visit them
 //!   in attachment order.
-//! - **Session**: a [`SessionObserver`] lives exactly as long as its
-//!   session and is asked for a stream handler for each directed
-//!   stream as it opens.
+//! - **Session**: a [`SessionObserver`] receives the elected role, is asked
+//!   for a handler as each directed stream opens, and finally receives the
+//!   session's completion, failure category, or cancellation.
 //! - **Stream**: a [`StreamObserver`] receives that one directed
 //!   stream's messages, in stream order, one CBOR item per
 //!   [`message`](StreamObserver::message) call.
@@ -32,6 +32,8 @@
 //!   all (a session's streams pump concurrently). To recover the
 //!   observed interleaving, stamp each message from a session-scoped
 //!   atomic counter shared by the stream handlers.
+//!   [`SessionObserver::finished`] is the final callback for a session, after
+//!   its stream tasks have ended.
 //! - **Never block**: handlers run synchronously inside the session's
 //!   own stream tasks. Blocking in
 //!   [`message`](StreamObserver::message) stalls that directed stream,
@@ -56,7 +58,7 @@
 
 use std::sync::{Arc, Mutex, PoisonError};
 
-use crate::Protocol;
+use crate::{Protocol, SessionStats, Version};
 
 /// One peer-level observation handler, yielding one [`SessionObserver`]
 /// per session the peer enters.
@@ -93,6 +95,16 @@ pub trait SessionObserver: Send + Sync {
         let _ = role;
     }
 
+    /// Observe how the session ended.
+    ///
+    /// Called exactly once after a completed or failed session, or when its
+    /// future is dropped. A successful outcome borrows the frontier and copies
+    /// the small statistics record only for this synchronous call. The default
+    /// does nothing.
+    fn finished(&self, outcome: SessionOutcome<'_>) {
+        let _ = outcome;
+    }
+
     /// Begin observing one directed stream, or return `None` to skip
     /// it.
     ///
@@ -102,6 +114,48 @@ pub trait SessionObserver: Send + Sync {
     /// (received) it. A data stream the session never speaks yields no
     /// handler. The returned handler's lifetime is the stream's.
     fn stream(&self, stream: &StreamInfo) -> Option<Box<dyn StreamObserver>>;
+}
+
+/// How an observed session ended.
+///
+/// The callback receives this after all preceding callbacks for the session.
+/// It is a diagnostic summary: methods that drove the session still return the
+/// full success value or error.
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionOutcome<'a> {
+    /// The session completed and the peer confirmed completion.
+    Completed {
+        /// The causal frontier established by the session, before concurrent
+        /// local changes are joined into the replica.
+        converged: &'a Version,
+        /// The work measured during reconciliation.
+        stats: SessionStats,
+    },
+    /// The session returned an error of this category.
+    Failed(SessionErrorKind),
+    /// The future driving the session was dropped before it returned.
+    Cancelled,
+}
+
+/// The public error category reported to a [`SessionObserver`].
+///
+/// The session method retains the detailed error, including transport and
+/// protocol context. This copyable category lets observers label telemetry
+/// without depending on a bookmark's error type.
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionErrorKind {
+    /// The transport failed or closed before an operation completed.
+    Transport,
+    /// A protocol or implementation invariant failed.
+    Protocol,
+    /// The peers advertised incompatible protocols, networks, or settings.
+    Mismatch,
+    /// The application's session deadline expired.
+    DeadlineExceeded,
+    /// Bookmark storage or decoding failed.
+    Bookmark,
 }
 
 /// A stream-level observation handler: receives one directed stream's
@@ -332,6 +386,15 @@ impl SessionHandle {
         }
     }
 
+    /// Report one terminal outcome to every session handler.
+    fn finished(&self, outcome: SessionOutcome<'_>) {
+        if let Some(inner) = &self.inner {
+            for session in &inner.sessions {
+                session.finished(outcome);
+            }
+        }
+    }
+
     /// Create the handlers for one opening data stream, if any session
     /// observers want it.
     pub(crate) fn data(
@@ -352,6 +415,47 @@ impl SessionHandle {
             0 => None,
             1 => handlers.into_iter().next(),
             _ => Some(Box::new(StreamFanout(handlers))),
+        }
+    }
+}
+
+/// Own one session's terminal callback and report cancellation on drop.
+pub(crate) struct SessionCompletion {
+    /// The shared callbacks used by the session machinery.
+    handle: SessionHandle,
+    /// Whether an explicit outcome has already been reported.
+    finished: bool,
+}
+
+impl SessionCompletion {
+    /// Begin terminal-outcome ownership for `handle`.
+    pub(crate) fn new(handle: SessionHandle) -> Self {
+        Self {
+            handle,
+            finished: false,
+        }
+    }
+
+    /// Clone the handle threaded through the session's protocol layers.
+    pub(crate) fn handle(&self) -> SessionHandle {
+        self.handle.clone()
+    }
+
+    /// Report the session's returned outcome exactly once.
+    pub(crate) fn finish(mut self, outcome: SessionOutcome<'_>) {
+        // Set this before invoking user code so unwinding cannot report a
+        // second, contradictory cancellation outcome.
+        self.finished = true;
+        self.handle.finished(outcome);
+    }
+}
+
+/// Report cancellation when the future that owns a session is dropped.
+impl Drop for SessionCompletion {
+    fn drop(&mut self) {
+        if !self.finished {
+            self.finished = true;
+            self.handle.finished(SessionOutcome::Cancelled);
         }
     }
 }
