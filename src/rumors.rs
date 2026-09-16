@@ -28,37 +28,23 @@ use tokio::{
 pub struct Rumors<T, B: Bookmark = NoBookmark> {
     /// A peer view sharing this replica's state and configuration.
     peer: Peer<T, B>,
-    /// This handle's claim to existence; see [`Extant`].
-    extant: Extant,
+    /// Tracks live handles and the exclusive reunion claim.
+    reunion: Reunion,
 }
 
-/// One handle's share of a [`Rumors`] generation's existence.
+/// Tracks when a [`Rumors`] generation may be reunited into its [`Peer`].
 ///
-/// The `token` [`Arc`]'s strong count *is* the number of extant handles (a
-/// pending [`try_into_peer`](Rumors::try_into_peer) has already shed its
-/// share), so the count reaching zero is the moment the generation has quiesced
-/// and the [`Peer`] may be reclaimed.
+/// Each handle owns one `alive` sender. Closing that channel therefore marks
+/// the point when every handle has either been dropped or begun
+/// [`try_into_peer`](Rumors::try_into_peer), and the [`Peer`] may be reclaimed.
 #[derive(Clone)]
-struct Extant {
-    /// The extancy token. An `Option` only so [`Drop`] can shed it *before*
-    /// waking waiters on `drops`: a reuniter woken by that send must already
-    /// observe the decremented strong count. Always `Some` outside `Drop`.
-    token: Option<Arc<()>>,
+struct Reunion {
+    /// One sender per live handle; channel closure signals quiescence.
+    alive: watch::Sender<()>,
     /// The exactly-once claim on the reclaimed [`Peer`]: among reuniters
     /// that observe quiescence concurrently, the one that wins this flag is
     /// handed the `Peer`; the rest resolve `None`.
     claimed: Arc<AtomicBool>,
-    /// Wakes pending reuniters after each handle's token drops. Nothing
-    /// meaningful is ever sent; only the version bump matters.
-    drops: watch::Sender<()>,
-}
-
-impl Drop for Extant {
-    fn drop(&mut self) {
-        // Shed the token first, then wake: see the field docs above.
-        self.token = None;
-        self.drops.send_replace(());
-    }
 }
 
 /// Share the replica, configuration, and storage while retaining a handle claim.
@@ -76,7 +62,7 @@ impl<T, B: Bookmark> Clone for Rumors<T, B> {
                 codec: self.peer.codec,
                 observe: self.peer.observe.clone(),
             },
-            extant: self.extant.clone(),
+            reunion: self.reunion.clone(),
         }
     }
 }
@@ -103,38 +89,30 @@ impl<T, B: Bookmark> Rumors<T, B> {
     pub(crate) fn new(peer: Peer<T, B>) -> Self {
         Self {
             peer,
-            extant: Extant {
-                token: Some(Arc::new(())),
+            reunion: Reunion {
+                alive: watch::Sender::new(()),
                 claimed: Arc::new(AtomicBool::new(false)),
-                drops: watch::Sender::new(()),
             },
         }
     }
 
     /// Await quiescence and restore the unique [`Peer`] handle.
     async fn try_into_peer_inner(self) -> Option<Peer<T, B>> {
-        let Self { peer, extant } = self;
-        let token = Arc::downgrade(extant.token.as_ref().expect("Some outside Drop"));
-        let claimed = Arc::clone(&extant.claimed);
-        // Subscribe before shedding our token, so no later drop's wake can be
-        // missed; our own shed below wakes us once, harmlessly.
-        let mut drops = extant.drops.subscribe();
-        drop(extant);
-        loop {
-            // Monotone once zero: creating a token takes a live `Rumors` to
-            // clone, and every reuniter has already shed its own.
-            if token.strong_count() == 0 {
-                // Exactly one reuniter wins the claim; the Peer/Rumors
-                // XOR is restored the instant this swap succeeds.
-                return claimed
-                    .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-                    .is_ok()
-                    .then_some(peer);
-            }
-            // `Err` here means every sender (every `Extant`) is gone, so
-            // the count re-check above terminates the loop.
-            let _ = drops.changed().await;
-        }
+        let Self { peer, reunion } = self;
+        let mut alive = reunion.alive.subscribe();
+        let claimed = Arc::clone(&reunion.claimed);
+        drop(reunion);
+
+        // Nothing is sent on this channel. Closure means every handle is
+        // gone, and no new sender can be cloned after that point.
+        while alive.changed().await.is_ok() {}
+
+        // Concurrent reuniters observe closure together; exactly one restores
+        // the Peer/Rumors XOR, while the others discard their Peer values.
+        claimed
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+            .then_some(peer)
     }
 
     /// Send a message, committing it immediately.

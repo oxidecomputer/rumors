@@ -53,8 +53,12 @@ proptest! {
                         });
                         first = false;
                     }
-                    // Return Pending after each drop: progress must come from
-                    // the handle's wake, including the last ordinary handle.
+                    // Intermediate drops cannot let a reuniter finish. Only
+                    // the final drop needs to wake them, because no result is
+                    // possible before the generation becomes quiescent.
+                    while keepers.len() > 1 {
+                        drop(keepers.pop().unwrap());
+                    }
                     drop(keepers.pop().unwrap());
                     Poll::Pending
                 }).await;
