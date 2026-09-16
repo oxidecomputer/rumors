@@ -63,6 +63,14 @@ pub struct MemoryNet {
     listeners: Arc<Mutex<HashMap<String, mpsc::Sender<DuplexStream>>>>,
 }
 
+/// Hide the listener registry while making the test network debuggable.
+impl std::fmt::Debug for MemoryNet {
+    /// Format an opaque network handle.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MemoryNet").finish_non_exhaustive()
+    }
+}
+
 impl MemoryNet {
     /// An empty network.
     pub fn new() -> Self {
@@ -97,6 +105,14 @@ pub struct MemoryDial {
     net: MemoryNet,
 }
 
+/// Hide the shared network while making the dialer debuggable.
+impl std::fmt::Debug for MemoryDial {
+    /// Format an opaque dialer handle.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MemoryDial").finish_non_exhaustive()
+    }
+}
+
 impl Dial for MemoryDial {
     type Addr = MemoryName;
     type Conn = DuplexStream;
@@ -126,6 +142,16 @@ impl Dial for MemoryDial {
 /// The [`Listen`] half of one [`MemoryNet`] name.
 pub struct MemoryListen {
     conns: mpsc::Receiver<DuplexStream>,
+}
+
+/// Summarize a listener without exposing its channel implementation.
+impl std::fmt::Debug for MemoryListen {
+    /// Format the number of connections waiting for acceptance.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MemoryListen")
+            .field("queued", &self.conns.len())
+            .finish_non_exhaustive()
+    }
 }
 
 impl Listen for MemoryListen {

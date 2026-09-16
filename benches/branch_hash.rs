@@ -1,3 +1,6 @@
+// `criterion_group!` generates a public registrar with no documentation.
+#![allow(missing_docs)]
+
 //! Feeding-strategy microbenchmark behind `Hash::branch`'s one-shot form.
 //!
 //! A branch preimage is `kind ‖ prefix_len ‖ prefix ‖ count ‖ (radix ‖ hash)*`

@@ -1,3 +1,6 @@
+// `criterion_group!` generates a public registrar with no documentation.
+#![allow(missing_docs)]
+
 //! Wall-clock cross-check of the window suites' virtual-time model.
 //!
 //! Runs a small budget × divergence grid over the same delayed pipes as

@@ -151,6 +151,14 @@ pub struct IoReport {
 #[derive(Clone)]
 pub struct IoReportHandle(Arc<Mutex<State>>);
 
+/// Hide shared transport state while making the observation handle debuggable.
+impl std::fmt::Debug for IoReportHandle {
+    /// Format an opaque observation handle.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IoReportHandle").finish_non_exhaustive()
+    }
+}
+
 impl IoReportHandle {
     /// Snapshot the completed transport observations.
     pub fn snapshot(&self) -> IoReport {
@@ -270,6 +278,16 @@ pub struct AdversarialRead<R> {
     delay: Option<u8>,
 }
 
+/// Summarize a reader without requiring its transport to be debuggable.
+impl<R> std::fmt::Debug for AdversarialRead<R> {
+    /// Format whether a scheduled delay is in progress.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AdversarialRead")
+            .field("delayed", &self.delay.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
 impl<R: AsyncRead + Unpin> AsyncRead for AdversarialRead<R> {
     fn poll_read(
         self: Pin<&mut Self>,
@@ -345,6 +363,19 @@ pub struct AdversarialWrite<W> {
     flush_delay: Option<u8>,
     buffered: Vec<u8>,
     sent: usize,
+}
+
+/// Summarize a writer without requiring its transport to be debuggable.
+impl<W> std::fmt::Debug for AdversarialWrite<W> {
+    /// Format pending delays and buffered-byte progress.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AdversarialWrite")
+            .field("write_delayed", &self.write_delay.is_some())
+            .field("flush_delayed", &self.flush_delay.is_some())
+            .field("buffered", &self.buffered.len())
+            .field("sent", &self.sent)
+            .finish_non_exhaustive()
+    }
 }
 
 impl<W: AsyncWrite + Unpin> AsyncWrite for AdversarialWrite<W> {
@@ -550,6 +581,15 @@ pub struct AdversarialConnector<C> {
     state: Arc<Mutex<State>>,
 }
 
+/// Hide the connector and shared fault state from debug output.
+impl<C> std::fmt::Debug for AdversarialConnector<C> {
+    /// Format an opaque adversarial connector.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AdversarialConnector")
+            .finish_non_exhaustive()
+    }
+}
+
 impl<C: Clone> Clone for AdversarialConnector<C> {
     fn clone(&self) -> Self {
         Self {
@@ -593,6 +633,15 @@ impl<C: crate::link::Connector> crate::link::Connector for AdversarialConnector<
 pub struct AdversarialAcceptor<A> {
     inner: A,
     state: Arc<Mutex<State>>,
+}
+
+/// Hide the acceptor and shared fault state from debug output.
+impl<A> std::fmt::Debug for AdversarialAcceptor<A> {
+    /// Format an opaque adversarial acceptor.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AdversarialAcceptor")
+            .finish_non_exhaustive()
+    }
 }
 
 impl<A: crate::link::Acceptor> crate::link::Acceptor for AdversarialAcceptor<A> {
@@ -675,6 +724,19 @@ pub struct ReorderingAcceptor<A: crate::link::Acceptor> {
     batch: usize,
     /// Batches of two or more released: genuine inversions.
     reordered: Arc<AtomicUsize>,
+}
+
+/// Summarize a reordering acceptor without requiring its transport to be
+/// debuggable.
+impl<A: crate::link::Acceptor> std::fmt::Debug for ReorderingAcceptor<A> {
+    /// Format the batch configuration and observed reordering progress.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ReorderingAcceptor")
+            .field("held", &self.held.len())
+            .field("batch", &self.batch)
+            .field("reordered", &self.reordered.load(Ordering::Relaxed))
+            .finish_non_exhaustive()
+    }
 }
 
 impl<A: crate::link::Acceptor> crate::link::Acceptor for ReorderingAcceptor<A> {

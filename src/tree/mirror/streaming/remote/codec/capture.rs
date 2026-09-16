@@ -66,6 +66,7 @@ mod tests;
 /// The rendering consumes the hook's [`HookCapture`]; this transport
 /// form is the totality oracle beside it, and the wire-legibility
 /// property's raw material.
+#[derive(Debug)]
 pub struct LinkCapture {
     /// The control stream's outgoing bytes: preamble, the greeting item,
     /// and any trailing party hand-off and epilogue, in order.
@@ -77,6 +78,7 @@ pub struct LinkCapture {
 
 /// Everything one endpoint sent during a captured session, as the
 /// observation hook delivered it: one byte buffer per CBOR item.
+#[derive(Debug)]
 pub struct HookCapture {
     /// The role this side was elected, if the session held an election.
     pub role: Option<Role>,
@@ -89,6 +91,7 @@ pub struct HookCapture {
 /// One sent data stream, as observed through the hook plus the wire
 /// facts the hook deliberately does not carry (the label's epoch and
 /// the exact transport byte count).
+#[derive(Debug)]
 pub struct HookStream {
     /// The stream's wire index, from the hook's stream identity.
     pub index: u8,

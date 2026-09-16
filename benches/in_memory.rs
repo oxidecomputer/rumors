@@ -1,3 +1,6 @@
+// `criterion_group!` generates a public registrar with no documentation.
+#![allow(missing_docs)]
+
 //! In-memory benchmarks for the public single-set surface.
 //!
 //! These cover the operations that mutate or read a rumor set entirely in

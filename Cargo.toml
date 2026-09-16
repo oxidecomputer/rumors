@@ -95,6 +95,10 @@ readme = "README.md"
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
+[lints.rust]
+missing_debug_implementations = "warn"
+missing_docs = "warn"
+
 [lib]
 # Keep `cargo bench` from compiling the library itself as a libtest bench
 # harness. That auto-target rebuilds the whole crate -- every `#[cfg(test)]`

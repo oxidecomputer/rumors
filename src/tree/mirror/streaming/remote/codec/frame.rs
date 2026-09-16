@@ -385,19 +385,28 @@ pub enum LeafRunError {
     /// A record's leading heads are truncated or non-canonical.
     #[error("a leaf record's heads are invalid in the {remaining} bytes left in its run: {source}")]
     Head {
+        /// Bytes left in the run when the invalid head was read.
         remaining: usize,
+        /// The invalid head.
         #[source]
         source: HeadError,
     },
     /// The bytes where a record belongs are some other CBOR item.
     #[error("a {remaining}-byte run tail is not a leaf record: {detail}")]
     NotARecord {
+        /// Bytes remaining where the next record should begin.
         remaining: usize,
+        /// A concise description of the unexpected item.
         detail: &'static str,
     },
     /// A record's content overruns the run's declared length.
     #[error("a leaf record of {len} bytes overruns the {remaining} bytes left in its run")]
-    TruncatedRecord { len: usize, remaining: usize },
+    TruncatedRecord {
+        /// The record's declared length.
+        len: usize,
+        /// Bytes left in the run.
+        remaining: usize,
+    },
 }
 
 /// One structural problem in a child-listing map.

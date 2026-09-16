@@ -203,6 +203,15 @@ pub enum FrameShape {
 #[cfg(any(test, feature = "test-internals"))]
 pub struct PreparedFrame(frame::WireFrame);
 
+/// Hide the codec's frame representation from debug output.
+#[cfg(any(test, feature = "test-internals"))]
+impl std::fmt::Debug for PreparedFrame {
+    /// Format an opaque prepared frame.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PreparedFrame").finish_non_exhaustive()
+    }
+}
+
 /// Build one canonical frame of `shape` on an interior reply stream,
 /// where every reaction form is admissible.
 #[cfg(any(test, feature = "test-internals"))]

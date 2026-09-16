@@ -1,3 +1,6 @@
+// `criterion_group!` generates a public registrar with no documentation.
+#![allow(missing_docs)]
+
 //! Over-the-wire reconciliation benchmark: the divergence grid from
 //! [`grid`], reconciled through [`Rumors::gossip`] over a simulated wire.
 //!

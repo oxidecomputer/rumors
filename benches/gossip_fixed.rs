@@ -1,3 +1,6 @@
+// `criterion_group!` generates a public registrar with no documentation.
+#![allow(missing_docs)]
+
 //! Fixed-size over-the-wire gossip sweeps.
 //!
 //! Every fixture starts with a total universe size of `N = 10_000` possible
