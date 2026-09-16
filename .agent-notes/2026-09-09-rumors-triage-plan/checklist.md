@@ -1,6 +1,6 @@
 # Rumors review checklist
 
-**Next:** enable lint-backed documentation and traits for remaining test-support surfaces.
+**Next:** add a minimal atomic file-backed Bookmark behind a feature.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →
@@ -181,7 +181,7 @@ Coupled work: party ownership with 01; other API pieces can be separate.
 - [x] Publish `Link` transport access without exposing mutable session state, remove `LinkParts`, and complete production wrapper traits — `743271c4`.
       Sources: `api-audit-12`, `link-5`, `link-6`, `link-9`, T80, T81, T84.
 
-- [ ] Enable lint-backed documentation and traits for remaining test-support surfaces.
+- [x] Enable lint-backed documentation and traits for remaining test-support surfaces — `587e3b52`.
       Sources: `api-audit-7`, T47, T125.
 
 - [x] Remove `Protocol`'s vestigial representation and default, and describe build compatibility rather than protocol selection — `aebaea15`.
