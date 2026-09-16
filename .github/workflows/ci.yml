@@ -21,8 +21,7 @@
 #     nightly per the justfile's `nightly_toolchain` (merged doctests, the
 #     docs.rs rustdoc leg, cargo-fuzz's target build),
 #   - `just`, `cargo-nextest` (just test), `cargo-rdme` (readme-check),
-#     `cargo-fuzz` (fuzz-build), `cargo-mutants` (mutants-list), and
-#     `wasm-pack` (viz),
+#     `cargo-fuzz` (fuzz-build), and `wasm-pack` (viz),
 #   - node + npm for the viz TypeScript typecheck and bundle,
 #   - python3 for the tools/ linters and bash, the justfile's recipe shell
 #     (both preinstalled).
@@ -52,20 +51,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Tools first: they are prebuilt binaries needing no toolchain, and
-      # `just` reads the nightly pin below. Two tools carry versions because
-      # two committed artifacts depend on them: readme-check holds the
-      # READMEs byte for byte against what cargo-rdme emits, and
-      # mutants-list holds tools/mutantcheck-expected.json to the
-      # cargo-mutants release that listed its counts. A floating release
-      # could redefine either expectation with no commit in the repo;
-      # bumping a pin is a reviewed diff that re-pins its artifact in the
-      # same commit. The other tools report findings rather than generate
-      # bytes, so they ride the pinned action's own tool manifest, moving
-      # when Dependabot bumps the pin.
-      - name: Install just, cargo-nextest, cargo-rdme, cargo-fuzz, cargo-mutants, cargo-docs-rs, and wasm-pack
+      # `just` reads the nightly pin below. cargo-rdme is versioned because
+      # readme-check holds the READMEs byte for byte against its output. The
+      # other tools report findings rather than generate committed bytes, so
+      # they ride the pinned action's tool manifest.
+      - name: Install just, cargo-nextest, cargo-rdme, cargo-fuzz, cargo-docs-rs, and wasm-pack
         uses: taiki-e/install-action@37f7c5781271959fb65b6b35224e28652ff2b63d # v2.87.0
         with:
-          tool: just,cargo-nextest,cargo-rdme@2.1.0,cargo-fuzz,cargo-mutants@27.1.0,cargo-docs-rs,wasm-pack
+          tool: just,cargo-nextest,cargo-rdme@2.1.0,cargo-fuzz,cargo-docs-rs,wasm-pack
 
       # Stable first, read from rust-toolchain.toml's `channel` (the one site
       # of that pin) because `just` may evaluate the justfile's `rustc`

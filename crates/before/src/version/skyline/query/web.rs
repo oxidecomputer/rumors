@@ -61,9 +61,9 @@
 //!   sign read: the boundary's own code (the freeze trigger keeps `L`
 //!   within the allowance of the last code; `gap`'s sign reads amortize
 //!   against the folds that widened it);
-//! - a reign record's mint and its one death settle: the code funding
-//!   the leaf offset it snapshots (records move, and counts add, at
-//!   O(1) between mint and death);
+//! - creating and eventually settling a reign record: the code funding the
+//!   leaf offset it snapshots (moving a record and adding to its count are
+//!   O(1));
 //! - a close: O(1) — a count bump plus a boundary *move* into the
 //!   latent register;
 //! - an undercut's propagation: each consumed difference dies by one
@@ -173,21 +173,21 @@ pub(super) fn mul_into(
 
 /// The value the innermost minimum currently holds, as the sweep folds it: a
 /// frozen-relative offset, its epoch, and the closes counted at it since the
-/// record's mint (module doc: the minima side).
+/// record was created (module doc: the minima side).
 struct Reign {
     /// The offset's sign.
     sign: Sign,
     /// The offset's magnitude, relative to its epoch's frozen component.
     offset: Base,
     /// The epoch whose frozen component anchors `offset`.
-    epoch: u32,
+    epoch: usize,
     /// Closes folded at this record's value, unsettled.
     count: u64,
 }
 
 impl Reign {
     /// A fresh record at a leaf's value, no closes counted yet.
-    fn mint(sign: Sign, offset: &Base, epoch: u32) -> Reign {
+    fn new(sign: Sign, offset: &Base, epoch: usize) -> Reign {
         Reign {
             sign,
             offset: offset.clone(),
@@ -290,14 +290,14 @@ impl ReignWeb {
         &mut self,
         sign: Sign,
         offset: &Base,
-        epoch: u32,
+        epoch: usize,
         total: &mut Accumulator,
         ledger: &mut EpochLedger,
     ) {
         if self.web.has_pending() {
             if !self.web.armed() {
                 // The first arming: the web seats its anchor at the leaf.
-                self.winner = Some(Reign::mint(sign, offset, epoch));
+                self.winner = Some(Reign::new(sign, offset, epoch));
             }
             // The trichotomy through the hooks: an arming above the old
             // minimum stacks the interrupted record as the boundary's
@@ -308,7 +308,7 @@ impl ReignWeb {
             self.web.arm_at_height(
                 || {
                     winner
-                        .replace(Reign::mint(sign, offset, epoch))
+                        .replace(Reign::new(sign, offset, epoch))
                         .expect("an armed web has a reigning record")
                 },
                 |reign| settle(reign, total, ledger),
@@ -327,7 +327,7 @@ impl ReignWeb {
         // whose difference it consumes.
         let dead = self
             .winner
-            .replace(Reign::mint(sign, offset, epoch))
+            .replace(Reign::new(sign, offset, epoch))
             .expect("an armed web has a reigning record");
         settle(dead, total, ledger);
         self.web.undercut(|reign| settle(reign, total, ledger));
@@ -366,9 +366,9 @@ impl EpochLedger {
         }
     }
 
-    /// The current epoch: the freezes so far.
-    pub(super) fn epoch(&self) -> u32 {
-        u32::try_from(self.drifts.len() - 1).expect("freeze count fits u32")
+    /// The current epoch: the number of nonzero drifts parked so far.
+    pub(super) fn epoch(&self) -> usize {
+        self.drifts.len() - 1
     }
 
     /// Count one leaf against the current epoch.
@@ -377,8 +377,8 @@ impl EpochLedger {
     }
 
     /// Count a settled reign's closes against its record's epoch.
-    fn minimum_refs(&mut self, epoch: u32, count: u64) {
-        self.refs[epoch as usize] -= i128::from(count);
+    fn minimum_refs(&mut self, epoch: usize, count: u64) {
+        self.refs[epoch] -= i128::from(count);
     }
 
     /// Evict the live drift into a new epoch (or discard a redundantly spelled

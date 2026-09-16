@@ -56,7 +56,7 @@
 //! order-sensitive checksum of recorded and of consumed site positions, matched
 //! when each scan's ledger drains.
 
-use core::num::NonZeroU32;
+use core::num::NonZeroUsize;
 
 use suanpan::Accumulator;
 
@@ -70,10 +70,8 @@ pub(super) struct Memo {
     /// Per site, in consumption (stream) order: `None` when the site's link is
     /// zero, else the 1-based index of its link in `links`.
     ///
-    /// One index-sized cell per site (`Option<NonZeroU32>` occupies the niche,
-    /// pinned by the const assert below), so sites sharing minima store
-    /// nothing beyond it.
-    pub(super) queue: Vec<Option<NonZeroU32>>,
+    /// One index-sized cell per site. Sites sharing minima need no link entry.
+    pub(super) queue: Vec<Option<NonZeroUsize>>,
     /// The nonzero links, in write order (sibling links land at their sites'
     /// closes, deferred first-child links at their parents') — the queue's
     /// indices decouple write order from consumption order.
@@ -94,7 +92,8 @@ pub(super) struct Memo {
 }
 
 // The queue's per-site cost claim: an optional index costs exactly an index.
-const _: () = assert!(core::mem::size_of::<Option<NonZeroU32>>() == core::mem::size_of::<u32>());
+const _: () =
+    assert!(core::mem::size_of::<Option<NonZeroUsize>>() == core::mem::size_of::<usize>());
 
 /// Fold one position into an order-sensitive checksum (FNV-style).
 #[cfg(debug_assertions)]
@@ -131,16 +130,14 @@ impl Memo {
 
     /// Store a nonzero link for `slot`, in write order.
     pub(super) fn set_link(&mut self, slot: usize, link: Accumulator) {
-        // Push first: the store's length is then provably a valid, nonzero
-        // 1-based index (the `expect` is the u32 capacity contract alone).
+        // Push first so the new length is its nonzero, one-based index.
         self.links.push(link);
-        let index = u32::try_from(self.links.len()).expect("site count fits u32");
-        self.queue[slot] = NonZeroU32::new(index);
+        self.queue[slot] = NonZeroUsize::new(self.links.len());
     }
 
     /// Take `slot`'s link out for its one consuming read, if nonzero.
     pub(super) fn take_link(&mut self, slot: usize) -> Option<Accumulator> {
         let index = self.queue[slot]?;
-        Some(core::mem::take(&mut self.links[index.get() as usize - 1]))
+        Some(core::mem::take(&mut self.links[index.get() - 1]))
     }
 }

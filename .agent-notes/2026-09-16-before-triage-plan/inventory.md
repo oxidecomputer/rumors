@@ -74,10 +74,10 @@ mechanisms:
 - `Clock` and `Party` fork iterators still implement `ExactSizeIterator` over a
   public `u64` count whose `size_hint` can have no upper bound on 32-bit
   targets.
-- Fill memo links still use `Option<NonZeroU32>` and convert the link count with
-  `expect("site count fits u32")`.
-- Query epochs still return `u32` and convert the drift count with
-  `expect("freeze count fits u32")`.
+- The current increment replaces the fill memo's `NonZeroU32` links and the
+  query ledger's `u32` epochs with vector-native `usize` indices. Party fold
+  positions remain capped: their fallback preserves semantics but not the
+  published complexity.
 - Suanpan's shifted-digit landing bug is repaired in the current review
   increment: the full position is computed before its one checked conversion,
   with native boundary witnesses and direct wasm32 release coverage.
@@ -124,13 +124,24 @@ early, but not yet decided:
   existence of a slow mechanism while envelopes, board fits, fuel bands, and
   benches separately claim to constrain it. The distinct useful signals need
   to be stated before retaining all layers.
+- **Heap constants:** widening the fill ledger made the board's 16 B/B global
+  ceiling reject three linear tick cells at 16.2–18.5 B/B. The shape-specific
+  envelope usefully isolated the changed allocation. The board remained useful
+  after recalibrating its one ordinary ceiling to 24 B/B; adding another
+  family-specific model would have preserved the old number rather than a
+  distinct contract. The later board/envelope audit must apply this same test
+  to the existing declarations.
 - **Fuelscape:** the population view may help exploration, but charts and
   committed datasets do not automatically enforce worst-case contracts. Its
   build hooks and generated-doc footprint must justify themselves separately
   from fuzz-fit enforcement.
-- **Mutation and coverage rosters:** listing or pinning inventories is not the
-  same as running a campaign or testing behavior. Keep only the signal that can
-  be maintained at a declared cadence.
+- **Mutation roster (retired):** the gate only listed syntax and checked
+  exclusion counts; it ran no mutation campaign and therefore provided no
+  behavioral signal. A concise documentation edit broke an exclusion keyed to
+  a source line, demonstrating its maintenance cost directly. The owner chose
+  retirement: the exclusions, count checker and expected file, recipes, CI
+  install, and supporting guide text are removed together. Tests discovered by
+  ordinary runners remain the verification of record.
 
 The audit may find that an elaborate instrument is uniquely valuable. In that
 case the work is to make its claim, inputs, and failure leg obvious and remove

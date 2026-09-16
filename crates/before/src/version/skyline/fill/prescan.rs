@@ -31,20 +31,11 @@
 //!
 //! # Counter widths
 //!
-//! The recorder's site-nesting counters ([`run`](PreScan::run)'s `level`,
-//! `head_level`, [`SuspendedLevel`]'s `level`) are `u64` because reaching
-//! that cap would take 2^64 sequential increments: unreachable on every
-//! target unconditionally, so the width carries no per-target derivation
-//! to state or maintain (a `usize` counter would be wrap-free only via a
-//! memory-pricing derivation from per-frame cost). The counters are not
-//! free-standing quantities: `suspend.len() == head_level` is a recorder
-//! invariant, so they mirror container occupancy — the argument for the
-//! width is unconditional unreachability, not independence from the
-//! containers. The ledger's capacity contract is different in kind:
-//! stored-link indices fail loudly at their `u32` cap
-//! ([`Memo::set_link`]). The fill walk's near-synonymous `depth` (the
-//! [`run`](PreScan::run) doc contrasts the two notions) stays `usize`,
-//! with its width argument stated at its declaration.
+//! Site-nesting counters are `u64`; reaching their limit would require 2^64
+//! sequential increments. Queue and link indices are `usize`, so the ledger
+//! is bounded by its vector allocations rather than a smaller integer type.
+//! The fill walk's separate `depth` counter is also `usize` because it tracks
+//! allocated frames.
 
 use core::cmp::Ordering;
 
@@ -688,8 +679,7 @@ impl PreFrames {
         self.site.pop();
         self.phase.pop();
         self.aux.pop();
-        // Ledger slots are queue indices, capped far below `u32::MAX` by the
-        // ledger's own link-storage contract.
+        // The value came from a queue index and therefore fits `usize`.
         self.slots.pop(&mut self.values) as usize
     }
 }

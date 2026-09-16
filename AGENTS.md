@@ -50,8 +50,8 @@ carries that argument and the procedure for bumping it.
 
 What you install yourself: the nightly toolchain the gate's nightly legs
 name (`nightly_toolchain` in the justfile, pinned for the same reason),
-`just`, `cargo-nextest`, `cargo-rdme`, `cargo-fuzz`, `cargo-mutants`,
-`cargo-docs-rs`, and python3 with bash (the `tools/` linters). `just ci`
+`just`, `cargo-nextest`, `cargo-rdme`, `cargo-fuzz`, `cargo-docs-rs`, and
+python3 with bash (the `tools/` linters). `just ci`
 additionally wants `wasm-pack` and node/npm.
 
 1. Iterate with the inner loop: `just check`, `just test <filter>`,
@@ -99,12 +99,6 @@ additionally wants `wasm-pack` and node/npm.
   scattered sibling `.proptest-regressions` file. A failure reproduced
   by an already-committed seed replays first and owes no new entry.
   Commit every seed file that appears; never strip one from a diff.
-- Mutant exclusions (.cargo/mutants.toml) are a last resort, never a
-  way to green a campaign: the standing policy — refactor the mutated
-  codepoint out of structural existence, make truly-unreachable
-  branches assert, exclude only with a rationale naming every leg —
-  and the campaign configuration of record live in that file's header.
-
 ## Your own notes
 
 You can leave durable notes and other artifacts of exploration and ideation in

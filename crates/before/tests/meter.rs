@@ -6193,7 +6193,7 @@ mod query_env {
     pub const RANK_CONCURRENT: Envelope              = envelope(      0,            band(4, 2),    band(11_099, 6_659),       band(61_448, 36_868)); // word-scale heights: zero heap, near-zero limb work, one walk's scan and touches
     pub const TICKS_DENSE: Envelope                  = envelope( 58_815,            band(8, 4),  band(156_270, 93_762),     band(468_809, 281_285)); // the tick row's cost plus the count's gamma codes
     pub const TICKS_NESTED_WIDE: Envelope            = envelope( 14_107,        band(323, 193),   band(31_125, 18_675),      band(150_072, 90_042)); // the fill branch pays its documented second walk: scan ~2x the tick row's one walk
-    pub const TICKS_MIRROR_WIDE: Envelope            = envelope( 39_506,        band(723, 433),   band(72_582, 43_548),     band(220_048, 132_028)); // second-walk fill branch, as the nested-wide row; the pre-scan records minima only, so the per-site collapse re-read and raise-mirror folds stay out of the scan and touch columns
+    pub const TICKS_MIRROR_WIDE: Envelope            = envelope( 63_520,        band(723, 433),   band(72_582, 43_548),     band(220_048, 132_028)); // second-walk fill branch, as the nested-wide row; the frame ledger uses one usize queue cell per site, and the pre-scan records minima only, so per-site collapse re-reads and raise-mirror folds stay out of the scan and touch columns
     pub const SKYLINE_MIN_TICKS_DENSE: Envelope      = envelope( 30_720,            band(5, 3), band(312_508, 187_504),     band(468_758, 281_254)); // every delta folds into two accumulators — the live height and the web's gap — so touches run ~2x the rank row's with no minima circulation
     pub const SKYLINE_MIN_TICKS_CLIFF: Envelope      = envelope(  3_530,        band(180, 108),    band(12_000, 7_200),       band(17_923, 10_753)); // the comb's wide F-relative pending offsets are epoch-ledger counts, and the wide first height enters the exact total once, through the counting term
     pub const SKYLINE_MIN_TICKS_ASCEND: Envelope     = envelope(553_660,          band(33, 19),   band(20_044, 12_026),        band(12_823, 7_693)); // the boundary-stacking row: the anchor web's per-boundary word compaction's measured basis — with compaction deleted the same body reads well over both the heap and touch ceilings
@@ -6204,7 +6204,7 @@ mod query_env {
     // touches, with scanned bits beside it.
     pub const TICK_DENSE: Envelope                   = envelope( 58_815,            band(0, 0),  band(156_265, 93_759),     band(468_765, 281_259)); // the fused tick: copy-on-first-divergence defers the output buffer past the collapse scan, so the scan path and the builder never coexist at peak
     pub const TICK_NESTED_WIDE: Envelope             = envelope( 14_108,        band(239, 143),   band(30_808, 18_484),       band(80_028, 48_016)); // the explicit-stack walk: suspended ancestors ride metered frame bits; the anchor web reads the wide first payload O(1) times
-    pub const TICK_MIRROR_WIDE: Envelope             = envelope( 32_467,        band(398, 238),   band(71_955, 43_173),      band(160_003, 96_001)); // the frame ledger stores no link for the shared wide minimum (heap parity with one queue word per site); the pre-scan records minima only, so the per-site collapse re-read and raise-mirror folds stay out of the scan and touch columns
+    pub const TICK_MIRROR_WIDE: Envelope             = envelope( 63_520,        band(398, 238),   band(71_955, 43_173),      band(160_003, 96_001)); // the frame ledger stores one usize queue cell per site and no link for the shared wide minimum; the pre-scan records minima only, so per-site collapse re-reads and raise-mirror folds stay out of the scan and touch columns
     // The expansion rows: grow-branch deep
     // ticks measuring the whole public tick — walk, route fold, and
     // splice — in one fused pass.
@@ -8921,9 +8921,7 @@ mod dominated_undercut_cost {
 // every peak-heap reading untouched — each dropped buffer's bytes are
 // released before the fresh allocation that replaces it — and every
 // touch and limb reading byte-identical, since a fresh accumulator
-// folds exactly like a reset one. Only the miss count separates the
-// two, which is why `.cargo/mutants.toml` needs no exclusion for the
-// retire-deletion mutant: this row kills it.
+// folds exactly like a reset one. Only the miss count separates the two.
 #[cfg(feature = "limb-meter")]
 mod pool_recycle {
     use before::meter;

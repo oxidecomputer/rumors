@@ -23,6 +23,11 @@ easier to reason about. Prefer a partly finished area over opening another when
 the risks are comparable. Proximity in the source is a tie-breaker, not a reason
 to defer a more important defect.
 
+After every approved commit, re-read the current checklist, new evidence, and
+changes on `main` before choosing the next increment. Select the highest-priority
+work by the rules above; do not continue a previously named sequence merely
+because it was named. Then begin that increment immediately.
+
 Correctness includes the published time and auxiliary-space bounds. They apply
 to every valid input size unless investigation shows that a bound cannot be
 met. In that case, stop with the construction, the best attainable contract,
@@ -103,8 +108,8 @@ gap visible rather than describing the old instrument as adequate.
 The initial audit pays special attention to the resource-envelope harness, the
 amplification board, stack-segment accounting, surface rosters and source
 scanners, asymptotic liveness pins, the bench judge, fuzz-fit bands, fuelscape
-artifacts, coverage pins, and mutation rosters. Their size or sophistication is
-not evidence of value.
+artifacts, and coverage pins. Their size or sophistication is not evidence of
+value.
 
 ## 4. Documentation and code quality
 
@@ -151,8 +156,9 @@ to everything that moved; an old green run is not evidence for a changed tree.
 Before each commit, present the purpose, actual diff, verification, and any
 remaining decision. Stop editing that batch while it is under review so the
 working tree remains the exact Zed diff the owner is reading. The owner's
-“lgtm” authorizes committing that reviewed increment; it does not authorize a
-merge.
+“lgtm” means: commit that reviewed increment, rebase when this is an outcome
+boundary, re-evaluate priorities as section 1 requires, and begin the selected
+next increment. It does not authorize a merge.
 
 Do not merge the branch into `main` until the owner says the parallel Rumors
 work has concluded and explicitly authorizes the merge. Until then, keep this

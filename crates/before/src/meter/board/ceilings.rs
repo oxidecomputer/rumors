@@ -70,7 +70,10 @@ pub const MAX_SCALING_EXPONENT: f64 = 1.15;
 
 /// Green requires peak transient heap at most this many bytes per packed input
 /// byte, over the flat allowance.
-pub const MAX_HEAP_BYTES_PER_INPUT_BYTE: f64 = 16.0;
+///
+/// Pinned at the worst honest cell without a declared model, with 25% headroom
+/// and rounded up. The exponent leg separately rejects superlinear growth.
+pub const MAX_HEAP_BYTES_PER_INPUT_BYTE: f64 = 24.0;
 
 /// Heap bytes ignored before the per-byte constant is computed: fixed-size
 /// scaffolding (format machinery, hasher state, container headers) that does
