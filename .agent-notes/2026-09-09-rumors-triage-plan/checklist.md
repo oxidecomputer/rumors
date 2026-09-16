@@ -1,7 +1,6 @@
 # Rumors review checklist
 
-**Next:** share content-observer waiting and termination logic (07).
-Then: simplify handle-liveness accounting (07).
+**Next:** simplify handle-liveness accounting (07).
 
 Check code outcomes only after verification and merge; retain the landing
 commit. Checked dispositions are labelled explicitly.
@@ -147,7 +146,7 @@ Coupled work: party ownership with 01; other API pieces can be separate.
 - [ ] Provide the intended Snapshot read surface and equality contract.
       Sources: `api-audit-2`, `api-core-34–36`, `benches-envelope-19`, `fresh-eyes-4`, `inventory-1`, `tree-core-5`, T47, T60, T61, T65, T97, T132.
 
-- [ ] Share waiting and termination logic across content observers.
+- [x] Share waiting and termination logic across content observers — `1df95824`.
       Sources: `api-core-33`, T125, T132, T159.
 
 - [ ] Accumulate wire observers across observe calls and report attachment settings.
