@@ -1,7 +1,7 @@
 # Rumors review checklist
 
-**Next:** return the stamped `Version` from send operations (07), then continue
-the accepted breaking public-API work before internal cleanup.
+**Next:** survey and order the remaining accepted breaking public-API work;
+land it before internal cleanup.
 
 Check code outcomes only after verification and merge; retain the landing
 commit. Checked dispositions are labelled explicitly.
@@ -141,7 +141,7 @@ Coupled work: party ownership with 01; other API pieces can be separate.
 - [x] Wait for Sush's old gossip drivers to stop before starting a migration's bookmark use — Sush `a466472`.
       Source: Compatibility review, 2026-09-11.
 
-- [ ] Return the stamped Version from send and simplify version lookup at callers.
+- [x] Return the stamped Version from send and simplify version lookup at callers — `c36cbf04`.
       Sources: `tests-common-2`, `tests-lifecycle-31`, T67.
 
 - [ ] Provide the intended Snapshot read surface and equality contract.

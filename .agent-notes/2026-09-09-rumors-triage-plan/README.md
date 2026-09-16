@@ -25,6 +25,9 @@ Front-load accepted breaking public-API changes so Sush compatibility can
 settle before the remaining internal cleanup, performance, and verification
 work.
 
+Run each full gate once, normally on Helios for throughput. Use local checks
+for the short inner loop or when platform behavior is part of the claim.
+
 Recover the intended behavior from the findings and amended rulings.
 Salvage useful code, counterexamples, and experiments from the prepared
 branches; do not merge them wholesale. Current user instructions take
