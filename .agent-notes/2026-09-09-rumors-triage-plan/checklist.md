@@ -1,7 +1,6 @@
 # Rumors review checklist
 
-**Next:** expose each peer's effective synchronization settings and include
-them in its bounded debug summary.
+**Next:** report session completion, frame counts, and window saturation.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →
@@ -226,8 +225,8 @@ Dependencies: 04's reported-error attribution fix before the public error redesi
 - [ ] Finish internal diagnostic cleanup: remove impossible cases, refine decoder context, and apply the error-enum conventions.
       Sources: `materialized-17`, `mirror-common-10`, `remote-adapter-streams-19`, `remote-adapter-streams-22`, `remote-codec-9`, `remote-codec-18`, `remote-codec-19`, `remote-codec-28`, `remote-codec-30`, `session-bookmark-46`, T55, T63, T85.
 
-- [ ] Expose each peer's effective synchronization settings and include them in
-      its bounded debug summary.
+- [x] Expose each peer's effective synchronization settings and include them in
+      its bounded debug summary — `5b4e4cf8`.
       Sources: `api-audit-11`, `remote-codec-5`, T66.
 
 - [ ] Report session completion, frame counts, and window saturation.
