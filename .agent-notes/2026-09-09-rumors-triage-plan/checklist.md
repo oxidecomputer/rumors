@@ -1,7 +1,6 @@
 # Rumors review checklist
 
-**Next:** return link information to routed dialers and count router evictions
-and overflows.
+**Next:** simplify link construction, validated headers, and configuration.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →
@@ -233,7 +232,7 @@ Dependencies: 04's reported-error attribution fix before the public error redesi
 - [x] Report session completion, frame counts, and window saturation — `832f4eb5`.
       Sources: `materialized-2`, `remote-adapter-streams-21`, `session-bookmark-38`, T66.
 
-- [ ] Return link information to routed dialers and count router evictions and overflows.
+- [x] Return link information to routed dialers and count router evictions and overflows — `a9a3aac4`.
       Sources: `link-16`, `link-21`, T68.
 
 - [ ] Provide read-only inspection of stored bookmark records.
