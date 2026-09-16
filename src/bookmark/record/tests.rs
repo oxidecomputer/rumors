@@ -138,19 +138,33 @@ proptest! {
         }
         for identity in &removed { prop_assert!((&record.written / identity).to_version().is_empty()); }
     }
+}
 
-    /// The size used for eviction includes CBOR headers at every length boundary.
-    #[test]
-    fn byte_accounting_matches_encoding(
-        networks in prop_oneof![0usize..300, Just(23), Just(24), Just(255), Just(256)],
-        item_bytes in prop_oneof![0usize..300, Just(23), Just(24), Just(255), Just(256), Just(65536)],
-    ) {
-        let item = ciborium::value::Value::Bytes(vec![0; item_bytes]);
-        let mut encoded_item = Vec::new();
-        ciborium::ser::into_writer(&item, &mut encoded_item).unwrap();
-        let payload = vec![item; networks];
-        let mut encoded = Vec::new();
-        ciborium::ser::into_writer(&payload, &mut encoded).unwrap();
-        prop_assert_eq!(format::record_size(networks, networks * encoded_item.len()), format::frame(&encoded).len());
+/// Compare predicted and actual frame sizes for repeated byte-string items.
+fn assert_record_size(networks: usize, item_bytes: usize) {
+    let item = ciborium::value::Value::Bytes(vec![0; item_bytes]);
+    let mut encoded_item = Vec::new();
+    ciborium::ser::into_writer(&item, &mut encoded_item).unwrap();
+    let mut encoded = Vec::new();
+    ciborium::ser::into_writer(&vec![item; networks], &mut encoded).unwrap();
+    assert_eq!(
+        format::record_size(networks, networks * encoded_item.len()),
+        format::frame(&encoded).len(),
+    );
+}
+
+/// The size used for eviction includes each CBOR header-width transition.
+///
+/// Network counts and item sizes are independent in the formula, so varying
+/// each through its boundaries avoids constructing huge Cartesian products.
+#[test]
+fn byte_accounting_matches_encoding_at_header_boundaries() {
+    for networks in [0, 1, 23, 24, 255, 256] {
+        for item_bytes in [0, 1, 23, 24, 255, 256] {
+            assert_record_size(networks, item_bytes);
+        }
+    }
+    for item_bytes in [65_535, 65_536] {
+        assert_record_size(1, item_bytes);
     }
 }

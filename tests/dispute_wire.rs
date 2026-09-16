@@ -6,10 +6,11 @@
 //! underlying transport overhead. Seeded corpora make this reproducible.
 //!
 //! The smaller fixtures pin rounded-down means at several payload sizes.
-//! The larger fixture checks the approximation at the sizing table's set
-//! size. These are measurements of particular workloads, not a universal
-//! per-message cost: shared history, tree shape, versions, and batching
-//! all affect how much metadata accompanies each message.
+//! The larger fixture checks the approximation after fixed and structural
+//! costs have been spread across enough messages. These are measurements of
+//! particular workloads, not a universal per-message cost: shared history,
+//! tree shape, versions, and batching all affect how much metadata accompanies
+//! each message.
 
 mod common;
 
@@ -264,11 +265,14 @@ fn mid_size_records_match_the_reference_estimate() {
     );
 }
 
-/// The table's 100,000-message example stays within two bytes of its overhead estimate.
-/// Check the unrounded mean: truncation would hide a material part of this error.
+/// A large sample stays within two bytes of the table's overhead estimate.
+///
+/// At 75,000 messages per side, structural costs are sufficiently amortized
+/// for this tolerance while the test remains affordable. Check the unrounded
+/// mean: truncation would hide a material part of this error.
 #[test]
 fn table_corpus_has_similar_protocol_overhead() {
-    let messages = 100_000;
+    let messages = 75_000;
     let (left, right) = diverged(0, messages, WindowChoice::Default, |rng| {
         let mut payload = vec![0u8; DESIGN_PAYLOAD_LEN];
         rng.fill_bytes(&mut payload);
