@@ -3,7 +3,9 @@
 The [checklist](checklist.md) owns scope, status, dependencies, and the current
 queue. The [inventory](inventory.md) records the evidence inspected at the
 restart and the inherited work on `main`. [Style](style.md) is the standing
-standard for every source file this triage touches.
+standard for every source file this triage touches. Keep the checklist to
+current state and dispositions; implementation history belongs in Git or a
+decision note when it will inform later work.
 
 The 2026-09-01 review is evidence, not a verdict. Its aborted triage is useful
 only for counterexamples, experiments, and questions to recheck. Its rulings,
@@ -62,6 +64,13 @@ Simplify the implementation and explanation around every touched change.
 Remove redundant states, wrappers, helpers, copies, counters, and claims.
 Prefer code whose correctness follows from its representation and control flow
 over code whose correctness depends on a parallel roster or a comment.
+
+Audit every auxiliary allocation on a touched path. Relate its peak size to the
+encoded inputs that can cause it, including worst-case shapes and small inputs;
+a compact Party, Version, Clock, or related value must not induce a
+disproportionately large temporary structure. Prefer eliminating auxiliary
+representations to widening, duplicating, or instrumenting them. Record any
+necessary structure's bound where a maintainer can verify it from the code.
 
 Every external `before` API change stops for owner approval before
 implementation. The same batch updates and tests Rumors against the proposed

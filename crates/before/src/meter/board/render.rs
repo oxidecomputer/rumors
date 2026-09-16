@@ -129,15 +129,7 @@ fn row(out: &mut dyn Write, r: &CellResult) -> io::Result<()> {
         }
         (_, _, Some(k2)) => {
             let k1 = r.s1.fold_arity.expect("fold cells declare both scales");
-            if r.s2.fold_search_bits > 0 {
-                format!(
-                    "  decl[fold k {k1}->{k2} search {s1}->{s2} bits]",
-                    s1 = r.s1.fold_search_bits,
-                    s2 = r.s2.fold_search_bits,
-                )
-            } else {
-                format!("  decl[fold k {k1}->{k2}]")
-            }
+            format!("  decl[fold k {k1}->{k2}]")
         }
         _ => String::new(),
     };

@@ -1,27 +1,8 @@
-//! Input generators for the property tests, in two families:
+//! Property-test inputs for arbitrary valid trees and selected deep shapes.
 //!
-//! - **Adversarial deep shapes** ([`Shape`], [`shape_party`]/[`shape_version`],
-//!   [`skip_stress_pair`], [`deep_left_spine_party`]) — the deep, unbalanced
-//!   trees that are the worst case for any traversal locating a right child by
-//!   re-scanning its left subtree. Each is parameterized by a `scale` knob
-//!   linear in the node count, so the deep differentials can drive real depth
-//!   at chosen sizes. (Asymptotic traversal cost itself is enforced elsewhere:
-//!   the amplification board's scan column and the fuzzfit fuel bands.)
-//!
-//! - **Arbitrary normal-form** ([`arb_base`], [`arb_oracle_party`],
-//!   [`arb_oracle_version`]) — random recursive shapes with random base
-//!   magnitudes (including values near/beyond `u64::MAX`), pushed through the
-//!   oracle's normalizing constructors so they are always valid normal form.
-//!   These break the op-trace generator's coupling (which only ever produces
-//!   causally *related* pairs of the shapes operations build).
-//!
-//! All trees are built via the oracle's normalizing constructors (`O(1)` per
-//! node), then lowered to the impl with [`super::bridge`].
-//!
-//! A different instrument entirely from `crate::meter`'s generators: those
-//! are hand-derived worst-case *encodings* with closed-form sizes, built
-//! for the resource-envelope pins and the amplification board; these are
-//! proptest strategies over random inputs.
+//! Arbitrary values are normalized by the recursive oracle before conversion
+//! to the production representation. Deep shapes have a scale proportional to
+//! their node count, so traversal properties can exercise meaningful depth.
 
 mod tests;
 
@@ -201,38 +182,6 @@ pub(crate) fn shape_version_wide(
         };
     }
     from_oracle_version(&t)
-}
-
-/// Build a disjoint "staircase" id pair `(a, b)` that drives the bounded
-/// lazy-skip in `is_disjoint` to its worst case: `Θ(scale)` distinct skips,
-/// each over a small subtree.
-///
-/// `b` is a right-spine whose every left child is a 2-leaf subtree `(1, 0)`;
-/// `a` is a right-spine of `0`-leaf left children. In lockstep, at every one of
-/// the `scale` levels `a`'s left `0`-leaf aligns against `b`'s left *subtree*,
-/// so that subtree is skipped once. The pair is disjoint (`a` owns only its
-/// deepest-right tip, `b` owns its left subtrees and deepest-left tip), so the
-/// walk runs to completion (no early `false`) and every level's skip is
-/// exercised. Both ids are linear in `scale`.
-pub(crate) fn skip_stress_pair(scale: usize) -> (Party, Party) {
-    use oracle::Party as P;
-    // A 2-leaf subtree `(1, 0)`: a small node that owns its left half.
-    let owned_left = || P::node(P::seed(), P::Leaf(false));
-    // `b`: right-spine, each left child a small owned subtree, deepest-right
-    // tip empty.
-    let mut b = P::Leaf(false);
-    for _ in 0..scale {
-        b = P::node(owned_left(), b);
-    }
-    // `a`: right-spine of `0`-leaf left children; owns only its deepest-right
-    // `1` tip, which lands in `b`'s empty deepest-right region — so the pair is
-    // disjoint and the walk runs to completion, skipping `b`'s left subtree
-    // once at every level.
-    let mut a = P::seed();
-    for _ in 0..scale {
-        a = P::node(P::Leaf(false), a);
-    }
-    (from_oracle_party(&a), from_oracle_party(&b))
 }
 
 /// Build a non-empty normal-form id of `shape` sized linearly in `scale`.

@@ -213,9 +213,8 @@ fn emit_sample(out: &mut dyn Write, s: &Sample) -> io::Result<()> {
     )?;
     write!(
         out,
-        "\t{arity}\t{search}\t{model}\t{declared_heap}\t{declared_limb}",
+        "\t{arity}\t{model}\t{declared_heap}\t{declared_limb}",
         arity = opt(s.fold_arity),
-        search = s.fold_search_bits,
         model = opt(s.heap_model.map(bits)),
         declared_heap = opt(s.declared_heap.map(bits)),
         declared_limb = opt(s
@@ -318,7 +317,6 @@ fn parse_sample<'a>(fields: &mut impl Iterator<Item = &'a str>, line: &str) -> S
         other => panic!("amp-board shard merge: malformed text-row flag {other:?} in {line:?}"),
     };
     let fold_arity = opt_number(field(fields, line), line);
-    let fold_search_bits = number(field(fields, line), line);
     let heap_model = {
         let text = field(fields, line);
         (text != "-").then(|| from_bits(text, line))
@@ -359,7 +357,6 @@ fn parse_sample<'a>(fields: &mut impl Iterator<Item = &'a str>, line: &str) -> S
         text_row,
         floors,
         fold_arity,
-        fold_search_bits,
         heap_model,
         declared_heap,
         declared_limb,

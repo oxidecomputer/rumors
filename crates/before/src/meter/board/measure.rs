@@ -49,9 +49,6 @@ pub(super) struct Sample {
     /// The fold rows' operand count at this sample's scale, for the
     /// declared fold scan model.
     pub(super) fold_arity: Option<u64>,
-    /// The party fold's declared search allowance at this sample's
-    /// scale, in scan bits.
-    pub(super) fold_search_bits: u64,
     /// The capacity-chain model's predicted peak heap for this sample
     /// ([`capacity_chain_peak`] over the actual input and output bytes), on the
     /// cells that declare it.
@@ -128,7 +125,6 @@ pub(super) fn measure(
         text_row,
         floors: cell.floors,
         fold_arity: cell.fold_arity,
-        fold_search_bits: cell.fold_search_bits,
         heap_model,
         declared_heap: cell.declared_heap,
         declared_limb: cell.declared_limb,

@@ -1,6 +1,4 @@
-//! The coverage roster's enforcement: totality against the extracted
-//! public surface, liveness of every cited binding test, and the
-//! committed-seed tripwire.
+//! Checks for the public API coverage roster and its cited tests.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -10,17 +8,10 @@ use super::{
     extract_public_fns, FAMILY_SURFACE, METHOD_SURFACE, TRIPWIRES,
 };
 
-/// The deliberate same-named test pairs, by declaring files.
+/// Test names intentionally used in more than one file.
 ///
-/// Parallel same-shaped suites in sibling modules: the party/version codec
-/// pins, the clock/party fold differentials, the clock/oracle worked
-/// examples, the skyline query/sweep corpus sweeps.
-///
-/// Citations resolve by bare name, so a duplicated name is satisfiable by
-/// either declaration — deleting one copy would leave every citation green
-/// while half the coverage vanished. This roster makes each duplication a
-/// reviewed decision: [`duplicate_test_names_are_rostered`] holds it equal,
-/// both directions, to the scan of the tree.
+/// Coverage citations contain only a test name. Recording duplicates here
+/// ensures that removing one same-named test cannot go unnoticed.
 const DUPLICATE_TEST_NAMES: &[(&str, &[&str])] = &[
     (
         "as_bytes_matches_encode",
@@ -46,10 +37,6 @@ const DUPLICATE_TEST_NAMES: &[(&str, &[&str])] = &[
         &["src/clock/tests.rs", "src/oracle/tests.rs"],
     ),
     (
-        "join_all_agrees_with_oracle_on_aliased_coalesced_group",
-        &["src/clock/tests.rs", "src/party/tests.rs"],
-    ),
-    (
         "join_all_matches_the_recursive_oracle",
         &["src/clock/tests.rs", "src/party/tests.rs"],
     ),
@@ -67,12 +54,7 @@ const DUPLICATE_TEST_NAMES: &[(&str, &[&str])] = &[
     ),
 ];
 
-/// The roster is total over the public inherent-`pub fn` surface, both
-/// directions.
-///
-/// Every extracted operation has exactly one named row, and every method
-/// row names an operation that still exists — so a new public op forces
-/// a reviewed row, and a removed op orphans one.
+/// Every public inherent method has exactly one coverage row.
 #[test]
 fn roster_is_total_over_the_public_fn_surface() {
     let extracted = extract_public_fns();
@@ -93,16 +75,8 @@ fn roster_is_total_over_the_public_fn_surface() {
     );
 }
 
-/// Every test name the roster or a tripwire cites resolves to an
-/// executable binding.
-///
-/// The bindings: a `#[test]`-attributed item under `src/`, a law name
-/// registered in [`crate::laws`]'s tables (the entries the algebraic-laws
-/// drivers run), or a descriptor name registered in the pointwise
-/// differential table (the entries its drivers run). A renamed or deleted
-/// binding fails here by name, so a disposition can never silently point
-/// at nothing, and a same-named helper or kernel can never stand in for
-/// the test a row claims.
+/// Every coverage citation names an executable test, registered law, or
+/// registered operation descriptor.
 #[test]
 fn every_cited_binding_test_exists() {
     let mut declared = declared_test_names();
@@ -122,23 +96,17 @@ fn every_cited_binding_test_exists() {
         .collect();
     assert!(
         dead.is_empty(),
-        "roster/tripwire citations resolve to no `#[test]` item or \
+        "coverage citations resolve to no `#[test]` item or \
          registered law: {dead:?}"
     );
 }
 
-/// The citation haystack admits only executable tests: a helper `fn`
-/// must never satisfy a binding-test citation.
+/// Test citations cannot be satisfied by an ordinary helper function.
 ///
-/// Two directions. Negative: named non-test helpers — declared `fn`s the
-/// old bare-name scan accepted — are absent from
-/// [`declared_test_names`], so a roster row whose cited differential test
-/// is deleted goes red even while a same-named helper survives. Positive
-/// (the scan's own liveness): a known `#[test]` item and a known
-/// proptest-block property both resolve, so the seal cannot green by
-/// scanning nothing.
+/// The source scan excludes known helpers and includes both a conventional test
+/// and a property test. Registered-law names likewise exclude law helpers.
 #[test]
-fn citation_haystack_admits_only_attributed_tests() {
+fn citations_resolve_only_to_executable_tests() {
     let declared = declared_test_names();
     for helper in ["declared_test_names", "parse_impl_self_type", "fn_name"] {
         assert!(
@@ -155,11 +123,10 @@ fn citation_haystack_admits_only_attributed_tests() {
     ] {
         assert!(
             declared.contains(test),
-            "{test} is an attributed test and must resolve in the haystack"
+            "{test} is an attributed test and must appear in the source scan"
         );
     }
-    // The law leg: registered names come from the tables the drivers run,
-    // and the tables' local helper fns are not registered.
+    // Registered law names also exclude ordinary helper functions.
     let laws = crate::laws::registered_names();
     assert!(
         laws.contains(&"forks_matches_from_array"),
@@ -171,18 +138,10 @@ fn citation_haystack_admits_only_attributed_tests() {
     );
 }
 
-/// Every payload name an exclusion carries resolves to an executable
-/// binding, and each family's structural obligation holds.
+/// Every exclusion cites existing evidence of the behavior it omits.
 ///
-/// The exclusion legs are the roster's largest genre, and their payloads
-/// carry the production-side pins each exclusion rests on.
-/// [`every_cited_binding_test_exists`] never sees them — `Leg::cited`
-/// returns `None` for exclusions — so a pin renamed or deleted while
-/// cited only in a payload would rot silently. Every `pins` element and
-/// `license` must be a `#[test]`-attributed item under `src/` or a
-/// registered law name; a `GridCap` guard must be an executable test
-/// (a premise guard must run, not merely resolve); a `NotAPaperObject`
-/// binding site must be a roster row, test, or law.
+/// Test and law names must resolve, capacity guards must be executable tests,
+/// and a model quantity delegated elsewhere must name an existing coverage row.
 #[test]
 fn exclusion_payload_citations_resolve() {
     use crate::surface::Exclusion;
@@ -245,8 +204,7 @@ fn exclusion_payload_citations_resolve() {
     );
 }
 
-/// Every exclusion family is inhabited: an empty family is a dead
-/// category, dissolvable rather than carried in the vocabulary.
+/// Every exclusion variant is used by at least one coverage row.
 #[test]
 fn every_exclusion_family_is_inhabited() {
     use std::collections::BTreeMap;
@@ -267,17 +225,10 @@ fn every_exclusion_family_is_inhabited() {
     }
 }
 
-/// Every test name declared in more than one file is rostered in
-/// [`DUPLICATE_TEST_NAMES`] with exactly its declaring files.
+/// Every test name used in multiple files records all of those files.
 ///
-/// Both directions: a new same-named test fails here until the
-/// duplication is reviewed and rostered, and a rostered duplicate losing
-/// a copy fails here instead of leaving its citations satisfiable by the
-/// survivor.
-///
-/// This is the duplicate-name half of citation integrity: the bare-name
-/// citation check cannot tell which file satisfies which roster row, so
-/// every collision must be a committed, named decision.
+/// This keeps bare-name citations from silently resolving to the wrong copy
+/// after one same-named test is removed.
 #[test]
 fn duplicate_test_names_are_rostered() {
     let scanned: Vec<(String, Vec<String>)> = declared_test_names_by_file()
@@ -302,14 +253,10 @@ fn duplicate_test_names_are_rostered() {
     );
 }
 
-/// No name is a binding of two kinds at once: a citation must resolve to
-/// exactly one of a `#[test]` item, a registered law, or a registered
-/// descriptor.
+/// A citation name identifies exactly one kind of evidence.
 ///
-/// The haystack the citation checks search is the union of the three; a
-/// name living in two of them is doubly satisfiable, so deleting either
-/// binding leaves every citation green while the coverage it named
-/// silently halves.
+/// Test, law, and operation-descriptor names must not overlap, or removing one
+/// definition could leave the citation resolving to another.
 #[test]
 fn binding_kinds_never_shadow_each_other() {
     let tests = declared_test_names();
@@ -331,32 +278,32 @@ fn binding_kinds_never_shadow_each_other() {
     );
 }
 
-/// The family roster's rows are unique by op description (totality over
-/// the operator/trait surface is by review of the file; this pins the
-/// table's internal hygiene).
+/// Trait-family coverage rows have unique descriptions.
 #[test]
 fn family_rows_are_unique() {
     let ops: BTreeSet<&str> = FAMILY_SURFACE.iter().map(|row| row.op).collect();
     assert_eq!(ops.len(), FAMILY_SURFACE.len(), "duplicate family rows");
 }
 
-/// Every tripwire leg label is nonempty and unique — the tripwire list
-/// stays a legible per-leg inventory, not a grab bag.
+/// Every verification-test label is nonempty and unique.
 #[test]
-fn tripwires_are_labeled() {
+fn verification_tests_are_labeled() {
     let labels: BTreeSet<&str> = TRIPWIRES.iter().map(|(label, _)| *label).collect();
-    assert_eq!(labels.len(), TRIPWIRES.len(), "duplicate tripwire labels");
+    assert_eq!(
+        labels.len(),
+        TRIPWIRES.len(),
+        "duplicate verification-test labels"
+    );
     assert!(
         TRIPWIRES.iter().all(|(label, _)| !label.is_empty()),
-        "empty tripwire label"
+        "empty verification-test label"
     );
 }
 
-/// The prod↔tree adequacy seeds stay committed: the two fold-mutation
-/// witnesses replay through the `join_all` differentials from these
-/// files on every run, and this pin makes stripping them a red diff.
+/// The committed `join_all` property-test cases remain in their active seed
+/// files.
 #[test]
-fn d1_seeds_stay_committed() {
+fn committed_join_all_seeds_exist() {
     for (file, seed) in [
         ("proptest-regressions/party/tests.txt", "cc e1aea6c3"),
         ("proptest-regressions/clock/tests.txt", "cc efc8c717"),

@@ -331,10 +331,9 @@ impl Party {
     ///
     /// # Errors
     ///
-    /// Returns the parties which *overlapped* and so could not be folded in,
-    /// dropping nothing: every input [`Party`] is either merged into `self` or
-    /// handed back. In case of partial error, the set of parties which are
-    /// absorbed vs. handed back is unspecified.
+    /// Returns every input region not absorbed into `self`, without dropping
+    /// any region. Returned parties may be unions of inputs. Once an overlap is
+    /// found, later inputs may be returned without being tested.
     ///
     /// Unreachable for parties descended from one [`seed`](Party::seed): they
     /// are definitionally pairwise-disjoint.
@@ -359,42 +358,20 @@ impl Party {
     /// assert!(p.is_seed());
     /// ```
     pub fn join_all<I: IntoIterator<Item = Party>>(&mut self, iter: I) -> Result<(), Vec<Party>> {
-        // The shared balanced binary counter (`crate::fold`), one join into
-        // `self` per surviving group at the end — a left fold into `self` would
-        // re-walk the whole growing union per input, quadratic scan work on
-        // scattered populations. Inputs overlapping `self` can never merge (the
-        // union only grows), so the up-front `accept` test against the *fixed*
-        // `self` hands them back exactly as the growing-union fold would;
-        // regions disjoint from `self` stay disjoint from it however they
-        // coalesce, so the final joins cannot fail on well-formed input. The
-        // up-front test runs against a per-call [`ops::IdIndex`] of `self` —
-        // O(input) node visits plus the table searches per input, instead of a
-        // cursor re-walk of the fixed `self` per input, which would make the
-        // fold quadratic on populations of many small inputs against a large
-        // accumulator (the index module doc carries the trade). A failed
-        // combine is aliased input; the counter's hand-back policy
-        // (`crate::fold`) drops nothing.
-        let mut overlapping = Vec::new();
-        let index = ops::IdIndex::build(self.as_bits());
-        let groups = crate::fold::balanced_try_fold(
-            iter,
-            |other| index.is_disjoint(other.view()),
-            |mut top, incoming| match top.join(incoming) {
+        let groups =
+            crate::fold::balanced_try_fold(iter, |mut top, incoming| match top.join(incoming) {
                 Ok(()) => Ok(top),
                 Err(back) => Err((top, back)),
-            },
-            &mut overlapping,
-        );
-        for group in groups {
+            })?;
+        let mut groups = groups.into_iter();
+        while let Some(group) = groups.next() {
             if let Err(back) = self.join(group) {
-                overlapping.push(back);
+                let mut uncombined = vec![back];
+                uncombined.extend(groups);
+                return Err(uncombined);
             }
         }
-        if overlapping.is_empty() {
-            Ok(())
-        } else {
-            Err(overlapping)
-        }
+        Ok(())
     }
 
     /// Tests whether `self` and `other` are *disjoint*.

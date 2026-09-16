@@ -1,28 +1,9 @@
-//! The rejection rows' operand defects: the placed flaws the fallible surface
-//! is priced against.
+//! Invalid inputs used to measure rejection costs.
 //!
-//! Cost claims are total: rejecting an input is an outcome with a cost, bounded
-//! like any other, whether or not the caller honored the usage invariants. The
-//! rejection rows price the fallible surface — overlap (`*_join_overlap`,
-//! `clock_sync_overlap`, `party_join_all_overlap`), the empty difference
-//! (`party_without_none`), strict decode
-//! (`*_decode_truncated`/`_trailing`/`_noncanon`), and text parse
-//! (`*_parse_trailing`/`_noncanon`, driving `FromStr`) — with the defect
-//! **maximally deferred** in every shape: an early-exit-only measurement would
-//! be the cheapest artifact that passes, so each row places its defect where
-//! rejection must consume as much input as possible (the last byte truncated,
-//! trailing bits after the complete stream, a non-canonical pair closing at the
-//! stream's last position, the one overlapping region at both operands'
-//! preorder ends, junk after the whole valid text). Rejections produce no
-//! output, so every rejection row is denominated against the fed stream alone —
-//! packed bytes, or text bytes on the parse rows at the general (not κ) limb
-//! ceiling: the radix-work term prices conversion of the accepting direction,
-//! and a rejection forces no conversion. Overlap operands come from the
-//! overlap-mount adapter, the disjoint-mount adapter's counterpart; its outputs
-//! are semantically void by design (see
-//! [`overlap_mounted_pair`](super::family::overlap_mounted_pair)'s docs). The
-//! `coverage` module's table is the durable record of which fallible operations
-//! are rowed and which carry a bounded-or-delegated reason.
+//! Each constructor puts the error near the end of the input so the measured
+//! operation cannot pass merely by rejecting early. Rejection rows are measured
+//! against input bytes because they produce no encoded output. The coverage
+//! table records which public operations use these measurements.
 
 use crate::codec::{self, Base};
 use crate::{Party, Version};

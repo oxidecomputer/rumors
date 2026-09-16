@@ -12,8 +12,7 @@ use crate::error::{Decode, Parse};
 use crate::{causally, Clock, Party, Rank, Ranked, Span, Version};
 
 use super::ceilings::{
-    both_present_nodes, ASCEND_CLIFF_MIN_TICKS_HEAP_BYTES_PER_INPUT_BYTE,
-    ASCEND_CLIFF_TICK_HEAP_BYTES_PER_INPUT_BYTE, INDEX_PROBE_SCAN_BITS,
+    ASCEND_CLIFF_MIN_TICKS_HEAP_BYTES_PER_INPUT_BYTE, ASCEND_CLIFF_TICK_HEAP_BYTES_PER_INPUT_BYTE,
     MACHINE_WORD_MAGNITUDE_BITS, MIRROR_WIDE_RENDER_LIMB_EXPONENT_CEILING,
     MIRROR_WIDE_RENDER_LIMB_OPS_PER_RADIX_UNIT, TICKS_BOARD_COUNT,
 };
@@ -23,10 +22,7 @@ use super::defect::{
     clock_trailing_text, party_noncanonical_bytes, party_noncanonical_text, trailing_bytes,
     trailing_text, truncated_bytes, version_noncanonical_bytes, version_noncanonical_text,
 };
-use super::family::{
-    decode_party, decode_version, overlap_fold_probe, FamilyData, MIN_SIZE_PARAM,
-    OVERLAP_FOLD_INPUT_DIVISOR,
-};
+use super::family::{decode_party, decode_version, FamilyData};
 use super::floors::{
     clock_overlap_floors, comparison_floors, heap_materializes, id_rejection_floors, limb_stream,
     limb_wide, masked_cmp_floors, membership_floors, na, rejection_floors, scan_examines,
@@ -85,9 +81,7 @@ pub(super) enum OpGroup {
     /// input-denominated on every shape — a comparison never
     /// materializes the projection.
     Projection,
-    /// The fold rows: `version_join_all`, `version_meet_all`,
-    /// `version_span_all`, `party_join_all`, and
-    /// `party_join_all_overlap`.
+    /// Operations that combine a collection of versions or parties.
     Fold,
     /// Rows over a shape's disjoint party pair.
     Party,
@@ -117,9 +111,7 @@ pub(super) fn designed(kind: FamilyId, group: OpGroup) -> bool {
         FamilyId::Harmonic => matches!(group, OpGroup::Measure | OpGroup::Rank),
         // The output-domination cross.
         FamilyId::CombScatter => group == OpGroup::Projection,
-        // The correlated fold populations, built against the fold rows:
-        // weave loads the up-front overlap test, stagger the balanced
-        // reduction's intermediate swell.
+        // These shapes produce large intermediate values during a fold.
         FamilyId::Weave | FamilyId::Stagger => group == OpGroup::Fold,
         // The tick-walk crosses.
         FamilyId::NestedFull
@@ -1367,14 +1359,6 @@ pub(super) fn ops() -> Vec<Op> {
                 let mut parties = parties.iter().map(|b| decode_party(b));
                 let acc = parties.next().expect("the scatter population is nonempty");
                 let rest: Vec<Party> = parties.collect();
-                // The declared search allowance: the accumulator's table
-                // size prices each tested input's both-present nodes
-                // (INDEX_PROBE_SCAN_BITS carries the derivation).
-                let table = both_present_nodes(&acc);
-                let probes_per_node = u64::from((table + 1).next_power_of_two().trailing_zeros());
-                let search_bits = INDEX_PROBE_SCAN_BITS
-                    * probes_per_node
-                    * rest.iter().map(both_present_nodes).sum::<u64>();
                 let floors = Floors {
                     heap: na(NA_HEAP_IN_PLACE),
                     limb: na(NA_LIMB_ID_TREE),
@@ -1389,8 +1373,7 @@ pub(super) fn ops() -> Vec<Op> {
                             .expect("fold operands are forked parties, pairwise disjoint");
                         acc
                     })
-                    .with_fold_arity(arity)
-                    .with_fold_search(search_bits),
+                    .with_fold_arity(arity),
                 )
             },
         },
@@ -2211,38 +2194,6 @@ pub(super) fn ops() -> Vec<Op> {
                         .sync(&mut b)
                         .expect_err("the overlap-mounted pair must be rejected");
                     (err, a, b)
-                }))
-            },
-        },
-        Op {
-            name: "party_join_all_overlap",
-            group: OpGroup::Fold,
-            prepare: |f| {
-                // One large accumulator, many one-byte probes each
-                // overlapping its right half behind the whole left shape:
-                // every probe is tested against the fixed accumulator and
-                // handed back, and the probe count scales with the
-                // accumulator (the divisor's rustdoc), so any per-input
-                // work scaling with the accumulator reads quadratic here
-                // while the indexed test's O(probe) checks read linear.
-                let (a_bytes, _) = f.overlap.clone()?;
-                let acc = decode_party(&a_bytes);
-                let probe = overlap_fold_probe();
-                assert!(
-                    !acc.is_disjoint(&decode_party(&probe)),
-                    "the fold probe overlaps the a-mount's right half"
-                );
-                let count = (a_bytes.len() / OVERLAP_FOLD_INPUT_DIVISOR).max(MIN_SIZE_PARAM);
-                let inputs: Vec<Party> = (0..count).map(|_| decode_party(&probe)).collect();
-                let n = a_bytes.len() + count * probe.len();
-                let floors = id_rejection_floors(n, WHY_SCAN_EXAMINES);
-                Some(Cell::new(n, floors, move || {
-                    let mut acc = acc;
-                    let back = acc
-                        .join_all(inputs)
-                        .expect_err("every probe overlaps the accumulator");
-                    assert_eq!(back.len(), count, "every probe is handed back");
-                    (back, acc)
                 }))
             },
         },

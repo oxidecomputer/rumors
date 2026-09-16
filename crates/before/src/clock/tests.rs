@@ -1,4 +1,4 @@
-//! Clock-level tests.
+//! Independent checks of `Clock` behavior against the recursive oracle.
 
 use proptest::prelude::*;
 
@@ -13,33 +13,11 @@ use crate::testing::generators::{
 use crate::testing::optrace::{run, step_impl, world_strategy, Op};
 use crate::{error::Parse, Clock, Party, Version};
 
-// The balanced `join_all` against the sequential pair joins is the
-// `laws::CLOCK_AND_LIST` acceptance law
-// (clock_join_all_accepts_iff_parties_pairwise_disjoint: an accepted fold
-// equals the sequential joins on both components) together with
-// clock_join_all_reunites_forks_at_any_width, driven at boundary-band
-// arities and every feed order over the organic, arbitrary, and
-// fuzz-decoded populations.
-
-// ───────────────────── the fold's up-front index, differentially ─────────────────────
-//
-// `Clock::join_all`'s up-front overlap test runs against a per-call index of
-// the fixed accumulator's party; the index is a performance mechanism only, so
-// every observable outcome — the hand-back vector (contents *and* order) and
-// the accumulator's final party and version — must be exactly what the
-// documented discipline decides. The recursive oracle's `join_all`
-// (`oracle::Clock`) is that discipline's reference spelling. The id-level seam
-// and the adversarial party mixes are pinned in `party/tests.rs`; these
-// differentials pin the clock fold carrying versions through the same
-// decisions.
-
-/// On forked and aliased clock populations, the production fold and the
-/// recursive oracle agree.
+/// `join_all` matches sequential oracle joins for disjoint and overlapping
+/// clocks.
 ///
-/// With no overlap anywhere — a forked clock population reuniting after
-/// concurrent ticks — both return the same merged version and rebuild equal
-/// accumulators; with the accumulator's own region duplicated among the inputs,
-/// both hand back exactly the duplicate.
+/// Disjoint, independently advanced forks produce the same clock. A duplicated
+/// region produces an error without losing any region or version.
 #[test]
 fn join_all_agrees_with_oracle_on_forked_and_aliased_populations() {
     let population = |duplicate: bool| {
@@ -62,91 +40,55 @@ fn join_all_agrees_with_oracle_on_forked_and_aliased_populations() {
     assert_join_all_matches_recursive_oracle(acc, children);
 }
 
-/// A group retained on the stack by a failed weight-1 combine — the over-full
-/// counter slot — keeps coalescing with later inputs exactly as the recursive
-/// oracle says, versions riding along.
-///
-/// The clock twin of the party suite's deterministic witness for the fold's
-/// hand-back-retention arm (`fold.rs`, the failed-combine path whose newer
-/// group has already coalesced): feed order [a, b, alias(a), c, d, e] over
-/// pairwise-disjoint forks retains alias∪c on the stack at the failed weight-1
-/// combine, then coalesces d∪e into it, so the hand-back is the four-input
-/// group and the accumulator absorbs only a∪b — with each input carrying a
-/// distinct ticked version, so the clock fold's version merges ride the same
-/// decisions.
-#[test]
-fn join_all_agrees_with_oracle_on_aliased_coalesced_group() {
-    let mut acc = Clock::seed();
-    let mut children: Vec<Clock> = acc.forks(5u64).collect();
-    for (n, child) in children.iter_mut().enumerate() {
-        for _ in 0..=n {
-            child.tick();
-        }
-    }
-    let e = children.pop().expect("five forks");
-    let d = children.pop().expect("five forks");
-    let c = children.pop().expect("five forks");
-    let b = children.pop().expect("five forks");
-    let a = children.pop().expect("five forks");
-    let alias = Clock::from_parts(a.party().dangerously_alias(), a.version().clone());
-    assert_join_all_matches_recursive_oracle(acc, vec![a, b, alias, c, d, e]);
+/// Return the combined region and history of some oracle clocks.
+fn oracle_clock_union(
+    clocks: impl IntoIterator<Item = (oracle::Party, oracle::Version)>,
+) -> (oracle::Party, oracle::Version) {
+    clocks.into_iter().fold(
+        (oracle::Party::Leaf(false), oracle::Version::new()),
+        |(party, version), (other_party, other_version)| {
+            (party.union(other_party), version | other_version)
+        },
+    )
 }
 
-/// Run the production clock fold and the recursive oracle's `join_all` over one
-/// input population and assert identical outcomes, compared over logical trees.
-///
-/// Identical outcomes: the same `Ok`/`Err` verdict — the returned version
-/// lowering to the oracle accumulator's — the same hand-back vector (contents
-/// *and* order, element-wise over `to_oracle_clock`), and accumulators (party
-/// and version both) lowering to the same oracle trees.
+/// Compare `join_all` with sequential oracle joins.
 fn assert_join_all_matches_recursive_oracle(mut acc: Clock, inputs: Vec<Clock>) {
     let lift = |c: &Clock| {
         let (p, v) = to_oracle_clock(c);
         oracle::Clock::from_parts(p, v)
     };
-    let mut oracle_acc = lift(&acc);
+    let initial = lift(&acc);
     let oracle_inputs: Vec<oracle::Clock> = inputs.iter().map(lift).collect();
-    let new = acc.join_all(inputs).cloned();
+    let expected = oracle_clock_union(
+        std::iter::once(initial.clone().into_parts())
+            .chain(oracle_inputs.iter().cloned().map(oracle::Clock::into_parts)),
+    );
+    let mut oracle_acc = initial;
     let reference = oracle_acc.join_all(oracle_inputs);
-    match (new, reference) {
-        (Ok(version), Ok(())) => assert_eq!(
-            to_oracle_version(&version),
-            oracle_acc.version(),
-            "the production fold and the oracle fold must return the same merged version"
-        ),
-        (Err(back), Err(oracle_back)) => {
-            let back: Vec<_> = back.iter().map(to_oracle_clock).collect();
-            let oracle_back: Vec<_> = oracle_back
-                .into_iter()
-                .map(oracle::Clock::into_parts)
-                .collect();
+    let result = acc.join_all(inputs).cloned();
+
+    assert_eq!(result.is_ok(), reference.is_ok(), "the verdicts differ");
+    match result {
+        Ok(version) => {
+            assert_eq!(to_oracle_version(&version), oracle_acc.version());
             assert_eq!(
-                back, oracle_back,
-                "the production fold and the oracle fold must hand back the same clocks \
-                 in the same order"
+                to_oracle_clock(&acc),
+                (oracle_acc.party().clone(), oracle_acc.version())
             );
         }
-        (new, reference) => panic!(
-            "the production fold and the oracle fold must agree on the verdict: \
-             {new:?} vs {reference:?}"
-        ),
+        Err(back) => {
+            let actual = oracle_clock_union(
+                std::iter::once(to_oracle_clock(&acc)).chain(back.iter().map(to_oracle_clock)),
+            );
+            assert_eq!(actual, expected, "join_all lost a region or version");
+        }
     }
-    assert_eq!(
-        to_oracle_clock(&acc),
-        (oracle_acc.party().clone(), oracle_acc.version()),
-        "the production fold and the oracle fold must leave the same accumulator"
-    );
 }
 
 proptest! {
-    /// The production clock `join_all` decides exactly as the recursive
-    /// oracle's `join_all` over arbitrary normal-form mixes.
-    ///
-    /// An arbitrary accumulator against clocks drawn with repetition from an
-    /// arbitrary pool of party × version pairs — mixed sizes, duplicates, and
-    /// every overlap disposition arise from the draws — with identical
-    /// hand-backs (contents and order) and accumulators lowering to the same
-    /// oracle trees.
+    /// Clock `join_all` matches the sequential oracle's verdict and successful
+    /// result, and conserves every region and version on error.
     #[test]
     fn join_all_matches_the_recursive_oracle(
         oacc in (arb_oracle_party_nonempty(), arb_oracle_version()),

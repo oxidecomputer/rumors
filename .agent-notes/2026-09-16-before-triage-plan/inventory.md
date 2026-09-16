@@ -74,10 +74,9 @@ mechanisms:
 - The current fork increment removes the `ExactSizeIterator` contract and the
   fixed `u64` count. Both public methods accept the existing unbounded `Ticks`
   vocabulary, and a direct wasm32 pin covers the former `2^32` trap.
-- The current increment replaces the fill memo's `NonZeroU32` links and the
-  query ledger's `u32` epochs with vector-native `usize` indices. Party fold
-  positions remain capped: their fallback preserves semantics but not the
-  published complexity.
+- The fill memo's links and query ledger's epochs use vector-native `usize`
+  indices. The current Party fold increment removes its auxiliary position
+  table and keeps only the balanced fold's logarithmic working set.
 - Suanpan's shifted-digit landing bug is repaired in the current review
   increment: the full position is computed before its one checked conversion,
   with native boundary witnesses and direct wasm32 release coverage.

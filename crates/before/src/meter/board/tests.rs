@@ -336,7 +336,6 @@ fn chunked_schoolbook_slips_under_kappa_and_trips_the_exponent_leg() {
                 touch: na(PROBE_NA),
             },
             fold_arity: None,
-            fold_search_bits: 0,
             heap_model: None,
             declared_heap: None,
             declared_limb: None,
@@ -442,7 +441,6 @@ fn bypassing_walk_is_green_under_ceilings_alone_and_red_under_floors() {
             text_row: false,
             floors: floors_of(n),
             fold_arity: None,
-            fold_search_bits: 0,
             heap_model: None,
             declared_heap: None,
             declared_limb: None,
@@ -480,65 +478,6 @@ fn bypassing_walk_is_green_under_ceilings_alone_and_red_under_floors() {
         vec![SCAN_FLOOR_TRIP],
         "under the committed floors the bypass walk must read red on exactly the scan \
          floor: the meter is not watching its traversal"
-    );
-}
-
-/// The join_all up-front overlap test reads scan-flat: a joint doubling of
-/// accumulator and input count grows the fold's scan bits ≤ ×2.05, over a
-/// liveness floor proving the meter watches the discipline.
-///
-/// \[Measured ×2.00, 33,036 → 66,060 bits — the re-pin landed with the per-call
-/// index.\]
-///
-/// `Party::join_all` tests every input against the *fixed* accumulator up front
-/// (the hand-back granularity the contract documents), through a per-call
-/// `IdIndex` of the accumulator: the index build scans the accumulator's tags
-/// twice, and each per-input test then costs O(input) recorded reads, so a
-/// population of one-byte probes overlapping the accumulator's right half
-/// behind its whole left shape prices linear in the joint operands. A
-/// discipline that instead cursor-walks the fixed accumulator per input reads
-/// ~×4 across the joint doubling — the packed coding has no random access, so
-/// each such test skip-scans the whole left shape — and trips this ceiling. The
-/// floor closes the vacuous pass: a counter that stops watching the up-front
-/// discipline reads under one full pass of the accumulator's stored bits. The
-/// board's `party_join_all_overlap` row carries the same reading at the scales
-/// of record; the cure's decision record lives in the design doc's §3 entry.
-#[cfg(feature = "scan-meter")]
-#[test]
-fn join_all_overlap_upfront_test_reads_flat() {
-    use super::family::{decode_party, overlap_fold_probe, overlap_mounted_pair};
-    /// Ceiling on scan growth across the joint doubling: a linear
-    /// discipline reads exactly ×2.00 there (deterministic meter), so
-    /// the ceiling adds headroom for rounding only — a per-input
-    /// accumulator re-walk reads ~×4.
-    const MAX_SCAN_GROWTH: f64 = 2.05;
-    let scan_at = |depth: usize| -> (u64, u64) {
-        let shape = crate::meter::id_spine(depth, false);
-        let (a_bytes, _) = overlap_mounted_pair(&shape.bytes);
-        let mut acc = decode_party(&a_bytes);
-        let probe = overlap_fold_probe();
-        let count = a_bytes.len() / 64;
-        let inputs: Vec<Party> = (0..count).map(|_| decode_party(&probe)).collect();
-        crate::meter::reset_scan_bits();
-        let back = acc
-            .join_all(inputs)
-            .expect_err("every probe overlaps the accumulator");
-        assert_eq!(back.len(), count, "every probe is handed back");
-        (crate::meter::scan_bits(), 8 * a_bytes.len() as u64)
-    };
-    let ((lo, lo_floor), (hi, _)) = (scan_at(4_096), scan_at(8_192));
-    assert!(
-        lo >= lo_floor,
-        "the fold recorded {lo} scan bits under its {lo_floor}-bit liveness floor (one full \
-         pass of the accumulator's stored bits): the scan meter is not watching the up-front \
-         discipline"
-    );
-    let growth = hi as f64 / lo as f64;
-    assert!(
-        growth <= MAX_SCAN_GROWTH,
-        "join_all's up-front overlap test reads x{growth:.2} scan growth across the joint \
-         doubling ({lo} -> {hi} bits), over the pinned x{MAX_SCAN_GROWTH}: work scaling with \
-         the fixed accumulator re-entered the per-input path"
     );
 }
 
@@ -667,7 +606,6 @@ fn exponent_guards_skip_noise_and_keep_real_amplifiers_red() {
                 touch: na(PROBE_NA),
             },
             fold_arity: None,
-            fold_search_bits: 0,
             heap_model: None,
             declared_heap: None,
             declared_limb: None,
@@ -787,7 +725,6 @@ fn acceptance_trend_absorbs_lumps_and_keeps_amplifiers_red() {
                 touch: na(PROBE_NA),
             },
             fold_arity: None,
-            fold_search_bits: 0,
             heap_model: None,
             declared_heap: None,
             declared_limb: None,
@@ -891,7 +828,6 @@ fn declared_fold_model_admits_the_log_factor_and_rejects_quadratic() {
                 touch: na(PROBE_NA),
             },
             fold_arity: Some(arity),
-            fold_search_bits: 0,
             heap_model: None,
             declared_heap: None,
             declared_limb: None,
@@ -939,38 +875,6 @@ fn declared_fold_model_admits_the_log_factor_and_rejects_quadratic() {
         fat_constant.red.contains(&"scan constant"),
         "a per-level constant regression must read constant-red: {:?}",
         fat_constant.red
-    );
-    // The party fold's search allowance admits the binary search's own probe
-    // bound and nothing looser: readings at the weave family's committed
-    // proportions (fold model + allowance, ~7% under) are green, and a search
-    // discipline paying twice the bound — linear re-probing where the partition
-    // search is logarithmic — reads red.
-    let search = |denom: usize, arity: u64, search_bits: u64, scan: u64| -> Sample {
-        let mut s = sample(denom, arity, scan);
-        s.fold_search_bits = search_bits;
-        s
-    };
-    let searched = evaluate(
-        "fold_probe",
-        "searched",
-        search(6_144, 16, 979_200, 1_370_000),
-        search(12_288, 16, 2_207_520, 2_740_000), // ~223 bits/B: the weave reading
-    );
-    assert!(
-        !searched.red.iter().any(|r| r.starts_with("scan")),
-        "the indexed fold's searches must read green under their declared allowance: {:?}",
-        searched.red
-    );
-    let over_searched = evaluate(
-        "fold_probe",
-        "over-searched",
-        search(6_144, 16, 979_200, 2_400_000),
-        search(12_288, 16, 2_207_520, 5_150_000), // ~2x the allowance: a regressed search
-    );
-    assert!(
-        over_searched.red.contains(&"scan constant"),
-        "a search paying past its declared allowance must read red: {:?}",
-        over_searched.red
     );
     // Ceiling tightness: at every committed arity pair (scatter and benign,
     // both scales, doubling denominators and beyond) the declared exponent
@@ -1029,7 +933,6 @@ fn declared_capacity_model_bands_the_projection_peak() {
                 touch: na(PROBE_NA),
             },
             fold_arity: None,
-            fold_search_bits: 0,
             heap_model: Some(model),
             declared_heap: None,
             declared_limb: None,

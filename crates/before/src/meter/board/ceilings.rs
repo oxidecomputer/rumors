@@ -49,8 +49,6 @@
 //!   `render_merge_superlinearity_is_alive` pin, which forces this
 //!   declaration's re-derivation the day a render-merge cure lands.
 
-use crate::Party;
-
 // ─── the pinned ceilings ────────────────────────────────────────────────────
 //
 // Several ceilings below argue their calibration from the worst honest reader
@@ -244,61 +242,12 @@ pub const MIN_EXPONENT_DENOM_GROWTH: f64 = 1.5;
 // stale against an improved kernel and must be re-declared in a diff that shows
 // the new derivation (the same ratchet as a liveness floor).
 
-/// The fold rows' declared scan model: at most this many scan bits per input
-/// byte per balanced-reduction level, `log2(2k)` levels over `k` fold operands.
+/// Maximum scan bits per input byte and balanced-reduction level.
 ///
-/// The fold rows run the balanced binary-counter reduction, whose documented
-/// class is `O(D log k)`: every input passes through `O(log k)` joins, and each
-/// join level re-scans the operands it merges, so scan work per input byte
-/// grows by a constant per level — never flat, at any implementation of the
-/// balanced reduction. Derivation of the constant: per-level readings vary
-/// widely with population and arity — each committed fold cell's reading
-/// divided by its own cell's `log2(2k)` — and the binding calibration is the
-/// heaviest honest per-level reader, the party fold's benign control at the
-/// acceptance ladder's two sampling scales (release, the profile of record;
-/// the readings live in the pin commit). The party overlap populations ride
-/// their declared per-input search allowance on top of the fold model, so
-/// they are outside this per-level arithmetic. The constant is the worst
-/// honest per-level reading at the family-stated ceilings' ×1.25 margin
-/// convention, rounded to a round constant, so a fold whose per-level
-/// constant regresses past the margin reads red.
+/// For `k` operands, the board allows this coefficient times `log2(2k)`.
+/// The coefficient is the largest release-profile measurement across the fold
+/// rows, with 25% headroom and rounding. The board fails if a fold exceeds it.
 pub const FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL: f64 = 12.0;
-
-/// The scan bits one metered `IdIndex` table probe records: one `u32` table
-/// word per probe.
-///
-/// The party fold's declared search allowance is `32·⌈log2(t+1)⌉` probes' worth
-/// per both-present node of each tested input, `t` the accumulator's table
-/// size.
-///
-/// Derivation: `Party::join_all` overlap-tests every input against the fixed
-/// accumulator through a per-call table of the accumulator's both-present
-/// nodes, and each both-present node the test visits runs one binary search
-/// over at most `t` entries — at most `⌈log2(t+1)⌉` probes of one table word
-/// each. The allowance is that bound summed over the inputs' both-present
-/// nodes, computed from the operands at prepare; it is tight where the
-/// searches dominate (the weave family is the calibrating population; the
-/// readings live in the pin commit), zero on populations with no
-/// both-present structure (scatter's single-leaf operands), and absent from
-/// the version fold, which runs no overlap test. The index stays, its
-/// searches priced, over a per-input cursor walk: the committed overlap
-/// instruments pin the index's asymptotic win (a cursor discipline reads
-/// quadratic on the overlap rows and trips the flatness pin).
-pub const INDEX_PROBE_SCAN_BITS: u64 = 32;
-
-/// A packed id operand's both-present node count: the size of the `IdIndex`
-/// table a fold builds over it, and the per-input factor of the declared search
-/// allowance. One 2-bit presence tag per node.
-pub(super) fn both_present_nodes(p: &Party) -> u64 {
-    let bits = p.as_bits();
-    let mut count = 0u64;
-    let mut i = 0;
-    while i + 1 < bits.len() {
-        count += u64::from(bits.bit(i) && bits.bit(i + 1));
-        i += 2;
-    }
-    count
-}
 
 /// The declared-model band: a modeled reading must sit within
 /// `[CAPACITY_MODEL_FLOOR, CAPACITY_MODEL_CEILING] × model`.

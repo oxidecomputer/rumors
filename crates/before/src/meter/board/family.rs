@@ -160,15 +160,6 @@ const DOMINATED_UNDERCUT_BASE: usize = 160;
 /// small, so the pair's cost is carried entirely by the mismatch.
 const RANK_PAIR_INTEGER_TICKS: u64 = 3;
 
-/// Probes per accumulator byte (as a divisor) on the `party_join_all_overlap`
-/// row.
-///
-/// The probe count scales with the accumulator so the row's exponent judges the
-/// fold against a denominator both sides of which double together — work
-/// scaling with the fixed accumulator per input reads quadratic there — and the
-/// divisor keeps the row inside the board's runtime budget.
-pub(super) const OVERLAP_FOLD_INPUT_DIVISOR: usize = 64;
-
 /// Two-operand jump-comb teeth at scale 1.0 (packed pair ~35 KiB, the teeth
 /// operand's per-level wide codes dominating).
 ///
@@ -361,11 +352,9 @@ const BENIGN_BASE_CLOCKS: usize = 256;
 /// The weave fold population's leaf count at scale 1.0 (rounded up to a power
 /// of two by construction).
 ///
-/// 4096 leaves woven into [`WEAVE_GROUPS`] parties give each operand ~256
-/// scattered leaves under a fully shared upper skeleton — deep enough that the
-/// both-present-rich cost terms (the indexed overlap test's per-node table
-/// searches, the version joins' interleaved merges) dominate each cell, small
-/// enough that the default-scale board stays seconds-fast.
+/// 4096 leaves woven into [`WEAVE_GROUPS`] parties give each operand about 256
+/// scattered leaves under a fully shared upper skeleton. This makes
+/// interleaved merges dominate without making the default board slow.
 const WEAVE_BASE_LEAVES: usize = 4_096;
 
 /// How many parties the weave population folds: fixed across scales, so the
@@ -1206,26 +1195,6 @@ fn rightmost_terminal_path(bits: codec::BitsView<'_>) -> Vec<bool> {
             path.push(false);
         }
     }
-}
-
-/// The overlap fold's probe: a right-mounted full leaf — `(0, 1)`, one packed
-/// byte — overlapping the a-mount's whole right half (the marker's region).
-///
-/// The `party_join_all_overlap` row's per-input operand. The witnessing pair
-/// sits in the right half, behind the accumulator's whole left shape, so a
-/// per-input overlap test priced in the accumulator — a cursor walk
-/// skip-scanning the left shape to reach the witness — reads Θ(accumulator)
-/// scan per O(1)-byte input and turns the row quadratic; the fold's per-call
-/// accumulator index answers the same test in O(probe), which is the separation
-/// the row watches.
-pub(super) fn overlap_fold_probe() -> Vec<u8> {
-    let mut probe = codec::BitsBuf::with_capacity(4);
-    probe.push(false); // root: right child only
-    probe.push(true);
-    probe.push(false); // the right child: a full leaf
-    probe.push(false);
-    codec::seal_padding(&mut probe);
-    probe.into_bytes()
 }
 
 /// Decode packed bytes the board itself generated.

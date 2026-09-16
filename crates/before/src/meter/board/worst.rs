@@ -446,7 +446,7 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("default", "party_encode", ["-", "-", "-", "-"]),
     ("default", "party_fork", ["id-pair", "-", "mirror-narrow,nested-full", "-"]),
     ("default", "party_join", ["id-pair", "-", "benign", "-"]),
-    ("default", "party_join_all", ["-", "-", "weave", "-"]),
+    ("default", "party_join_all", ["-", "-", "stagger", "-"]),
     ("default", "party_covers", ["-", "-", "id-pair", "-"]),
     ("default", "party_disjoint", ["-", "-", "id-pair", "-"]),
     ("default", "party_without", ["id-pair", "-", "id-pair", "-"]),
@@ -483,7 +483,6 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("default", "party_join_overlap", ["id-pair", "-", "mirror-narrow", "-"]),
     ("default", "clock_join_overlap", ["id-pair", "-", "id-pair", "-"]),
     ("default", "clock_sync_overlap", ["id-pair", "-", "id-pair", "-"]),
-    ("default", "party_join_all_overlap", ["nested-full", "-", "benign", "-"]),
     ("default", "party_without_none", ["id-pair", "-", "id-pair", "-"]),
     ("acceptance", "version_decode", ["hugeleaf", "freeze-pos", "dense-suffix", "staircase"]),
     ("acceptance", "version_encode", ["promo-rearm", "-", "-", "-"]),
@@ -532,7 +531,7 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("acceptance", "party_encode", ["id-pair", "-", "-", "-"]),
     ("acceptance", "party_fork", ["id-pair", "-", "mirror-narrow,nested-full", "-"]),
     ("acceptance", "party_join", ["id-pair", "-", "benign", "-"]),
-    ("acceptance", "party_join_all", ["weave", "-", "weave", "-"]),
+    ("acceptance", "party_join_all", ["weave", "-", "stagger", "-"]),
     ("acceptance", "party_covers", ["-", "-", "id-pair", "-"]),
     ("acceptance", "party_disjoint", ["-", "-", "id-pair", "-"]),
     ("acceptance", "party_without", ["id-pair", "-", "id-pair", "-"]),
@@ -569,7 +568,6 @@ pub(super) const WORST_RANKINGS: &[(&str, &str, [&str; 4])] = &[
     ("acceptance", "party_join_overlap", ["id-pair", "-", "mirror-narrow", "-"]),
     ("acceptance", "clock_join_overlap", ["id-pair", "-", "id-pair", "-"]),
     ("acceptance", "clock_sync_overlap", ["id-pair", "-", "id-pair", "-"]),
-    ("acceptance", "party_join_all_overlap", ["nested-full", "-", "mirror-narrow", "-"]),
     ("acceptance", "party_without_none", ["id-pair", "-", "id-pair", "-"]),
 ];
 

@@ -1,84 +1,17 @@
-//! Party tests: fork/join round-trip, disjointness, split/sum, and overlap
-//! behavior, all differential against the oracle.
+//! Independent checks of `Party` against the recursive oracle.
 
 use proptest::prelude::*;
 
-use super::ops::IdIndex;
 use super::Party;
 use crate::idbits::IdReader;
 use crate::oracle;
 use crate::testing::bridge::{from_oracle_party, to_oracle_party};
-use crate::testing::generators::{
-    arb_oracle_party, arb_oracle_party_nonempty, arb_shape, shape_party, skip_stress_pair, Shape,
-};
+use crate::testing::generators::{arb_oracle_party, arb_oracle_party_nonempty};
 use crate::testing::optrace::{run, world_strategy};
-
-/// Smallest spine scale the deep-operand differentials drive; deep enough
-/// that the shapes leave the arbitrary generator's shallow regime.
-const DEEP_SCALE: usize = 64;
 
 // ───────────────────────────── the join fold ─────────────────────────────
 
-// The balanced `join_all` against the sequential pair joins is the
-// `laws::PARTY_AND_LIST` acceptance law
-// (party_join_all_accepts_iff_family_pairwise_disjoint: an accepted fold
-// equals the sequential joins) together with
-// party_join_all_reunites_forks_at_any_width, driven at boundary-band
-// arities and every feed order over the organic, arbitrary, and
-// fuzz-decoded populations.
-
-/// Aliased inputs stay best-effort: a duplicated share collides on its way in
-/// and is handed back whole (nothing panics, nothing is dropped), while the
-/// honest copy of every share still reunites the seed region.
-///
-/// The duplicate rides directly behind its original, so the collision happens
-/// original-against-duplicate; which parties come back for other interleavings
-/// is deliberately unspecified (the contract's order-dependence for aliased
-/// input).
-#[test]
-fn join_all_hands_back_aliased_inputs() {
-    let mut acc = Party::seed();
-    let shares: Vec<Party> = acc.forks(3u64).collect();
-    let mut dup_seed = Party::seed();
-    let mut dups = dup_seed.forks(3u64);
-    let duplicate = dups.next().expect("three shares were requested");
-    drop(dups);
-    drop(dup_seed);
-    let mut again = Party::seed();
-    let mut again_shares = again.forks(3u64);
-    let expected_back = again_shares.next().expect("three shares were requested");
-    drop(again_shares);
-    drop(again);
-    let mut inputs = shares;
-    inputs.insert(1, duplicate);
-    let back = acc
-        .join_all(inputs)
-        .expect_err("the duplicated share must collide");
-    assert_eq!(back.len(), 1, "exactly the duplicate comes back");
-    assert_eq!(back[0], expected_back, "the duplicate comes back whole");
-    assert!(
-        acc.is_seed(),
-        "the honest copy of every share reunites the seed region"
-    );
-}
-
-// ───────────────────── the fold's up-front index, differentially ─────────────────────
-//
-// `join_all`'s up-front overlap test runs against a per-call `IdIndex` of the
-// fixed accumulator; the index is a performance mechanism only, so every
-// observable outcome — the hand-back vector (contents *and* order) and the
-// final accumulator — must be exactly what the documented discipline decides.
-// The recursive oracle's `join_all` (`oracle::Party`) is that discipline's
-// reference spelling, and these differentials pin production against it across
-// arbitrary mixes and the named adversarial ones. The up-front predicate's
-// mechanism seam — `IdIndex` against the cursor walk — is pinned separately by
-// `indexed_disjointness_matches_the_cursor_walk[_deep]` below.
-
-/// With no overlap anywhere, the production fold and the recursive oracle
-/// agree.
-///
-/// A forked population reuniting: both return `Ok` and rebuild the same
-/// accumulator.
+/// `join_all` and the sequential oracle reunite the same disjoint forks.
 #[test]
 fn join_all_agrees_with_oracle_when_none_overlap() {
     let mut acc = Party::seed();
@@ -86,23 +19,9 @@ fn join_all_agrees_with_oracle_when_none_overlap() {
     assert_join_all_matches_recursive_oracle(acc, shares);
 }
 
-/// A group retained on the stack by a failed weight-1 combine — the over-full
-/// counter slot — keeps coalescing with later inputs exactly as the recursive
-/// oracle says.
-///
-/// The deterministic witness for the fold's hand-back-retention arm (`fold.rs`,
-/// the failed-combine path whose newer group has already coalesced). Feed order
-/// [a, b, alias(a), c, d, e] over pairwise-disjoint forks: a∪b coalesces to
-/// weight 1; alias(a) enters at weight 0; c merges with it; the weight-1
-/// combine of a∪b with alias∪c fails on the alias and retains alias∪c on the
-/// stack; d∪e then coalesces and merges INTO the retained group (weight 2), so
-/// the hand-back is the four-input group alias∪c∪d∪e and the accumulator
-/// absorbs only a∪b. Misrouting the retained group to the rejection channel
-/// instead hands back alias∪c alone and absorbs d∪e — divergent on both
-/// observables. (The narrower [a, b, alias(a), c] shape reaches the arm but not
-/// the divergence: the closing drain rejects the retained group either way.)
+/// An overlap among inputs is reported without losing any region.
 #[test]
-fn join_all_agrees_with_oracle_on_aliased_coalesced_group() {
+fn join_all_preserves_regions_on_overlap() {
     let mut acc = Party::seed();
     let mut shares: Vec<Party> = acc.forks(5u64).collect();
     let e = shares.pop().expect("five forks");
@@ -114,190 +33,42 @@ fn join_all_agrees_with_oracle_on_aliased_coalesced_group() {
     assert_join_all_matches_recursive_oracle(acc, vec![a, b, alias, c, d, e]);
 }
 
-/// The hand-back outcome is invariant to where the overlapping input sits in
-/// the sequence — first, interior, or last.
-///
-/// The production fold and the recursive oracle hand back exactly the aliased
-/// input at every position, with the honest shares still reuniting.
-#[test]
-fn join_all_agrees_with_oracle_at_every_overlap_position() {
-    for position in [0usize, 2, 4] {
-        let mut acc = Party::seed();
-        let mut inputs: Vec<Party> = acc.forks(4u64).collect();
-        // The residual `acc` region duplicated: overlaps `acc` and
-        // nothing else, so exactly it comes back.
-        inputs.insert(position, acc.dangerously_alias());
-        assert_join_all_matches_recursive_oracle(acc, inputs);
-    }
+/// Return the union of some oracle parties.
+fn oracle_union_all(parties: impl IntoIterator<Item = oracle::Party>) -> oracle::Party {
+    parties
+        .into_iter()
+        .fold(oracle::Party::Leaf(false), oracle::Party::union)
 }
 
-/// On the maximally-deferred witness, the production fold and the recursive
-/// oracle hand every input back in order and leave the accumulator untouched.
+/// Compare `join_all` with sequential oracle joins.
 ///
-/// Every input aliases a deep spine accumulator whose single owned region is
-/// its preorder-last tip, so each overlap test resolves only at the stream's
-/// end.
-#[test]
-fn join_all_agrees_with_oracle_on_all_overlapping_deferred_witness() {
-    let acc = shape_party(Shape::RightSpine, 64);
-    let inputs: Vec<Party> = (0..8).map(|_| acc.dangerously_alias()).collect();
-    assert_join_all_matches_recursive_oracle(acc, inputs);
-}
-
-/// Run the production fold and the recursive oracle's `join_all` over one input
-/// population and assert identical outcomes, compared over logical trees.
-///
-/// Identical outcomes: the same `Ok`/`Err` verdict, the same hand-back vector
-/// (contents *and* order, element-wise over `to_oracle_party`), and
-/// accumulators lowering to the same oracle tree.
+/// Both must agree whether every region can be absorbed. On success their
+/// accumulators match; on error the production accumulator and returned groups
+/// must together equal the union of every input region.
 fn assert_join_all_matches_recursive_oracle(mut acc: Party, inputs: Vec<Party>) {
-    let mut oracle_acc = to_oracle_party(&acc);
+    let initial = to_oracle_party(&acc);
     let oracle_inputs: Vec<oracle::Party> = inputs.iter().map(to_oracle_party).collect();
-    let new = acc
-        .join_all(inputs)
-        .map_err(|back| back.iter().map(to_oracle_party).collect::<Vec<_>>());
+    let expected =
+        oracle_union_all(std::iter::once(initial.clone()).chain(oracle_inputs.iter().cloned()));
+    let mut oracle_acc = initial;
     let reference = oracle_acc.join_all(oracle_inputs);
-    assert_eq!(
-        new, reference,
-        "the production fold and the oracle fold must hand back the same inputs in the \
-         same order"
-    );
-    assert_eq!(
-        to_oracle_party(&acc),
-        oracle_acc,
-        "the production fold and the oracle fold must leave the same accumulator"
-    );
-}
+    let result = acc.join_all(inputs);
 
-/// The oracle's `join_all` fold discipline with one deliberate defect: a
-/// newer group that already coalesced loses its stack slot on a failed
-/// combine — the fold drops it instead of retaining it at its weight.
-///
-/// The committed known-bad reference for the prod↔tree leg
-/// (`crate::testing::surface_coverage`'s tripwire roster):
-/// [`join_all_differential_convicts_the_dropped_group_oracle`] holds it
-/// convicted by the same comparison the leg's differentials perform, so
-/// the criterion is proven able to reject a wrong reference. Everything
-/// but the defect transcribes the discipline the honest oracle spells.
-fn join_all_dropping_the_retained_group(
-    acc: &mut oracle::Party,
-    inputs: Vec<oracle::Party>,
-) -> Result<(), Vec<oracle::Party>> {
-    let mut overlapping = Vec::new();
-    let mut stack: Vec<(oracle::Party, u32)> = Vec::new();
-    for other in inputs {
-        if !acc.is_disjoint(&other) {
-            overlapping.push(other);
-            continue;
+    assert_eq!(result.is_ok(), reference.is_ok(), "the verdicts differ");
+    match result {
+        Ok(()) => assert_eq!(to_oracle_party(&acc), oracle_acc),
+        Err(back) => {
+            let actual = oracle_union_all(
+                std::iter::once(to_oracle_party(&acc)).chain(back.iter().map(to_oracle_party)),
+            );
+            assert_eq!(actual, expected, "join_all lost or invented a region");
         }
-        let mut merged = Some(other);
-        let mut weight = 0u32;
-        while stack.last().is_some_and(|(_, w)| *w == weight) {
-            let (mut top, _) = stack.pop().expect("the loop condition saw a top entry");
-            match top.join(merged.take().expect("the operand is held while merging up")) {
-                Ok(()) => {
-                    merged = Some(top);
-                    weight += 1;
-                }
-                Err(back) => {
-                    stack.push((top, weight));
-                    if weight == 0 {
-                        overlapping.push(back);
-                    }
-                    // The defect: a retained group would be pushed back at
-                    // its weight here; this variant lets it vanish.
-                    break;
-                }
-            }
-        }
-        if let Some(merged) = merged {
-            stack.push((merged, weight));
-        }
-    }
-    for (group, _) in stack {
-        if let Err(back) = acc.join(group) {
-            overlapping.push(back);
-        }
-    }
-    if overlapping.is_empty() {
-        Ok(())
-    } else {
-        Err(overlapping)
-    }
-}
-
-/// Run the production fold against an injectable reference fold over one
-/// input population and report whether the outcomes agree.
-///
-/// The comparison is the one
-/// [`assert_join_all_matches_recursive_oracle`] asserts — verdict,
-/// hand-back contents and order, final accumulator — as a predicate.
-fn join_all_outcomes_agree(
-    mut acc: Party,
-    inputs: Vec<Party>,
-    reference: impl FnOnce(&mut oracle::Party, Vec<oracle::Party>) -> Result<(), Vec<oracle::Party>>,
-) -> bool {
-    let mut oracle_acc = to_oracle_party(&acc);
-    let oracle_inputs: Vec<oracle::Party> = inputs.iter().map(to_oracle_party).collect();
-    let new = acc
-        .join_all(inputs)
-        .map_err(|back| back.iter().map(to_oracle_party).collect::<Vec<_>>());
-    let want = reference(&mut oracle_acc, oracle_inputs);
-    new == want && to_oracle_party(&acc) == oracle_acc
-}
-
-/// The prod↔tree leg's criterion can fail: the differential comparison
-/// convicts the dropped-group oracle variant at every width that reaches
-/// the retention arm, while agreeing with the honest oracle everywhere.
-///
-/// Per width `w`, the family plants one alias of the first share, fed
-/// third, among `w` pairwise-disjoint forks (`[s0, s1, alias(s0), s2,
-/// ...]`):
-/// the alias coalesces with the share behind it and the weight-1 combine
-/// against the earlier group fails, so the newer group is retained on
-/// the stack at its weight — the arm
-/// [`join_all_dropping_the_retained_group`] erases. The honest
-/// transcription agrees with production at every width (the comparison's
-/// liveness), and the known-bad variant is convicted at exactly the
-/// widths that reach the arm (from `w = 3` up; below that the closing
-/// drain hands the lone alias back either way). The sweep crosses the
-/// balanced counter's first two weight octaves, so the conviction does
-/// not hinge on one stack geometry.
-#[test]
-fn join_all_differential_convicts_the_dropped_group_oracle() {
-    for width in 2..=17u64 {
-        let family = || {
-            let mut acc = Party::seed();
-            let mut shares: Vec<Party> = acc.forks(width).collect();
-            let alias = shares[0].dangerously_alias();
-            shares.insert(2, alias);
-            (acc, shares)
-        };
-        let (acc, inputs) = family();
-        assert!(
-            join_all_outcomes_agree(acc, inputs, |acc, inputs| acc.join_all(inputs)),
-            "the honest oracle transcription must agree with production at width {width}"
-        );
-        let (acc, inputs) = family();
-        let convicted = !join_all_outcomes_agree(acc, inputs, join_all_dropping_the_retained_group);
-        assert_eq!(
-            convicted,
-            width >= 3,
-            "the dropped-group variant must be convicted at exactly the widths \
-             that reach the retention arm (width {width})"
-        );
     }
 }
 
 proptest! {
-    /// The production `join_all` decides exactly as the recursive oracle's
-    /// `join_all` over arbitrary normal-form mixes.
-    ///
-    /// An arbitrary accumulator against inputs drawn with repetition from an
-    /// arbitrary pool — mixed sizes, duplicates, and every overlap disposition
-    /// (against the accumulator, against each other, or none) arise from the
-    /// draws — with identical hand-backs (contents and order) and accumulators
-    /// lowering to the same oracle tree.
+    /// `join_all` matches the sequential oracle's verdict and successful
+    /// result, and conserves every region when overlap prevents a full join.
     #[test]
     fn join_all_matches_the_recursive_oracle(
         oacc in arb_oracle_party_nonempty(),
@@ -364,110 +135,10 @@ fn parse_bare_notation() {
 // seed (so every pair is causally related and pairwise disjoint by
 // construction). These feed *arbitrary* normal-form ids — random shape, random
 // ownership, including genuinely *overlapping* and *unrelated* pairs — to the
-// packed id walks, the public `Party::join`, and the wire surface. They reach
+// id walks, the public `Party::join`, and the wire surface. They reach
 // the overlap arms (`compare == None`, `sum == None`, `join == Err`) that the
 // seed-derived pipeline cannot produce. The public region algebra reaches the
 // same regime through the descriptor table's id-pair drivers.
-
-proptest! {
-    /// The per-call [`IdIndex`] answers disjointness with the identical verdict
-    /// as the cursor walk, over arbitrary normal-form pairs — typically
-    /// unrelated, frequently overlapping — in both roles (either operand
-    /// indexed).
-    ///
-    /// This is the fold's semantic seam: `join_all`'s up-front test may differ
-    /// from `is_disjoint` in mechanism only. The huge-stream fallback — the
-    /// position table absent, as `build` leaves it past `u32` positions — is
-    /// held to the same verdict on every sampled pair, since no affordable
-    /// input reaches it through `build`.
-    #[test]
-    fn indexed_disjointness_matches_the_cursor_walk(
-        oa in arb_oracle_party_nonempty(),
-        ob in arb_oracle_party_nonempty(),
-    ) {
-        let (ia, ib) = (from_oracle_party(&oa), from_oracle_party(&ob));
-        let walk = ia.is_disjoint(&ib);
-        prop_assert_eq!(IdIndex::build(ia.as_bits()).is_disjoint(ib.view()), walk);
-        prop_assert_eq!(IdIndex::build(ib.as_bits()).is_disjoint(ia.view()), walk);
-        prop_assert_eq!(IdIndex::build_unindexed(ia.as_bits()).is_disjoint(ib.view()), walk);
-        prop_assert_eq!(IdIndex::build_unindexed(ib.as_bits()).is_disjoint(ia.view()), walk);
-    }
-}
-
-proptest! {
-    /// The per-call [`IdIndex`] matches the cursor walk on *deep* operand
-    /// pairs, where the arbitrary generator stays shallow.
-    ///
-    /// Spines, zigzags, and bushy shapes at scale, in both roles — driving the
-    /// index's table search and its skip-free descent through real depth, on
-    /// disjoint pairs (both single-tip spine halves and the misaligned
-    /// skip-stress pair) and overlapping ones (a shape against itself). The
-    /// huge-stream fallback (the position table absent) is held to the same
-    /// verdict on every pair.
-    #[test]
-    fn indexed_disjointness_matches_the_cursor_walk_deep(
-        shape_a in arb_shape(),
-        shape_b in arb_shape(),
-        scale in DEEP_SCALE..256,
-    ) {
-        let a = shape_party(shape_a, scale);
-        let b = shape_party(shape_b, scale);
-        let (sa, sb) = skip_stress_pair(scale);
-        for (x, y) in [(&a, &b), (&a, &a), (&sa, &sb)] {
-            let walk = x.is_disjoint(y);
-            prop_assert_eq!(IdIndex::build(x.as_bits()).is_disjoint(y.view()), walk);
-            prop_assert_eq!(IdIndex::build(y.as_bits()).is_disjoint(x.view()), walk);
-            prop_assert_eq!(IdIndex::build_unindexed(x.as_bits()).is_disjoint(y.view()), walk);
-            prop_assert_eq!(IdIndex::build_unindexed(y.as_bits()).is_disjoint(x.view()), walk);
-        }
-    }
-}
-
-/// The huge-stream fallback of [`IdIndex::is_disjoint`] answers the identical
-/// verdict as the built index and the cursor walk, on constructed pairs of
-/// every overlap disposition in both roles, empty streams included.
-///
-/// The deterministic tripwire beside the proptest legs above: disjoint
-/// complements at depth, self-overlap, nested overlap, a bushy pair sharing
-/// skeleton but no owned cell, a root-full side, and the empty stream — an
-/// empty reader against a nonempty indexed operand drives the walk's
-/// vacuously-disjoint empty arm, which no nonempty generator reaches.
-#[test]
-fn unindexed_fallback_matches_the_walk_on_constructed_pairs() {
-    use self::constructed::{complement_leftmost, full, leftmost, node};
-    use crate::codec::BitsBuf;
-    let empty = BitsBuf::new();
-    let pairs: Vec<(BitsBuf, BitsBuf)> = vec![
-        (leftmost(6), complement_leftmost(6)),
-        (leftmost(6), leftmost(6)),
-        (leftmost(6), leftmost(3)),
-        (
-            node(Some(&leftmost(2)), Some(&full())),
-            node(Some(&complement_leftmost(2)), None),
-        ),
-        (full(), leftmost(4)),
-        (leftmost(3), empty.clone()),
-        (empty.clone(), empty),
-    ];
-    for (a, b) in &pairs {
-        for (x, y) in [(a, b), (b, a)] {
-            let walk = IdReader::root(crate::codec::built_view(x))
-                .is_disjoint(IdReader::root(crate::codec::built_view(y)));
-            assert_eq!(
-                IdIndex::build(crate::codec::built_view(x))
-                    .is_disjoint(IdReader::root(crate::codec::built_view(y))),
-                walk,
-                "the built index diverged from the cursor walk"
-            );
-            assert_eq!(
-                IdIndex::build_unindexed(crate::codec::built_view(x))
-                    .is_disjoint(IdReader::root(crate::codec::built_view(y))),
-                walk,
-                "the unindexed fallback diverged from the cursor walk"
-            );
-        }
-    }
-}
 
 proptest! {
     /// `split` (the structural op behind `fork`) on an arbitrary non-empty id
@@ -578,11 +249,12 @@ fn sum_split_collapsed_union_matches_terminal_split() {
     assert_eq!(Party::from_bits(fused.1), give, "the give half is (0, 1)");
 }
 
-// ────────── constructed packed ids (the deep witnesses' shared shapes) ──────────
+// ──────────────────────── constructed id encodings ────────────────────────
 
-/// Hand-built normal-form packed id streams: the shapes the constructed deep
-/// witnesses and tripwires assemble their operands from, each built tags-first
-/// in one pass so a deep stream costs one allocation, not one per level.
+/// Hand-built canonical id encodings for deep tests.
+///
+/// Each encoding is emitted in one pass, so its depth does not increase the
+/// number of allocations.
 mod constructed {
     use crate::codec::BitsBuf;
 
@@ -1098,65 +770,4 @@ fn fork_fan_orbit_grows_affine_and_unwinds_to_seed() {
         );
     }
     assert!(root.is_seed(), "the fully unwound fan is the seed again");
-}
-
-/// The two parity halves of one balanced fork expansion at `2^d` leaves: every
-/// internal node of the shared skeleton is both-present in both halves — the
-/// population whose overlap test is search-dominated.
-#[cfg(feature = "scan-meter")]
-fn parity_halves(d: usize) -> (Party, Party) {
-    let mut parties = vec![Party::seed()];
-    while parties.len() < (1 << d) {
-        let mut next = Vec::with_capacity(parties.len() * 2);
-        for mut p in parties {
-            let q = p.fork();
-            next.push(p);
-            next.push(q);
-        }
-        parties = next;
-    }
-    let mut halves: Vec<Option<Party>> = vec![None, None];
-    for (i, leaf) in parties.into_iter().enumerate() {
-        match &mut halves[i % 2] {
-            slot @ None => *slot = Some(leaf),
-            Some(half) => half.join(leaf).expect("fork leaves are disjoint"),
-        }
-    }
-    let odds = halves.pop().flatten().expect("dealt");
-    let evens = halves.pop().flatten().expect("dealt");
-    (evens, odds)
-}
-
-/// The indexed disjointness test's table searches stay metered.
-///
-/// On the parity halves — every skeleton node both-present, so the test runs
-/// one table search per node — the scan counter reads at least the committed
-/// floor, which sits far above what the walk's tag reads alone could reach.
-///
-/// The liveness leg of the fold index's search metering: the searches are the
-/// dominant cost on correlated populations, and a change that routes them
-/// around the scan recorder would leave that cost visible to no deterministic
-/// counter. Floor = the measured reading ×0.75 (the envelope suite's
-/// liveness-floor convention); re-derive it in any diff that legitimately does
-/// fewer probes. \[Measured 135_196 bits at d = 10, dev profile; the cursor
-/// co-walk reads 6_140 bits on the same pair, so a de-metered search would read
-/// more than an order under the floor.\]
-#[cfg(feature = "scan-meter")]
-#[test]
-fn indexed_disjointness_search_bits_stay_metered() {
-    const SEARCH_SCAN_FLOOR_BITS: u64 = 101_397;
-    let (evens, odds) = parity_halves(10);
-    let index = IdIndex::build(evens.as_bits());
-    crate::meter::reset_scan_bits();
-    assert!(
-        index.is_disjoint(odds.view()),
-        "the parity halves partition the seed region: disjoint"
-    );
-    let read = crate::meter::scan_bits();
-    assert!(
-        read >= SEARCH_SCAN_FLOOR_BITS,
-        "the indexed test read {read} scan bits on the parity halves, under the \
-         committed search floor {SEARCH_SCAN_FLOOR_BITS}: the table searches are \
-         no longer metered (or legitimately probe less - re-derive the floor)"
-    );
 }

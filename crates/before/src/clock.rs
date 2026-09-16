@@ -249,10 +249,9 @@ impl Clock {
     ///
     /// # Errors
     ///
-    /// Returns the clocks whose parties *overlapped* and so could not be folded
-    /// in, dropping nothing: every input's party region and version are either
-    /// merged into `self` or handed back. In case of partial error, the set of
-    /// [`Clock`]s which are absorbed vs. handed back is unspecified.
+    /// Returns every input region and version not absorbed into `self`, without
+    /// dropping either. Returned clocks may be unions of inputs. Once an
+    /// overlap is found, later inputs may be returned without being tested.
     ///
     /// Unreachable for clocks descended from one [`seed`](Clock::seed): their
     /// parties are pairwise disjoint.
@@ -281,40 +280,20 @@ impl Clock {
         &mut self,
         iter: I,
     ) -> Result<&Version, Vec<Clock>> {
-        // The shared balanced binary counter (`crate::fold`), one join into
-        // `self` per surviving group at the end: the same discipline as
-        // [`Party::join_all`], because both of this fold's halves (the party
-        // union and the version join) pay per-input scans of the whole
-        // accumulated value under a left fold.
-        //
-        // Inputs overlapping `self` are handed back by the `accept` test
-        // against the *fixed* `self` up front, through a per-call index of
-        // `self`'s party (O(input) node visits plus the table searches per
-        // input, as in [`Party::join_all`]); parties disjoint from `self` stay
-        // disjoint from it however they coalesce, so the final joins cannot
-        // fail on well-formed input. A failed combine is aliased input; the
-        // counter's hand-back policy (`crate::fold`) drops nothing.
-        let mut overlapping = Vec::new();
-        let index = crate::party::ops::IdIndex::build(self.party.as_bits());
-        let groups = crate::fold::balanced_try_fold(
-            iter,
-            |other| index.is_disjoint(other.party().view()),
-            |mut top, incoming| match top.join(incoming) {
+        let groups =
+            crate::fold::balanced_try_fold(iter, |mut top, incoming| match top.join(incoming) {
                 Ok(_) => Ok(top),
                 Err(back) => Err((top, back)),
-            },
-            &mut overlapping,
-        );
-        for group in groups {
+            })?;
+        let mut groups = groups.into_iter();
+        while let Some(group) = groups.next() {
             if let Err(back) = self.join(group) {
-                overlapping.push(back);
+                let mut uncombined = vec![back];
+                uncombined.extend(groups);
+                return Err(uncombined);
             }
         }
-        if overlapping.is_empty() {
-            Ok(self.version())
-        } else {
-            Err(overlapping)
-        }
+        Ok(self.version())
     }
 
     /// Reconciles two *disjoint* [`Clock`]s, keeping both alive.
@@ -399,10 +378,6 @@ impl Clock {
     /// assert!(a.version() == b.version() && b.version() == c.version());
     /// assert!(a.party().is_disjoint(b.party()));
     /// ```
-    //
-    // The combine closure's `Err` is the operand pair the counter keeps (the
-    // fold's drop-nothing policy, as in `join_all`); boxing it would spend an
-    // allocation on every refusal to dodge a by-value move.
     #[allow(clippy::result_large_err)]
     pub fn sync_all<'a, I>(&mut self, iter: I) -> Result<&Version, Overlap>
     where
@@ -410,33 +385,17 @@ impl Clock {
     {
         let others: Vec<&'a mut Clock> = iter.into_iter().collect();
 
-        // The `join_all` counter discipline run over aliases, byte-identical to
-        // joining everything and re-forking the union.
-        //
-        // The fold consumes its operands, but on overlap every participant must
-        // be left untouched, so the originals stay in their slots while `O(1)`
-        // aliases carry the merge: on success the commit below overwrites every
-        // original handle with a share of the union, and on overlap the merged
-        // aliases drop with nothing observable moved.
-        //
-        // No up-front accept test against `self`: any overlap anywhere is a
-        // whole-call error, and each one surfaces either as a lone rejected
-        // input or as a failed join (in the counter, or against `self` in the
-        // closing drain), so the per-input index `join_all` builds for its
-        // hand-back accounting would buy nothing here.
-        let mut rejected = Vec::new();
-        let groups = crate::fold::balanced_try_fold(
+        // Merge aliases so an error leaves the original clocks unchanged.
+        let groups = match crate::fold::balanced_try_fold(
             others.iter().map(|other| other.dangerously_alias()),
-            |_| true,
             |mut top, incoming| match top.join(incoming) {
                 Ok(_) => Ok(top),
                 Err(back) => Err((top, back)),
             },
-            &mut rejected,
-        );
-        if !rejected.is_empty() {
-            return Err(Overlap);
-        }
+        ) {
+            Ok(groups) => groups,
+            Err(_) => return Err(Overlap),
+        };
         let mut whole = self.dangerously_alias();
         for group in groups {
             if whole.join(group).is_err() {
@@ -444,8 +403,7 @@ impl Clock {
             }
         }
 
-        // Commit: every handle becomes a balanced share of the union,
-        // carrying the merged version.
+        // Replace every clock with a balanced share of the result.
         let shares = others.len() as u64;
         *self = whole;
         for (slot, child) in others.into_iter().zip(self.forks(shares)) {

@@ -83,6 +83,20 @@ impl Party {
         }
     }
 
+    /// The set union of two regions, whether or not they overlap.
+    #[cfg(test)]
+    pub(crate) fn union(self, other: Party) -> Party {
+        match (self, other) {
+            (Party::Leaf(true), _) | (_, Party::Leaf(true)) => Party::Leaf(true),
+            (Party::Leaf(false), b) => b,
+            (a, Party::Leaf(false)) => a,
+            (Party::Node(al, ar), Party::Node(bl, br)) => Party::node(
+                Arc::unwrap_or_clone(al).union(Arc::unwrap_or_clone(bl)),
+                Arc::unwrap_or_clone(ar).union(Arc::unwrap_or_clone(br)),
+            ),
+        }
+    }
+
     pub fn fork(&mut self) -> Party {
         let (a, b) = self.split();
         *self = a;
@@ -98,40 +112,12 @@ impl Party {
         Ok(())
     }
 
+    /// Join each input in order, returning those that overlap the accumulated
+    /// region.
     pub fn join_all(&mut self, inputs: impl IntoIterator<Item = Party>) -> Result<(), Vec<Party>> {
         let mut overlapping = Vec::new();
-        let mut stack: Vec<(Party, u32)> = Vec::new();
         for other in inputs {
-            if !self.is_disjoint(&other) {
-                overlapping.push(other);
-                continue;
-            }
-            let mut merged = Some(other);
-            let mut weight = 0u32;
-            while stack.last().is_some_and(|(_, w)| *w == weight) {
-                let (mut top, _) = stack.pop().expect("the loop condition saw a top entry");
-                match top.join(merged.take().expect("the operand is held while merging up")) {
-                    Ok(()) => {
-                        merged = Some(top);
-                        weight += 1;
-                    }
-                    Err(back) => {
-                        stack.push((top, weight));
-                        if weight == 0 {
-                            overlapping.push(back);
-                        } else {
-                            stack.push((back, weight));
-                        }
-                        break;
-                    }
-                }
-            }
-            if let Some(merged) = merged {
-                stack.push((merged, weight));
-            }
-        }
-        for (group, _) in stack {
-            if let Err(back) = self.join(group) {
+            if let Err(back) = self.join(other) {
                 overlapping.push(back);
             }
         }

@@ -1,25 +1,10 @@
-//! The public surface of the library as a machine-readable enumeration.
+//! Machine-readable coverage decisions for the public API.
 //!
-//! Public under the `meter` feature (with the other instrument-facing data) so
-//! external instrument crates can bind their coverage tables to the same
-//! roster.
-//!
-//! This module is the machine-readable roster the surface-coverage suite (the
-//! crate's test-only differential architecture) enforces totality over: its
-//! tests hold [`METHOD_SURFACE`] equal, name for name, to the inherent `pub fn`
-//! surface extracted from the public-API source files, and hold every cited
-//! test name resolvable to an executable binding. The rows live here, outside
-//! the test-only tree, so external instrument crates can bind their own
-//! coverage to the same roster — a coverage table keyed by these row names is
-//! total over the public surface exactly as far as the coverage suite's
-//! totality pins reach, with no second hand-maintained enumeration to drift.
-//! Public under the `meter` feature (the instrument crates' feature) and never
-//! part of a production build.
-//!
-//! Leg vocabulary and the adequacy tripwires are the coverage suite's
-//! business and are documented there; the exclusion families are the closed
-//! vocabulary [`Exclusion`] documents variant by variant. A row's
-//! dispositions are carried here verbatim as the suite's committed record.
+//! Each row states how an operation is compared with the recursive and
+//! function-space references, or why a comparison does not apply. Tests keep
+//! [`METHOD_SURFACE`] synchronized with the public methods and verify every
+//! cited test name. The roster is available under `meter` so other verification
+//! tools can use the same coverage decisions.
 
 /// One leg's disposition: how (or whether) two of the three implementations are
 /// compared for one operation.
@@ -54,106 +39,75 @@ impl Leg {
     }
 }
 
-/// Why a leg is not bound: the roster's closed vocabulary of exclusion
-/// families.
+/// A reason that one reference comparison does not apply.
 ///
-/// An exclusion is a documented boundary decision, never a bare opt-out.
-/// Each variant is one family whose argument is defended once, in the
-/// variant's documentation; a new exclusion picks a rostered family or
-/// widens this enum — a reviewed API event, exactly as a new law-group
-/// signature is. The function-space families' non-adoption dispositions
-/// are the owner's, ratified where each variant's documentation says so.
-///
-/// Payloads carry the production-side pins an instance rests on *where the
-/// row's own `Bound`/`Law`/`Trans` legs do not already carry them* — the
-/// coverage suite resolves every payload name exactly as it resolves
-/// citations, and each family's structural obligation (a live guard, a
-/// binding row) is enforced there too.
+/// Each variant records a distinct boundary of the references. Its payload
+/// names the production tests or laws that verify the behavior instead. The
+/// coverage suite checks every name.
 #[derive(Debug)]
 pub enum Exclusion {
-    /// No wire format exists in the paper or either reference.
+    /// The references define values but not their byte or text encodings.
     ///
-    /// Byte representation is exactly what the semantic domain quotients
-    /// away (fs non-adoption ratified by owner), so codec, text, and
-    /// writer-sink doors are pinned production-side — round-trips,
-    /// strict-rejection batteries, canonicality and mutation sweeps,
-    /// format goldens, and, for each writer-sink door, its doctest
-    /// pinning byte identity with the buffer door.
+    /// Production tests cover round trips, canonical output, invalid input,
+    /// fixed examples, and agreement between buffered and streaming encoders.
     NoWireFormatInReferences {
-        /// The load-bearing production-side pins, by test or law name.
+        /// Tests or laws that verify the production representation.
         pins: &'static [&'static str],
     },
-    /// A definitional combination of surfaces bound on their own rows.
+    /// The operation is defined entirely in terms of separately verified ones.
     ///
-    /// The operation is a combination, spelling, accessor, or coarsening
-    /// of bound surfaces, and a law pins the reduction on production;
-    /// binding the combinator would only re-sample a totally-derived
-    /// form.
+    /// A production law verifies the definition, so another reference
+    /// comparison would duplicate existing coverage.
     DefinitionalCombinator {
-        /// The pinning laws or tests the row's own legs do not carry.
+        /// Tests or laws that verify the definition.
         pins: &'static [&'static str],
     },
-    /// No n-ary counterpart exists in either reference.
+    /// Neither reference defines an operation over a collection.
     ///
-    /// No oracle n-ary split or reconcile exists, and the pointwise n-ary
-    /// realizations are not adopted (ratified by owner). For the fallible
-    /// folds a verdict-only binding would read as coverage while the
-    /// hand-back contract — value identity and order against the fixed
-    /// accumulator, not a function of the geometry — stayed unbound. The
-    /// n-ary doors are law-pinned on production at every arity instead.
+    /// The references provide no collection form of split or reconciliation,
+    /// and no function-space equivalent is adopted (ratified by owner).
+    /// Production laws therefore verify these operations for every input count,
+    /// including the values returned after an error.
     NAryNotInReferences {
-        /// The arity-quantified production laws the row's legs do not
-        /// carry.
+        /// Production laws quantified over the input count.
         pins: &'static [&'static str],
     },
-    /// Linearity, borrowing, and adjacent Rust-API mechanics.
+    /// The behavior depends on Rust ownership or borrowing.
     ///
-    /// Aliasing doors, borrow settling and lending, and hand-out
-    /// iterators — shapes the `Clone` references cannot
-    /// express. The hazard side is owned by the compile-time pins
-    /// (`static_assertions` beside the `Party`/`Clock` definitions and
-    /// the array-split `compile_fail` doctest twins).
+    /// The value-based references cannot express linear ownership, borrowed
+    /// iteration, or compile-time alias prevention. Production tests and
+    /// compile-fail examples verify those properties.
     LinearityMechanics {
-        /// The value-preservation pins the row's legs do not carry.
+        /// Production tests or laws for the runtime behavior.
         pins: &'static [&'static str],
     },
-    /// Not an object of the paper's model.
+    /// The type or operation has no counterpart in the paper's model.
     ///
-    /// The excluded surface is a carrier or instrument whose model-facing
-    /// semantics are bound elsewhere — `bound_at` names the roster row
-    /// (or suite) carrying the quantity, and the carrier's own
-    /// arithmetic, order, and text are pinned on production.
+    /// `bound_at` names where its semantic quantity is compared. Production
+    /// tests cover its own arithmetic, ordering, or formatting.
     NotAPaperObject {
         /// The roster row, test, or law where the quantity is bound.
         bound_at: &'static str,
-        /// The carrier's own production-side pins, where the row's legs
-        /// do not carry them.
+        /// Tests or laws for behavior not covered at `bound_at`.
         pins: &'static [&'static str],
     },
-    /// A reference capacity cap.
+    /// A valid input exceeds a reference implementation's capacity.
     ///
-    /// The input regime lies beyond what a reference can build or resolve
-    /// (the function space's `GRID_N` resolution, the recursive oracle's
-    /// stack depth), so the leg is impl-only by documented necessity.
+    /// The production behavior is tested directly because the reference cannot
+    /// construct or resolve this input size.
     GridCap {
-        /// The live premise guard or capacity witness, by test name —
-        /// checked to be an executable test, so the cap's premise cannot
-        /// rot silently.
+        /// A test that demonstrates the reference limit.
         guard: &'static str,
     },
-    /// Representation mechanics: `Eq`/`Hash` ride canonical bytes, and
-    /// equality-of-meaning already rides every differential compare.
+    /// Canonical encoding makes representation equality equal value equality.
     RepresentationMechanics {
-        /// The law licensing the byte-compare shortcut.
+        /// The law that verifies this equivalence.
         license: &'static str,
     },
 }
 
 impl Exclusion {
-    /// Every family name, for the inhabitation census (an empty family is
-    /// a dead category); [`family`](Exclusion::family)'s exhaustive match
-    /// beside this list keeps the two in one diff when the vocabulary
-    /// widens.
+    /// Every exclusion variant name.
     pub const FAMILIES: &'static [&'static str] = &[
         "NoWireFormatInReferences",
         "DefinitionalCombinator",
@@ -193,20 +147,14 @@ pub struct SurfaceRow {
     pub tree_fs: Leg,
 }
 
-/// The generic codec doors' production-side pins.
-///
-/// The round-trip and byte-view laws and the decode totality sweep shared
-/// by every type's wire surface (each type's own rejection batteries and
-/// goldens live in its codec suites).
+/// Production tests used when a reference has no wire format.
 const CODEC_PINS: &[&str] = &[
     "decode_encode_arbitrary",
     "as_bytes_matches_encode",
     "decode_never_panics",
 ];
 
-/// Shorthand for a codec/text method row: representation is exactly what
-/// both references quotient away, so all three legs are excluded and
-/// correctness lives in the production-side pins.
+/// Build a row for an encoding operation absent from both references.
 const fn codec_row(op: &'static str) -> SurfaceRow {
     SurfaceRow {
         op,
@@ -216,11 +164,7 @@ const fn codec_row(op: &'static str) -> SurfaceRow {
     }
 }
 
-/// The rank wire form's production-side pins.
-///
-/// The wire-form laws, the suffix-safety proptest, the exhaustive
-/// small-scope sweep, the format goldens, the per-genre rejection
-/// witnesses, and the provenance size pin.
+/// Production tests for the rank encoding.
 const RANK_WIRE_PINS: &[&str] = &[
     "rank_lex_order",
     "rank_codec_roundtrip",
@@ -232,12 +176,7 @@ const RANK_WIRE_PINS: &[&str] = &[
     "rank_encoding_size_is_provenance_linear",
 ];
 
-/// Shorthand for a plain writer-sink codec door (`encode_to` on `Party`,
-/// `Version`, and `Clock`).
-///
-/// The identical emission as `encode` with a writer sink, with the
-/// agreement pinned across all three types by `encode_to_matches_encode`
-/// beside each door's doctest.
+/// Build a row for an encoder that writes to a caller-provided sink.
 const fn encode_to_row(op: &'static str) -> SurfaceRow {
     SurfaceRow {
         op,
@@ -249,18 +188,13 @@ const fn encode_to_row(op: &'static str) -> SurfaceRow {
     }
 }
 
-/// The `causally` combinators' pinning laws.
-///
-/// Every predicate is a definitional combination of `partial_cmp`
-/// verdicts, bound on all three legs, and these laws pin the combination
-/// (the predicates are also unit-tested in `causally/tests.rs`).
+/// Laws defining causal predicates in terms of `partial_cmp`.
 const CAUSALLY_PINS: &[&str] = &[
     "atom_membership_matches_relations",
     "conjunction_is_intersection",
 ];
 
-/// Shorthand for a `causally` row: a definitional combinator over the
-/// bound causal order, law-pinned on every leg.
+/// Build a row for a causal predicate defined by the laws above.
 const fn causally_row(op: &'static str) -> SurfaceRow {
     SurfaceRow {
         op,
@@ -276,9 +210,7 @@ const fn causally_row(op: &'static str) -> SurfaceRow {
     }
 }
 
-/// The span verdict surfaces' pinning laws: the nine-state placement as a
-/// pure transcription of the two endpoint comparisons, and each coarsening
-/// pinned to it.
+/// Laws defining span placement and its coarser relations.
 const SPAN_PLACE_PINS: &[&str] = &[
     "span_place_matches_relations",
     "span_dominance_coarsens_place",
@@ -286,8 +218,7 @@ const SPAN_PLACE_PINS: &[&str] = &[
     "span_contains_matches_place",
 ];
 
-/// Shorthand for a `causally` span row: the same disposition as
-/// [`causally_row`], with the span placement laws as the pins.
+/// Build a row for a span predicate defined by the laws above.
 const fn span_row(op: &'static str) -> SurfaceRow {
     SurfaceRow {
         op,
@@ -303,15 +234,11 @@ const fn span_row(op: &'static str) -> SurfaceRow {
     }
 }
 
-/// The n-ary hand-back exclusion, shared by the `join_all`/`forks` family
-/// of rows.
-///
-/// The family variant's documentation carries the half-binding rationale,
-/// and the pins carry the arity-quantified best-effort laws that bind the
-/// hand-back contract on production.
-const HANDBACK: Exclusion = Exclusion::NAryNotInReferences {
+/// Laws for collection operations absent from the references.
+const NARY_REFERENCE_GAP: Exclusion = Exclusion::NAryNotInReferences {
     pins: &[
-        "party_join_all_is_best_effort_at_any_width",
+        "party_join_all_err_conserves_the_region_union",
+        "clock_join_all_err_conserves_the_region_union",
         "join_overlap_hands_back",
     ],
 };
@@ -358,7 +285,7 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
     SurfaceRow {
         op: "Party::forks",
         prod_tree: Leg::Law("forks_matches_from_array"),
-        prod_fs: Leg::Excluded(HANDBACK),
+        prod_fs: Leg::Excluded(NARY_REFERENCE_GAP),
         tree_fs: Leg::Excluded(Exclusion::NAryNotInReferences {
             pins: &[
                 "forks_partial_drop_folds_back",
@@ -375,8 +302,8 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
     SurfaceRow {
         op: "Party::join_all",
         prod_tree: Leg::Bound("join_all_matches_the_recursive_oracle"),
-        prod_fs: Leg::Excluded(HANDBACK),
-        tree_fs: Leg::Excluded(HANDBACK),
+        prod_fs: Leg::Excluded(NARY_REFERENCE_GAP),
+        tree_fs: Leg::Excluded(NARY_REFERENCE_GAP),
     },
     SurfaceRow {
         op: "Party::is_disjoint",
@@ -602,13 +529,13 @@ pub const METHOD_SURFACE: &[SurfaceRow] = &[
     SurfaceRow {
         op: "Clock::join_all",
         prod_tree: Leg::Bound("join_all_matches_the_recursive_oracle"),
-        prod_fs: Leg::Excluded(HANDBACK),
-        tree_fs: Leg::Excluded(HANDBACK),
+        prod_fs: Leg::Excluded(NARY_REFERENCE_GAP),
+        tree_fs: Leg::Excluded(NARY_REFERENCE_GAP),
     },
     SurfaceRow {
         op: "Clock::forks",
         prod_tree: Leg::Trans("join_all_agrees_with_oracle_on_forked_and_aliased_populations"),
-        prod_fs: Leg::Excluded(HANDBACK),
+        prod_fs: Leg::Excluded(NARY_REFERENCE_GAP),
         tree_fs: Leg::Excluded(Exclusion::NAryNotInReferences { pins: &[] }),
     },
     SurfaceRow {
@@ -1149,19 +1076,19 @@ pub const FAMILY_SURFACE: &[SurfaceRow] = &[
     SurfaceRow {
         op: "From<Party> for [Party; N] (consuming balanced split)",
         prod_tree: Leg::Law("forks_matches_from_array"),
-        prod_fs: Leg::Excluded(HANDBACK),
+        prod_fs: Leg::Excluded(NARY_REFERENCE_GAP),
         tree_fs: Leg::Excluded(Exclusion::NAryNotInReferences { pins: &[] }),
     },
     SurfaceRow {
         op: "From<Clock> for [Clock; N] (consuming balanced split)",
         prod_tree: Leg::Law("clock_forks_matches_from_array"),
-        prod_fs: Leg::Excluded(HANDBACK),
+        prod_fs: Leg::Excluded(NARY_REFERENCE_GAP),
         tree_fs: Leg::Excluded(Exclusion::NAryNotInReferences { pins: &[] }),
     },
     SurfaceRow {
         op: "iter::Party / iter::Clock (Forks iterators, drop folds back)",
         prod_tree: Leg::Law("forks_partial_drop_folds_back"),
-        prod_fs: Leg::Excluded(HANDBACK),
+        prod_fs: Leg::Excluded(NARY_REFERENCE_GAP),
         tree_fs: Leg::Excluded(Exclusion::LinearityMechanics { pins: &[] }),
     },
     codec_row("Party Display / FromStr / TryFrom literals"),

@@ -1,95 +1,22 @@
-//! The public-surface coverage suite: one committed roster binding every
-//! public operation to the disposition of each differential leg.
+//! Verifies coverage of the public API by independent implementations and laws.
 //!
-//! Three implementations cover the semantic surface: the production packed
-//! implementation (*prod*), the recursive paper-transcription oracle in
-//! [`crate::oracle`] (*tree* — the semantic definition of record), and the
-//! function-space semantic oracle in [`super::semantic_oracle`] (*fs*). Three
-//! legs connect them — prod↔tree, prod↔fs, tree↔fs — and the *roster*
-//! ([`crate::surface`], re-exported below) holds one row per public
-//! operation naming, for each leg, either
-//! the primary test that binds it or the reason it is excluded. The roster
-//! indexes the differentials that live beside the code they test; it never
-//! re-implements one.
+//! Production behavior is compared with the recursive oracle and the
+//! function-space oracle. Each [`crate::surface`] row records a direct
+//! comparison, an algebraic law, a comparison supplied transitively by other
+//! rows, or a documented reason that a reference does not apply.
 //!
-//! # Tamper-evident totality
+//! Tests keep the method roster synchronized with the public API, require
+//! trait families to be recorded, and require every cited test, law, or
+//! operation descriptor to exist. Exclusion payloads are checked in the same
+//! way. The function-space exclusions marked "ratified by owner" are deliberate
+//! boundaries of that reference.
 //!
-//! [`METHOD_SURFACE`] must match, name for name, the inherent `pub fn`
-//! surface extracted from the public-API source files
-//! ([`extract_public_fns`], over [`SURFACE_SOURCES`]) — both directions, so
-//! a *new* public operation fails the roster test until a named row is
-//! added, and a removed operation orphans its row until the row is removed;
-//! either way the reviewer sees a named diff. Operator and trait surfaces
-//! (`|`, `&`, `^`, `/`, comparison matrices, `Display`/`FromStr`, serde/borsh)
-//! are not reachable by that scan; they are rostered by family in
-//! [`FAMILY_SURFACE`] for their leg dispositions, and the surface-totality
-//! gate (`crates/before/surfacecheck`, over nightly rustdoc JSON) holds
-//! the concrete impl inventory behind those families mechanically total:
-//! every reachable trait impl is pinned there by name, so a new operator
-//! or trait impl fails the gate until its pin — and, for a new family,
-//! the family row here — is added.
-//! Every test name a row cites must resolve to an executable binding:
-//! a `#[test]`-attributed item under `src/` ([`cited_test_names`] against
-//! [`declared_test_names`], a source scan that admits only attributed
-//! tests — proptest properties included, helpers and kernels never), a
-//! law name registered in [`crate::laws`]'s tables, or a descriptor name
-//! registered in [`super::diff_ops`]'s tables (both read from the tables
-//! the drivers run, never from a text scan). A renamed or deleted binding
-//! test fails the roster by name even when a same-named helper survives.
-//! Which `Bound` citations are descriptors and which are hand-written is
-//! itself pinned, in the descriptor table's own tiling test.
+//! # Verifying the checks
 //!
-//! # Leg vocabulary
-//!
-//! - [`Leg::Bound`]: a direct differential on that leg; the named test
-//!   or descriptor drives both sides. One binding may cover several legs
-//!   when its body performs each comparison (a descriptor with an fs
-//!   spelling compares both walk legs and the function space; the replay
-//!   keystone compares all three per trace); the citation is per-leg, the
-//!   comparisons per-body.
-//! - [`Leg::Law`]: pinned by an algebraic law on production alone (no
-//!   reference on the right-hand side); used where no reference counterpart
-//!   exists or the contract promises only a law.
-//! - [`Leg::Trans`]: bound transitively — the operation reduces by
-//!   definition to a bound one, or the leg is the composition of the other
-//!   two bound legs; the named test anchors the reduction.
-//! - [`Leg::Excluded`]: not bound, with the reason. The function-space
-//!   boundary's exclusion dispositions are the owner's, marked
-//!   "ratified by owner" at each reason.
-//!
-//! # Exclusion families
-//!
-//! An excluded leg carries a variant of the typed [`crate::surface::Exclusion`]
-//! vocabulary — seven families, each variant's documentation defending its
-//! argument once. The suite enforces the families' obligations: every payload
-//! name resolves exactly as citations do, every family is inhabited (an empty
-//! family is a dead category), a `GridCap` guard is a live executable test,
-//! and a `NotAPaperObject` binding site is a real roster row, test, or law.
-//! The function-space non-adoption dispositions are the owner's, ratified
-//! where the variants say so.
-//!
-//! # Adequacy tripwires
-//!
-//! Each leg keeps committed artifacts proving its criterion can fail
-//! ([`TRIPWIRES`], names checked live), in two genres. *Liveness anchors*
-//! prove the machinery runs: prod↔tree keeps the fold seeds replaying
-//! through the `join_all` differentials (the seeds are pinned committed
-//! by `d1_seeds_stay_committed`) and the brute-force grow reference as
-//! the independent fourth leg; prod↔fs keeps the grid-cap premise guard;
-//! tree↔fs keeps the paper worked-value anchors. *Known-bad references,
-//! held convicted*, prove the comparisons can reject: each leg commits a
-//! deliberately-wrong reference variant behind an inverted assertion —
-//! the leg's differential comparison must convict it over a committed
-//! input family — so a criterion that has gone blind reads red instead
-//! of green (prod↔tree convicts the dropped-group fold, prod↔fs the
-//! cell-dropping Riemann sum, tree↔fs the mirrored embedding, whose
-//! conviction test also documents that the leg's pointwise differentials
-//! alone are blind to a twin-substituted mirror). The legs the descriptor
-//! table derives carry a second known-bad genre for what it derives: a
-//! mis-transcribed descriptor per column — a wrong walk spelling, and a
-//! wrong fs combinator whose walk legs agree — each convicted where its
-//! spellings differ and passed where they coincide, so each comparison is
-//! shown to discriminate rather than merely to fail.
+//! The verification list below names tests that show each comparison is active.
+//! Some exercise an independent reference or a required premise. Others
+//! substitute a known incorrect implementation and verify that the comparison
+//! rejects it. The roster tests require every named test to exist.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -98,60 +25,45 @@ use std::path::PathBuf;
 #[cfg(test)]
 mod tests;
 
-// The roster itself — `Leg`, `SurfaceRow`, `METHOD_SURFACE`,
-// `FAMILY_SURFACE` — lives in `crate::surface`, exported under the
-// `meter` feature so external instrument crates bind their coverage to
-// the same rows this suite enforces totality over. Re-exported here so
-// the suite and its sibling scanners keep one naming context (rows are
-// reached through the surfaces, so `SurfaceRow` itself is not re-imported).
+// Use the same roster exposed to external verification tools.
 pub(crate) use crate::surface::{Leg, FAMILY_SURFACE, METHOD_SURFACE};
 
-/// Per-leg adequacy tripwires: committed artifacts proving each leg's
-/// criterion can fail.
-///
-/// Both of the module doc's genres are rostered here — the liveness
-/// anchors and the known-bad references held convicted. Names are
-/// checked live by the roster tests; the prod↔tree seeds are
-/// additionally pinned committed by `d1_seeds_stay_committed`.
+/// Tests that demonstrate each comparison is active and can detect an error.
 pub(crate) const TRIPWIRES: &[(&str, &str)] = &[
     (
-        "prod↔tree: the fold seeds replay through the join_all differentials",
+        "prod↔tree: committed join_all cases exercise the comparison",
         "join_all_matches_the_recursive_oracle",
     ),
     (
-        "prod↔tree: the independent full-enumeration fourth leg for grow",
+        "prod↔tree: grow is checked by complete enumeration",
         "grow_matches_brute_force",
     ),
     (
-        "prod↔tree: the known-bad dropped-group fold, held convicted",
-        "join_all_differential_convicts_the_dropped_group_oracle",
-    ),
-    (
-        "prod↔tree: the known-bad mis-transcribed descriptors, held convicted",
+        "prod↔tree: incorrect operation descriptors are rejected",
         "the_drivers_convict_a_mis_transcribed_descriptor",
     ),
     (
-        "prod↔fs: the grid-resolution premise guard",
+        "prod↔fs: the function-space grid is sufficiently fine",
         "grid_cap_is_never_reached",
     ),
     (
-        "tree↔fs: the known-bad mis-transcribed fs realization, held convicted",
+        "tree↔fs: an incorrect function-space operation is rejected",
         "the_drivers_convict_a_mis_transcribed_fs_realization",
     ),
     (
-        "prod↔fs: the known-bad cell-dropping Riemann sum, held convicted",
+        "prod↔fs: a sum that omits a cell is rejected",
         "rank_differential_convicts_the_cell_dropping_riemann_sum",
     ),
     (
-        "tree↔fs: the paper worked-value anchor",
+        "tree↔fs: the published example is reproduced",
         "embedding_matches_paper_worked_value",
     ),
     (
-        "tree↔fs: the leaf-interval constancy anchor",
+        "tree↔fs: events are constant within each leaf interval",
         "lifted_event_is_constant_within_a_leaf_interval",
     ),
     (
-        "tree↔fs: the known-bad mirrored embedding, held convicted",
+        "tree↔fs: a mirrored embedding is rejected",
         "worked_value_anchor_convicts_the_mirrored_embedding",
     ),
 ];
@@ -260,19 +172,16 @@ fn crate_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
-/// Extract the inherent `pub fn` surface from [`SURFACE_SOURCES`], named
-/// as the roster names it (`Type::fn` inside an inherent impl block,
-/// `module::fn` at file top level).
+/// Return the public methods found in [`SURFACE_SOURCES`].
 ///
-/// The shared extractor's line discipline (see
-/// [`surface_scan::extract_public_fns`]'s docs): a line scan resting
-/// on rustfmt-normalized shape, panicking on any `pub fn` it cannot name
-/// rather than silently under-reporting the surface it exists to pin.
+/// Names use `Type::fn` for inherent methods and `module::fn` for top-level
+/// functions. The extractor fails if it encounters a public function it cannot
+/// identify.
 pub(crate) fn extract_public_fns() -> BTreeSet<String> {
     ::surface_scan::extract_public_fns(&crate_root(), SURFACE_SOURCES)
 }
 
-/// Every test name the roster and tripwires cite.
+/// Every test cited by the coverage roster or verification list.
 pub(crate) fn cited_test_names() -> BTreeSet<&'static str> {
     METHOD_SURFACE
         .iter()
@@ -286,27 +195,15 @@ pub(crate) fn cited_test_names() -> BTreeSet<&'static str> {
         .collect()
 }
 
-/// Every `#[test]`-attributed `fn` name declared anywhere under `src/` —
-/// the haystack the cited-name check searches.
+/// Return the names of executable tests declared under `src`.
 ///
-/// The scan resolves a name only when a `#[test]` attribute (including
-/// the ones inside `proptest!` blocks, which attach `#[test]` to each
-/// property) sits directly above the `fn`, with only further attributes,
-/// doc comments, and plain comments between. Helper functions, production
-/// kernels, and test-support plumbing never enter the haystack, so a
-/// citation is satisfiable only by an item the test runner actually
-/// executes.
+/// This includes properties generated by `proptest!` and excludes ordinary
+/// helper functions.
 pub(crate) fn declared_test_names() -> BTreeSet<String> {
     declared_test_names_by_file().into_keys().collect()
 }
 
-/// Every `#[test]`-attributed `fn` name declared under `src/`, with the
-/// crate-relative paths of the files declaring it.
-///
-/// The same scan as [`declared_test_names`], keeping the declaring files:
-/// a bare-name set collapses same-named tests across files into one entry,
-/// which is exactly the ambiguity the duplicate-name roster pin holds
-/// tamper-evident.
+/// Return each executable test name and the files that declare it.
 pub(crate) fn declared_test_names_by_file() -> BTreeMap<String, BTreeSet<String>> {
     let root = crate_root();
     let mut names: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();

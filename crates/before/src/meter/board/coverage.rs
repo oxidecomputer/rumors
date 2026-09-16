@@ -1,66 +1,25 @@
-//! The coverage rosters: both halves of the board tiling — committed data the
-//! tiling test beside them enforces.
+//! Coverage tables for the amplification board.
 //!
-//! Rows price delegations at their shared mechanism, so several surface rows
-//! legitimately cite one row: `Clock::send` is `Clock::tick` by definition;
-//! `clock | version` (either operand order, `|=` included) folds through the
-//! same join-assign the `recv` row measures; `Party::tick` is `Version::tick`'s
-//! mirror (the `tick_adv_party` row); the operator matrix (`|`, `&`, and their
-//! assign forms, over every borrow shape) routes through the same
-//! `join_view`/`meet_view` emitters and cmp walk the `join`/`meet`/`cmp` rows
-//! measure; `Version::concurrent` is one `partial_cmp` and keeps its own row as
-//! the documented entry point; the serde/borsh wrappers serialize as the
-//! canonical encoding and deserialize through the strict decoder (the
-//! `encode`/`decode` rows); `Party::ticks` and `Clock::ticks` run the same
-//! fused kernel as `version_ticks` through their own spellings. Derived
-//! surfaces with no roster row of their own ride the same cells: `Clone` copies
-//! stored bits or value content wholesale with no walk in the contract, `Debug`
-//! delegates to `Display`, and the byte-compare `Eq`s are the `eq`/`hash` rows'
-//! wholesale compares.
+//! [`BOARD_PRICED`] maps each public operation to the measurements that bound
+//! its cost. Several operations may share a measurement when they use the same
+//! implementation. [`BOARD_NOT_APPLICABLE`] records operations for which the
+//! board's resource model does not apply. Tests require the two tables to cover
+//! the public API without overlap and require every named measurement to exist.
 //!
-//! Two coverage notes that are dispositions of *error paths*, not operations
-//! (so they live here rather than in the table): the rejection rows price the
-//! fallible surface (the board module doc's rejection section; the `defect`
-//! module carries the placed defects), and **the rejection surface's
-//! bounded-or-delegated remainder** is: `Clock::join_all`'s overlap hand-back
-//! runs the identical up-front indexed test against self that
-//! `party_join_all_overlap` prices, inline; clock non-canonicality — packed or
-//! text — is the component validators on the same streams the version and party
-//! non-canonical rows drive; [`Parse::Anonymous`](crate::error::Parse) is the
-//! one-token `"0"`; [`Decode::Io`](crate::error::Decode) is the caller's reader
-//! — a failing reader is a truncation carrying an error, priced by the
-//! truncated rows — and `encode_to`'s error the caller's writer, at most the
-//! encode row's work before it propagates; the `TryFrom` literal rejections
-//! have word-scale or type-bounded operands; `Rank::checked_sub`'s `None` is
-//! measured on the `rank_pair_ops` row, which attempts both directions; other
-//! decode non-canonicality genres (a negative running height, malformed padding)
-//! ride
-//! the same single validator pass at the same full-parse cost as the committed
-//! maximally-deferred tails; serde/borsh deserialize errors are the strict
-//! decoder through the wrappers (the decode rejection rows). `Debug` for all
-//! three types delegates to `Display`.
+//! Rejection rows place errors as late as possible in the input. Errors handled
+//! by the same decoder, parser, or pairwise operation share that measurement;
+//! errors bounded by a machine word or caller-owned I/O need no separate row.
 
-/// The board's priced table: every `before::surface` row measured by the board,
-/// with the board rows that price it.
+/// Measurements that bound each public operation's resource use.
 ///
-/// Rows price delegations at their shared mechanism (the module doc maps the
-/// delegations), so several surface rows legitimately cite one row.
-///
-/// The tiling test beside this table
-/// (`board_coverage_tiles_the_public_surface`) holds it and
-/// [`BOARD_NOT_APPLICABLE`] disjoint and jointly total over the public surface,
-/// every cited row live on the board's operation axis, and every board row
-/// cited: an operation is priced by named rows or excused, never both, never
-/// neither, and the board carries no orphan row.
+/// The coverage test requires every public operation to appear in exactly one
+/// coverage table and every named measurement to exist and be used.
 pub const BOARD_PRICED: &[(&str, &[&str])] = &[
     ("Party::tick", &["version_tick", "version_tick_adv_party"]),
     ("Party::ticks", &["version_ticks"]),
     ("Party::fork", &["party_fork"]),
     ("Party::join", &["party_join", "party_join_overlap"]),
-    (
-        "Party::join_all",
-        &["party_join_all", "party_join_all_overlap"],
-    ),
+    ("Party::join_all", &["party_join_all"]),
     ("Party::is_disjoint", &["party_disjoint"]),
     ("Party::covers", &["party_covers"]),
     ("Party::without", &["party_without", "party_without_none"]),

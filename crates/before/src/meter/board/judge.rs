@@ -356,8 +356,7 @@ fn judge_window(
         // The fold rows' declared scan-constant model at this window's arity.
         if c == Currency::Scan {
             if let Some(k2) = s2.fold_arity {
-                ceiling = FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL * (2.0 * k2 as f64).log2()
-                    + s2.fold_search_bits as f64 / s2.denom_bytes as f64;
+                ceiling = FOLD_SCAN_BITS_PER_INPUT_BYTE_PER_LEVEL * (2.0 * k2 as f64).log2();
             }
         }
         if s.exp_judged && s.exp.is_some_and(|e| e > *ceilings.get(c)) {

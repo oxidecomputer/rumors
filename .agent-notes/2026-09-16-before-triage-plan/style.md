@@ -50,6 +50,12 @@ Use terminology already defined by the public model or the ITC paper. Define a
 specialized term at one stable owner before using it elsewhere. Avoid terms
 such as “door,” “seam,” “mint,” “honest,” “genre,” “sentry,” “keystone,” and
 similar shorthand unless the term is truly necessary and precisely defined.
+When touching a comment, rustdoc, test description, or assertion message,
+rewrite the affected prose plainly; do not preserve nearby jargon through a
+minimal edit.
+
+Do not call an id or Party “packed.” There is only one representation, and it
+is packed. When the representation matters, name the id encoding or its bits.
 
 State current behavior in the present tense. Do not say “formerly,”
 “superseded,” “removed,” or name deleted APIs. Do not call an input

@@ -1,8 +1,7 @@
 # `before` review checklist
 
-**Active:** the fork-count contract is ready for review. Re-evaluate the
-remaining fixed-width Party fold bookkeeping against all open outcomes after
-this increment is approved.
+**Active:** remove the Party fold index while preserving collection-join
+semantics and bounds.
 
 **Branch:** `codex/before-triage`, rebased onto `main` at outcome boundaries.
 One implementation batch is active at a time. Nothing merges until the entire
@@ -70,14 +69,7 @@ triage's dispositions and branches are leads only.
       public contract is bounded only by memory.
       Sources: `inventory-1`, `skyline-fill-grow-23`, `recursion-5`,
       `skyline-query-24`, `party-23`.
-      Current increment removes the fill ledger's link cap and the query
-      ledger's epoch cap by using vector-native `usize` indices. The Party fold
-      table remains separate work because its current wide-input fallback also
-      changes complexity. The wider fill cell raises the mirror-wide envelope
-      heap reading to 50,816 bytes and the board's worst ordinary tick cell to
-      18.5 B/B; both stay linear. The envelope pins that shape at 63,520 bytes,
-      and the board's single ordinary heap ceiling is recalibrated to 24 B/B
-      instead of adding a family exception.
+      Fill and query are complete; the Party fold path is active.
 
 - [ ] Reject wide gamma values at the backend's real capacity and keep the
       wasm guest's own arithmetic from becoming the tested failure.

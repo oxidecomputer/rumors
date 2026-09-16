@@ -3236,15 +3236,11 @@ fn stagger_comb(n: usize, m: usize, i: usize) -> Packed {
 /// The staggered id `SI(n, m, i)`: [`stagger_comb`]'s party twin — operand `i`
 /// owns slot `i` of every block, `m(2L + 4) − 2` bits.
 ///
-/// The same slot domain as the comb: a complete depth-`log2 m` top of
-/// both-present tags over per-block paths of `L` single-child tags to the owned
-/// slot, the path siblings absent. The `n` operands are pairwise disjoint by
-/// construction (distinct slots), their union is the whole seed region, and
-/// every operand pair is both-present at the entire shared top — the
-/// correlated-population loading of the party fold's up-front overlap test
-/// (each input pays its both-present nodes times a search of the accumulator's
-/// table) and of the reduction's merges (interleaved region sets that coalesce
-/// only at the last level).
+/// The first `log2 m` levels are present in every operand. Below them, each
+/// block follows a single-child path of length `L` to the slot owned by operand
+/// `i`. Distinct operands are disjoint, and together they cover the seed. Their
+/// regions remain interleaved until the last merge level, producing large
+/// intermediate values.
 ///
 /// Layout: `m − 1` top tags `11` in preorder, then per block `L` path tags
 /// (`10` toward a left slot, `01` toward a right one) and the owned tip `00`.

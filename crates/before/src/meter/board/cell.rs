@@ -116,13 +116,6 @@ pub(super) struct Cell {
     /// rows only, where it drives the declared fold scan model (the `ceilings`
     /// module's declared-models section).
     pub(super) fold_arity: Option<u64>,
-    /// The party fold's declared search allowance at this scale, in scan bits
-    /// ([`INDEX_PROBE_SCAN_BITS`](super::ceilings::INDEX_PROBE_SCAN_BITS)'s
-    /// derivation).
-    ///
-    /// Added to the declared scan ceiling; zero on the version fold (no overlap
-    /// test) and wherever the operands carry no both-present structure.
-    pub(super) fold_search_bits: u64,
     /// Whether the heap column is judged against the ratified capacity-chain
     /// model instead of the flat ceiling.
     ///
@@ -211,7 +204,6 @@ impl Cell {
             denom: Denom::Input,
             floors,
             fold_arity: None,
-            fold_search_bits: 0,
             capacity_model: false,
             declared_heap: None,
             declared_limb: None,
@@ -224,14 +216,6 @@ impl Cell {
     /// section).
     pub(super) fn with_fold_arity(mut self, arity: u64) -> Cell {
         self.fold_arity = Some(arity);
-        self
-    }
-
-    /// Declare the party fold's search allowance in scan bits
-    /// ([`INDEX_PROBE_SCAN_BITS`](super::ceilings::INDEX_PROBE_SCAN_BITS)'s
-    /// derivation).
-    pub(super) fn with_fold_search(mut self, bits: u64) -> Cell {
-        self.fold_search_bits = bits;
         self
     }
 
@@ -274,7 +258,6 @@ impl Cell {
             }),
             floors,
             fold_arity: None,
-            fold_search_bits: 0,
             capacity_model: false,
             declared_heap: None,
             declared_limb: None,
@@ -299,7 +282,6 @@ impl Cell {
             }),
             floors,
             fold_arity: None,
-            fold_search_bits: 0,
             capacity_model: false,
             declared_heap: None,
             declared_limb: None,

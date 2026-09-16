@@ -1296,7 +1296,7 @@ impl FamilyId {
             FamilyId::IdPair => FamilySpec {
                 name: "id-pair",
                 shapes: &[Shape::IdSpine],
-                coverage: Coverage::Board { cells: 38 },
+                coverage: Coverage::Board { cells: 37 },
                 bands: Bands::Unbanded {
                     reason: "party-only bundle; the flatness bands price version query and \
                              comparison kernels",
@@ -1308,7 +1308,7 @@ impl FamilyId {
             FamilyId::CombScatter => FamilySpec {
                 name: "comb-scatter",
                 shapes: &[Shape::CliffComb, Shape::ScatteredId],
-                coverage: Coverage::Board { cells: 82 },
+                coverage: Coverage::Board { cells: 81 },
                 bands: Bands::Unbanded {
                     reason: "the output-domination cross; its projection rows are \
                              I/O-denominated",
@@ -1377,7 +1377,7 @@ impl FamilyId {
             FamilyId::NestedFull => FamilySpec {
                 name: "nested-full",
                 shapes: &[Shape::Dense, Shape::NestedFullId],
-                coverage: Coverage::Board { cells: 82 },
+                coverage: Coverage::Board { cells: 81 },
                 bands: Bands::Unbanded {
                     reason: TICK_CROSS_UNBANDED,
                     decided: REGISTRY_RATIFIED,
@@ -1388,7 +1388,7 @@ impl FamilyId {
             FamilyId::NestedWide => FamilySpec {
                 name: "nested-wide",
                 shapes: &[Shape::Bigroot, Shape::NestedFullId],
-                coverage: Coverage::Board { cells: 82 },
+                coverage: Coverage::Board { cells: 81 },
                 bands: Bands::Unbanded {
                     reason: TICK_CROSS_UNBANDED,
                     decided: REGISTRY_RATIFIED,
@@ -1399,7 +1399,7 @@ impl FamilyId {
             FamilyId::MirrorWide => FamilySpec {
                 name: "mirror-wide",
                 shapes: &[Shape::WideTail, Shape::NestedLeftFullId],
-                coverage: Coverage::Board { cells: 82 },
+                coverage: Coverage::Board { cells: 81 },
                 bands: Bands::Unbanded {
                     reason: TICK_CROSS_UNBANDED,
                     decided: REGISTRY_RATIFIED,
@@ -1410,7 +1410,7 @@ impl FamilyId {
             FamilyId::MirrorNarrow => FamilySpec {
                 name: "mirror-narrow",
                 shapes: &[Shape::WideTail, Shape::NestedLeftFullId],
-                coverage: Coverage::Board { cells: 82 },
+                coverage: Coverage::Board { cells: 81 },
                 bands: Bands::Unbanded {
                     reason: TICK_CROSS_UNBANDED,
                     decided: REGISTRY_RATIFIED,
@@ -1421,7 +1421,7 @@ impl FamilyId {
             FamilyId::Staircase => FamilySpec {
                 name: "staircase",
                 shapes: &[Shape::Staircase, Shape::IdSpine],
-                coverage: Coverage::Board { cells: 82 },
+                coverage: Coverage::Board { cells: 81 },
                 bands: Bands::Unbanded {
                     reason: TICK_CROSS_UNBANDED,
                     decided: REGISTRY_RATIFIED,
@@ -1432,7 +1432,7 @@ impl FamilyId {
             FamilyId::RevealComb => FamilySpec {
                 name: "reveal-comb",
                 shapes: &[Shape::RevealComb, Shape::RevealCombId],
-                coverage: Coverage::Board { cells: 82 },
+                coverage: Coverage::Board { cells: 81 },
                 bands: Bands::Priced(&["skyline_min_ticks_reveal_comb_is_flat_per_unit"]),
                 denominator: "packed input bytes; packed I/O on the output-dominated \
                               projection rows",
@@ -1441,7 +1441,7 @@ impl FamilyId {
             FamilyId::RevealHifloor => FamilySpec {
                 name: "reveal-hifloor",
                 shapes: &[Shape::RevealCombHifloor, Shape::RevealCombId],
-                coverage: Coverage::Board { cells: 82 },
+                coverage: Coverage::Board { cells: 81 },
                 bands: Bands::Priced(&["reveal_comb_hifloor_control_is_flat_per_unit"]),
                 denominator: "packed input bytes; packed I/O on the output-dominated \
                               projection rows",
@@ -1450,7 +1450,7 @@ impl FamilyId {
             FamilyId::PureComb => FamilySpec {
                 name: "pure-comb",
                 shapes: &[Shape::PureComb, Shape::PureCombId],
-                coverage: Coverage::Board { cells: 82 },
+                coverage: Coverage::Board { cells: 81 },
                 bands: Bands::Priced(&["skyline_min_ticks_pure_comb_is_flat_per_unit"]),
                 denominator: "packed input bytes; packed I/O on the output-dominated \
                               projection rows",
@@ -1459,7 +1459,7 @@ impl FamilyId {
             FamilyId::AscendCliff => FamilySpec {
                 name: "ascend-cliff",
                 shapes: &[Shape::AscendCliff, Shape::AscendCliffId],
-                coverage: Coverage::Board { cells: 82 },
+                coverage: Coverage::Board { cells: 81 },
                 bands: Bands::Unbanded {
                     reason: "the cascade's red-direction driver; its leveled control \
                              (ascend-plateau) carries the committed flatness band",
@@ -1471,7 +1471,7 @@ impl FamilyId {
             FamilyId::AscendPlateau => FamilySpec {
                 name: "ascend-plateau",
                 shapes: &[Shape::AscendCliffPlateau, Shape::AscendCliffId],
-                coverage: Coverage::Board { cells: 82 },
+                coverage: Coverage::Board { cells: 81 },
                 bands: Bands::Priced(&["ascend_cliff_plateau_control_is_flat_per_unit"]),
                 denominator: PACKED,
                 closed_form: None,
@@ -1479,7 +1479,7 @@ impl FamilyId {
             FamilyId::DominatedUndercut => FamilySpec {
                 name: "dominated-undercut",
                 shapes: &[Shape::DominatedUndercut, Shape::DominatedUndercutId],
-                coverage: Coverage::Board { cells: 82 },
+                coverage: Coverage::Board { cells: 81 },
                 bands: Bands::Priced(&["tick_dominated_undercut_arm_is_flat_per_unit"]),
                 denominator: PACKED,
                 closed_form: Some(
@@ -1613,7 +1613,7 @@ impl FamilyId {
             FamilyId::Benign => FamilySpec {
                 name: "benign",
                 shapes: &[],
-                coverage: Coverage::Board { cells: 86 },
+                coverage: Coverage::Board { cells: 85 },
                 bands: Bands::Unbanded {
                     reason: "the organic control population; flatness bands price \
                              adversarial constructions",
@@ -1973,16 +1973,5 @@ pub const AXIS_BANDS: &[(&str, &str)] = &[
         "ticks_wide_count_flatness_holds_the_width_band",
         "prices the ticks count-width axis across the same three rostered families: an \
          operation-argument axis, not a shape of its own — registry answer of record",
-    ),
-    (
-        "party_fold_alias_rejection_count_is_flat_per_unit",
-        "the aliased population probes the fold's hand-back seam through \
-         dangerously_alias, not a packed shape (aliases arrive only through decode or \
-         dangerously_alias); the board prices the rejection fold on the \
-         party_join_all_overlap row — registry answer of record",
-    ),
-    (
-        "party_fold_alias_rejection_depth_is_flat_per_unit",
-        "as the alias-count band's — registry answer of record",
     ),
 ];

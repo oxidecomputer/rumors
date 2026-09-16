@@ -2013,9 +2013,8 @@ laws! {
     /// n-way fork's two forms, the covering order's point laws (with a
     /// constructed transitivity chain), `without` at the reflexive corner,
     /// aliasing, and the representational round-trips. `join_all`'s fold laws
-    /// are [`PARTY_AND_LIST`]'s: the width-quantified family (reunion,
-    /// acceptance, best-effort at every arity) subsumes any fixed-width point
-    /// instance.
+    /// are [`PARTY_AND_LIST`]'s: the width-quantified family covers reunion,
+    /// acceptance, and error conservation.
     pub static PARTY_SOLO: (p: &Party);
 
     /// `fork` then `join` round-trips: the two halves reconstruct the original
@@ -2303,30 +2302,18 @@ fn join3(first: &Party, second: &Party, third: &Party) -> Option<Party> {
 // ───────────────────── Party: a receiver and items ─────────────────────
 
 laws! {
-    /// Laws over a live party (the receiver) and a list of live parties
-    /// (the items), at any arity.
+    /// Laws for joining any number of parties into a receiver.
     ///
-    /// [`Party::join_all`]'s faces, each quantified over the item count
-    /// no fixed-width point law can sweep: acceptance is pairwise
-    /// disjointness of the whole family, an accepted fold is the
-    /// sequential pair joins, and rejection is per-input, lossless
-    /// (best-effort), and region-conserving. The constructed laws draw
-    /// their families from the receiver's own fork tree, so the accepted
-    /// arm is exercised at every width even though arbitrary parties
-    /// rarely happen to be disjoint — while the arbitrary items
-    /// (frequently aliased, since the drivers index small pools) keep
-    /// the refusal arm under mass, with two and more distinct
-    /// overlapping groups arising from repeated pool picks.
+    /// They cover the acceptance condition, successful results, reunion of
+    /// forked parties, and preservation of every region after an error.
     pub static PARTY_AND_LIST: (p: &Party, items: &[Party]);
 
-    /// `join_all` accepts exactly the pairwise-disjoint families —
-    /// receiver included — at every arity.
+    /// `join_all` succeeds exactly when all parties, including the receiver,
+    /// are pairwise disjoint.
     ///
-    /// An accepted fold equals the sequential pair joins (the bound pair
-    /// operation, never the n-ary door, so the two sides cannot share a
-    /// broken arm); a refused one still absorbed every region it could —
-    /// the accumulator covers its original region — and handed at least
-    /// one input back.
+    /// On success its result equals sequential calls to [`Party::join`]. On
+    /// error the receiver still covers its original region and at least one
+    /// party is returned.
     fn party_join_all_accepts_iff_family_pairwise_disjoint {
         let family: Vec<&Party> = core::iter::once(p).chain(items).collect();
         let pairwise_disjoint = family
@@ -2346,15 +2333,11 @@ laws! {
         }
     }
 
-    /// `join_all` reunites a balanced fork at every width: the shares of
-    /// `forks(k)` fold back to the original region exactly.
+    /// `join_all` reunites the result of `forks(k)` for every `k`.
     ///
-    /// Along the way, half the shares folded through the n-ary door must
-    /// equal the same half folded through sequential pair joins — a value
-    /// comparison on a genuinely proper subregion, so a fold that
-    /// misplaces a group cannot hide behind the full reunion's fixed
-    /// endpoint. Width zero is the empty-fold identity (`join_all(∅)`
-    /// leaves the receiver unchanged).
+    /// Joining half of the parties is also compared with sequential calls to
+    /// [`Party::join`], so the test checks an intermediate result as well as
+    /// the final reunion. With no inputs, the receiver is unchanged.
     fn party_join_all_reunites_forks_at_any_width {
         let width = items.len();
         let mut keeper = p.dangerously_alias();
@@ -2378,51 +2361,16 @@ laws! {
         keeper.join_all(shares).is_ok() && keeper == *p
     }
 
-    /// `join_all`'s rejection is per-input and lossless at every width:
-    /// one aliased input planted among `k` genuine shares costs exactly
-    /// itself.
+    /// An unsuccessful `join_all` preserves every input region.
     ///
-    /// The clash — an alias of the accumulator's own region — rides
-    /// mid-stream, so shares both before and after it must be absorbed
-    /// around the rejection (fail-fast would abandon the tail): the fold
-    /// reunites the region exactly, and the alias alone comes back,
-    /// unchanged.
-    fn party_join_all_is_best_effort_at_any_width {
-        let width = items.len();
-        let mut keeper = p.dangerously_alias();
-        let mut fed: Vec<Party> = keeper.forks(width as u64).collect();
-        let residual = keeper.dangerously_alias();
-        fed.insert(width / 2, keeper.dangerously_alias());
-        match keeper.join_all(fed) {
-            Err(returned) => returned.len() == 1 && returned[0] == residual && keeper == *p,
-            Ok(()) => false,
-        }
-    }
-
-    /// `join_all`'s rejection conserves regions at every arity: the
-    /// accumulator joined with the returned regions covers the
-    /// receiver's original region unioned with every input's.
-    ///
-    /// Stated over region unions (`covers` against a `join`-built
-    /// union), never byte identity: the closing drain legitimately
-    /// hands back *coalesced* groups, byte-distinct from every input,
-    /// so an element-wise identity clause would reject correct
-    /// behavior. What the union statement convicts is a fold that
-    /// *drops* a group instead of handing it back — a loss invisible to
-    /// the acceptance law's `Err` clauses (hand-back nonempty,
-    /// accumulator covers its origin) whenever another input already
-    /// sits in the rejection channel. The accepted arm's conservation
-    /// is the acceptance law's: an accepted fold equals the sequential
-    /// pair joins, which drop nothing.
+    /// Together, the receiver and returned parties cover the original receiver
+    /// and every input. Returned parties may combine several inputs, so the law
+    /// compares their union rather than individual values.
     fn party_join_all_err_conserves_the_region_union {
         let mut acc = p.dangerously_alias();
         match acc.join_all(items.iter().map(Party::dangerously_alias)) {
             Ok(()) => true,
             Err(returned) => {
-                // The union of the accumulator and every returned
-                // region: each hand-back may overlap the accumulator
-                // and its fellows (aliases are why it came back), so
-                // the union grows by each one's uncovered remainder.
                 let mut union = acc;
                 for back in returned {
                     if let Some(missing) = back.without(&union) {
@@ -3252,33 +3200,19 @@ laws! {
 // ───────────────────── Clock: a receiver and items ─────────────────────
 
 laws! {
-    /// Laws over a clock (the receiver) and a list of clocks (the items),
-    /// at any arity.
+    /// Laws for operations that combine any number of clocks.
     ///
-    /// [`Clock::join_all`]'s faces at swept widths: acceptance is
-    /// pairwise disjointness of the parties (an accepted fold equals the
-    /// sequential pair joins on both components, and the returned
-    /// reference is the freshly folded version), a constructed fork
-    /// family — every child line ticked apart — reunites to the original
-    /// region carrying the join of every line's history, and rejection
-    /// conserves the family's regions and histories. Beside them, the
-    /// n-ary doors are pinned to their composed spellings:
-    /// [`Clock::sync_all`] byte-identical to `join_all` then the balanced
-    /// re-share — with every overlap refused and no participant moved —
-    /// [`Clock::recv_all`] to the sequential binary joins followed by one
-    /// tick, and [`Clock::absorb_all`] to the same joins with no tick at
-    /// all.
+    /// They require every collection operation to agree with its definition in
+    /// terms of pairwise operations, including success and error behavior.
     pub static CLOCK_AND_LIST: (c: &Clock, items: &[Clock]);
 
-    /// `join_all` accepts exactly the families whose parties — the
-    /// receiver's included — are pairwise disjoint, at every arity.
+    /// `join_all` succeeds exactly when all parties, including the receiver's,
+    /// are pairwise disjoint.
     ///
-    /// An accepted fold equals the sequential pair joins (party union and
-    /// version join alike, through the bound pair operation, never the
-    /// n-ary door) and returns the folded version; a refused one still
-    /// absorbed every clock it could — the party covers its original
-    /// region and the version dominates its original — and handed at
-    /// least one input back.
+    /// On success its party and version equal sequential calls to
+    /// [`Clock::join`], and it returns the resulting version. On error the
+    /// receiver still covers its original region and history, and at least one
+    /// clock is returned.
     fn clock_join_all_accepts_iff_parties_pairwise_disjoint {
         let pairwise_disjoint = {
             let family: Vec<&Party> = core::iter::once(c.party())
@@ -3308,16 +3242,11 @@ laws! {
         }
     }
 
-    /// `join_all` reunites a fork family at every width: fork `k`
-    /// children, tick each so every line carries history its siblings
-    /// lack, and the fold restores the original region with the join of
-    /// every line's version.
+    /// `join_all` reunites `k` independently ticked forks for every `k`.
     ///
-    /// The expected version is the sequential pair fold of the lines'
-    /// histories (the bound `|`, never the n-ary door); the returned
-    /// reference and the folded clock's version must both realize it,
-    /// and the party must come back exactly the receiver's. Width zero
-    /// is the empty-fold identity.
+    /// The final party is the original party. The final and returned versions
+    /// both equal the sequential join of the children's versions. With no
+    /// children, the receiver is unchanged.
     fn clock_join_all_reunites_forks_at_any_width {
         let width = items.len();
         let mut keeper = c.dangerously_alias();
@@ -3339,35 +3268,16 @@ laws! {
         }
     }
 
-    /// `join_all`'s rejection conserves the family at every arity:
-    /// joined with the returned clocks, the accumulator covers the
-    /// receiver's original region and history and every input's.
+    /// An unsuccessful `join_all` preserves every input region and version.
     ///
-    /// Spelled out: the accumulator's party joined with the returned
-    /// parties covers the receiver's original region unioned with every
-    /// input's, and the accumulator's version joined with the returned
-    /// versions dominates the receiver's original version and every
-    /// input's.
-    ///
-    /// The clock face of the party group's conservation law, stated
-    /// over unions/joins on both components, never byte identity: the
-    /// closing drain legitimately hands back *coalesced* groups
-    /// (parties unioned, versions joined), so an element-wise identity
-    /// clause would reject correct behavior. What the union statement
-    /// convicts is a fold that *drops* a group — region and history
-    /// alike — instead of handing it back, a loss invisible to the
-    /// acceptance law's `Err` clauses whenever another input already
-    /// sits in the rejection channel.
+    /// Together, the receiver and returned clocks cover the original receiver
+    /// and every input. Returned clocks may combine several inputs, so the law
+    /// compares their joined state rather than individual values.
     fn clock_join_all_err_conserves_the_region_union {
         let mut acc = c.dangerously_alias();
         match acc.join_all(items.iter().map(Clock::dangerously_alias)) {
             Ok(_) => true, // an accepted fold equals the sequential pair joins
             Err(returned) => {
-                // The union of the accumulator's region with every
-                // returned one (each hand-back may overlap the union —
-                // aliases are why it came back — so it contributes its
-                // uncovered remainder), and the join of the
-                // accumulator's history with every returned one.
                 let (mut union, mut history) = acc.into_parts();
                 for back in returned {
                     let (party, version) = back.into_parts();
@@ -3387,19 +3297,14 @@ laws! {
         }
     }
 
-    /// `sync_all` equals its stated composition — [`Clock::join_all`] then
-    /// [`Clock::forks`] — outcome for outcome, at every arity.
+    /// `sync_all` has the same result as `join_all` followed by `forks`.
     ///
-    /// The disjoint arm forks the receiver into one child per item and lets
-    /// every line diverge (each child absorbs one item's version, then
-    /// ticks): the fused reconcile must leave every participant — the
-    /// receiver, each child in order, and the returned version —
-    /// byte-identical to folding the children in with `join_all` and
-    /// re-sharing with `forks`. The overlap arms must be refused with no
-    /// participant moved: the receiver against its own alias, and a family
-    /// carrying a duplicated child.
+    /// For disjoint clocks, both forms must leave the receiver, every child,
+    /// and the returned version equal. If the receiver overlaps an input, or
+    /// two inputs overlap each other, `sync_all` must reject the operation
+    /// without changing any clock.
     fn sync_all_is_join_all_then_forks {
-        // The disjoint arm: a diverged fork family of the receiver.
+        // Compare both forms on independently advanced forks.
         let mut parent = c.dangerously_alias();
         let mut children: Vec<Clock> = parent.forks(items.len() as u64).collect();
         for (child, item) in children.iter_mut().zip(items) {
@@ -3426,11 +3331,11 @@ laws! {
         {
             return false;
         }
-        // The overlap arms: refusal with nothing moved, both for a receiver
-        // overlapping an item and for two items overlapping each other.
+        // Overlap with the receiver must leave both clocks unchanged.
         let mut x = c.dangerously_alias();
         let mut y = c.dangerously_alias();
         let receiver_overlap = x.sync_all([&mut y]).is_err() && x == *c && y == *c;
+        // Overlap between inputs must also leave every clock unchanged.
         let mut p = c.dangerously_alias();
         let mut child = p.fork();
         let mut dup = child.dangerously_alias();
@@ -3446,16 +3351,11 @@ laws! {
         receiver_overlap && item_overlap
     }
 
-    /// `recv_all` equals its stated composition — join every message into
-    /// the version through the bound binary join, then one [`Clock::tick`]
-    /// — value for value at every arity.
+    /// `recv_all` equals joining each input version and then calling
+    /// [`Clock::tick`] once.
     ///
-    /// Returned reference included: the n-ary door adds no observable
-    /// behavior of its own.
-    ///
-    /// The items' versions serve as the message list; the party never
-    /// moving and the empty list being a bare tick both ride the whole-clock
-    /// comparison.
+    /// The comparison includes the returned version and the complete clock. It
+    /// also covers an empty input, which still advances the receiver once.
     fn recv_all_is_joins_then_tick {
         let mut fused = c.dangerously_alias();
         let returned = fused
@@ -3469,13 +3369,11 @@ laws! {
         returned == *composed.version() && fused == composed
     }
 
-    /// `absorb_all` equals its stated composition — every message joined in
-    /// through the bound binary join, no event minted — value for value at
-    /// every arity, returned reference included.
+    /// `absorb_all` equals joining each input version without advancing the
+    /// receiver.
     ///
-    /// The items' versions serve as the message list; the party never
-    /// moving and the empty list changing nothing both ride the whole-clock
-    /// comparison.
+    /// The comparison includes the returned version and the complete clock. It
+    /// also covers an empty input, which leaves the receiver unchanged.
     fn absorb_all_is_the_sequential_joins {
         let mut fused = c.dangerously_alias();
         let returned = fused
