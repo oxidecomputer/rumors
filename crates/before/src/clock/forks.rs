@@ -2,7 +2,7 @@
 //! iterator, plus the consuming [`From<Clock>`](From) for `[Clock; N]` static
 //! split.
 
-use crate::{party, Clock, Party, Version};
+use crate::{party, Clock, Party, Ticks, Version};
 
 /// A lazy iterator of balanced child [`Clock`]s, returned by [`Clock::forks`].
 ///
@@ -10,6 +10,9 @@ use crate::{party, Clock, Party, Version};
 /// [`Party`] with a clone of the parent's [`Version`]. The clock it borrows
 /// keeps the residual share of all unconsumed parties, and is never left empty;
 /// party shares not taken before the iterator drops are rejoined into it.
+///
+/// [`Iterator::size_hint`] is exact while the remaining count fits `usize`;
+/// beyond `usize::MAX`, it returns `(usize::MAX, None)`.
 ///
 /// # Complexity
 ///
@@ -20,7 +23,8 @@ use crate::{party, Clock, Party, Version};
 )]
 ///
 /// Each `next` costs its own share's portion of the drain; an early drop
-/// rejoins in `O(|c| log k)`, with `|c|` the borrowed clock's size in bytes.
+/// rejoins in `O(|c| log(k + 1))`, with `|c|` the borrowed clock's size in
+/// bytes.
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-assets.html")))]
 pub struct Forks<'a> {
     /// The lazy partition of party shares; its [`Drop`] folds unconsumed shares
@@ -33,7 +37,7 @@ pub struct Forks<'a> {
 impl<'a> Forks<'a> {
     /// Borrow `clock` and reserve `k` balanced child clocks. The public entry
     /// point is [`Clock::forks`].
-    pub(super) fn new(clock: &'a mut Clock, k: u64) -> Self {
+    pub(super) fn new(clock: &'a mut Clock, k: Ticks) -> Self {
         let Clock { party, version } = clock;
         let version: &Version = version; // the children only read it, to clone
         Forks {
@@ -58,8 +62,6 @@ impl Iterator for Forks<'_> {
         self.parties.size_hint()
     }
 }
-
-impl ExactSizeIterator for Forks<'_> {}
 
 /// Splits a [`Clock`] into exactly `N` balanced child clocks, consuming it.
 ///

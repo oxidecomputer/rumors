@@ -12,12 +12,13 @@
 use core::mem;
 
 use super::Party;
+use crate::Ticks;
 
 /// A lazy balanced partition: yields a region's `k` shares one at a time, in
 /// preorder, each a leaf of a minimal-depth (`⌈log₂ k⌉`) id tree.
 ///
 /// The work stack holds the not-yet-emitted subregions — the right siblings
-/// along the current spine — so it is bounded by the tree depth, `O(log k)`.
+/// along the current spine — so it has `O(log k)` entries.
 /// Each [`next`](Iterator::next) descends to one leaf by
 /// [`fork`](Party::fork)ing the front region, pushing its right child for later
 /// and recurring left, until a single-share region remains.
@@ -25,18 +26,21 @@ struct Split {
     /// Pending subregions in emission order; the top of the stack (the last
     /// element) is produced next, and each entry still owes `count` shares.
     /// Holding the owned regions is what lets a partial read fold them back.
-    stack: Vec<(Party, u64)>,
+    stack: Vec<(Party, Ticks)>,
     /// Shares still to emit (`Σ count`); kept as a running total so the
-    /// iterator's size is exact in `O(1)`.
-    remaining: u64,
+    /// iterator's exact remainder is available in `O(1)` at any magnitude.
+    remaining: Ticks,
 }
 
 impl Split {
     /// A partition of `party` into `k` shares. `k >= 1`.
-    fn new(party: Party, k: u64) -> Self {
-        debug_assert!(k >= 1, "a balanced split yields at least one share");
+    fn new(party: Party, k: Ticks) -> Self {
+        debug_assert!(
+            k > Ticks::ZERO,
+            "a balanced split yields at least one share"
+        );
         Split {
-            stack: vec![(party, k)],
+            stack: vec![(party, k.clone())],
             remaining: k,
         }
     }
@@ -52,28 +56,30 @@ impl Iterator for Split {
         // `⌈count/2⌉` shares stay left (preorder: emitted before the right
         // child), `⌊count/2⌋` go right. The recursion of `Split` made
         // iterative, so a huge `count` cannot overflow the call stack.
-        while count > 1 {
+        while count.0.bits() > 1 {
             let right = region.fork();
-            let left_count = count.div_ceil(2);
-            self.stack.push((right, count - left_count));
-            count = left_count;
+            let right_count = count.0.clone() >> 1u32;
+            count.0 -= &right_count;
+            self.stack.push((right, Ticks(right_count)));
         }
-        self.remaining -= 1;
+        // The loop leaves `count == 1`.
+        self.remaining.0 -= &count.0;
         Some(region)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        // The count is u64 and `usize` may be narrower: past its range the hint
-        // is `(usize::MAX, None)`, the standard spelling for an iterator of
-        // more than `usize::MAX` items.
-        (
-            usize::try_from(self.remaining).unwrap_or(usize::MAX),
-            usize::try_from(self.remaining).ok(),
-        )
+        // Rust denominates iterator hints in `usize`. Past that range,
+        // `usize::MAX` is still a valid lower bound and no finite upper bound
+        // can be represented.
+        match u64::try_from(&self.remaining)
+            .ok()
+            .and_then(|n| usize::try_from(n).ok())
+        {
+            Some(n) => (n, Some(n)),
+            None => (usize::MAX, None),
+        }
     }
 }
-
-impl ExactSizeIterator for Split {}
 
 /// A lazy iterator of balanced [`Party`] shares, returned by [`Party::forks`].
 ///
@@ -82,6 +88,9 @@ impl ExactSizeIterator for Split {}
 /// taken before the iterator drops is [`join`](Party::join)ed back into that
 /// party, so a partial read leaves the original [`Party`] holding everything it
 /// did not hand out.
+///
+/// [`Iterator::size_hint`] is exact while the remaining count fits `usize`;
+/// beyond `usize::MAX`, it returns `(usize::MAX, None)`.
 ///
 /// # Complexity
 ///
@@ -92,8 +101,8 @@ impl ExactSizeIterator for Split {}
 )]
 ///
 /// Each `next` costs proportionate to its share of the drain; an early drop
-/// rejoins the unclaimed remainder in `O(|p| log k)`, with `|p|` the borrowed
-/// party's size in bytes.
+/// rejoins the unclaimed remainder in `O(|p| log(k + 1))`, with `|p|` the
+/// borrowed party's size in bytes.
 #[cfg_attr(doc, doc = include_str!(concat!(env!("OUT_DIR"), "/fuelscape-assets.html")))]
 pub struct Forks<'a> {
     /// The borrowed party: keeps the residual share and reabsorbs unconsumed
@@ -107,16 +116,17 @@ pub struct Forks<'a> {
 impl<'a> Forks<'a> {
     /// Borrow `party` and reserve `k` balanced shares, leaving the residual in
     /// place. The public entry point is [`Party::forks`].
-    pub(crate) fn new(party: &'a mut Party, k: u64) -> Self {
+    pub(crate) fn new(party: &'a mut Party, k: Ticks) -> Self {
         // `k + 1`, not `k`: a Party is never empty, so `party` must retain a
         // share even once every yielded share has been consumed. The first
-        // preorder leaf becomes that residual — reaching it costs O(log k)
-        // forks, not the whole partition — and the same preorder governs the
-        // `k` shares yielded after it, matching the consuming `From` split.
-        // The count saturates: at `k == u64::MAX` the residual's headroom is
-        // spent and the iterator yields one share fewer than asked.
+        // preorder leaf becomes that residual — reaching it costs
+        // O(log(k + 1)) forks, not the whole partition — and the same preorder
+        // governs the `k` shares yielded after it, matching the consuming
+        // `From` split.
+        let mut count = k;
+        count.0 += 1u32;
         let whole = mem::replace(party, Party::anonymous());
-        let mut split = Split::new(whole, k.saturating_add(1));
+        let mut split = Split::new(whole, count);
         *party = split
             .next()
             .expect("a split into k + 1 >= 1 shares yields a residual leaf");
@@ -134,8 +144,6 @@ impl Iterator for Forks<'_> {
     }
 }
 
-impl ExactSizeIterator for Forks<'_> {}
-
 impl Drop for Forks<'_> {
     /// Fold every unconsumed share back into the borrowed party.
     ///
@@ -151,6 +159,9 @@ impl Drop for Forks<'_> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
 
 /// Splits a [`Party`] into exactly `N` balanced shares, consuming it.
 ///
@@ -197,7 +208,7 @@ impl<const N: usize> From<Party> for [Party; N] {
         // doctests above pin it: the `compile_fail` twin must be rejected while
         // its identical-but-for-arity sibling compiles.
         const { assert!(N >= 1, "a `Party` cannot split into zero shares") }
-        let mut split = Split::new(party, N as u64);
+        let mut split = Split::new(party, N.into());
         // `from_fn` calls indices `0..N` in order, and `Split` yields in
         // preorder, so share `i` lands at index `i` — the same order `forks`
         // hands them out.

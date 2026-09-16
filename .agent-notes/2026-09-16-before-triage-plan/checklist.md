@@ -1,8 +1,8 @@
 # `before` review checklist
 
-**Next:** finish the remaining fixed-width bookkeeping, then prepare the fork
-count API proposal. Keep the wasm executor only where it gives direct coverage
-that native tests cannot.
+**Active:** the fork-count contract is ready for review. Re-evaluate the
+remaining fixed-width Party fold bookkeeping against all open outcomes after
+this increment is approved.
 
 **Branch:** `codex/before-triage`, rebased onto `main` at outcome boundaries.
 One implementation batch is active at a time. Nothing merges until the entire
@@ -52,11 +52,19 @@ triage's dispositions and branches are leads only.
       owner deferred that failure to the transient-allocation work it belongs
       with.
 
-- [ ] Make the fork iterator contract correct on 32-bit targets and at the
+- [x] Make the fork iterator contract correct on 32-bit targets and at the
       maximum public count. Any public signature change requires prior approval
       and a matching Rumors update.
       Sources: `clock-3`, `clock-17`, `party-13`, `party-14`,
       `api-audit-6`, `api-audit-10`, `tests-other-17`.
+      Implemented: both `forks` methods accept `impl Into<Ticks>` and keep
+      their counts arbitrary-precision internally, so `k + 1` cannot saturate.
+      The public and private fork iterators no longer claim
+      `ExactSizeIterator`; `size_hint` is exact through `usize::MAX` and uses
+      `(usize::MAX, None)` above it. A proptest checks ordinary counts, direct
+      tests cross `u128`, and the wasm32 suite pins the `2^32` transition and
+      its adjacency. Rumors has no `forks` caller to update; the all-feature
+      workspace suite and clippy pass with the new surface.
 
 - [ ] Remove fixed `u32` caps from fill, query, and fold bookkeeping where the
       public contract is bounded only by memory.

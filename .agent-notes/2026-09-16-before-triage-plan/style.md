@@ -67,6 +67,11 @@ Place each explanation at the level that owns it:
 - A test owns the claim established by its assertions, not the architecture of
   the entire verification system.
 
+Do not enumerate every caller of an item or list every current item in a
+module. Explain a relationship only when the reader needs it to understand the
+contract or safely make a change; source navigation and compiler-visible
+structure own exhaustive inventories.
+
 Prefer representations and APIs that make prose unnecessary. If a roster can
 be derived from a type or a test table, derive it. If a comment must keep two
 copies synchronized, remove the duplication.

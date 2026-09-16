@@ -44,7 +44,7 @@ use crate::{error::Parse, Clock, Party, Version};
 fn join_all_agrees_with_oracle_on_forked_and_aliased_populations() {
     let population = |duplicate: bool| {
         let mut acc = Clock::seed();
-        let mut children: Vec<Clock> = acc.forks(4).collect();
+        let mut children: Vec<Clock> = acc.forks(4u64).collect();
         for (n, child) in children.iter_mut().enumerate() {
             for _ in 0..n {
                 child.tick();
@@ -77,7 +77,7 @@ fn join_all_agrees_with_oracle_on_forked_and_aliased_populations() {
 #[test]
 fn join_all_agrees_with_oracle_on_aliased_coalesced_group() {
     let mut acc = Clock::seed();
-    let mut children: Vec<Clock> = acc.forks(5).collect();
+    let mut children: Vec<Clock> = acc.forks(5u64).collect();
     for (n, child) in children.iter_mut().enumerate() {
         for _ in 0..=n {
             child.tick();

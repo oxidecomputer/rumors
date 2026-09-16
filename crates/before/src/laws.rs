@@ -2064,7 +2064,7 @@ laws! {
     /// drop-time reabsorption the iterator promises.
     fn forks_partial_drop_folds_back {
         let mut keeper = p.dangerously_alias();
-        let taken: Vec<Party> = keeper.forks(5).take(2).collect(); // iterator dropped after 2
+        let taken: Vec<Party> = keeper.forks(5u64).take(2).collect(); // iterator dropped after 2
         keeper.join_all(taken).is_ok() && keeper == *p
     }
 

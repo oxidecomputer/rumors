@@ -34,6 +34,14 @@ fn version_small_roundtrips_and_rejects_typed() {
     assert_eq!(call0("pin_version_small"), Outcome::Value(0));
 }
 
+/// At the first fork count beyond wasm32's `usize`, both iterators expose a
+/// valid inexact `size_hint`, yield normally, and return untaken shares when
+/// dropped.
+#[test]
+fn forks_past_usize_remain_exact() {
+    assert_eq!(call1("pin_forks_past_usize", 1u64 << 32), Outcome::Value(0));
+}
+
 /// The largest input whose whole-buffer bit count stays below the 2^29-bit
 /// straddle coordinate ([`BUILD_CAP_BYTES`]) decodes with its exact bit
 /// length.

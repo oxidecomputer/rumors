@@ -38,14 +38,14 @@ const DEEP_SCALE: usize = 64;
 #[test]
 fn join_all_hands_back_aliased_inputs() {
     let mut acc = Party::seed();
-    let shares: Vec<Party> = acc.forks(3).collect();
+    let shares: Vec<Party> = acc.forks(3u64).collect();
     let mut dup_seed = Party::seed();
-    let mut dups = dup_seed.forks(3);
+    let mut dups = dup_seed.forks(3u64);
     let duplicate = dups.next().expect("three shares were requested");
     drop(dups);
     drop(dup_seed);
     let mut again = Party::seed();
-    let mut again_shares = again.forks(3);
+    let mut again_shares = again.forks(3u64);
     let expected_back = again_shares.next().expect("three shares were requested");
     drop(again_shares);
     drop(again);
@@ -82,7 +82,7 @@ fn join_all_hands_back_aliased_inputs() {
 #[test]
 fn join_all_agrees_with_oracle_when_none_overlap() {
     let mut acc = Party::seed();
-    let shares: Vec<Party> = acc.forks(5).collect();
+    let shares: Vec<Party> = acc.forks(5u64).collect();
     assert_join_all_matches_recursive_oracle(acc, shares);
 }
 
@@ -104,7 +104,7 @@ fn join_all_agrees_with_oracle_when_none_overlap() {
 #[test]
 fn join_all_agrees_with_oracle_on_aliased_coalesced_group() {
     let mut acc = Party::seed();
-    let mut shares: Vec<Party> = acc.forks(5).collect();
+    let mut shares: Vec<Party> = acc.forks(5u64).collect();
     let e = shares.pop().expect("five forks");
     let d = shares.pop().expect("five forks");
     let c = shares.pop().expect("five forks");
@@ -123,7 +123,7 @@ fn join_all_agrees_with_oracle_on_aliased_coalesced_group() {
 fn join_all_agrees_with_oracle_at_every_overlap_position() {
     for position in [0usize, 2, 4] {
         let mut acc = Party::seed();
-        let mut inputs: Vec<Party> = acc.forks(4).collect();
+        let mut inputs: Vec<Party> = acc.forks(4u64).collect();
         // The residual `acc` region duplicated: overlaps `acc` and
         // nothing else, so exactly it comes back.
         inputs.insert(position, acc.dangerously_alias());

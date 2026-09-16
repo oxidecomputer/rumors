@@ -80,7 +80,7 @@ fn conservation_witness_coalesces_the_hand_back() {
 
     // The party face.
     let mut p = Party::seed();
-    let shares: Vec<Party> = p.forks(3).collect();
+    let shares: Vec<Party> = p.forks(3u64).collect();
     let [a, b, c] = shares.try_into().expect("three shares");
     let items = vec![
         a.dangerously_alias(),
@@ -106,7 +106,7 @@ fn conservation_witness_coalesces_the_hand_back() {
 
     // The clock face, over the same feed shape with ticked-apart lines.
     let mut seed = Clock::seed();
-    let mut lines: Vec<Clock> = seed.forks(3).collect();
+    let mut lines: Vec<Clock> = seed.forks(3u64).collect();
     for line in &mut lines {
         line.tick();
     }

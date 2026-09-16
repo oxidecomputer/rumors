@@ -71,9 +71,9 @@ is meant to remove.
 Read-only checks found current code matching several important review
 mechanisms:
 
-- `Clock` and `Party` fork iterators still implement `ExactSizeIterator` over a
-  public `u64` count whose `size_hint` can have no upper bound on 32-bit
-  targets.
+- The current fork increment removes the `ExactSizeIterator` contract and the
+  fixed `u64` count. Both public methods accept the existing unbounded `Ticks`
+  vocabulary, and a direct wasm32 pin covers the former `2^32` trap.
 - The current increment replaces the fill memo's `NonZeroU32` links and the
   query ledger's `u32` epochs with vector-native `usize` indices. Party fold
   positions remain capped: their fallback preserves semantics but not the

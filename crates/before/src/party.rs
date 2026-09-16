@@ -247,8 +247,7 @@ impl Party {
         Party::from_bits(give)
     }
 
-    /// Splits `n` balanced shares off this [`Party`], as a lazy
-    /// [`ExactSizeIterator`].
+    /// Splits `k` balanced shares off this [`Party`] as a lazy iterator.
     ///
     /// Unlike repeatedly calling [`fork`](Party::fork), which deepens its
     /// representation into a biased linear tree (see its warning), every
@@ -258,6 +257,10 @@ impl Party {
     /// A [`Party`] is never empty, so `self` retains its residual share even
     /// once the iterator is fully drained; shares not taken before the iterator
     /// drops are [`join`](Party::join)ed back into `self`.
+    ///
+    /// `k` may be a [`Ticks`] count or any standard unsigned integer type.
+    /// Suffix integer literals to select an unsigned type, as in `3u64`. The
+    /// iterator type is exported as [`iter::Party`](crate::iter::Party).
     ///
     /// To split a [`Party`] into exactly `N` shares with no residual, see
     /// [`From<Party>`](Party) for `[Party; N]`.
@@ -277,7 +280,7 @@ impl Party {
     /// ```
     /// use before::Party;
     /// let mut p = Party::seed();
-    /// let shares: Vec<Party> = p.forks(3).collect();
+    /// let shares: Vec<Party> = p.forks(3u64).collect();
     /// assert_eq!(shares.len(), 3); // three shares handed out...
     /// for s in &shares {
     ///     assert!(p.is_disjoint(s)); // ...each disjoint from the keeper
@@ -286,8 +289,8 @@ impl Party {
     /// p.join_all(shares).unwrap();
     /// assert!(p.is_seed());
     /// ```
-    pub fn forks(&mut self, k: u64) -> Forks<'_> {
-        Forks::new(self, k)
+    pub fn forks(&mut self, k: impl Into<Ticks>) -> Forks<'_> {
+        Forks::new(self, k.into())
     }
 
     /// Reunites two disjoint [`Party`]s.
@@ -351,7 +354,7 @@ impl Party {
     /// ```
     /// use before::Party;
     /// let mut p = Party::seed();
-    /// let shares: Vec<Party> = p.forks(3).collect();
+    /// let shares: Vec<Party> = p.forks(3u64).collect();
     /// p.join_all(shares).unwrap(); // the residual and three shares reunite
     /// assert!(p.is_seed());
     /// ```

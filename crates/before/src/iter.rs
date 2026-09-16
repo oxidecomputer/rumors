@@ -12,8 +12,8 @@
 //! ```
 //! use before::{iter, Party};
 //! let mut p = Party::seed();
-//! let forks: iter::Party<'_> = p.forks(3);
-//! assert_eq!(forks.len(), 3); // an ExactSizeIterator of three shares
+//! let forks: iter::Party<'_> = p.forks(3u64);
+//! assert_eq!(forks.size_hint(), (3, Some(3)));
 //! let shares: Vec<Party> = forks.collect();
 //! assert_eq!(shares.len(), 3);
 //! ```

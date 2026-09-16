@@ -1,8 +1,6 @@
-//! The count-of-ticks vocabulary: [`Ticks`], an opaque unbounded count.
+//! The unbounded-count vocabulary: [`Ticks`].
 //!
-//! The public contract lives on the type; the operations denominated in it are
-//! [`Version::ticks`](crate::Version::ticks) and its mirrors, and
-//! [`Version::min_ticks`](crate::Version::min_ticks). This module is private.
+//! The public contract lives on the type. This module is private.
 
 use core::fmt;
 use core::iter::Sum;
@@ -12,22 +10,14 @@ use core::str::FromStr;
 use crate::codec::Base;
 use crate::error::{Parse, TooWide};
 
-/// A count of [`tick`](crate::Version::tick)s: an unbounded natural
-/// number.
+/// An unbounded natural-number count.
 ///
-/// Event counts have no ceiling, so the count is unbounded rather than any
-/// fixed-width integer: every conversion *into* it is total ([`From`] on
-/// unsigned machine integers, and every conversion *out* is explicit
-/// about width: `TryFrom<&Ticks> for u64` answers the machine-range case
-/// fallibly, [`limbs`](Ticks::limbs) spells any count in base-2^64 for
-/// consumers with their own wide arithmetic, and [`Display`](fmt::Display)
-/// renders decimal.
-///
-/// This type is produced by [`Version::min_ticks`](crate::Version::min_ticks);
-/// and consumed by [`Version::ticks`](crate::Version::ticks),
-/// [`Party::ticks`](crate::Party::ticks), and
-/// [`Clock::ticks`](crate::Clock::ticks), each of which take `impl
-/// Into<Ticks>`, so call sites can pass integer literals directly.
+/// Tick and fork counts have no semantic ceiling, so this type is unbounded
+/// rather than fixed-width. Conversions from unsigned machine integers are
+/// total. Conversions out are explicit about width: `TryFrom<&Ticks> for u64`
+/// answers the machine-range case fallibly, [`limbs`](Ticks::limbs) spells any
+/// count in base-2^64 for consumers with their own wide arithmetic, and
+/// [`Display`](fmt::Display) renders decimal.
 ///
 /// Counts are totally ordered ([`Ord`]) and can be added ([`Add`],
 /// [`AddAssign`], [`Sum`]); [`ZERO`](Ticks::ZERO) is the additive identity.

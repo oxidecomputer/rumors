@@ -1,8 +1,7 @@
-//! The 32-bit boundary-pin guest: `before`'s public surface — the byte and
-//! borsh decode doors, the semantic walks and emitters, and rank arithmetic —
-//! driven at the sizes where 32-bit position arithmetic has boundaries,
-//! compiled to wasm32-unknown-unknown so every pin executes under a genuinely
-//! 32-bit `usize` with a full 4 GiB address space.
+//! The 32-bit boundary-pin guest: `before`'s public surface, driven at the
+//! sizes where 32-bit arithmetic has boundaries, compiled to
+//! wasm32-unknown-unknown so every pin executes under a genuinely 32-bit
+//! `usize` with a full 4 GiB address space.
 //!
 //! The host (the `wasm32-pins-harness` crate) instantiates this module under
 //! wasmtime and calls one export per pinned case. The contract:
@@ -23,7 +22,7 @@
 
 use core::cmp::Ordering;
 
-use before::{Rank, Ranked, Span, Version};
+use before::{Clock, Party, Rank, Ranked, Span, Ticks, Version};
 use borsh::BorshDeserialize;
 use suanpan::Accumulator;
 
@@ -84,6 +83,56 @@ pub extern "C" fn pin_version_small() -> i64 {
     if Version::decode(&unmarked[..]).is_ok() {
         return -5;
     }
+    0
+}
+
+/// Check both balanced-fork iterators at a count beyond wasm32's `usize`.
+///
+/// The standard iterator hint has a saturated lower bound and no representable
+/// upper bound, and dropping each iterator returns every untaken region to its
+/// keeper.
+#[no_mangle]
+pub extern "C" fn pin_forks_past_usize(k: u64) -> i64 {
+    let count = Ticks::from(k);
+    let mut party = Party::seed();
+    let share = {
+        let mut forks = party.forks(count.clone());
+        if forks.size_hint() != (usize::MAX, None) {
+            return -1;
+        }
+        let Some(share) = forks.next() else {
+            return -2;
+        };
+        if forks.size_hint() != (usize::MAX, Some(usize::MAX)) {
+            return -3;
+        }
+        share
+    };
+    if !party.is_disjoint(&share) || party.join(share).is_err() || !party.is_seed() {
+        return -4;
+    }
+
+    let mut clock = Clock::seed();
+    let child = {
+        let mut forks = clock.forks(count.clone());
+        if forks.size_hint() != (usize::MAX, None) {
+            return -5;
+        }
+        let Some(child) = forks.next() else {
+            return -6;
+        };
+        if forks.size_hint() != (usize::MAX, Some(usize::MAX)) {
+            return -7;
+        }
+        child
+    };
+    if !clock.party().is_disjoint(child.party())
+        || clock.join(child).is_err()
+        || !clock.party().is_seed()
+    {
+        return -8;
+    }
+
     0
 }
 
