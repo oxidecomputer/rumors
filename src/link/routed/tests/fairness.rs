@@ -119,7 +119,7 @@ proptest! {
                 let mut owners = Vec::new();
                 for _ in 0..links {
                     let token = Token::new();
-                    let mut control = enqueue(&queued, &header::link_header(&token, b"peer"), false).await;
+                    let mut control = enqueue(&queued, &link_header(&token, b"peer"), false).await;
                     let (info, link) = incoming.accept().await.unwrap();
                     assert_eq!(info.token, token);
                     assert_eq!(control.read_u8().await.unwrap(), header::ACK);
@@ -160,7 +160,7 @@ proptest! {
             ).unwrap();
             drive(router, async {
                 let token = Token::new();
-                let mut control = enqueue(&queued, &header::link_header(&token, b"peer"), false).await;
+                let mut control = enqueue(&queued, &link_header(&token, b"peer"), false).await;
                 let (_, mut owner) = incoming.accept().await.unwrap();
                 assert_eq!(control.read_u8().await.unwrap(), header::ACK);
                 let mut blocked = Vec::new();
@@ -168,7 +168,7 @@ proptest! {
                     let bytes = if reuse {
                         header::stream_header(&token).to_vec()
                     } else {
-                        header::link_header(&Token::new(), b"peer")
+                        link_header(&Token::new(), b"peer")
                     };
                     let remote = enqueue(&queued, &bytes, true).await;
                     if reuse {
@@ -178,7 +178,7 @@ proptest! {
                     blocked.push((remote, reuse, cancel));
                 }
                 let healthy = Token::new();
-                let mut peer = enqueue(&queued, &header::link_header(&healthy, b"peer"), false).await;
+                let mut peer = enqueue(&queued, &link_header(&healthy, b"peer"), false).await;
                 let (info, mut link) = incoming.accept().await.unwrap();
                 assert_eq!(info.token, healthy);
                 assert_eq!(peer.read_u8().await.unwrap(), header::ACK);

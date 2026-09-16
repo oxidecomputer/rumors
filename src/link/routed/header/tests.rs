@@ -11,6 +11,11 @@ fn parse(mut bytes: &[u8]) -> io::Result<Header<SocketAddr>> {
     pollster::block_on(read::<SocketAddr, _>(&mut bytes))
 }
 
+/// Validate a short byte string as an advertised name for test headers.
+fn header_name(bytes: impl AsRef<[u8]>) -> AdvertisedName {
+    AdvertisedName::new(bytes.as_ref().to_vec()).expect("the test name is within the wire bound")
+}
+
 /// A `STREAM` header carries its token through encode and parse
 /// unchanged: the router routes on exactly the identity the dialer
 /// quoted.
@@ -31,7 +36,7 @@ fn link_header_roundtrips() {
     let token = Token::new();
     let advertised: SocketAddr = "127.0.0.1:7000".parse().expect("literal address");
     let encoded = advertised.encode().expect("an unscoped address encodes");
-    let bytes = link_header(&token, &encoded);
+    let bytes = link_header(&token, &header_name(encoded));
     match parse(&bytes).expect("a well-formed header parses") {
         Header::Link {
             token: parsed,
@@ -81,7 +86,7 @@ fn unknown_kind_is_rejected() {
 #[test]
 fn empty_advertised_name_is_rejected() {
     let token = Token::new();
-    let mut bytes = link_header(&token, &[0]);
+    let mut bytes = link_header(&token, &header_name([0]));
     // Rewrite the length byte to zero and drop the placeholder name.
     bytes[PREFIX_LEN] = 0;
     bytes.truncate(PREFIX_LEN + 1);
@@ -95,7 +100,7 @@ fn empty_advertised_name_is_rejected() {
 #[test]
 fn undecodable_advertised_name_is_rejected() {
     let token = Token::new();
-    let bytes = link_header(&token, b"not-a-socket-address");
+    let bytes = link_header(&token, &header_name(b"not-a-socket-address"));
     let error = parse(&bytes).expect_err("an undecodable name must not parse");
     assert_eq!(error.kind(), io::ErrorKind::InvalidData);
 }
@@ -107,7 +112,7 @@ fn truncation_is_rejected() {
     let token = Token::new();
     let advertised: SocketAddr = "[::1]:9".parse().expect("literal address");
     let encoded = advertised.encode().expect("an unscoped address encodes");
-    let full = link_header(&token, &encoded);
+    let full = link_header(&token, &header_name(encoded));
     for len in 0..full.len() {
         let error = parse(&full[..len]).expect_err("a truncated header must not parse");
         assert_eq!(error.kind(), io::ErrorKind::UnexpectedEof);
@@ -137,6 +142,36 @@ proptest! {
         prop_assert_eq!(&reencoded, &encoded);
         if v4 {
             prop_assert_eq!(decoded, addr);
+        }
+    }
+}
+
+proptest! {
+    /// The validated representation admits exactly the encodable length range,
+    /// and every admitted name is written without truncation and parses back.
+    #[test]
+    fn advertised_name_bounds_are_exact(len in 0..=(MAX_ADDR_LEN + 8)) {
+        use crate::testing::MemoryName;
+
+        let encoded = vec![b'n'; len];
+        match AdvertisedName::new(encoded.clone()) {
+            Ok(name) => {
+                prop_assert!((1..=MAX_ADDR_LEN).contains(&len));
+                let token = Token::new();
+                let bytes = link_header(&token, &name);
+                prop_assert_eq!(usize::from(bytes[PREFIX_LEN]), len);
+                let parsed = pollster::block_on(read::<MemoryName, _>(&mut bytes.as_slice()))
+                    .expect("a validated header parses");
+                let Header::Link { token: actual, peer } = parsed else {
+                    panic!("a LINK header must parse as a link");
+                };
+                prop_assert_eq!(actual, token);
+                prop_assert_eq!(peer.0.as_bytes(), encoded);
+            }
+            Err(actual) => {
+                prop_assert!(!(1..=MAX_ADDR_LEN).contains(&len));
+                prop_assert_eq!(actual, len);
+            }
         }
     }
 }

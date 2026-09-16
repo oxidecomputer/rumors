@@ -7,7 +7,7 @@ use std::sync::{Arc, Weak};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf, split};
 use tokio::sync::mpsc;
 
-use super::header::{self, Addr, Token, Unencodable};
+use super::header::{self, Addr, AdvertisedName, Token, Unencodable};
 use super::router::{Router, Table};
 use super::stream::{StreamAcceptor, StreamConnector};
 use super::{Dial, Link, Listen};
@@ -178,8 +178,8 @@ struct Inner<D: Dial> {
     dial: D,
     /// The endpoint's advertised name, as given at construction.
     local_addr: D::Addr,
-    /// Validated once at construction and reused in establishment headers.
-    encoded: Vec<u8>,
+    /// Validated wire form reused in establishment headers.
+    encoded: AdvertisedName,
     /// Outgoing reuse policy copied into each link's connector.
     pooling: bool,
     /// Router events retained for read-only inspection.
@@ -211,10 +211,8 @@ impl<D: Dial> Endpoint<D> {
         ),
         EndpointError,
     > {
-        let encoded = advertised.encode()?;
-        if !(1..=header::MAX_ADDR_LEN).contains(&encoded.len()) {
-            return Err(EndpointError::NameLength(encoded.len()));
-        }
+        let encoded =
+            AdvertisedName::new(advertised.encode()?).map_err(EndpointError::NameLength)?;
         if config.incoming_backlog == 0 {
             return Err(EndpointError::ZeroIncomingBacklog);
         }

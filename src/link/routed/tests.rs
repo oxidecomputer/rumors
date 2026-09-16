@@ -12,7 +12,7 @@ use proptest::prelude::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufStream, DuplexStream};
 use tokio::sync::{mpsc, oneshot};
 
-use super::header::{self, Token};
+use super::header::{self, AdvertisedName, Token};
 use super::{
     Config, Dial, Endpoint, EndpointError, Incoming, LinkError, LinkInfo, Listen, RoutedLink,
 };
@@ -20,6 +20,12 @@ use crate::link::{Acceptor, Connector, Link, STREAM_COUNT};
 use crate::testing::{MemoryDial, MemoryName, MemoryNet};
 
 mod fairness;
+
+/// Build a valid `LINK` header from a short test name.
+fn link_header(token: &Token, name: &[u8]) -> Vec<u8> {
+    let name = AdvertisedName::new(name.to_vec()).expect("the test name is within the wire bound");
+    header::link_header(token, &name)
+}
 
 /// One endpoint on `net`, listening at (and advertising) `name`.
 fn endpoint(
@@ -420,7 +426,7 @@ proptest! {
             ).unwrap();
             let mut router = pin!(router);
             let mut stalled = net.dial().dial(&name).await.unwrap();
-            let header = header::link_header(&Token::new(), b"peer");
+            let header = link_header(&Token::new(), b"peer");
             stalled.write_all(&header[..prefix % header.len()]).await.unwrap();
             assert_eq!(run_to_quiescence(router.as_mut()).unwrap_err(), crate::testing::Quiescence::Stalled);
             let expire = deadlines.try_recv().unwrap();
@@ -483,7 +489,7 @@ fn routing_deadline_cancels_blocked_ack_flush() {
         let mut router = pin!(router);
         let token = Token::new();
         remote
-            .write_all(&header::link_header(&token, b"peer"))
+            .write_all(&link_header(&token, b"peer"))
             .await
             .unwrap();
         assert_eq!(
@@ -506,7 +512,7 @@ fn routing_deadline_cancels_blocked_ack_flush() {
         let (local, mut remote) = tokio::io::duplex(64);
         queued.send(BufStream::new(local)).unwrap();
         remote
-            .write_all(&header::link_header(&token, b"peer"))
+            .write_all(&link_header(&token, b"peer"))
             .await
             .unwrap();
         drive(router.as_mut(), async {
@@ -651,7 +657,7 @@ proptest! {
             for _ in 0..arrivals {
                 let mut conn = net.dial().dial(&name).await.unwrap();
                 let token = Token::new();
-                conn.write_all(&header::link_header(&token, b"peer")).await.unwrap();
+                conn.write_all(&link_header(&token, b"peer")).await.unwrap();
                 waiting.push((conn, token));
             }
             assert_eq!(
@@ -666,7 +672,7 @@ proptest! {
             let mut conn = admitted.remove(released % capacity);
             if finish {
                 let token = Token::new();
-                conn.write_all(&header::link_header(&token, b"peer")[3..]).await.unwrap();
+                conn.write_all(&link_header(&token, b"peer")[3..]).await.unwrap();
                 waiting.push((conn, token));
             } else {
                 drop(conn);
@@ -684,7 +690,7 @@ proptest! {
                 }
                 for mut conn in admitted {
                     let token = Token::new();
-                    conn.write_all(&header::link_header(&token, b"peer")[3..]).await.unwrap();
+                    conn.write_all(&link_header(&token, b"peer")[3..]).await.unwrap();
                     assert_eq!(conn.read_u8().await.unwrap(), header::ACK);
                     let (info, _link) = incoming.accept().await.unwrap();
                     assert_eq!(info.token, token);

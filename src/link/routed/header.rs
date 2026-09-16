@@ -223,19 +223,44 @@ pub(super) enum Header<A> {
     },
 }
 
-/// Encode a `LINK` header.
+/// A validated advertised name in its `LINK` header form.
 ///
-/// `addr` is the dialer's advertised name, already encoded and already
-/// length-checked (the endpoint validates it at construction).
-pub(super) fn link_header(token: &Token, addr: &[u8]) -> Vec<u8> {
-    debug_assert!((1..=MAX_ADDR_LEN).contains(&addr.len()));
-    let mut bytes = Vec::with_capacity(PREFIX_LEN + 1 + addr.len());
+/// The first byte is the encoded name's nonzero length. Construction is the
+/// only place that checks the length, so a value can be copied into a header
+/// without another guard or conversion.
+#[derive(Clone, Debug)]
+pub(super) struct AdvertisedName {
+    /// The length byte followed by the encoded name.
+    wire: Vec<u8>,
+}
+
+impl AdvertisedName {
+    /// Validate an encoded advertised name.
+    ///
+    /// # Errors
+    ///
+    /// Returns the rejected length when the name is empty or longer than
+    /// [`MAX_ADDR_LEN`].
+    pub(super) fn new(encoded: Vec<u8>) -> Result<Self, usize> {
+        let len = u8::try_from(encoded.len()).map_err(|_| encoded.len())?;
+        if len == 0 {
+            return Err(0);
+        }
+        let mut wire = Vec::with_capacity(1 + encoded.len());
+        wire.push(len);
+        wire.extend_from_slice(&encoded);
+        Ok(AdvertisedName { wire })
+    }
+}
+
+/// Encode a `LINK` header.
+pub(super) fn link_header(token: &Token, name: &AdvertisedName) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(PREFIX_LEN + name.wire.len());
     bytes.extend_from_slice(MAGIC);
     bytes.push(VERSION);
     bytes.push(KIND_LINK);
     bytes.extend_from_slice(&token.0);
-    bytes.push(addr.len() as u8);
-    bytes.extend_from_slice(addr);
+    bytes.extend_from_slice(&name.wire);
     bytes
 }
 
