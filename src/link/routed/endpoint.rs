@@ -1,6 +1,7 @@
 //! The endpoint: one process's routed-link identity.
 
 use std::io;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf, split};
@@ -95,13 +96,50 @@ pub enum LinkError {
     Rejected,
 }
 
-/// The identity of a peer-established link, from [`Incoming::accept`].
+/// The peer address and routing token returned with an established link.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LinkInfo<A> {
-    /// The peer's advertised name, used to open this link's outgoing streams.
+    /// The peer address used to open this link's outgoing streams.
     pub peer: A,
     /// The link's routing identity, unique per link on this endpoint.
     pub token: Token,
+}
+
+/// Cumulative diagnostics from an endpoint's connection router.
+///
+/// Read with [`Endpoint::stats`]. Counts accumulate for the endpoint's
+/// lifetime and remain available if its router stops.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[non_exhaustive]
+pub struct RouterStats {
+    /// Links closed because the peer opened more incoming streams concurrently
+    /// than a link supports.
+    ///
+    /// A nonzero value indicates that a peer exceeded the incoming-stream
+    /// concurrency limit in [`Link`]'s contract. The affected link fails;
+    /// other links keep routing.
+    pub stream_queue_overflows: u64,
+}
+
+/// Atomic counters shared by an endpoint and its router.
+#[derive(Default)]
+pub(super) struct RouterCounters {
+    /// See [`RouterStats::stream_queue_overflows`].
+    stream_queue_overflows: AtomicU64,
+}
+
+impl RouterCounters {
+    /// Record one link closed after its incoming stream queue filled.
+    pub(super) fn stream_queue_overflow(&self) {
+        self.stream_queue_overflows.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Take a read-only snapshot of the counters.
+    fn snapshot(&self) -> RouterStats {
+        RouterStats {
+            stream_queue_overflows: self.stream_queue_overflows.load(Ordering::Relaxed),
+        }
+    }
 }
 
 /// Establishes outgoing links and accepts incoming links through its router.
@@ -144,6 +182,8 @@ struct Inner<D: Dial> {
     encoded: Vec<u8>,
     /// Outgoing reuse policy copied into each link's connector.
     pooling: bool,
+    /// Router events retained for read-only inspection.
+    stats: Arc<RouterCounters>,
 }
 
 impl<D: Dial> Endpoint<D> {
@@ -182,6 +222,7 @@ impl<D: Dial> Endpoint<D> {
             return Err(EndpointError::ZeroPendingHeaders);
         }
         let table = Arc::new(Table::new());
+        let stats = Arc::new(RouterCounters::default());
         let (arrivals, incoming) = mpsc::channel(config.incoming_backlog);
         let endpoint = Endpoint {
             inner: Arc::new(Inner {
@@ -190,9 +231,10 @@ impl<D: Dial> Endpoint<D> {
                 local_addr: advertised,
                 encoded,
                 pooling: config.pooling,
+                stats: Arc::clone(&stats),
             }),
         };
-        let router = Router::new(dial, table, arrivals, config).run(listen);
+        let router = Router::new(dial, table, arrivals, config, stats).run(listen);
         Ok((endpoint, Incoming { links: incoming }, router))
     }
 
@@ -202,11 +244,17 @@ impl<D: Dial> Endpoint<D> {
         &self.inner.local_addr
     }
 
+    /// Read the router diagnostics recorded for this endpoint.
+    pub fn stats(&self) -> RouterStats {
+        self.inner.stats.snapshot()
+    }
+
     /// Establish an independent link to `peer` using a fresh control connection.
     ///
-    /// Returns a link ready for data streams. The peer receives its end
-    /// through [`Incoming::accept`]. Concurrent calls create separate links;
-    /// deduplication is application policy.
+    /// Returns the link's [`LinkInfo`] and a link ready for data streams. The
+    /// peer receives the same token with its end through [`Incoming::accept`].
+    /// Concurrent calls create separate links; deduplication is application
+    /// policy.
     /// Apply a caller-supplied timeout to this future to bound both dialing
     /// and routing; cancelling it closes the connection and releases the route.
     ///
@@ -216,7 +264,10 @@ impl<D: Dial> Endpoint<D> {
     /// or [`LinkError::Rejected`] if the peer does not acknowledge the link.
     /// Failed attempts release their registration; retry policy belongs to
     /// the caller.
-    pub async fn link(&self, peer: D::Addr) -> Result<RoutedLink<D>, LinkError> {
+    pub async fn link(
+        &self,
+        peer: D::Addr,
+    ) -> Result<(LinkInfo<D::Addr>, RoutedLink<D>), LinkError> {
         // Register before sending: the peer may dial back as soon as it
         // receives this header.
         let (token, registration, streams) = {
@@ -241,11 +292,17 @@ impl<D: Dial> Endpoint<D> {
             Err(error) => return Err(LinkError::Io(error)),
         }
         let (control_read, control_write) = split(conn);
-        Ok(Link::new(
-            control_read,
-            control_write,
-            StreamConnector::new(self.inner.dial.clone(), peer, token, self.inner.pooling),
-            StreamAcceptor::new(streams, registration),
+        Ok((
+            LinkInfo {
+                peer: peer.clone(),
+                token,
+            },
+            Link::new(
+                control_read,
+                control_write,
+                StreamConnector::new(self.inner.dial.clone(), peer, token, self.inner.pooling),
+                StreamAcceptor::new(streams, registration),
+            ),
         ))
     }
 }

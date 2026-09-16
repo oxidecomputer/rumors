@@ -60,7 +60,8 @@ async fn routers(
 }
 
 /// Establish one link from `from` toward the peer named `name`,
-/// collecting the peer's end from `incoming`.
+/// collecting the peer's end from `incoming` and checking that both sides
+/// report the same routing token.
 async fn establish(
     from: &Endpoint<MemoryDial>,
     name: &str,
@@ -71,8 +72,10 @@ async fn establish(
     RoutedLink<MemoryDial>,
 ) {
     let (linked, arrival) = futures::join!(from.link(MemoryName::new(name)), incoming.accept());
-    let dialer_end = linked.expect("establishment succeeds");
+    let (dialer_info, dialer_end) = linked.expect("establishment succeeds");
     let (info, acceptor_end) = arrival.expect("the router delivers the link");
+    assert_eq!(dialer_info.peer, MemoryName::new(name));
+    assert_eq!(dialer_info.token, info.token, "one shared link token");
     (dialer_end, info, acceptor_end)
 }
 
@@ -207,7 +210,7 @@ fn buffered_connections_flush_routing_boundaries() {
         .unwrap();
         drive(routers(a_router, b_router), async {
             let (linked, arrival) = futures::join!(b.link(a_name), incoming.accept());
-            let at_b = linked.unwrap();
+            let (_, at_b) = linked.unwrap();
             let (_, mut at_a) = arrival.unwrap();
             for _ in 0..2 {
                 // Routing must finish before either side sends payload bytes.
@@ -270,8 +273,9 @@ fn unknown_token_is_dropped() {
     });
 }
 
-/// Queue overflow evicts the link. Queued streams remain available, then
-/// acceptance reports an error; later connections using the token are closed.
+/// Queue overflow is counted and evicts the link. Queued streams remain
+/// available, then acceptance reports an error; later connections using the
+/// token are closed.
 #[test]
 fn queue_overflow_evicts_the_link() {
     run_to_quiescence(async {
@@ -281,6 +285,7 @@ fn queue_overflow_evicts_the_link() {
         let mut running = pin!(routers(a_router, b_router));
         let (_at_b, info, mut at_a) =
             drive(running.as_mut(), establish(&b, "a", &mut a_incoming)).await;
+        assert_eq!(a.stats().stream_queue_overflows, 0);
 
         let mut flood = Vec::new();
         for _ in 0..=STREAM_COUNT {
@@ -296,6 +301,7 @@ fn queue_overflow_evicts_the_link() {
             run_to_quiescence(running.as_mut()).unwrap_err(),
             crate::testing::Quiescence::Stalled
         );
+        assert_eq!(a.stats().stream_queue_overflows, 1);
         for _ in 0..STREAM_COUNT {
             at_a.acceptor.accept().await.expect("queued streams drain");
         }
@@ -557,7 +563,7 @@ async fn routing_deadline_allows_idle_gossip_and_reuse() {
     .unwrap();
     Box::pin(drive(routers(a_router, b_router), async {
         let (linked, arrival) = futures::join!(b.link(a_name), incoming.accept());
-        let mut at_b = linked.unwrap();
+        let (_, mut at_b) = linked.unwrap();
         let (_, mut at_a) = arrival.unwrap();
         complete_streams(&at_a, &mut at_b, STREAM_COUNT).await;
         complete_streams(&at_b, &mut at_a, STREAM_COUNT).await;
@@ -934,7 +940,7 @@ fn completed_streams_reuse_their_connection() {
         drive(routers(a_router, b_router), async {
             let (linked, arrival) =
                 futures::join!(b.link(MemoryName::new("a")), a_incoming.accept());
-            let at_b = linked.expect("establishment succeeds");
+            let (_, at_b) = linked.expect("establishment succeeds");
             let (_info, mut at_a) = arrival.expect("the router delivers the link");
             let established = dial.fresh_dials();
 
@@ -1084,7 +1090,7 @@ fn pooled_streams_survive_header_pressure(count in 1usize..=STREAM_COUNT, pressu
             Endpoint::new(net.listen(&b_name), b_name, dial.clone(), Config::default()).unwrap();
         drive(routers(a_router, b_router), async {
             let (linked, arrival) = futures::join!(b.link(a_name.clone()), incoming.accept());
-            let at_b = linked.unwrap();
+            let (_, at_b) = linked.unwrap();
             let (_, mut at_a) = arrival.unwrap();
             complete_streams(&at_b, &mut at_a, count).await;
             settle().await;
@@ -1224,10 +1230,10 @@ fn reuse_waits_for_completion_without_blocking_other_streams() {
             Endpoint::new(net.listen(&b_name), b_name, dial.clone(), Config::default()).unwrap();
         drive(routers(a_router, b_router), async {
             let (linked, arrival) = futures::join!(b.link(MemoryName::new("a")), incoming.accept());
-            let b1 = linked.unwrap();
+            let (_, b1) = linked.unwrap();
             let (_, mut a1) = arrival.unwrap();
             let (linked, arrival) = futures::join!(b.link(MemoryName::new("a")), incoming.accept());
-            let b2 = linked.unwrap();
+            let (_, b2) = linked.unwrap();
             let (_, mut a2) = arrival.unwrap();
             let (tx, done) = b1.connector.connect().await.unwrap();
             done.complete(tx);
@@ -1270,7 +1276,7 @@ fn pooling_can_be_disabled_at_either_end() {
                 Endpoint::new(net.listen(&b_name), b_name, dial.clone(), config).unwrap();
             drive(routers(a_router, b_router), async {
                 let (linked, arrival) = futures::join!(b.link(a_name), incoming.accept());
-                let mut at_b = linked.unwrap();
+                let (_, mut at_b) = linked.unwrap();
                 let (_, mut at_a) = arrival.unwrap();
                 let dials = dial.fresh_dials();
                 for _ in 0..2 {
@@ -1382,7 +1388,7 @@ async fn reuse_probe_allows_transport_yields() {
         Endpoint::new(net.listen(&b_name), b_name, dial.clone(), Config::default()).unwrap();
     let task = tokio::spawn(routers(a_router, b_router));
     let (linked, arrival) = tokio::join!(b.link(a_name), incoming.accept());
-    let at_b = linked.unwrap();
+    let (_, at_b) = linked.unwrap();
     let (_, mut at_a) = arrival.unwrap();
     complete_streams(&at_b, &mut at_a, 2).await;
     let dials = dial.fresh_dials();

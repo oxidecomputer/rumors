@@ -41,7 +41,7 @@ use tokio::io::{AsyncWriteExt, split};
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{Notify, mpsc, watch};
 
-use super::endpoint::{Arrival, LinkInfo};
+use super::endpoint::{Arrival, LinkInfo, RouterCounters};
 use super::header::{self, Header, Token};
 use super::stream::{StreamAcceptor, StreamConnector};
 use super::{Config, Dial, Done, Link, Listen};
@@ -164,6 +164,8 @@ pub(super) struct Router<D: Dial> {
     returned: Arc<Notify>,
     /// Fresh-routing capacity and outgoing reuse policy for incoming links.
     config: Config,
+    /// Endpoint-visible router event counters.
+    stats: Arc<RouterCounters>,
 }
 
 impl<D: Dial> Router<D> {
@@ -173,6 +175,7 @@ impl<D: Dial> Router<D> {
         table: Arc<Table<D::Conn>>,
         incoming: mpsc::Sender<Arrival<D>>,
         config: Config,
+        stats: Arc<RouterCounters>,
     ) -> Self {
         Router {
             dial,
@@ -180,6 +183,7 @@ impl<D: Dial> Router<D> {
             incoming,
             returned: Arc::new(Notify::new()),
             config,
+            stats,
         }
     }
 
@@ -299,6 +303,7 @@ impl<D: Dial> Router<D> {
                     Ok(()) => {}
                     Err(TrySendError::Full(overflow)) => {
                         drop(overflow);
+                        self.stats.stream_queue_overflow();
                         self.table.remove(&token);
                     }
                     Err(TrySendError::Closed(orphan)) => drop(orphan),

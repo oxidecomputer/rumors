@@ -37,7 +37,8 @@
 //! Unknown link tokens and malformed headers cause a connection to close. A
 //! full incoming stream queue closes that link's supply: exceeding the stream
 //! limit means the peer violated the Rumors protocol. The router continues
-//! serving other links in this case.
+//! serving other links in this case, and [`Endpoint::stats`] reports the
+//! overflow.
 //!
 //! [`Config::pending_headers`] bounds connections undergoing initial routing.
 //! At capacity, acceptance pauses while admitted attempts and connection reuse
@@ -124,9 +125,11 @@
 //!
 //! // b initiates; a's application receives the other end.
 //! let (linked, arrival) = tokio::join!(b.link(a_addr), a_incoming.accept());
-//! let mut link_at_b = linked.expect("a's router accepts the link");
-//! let (info, mut link_at_a) = arrival.expect("router is live");
-//! assert_eq!(info.peer, b_addr);
+//! let (info_at_b, mut link_at_b) = linked.expect("a's router accepts the link");
+//! let (info_at_a, mut link_at_a) = arrival.expect("router is live");
+//! assert_eq!(info_at_b.peer, a_addr);
+//! assert_eq!(info_at_a.peer, b_addr);
+//! assert_eq!(info_at_b.token, info_at_a.token);
 //! // Each side now runs sessions on its link:
 //! // `peer.rumors().gossip(&mut link_at_b)`, etc.
 //! # let _ = (&mut link_at_a, &mut link_at_b);
@@ -151,7 +154,9 @@ mod stream;
 #[cfg(test)]
 mod tests;
 
-pub use endpoint::{Config, Endpoint, EndpointError, Incoming, LinkError, LinkInfo, RoutedLink};
+pub use endpoint::{
+    Config, Endpoint, EndpointError, Incoming, LinkError, LinkInfo, RoutedLink, RouterStats,
+};
 pub use header::{Addr, MAX_ADDR_LEN, Token, Unencodable};
 pub use stream::{StreamAcceptor, StreamConnector};
 

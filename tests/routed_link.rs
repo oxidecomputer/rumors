@@ -66,7 +66,7 @@ async fn tcp_pair(
     let (_a, mut a_incoming, a_addr) = tcp_endpoint(buffers, pooling).await;
     let (b, _b_incoming, _b_addr) = tcp_endpoint(buffers, pooling).await;
     let (linked, arrival) = tokio::join!(b.link(a_addr), a_incoming.accept());
-    let dialed = linked.expect("establishment succeeds");
+    let (_, dialed) = linked.expect("establishment succeeds");
     let (_info, accepted) = arrival.expect("the router delivers the link");
     if dialer_first {
         (dialed, accepted)
@@ -103,7 +103,7 @@ async fn memory_pair(dialer_first: bool) -> (RoutedLink<MemoryDial>, RoutedLink<
             .expect("a valid construction");
     tokio::spawn(b_router);
     let (linked, arrival) = tokio::join!(b.link(name_a), a_incoming.accept());
-    let dialed = linked.expect("establishment succeeds");
+    let (_, dialed) = linked.expect("establishment succeeds");
     let (_info, accepted) = arrival.expect("the router delivers the link");
     if dialer_first {
         (dialed, accepted)
@@ -226,13 +226,13 @@ async fn mesh_converges_beside_a_stalled_header() {
 
         // The mesh: b→a, c→a, c→b.
         let (linked, arrival) = tokio::join!(b_ep.link(a_addr), a_incoming.accept());
-        let mut ab_at_b = linked.expect("b links a");
+        let (_, mut ab_at_b) = linked.expect("b links a");
         let (_, mut ab_at_a) = arrival.expect("a receives b's link");
         let (linked, arrival) = tokio::join!(c_ep.link(a_addr), a_incoming.accept());
-        let mut ac_at_c = linked.expect("c links a");
+        let (_, mut ac_at_c) = linked.expect("c links a");
         let (_, mut ac_at_a) = arrival.expect("a receives c's link");
         let (linked, arrival) = tokio::join!(c_ep.link(b_addr), b_incoming.accept());
-        let mut bc_at_c = linked.expect("c links b");
+        let (_, mut bc_at_c) = linked.expect("c links b");
         let (_, mut bc_at_b) = arrival.expect("b receives c's link");
 
         // Three replicas with disjoint content.

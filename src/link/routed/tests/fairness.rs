@@ -66,7 +66,8 @@ proptest! {
                 let header::Header::Link { token, .. } = header::read::<MemoryName, _>(&mut remote).await.unwrap()
                     else { panic!("expected a link header") };
                 remote.write_u8(header::ACK).await.unwrap();
-                let mut link = opening.await.unwrap();
+                let (info, mut link) = opening.await.unwrap();
+                assert_eq!(info.token, token);
                 let mut stream = net.dial().dial(&MemoryName::new("a")).await.unwrap();
                 stream.write_all(&header::stream_header(&token)).await.unwrap();
                 stream.write_u8(42).await.unwrap();
