@@ -17,7 +17,7 @@
 mod common;
 
 use rumors::error::Mismatch;
-use rumors::{DEFAULT_PAYLOAD_DEPTH_LIMIT, PayloadDepthLimit, Peer, Rumors};
+use rumors::{DEFAULT_PAYLOAD_DEPTH_LIMIT, Peer, Rumors};
 
 use crate::common::wire::{bootstrap_fork, wire_gossip};
 
@@ -36,7 +36,7 @@ fn nested(depth: u64) -> Arr {
 /// end to end.
 #[test]
 fn a_payload_at_the_default_depth_round_trips() {
-    let at_limit = nested(DEFAULT_PAYLOAD_DEPTH_LIMIT.get());
+    let at_limit = nested(DEFAULT_PAYLOAD_DEPTH_LIMIT);
     let a: Rumors<Arr> = Peer::seed().sync_window_floor().into_rumors();
     let b = bootstrap_fork(&a);
 
@@ -59,7 +59,7 @@ fn a_payload_at_the_default_depth_round_trips() {
 fn one_step_past_the_limit_is_rejected_at_send() {
     let rumors: Rumors<Arr> = Peer::seed().sync_window_floor().into_rumors();
     let error = rumors
-        .send(nested(DEFAULT_PAYLOAD_DEPTH_LIMIT.get() + 1))
+        .send(nested(DEFAULT_PAYLOAD_DEPTH_LIMIT + 1))
         .expect_err("one step past the limit is rejected");
     assert!(
         matches!(error, rumors::EncodeError::Depth { limit } if limit == DEFAULT_PAYLOAD_DEPTH_LIMIT),
@@ -93,7 +93,7 @@ fn nested_enum(wrappers: u64) -> E {
 #[test]
 fn the_deepest_admissible_enum_round_trips() {
     // The innermost unit variant costs the step the wrappers don't.
-    let at_limit = nested_enum(DEFAULT_PAYLOAD_DEPTH_LIMIT.get() - 1);
+    let at_limit = nested_enum(DEFAULT_PAYLOAD_DEPTH_LIMIT - 1);
     let a: Rumors<E> = Peer::seed().sync_window_floor().into_rumors();
     let b = bootstrap_fork(&a);
 
@@ -117,7 +117,7 @@ fn the_deepest_admissible_enum_round_trips() {
 fn an_enum_needing_one_step_past_the_limit_is_rejected_at_send() {
     let rumors: Rumors<E> = Peer::seed().sync_window_floor().into_rumors();
     let error = rumors
-        .send(nested_enum(DEFAULT_PAYLOAD_DEPTH_LIMIT.get()))
+        .send(nested_enum(DEFAULT_PAYLOAD_DEPTH_LIMIT))
         .expect_err("a decode needing limit + 1 is rejected");
     assert!(
         matches!(error, rumors::EncodeError::Depth { limit } if limit == DEFAULT_PAYLOAD_DEPTH_LIMIT),
@@ -131,8 +131,8 @@ fn an_enum_needing_one_step_past_the_limit_is_rejected_at_send() {
 /// bootstrap builder, and wire ingress alike.
 #[test]
 fn equal_raised_limits_gossip_deep_content_clean() {
-    let raised = PayloadDepthLimit::new(DEFAULT_PAYLOAD_DEPTH_LIMIT.get() + 64);
-    let deep = nested(DEFAULT_PAYLOAD_DEPTH_LIMIT.get() + 32);
+    let raised = DEFAULT_PAYLOAD_DEPTH_LIMIT + 64;
+    let deep = nested(DEFAULT_PAYLOAD_DEPTH_LIMIT + 32);
 
     let a: Rumors<Arr> = Peer::seed()
         .payload_depth_limit(raised)
@@ -263,7 +263,7 @@ fn mismatched_limits_abort_both_sides_at_the_handshake() {
 
     // Re-key one side's limit through the Peer knob: the fork was created
     // at the default, and the setting follows the peer through reunion.
-    let raised = PayloadDepthLimit::new(DEFAULT_PAYLOAD_DEPTH_LIMIT.get() + 1);
+    let raised = DEFAULT_PAYLOAD_DEPTH_LIMIT + 1;
     let b = crate::common::wire::block_on(async {
         let peer = b.try_into_peer().await.expect("the sole handle reunites");
         peer.payload_depth_limit(raised).into_rumors()

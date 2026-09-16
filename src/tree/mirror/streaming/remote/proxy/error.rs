@@ -1,6 +1,5 @@
 //! Failures surfaced by the remote protocol participant.
 
-use crate::message::PayloadDepthLimit;
 use crate::tree::mirror::streaming::remote::{adapter, codec, streams};
 
 /// A protocol or adapter failure while proxying one remote counterparty.
@@ -37,12 +36,12 @@ pub enum Error<E> {
     ///
     /// Detected symmetrically, after the greetings and before anything
     /// else, so a mixed fleet is caught even on a converged session.
-    #[error("peer's payload depth limit ({remote}) differs from ours ({local})")]
+    #[error("peer's payload depth limit ({remote} steps) differs from ours ({local} steps)")]
     PayloadDepthMismatch {
         /// This side's configured limit.
-        local: PayloadDepthLimit,
+        local: u64,
         /// The limit the peer's greeting declared.
-        remote: PayloadDepthLimit,
+        remote: u64,
     },
     /// The locally-produced distinguished opening could not be encoded.
     #[error("local opening reply is invalid")]

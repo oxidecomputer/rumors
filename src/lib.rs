@@ -328,8 +328,8 @@ pub use network::Network;
 pub(crate) use peer::Inner;
 pub use peer::{
     Bootstrap, DEFAULT_PAYLOAD_DEPTH_LIMIT, DEFAULT_SYNC_MEMORY_BUDGET,
-    DEFAULT_TARGET_MESSAGE_SIZE, Gossip, Gossiped, Joined, Led, PayloadDepthLimit, Peer, Retire,
-    Unbookmarked,
+    DEFAULT_TARGET_MESSAGE_SIZE, Gossip, Gossiped, Joined, Led, MAX_RUN_BUDGET_BYTES, Peer, Retire,
+    SynchronizationSettings, Unbookmarked,
 };
 pub use protocol::Protocol;
 pub use rumors::{CausalMessages, Changes, Rumors, TryNext, TryTick, UnorderedMessages};

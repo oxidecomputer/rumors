@@ -187,8 +187,8 @@ impl<T: Send + Sync + 'static, B: Bookmark> Bootstrap<T, B> {
     /// Set the payload nesting limit during and after bootstrap.
     ///
     /// See [`Peer::payload_depth_limit`] for defaults and fleet coordination.
-    pub fn payload_depth_limit(mut self, limit: PayloadDepthLimit) -> Self {
-        self.payload_depth_limit = limit;
+    pub fn payload_depth_limit(mut self, limit: u64) -> Self {
+        self.payload_depth_limit = PayloadDepthLimit::new(limit);
         self
     }
 

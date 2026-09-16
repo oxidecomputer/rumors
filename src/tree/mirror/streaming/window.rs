@@ -402,6 +402,25 @@ impl WindowConfig {
     #[cfg(any(test, feature = "test-internals"))]
     pub(crate) const FLOOR: Self = Self::Fixed(Window::FLOOR);
 
+    /// Return the byte budget represented by a peer-facing configuration.
+    ///
+    /// The hidden one-slot test helper stores a fixed window; report zero for
+    /// it because a zero budget resolves to that same floor at every height.
+    pub(crate) fn budget(self) -> usize {
+        match self {
+            Self::Budget(bytes) => bytes,
+            #[cfg(any(test, feature = "test-internals"))]
+            Self::Fixed(window) => {
+                debug_assert_eq!(
+                    window,
+                    Window::FLOOR,
+                    "only the one-slot test helper installs a fixed peer window",
+                );
+                0
+            }
+        }
+    }
+
     /// Resolve the session's window against the exchanged set sizes and
     /// version-size bounds.
     pub(crate) fn resolve(

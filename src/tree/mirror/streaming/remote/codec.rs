@@ -74,7 +74,7 @@ mod signal;
 
 #[cfg(test)]
 pub use budget::SUPPLY_FRAME_OVERHEAD;
-pub use budget::{DEFAULT_TARGET_MESSAGE_SIZE, RunBudget};
+pub use budget::{DEFAULT_TARGET_MESSAGE_SIZE, MAX_RUN_BUDGET_BYTES, RunBudget};
 
 #[cfg(any(test, feature = "test-internals"))]
 pub use crate::tree::mirror::cbor::HeadError;

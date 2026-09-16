@@ -81,7 +81,7 @@ fn retry_then_join<B: Bookmark>(
     fail: &[bool],
     sessions: &Sessions,
     stored: Option<&Stored>,
-    expected: (usize, RunBudget, crate::PayloadDepthLimit),
+    expected: (usize, RunBudget, crate::message::PayloadDepthLimit),
 ) {
     let (budget, target, depth) = expected;
     assert_eq!(budget_bytes(bootstrap.window), budget);
@@ -100,7 +100,7 @@ fn retry_then_join<B: Bookmark>(
                 let (ours, theirs) = tokio::join!(
                     bootstrap.join(&mut near),
                     Peer::<u64>::bootstrap()
-                        .payload_depth_limit(depth)
+                        .payload_depth_limit(depth.get())
                         .join(&mut far),
                 );
                 assert!(matches!(theirs, Joined::Bailed { .. }));
@@ -119,7 +119,9 @@ fn retry_then_join<B: Bookmark>(
             }
         }
 
-        let provider = Peer::<u64>::seed().payload_depth_limit(depth).into_rumors();
+        let provider = Peer::<u64>::seed()
+            .payload_depth_limit(depth.get())
+            .into_rumors();
         provider.send(42).unwrap();
         let (mut near, mut far) = crate::link::memory();
         let (joined, served) =
@@ -168,8 +170,11 @@ proptest! {
         attempts in prop::collection::vec(any::<bool>(), 0..6),
         configure_after_bookmark in any::<bool>(),
     ) {
-        let depth = crate::PayloadDepthLimit::new(depth);
-        let expected = (budget, RunBudget::from_bytes(target), depth);
+        let expected = (
+            budget,
+            RunBudget::from_bytes(target),
+            crate::message::PayloadDepthLimit::new(depth),
+        );
         let config = Peer::<u64>::bootstrap()
             .sync_memory_budget(budget)
             .target_message_size(target)
@@ -206,7 +211,7 @@ fn configuration_defaults_and_saturation() {
     assert_eq!(config.run_budget, RunBudget::default());
     assert_eq!(
         config.payload_depth_limit,
-        crate::PayloadDepthLimit::default()
+        crate::message::PayloadDepthLimit::default()
     );
     let sessions = Arc::new(Sessions::default());
     retry_then_join(
@@ -217,7 +222,7 @@ fn configuration_defaults_and_saturation() {
         (
             DEFAULT_SYNC_MEMORY_BUDGET,
             RunBudget::default(),
-            crate::PayloadDepthLimit::default(),
+            crate::message::PayloadDepthLimit::default(),
         ),
     );
     let saturated = Peer::<u64>::bootstrap().target_message_size(usize::MAX);

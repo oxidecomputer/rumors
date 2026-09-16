@@ -196,7 +196,7 @@ proptest! {
         let lower_limit = PayloadDepthLimit::new(depth - 1);
         let lower = codec.with_limit(lower_limit);
         let error = lower.message(value.clone()).unwrap_err();
-        prop_assert!(matches!(error, super::EncodeError::Depth { limit } if limit == lower_limit), "unexpected admission error: {:?}", error);
+        prop_assert!(matches!(error, super::EncodeError::Depth { limit } if limit == lower_limit.get()), "unexpected admission error: {:?}", error);
         prop_assert_eq!(
             Message::from_wire(bytes.clone(), lower).unwrap_err().kind(),
             io::ErrorKind::InvalidData,
@@ -235,7 +235,7 @@ proptest! {
         let received = Message::from_wire(Bytes::copy_from_slice(admitted.as_slice()), codec).unwrap();
         prop_assert_eq!(&*received.arc::<E>(), &*value);
         let error = codec.message(Arc::new(nested_enum(wrappers + 1))).unwrap_err();
-        prop_assert!(matches!(error, super::EncodeError::Depth { limit: actual } if actual == limit), "unexpected admission error: {:?}", error);
+        prop_assert!(matches!(error, super::EncodeError::Depth { limit: actual } if actual == limit.get()), "unexpected admission error: {:?}", error);
     }
 }
 

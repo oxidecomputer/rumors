@@ -10,7 +10,7 @@ pub use unordered::{TryNext, UnorderedMessages};
 use crate::bookmark::{Bookmark, NoBookmark};
 use crate::link::{Acceptor, Connector, Link};
 use crate::message::EncodeError;
-use crate::{Batch, Error, Gossiped, Network, Peer, Snapshot, Version};
+use crate::{Batch, Error, Gossiped, Network, Peer, Snapshot, SynchronizationSettings, Version};
 use futures::Stream;
 use std::borrow::Borrow;
 use std::sync::Arc;
@@ -70,17 +70,11 @@ impl<T: Send + Sync + 'static, B: Bookmark> Clone for Rumors<T, B> {
     }
 }
 
-/// A summary view (network, latest version, live-message count), independent
-/// of `T: Debug`: the messages themselves are not printed.
+/// A bounded replica summary, independent of `T: Debug`.
 impl<T: Send + Sync + 'static, B: Bookmark> std::fmt::Debug for Rumors<T, B> {
     /// Summarize the replica without printing payloads.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let inner = self.peer.inner.borrow();
-        f.debug_struct("Rumors")
-            .field("network", &self.peer.network)
-            .field("latest", inner.tree.latest())
-            .field("len", &inner.tree.len())
-            .finish_non_exhaustive()
+        self.peer.fmt_summary("Rumors", f)
     }
 }
 
@@ -97,6 +91,11 @@ impl<T: Send + Sync + 'static, B: Bookmark> Rumors<T, B> {
                 claimed: Arc::new(AtomicBool::new(false)),
             },
         }
+    }
+
+    /// Return the local settings used to configure synchronization sessions.
+    pub fn synchronization_settings(&self) -> SynchronizationSettings {
+        self.peer.synchronization_settings()
     }
 
     /// Await quiescence and restore the unique [`Peer`] handle.

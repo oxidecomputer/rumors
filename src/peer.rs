@@ -14,12 +14,14 @@ use tokio::sync::{Mutex, watch};
 
 use crate::bookmark::{Bookmarked, NoBookmark};
 use crate::link::{Acceptor, Connector, Link};
-pub use crate::message::{DEFAULT_PAYLOAD_DEPTH_LIMIT, PayloadDepthLimit};
-use crate::message::{EncodeError, PayloadCodec};
+pub use crate::message::DEFAULT_PAYLOAD_DEPTH_LIMIT;
+use crate::message::{EncodeError, PayloadCodec, PayloadDepthLimit};
 use crate::observe::{Attachment, Observer};
 use crate::tree::Tree;
-pub use crate::tree::mirror::streaming::remote::DEFAULT_TARGET_MESSAGE_SIZE;
 use crate::tree::mirror::streaming::remote::RunBudget;
+pub use crate::tree::mirror::streaming::remote::{
+    DEFAULT_TARGET_MESSAGE_SIZE, MAX_RUN_BUDGET_BYTES,
+};
 pub use crate::tree::mirror::streaming::window::DEFAULT_SYNC_MEMORY_BUDGET;
 use crate::tree::mirror::streaming::window::WindowConfig;
 use crate::{
@@ -158,6 +160,24 @@ pub struct Peer<T: Send + Sync + 'static, B: Bookmark = NoBookmark> {
     pub(crate) codec: PayloadCodec,
     /// The wire observers added through [`observe`](Self::observe).
     pub(crate) observe: Attachment,
+}
+
+/// The local settings that govern a peer's synchronization sessions.
+///
+/// Read these from [`Peer::synchronization_settings`] or
+/// [`Rumors::synchronization_settings`](crate::Rumors::synchronization_settings).
+/// A session resolves the memory budget against both replicas' sets and uses
+/// the smaller of their message-size targets. The values here are this peer's
+/// inputs to those decisions.
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SynchronizationSettings {
+    /// The memory target used to size each reconciliation pipeline.
+    pub sync_memory_budget: usize,
+    /// The saturated wire-message target this peer advertises.
+    pub target_message_size: usize,
+    /// The payload nesting limit this peer requires its counterpart to match.
+    pub payload_depth_limit: u64,
 }
 
 /// The replica's identity and content, shared through a watch channel.
@@ -391,17 +411,11 @@ impl<T: Send + Sync + 'static> Inner<T> {
 #[cfg(test)]
 mod tests;
 
-/// A summary view (network, latest version, live-message count), independent
-/// of `T: Debug`: the messages themselves are not printed.
+/// A bounded replica summary, independent of `T: Debug`.
 impl<T: Send + Sync + 'static, B: Bookmark> std::fmt::Debug for Peer<T, B> {
     /// Summarize the replica without printing payloads.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let inner = self.inner.borrow();
-        f.debug_struct("Peer")
-            .field("network", &self.network)
-            .field("latest", inner.tree.latest())
-            .field("len", &inner.tree.len())
-            .finish_non_exhaustive()
+        self.fmt_summary("Peer", f)
     }
 }
 
@@ -493,6 +507,36 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// The globally unique identifier for this network of gossiping [`Peer`]s.
     pub fn network(&self) -> Network {
         self.network
+    }
+
+    /// Return the local settings used to configure synchronization sessions.
+    ///
+    /// The message-size target is returned after saturation at
+    /// [`MAX_RUN_BUDGET_BYTES`], matching the value advertised to peers.
+    pub fn synchronization_settings(&self) -> SynchronizationSettings {
+        SynchronizationSettings {
+            sync_memory_budget: self.window.budget(),
+            target_message_size: self.run_budget.bytes(),
+            payload_depth_limit: self.codec.limit().get(),
+        }
+    }
+
+    /// Format the bounded summary shared by [`Peer`] and [`Rumors`].
+    pub(crate) fn fmt_summary(
+        &self,
+        name: &str,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        let inner = self.inner.borrow();
+        let settings = self.synchronization_settings();
+        f.debug_struct(name)
+            .field("network", &self.network)
+            .field("latest", inner.tree.latest())
+            .field("len", &inner.tree.len())
+            .field("sync_memory_budget", &settings.sync_memory_budget)
+            .field("target_message_size", &settings.target_message_size)
+            .field("payload_depth_limit", &settings.payload_depth_limit)
+            .finish_non_exhaustive()
     }
 
     /// Select how each connection initiates gossip. By default it follows changes.
@@ -723,8 +767,8 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// per-reply memory unit), so default batching never raises the wire's
     /// established memory ceiling. Any value is safe: zero degrades to one
     /// leaf per message, and values above the wire's run byte cap
-    /// (`u32::MAX` less the frame envelope) saturate to it, so a run built
-    /// within the target always fits the cap.
+    /// ([`MAX_RUN_BUDGET_BYTES`]) saturate to it, so a run built within the
+    /// target always fits the cap.
     ///
     /// The choice follows the peer through
     /// [`into_rumors`](Self::into_rumors), cloning and reunion,
@@ -792,8 +836,8 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// [`into_rumors`](Self::into_rumors), cloning and reunion,
     /// bookmarking, and retirement.
     #[must_use]
-    pub fn payload_depth_limit(mut self, limit: PayloadDepthLimit) -> Self {
-        self.codec = self.codec.with_limit(limit);
+    pub fn payload_depth_limit(mut self, limit: u64) -> Self {
+        self.codec = self.codec.with_limit(PayloadDepthLimit::new(limit));
         self
     }
 

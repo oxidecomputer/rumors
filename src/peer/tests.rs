@@ -11,7 +11,7 @@ use before::Party;
 use proptest::prelude::*;
 use tokio::sync::watch;
 
-use super::{Inner, OPTIMISTIC_ATTEMPTS};
+use super::{Inner, MAX_RUN_BUDGET_BYTES, OPTIMISTIC_ATTEMPTS, Peer};
 use crate::message::Message;
 use crate::tree::{Action, Tree};
 
@@ -63,6 +63,35 @@ fn on_drop(callback: impl Fn() + Send + Sync + 'static) -> Message {
     Message::new(OnDrop {
         callback: Box::new(callback),
     })
+}
+
+/// Settings remain readable across the Peer/Rumors split, with message targets
+/// reported after the saturation applied to the wire greeting.
+#[test]
+fn synchronization_settings_report_effective_values() {
+    let depth = 17;
+    let peer = Peer::<u64>::seed()
+        .sync_memory_budget(1_234)
+        .target_message_size(usize::MAX)
+        .payload_depth_limit(depth);
+    let expected = super::SynchronizationSettings {
+        sync_memory_budget: 1_234,
+        target_message_size: MAX_RUN_BUDGET_BYTES,
+        payload_depth_limit: depth,
+    };
+
+    assert_eq!(peer.synchronization_settings(), expected);
+    let peer_debug = format!("{peer:?}");
+    assert!(peer_debug.contains("sync_memory_budget: 1234"));
+    assert!(peer_debug.contains(&format!("target_message_size: {MAX_RUN_BUDGET_BYTES}")));
+    assert!(peer_debug.contains("payload_depth_limit: 17"));
+
+    let rumors = peer.into_rumors();
+    assert_eq!(rumors.synchronization_settings(), expected);
+    let rumors_debug = format!("{rumors:?}");
+    assert!(rumors_debug.contains("sync_memory_budget: 1234"));
+    assert!(rumors_debug.contains(&format!("target_message_size: {MAX_RUN_BUDGET_BYTES}")));
+    assert!(rumors_debug.contains("payload_depth_limit: 17"));
 }
 
 impl Drop for OnDrop {

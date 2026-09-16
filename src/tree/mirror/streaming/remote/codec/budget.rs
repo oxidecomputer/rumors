@@ -92,8 +92,8 @@ pub const SUPPLY_FRAME_OVERHEAD: usize = cbor::head_len(3)
 /// The largest supply-run budget the wire can honor: budgets saturate
 /// here at construction.
 ///
-/// A frame's full wire size is its [`SUPPLY_FRAME_OVERHEAD`] envelope
-/// plus the run body, and the wire caps a run body at `u32::MAX` bytes
+/// A frame's full wire size is its fixed supply-frame envelope plus the run
+/// body, and the wire caps a run body at `u32::MAX` bytes
 /// (the cap every pricing closed form is denominated in). Capping the
 /// whole-frame budget at that ceiling less the envelope keeps every
 /// within-budget flush under the cap with the envelope already paid;

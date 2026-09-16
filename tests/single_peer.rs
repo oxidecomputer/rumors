@@ -349,7 +349,7 @@ impl Arr {
 /// untouched.
 #[test]
 fn a_depth_error_cancels_the_whole_batch() {
-    let limit = rumors::PayloadDepthLimit::new(4);
+    let limit = 4;
     let rumors: Rumors<Arr> = Peer::seed()
         .payload_depth_limit(limit)
         .sync_window_floor()
@@ -403,7 +403,7 @@ fn a_user_error_cancels_the_batch() {
 /// iterator.
 #[test]
 fn send_all_commits_nothing_when_a_message_is_rejected() {
-    let limit = rumors::PayloadDepthLimit::new(4);
+    let limit = 4;
     let rumors: Rumors<Arr> = Peer::seed()
         .payload_depth_limit(limit)
         .sync_window_floor()
@@ -492,7 +492,7 @@ fn redact_all_removes_the_held_skips_the_unheld_and_commits_once() {
 /// [`Batch::redact_all`]: rumors::Batch::redact_all
 #[test]
 fn batch_send_all_handled_locally_keeps_the_admitted_prefix() {
-    let limit = rumors::PayloadDepthLimit::new(4);
+    let limit = 4;
     let rumors: Rumors<Arr> = Peer::seed()
         .payload_depth_limit(limit)
         .sync_window_floor()

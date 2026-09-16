@@ -22,7 +22,7 @@
 use std::{convert::Infallible, fmt};
 
 use crate::{
-    Network, PayloadDepthLimit, Protocol, Ticks,
+    Network, Protocol, Ticks,
     bookmark::{Bookmark, BookmarkIo, NoBookmark},
     tree::mirror::{
         self, handshake,
@@ -80,13 +80,13 @@ pub enum Mismatch {
     /// The peers have different payload depth limits. Align
     /// [`Peer::payload_depth_limit`](crate::Peer::payload_depth_limit)
     /// across the fleet, then reconnect. No reconciliation has taken place.
-    #[error("peer's payload depth limit ({remote}) differs from ours ({local})")]
+    #[error("peer's payload depth limit ({remote} steps) differs from ours ({local} steps)")]
     #[non_exhaustive]
     PayloadDepth {
         /// This side's configured limit.
-        local: PayloadDepthLimit,
+        local: u64,
         /// The limit the peer advertised.
-        remote: PayloadDepthLimit,
+        remote: u64,
     },
 }
 

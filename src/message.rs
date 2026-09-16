@@ -40,7 +40,7 @@ pub struct Message {
 /// upgrading together sees no acceptance change on existing content.
 /// Wire interop across releases is governed by the greeting's format,
 /// not by this constant.
-pub const DEFAULT_PAYLOAD_DEPTH_LIMIT: PayloadDepthLimit = PayloadDepthLimit(256);
+pub const DEFAULT_PAYLOAD_DEPTH_LIMIT: u64 = 256;
 
 /// A peer's payload nesting-depth limit, counted in the CBOR decode
 /// engine's recursion steps.
@@ -53,18 +53,18 @@ pub const DEFAULT_PAYLOAD_DEPTH_LIMIT: PayloadDepthLimit = PayloadDepthLimit(256
 /// which is why admission at send runs the decode itself rather than
 /// counting anything.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct PayloadDepthLimit(u64);
+pub(crate) struct PayloadDepthLimit(u64);
 
 /// Construct and inspect the decoder's recursion limit.
 impl PayloadDepthLimit {
     /// A limit of exactly `steps` decode recursion steps: a payload
     /// value whose decode recurses deeper is rejected.
-    pub const fn new(steps: u64) -> Self {
+    pub(crate) const fn new(steps: u64) -> Self {
         PayloadDepthLimit(steps)
     }
 
     /// The limit, in decode recursion steps.
-    pub const fn get(self) -> u64 {
+    pub(crate) const fn get(self) -> u64 {
         self.0
     }
 
@@ -82,15 +82,7 @@ impl PayloadDepthLimit {
 impl Default for PayloadDepthLimit {
     /// Return the default recursion limit.
     fn default() -> Self {
-        DEFAULT_PAYLOAD_DEPTH_LIMIT
-    }
-}
-
-/// Format the limit with its unit.
-impl fmt::Display for PayloadDepthLimit {
-    /// Display the number of decode steps.
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} steps", self.0)
+        PayloadDepthLimit(DEFAULT_PAYLOAD_DEPTH_LIMIT)
     }
 }
 
@@ -100,11 +92,11 @@ impl fmt::Display for PayloadDepthLimit {
 #[derive(Debug, thiserror::Error)]
 pub enum EncodeError {
     /// The payload value's CBOR encoding nests deeper than the peer's
-    /// configured [`PayloadDepthLimit`].
-    #[error("message payload nests deeper than the configured payload depth limit ({limit})")]
+    /// configured payload depth limit.
+    #[error("message payload nests deeper than the configured payload depth limit ({limit} steps)")]
     Depth {
         /// The configured limit the payload's decode exceeded.
-        limit: PayloadDepthLimit,
+        limit: u64,
     },
     /// The payload type's [`serde::Deserialize`] implementation rejected
     /// the bytes its own [`serde::Serialize`] implementation produced:
@@ -146,10 +138,15 @@ impl PayloadDecodeError {
     /// becomes invalid data naming the exceeded limit.
     fn into_io(self) -> io::Error {
         match self {
-            PayloadDecodeError::Depth(limit) => io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("message payload nests deeper than the payload depth limit ({limit})"),
-            ),
+            PayloadDecodeError::Depth(limit) => {
+                let limit = limit.get();
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!(
+                        "message payload nests deeper than the payload depth limit ({limit} steps)"
+                    ),
+                )
+            }
             PayloadDecodeError::Io(error) => error,
         }
     }
@@ -324,7 +321,9 @@ impl Message {
         // value that wire ingress would reject.
         let decoded = match Self::deserializer::<T>()(&serialized, limit) {
             Ok(decoded) => decoded,
-            Err(PayloadDecodeError::Depth(limit)) => return Err(EncodeError::Depth { limit }),
+            Err(PayloadDecodeError::Depth(limit)) => {
+                return Err(EncodeError::Depth { limit: limit.get() });
+            }
             Err(PayloadDecodeError::Io(source)) => return Err(EncodeError::Roundtrip(source)),
         };
         // Decoding successfully is not enough: the value must survive intact.

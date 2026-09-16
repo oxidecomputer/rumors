@@ -1,6 +1,6 @@
 //! The wire participant's protocol handshake states.
 
-use crate::message::{PayloadCodec, PayloadDepthLimit};
+use crate::message::PayloadCodec;
 
 use tokio::io::{AsyncRead, AsyncWrite};
 
@@ -264,8 +264,8 @@ where
 /// differ. Both sides detect the mismatch symmetrically, like a network
 /// mismatch.
 fn payload_depth_limits_match<E>(codec: &PayloadCodec, remote: &Greeting) -> Result<(), Error<E>> {
-    let local = codec.limit();
-    let declared = PayloadDepthLimit::new(remote.payload_depth_limit);
+    let local = codec.limit().get();
+    let declared = remote.payload_depth_limit;
     if declared != local {
         return Err(Error::PayloadDepthMismatch {
             local,
