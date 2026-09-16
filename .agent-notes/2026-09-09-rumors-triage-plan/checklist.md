@@ -1,7 +1,7 @@
 # Rumors review checklist
 
-**Next:** make repeated observer attachment additive, preserving registration
-order and every callback.
+**Next:** expose each peer's effective synchronization settings and include
+them in its bounded debug summary.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →
@@ -167,7 +167,7 @@ Coupled work: party ownership with 01; other API pieces can be separate.
 - [x] Share waiting and termination logic across content observers — `1df95824`.
       Sources: `api-core-33`, T125, T132, T159.
 
-- [ ] Accumulate wire observers across observe calls and report attachment settings.
+- [x] Accumulate wire observers across observe calls and report attachment settings — `de08c606`.
       Sources: `api-core-19`, `session-bookmark-40`, T74, T132.
 
 - [x] Simplify handle-liveness accounting without changing reunion semantics — `1f8eef35`.
@@ -226,8 +226,18 @@ Dependencies: 04's reported-error attribution fix before the public error redesi
 - [ ] Finish internal diagnostic cleanup: remove impossible cases, refine decoder context, and apply the error-enum conventions.
       Sources: `materialized-17`, `mirror-common-10`, `remote-adapter-streams-19`, `remote-adapter-streams-22`, `remote-codec-9`, `remote-codec-18`, `remote-codec-19`, `remote-codec-28`, `remote-codec-30`, `session-bookmark-46`, T55, T63, T85.
 
-- [ ] Expose useful session outcomes, settings, and event counts.
-      Sources: `api-audit-11`, `link-16`, `link-21`, `materialized-2`, `remote-adapter-streams-21`, `remote-codec-5`, `session-bookmark-20`, `session-bookmark-38`, T66, T68.
+- [ ] Expose each peer's effective synchronization settings and include them in
+      its bounded debug summary.
+      Sources: `api-audit-11`, `remote-codec-5`, T66.
+
+- [ ] Report session completion, frame counts, and window saturation.
+      Sources: `materialized-2`, `remote-adapter-streams-21`, `session-bookmark-38`, T66.
+
+- [ ] Return link information to routed dialers and count router evictions and overflows.
+      Sources: `link-16`, `link-21`, T68.
+
+- [ ] Provide read-only inspection of stored bookmark records.
+      Sources: `session-bookmark-20`, T132.
 
 - [ ] Gate test-only controls and provide small testing exports where they remove copied derivations.
       Sources: `api-audit-15`, `api-core-11`, `api-core-12`, `benches-envelope-6`, `materialized-22`, `tests-common-6`, `tests-lifecycle-10`, T64, T85, T96.
