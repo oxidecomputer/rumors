@@ -100,7 +100,7 @@ impl Preamble {
     fn encode(self) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(V2_PREAMBLE_LEN);
         bytes.extend_from_slice(&V2_PREFIX);
-        cbor::write_head(&mut bytes, MAJOR_UINT, Protocol::V2 as u64);
+        cbor::write_head(&mut bytes, MAJOR_UINT, Protocol::V2.wire_version());
         cbor::write_head(&mut bytes, MAJOR_BSTR, NETWORK_LEN as u64);
         bytes.extend_from_slice(&self.network.to_bytes());
         cbor::write_head(&mut bytes, MAJOR_UINT, u64::from(self.intent.to_byte()));
@@ -123,7 +123,7 @@ impl Preamble {
             .ok()
             .filter(|head| head.major == MAJOR_UINT)
             .ok_or(malformed(PreambleDefect::Version))?;
-        if version.value != Protocol::V2 as u64 {
+        if version.value != Protocol::V2.wire_version() {
             return Err(Error::VersionMismatch {
                 local_protocol: Protocol::V2,
                 remote_version: version.value,
@@ -182,23 +182,41 @@ pub(crate) enum Error {
     },
     /// The peer is not speaking the rumors protocol.
     #[error("peer is not a rumors stream (leading bytes: {remote_magic:x?})")]
-    MagicMismatch { remote_magic: [u8; 6] },
+    MagicMismatch {
+        /// The peer's leading bytes, retained to diagnose the wrong protocol.
+        remote_magic: [u8; 6],
+    },
     /// The peer speaks a different wire dialect.
-    #[error("peer speaks rumors protocol version {remote_version}, we selected {local_protocol:?}")]
+    #[error(
+        "peer speaks rumors protocol version {remote_version}, while this build speaks {local_protocol:?}"
+    )]
     VersionMismatch {
+        /// The dialect spoken by this build.
         local_protocol: Protocol,
+        /// The version number advertised by the peer.
         remote_version: u64,
     },
     /// The preamble opened correctly but a field of it is not spelled
     /// the way the dialect demands.
     #[error("peer preamble is malformed: {defect}")]
-    Malformed { defect: PreambleDefect },
+    Malformed {
+        /// The field or encoding rule the preamble violated.
+        defect: PreambleDefect,
+    },
     /// The peer closed the stream inside its preamble.
     #[error("peer closed after sending {received} of its {expected} preamble bytes")]
-    Truncated { received: usize, expected: usize },
+    Truncated {
+        /// The preamble bytes received before the stream closed.
+        received: usize,
+        /// The bytes required for a complete preamble.
+        expected: usize,
+    },
     /// The peer's intent has no defined meaning.
     #[error("peer sent an invalid intent ({byte:#04x})")]
-    IntentInvalid { byte: u8 },
+    IntentInvalid {
+        /// The unrecognized intent byte.
+        byte: u8,
+    },
     /// A peer cannot simultaneously receive and donate an identity.
     #[error("peer claimed to bootstrap and retire in the same session")]
     BootstrapRetireConflict,

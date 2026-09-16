@@ -4,7 +4,7 @@
 //!
 //! - [`Transport`](Error::Transport): reconnect over a fresh link.
 //! - [`Mismatch`](Error::Mismatch): use the mismatch kind and its values to
-//!   resolve incompatible protocols, networks, or settings.
+//!   deploy a compatible build, join the intended network, or align settings.
 //! - [`Bookmark`](Error::Bookmark): repair or replace the bookmark storage.
 //! - [`DeadlineExceeded`](Error::DeadlineExceeded): the application's session
 //!   deadline expired. Reconnect, adjusting the deadline if needed.
@@ -48,12 +48,14 @@ pub(crate) type MirrorError =
 #[non_exhaustive]
 #[derive(Debug, thiserror::Error)]
 pub enum Mismatch {
-    /// The peer speaks a different wire version. Select the same protocol at
-    /// both ends; if it is already the same, align the crate versions.
-    #[error("peer speaks rumors protocol version {remote_version}, we selected {local_protocol:?}")]
+    /// The peer speaks a different wire version. Deploy compatible Rumors
+    /// versions at both ends, then reconnect.
+    #[error(
+        "peer speaks rumors protocol version {remote_version}, while this build speaks {local_protocol:?}"
+    )]
     #[non_exhaustive]
     Protocol {
-        /// The protocol selected locally.
+        /// The protocol spoken by this build.
         local_protocol: Protocol,
         /// The wire version advertised by the peer.
         remote_version: u64,

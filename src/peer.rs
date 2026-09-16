@@ -784,8 +784,8 @@ impl<T: Send + Sync + 'static, B: Bookmark> Peer<T, B> {
     /// peer whose session bound dropped below its own configured limit
     /// could already hold messages deeper than the negotiated bound,
     /// which it would then not be allowed to gossip. Changing the limit
-    /// is therefore a fleet-coordinated configuration event, like
-    /// changing the selected [`Protocol`](crate::Protocol), never a
+    /// is therefore a fleet-coordinated configuration event, like the
+    /// [`Protocol`](crate::Protocol) deployed across the fleet, never a
     /// per-peer tuning parameter.
     ///
     /// The choice follows the peer through
