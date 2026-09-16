@@ -10,7 +10,8 @@ use tokio::sync::watch;
 use crate::tree::Leaf;
 use crate::{Version, causally};
 
-use super::unordered::{Channel, TryNext};
+use super::channel::Channel;
+use super::unordered::TryNext;
 
 /// An observer of messages sent to a [`Rumors`](crate::Rumors), in some
 /// arbitrary yet causal order.
@@ -35,10 +36,8 @@ use super::unordered::{Channel, TryNext};
 /// [`try_into_peer`](crate::Rumors::try_into_peer) reclaim the
 /// [`Peer`](crate::Peer).
 pub struct CausalMessages<T> {
-    /// The watch channel or the in-flight wait for it to change: the same
-    /// owned-wait dance as [`UnorderedMessages`](super::UnorderedMessages) (see its field
-    /// docs for why the wait is materialized).
-    channel: Option<Channel<T>>,
+    /// The shared replica receiver and its current wait state.
+    channel: Channel<T>,
     /// The ingest frontier: the causal past already staged (or delivered).
     /// The next pass walks leaves *not* contained here. Advances at ingest,
     /// so it runs ahead of delivery while the backlog drains.
@@ -68,7 +67,7 @@ impl<T> CausalMessages<T> {
     /// Observe messages beyond `since`, starting from the current snapshot.
     pub(crate) fn subscribe(inner: &watch::Sender<crate::Inner<T>>, since: Version) -> Self {
         Self {
-            channel: Some(Channel::Ready(inner.subscribe())),
+            channel: Channel::subscribe(inner),
             ingested: since.clone(),
             checkpoint: since,
             staged: BTreeMap::new(),
@@ -125,6 +124,7 @@ impl<T> CausalMessages<T> {
     }
 }
 
+/// Provides one-step, non-blocking causal observation.
 impl<T: Send + Sync + 'static> CausalMessages<T> {
     /// Take one non-blocking step: a message if one is ready, [`Quiet`] (ask
     /// again later) if not, [`Ended`] if no further message is possible.
@@ -162,37 +162,17 @@ impl<T: Send + Sync + 'static> Stream for CausalMessages<T> {
             if let Some((_, leaf)) = this.staged.pop_first() {
                 return Poll::Ready(Some((leaf.version().clone(), leaf.value::<T>())));
             }
-            match this.channel.as_mut().expect("channel state present") {
-                Channel::Waiting(wait) => match wait.as_mut().poll(cx) {
-                    Poll::Pending => return Poll::Pending,
-                    Poll::Ready((closed, rx)) => {
-                        this.channel = Some(Channel::Ready(rx));
-                        if closed {
-                            return Poll::Ready(None);
-                        }
-                    }
-                },
-                Channel::Ready(rx) => {
-                    // The backlog is empty here (the pop above returns
-                    // otherwise): the previous pass is fully yielded, so
-                    // the deferred catch-up runs before the next pass
-                    // opens against the caught-up boundary.
-                    this.checkpoint = this.ingested.clone();
-                    Self::ingest(&mut this.staged, &mut this.ingested, rx);
-                    if this.staged.is_empty() {
-                        // Nothing new: catch the resume point up and enter
-                        // the owned wait (the receiver rides inside the
-                        // future and comes back with the result).
-                        this.checkpoint = this.ingested.clone();
-                        let Some(Channel::Ready(mut rx)) = this.channel.take() else {
-                            unreachable!("matched Ready above");
-                        };
-                        this.channel = Some(Channel::Waiting(Box::pin(async move {
-                            let closed = rx.changed().await.is_err();
-                            (closed, rx)
-                        })));
-                    }
-                }
+            let Some(receiver) = std::task::ready!(this.channel.poll_receiver(cx)) else {
+                return Poll::Ready(None);
+            };
+
+            // The prior backlog is fully delivered, so its ingest frontier is
+            // now a safe resume point before the next snapshot is staged.
+            this.checkpoint = this.ingested.clone();
+            Self::ingest(&mut this.staged, &mut this.ingested, receiver);
+            if this.staged.is_empty() {
+                this.checkpoint = this.ingested.clone();
+                this.channel.wait();
             }
         }
     }

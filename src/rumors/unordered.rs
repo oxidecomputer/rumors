@@ -6,6 +6,8 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use tokio::sync::watch;
 
+use super::channel::Channel;
+
 /// An observer of messages sent to a [`Rumors`](crate::Rumors), in completely
 /// arbitrary (*non-causal*) order.
 ///
@@ -31,14 +33,11 @@ use tokio::sync::watch;
 /// [`try_into_peer`](crate::Rumors::try_into_peer) reclaim the
 /// [`Peer`](crate::Peer).
 pub struct UnorderedMessages<T> {
-    /// The watch channel, or the in-flight wait for it to change.
-    ///
-    /// The wait future owns the receiver and hands it back: a `Stream`
-    /// cannot hold a borrowing `changed()` future across polls (recreating
-    /// one per poll would drop its waker registration and lose the
-    /// wakeup), so the wait is materialized.
-    channel: Option<Channel<T>>,
+    /// The shared replica receiver and its current wait state.
+    channel: Channel<T>,
+    /// The frontier covered by every completed pass.
     checkpoint: Version,
+    /// The snapshot currently being delivered, if any.
     pass: Option<Pass>,
 }
 
@@ -58,32 +57,21 @@ pub enum TryNext<T> {
     Ended,
 }
 
-/// A wait for the channel to change, owning the receiver; resolves to
-/// whether the channel closed, and the receiver itself.
-type WaitForChange<T> =
-    Pin<Box<dyn Future<Output = (bool, watch::Receiver<crate::Inner<T>>)> + Send>>;
-
-/// An observer's hold on the watch channel: either the receiver itself, or
-/// the materialized owned wait a quiet poll left in flight (see the
-/// [`UnorderedMessages::channel`] field docs for why the wait must be owned).
-pub(super) enum Channel<T> {
-    /// The channel is in hand.
-    Ready(watch::Receiver<crate::Inner<T>>),
-    /// A wait for change is in flight.
-    Waiting(WaitForChange<T>),
-}
-
 /// One in-progress pass: the frozen walk over its snapshot, and the
 /// snapshot's ceiling to absorb into the checkpoint when the walk drains.
 struct Pass {
+    /// The remaining messages beyond the pass's starting checkpoint.
     walk: RangeOwned<causally::Down>,
+    /// The frontier earned once `walk` is fully delivered.
     ceiling: Version,
 }
 
+/// Creates passes and exposes their completed frontier.
 impl<T> UnorderedMessages<T> {
+    /// Observes messages beyond `since`, starting from the current snapshot.
     pub(crate) fn subscribe(inner: &watch::Sender<crate::Inner<T>>, since: Version) -> Self {
         Self {
-            channel: Some(Channel::Ready(inner.subscribe())),
+            channel: Channel::subscribe(inner),
             checkpoint: since,
             pass: None,
         }
@@ -119,7 +107,7 @@ impl<T> UnorderedMessages<T> {
     /// causal order is partial, not total, so "the last version I saw" is
     /// not well-defined, and such a fold is not a causally closed
     /// boundary: resuming from it could skip messages. This checkpoint
-    /// moves only at pass boundaries, which are.
+    /// moves only after a complete pass.
     ///
     /// After the observer ends (`None`), this is the complete final
     /// frontier. To merely pause in-process, just hold the observer: its
@@ -164,6 +152,7 @@ impl<T> UnorderedMessages<T> {
     }
 }
 
+/// Provides one-step, non-blocking observation.
 impl<T: Send + Sync + 'static> UnorderedMessages<T> {
     /// Take one non-blocking step: a message if one is ready, [`Quiet`] (ask
     /// again later) if not, [`Ended`] if no further message is possible.
@@ -194,38 +183,21 @@ impl<T: Send + Sync + 'static> Stream for UnorderedMessages<T> {
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
         loop {
-            match this.channel.as_mut().expect("channel state present") {
-                Channel::Waiting(wait) => match wait.as_mut().poll(cx) {
-                    Poll::Pending => return Poll::Pending,
-                    Poll::Ready((closed, rx)) => {
-                        this.channel = Some(Channel::Ready(rx));
-                        if closed {
-                            return Poll::Ready(None);
-                        }
-                    }
-                },
-                Channel::Ready(rx) => {
-                    Self::open_pass(&mut this.pass, rx, &this.checkpoint);
+            let Some(receiver) = std::task::ready!(this.channel.poll_receiver(cx)) else {
+                return Poll::Ready(None);
+            };
+            Self::open_pass(&mut this.pass, receiver, &this.checkpoint);
 
-                    let pass = this.pass.as_mut().expect("opened above");
-                    if let Some((_, leaf)) = pass.walk.next() {
-                        return Poll::Ready(Some((leaf.version().clone(), leaf.value::<T>())));
-                    }
-
-                    // The pass drained: absorb its ceiling, then enter the
-                    // owned wait (the receiver rides inside the future and
-                    // comes back with the result).
-                    let Pass { ceiling, .. } = this.pass.take().expect("opened above");
-                    this.checkpoint |= &ceiling;
-                    let Some(Channel::Ready(mut rx)) = this.channel.take() else {
-                        unreachable!("matched Ready above");
-                    };
-                    this.channel = Some(Channel::Waiting(Box::pin(async move {
-                        let closed = rx.changed().await.is_err();
-                        (closed, rx)
-                    })));
-                }
+            let pass = this.pass.as_mut().expect("opened above");
+            if let Some((_, leaf)) = pass.walk.next() {
+                return Poll::Ready(Some((leaf.version().clone(), leaf.value::<T>())));
             }
+
+            // A checkpoint advances only once its whole snapshot has been
+            // delivered. With no current message left, wait for a new state.
+            let Pass { ceiling, .. } = this.pass.take().expect("opened above");
+            this.checkpoint |= &ceiling;
+            this.channel.wait();
         }
     }
 }

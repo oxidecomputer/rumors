@@ -1,5 +1,6 @@
 mod causal;
 mod changes;
+mod channel;
 mod unordered;
 
 pub use causal::CausalMessages;

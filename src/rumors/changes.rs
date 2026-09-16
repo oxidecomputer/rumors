@@ -6,7 +6,7 @@ use tokio::sync::watch;
 
 use crate::Version;
 
-use super::unordered::Channel;
+use super::channel::Channel;
 
 /// Reports changes to a replica without returning its messages.
 ///
@@ -27,10 +27,8 @@ use super::unordered::Channel;
 /// change has been reported. Holding this observer does not prevent
 /// [`try_into_peer`](crate::Rumors::try_into_peer) from recovering the `Peer`.
 pub struct Changes<T> {
-    /// The watch channel, or the in-flight wait for it to change; the same
-    /// materialized-wait dance as [`UnorderedMessages`](crate::UnorderedMessages) (see its
-    /// `channel` field docs for why the wait must own the receiver).
-    channel: Option<Channel<T>>,
+    /// The shared replica receiver and its current wait state.
+    channel: Channel<T>,
     /// The frontier most recently reported to the consumer: `None` until the
     /// first yield, so the first poll always finds news.
     ///
@@ -52,45 +50,16 @@ pub enum TryTick {
     Ended,
 }
 
+/// Creates change subscriptions and exposes non-blocking polling.
 impl<T> Changes<T> {
     /// Subscribe to the replica, reporting its current state on the first poll.
     pub(crate) fn subscribe(inner: &watch::Sender<crate::Inner<T>>) -> Self {
         Self {
-            channel: Some(Channel::Ready(inner.subscribe())),
+            channel: Channel::subscribe(inner),
             seen: None,
         }
     }
 
-    /// Await the next coalesced change, sharing the [`Stream`] state machine.
-    pub(crate) async fn next_inner(&mut self) -> Option<()>
-    where
-        T: Send + Sync + 'static,
-    {
-        loop {
-            match self.channel.as_mut().expect("channel state present") {
-                Channel::Waiting(wait) => {
-                    let (closed, rx) = wait.as_mut().await;
-                    self.channel = Some(Channel::Ready(rx));
-                    if closed {
-                        return None;
-                    }
-                }
-                Channel::Ready(rx) => {
-                    let latest = rx.borrow_and_update().tree.latest().clone();
-                    if self.seen.as_ref() != Some(&latest) {
-                        self.seen = Some(latest);
-                        return Some(());
-                    }
-                    // Frontier unchanged since the last report: await the next
-                    // change. `Err` means every sender is gone and the
-                    // comparison above already saw the final state.
-                    if rx.changed().await.is_err() {
-                        return None;
-                    }
-                }
-            }
-        }
-    }
     /// Take one non-blocking step: [`Tick`] if the set advanced since the
     /// last report, [`Quiet`] (ask again later) if not, [`Ended`] if no
     /// further change is possible.
@@ -102,8 +71,8 @@ impl<T> Changes<T> {
     where
         T: Send + Sync + 'static,
     {
-        use futures::FutureExt;
-        match self.next_inner().now_or_never() {
+        use futures::{FutureExt, StreamExt};
+        match self.next().now_or_never() {
             None => TryTick::Quiet,
             Some(None) => TryTick::Ended,
             Some(Some(())) => TryTick::Tick,
@@ -119,38 +88,15 @@ impl<T: Send + Sync + 'static> Stream for Changes<T> {
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
         loop {
-            match this.channel.as_mut().expect("channel state present") {
-                Channel::Waiting(wait) => match wait.as_mut().poll(cx) {
-                    Poll::Pending => return Poll::Pending,
-                    Poll::Ready((closed, rx)) => {
-                        this.channel = Some(Channel::Ready(rx));
-                        if closed {
-                            // Every sender is gone, and the comparison below
-                            // already ran against the final state before this
-                            // wait began: nothing further to report.
-                            return Poll::Ready(None);
-                        }
-                    }
-                },
-                Channel::Ready(rx) => {
-                    let latest = rx.borrow_and_update().tree.latest().clone();
-                    if this.seen.as_ref() != Some(&latest) {
-                        this.seen = Some(latest);
-                        return Poll::Ready(Some(()));
-                    }
-
-                    // Frontier unchanged since the last report: enter the
-                    // owned wait (the receiver rides inside the future and
-                    // comes back with the result).
-                    let Some(Channel::Ready(mut rx)) = this.channel.take() else {
-                        unreachable!("matched Ready above");
-                    };
-                    this.channel = Some(Channel::Waiting(Box::pin(async move {
-                        let closed = rx.changed().await.is_err();
-                        (closed, rx)
-                    })));
-                }
+            let Some(receiver) = std::task::ready!(this.channel.poll_receiver(cx)) else {
+                return Poll::Ready(None);
+            };
+            let latest = receiver.borrow_and_update().tree.latest().clone();
+            if this.seen.as_ref() != Some(&latest) {
+                this.seen = Some(latest);
+                return Poll::Ready(Some(()));
             }
+            this.channel.wait();
         }
     }
 }
