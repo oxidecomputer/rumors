@@ -1,7 +1,7 @@
 # Rumors review checklist
 
-**Next:** remove `Protocol`'s vestigial representation and default, then correct
-the public prose that still describes protocol selection.
+**Next:** make repeated observer attachment additive, preserving registration
+order and every callback.
 
 Check code outcomes only after verification and merge; retain the landing
 commit. Checked dispositions are labelled explicitly.
@@ -168,8 +168,11 @@ Coupled work: party ownership with 01; other API pieces can be separate.
 - [ ] Enable lint-backed documentation and traits for remaining test-support surfaces.
       Sources: `api-audit-7`, T47, T125.
 
+- [x] Remove `Protocol`'s vestigial representation and default, and describe build compatibility rather than protocol selection — `aebaea15`.
+      Sources: `api-audit-5`, `api-core-4`, `api-core-21`, `fresh-eyes-2`, `mirror-common-12`, `module-graph-4`, `prose-hygiene-2`, T82.
+
 - [ ] Simplify core API plumbing and correct its comments.
-      Sources: `api-core-3`, `api-core-4`, `api-core-6`, `api-core-8`, `api-core-9`, `api-core-13–14`, `api-core-16`, `api-core-21`, `api-core-23`, `api-core-24`, `api-core-28–29`, `api-core-31`, `api-core-32`, `api-core-37`, T52, T72, T82, T132.
+      Sources: `api-core-3`, `api-core-6`, `api-core-8`, `api-core-9`, `api-core-13–14`, `api-core-16`, `api-core-23`, `api-core-24`, `api-core-28–29`, `api-core-31`, `api-core-32`, `api-core-37`, T52, T72, T132.
 
 ## 08. Bookmark contracts and file implementation
 
@@ -545,19 +548,19 @@ Dependencies: API lints only after their affected public surfaces are clean; bro
 Dependencies: Contracts and API signatures from earlier batches; prose improves in every batch.
 
 - [ ] Explain the library model and API at the reader’s level.
-      Sources: `api-core-17`, `api-core-18`, `api-core-26`, `api-core-27`, `prose-hygiene-2`, `session-bookmark-34`, `session-bookmark-44`, `tree-core-6`, T46, T51, T58, T75, T82, T95, T132, T141, T158, N09.
+      Sources: `api-core-17`, `api-core-18`, `api-core-26`, `api-core-27`, `session-bookmark-34`, `session-bookmark-44`, `tree-core-6`, T46, T51, T58, T75, T95, T132, T141, T158, N09.
 
 - [x] Keep the memory-budget setter focused on its contract, with a separate sizing guide — `69bdab34`.
       Sources: `api-audit-8–9`, `api-core-15`, `fresh-eyes-3`, T92.
 
 - [ ] Put reconciliation explanations where they belong.
-      Sources: `mirror-common-12`, `module-graph-4`, T56, T82, T87, T93, T100, T102–104.
+      Sources: T56, T87, T93, T100, T102–104.
 
 - [ ] Clarify public API reachability, errors, and costs.
-      Sources: `api-audit-5`, `api-audit-6`, `api-audit-10`, `api-audit-16–18`, T55, T82, T132.
+      Sources: `api-audit-6`, `api-audit-10`, `api-audit-16–18`, T55, T132.
 
 - [ ] Repair crate navigation, examples, and model descriptions.
-      Sources: `fresh-eyes-1–2`, `fresh-eyes-5–7`, `fresh-eyes-11`, T49, T82, T104, T132.
+      Sources: `fresh-eyes-1`, `fresh-eyes-5–7`, `fresh-eyes-11`, T49, T104, T132.
 
 - [ ] Correct inaccurate prose and remove needless jargon throughout.
       Sources: `prose-hygiene-1`, `prose-hygiene-3–12`, T5, T48, T49, T125, T130, T132.
