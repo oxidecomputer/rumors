@@ -92,14 +92,13 @@ pub type Law<F> = (&'static str, F);
 ///   hostile-but-canonical values.
 ///
 /// A group added here is therefore *executed by construction* in every
-/// consumer: each consumer keys its expansion arms on the input
-/// signature, so a new group with a known signature is driven with no
-/// further wiring, and one with a novel signature refuses to compile
-/// until every consumer says how to feed it. The reverse entry point — a
-/// `pub static` law group missing from this roster, which nothing would
-/// ever execute — is closed by the totality pin in this module's tests,
-/// which holds the roster equal to a source scan of the `pub static`
-/// declarations in this file.
+/// consumer: each consumer keys its expansion arms on the input signature, so a
+/// new group with a known signature is driven with no further wiring, and one
+/// with a novel signature refuses to compile until every consumer says how to
+/// feed it. The reverse entry point — a `pub static` law group missing from
+/// this roster, which nothing would ever execute — is closed by the totality
+/// pin in this module's tests, which holds the roster equal to a source scan of
+/// the `pub static` declarations in this file.
 ///
 /// The signature kinds name what each predicate borrows: `version`,
 /// `party`, `rank`, `clock` for single values, and `versions`,
@@ -632,11 +631,10 @@ laws! {
     /// [`Span::new`] admits exactly the ordered pairs, and builds exactly the
     /// pair it was given.
     ///
-    /// The gate is the causal order itself: `Span::new(a, b)` is `Ok` ⟺
+    /// The criterion is the causal order itself: `Span::new(a, b)` is `Ok` ⟺
     /// `a <= b` (concurrent and strictly reversed pairs alike are refused,
     /// with the payload-free [`Crossed`] as the whole verdict), and an
-    /// admitted span's endpoints are byte-identical to the arguments — the
-    /// validating entry point adds nothing and reorders nothing.
+    /// admitted span's endpoints are byte-identical to the arguments.
     fn span_gate_admits_exactly_the_ordered {
         match Span::new(a, b) {
             Ok(span) => le(a, b) && span.lo() == a && span.hi() == b,
@@ -2616,23 +2614,18 @@ laws! {
     /// start (projection only shrinks a version), so the concurrent-to-start
     /// placements are this law's negative space: the committed law's negative
     /// space, and overlapping arbitrary parties keep them inhabited under mass.
+    ///
     /// When `q` carves nothing out of `p` (it covers `p`, or is disjoint from
     /// it — every pair in a one-world population, whose parties are pairwise
     /// disjoint), the law constructs the decomposition from `p`'s own fork half
     /// through the same `without` entry points instead: the additivity equation
     /// runs on every call, so no population can leave this law vacuous.
-    /// `own_span_place_reaches_every_concurrent_corner` witness beside
-    /// the span tests constructs them.
+    /// `own_span_place_reaches_every_concurrent_corner` witness beside the span
+    /// tests constructs them.
     ///
     /// The eager side exists at all because projection is monotone
     /// (`projection_monotone_in_version`), which this law re-witnesses by
-    /// validating the projected pair through [`Span::new`]. law's negative
-    /// space, and overlapping arbitrary parties keep them inhabited under mass.
-    /// When `q` carves nothing out of `p` (it covers `p`, or is disjoint from
-    /// it — every pair in a one-world population, whose parties are pairwise
-    /// disjoint), the law constructs the decomposition from `p`'s own fork half
-    /// through the same `without` entry points instead: the additivity equation
-    /// runs on every call, so no
+    /// validating the projected pair through [`Span::new`].
     fn own_span_matches_the_projected_span(a, b, party) {
         let hull = a.span(b);
         let coincident = a.span(a);
@@ -2719,14 +2712,7 @@ laws! {
     /// Projection is additive over any without-carved decomposition of a
     /// region: for `r = p \ q` and `inner = p \ r`, the two remainders
     /// partition `p`'s region and `(v/r) | (v/inner) == v / p`.
-    ///
-    /// [`projection_additive_over_fork`] states additivity for the balanced
-    /// fork geometry; the ragged region pairs `without` carves are that
-    /// law's negative space, and overlapping arbitrary parties keep them
-    /// inhabited under mass. When `q` carves nothing out of `p` (it covers `p`,
-    /// or is disjoint from it — every pair in a one-world population, whose
-    /// parties are pairwise disjoint), the law constructs the decomposition
-    /// from `p`'s own fork half through the same `without`
+
 
 
     fn projection_additive_over_carved_regions {

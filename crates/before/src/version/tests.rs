@@ -592,9 +592,8 @@ proptest! {
     /// `as_bytes` returns exactly the canonical `encode` bytes.
     ///
     /// The stored form includes canonical padding, so its bytes are identical
-    /// to the encoder's output.
-    /// Exercises the literal/`extend` construction path over arbitrary
-    /// normal-form trees.
+    /// to the encoder's output. Exercises the literal/`extend` construction
+    /// path over arbitrary normal-form trees.
     #[test]
     fn as_bytes_matches_encode(ov in arb_oracle_version()) {
         let v = from_oracle_version(&ov);

@@ -5,17 +5,16 @@
 //!
 //! The big-integer backend deliberately caps a magnitude's buffer at
 //! `usize::MAX / word-bits` words so its internal bit counts always fit a
-//! `usize`. On 64-bit targets that ceiling (2⁶⁴ − 64 bits) sits
-//! astronomically past allocatable memory and never binds. On a 32-bit
-//! target it is 2³² − 32 bits — about 512 MiB of value in a 4 GiB address
-//! space — and the rank wire entry point can honestly outgrow it: the fraction
-//! form reaches a wider numerator from ~604 MB of input, and the integral
-//! form from ~512 MiB, both loud backend panics rather than values without
-//! this module. [`Num`] closes that gap: the [`Base`] arm keeps the
-//! backend as the arithmetic engine of record everywhere it can represent
-//! the value, and the [`Wide`] arm stores the sliver it cannot — bounded
-//! only by memory — implementing exactly the operation set rank arithmetic
-//! needs (byte assembly, bit reads, right shifts, ±1, MSB-window
+//! `usize`. On 64-bit targets that ceiling (2⁶⁴ − 64 bits) sits astronomically
+//! past allocatable memory and never binds. On a 32-bit target it is 2³² − 32
+//! bits — about 512 MiB of value in a 4 GiB address space — and the rank wire
+//! entry point can outgrow it: the fraction form reaches a wider numerator from
+//! ~604 MB of input, and the integral form from ~512 MiB, both loud backend
+//! panics rather than values without this module. [`Num`] closes that gap: the
+//! [`Base`] arm keeps the backend as the arithmetic engine of record everywhere
+//! it can represent the value, and the [`Wide`] arm stores the sliver it cannot
+//! — bounded only by memory — implementing exactly the operation set rank
+//! arithmetic needs (byte assembly, bit reads, right shifts, ±1, MSB-window
 //! comparison, and limb streaming into the accumulator).
 //!
 //! # Canonical arm dispatch

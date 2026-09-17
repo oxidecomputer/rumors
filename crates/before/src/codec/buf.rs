@@ -7,8 +7,11 @@
 //! - unused bits in the final byte are zero.
 //!
 //! Consequently, equal buffers have equal bytes and [`seal_padding`] only
-//! needs to append the marker. Lengths and bit positions use `u64`; byte
-//! indexes use `usize`.
+//! needs to append the marker.
+//!
+//! Lengths and bit positions use `u64` to avoid overflow on 32-bit platforms;
+//! byte indexes use `usize`, since there can never be more than `usize::MAX`
+//! bytes in memory on any platform.
 
 use super::bits::BitsView;
 

@@ -38,36 +38,33 @@
 //! function-space realization is deterministic) against the
 //! function-space combinators — and driven over shared populations by
 //! roster expansion. What it alone catches: **population holes** — an
-//! operation bisimulated on arbitrary normal forms but not on organic
-//! op-trace values, or the reverse. The hand-written bodies it replaced
-//! could not prevent one: each chose its own population, so coverage was
-//! a product nobody enumerated. Here the population belongs to the driver
-//! and the operation to the descriptor, and the two meet by construction.
-//! Deliberately incorrect descriptors demonstrate that the drivers reject
-//! mistranscribed operations. A separate coverage check assigns every `Bound`
-//! citation to exactly one
-//! side — derived from the table, or bespoke under a declared category — so
-//! a pointwise operation cannot quietly land as one more hand-written
-//! body.
+//! operation bisimulated on arbitrary normal forms but not on organic op-trace
+//! values, or the reverse. The hand-written bodies it replaced could not
+//! prevent one: each chose its own population, so coverage was a product nobody
+//! enumerated. Here the population belongs to the driver and the operation to
+//! the descriptor, and the two meet by construction. Deliberately incorrect
+//! descriptors demonstrate that the drivers reject mistranscribed operations. A
+//! separate coverage check assigns every `Bound` citation to exactly one side —
+//! derived from the table, or bespoke under a declared category — so a
+//! pointwise operation cannot quietly land as one more hand-written body.
 //!
-//! **The algebraic laws** (`crate::laws`, driven by
-//! [`super::algebraic_laws`] and shared with the fuzz targets). Law
-//! predicates over production alone: lattice identities, monotonicity,
-//! the distance metric's axioms, order/rank consistency. What they alone
-//! catch: contract violations **where no reference implementation
-//! exists** — properties the paper never states (rank tiebreaks, fork
-//! hand-back shapes) or that both oracles would share a blind spot on.
-//! A law needs no oracle to disagree with; production either satisfies the
+//! **The algebraic laws** (`crate::laws`, driven by [`super::algebraic_laws`]
+//! and shared with the fuzz targets). Law predicates over production alone:
+//! lattice identities, monotonicity, the distance metric's axioms, order/rank
+//! consistency. What they alone catch: contract violations **where no reference
+//! implementation exists** — properties the paper never states (rank tiebreaks,
+//! fork hand-back shapes) or that both oracles would share a blind spot on. A
+//! law needs no oracle to disagree with; production either satisfies the
 //! predicate or fails it.
 //!
 //! **Exhaustive small-scope enumeration** ([`super::exhaustive`]). Total
-//! enumeration of every reachable state and operation pairing inside
-//! small bounds, checked against the oracle. What it alone catches:
-//! **boundary semantics proptests sample past** — the measure-zero
-//! corners (exact equalities, empty regions, degenerate splits) that
-//! random generation hits with vanishing probability. Within its scope
-//! the verdict is total, not sampled; outside its scope it says nothing,
-//! which is exactly why the proptest legs exist.
+//! enumeration of every reachable state and operation pairing inside small
+//! bounds, checked against the oracle. What it alone catches: **boundary
+//! semantics proptests sample past** — the measure-zero corners (exact
+//! equalities, empty regions, degenerate splits) that random generation hits
+//! with vanishing probability. Within its scope the verdict is total, not
+//! sampled; outside its scope it says nothing, which is exactly why the
+//! proptest legs exist.
 //!
 //! # The resource instruments
 //!

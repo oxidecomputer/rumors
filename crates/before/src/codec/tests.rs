@@ -1133,17 +1133,15 @@ fn assert_all_accept_canonical(bytes: &[u8]) {
 proptest! {
     /// Flipping any single bit of a valid clock encoding yields a stream that
     /// `decode` either rejects or accepts canonically (normal-form,
-    /// re-encode-stable) — for every bit position and every decoder.
+    /// re-encode-stable), for every bit position and every decoder.
     ///
     /// Single-bit flips are the most targeted mutation: each lands one Hamming
-    /// step from the accepted language, where a validator that under-checks
-    /// would leak a non-canonical accept.
+    /// step from the accepted language.
     ///
-    /// A flip can
-    /// shift the tree to end early enough that a whole trailing byte
-    /// follows the padding; `decode` must reject any remainder past one
-    /// padded byte (`require_marker_padding`'s length bound), keeping
-    /// `decode` injective on bytes.
+    /// A flip can shift the tree to end early enough that a whole trailing byte
+    /// follows the padding; `decode` must reject any remainder past one padded
+    /// byte (`require_marker_padding`'s length bound), keeping `decode`
+    /// injective on bytes.
     #[test]
     fn bit_flip_rejects_or_decodes_canonically(
         pa in arb_oracle_party_nonempty(),
@@ -1171,13 +1169,12 @@ proptest! {
     ///
     /// A prefix of a complete tree is almost always `Truncated`, but a prefix
     /// can occasionally itself be a complete smaller tree (e.g. the leading id
-    /// leaf of a clock) — which must then decode canonically, never to a
+    /// leaf of a clock), which must then decode canonically, never to a
     /// malformed value.
     ///
-    /// A truncation
-    /// can cut a valid stream just *after* a complete tree and its padding
-    /// but inside later bytes; `decode` must reject any remainder past one
-    /// padded byte rather than accept a value that re-encodes to fewer
+    /// A truncation can cut a valid stream just *after* a complete tree and its
+    /// padding but inside later bytes; `decode` must reject any remainder past
+    /// one padded byte rather than accept a value that re-encodes to fewer
     /// bytes than its own input.
     #[test]
     fn truncation_rejects_or_decodes_canonically(
@@ -1194,16 +1191,14 @@ proptest! {
 
 /// Direct examples cover each marker-padding boundary exercised by mutation.
 ///
-/// A canonical encoding pads with exactly one `1` marker and then zeros
-/// to the byte boundary, all within one byte, which is what makes
-/// `decode` **injective on byte strings**: every stream has one padded
-/// spelling, and no accepted input re-encodes to different bytes than
-/// its own. Each clause below rejects one way of breaking that: a
-/// spurious whole zero byte after the padding and a zeroed marker byte
-/// are [`Decode::TrailingBits`] (the padding is present but malformed,
-/// or input runs beyond it), and a flush stream cut before its whole
-/// marker byte is [`Decode::Truncated`] (the padding is missing, not
-/// malformed) — never a silent accept.
+/// A canonical encoding pads with exactly one `1` marker and then zeros to the
+/// byte boundary, all within one byte, which is what makes `decode` **injective
+/// on byte strings**: every stream has one padded spelling, and no accepted
+/// input re-encodes to different bytes than its own. Each clause below rejects
+/// one way of breaking that: a spurious whole zero byte after the padding and a
+/// zeroed marker byte are [`Decode::TrailingBits`] (the padding is present but
+/// malformed, or input runs beyond it), and a flush stream cut before its whole
+/// marker byte is [`Decode::Truncated`] (the padding is missing, not malformed).
 #[test]
 fn malformed_padding_rejected_witness() {
     // Canonical encoding of the event `(2, 0, 1)`: the 9-bit stream
@@ -1314,13 +1309,12 @@ proptest! {
 // ─────────────────────── flush-boundary truncation ───────────────────────
 //
 // A canonical encoding whose live bits end flush against a byte boundary
-// carries its padding in a whole final `1000_0000` byte; cutting the input
-// just before that byte leaves a complete tree with its required padding
-// missing entirely. The
-// family spans the five marker-padded wire types (`Party`, `Version`,
-// `Clock`, `Ranked`, `Span`); `Rank` has no marker padding (its stream is
-// self-delimiting within its final byte), so no flush-cut input exists for
-// it and its truncations are all mid-stream.
+// carries its padding in a whole final `1000_0000` byte; cutting the input just
+// before that byte leaves a complete tree with its required padding missing
+// entirely. The family spans the five marker-padded wire types (`Party`,
+// `Version`, `Clock`, `Ranked`, `Span`); `Rank` has no marker padding (its
+// stream is self-delimiting within its final byte), so no flush-cut input
+// exists for it and its truncations are all mid-stream.
 
 /// An arbitrary impl `Version` whose live bits end flush against a byte
 /// boundary, so its canonical padding occupies a whole final `1000_0000`
@@ -1366,11 +1360,11 @@ proptest! {
     /// A stream cut exactly at a flush byte boundary reads
     /// [`Decode::Truncated`] from every encoding with a version tail.
     ///
-    /// Live bits end on the boundary and the whole `1000_0000` padding byte
-    /// is absent: required data is missing, not malformed. Exercised at the
-    /// end of the input (`Version`, and the version tail of `Clock`,
-    /// `Ranked`, and `Span`) and at the boundary inside `Span` (its meet cut
-    /// short of its own padding byte, the join then missing entirely).
+    /// Live bits end on the boundary and the whole `1000_0000` padding byte is
+    /// absent: required data is missing, not malformed. Exercised at the end of
+    /// the input (`Version`, and the version tail of `Clock`, `Ranked`, and
+    /// `Span`) and at the boundary inside `Span` (its meet cut short of its own
+    /// padding byte, the join then missing entirely).
     #[test]
     fn flush_cut_version_reads_truncated_for_every_version_tail(
         v in arb_flush_version(),
@@ -1416,10 +1410,10 @@ proptest! {
     /// A party stream cut exactly at a flush byte boundary reads
     /// [`Decode::Truncated`] from both party and clock decoding.
     ///
-    /// Live bits end on the boundary and the whole `1000_0000` padding byte
-    /// is absent: missing required data at the end of the input (`Party`)
-    /// and at the boundary inside a clock (the party cut short of
-    /// its own padding byte, the version then missing entirely).
+    /// Live bits end on the boundary and the whole `1000_0000` padding byte is
+    /// absent: missing required data at the end of the input (`Party`) and at
+    /// the boundary inside a clock (the party cut short of its own padding
+    /// byte, the version then missing entirely).
     #[test]
     fn flush_cut_party_reads_truncated_for_party_and_clock(p in arb_flush_party()) {
         let bytes = p.encode();

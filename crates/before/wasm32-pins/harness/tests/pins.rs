@@ -159,12 +159,12 @@ fn version_decode_memory_terminal_traps() {
 /// correctly, and the decoded value sits strictly between zero and one.
 ///
 /// The deepest flush-group exponent whose whole fraction image fits the
-/// big-integer backend's 32-bit buffer capacity without any stripping:
-/// the lower adjacency witness of the numerator's representation boundary — the widths
-/// where storage crosses from the backend magnitude to the rank's own
-/// limb vector. ~604 MB of input is the smallest valid trigger, since
-/// the fraction's depth is deliberately counted from bits actually read,
-/// never from a header's claim.
+/// big-integer backend's 32-bit buffer capacity without any stripping: the
+/// lower adjacency witness of the numerator's representation boundary — the
+/// widths where storage crosses from the backend magnitude to the rank's own
+/// limb vector. ~604 MB of input is the smallest valid trigger, since the
+/// fraction's depth is deliberately counted from bits actually read, never from
+/// a header's claim.
 #[test]
 fn rank_decode_below_backend_capacity() {
     assert_eq!(
@@ -208,14 +208,14 @@ fn rank_decode_at_usize_exp_boundary() {
 /// 32-bit capacity decodes correctly and orders exactly against reference
 /// ranks.
 ///
-/// The numerator is 2^32 - 32 value bits, from a fraction 2^32 + 32
-/// expansion bits deep opening with 64 zero bits.
-/// The backend caps a magnitude at `usize::MAX / 32` words so bit counts
-/// fit `usize`; a numerator of exactly that many bits fills the buffer to
-/// its last word. This is the representation boundary's at-capacity witness on the
-/// numerator's own width (the byte-capacity witness above covers the
-/// unstripped image's width): the widest numerator the backend arm
-/// stores, holding the arm ceiling to the real backend from below.
+/// The numerator is 2^32 - 32 value bits, from a fraction 2^32 + 32 expansion
+/// bits deep opening with 64 zero bits. The backend caps a magnitude at
+/// `usize::MAX / 32` words so bit counts fit `usize`; a numerator of exactly
+/// that many bits fills the buffer to its last word. This is the representation
+/// boundary's at-capacity witness on the numerator's own width (the
+/// byte-capacity witness above covers the unstripped image's width): the widest
+/// numerator the backend arm stores, holding the arm ceiling to the real
+/// backend from below.
 #[test]
 fn rank_decode_at_backend_bit_capacity() {
     assert_eq!(
@@ -363,15 +363,16 @@ fn ranked_decode_deep_in_storable_range() {
 /// byte past the 2^29-byte coordinate aborts on allocation failure in the
 /// byte entry point `Ranked::decode`.
 ///
-/// The component is 536870913 bytes, one past where a 32-bit `usize`
-/// runs out of bit positions. No denomination binds here: the entry point's own straddle pins hold it exact
-/// across the 2^29-bit coordinate, and the version entry point crosses this very
-/// coordinate green (`version_decode_past_usize_positions_coordinate`).
-/// What fires is the memory bound: the composite's working set — the key,
-/// its read copy, and the rank re-derivation's fold and ~2^31-bit
-/// numerator — crosses what the 4 GiB address space allocates, and the
-/// probe backtrace attributes the trap to the fold accumulator's buffer
-/// growth inside the re-derivation. A leaner working set — not a wider
+/// The component is 536870913 bytes, one past where a 32-bit `usize` runs out
+/// of bit positions. No denomination binds here: the entry point's own straddle
+/// pins hold it exact across the 2^29-bit coordinate, and the version entry
+/// point crosses this very coordinate green
+/// (`version_decode_past_usize_positions_coordinate`). What fires is the memory
+/// bound: the composite's working set — the key, its read copy, and the rank
+/// re-derivation's fold and ~2^31-bit numerator — crosses what the 4 GiB
+/// address space allocates, and the probe backtrace attributes the trap to the
+/// fold accumulator's buffer growth inside the re-derivation. A leaner working
+/// set — not a wider
 /// denomination — is what would flip this pin to `Value(0)`.
 #[test]
 fn ranked_decode_memory_terminal_traps() {

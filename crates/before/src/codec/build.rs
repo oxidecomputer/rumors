@@ -20,10 +20,9 @@ use super::{BitsBuf, BitsView, Code};
 pub(crate) struct BitBuilder {
     /// The committed prefix: whole bytes, most-significant bit first.
     bytes: Vec<u8>,
-    /// The trailing not-yet-committed bits, right-aligned
-    /// (the stream's next bit is the register's most significant live
-    /// bit). Always fewer than eight: appends flush whole bytes
-    /// greedily.
+    /// The trailing not-yet-committed bits, right-aligned (the stream's next
+    /// bit is the register's most significant live bit). Always fewer than
+    /// eight: appends flush whole bytes greedily.
     staged: u64,
     /// Live bits in `staged`, `0..8`.
     staged_len: u32,

@@ -37,8 +37,8 @@ pub struct Crossed;
 /// A [`Ticks`](crate::Ticks) count exceeded the machine integer it was
 /// converted into.
 ///
-/// Counts have no ceiling, so every conversion out to a fixed-width
-/// integer is fallible; a count past the range answers this. Read every limb
+/// Counts have no ceiling, so every conversion out to a fixed-width integer is
+/// fallible. For an infallible way to read the count, examine each `u64` limb
 /// with [`Ticks::limbs`](crate::Ticks::limbs) instead.
 ///
 /// # Example
