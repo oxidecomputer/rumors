@@ -168,8 +168,9 @@ compatibility branch current with every external Rumors API change.
   and its `Party` documentation).
 - Commit every proptest seed file (`proptest-regressions/**`); never
   strip them from diffs.
-- `tests/gossip_snapshot.rs` and the `insta` snapshots pin the wire format
-  byte-for-byte; re-accept them only after a deliberate protocol change,
+- `tests/gossip_snapshot.rs`, `tests/protocol_overhead.rs`, and the `insta`
+  snapshots pin the wire format byte-for-byte; re-accept them only after a
+  deliberate protocol change,
   never as an accommodation of drift. Pre-release (no shipped version
   exists to hold compatible), that means a deliberate, owner-ruled change
   to the wire format or to the capture renderer's vocabulary, named

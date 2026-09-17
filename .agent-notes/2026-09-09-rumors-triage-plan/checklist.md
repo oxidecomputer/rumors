@@ -1,7 +1,7 @@
 # Rumors review checklist
 
-**Current:** support the public budget claims with a sparse, affordable cost
-grid.
+**Current:** pin representative wire costs and batching behavior with a sparse,
+affordable grid on `codex/window-cost-grid`, based on `98cab8dd`.
 
 **Next:** prune budget and residency measurements which do not justify their
 maintenance cost.
@@ -133,7 +133,8 @@ Dependencies: 01 for retained-root measurements; 03–05 when claims cover deep 
 - [x] Derive window charges and structural limits from the types or constants that own them — `cd684646`.
       Sources: `link-3`, `materialized-10`, `remote-codec-3`, `streaming-backend-window-25`, `streaming-backend-window-26`, `streaming-backend-window-28`, `streaming-backend-window-30`, `streaming-backend-window-31`, `streaming-backend-window-34`, `testing-infra-2`, T86–88, T103, T104, T120, T129, T132.
 
-- [ ] Support public cost claims with a sparse, affordable overhead grid.
+- [ ] Pin representative wire costs and batching behavior with a sparse,
+      affordable overhead grid.
       Sources: `verification-infra-6`, T17, T168, N35, N51.
 
 - [ ] Keep only useful budget and residency measurements, with precise claims.

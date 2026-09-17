@@ -21,8 +21,9 @@
 //! - [`fault`] injects transport adversity; [`flaky`] injects
 //!   bookmark-storage adversity.
 //! - [`wire`] and [`tcp`] carry the same sessions over in-memory links
-//!   and real sockets; [`routed_tcp`] is the socket instantiation of
-//!   the routed adapter's dial/listen seam.
+//!   and real sockets; [`count`] measures each direction of an in-memory
+//!   session; [`routed_tcp`] is the socket instantiation of the routed
+//!   adapter's dial/listen seam.
 //! - [`window`] is the window-budget sweep dimension: generated per-peer
 //!   window configurations (floor, tight budget, default) for the suites
 //!   that sweep it.
@@ -34,6 +35,7 @@
 #![allow(dead_code, unused_imports)]
 
 pub mod action;
+pub mod count;
 pub mod fault;
 pub mod flaky;
 pub mod gossip_snapshot;

@@ -11,13 +11,10 @@ can reach. Replicas which transitively gossip eventually converge on the
 same set of messages; `rumors` works hard to turn "eventually" into "ASAP".
 
 Unlike many gossip protocols, `rumors` features **redaction**. When any peer
-redacts a message, it is contagiously purged from every peer's memory,
-allowing superseded messages to be garbage-collected without global
-coordination. Redaction is effectively free along every axis: conveying an
-arbitrary quantity of redactions costs little additional communication, and
-a redacted message leaves zero residual local bookkeeping. Memory usage
-therefore scales up *and down* with the live set of messages, and bandwidth
-up *and down* with the quantity of previously-unknown messages.
+redacts a message, the deletion propagates through gossip and purges that
+message from every replica. A redacted message leaves no tombstone, so local
+memory can shrink with the live set. Gossip still carries the causal history
+needed to honor the deletion.
 
 ## When *should* you use it?
 
@@ -29,33 +26,6 @@ bandwidth is only getting cheaper and more plentiful, whereas *latency* is
 capped by the laws of physics. `rumors` is designed for today and tomorrow;
 it optimizes for extremely fast convergence when bandwidth is not a primary
 constraint.
-
-**`rumors` could be a particularly excellent fit if:**
-
-- peers produce in total **less than 10,000 messages/second**, and
-- each peer-to-peer link offers **1 Gb/s or better**.
-
-In this regime, every change propagates at the pace of a few network round
-trips per gossip hop, for any message set size that fits in memory. Required
-bandwidth scales linearly down with message rate (for example, 100
-messages/s at 10 Mb/s), and total set size increases cost only by a (very
-slow-growing) logarithmic factor. These figures price `rumors`' own metadata
-overhead; message bodies ride on top at their raw byte rate (at 10,000
-messages/s, about 80 Mb/s per KB of mean body size). That term is a rounding
-error for sub-KB bodies, and overtakes the metadata around 10 KB; past that,
-you are paying to move your data, not to coordinate it, a cost no
-replication scheme escapes.
-
-**At the limits:** Up to roughly an order of magnitude past these bounds
-(a thinner link, or a faster message rate), peers degrade gracefully
-rather than failing outright: they may still converge, but may run stale
-in proportion to roughly the square of the bandwidth shortfall (derived: a
-session's metadata amortizes, falling roughly as the inverse square root
-of the backlog at realistic scales, so equilibrium repays a bandwidth
-deficit with its square in staleness). Past that, they will likely fall
-behind regardless of gossip frequency. In the other direction, past
-~10 Gb/s the network ceases to be the limit at all: CPU caps message
-rate, and RAM caps set size.
 
 ## When *shouldn't* you use it?
 
@@ -73,10 +43,9 @@ rate, and RAM caps set size.
   Authenticating peers and securing the transport are the application's job;
   the `link` module lists exactly what the protocol asks of the transport.
 - **If bandwidth is your scarce resource.** `rumors` buys low latency with
-  bandwidth: when reconciling small divergences, payloads under ~10 KB use
-  more bandwidth for metadata than for messages. Reconciling larger
-  divergences amortizes much of this cost, but on metered, narrow, or
-  high-loss links, this crate strikes the wrong balance.
+  bandwidth. Small reconciliations can spend several kilobytes of protocol
+  traffic per message. Metered, narrow, or high-loss links may call for a
+  different design.
 
 ## Joining and leaving a network
 

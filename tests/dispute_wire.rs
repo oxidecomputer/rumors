@@ -14,33 +14,21 @@
 
 mod common;
 
-use std::io;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::task::{Context, Poll};
-
 use bytes::Bytes;
 use rand::{RngCore, SeedableRng};
 use rand_chacha::ChaChaRng;
-use rumors::link::{Connector, Done, Link, MemoryLink};
 use rumors::testing::{dispute_overhead_bytes, reference_wire_bytes};
 use rumors::{Peer, Rumors};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use tokio::io::AsyncWrite;
 
 use crate::common::window::WindowChoice;
-use crate::common::wire::block_on;
 
 /// Shared history in the smaller calibration fixtures.
 const COMMON: usize = 2_048;
 
 /// New messages per side in the smaller calibration fixtures.
 const DIVERGENT: usize = 8_192;
-
-/// Per-stream buffering for the counting link.
-const LINK_CAPACITY: usize = 8 * 1024 * 1024;
 
 /// A byte-string payload that encodes to the 100-byte reference size.
 const REFERENCE_PAYLOAD_LEN: usize = 98;
@@ -64,95 +52,6 @@ const U64_ENCODED_BYTES: usize = 9;
 /// The small-record fixture's rounded mean falls one byte below the estimate.
 /// Smaller records amortize their shared frame headers over more messages.
 const MINIMAL_CELL_RESIDUAL: usize = 1;
-
-/// An `AsyncWrite` that tallies every byte accepted by the inner writer.
-struct CountingWrite<W> {
-    /// The writer that actually accepts the bytes.
-    inner: W,
-    /// Bytes accepted across the session's writers.
-    written: Arc<AtomicUsize>,
-}
-
-/// Forward writes and count only bytes accepted by the underlying stream.
-impl<W: AsyncWrite + Unpin> AsyncWrite for CountingWrite<W> {
-    /// Add each successful partial write to the shared count.
-    fn poll_write(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<io::Result<usize>> {
-        let poll = Pin::new(&mut self.inner).poll_write(cx, buf);
-        if let Poll::Ready(Ok(accepted)) = &poll {
-            self.written.fetch_add(*accepted, Ordering::Relaxed);
-        }
-        poll
-    }
-
-    /// Flush the underlying stream.
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.inner).poll_flush(cx)
-    }
-
-    /// Close the underlying stream's write side.
-    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.inner).poll_shutdown(cx)
-    }
-}
-
-/// A [`Connector`] whose opened streams tally their writes into the
-/// shared counter.
-#[derive(Clone)]
-struct CountingConnector<C> {
-    /// Opens the actual data streams.
-    inner: C,
-    /// The session's shared byte count.
-    written: Arc<AtomicUsize>,
-}
-
-/// Count writes on every lazily opened data stream.
-impl<C: Connector> Connector for CountingConnector<C> {
-    /// A data-stream writer contributing to the session's count.
-    type Tx = CountingWrite<C::Tx>;
-
-    /// Open a stream and wrap its writer.
-    async fn connect(&self) -> io::Result<(Self::Tx, Done<Self::Tx>)> {
-        let (inner, _) = self.inner.connect().await?;
-        Ok((
-            CountingWrite {
-                inner,
-                written: self.written.clone(),
-            },
-            Done::discard(),
-        ))
-    }
-}
-
-/// Decorate one in-memory link end so its control writes and every data
-/// stream it opens tally into `written`.
-fn counting(
-    link: MemoryLink,
-    written: &Arc<AtomicUsize>,
-) -> Link<
-    tokio::io::DuplexStream,
-    CountingWrite<tokio::io::DuplexStream>,
-    CountingConnector<rumors::link::MemoryConnector>,
-    rumors::link::MemoryAcceptor,
-> {
-    link.map_transport(|control_read, control_write, connector, acceptor| {
-        (
-            control_read,
-            CountingWrite {
-                inner: control_write,
-                written: written.clone(),
-            },
-            CountingConnector {
-                inner: connector,
-                written: written.clone(),
-            },
-            acceptor,
-        )
-    })
-}
 
 /// Fork one network after shared history, then add distinct messages on each side.
 fn diverged<T>(
@@ -183,16 +82,8 @@ fn session_wire_bytes<T>(a: &Rumors<T>, b: &Rumors<T>) -> usize
 where
     T: Serialize + DeserializeOwned + Eq + Send + Sync + 'static,
 {
-    let written = Arc::new(AtomicUsize::new(0));
-    let (a_link, b_link) = rumors::link::memory_with_capacity(LINK_CAPACITY);
-    let mut a_link = counting(a_link, &written);
-    let mut b_link = counting(b_link, &written);
-    block_on(async {
-        let (near, far) = tokio::join!(a.gossip_once(&mut a_link), b.gossip_once(&mut b_link));
-        near.expect("gossip completes over the counting link");
-        far.expect("gossip completes over the counting link");
-    });
-    written.load(Ordering::Relaxed)
+    let (a_to_b, b_to_a) = common::count::session_wire_bytes(a, b);
+    a_to_b + b_to_a
 }
 
 /// The smaller fixture's mean bytes per differing message, rounded down.
