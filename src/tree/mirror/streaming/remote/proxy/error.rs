@@ -52,9 +52,6 @@ pub enum Error<E> {
     /// Normal remote wire frames could not be reconstructed as a reply.
     #[error(transparent)]
     Decode(#[from] adapter::DecodeError<E>),
-    /// A frame constructed by the adapter violated the reply-only boundary.
-    #[error(transparent)]
-    ReplyFrame(#[from] streams::ReplyFrameError),
     /// An outgoing logical stream could not be opened, labeled, or written.
     #[error(transparent)]
     Send(#[from] streams::SendError),

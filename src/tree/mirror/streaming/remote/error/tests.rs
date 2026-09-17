@@ -35,7 +35,7 @@ proptest! {
             (proxy::Error::Stream(StreamError::Decode(DecodeError { origin, kind: DecodeErrorKind::Truncated { missing: FramePart::SupplyRun, source: source() } })), TransportOperation::Read),
             (proxy::Error::Stream(StreamError::SupplyClosed { origin, source: Some(source()) }), TransportOperation::Accept),
         ] {
-            let public = Error::from(MirrorError::Server(error));
+            let public = Error::from(MirrorError::Remote(error));
             let Error::Transport(error) = public else { prop_assert!(false, "transport was misclassified: {public:?}"); return Ok(()); };
             prop_assert_eq!(error.context, Context { phase: Phase::Reconciliation, data_stream: Some(DataStream { sender: speaker.role(), index: Some(index) }) });
             prop_assert_eq!(error.operation, operation);
@@ -51,7 +51,7 @@ proptest! {
         marker in any::<u64>(),
         kind in prop::sample::select(vec![io::ErrorKind::UnexpectedEof, io::ErrorKind::ConnectionReset]),
     ) {
-        let public = Error::from(MirrorError::Server(proxy::Error::PeerDeparted(io::Error::new(kind, Injected(marker)))));
+        let public = Error::from(MirrorError::Remote(proxy::Error::PeerDeparted(io::Error::new(kind, Injected(marker)))));
         let Error::Transport(error) = public else { panic!("departure must be a transport failure"); };
         prop_assert_eq!(error.context.phase, Phase::Reconciliation);
         prop_assert_eq!(error.context.data_stream, None);
@@ -68,7 +68,7 @@ proptest! {
         kind in prop::sample::select(vec![io::ErrorKind::UnexpectedEof, io::ErrorKind::InvalidData]),
     ) {
         let remote = proxy::Error::Decode(adapter::DecodeError::Record(codec::DecodeLeafError::Version(io::Error::new(kind, Injected(marker)))));
-        let public = Error::from(MirrorError::Server(remote));
+        let public = Error::from(MirrorError::Remote(remote));
         let Error::Protocol(error) = public else { prop_assert!(false, "complete record blamed on transport: {public:?}"); return Ok(()); };
         prop_assert_eq!(error.context.phase, Phase::Reconciliation);
         let remote = error.source.downcast_ref::<proxy::Error<Infallible>>().unwrap();
@@ -83,7 +83,7 @@ proptest! {
         let speaker = if initiator { Speaker::Initiator } else { Speaker::Responder };
         let origin = Origin::stream(speaker, Stream::new(index).unwrap());
         let remote = proxy::Error::Stream(StreamError::Decode(DecodeError { origin, kind: DecodeErrorKind::FrameShape { detail: "wrong frame shape" } }));
-        let Error::Protocol(error) = Error::from(MirrorError::Server(remote)) else { prop_assert!(false, "invalid frame was not a violation"); return Ok(()); };
+        let Error::Protocol(error) = Error::from(MirrorError::Remote(remote)) else { prop_assert!(false, "invalid frame was not a violation"); return Ok(()); };
         prop_assert_eq!(error.context.data_stream, Some(DataStream { sender: speaker.role(), index: Some(index) }));
         prop_assert!(error.source.downcast_ref::<proxy::Error<Infallible>>().is_some());
     }

@@ -99,9 +99,9 @@ pub use error::{
 pub use frame::LeafRunError;
 #[cfg(test)]
 pub use frame::WireFrame;
-pub use frame::{Frame, LeafRun, Reaction};
+pub use frame::{Frame, LeafRun, Reaction, ReplyFrame};
 #[cfg(test)]
-pub(crate) use frame::{parse_listing_map, write_listing};
+pub(crate) use frame::{ListingIssue, parse_listing_map, write_listing};
 pub use greeting::GreetingError;
 #[cfg(test)]
 pub(crate) use signal::DecodeSignalError;

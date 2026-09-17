@@ -100,9 +100,6 @@ pub enum GreetingError {
     /// The listing map violated a structural rule.
     #[error("greeting listing is malformed: {0}")]
     Listing(ListingIssue),
-    /// The listing's keys were not in canonical strictly ascending order.
-    #[error(transparent)]
-    Order(QueryOrderError),
     /// The version atom's bytes are not one canonical version encoding.
     #[error("greeting version does not decode: {0}")]
     Version(before::error::Decode),
@@ -141,10 +138,7 @@ pub(crate) fn parse_greeting(bytes: &[u8]) -> Result<Greeting, GreetingError> {
         }
         match key {
             "listing" => {
-                listing = Some(parse_listing_map(&mut input).map_err(|issue| match issue {
-                    ListingIssue::Order(order) => GreetingError::Order(order),
-                    issue => GreetingError::Listing(issue),
-                })?);
+                listing = Some(parse_listing_map(&mut input).map_err(GreetingError::Listing)?);
             }
             "set_len" => set_len = Some(uint(&mut input, "set_len is not an unsigned int")?),
             "version" => {
@@ -265,9 +259,9 @@ where
     let bytes = read_payload(read, len)
         .await
         .map_err(ReadGreetingError::Io)?;
-    parse_greeting(&bytes).map_err(|e| match e {
-        GreetingError::Order(order) => ReadGreetingError::Listing(order),
-        e => ReadGreetingError::Decode(e),
+    parse_greeting(&bytes).map_err(|error| match error {
+        GreetingError::Listing(ListingIssue::Order(order)) => ReadGreetingError::Listing(order),
+        error => ReadGreetingError::Decode(error),
     })
 }
 

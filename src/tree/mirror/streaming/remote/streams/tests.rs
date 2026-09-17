@@ -564,11 +564,9 @@ fn supply_failure_after_delivery_lets_the_session_finish() {
 
 /// Wrap a frame the type-level exclusion admits.
 fn reply_frame(frame: Frame) -> ReplyFrame {
-    ReplyFrame::try_from(frame).expect("not a stream-end control")
-}
-
-/// Stream-end control is excluded from reply frames at the type level.
-#[test]
-fn stream_end_is_not_a_reply_frame() {
-    assert!(ReplyFrame::try_from(Frame::End(End::Stream)).is_err());
+    match frame {
+        Frame::Reaction(reaction, flow) => ReplyFrame::reaction(reaction, flow),
+        Frame::End(End::Reply) => ReplyFrame::reply_end(),
+        Frame::End(End::Stream) => panic!("a reply cannot end its transport stream"),
+    }
 }

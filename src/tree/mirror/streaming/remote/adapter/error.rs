@@ -41,6 +41,7 @@ pub enum OpeningError {
 
 /// A protocol reply could not be rendered faithfully as wire frames.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum EncodeError<E> {
     /// The local backend failed while exploding a supplied node.
     #[error("backend failed while enumerating a supplied node")]

@@ -56,6 +56,30 @@ pub enum Frame {
     End(End),
 }
 
+/// A protocol reply frame, excluding the stream-end transport control.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReplyFrame(Frame);
+
+impl ReplyFrame {
+    /// Build one reaction in a protocol reply.
+    pub fn reaction(reaction: Reaction, flow: Flow) -> Self {
+        Self(Frame::Reaction(reaction, flow))
+    }
+
+    /// Build the boundary of an empty protocol reply.
+    pub fn reply_end() -> Self {
+        Self(Frame::End(End::Reply))
+    }
+}
+
+/// Widen a reply frame to the complete frame vocabulary.
+impl From<ReplyFrame> for Frame {
+    /// Recover the general frame for wire encoding.
+    fn from(frame: ReplyFrame) -> Self {
+        frame.0
+    }
+}
+
 /// A frame paired with the logical stream named by its signal.
 pub type WireFrame = (Stream, Frame);
 
@@ -378,6 +402,7 @@ fn parse_record(record: &[u8], codec: PayloadCodec) -> Result<(Version, Message)
 
 /// A supply run whose record framing is structurally invalid.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum LeafRunError {
     /// Every supply frame carries at least one record.
     #[error("a supply run carries no leaf records")]

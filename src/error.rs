@@ -11,6 +11,9 @@
 //! - [`Protocol`](Error::Protocol): report a bug with its context and
 //!   diagnostic source. Individual protocol checks stay private.
 //!
+//! Public error enums are non-exhaustive when new checks may add variants.
+//! A closed enum reserves its variant roster as part of the contract.
+//!
 //! A failed or cancelled session leaves its link unusable. Discard it before
 //! retrying; reusing it returns [`Error::LinkPoisoned`].
 //!
@@ -19,16 +22,13 @@
 //! commit unconfirmed; a failed bootstrap instead returns a builder for retry.
 //! [`Error::Bookmark`] can also leave restart bookkeeping awaiting persistence.
 
-use std::{convert::Infallible, fmt};
+use std::fmt;
 
 use crate::{
     Network, Protocol, Ticks,
     bookmark::{Bookmark, BookmarkIo, NoBookmark},
     observe::SessionErrorKind,
-    tree::mirror::{
-        self, handshake,
-        streaming::{materialized, remote},
-    },
+    tree::mirror::handshake,
 };
 
 mod session;
@@ -36,10 +36,6 @@ pub use crate::message::EncodeError;
 pub use session::{
     Context, DataStream, Phase, ProtocolViolation, TransportError, TransportOperation,
 };
-
-/// The production mirror's internal failure type; neither backend can fail.
-pub(crate) type MirrorError =
-    mirror::Error<materialized::Error<Infallible>, remote::Error<Infallible>>;
 
 /// An incompatibility that prevents the peers from reconciling.
 ///

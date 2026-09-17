@@ -1,29 +1,56 @@
 //! Translate reconciliation failures at the public session boundary.
 
-use std::io;
+use std::{convert::Infallible, io};
 
 use super::{codec, proxy, streams};
 use crate::{
     Error,
-    error::{
-        Context, MirrorError, Mismatch, Phase, ProtocolViolation, TransportError,
-        TransportOperation,
-    },
+    error::{Context, Mismatch, Phase, ProtocolViolation, TransportError, TransportOperation},
+    tree::mirror::{self, streaming::materialized},
 };
+
+/// A production reconciliation failure after removing impossible backend cases.
+pub(crate) enum MirrorError {
+    /// The local tree rejected the protocol exchange.
+    Local(materialized::Violation),
+    /// The wire-bound participant failed.
+    Remote(proxy::Error<Infallible>),
+}
+
+/// Remove the production mirror's uninhabited backend error.
+impl From<mirror::Error<materialized::Error<Infallible>, proxy::Error<Infallible>>>
+    for MirrorError
+{
+    /// Preserve the only two failures a production reconciliation can produce.
+    fn from(
+        error: mirror::Error<materialized::Error<Infallible>, proxy::Error<Infallible>>,
+    ) -> Self {
+        match error {
+            mirror::Error::Client(materialized::Error::Backend(never)) => match never {},
+            mirror::Error::Client(materialized::Error::Violation(error)) => Self::Local(error),
+            mirror::Error::Server(error) => Self::Remote(error),
+        }
+    }
+}
+
+/// Translate the raw production mirror result at the peer boundary.
+pub(crate) fn streaming_error(
+    error: mirror::Error<materialized::Error<Infallible>, proxy::Error<Infallible>>,
+) -> Error {
+    MirrorError::from(error).into()
+}
 
 impl From<MirrorError> for Error {
     /// Translate an internal reconciliation failure into its public cause.
     fn from(error: MirrorError) -> Self {
-        use crate::tree::mirror::{self, streaming::materialized};
         use TransportOperation as Op;
         use codec::{DecodeErrorKind, EncodeErrorKind};
         use streams::{SendError, StreamError};
         let remote = match error {
-            mirror::Error::Client(materialized::Error::Backend(never)) => match never {},
-            mirror::Error::Client(materialized::Error::Violation(error)) => {
+            MirrorError::Local(error) => {
                 return Self::violation(Phase::Reconciliation, error);
             }
-            mirror::Error::Server(error) => error,
+            MirrorError::Remote(error) => error,
         };
         let (context, operation, source) = match remote {
             proxy::Error::PeerDeparted(source) => {

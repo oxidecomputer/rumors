@@ -156,9 +156,9 @@ async fn claim_bootstrap_with_root(
     );
     let handshaken = streaming::handshake(local, proxy)
         .await
-        .map_err(Error::from)?;
+        .map_err(streaming_remote::streaming_error)?;
     let descent: BoxFuture<'_, _> = Box::pin(handshaken.reconcile());
-    let (root, (mut read, mut write)) = descent.await.map_err(Error::from)?;
+    let (root, (mut read, mut write)) = descent.await.map_err(streaming_remote::streaming_error)?;
     let party = party::receive(&mut read, &SessionHandle::default()).await?;
     epilogue(&mut read, &mut write, &SessionHandle::default()).await?;
     Ok((party, Tree::from_root(root.into())))

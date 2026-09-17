@@ -52,7 +52,7 @@ use crate::tree::mirror::streaming::tasks::cancelled;
 
 use super::codec::{
     DecodeError, DecodeErrorKind, EncodeError, End, Frame, FrameRead, FrameWrite, Origin,
-    RunBudget, Speaker, Stream,
+    ReplyFrame, RunBudget, Speaker, Stream,
 };
 
 /// Render the label naming one opened stream: two CBOR unsigned-int
@@ -70,41 +70,6 @@ fn label(epoch: u8, stream: Stream) -> Vec<u8> {
 
 /// Number of logical streams per direction, as an array dimension.
 const STREAM_COUNT: usize = Stream::COUNT as usize;
-
-/// A protocol reply frame, statically excluding stream-end transport control.
-///
-/// Stream end is a lifecycle event owned by [`StreamSender::finish`]; a
-/// producer cannot smuggle one into the middle of its replies.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ReplyFrame(Frame);
-
-impl TryFrom<Frame> for ReplyFrame {
-    type Error = ReplyFrameError;
-
-    /// Check that a general wire frame belongs to a protocol reply.
-    fn try_from(frame: Frame) -> Result<Self, Self::Error> {
-        if matches!(frame, Frame::End(End::Stream)) {
-            Err(ReplyFrameError::StreamEnd)
-        } else {
-            Ok(Self(frame))
-        }
-    }
-}
-
-impl From<ReplyFrame> for Frame {
-    /// Recover the general wire frame for transport encoding.
-    fn from(frame: ReplyFrame) -> Self {
-        frame.0
-    }
-}
-
-/// A general wire frame was transport control rather than a protocol reply.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub enum ReplyFrameError {
-    /// Stream end is emitted only by the internal `StreamSender::finish` path.
-    #[error("stream-end control is not a protocol reply frame")]
-    StreamEnd,
-}
 
 /// One lazily opened outgoing logical stream.
 ///
@@ -239,18 +204,23 @@ impl<C: Connector> StreamSender<C> {
 
 /// An outgoing logical stream could not be opened, labeled, or written.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum SendError {
     /// The link's connector could not open a transport stream.
     #[error("{origin}: opening the transport stream failed")]
     Connect {
+        /// The outgoing logical stream being opened.
         origin: Origin,
+        /// The transport error from the connector.
         #[source]
         source: std::io::Error,
     },
     /// The opened transport stream rejected its label.
     #[error("{origin}: labeling the transport stream failed")]
     Label {
+        /// The outgoing logical stream being labeled.
         origin: Origin,
+        /// The transport error from writing the label.
         #[source]
         source: std::io::Error,
     },
@@ -277,13 +247,19 @@ pub enum StreamError {
         framed.index()
     )]
     Mislabeled {
+        /// The incoming logical stream being decoded.
         origin: Origin,
+        /// The stream named by the transport label.
         labeled: Stream,
+        /// The stream named by the frame.
         framed: Stream,
     },
     /// The transport stream ended before its explicit end control.
     #[error("{origin}: transport stream ended before its end control")]
-    Truncated { origin: Origin },
+    Truncated {
+        /// The logical stream that ended early.
+        origin: Origin,
+    },
     /// The stream supply failed before an awaited stream was delivered.
     ///
     /// `source` carries the supply's own transport failure when the session
@@ -292,7 +268,9 @@ pub enum StreamError {
     /// without an observed transport failure.
     #[error("{origin}: the link's stream supply closed before this stream arrived")]
     SupplyClosed {
+        /// The logical stream that never arrived.
         origin: Origin,
+        /// The supply's transport failure, if one was observed.
         source: Option<std::io::Error>,
     },
 }

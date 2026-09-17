@@ -231,6 +231,7 @@ proptest! {
         bytes.extend_from_slice(&network);
         bytes.push(intent);
 
+        let bytes: [u8; V2_PREAMBLE_LEN] = bytes.try_into().expect("fixed preamble width");
         let result = Preamble::decode(&bytes);
         let as_oracle = if !magic_valid {
             matches!(&result, Err(Error::MagicMismatch { remote_magic }) if remote_magic == b"SROMUR")
@@ -279,15 +280,6 @@ fn bootstrap_intent_matrix_is_exhaustive() {
         Err(Error::BootstrapRetireConflict)
     ));
 }
-
-// Defensive-variant exemption: `PreambleDefect::NetworkTruncated` and
-// `PreambleDefect::TrailingBytes` deliberately have no construction tests.
-// In the fixed 30-byte V2 preamble, a validated version and network head
-// always leave exactly 17 bytes -- the 16 network bytes and the one-byte
-// intent -- so neither arm is reachable from any input the dialect admits;
-// both guard the decoder's width arithmetic. Every reachable defect
-// (`Version`, `Network`, `Intent`) has a construction: `Intent` in
-// `intent_byte_space_is_exhaustive`, the other two below.
 
 /// A version item that is not an unsigned int is the typed version
 /// defect: a negative-int head in the version item's place fails the

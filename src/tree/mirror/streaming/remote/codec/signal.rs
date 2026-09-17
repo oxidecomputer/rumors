@@ -1,9 +1,13 @@
 //! The frame opener's two items — the stream a frame rides and its
 //! semantic state — and the phase schedule that admits a state on a stream.
 
+use std::fmt;
+
 use crate::observe::Role;
 use crate::tree::mirror::cbor;
-use crate::tree::typed::height::{Height, Root, UnderRoot, Z};
+#[cfg(any(test, feature = "test-internals"))]
+use crate::tree::typed::height::Root;
+use crate::tree::typed::height::{Height, UnderRoot, Z};
 
 /// Lowest node height carried by a logical stream.
 pub const LEAF_HEIGHT: usize = <Z as Height>::HEIGHT;
@@ -12,6 +16,7 @@ pub const LEAF_HEIGHT: usize = <Z as Height>::HEIGHT;
 pub const HIGHEST_STREAM_HEIGHT: usize = <UnderRoot as Height>::HEIGHT;
 
 /// Number of streamed node heights, also the first height outside their range.
+#[cfg(any(test, feature = "test-internals"))]
 pub const STREAMED_HEIGHT_COUNT: usize = <Root as Height>::HEIGHT;
 
 /// Successive streams for one speaker descend two node heights at a time.
@@ -38,21 +43,21 @@ impl Stream {
     const FIRST: u8 = 0;
 
     /// Validate a wire stream index.
-    pub fn new(index: u8) -> Result<Self, StreamError> {
+    pub(crate) fn new(index: u8) -> Result<Self, InvalidStreamIndex> {
         if index < Self::COUNT {
             Ok(Self(index))
         } else {
-            Err(StreamError::Invalid { index })
+            Err(InvalidStreamIndex { index })
         }
     }
 
     /// Return this stream's wire index.
-    pub fn index(self) -> u8 {
+    pub(crate) fn index(self) -> u8 {
         self.0
     }
 
     /// Find the stream carrying nodes at `height` for `speaker`.
-    pub fn at_height(speaker: Speaker, height: usize) -> Option<Self> {
+    pub(crate) fn at_height(speaker: Speaker, height: usize) -> Option<Self> {
         if height == HIGHEST_STREAM_HEIGHT {
             return Some(Self(Self::FIRST));
         }
@@ -77,7 +82,8 @@ impl Stream {
     }
 
     /// Find the node height carried by this stream for `speaker`.
-    pub fn height(self, speaker: Speaker) -> usize {
+    #[cfg(any(test, feature = "test-internals"))]
+    pub(crate) fn height(self, speaker: Speaker) -> usize {
         match (speaker, self.0) {
             (_, Self::FIRST) => HIGHEST_STREAM_HEIGHT,
             (Speaker::Initiator, index) => {
@@ -104,21 +110,32 @@ impl Stream {
 
 /// A programmatic stream index outside the wire's logical streams.
 #[derive(Debug, Clone, Copy, thiserror::Error, PartialEq, Eq)]
-pub enum StreamError {
-    #[error("wire stream index {index} is outside the valid range")]
-    Invalid { index: u8 },
+#[error("wire stream index {index} is outside the valid range")]
+pub struct InvalidStreamIndex {
+    /// The rejected index.
+    index: u8,
+}
+
+#[cfg(test)]
+impl InvalidStreamIndex {
+    /// Return the rejected stream index.
+    pub(crate) fn index(self) -> u8 {
+        self.index
+    }
 }
 
 /// The elected protocol role speaking in one transport direction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Speaker {
+    /// The peer that began the session.
     Initiator,
+    /// The peer that accepted the session.
     Responder,
 }
 
 impl Speaker {
     /// Return the role speaking in the opposite transport direction.
-    pub fn other(self) -> Self {
+    pub(crate) fn other(self) -> Self {
         match self {
             Speaker::Initiator => Speaker::Responder,
             Speaker::Responder => Speaker::Initiator,
@@ -126,11 +143,22 @@ impl Speaker {
     }
 
     /// This role in the observation hook's public vocabulary.
-    pub fn role(self) -> Role {
+    pub(crate) fn role(self) -> Role {
         match self {
             Speaker::Initiator => Role::Initiator,
             Speaker::Responder => Role::Responder,
         }
+    }
+}
+
+/// Name a speaker by its elected protocol role.
+impl fmt::Display for Speaker {
+    /// Write the role used in diagnostic origins.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Speaker::Initiator => "Initiator",
+            Speaker::Responder => "Responder",
+        })
     }
 }
 
@@ -143,12 +171,16 @@ pub enum StreamClass {
     /// rides the greeting).
     #[error("the initiator's opening supplies")]
     OpeningSupplies,
+    /// The responder's answer to the listing in the greeting.
     #[error("the responder's opening reply")]
     OpeningReply,
+    /// Replies exchanged while descending through interior nodes.
     #[error("an interior reply stream")]
     InteriorReplies,
+    /// The initiator's replies about parents of leaves.
     #[error("the initiator's leaf-parent replies")]
     LeafParentReplies,
+    /// The responder's final replies containing leaves.
     #[error("the responder's terminal leaf replies")]
     TerminalLeafReplies,
 }
@@ -192,11 +224,35 @@ impl Flow {
 /// The semantic state a frame carries in its state item.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Signal {
+    /// The questioned subtree already matches.
     Match(Flow),
+    /// A question names no children.
     QueryEmpty(Flow),
+    /// A question names one or more children.
     Query(Flow),
+    /// The reply supplies a whole subtree.
     Supply(Flow),
+    /// The current reply or logical stream ends.
     End(End),
+}
+
+/// Describe a semantic frame state without exposing its Rust representation.
+impl fmt::Display for Signal {
+    /// Write the reaction or boundary and its effect on the current reply.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let (name, flow) = match self {
+            Signal::Match(flow) => ("match", flow),
+            Signal::QueryEmpty(flow) => ("empty query", flow),
+            Signal::Query(flow) => ("query", flow),
+            Signal::Supply(flow) => ("supply", flow),
+            Signal::End(End::Reply) => return f.write_str("reply end"),
+            Signal::End(End::Stream) => return f.write_str("stream end"),
+        };
+        match flow {
+            Flow::Continue => write!(f, "{name} followed by another reaction"),
+            Flow::End => write!(f, "{name} ending the reply"),
+        }
+    }
 }
 
 impl Signal {
@@ -246,7 +302,7 @@ impl Signal {
     ];
 
     /// The state code this signal travels as.
-    pub fn state(self) -> u8 {
+    pub(crate) fn state(self) -> u8 {
         match self {
             Signal::Match(flow) => Self::MATCH_STATE + flow.offset(),
             Signal::QueryEmpty(flow) => Self::QUERY_EMPTY_STATE + flow.offset(),
@@ -258,7 +314,7 @@ impl Signal {
     }
 
     /// The signal a state code names.
-    pub fn from_state(state: u8) -> Result<Self, InvalidSignalState> {
+    pub(crate) fn from_state(state: u8) -> Result<Self, InvalidSignalState> {
         Self::STATES
             .get(usize::from(state))
             .copied()
@@ -270,12 +326,14 @@ impl Signal {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[error("signal state {state} names no frame state")]
 pub struct InvalidSignalState {
+    /// The rejected state code.
     state: u8,
 }
 
+#[cfg(test)]
 impl InvalidSignalState {
     /// Return the rejected state code.
-    pub fn state(self) -> u8 {
+    pub(crate) fn state(self) -> u8 {
         self.state
     }
 }
@@ -284,7 +342,9 @@ impl InvalidSignalState {
 /// opens with, the stream's index then the signal's state code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WireSignal {
+    /// The logical stream carrying the frame.
     stream: Stream,
+    /// The semantic state of the frame.
     signal: Signal,
 }
 
@@ -296,7 +356,7 @@ impl WireSignal {
 
     /// Pair a stream with a signal valid for its speaker and protocol phase.
     #[cfg(test)]
-    pub fn new(
+    pub(crate) fn new(
         speaker: Speaker,
         stream: Stream,
         signal: Signal,
@@ -308,7 +368,11 @@ impl WireSignal {
     /// an index outside the logical streams or a code outside the state
     /// roster is reserved, and a known pair outside the phase schedule is
     /// an invalid placement.
-    pub fn decode(speaker: Speaker, index: u64, state: u64) -> Result<Self, DecodeSignalError> {
+    pub(crate) fn decode(
+        speaker: Speaker,
+        index: u64,
+        state: u64,
+    ) -> Result<Self, DecodeSignalError> {
         let stream = u8::try_from(index)
             .ok()
             .and_then(|index| Stream::new(index).ok())
@@ -351,33 +415,38 @@ impl WireSignal {
     }
 
     /// Separate the checked stream and semantic signal.
-    pub fn into_parts(self) -> (Stream, Signal) {
+    pub(crate) fn into_parts(self) -> (Stream, Signal) {
         (self.stream, self.signal)
     }
 }
 
 /// A known signal placed on a stream where the protocol forbids it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("signal {signal:?} on stream {} is invalid for {class}", stream.index())]
+#[error("{signal} on stream {} is invalid for {class}", stream.index())]
 pub struct InvalidSignalPlacement {
+    /// The logical stream carrying the signal.
     stream: Stream,
+    /// The signal rejected by the stream's phase.
     signal: Signal,
+    /// The phase-specific grammar applied to the stream.
     class: StreamClass,
 }
 
 impl InvalidSignalPlacement {
     /// Return the stream the signal was placed on.
-    pub fn stream(self) -> Stream {
+    pub(crate) fn stream(self) -> Stream {
         self.stream
     }
 
     /// Return the rejected signal.
-    pub fn signal(self) -> Signal {
+    #[cfg(test)]
+    pub(crate) fn signal(self) -> Signal {
         self.signal
     }
 
     /// Return the protocol phase whose signal grammar was violated.
-    pub fn class(self) -> StreamClass {
+    #[cfg(test)]
+    pub(crate) fn class(self) -> StreamClass {
         self.class
     }
 }
@@ -385,6 +454,7 @@ impl InvalidSignalPlacement {
 /// A frame opener the speaker's grammar rejects: a reserved stream index
 /// or state code, or a known signal in an invalid phase.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum DecodeSignalError {
     /// The stream item names no logical stream.
     #[error("frame names stream {index}, outside the logical streams")]
@@ -393,6 +463,7 @@ pub enum DecodeSignalError {
     /// and reported as the error's origin.
     #[error("frame carries state {state}, outside the state roster")]
     State { stream: Stream, state: u64 },
+    /// A known signal is forbidden on its logical stream.
     #[error(transparent)]
     Placement(#[from] InvalidSignalPlacement),
 }
@@ -400,7 +471,7 @@ pub enum DecodeSignalError {
 impl DecodeSignalError {
     /// Return the stream the rejected frame rides, when its stream item
     /// was valid.
-    pub fn stream(self) -> Option<Stream> {
+    pub(crate) fn stream(self) -> Option<Stream> {
         match self {
             DecodeSignalError::Stream { .. } => None,
             DecodeSignalError::State { stream, .. } => Some(stream),

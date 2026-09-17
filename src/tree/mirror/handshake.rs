@@ -109,7 +109,7 @@ impl Preamble {
     }
 
     /// Parse and validate one complete peer-controlled preamble.
-    fn decode(bytes: &[u8]) -> Result<Self, Error> {
+    fn decode(bytes: &[u8; V2_PREAMBLE_LEN]) -> Result<Self, Error> {
         if bytes[..V2_PREFIX.len()] != V2_PREFIX {
             return Err(Error::MagicMismatch {
                 remote_magic: bytes[..MISMATCH_PREVIEW_LEN]
@@ -133,12 +133,8 @@ impl Preamble {
             .ok()
             .filter(|head| head.major == MAJOR_BSTR && head.value == NETWORK_LEN as u64)
             .ok_or(malformed(PreambleDefect::Network))?;
-        // Defensive: a validated version and network head leave 17 of the
-        // fixed item's 30 bytes here, so the 16 network bytes always fit;
-        // the bound keeps `split_at` in range under any layout drift.
-        if input.len() < NETWORK_LEN {
-            return Err(malformed(PreambleDefect::NetworkTruncated));
-        }
+        // The canonical one-byte version and network heads leave exactly the
+        // network bytes and one-byte intent in this fixed-width input.
         let (network, rest) = input.split_at(NETWORK_LEN);
         input = rest;
         let network = Network::from_bytes(network.try_into().expect("network width"));
@@ -146,12 +142,6 @@ impl Preamble {
             .ok()
             .filter(|head| head.major == MAJOR_UINT)
             .ok_or(malformed(PreambleDefect::Intent))?;
-        // Defensive: the one-byte intent item consumes the fixed item's
-        // last byte, so nothing can trail; the check guards any caller
-        // handing the decoder non-fixed input.
-        if !input.is_empty() {
-            return Err(malformed(PreambleDefect::TrailingBytes));
-        }
         let intent = Intent::from_byte(u8::try_from(intent.value).expect(
             "the 30-byte preamble leaves exactly one byte for the intent item, \
              whose one-byte head's value is at most 23",
@@ -234,29 +224,9 @@ pub enum PreambleDefect {
     #[error("the network item is not a 16-byte byte string")]
     Network,
 
-    /// The network byte string's bytes end inside the preamble item.
-    ///
-    /// Defensively reachable only: in the fixed 30-byte V2 preamble, a
-    /// validated version and network head always leave 17 bytes — the
-    /// 16 network bytes and the one-byte intent — so this variant
-    /// guards the decoder's width arithmetic against layout drift, not
-    /// any input the current dialect admits.
-    #[error("the network bytes end inside the preamble item")]
-    NetworkTruncated,
-
     /// The intent item is not a shortest-form unsigned int.
     #[error("the intent item is not an unsigned int")]
     Intent,
-
-    /// Bytes trail the preamble's single item.
-    ///
-    /// Defensively reachable only: in the fixed 30-byte V2 preamble
-    /// with a validated version and network head, the one-byte intent
-    /// item consumes the last byte, so this variant guards the
-    /// decoder's width arithmetic against layout drift, not any input
-    /// the current dialect admits.
-    #[error("bytes trail the preamble item")]
-    TrailingBytes,
 }
 
 /// A cancel-safe, partially received fixed preamble.

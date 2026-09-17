@@ -7,7 +7,7 @@ use crate::tree::{
     arb::early_first_child_dispute_pair,
     mirror::streaming::remote::{
         Error as RemoteError,
-        codec::{DecodeErrorKind as CodecDecodeErrorKind, DecodeSignalError},
+        codec::{DecodeErrorKind as CodecDecodeErrorKind, DecodeSignalError, ListingIssue},
         streams::StreamError,
     },
 };
@@ -154,7 +154,10 @@ fn unordered_query_propagates_through_the_full_proxy() {
         assert!(matches!(
             receiving_error(corrupt_left, &left_result, &right_result),
             RemoteError::Stream(StreamError::Decode(error))
-                if matches!(error.kind, CodecDecodeErrorKind::QueryOutOfOrder(_))
+                if matches!(
+                    error.kind,
+                    CodecDecodeErrorKind::InvalidListing(ListingIssue::Order(_))
+                )
         ));
         assert!(left_result.is_err());
         assert!(right_result.is_err());

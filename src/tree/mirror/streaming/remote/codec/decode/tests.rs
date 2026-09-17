@@ -9,13 +9,13 @@ use super::*;
 use crate::Version;
 use crate::message::Message;
 use crate::tree::arb::arb_version;
-use crate::tree::mirror::cbor::{MAJOR_BSTR, MAJOR_MAP, MAJOR_TAG, TAG_CBOR_SEQUENCE};
+use crate::tree::mirror::cbor::{HeadError, MAJOR_BSTR, MAJOR_MAP, MAJOR_TAG, TAG_CBOR_SEQUENCE};
 use crate::tree::typed::{Hash, hash::MERKLE_HASH_LEN};
 
 use super::super::{
     error::{DecodeLeafError, Origin, QueryOrderError},
-    frame::{LeafRunError, MAX_QUERY_CHILDREN, MIN_RECORD_HEADS_LEN, RECORD_TAG_LEN},
-    signal::{DecodeSignalError, End, Flow, Speaker, Stream, StreamError},
+    frame::{LeafRunError, ListingIssue, MAX_QUERY_CHILDREN, MIN_RECORD_HEADS_LEN, RECORD_TAG_LEN},
+    signal::{DecodeSignalError, End, Flow, Speaker, Stream},
 };
 
 /// Both possible senders of a frame.
@@ -104,12 +104,10 @@ fn arb_flow() -> impl Strategy<Value = Flow> {
 /// error naming the index.
 #[test]
 fn out_of_range_stream_index_is_rejected() {
-    assert_eq!(
+    assert!(matches!(
         Stream::new(Stream::COUNT),
-        Err(StreamError::Invalid {
-            index: Stream::COUNT
-        })
-    );
+        Err(error) if error.index() == Stream::COUNT
+    ));
 }
 
 /// A reserved state code on a known stream is rejected naming that
@@ -227,9 +225,9 @@ fn widened_signal_heads_are_rejected() {
         let error = decode_exact(speaker, RunBudget::default(), &encoded).unwrap_err();
         assert!(matches!(
             error.kind,
-            DecodeErrorKind::Malformed {
+            DecodeErrorKind::Head {
                 part: FramePart::Signal,
-                ..
+                source: HeadError::NotShortest,
             }
         ));
     }
@@ -580,10 +578,10 @@ proptest! {
         prop_assert_eq!(error.origin, Origin::stream(speaker, stream));
         let correct = matches!(
             error.kind,
-            DecodeErrorKind::QueryOutOfOrder(QueryOrderError {
+            DecodeErrorKind::InvalidListing(ListingIssue::Order(QueryOrderError {
                 previous: actual_previous,
                 radix: actual_radix,
-            }) if actual_previous == previous && actual_radix == radix
+            })) if actual_previous == previous && actual_radix == radix
         );
         prop_assert!(correct);
     }
@@ -595,7 +593,7 @@ proptest! {
     fn non_canonical_listing_heads_are_rejected(
         index in 1_u8..Stream::MAX,
         speaker in arb_speaker(),
-        (entry, detail) in arb_listing_head_defect(),
+        (entry, expected) in arb_listing_head_defect(),
     ) {
         let stream = stream(index);
         let mut encoded = frame_head(3, stream, Signal::Query(Flow::Continue));
@@ -606,12 +604,9 @@ proptest! {
         prop_assert_eq!(error.origin, Origin::stream(speaker, stream));
         let named = matches!(
             error.kind,
-            DecodeErrorKind::Malformed {
-                part: FramePart::QueryChildren,
-                detail: actual,
-            } if actual == detail
+            DecodeErrorKind::InvalidListing(ListingIssue::Head(actual)) if actual == expected
         );
-        prop_assert!(named, "expected a {detail} defect, got {:?}", error.kind);
+        prop_assert!(named, "expected {expected:?}, got {:?}", error.kind);
     }
 
     /// An arbitrary canonical query round-trips through the decoder.
@@ -643,7 +638,7 @@ proptest! {
 /// two-byte argument), an indefinite-length value head, or a reserved key
 /// head. Each entry carries a full digest behind the defect, so nothing
 /// but the head is wrong.
-fn arb_listing_head_defect() -> impl Strategy<Value = (Vec<u8>, &'static str)> {
+fn arb_listing_head_defect() -> impl Strategy<Value = (Vec<u8>, HeadError)> {
     let digest = [0u8; MERKLE_HASH_LEN];
     let canonical_value = move |entry: &mut Vec<u8>| {
         cbor::write_head(entry, MAJOR_BSTR, MERKLE_HASH_LEN as u64);
@@ -653,22 +648,22 @@ fn arb_listing_head_defect() -> impl Strategy<Value = (Vec<u8>, &'static str)> {
         (0_u8..24).prop_map(move |radix| {
             let mut entry = vec![0x18, radix];
             canonical_value(&mut entry);
-            (entry, "head not in shortest form")
+            (entry, HeadError::NotShortest)
         }),
         (0_u8..24).prop_map(move |radix| {
             let mut entry = vec![radix, 0x59, 0x00, MERKLE_HASH_LEN as u8];
             entry.extend_from_slice(&digest);
-            (entry, "head not in shortest form")
+            (entry, HeadError::NotShortest)
         }),
         (0_u8..24).prop_map(move |radix| {
             let mut entry = vec![radix, 0x5f];
             entry.extend_from_slice(&digest);
-            (entry, "indefinite-length head")
+            (entry, HeadError::Indefinite)
         }),
         Just({
             let mut entry = vec![0x1c];
             canonical_value(&mut entry);
-            (entry, "reserved head")
+            (entry, HeadError::Reserved)
         }),
     ]
 }
@@ -712,10 +707,7 @@ fn oversized_query_listing_is_rejected() {
         assert_eq!(error.origin, Origin::stream(speaker, stream));
         assert!(matches!(
             error.kind,
-            DecodeErrorKind::Malformed {
-                part: FramePart::QueryChildren,
-                detail: "listing exceeds the radix space",
-            }
+            DecodeErrorKind::InvalidListing(ListingIssue::Shape("listing exceeds the radix space"))
         ));
     }
 }

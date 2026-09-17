@@ -2,9 +2,9 @@
 
 use std::fmt;
 
-use crate::tree::mirror::framing::LengthOverflow;
+use crate::tree::mirror::{cbor::HeadError, framing::LengthOverflow};
 
-use super::frame::LeafRunError;
+use super::frame::{LeafRunError, ListingIssue};
 use super::signal::{DecodeSignalError, Speaker, Stream};
 
 /// The speaker and, when known, logical stream which produced an error.
@@ -23,22 +23,23 @@ pub enum Origin {
 
 impl Origin {
     /// Record an error before its logical stream is known.
-    pub fn direction(speaker: Speaker) -> Self {
+    pub(crate) fn direction(speaker: Speaker) -> Self {
         Origin::Direction(speaker)
     }
 
     /// Record an error from a known logical stream.
-    pub fn stream(speaker: Speaker, stream: Stream) -> Self {
+    pub(crate) fn stream(speaker: Speaker, stream: Stream) -> Self {
         Origin::Stream { speaker, stream }
     }
 }
 
 impl fmt::Display for Origin {
+    /// Name the direction and, when known, its logical stream.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Origin::Direction(speaker) => write!(f, "{speaker:?} direction"),
+            Origin::Direction(speaker) => write!(f, "{speaker} direction"),
             Origin::Stream { speaker, stream } => {
-                write!(f, "{speaker:?} stream {}", stream.index())
+                write!(f, "{speaker} stream {}", stream.index())
             }
         }
     }
@@ -76,6 +77,7 @@ pub struct QueryOrderError {
 
 /// Why an outgoing frame could not be encoded.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum EncodeErrorKind {
     /// Writing one frame component failed.
     #[error("could not write the frame's {part}")]
@@ -107,7 +109,7 @@ pub struct EncodeError {
 
 impl EncodeError {
     /// Attach the frame's protocol origin to an encoding failure.
-    pub fn new(speaker: Speaker, stream: Stream, kind: EncodeErrorKind) -> Self {
+    pub(crate) fn new(speaker: Speaker, stream: Stream, kind: EncodeErrorKind) -> Self {
         Self {
             origin: Origin::stream(speaker, stream),
             kind,
@@ -117,6 +119,7 @@ impl EncodeError {
 
 /// A decode failure in one supplied record.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum DecodeLeafError {
     /// The record's version is invalid.
     #[error("supplied Version could not be decoded")]
@@ -151,9 +154,18 @@ pub enum DecodeErrorKind {
         #[source]
         source: std::io::Error,
     },
-    /// A query's child radixes are not strictly increasing.
-    #[error(transparent)]
-    QueryOutOfOrder(#[from] QueryOrderError),
+    /// A CBOR head was truncated, reserved, indefinite, or not shortest-form.
+    #[error("frame's {part} head is invalid: {source}")]
+    Head {
+        /// The frame component whose head was invalid.
+        part: FramePart,
+        /// The head defect.
+        #[source]
+        source: HeadError,
+    },
+    /// A query's child listing violated its shared structural grammar.
+    #[error("query child listing is invalid: {0}")]
+    InvalidListing(#[source] ListingIssue),
     /// The frame item is not a two- or three-element CBOR array.
     #[error("frame is not a CBOR reaction array: {detail}")]
     FrameShape {
@@ -168,8 +180,7 @@ pub enum DecodeErrorKind {
         /// The number of items declared by the frame.
         found: u64,
     },
-    /// A frame component was present but not canonical CBOR of the
-    /// expected shape.
+    /// A frame component has the wrong CBOR shape or value.
     #[error("frame's {part} is malformed: {detail}")]
     Malformed {
         /// The malformed component.
@@ -191,6 +202,7 @@ pub enum DecodeErrorKind {
         budget: usize,
     },
     /// Bytes remain after a complete frame.
+    #[cfg(test)]
     #[error("{count} trailing bytes follow the frame")]
     TrailingBytes {
         /// The unconsumed byte count.
@@ -211,7 +223,7 @@ pub struct DecodeError {
 
 impl DecodeError {
     /// Attach a speaker when decoding failed before the stream was known.
-    pub fn direction(speaker: Speaker, kind: DecodeErrorKind) -> Self {
+    pub(crate) fn direction(speaker: Speaker, kind: DecodeErrorKind) -> Self {
         Self {
             origin: Origin::direction(speaker),
             kind,
@@ -219,7 +231,7 @@ impl DecodeError {
     }
 
     /// Attach the decoded speaker and stream to a frame-body failure.
-    pub fn stream(speaker: Speaker, stream: Stream, kind: DecodeErrorKind) -> Self {
+    pub(crate) fn stream(speaker: Speaker, stream: Stream, kind: DecodeErrorKind) -> Self {
         Self {
             origin: Origin::stream(speaker, stream),
             kind,

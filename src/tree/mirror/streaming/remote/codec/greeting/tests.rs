@@ -182,9 +182,7 @@ fn widened_value_spelling_is_rejected() {
     ));
 }
 
-/// A greeting listing violating strictly ascending radix order is
-/// rejected as the codec's own order violation, the same class a wire
-/// query reports.
+/// A greeting preserves the listing parser's typed ordering defect.
 #[test]
 fn greeting_listing_order_is_enforced() {
     // The encoder trusts its caller, so an unsorted listing synthesizes
@@ -199,10 +197,12 @@ fn greeting_listing_order_is_enforced() {
     cbor::read_head(&mut input).expect("bstr head");
     assert!(matches!(
         parse_greeting(input),
-        Err(GreetingError::Order(QueryOrderError {
-            previous: 9,
-            radix: 5
-        }))
+        Err(GreetingError::Listing(ListingIssue::Order(
+            QueryOrderError {
+                previous: 9,
+                radix: 5
+            }
+        )))
     ));
 }
 

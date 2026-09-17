@@ -144,21 +144,35 @@ DECODE
     origin: Initiator stream 8
     kind: FrameArity(expected=2, found=3)
     source[0]: frame array carries 3 item(s) where its signal takes 2
-  Initiator/frame/widened-signal
-    display: Initiator direction: frame's signal is malformed: head not in shortest form
+  Initiator/frame/non-integer-stream
+    display: Initiator direction: frame's signal is malformed: stream item is not an unsigned int
     origin: Initiator direction
-    kind: Malformed(part=Signal, head not in shortest form)
-    source[0]: frame's signal is malformed: head not in shortest form
+    kind: Malformed(part=Signal, stream item is not an unsigned int)
+    source[0]: frame's signal is malformed: stream item is not an unsigned int
+  Initiator/frame/widened-signal
+    display: Initiator direction: frame's signal head is invalid: CBOR head is not in shortest form
+    origin: Initiator direction
+    kind: Head(part=Signal, source=CBOR head is not in shortest form)
+    source[0]: frame's signal head is invalid: CBOR head is not in shortest form
+    source[1]: CBOR head is not in shortest form
   Initiator/query-out-of-order
-    display: Initiator stream 8: query child radix 1 does not follow 2 in ascending order
+    display: Initiator stream 8: query child listing is invalid: query child radix 1 does not follow 2 in ascending order
     origin: Initiator stream 8
-    kind: QueryOutOfOrder(previous=2, radix=1)
-    source[0]: query child radix 1 does not follow 2 in ascending order
-  Initiator/query/listing-key
-    display: Initiator stream 8: frame's query child listing is malformed: listing key is not a radix
+    kind: InvalidListing::Order(previous=2, radix=1)
+    source[0]: query child listing is invalid: query child radix 1 does not follow 2 in ascending order
+    source[1]: query child radix 1 does not follow 2 in ascending order
+  Initiator/query/head
+    display: Initiator stream 8: query child listing is invalid: CBOR head is not in shortest form
     origin: Initiator stream 8
-    kind: Malformed(part=QueryChildren, listing key is not a radix)
-    source[0]: frame's query child listing is malformed: listing key is not a radix
+    kind: InvalidListing::Head(CBOR head is not in shortest form)
+    source[0]: query child listing is invalid: CBOR head is not in shortest form
+    source[1]: CBOR head is not in shortest form
+  Initiator/query/shape
+    display: Initiator stream 8: query child listing is invalid: listing key is not a radix
+    origin: Initiator stream 8
+    kind: InvalidListing::Shape(listing key is not a radix)
+    source[0]: query child listing is invalid: listing key is not a radix
+    source[1]: listing key is not a radix
   Initiator/run/empty
     display: Initiator stream 8: a supply run carries no leaf records
     origin: Initiator stream 8
@@ -270,21 +284,35 @@ DECODE
     origin: Responder stream 8
     kind: FrameArity(expected=2, found=3)
     source[0]: frame array carries 3 item(s) where its signal takes 2
-  Responder/frame/widened-signal
-    display: Responder direction: frame's signal is malformed: head not in shortest form
+  Responder/frame/non-integer-stream
+    display: Responder direction: frame's signal is malformed: stream item is not an unsigned int
     origin: Responder direction
-    kind: Malformed(part=Signal, head not in shortest form)
-    source[0]: frame's signal is malformed: head not in shortest form
+    kind: Malformed(part=Signal, stream item is not an unsigned int)
+    source[0]: frame's signal is malformed: stream item is not an unsigned int
+  Responder/frame/widened-signal
+    display: Responder direction: frame's signal head is invalid: CBOR head is not in shortest form
+    origin: Responder direction
+    kind: Head(part=Signal, source=CBOR head is not in shortest form)
+    source[0]: frame's signal head is invalid: CBOR head is not in shortest form
+    source[1]: CBOR head is not in shortest form
   Responder/query-out-of-order
-    display: Responder stream 8: query child radix 1 does not follow 2 in ascending order
+    display: Responder stream 8: query child listing is invalid: query child radix 1 does not follow 2 in ascending order
     origin: Responder stream 8
-    kind: QueryOutOfOrder(previous=2, radix=1)
-    source[0]: query child radix 1 does not follow 2 in ascending order
-  Responder/query/listing-key
-    display: Responder stream 8: frame's query child listing is malformed: listing key is not a radix
+    kind: InvalidListing::Order(previous=2, radix=1)
+    source[0]: query child listing is invalid: query child radix 1 does not follow 2 in ascending order
+    source[1]: query child radix 1 does not follow 2 in ascending order
+  Responder/query/head
+    display: Responder stream 8: query child listing is invalid: CBOR head is not in shortest form
     origin: Responder stream 8
-    kind: Malformed(part=QueryChildren, listing key is not a radix)
-    source[0]: frame's query child listing is malformed: listing key is not a radix
+    kind: InvalidListing::Head(CBOR head is not in shortest form)
+    source[0]: query child listing is invalid: CBOR head is not in shortest form
+    source[1]: CBOR head is not in shortest form
+  Responder/query/shape
+    display: Responder stream 8: query child listing is invalid: listing key is not a radix
+    origin: Responder stream 8
+    kind: InvalidListing::Shape(listing key is not a radix)
+    source[0]: query child listing is invalid: listing key is not a radix
+    source[1]: listing key is not a radix
   Responder/run/empty
     display: Responder stream 8: a supply run carries no leaf records
     origin: Responder stream 8
@@ -317,20 +345,20 @@ DECODE
     kind: TrailingBytes(count=1)
     source[0]: 1 trailing bytes follow the frame
   placement/opening-supplies/decode
-    display: Initiator stream 0: signal Match(Continue) on stream 0 is invalid for the initiator's opening supplies
+    display: Initiator stream 0: match followed by another reaction on stream 0 is invalid for the initiator's opening supplies
     origin: Initiator stream 0
     kind: InvalidSignal::Placement(stream=0, signal=Match(Continue), class=OpeningSupplies)
-    source[0]: signal Match(Continue) on stream 0 is invalid for the initiator's opening supplies
+    source[0]: match followed by another reaction on stream 0 is invalid for the initiator's opening supplies
   placement/leaf-parent/decode
-    display: Initiator stream 16: signal Query(Continue) on stream 16 is invalid for the initiator's leaf-parent replies
+    display: Initiator stream 16: query followed by another reaction on stream 16 is invalid for the initiator's leaf-parent replies
     origin: Initiator stream 16
     kind: InvalidSignal::Placement(stream=16, signal=Query(Continue), class=LeafParentReplies)
-    source[0]: signal Query(Continue) on stream 16 is invalid for the initiator's leaf-parent replies
+    source[0]: query followed by another reaction on stream 16 is invalid for the initiator's leaf-parent replies
   placement/terminal-leaf/decode
-    display: Responder stream 16: signal Match(Continue) on stream 16 is invalid for the responder's terminal leaf replies
+    display: Responder stream 16: match followed by another reaction on stream 16 is invalid for the responder's terminal leaf replies
     origin: Responder stream 16
     kind: InvalidSignal::Placement(stream=16, signal=Match(Continue), class=TerminalLeafReplies)
-    source[0]: signal Match(Continue) on stream 16 is invalid for the responder's terminal leaf replies
+    source[0]: match followed by another reaction on stream 16 is invalid for the responder's terminal leaf replies
 RECORD
   record/version
     display: supplied Version could not be decoded

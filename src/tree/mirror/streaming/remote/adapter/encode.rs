@@ -11,15 +11,17 @@ use crate::tree::{
     typed::{ErasedPrefix, Hash, Path, Prefix, height::Z},
 };
 
+#[cfg(test)]
+use super::super::codec::Frame;
 use super::{
-    super::codec::{End, Flow, Frame, LeafRun, Reaction as WireReaction, RunBudget},
+    super::codec::{Flow, LeafRun, Reaction as WireReaction, ReplyFrame, RunBudget},
     error::{EncodeError, OpeningError, ScopeError},
     scope::Scope,
 };
 
 /// A wire frame and the lower question it makes publishable once written.
 pub struct Encoded<Q> {
-    frame: Frame,
+    frame: ReplyFrame,
     question: Option<Q>,
 }
 
@@ -27,7 +29,7 @@ impl<Q> Encoded<Q> {
     /// Write this frame and release its question only after a successful write.
     pub async fn write_with<E, W, F>(self, write: W) -> Result<Option<Q>, E>
     where
-        W: FnOnce(Frame) -> F,
+        W: FnOnce(ReplyFrame) -> F,
         F: Future<Output = Result<(), E>>,
     {
         let Self { frame, question } = self;
@@ -37,7 +39,7 @@ impl<Q> Encoded<Q> {
 
     #[cfg(test)]
     pub fn into_parts(self) -> (Frame, Option<Q>) {
-        (self.frame, self.question)
+        (self.frame.into(), self.question)
     }
 }
 
@@ -164,7 +166,7 @@ where
                         pending.replace((WireReaction::Match, question))
                     {
                         yield Encoded {
-                            frame: Frame::Reaction(previous, Flow::Continue),
+                            frame: ReplyFrame::reaction(previous, Flow::Continue),
                             question,
                         };
                     }
@@ -174,7 +176,7 @@ where
                         pending.replace((WireReaction::Query(listing), question))
                     {
                         yield Encoded {
-                            frame: Frame::Reaction(previous, Flow::Continue),
+                            frame: ReplyFrame::reaction(previous, Flow::Continue),
                             question,
                         };
                     }
@@ -213,7 +215,7 @@ where
                                 pending.replace((WireReaction::Supply(full), None))
                             {
                                 yield Encoded {
-                                    frame: Frame::Reaction(ready, Flow::Continue),
+                                    frame: ReplyFrame::reaction(ready, Flow::Continue),
                                     question,
                                 };
                             }
@@ -225,7 +227,7 @@ where
                         pending.replace((WireReaction::Supply(run), None))
                     {
                         yield Encoded {
-                            frame: Frame::Reaction(ready, Flow::Continue),
+                            frame: ReplyFrame::reaction(ready, Flow::Continue),
                             question,
                         };
                     }
@@ -235,11 +237,11 @@ where
 
         match pending {
             Some((reaction, question)) => yield Encoded {
-                frame: Frame::Reaction(reaction, Flow::End),
+                frame: ReplyFrame::reaction(reaction, Flow::End),
                 question,
             },
             None => yield Encoded {
-                frame: Frame::End(End::Reply),
+                frame: ReplyFrame::reply_end(),
                 question: None,
             },
         }

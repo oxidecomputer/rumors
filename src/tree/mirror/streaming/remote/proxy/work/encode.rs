@@ -21,9 +21,9 @@ use crate::tree::{
         erased::Reply,
         remote::{
             adapter::{self, Encoded, Scope, encode_reply, opening_parts},
-            codec::RunBudget,
+            codec::{ReplyFrame, RunBudget},
             proxy::{Error, send_or_cancel},
-            streams::{ReplyFrame, StreamSender},
+            streams::StreamSender,
         },
     },
     typed::{
@@ -224,9 +224,6 @@ where
     C: Connector,
 {
     encoded
-        .write_with(|frame| async {
-            let frame = ReplyFrame::try_from(frame).map_err(Error::ReplyFrame)?;
-            outgoing.frame(frame).await.map_err(Error::Send)
-        })
+        .write_with(|frame: ReplyFrame| async { outgoing.frame(frame).await.map_err(Error::Send) })
         .await
 }

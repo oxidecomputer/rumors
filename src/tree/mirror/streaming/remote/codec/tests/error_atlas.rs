@@ -3,13 +3,9 @@
 //!
 //! The scope is the frame stream's own taxonomies — the encode, decode,
 //! and record-iteration errors the `describe_*` matches below inventory.
-//! The codec's handshake-layer surface is witnessed where it lives:
-//! `GreetingError` in greeting/tests.rs, beside the greeting reader; and
-//! `ListingIssue`, which the frame decoder collapses into this taxonomy
-//! (witnessed here as `QueryOutOfOrder` and `Malformed(part=QueryChildren)`),
-//! carries its typed surface through the greeting, witnessed in the same
-//! suite. Both hold exemption entries below so a witness landing here is
-//! flagged for promotion.
+//! The greeting's errors are witnessed beside its reader. Child-listing
+//! defects retain their typed [`ListingIssue`] where the frame decoder can
+//! reach them, so this atlas exercises that path.
 //!
 //! Coverage is enforced from both ends: every `describe_*` match below is
 //! wildcard-free, so a new error variant fails compilation until it is
@@ -35,8 +31,8 @@ use tokio::io::AsyncWrite;
 
 use super::super::{
     DecodeError, DecodeErrorKind, DecodeLeafError, DecodeSignalError, EncodeError, EncodeErrorKind,
-    Flow, Frame, FrameWrite, LeafRunError, Reaction, RunBudget, Speaker, Stream, WireFrame, decode,
-    decode_exact, encode,
+    Flow, Frame, FrameWrite, LeafRunError, ListingIssue, Reaction, RunBudget, Speaker, Stream,
+    WireFrame, decode, decode_exact, encode,
     frame::LeafRun,
     signal::{Signal, WireSignal},
 };
@@ -60,7 +56,10 @@ const WITNESS_MARKERS: &[&str] = &[
     "kind: InvalidSignal::State(",
     "kind: InvalidSignal::Placement(",
     "kind: Truncated(missing=",
-    "kind: QueryOutOfOrder(previous=",
+    "kind: Head(part=",
+    "kind: InvalidListing::Head(",
+    "kind: InvalidListing::Shape(",
+    "kind: InvalidListing::Order(previous=",
     "kind: InvalidRun::Empty",
     "kind: InvalidRun::Head(",
     "kind: InvalidRun::NotARecord(",
@@ -103,11 +102,10 @@ const EXEMPT_MARKERS: &[(&str, &str)] = &[
          greeting reader",
     ),
     (
-        "kind: Listing",
-        "ListingIssue never surfaces from the frame decoders: they collapse \
-         it into QueryOutOfOrder and Malformed(part=QueryChildren), both \
-         witnessed here; its typed surface is the greeting's \
-         (GreetingError::Listing), witnessed in greeting/tests.rs",
+        "kind: InvalidListing::Truncated",
+        "the incremental frame decoder reports a short listing value as an \
+         I/O truncation; this exact-slice listing error is reachable only \
+         through greeting decoding and is witnessed in greeting/tests.rs",
     ),
 ];
 
@@ -313,6 +311,16 @@ fn decode_errors(atlas: &mut String) {
         let error = decode_exact(speaker, RunBudget::default(), &mismatched).unwrap_err();
         record_decode(atlas, &format!("{speaker:?}/frame/arity"), &error);
 
+        // A byte string in the opener's stream position is a
+        // well-formed CBOR head with the wrong wire type.
+        let error = decode_exact(speaker, RunBudget::default(), &[0x82, 0x40])
+            .expect_err("a non-integer stream item cannot decode");
+        record_decode(
+            atlas,
+            &format!("{speaker:?}/frame/non-integer-stream"),
+            &error,
+        );
+
         // The matched frame's state item is a one-byte head; respell it
         // widened behind the intact array head and stream item.
         let widened = [0x82, matched[1], 0x19, 0x00, matched[2]];
@@ -332,26 +340,15 @@ fn decode_errors(atlas: &mut String) {
         let error = decode_exact(speaker, RunBudget::default(), &unordered).unwrap_err();
         record_decode(atlas, &format!("{speaker:?}/query-out-of-order"), &error);
 
-        // A listing whose first key is a well-formed head of the wrong
-        // kind (a byte string where a radix belongs) reaches the listing
-        // gate and collapses into this taxonomy as
-        // Malformed(part=QueryChildren).
-        let mut defective_listing = Vec::new();
-        cbor::write_head(&mut defective_listing, cbor::MAJOR_ARRAY, 3);
-        cbor::write_head(
-            &mut defective_listing,
-            cbor::MAJOR_UINT,
-            u64::from(stream.index()),
-        );
-        cbor::write_head(
-            &mut defective_listing,
-            cbor::MAJOR_UINT,
-            u64::from(Signal::Query(Flow::Continue).state()),
-        );
-        cbor::write_head(&mut defective_listing, cbor::MAJOR_MAP, 1);
-        cbor::write_head(&mut defective_listing, MAJOR_BSTR, 0);
-        let error = decode_exact(speaker, RunBudget::default(), &defective_listing).unwrap_err();
-        record_decode(atlas, &format!("{speaker:?}/query/listing-key"), &error);
+        // Preserve the listing grammar's own diagnosis for a malformed
+        // head and a well-formed head of the wrong shape. Ordering was
+        // witnessed above; a short value is an I/O truncation here.
+        for (label, tail) in [("head", &[0x18, 0x00][..]), ("shape", &[0x40][..])] {
+            let defective_listing = raw_query(stream, tail);
+            let error = decode_exact(speaker, RunBudget::default(), &defective_listing)
+                .expect_err("the defective listing cannot decode");
+            record_decode(atlas, &format!("{speaker:?}/query/{label}"), &error);
+        }
 
         let error = decode_exact(
             speaker,
@@ -423,6 +420,21 @@ fn decode_errors(atlas: &mut String) {
         let error = decode_exact(speaker, RunBudget::default(), &bytes).unwrap_err();
         record_decode(atlas, &format!("{label}/decode"), &error);
     }
+}
+
+/// Frame one single-entry query listing around its encoded entry bytes.
+fn raw_query(stream: Stream, entry: &[u8]) -> Vec<u8> {
+    let mut frame = Vec::new();
+    cbor::write_head(&mut frame, cbor::MAJOR_ARRAY, 3);
+    cbor::write_head(&mut frame, cbor::MAJOR_UINT, u64::from(stream.index()));
+    cbor::write_head(
+        &mut frame,
+        cbor::MAJOR_UINT,
+        u64::from(Signal::Query(Flow::Continue).state()),
+    );
+    cbor::write_head(&mut frame, cbor::MAJOR_MAP, 1);
+    frame.extend_from_slice(entry);
+    frame
 }
 
 /// Witness the record-level decode failures a supplied leaf can carry.
@@ -617,9 +629,21 @@ fn describe_decode_kind(out: &mut String, kind: &DecodeErrorKind) {
             source.kind()
         )
         .unwrap(),
-        DecodeErrorKind::QueryOutOfOrder(error) => write!(
+        DecodeErrorKind::Head { part, source } => {
+            write!(out, "Head(part={part:?}, source={source})").unwrap()
+        }
+        DecodeErrorKind::InvalidListing(ListingIssue::Head(source)) => {
+            write!(out, "InvalidListing::Head({source})").unwrap()
+        }
+        DecodeErrorKind::InvalidListing(ListingIssue::Shape(detail)) => {
+            write!(out, "InvalidListing::Shape({detail})").unwrap()
+        }
+        DecodeErrorKind::InvalidListing(ListingIssue::Truncated) => {
+            write!(out, "InvalidListing::Truncated").unwrap()
+        }
+        DecodeErrorKind::InvalidListing(ListingIssue::Order(error)) => write!(
             out,
-            "QueryOutOfOrder(previous={}, radix={})",
+            "InvalidListing::Order(previous={}, radix={})",
             error.previous, error.radix
         )
         .unwrap(),

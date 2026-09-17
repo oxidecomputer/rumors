@@ -130,9 +130,9 @@ impl<'a, R: Read> FrameDecoder<'a, R> {
         let mut listing = query_listing(head)?;
         let count = head.value;
         for _ in 0..count {
-            let key = self.head(FramePart::QueryChildren)?;
+            let key = self.listing_head()?;
             let radix = listing.key(key).map_err(listing_issue)?;
-            let value = self.head(FramePart::QueryChildren)?;
+            let value = self.listing_head()?;
             super::frame::ListingBuilder::value_head(value).map_err(listing_issue)?;
             let mut digest = [0; MERKLE_HASH_LEN];
             self.read_exact(&mut digest, FramePart::QueryChildren)?;
@@ -202,6 +202,18 @@ impl<'a, R: Read> FrameDecoder<'a, R> {
         cbor::read_head_io(self.read)
             .map_err(|e| head_error(part, e))?
             .ok_or_else(|| head_error(part, HeadReadError::Io(ErrorKind::UnexpectedEof.into())))
+    }
+
+    /// Read one head inside a child listing, retaining listing-specific defects.
+    fn listing_head(&mut self) -> Result<cbor::Head, DecodeErrorKind> {
+        cbor::read_head_io(self.read)
+            .map_err(|error| match error {
+                HeadReadError::Io(source) => classify(FramePart::QueryChildren, source),
+                HeadReadError::Malformed(source) => {
+                    DecodeErrorKind::InvalidListing(ListingIssue::Head(source))
+                }
+            })?
+            .ok_or_else(|| classify(FramePart::QueryChildren, ErrorKind::UnexpectedEof.into()))
     }
 
     fn read_exact(&mut self, bytes: &mut [u8], part: FramePart) -> Result<(), DecodeErrorKind> {
@@ -312,31 +324,14 @@ pub(super) fn run_head(tag: cbor::Head, body: cbor::Head) -> Result<usize, Decod
 
 /// Type a listing-map violation into the frame error taxonomy.
 pub(super) fn listing_issue(issue: ListingIssue) -> DecodeErrorKind {
-    match issue {
-        ListingIssue::Order(order) => DecodeErrorKind::QueryOutOfOrder(order),
-        ListingIssue::Head(head) => DecodeErrorKind::Malformed {
-            part: FramePart::QueryChildren,
-            detail: head_detail(head),
-        },
-        ListingIssue::Shape(detail) => DecodeErrorKind::Malformed {
-            part: FramePart::QueryChildren,
-            detail,
-        },
-        ListingIssue::Truncated => DecodeErrorKind::Malformed {
-            part: FramePart::QueryChildren,
-            detail: "listing hash bytes are truncated",
-        },
-    }
+    DecodeErrorKind::InvalidListing(issue)
 }
 
 /// Type a head-read failure by the frame part it interrupted.
 pub(super) fn head_error(part: FramePart, error: HeadReadError) -> DecodeErrorKind {
     match error {
         HeadReadError::Io(source) => classify(part, source),
-        HeadReadError::Malformed(head) => DecodeErrorKind::Malformed {
-            part,
-            detail: head_detail(head),
-        },
+        HeadReadError::Malformed(source) => DecodeErrorKind::Head { part, source },
     }
 }
 
@@ -349,16 +344,6 @@ pub(super) fn classify(part: FramePart, source: std::io::Error) -> DecodeErrorKi
             source,
         },
         _ => DecodeErrorKind::Read { part, source },
-    }
-}
-
-/// Name a deterministic-contract violation for the error taxonomy.
-fn head_detail(error: cbor::HeadError) -> &'static str {
-    match error {
-        cbor::HeadError::Truncated => "truncated head",
-        cbor::HeadError::Indefinite => "indefinite-length head",
-        cbor::HeadError::Reserved => "reserved head",
-        cbor::HeadError::NotShortest => "head not in shortest form",
     }
 }
 

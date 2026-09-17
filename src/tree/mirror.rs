@@ -39,7 +39,7 @@ pub(crate) fn contained(bound: &crate::Version, declared: &crate::Version) -> bo
 }
 
 /// An error during mirroring, from either the client or the server position.
-#[derive(Debug, Clone, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error<C, S> {
     /// The protocol participant supplied in the client position failed.
     #[error("mirror client failed")]
