@@ -27,9 +27,12 @@ use futures::future::{BoxFuture, FutureExt};
 use before::Dominance;
 
 use crate::{
-    Version, causally,
+    Version,
     tree::{
-        mirror::streaming::{Backend, ErasedNode, Leaf, erased::ops, stats::Recorder},
+        mirror::{
+            contained,
+            streaming::{Backend, ErasedNode, Leaf, erased::ops, stats::Recorder},
+        },
         typed::{ErasedPrefix, height::Z},
     },
 };
@@ -41,7 +44,7 @@ use crate::{
 /// A concurrent ceiling is beyond the known-at range and is *not* known:
 /// it carries history the counterparty has never seen.
 pub(super) fn known(node: &impl ErasedNode, version: &Version) -> bool {
-    causally::before(version).contains(node.span().hi())
+    contained(node.span().hi(), version)
 }
 
 /// Classify a subtree from its memoized version bounds without

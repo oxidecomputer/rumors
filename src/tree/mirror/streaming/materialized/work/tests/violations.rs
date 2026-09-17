@@ -22,52 +22,66 @@ use crate::{
     },
     tree::typed::{
         self, Hash, Path, Prefix,
-        height::{Height, S, UnderRoot, Z},
+        height::{Height, Root, S, UnderRoot, Z},
     },
 };
 
 /// The in-memory backend's erased node representation, which the walk's
 /// query queues carry.
 type Erased = <Local as Backend>::Erased;
-/// One deliberately malformed counterparty script and the exact violation it
-/// must surface.
+
+/// A violation that the general reaction loop can produce from one reply.
+///
+/// This excludes `OverdrawnSupply`, whose script needs a spent session ledger
+/// and therefore lives in the terminal absorption tests.
 #[derive(Clone, Copy, Debug)]
-enum Injection {
+enum ScriptedViolation {
+    /// Send a reply without an outstanding query.
     UnaskedReply,
+    /// End the reply stream while a query remains.
     UnansweredQuery,
+    /// Leave at least one held child unanswered.
     UnfinishedReply,
+    /// Match after exhausting the held children.
     UnexpectedMatch,
+    /// Query after exhausting the held children.
     UnexpectedQuery,
+    /// Supply a child already held locally.
     UnexpectedSupply,
+    /// Supply a child outside radix order.
     InvalidSupply,
+    /// Supply content beyond the declared version.
     UncontainedSupply,
 }
 
-impl Injection {
-    fn expected(self) -> Violation {
-        match self {
-            Self::UnaskedReply => Violation::UnaskedReply,
-            Self::UnansweredQuery => Violation::UnansweredQuery,
-            Self::UnfinishedReply => Violation::UnfinishedReply,
-            Self::UnexpectedMatch => Violation::UnexpectedMatch,
-            Self::UnexpectedQuery => Violation::UnexpectedQuery,
-            Self::UnexpectedSupply => Violation::UnexpectedSupply,
-            Self::InvalidSupply => Violation::InvalidSupply,
-            Self::UncontainedSupply => Violation::UncontainedSupply,
+/// Convert a scripted case to the violation it must report.
+impl From<ScriptedViolation> for Violation {
+    /// Return the protocol violation represented by the script.
+    fn from(script: ScriptedViolation) -> Self {
+        match script {
+            ScriptedViolation::UnaskedReply => Violation::UnaskedReply,
+            ScriptedViolation::UnansweredQuery => Violation::UnansweredQuery,
+            ScriptedViolation::UnfinishedReply => Violation::UnfinishedReply,
+            ScriptedViolation::UnexpectedMatch => Violation::UnexpectedMatch,
+            ScriptedViolation::UnexpectedQuery => Violation::UnexpectedQuery,
+            ScriptedViolation::UnexpectedSupply => Violation::UnexpectedSupply,
+            ScriptedViolation::InvalidSupply => Violation::InvalidSupply,
+            ScriptedViolation::UncontainedSupply => Violation::UncontainedSupply,
         }
     }
 }
 
-fn arb_injection() -> impl Strategy<Value = Injection> {
+/// Generate every violation supported by [`violation_script`].
+fn arb_scripted_violation() -> impl Strategy<Value = ScriptedViolation> {
     prop_oneof![
-        Just(Injection::UnaskedReply),
-        Just(Injection::UnansweredQuery),
-        Just(Injection::UnfinishedReply),
-        Just(Injection::UnexpectedMatch),
-        Just(Injection::UnexpectedQuery),
-        Just(Injection::UnexpectedSupply),
-        Just(Injection::InvalidSupply),
-        Just(Injection::UncontainedSupply),
+        Just(ScriptedViolation::UnaskedReply),
+        Just(ScriptedViolation::UnansweredQuery),
+        Just(ScriptedViolation::UnfinishedReply),
+        Just(ScriptedViolation::UnexpectedMatch),
+        Just(ScriptedViolation::UnexpectedQuery),
+        Just(ScriptedViolation::UnexpectedSupply),
+        Just(ScriptedViolation::InvalidSupply),
+        Just(ScriptedViolation::UncontainedSupply),
     ]
 }
 
@@ -99,7 +113,7 @@ where
 /// `UncontainedSupply` script alone ticks past the snapshot.
 #[allow(clippy::type_complexity)]
 fn violation_script<H>(
-    injection: Injection,
+    injection: ScriptedViolation,
     parent: u8,
     radixes: &BTreeSet<u8>,
 ) -> (Option<Query<Erased>>, Vec<Reply<Local, H>>, Version)
@@ -132,14 +146,14 @@ where
             .collect::<Vec<_>>()
     };
     let (query, replies) = match injection {
-        Injection::UnaskedReply => (
+        ScriptedViolation::UnaskedReply => (
             None,
             vec![Reply {
                 reactions: Vec::new(),
             }],
         ),
-        Injection::UnansweredQuery => (Some(query), Vec::new()),
-        Injection::UnfinishedReply => (
+        ScriptedViolation::UnansweredQuery => (Some(query), Vec::new()),
+        ScriptedViolation::UnfinishedReply => (
             Some(query),
             vec![Reply {
                 reactions: std::iter::repeat_with(|| Reaction::Match)
@@ -147,17 +161,17 @@ where
                     .collect(),
             }],
         ),
-        Injection::UnexpectedMatch => {
+        ScriptedViolation::UnexpectedMatch => {
             let mut reactions = matches();
             reactions.push(Reaction::Match);
             (Some(query), vec![Reply { reactions }])
         }
-        Injection::UnexpectedQuery => {
+        ScriptedViolation::UnexpectedQuery => {
             let mut reactions = matches();
             reactions.push(Reaction::Query(Vec::new()));
             (Some(query), vec![Reply { reactions }])
         }
-        Injection::UnexpectedSupply => (
+        ScriptedViolation::UnexpectedSupply => (
             Some(query),
             vec![Reply {
                 reactions: vec![Reaction::Supply(
@@ -166,7 +180,7 @@ where
                 )],
             }],
         ),
-        Injection::InvalidSupply => {
+        ScriptedViolation::InvalidSupply => {
             let radix = *radixes.first().expect("the strategy produces a child");
             (
                 Some(Query {
@@ -181,7 +195,7 @@ where
                 }],
             )
         }
-        Injection::UncontainedSupply => {
+        ScriptedViolation::UncontainedSupply => {
             // Structurally a legal supply — the query holds nothing, the
             // radix is fresh — so only the version escape is at fault.
             let radix = *radixes.first().expect("the strategy produces a child");
@@ -240,13 +254,13 @@ fn reported_violation<H: Height>(
 /// Inject a malformed script through the walk assigned to this query height.
 trait InjectHeight: TestHeight {
     /// Run the malformed script through the walk at this height.
-    fn inject(injection: Injection, parent: u8, radixes: &BTreeSet<u8>) -> Violation;
+    fn inject(injection: ScriptedViolation, parent: u8, radixes: &BTreeSet<u8>) -> Violation;
 }
 
 /// Exercise the terminal leaf walk.
 impl InjectHeight for Z {
     /// Inject the script into leaf reconciliation and collect its failure.
-    fn inject(injection: Injection, parent: u8, radixes: &BTreeSet<u8>) -> Violation {
+    fn inject(injection: ScriptedViolation, parent: u8, radixes: &BTreeSet<u8>) -> Violation {
         let (query, requests, declared) = violation_script::<Self>(injection, parent, radixes);
         let queries = query_receiver::<Self>(query);
         let mut work = Work::new(Local, Window::FLOOR, Recorder::default());
@@ -263,7 +277,7 @@ impl InjectHeight for Z {
 /// Exercise the walk which opens leaf requests.
 impl InjectHeight for S<Z> {
     /// Inject the script into leaf-parent reconciliation and collect its failure.
-    fn inject(injection: Injection, parent: u8, radixes: &BTreeSet<u8>) -> Violation {
+    fn inject(injection: ScriptedViolation, parent: u8, radixes: &BTreeSet<u8>) -> Violation {
         let (query, requests, declared) = violation_script::<Self>(injection, parent, radixes);
         let queries = query_receiver::<Self>(query);
         let mut work = Work::new(Local, Window::FLOOR, Recorder::default());
@@ -286,7 +300,7 @@ where
     S<S<S<H>>>: Height,
 {
     /// Inject the script into interior reconciliation and collect its failure.
-    fn inject(injection: Injection, parent: u8, radixes: &BTreeSet<u8>) -> Violation {
+    fn inject(injection: ScriptedViolation, parent: u8, radixes: &BTreeSet<u8>) -> Violation {
         let (query, requests, declared) = violation_script::<Self>(injection, parent, radixes);
         let queries = query_receiver::<Self>(query);
         let mut work = Work::new(Local, Window::FLOOR, Recorder::default());
@@ -337,18 +351,19 @@ proptest! {
     /// Every injected semantic fault is reported as its exact public
     /// `Violation`.
     ///
-    /// Every generated case runs at all 32 query heights; arbitrary scope,
-    /// held-child shape, and channel poll order pin the counterparty-fault
-    /// taxonomy through every materialized walk's response pump.
+    /// Every generated case runs at every supported query height; arbitrary
+    /// scope, held-child shape, and channel poll order pin the
+    /// counterparty-fault taxonomy through every materialized walk's response
+    /// pump.
     #[test]
     fn injected_fault_reports_exact_violation(
-        injection in arb_injection(),
+        injection in arb_scripted_violation(),
         parent in any::<u8>(),
         radixes in proptest::collection::btree_set(any::<u8>(), 1..=8),
         schedule in proptest::collection::vec(0u8..=2, 0..=64),
     ) {
-        let expected = injection.expected();
-        for height in 0..32 {
+        let expected = injection.into();
+        for height in 0..Root::HEIGHT {
             let actual = with_schedule(schedule.clone(), || {
                 inject_at_height!(height, injection, parent, &radixes)
             });

@@ -1,3 +1,5 @@
+//! Pair a peer's reply with one outstanding materialized query.
+
 use std::iter::Peekable;
 
 use crate::{
@@ -14,39 +16,58 @@ use crate::{
     },
 };
 
-/// One query's reaction loop: pairs the held children against the reply's
-/// reactions in order, accumulating the scope's [`Resolution`] and reporting
-/// each counterparty fault as its exact [`Violation`].
-pub struct Resolver<'v, B>
+/// One query's reaction loop.
+///
+/// The resolver pairs held children with the reply's reactions in order,
+/// accumulates the scope's [`Resolution`], and reports each semantic fault as
+/// its exact [`Violation`]. A query reaction returns a [`Dispute`] for the
+/// caller to resolve at the next level; matches and supplies resolve locally.
+pub struct Resolver<'session, B>
 where
     B: Backend<Node<Z>: Leaf>,
 {
+    /// The scope being resolved.
     prefix: ErasedPrefix,
+    /// Held children still awaiting a reaction.
     fan: Peekable<std::vec::IntoIter<(u8, B::Erased)>>,
+    /// Child resolutions accumulated in radix order.
     resolved: Vec<(u8, Resolve<B::Erased>)>,
     /// The peer's declared greeting version: every supplied subtree's
     /// ceiling must be contained in it
     /// ([`Violation::UncontainedSupply`]).
-    their_version: &'v Version,
+    their_version: &'session Version,
     /// The peer's declared-set-length ledger: every absorbed supply
     /// charges its exact live-leaf count
     /// ([`Violation::OverdrawnSupply`]).
-    ledger: &'v SupplyLedger,
+    ledger: &'session SupplyLedger,
     /// The session's stats recorder: each absorbed supply credits its
     /// exact live-leaf count as
     /// [`messages_gained`](crate::SessionStats::messages_gained).
-    stats: Recorder,
+    stats: &'session Recorder,
 }
 
-impl<'v, B> Resolver<'v, B>
+/// A held child that the peer reports as different.
+pub struct Dispute<E> {
+    /// The disputed child's full prefix.
+    pub(super) child_prefix: ErasedPrefix,
+    /// The child's radix in its parent resolution.
+    pub(super) radix: u8,
+    /// This replica's child node.
+    pub(super) node: E,
+    /// The peer's listing for the child.
+    pub(super) listing: Vec<(u8, Hash)>,
+}
+
+impl<'session, B> Resolver<'session, B>
 where
     B: Backend<Node<Z>: Leaf>,
 {
+    /// Begin resolving one outstanding query.
     pub fn new(
         Query { prefix, ours }: Query<B::Erased>,
-        their_version: &'v Version,
-        ledger: &'v SupplyLedger,
-        stats: Recorder,
+        their_version: &'session Version,
+        ledger: &'session SupplyLedger,
+        stats: &'session Recorder,
     ) -> Self {
         Self {
             prefix,
@@ -58,11 +79,16 @@ where
         }
     }
 
-    #[allow(clippy::type_complexity)]
+    /// Apply one reaction.
+    ///
+    /// Matches and supplies resolve a child immediately and return `None`.
+    /// A query returns the disputed child for the caller to answer. Any
+    /// reaction that does not fit the outstanding fan returns its exact
+    /// protocol violation.
     pub fn react(
         &mut self,
         reaction: Reaction<B::Erased>,
-    ) -> Result<Option<(ErasedPrefix, u8, B::Erased, Vec<(u8, Hash)>)>, Error<B::Error>> {
+    ) -> Result<Option<Dispute<B::Erased>>, Error<B::Error>> {
         match reaction {
             Reaction::Match => {
                 let Some((radix, node)) = self.fan.next() else {
@@ -101,21 +127,29 @@ where
                 let Some((radix, node)) = self.fan.next() else {
                     return violation(Violation::UnexpectedQuery);
                 };
-                return Ok(Some((self.prefix, radix, node, listing)));
+                return Ok(Some(Dispute {
+                    child_prefix: self.prefix.push(radix),
+                    radix,
+                    node,
+                    listing,
+                }));
             }
         }
 
         Ok(None)
     }
 
+    /// Record a child resolved immediately by the caller.
     pub fn ready(&mut self, radix: u8, node: Option<B::Erased>) {
         self.resolved.push((radix, Resolve::Ready(node)));
     }
 
+    /// Reserve a child whose resolution will arrive from the next level.
     pub fn pending(&mut self, radix: u8) {
         self.resolved.push((radix, Resolve::Pending));
     }
 
+    /// Finish the scope after verifying that every held child was answered.
     pub fn finish(mut self) -> Result<Resolution<B::Erased>, Error<B::Error>> {
         if self.fan.next().is_some() {
             violation(Violation::UnfinishedReply)

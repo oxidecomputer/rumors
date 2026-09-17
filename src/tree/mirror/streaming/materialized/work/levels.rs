@@ -15,7 +15,12 @@ use before::Version;
 use futures::{Stream, StreamExt, future::BoxFuture, stream::BoxStream};
 use tokio::sync::oneshot;
 
-use super::{Work, answer, assembly::assemble, queues::*, resolver::Resolver};
+use super::{
+    Work, answer,
+    assembly::assemble,
+    queues::*,
+    resolver::{Dispute, Resolver},
+};
 #[cfg(test)]
 use crate::tree::mirror::streaming::materialized::progress;
 use crate::tree::{
@@ -321,9 +326,8 @@ where
     ///   requests from the pre-exploded children the opening carried when
     ///   the initiator's matching replies arrive empty.
     ///
-    /// Both hand-offs resolve without backend calls: a mid-loop failure
-    /// here would strand the counterparty's reply pump on a full slot,
-    /// ahead of the error's own publication.
+    /// Both hand-offs consume results prepared during the opening exchange,
+    /// so resolving them does not repeat a backend read.
     #[allow(clippy::type_complexity)]
     pub fn internal_level<H>(
         &mut self,
@@ -459,13 +463,17 @@ where
                     }
                 }
 
-                let mut resolver =
-                    Resolver::<B>::new(query, &their_version, &ledger, stats.clone());
+                let mut resolver = Resolver::<B>::new(query, &their_version, &ledger, &stats);
                 for reaction in reactions {
-                    let Some((prefix, radix, node, listing)) = resolver.react(reaction)? else {
+                    let Some(Dispute {
+                        child_prefix,
+                        radix,
+                        node,
+                        listing,
+                    }) = resolver.react(reaction)?
+                    else {
                         continue;
                     };
-                    let child_prefix = prefix.push(radix);
 
                     if listing.is_empty() {
                         // A root-level empty query whose radix the opening
@@ -602,13 +610,17 @@ where
                     return violation(Violation::UnansweredQuery)?;
                 };
 
-                let mut resolver =
-                    Resolver::<B>::new(query, &their_version, &ledger, stats.clone());
+                let mut resolver = Resolver::<B>::new(query, &their_version, &ledger, &stats);
                 for reaction in reactions {
-                    let Some((prefix, radix, node, listing)) = resolver.react(reaction)? else {
+                    let Some(Dispute {
+                        child_prefix,
+                        radix,
+                        node,
+                        listing,
+                    }) = resolver.react(reaction)?
+                    else {
                         continue;
                     };
-                    let child_prefix = prefix.push(radix);
 
                     if listing.is_empty() {
                         let (node, leaves) =
@@ -699,10 +711,15 @@ where
                     return violation(Violation::UnansweredQuery)?;
                 };
 
-                let mut resolver =
-                    Resolver::<B>::new(query, &their_version, &ledger, stats.clone());
+                let mut resolver = Resolver::<B>::new(query, &their_version, &ledger, &stats);
                 for reaction in reactions {
-                    let Some((prefix, radix, node, listing)) = resolver.react(reaction)? else {
+                    let Some(Dispute {
+                        child_prefix,
+                        radix,
+                        node,
+                        listing,
+                    }) = resolver.react(reaction)?
+                    else {
                         continue;
                     };
 
@@ -710,7 +727,7 @@ where
                         answer::leaf(&their_version, radix, node, listing, &stats)
                             .map_err(Error::Violation)?;
                     yield_resolve_query!(
-                        trace_id, prefix.push(radix);
+                        trace_id, child_prefix;
                         yield Reply { reactions };
                         resolver.ready(radix, node);
                     );

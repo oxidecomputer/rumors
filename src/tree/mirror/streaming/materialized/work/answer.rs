@@ -1,3 +1,5 @@
+//! Build replies and local resolutions for one materialized query.
+
 use itertools::{EitherOrBoth, Itertools};
 
 use crate::{
@@ -7,7 +9,7 @@ use crate::{
             Backend, ErasedNode, Leaf,
             erased::{Reaction, ops},
             materialized::{
-                Query, Resolve, Violation,
+                Query, Resolve, Violation, fan_listing,
                 unknown::{known, unknown},
             },
             stats::Recorder,
@@ -66,11 +68,7 @@ where
                 differed = true;
                 let prefix = prefix.push(radix);
                 let ours = ops::children_of(backend, prefix, node).await?;
-                reactions.push(Reaction::Query(
-                    ours.iter()
-                        .map(|(radix, child)| (*radix, child.hash()))
-                        .collect(),
-                ));
+                reactions.push(Reaction::Query(fan_listing(&ours)));
                 asked.push(Query { prefix, ours });
                 resolved.push((radix, Resolve::Pending));
             }

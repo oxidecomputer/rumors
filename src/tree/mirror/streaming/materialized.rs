@@ -480,14 +480,11 @@ pub(crate) async fn greeting_fan<B: Backend<Node<Z>: Leaf>>(
     }
 }
 
-/// Derive a `(radix, hash)` listing from a greeting-time fan.
+/// Derive the wire listing for a materialized fan.
 ///
-/// This is the *single* derivation behind both the greeting's carried
-/// listing and the initiator's in-process opening question
-/// ([`Work::initiator_level`]). The remote
-/// proxy pairs the two positionally, so they must be byte-identical;
-/// routing both through this one function makes drift structurally
-/// impossible rather than a coincidence of two matching code bodies.
+/// In particular, the greeting and the initiator's opening question
+/// ([`Work::initiator_level`]) are paired positionally by the remote proxy.
+/// Deriving every listing here keeps those representations identical.
 pub(crate) fn fan_listing<E: ErasedNode>(fan: &[(u8, E)]) -> Vec<(u8, Hash)> {
     fan.iter()
         .map(|(radix, node)| (*radix, node.hash()))
@@ -872,7 +869,7 @@ where
             prefix: scope.erase(),
             ours: Vec::new(),
         };
-        let mut resolver = Resolver::<B>::new(request, &their_version, &ledger, stats.clone());
+        let mut resolver = Resolver::<B>::new(request, &their_version, &ledger, &stats);
         for reaction in reactions {
             if let Reaction::Supply(radix, _) = &reaction
                 && *radix != expected
