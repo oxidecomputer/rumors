@@ -1,6 +1,6 @@
 # Rumors review checklist
 
-**Next:** consolidate the duplicate reconciliation drivers.
+**Next:** audit the remaining session and bookmark findings.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →
@@ -218,8 +218,11 @@ Dependencies: 07 for join outcomes; owned-byte trait before conformance and file
 - [x] Simplify payload admission and update session and reconciliation explanations — `075d96c1`.
       Sources: `session-bookmark-2`, `session-bookmark-12`, `session-bookmark-33`, `session-bookmark-35–36`, `session-bookmark-43`, `session-bookmark-45`, `session-bookmark-47`, T52, T56, T104, T132.
 
-- [ ] Consolidate reconciliation drivers and audit the remaining session and bookmark findings.
-      Sources: `session-bookmark-5–7`, `session-bookmark-9–10`, `session-bookmark-13–17`, `session-bookmark-19`, `session-bookmark-27–30`, `session-bookmark-32`, `session-bookmark-39`, `session-bookmark-41`, T46, T48–50, T52, T129, T132.
+- [x] Consolidate the duplicate reconciliation drivers — `028ce53c`.
+      Source: `session-bookmark-15`, T132.
+
+- [ ] Audit the remaining session and bookmark findings.
+      Sources: `session-bookmark-5–7`, `session-bookmark-9–10`, `session-bookmark-13–14`, `session-bookmark-16–17`, `session-bookmark-19`, `session-bookmark-27–30`, `session-bookmark-32`, `session-bookmark-39`, `session-bookmark-41`, T46, T48–50, T52, T129, T132.
 
 ## 09. Public diagnostics and observability
 
