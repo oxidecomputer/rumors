@@ -101,13 +101,15 @@
 //! pop), one settle per reign record at the record's own funded width, and the
 //! epoch ledger's one product per freeze at the evicted drift's width — the
 //! `web` submodule certifies every charge (the `skyline_flatness` module's
-//! pure-comb and reveal-comb bands hold the cost of closing revealed ranges flat in both the
-//! touch and limb counters).
+//! pure-comb and reveal-comb bands hold the cost of closing revealed ranges
+//! flat in both the touch and limb counters).
 //!
 //! Projection adds one height materialization per ownership transition, priced
-//! by the code it emits. Transient state is the cursor paths, the accumulators,
-//! min_ticks' compressed difference stack, and — for projection — the output
-//! builder's per-level bit stacks.
+//! by the code it emits. A leaf's next boundary is derived once and cached, so
+//! observing a parked event cursor costs constant time per id boundary.
+//! Transient state is the cursor paths, the accumulators, min_ticks' compressed
+//! difference stack, and — for projection — the output builder's per-level bit
+//! stacks.
 //!
 //! # Verification
 //!

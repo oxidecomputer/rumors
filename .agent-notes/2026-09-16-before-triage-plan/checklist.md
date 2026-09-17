@@ -1,9 +1,9 @@
 # `before` review checklist
 
-**Active:** replace `dashu` with the existing `num-bigint` dependency and one
-arbitrary-width rank representation. The implementation is ready for review.
-Next, re-rank the time and auxiliary-space findings around inputs that can
-induce disproportionate work or temporary storage.
+**Active:** restore the linear bounds for projection and masked comparison by
+avoiding repeated scans of a stationary cursor. Next, re-rank the remaining
+time and auxiliary-space findings around inputs that induce disproportionate
+work or temporary storage.
 
 **Branch:** `codex/before-triage`, rebased onto `main` at outcome boundaries.
 One implementation batch is active at a time. Nothing merges until the entire
@@ -75,12 +75,12 @@ triage's dispositions and branches are leads only.
       `skyline-query-24`, `party-23`.
       Complete in `f61f3fed`.
 
-- [ ] Remove the backend-capacity boundary from wide gamma values and keep the
+- [x] Remove the backend-capacity boundary from wide gamma values and keep the
       wasm guest's own arithmetic from becoming the tested failure.
       Sources: `codec-bits-23`, `fuzz-guests-pins-26`,
       `fuzz-guests-pins-27`.
-      Ready for review: gamma positions remain `u64` through decoding, and
-      `BigUint` accepts them without an intermediate machine-word cap. The
+      Complete in `f75e86ee`: gamma positions remain `u64` through decoding,
+      and `BigUint` accepts them without an intermediate machine-word cap. The
       retained wasm pin crosses the 32-bit exponent boundary directly.
 
 ## 03. Canonical encoding and serialization
@@ -126,6 +126,9 @@ triage's dispositions and branches are leads only.
 - [ ] Stop projected and masked comparisons from repeatedly scanning a parked
       cursor's trailing run.
       Sources: `skyline-sweep-place-masked-5`, `codec-bits-29`.
+      Ready for review: `LeafCursor` derives the next boundary once upon
+      reaching a leaf and retains it in one `u64`; every later peek is a field
+      read, and each step checks the cached boundary against the path.
 
 - [ ] Give `Ranked::cmp`, rank folds, and `sum_ranks` contracts their actual
       worst-case implementations and useful properties.
@@ -181,14 +184,14 @@ triage's dispositions and branches are leads only.
       Complete in `e71caf8cc`: suanpan streams normalized `u64` limbs and no
       longer owns a big-integer backend or its adapter layer.
 
-- [ ] Eliminate `dashu` if the remaining rank and accumulator arithmetic can
+- [x] Eliminate `dashu` if the remaining rank and accumulator arithmetic can
       be expressed more simply without it. The intended outcome is one
       arbitrary-width representation, with no backend-capacity boundary or
       small/wide `Num` split, while retaining input-proportionate memory use.
       Sources: `rank-*`, `suanpan-*`, `deps-*`; owner handoff, 2026-09-16.
-      Ready for review: `Base` and `Rank` use one `BigUint` representation;
-      backend tiers and their private tests and pins are gone, while general
-      arithmetic properties and resource instruments remain.
+      Complete in `f75e86ee`: `Base` and `Rank` use one `BigUint`
+      representation; backend tiers and their private tests and pins are gone,
+      while general arithmetic properties and resource instruments remain.
 
 ## 07. Semantic instruments and generators
 

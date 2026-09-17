@@ -50,13 +50,13 @@
 //! Derived, with the constants pinned by the `masked_cmp_*` rows of the
 //! resource-envelope suite (`tests/meter.rs`): every topology bit of every
 //! stream is read at most once, every path bit pushed and popped at most once,
-//! every event payload decoded once and folded into at most two accumulators,
-//! and every id region visited once — so scan, decode, stack, and fold work are
-//! all linear in the operand streams' bits, `O(|v| + |p| + |w|)` for one mask
-//! and `O(|v₁| + |p₁| + |v₂| + |p₂|)` for two. The per-interval sign reads ride
-//! the accumulator's amortized-O(1) collapse; the correlated families (mask
-//! boundaries riding the other operand's carry-boundary drift) are the
-//! committed adversaries holding that claim to its envelope.
+//! and each leaf's next boundary derived once and then cached. Every event
+//! payload is decoded once and folded into at most two accumulators, and every
+//! id region is visited once. Scan, decode, stack, and fold work are therefore
+//! linear in the operand streams' bits: `O(|v| + |p| + |w|)` for one mask and
+//! `O(|v₁| + |p₁| + |v₂| + |p₂|)` for two. The per-interval sign reads ride the
+//! accumulator's amortized-O(1) collapse. The resource-envelope cases cover
+//! mask boundaries aligned with accumulator drift.
 //!
 //! # Early exit
 //!
@@ -295,17 +295,14 @@ impl<'a> Walk<'a> {
 
     /// Consume every boundary run the verdict cannot see, as blocks.
     ///
-    /// While a masked side's current region is unowned and its event cursor's
-    /// next flip level sits strictly below every other cursor's depth, the
-    /// boundaries it would cross are its own alone (deeper than every plateau
-    /// end, so no tie — the flip bound implies the cursor is strictly deepest)
-    /// and they subdivide intervals whose sign every ownership case ignores:
-    /// the side's projection is constantly zero there, and no other integrator
-    /// source moves. The run is consumed in one block
-    /// ([`LeafCursor::skip_deeper`]), its net movement folded once into the
-    /// integrators that watch the side — value-identical to the per-boundary
-    /// folds, with the duplicate interval signs never re-folded (folding an
-    /// unchanged sign is the identity on the surviving directions).
+    /// If a mask does not own the current interval, event boundaries deeper
+    /// than every other cursor stay inside that interval and cannot affect the
+    /// result. Consume those boundaries together and fold their net height
+    /// change once.
+    ///
+    /// [`LeafCursor`] computes each next boundary once, and every iteration of
+    /// the block consumes one, so the work remains proportional to the input
+    /// crossed.
     ///
     /// A block can consume a side to exhaustion, so the caller re-checks
     /// [`done`](Self::done) before applying the advance law.

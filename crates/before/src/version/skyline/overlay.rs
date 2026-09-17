@@ -303,21 +303,15 @@ pub(super) struct Step {
 ///
 /// Holds the sequential bit cursor and the root-to-leaf path — one bit per open
 /// ancestor: `false` inside its left child (the right subtree is still pending
-/// in the stream), `true` inside its right. The path is the only per-depth
-/// state; no height, base, or node is retained, which is what keeps a sweep's
-/// transient linear in depth *bits*. Every skyline walk shares the cursor
-/// through [`PlateauCursor`]: the [`Step`]s it yields are folded by each
-/// client's own algebra (the pair clients through [`fold`]), and emission
-/// additionally re-codes them.
-///
-/// This is the overlay-law twin of the single-stream driver
-/// ([`walk::LeafWalk`](super::walk::LeafWalk)): the same descend/backtrack
-/// skeleton, carried here as an owned cursor with exhaustion by position and
-/// flip-level steps, because that is what the multi-stream merges consume.
+/// in the stream), `true` inside its right. The cursor retains no per-depth
+/// values beyond this bit path, keeping its transient storage linear in depth
+/// measured in bits.
 pub(super) struct LeafCursor<'a> {
     cursor: DsiCursor<'a>,
     /// Root-to-leaf branch directions, root first.
     path: BitStack,
+    /// Depth to which the next step ascends, cached for the current leaf.
+    next_flip: u64,
     /// The stream's live bit length; the cursor reaching it is
     /// exhaustion (the current leaf is the stream's last).
     len: u64,
@@ -338,32 +332,27 @@ impl<'a> LeafCursor<'a> {
         let mut this = LeafCursor {
             cursor: DsiCursor::new(bits),
             path: BitStack::new(),
+            next_flip: 0,
             len: bits.len(),
         };
         let first = this.descend();
         (this, first)
     }
 
-    /// The flip level the next step would close to, read without moving.
+    /// The depth to which the next step ascends, without moving the cursor.
     ///
-    /// The path's trailing right-branch run popped and the deepest left branch
-    /// flipped. Zero on a final leaf (the all-right path), where no step
-    /// remains — every real flip level is at least one.
+    /// The value is computed once upon reaching each leaf, so repeated reads
+    /// take constant time. A final leaf returns zero because it has no next
+    /// step.
     pub(super) fn peek_flip(&self) -> u64 {
-        self.path.len() - self.path.trailing_ones()
+        self.next_flip
     }
 
-    /// Consume plateaus while the next boundary's flip level stays strictly
-    /// deeper than `bound`, folding every crossed delta into `net` (positively
-    /// oriented: the caller applies its own side).
+    /// Consume consecutive boundaries deeper than `bound`, adding their
+    /// combined height change to `net`.
     ///
-    /// The ownership-gated walks' block consume: a boundary whose flip level
-    /// exceeds every other cursor's depth is crossed by this cursor alone, so a
-    /// caller that has established the crossed intervals carry no verdict or
-    /// output of their own needs only the net height movement to re-enter.
-    /// Stops with the cursor at the first plateau whose end reaches level
-    /// `bound` or shallower — a final leaf stops the loop unconditionally (its
-    /// peek is zero), so exhaustion needs no separate guard.
+    /// Stops before the first boundary at `bound` or shallower. A final leaf's
+    /// boundary is zero, so exhaustion needs no separate check.
     ///
     /// Every skipped bit is still read and recorded: the scan meter's reading
     /// is identical to the plateau-by-plateau walk this batches.
@@ -404,7 +393,9 @@ impl<'a> LeafCursor<'a> {
         // The cursor's own `read_int`, so the payload decode takes the
         // word-parallel fast path; the scan meter records the same `2k + 1`
         // bits either way.
-        self.cursor.read_int().expect("canonical skyline bits")
+        let code = self.cursor.read_int().expect("canonical skyline bits");
+        self.next_flip = self.path.len() - self.path.trailing_ones();
+        code
     }
 }
 
@@ -440,6 +431,7 @@ impl PlateauCursor for LeafCursor<'_> {
     /// the module doc's bookkeeping shows a final leaf is never the advanced
     /// side before then.
     fn step(&mut self) -> (u64, Step) {
+        let flip = self.next_flip;
         loop {
             match self.path.pop() {
                 Some(true) => continue, // this ancestor closed with the leaf
@@ -450,7 +442,7 @@ impl PlateauCursor for LeafCursor<'_> {
             }
         }
         self.path.push(true);
-        let flip = self.path.len();
+        debug_assert_eq!(self.path.len(), flip, "the cached flip matches the path");
         let code = self.descend();
         let (sign, magnitude) = super::signed::unzigzag(code);
         (flip, Step { sign, magnitude })

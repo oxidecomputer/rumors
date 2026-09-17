@@ -103,9 +103,9 @@ impl BitStack {
 
     /// The exact run of set bits at the top of the stack.
     ///
-    /// One word read per 64 bits of the run: the cost is the run the caller is
-    /// about to pop (or has decided not to), never the whole stack. `u64`,
-    /// as [`len`](Self::len): the run is bounded by the stack's own height.
+    /// Runs in `O(1 + r / 64)`, where `r` is the returned run length. The
+    /// result is `u64`, like [`len`](Self::len), because the run can span the
+    /// stack's full height.
     pub(crate) fn trailing_ones(&self) -> u64 {
         let top_run = self.top.trailing_ones().min(self.top_len);
         if top_run < self.top_len {
