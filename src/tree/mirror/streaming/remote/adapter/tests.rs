@@ -1,24 +1,42 @@
 //! Behavioral specification of the reply/frame adapter.
 //!
-//! [`properties`] states the adapter's laws and sweeps the complete type-level
-//! height ladder. [`malformed`] pins the smaller set of wire shapes which must
-//! be rejected before those laws can apply. [`opening`] covers the one
-//! deliberately exceptional reply in the protocol. [`runs`] states the
-//! supply-run batching contract the byte budget imposes on the encoder.
-//! [`parking`] pins the memory accounting that makes a parked decoded reply
-//! O(fan) handles rather than a subtree. [`fan_occupancy`] pins the
-//! reader/assembler channel's occupancy ceiling — the supply-decode
-//! envelope's charge premise.
+//! [`properties`] checks the adapter laws at every tree height.
+//! [`malformed`] and [`backend_errors`] cover invalid input and backend
+//! failures. [`opening`] covers the greeting's exceptional first reply, and
+//! [`runs`] covers supply batching. [`parking`] and [`fan_occupancy`] check the
+//! memory assumptions used to size a session.
+
+use std::{collections::BTreeMap, ops::Range};
 
 use before::Version;
 
 use crate::{
-    message::Message,
+    message::{Message, PayloadCodec, PayloadDepthLimit},
     tree::{
-        mirror::streaming::{materialized::SupplyLedger, remote::codec::LeafRun},
-        typed::{Hash, Path, hash::MERKLE_HASH_LEN},
+        mirror::streaming::{
+            convert::Convert,
+            materialized::SupplyLedger,
+            remote::codec::{End, Flow, Frame, LeafRun, Reaction as WireReaction},
+        },
+        typed::{
+            self, Hash, Path,
+            hash::MERKLE_HASH_LEN,
+            height::{S, Z},
+        },
     },
 };
+
+/// Dispatch a runtime height to its concrete marker type.
+macro_rules! at_height {
+    ($height:expr, $trait:ident::$method:ident($($argument:expr),*); $start:literal..$end:literal) => {
+        seq_macro::seq!(N in $start..$end {
+            match $height {
+                #(N => <crate::tree::typed::height::H~N as $trait>::$method($($argument),*),)*
+                _ => panic!("reply height {} is outside {}..{}", $height, $start, $end),
+            }
+        })
+    };
+}
 
 mod backend_errors;
 mod fan_occupancy;
@@ -28,6 +46,7 @@ mod parking;
 mod properties;
 mod runs;
 
+/// Build a visibly synthetic Merkle hash for scope fixtures.
 fn hash(byte: u8) -> Hash {
     Hash([byte; MERKLE_HASH_LEN])
 }
@@ -36,6 +55,11 @@ fn hash(byte: u8) -> Hash {
 /// subject is not the ingress supply charge.
 fn unbounded() -> SupplyLedger {
     SupplyLedger::new(u64::MAX)
+}
+
+/// Construct the payload codec shared by adapter fixtures.
+fn codec() -> PayloadCodec {
+    PayloadCodec::new::<u64>(PayloadDepthLimit::default())
 }
 
 /// Build a supply run from borrowed leaf records, in the given order.
@@ -48,12 +72,75 @@ fn leaf_run(records: &[(&Version, &Message)]) -> LeafRun {
     run
 }
 
+/// Frame one reply's reactions with the canonical final marker.
+fn reply_frames(reactions: impl IntoIterator<Item = WireReaction>) -> Vec<Frame> {
+    let reactions: Vec<_> = reactions.into_iter().collect();
+    if reactions.is_empty() {
+        return vec![Frame::End(End::Reply)];
+    }
+    let last = reactions.len() - 1;
+    reactions
+        .into_iter()
+        .enumerate()
+        .map(|(position, reaction)| {
+            Frame::Reaction(
+                reaction,
+                if position == last {
+                    Flow::End
+                } else {
+                    Flow::Continue
+                },
+            )
+        })
+        .collect()
+}
+
+/// Find `count` leaves which share a root radix, ordered by path.
+fn colliding_leaves(count: usize) -> Vec<LeafCase> {
+    let mut by_radix: BTreeMap<u8, Vec<LeafCase>> = BTreeMap::new();
+    for value in 0..u64::MAX {
+        let leaf = LeafCase::new(value, value as u8 % 4);
+        let radix = <[u8; 32]>::from(leaf.path())[0];
+        let group = by_radix.entry(radix).or_default();
+        group.push(leaf);
+        if group.len() == count {
+            group.sort_by_key(LeafCase::path);
+            return std::mem::take(group);
+        }
+    }
+    unreachable!("the finite radix alphabet forces {count} collisions")
+}
+
+/// Find two leaves with distinct root radixes, ordered by path.
+fn separated_leaves() -> [LeafCase; 2] {
+    let first = LeafCase::new(0, 0);
+    let first_radix = <[u8; 32]>::from(first.path())[0];
+    for value in 1..u64::MAX {
+        let leaf = LeafCase::new(value, value as u8 % 4);
+        if <[u8; 32]>::from(leaf.path())[0] != first_radix {
+            let mut pair = [first, leaf];
+            pair.sort_by_key(LeafCase::path);
+            return pair;
+        }
+    }
+    unreachable!("version-derived paths span more than one root radix")
+}
+
+/// Build leaves for `values` with fixed ticks, ordered by content path.
+fn ascending_leaves(values: Range<u64>, ticks: u8) -> Vec<LeafCase> {
+    let mut leaves: Vec<_> = values.map(|value| LeafCase::new(value, ticks)).collect();
+    leaves.sort_by_key(LeafCase::path);
+    leaves
+}
+
+/// Construct the single-threaded runtime used to drive adapter futures.
 fn runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_current_thread()
         .build()
         .expect("test runtime")
 }
 
+/// A deterministic leaf fixture with its payload and derived version path.
 #[derive(Clone, Debug)]
 struct LeafCase {
     value: u64,
@@ -62,19 +149,43 @@ struct LeafCase {
 }
 
 impl LeafCase {
-    /// A deterministic test leaf: the version scalar folds `value` and
-    /// `ticks` together so distinct cases produce distinct versions — the
-    /// axis paths derive from — while `value` also picks the payload.
+    /// Construct a leaf whose low 56 value bits and ticks select its version.
     fn new(value: u64, ticks: u8) -> Self {
         Self {
             value,
-            version: Version::try_from(value.wrapping_shl(8) | u64::from(ticks))
+            version: Version::try_from((value << 8) | u64::from(ticks))
                 .expect("every u64 scalar is a valid linear version"),
             message: Message::new(value),
         }
     }
 
+    /// Return the content path derived from this leaf's version.
     fn path(&self) -> Path {
         Path::for_leaf(&self.version)
+    }
+}
+
+/// Build the same one-leaf subtree at any adapter height.
+trait NodeAt: Convert {
+    /// Build this height's subtree around `leaf`.
+    fn node(leaf: &LeafCase) -> typed::Node<Self>;
+}
+
+/// A leaf is already a height-zero subtree.
+impl NodeAt for Z {
+    fn node(leaf: &LeafCase) -> typed::Node<Self> {
+        typed::Node::leaf(leaf.version.clone(), leaf.message.clone())
+    }
+}
+
+/// Wrap the lower subtree in the branch selected by the leaf's path.
+impl<H> NodeAt for S<H>
+where
+    H: NodeAt,
+    S<H>: Convert,
+{
+    fn node(leaf: &LeafCase) -> typed::Node<Self> {
+        let path: [u8; 32] = leaf.path().into();
+        typed::Node::beneath(H::node(leaf), path[31 - H::HEIGHT])
     }
 }

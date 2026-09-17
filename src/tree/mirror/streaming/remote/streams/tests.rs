@@ -6,15 +6,15 @@ use tokio::io::{AsyncRead, AsyncWriteExt};
 use crate::link::{Acceptor, Connector, memory};
 use crate::observe::SessionHandle;
 use crate::testing::run_to_quiescence;
-use crate::tree::mirror::cbor::{self, Head, MAJOR_UINT};
+use crate::tree::mirror::cbor::{self, Head, HeadError, MAJOR_UINT};
 use crate::tree::mirror::streaming::remote::codec::{
     End, Flow, Frame, FrameWrite, Origin, Reaction, RunBudget, Speaker, Stream,
 };
 use crate::tree::mirror::streaming::stats::Recorder;
 
 use super::{
-    AcceptDriver, AcceptError, Claims, ErrorRoute, FirstStreamError, ReceiverFinish, ReplyFrame,
-    StreamError, StreamReceiver, StreamSender, claims, error_route, label,
+    AcceptDriver, AcceptError, Claims, ErrorRoute, FirstStreamError, LabelError, ReceiverFinish,
+    ReplyFrame, StreamError, StreamReceiver, StreamSender, claims, error_route, label,
 };
 
 /// Session epoch shared by the violation tests; its value is arbitrary.
@@ -174,6 +174,91 @@ fn accept_driver_rejects_wrong_epoch() {
     .expect("epoch rejection resolves");
 }
 
+/// Drive an incoming raw label until the accept driver rejects it.
+fn accept_label(bytes: &[u8]) -> AcceptError {
+    let (a, mut b) = memory();
+    run_to_quiescence(async {
+        let send = async {
+            let (mut tx, _) = a.connector.connect().await.expect("stream opens");
+            tx.write_all(bytes).await.expect("raw label writes");
+        };
+        let receive = async {
+            let (slots, _claims) = claims::<tokio::io::DuplexStream>();
+            let (route, _errors) = error_route();
+            AcceptDriver::new(&mut b.acceptor, EPOCH, Speaker::Initiator, slots, route)
+                .run(std::future::pending())
+                .await
+        };
+        join(send, receive).await.1
+    })
+    .expect("label rejection resolves")
+}
+
+/// The accept driver distinguishes a label's wrong item type from malformed
+/// CBOR encoding.
+#[test]
+fn accept_driver_classifies_malformed_label_items() {
+    let wrong_type = accept_label(&[0x40]);
+    assert!(
+        matches!(
+            wrong_type,
+            AcceptError::Label {
+                issue: LabelError::Type {
+                    actual: Head { major: 2, value: 0 },
+                },
+                ..
+            }
+        ),
+        "unexpected wrong-type result: {wrong_type:?}",
+    );
+
+    let noncanonical = accept_label(&[0x18, 0x00]);
+    assert!(
+        matches!(
+            noncanonical,
+            AcceptError::Label {
+                issue: LabelError::Head(HeadError::NotShortest),
+                ..
+            }
+        ),
+        "unexpected noncanonical-head result: {noncanonical:?}",
+    );
+}
+
+/// Closing before or during the second label item fails every outstanding
+/// claim while preserving the exact EOF cause for session completion.
+#[test]
+fn truncated_labels_defer_the_supply_failure() {
+    let stream = Stream::new(0).expect("stream 0 exists");
+    for bytes in [vec![EPOCH], vec![EPOCH, 0x18]] {
+        let (a, mut b) = memory();
+        let (error, errors) = run_to_quiescence(async {
+            let send = async {
+                let (mut tx, _) = a.connector.connect().await.expect("stream opens");
+                tx.write_all(&bytes).await.expect("partial label writes");
+            };
+            let receive = first_reported_error(&mut b.acceptor, stream, &[]);
+            join(send, receive).await.1
+        })
+        .expect("truncated-label failure reaches the claimant");
+        assert!(
+            matches!(
+                error,
+                StreamError::SupplyClosed { origin, source: None }
+                    if origin == Origin::stream(Speaker::Initiator, stream)
+            ),
+            "unexpected receiver result for {bytes:?}: {error:?}",
+        );
+        let super::IncomingFailure::Supply(source) = errors
+            .take_failure()
+            .expect("the accept driver retains the label read failure")
+        else {
+            panic!("a label read failure is an incoming-supply failure")
+        };
+        assert_eq!(source.kind(), std::io::ErrorKind::UnexpectedEof);
+    }
+}
+
 /// The accept driver rejects a stream delivered for a level whose consumer
 /// already finished without asking anything: an unasked reply, caught at
 /// the label.
@@ -274,7 +359,9 @@ async fn first_reported_error(
 /// session error route instead of as garbled protocol.
 #[test]
 fn mislabeled_frame_is_reported_not_yielded() {
+    /// Logical stream named by the transport label.
     const LABELED: u8 = 2;
+    /// Logical stream named by the frame.
     const FRAMED: u8 = 3;
 
     let (a, mut b) = memory();

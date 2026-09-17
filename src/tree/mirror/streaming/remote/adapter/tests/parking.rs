@@ -11,15 +11,12 @@
 //! Supplied payloads stream through `Convert::assemble` into backend
 //! custody while the reply retains one pointer-sized handle per supplied
 //! node, and a maximally disputed reply retains a pure skeleton of at most
-//! fan² `(radix, hash)` entries: ≈ 1.1 MB encoded, ≈ 2.2 MB while the
-//! encoded and decoded forms coexist mid-decode. That coexistence
-//! transient is the figure the session's memory model charges per parked
-//! reply (`streaming/message.rs`), and it is pinned here as a sum of the
-//! encoded half, measured off the codec, and the decoded half, derived
-//! from `FAN² × size_of::<(u8, Hash)>()`. These tests hold both shapes to
-//! that accounting.
+//! fan² `(radix, hash)` entries. The coexistence of an encoded reply and
+//! that decoded skeleton is pinned here by
+//! [`DISPUTED_REPLY_TRANSIENT_CEILING`]: the encoded half is measured from
+//! the codec, and the decoded half is derived from
+//! `FAN² × size_of::<(u8, Hash)>()`.
 
-use crate::message::{PayloadCodec, PayloadDepthLimit};
 use std::mem;
 
 use futures::{TryStreamExt, stream};
@@ -40,7 +37,7 @@ use crate::{
 
 use super::{
     super::{Scope, decode_reply, encode_reply},
-    hash, runtime, unbounded,
+    codec, hash, runtime, unbounded,
 };
 
 /// Leaves committed under the supplied root fan: enough that the fan's
@@ -53,9 +50,7 @@ const LEAVES: u64 = 512;
 /// One encoded and one decoded copy of the fan² skeleton resident at
 /// once, plus per-frame signal and count framing, with ~3% headroom.
 /// Chosen tight so growth in either half — a wider hash, a larger fan,
-/// heavier framing — fails the pin and forces the module doc's charged
-/// figure (and `streaming/message.rs`, which states it) to be
-/// re-derived rather than silently going stale.
+/// heavier framing — fails the pin and forces the charge to be reconsidered.
 const DISPUTED_REPLY_TRANSIENT_CEILING: usize = 3_570_000;
 
 /// A parked decoded reply holds one pointer-sized node handle per supplied
@@ -127,7 +122,7 @@ fn parked_supply_reply_holds_handles_not_subtrees() {
             unbounded(),
             scope,
             &mut frames,
-            PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
+            codec(),
         ))
         .expect("a canonical supplied fan decodes");
 
@@ -215,7 +210,7 @@ fn maximally_disputed_reply_parks_bounded_skeleton() {
             unbounded(),
             Scope::opening(&listing),
             &mut frames,
-            PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
+            codec(),
         ))
         .expect("a canonical maximally disputed reply decodes");
 

@@ -9,8 +9,8 @@ use proptest::prelude::*;
 use super::{
     DEFAULT_SYNC_MEMORY_BUDGET, DESIGN_RECORD_BYTES, DISPUTE_OVERHEAD_BYTES, FAN, FAN_SLOT_BYTES,
     KEY_DEPTH, LEAF_REQUEST_BYTES, REFERENCE_SLOT_BYTES, SCOPE_ENVELOPE_BYTES, SCOPE_FIXED_BYTES,
-    SPEC_BDP_BYTES, SUPPLY_DECODE_ENVELOPE_BYTES, Window, WindowConfig, children_quantile,
-    disputed, occupied, stage_population,
+    SPEC_BDP_BYTES, SUPPLY_DECODE_ENVELOPE_BYTES, SUPPLY_RECORDS_PER_STREAM, Window, WindowConfig,
+    children_quantile, disputed, occupied, stage_population,
 };
 use crate::link::STREAM_COUNT;
 
@@ -42,7 +42,7 @@ fn charge(
     let n = u128::from(sizes[0].max(sizes[1]));
     let pair = u128::from(sizes[0]) * u128::from(sizes[1]);
     let mut total = (STREAM_COUNT as u128)
-        * (FAN as u128 + 1)
+        * (SUPPLY_RECORDS_PER_STREAM as u128)
         * (node_bytes(0, version_bound) as u128 + FAN_SLOT_BYTES as u128);
     for depth in 1..=KEY_DEPTH {
         let held = usize::try_from(children_quantile(n, depth)).unwrap_or(usize::MAX);
@@ -226,7 +226,7 @@ fn scope_envelope_matches_the_derivation() {
 #[test]
 fn supply_decode_envelope_matches_the_charge() {
     let flat = (STREAM_COUNT as u128)
-        * (FAN as u128 + 1)
+        * (SUPPLY_RECORDS_PER_STREAM as u128)
         * (local_node_bytes(0, 0) as u128 + FAN_SLOT_BYTES as u128);
     assert_eq!(
         SUPPLY_DECODE_ENVELOPE_BYTES as u128, flat,

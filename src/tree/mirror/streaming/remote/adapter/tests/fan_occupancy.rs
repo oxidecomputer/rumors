@@ -4,15 +4,15 @@
 //! [`FAN`]-slot channel between the reader and the assembler —
 //! `decode`'s joined reader/assembler pair and `early_supplies`'
 //! jointly driven pair — and the session budget charges that residency
-//! flat: `SUPPLY_DECODE_ENVELOPE_BYTES` prices exactly `FAN + 1`
+//! flat: `SUPPLY_DECODE_ENVELOPE_BYTES` prices exactly
+//! `SUPPLY_RECORDS_PER_STREAM`
 //! backend-priced records per reply stream, one full channel plus the
 //! record in the reader's hand. The pins here hold that premise against
 //! the code through the test-gated `fan_probe` in `decode.rs` (both
 //! paths hook the same counter). An eager frame source reaches the
-//! `FAN + 1` ceiling on each path, demonstrating that the priced regime
-//! is real while pinning the maximum residency to the charge.
+//! `SUPPLY_RECORDS_PER_STREAM` ceiling on each path, demonstrating that the
+//! priced regime is real while pinning the maximum residency to the charge.
 
-use crate::message::{PayloadCodec, PayloadDepthLimit};
 use futures::{Stream, TryStreamExt, stream};
 
 use before::Version;
@@ -23,8 +23,8 @@ use crate::{
     tree::{
         mirror::streaming::{
             Local,
-            remote::codec::{Flow, Frame, LeafRun, Reaction as WireReaction},
-            window::FAN,
+            remote::codec::{Frame, LeafRun, Reaction as WireReaction},
+            window::{FAN, SUPPLY_RECORDS_PER_STREAM},
         },
         typed::{Path, Prefix},
     },
@@ -35,7 +35,7 @@ use super::super::{
     decode::{decode_reply_one_slot, fan_probe},
     decode_reply, early_supplies,
 };
-use super::unbounded;
+use super::{codec, reply_frames, unbounded};
 
 /// Leaf records per supply frame.
 const PER_FRAME: usize = 16;
@@ -55,25 +55,14 @@ fn leaves(count: u64) -> Vec<(Version, Message)> {
 
 /// Chunk leaves into supply frames of [`PER_FRAME`] records each.
 fn frames(leaves: &[(Version, Message)]) -> Vec<Frame> {
-    let chunks: Vec<&[(Version, Message)]> = leaves.chunks(PER_FRAME).collect();
-    let count = chunks.len();
-    chunks
-        .into_iter()
-        .enumerate()
-        .map(|(position, chunk)| {
-            let mut run = LeafRun::new();
-            for (version, message) in chunk {
-                run.push(version, message)
-                    .expect("a test record fits the run framing");
-            }
-            let flow = if position + 1 == count {
-                Flow::End
-            } else {
-                Flow::Continue
-            };
-            Frame::Reaction(WireReaction::Supply(run), flow)
-        })
-        .collect()
+    reply_frames(leaves.chunks(PER_FRAME).map(|chunk| {
+        let mut run = LeafRun::new();
+        for (version, message) in chunk {
+            run.push(version, message)
+                .expect("a test record fits the run framing");
+        }
+        WireReaction::Supply(run)
+    }))
 }
 
 /// Decode one pure-supply reply from `input` over the instant in-memory
@@ -88,7 +77,7 @@ fn peak_occupancy(mut input: impl Stream<Item = Frame> + Unpin) -> usize {
             unbounded(),
             Scope::opening(&[]),
             &mut input,
-            PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
+            codec(),
         )
         .await
         .expect("ascending in-scope leaves assemble");
@@ -106,7 +95,7 @@ fn one_slot_peak_occupancy(mut input: impl Stream<Item = Frame> + Unpin) -> usiz
             unbounded(),
             Scope::opening(&[]),
             &mut input,
-            PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
+            codec(),
         )
         .await
         .expect("ascending in-scope leaves assemble");
@@ -131,11 +120,12 @@ fn one_slot_decode_channel_makes_progress() {
 }
 
 /// The occupancy ceiling the flat charge rests on: an eager decode
-/// reaches exactly `FAN + 1` resident records and never exceeds it.
+/// reaches exactly [`SUPPLY_RECORDS_PER_STREAM`] resident records and never
+/// exceeds it.
 ///
 /// Under an eager frame source (every frame ready — the wire outpaces
 /// assembly) and the instant `Local` backend, the reader/assembler
-/// channel reaches exactly `FAN + 1` resident decoded records — one
+/// channel reaches exactly [`SUPPLY_RECORDS_PER_STREAM`] resident decoded records — one
 /// full channel plus the record in the reader's hand. Reaching the
 /// ceiling keeps the pin non-vacuous: the regime
 /// `SUPPLY_DECODE_ENVELOPE_BYTES` prices is real. Not exceeding it is
@@ -147,8 +137,7 @@ fn eager_decode_occupancy_pins_the_charged_ceiling() {
     let leaves = leaves(4 * FAN as u64);
     let peak = peak_occupancy(stream::iter(frames(&leaves)));
     assert_eq!(
-        peak,
-        FAN + 1,
+        peak, SUPPLY_RECORDS_PER_STREAM,
         "peak resident decoded records must equal the charged ceiling: one full \
          fan channel plus the record in the reader's hand, the per-stream shape \
          SUPPLY_DECODE_ENVELOPE_BYTES prices",
@@ -156,11 +145,11 @@ fn eager_decode_occupancy_pins_the_charged_ceiling() {
 }
 
 /// The twin channel rides the same ceiling: `early_supplies`' jointly
-/// driven reader/assembler pair reaches exactly `FAN + 1` resident
+/// driven reader/assembler pair reaches exactly [`SUPPLY_RECORDS_PER_STREAM`] resident
 /// records under an eager source and never exceeds it.
 ///
 /// The opening-supply path is one of the reply streams the flat charge
-/// prices, so its channel must hold the same `FAN + 1` premise as
+/// prices, so its channel must hold the same occupancy premise as
 /// `decode`'s; both paths use the same probe.
 #[test]
 fn eager_early_supplies_ride_the_same_ceiling() {
@@ -174,7 +163,7 @@ fn eager_early_supplies_ride_the_same_ceiling() {
             unbounded(),
             Prefix::new().erase(),
             stream::iter(frames(&leaves)),
-            PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
+            codec(),
         )
         .try_collect()
         .await
@@ -186,7 +175,7 @@ fn eager_early_supplies_ride_the_same_ceiling() {
     });
     assert_eq!(
         fan_probe::peak(),
-        FAN + 1,
+        SUPPLY_RECORDS_PER_STREAM,
         "peak resident decoded records on the early-supply path must equal the \
          charged ceiling, the same per-stream shape SUPPLY_DECODE_ENVELOPE_BYTES \
          prices for every reply stream",

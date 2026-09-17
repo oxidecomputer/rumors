@@ -182,8 +182,10 @@ where
         self.0.message()
     }
 
-    // Custody passes straight through: fault injection targets the
-    // traversal operations, not construction.
+    // Leaf construction has no `Failing` backend instance from which to
+    // consume a failure point or record history. Delegate it and preserve
+    // inner errors; this instrument injects only into traversal calls, which
+    // do receive the backend instance.
     async fn leaf(
         version: Version,
         message: Message,

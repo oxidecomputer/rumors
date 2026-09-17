@@ -128,6 +128,9 @@ const LEAF_REQUEST_BYTES: usize = 40;
 pub(crate) const FAN_SLOT_BYTES: usize =
     std::mem::size_of::<(Prefix<Z>, typed::Node<Z>)>() - std::mem::size_of::<typed::Node<Z>>();
 
+/// Leaf records retained by each reply decoder at peak occupancy.
+pub(crate) const SUPPLY_RECORDS_PER_STREAM: usize = FAN + 1;
+
 /// Worst-case bytes the decode fans of one session keep resident, under
 /// the in-memory backend's pricing.
 ///
@@ -142,8 +145,9 @@ pub(crate) const FAN_SLOT_BYTES: usize =
 /// through the live backend's own `node_bytes`; this constant is that charge
 /// under the in-memory backend, the flat pre-charge the operator docs quote.
 #[cfg(any(test, feature = "test-internals"))]
-pub(crate) const SUPPLY_DECODE_ENVELOPE_BYTES: usize =
-    STREAM_COUNT * (FAN + 1) * (std::mem::size_of::<typed::Node<Z>>() + FAN_SLOT_BYTES);
+pub(crate) const SUPPLY_DECODE_ENVELOPE_BYTES: usize = STREAM_COUNT
+    * SUPPLY_RECORDS_PER_STREAM
+    * (std::mem::size_of::<typed::Node<Z>>() + FAN_SLOT_BYTES);
 
 /// The specification link's bandwidth-delay product, in bytes: 12.5 MB,
 /// where the two spec links coincide.
@@ -300,7 +304,7 @@ impl Window {
         // Decode buffering is independent of K: one fixed leaf channel and
         // an in-hand record per reply stream. Price it before widening queues.
         let supply_fans = (STREAM_COUNT as u128)
-            * (FAN as u128 + 1)
+            * (SUPPLY_RECORDS_PER_STREAM as u128)
             * (node_bytes(0, version_bound) as u128 + FAN_SLOT_BYTES as u128);
 
         // Sum the scope charges across depths. Each price includes the

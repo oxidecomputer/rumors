@@ -11,10 +11,10 @@
 //! what lets the session resolve a scope the moment its reply arrives (see
 //! [`materialized`](crate::tree::mirror::streaming::materialized) for the ordering argument).
 //!
-//! The memory unit is one reply: a maximally disputed reply is 256
-//! reactions × a 256-entry listing ≈ fan² hashes ≈ 1.8 MB encoded
-//! (≈ 3.5 MB while an encoded and a decoded copy coexist), transient, at
-//! most one in flight per stage.
+//! The memory unit is one reply: a maximally disputed reply carries one
+//! full listing per root radix, or fan² hashes. An encoded reply and its
+//! decoded skeleton may coexist transiently, with at most one decoded reply
+//! in flight per stage; the adapter's occupancy tests pin that charge.
 
 use std::cmp::Ordering;
 
