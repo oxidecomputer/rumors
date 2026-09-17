@@ -1,6 +1,6 @@
 # Rumors review checklist
 
-**Next:** audit the remaining session and bookmark findings.
+**Next:** reassess the remaining priorities and choose the next substantive batch.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →
@@ -221,7 +221,7 @@ Dependencies: 07 for join outcomes; owned-byte trait before conformance and file
 - [x] Consolidate the duplicate reconciliation drivers — `028ce53c`.
       Source: `session-bookmark-15`, T132.
 
-- [ ] Audit the remaining session and bookmark findings.
+- [x] Audit the remaining session and bookmark findings — `24c177df`.
       Sources: `session-bookmark-5–7`, `session-bookmark-9–10`, `session-bookmark-13–14`, `session-bookmark-16–17`, `session-bookmark-19`, `session-bookmark-27–30`, `session-bookmark-32`, `session-bookmark-39`, `session-bookmark-41`, T46, T48–50, T52, T129, T132.
 
 ## 09. Public diagnostics and observability
