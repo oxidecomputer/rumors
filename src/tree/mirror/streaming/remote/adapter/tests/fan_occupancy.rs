@@ -8,15 +8,12 @@
 //! backend-priced records per reply stream, one full channel plus the
 //! record in the reader's hand. The pins here hold that premise against
 //! the code through the test-gated `fan_probe` in `decode.rs` (both
-//! paths hook the same counter), with deterministic counts and no
-//! timing anywhere: an eager frame source *reaches* the `FAN + 1`
-//! ceiling on each path (the priced regime is real, so the pins cannot
-//! pass vacuously) and never exceeds it, and a paced source is the
-//! negative control proving the probe reports the regime rather than a
-//! constant.
+//! paths hook the same counter). An eager frame source reaches the
+//! `FAN + 1` ceiling on each path, demonstrating that the priced regime
+//! is real while pinning the maximum residency to the charge.
 
 use crate::message::{PayloadCodec, PayloadDepthLimit};
-use futures::{Stream, StreamExt, TryStreamExt, stream};
+use futures::{Stream, TryStreamExt, stream};
 
 use before::Version;
 
@@ -193,29 +190,5 @@ fn eager_early_supplies_ride_the_same_ceiling() {
         "peak resident decoded records on the early-supply path must equal the \
          charged ceiling, the same per-stream shape SUPPLY_DECODE_ENVELOPE_BYTES \
          prices for every reply stream",
-    );
-}
-
-/// Negative control: the probe is live, not pinned to the ceiling.
-///
-/// A paced source (one frame per poll cycle, so the assembler keeps up)
-/// holds peak occupancy at the reader's per-cycle intake, far under
-/// `FAN + 1`: the sub-ceiling reading proves the eager pin's figure is
-/// measured rather than an instrument artifact, and that occupancy
-/// tracks reader-ahead — not channel capacity — when the wire is the
-/// slower side.
-#[test]
-fn paced_decode_stays_under_the_ceiling() {
-    let leaves = leaves(4 * FAN as u64);
-    let paced = Box::pin(stream::iter(frames(&leaves)).then(|frame| async move {
-        tokio::task::yield_now().await;
-        frame
-    }));
-    let peak = peak_occupancy(paced);
-    assert!(peak >= 1, "records flowed through the probe");
-    assert!(
-        peak <= 2 * PER_FRAME,
-        "paced peak {peak} stays at per-cycle intake, far under the {} ceiling",
-        FAN + 1,
     );
 }

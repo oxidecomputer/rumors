@@ -79,8 +79,8 @@ pub enum DecodeError<E> {
         previous: [u8; 32],
         current: [u8; 32],
     },
-    /// A later supplied run reused or preceded an earlier run's radix.
-    #[error("supplied radix {radix:#04x} does not follow {previous:#04x}")]
+    /// A supplied run resumed after another reaction interrupted it.
+    #[error("supplied radix {radix:#04x} repeats earlier run {previous:#04x}")]
     SupplyOrder { previous: u8, radix: u8 },
     /// A supplied version's encoding exceeds the peer's declared `max_version_bytes`.
     ///

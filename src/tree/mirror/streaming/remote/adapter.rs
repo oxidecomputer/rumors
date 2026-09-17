@@ -1,7 +1,7 @@
 //! Conversion between scoped protocol replies and prefix-free wire frames.
 //!
 //! The materialized protocol and the wire deliberately speak at different
-//! levels. In memory, one [`Reply`](super::super::message::Reply) contains
+//! levels. In memory, one [`Reply`](super::super::erased::Reply) contains
 //! backend node handles and omits its prefix because the receiver already knows
 //! which earlier question it answers. On the wire, a supplied node is flattened
 //! into runs of backend-neutral `(Version, Message)` leaf records which
@@ -9,8 +9,8 @@
 //! between them:
 //!
 //! ```text
-//! Reply<B, H> -- encode + explode --> Frame leaves
-//! Reply<B, H> <-- decode + assemble -- Frame leaves
+//! Reply<E> -- encode + explode --> Frame leaves
+//! Reply<E> <-- decode + assemble -- Frame leaves
 //! ```
 //!
 //! # Recovering omitted scope
@@ -49,13 +49,13 @@
 //! batching-agnostic — it walks records, not frames: it recomputes every
 //! leaf's full path from its version and serialized message, rejects paths
 //! outside the retained scope, and groups consecutive leaves by their
-//! height-`H` prefix. Strict path and run ordering make those group
+//! prefix at the scope's children height. Strict path and run ordering make
+//! those group
 //! boundaries unambiguous without another delimiter or a trusted
 //! peer-supplied key.
 //!
 //! The decoder yields each record as it is decoded through a fan-bounded
-//! channel into the existing
-//! [`Convert::assemble`](super::super::convert::Convert::assemble) fold,
+//! channel into [`Backend::assemble`](super::super::Backend::assemble),
 //! passing custody of the payload to the backend at construction
 //! ([`Leaf::leaf`](super::super::Leaf::leaf)) before the leaf enters the
 //! channel. While that fold rebuilds backend nodes, the reader retains only

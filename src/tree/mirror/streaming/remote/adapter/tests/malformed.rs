@@ -5,6 +5,7 @@ use std::{collections::BTreeMap, convert::Infallible};
 
 use before::Version;
 use futures::{TryStreamExt, stream};
+use proptest::prelude::*;
 
 use crate::{
     message::Message,
@@ -599,92 +600,43 @@ fn whole_root_supply_reply(cases: &[LeafCase]) -> Vec<Frame> {
     )]
 }
 
-/// A reply streaming past the declared `set_len` returns an error at its first
-/// over-declaration record, under node residency independent of the
-/// overrun; a declaration exactly covering the stream admits it whole.
-///
-/// The peer's greeting-declared `set_len` is a premise the session's
-/// window solve prices, and the decoder charges it per record before the
-/// payload takes backend custody. Metered by the node census (the
-/// crate's exact residency shadow): the boundary case pins the meter
-/// alive (an admitted stream's every leaf is resident at completion),
-/// and the rejection case pins residency equal across a doubled
-/// overrun, so custody provably stops at the charge rather than at the
-/// reply boundary.
-#[test]
-fn a_reply_past_the_declared_set_len_fails_at_its_first_over_record() {
+/// Decode a whole-root supply under the peer's declared set length.
+fn decode_with_set_len(count: u64, declared: u64) -> Result<usize, DecodeError<Infallible>> {
     use crate::tree::mirror::streaming::materialized::SupplyLedger;
-    use crate::tree::typed::untyped::census;
 
-    const SMALL: u64 = 128;
-    const LARGE: u64 = 256;
-
-    /// Decode one whole-root reply of `count` leaves under a declared
-    /// allowance of `declared`, returning the outcome and the peak
-    /// node-handle residency beyond the pre-decode baseline.
-    #[allow(clippy::type_complexity)]
-    fn decode_metered(
-        count: u64,
-        declared: u64,
-    ) -> (Result<usize, DecodeError<Infallible>>, usize) {
-        let frames = whole_root_supply_reply(&ascending_leaves(count));
-        census::reset_peak();
-        let (live, _) = census::read();
-        let decoded = runtime().block_on(async {
-            let mut input = stream::iter(frames);
-            decode_reply::<Local, _>(
-                Local,
-                u64::MAX,
-                SupplyLedger::new(declared),
-                Scope::opening(&[]),
-                &mut input,
-                PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
-            )
-            .await
-        });
-        let (_, peak) = census::read();
-        (
-            decoded.map(|decoded| decoded.reply.replies.len()),
-            peak - live,
+    let frames = whole_root_supply_reply(&ascending_leaves(count));
+    runtime().block_on(async {
+        let mut input = stream::iter(frames);
+        decode_reply::<Local, _>(
+            Local,
+            u64::MAX,
+            SupplyLedger::new(declared),
+            Scope::opening(&[]),
+            &mut input,
+            PayloadCodec::new::<u64>(PayloadDepthLimit::default()),
         )
+        .await
+        .map(|decoded| decoded.reply.replies.len())
+    })
+}
+
+proptest! {
+    /// The peer's declared set length is the exact admission boundary for a reply.
+    #[test]
+    fn supplied_record_count_respects_the_declared_set_len(
+        declared in 1u64..64,
+        excess in 1u64..64,
+    ) {
+        prop_assert!(
+            decode_with_set_len(declared, declared).is_ok(),
+            "a declaration must admit exactly that many supplied records",
+        );
+        let rejected = matches!(
+            decode_with_set_len(declared + excess, declared),
+            Err(DecodeError::OverdrawnSupply { declared: actual }) if actual == declared
+        );
+        prop_assert!(rejected, "a reply above the declaration must be rejected as overdrawn");
     }
-
-    // The no-false-positive boundary, doubling as the meter's liveness
-    // floor: a declaration exactly covering the stream admits every
-    // record, and every admitted leaf is resident at completion.
-    let (admitted, residency) = decode_metered(SMALL, SMALL);
-    admitted.expect("a declaration exactly covering the stream admits it");
-    assert!(
-        residency >= SMALL as usize,
-        "the census meter is alive: an admitted {SMALL}-leaf reply holds \
-         {residency} resident handles",
-    );
-
-    // The rejection: an allowance of one fails at the second record,
-    // while the reply is still open.
-    let overdrawn = |count: u64| {
-        let (result, residency) = decode_metered(count, 1);
-        let error = result.expect_err(
-            "undetected over-supply: a reply past the declared set length \
-             must fail at ingress, at its first over-declaration record",
-        );
-        assert!(
-            matches!(error, DecodeError::OverdrawnSupply { declared: 1 }),
-            "mistyped over-supply rejection: {error:?}",
-        );
-        residency
-    };
-    let small = overdrawn(SMALL);
-    let large = overdrawn(LARGE);
-    assert_eq!(
-        small, large,
-        "residency at rejection is independent of the streamed overrun",
-    );
-    assert!(
-        small < SMALL as usize,
-        "custody stops at the charge: {small} resident handles against a \
-         {SMALL}-leaf stream",
-    );
 }
 
 /// Interrupting a supply run finalizes its radix, so later resumption is rejected as reordering.

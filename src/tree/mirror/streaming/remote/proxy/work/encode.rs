@@ -175,10 +175,10 @@ where
 }
 
 /// Flush every frame in one reply and retain its acknowledged questions.
-async fn write_reply<C, Q, E>(
+async fn write_reply<C, E>(
     outgoing: &mut StreamSender<C>,
-    encoded: &mut (impl futures::Stream<Item = Result<Encoded<Q>, adapter::EncodeError<E>>> + Unpin),
-) -> Result<Vec<Q>, Error<E>>
+    encoded: &mut (impl futures::Stream<Item = Result<Encoded, adapter::EncodeError<E>>> + Unpin),
+) -> Result<Vec<Scope>, Error<E>>
 where
     C: Connector,
 {
@@ -216,10 +216,10 @@ where
 }
 
 /// Flush one adapter frame and release its optional question afterward.
-async fn write_encoded<C, Q, E>(
+async fn write_encoded<C, E>(
     outgoing: &mut StreamSender<C>,
-    encoded: Encoded<Q>,
-) -> Result<Option<Q>, Error<E>>
+    encoded: Encoded,
+) -> Result<Option<Scope>, Error<E>>
 where
     C: Connector,
 {

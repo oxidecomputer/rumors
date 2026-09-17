@@ -1,9 +1,9 @@
 # Rumors review checklist
 
-**Current:** decode-channel progress and measured per-reply overhead on
-`codex/decode-channel-progress`, based on `8cbbfd04`.
+**Current:** shared reply encoding and decoding on
+`codex/stream-adapter-simplify`, based on `4a2fd1b7`.
 
-**Next:** simplify stream state machines and repeated encoder/decoder plumbing.
+**Next:** simplify sender, receiver, claim, and error-route state.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →
@@ -331,7 +331,8 @@ Dependencies: 04 and 09 before simplifying shared failure paths.
 - [x] Parse the version head directly and simplify the fixed greeting vocabulary — `8cbbfd04`.
       Sources: `inventory-5`, `mirror-common-3`, `mirror-common-14`, `remote-codec-24`, `remote-codec-26`, `remote-codec-27`, `remote-proxy-tests-2`, T105, T126, T132.
 
-- [ ] Demonstrate decode-channel progress below a fan and remove per-reply overhead only if measured.
+- [x] Demonstrate decode-channel progress below a fan; retain the fan-sized
+      read-ahead because no measurement justifies a more complex reader — `4a2fd1b7`.
       Sources: `remote-adapter-streams-6`, `remote-proxy-27`, T106.
 
 - [ ] Simplify stream state machines and repeated encoder/decoder plumbing.

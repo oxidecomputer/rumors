@@ -1,5 +1,4 @@
-use crate::message::PayloadCodec;
-use std::pin::pin;
+use std::pin::{Pin, pin};
 use std::task::Poll;
 
 use async_stream::try_stream;
@@ -7,27 +6,32 @@ use futures::{FutureExt, Stream, StreamExt};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 
-use crate::tree::{
-    mirror::streaming::{
-        Backend, Leaf,
-        backend::BoxNodeStream,
-        erased::{Reaction as ProtocolReaction, Reply, ops},
-        materialized::SupplyLedger,
-        window::FAN,
+use crate::{
+    message::PayloadCodec,
+    tree::{
+        mirror::streaming::{
+            Backend, Leaf,
+            backend::BoxNodeStream,
+            erased::{Reaction as ProtocolReaction, Reply, ops},
+            materialized::SupplyLedger,
+            window::FAN,
+        },
+        typed::{ErasedPrefix, Hash, Path, Prefix, height::Z},
     },
-    typed::{ErasedPrefix, Hash, Path, Prefix, height::Z},
 };
 
 use super::{
     super::codec::{End, Flow, Frame, Reaction as WireReaction},
     error::{DecodeError, ScopeError},
-    scope::Scope,
+    scope::{ReplyLevel, Scope},
 };
 
 /// One reconstructed reply and any questions it asks next.
-pub struct Decoded<E, Q> {
+pub struct Decoded<E> {
+    /// The reconstructed in-memory reply.
     pub reply: Reply<E>,
-    pub questions: Q,
+    /// Lower scopes created by the reply's queries, in wire order.
+    pub questions: Vec<Scope>,
 }
 
 /// Replay the initiator's distinguished opening question from the root-fan
@@ -81,15 +85,7 @@ where
         // The same reader/assembler split as `decode`, driven jointly so
         // completed groups surface while later frames are still arriving.
         let (tx, rx) = mpsc::channel::<Result<(Prefix<Z>, B::Node<Z>), B::Error>>(FAN);
-        let leaves = ReceiverStream::new(rx);
-        #[cfg(test)]
-        let leaves = leaves.inspect(|_| fan_probe::on_recv());
-        let leaves: BoxNodeStream<'static, B, Z> = Box::pin(leaves);
-        let mut assembled = pin!(ops::assemble(
-            backend.clone(),
-            parent.height() - 1,
-            leaves
-        ));
+        let mut assembled = assembly(backend.clone(), parent.height() - 1, rx);
         let mut read = pin!(read_early::<B, _>(
             version_bytes,
             &ledger,
@@ -157,11 +153,8 @@ where
                 for record in records.records(codec) {
                     let (version, message) = record.map_err(DecodeError::Record)?;
                     let (leaf_prefix, _) = supplies.observe::<B::Error>(parent, &version)?;
-                    // The set-length half of the greeting's priced
-                    // premises, charged per record before the payload
-                    // takes backend custody: a peer supplying past its
-                    // declaration fails at the offending record, while
-                    // the reply is still open.
+                    // Charge the peer's declared set length before the payload
+                    // enters backend custody.
                     ledger
                         .charge(1)
                         .map_err(|declared| DecodeError::OverdrawnSupply { declared })?;
@@ -176,9 +169,8 @@ where
                 }
                 flow
             }
-            // The codec's per-stream grammar admits no other reaction here,
-            // so positional forms surface as their unpositioned rejections
-            // only when frames are constructed in process.
+            // The opening reply has no positional question, so it admits no
+            // positional reaction.
             Frame::Reaction(WireReaction::Match, _) => {
                 return Err(ScopeError::UnpositionedMatch.into());
             }
@@ -193,6 +185,9 @@ where
             break;
         }
     }
+    // Keep `leaves` alive until the stream ends. Closing it at reply end lets
+    // assembly publish its final root child before the peer finishes this
+    // stream, which can create a backpressure cycle on narrow links.
     if frames.next().await.is_some() {
         return Err(DecodeError::ExtraOpeningReply);
     }
@@ -207,21 +202,18 @@ pub async fn decode_reply<B, F>(
     scope: Scope,
     frames: &mut F,
     codec: PayloadCodec,
-) -> Result<Decoded<B::Erased, Vec<Scope>>, DecodeError<B::Error>>
+) -> Result<Decoded<B::Erased>, DecodeError<B::Error>>
 where
     B: Backend<Node<Z>: Leaf>,
     F: Stream<Item = Frame> + Unpin,
 {
-    decode::<FAN, _, _, _, _>(
+    decode::<FAN, _, _>(
         backend,
         version_bytes,
         ledger,
         scope,
         frames,
-        |scope, listing| {
-            let (_, prefix) = scope.next().ok_or(ScopeError::UnpositionedQuery)?;
-            Ok(Scope::new(prefix, listing))
-        },
+        ReplyLevel::Branch,
         codec,
     )
     .await
@@ -235,24 +227,18 @@ pub async fn decode_leaf_reply<B, F>(
     scope: Scope,
     frames: &mut F,
     codec: PayloadCodec,
-) -> Result<Decoded<B::Erased, Vec<Scope>>, DecodeError<B::Error>>
+) -> Result<Decoded<B::Erased>, DecodeError<B::Error>>
 where
     B: Backend<Node<Z>: Leaf>,
     F: Stream<Item = Frame> + Unpin,
 {
-    decode::<FAN, _, _, _, _>(
+    decode::<FAN, _, _>(
         backend,
         version_bytes,
         ledger,
         scope,
         frames,
-        |scope, listing| {
-            if !listing.is_empty() {
-                return Err(ScopeError::NonemptyLeafQuery);
-            }
-            let (_, prefix) = scope.next().ok_or(ScopeError::UnpositionedQuery)?;
-            Ok(Scope::leaf(prefix))
-        },
+        ReplyLevel::Leaf,
         codec,
     )
     .await
@@ -271,40 +257,36 @@ pub(super) async fn decode_reply_one_slot<B, F>(
     scope: Scope,
     frames: &mut F,
     codec: PayloadCodec,
-) -> Result<Decoded<B::Erased, Vec<Scope>>, DecodeError<B::Error>>
+) -> Result<Decoded<B::Erased>, DecodeError<B::Error>>
 where
     B: Backend<Node<Z>: Leaf>,
     F: Stream<Item = Frame> + Unpin,
 {
-    decode::<1, _, _, _, _>(
+    decode::<1, _, _>(
         backend,
         version_bytes,
         ledger,
         scope,
         frames,
-        |scope, listing| {
-            let (_, prefix) = scope.next().ok_or(ScopeError::UnpositionedQuery)?;
-            Ok(Scope::new(prefix, listing))
-        },
+        ReplyLevel::Branch,
         codec,
     )
     .await
 }
 
 /// Decode one reply while its supplied leaves are assembled concurrently.
-async fn decode<const LEAF_CAPACITY: usize, B, F, Q, N>(
+async fn decode<const LEAF_CAPACITY: usize, B, F>(
     backend: B,
     version_bytes: u64,
     ledger: SupplyLedger,
     scope: Scope,
     frames: &mut F,
-    question: Q,
+    level: ReplyLevel,
     codec: PayloadCodec,
-) -> Result<Decoded<B::Erased, Vec<N>>, DecodeError<B::Error>>
+) -> Result<Decoded<B::Erased>, DecodeError<B::Error>>
 where
     B: Backend<Node<Z>: Leaf>,
     F: Stream<Item = Frame> + Unpin,
-    Q: FnMut(&mut Scope, &[(u8, Hash)]) -> Result<N, ScopeError>,
 {
     // The reply's supplied runs group into nodes one level under the
     // scope's parent: the scope's own children height.
@@ -315,109 +297,19 @@ where
     // production fan is therefore a throughput choice whose maximum residency
     // the window charges, not a liveness requirement.
     let (tx, rx) = mpsc::channel::<Result<(Prefix<Z>, B::Node<Z>), B::Error>>(LEAF_CAPACITY);
-    let read = read_reply::<B, _, _, _>(version_bytes, &ledger, scope, frames, question, tx, codec);
+    let read = ReadReply::read::<B, _>(version_bytes, &ledger, scope, frames, level, tx, codec);
     let assemble = assemble_supplies::<B>(backend, children_height, rx);
     let (read, assembled) = futures::future::join(read, assemble).await;
-    let Some(ReadReply {
-        skeleton,
-        questions,
-        ..
-    }) = read?
-    else {
+    let Some(read) = read? else {
+        // `read` returns `None` only when sending a leaf finds the receiver
+        // closed. Assembly cannot finish successfully while `read` still
+        // owns the sender, because it consumes until channel EOF; it must
+        // therefore have stopped on a backend error. The join preserves that
+        // result so we report it instead of accepting an incomplete reply.
         assembled?;
         unreachable!("the assembler accepts leaves until it returns an error")
     };
-    let reply = reify::<B::Erased>(skeleton, assembled?);
-    Ok(Decoded { reply, questions })
-}
-
-/// Read and validate exactly one reply while streaming its leaves to assembly.
-async fn read_reply<B, F, Q, N>(
-    version_bytes: u64,
-    ledger: &SupplyLedger,
-    mut scope: Scope,
-    frames: &mut F,
-    mut question: Q,
-    leaves: mpsc::Sender<Result<(Prefix<Z>, B::Node<Z>), B::Error>>,
-    codec: PayloadCodec,
-) -> Result<Option<ReadReply<N>>, DecodeError<B::Error>>
-where
-    B: Backend<Node<Z>: Leaf>,
-    F: Stream<Item = Frame> + Unpin,
-    Q: FnMut(&mut Scope, &[(u8, Hash)]) -> Result<N, ScopeError>,
-{
-    let mut read = ReadReply::new(version_bytes);
-    loop {
-        let Some(frame) = frames.next().await else {
-            return Err(DecodeError::TruncatedReply);
-        };
-        let (reaction, flow) = match frame {
-            Frame::Reaction(reaction, flow) => (reaction, flow),
-            Frame::End(End::Reply) if read.skeleton.is_empty() => break,
-            Frame::End(End::Stream) => return Err(DecodeError::UnexpectedStreamEnd),
-            Frame::End(_) => return Err(DecodeError::BareEndAfterReaction),
-        };
-
-        match reaction {
-            WireReaction::Match => {
-                read.supplies.interrupt();
-                // Eager, symmetric with the query arm: a match past the
-                // question's fan fails at its own frame, so a
-                // nonconforming peer cannot grow the skeleton unboundedly
-                // before the walk's whole-reply validation would see it.
-                scope.next().ok_or(ScopeError::UnpositionedMatch)?;
-                read.skeleton.push(Skeleton::Match);
-            }
-            WireReaction::Query(listing) => {
-                read.supplies.interrupt();
-                read.questions.push(question(&mut scope, &listing)?);
-                read.skeleton.push(Skeleton::Query(listing));
-            }
-            WireReaction::Supply(records) => {
-                // An empty run is unreachable from wire bytes (the codec
-                // rejects it as `LeafRunError::Empty`) but constructible in
-                // process, and the record loop below would silently drop the
-                // reaction with it.
-                debug_assert!(
-                    !records.is_empty(),
-                    "the codec never yields an empty supply run",
-                );
-                // Records leave the run one at a time and flow straight into
-                // assembly: the whole-run bound is its encoded bytes, never a
-                // decoded vector of leaves.
-                for record in records.records(codec) {
-                    let (version, message) = record.map_err(DecodeError::Record)?;
-                    let (leaf_prefix, run) = read
-                        .supplies
-                        .observe::<B::Error>(scope.parent(), &version)?;
-                    if let Some((radix, prefix)) = run {
-                        read.skeleton.push(Skeleton::Supply { radix, prefix });
-                    }
-                    // The set-length half of the greeting's priced
-                    // premises, charged per record before the payload
-                    // takes backend custody: a peer supplying past its
-                    // declaration fails at the offending record, while
-                    // the reply is still open.
-                    ledger
-                        .charge(1)
-                        .map_err(|declared| DecodeError::OverdrawnSupply { declared })?;
-                    let leaf = <B::Node<Z> as Leaf>::leaf(version, message)
-                        .await
-                        .map_err(DecodeError::Backend)?;
-                    #[cfg(test)]
-                    fan_probe::on_send();
-                    if leaves.send(Ok((leaf_prefix, leaf))).await.is_err() {
-                        return Ok(None);
-                    }
-                }
-            }
-        }
-
-        if flow == Flow::End {
-            break;
-        }
-    }
-    Ok(Some(read))
+    Ok(read.into_decoded(assembled?))
 }
 
 /// Fold the reply's one-slot leaf stream into complete nodes at the
@@ -430,11 +322,7 @@ async fn assemble_supplies<B>(
 where
     B: Backend<Node<Z>: Leaf>,
 {
-    let leaves = ReceiverStream::new(leaves);
-    #[cfg(test)]
-    let leaves = leaves.inspect(|_| fan_probe::on_recv());
-    let leaves: BoxNodeStream<'static, B, Z> = Box::pin(leaves);
-    let mut assembled = pin!(ops::assemble(backend, height, leaves));
+    let mut assembled = assembly(backend, height, leaves);
     let mut nodes = Vec::new();
     while let Some(item) = assembled.next().await {
         nodes.push(item.map_err(DecodeError::Backend)?);
@@ -442,59 +330,171 @@ where
     Ok(nodes)
 }
 
-/// Replace supplied-prefix placeholders with the nodes assembled for them.
-fn reify<E>(skeleton: Vec<Skeleton>, nodes: Vec<(ErasedPrefix, E)>) -> Reply<E> {
-    let mut nodes = nodes.into_iter();
-    let replies = skeleton
-        .into_iter()
-        .map(|part| match part {
-            Skeleton::Match => ProtocolReaction::Match,
-            Skeleton::Query(listing) => ProtocolReaction::Query(listing),
-            Skeleton::Supply { radix, prefix } => {
-                let (actual, node) = nodes
-                    .next()
-                    .expect("each supplied run assembles to exactly one node");
-                assert_eq!(
-                    actual, prefix,
-                    "assembly preserves the version-derived supplied prefix",
-                );
-                ProtocolReaction::Supply(radix, node)
-            }
-        })
-        .collect();
-    assert!(
-        nodes.next().is_none(),
-        "assembly yields exactly one node per supplied run",
-    );
-    Reply { replies }
+/// Stream decoded leaves through the backend's node assembler.
+fn assembly<B>(
+    backend: B,
+    height: usize,
+    leaves: mpsc::Receiver<Result<(Prefix<Z>, B::Node<Z>), B::Error>>,
+) -> Pin<Box<dyn Stream<Item = Result<(ErasedPrefix, B::Erased), B::Error>> + Send>>
+where
+    B: Backend<Node<Z>: Leaf>,
+{
+    let leaves = ReceiverStream::new(leaves);
+    #[cfg(test)]
+    let leaves = leaves.inspect(|_| fan_probe::on_recv());
+    let leaves: BoxNodeStream<'static, B, Z> = Box::pin(leaves);
+    ops::assemble(backend, height, leaves)
 }
 
-struct ReadReply<N> {
+/// A validated reply skeleton and the scopes its queries created.
+struct ReadReply {
+    /// Reactions with supplied nodes represented by their prefixes.
     skeleton: Vec<Skeleton>,
-    questions: Vec<N>,
+    /// Lower scopes created by positional queries.
+    questions: Vec<Scope>,
+    /// Ordering and scope state for supplied leaves.
     supplies: SupplyRuns,
 }
 
-impl<N> ReadReply<N> {
-    fn new(version_bytes: u64) -> Self {
-        Self {
+impl ReadReply {
+    /// Read and validate one reply while sending supplied leaves to assembly.
+    ///
+    /// Returns `None` when assembly stops accepting leaves. Its error then
+    /// determines the joined decode's result.
+    async fn read<B, F>(
+        version_bytes: u64,
+        ledger: &SupplyLedger,
+        mut scope: Scope,
+        frames: &mut F,
+        level: ReplyLevel,
+        leaves: mpsc::Sender<Result<(Prefix<Z>, B::Node<Z>), B::Error>>,
+        codec: PayloadCodec,
+    ) -> Result<Option<Self>, DecodeError<B::Error>>
+    where
+        B: Backend<Node<Z>: Leaf>,
+        F: Stream<Item = Frame> + Unpin,
+    {
+        let mut read = Self {
             skeleton: Vec::new(),
             questions: Vec::new(),
             supplies: SupplyRuns::new(version_bytes),
+        };
+        loop {
+            let Some(frame) = frames.next().await else {
+                return Err(DecodeError::TruncatedReply);
+            };
+            let (reaction, flow) = match frame {
+                Frame::Reaction(reaction, flow) => (reaction, flow),
+                Frame::End(End::Reply) if read.skeleton.is_empty() => break,
+                Frame::End(End::Stream) => return Err(DecodeError::UnexpectedStreamEnd),
+                Frame::End(_) => return Err(DecodeError::BareEndAfterReaction),
+            };
+
+            match reaction {
+                WireReaction::Match => {
+                    read.supplies.interrupt();
+                    // Reject the overrun at its frame rather than retaining an
+                    // unbounded reply skeleton for later walk validation.
+                    scope.next().ok_or(ScopeError::UnpositionedMatch)?;
+                    read.skeleton.push(Skeleton::Match);
+                }
+                WireReaction::Query(listing) => {
+                    read.supplies.interrupt();
+                    read.questions.push(level.derive(&mut scope, &listing)?);
+                    read.skeleton.push(Skeleton::Query(listing));
+                }
+                WireReaction::Supply(records) => {
+                    // The codec rejects empty runs. Keep the assertion for
+                    // frames constructed directly inside the crate.
+                    debug_assert!(
+                        !records.is_empty(),
+                        "the codec never yields an empty supply run",
+                    );
+                    // Decode records directly into assembly; retain only one
+                    // placeholder for each version-derived supply run.
+                    for record in records.records(codec) {
+                        let (version, message) = record.map_err(DecodeError::Record)?;
+                        let (leaf_prefix, run) = read
+                            .supplies
+                            .observe::<B::Error>(scope.parent(), &version)?;
+                        if let Some((radix, prefix)) = run {
+                            read.skeleton.push(Skeleton::Supply { radix, prefix });
+                        }
+                        // Charge the peer's declared set length before the
+                        // payload enters backend custody.
+                        ledger
+                            .charge(1)
+                            .map_err(|declared| DecodeError::OverdrawnSupply { declared })?;
+                        let leaf = <B::Node<Z> as Leaf>::leaf(version, message)
+                            .await
+                            .map_err(DecodeError::Backend)?;
+                        #[cfg(test)]
+                        fan_probe::on_send();
+                        if leaves.send(Ok((leaf_prefix, leaf))).await.is_err() {
+                            return Ok(None);
+                        }
+                    }
+                }
+            }
+
+            if flow == Flow::End {
+                break;
+            }
+        }
+        Ok(Some(read))
+    }
+
+    /// Replace supply placeholders with assembled nodes and finish the reply.
+    fn into_decoded<E>(self, nodes: Vec<(ErasedPrefix, E)>) -> Decoded<E> {
+        let Self {
+            skeleton,
+            questions,
+            ..
+        } = self;
+        let mut nodes = nodes.into_iter();
+        let replies = skeleton
+            .into_iter()
+            .map(|part| match part {
+                Skeleton::Match => ProtocolReaction::Match,
+                Skeleton::Query(listing) => ProtocolReaction::Query(listing),
+                Skeleton::Supply { radix, prefix } => {
+                    let (actual, node) = nodes
+                        .next()
+                        .expect("each supplied run assembles to exactly one node");
+                    assert_eq!(
+                        actual, prefix,
+                        "assembly preserves the version-derived supplied prefix",
+                    );
+                    ProtocolReaction::Supply(radix, node)
+                }
+            })
+            .collect();
+        assert!(
+            nodes.next().is_none(),
+            "assembly yields exactly one node per supplied run",
+        );
+        Decoded {
+            reply: Reply { replies },
+            questions,
         }
     }
 }
 
+/// Validate and group the supplied leaves within one reply.
 struct SupplyRuns {
     /// The peer's greeting-declared `max_version_bytes`, covering every
     /// version its tree materializes and so every version it may supply.
     version_bytes: u64,
+    /// Last leaf path, used to enforce strict wire order.
     previous_leaf: Option<Prefix<Z>>,
+    /// Prefix of the supply run currently receiving leaves.
     current: Option<ErasedPrefix>,
+    /// Last run radix, retained across positional reactions.
     previous_radix: Option<u8>,
 }
 
 impl SupplyRuns {
+    /// Begin a reply with no observed supply run.
     fn new(version_bytes: u64) -> Self {
         Self {
             version_bytes,
@@ -504,6 +504,7 @@ impl SupplyRuns {
         }
     }
 
+    /// End the current supply run when a positional reaction intervenes.
     fn interrupt(&mut self) {
         self.current = None;
     }
@@ -547,17 +548,14 @@ impl SupplyRuns {
             .filter(|previous| *previous >= leaf_prefix)
         {
             return Err(DecodeError::LeafOrder {
-                previous: previous
-                    .as_bytes()
-                    .try_into()
-                    .expect("a leaf prefix occupies a full content path"),
+                previous: previous.into(),
                 current: path.into(),
             });
         }
         self.previous_leaf = Some(leaf_prefix);
 
         let run = if self.current != Some(node_prefix) {
-            if let Some(previous) = self.previous_radix.filter(|previous| *previous >= radix) {
+            if let Some(previous) = self.previous_radix.filter(|previous| *previous == radix) {
                 return Err(DecodeError::SupplyOrder { previous, radix });
             }
             self.current = Some(node_prefix);
@@ -570,23 +568,26 @@ impl SupplyRuns {
     }
 }
 
+/// A reply with supplied nodes represented by their expected prefixes.
 enum Skeleton {
+    /// A positional match.
     Match,
+    /// A positional query with its child listing.
     Query(Vec<(u8, Hash)>),
+    /// A supplied node awaiting the assembler's output at `prefix`.
     Supply { radix: u8, prefix: ErasedPrefix },
 }
 
 /// Test-gated occupancy probe for the reader/assembler fan channels.
 ///
 /// Counts the decoded leaf records resident between the reader's send
-/// ([`read_reply`] and [`read_early`] hook the same counter) and the
-/// assembler's pull, and the peak of that count. The adapter tests
-/// drive [`decode`] and [`early_supplies`] on a current-thread runtime
-/// and each channel is FIFO with one producer and one consumer, so a
-/// thread-local counter mirrors the occupancy exactly: incremented
-/// before the reader awaits the send (the record in the reader's hand
-/// is resident), decremented when the assembler's stream yields the
-/// record.
+/// ([`ReadReply::read`] serves both decode paths) and the assembler's pull, and
+/// the peak of that count. The adapter tests drive [`decode`] and
+/// [`early_supplies`] on a current-thread runtime and each channel is FIFO with
+/// one producer and one consumer, so a thread-local counter mirrors the
+/// occupancy exactly: incremented before the reader awaits the send (the record
+/// in the reader's hand is resident), decremented when the assembler's stream
+/// yields the record.
 #[cfg(test)]
 pub(super) mod fan_probe {
     use std::cell::Cell;

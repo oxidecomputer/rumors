@@ -16,18 +16,20 @@ use super::super::codec::Frame;
 use super::{
     super::codec::{Flow, LeafRun, Reaction as WireReaction, ReplyFrame, RunBudget},
     error::{EncodeError, OpeningError, ScopeError},
-    scope::Scope,
+    scope::{ReplyLevel, Scope},
 };
 
 /// A wire frame and the lower question it makes publishable once written.
-pub struct Encoded<Q> {
+pub struct Encoded {
+    /// The reply frame ready to write.
     frame: ReplyFrame,
-    question: Option<Q>,
+    /// The scope made publishable by successfully writing `frame`.
+    question: Option<Scope>,
 }
 
-impl<Q> Encoded<Q> {
+impl Encoded {
     /// Write this frame and release its question only after a successful write.
-    pub async fn write_with<E, W, F>(self, write: W) -> Result<Option<Q>, E>
+    pub async fn write_with<E, W, F>(self, write: W) -> Result<Option<Scope>, E>
     where
         W: FnOnce(ReplyFrame) -> F,
         F: Future<Output = Result<(), E>>,
@@ -38,13 +40,13 @@ impl<Q> Encoded<Q> {
     }
 
     #[cfg(test)]
-    pub fn into_parts(self) -> (Frame, Option<Q>) {
+    pub fn into_parts(self) -> (Frame, Option<Scope>) {
         (self.frame.into(), self.question)
     }
 }
 
 /// A fallible stream containing the wire frames of one protocol reply.
-pub type Frames<E, Q> = Pin<Box<dyn Stream<Item = Result<Encoded<Q>, EncodeError<E>>> + Send>>;
+pub type Frames<E> = Pin<Box<dyn Stream<Item = Result<Encoded, EncodeError<E>>> + Send>>;
 
 /// Validate the initiator's distinguished opening reply and split it into
 /// its question's listing and its early whole-subtree supplies.
@@ -84,29 +86,11 @@ pub fn encode_reply<B>(
     budget: RunBudget,
     scope: Scope,
     reply: Reply<B::Erased>,
-) -> Frames<B::Error, Scope>
+) -> Frames<B::Error>
 where
     B: Backend<Node<Z>: Leaf>,
 {
-    render(
-        backend,
-        budget,
-        scope,
-        reply,
-        |scope, reaction| match reaction {
-            ProtocolReaction::Match => {
-                // Symmetric with decode: a match past the question's fan
-                // is unrepresentable on the wire.
-                scope.next().ok_or(ScopeError::UnpositionedMatch)?;
-                Ok(None)
-            }
-            ProtocolReaction::Query(listing) => {
-                let (_, prefix) = scope.next().ok_or(ScopeError::UnpositionedQuery)?;
-                Ok(Some(Scope::new(prefix, listing)))
-            }
-            ProtocolReaction::Supply(_, _) => Ok(None),
-        },
-    )
+    Encoded::render(backend, budget, scope, reply, ReplyLevel::Branch)
 }
 
 /// Encode one leaf-height reply, where only an empty request for the leaf is valid.
@@ -115,139 +99,106 @@ pub fn encode_leaf_reply<B>(
     budget: RunBudget,
     scope: Scope,
     reply: Reply<B::Erased>,
-) -> Frames<B::Error, Scope>
+) -> Frames<B::Error>
 where
     B: Backend<Node<Z>: Leaf>,
 {
-    render(
-        backend,
-        budget,
-        scope,
-        reply,
-        |scope, reaction| match reaction {
-            ProtocolReaction::Match => {
-                // Symmetric with decode: a match past the question's fan
-                // is unrepresentable on the wire.
-                scope.next().ok_or(ScopeError::UnpositionedMatch)?;
-                Ok(None)
-            }
-            ProtocolReaction::Query(listing) if !listing.is_empty() => {
-                Err(ScopeError::NonemptyLeafQuery)
-            }
-            ProtocolReaction::Query(_) => {
-                let (_, prefix) = scope.next().ok_or(ScopeError::UnpositionedQuery)?;
-                Ok(Some(Scope::leaf(prefix)))
-            }
-            ProtocolReaction::Supply(_, _) => Ok(None),
-        },
-    )
+    Encoded::render(backend, budget, scope, reply, ReplyLevel::Leaf)
 }
 
-fn render<B, D>(
-    backend: B,
-    budget: RunBudget,
-    mut scope: Scope,
-    reply: Reply<B::Erased>,
-    mut derive: D,
-) -> Frames<B::Error, Scope>
-where
-    B: Backend<Node<Z>: Leaf>,
-    D: FnMut(&mut Scope, &ProtocolReaction<B::Erased>) -> Result<Option<Scope>, ScopeError>
-        + Send
-        + 'static,
-{
-    Box::pin(try_stream! {
-        let mut pending = None;
-        for reaction in reply.replies {
-            let question = derive(&mut scope, &reaction)?;
-            match reaction {
-                ProtocolReaction::Match => {
-                    if let Some((previous, question)) =
-                        pending.replace((WireReaction::Match, question))
-                    {
-                        yield Encoded {
-                            frame: ReplyFrame::reaction(previous, Flow::Continue),
-                            question,
-                        };
+impl Encoded {
+    /// Render one reply at the given protocol level.
+    fn render<B>(
+        backend: B,
+        budget: RunBudget,
+        mut scope: Scope,
+        reply: Reply<B::Erased>,
+        level: ReplyLevel,
+    ) -> Frames<B::Error>
+    where
+        B: Backend<Node<Z>: Leaf>,
+    {
+        Box::pin(try_stream! {
+            let mut pending = None;
+            for reaction in reply.replies {
+                let (wire, question) = match reaction {
+                    ProtocolReaction::Match => {
+                        scope.next().ok_or(ScopeError::UnpositionedMatch)?;
+                        (WireReaction::Match, None)
                     }
-                }
-                ProtocolReaction::Query(listing) => {
-                    if let Some((previous, question)) =
-                        pending.replace((WireReaction::Query(listing), question))
-                    {
-                        yield Encoded {
-                            frame: ReplyFrame::reaction(previous, Flow::Continue),
-                            question,
-                        };
+                    ProtocolReaction::Query(listing) => {
+                        let question = level.derive(&mut scope, &listing)?;
+                        (WireReaction::Query(listing), Some(question))
                     }
-                }
-                ProtocolReaction::Supply(radix, node) => {
-                    debug_assert!(question.is_none());
-                    let expected = scope.supplied(radix);
-                    let mut leaves = pin!(ops::leaves(backend.clone(), expected, node));
-                    let mut previous = None;
-                    // One run accumulates this reaction's leaves; it flushes
-                    // when the next record would push its wire frame past
-                    // the budget and always at the end of the enumeration,
-                    // so a run never spans reactions.
-                    let mut run = LeafRun::new();
-                    while let Some(item) = leaves.next().await {
-                        let (prefix, leaf) = item.map_err(EncodeError::Backend)?;
-                        validate_leaf(expected, previous, prefix);
-                        previous = Some(prefix);
+                    ProtocolReaction::Supply(radix, node) => {
+                        let expected = scope.supplied(radix);
+                        let mut leaves = pin!(ops::leaves(backend.clone(), expected, node));
+                        let mut previous = None;
+                        // One run accumulates this reaction's leaves; it flushes
+                        // when the next record would push its wire frame past
+                        // the budget and always at the end of the enumeration,
+                        // so a run never spans reactions.
+                        let mut run = LeafRun::new();
+                        while let Some(item) = leaves.next().await {
+                            let (prefix, leaf) = item.map_err(EncodeError::Backend)?;
+                            validate_leaf(expected, previous, prefix);
+                            previous = Some(prefix);
 
-                        // The leaf is consumed by serialization alone: the
-                        // run copies its version and message bytes straight
-                        // out of the borrowed node, so no Version clone (ITC
-                        // allocations) and no Arc bump is paid per leaf. The
-                        // bounds span rides a local so its borrowed join
-                        // endpoint (the leaf's version) outlives both reads
-                        // below.
-                        let bounds = leaf.span();
-                        let version = bounds.hi();
-                        let message = leaf.message();
-                        if !run.is_empty()
-                            && !budget
-                                .admits(run.encoded_len(), LeafRun::record_len(version, message))
-                        {
-                            let full = mem::take(&mut run);
-                            if let Some((ready, question)) =
-                                pending.replace((WireReaction::Supply(full), None))
+                            // The leaf is consumed by serialization alone: the
+                            // run copies its version and message bytes straight
+                            // out of the borrowed node, so no Version clone (ITC
+                            // allocations) and no Arc bump is paid per leaf. The
+                            // bounds span rides a local so its borrowed join
+                            // endpoint (the leaf's version) outlives both reads
+                            // below.
+                            let bounds = leaf.span();
+                            let version = bounds.hi();
+                            let message = leaf.message();
+                            if !run.is_empty()
+                                && !budget.admits(
+                                    run.encoded_len(),
+                                    LeafRun::record_len(version, message),
+                                )
                             {
-                                yield Encoded {
-                                    frame: ReplyFrame::reaction(ready, Flow::Continue),
-                                    question,
-                                };
+                                let full = mem::take(&mut run);
+                                if let Some((ready, question)) =
+                                    pending.replace((WireReaction::Supply(full), None))
+                                {
+                                    yield Encoded {
+                                        frame: ReplyFrame::reaction(ready, Flow::Continue),
+                                        question,
+                                    };
+                                }
                             }
+                            run.push(version, message).map_err(EncodeError::Record)?;
                         }
-                        run.push(version, message).map_err(EncodeError::Record)?;
+                        assert!(!run.is_empty(), "a backend node contains at least one leaf");
+                        (WireReaction::Supply(run), None)
                     }
-                    assert!(!run.is_empty(), "a backend node contains at least one leaf");
-                    if let Some((ready, question)) =
-                        pending.replace((WireReaction::Supply(run), None))
-                    {
-                        yield Encoded {
-                            frame: ReplyFrame::reaction(ready, Flow::Continue),
-                            question,
-                        };
+                };
+                if let Some((previous, question)) = pending.replace((wire, question)) {
+                    yield Encoded {
+                        frame: ReplyFrame::reaction(previous, Flow::Continue),
+                        question,
                     }
                 }
             }
-        }
 
-        match pending {
-            Some((reaction, question)) => yield Encoded {
-                frame: ReplyFrame::reaction(reaction, Flow::End),
-                question,
-            },
-            None => yield Encoded {
-                frame: ReplyFrame::reply_end(),
-                question: None,
-            },
-        }
-    })
+            match pending {
+                Some((reaction, question)) => yield Encoded {
+                    frame: ReplyFrame::reaction(reaction, Flow::End),
+                    question,
+                },
+                None => yield Encoded {
+                    frame: ReplyFrame::reply_end(),
+                    question: None,
+                },
+            }
+        })
+    }
 }
 
+/// Enforce the backend's containment and ordering contract for one leaf.
 fn validate_leaf(expected: ErasedPrefix, previous: Option<Prefix<Z>>, current: Prefix<Z>) {
     let path = Path::from(current);
     assert_eq!(

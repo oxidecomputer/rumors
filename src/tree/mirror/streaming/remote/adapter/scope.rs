@@ -1,5 +1,34 @@
 use crate::tree::typed::{ErasedPrefix, Hash, Prefix};
 
+use super::error::ScopeError;
+
+/// How queries in a reply derive the next scope.
+#[derive(Clone, Copy)]
+pub(super) enum ReplyLevel {
+    /// A query opens a scope beneath the current one.
+    Branch,
+    /// A query must be empty and requests the current leaf.
+    Leaf,
+}
+
+impl ReplyLevel {
+    /// Derive the scope created by one query at this level.
+    pub(super) fn derive(
+        self,
+        scope: &mut Scope,
+        listing: &[(u8, Hash)],
+    ) -> Result<Scope, ScopeError> {
+        if matches!(self, Self::Leaf) && !listing.is_empty() {
+            return Err(ScopeError::NonemptyLeafQuery);
+        }
+        let (_, prefix) = scope.next().ok_or(ScopeError::UnpositionedQuery)?;
+        Ok(match self {
+            Self::Branch => Scope::new(prefix, listing),
+            Self::Leaf => Scope::leaf(prefix),
+        })
+    }
+}
+
 /// The local knowledge needed to interpret one future prefix-free reply.
 ///
 /// `parent` names the scope whose children the reply discusses — its byte
