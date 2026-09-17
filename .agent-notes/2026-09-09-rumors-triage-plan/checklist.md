@@ -1,10 +1,10 @@
 # Rumors review checklist
 
-**Current:** derive window charges and limits from their owning types on
-`codex/window-structural-charges`, based on `aa45cc34`.
+**Current:** support the public budget claims with a sparse, affordable cost
+grid.
 
-**Next:** support the public budget claims with a sparse cost grid, then prune
-the measurements which do not justify their maintenance cost.
+**Next:** prune budget and residency measurements which do not justify their
+maintenance cost.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →
@@ -130,7 +130,7 @@ Dependencies: 01 for retained-root measurements; 03–05 when claims cover deep 
 - [x] Validate window sizing against actual session work and an independent numerical calculation, including asymmetric corpora and a lowered-bound control; delete the simulator — `69bdab34`.
       Sources: `benches-envelope-28`, `benches-envelope-29`, `benches-envelope-31–34`, `streaming-backend-window-32`, T10, T43.
 
-- [ ] Derive window charges and structural limits from the types or constants that own them.
+- [x] Derive window charges and structural limits from the types or constants that own them — `cd684646`.
       Sources: `link-3`, `materialized-10`, `remote-codec-3`, `streaming-backend-window-25`, `streaming-backend-window-26`, `streaming-backend-window-28`, `streaming-backend-window-30`, `streaming-backend-window-31`, `streaming-backend-window-34`, `testing-infra-2`, T86–88, T103, T104, T120, T129, T132.
 
 - [ ] Support public cost claims with a sparse, affordable overhead grid.
