@@ -81,14 +81,7 @@ where
         B: Backend<Node<Z>: Leaf>,
     {
         let below = H::assemble(backend.clone(), leaves);
-        let folded = fold_parents(backend, below);
-        Box::pin(try_stream! {
-            let mut folded = pin!(folded);
-            while let Some(item) = folded.next().await {
-                let (prefix, node) = item?;
-                yield (prefix, node);
-            }
-        })
+        Box::pin(fold_parents(backend, below))
     }
 }
 

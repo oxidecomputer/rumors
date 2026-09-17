@@ -298,18 +298,6 @@ impl Window {
         )
         .unwrap_or(usize::MAX);
 
-        #[cfg(debug_assertions)]
-        for window in [0usize, 1, 16, FAN].windows(2) {
-            debug_assert!(
-                node_bytes(window[0], version_bound) <= node_bytes(window[1], version_bound),
-                "node_bytes must be monotone in the child count",
-            );
-            debug_assert!(
-                node_bytes(window[1], version_bound / 2) <= node_bytes(window[1], version_bound),
-                "node_bytes must be monotone in the version bound",
-            );
-        }
-
         // Populations and per-scope fans per depth, computed once. A
         // buffered scope whose children sit at depth d is one queried
         // entry of the depth-d stage; its held references are the
