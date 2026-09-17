@@ -94,7 +94,7 @@ where
     pub fn opening_responder<C: Connector>(
         &mut self,
         requests: impl Requests<B, UnderRoot>,
-        incoming: StreamReceiver<A::Rx>,
+        incoming: StreamReceiver,
         outgoing: StreamSender<C>,
     ) -> (BoxResponses<B, UnderRoot, Error<B::Error>>, Receiver<Scope>) {
         let requests: encode::Replies<B::Erased> =
@@ -137,9 +137,9 @@ where
         &mut self,
         requests: impl Requests<B, S<S<H>>>,
         scopes: Receiver<Scope>,
-        incoming: StreamReceiver<A::Rx>,
+        incoming: StreamReceiver,
         outgoing: StreamSender<C>,
-        early: Option<StreamReceiver<A::Rx>>,
+        early: Option<StreamReceiver>,
     ) -> (BoxResponses<B, S<H>, Error<B::Error>>, Receiver<Scope>)
     where
         H: Height,
@@ -176,9 +176,9 @@ where
     fn decode_pump(
         &mut self,
         mut questions: Receiver<Scope>,
-        mut incoming: StreamReceiver<A::Rx>,
+        mut incoming: StreamReceiver,
         next_scopes: crate::tree::mirror::streaming::channel::Sender<Scope>,
-        early: Option<StreamReceiver<A::Rx>>,
+        early: Option<StreamReceiver>,
         height: usize,
     ) -> impl Stream<Item = Result<Reply<B::Erased>, Error<B::Error>>> + Send + 'static + use<B, R, W, A>
     {
@@ -188,8 +188,7 @@ where
         let ledger = self.peer_supplies.clone();
         let codec = self.codec;
         try_stream! {
-            let mut early =
-                Early::<B, A::Rx>::new(version_bytes, ledger.clone(), early, codec);
+            let mut early = Early::<B>::new(version_bytes, ledger.clone(), early, codec);
             while let Some(scope) = questions.recv().await {
                 if early.armed() && scope.is_request() {
                     // A root-level request: its content crossed at the
@@ -251,7 +250,7 @@ where
         &mut self,
         requests: impl Requests<B, S<Z>>,
         scopes: Receiver<Scope>,
-        incoming: StreamReceiver<A::Rx>,
+        incoming: StreamReceiver,
         outgoing: StreamSender<C>,
     ) -> (BoxResponses<B, Z, Error<B::Error>>, Receiver<Scope>) {
         let requests: encode::Replies<B::Erased> =
@@ -278,7 +277,7 @@ where
     fn leaf_decode_pump(
         &mut self,
         mut questions: Receiver<Scope>,
-        mut incoming: StreamReceiver<A::Rx>,
+        mut incoming: StreamReceiver,
         next_scopes: crate::tree::mirror::streaming::channel::Sender<Scope>,
     ) -> impl Stream<Item = Result<Reply<B::Erased>, Error<B::Error>>> + Send + 'static + use<B, R, W, A>
     {
@@ -338,7 +337,7 @@ where
         mut self,
         requests: impl Requests<B, Z>,
         scopes: Receiver<Scope>,
-        incoming: StreamReceiver<A::Rx>,
+        incoming: StreamReceiver,
         outgoing: StreamSender<C>,
     ) -> (
         BoxResponses<B, Z, Error<B::Error>>,
@@ -376,7 +375,7 @@ where
     fn terminal_decode_pump(
         &mut self,
         mut questions: Receiver<Scope>,
-        mut incoming: StreamReceiver<A::Rx>,
+        mut incoming: StreamReceiver,
     ) -> impl Stream<Item = Result<Reply<B::Erased>, Error<B::Error>>> + Send + 'static + use<B, R, W, A>
     {
         let progress = self.progress;
@@ -415,7 +414,7 @@ where
 /// session. An armed cursor whose stage sees no request never polls the
 /// receiver, so the transport stream is never claimed — the lazy-claim
 /// discipline every level follows.
-struct Early<B, Rx>
+struct Early<B>
 where
     B: Backend<Node<Z>: Leaf>,
 {
@@ -425,27 +424,30 @@ where
     /// The session's declared-`set_len` allowance, charged per record
     /// the opening stream decodes.
     ledger: SupplyLedger,
-    receiver: Option<StreamReceiver<Rx>>,
+    /// The opening stream before its first root-level request claims it.
+    receiver: Option<StreamReceiver>,
+    /// Decoded root children, initialized when `receiver` is claimed.
     supplies:
         Option<Pin<Box<dyn Stream<Item = Result<(u8, B::Erased), DecodeError<B::Error>>> + Send>>>,
+    /// The next supplied root child when its request has not arrived yet.
     lookahead: Option<(u8, B::Erased)>,
+    /// Whether the opening stream has ended cleanly.
     exhausted: bool,
     /// The peer's payload codec, handed to the opening-supply
     /// stream when the cursor arms it.
     codec: PayloadCodec,
 }
 
-impl<B, Rx> Early<B, Rx>
+impl<B> Early<B>
 where
     B: Backend<Node<Z>: Leaf>,
-    Rx: tokio::io::AsyncRead + Unpin + Send + 'static,
 {
     /// Arm the cursor with the opening-supply stream's receiver, if this
     /// stage is the one that owns it.
     fn new(
         version_bytes: u64,
         ledger: SupplyLedger,
-        receiver: Option<StreamReceiver<Rx>>,
+        receiver: Option<StreamReceiver>,
         codec: PayloadCodec,
     ) -> Self {
         Self {
@@ -532,10 +534,7 @@ where
 /// A stream that was never claimed — its level asked no question — is
 /// finished vacuously; a claimed stream must have delivered its end control
 /// with no reply to spare.
-async fn reject_extra<Rx, E>(incoming: &mut StreamReceiver<Rx>) -> Result<(), Error<E>>
-where
-    Rx: tokio::io::AsyncRead + Unpin + Send + 'static,
-{
+async fn reject_extra<E>(incoming: &mut StreamReceiver) -> Result<(), Error<E>> {
     match incoming.finish().await {
         ReceiverFinish::Clean => Ok(()),
         ReceiverFinish::ExtraReply => Err(Error::UnaskedReply),

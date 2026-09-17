@@ -201,7 +201,7 @@ fn queued_supply_closed_outranks_a_selected_consequence_at_stream_granularity() 
     let (claim_send, claim_receive) =
         oneshot::channel::<(DuplexStream, crate::link::Done<DuplexStream>)>();
     drop(claim_send);
-    let mut receiver: StreamReceiver<DuplexStream> = StreamReceiver::new(
+    let mut receiver = StreamReceiver::new(
         claim_receive,
         Speaker::Initiator,
         Stream::new(3).expect("stream index 3 exists"),
@@ -259,7 +259,7 @@ fn published_stream_error_preempts_a_parked_protocol() {
     let (claim_send, claim_receive) =
         oneshot::channel::<(DuplexStream, crate::link::Done<DuplexStream>)>();
     drop(claim_send);
-    let mut receiver: StreamReceiver<DuplexStream> = StreamReceiver::new(
+    let mut receiver = StreamReceiver::new(
         claim_receive,
         Speaker::Initiator,
         Stream::new(0).expect("stream index 0 exists"),
@@ -292,7 +292,7 @@ fn failed_send<E>() -> Error<E> {
 }
 
 /// Decode supplied bytes through a real incoming stream's error-reporting path.
-async fn receiver(bytes: &[u8], stream: Stream, route: ErrorRoute) -> StreamReceiver<DuplexStream> {
+async fn receiver(bytes: &[u8], stream: Stream, route: ErrorRoute) -> StreamReceiver {
     let (mut tx, rx) = tokio::io::duplex(bytes.len().max(1));
     tx.write_all(bytes).await.unwrap();
     drop(tx);

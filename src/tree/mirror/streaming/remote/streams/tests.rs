@@ -1,29 +1,55 @@
 //! Unit tests for lazy stream establishment, labeling, and claim routing.
 
 use futures::{StreamExt, future::join};
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncRead, AsyncWriteExt};
 
 use crate::link::{Acceptor, Connector, memory};
 use crate::observe::SessionHandle;
 use crate::testing::run_to_quiescence;
+use crate::tree::mirror::cbor::{self, Head, MAJOR_UINT};
 use crate::tree::mirror::streaming::remote::codec::{
     End, Flow, Frame, FrameWrite, Origin, Reaction, RunBudget, Speaker, Stream,
 };
 use crate::tree::mirror::streaming::stats::Recorder;
 
 use super::{
-    AcceptDriver, AcceptError, FirstStreamError, ReceiverFinish, ReplyFrame, StreamError,
-    StreamReceiver, StreamSender, claims, error_route, label,
+    AcceptDriver, AcceptError, Claims, ErrorRoute, FirstStreamError, ReceiverFinish, ReplyFrame,
+    StreamError, StreamReceiver, StreamSender, claims, error_route, label,
 };
 
 /// Session epoch shared by the violation tests; its value is arbitrary.
 const EPOCH: u8 = 0;
 
-/// The label is exactly two bytes: the session epoch then the stream index.
+/// Every session epoch and logical stream encodes as two canonical unsigned
+/// heads, in that order, with no trailing bytes.
 #[test]
-fn label_is_epoch_then_stream() {
-    let stream = Stream::new(3).expect("stream 3 exists");
-    assert_eq!(label(7, stream), [7, 3]);
+fn labels_are_epoch_then_stream() {
+    for epoch in u8::MIN..=u8::MAX {
+        for index in 0..Stream::COUNT {
+            let stream = Stream::new(index).expect("the loop covers valid stream indices");
+            let encoded = label(epoch, stream);
+            assert_eq!(
+                encoded.len(),
+                cbor::head_len(u64::from(epoch)) + cbor::head_len(u64::from(index)),
+            );
+            let mut input = encoded.as_slice();
+            assert_eq!(
+                cbor::read_head(&mut input),
+                Ok(Head {
+                    major: MAJOR_UINT,
+                    value: u64::from(epoch),
+                }),
+            );
+            assert_eq!(
+                cbor::read_head(&mut input),
+                Ok(Head {
+                    major: MAJOR_UINT,
+                    value: u64::from(index),
+                }),
+            );
+            assert!(input.is_empty(), "the label contains exactly two heads");
+        }
+    }
 }
 
 /// A sender that never carries a frame opens no transport stream at all —
@@ -33,13 +59,10 @@ fn label_is_epoch_then_stream() {
 fn unopened_sender_finishes_without_connecting() {
     let (a, mut b) = memory();
     run_to_quiescence(async {
-        let sender: StreamSender<_> = StreamSender::new(
+        let sender = sender(
             a.connector.clone(),
             0,
-            Speaker::Initiator,
             Stream::new(1).expect("stream 1 exists"),
-            Recorder::default(),
-            SessionHandle::default(),
         );
         sender.finish().await.expect("vacuous finish succeeds");
         // The peer sees no announced stream: with the connector dropped, its
@@ -61,14 +84,7 @@ fn frames_flow_sender_to_claimed_receiver() {
     let stream = Stream::new(2).expect("stream 2 exists");
     run_to_quiescence(async {
         let send = async {
-            let mut sender: StreamSender<_> = StreamSender::new(
-                a.connector.clone(),
-                9,
-                Speaker::Initiator,
-                stream,
-                Recorder::default(),
-                SessionHandle::default(),
-            );
+            let mut sender = sender(a.connector.clone(), 9, stream);
             sender
                 .frame(reply_frame(Frame::Reaction(Reaction::Match, Flow::End)))
                 .await
@@ -83,15 +99,7 @@ fn frames_flow_sender_to_claimed_receiver() {
             let (route, _errors) = error_route();
             let driver =
                 AcceptDriver::new(&mut b.acceptor, 9, Speaker::Initiator, slots, route.clone());
-            let mut receiver: StreamReceiver<_> = StreamReceiver::new(
-                claims.take(stream),
-                Speaker::Initiator,
-                stream,
-                RunBudget::default(),
-                route,
-                Recorder::default(),
-                SessionHandle::default(),
-            );
+            let mut receiver = receiver(&mut claims, Speaker::Initiator, stream, route);
             let receive = async {
                 assert_eq!(
                     receiver.next().await,
@@ -119,15 +127,7 @@ fn unpolled_receiver_finishes_vacuously() {
     let (slots, mut claims) = claims::<tokio::io::DuplexStream>();
     let stream = Stream::new(0).expect("stream 0 exists");
     let (route, _errors) = error_route();
-    let mut receiver: StreamReceiver<_> = StreamReceiver::new(
-        claims.take(stream),
-        Speaker::Responder,
-        stream,
-        RunBudget::default(),
-        route,
-        Recorder::default(),
-        SessionHandle::default(),
-    );
+    let mut receiver = receiver(&mut claims, Speaker::Responder, stream, route);
     run_to_quiescence(async {
         assert_eq!(receiver.finish().await, ReceiverFinish::Clean);
     })
@@ -141,13 +141,10 @@ fn accept_driver_rejects_wrong_epoch() {
     let (a, mut b) = memory();
     run_to_quiescence(async {
         let send = async {
-            let mut sender: StreamSender<_> = StreamSender::new(
+            let mut sender = sender(
                 a.connector.clone(),
                 4,
-                Speaker::Initiator,
                 Stream::new(0).expect("stream 0 exists"),
-                Recorder::default(),
-                SessionHandle::default(),
             );
             sender
                 .frame(reply_frame(Frame::End(End::Reply)))
@@ -186,14 +183,7 @@ fn accept_driver_rejects_unclaimed_delivery() {
     let stream = Stream::new(6).expect("stream 6 exists");
     run_to_quiescence(async {
         let send = async {
-            let mut sender: StreamSender<_> = StreamSender::new(
-                a.connector.clone(),
-                0,
-                Speaker::Initiator,
-                stream,
-                Recorder::default(),
-                SessionHandle::default(),
-            );
+            let mut sender = sender(a.connector.clone(), 0, stream);
             sender
                 .frame(reply_frame(Frame::End(End::Reply)))
                 .await
@@ -252,15 +242,7 @@ async fn first_reported_error(
     let (slots, mut claims) = claims();
     let (route, mut errors) = error_route();
     let driver = AcceptDriver::new(acceptor, EPOCH, Speaker::Initiator, slots, route.clone());
-    let mut receiver: StreamReceiver<_> = StreamReceiver::new(
-        claims.take(stream),
-        Speaker::Initiator,
-        stream,
-        RunBudget::default(),
-        route,
-        Recorder::default(),
-        SessionHandle::default(),
-    );
+    let mut receiver = receiver(&mut claims, Speaker::Initiator, stream, route);
     let observe = async {
         for expected in leading {
             assert_eq!(receiver.next().await.as_ref(), Some(expected));
@@ -334,14 +316,7 @@ fn truncated_stream_is_reported_not_ended() {
     let stream = Stream::new(4).expect("stream 4 exists");
     let error = run_to_quiescence(async {
         let send = async {
-            let mut sender: StreamSender<_> = StreamSender::new(
-                a.connector.clone(),
-                EPOCH,
-                Speaker::Initiator,
-                stream,
-                Recorder::default(),
-                SessionHandle::default(),
-            );
+            let mut sender = sender(a.connector.clone(), EPOCH, stream);
             sender
                 .frame(reply_frame(Frame::Reaction(Reaction::Match, Flow::End)))
                 .await
@@ -421,9 +396,10 @@ fn accept_driver_rejects_unknown_stream_index() {
         let send = async {
             let (mut tx, _) = a.connector.connect().await.expect("stream opens");
             // One past the last logical stream: no claim slot can exist.
-            tx.write_all(&[EPOCH, Stream::COUNT])
-                .await
-                .expect("label writes");
+            let mut label = Vec::new();
+            cbor::write_head(&mut label, MAJOR_UINT, u64::from(EPOCH));
+            cbor::write_head(&mut label, MAJOR_UINT, u64::from(Stream::COUNT));
+            tx.write_all(&label).await.expect("label writes");
         };
         let receive = async {
             let (slots, _claims) = claims::<tokio::io::DuplexStream>();
@@ -500,14 +476,7 @@ fn supply_failure_after_delivery_lets_the_session_finish() {
     let stream = Stream::new(7).expect("stream 7 exists");
     run_to_quiescence(async {
         let send = async {
-            let mut sender: StreamSender<_> = StreamSender::new(
-                a.connector.clone(),
-                EPOCH,
-                Speaker::Initiator,
-                stream,
-                Recorder::default(),
-                SessionHandle::default(),
-            );
+            let mut sender = sender(a.connector.clone(), EPOCH, stream);
             sender
                 .frame(reply_frame(Frame::Reaction(Reaction::Match, Flow::End)))
                 .await
@@ -530,15 +499,7 @@ fn supply_failure_after_delivery_lets_the_session_finish() {
                 slots,
                 route.clone(),
             );
-            let mut receiver: StreamReceiver<_> = StreamReceiver::new(
-                claims.take(stream),
-                Speaker::Initiator,
-                stream,
-                RunBudget::default(),
-                route,
-                Recorder::default(),
-                SessionHandle::default(),
-            );
+            let mut receiver = receiver(&mut claims, Speaker::Initiator, stream, route);
             let consume = async {
                 assert_eq!(
                     receiver.next().await,
@@ -569,4 +530,37 @@ fn reply_frame(frame: Frame) -> ReplyFrame {
         Frame::End(End::Reply) => ReplyFrame::reply_end(),
         Frame::End(End::Stream) => panic!("a reply cannot end its transport stream"),
     }
+}
+
+/// Build a logical sender with the tests' inert observation state.
+fn sender<C: Connector>(connector: C, epoch: u8, stream: Stream) -> StreamSender<C> {
+    StreamSender::new(
+        connector,
+        epoch,
+        Speaker::Initiator,
+        stream,
+        Recorder::default(),
+        SessionHandle::default(),
+    )
+}
+
+/// Build a logical receiver from one claim with inert observation state.
+fn receiver<Rx>(
+    claims: &mut Claims<Rx>,
+    speaker: Speaker,
+    stream: Stream,
+    route: ErrorRoute,
+) -> StreamReceiver
+where
+    Rx: AsyncRead + Unpin + Send + 'static,
+{
+    StreamReceiver::new(
+        claims.take(stream),
+        speaker,
+        stream,
+        RunBudget::default(),
+        route,
+        Recorder::default(),
+        SessionHandle::default(),
+    )
 }

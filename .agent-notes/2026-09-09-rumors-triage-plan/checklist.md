@@ -1,9 +1,9 @@
 # Rumors review checklist
 
-**Current:** shared reply encoding and decoding on
-`codex/stream-adapter-simplify`, based on `4a2fd1b7`.
+**Current:** sender, receiver, claim, and error-route state on
+`codex/stream-state-simplify`, based on `57c776b5`.
 
-**Next:** simplify sender, receiver, claim, and error-route state.
+**Next:** test adapter failures at their conversion and ordering boundaries.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →

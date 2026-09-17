@@ -1,6 +1,6 @@
 //! Lazily established, independently flow-controlled logical streams.
 //!
-//! This layer binds the protocol's 17-per-direction logical streams onto a
+//! This layer binds each direction's fixed set of logical streams onto a
 //! [`Link`](crate::link)'s transport streams, one to one. Nothing multiplexes:
 //! each logical stream owns its transport stream outright, so backpressure on
 //! one stream is invisible to every other — the independence the capacity-one
@@ -36,12 +36,13 @@
 //! streams use).
 
 use std::pin::Pin;
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::task::{Context, Poll};
 
 use async_stream::stream;
 use futures::{StreamExt, stream::BoxStream};
 use tokio::{
-    io::AsyncWriteExt,
+    io::{AsyncRead, AsyncWrite, AsyncWriteExt},
     sync::{mpsc, oneshot},
 };
 
@@ -78,10 +79,13 @@ const STREAM_COUNT: usize = Stream::COUNT as usize;
 /// frame never opens a stream. [`finish`](Self::finish) closes an opened
 /// stream with an explicit end control and skips silently otherwise.
 pub struct StreamSender<C: Connector> {
+    /// Supplies the transport stream on first write.
     connector: C,
+    /// Session epoch written into the stream label.
     epoch: u8,
     /// The local role whose direction this stream carries.
     speaker: Speaker,
+    /// Logical stream named by the label and every frame.
     stream: Stream,
     /// The session's stats recorder: the opened stream's codec writes
     /// count as [`bytes_sent`](crate::SessionStats::bytes_sent), the
@@ -91,14 +95,35 @@ pub struct StreamSender<C: Connector> {
     /// observer from it when it opens, so a sender that never carries
     /// a frame observes nothing.
     observe: SessionHandle,
-    state: SendState<C::Tx>,
+    /// Open transport state, absent until the first frame is written.
+    opened: Option<Opened<C::Tx>>,
 }
 
-enum SendState<Tx> {
-    Unopened,
-    Open(FrameWrite<CountedWrite<Tx>>, Done<Tx>),
+/// The writer and completion token for an opened transport stream.
+struct Opened<Tx> {
+    /// Frame encoder over the transport's counted write half.
+    write: FrameWrite<CountedWrite<Tx>>,
+    /// Returns the write half to the link after a clean stream end.
+    done: Done<Tx>,
 }
 
+/// Writing and completing an opened transport stream.
+impl<Tx> Opened<Tx>
+where
+    Tx: AsyncWrite + Unpin,
+{
+    /// Write and flush one frame on this logical stream.
+    async fn frame(&mut self, stream: Stream, frame: Frame) -> Result<(), EncodeError> {
+        self.write.frame(&(stream, frame)).await
+    }
+
+    /// Return the transport half after its explicit stream end was flushed.
+    fn complete(self) {
+        self.done.complete(self.write.into_inner().into_inner());
+    }
+}
+
+/// Lazy establishment and framing for one outgoing logical stream.
 impl<C: Connector> StreamSender<C> {
     /// Bind one outgoing logical stream to a link's stream supply.
     pub fn new(
@@ -116,7 +141,7 @@ impl<C: Connector> StreamSender<C> {
             stream,
             stats,
             observe,
-            state: SendState::Unopened,
+            opened: None,
         }
     }
 
@@ -143,27 +168,24 @@ impl<C: Connector> StreamSender<C> {
     /// right behind it, resting at the frame boundary; failure paths drop
     /// the half instead, the contract's abort.
     pub async fn finish(mut self) -> Result<(), SendError> {
-        match self.state {
-            SendState::Unopened => Ok(()),
-            SendState::Open(..) => {
-                self.write(Frame::End(End::Stream)).await?;
-                let SendState::Open(write, done) =
-                    std::mem::replace(&mut self.state, SendState::Unopened)
-                else {
-                    unreachable!("the open state was just written through");
-                };
-                done.complete(write.into_inner().into_inner());
-                Ok(())
-            }
-        }
+        let Some(mut opened) = self.opened.take() else {
+            return Ok(());
+        };
+        opened
+            .frame(self.stream, Frame::End(End::Stream))
+            .await
+            .map_err(SendError::Frame)?;
+        self.stats.frame_sent();
+        opened.complete();
+        Ok(())
     }
 
     /// Write one frame through the open transport stream, opening it first.
     async fn write(&mut self, frame: Frame) -> Result<(), SendError> {
         let stream = self.stream;
-        let write = match &mut self.state {
-            SendState::Open(write, _) => write,
-            state @ SendState::Unopened => {
+        let opened = match &mut self.opened {
+            Some(opened) => opened,
+            slot @ None => {
                 let (mut tx, done) =
                     self.connector
                         .connect()
@@ -178,23 +200,19 @@ impl<C: Connector> StreamSender<C> {
                         origin: Origin::stream(self.speaker, stream),
                         source,
                     })?;
-                *state = SendState::Open(
-                    FrameWrite::new(self.speaker, CountedWrite::new(tx, self.stats.clone()))
+                slot.insert(Opened {
+                    write: FrameWrite::new(self.speaker, CountedWrite::new(tx, self.stats.clone()))
                         .observed(self.observe.data(
                             self.speaker.role(),
                             stream.index(),
                             Direction::Sent,
                         )),
                     done,
-                );
-                let SendState::Open(write, _) = state else {
-                    unreachable!("the open state was just stored");
-                };
-                write
+                })
             }
         };
-        write
-            .frame(&(stream, frame))
+        opened
+            .frame(stream, frame)
             .await
             .map_err(SendError::Frame)?;
         self.stats.frame_sent();
@@ -262,10 +280,10 @@ pub enum StreamError {
     },
     /// The stream supply failed before an awaited stream was delivered.
     ///
-    /// `source` carries the supply's own transport failure when the session
-    /// observed one; a session reports it exactly once, on the error the
-    /// session surfaces as its cause. `None` means the supply closed
-    /// without an observed transport failure.
+    /// `source` carries the supply's transport failure when one was observed;
+    /// `None` means the supply closed without one. Stream consumers initially
+    /// report no source. Session completion attaches the accept driver's
+    /// retained failure if that report becomes the surfaced cause.
     #[error("{origin}: the link's stream supply closed before this stream arrived")]
     SupplyClosed {
         /// The logical stream that never arrived.
@@ -275,6 +293,7 @@ pub enum StreamError {
     },
 }
 
+/// Source attribution for incoming-stream failures.
 impl StreamError {
     /// Whether a failed transport could produce this report.
     pub(super) fn is_transport_failure(&self) -> bool {
@@ -291,46 +310,22 @@ impl StreamError {
 
 /// One lazily claimed incoming logical stream, yielding its protocol frames.
 ///
-/// The first poll claims the accepted transport stream delivered for this
-/// label; a receiver that is never polled never claims. The stream ends —
-/// yields `None` — when the peer's explicit end control arrives, and it
-/// consumes that control rather than exposing it. On any failure it reports
+/// The first poll declares the stream needed and begins waiting for its
+/// accepted transport stream; a receiver that is never polled never claims
+/// one. The stream yields `None` when the peer's explicit end control arrives,
+/// consuming that control rather than exposing it. On any failure it reports
 /// through the session error route and parks.
-pub struct StreamReceiver<Rx> {
-    /// The claim and identity, consumed to build `frames` on first poll.
-    start: Option<ReceiverStart<Rx>>,
-    /// `Some` exactly once the stream has been claimed: the first poll
-    /// builds it, and [`finish`](Self::finish) reads its absence as "this
-    /// level was never needed".
-    frames: Option<BoxStream<'static, Frame>>,
+pub struct StreamReceiver {
+    /// Lazily executed claim and frame decoder.
+    frames: BoxStream<'static, Frame>,
+    /// Whether a consumer has asked for this stream by polling it.
+    needed: bool,
 }
 
-struct ReceiverStart<Rx> {
-    claim: oneshot::Receiver<(Rx, Done<Rx>)>,
-    /// The remote role whose direction this stream carries.
-    speaker: Speaker,
-    stream: Stream,
-    /// The session's run budget, enforced by the claimed stream's codec on
-    /// every supply frame the peer delivers.
-    budget: RunBudget,
-    route: ErrorRoute,
-    /// The session's stats recorder: the claimed stream's codec reads
-    /// count as [`bytes_received`](crate::SessionStats::bytes_received),
-    /// the label excluded (the accept driver consumed it before
-    /// delivery).
-    stats: Recorder,
-    /// The session's observation handle: the stream creates its own
-    /// observer from it when its claim resolves, so a stream that is
-    /// never claimed observes nothing.
-    observe: SessionHandle,
-}
-
-impl<Rx> StreamReceiver<Rx>
-where
-    Rx: tokio::io::AsyncRead + Unpin + Send + 'static,
-{
+/// Lazy claiming and terminal validation for an incoming logical stream.
+impl StreamReceiver {
     /// Bind one incoming logical stream to its claim slot.
-    pub fn new(
+    pub fn new<Rx>(
         claim: oneshot::Receiver<(Rx, Done<Rx>)>,
         speaker: Speaker,
         stream: Stream,
@@ -338,18 +333,15 @@ where
         route: ErrorRoute,
         stats: Recorder,
         observe: SessionHandle,
-    ) -> Self {
+    ) -> Self
+    where
+        Rx: AsyncRead + Unpin + Send + 'static,
+    {
         Self {
-            start: Some(ReceiverStart {
-                claim,
-                speaker,
-                stream,
-                budget,
-                route,
-                stats,
-                observe,
-            }),
-            frames: None,
+            frames: Box::pin(read_frames(
+                claim, speaker, stream, budget, route, stats, observe,
+            )),
+            needed: false,
         }
     }
 
@@ -360,34 +352,13 @@ where
     /// claimed stream must have delivered its end with no further reply.
     /// Returns whether an extra reply arrived instead.
     pub async fn finish(&mut self) -> ReceiverFinish {
-        if self.frames.is_none() {
+        if !self.needed {
             return ReceiverFinish::Clean;
         }
         match self.next().await {
             None => ReceiverFinish::Clean,
             Some(_) => ReceiverFinish::ExtraReply,
         }
-    }
-
-    /// Build the claimed frame stream on first use.
-    fn frames(&mut self) -> &mut BoxStream<'static, Frame> {
-        let start = &mut self.start;
-        self.frames.get_or_insert_with(|| {
-            let ReceiverStart {
-                claim,
-                speaker,
-                stream,
-                budget,
-                route,
-                stats,
-                observe,
-            } = start
-                .take()
-                .expect("the start state is consumed exactly once");
-            Box::pin(read_frames(
-                claim, speaker, stream, budget, route, stats, observe,
-            ))
-        })
     }
 }
 
@@ -400,14 +371,14 @@ pub enum ReceiverFinish {
     ExtraReply,
 }
 
-impl<Rx> futures::Stream for StreamReceiver<Rx>
-where
-    Rx: tokio::io::AsyncRead + Unpin + Send + 'static,
-{
+/// Yield decoded frames from the claimed transport stream.
+impl futures::Stream for StreamReceiver {
     type Item = Frame;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        self.get_mut().frames().as_mut().poll_next(cx)
+        let receiver = self.get_mut();
+        receiver.needed = true;
+        receiver.frames.as_mut().poll_next(cx)
     }
 }
 
@@ -415,6 +386,11 @@ where
 ///
 /// Every failure path publishes to the session error route and parks: the
 /// consumer never observes a truncated stream as a clean end.
+///
+/// `budget` constrains each supplied run. `stats` counts decoded bytes after
+/// the label, and `observe` creates the data-stream observer only after the
+/// claim resolves. Because the stream generator is lazy, constructing it does
+/// none of this work until [`StreamReceiver`] is polled.
 #[allow(clippy::too_many_arguments)]
 fn read_frames<Rx>(
     claim: oneshot::Receiver<(Rx, Done<Rx>)>,
@@ -426,7 +402,7 @@ fn read_frames<Rx>(
     observe: SessionHandle,
 ) -> impl futures::Stream<Item = Frame> + Send
 where
-    Rx: tokio::io::AsyncRead + Unpin + Send + 'static,
+    Rx: AsyncRead + Unpin + Send + 'static,
 {
     stream! {
         let Ok((rx, done)) = claim.await else {
@@ -498,9 +474,10 @@ pub struct ErrorRoute {
     /// Keeps the first incoming-stream report until the executor receives it.
     send: mpsc::Sender<StreamError>,
     /// The failure preventing delivery, retained even if a stream report is dropped.
-    failure: std::sync::Arc<std::sync::Mutex<Option<IncomingFailure>>>,
+    failure: IncomingFailureSlot,
 }
 
+/// Publishing failures from incoming streams to the session executor.
 impl ErrorRoute {
     /// Publish the first incoming-stream error without blocking its reporter.
     ///
@@ -512,8 +489,41 @@ impl ErrorRoute {
 
     /// Retain the first failure for the executor before closing pending claims.
     fn failed(&self, failure: IncomingFailure) {
-        let mut slot = self.failure.lock().expect("incoming failure lock");
-        slot.get_or_insert(failure);
+        self.failure.deposit(failure);
+    }
+}
+
+/// The first failure that stopped delivery of incoming streams.
+#[derive(Clone)]
+struct IncomingFailureSlot {
+    /// Shared first-failure storage.
+    failure: Arc<Mutex<Option<IncomingFailure>>>,
+}
+
+/// First-failure storage shared by the accept driver and session executor.
+impl IncomingFailureSlot {
+    /// Allocate an empty shared failure slot.
+    fn new() -> Self {
+        Self {
+            failure: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    /// Lock the shared slot for one infallible deposit or take.
+    fn lock(&self) -> MutexGuard<'_, Option<IncomingFailure>> {
+        self.failure
+            .lock()
+            .expect("deposit and take cannot panic while holding this lock")
+    }
+
+    /// Retain the first delivery failure.
+    fn deposit(&self, failure: IncomingFailure) {
+        self.lock().get_or_insert(failure);
+    }
+
+    /// Remove the retained failure for final attribution.
+    fn take(&self) -> Option<IncomingFailure> {
+        self.lock().take()
     }
 }
 
@@ -522,9 +532,10 @@ pub struct FirstStreamError {
     /// The report selected beside the protocol and accept driver.
     receive: mpsc::Receiver<StreamError>,
     /// Deferred delivery failure; the session executor is its sole consumer.
-    failure: std::sync::Arc<std::sync::Mutex<Option<IncomingFailure>>>,
+    failure: IncomingFailureSlot,
 }
 
+/// Receiving and attributing the first incoming-stream failure.
 impl FirstStreamError {
     /// Resolve to the first reported error, or park if none ever arrives.
     pub async fn first(&mut self) -> StreamError {
@@ -538,7 +549,7 @@ impl FirstStreamError {
 
     /// Take the failure that prevented further incoming stream delivery.
     pub fn take_failure(&self) -> Option<IncomingFailure> {
-        self.failure.lock().expect("incoming failure lock").take()
+        self.failure.take()
     }
 
     /// Take a report skipped when the protocol won the executor's selection.
@@ -553,7 +564,7 @@ const ERROR_ROUTE_CAPACITY: usize = 1;
 /// Allocate the session's incoming-stream error route.
 pub fn error_route() -> (ErrorRoute, FirstStreamError) {
     let (send, receive) = mpsc::channel(ERROR_ROUTE_CAPACITY);
-    let failure = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let failure = IncomingFailureSlot::new();
     (
         ErrorRoute {
             send,
@@ -565,14 +576,17 @@ pub fn error_route() -> (ErrorRoute, FirstStreamError) {
 
 /// The claim slots the accept driver delivers incoming streams into.
 pub struct ClaimSlots<Rx> {
+    /// Slots not yet filled by the accept driver.
     slots: [Option<oneshot::Sender<(Rx, Done<Rx>)>>; STREAM_COUNT],
 }
 
 /// The claim receivers the session's typed states take streams from.
 pub struct Claims<Rx> {
+    /// Claims not yet assigned to typed protocol states.
     slots: [Option<oneshot::Receiver<(Rx, Done<Rx>)>>; STREAM_COUNT],
 }
 
+/// Take-once access to incoming-stream claims by logical stream.
 impl<Rx> Claims<Rx> {
     /// Take the sole claim for `stream`.
     pub fn take(&mut self, stream: Stream) -> oneshot::Receiver<(Rx, Done<Rx>)> {
@@ -582,17 +596,23 @@ impl<Rx> Claims<Rx> {
     }
 }
 
+/// Take-once access to the accept driver's delivery slots.
+impl<Rx> ClaimSlots<Rx> {
+    /// Take the sole delivery slot for `stream`.
+    fn take(&mut self, stream: Stream) -> Option<oneshot::Sender<(Rx, Done<Rx>)>> {
+        self.slots[usize::from(stream.index())].take()
+    }
+}
+
 /// Allocate the take-once claim slot for every incoming logical stream.
 pub fn claims<Rx>() -> (ClaimSlots<Rx>, Claims<Rx>) {
-    let mut senders = Vec::with_capacity(STREAM_COUNT);
-    let receivers = std::array::from_fn(|_| {
+    let mut receivers: [Option<oneshot::Receiver<(Rx, Done<Rx>)>>; STREAM_COUNT] =
+        std::array::from_fn(|_| None);
+    let slots = std::array::from_fn(|index| {
         let (send, receive) = oneshot::channel();
-        senders.push(Some(send));
-        Some(receive)
+        receivers[index] = Some(receive);
+        Some(send)
     });
-    let slots = senders
-        .try_into()
-        .unwrap_or_else(|_| unreachable!("one sender exists for every stream"));
     (ClaimSlots { slots }, Claims { slots: receivers })
 }
 
@@ -627,6 +647,7 @@ pub struct AcceptDriver<A: Acceptor> {
     route: ErrorRoute,
 }
 
+/// Acceptance and routing of one direction's incoming transport streams.
 impl<A: Acceptor> AcceptDriver<A> {
     /// Bind the link's acceptor to one session's claim slots.
     pub fn new(
@@ -701,12 +722,9 @@ impl<A: Acceptor> AcceptDriver<A> {
                 origin: Origin::direction(self.speaker),
                 index,
             })?;
-        let slot =
-            self.slots.slots[usize::from(stream.index())]
-                .take()
-                .ok_or(AcceptError::Duplicate {
-                    origin: Origin::stream(self.speaker, stream),
-                })?;
+        let slot = self.slots.take(stream).ok_or(AcceptError::Duplicate {
+            origin: Origin::stream(self.speaker, stream),
+        })?;
         slot.send((rx, done)).map_err(|_| {
             // The claim's consumer already finished without asking anything
             // at this level, so whatever this stream carries was never
@@ -723,7 +741,7 @@ impl<A: Acceptor> AcceptDriver<A> {
 /// present-but-malformed item is the peer's violation.
 async fn label_item(
     speaker: Speaker,
-    rx: &mut (impl tokio::io::AsyncRead + Unpin),
+    rx: &mut (impl AsyncRead + Unpin),
 ) -> Result<u64, AcceptFate> {
     use crate::tree::mirror::cbor;
     match cbor::read_head_async(rx).await {
@@ -752,6 +770,7 @@ enum AcceptFate {
     SupplyFailed(std::io::Error),
 }
 
+/// Convert a stream-label violation into a terminal accept outcome.
 impl From<AcceptError> for AcceptFate {
     fn from(error: AcceptError) -> Self {
         AcceptFate::Violation(error)

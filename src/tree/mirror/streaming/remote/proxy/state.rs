@@ -63,7 +63,7 @@ where
     A: Acceptor,
 {
     /// Bind the incoming logical stream spoken by the remote at `height`.
-    fn incoming<H: Height>(&mut self) -> StreamReceiver<A::Rx> {
+    fn incoming<H: Height>(&mut self) -> StreamReceiver {
         let stream = stream_at::<H>(self.remote);
         StreamReceiver::new(
             self.claims.take(stream),
@@ -195,7 +195,7 @@ where
     ///
     /// The receiver claims its transport stream on first read, so a
     /// session without early supplies never touches it.
-    early: Option<StreamReceiver<A::Rx>>,
+    early: Option<StreamReceiver>,
     /// The stage's height, phantom (`fn() -> H` for the auto-trait
     /// shortcut; see [`typed::Node`](crate::tree::typed::Node)).
     height: PhantomData<fn() -> H>,

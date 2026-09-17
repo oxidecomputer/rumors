@@ -185,9 +185,17 @@ where
             break;
         }
     }
-    // Keep `leaves` alive until the stream ends. Closing it at reply end lets
-    // assembly publish its final root child before the peer finishes this
-    // stream, which can create a backpressure cycle on narrow links.
+    // Do not let assembly see leaf EOF until the stream end is consumed.
+    // Dropping `leaves` at reply end flushes the final radix group, and the
+    // outer stream may then suspend while publishing that child through its
+    // one-slot response queue. While suspended, it no longer polls `frames`. On
+    // a small-buffered (at minimum, one-byte) link the peer can be blocked
+    // flushing `End(Stream)`, which needs precisely that poll to make room. If
+    // the response consumer needs later peer progress before it can drain its
+    // slot, the peer waits for the receiver, the receiver waits for queue
+    // space, and the queue waits for the peer. Keeping the sender alive with
+    // this read delays the final group until `End(Stream)` has been consumed,
+    // so downstream backpressure cannot strand unread lifecycle bytes.
     if frames.next().await.is_some() {
         return Err(DecodeError::ExtraOpeningReply);
     }
@@ -301,11 +309,13 @@ where
     let assemble = assemble_supplies::<B>(backend, children_height, rx);
     let (read, assembled) = futures::future::join(read, assemble).await;
     let Some(read) = read? else {
-        // `read` returns `None` only when sending a leaf finds the receiver
-        // closed. Assembly cannot finish successfully while `read` still
-        // owns the sender, because it consumes until channel EOF; it must
-        // therefore have stopped on a backend error. The join preserves that
-        // result so we report it instead of accepting an incomplete reply.
+        // `read` owns the channel's only sender until it has consumed the
+        // complete reply. `assemble_supplies` consumes until that sender is
+        // dropped, so it cannot return `Ok` early and close the receiver. A
+        // failed send therefore means that assembly stopped on a backend
+        // error. Propagate that error: treating the closed receiver as normal
+        // completion would discard the rejected leaf and could accept a reply
+        // whose decoded tree omits data that the peer supplied.
         assembled?;
         unreachable!("the assembler accepts leaves until it returns an error")
     };
@@ -359,8 +369,11 @@ struct ReadReply {
 impl ReadReply {
     /// Read and validate one reply while sending supplied leaves to assembly.
     ///
-    /// Returns `None` when assembly stops accepting leaves. Its error then
-    /// determines the joined decode's result.
+    /// Returns `None` when assembly drops the leaf receiver before the reply
+    /// is complete. [`decode`] keeps the sender alive for this entire future,
+    /// so a conforming assembler can close the channel early only by failing.
+    /// The joined assembler future then carries the backend error that caused
+    /// the rejected leaf.
     async fn read<B, F>(
         version_bytes: u64,
         ledger: &SupplyLedger,
