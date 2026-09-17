@@ -65,7 +65,9 @@ pub(crate) use backend::BoxNodeStream;
 #[cfg(test)]
 pub use backend::NodeStream;
 #[cfg(test)]
-pub use testing::{Failing, FailingNode, Failure, Fault, Faulting, GreetingLie, Operation};
+pub use testing::{
+    Failing, FailingNode, Failure, Fault, Faulting, GreetingLie, Operation, ReplyCorruption,
+};
 
 use futures::future::BoxFuture;
 

@@ -11,11 +11,8 @@ use crate::tree::{
     Root,
     arb::leaf_parent_dispute_pair,
     mirror::streaming::{
-        Fault, Faulting,
-        materialized::{
-            Violation,
-            channel::{QueueKind, with_kind_capacity, with_observation},
-        },
+        Fault, Faulting, ReplyCorruption,
+        materialized::channel::{QueueKind, with_kind_capacity, with_observation},
         mirror as drive_streaming,
     },
 };
@@ -290,7 +287,7 @@ fn probe_classifier_rejects_a_violation() {
     let server = Faulting::new(
         floor_start(b),
         0,
-        Some(Fault::Reply(Violation::UnexpectedQuery)),
+        Some(Fault::Reply(ReplyCorruption::UnexpectedQuery)),
     );
     let verdict = with_kind_capacity(QueueKind::AssemblyLevelReturns, 1, || {
         run_to_quiescence(drive_streaming(client, server))

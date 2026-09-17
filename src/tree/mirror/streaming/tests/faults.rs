@@ -13,7 +13,8 @@ use crate::tree::mirror::streaming::window::WindowConfig;
 use crate::tree::mirror::{
     Error as MirrorError,
     streaming::{
-        Failing, FailingNode, Failure, Fault, Faulting, GreetingLie, Local, Root as StreamingRoot,
+        Failing, FailingNode, Failure, Fault, Faulting, GreetingLie, Local, ReplyCorruption,
+        Root as StreamingRoot,
         materialized::{
             Error as MaterializedError, Handshaking, Start, Violation,
             channel::{with_observation, with_schedule},
@@ -46,17 +47,8 @@ fn failing_start(
 /// the containment predicate's hard case crosses the connected driver end
 /// to end, not only the dominating regime the deterministic tripwires
 /// build.
-fn arb_connected_violation() -> impl Strategy<Value = Violation> {
-    prop_oneof![
-        Just(Violation::UnaskedReply),
-        Just(Violation::UnansweredQuery),
-        Just(Violation::UnfinishedReply),
-        Just(Violation::UnexpectedMatch),
-        Just(Violation::UnexpectedQuery),
-        Just(Violation::UnexpectedSupply),
-        Just(Violation::InvalidSupply),
-        Just(Violation::UncontainedSupply),
-    ]
+fn arb_connected_corruption() -> impl Strategy<Value = ReplyCorruption> {
+    proptest::sample::select(&ReplyCorruption::ALL)
 }
 
 /// Every greeting lie the harness can tell ([`GreetingLie`]): both
@@ -75,7 +67,7 @@ proptest! {
     /// The connected driver returns the detected reply violation on the correct side.
     #[test]
     fn connected_violation_aborts_with_its_error(
-        violation in arb_connected_violation(),
+        corruption in arb_connected_corruption(),
         server_steps in 0usize..=15,
         client_steps in 0usize..=15,
     ) {
@@ -84,7 +76,8 @@ proptest! {
         let local = floor_start(client_root.clone());
         let honest_server = floor_start(server_root.clone());
         let faulting_server =
-            Faulting::new(honest_server, server_steps, Some(Fault::Reply(violation)));
+            Faulting::new(honest_server, server_steps, Some(Fault::Reply(corruption)));
+        let violation = corruption.violation();
         let result = run_to_quiescence(drive_streaming(local, faulting_server))
             .expect("the connected driver must surface the fault, not stall");
         match result {
@@ -99,7 +92,7 @@ proptest! {
         // driver's frame-relative error is flipped back to the original client.
         let honest_client = floor_start(client_root);
         let faulting_client =
-            Faulting::new(honest_client, client_steps, Some(Fault::Reply(violation)));
+            Faulting::new(honest_client, client_steps, Some(Fault::Reply(corruption)));
         let local = floor_start(server_root);
         let result = run_to_quiescence(drive_streaming(faulting_client, local))
             .expect("the reversed connected driver must surface the fault, not stall");
@@ -269,7 +262,11 @@ fn semantic_and_backend_failure_layers_compose() {
     let backend = Failing::after(Local, usize::MAX);
     let client = failing_start(backend.clone(), client_root);
     let server = failing_start(backend, server_root);
-    let server = Faulting::new(server, 0, Some(Fault::Reply(Violation::UnexpectedQuery)));
+    let server = Faulting::new(
+        server,
+        0,
+        Some(Fault::Reply(ReplyCorruption::UnexpectedQuery)),
+    );
     let error = run_to_quiescence(drive_streaming(client, server))
         .expect("the stacked session must terminate")
         .expect_err("the semantic decorator must fault");

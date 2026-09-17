@@ -10,4 +10,4 @@ mod failing;
 mod faulting;
 
 pub use failing::{Failing, FailingNode, Failure, Operation};
-pub use faulting::{Fault, Faulting, GreetingLie};
+pub use faulting::{Fault, Faulting, GreetingLie, ReplyCorruption};

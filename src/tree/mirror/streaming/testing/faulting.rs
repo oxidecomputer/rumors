@@ -31,7 +31,7 @@ use super::failing::{Failing, FailingNode};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Fault {
     /// Corrupt one outgoing reply phase to commit the selected violation.
-    Reply(Violation),
+    Reply(ReplyCorruption),
     /// Tell one lie in the outgoing greeting.
     ///
     /// The inner state keeps behaving from its true tree, so the
@@ -39,6 +39,55 @@ pub enum Fault {
     /// greeting-premise guard exists to catch. Fires at the handshake;
     /// the phase countdown does not apply.
     Greeting(GreetingLie),
+}
+
+/// A semantic violation that can be produced by corrupting one reply stream.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReplyCorruption {
+    /// Append a reply for which the receiver has no outstanding query.
+    UnaskedReply,
+    /// End the stream while the receiver still has an outstanding query.
+    UnansweredQuery,
+    /// End one reply before it covers every listed child.
+    UnfinishedReply,
+    /// Match a child after every held child has been answered.
+    UnexpectedMatch,
+    /// Query a child after every held child has been answered.
+    UnexpectedQuery,
+    /// Supply a child the receiver already holds.
+    UnexpectedSupply,
+    /// Supply children out of radix order.
+    InvalidSupply,
+    /// Supply a subtree outside the version declared in the greeting.
+    UncontainedSupply,
+}
+
+impl ReplyCorruption {
+    /// Every reply corruption, used by the connected-session property suite.
+    pub(crate) const ALL: [Self; 8] = [
+        Self::UnaskedReply,
+        Self::UnansweredQuery,
+        Self::UnfinishedReply,
+        Self::UnexpectedMatch,
+        Self::UnexpectedQuery,
+        Self::UnexpectedSupply,
+        Self::InvalidSupply,
+        Self::UncontainedSupply,
+    ];
+
+    /// The violation a receiver should report for this corruption.
+    pub(crate) const fn violation(self) -> Violation {
+        match self {
+            Self::UnaskedReply => Violation::UnaskedReply,
+            Self::UnansweredQuery => Violation::UnansweredQuery,
+            Self::UnfinishedReply => Violation::UnfinishedReply,
+            Self::UnexpectedMatch => Violation::UnexpectedMatch,
+            Self::UnexpectedQuery => Violation::UnexpectedQuery,
+            Self::UnexpectedSupply => Violation::UnexpectedSupply,
+            Self::InvalidSupply => Violation::InvalidSupply,
+            Self::UncontainedSupply => Violation::UncontainedSupply,
+        }
+    }
 }
 
 /// One dishonest field in an otherwise honest greeting.
@@ -180,7 +229,7 @@ where
 /// fault for its counterparty to detect.
 fn malformed_responses<B, H, R>(
     responses: R,
-    violation: Violation,
+    corruption: ReplyCorruption,
 ) -> BoxResponses<B, H, MaterializedError<B::Error>>
 where
     B: FaultBackend,
@@ -190,11 +239,11 @@ where
     Box::pin(async_stream::stream! {
         let mut responses = Box::pin(responses);
 
-        if violation == Violation::UnansweredQuery {
+        if corruption == ReplyCorruption::UnansweredQuery {
             return;
         }
 
-        if violation == Violation::UnaskedReply {
+        if corruption == ReplyCorruption::UnaskedReply {
             // Every honest reply passes, then one nobody asked for: the
             // consumer's trailing check is what must catch it, so no
             // honest reply is dropped ahead of it (a dropped one would
@@ -214,13 +263,25 @@ where
             return;
         };
 
-        match violation {
-            Violation::UnfinishedReply => reply.reactions.clear(),
-            Violation::UnexpectedMatch => reply.reactions.push(message::Reaction::Match),
-            Violation::UnexpectedQuery => {
+        if matches!(
+            corruption,
+            ReplyCorruption::InvalidSupply | ReplyCorruption::UncontainedSupply
+        ) {
+            debug_assert!(
+                !reply.reactions.iter().any(
+                    |reaction| matches!(reaction, message::Reaction::Supply(0xff, _))
+                ),
+                "the fault fixture must leave radix 0xff free for injected supplies",
+            );
+        }
+
+        match corruption {
+            ReplyCorruption::UnfinishedReply => reply.reactions.clear(),
+            ReplyCorruption::UnexpectedMatch => reply.reactions.push(message::Reaction::Match),
+            ReplyCorruption::UnexpectedQuery => {
                 reply.reactions.push(message::Reaction::Query(Vec::new()));
             }
-            Violation::UnexpectedSupply => {
+            ReplyCorruption::UnexpectedSupply => {
                 // Ahead of the honest reply, at radix 0, which assumes the
                 // fan the corrupted reply answers holds radix 0 as its
                 // first child: `full_depth_comb_pair`'s spine does at
@@ -230,7 +291,7 @@ where
                 // out of order (`InvalidSupply`) rather than held.
                 reply.reactions.insert(0, message::Reaction::Supply(0, B::node::<H>()));
             }
-            Violation::InvalidSupply => {
+            ReplyCorruption::InvalidSupply => {
                 // A duplicated radix, past the honest reply. Radix 0xff
                 // assumes no fixture holds that child (as the escape below
                 // does): at the opening, where no honest reaction precedes
@@ -245,23 +306,44 @@ where
                 reply.reactions.push(message::Reaction::Supply(0xff, node.clone()));
                 reply.reactions.push(message::Reaction::Supply(0xff, node));
             }
-            Violation::UncontainedSupply => {
+            ReplyCorruption::UncontainedSupply => {
                 // Appended past the honest reply, which covers the whole
                 // held fan, so the supply is structurally valid and only
                 // its escaped version is at fault. Radix 0xff assumes no
-                // fixture holds that child, which every current fixture
-                // satisfies.
+                // fixture holds that child; the assertion above keeps that
+                // premise attached to the injection.
                 reply
                     .reactions
                     .push(message::Reaction::Supply(0xff, B::escaped::<H>()));
             }
-            Violation::OverdrawnSupply => {
-                unreachable!("a set-length overrun is a greeting lie (Fault::Greeting), never a reply corruption")
+            ReplyCorruption::UnaskedReply | ReplyCorruption::UnansweredQuery => {
+                unreachable!("stream-wide corruptions return before editing the first reply")
             }
-            Violation::UnaskedReply | Violation::UnansweredQuery => unreachable!(),
         }
         yield Ok(reply);
     })
+}
+
+/// Corrupt this phase when its reply-fault countdown has expired.
+fn corrupt_if_due<B, H, R>(
+    responses: R,
+    remaining: usize,
+    fault: Option<Fault>,
+) -> (
+    BoxResponses<B, H, MaterializedError<B::Error>>,
+    Option<Fault>,
+)
+where
+    B: FaultBackend,
+    H: FaultHeight,
+    R: Responses<B, H, MaterializedError<B::Error>>,
+{
+    match (remaining, fault) {
+        (0, Some(Fault::Reply(corruption))) => {
+            (malformed_responses::<B, _, _>(responses, corruption), None)
+        }
+        (_, fault) => (Box::pin(responses), fault),
+    }
 }
 
 /// Pass one honest outgoing phase through, or corrupt it with the selected
@@ -277,17 +359,11 @@ where
     H: FaultHeight,
     R: Responses<B, H, MaterializedError<B::Error>>,
 {
-    if let (0, Some(Fault::Reply(violation))) = (remaining, fault) {
-        (
-            malformed_responses::<B, _, _>(responses, violation),
-            Faulting::new(next, 0, None),
-        )
-    } else {
-        (
-            Box::pin(responses),
-            Faulting::new(next, remaining.saturating_sub(1), fault),
-        )
-    }
+    let (responses, fault) = corrupt_if_due(responses, remaining, fault);
+    (
+        responses,
+        Faulting::new(next, remaining.saturating_sub(1), fault),
+    )
 }
 
 /// The fault wrapper preserves its inner participant's phase metadata.
@@ -435,11 +511,7 @@ where
         impl Future<Output = Result<Self::Output, Self::Error>> + Send,
     ) {
         let (responses, output) = self.inner.complete_responder(requests);
-        let responses = if let (0, Some(Fault::Reply(violation))) = (self.remaining, self.fault) {
-            malformed_responses::<B, _, _>(responses, violation)
-        } else {
-            Box::pin(responses)
-        };
+        let (responses, _) = corrupt_if_due(responses, self.remaining, self.fault);
         (responses, output)
     }
 }
