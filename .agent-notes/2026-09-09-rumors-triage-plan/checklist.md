@@ -1,9 +1,10 @@
 # Rumors review checklist
 
-**Current:** the representative wire-cost grid is complete.
+**Current:** the focused Link conformance probes are complete at `d3294828`.
 
-**Next:** prune budget and residency measurements which do not justify their
-maintenance cost.
+**Next:** simplify the materialized and proxy reconciliation paths while
+preserving failure attribution; this is the highest-value remaining production
+area. The remaining Link, measurement, and fixture work is lower-risk cleanup.
 
 **Execution topology:** finish the public API lane serially: observers →
 configuration and session diagnostics → routed-link results and counters →
@@ -183,7 +184,7 @@ Coupled work: party ownership with 01; other API pieces can be separate.
       Sources: `api-audit-1`, `api-audit-3`, `api-core-1`, `api-core-5`, `api-core-30`, `deps-6`, `tree-core-2`, T72, T73, T83, T84.
 
 - [x] Publish `Link` transport access without exposing mutable session state, remove `LinkParts`, and complete production wrapper traits — `743271c4`.
-      Sources: `api-audit-12`, `link-5`, `link-6`, `link-9`, T80, T81, T84.
+      Sources: `api-audit-12`, `conformance-16`, `link-5`, `link-6`, `link-9`, T80, T81, T84.
 
 - [x] Enable lint-backed documentation and traits for remaining test-support surfaces — `587e3b52`.
       Sources: `api-audit-7`, T47, T125.
@@ -370,17 +371,20 @@ Dependencies: 02, then relevant API/error changes in 09.
 - [x] Simplify link construction, validated headers, and configuration — `1b6fd8ca`.
       Sources: `inventory-18`, `link-5`, `link-6`, `link-20`, `link-25`, `link-29`, T44, T45, T47, T80, T81, T84, T156.
 
-- [ ] Make focused conformance probes exercise independent streams and cancellation without a backlog assumption.
-      Sources: `conformance-7–9`, `conformance-11`, `conformance-13`, `conformance-16`, `conformance-18`, `conformance-20`, `conformance-27`, `conformance-37–39`, `link-11`, `link-12`, `link-31`, `testing-infra-12`, T21, T69, T71, T101, T122, T128, T132.
+- [x] Make focused conformance probes exercise independent streams and cancellation without a backlog assumption — `d3294828`.
+      Sources: `conformance-7–9`, `conformance-11`, `conformance-13`, `conformance-20`, `conformance-27`, `conformance-37–39`, T69, T71, T122, T128, T132.
+
+- [x] Demonstrate accept reordering and use one shared adversity fixture — `c734e79f`.
+      Sources: `conformance-18`, `testing-infra-12`, T21, T101.
 
 - [ ] Remove measured or obvious per-connection overhead without changing the transport contract (table lifetime: 02).
       Sources: `link-1`, `link-27`, T132.
 
 - [ ] Simplify conformance fixtures and clarify what each probe establishes.
-      Sources: `conformance-2–5`, `conformance-10`, `conformance-12`, `conformance-14`, `conformance-15`, `conformance-17`, `conformance-19`, `conformance-21–23`, `conformance-26`, `conformance-32–34`, `conformance-36`, T48–50, T132.
+      Sources: `conformance-2–5`, `conformance-10`, `conformance-12`, `conformance-14`, `conformance-15`, `conformance-17`, `conformance-19`, `conformance-21–23`, `conformance-26`, `conformance-32–34`, `conformance-36`, `link-11`, `link-12`, T48–50, T132.
 
 - [ ] Simplify link/router bookkeeping and clarify public contracts.
-      Sources: `link-2`, `link-4`, `link-7–10`, `link-13`, `link-15`, `link-17–19`, `link-22–24`, `link-26`, `link-30`, T46, T49, T55, T80, T100, T128, T132.
+      Sources: `link-2`, `link-4`, `link-7–10`, `link-13`, `link-15`, `link-17–19`, `link-22–24`, `link-26`, `link-30`, `link-31`, T46, T49, T55, T80, T100, T128, T132.
 
 ## 14. Walk, materialized backend, and proxy simplification
 
