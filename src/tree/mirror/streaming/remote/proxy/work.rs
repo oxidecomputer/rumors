@@ -37,6 +37,7 @@ use crate::tree::{
 use self::progress::Progress;
 
 mod encode;
+mod opening_supplies;
 pub(super) mod progress;
 mod pump;
 mod queues;

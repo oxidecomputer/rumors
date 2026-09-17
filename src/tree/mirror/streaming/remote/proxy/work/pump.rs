@@ -24,36 +24,28 @@
 //! precedes its dependent scopes. Each edge's capacity rationale lives at
 //! its constructor in [`queues`].
 
-use std::pin::Pin;
-
 use async_stream::try_stream;
-use futures::{Stream, StreamExt};
+use futures::Stream;
 use tokio::io::AsyncRead;
 
-use super::{ControlRead, Work, encode, queues};
+use super::{ControlRead, Work, encode, opening_supplies::OpeningSupplies, queues};
 use crate::{
     link::{Acceptor, Connector},
-    message::PayloadCodec,
     tree::{
         mirror::streaming::{
             Backend, Leaf,
             channel::{Receiver, Sender},
             erased::{Reaction, Reply, ops},
-            materialized::SupplyLedger,
             protocol::{BoxResponses, Requests},
             remote::{
                 adapter::{
-                    DecodeError, Decoded, Scope, decode_leaf_reply, decode_reply, early_supplies,
-                    opening_reply,
+                    DecodeError, Decoded, Scope, decode_leaf_reply, decode_reply, opening_reply,
                 },
                 proxy::Error,
                 streams::{ReceiverFinish, StreamReceiver, StreamSender},
             },
         },
-        typed::{
-            ErasedPrefix,
-            height::{Height, Root as RootHeight, S, UnderRoot, UnderUnderRoot, Z},
-        },
+        typed::height::{Height, Root as RootHeight, S, UnderRoot, UnderUnderRoot, Z},
     },
 };
 
@@ -126,19 +118,18 @@ where
 
     /// Proxy one ordinary two-height transition and return its lower scopes.
     ///
-    /// `early` is the opening-supply stream, armed only on the first
-    /// initiator-representing transition: there, each of the local
-    /// responder's root-level requests pairs its (empty) wire reply with
-    /// the whole node the remote supplied at the opening, exploded into
-    /// the per-child supplies the walk absorbs — the same reply shape a
-    /// wire-borne answer would have carried.
+    /// `opening_supplies` is armed only on the first initiator-representing
+    /// transition: there, each of the local responder's root-level requests
+    /// pairs its (empty) wire reply with the whole node the remote supplied at
+    /// the opening, exploded into the per-child supplies the walk absorbs — the
+    /// same reply shape a wire-borne answer would have carried.
     pub fn internal_replies<C: Connector, H>(
         &mut self,
         requests: impl Requests<B, S<S<H>>>,
         scopes: Receiver<Scope>,
         incoming: StreamReceiver,
         outgoing: StreamSender<C>,
-        early: Option<StreamReceiver>,
+        opening_supplies: Option<StreamReceiver>,
     ) -> (BoxResponses<B, S<H>, Error<B::Error>>, Receiver<Scope>)
     where
         H: Height,
@@ -159,7 +150,13 @@ where
             <S<H>>::HEIGHT,
         ));
         let (next_scopes, scopes) = queues::next_scopes(H::HEIGHT, self.window.capacity(H::HEIGHT));
-        let responses = self.decode_pump(questions, incoming, next_scopes, early, H::HEIGHT);
+        let responses = self.decode_pump(
+            questions,
+            incoming,
+            next_scopes,
+            opening_supplies,
+            H::HEIGHT,
+        );
         (self.respond::<S<H>>(responses), scopes)
     }
 
@@ -167,7 +164,7 @@ where
     /// transition: pair each flushed local question with its decoded wire
     /// reply, publishing the reply before the lower scopes derived from it.
     ///
-    /// `height` is the derived scopes' height. `early` arms the
+    /// `height` is the derived scopes' height. `opening_supplies` arms the
     /// opening-supply pairing (see
     /// [`internal_replies`](Self::internal_replies)); the opening
     /// responder and every deeper stage pass `None`.
@@ -175,8 +172,8 @@ where
         &mut self,
         mut questions: Receiver<Scope>,
         mut incoming: StreamReceiver,
-        next_scopes: crate::tree::mirror::streaming::channel::Sender<Scope>,
-        early: Option<StreamReceiver>,
+        next_scopes: Sender<Scope>,
+        opening_supplies: Option<StreamReceiver>,
         height: usize,
     ) -> impl Stream<Item = Result<Reply<B::Erased>, Error<B::Error>>> + Send + 'static + use<B, R, W, A>
     {
@@ -186,13 +183,15 @@ where
         let ledger = self.peer_supplies.clone();
         let codec = self.codec;
         try_stream! {
-            let mut early = Early::<B>::new(version_bytes, ledger.clone(), early, codec);
+            let mut opening = opening_supplies.map(|receiver| {
+                OpeningSupplies::<B>::new(version_bytes, ledger.clone(), receiver, codec)
+            });
             while let Some(scope) = questions.recv().await {
                 // A root-level request's content crossed at the opening. Its
                 // ordinary pairing reply arrives empty; after decoding that
                 // reply, supplement it with the opening stream's node, if
                 // pruning left one.
-                let early_key = (early.armed() && scope.is_request()).then(|| {
+                let opening_supply = (opening.is_some() && scope.is_request()).then(|| {
                     let parent = scope.parent();
                     let (root, radix) = parent.pop();
                     (parent, root, radix)
@@ -209,14 +208,14 @@ where
                     codec,
                 )
                 .await?;
-                let early_node = match early_key {
-                    Some((parent, root, radix)) => early
+                let opening_node = match (opening.as_mut(), opening_supply) {
+                    (Some(opening), Some((parent, root, radix))) => opening
                         .advance_to(&backend, root, radix)
                         .await?
                         .map(|node| (parent, node)),
-                    None => None,
+                    _ => None,
                 };
-                if let Some((parent, node)) = early_node {
+                if let Some((parent, node)) = opening_node {
                     let children = ops::children_of(&backend, parent, node)
                         .await
                         .map_err(|error| Error::Decode(DecodeError::Backend(error)))?;
@@ -232,7 +231,9 @@ where
                     next_scopes => questions;
                 );
             }
-            early.finish().await?;
+            if let Some(opening) = &mut opening {
+                opening.finish().await?;
+            }
             reject_extra(&mut incoming).await?;
         }
     }
@@ -364,130 +365,6 @@ where
             Ok((read, write))
         };
         (responses, completion)
-    }
-}
-
-/// The initiator's opening-supply stream, claimed lazily and consumed one
-/// radix group at a time against the responder's root-level requests.
-///
-/// Both sides run in ascending radix order, so a single lookahead slot
-/// pairs them: a group ahead of the requested radix means the requested
-/// subtree pruned away, a group behind it answers no request and fails the
-/// session. An armed cursor whose stage sees no request never polls the
-/// receiver, so the transport stream is never claimed — the lazy-claim
-/// discipline every level follows.
-struct Early<B>
-where
-    B: Backend<Node<Z>: Leaf>,
-{
-    /// The peer's greeting-declared `max_version_bytes`, enforced on
-    /// every supplied version the opening stream decodes.
-    version_bytes: u64,
-    /// The session's declared-`set_len` allowance, charged per record
-    /// the opening stream decodes.
-    ledger: SupplyLedger,
-    /// The opening stream before its first root-level request claims it.
-    receiver: Option<StreamReceiver>,
-    /// Decoded root children, initialized when `receiver` is claimed.
-    supplies:
-        Option<Pin<Box<dyn Stream<Item = Result<(u8, B::Erased), DecodeError<B::Error>>> + Send>>>,
-    /// The next supplied root child when its request has not arrived yet.
-    lookahead: Option<(u8, B::Erased)>,
-    /// Whether the opening stream has ended cleanly.
-    exhausted: bool,
-    /// The peer's payload codec, handed to the opening-supply
-    /// stream when the cursor arms it.
-    codec: PayloadCodec,
-}
-
-impl<B> Early<B>
-where
-    B: Backend<Node<Z>: Leaf>,
-{
-    /// Arm the cursor with the opening-supply stream's receiver, if this
-    /// stage is the one that owns it.
-    fn new(
-        version_bytes: u64,
-        ledger: SupplyLedger,
-        receiver: Option<StreamReceiver>,
-        codec: PayloadCodec,
-    ) -> Self {
-        Self {
-            version_bytes,
-            ledger,
-            receiver,
-            supplies: None,
-            lookahead: None,
-            exhausted: false,
-            codec,
-        }
-    }
-
-    /// Whether this stage pairs root-level requests with opening supplies.
-    fn armed(&self) -> bool {
-        self.receiver.is_some() || self.supplies.is_some() || self.lookahead.is_some()
-    }
-
-    /// Resolve the request for `radix`: its supplied node, or `None` when
-    /// the initiator's pruning left nothing under it.
-    async fn advance_to(
-        &mut self,
-        backend: &B,
-        root: ErasedPrefix,
-        radix: u8,
-    ) -> Result<Option<B::Erased>, Error<B::Error>> {
-        loop {
-            if let Some((next, node)) = self.lookahead.take() {
-                if next == radix {
-                    return Ok(Some(node));
-                }
-                if next > radix {
-                    self.lookahead = Some((next, node));
-                    return Ok(None);
-                }
-                // Behind the request cursor: this group was never asked
-                // about at the root, so nothing will ever absorb it.
-                return Err(Error::UnaskedReply);
-            }
-            if self.exhausted {
-                return Ok(None);
-            }
-            let supplies = match &mut self.supplies {
-                Some(supplies) => supplies,
-                None => {
-                    let receiver = self
-                        .receiver
-                        .take()
-                        .expect("an unarmed cursor resolves no request");
-                    self.supplies.get_or_insert(Box::pin(early_supplies::<B, _>(
-                        backend.clone(),
-                        self.version_bytes,
-                        self.ledger.clone(),
-                        root,
-                        receiver,
-                        self.codec,
-                    )))
-                }
-            };
-            match supplies.next().await {
-                Some(item) => self.lookahead = Some(item?),
-                None => self.exhausted = true,
-            }
-        }
-    }
-
-    /// Require every opening supply to have answered a root-level request.
-    async fn finish(&mut self) -> Result<(), Error<B::Error>> {
-        if self.lookahead.is_some() {
-            return Err(Error::UnaskedReply);
-        }
-        if let Some(supplies) = &mut self.supplies
-            && !self.exhausted
-            && supplies.next().await.transpose()?.is_some()
-        {
-            return Err(Error::UnaskedReply);
-        }
-        Ok(())
     }
 }
 
